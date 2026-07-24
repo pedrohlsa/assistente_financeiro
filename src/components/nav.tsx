@@ -1,0 +1,96 @@
+// Bottom navigation + FAB + Bottom sheet de ações rápidas (seções 4 e 31)
+import React, { useState } from 'react'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { useStore } from '../store/store'
+import { Icon, Sheet } from './ui'
+import { TransactionForm, WorkForm, FuelForm, MaintenanceForm, GoalForm, RecurringForm, QuickAdd, SavingForm } from './forms'
+
+const tabs = [
+  { to: '/', label: 'Início', icon: Icon.home },
+  { to: '/movimentacoes', label: 'Movim.', icon: Icon.list },
+  { to: '/assistente', label: '', icon: Icon.spark, ai: true },
+  { to: '/metas', label: 'Metas', icon: Icon.target },
+  { to: '/mais', label: 'Mais', icon: Icon.more },
+]
+
+export function BottomNav() {
+  return (
+    <nav className="bottom-nav">
+      {tabs.map(t => (
+        <NavLink key={t.to} to={t.to} end={t.to === '/'} className={({ isActive }) => (t.ai ? 'nav-ai' : 'nav-item' + (isActive ? ' active' : ''))} aria-label={t.ai ? 'Assistente IA' : t.label}>
+          {t.icon}
+          {t.label && <span>{t.label}</span>}
+        </NavLink>
+      ))}
+    </nav>
+  )
+}
+
+type SheetKind = null | 'menu' | 'quick' | 'income' | 'expense' | 'work' | 'fuel' | 'maintenance' | 'goal' | 'recurring' | 'income-fixed' | 'saving'
+
+export function Fab() {
+  const { state } = useStore()
+  const [sheet, setSheet] = useState<SheetKind>(null)
+  const navigate = useNavigate()
+  const location = useLocation()
+  const close = () => setSheet(null)
+  const holdTimer = React.useRef<any>(null)
+  const isDriver = state.settings.profile === 'driver'
+
+  // No assistente o + atrapalha o campo de digitação — some com ele lá.
+  if (location.pathname === '/assistente') return null
+
+  const actions: { label: string; icon: string; kind: SheetKind }[] = [
+    { label: 'Registro rápido', icon: '⚡', kind: 'quick' },
+    { label: 'Adicionar receita', icon: '💵', kind: 'income' },
+    { label: 'Adicionar despesa', icon: '🧾', kind: 'expense' },
+    ...(isDriver ? [
+      { label: 'Registrar trabalho', icon: '🚗', kind: 'work' as const },
+      { label: 'Abastecimento', icon: '⛽', kind: 'fuel' as const },
+      { label: 'Manutenção', icon: '🔧', kind: 'maintenance' as const },
+    ] : [
+      { label: 'Entrada recorrente (salário, aluguel…)', icon: '🔑', kind: 'income-fixed' as const },
+      { label: 'Guardar dinheiro', icon: '🏦', kind: 'saving' as const },
+    ]),
+    { label: 'Nova meta', icon: '🎯', kind: 'goal' },
+    { label: 'Conta a pagar', icon: '📄', kind: 'recurring' },
+  ]
+
+  return (
+    <>
+      <button
+        className="fab" aria-label="Adicionar"
+        onClick={() => setSheet(s => (s ? null : 'menu'))}
+        onPointerDown={() => { holdTimer.current = setTimeout(() => setSheet('quick'), 450) }}
+        onPointerUp={() => clearTimeout(holdTimer.current)}
+        onPointerLeave={() => clearTimeout(holdTimer.current)}
+      >
+        {Icon.plus}
+      </button>
+
+      <Sheet open={sheet === 'menu'} onClose={close} title="O que vamos registrar?">
+        <div className="grid-2">
+          {actions.map(a => (
+            <button key={a.label} className="mini-card tappable" style={{ textAlign: 'left', cursor: 'pointer', font: 'inherit', display: 'flex', alignItems: 'center', gap: 10 }}
+              onClick={() => setSheet(a.kind)}>
+              <span style={{ fontSize: '1.3rem' }}>{a.icon}</span>
+              <span style={{ fontWeight: 650, fontSize: '0.86rem' }}>{a.label}</span>
+            </button>
+          ))}
+        </div>
+        <p className="tiny" style={{ marginTop: 14, textAlign: 'center' }}>Dica: segure o botão + para abrir o registro rápido.</p>
+      </Sheet>
+
+      <Sheet open={sheet === 'quick'} onClose={close} title="Registro rápido"><QuickAdd onDone={close} /></Sheet>
+      <Sheet open={sheet === 'income'} onClose={close} title="Nova receita"><TransactionForm type="income" onDone={close} /></Sheet>
+      <Sheet open={sheet === 'expense'} onClose={close} title="Nova despesa"><TransactionForm type="expense" onDone={close} /></Sheet>
+      <Sheet open={sheet === 'work'} onClose={close} title="Registrar trabalho"><WorkForm onDone={close} /></Sheet>
+      <Sheet open={sheet === 'fuel'} onClose={close} title="Abastecimento"><FuelForm onDone={close} /></Sheet>
+      <Sheet open={sheet === 'maintenance'} onClose={close} title="Manutenção"><MaintenanceForm onDone={close} /></Sheet>
+      <Sheet open={sheet === 'goal'} onClose={close} title="Nova meta"><GoalForm onDone={close} /></Sheet>
+      <Sheet open={sheet === 'recurring'} onClose={close} title="Conta a pagar"><RecurringForm onDone={close} defaultKind="expense" /></Sheet>
+      <Sheet open={sheet === 'income-fixed'} onClose={close} title="Entrada recorrente"><RecurringForm onDone={close} defaultKind="income" /></Sheet>
+      <Sheet open={sheet === 'saving'} onClose={close} title="Guardar dinheiro"><SavingForm onDone={close} /></Sheet>
+    </>
+  )
+}
