@@ -349,7 +349,7 @@ confirmado, está limpo dos dois jeitos.
 
 ## Bugs conhecidos
 
-1. 🔴 **Chat de IA remota fora do ar em produção** — código local corrigido e testado (modelo `deepseek-chat` → `deepseek-v4-flash`), mas o deploy em produção (2026-07-25) falhou por um problema NOVO e diferente: `ERR_MODULE_NOT_FOUND` — `api/_lib/deepseek.ts` não é incluído no bundle da função pela Vercel (ver seção "🔴 Tentativa de deploy em produção" acima). Precisa mover o módulo pra fora da pasta prefixada com `_` e redeployar. Localmente (`npm run dev`) a correção funciona 100%.
+1. ✅ **Chat de IA remota** — CORRIGIDO e EM PRODUÇÃO (2026-07-25). Duas causas encontradas e corrigidas em sequência: (a) modelo `deepseek-chat` descontinuado → `deepseek-v4-flash`; (b) import ESM sem extensão em `api/ai/chat.ts` quebrava a função na Vercel (`ERR_MODULE_NOT_FOUND`) → corrigido para `'../_lib/deepseek.js'`. Ver seção "🟢 Causa raiz comprovada e correção aplicada". Testado em produção: HTTP 200 em mensagens válidas, erro seguro em mensagem vazia, perfil respeitado, nenhum registro automático.
 2. 🟡 **Prompt remoto sem `saving`/`origin`** — ver divergência dev×produção acima. Ainda pendente.
 3. ⬜ **Analytics.tsx não adaptado por perfil** — item 14.13 do escopo original, nunca implementado.
 4. ❓ **CONTEXTO.md referenciado no README mas não existe no projeto** — link quebrado, impacto cosmético apenas.
@@ -417,22 +417,17 @@ curl -X POST https://assist-fin.vercel.app/api/ai/chat -H "content-type: applica
 
 ## Próximos passos recomendados (em ordem de prioridade)
 
-1. **🔴 Corrigir o empacotamento do módulo `api/_lib/deepseek.ts` na Vercel e redeployar** — a
-   causa exata e os logs estão na seção "🔴 Tentativa de deploy em produção" acima
-   (`ERR_MODULE_NOT_FOUND`, provável causa: pasta prefixada com `_` excluída do bundle da função).
-   Correção proposta (não aplicada, aguardando autorização): mover `api/_lib/deepseek.ts` para
-   `api/lib/deepseek.ts` (sem underscore) ou `lib/deepseek.ts` na raiz, ajustar os dois imports, e
-   fazer um terceiro deploy. Prioridade máxima — produção está ativa com a IA remota quebrada.
-2. **🟡 Sincronizar o prompt remoto com `saving`/`origin`** em ambos os arquivos, e adicionar os
+1. **🟡 Sincronizar o prompt remoto com `saving`/`origin`** em ambos os arquivos, e adicionar os
    casos correspondentes em `sanitizeActions()` (`src/services/ai.ts`). Plano curto já registrado
-   acima.
-3. **⬜ Adaptar `Analytics.tsx` por perfil** (item 14.13 pendente) — esconder métricas de
+   acima. (IA remota já está funcional em produção — este item é sobre um recurso que ela ainda
+   não conhece, não sobre o bug de infraestrutura, já resolvido.)
+2. **⬜ Adaptar `Analytics.tsx` por perfil** (item 14.13 pendente) — esconder métricas de
    motorista (km, R$/km) para os outros três perfis, igual já foi feito na Home. Plano curto já
    registrado acima.
-4. **🆕⬜ Corrigir "resumo geral" não adaptado por perfil** em `src/services/ai.ts` (achado nesta
-   sessão). Plano curto já registrado acima.
-5. Rodar a bateria de testes manuais listada em "Testes que ainda precisam ser executados"
-   (agora que a IA remota funciona, dá pra fazer o teste #4 dessa lista de verdade).
+3. **🆕⬜ Corrigir "resumo geral" não adaptado por perfil** em `src/services/ai.ts` (achado numa
+   sessão anterior). Plano curto já registrado acima.
+4. Rodar a bateria de testes manuais listada em "Testes que ainda precisam ser executados" nos
+   perfis `driver`, `clt` e `other` (só `autonomo` foi testado em produção até agora).
 
 ## 🔴 Tentativa de deploy em produção — 2026-07-25 00:40 (horário local), FALHOU — parado conforme instrução
 
@@ -523,37 +518,140 @@ Node.js process exited with exit status: 1.
 ```
 Nenhuma chave, token ou cabeçalho privado nos logs — só o erro de módulo, que é público/genérico.
 
-**Causa raiz**: a Vercel **não incluiu `api/_lib/deepseek.ts` no bundle** da função serverless
-`api/ai/chat.ts`. Hipótese mais provável (não 100% confirmada sem acesso a mais detalhes internos
-do builder): pastas com nome prefixado por `_` dentro de `api/` são tratadas pela Vercel como
-"não viram rota" — mas aparentemente esse mesmo prefixo também as exclui do rastreamento de
-dependências (`@vercel/nft`) que decide quais arquivos acompanham a função no deploy, mesmo sendo
-importadas de verdade por outro arquivo que É uma rota. Isso não apareceu localmente porque tanto
-o Vite (dev) quanto o `vite build` (bundle do cliente) resolvem esse import perfeitamente — só o
-empacotador de Serverless Functions da Vercel para `api/ai/chat.ts` se comporta diferente.
+**⚠️ Correção sobre a hipótese registrada aqui originalmente**: eu tinha escrito, sem prova
+concreta, que "pastas prefixadas com `_` dentro de `api/` são excluídas do bundle". **Isso estava
+errado** — a causa raiz real, comprovada com evidência (ver seção "🟢 Causa raiz comprovada e
+correção aplicada" logo abaixo), é um problema de **resolução de import ESM sem extensão**, nada
+relacionado ao underscore. `api/_lib/deepseek.ts` continuou exatamente onde estava.
 
-**Não é uma configuração da Vercel** (variável de ambiente, região, etc.) — é uma questão de
-**onde o módulo compartilhado mora no projeto**. Por instrução explícita ("pare antes de modificar
-o código novamente" quando a causa não é só configuração), **não apliquei nenhuma correção de
-código**. A correção mais provável (não implementada, aguardando autorização) seria mover
-`api/_lib/deepseek.ts` para fora da pasta prefixada com `_` — por exemplo `api/lib/deepseek.ts`
-(sem underscore) ou uma pasta `lib/` na raiz do projeto — e ajustar os dois imports
-(`vite.config.ts` e `api/ai/chat.ts`) de acordo.
+### 8. Estado da IA remota ao fim desta tentativa (2026-07-25 00:40)
 
-### 8. Estado final da IA remota em produção após esta etapa
-
-🔴 **Ainda não funcional para perguntas abertas.** O bug mudou de forma (antes: `deepseek-chat`
-descontinuado, 502 `empty-reply`; agora: módulo não encontrado, 500
-`FUNCTION_INVOCATION_FAILED`), mas o resultado prático pro usuário é parecido — perguntas abertas
-não recebem resposta real da IA, caem no fallback local. A diferença é que agora **nenhuma
-chamada à API da DeepSeek chega a acontecer de verdade** (a função quebra antes disso), então nem
-o modelo `deepseek-v4-flash` foi exercitado em produção ainda.
+🔴 Ainda não funcional para perguntas abertas — ver seção seguinte para a causa raiz real e a
+correção que resolveu isso na mesma sessão, um pouco depois.
 
 O código local em `D:\Claude\AssistFin` está correto e testado (ver seção "🟢 Sessão de correção
 da IA remota" acima — os testes locais com `node node_modules/vite/bin/vite.js` continuam válidos,
-o problema é específico do empacotamento da Vercel). **Nenhum commit foi feito** — o fix do
-type-narrowing (`isDeepSeekFailure`) existe só localmente, não commitado, não é possível reverter
-via `git`.
+o problema era específico do empacotamento da Vercel). **Nenhum commit foi feito ainda nesta
+etapa** — o fix do type-narrowing (`isDeepSeekFailure`) existia só localmente até este ponto.
+
+---
+
+## 🟢 Causa raiz comprovada e correção aplicada — 2026-07-25 00:55 (mesma sessão, investigação orientada pelo usuário)
+
+O usuário pediu explicitamente para **não presumir** que o underscore de `api/_lib/` fosse a
+causa, e para investigar a resolução ESM dos imports primeiro. Essa investigação estava correta —
+eis a evidência real, coletada reproduzindo o build da Vercel localmente (`npx vercel pull` +
+`npx vercel build --prod`, sem nunca imprimir a chave baixada por `vercel pull`):
+
+### 1. Inspeção antes de alterar
+
+- `package.json`: `"type": "module"` — projeto é ESM puro.
+- `tsconfig.json`: `"module": "ESNext"`, `"moduleResolution": "bundler"`, cobre só `"include": ["src"]`.
+- Import em `api/ai/chat.ts` (antes): `from '../_lib/deepseek'` — sem extensão.
+- Import em `vite.config.ts`: `from './api/_lib/deepseek'` — sem extensão (mesmo padrão).
+
+### 2. Build da Vercel reproduzido localmente
+
+```bash
+npx vercel pull --yes --environment production   # necessário p/ vercel build funcionar
+npx vercel build --prod
+```
+Resultado: `{"status":"ok","outputDir":".vercel/output", ...}`.
+
+**Evidência decisiva em `.vercel/output/functions/api/ai/chat.func/`**:
+```
+api/ai/chat.js
+api/ai/chat.js.map
+api/_lib/deepseek.js       ← O MÓDULO ESTÁ AQUI. Nunca foi excluído do bundle.
+api/_lib/deepseek.js.map
+package.json               ← "type": "module" (herdado do projeto)
+```
+O `chat.js` compilado (antes da correção) continha, literalmente:
+```js
+import { getDeepSeekConfig, ... } from '../_lib/deepseek';
+```
+**Sem extensão** — e como o `package.json` da função tem `"type":"module"`, a função roda sob o
+**loader ESM nativo do Node** (`.vc-config.json`: `"runtime":"nodejs24.x"`), que — diferente do
+`moduleResolution:"bundler"` do TypeScript/Vite — **exige extensão explícita em imports
+relativos** e não tenta resolver `deepseek` → `deepseek.js` sozinho. Esse é o `ERR_MODULE_NOT_FOUND`
+real: o arquivo existe, mas o especificador do import não aponta pra ele de um jeito que o Node
+aceite.
+
+**Confirmação de que não é o underscore**: o arquivo `api/_lib/deepseek.js` estava presente no
+bundle da função desde a primeira tentativa — o problema nunca foi inclusão/exclusão, sempre foi
+a extensão do especificador do import.
+
+### 3–4. Hipótese principal testada e confirmada
+
+Alternativa A da ordem de preferência pedida: **manter `api/_lib/deepseek.ts` onde está, corrigir
+só o import ESM**. Mudança de uma linha em `api/ai/chat.ts`:
+```diff
+- from '../_lib/deepseek'
++ from '../_lib/deepseek.js'
+```
+`vite.config.ts` **não foi alterado** — é processado pelo bundler de config do próprio Vite
+(esbuild interno), que resolve extensão automaticamente e nunca teve esse problema; o dev local já
+funcionava antes e continuou funcionando depois, confirmado por teste real (abaixo). Os dois
+imports são processados por ferramentas diferentes, como o usuário alertou — só um precisava mudar.
+
+Validado, nesta ordem, antes de redeployar:
+- TypeScript resolve `'../_lib/deepseek.js'` apontando pro `.ts` fonte (`moduleResolution:"bundler"`
+  entende esse padrão) — reproduzi a checagem exata da Vercel (`compilerOptions` do projeto +
+  arquivos de `api/`) → **0 erros**.
+- `npx tsc --noEmit` (projeto, `src/`) → 0 erros.
+- `npm run build` → sucesso, bundle do cliente **idêntico** (`index-9h3J2u84.js`, mesmo hash de
+  sempre — confirma que nada server-only vazou pro frontend).
+- Proxy local (`node node_modules/vite/bin/vite.js` + `curl`) → **HTTP 200**, resposta real da
+  DeepSeek — dev continua funcionando.
+- `npx vercel build --prod` de novo: `.vercel/output/.../chat.js` agora contém
+  `from '../_lib/deepseek.js'`, e `api/_lib/deepseek.js` existe exatamente nesse caminho dentro do
+  bundle — import resolvido corretamente.
+- Nenhum outro import relativo sem extensão sobrou (`node:fs`/`node:path` em `deepseek.ts` são
+  módulos built-in do Node, não relativos — não precisam de extensão).
+- `grep` por `sk-` e pela chave real em `.vercel/output/functions/` inteiro → nada encontrado.
+
+Não foi necessário mover o módulo (alternativa B) nem convertê-lo pra `.js`/`.mjs` (alternativa C).
+Não houve duplicação nova da lógica da DeepSeek.
+
+### 5. Redeploy e testes reais em produção
+
+`npx vercel --prod` → build limpo, sem erros de TS.
+- **Deployment ID**: `dpl_26KzU3srKKi61FfFWeqndu5hUPUZ`
+- **URL de preview**: `https://assist-qxzkvg7l0-stuartand.vercel.app`
+- **URL pública (alias)**: `https://assist-fin.vercel.app`
+
+| Teste | Requisição | Resultado |
+|---|---|---|
+| A — sem mensagem | `POST /api/ai/chat` com `{}` | **HTTP 400**, `{"error":"no-message","message":"Mensagem vazia."}` — erro seguro, sem stack trace |
+| B — mensagem neutra | `{"message":"oi, tudo bem?",...}` | **HTTP 200**, resposta real da DeepSeek |
+| C — formato real do app, perfil autônomo | pergunta sobre aluguel/planejamento, contexto completo | **HTTP 200**, resposta respeita o perfil (nunca menciona motorista/km/combustível/Uber/99), `actions: []` (pergunta informativa, sem fato a registrar) |
+| D — interface real de produção | pergunta aberta pelo chat, perfil `autonomo` injetado | **HTTP 200** confirmado via `read_network_requests`; resposta real apareceu na tela; console sem erros; `transactions.length === 0` depois — nenhum registro automático; resto do app funcionando |
+
+**Nota sobre o Teste D**: as primeiras tentativas de interação via automação de clique/teclado no
+navegador não registraram o texto no campo controlado por React (o `computer.type` não focava o
+campo corretamente nesta sessão, e `form_input` setava o `.value` do DOM sem disparar o evento
+`input` que o React observa). Contornado disparando o `input` event nativo via JS antes de clicar
+em "Enviar" — depois disso, o fluxo real do app (state → `send()` → fetch → render) funcionou sem
+nenhuma intervenção adicional. Isso foi um obstáculo de automação de teste, não um bug do app.
+
+### 6. Logs da nova implantação
+
+`npx vercel logs https://assist-qxzkvg7l0-stuartand.vercel.app` → **4 entradas, todas nível
+`info`**, uma para cada requisição dos testes A–D. **Nenhum erro**: sem `ERR_MODULE_NOT_FOUND`,
+sem 401, sem 429, sem timeout, sem 500. Nenhuma chave, token ou cabeçalho privado nos logs.
+
+### Segredos — confirmação final
+
+`npx vercel pull` baixou `.vercel/.env.production.local` (contém a chave real em texto puro) —
+confirmado `.gitignore`d antes de qualquer leitura, nunca aberto/exibido, e **apagado** ao final
+da sessão junto com `.vercel/output` (artefatos locais, não fazem parte do projeto versionado).
+`grep` por `sk-` e pela chave real em todo `.vercel/output/functions/` → nada encontrado.
+
+### Estado final da IA remota em produção
+
+✅ **Funcional.** `https://assist-fin.vercel.app` está rodando o deploy `dpl_26KzU3srKKi61FfFWeqndu5hUPUZ`,
+com o modelo `deepseek-v4-flash`, perguntas abertas recebendo respostas reais e corretas por
+perfil, erros tratados com segurança, e sem nenhum registro financeiro automático.
 
 ### Segredos — confirmação
 

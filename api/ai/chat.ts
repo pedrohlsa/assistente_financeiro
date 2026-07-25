@@ -4,7 +4,7 @@
 // Rota final: POST /api/ai/chat
 // Configuração e chamada à DeepSeek centralizadas em api/_lib/deepseek.ts.
 
-import { getDeepSeekConfig, callDeepSeekChat, safeErrorMessage, httpStatusForError, isDeepSeekFailure } from '../_lib/deepseek'
+import { getDeepSeekConfig, callDeepSeekChat, safeErrorMessage, httpStatusForError, isDeepSeekFailure } from '../_lib/deepseek.js'
 
 const SYSTEM_PROMPT = `Você é o assistente financeiro do app AssistFin (pt-BR). O app atende perfis diferentes e o CONTEXTO traz o campo "perfil". ADAPTE-SE a ele antes de responder ou gerar ações:
 - perfil "driver" (motorista de aplicativo): pode falar de corridas, Uber, 99, ganhos diários, meta diária, combustível, km, manutenção, custo por km, horas trabalhadas.
