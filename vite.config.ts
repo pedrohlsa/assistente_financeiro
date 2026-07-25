@@ -1,25 +1,14 @@
 import { defineConfig, Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
-import fs from 'node:fs'
-import path from 'node:path'
+import { getDeepSeekConfig, callDeepSeekChat, safeErrorMessage, httpStatusForError, isDeepSeekFailure } from './api/_lib/deepseek'
 
 // ---------------------------------------------------------------------------
 // Backend de IA embutido no dev server (seções 36/37 do CONTEXTO.md):
 // a DEEPSEEK_API_KEY vive apenas aqui (lida do .env, fora do bundle do cliente).
 // O cliente chama POST /api/ai/chat e recebe JSON já validado.
-// Em produção, este middleware vira um endpoint equivalente no backend real.
+// Em produção, este middleware vira um endpoint equivalente no backend real
+// (api/ai/chat.ts) — os dois compartilham a config em api/_lib/deepseek.ts.
 // ---------------------------------------------------------------------------
-
-function readApiKey(root: string): string | null {
-  if (process.env.DEEPSEEK_API_KEY) return process.env.DEEPSEEK_API_KEY
-  try {
-    const env = fs.readFileSync(path.join(root, '.env'), 'utf8')
-    const m = env.match(/^DEEPSEEK_API_KEY=(.+)$/m)
-    return m ? m[1].trim() : null
-  } catch {
-    return null
-  }
-}
 
 const SYSTEM_PROMPT = `Você é o assistente financeiro do app AssistFin (pt-BR). O app atende perfis diferentes e o CONTEXTO traz o campo "perfil". ADAPTE-SE a ele antes de responder ou gerar ações:
 - perfil "driver" (motorista de aplicativo): pode falar de corridas, Uber, 99, ganhos diários, meta diária, combustível, km, manutenção, custo por km, horas trabalhadas.
@@ -68,10 +57,9 @@ function aiProxy(): Plugin {
         req.on('end', async () => {
           res.setHeader('content-type', 'application/json')
           try {
-            const key = readApiKey(server.config.root)
-            if (!key) { res.statusCode = 503; res.end('{"error":"no-key"}'); return }
+            const config = getDeepSeekConfig(server.config.root)
             const { message, context, history } = JSON.parse(body || '{}')
-            if (!message) { res.statusCode = 400; res.end('{"error":"no-message"}'); return }
+            if (!message) { res.statusCode = 400; res.end(JSON.stringify({ error: 'no-message', message: safeErrorMessage('no-message') })); return }
 
             const messages = [
               { role: 'system', content: SYSTEM_PROMPT },
@@ -80,54 +68,20 @@ function aiProxy(): Plugin {
               { role: 'user', content: String(message).slice(0, 1000) },
             ]
 
-            // Nota: NÃO usamos response_format json_object — o deepseek-chat tem um
-            // bug conhecido que devolve só espaços em branco nesse modo com prompts
-            // longos. Pedimos JSON no prompt e extraímos; texto puro vira "reply".
-            const attempt = async (extraNudge: boolean) => {
-              const controller = new AbortController()
-              const timer = setTimeout(() => controller.abort(), 20000)
-              try {
-                const dsRes = await fetch('https://api.deepseek.com/chat/completions', {
-                  method: 'POST',
-                  headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
-                  body: JSON.stringify({
-                    model: 'deepseek-chat',
-                    messages: extraNudge
-                      ? [...messages, { role: 'system', content: 'ATENÇÃO: responda apenas com o objeto JSON {"reply": "...", "actions": [...]}, nunca vazio.' }]
-                      : messages,
-                    temperature: extraNudge ? 0 : 0.2,
-                    max_tokens: 900,
-                  }),
-                  signal: controller.signal,
-                })
-                if (!dsRes.ok) return null
-                const data: any = await dsRes.json()
-                const content = (data?.choices?.[0]?.message?.content || '').trim()
-                if (!content) return null
-                let parsed: any = null
-                try { parsed = JSON.parse(content) } catch {
-                  const m2 = content.match(/\{[\s\S]*\}/)
-                  if (m2) { try { parsed = JSON.parse(m2[0]) } catch { parsed = null } }
-                }
-                if (parsed && typeof parsed === 'object') {
-                  const reply = String(parsed.reply || '').trim()
-                  if (!reply) return null
-                  return { reply, actions: Array.isArray(parsed.actions) ? parsed.actions : [] }
-                }
-                // o modelo respondeu em texto puro: aceita como resposta sem ações
-                return { reply: content.replace(/```(json)?/g, '').trim(), actions: [] }
-              } finally {
-                clearTimeout(timer)
-              }
+            // Nota: NÃO usamos response_format json_object — comportamento instável
+            // com prompts longos em modelos anteriores. Pedimos JSON no prompt e
+            // extraímos; texto puro vira "reply". Timeout, retry e classificação de
+            // erro (auth/modelo/rate limit/saldo/5xx) ficam em api/_lib/deepseek.ts.
+            const out = await callDeepSeekChat(config, messages)
+            if (isDeepSeekFailure(out)) {
+              res.statusCode = httpStatusForError(out.code)
+              res.end(JSON.stringify({ error: out.code, message: safeErrorMessage(out.code) }))
+              return
             }
-
-            let out = await attempt(false)
-            if (!out) out = await attempt(true)
-            if (!out) { res.statusCode = 502; res.end(JSON.stringify({ error: 'empty-reply' })); return }
-            res.end(JSON.stringify(out))
-          } catch (e: any) {
+            res.end(JSON.stringify({ reply: out.reply, actions: out.actions }))
+          } catch {
             res.statusCode = 500
-            res.end(JSON.stringify({ error: String(e?.message || e) }))
+            res.end(JSON.stringify({ error: 'server-error', message: safeErrorMessage('server-error') }))
           }
         })
       })

@@ -2,6 +2,9 @@
 // Equivalente ao middleware de dev em vite.config.ts, mas lendo a chave de
 // process.env (configurada no dashboard/CLI da Vercel — nunca commitada).
 // Rota final: POST /api/ai/chat
+// Configuração e chamada à DeepSeek centralizadas em api/_lib/deepseek.ts.
+
+import { getDeepSeekConfig, callDeepSeekChat, safeErrorMessage, httpStatusForError, isDeepSeekFailure } from '../_lib/deepseek'
 
 const SYSTEM_PROMPT = `Você é o assistente financeiro do app AssistFin (pt-BR). O app atende perfis diferentes e o CONTEXTO traz o campo "perfil". ADAPTE-SE a ele antes de responder ou gerar ações:
 - perfil "driver" (motorista de aplicativo): pode falar de corridas, Uber, 99, ganhos diários, meta diária, combustível, km, manutenção, custo por km, horas trabalhadas.
@@ -50,11 +53,9 @@ export default async function handler(req: any, res: any) {
   if (req.method === 'OPTIONS') { res.status(204).end(); return }
   if (req.method !== 'POST') { res.status(405).json({ error: 'method' }); return }
 
-  const key = process.env.DEEPSEEK_API_KEY
-  if (!key) { res.status(503).json({ error: 'no-key' }); return }
-
+  const config = getDeepSeekConfig()
   const { message, context, history } = req.body || {}
-  if (!message) { res.status(400).json({ error: 'no-message' }); return }
+  if (!message) { res.status(400).json({ error: 'no-message', message: safeErrorMessage('no-message') }); return }
 
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
@@ -63,52 +64,16 @@ export default async function handler(req: any, res: any) {
     { role: 'user', content: String(message).slice(0, 1000) },
   ]
 
-  // Nota: NÃO usamos response_format json_object — o deepseek-chat tem um
-  // bug conhecido que devolve só espaços em branco nesse modo com prompts
-  // longos. Pedimos JSON no prompt e extraímos; texto puro vira "reply".
-  const attempt = async (extraNudge: boolean) => {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 20000)
-    try {
-      const dsRes = await fetch('https://api.deepseek.com/chat/completions', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
-        body: JSON.stringify({
-          model: 'deepseek-chat',
-          messages: extraNudge
-            ? [...messages, { role: 'system', content: 'ATENÇÃO: responda apenas com o objeto JSON {"reply": "...", "actions": [...]}, nunca vazio.' }]
-            : messages,
-          temperature: extraNudge ? 0 : 0.2,
-          max_tokens: 900,
-        }),
-        signal: controller.signal,
-      })
-      if (!dsRes.ok) return null
-      const data: any = await dsRes.json()
-      const content = (data?.choices?.[0]?.message?.content || '').trim()
-      if (!content) return null
-      let parsed: any = null
-      try { parsed = JSON.parse(content) } catch {
-        const m2 = content.match(/\{[\s\S]*\}/)
-        if (m2) { try { parsed = JSON.parse(m2[0]) } catch { parsed = null } }
-      }
-      if (parsed && typeof parsed === 'object') {
-        const reply = String(parsed.reply || '').trim()
-        if (!reply) return null
-        return { reply, actions: Array.isArray(parsed.actions) ? parsed.actions : [] }
-      }
-      return { reply: content.replace(/```(json)?/g, '').trim(), actions: [] }
-    } finally {
-      clearTimeout(timer)
-    }
-  }
-
   try {
-    let out = await attempt(false)
-    if (!out) out = await attempt(true)
-    if (!out) { res.status(502).json({ error: 'empty-reply' }); return }
-    res.status(200).json(out)
-  } catch (e: any) {
-    res.status(500).json({ error: String(e?.message || e) })
+    // Timeout, retry e classificação de erro (auth/modelo/rate limit/saldo/5xx)
+    // ficam centralizados em api/_lib/deepseek.ts, compartilhado com o dev proxy.
+    const out = await callDeepSeekChat(config, messages)
+    if (isDeepSeekFailure(out)) {
+      res.status(httpStatusForError(out.code)).json({ error: out.code, message: safeErrorMessage(out.code) })
+      return
+    }
+    res.status(200).json({ reply: out.reply, actions: out.actions })
+  } catch {
+    res.status(500).json({ error: 'server-error', message: safeErrorMessage('server-error') })
   }
 }

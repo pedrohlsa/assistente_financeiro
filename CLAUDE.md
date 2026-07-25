@@ -71,13 +71,22 @@ código consulta essas funções em vez de comparar `profile === 'driver'` inlin
     estado (`resolveLocal()` em `ai.ts`). Funciona 100% offline. Perguntas cujo `handled: true`
     **nunca** vão pra IA remota — são sempre respondidas localmente, na hora, sem erro possível.
   - **Remota** (DeepSeek): usada só para perguntas abertas que o motor local não sabe responder,
-    e só se `settings.remoteAi !== false`. Dois lugares implementam o **mesmo** proxy e devem ser
-    mantidos em sincronia manualmente (não há import compartilhado entre eles):
+    e só se `settings.remoteAi !== false`. Dois endpoints expõem a mesma lógica, ambos rodando em
+    Node e importando o mesmo módulo server-only `api/_lib/deepseek.ts` (config + chamada HTTP
+    centralizadas — modelo, base URL, timeout e chave só existem ali, com fallback seguro pra
+    `deepseek-v4-flash`):
     - `vite.config.ts` (middleware do dev server, plugin `aiProxy()`) — usado em `npm run dev`.
     - `api/ai/chat.ts` (Vercel Serverless Function) — usado em produção/APK, chamado via
       `VITE_AI_API_URL` (`.env.production`, hoje `https://assist-fin.vercel.app/api/ai/chat`).
+    - O que **continua** duplicado manualmente entre os dois arquivos (fora do módulo
+      compartilhado): a `SYSTEM_PROMPT` — regras de perfil/categorias. Editar uma sem editar a
+      outra cria divergência dev×produção (ver `PROGRESS.md`, já há uma divergência conhecida de
+      `saving`/`origin`).
     - A chave nunca chega ao cliente: o frontend só faz `POST` para `/api/ai/chat` com um
       **contexto agregado** (nunca a lista bruta de transações) — ver `buildAiContext()`.
+    - Variáveis de ambiente (server-only, sem prefixo `VITE_`, nunca em `src/**`):
+      `DEEPSEEK_API_KEY` (obrigatória), `DEEPSEEK_MODEL` (opcional, default `deepseek-v4-flash`),
+      `DEEPSEEK_BASE_URL` (opcional, default `https://api.deepseek.com`). Ver `.env.example`.
 - **Backend de dados**: nenhum. Sincronização em nuvem é integração pendente.
 
 ## Comandos
@@ -137,7 +146,8 @@ editar `api/ai/chat.ts`, sempre redeployar com `npx vercel --prod`, senão a mud
 | `src/screens/Home.tsx` | Tela inicial — bifurca inteiramente por `isDriver()` |
 | `src/screens/Chat.tsx` | Assistente — roteamento local vs. remoto, confirmação de ações, aviso de duplicidade |
 | `src/components/PendingRecurrings.tsx` | Card de confirmação de entrada/conta recorrente |
-| `vite.config.ts` / `api/ai/chat.ts` | Os dois backends de IA (dev e produção) — manter sincronizados manualmente |
+| `api/_lib/deepseek.ts` | Config e chamada centralizadas da DeepSeek (modelo/baseURL/timeout/chave) — server-only, nunca importar em `src/**` |
+| `vite.config.ts` / `api/ai/chat.ts` | Os dois backends de IA (dev e produção) — usam `api/_lib/deepseek.ts` para a chamada; a `SYSTEM_PROMPT` ainda precisa ser sincronizada manualmente entre os dois |
 
 ## localStorage, migração e compatibilidade
 
@@ -154,10 +164,12 @@ editar `api/ai/chat.ts`, sempre redeployar com `npx vercel --prod`, senão a mud
 
 ## Segredos — nunca expor no frontend
 
-- `DEEPSEEK_API_KEY` vive em `.env` (raiz do projeto, git-ignored) e nas env vars do projeto na
-  Vercel. **Nunca** referenciar essa variável em código que roda no navegador/APK
-  (`src/**`) — só em `vite.config.ts` (roda em Node, no dev server) e `api/ai/chat.ts` (roda em
-  Node, na função serverless).
+- `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL` e `DEEPSEEK_BASE_URL` vivem em `.env` (raiz do projeto,
+  git-ignored) e nas env vars do projeto na Vercel. **Nunca** referenciar essas variáveis em
+  código que roda no navegador/APK (`src/**`) — só em `api/_lib/deepseek.ts` (lido por
+  `vite.config.ts` no dev server e por `api/ai/chat.ts` na função serverless, ambos em Node).
+  `.env.example` documenta os nomes sem valores reais — sempre atualizar os dois juntos se uma
+  variável nova for adicionada.
 - Antes de qualquer commit ou build, se mexer nesses dois arquivos, confirmar que a chave não
   foi hardcoded por engano (checar com `grep -rn "sk-" dist/` depois do build).
 - `.gitignore` já protege `node_modules/`, `dist/`, `.env`, `.vercel` — mas note a ressalva sobre
