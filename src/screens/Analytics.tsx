@@ -48,7 +48,7 @@ export default function Analytics() {
     const rows = [['data', 'hora', 'tipo', 'categoria', 'descricao', 'valor', 'pagamento']]
     state.transactions
       .filter(x => x.date >= range[0] && x.date <= range[1])
-      .forEach(x => rows.push([x.date, x.time || '', x.type === 'income' ? 'receita' : 'despesa', catById(state.categories, x.category).name, x.description || '', x.amount.toFixed(2).replace('.', ','), x.paymentMethod || '']))
+      .forEach(x => rows.push([x.date, x.time || '', x.type === 'income' ? 'receita' : x.type === 'saving' ? 'guardado' : x.type === 'financed-cash-inflow' ? 'entrada financiada' : 'despesa', catById(state.categories, x.category).name, x.description || '', x.amount.toFixed(2).replace('.', ','), x.paymentMethod || '']))
     const csv = '﻿' + rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
     const a = document.createElement('a')

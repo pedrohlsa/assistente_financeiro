@@ -56,6 +56,17 @@ código consulta essas funções em vez de comparar `profile === 'driver'` inlin
    Confirmar/Cancelar no chat — nunca é aplicada direto.
 9. **Segredos nunca no frontend**. `DEEPSEEK_API_KEY` só existe em `.env` (dev, git-ignored) e
    nas env vars do Vercel (produção) — nunca no bundle do cliente. Ver seção de arquitetura.
+10. **Cartão nunca é contado duas vezes**. Compra parcelada e parcelamento **não criam
+    `Transaction`** — vivem em `installmentPlans` + `installments`. O histórico da compra é o
+    valor **total** (no plano); o fluxo de caixa mensal são as **parcelas que vencem no mês**
+    (`Installment.dueDate`). Nunca some os dois. Pagar a fatura (`CardPayment`) quita a dívida e
+    reduz `settings.balance`, mas **não gera despesa** — ela já foi contada como parcela.
+    Consequência desejada: `periodStats`/`monthStats` continuam idênticos para quem não usa
+    cartões. Ver `src/services/cards.ts`.
+11. **Entrada financiada não é receita**. Dinheiro recebido em troca de dívida no cartão usa
+    `TxType: 'financed-cash-inflow'` — **nunca** `'income'`. Todos os somatórios filtram
+    `type === 'income'` explicitamente, então ele fica fora de receita/lucro/faturamento por
+    construção. A UI precisa deixar claro que o patrimônio líquido não aumentou.
 
 ## Arquitetura e tecnologias
 
@@ -146,6 +157,8 @@ editar `api/ai/chat.ts`, sempre redeployar com `npx vercel --prod`, senão a mud
 | `src/screens/Home.tsx` | Tela inicial — bifurca inteiramente por `isDriver()` |
 | `src/screens/Chat.tsx` | Assistente — roteamento local vs. remoto, confirmação de ações, aviso de duplicidade |
 | `src/components/PendingRecurrings.tsx` | Card de confirmação de entrada/conta recorrente |
+| `src/services/cards.ts` | Cartões, faturas, parcelas e limites — ler antes de mexer em qualquer coisa de crédito (regras 10 e 11) |
+| `src/screens/Cards.tsx` | Área "Cartões e parcelamentos" (visão geral, cartões, parcelamentos, projeções) |
 | `api/_lib/deepseek.ts` | Config e chamada centralizadas da DeepSeek (modelo/baseURL/timeout/chave) — server-only, nunca importar em `src/**` |
 | `vite.config.ts` / `api/ai/chat.ts` | Os dois backends de IA (dev e produção) — usam `api/_lib/deepseek.ts` para a chamada; a `SYSTEM_PROMPT` ainda precisa ser sincronizada manualmente entre os dois |
 

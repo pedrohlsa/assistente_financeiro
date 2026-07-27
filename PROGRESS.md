@@ -669,6 +669,129 @@ ls` (só nomes), nem nos logs de build, nem nos logs de runtime, nem nas respost
 
 ---
 
+## 🟢 Cartões e Parcelamentos — implementado em 2026-07-26
+
+Área completa de cartões de crédito, parcelamentos e projeções futuras, disponível em
+**Mais → 💳 Cartões e parcelamentos** (`/cartoes`) para os 4 perfis, com linguagem adaptada.
+
+### Arquitetura e decisão de contabilização (a parte crítica)
+
+**Regra única, aplicada em todo o código:**
+- **Histórico da compra = valor total** → vive no `InstallmentPlan`.
+- **Fluxo de caixa mensal = parcelas que vencem no mês** → `Installment.dueDate`.
+- Os dois **nunca** são somados.
+
+Como isso foi garantido na prática: **compras no cartão e parcelamentos NÃO criam `Transaction`.**
+Eles vivem em arrays próprios (`installmentPlans` + `installments`). Consequências:
+1. `periodStats`/`monthStats`/`savedThisMonth` — que filtram `type === 'income'|'expense'` — ficam
+   **byte-idênticos** ao comportamento anterior. Zero regressão para quem não usa cartões.
+2. Pagar a fatura (`CardPayment`) quita a dívida e reduz o saldo em conta, mas **não gera despesa**:
+   a despesa já foi contada como parcela. Dupla contagem é impossível por construção.
+3. Na linha do tempo, a fatura do cartão aparece como **um** item agregando suas parcelas — as
+   parcelas do cartão não são listadas de novo (seção 10 da spec).
+
+### Entrada financiada pelo cartão (seção 7)
+
+Novo `TxType: 'financed-cash-inflow'` — **nunca** `'income'`. Como todos os somatórios de receita
+filtram `type === 'income'` explicitamente, o valor recebido fica automaticamente fora de receita,
+lucro e faturamento. O que acontece ao registrar:
+- `InstallmentPlan` com `operationType: 'financed-cash-inflow'`, `totalAmount` = cobrado no cartão,
+  `netReceived` = líquido, `feeAmount` = custo da operação;
+- uma `Transaction` do tipo próprio (aparece no histórico, sem sinal de ganho, rotulada
+  "entrada financiada (não é receita)");
+- `settings.balance` aumenta (o dinheiro entrou no caixa de verdade).
+A UI mostra explicitamente: *"Seu patrimônio líquido não aumentou R$ X: você recebeu esse valor e
+passou a dever R$ Y, um custo de R$ Z"*, mais o aviso legal exigido e um checkbox de confirmação.
+
+### Novos tipos e armazenamento
+
+Mesma chave de sempre (`assistfin-state-v1`) — **não** foi criada v2. Cinco arrays novos em
+`AppState`: `cards`, `installmentPlans`, `installments`, `cardPayments`, `cardCharges`.
+Tipos: `CreditCard`, `InstallmentPlan`, `Installment`, `CardPayment`, `RecurringCardCharge`,
+`InstallmentPlanStatus`, `InstallmentStatus`, `PlanOperationType`.
+Novas `ParsedAction`: `card-purchase`, `financed-cash-inflow`, `card-payment`, `card-charge`.
+
+**Migração**: `normalizeState()` em `store.tsx` garante os arrays tanto no hidrate do localStorage
+quanto no `case 'hydrate'` (restauração de backup antigo). Backup já serializa o state inteiro;
+`mergeState` foi estendido para deduplicar os 5 arrays novos por `id`.
+
+**Segurança**: o cartão guarda só nome, instituição, 4 últimos dígitos, limite e dias de
+fechamento/vencimento. Nunca número completo, CVV, senha ou token.
+
+### Arquivos
+
+| Arquivo | Mudança |
+|---|---|
+| `src/services/cards.ts` | **Novo.** Toda a matemática: divisão de parcelas com arredondamento, geração de parcelas, faturas por mês, estados, limites, progresso, compromissos mensais, linha do tempo. |
+| `src/screens/Cards.tsx` | **Novo.** 4 abas (Visão geral, Cartões, Parcelamentos, Projeções) + linha do tempo. |
+| `src/components/cardForms.tsx` | **Novo.** 6 formulários: cartão, compra, entrada financiada, parcelamento sem cartão, pagamento de fatura, assinatura. |
+| `src/models/types.ts` | Novos tipos + `TxType 'financed-cash-inflow'` + 5 arrays em `AppState` + 4 `ParsedAction`. |
+| `src/store/store.tsx` | 15 actions novas, `normalizeState`, `mergeState` estendido, `findCardByName`, 4 casos em `applyParsedAction`. |
+| `src/services/calc.ts` | `monthlyProjections()` (12+ meses), `hasProjectionData()`; campos **aditivos** em `dailyGoal` (`installments`), `monthlySavingGoal` (`installmentsDue`, `projectedAvailable`) e `monthForecast` (`installmentsLeft`). |
+| `src/services/nlp.ts` | `parseCardClause()` — compra parcelada, entrada financiada, fatura, assinatura; resumo detalhado antes de confirmar. |
+| `src/services/ai.ts` | Contexto de cartões/parcelas/projeções, validação das 4 ações novas, respostas locais determinísticas. |
+| `vite.config.ts` + `api/ai/chat.ts` | `SYSTEM_PROMPT` com as regras de cartão — **confirmado byte-idêntico entre os dois**. |
+| `src/screens/More.tsx` / `App.tsx` | Entrada de menu 💳 + rota `/cartoes`. |
+| `Home.tsx`, `Goals.tsx`, `Transactions.tsx`, `Analytics.tsx`, `Chat.tsx` | Adaptações mínimas: parcelas na meta mensal e na previsão, componente de parcelas na meta diária, render do novo tipo, rótulo no CSV, sugestão de chat. |
+
+### Projeções (seção 9)
+
+`monthlyProjections(state, 12)` — expansível de 12 em 12 meses. Por mês: entradas recorrentes,
+contas recorrentes, parcelas+assinaturas, resultado, saldo estimado acumulado, disponível para
+guardar, comprometimento da renda e marcação de mês apertado. **Só usa obrigações cadastradas** —
+não extrapola média de gasto variável, para nunca apresentar estimativa como compromisso real.
+
+### Impacto nas metas (seção 13)
+
+- **Não-motorista**: `monthlySavingGoal` ganhou `installmentsDue` e `projectedAvailable` — campos
+  **novos**, `net` e `saved` continuam idênticos (o valor realmente guardado não muda).
+- **Motorista**: `dailyGoal` ganhou o componente `installments` (parcelas do mês ÷ dias de trabalho).
+  Sem parcelas cadastradas o valor é 0 e a meta diária fica **exatamente** como era.
+
+### Testes executados (todos no navegador, dados reais)
+
+| Cenário | Resultado |
+|---|---|
+| **A — compra parcelada** | Nubank (fecha 1, vence 10) + computador R$4.000 em 4x → 4 parcelas de R$1.000 em 10/ago, 10/set, 10/out, 10/nov; soma R$4.000; **0 transactions criadas**. Fatura paga (600+400) → só a parcela 1 quitada, **0 despesas geradas**. |
+| **B — entrada financiada** | R$2.000 cobrado / R$1.850 líquido / 5x R$400 → custo R$150; transaction `financed-cash-inflow`; **soma de receitas = R$0**; saldo +1.850; 5 parcelas nas faturas futuras. |
+| **C — CLT** | Salário R$3.000 + compra parcelada → projeções mostram a parcela por mês, comprometimento 33%; nenhuma métrica de motorista na tela. |
+| **D — autônomo** | Aluguel R$1.800 + parcelas → entradas e obrigações separadas, saldo estimado R$4.050, comprometimento 78%; **busca por "99/Uber/km/combustível/corrida" retornou zero ocorrências**. |
+| **E — pagamento parcial** | Fatura R$1.000, pago R$600 → status "Parcialmente paga", R$400 pendentes, nenhuma parcela quitada, **0 despesas duplicadas**, saldo 1.000→400. |
+| **F — assinatura** | Netflix R$39,90 → entrou na fatura futura (439,90); pausada → deixou de ser projetada (voltou a 1.400); cobranças e pagamentos anteriores preservados. |
+| **G — IA** | "Comprei uma geladeira de R$3.000 em 3 vezes no Nubank" → proposta com tipo/total/parcela/nº/cartão/1º vencimento/impacto, **aguardando confirmação, nada registrado**. "Comprei um computador em 4 vezes" (sem valor) → **nenhuma ação criada**, IA perguntou só o que faltava. "Quanto vou pagar de cartão nos próximos três meses?" → R$2.800 com o detalhe mês a mês, dados reais. |
+| **Arredondamento** | R$1.000 em 3x → 333,33 · 333,33 · 333,34 (soma exata). |
+| **Migração** | Estado antigo sem os 5 arrays → app carregou sem erro, arrays criados, recorrentes preservados. |
+| **Regressão motorista** | Meta diária R$241,34 = (1.200+4.500)/25,98 + 10% — **idêntica à fórmula anterior**; Resumo rápido, km, viagens, R$/km e "Por que essa meta?" intactos. |
+| **Fallback local** | Com `remoteAi: false`, pergunta sobre parcelas respondida localmente com dado real. |
+| **Responsividade** | Viewport 375×812 — todas as abas e o card expansível renderizam sem quebra. |
+
+### Build e checagens
+
+```
+npx tsc --noEmit                    → exit 0
+npx tsc --noEmit -p (com api/**)    → exit 0   (mesma config que a Vercel usa)
+npm run build                       → ✓ 66 modules, dist/assets/index-DdvIi5iD.js 412.89 kB │ gzip: 120.55 kB
+```
+Bundle: sem `sk-`, sem a chave real, sem `DEEPSEEK`/`deepseek.com`, sem `getDeepSeekConfig`/
+`callDeepSeekChat`. `src/` não importa `api/_lib/` em lugar nenhum.
+
+### Limitações conhecidas desta entrega
+
+1. **Assinatura no mês de cadastro**: `monthlyCommitments` conta a assinatura no mês corrente,
+   mas a *fatura* a joga para o próximo vencimento (uma assinatura cadastrada hoje não entra numa
+   fatura que já venceu). Diferença de um mês só na primeira ocorrência — os dois números são
+   defensáveis, mas não são idênticos. Vale unificar depois.
+2. **Antecipação sem desconto/juros**: antecipar marca as parcelas como pagas, mas ainda não há
+   campo para registrar desconto por antecipação nem multa/juros de atraso (seção 11 parcial).
+3. **Editar parcelas futuras**: dá para cancelar futuras, quitar e pagar individualmente, mas não
+   há edição de valor/vencimento de uma parcela específica pela UI (o reducer já suporta via
+   `updateInstallment`).
+4. **`accountId` em `CardPayment`**: o app tem um único saldo (`settings.balance`), então o
+   pagamento oferece apenas "descontar do meu saldo" em vez de escolher entre contas.
+5. **Analytics por perfil** continua pendente (fora do escopo desta tarefa, como instruído).
+
+---
+
 ## Comandos exatos para retomar o desenvolvimento
 
 ```bash

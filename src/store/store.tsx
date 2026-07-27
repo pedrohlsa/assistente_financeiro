@@ -5,11 +5,13 @@ import React, { createContext, useContext, useEffect, useMemo, useReducer } from
 import {
   AppState, Transaction, WorkSession, FuelRecord, MaintenanceItem, FinancialGoal,
   Deficit, RecurringExpense, Budget, ChatMessage, Settings, Vehicle, ParsedAction, Category,
+  CreditCard, InstallmentPlan, Installment, CardPayment, RecurringCardCharge,
 } from '../models/types'
 import { DEFAULT_CATEGORIES } from '../data/categories'
 import { buildDemoData } from '../data/demo'
-import { addDays, nowTime, todayISO, uid } from '../utils/format'
+import { addDays, monthKey, nowTime, todayISO, uid } from '../utils/format'
 import { can99FeeApply, defaultIncomeCategory } from '../services/profile'
+import { buildInstallments, cardInvoice, suggestedFirstDueDate } from '../services/cards'
 
 const STORAGE_KEY = 'assistfin-state-v1'
 
@@ -30,6 +32,38 @@ const initialState: AppState = {
   workSessions: [], fuelRecords: [], vehicle: null, maintenance: [],
   goals: [], deficits: [], recurring: [], budgets: [], chat: [],
   dismissedDeficitDates: [],
+  cards: [], installmentPlans: [], installments: [], cardPayments: [], cardCharges: [],
+}
+
+/**
+ * Garante que todo array esperado existe, mesmo em estados salvos antes de uma
+ * funcionalidade existir. Vale tanto para o localStorage quanto para um backup
+ * antigo restaurado — sem isso, `state.cards.map(...)` quebraria o app inteiro.
+ */
+function normalizeState(raw: any): AppState {
+  const arr = <T,>(v: any, fallback: T[] = []): T[] => (Array.isArray(v) ? v : fallback)
+  return {
+    ...initialState,
+    ...raw,
+    settings: { ...defaultSettings, ...(raw?.settings || {}) },
+    transactions: arr(raw?.transactions),
+    categories: raw?.categories?.length ? raw.categories : DEFAULT_CATEGORIES,
+    workSessions: arr(raw?.workSessions),
+    fuelRecords: arr(raw?.fuelRecords),
+    maintenance: arr(raw?.maintenance),
+    goals: arr(raw?.goals),
+    deficits: arr(raw?.deficits),
+    recurring: arr(raw?.recurring),
+    budgets: arr(raw?.budgets),
+    chat: arr(raw?.chat),
+    dismissedDeficitDates: arr(raw?.dismissedDeficitDates),
+    vehicle: raw?.vehicle ?? null,
+    cards: arr(raw?.cards),
+    installmentPlans: arr(raw?.installmentPlans),
+    installments: arr(raw?.installments),
+    cardPayments: arr(raw?.cardPayments),
+    cardCharges: arr(raw?.cardCharges),
+  }
 }
 
 type Action =
@@ -56,6 +90,24 @@ type Action =
   | { type: 'archiveCategory'; id: string; archived: boolean }
   | { type: 'updateRecurring'; id: string; patch: Partial<RecurringExpense> }
   | { type: 'mergeState'; state: Partial<AppState> }
+  // --- cartões e parcelamentos ---
+  | { type: 'addCard'; card: CreditCard }
+  | { type: 'updateCard'; id: string; patch: Partial<CreditCard> }
+  | { type: 'removeCard'; id: string }
+  | { type: 'addPlan'; plan: InstallmentPlan; installments: Installment[] }
+  | { type: 'updatePlan'; id: string; patch: Partial<InstallmentPlan> }
+  /** Remove o plano e TODAS as suas parcelas (histórico incluído). */
+  | { type: 'removePlan'; id: string }
+  /** Cancela apenas as parcelas ainda não pagas — preserva o histórico. */
+  | { type: 'cancelFutureInstallments'; planId: string }
+  | { type: 'payInstallment'; id: string; paidAt: string; paidAmount?: number }
+  | { type: 'unpayInstallment'; id: string }
+  | { type: 'updateInstallment'; id: string; patch: Partial<Installment> }
+  | { type: 'addCardPayment'; payment: CardPayment; settleInstallmentIds: string[] }
+  | { type: 'removeCardPayment'; id: string }
+  | { type: 'addCardCharge'; charge: RecurringCardCharge }
+  | { type: 'updateCardCharge'; id: string; patch: Partial<RecurringCardCharge> }
+  | { type: 'removeCardCharge'; id: string }
   | { type: 'chat'; msg: ChatMessage }
   | { type: 'chatResolve'; id: string }
   | { type: 'chatClear' }
@@ -64,7 +116,8 @@ type Action =
 
 function reducer(s: AppState, a: Action): AppState {
   switch (a.type) {
-    case 'hydrate': return a.state
+    // Backup antigo (sem cartões/parcelas) precisa ser normalizado, senão o app quebra.
+    case 'hydrate': return normalizeState(a.state)
     case 'settings': return { ...s, settings: { ...s.settings, ...a.patch } }
     case 'addTx': return { ...s, transactions: [a.tx, ...s.transactions] }
     case 'removeTx': return { ...s, transactions: s.transactions.filter(t => t.id !== a.id) }
@@ -138,8 +191,77 @@ function reducer(s: AppState, a: Action): AppState {
         recurring: byId(s.recurring, a.state.recurring),
         budgets: byId(s.budgets, a.state.budgets),
         vehicle: s.vehicle || a.state.vehicle || null,
+        cards: byId(s.cards, a.state.cards),
+        installmentPlans: byId(s.installmentPlans, a.state.installmentPlans),
+        installments: byId(s.installments, a.state.installments),
+        cardPayments: byId(s.cardPayments, a.state.cardPayments),
+        cardCharges: byId(s.cardCharges, a.state.cardCharges),
       }
     }
+    // ---------- cartões e parcelamentos ----------
+    case 'addCard': return { ...s, cards: [...s.cards, a.card] }
+    case 'updateCard': return { ...s, cards: s.cards.map(c => c.id === a.id ? { ...c, ...a.patch } : c) }
+    case 'removeCard': {
+      // O cartão some, mas os parcelamentos continuam existindo (viram "sem cartão")
+      // para não apagar dívida real do usuário sem que ele peça.
+      return {
+        ...s,
+        cards: s.cards.filter(c => c.id !== a.id),
+        installmentPlans: s.installmentPlans.map(p => p.cardId === a.id ? { ...p, cardId: undefined } : p),
+        cardCharges: s.cardCharges.filter(c => c.cardId !== a.id),
+        cardPayments: s.cardPayments.filter(p => p.cardId !== a.id),
+      }
+    }
+    case 'addPlan':
+      return { ...s, installmentPlans: [a.plan, ...s.installmentPlans], installments: [...s.installments, ...a.installments] }
+    case 'updatePlan':
+      return { ...s, installmentPlans: s.installmentPlans.map(p => p.id === a.id ? { ...p, ...a.patch } : p) }
+    case 'removePlan':
+      return {
+        ...s,
+        installmentPlans: s.installmentPlans.filter(p => p.id !== a.id),
+        installments: s.installments.filter(i => i.planId !== a.id),
+      }
+    case 'cancelFutureInstallments':
+      return {
+        ...s,
+        installments: s.installments.map(i =>
+          i.planId === a.planId && i.status === 'pending' ? { ...i, status: 'cancelled' as const } : i),
+      }
+    case 'payInstallment':
+      return {
+        ...s,
+        installments: s.installments.map(i =>
+          i.id === a.id ? { ...i, status: 'paid' as const, paidAt: a.paidAt, paidAmount: a.paidAmount ?? i.amount } : i),
+      }
+    case 'unpayInstallment':
+      return {
+        ...s,
+        installments: s.installments.map(i =>
+          i.id === a.id ? { ...i, status: 'pending' as const, paidAt: undefined, paidAmount: undefined } : i),
+      }
+    case 'updateInstallment':
+      return { ...s, installments: s.installments.map(i => i.id === a.id ? { ...i, ...a.patch } : i) }
+    case 'addCardPayment': {
+      // Quitar a fatura marca as parcelas dela como pagas — a despesa já foi
+      // contada como parcela, o pagamento NÃO cria despesa nova.
+      const settle = new Set(a.settleInstallmentIds)
+      return {
+        ...s,
+        cardPayments: [a.payment, ...s.cardPayments],
+        installments: settle.size
+          ? s.installments.map(i => settle.has(i.id) ? { ...i, status: 'paid' as const, paidAt: a.payment.paymentDate, paidAmount: i.amount } : i)
+          : s.installments,
+        settings: a.payment.fromBalance
+          ? { ...s.settings, balance: Math.max((s.settings.balance || 0) - a.payment.amount, 0) }
+          : s.settings,
+      }
+    }
+    case 'removeCardPayment': return { ...s, cardPayments: s.cardPayments.filter(p => p.id !== a.id) }
+    case 'addCardCharge': return { ...s, cardCharges: [a.charge, ...s.cardCharges] }
+    case 'updateCardCharge':
+      return { ...s, cardCharges: s.cardCharges.map(c => c.id === a.id ? { ...c, ...a.patch } : c) }
+    case 'removeCardCharge': return { ...s, cardCharges: s.cardCharges.filter(c => c.id !== a.id) }
     case 'chat': return { ...s, chat: [...s.chat, a.msg].slice(-200) }
     case 'chatResolve': return { ...s, chat: s.chat.map(m => m.id === a.id ? { ...m, pending: undefined } : m) }
     case 'chatClear': return { ...s, chat: [] }
@@ -162,7 +284,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const parsed = JSON.parse(raw)
         // confirmações pendentes não sobrevivem entre sessões (evita aplicar ações velhas)
         const chat = Array.isArray(parsed.chat) ? parsed.chat.map((m: ChatMessage) => (m.pending ? { ...m, pending: undefined } : m)) : []
-        return { ...init, ...parsed, chat, settings: { ...defaultSettings, ...parsed.settings }, categories: parsed.categories?.length ? parsed.categories : DEFAULT_CATEGORIES }
+        return normalizeState({ ...parsed, chat })
       }
     } catch { /* estado corrompido → começa limpo */ }
     return init
@@ -182,6 +304,18 @@ export const useStore = () => useContext(StoreCtx)
 // ---------- Helpers de alto nível ----------
 
 const norm = (x: string) => (x || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
+
+/** Encontra um cartão pelo nome/instituição (aproximado). Sem nome: usa o único ativo. */
+export function findCardByName(state: AppState, name?: string) {
+  const active = (state.cards || []).filter(c => !c.archived)
+  const n = norm(name || '')
+  if (!n) return active.length === 1 ? active[0] : undefined
+  return (
+    active.find(c => norm(c.name) === n) ||
+    active.find(c => norm(c.name).includes(n) || n.includes(norm(c.name))) ||
+    active.find(c => norm(c.institution || '').includes(n))
+  )
+}
 
 /** Encontra uma meta existente pelo nome (aproximado). Sem nome: usa a única ativa. */
 export function findGoalByName(state: AppState, name?: string) {
@@ -263,6 +397,101 @@ export function applyParsedAction(dispatch: React.Dispatch<Action>, state: AppSt
     case 'balance':
       dispatch({ type: 'settings', patch: { balance: a.amount } })
       break
+
+    // ---------- Cartões e parcelamentos ----------
+    // Nenhum destes cria Transaction de despesa: a compra vira dívida parcelada
+    // e só as PARCELAS entram no fluxo mensal (ver services/cards.ts).
+    case 'card-purchase': {
+      const card = findCardByName(state, a.cardName)
+      if (a.cardName && !card) return false // cartão citado não existe — não inventa
+      const count = Math.max(Math.round(a.installments || 1), 1)
+      const firstDue = a.firstDueDate || suggestedFirstDueDate(card, date)
+      const plan: InstallmentPlan = {
+        id: uid(),
+        description: a.description || 'Compra no cartão',
+        cardId: card?.id,
+        categoryId: a.category || 'compras',
+        totalAmount: a.total,
+        installmentCount: count,
+        firstDueDate: firstDue,
+        purchaseDate: date,
+        status: 'active',
+        operationType: card ? 'card-purchase' : 'standalone',
+        profileAtCreation: state.settings.profile,
+        createdAt: date,
+      }
+      dispatch({ type: 'addPlan', plan, installments: buildInstallments(plan, uid) })
+      break
+    }
+    case 'financed-cash-inflow': {
+      const card = findCardByName(state, a.cardName)
+      if (a.cardName && !card) return false
+      const count = Math.max(Math.round(a.installments || 1), 1)
+      const plan: InstallmentPlan = {
+        id: uid(),
+        description: 'Entrada financiada pelo cartão',
+        cardId: card?.id,
+        categoryId: 'outros-out',
+        totalAmount: a.total,
+        installmentCount: count,
+        firstDueDate: suggestedFirstDueDate(card, date),
+        purchaseDate: date,
+        feeAmount: Math.max(a.total - a.netReceived, 0),
+        source: a.source,
+        status: 'active',
+        operationType: 'financed-cash-inflow',
+        netReceived: a.netReceived,
+        profileAtCreation: state.settings.profile,
+        createdAt: date,
+      }
+      dispatch({ type: 'addPlan', plan, installments: buildInstallments(plan, uid) })
+      // O dinheiro recebido entra no caixa, mas NUNCA como receita/lucro:
+      // type próprio, fora de todos os somatórios de income.
+      dispatch({
+        type: 'addTx',
+        tx: {
+          id: uid(), type: 'financed-cash-inflow', amount: a.netReceived, category: 'outros-in',
+          description: 'Entrada financiada pelo cartão', date, time, source,
+          profileAtCreation: state.settings.profile,
+        },
+      })
+      dispatch({ type: 'settings', patch: { balance: (state.settings.balance || 0) + a.netReceived } })
+      break
+    }
+    case 'card-payment': {
+      const card = findCardByName(state, a.cardName)
+      if (!card) return false
+      const mk = monthKey(date)
+      const invoice = cardInvoice(state, card, mk)
+      const amount = a.amount ?? invoice.pending
+      if (!(amount > 0)) return false
+      const fullyPaid = amount >= invoice.pending - 0.009
+      dispatch({
+        type: 'addCardPayment',
+        payment: { id: uid(), cardId: card.id, amount, paymentDate: date, referenceMonth: mk, fromBalance: true },
+        // só quita as parcelas quando a fatura foi paga por inteiro
+        settleInstallmentIds: fullyPaid
+          ? invoice.items.filter(i => i.kind === 'installment' && i.planId)
+              .map(i => (state.installments || []).find(x => x.planId === i.planId && x.number === i.installmentNumber)?.id)
+              .filter((x): x is string => !!x)
+          : [],
+      })
+      break
+    }
+    case 'card-charge': {
+      const card = findCardByName(state, a.cardName)
+      if (!card) return false
+      dispatch({
+        type: 'addCardCharge',
+        charge: {
+          id: uid(), cardId: card.id, description: a.description || 'Assinatura',
+          amount: a.amount, categoryId: a.category || 'assinaturas',
+          frequency: 'monthly', nextDate: date, active: true, createdAt: date,
+        },
+      })
+      break
+    }
+
     case 'reset':
       dispatch({ type: 'reset' })
       break

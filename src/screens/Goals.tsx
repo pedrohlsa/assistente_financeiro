@@ -113,6 +113,9 @@ export default function Goals() {
             <div className="spread"><span className="muted">Meta base (contas + objetivo)</span><span className="mono-num">{fmtBRL(goal.base)}</span></div>
             <div className="spread"><span className="muted">Metas pessoais</span><span className="mono-num">+ {fmtBRL(goal.personal)}</span></div>
             <div className="spread"><span className="muted">Déficits</span><span className="mono-num">+ {fmtBRL(goal.deficit)}</span></div>
+            {goal.installments > 0 && (
+              <div className="spread"><span className="muted">Parcelas e faturas do mês</span><span className="mono-num">+ {fmtBRL(goal.installments)}</span></div>
+            )}
             <div className="spread"><span className="muted">Margem de segurança ({state.settings.safetyMarginPct}%)</span><span className="mono-num">+ {fmtBRL(goal.margin)}</span></div>
             <div className="divider" />
             <div className="spread" style={{ fontWeight: 750 }}><span>Meta final</span><span className="mono-num">{fmtBRL(goal.total)}</span></div>

@@ -9,8 +9,14 @@ export type CategoryType = 'income' | 'expense'
  * 'saving' = transferência para reserva/investimento (14.3).
  * NÃO entra em receitas nem despesas: apenas marca quanto do resultado
  * líquido o usuário efetivamente guardou.
+ *
+ * 'financed-cash-inflow' = dinheiro que entrou no caixa AGORA em troca de uma
+ * dívida parcelada no cartão. NÃO é receita, lucro nem faturamento — o
+ * patrimônio líquido não aumenta. Fica fora de todo somatório de receita
+ * (todos os cálculos filtram 'income'/'expense' explicitamente); a dívida
+ * correspondente vive em InstallmentPlan.
  */
-export type TxType = 'income' | 'expense' | 'saving'
+export type TxType = 'income' | 'expense' | 'saving' | 'financed-cash-inflow'
 
 export interface Transaction {
   id: string
@@ -126,6 +132,104 @@ export interface Budget {
   limit: number // mensal
 }
 
+// ---------- CARTÕES E PARCELAMENTOS ----------
+// REGRA DE CONTABILIZAÇÃO (crítica, ver PROGRESS.md):
+// Compras no cartão e parcelamentos NÃO criam Transaction. O histórico da compra
+// pelo valor total vive no InstallmentPlan; o fluxo de caixa mensal considera
+// SOMENTE as parcelas que vencem no mês (Installment.dueDate). Pagar a fatura
+// não gera despesa nova — só quita a dívida e reduz o saldo em conta.
+// Assim é impossível somar o total e as parcelas como se fossem despesas diferentes.
+
+export interface CreditCard {
+  id: string
+  name: string
+  institution?: string
+  /** Só os 4 últimos dígitos, para identificar o cartão. Nunca o número completo. */
+  lastFourDigits?: string
+  limit: number
+  closingDay: number // dia do fechamento da fatura
+  dueDay: number     // dia do vencimento
+  /** Fatura já existente quando o cartão foi cadastrado (dívida anterior ao app). */
+  initialInvoiceBalance?: number
+  color?: string
+  archived?: boolean
+  notes?: string
+  createdAt: string
+}
+
+export type InstallmentPlanStatus = 'active' | 'settled' | 'cancelled'
+
+/**
+ * 'card-purchase'         — compra no crédito (à vista no crédito = 1 parcela)
+ * 'standalone'            — parcelamento sem cartão (empréstimo, boleto, acordo, crediário)
+ * 'financed-cash-inflow'  — recebeu dinheiro agora e ficou com dívida parcelada (seção 7)
+ */
+export type PlanOperationType = 'card-purchase' | 'standalone' | 'financed-cash-inflow'
+
+export interface InstallmentPlan {
+  id: string
+  description: string
+  cardId?: string
+  categoryId?: string
+  /** Valor total da dívida (no financed-cash-inflow: o valor COBRADO no cartão). */
+  totalAmount: number
+  installmentCount: number
+  firstDueDate: string
+  purchaseDate: string
+  interestAmount?: number
+  feeAmount?: number
+  /** Credor, estabelecimento ou intermediário — sempre informado pelo usuário. */
+  source?: string
+  status: InstallmentPlanStatus
+  operationType: PlanOperationType
+  /** Só em 'financed-cash-inflow': quanto o usuário recebeu líquido. */
+  netReceived?: number
+  note?: string
+  profileAtCreation?: ProfileId
+  createdAt: string
+}
+
+export type InstallmentStatus = 'pending' | 'paid' | 'cancelled'
+
+export interface Installment {
+  id: string
+  planId: string
+  number: number
+  total: number
+  amount: number
+  dueDate: string
+  paidAt?: string
+  /** Pagamento parcial desta parcela (quando aplicável). */
+  paidAmount?: number
+  status: InstallmentStatus
+}
+
+export interface CardPayment {
+  id: string
+  cardId: string
+  amount: number
+  paymentDate: string
+  /** Fatura quitada por este pagamento ('YYYY-MM' do vencimento). */
+  referenceMonth: string
+  note?: string
+  /** Se o valor foi descontado do saldo em conta informado pelo usuário. */
+  fromBalance?: boolean
+}
+
+/** Assinatura/cobrança recorrente no cartão — não é parcelamento (não tem fim definido). */
+export interface RecurringCardCharge {
+  id: string
+  cardId: string
+  description: string
+  amount: number
+  categoryId?: string
+  frequency: Recurrence
+  nextDate: string
+  endDate?: string
+  active?: boolean
+  createdAt: string
+}
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
@@ -155,6 +259,13 @@ export type ParsedAction =
   | { kind: 'goal-update'; name: string; target?: number; months?: number }
   | { kind: 'goal-deposit'; name: string; amount: number }
   | { kind: 'balance'; amount: number }        // define o saldo atual em conta ("meu saldo é 1500")
+  // Compra parcelada (ou à vista no crédito, com installments: 1). A IA nunca
+  // inventa cartão, valor, nº de parcelas ou data — pergunta o que faltar.
+  | { kind: 'card-purchase'; description?: string; total: number; installments: number; cardName?: string; category?: string; firstDueDate?: string }
+  // Recebeu dinheiro agora e ficou com dívida parcelada (seção 7). NUNCA é receita.
+  | { kind: 'financed-cash-inflow'; total: number; netReceived: number; installments: number; cardName?: string; source?: string }
+  | { kind: 'card-payment'; cardName?: string; amount?: number }  // amount ausente = fatura toda
+  | { kind: 'card-charge'; description?: string; amount: number; cardName?: string; category?: string } // assinatura
   | { kind: 'reset' }                           // apaga todos os dados (confirmação obrigatória)
 
 export interface Insight {
@@ -204,4 +315,12 @@ export interface AppState {
   budgets: Budget[]
   chat: ChatMessage[]
   dismissedDeficitDates: string[]
+  // Cartões e parcelamentos. Estados salvos antes desta versão não têm estes
+  // campos — normalizeState() em store.tsx garante array vazio ao hidratar,
+  // inclusive ao restaurar um backup antigo.
+  cards: CreditCard[]
+  installmentPlans: InstallmentPlan[]
+  installments: Installment[]
+  cardPayments: CardPayment[]
+  cardCharges: RecurringCardCharge[]
 }

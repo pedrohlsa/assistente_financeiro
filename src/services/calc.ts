@@ -1,6 +1,7 @@
 // Motor de cálculos financeiros — todos os números do app saem daqui.
 import { AppState, Insight, RecurringExpense, Transaction } from '../models/types'
 import { addDays, daysInMonth, fmtBRL, fmtNum, fromISO, monthKey, todayISO, toISO } from '../utils/format'
+import { installmentsThisMonth, monthlyCommitments, installmentsInMonth } from './cards'
 
 export interface PeriodStats {
   income: number
@@ -65,6 +66,7 @@ export interface DailyGoalBreakdown {
   base: number      // contas fixas + custos / dias de trabalho
   personal: number  // metas de compra
   deficit: number   // déficits diluídos
+  installments: number // parcelas de cartão/parcelamentos do mês, diluídas
   margin: number    // margem de segurança
   total: number
   workDaysLeft: number
@@ -104,10 +106,16 @@ export function dailyGoal(s: AppState): DailyGoalBreakdown {
   }, 0)
 
   const deficit = s.deficits.filter(d => !d.ignored && d.remaining > 0.01).reduce((a, d) => a + d.perDay, 0)
-  const subtotal = base + personal + deficit
+
+  // Parcelas e assinaturas do cartão são obrigação mensal real: entram diluídas
+  // pelos dias de trabalho, igual às contas fixas. Sem parcelas cadastradas o
+  // valor é 0 e a meta diária fica idêntica ao que já era.
+  const installments = monthlyCommitments(s, monthKey(today)) / workDaysPerMonth
+
+  const subtotal = base + personal + deficit + installments
   const margin = subtotal * (s.settings.safetyMarginPct / 100)
 
-  return { base, personal, deficit, margin, total: subtotal + margin, workDaysLeft }
+  return { base, personal, deficit, installments, margin, total: subtotal + margin, workDaysLeft }
 }
 
 // ---------- META MENSAL PARA GUARDAR (perfis não motoristas) ----------
@@ -126,6 +134,13 @@ export interface MonthlySavingGoal {
   savedPct: number       // percentual da meta efetivamente guardado
   savedReached: boolean  // guardou pelo menos a meta
   stillAvailable: number // resultado líquido que ainda não foi guardado
+  /**
+   * Parcelas e assinaturas que vencem neste mês. É PROJEÇÃO — não altera `net`
+   * nem `saved`, que continuam sendo só o que foi realmente movimentado.
+   */
+  installmentsDue: number
+  /** Quanto sobraria para guardar já descontando as parcelas do mês (projeção). */
+  projectedAvailable: number
 }
 
 export function monthlySavingGoal(s: AppState): MonthlySavingGoal {
@@ -135,6 +150,7 @@ export function monthlySavingGoal(s: AppState): MonthlySavingGoal {
   const missing = Math.max(target - net, 0)
   const pct = target > 0 ? Math.round((net / target) * 100) : 0
   const saved = savedThisMonth(s)
+  const installmentsDue = installmentsThisMonth(s)
   return {
     target, income: m.income, expense: m.expense, net, missing,
     pct: Math.max(pct, 0),
@@ -144,6 +160,8 @@ export function monthlySavingGoal(s: AppState): MonthlySavingGoal {
     savedPct: target > 0 ? Math.max(Math.round((saved / target) * 100), 0) : 0,
     savedReached: target > 0 && saved >= target,
     stillAvailable: Math.max(net - saved, 0),
+    installmentsDue,
+    projectedAvailable: Math.max(net - saved - installmentsDue, 0),
   }
 }
 
@@ -162,6 +180,7 @@ export interface MonthForecast {
   incomingLeft: number      // entradas fixas ainda previstas até o fim do mês
   paid: number              // despesas já pagas no mês
   billsLeft: number         // contas ainda pendentes até o fim do mês
+  installmentsLeft: number  // parcelas/assinaturas que ainda vencem neste mês
   estimatedEnd: number      // saldo estimado no fim do mês
   estimatedSavable: number  // quanto dá pra guardar, estimado
   hasData: boolean          // há base suficiente para prever
@@ -181,15 +200,89 @@ export function monthForecast(s: AppState): MonthForecast {
   const incomingLeft = untilEnd(upcomingIncomes(s, daysLeft)).reduce((a, b) => a + b.amount, 0)
   const billsLeft = untilEnd(upcomingBills(s, daysLeft)).reduce((a, b) => a + b.amount, 0)
 
-  const estimatedEnd = balance + incomingLeft - billsLeft
+  // Parcelas que ainda vencem neste mês também comprometem o saldo.
+  const installmentsLeft = installmentsInMonth(s, monthKey(t))
+    .filter(i => i.status === 'pending' && i.dueDate >= t)
+    .reduce((a, i) => a + i.amount, 0)
+
+  const estimatedEnd = balance + incomingLeft - billsLeft - installmentsLeft
   const target = Math.max(s.settings.monthlyProfitTarget || 0, 0)
   return {
-    balance, received: m.income, incomingLeft, paid: m.expense, billsLeft,
+    balance, received: m.income, incomingLeft, paid: m.expense, billsLeft, installmentsLeft,
     estimatedEnd,
     estimatedSavable: Math.max(Math.min(estimatedEnd, target || estimatedEnd), 0),
-    hasData: balance > 0 || m.income > 0 || s.recurring.length > 0,
+    hasData: balance > 0 || m.income > 0 || s.recurring.length > 0 || (s.installmentPlans?.length || 0) > 0,
     daysLeft,
   }
+}
+
+// ---------- PROJEÇÃO MÊS A MÊS (cartões, parcelas e recorrentes) ----------
+export interface MonthProjection {
+  monthKey: string        // 'YYYY-MM'
+  label: string           // "set/2026"
+  isCurrent: boolean
+  incomes: number         // entradas recorrentes previstas
+  bills: number           // contas recorrentes previstas
+  installments: number    // parcelas + assinaturas de cartão do mês
+  outflow: number         // bills + installments
+  net: number             // incomes − outflow
+  runningBalance: number  // saldo estimado acumulado a partir do saldo atual
+  savable: number         // quanto sobraria para guardar
+  commitmentPct: number   // % da renda prevista comprometida
+  tight: boolean          // mês apertado (comprometimento alto ou saldo negativo)
+}
+
+/** Soma mensal de um recorrente, respeitando início/fim e frequência. */
+function recurringMonthAmount(r: RecurringExpense, mk: string): number {
+  if (r.active === false) return 0
+  if (r.startDate && monthKey(r.startDate) > mk) return 0
+  if (r.endDate && monthKey(r.endDate) < mk) return 0
+  if (r.frequency === 'monthly') return r.amount
+  if (r.frequency === 'weekly') return r.amount * 4.33
+  // anual: só no mês certo
+  if (r.dueMonth) return Number(mk.slice(5, 7)) === r.dueMonth ? r.amount : 0
+  return r.amount / 12
+}
+
+/**
+ * Projeção dos próximos N meses (seção 9). Só usa obrigações CADASTRADAS —
+ * nunca extrapola média de gasto variável, para não apresentar estimativa como
+ * se fosse compromisso real. As parcelas entram pelo valor que vence no mês;
+ * o valor total da compra nunca é somado junto (ver services/cards.ts).
+ */
+export function monthlyProjections(s: AppState, months = 12): MonthProjection[] {
+  const t = todayISO()
+  const start = fromISO(t)
+  const out: MonthProjection[] = []
+  let running = s.settings.balance || 0
+
+  for (let i = 0; i < months; i++) {
+    const d = new Date(start.getFullYear(), start.getMonth() + i, 1)
+    const mk = monthKey(toISO(d))
+    const incomes = s.recurring.filter(r => r.kind === 'income').reduce((a, r) => a + recurringMonthAmount(r, mk), 0)
+    const bills = s.recurring.filter(r => r.kind !== 'income').reduce((a, r) => a + recurringMonthAmount(r, mk), 0)
+    const installments = monthlyCommitments(s, mk)
+    const outflow = bills + installments
+    const net = incomes - outflow
+    running += net
+    const target = Math.max(s.settings.monthlyProfitTarget || 0, 0)
+    out.push({
+      monthKey: mk,
+      label: d.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }).replace(/\.?\s*de\s*/, '/'),
+      isCurrent: i === 0,
+      incomes, bills, installments, outflow, net,
+      runningBalance: running,
+      savable: Math.max(Math.min(net, target || net), 0),
+      commitmentPct: incomes > 0 ? Math.round((outflow / incomes) * 100) : 0,
+      tight: running < 0 || (incomes > 0 && outflow > incomes),
+    })
+  }
+  return out
+}
+
+/** Há base suficiente para projetar? Sem isso, a tela mostra estado vazio honesto. */
+export function hasProjectionData(s: AppState): boolean {
+  return s.recurring.length > 0 || (s.installmentPlans?.length || 0) > 0 || (s.cardCharges?.length || 0) > 0
 }
 
 // ---------- RECORRENTES PENDENTES DE CONFIRMAÇÃO (14.2) ----------

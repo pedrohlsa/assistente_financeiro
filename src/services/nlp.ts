@@ -26,7 +26,7 @@ function parseKmValue(raw: string): number {
 
 // Verbos que iniciam um novo comando — usados para quebrar frases compostas
 // como "rodei no uber e ganhei 300 reais coloquei 70 de gasolina".
-const COMMAND_VERBS = ['ganhei', 'recebi', 'faturei', 'lucrei', 'gastei', 'paguei', 'comprei', 'troquei', 'instalei', 'abasteci', 'coloquei', 'botei', 'rodei', 'andei', 'dirigi', 'percorri', 'trabalhei', 'quero', 'fiz', 'guardei', 'guarda', 'guardar', 'separei', 'separa', 'muda', 'mudar', 'altera', 'alterar', 'aumenta', 'aumentar', 'diminui', 'diminuir', 'retira', 'retirei', 'tira', 'tirei', 'remove', 'removi', 'desconta', 'descontei', 'reduz', 'reduzi', 'corrige', 'corrigi']
+const COMMAND_VERBS = ['ganhei', 'recebi', 'faturei', 'lucrei', 'gastei', 'paguei', 'comprei', 'parcelei', 'passei', 'troquei', 'instalei', 'abasteci', 'coloquei', 'botei', 'rodei', 'andei', 'dirigi', 'percorri', 'trabalhei', 'quero', 'fiz', 'guardei', 'guarda', 'guardar', 'separei', 'separa', 'muda', 'mudar', 'altera', 'alterar', 'aumenta', 'aumentar', 'diminui', 'diminuir', 'retira', 'retirei', 'tira', 'tirei', 'remove', 'removi', 'desconta', 'descontei', 'reduz', 'reduzi', 'corrige', 'corrigi']
 
 // Verbos que indicam correção/subtração de um registro de trabalho já lançado
 // ("retira 100km rodados", "diminui 80 km dos rodados hoje", "tira 2 viagens")
@@ -66,9 +66,86 @@ export function parseNatural(input: string): ParsedAction[] {
   })
 }
 
+/**
+ * Compra parcelada, entrada financiada, fatura e assinatura.
+ * Regra: nada é inventado. Se faltar valor ou nº de parcelas, não gera ação —
+ * o assistente pergunta o que falta em vez de chutar.
+ */
+function parseCardClause(text: string): ParsedAction[] {
+  // "passei 2000 em 5 vezes e recebi 1850 líquidos" — entrada financiada (seção 7)
+  const financed = text.match(new RegExp(
+    String.raw`(?:passei|passou|fiz)\s*(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:no cart[ãa]o\s*)?(?:em|x|vezes?)?\s*(\d+)?\s*(?:vezes|x|parcelas?)?[^\d]*(?:e\s*)?(?:recebi|receber|peguei|caiu)\s*(?:r\$)?\s*${NUM}`, 'i'))
+  if (financed) {
+    const total = parseNum(financed[1])
+    const net = parseNum(financed[3])
+    if (total > 0 && net > 0 && net <= total) {
+      return [{
+        kind: 'financed-cash-inflow',
+        total, netReceived: net,
+        installments: financed[2] ? parseInt(financed[2], 10) : 1,
+        cardName: matchCardName(text),
+      }]
+    }
+  }
+
+  // "paguei a fatura do nubank" / "paguei 700 da fatura"
+  if (/fatura/.test(text) && /(paguei|pagar|quitei|quitar)/.test(text)) {
+    const amountM = text.match(new RegExp(String.raw`(?:paguei|pagar|quitei)\s*(?:r\$)?\s*${NUM}`, 'i'))
+    return [{ kind: 'card-payment', cardName: matchCardName(text), amount: amountM ? parseNum(amountM[1]) : undefined }]
+  }
+
+  // "tenho uma assinatura de 39,90 no cartão"
+  const sub = text.match(new RegExp(String.raw`assinatura\s*(?:d[eo]\s*)?([\wçãõáéíóúâê\s]+?)?\s*(?:de|por|custa)?\s*(?:r\$)?\s*${NUM}`, 'i'))
+  if (sub && /assinatura/.test(text)) {
+    const amount = parseNum(sub[2])
+    if (amount > 0) {
+      const label = (sub[1] || '').trim().replace(/\b(no|do|da|de)\b.*$/, '').trim()
+      return [{ kind: 'card-charge', description: label || undefined, amount, cardName: matchCardName(text) }]
+    }
+  }
+
+  // "comprei um computador de 4000 em 4 vezes no nubank"
+  if (/(comprei|compra|parcelei|parcelado|parcelada)/.test(text)) {
+    const instM = text.match(/(?:em|x)\s*(\d+)\s*(?:vezes|x|parcelas?)|(\d+)\s*x\b/i)
+    const valM = text.match(new RegExp(String.raw`(?:de|por|custou|valor de)\s*(?:r\$)?\s*${NUM}(?:\s*(mil))?`, 'i'))
+      || text.match(new RegExp(String.raw`(?:r\$)\s*${NUM}(?:\s*(mil))?`, 'i'))
+    // Sem valor OU sem parcelas não registra nada: quem pergunta é o assistente.
+    if (!valM || !instM) return []
+    let total = parseNum(valM[1])
+    if (valM[2]) total *= 1000
+    const installments = parseInt(instM[1] || instM[2], 10)
+    if (!(total > 0) || !(installments > 0)) return []
+    // terminadores precisam ser palavras inteiras, senão "geladeira" vira "gela" + "de"
+    const descM = text.match(/comprei\s+(?:um|uma|o|a|uns|umas)\s+([\wçãõáéíóúâê]+(?:\s+[\wçãõáéíóúâê]+)*?)(?=\s+(?:de|por|em|no|na)\b|\s*r\$|\s*\d)/i)
+    return [{
+      kind: 'card-purchase',
+      description: descM ? descM[1].trim() : undefined,
+      total, installments,
+      cardName: matchCardName(text),
+      category: guessCategory(descM?.[1] || text, 'expense'),
+    }]
+  }
+  return []
+}
+
+/** Nome do cartão citado depois de "no/na/pelo". Nunca inventa um cartão. */
+function matchCardName(text: string): string | undefined {
+  const m = text.match(/\b(?:no|na|pelo|pela|cart[ãa]o(?:\s+d[oa])?)\s+([a-zà-ú][\wçãõáéíóúâê]*(?:\s+[a-zà-ú][\wçãõáéíóúâê]*)?)/i)
+  if (!m) return undefined
+  const raw = m[1].trim()
+  // palavras genéricas não são nome de cartão
+  if (/^(cart[ãa]o|cr[ée]dito|d[ée]bito|fatura|vezes|parcelas?|meses?|banco)$/i.test(raw)) return undefined
+  return raw
+}
+
 function parseClause(input: string): ParsedAction[] {
   const text = input.toLowerCase().trim()
   const actions: ParsedAction[] = []
+
+  // Cartões/parcelamentos têm prioridade: "comprei X em 4 vezes" não pode virar
+  // uma despesa simples de X à vista.
+  const cardActions = parseCardClause(text)
+  if (cardActions.length) return cardActions
 
   // ----- reset: "reseta tudo", "apaga tudo", "zera tudo", "limpar tudo"
   if (/\b(reset(?:a|ar|e)?|apag(?:a|ar)|zer(?:a|ar))\s+(tudo|todos|geral|os dados|meus dados)\b/.test(text) || /\bresetar tudo\b/.test(text)) {
@@ -248,6 +325,41 @@ export function describeActionDetailed(a: ParsedAction, opts?: { fee?: number; c
       lines.push('Data: hoje')
       lines.push('Não conta como despesa.')
       break
+    case 'card-purchase': {
+      const per = a.total / Math.max(a.installments, 1)
+      lines.push(`Compra parcelada${a.description ? `: ${a.description}` : ''}`)
+      lines.push(`Valor total: ${money(a.total)}`)
+      lines.push(`Parcelas: ${a.installments}x de ${money(per)}`)
+      lines.push(`Cartão: ${a.cardName || 'não informado (registra sem cartão)'}`)
+      lines.push(`1º vencimento: ${a.firstDueDate ? a.firstDueDate.split('-').reverse().join('/') : 'próxima fatura'}`)
+      const c = catName(a.category)
+      if (c) lines.push(`Categoria: ${c}`)
+      lines.push(`Impacto: ${money(per)} por mês nas próximas ${a.installments} fatura(s).`)
+      break
+    }
+    case 'financed-cash-inflow': {
+      const per = a.total / Math.max(a.installments, 1)
+      lines.push('Entrada financiada pelo cartão')
+      lines.push(`Recebido agora: ${money(a.netReceived)}`)
+      lines.push(`Dívida no cartão: ${money(a.total)}`)
+      lines.push(`Custo da operação: ${money(Math.max(a.total - a.netReceived, 0))}`)
+      lines.push(`Parcelas: ${a.installments}x de ${money(per)}`)
+      if (a.cardName) lines.push(`Cartão: ${a.cardName}`)
+      lines.push('Não é receita nem lucro — seu patrimônio não aumenta.')
+      break
+    }
+    case 'card-payment':
+      lines.push('Pagamento de fatura')
+      lines.push(`Cartão: ${a.cardName || 'não informado'}`)
+      lines.push(a.amount ? `Valor: ${money(a.amount)} (pagamento parcial se for menor que a fatura)` : 'Valor: todo o pendente da fatura')
+      lines.push('Não gera despesa nova — as compras já foram contadas como parcelas.')
+      break
+    case 'card-charge':
+      lines.push(`Assinatura${a.description ? `: ${a.description}` : ''}`)
+      lines.push(`Valor: ${money(a.amount)} por mês`)
+      lines.push(`Cartão: ${a.cardName || 'não informado'}`)
+      lines.push('Recorrente até você cancelar — não é parcelamento.')
+      break
     default:
       lines.push(describeAction(a))
   }
@@ -271,6 +383,14 @@ export function describeAction(a: ParsedAction): string {
     case 'goal-update': return `Alterar meta${a.name ? ` "${a.name}"` : ''}${a.target ? ` para R$ ${a.target.toLocaleString('pt-BR')}` : ''}`
     case 'goal-deposit': return `Guardar R$ ${a.amount.toFixed(2).replace('.', ',')}${a.name ? ` na meta "${a.name}"` : ' na meta'}`
     case 'balance': return `Saldo em conta: R$ ${a.amount.toFixed(2).replace('.', ',')}`
+    case 'card-purchase':
+      return `Compra${a.description ? ` de ${a.description}` : ''} de R$ ${a.total.toFixed(2).replace('.', ',')} em ${a.installments}x${a.cardName ? ` no ${a.cardName}` : ''}`
+    case 'financed-cash-inflow':
+      return `Entrada financiada: recebeu R$ ${a.netReceived.toFixed(2).replace('.', ',')} e deve R$ ${a.total.toFixed(2).replace('.', ',')} em ${a.installments}x`
+    case 'card-payment':
+      return `Pagar fatura${a.cardName ? ` do ${a.cardName}` : ''}${a.amount ? ` — R$ ${a.amount.toFixed(2).replace('.', ',')}` : ' (valor pendente)'}`
+    case 'card-charge':
+      return `Assinatura${a.description ? ` ${a.description}` : ''} de R$ ${a.amount.toFixed(2).replace('.', ',')}/mês${a.cardName ? ` no ${a.cardName}` : ''}`
     case 'reset': return 'Apagar TODOS os dados do app'
   }
 }

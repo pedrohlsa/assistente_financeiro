@@ -13,11 +13,15 @@ import {
 } from '../utils/format'
 import {
   analyzeRide, avgDailyProfit, balanceOutlook, bestWorstDay, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
-  monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats,
+  monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections,
 } from './calc'
 import { describeAction, parseNatural } from './nlp'
 import { catById } from '../data/categories'
 import { isDriver } from './profile'
+import {
+  activeCards, cardsOverview, currentInvoice, monthlyCommitments, activePlans,
+  planProgress, overdueInstallments, upcomingInvoices,
+} from './cards'
 
 export interface AiReply {
   text: string
@@ -65,6 +69,50 @@ export function buildAiContext(s: AppState) {
     proximasContas: upcomingBills(s, 15).map(b => ({ nome: b.name, valor: b.amount, emDias: b.inDays })),
     proximasEntradas: upcomingIncomes(s, 31).map(b => ({ nome: b.name, valor: b.amount, emDias: b.inDays })),
     orcamentos: s.budgets.map(b => ({ categoria: b.category, limiteMensal: b.limit })),
+  }
+
+  // Cartões e parcelamentos — só entra no contexto se o usuário usa a área.
+  const ov = cardsOverview(s)
+  if (ov.hasData) {
+    base.cartoes = activeCards(s).map(c => {
+      const inv = currentInvoice(s, c)
+      return {
+        nome: c.name,
+        faturaAtual: { total: r2(inv.total), pago: r2(inv.paid), pendente: r2(inv.pending), vencimento: inv.dueDate, situacao: inv.status },
+        limiteTotal: r2(c.limit || 0),
+        proximasFaturas: upcomingInvoices(s, c, 4).slice(1).map(f => ({ mes: f.monthKey, total: r2(f.total) })),
+      }
+    })
+    base.parcelamentos = {
+      ativos: ov.activePlanCount,
+      dividaRestante: r2(ov.totalDebt),
+      parcelasDesteMes: r2(ov.installmentsThisMonth),
+      parcelasProximoMes: r2(ov.installmentsNextMonth),
+      atrasadas: { quantidade: ov.overdueCount, valor: r2(ov.overdueAmount) },
+      limiteDisponivel: r2(ov.availableLimit),
+      lista: activePlans(s).slice(0, 12).map(p => {
+        const pp = planProgress(s, p)
+        return {
+          descricao: p.description,
+          valorTotal: r2(p.totalAmount),
+          parcelaAtual: r2(pp.currentAmount),
+          pagas: pp.paidCount,
+          restantes: pp.remainingCount,
+          saldoRestante: r2(pp.remainingAmount),
+          proximoVencimento: pp.nextDueDate || null,
+          cartao: pp.card?.name || null,
+          tipo: p.operationType,
+        }
+      }),
+    }
+    base.projecaoProximosMeses = monthlyProjections(s, 6).map(m => ({
+      mes: m.monthKey,
+      entradasPrevistas: r2(m.incomes),
+      contasPrevistas: r2(m.bills),
+      parcelasPrevistas: r2(m.installments),
+      saldoEstimado: r2(m.runningBalance),
+      comprometimentoPct: m.commitmentPct,
+    }))
   }
 
   if (driverMode) {
@@ -140,6 +188,42 @@ function sanitizeActions(raw: any[]): ParsedAction[] {
         break
       case 'balance':
         if (isNum(a.amount)) out.push({ kind: 'balance', amount: a.amount })
+        break
+      // Cartões: só aceita quando os dados obrigatórios vieram completos e
+      // coerentes. Nada é preenchido por conta própria.
+      case 'card-purchase': {
+        const n = Math.round(a.installments)
+        if (isNum(a.total) && Number.isFinite(n) && n >= 1 && n <= 120) {
+          out.push({
+            kind: 'card-purchase', total: a.total, installments: n,
+            description: optStr(a.description), cardName: optStr(a.cardName),
+            category: optStr(a.category),
+            firstDueDate: /^\d{4}-\d{2}-\d{2}$/.test(a.firstDueDate) ? a.firstDueDate : undefined,
+          })
+        }
+        break
+      }
+      case 'financed-cash-inflow': {
+        const n = Math.round(a.installments)
+        // recebido nunca pode superar o valor cobrado no cartão
+        if (isNum(a.total) && isNum(a.netReceived) && a.netReceived <= a.total && Number.isFinite(n) && n >= 1 && n <= 120) {
+          out.push({
+            kind: 'financed-cash-inflow', total: a.total, netReceived: a.netReceived,
+            installments: n, cardName: optStr(a.cardName), source: optStr(a.source),
+          })
+        }
+        break
+      }
+      case 'card-payment':
+        // valor ausente = pagar o pendente da fatura; valor presente precisa ser válido
+        if (a.amount === undefined || a.amount === null || isNum(a.amount)) {
+          out.push({ kind: 'card-payment', cardName: optStr(a.cardName), amount: optNum(a.amount) })
+        }
+        break
+      case 'card-charge':
+        if (isNum(a.amount)) {
+          out.push({ kind: 'card-charge', amount: a.amount, description: optStr(a.description), cardName: optStr(a.cardName), category: optStr(a.category) })
+        }
         break
       // 'reset' NÃO é aceito da IA remota — só via parser local ("reseta tudo"),
       // para evitar que um mal-entendido apague os dados do usuário.
@@ -223,6 +307,96 @@ function resolveLocal(s: AppState, input: string): AiReply {
   }
 
   // ---------- 2) Perguntas ----------
+
+  // ===== Cartões, parcelas e faturas (todos os perfis) =====
+  const ov = cardsOverview(s)
+  if (/parcela|fatura|cart[ãa]o|parcelamento|d[ií]vida/.test(t)) {
+    if (!ov.hasData) {
+      return { text: 'Você ainda não cadastrou cartões nem parcelamentos. Você pode adicionar em Mais → Cartões e parcelamentos.' }
+    }
+    // "quanto tenho de parcela no mês que vem?"
+    if (/(m[eê]s que vem|pr[oó]ximo m[eê]s)/.test(t) && /parcela|fatura|cart[ãa]o/.test(t)) {
+      return {
+        text: `No próximo mês vencem ${fmtBRL(ov.installmentsNextMonth)} em parcelas e assinaturas (dado real, com base no que você cadastrou).` +
+          (ov.installmentsThisMonth > 0 ? `\n\nNeste mês são ${fmtBRL(ov.installmentsThisMonth)}.` : ''),
+      }
+    }
+
+    // "qual será minha maior fatura?"
+    if (/maior fatura/.test(t)) {
+      const all = activeCards(s).flatMap(c => upcomingInvoices(s, c, 6).map(inv => ({ card: c.name, inv })))
+        .filter(x => x.inv.total > 0)
+        .sort((a, b) => b.inv.total - a.inv.total)
+      if (!all.length) return { text: 'Não há faturas previstas com valor nos próximos meses.' }
+      const top = all[0]
+      return { text: `Sua maior fatura prevista é a do ${top.card}, com ${fmtBRL(top.inv.total)}, vencendo em ${fromISO(top.inv.dueDate).toLocaleDateString('pt-BR')}.` }
+    }
+
+    // "quanto vou pagar de cartão nos próximos três meses?"
+    const nextM = t.match(/pr[oó]ximos?\s*(\d+|tr[eê]s|dois|quatro|cinco|seis)\s*(?:meses|m[eê]s)/)
+    if (nextM && /cart[ãa]o|parcela|fatura/.test(t)) {
+      const word: Record<string, number> = { dois: 2, 'três': 3, tres: 3, quatro: 4, cinco: 5, seis: 6 }
+      const n = Math.min(parseInt(nextM[1], 10) || word[nextM[1]] || 3, 12)
+      const proj = monthlyProjections(s, n)
+      const total = proj.reduce((a, m) => a + m.installments, 0)
+      return {
+        text: `Nos próximos ${n} meses estão previstos ${fmtBRL(total)} em parcelas e faturas:\n\n` +
+          proj.map(m => `• ${m.label}: ${fmtBRL(m.installments)}`).join('\n') +
+          `\n\nSão valores já contratados — podem mudar se você fizer novas compras.`,
+      }
+    }
+
+    // "quanto devo de cartão / minha dívida"
+    if (/(quanto.*(devo|dívida|divida))|d[ií]vida total/.test(t)) {
+      return {
+        text: `Sua dívida parcelada restante é ${fmtBRL(ov.totalDebt)} em ${ov.activePlanCount} parcelamento(s).\n\n` +
+          `• Faturas em aberto agora: ${fmtBRL(ov.openInvoicesTotal)}\n` +
+          `• Parcelas deste mês: ${fmtBRL(ov.installmentsThisMonth)}\n` +
+          `• Próximo mês: ${fmtBRL(ov.installmentsNextMonth)}` +
+          (ov.overdueCount > 0 ? `\n• Atrasadas: ${ov.overdueCount} (${fmtBRL(ov.overdueAmount)})` : ''),
+      }
+    }
+
+    // "quanto tenho de limite"
+    if (/limite/.test(t)) {
+      if (ov.totalLimit <= 0) return { text: 'Você ainda não informou o limite dos seus cartões. Dá pra cadastrar em Mais → Cartões e parcelamentos.' }
+      return { text: `Seus cartões somam ${fmtBRL(ov.totalLimit)} de limite. Comprometido: ${fmtBRL(ov.usedLimit)}. Disponível: ${fmtBRL(ov.availableLimit)}. (dados reais)` }
+    }
+
+    // resumo geral de fatura/parcelas
+    const cardsList = activeCards(s)
+    if (cardsList.length) {
+      return {
+        text: `Situação dos seus cartões (dados reais):\n\n` +
+          cardsList.map(c => {
+            const inv = currentInvoice(s, c)
+            return `• ${c.name}: fatura de ${fmtBRL(inv.total)}${inv.paid > 0 ? ` (pago ${fmtBRL(inv.paid)}, pendente ${fmtBRL(inv.pending)})` : ''} — vence ${fromISO(inv.dueDate).toLocaleDateString('pt-BR')} · ${inv.status}`
+          }).join('\n') +
+          `\n\nParcelas deste mês: ${fmtBRL(ov.installmentsThisMonth)}. Dívida parcelada restante: ${fmtBRL(ov.totalDebt)}.`,
+      }
+    }
+    return {
+      text: `Você tem ${ov.activePlanCount} parcelamento(s) ativo(s), somando ${fmtBRL(ov.totalDebt)} a pagar.\n` +
+        `Parcelas deste mês: ${fmtBRL(ov.installmentsThisMonth)} · próximo mês: ${fmtBRL(ov.installmentsNextMonth)}.`,
+    }
+  }
+
+  // "quanto vai sobrar em outubro?" — projeção por mês citado
+  const monthNames = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+  const monthAsked = monthNames.findIndex(m => t.includes(m))
+  if (monthAsked >= 0 && /(sobrar|sobra|saldo|vou ter|estimad)/.test(t)) {
+    const proj = monthlyProjections(s, 14)
+    const target = proj.find(m => Number(m.monthKey.slice(5, 7)) === monthAsked + 1)
+    if (!target) return { text: `Não tenho projeção para ${monthNames[monthAsked]} — ela cobre os próximos meses a partir de hoje.` }
+    return {
+      text: `Projeção para ${target.label}:\n\n` +
+        `• Entradas previstas: ${fmtBRL(target.incomes)}\n` +
+        `• Contas previstas: ${fmtBRL(target.bills)}\n` +
+        `• Parcelas e faturas: ${fmtBRL(target.installments)}\n` +
+        `• Saldo estimado acumulado: ${fmtBRL(target.runningBalance)}\n\n` +
+        `Considerando suas entradas e obrigações cadastradas, o saldo estimado é ${fmtBRL(target.runningBalance)}. Essa é uma projeção e pode mudar com novos lançamentos.`,
+    }
+  }
 
   // ===== Perguntas dos perfis NÃO motoristas (mês, guardar, entradas) =====
   if (!driverMode) {

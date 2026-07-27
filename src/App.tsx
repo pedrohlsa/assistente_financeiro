@@ -14,6 +14,7 @@ import Analytics from './screens/Analytics'
 import VehicleScreen from './screens/Vehicle'
 import RideAnalyzer from './screens/RideAnalyzer'
 import Planning from './screens/Planning'
+import Cards from './screens/Cards'
 import SettingsScreen from './screens/Settings'
 import Onboarding from './screens/Onboarding'
 
@@ -47,6 +48,7 @@ function Shell() {
           <Route path="/veiculo" element={driverMode ? <VehicleScreen /> : <Navigate to="/" replace />} />
           <Route path="/corrida" element={driverMode ? <RideAnalyzer /> : <Navigate to="/" replace />} />
           <Route path="/planejamento" element={<Planning />} />
+          <Route path="/cartoes" element={<Cards />} />
           <Route path="/config" element={<SettingsScreen />} />
           <Route path="*" element={<Home />} />
         </Routes>

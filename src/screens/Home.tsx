@@ -184,6 +184,16 @@ export default function Home() {
               <div className="spread"><span className="muted">Resultado líquido</span><span className="mono-num">{fmtBRL(msg.net)}</span></div>
               <div className="spread"><span className="muted">Já guardado de verdade</span><span className="mono-num amount-pos">{fmtBRL(msg.saved)}</span></div>
               <div className="spread"><span className="muted">Ainda disponível para guardar</span><span className="mono-num">{fmtBRL(msg.stillAvailable)}</span></div>
+              {/* Parcelas do mês: projeção, não altera o valor realmente guardado (13) */}
+              {msg.installmentsDue > 0 && (
+                <>
+                  <div className="spread"><span className="muted">− Parcelas que vencem neste mês</span><span className="mono-num amount-neg">{fmtBRL(msg.installmentsDue)}</span></div>
+                  <div className="spread" style={{ fontWeight: 650 }}>
+                    <span>Projeção após as parcelas</span>
+                    <span className="mono-num">{fmtBRL(msg.projectedAvailable)}</span>
+                  </div>
+                </>
+              )}
             </div>
             {msg.target > 0 && msg.saved > 0 && (
               <div style={{ marginTop: 10 }}>
@@ -272,6 +282,9 @@ export default function Home() {
                   <div className="spread"><span>Saldo atual informado</span><span className="mono-num">{fmtBRL(mfc.balance)}</span></div>
                   <div className="spread"><span>+ Entradas ainda previstas</span><span className="mono-num amount-pos">{fmtBRL(mfc.incomingLeft)}</span></div>
                   <div className="spread"><span>− Contas ainda pendentes</span><span className="mono-num amount-neg">{fmtBRL(mfc.billsLeft)}</span></div>
+                  {mfc.installmentsLeft > 0 && (
+                    <div className="spread"><span>− Parcelas ainda a vencer</span><span className="mono-num amount-neg">{fmtBRL(mfc.installmentsLeft)}</span></div>
+                  )}
                   <div className="spread" style={{ fontWeight: 700 }}><span>= Saldo estimado no fim do mês</span><span className="mono-num">{fmtBRL(mfc.estimatedEnd)}</span></div>
                   <div className="divider" style={{ margin: '6px 0' }} />
                   <div className="spread"><span>Já recebido neste mês (realizado)</span><span className="mono-num">{fmtBRL(mfc.received)}</span></div>

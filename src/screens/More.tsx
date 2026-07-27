@@ -7,6 +7,7 @@ const ALL_ITEMS = [
   { to: '/analises', icon: '📊', label: 'Análises e relatórios', desc: 'Evolução, categorias, comparativos, exportação' },
   { to: '/veiculo', icon: '⛽', label: 'Meu veículo', desc: 'Combustível, consumo (km/L), manutenção', driverOnly: true },
   { to: '/planejamento', icon: '📅', label: 'Planejamento', desc: 'Contas, entradas fixas, previsão 30 dias' },
+  { to: '/cartoes', icon: '💳', label: 'Cartões e parcelamentos', desc: 'Faturas, parcelas, limites e projeções futuras' },
   { to: '/config', icon: '⚙️', label: 'Configurações', desc: 'Perfil, tema, metas, custos, backup' },
 ]
 

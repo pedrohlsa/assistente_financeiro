@@ -119,10 +119,17 @@ export default function Transactions() {
                   <div className="tx-icon">{cat.icon}</div>
                   <div className="grow">
                     <div style={{ fontWeight: 650, fontSize: '0.92rem' }}>{t.description || cat.name}</div>
-                    <div className="tiny">{cat.name}{t.time ? ` · ${t.time}` : ''}{t.paymentMethod ? ` · ${t.paymentMethod}` : ''}</div>
+                    <div className="tiny">
+                      {t.type === 'financed-cash-inflow' ? 'entrada financiada (não é receita)' : cat.name}
+                      {t.time ? ` · ${t.time}` : ''}{t.paymentMethod ? ` · ${t.paymentMethod}` : ''}
+                    </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <Money v={t.type === 'income' ? t.amount : -t.amount} signed />
+                    {/* 'financed-cash-inflow' entra no caixa mas NÃO é receita:
+                        aparece sem sinal e sem cor de ganho. */}
+                    {t.type === 'financed-cash-inflow'
+                      ? <span className="mono-num" style={{ fontWeight: 650 }}>{fmtBRL(t.amount)}</span>
+                      : <Money v={t.type === 'income' ? t.amount : -t.amount} signed />}
                     <button className="tiny" style={{ display: 'block', background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', marginLeft: 'auto' }}
                       onClick={() => { dispatch({ type: 'removeTx', id: t.id }); toast({ text: 'Movimentação removida.', undo: () => dispatch({ type: 'addTx', tx: t }) }) }}>
                       remover
