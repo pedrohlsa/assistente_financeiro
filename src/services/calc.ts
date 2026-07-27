@@ -1,7 +1,7 @@
 // Motor de cálculos financeiros — todos os números do app saem daqui.
-import { AppState, Insight, RecurringExpense, Transaction } from '../models/types'
-import { addDays, dateForDayOfMonth, daysInMonth, dueLabel, fmtBRL, fmtNum, fromISO, monthKey, todayISO, toISO } from '../utils/format'
-import { sentenceCase } from '../utils/text'
+import { AppState, Insight, IntervalUnit, RecurrenceOccurrence, RecurringExpense, Transaction } from '../models/types'
+import { addDays, dateForDayOfMonth, daysInMonth, dueLabel, fmtBRL, fmtNum, fromISO, monthKey, stampOf, todayISO, toISO } from '../utils/format'
+import { sentenceCase, weekdayName } from '../utils/text'
 import { installmentsThisMonth, monthlyCommitments, installmentsInMonth } from './cards'
 
 export interface PeriodStats {
@@ -53,6 +53,42 @@ export const prevMonthStats = (s: AppState) => {
   const first = new Date(t.getFullYear(), t.getMonth() - 1, 1)
   const last = new Date(t.getFullYear(), t.getMonth(), 0)
   return periodStats(s, toISO(first), toISO(last))
+}
+
+// ---------- SALDO EM CONTA: FONTE ÚNICA ----------
+/**
+ * Saldo atual = âncora informada pelo usuário + tudo que REALMENTE mexeu no caixa
+ * depois dela. Nenhuma tela pode calcular saldo por conta própria.
+ *
+ * Entra: receitas e despesas confirmadas, entrada financiada (dinheiro que caiu
+ * de verdade) e pagamento de fatura descontado do saldo.
+ * NÃO entra: salário previsto, aluguel ainda não recebido, conta futura, parcela
+ * futura, assinatura ainda não cobrada, projeção — nada disso é caixa.
+ *
+ * `type: 'saving'` continua fora por decisão do projeto: a "reserva" do AssistFin
+ * não é necessariamente outra conta bancária (pode ser cofrinho/envelope), e a
+ * regra 5 já separa "guardado" de "líquido". Mudar isso alteraria o significado
+ * de dados já salvos.
+ *
+ * Compatibilidade: estado antigo não tem `balanceAsOf`. Nesse caso a âncora vale
+ * a partir do INÍCIO DE HOJE — movimentações de dias anteriores já estavam
+ * embutidas no valor que o usuário digitou, e as de hoje passam a somar.
+ */
+export function currentBalance(s: AppState): number {
+  const anchor = s.settings.balance || 0
+  const since = s.settings.balanceAsOf || `${todayISO()}T00:00`
+  let total = anchor
+  for (const t of s.transactions) {
+    if (stampOf(t.date, t.time) <= since) continue
+    if (t.type === 'income' || t.type === 'financed-cash-inflow') total += t.amount
+    else if (t.type === 'expense') total -= t.amount
+  }
+  for (const p of s.cardPayments || []) {
+    if (!p.fromBalance) continue
+    if (stampOf(p.paymentDate) <= since) continue
+    total -= p.amount
+  }
+  return Math.round(total * 100) / 100
 }
 
 /** Média diária de lucro nos últimos N dias com atividade */
@@ -127,9 +163,21 @@ export interface MonthlySavingGoal {
   income: number     // entradas registradas no mês
   expense: number    // despesas registradas no mês
   net: number        // resultado líquido (entradas − despesas)
-  missing: number    // quanto falta para a meta (0 se alcançou)
-  pct: number        // percentual da meta atingido (0-100+)
-  reached: boolean   // resultado líquido cobriu a meta
+  missing: number    // quanto falta GUARDAR para a meta (0 se já guardou tudo)
+  /**
+   * Percentual da meta com base no que foi REALMENTE guardado. É este o
+   * progresso principal da meta — sobra disponível não é dinheiro guardado.
+   */
+  pct: number
+  /**
+   * Percentual da meta que a sobra do mês COBRE. Pode passar de 100% sem que
+   * nada tenha sido guardado — por isso nunca deve ser rotulado "% da meta".
+   */
+  availablePct: number
+  /** Já guardou pelo menos a meta? Único critério de "Meta alcançada". */
+  reached: boolean
+  /** Existe sobra suficiente para cobrir a meta, mesmo que nada tenha sido guardado. */
+  canReach: boolean
   negative: boolean  // mês fechando no vermelho
   saved: number          // quanto foi REALMENTE guardado (transferências type:'saving')
   savedPct: number       // percentual da meta efetivamente guardado
@@ -144,18 +192,28 @@ export interface MonthlySavingGoal {
   projectedAvailable: number
 }
 
+/**
+ * IMPORTANTE: este card trabalha SÓ com valores realizados. `income` e `expense`
+ * vêm de `monthStats`, que soma apenas transações confirmadas — salário previsto
+ * e conta futura não entram aqui de jeito nenhum.
+ *
+ * "Meta alcançada" depende de `saved` (transferências `type:'saving'`), nunca da
+ * sobra: dizer que a meta foi batida porque sobrou dinheiro seria afirmar que o
+ * usuário guardou algo que continua disponível para gastar.
+ */
 export function monthlySavingGoal(s: AppState): MonthlySavingGoal {
   const m = monthStats(s)
   const target = Math.max(s.settings.monthlyProfitTarget || 0, 0)
   const net = m.income - m.expense
-  const missing = Math.max(target - net, 0)
-  const pct = target > 0 ? Math.round((net / target) * 100) : 0
   const saved = savedThisMonth(s)
   const installmentsDue = installmentsThisMonth(s)
   return {
-    target, income: m.income, expense: m.expense, net, missing,
-    pct: Math.max(pct, 0),
-    reached: target > 0 && net >= target,
+    target, income: m.income, expense: m.expense, net,
+    missing: Math.max(target - saved, 0),
+    pct: target > 0 ? Math.max(Math.round((saved / target) * 100), 0) : 0,
+    availablePct: target > 0 ? Math.max(Math.round((net / target) * 100), 0) : 0,
+    reached: target > 0 && saved >= target,
+    canReach: target > 0 && net >= target,
     negative: net < 0,
     saved,
     savedPct: target > 0 ? Math.max(Math.round((saved / target) * 100), 0) : 0,
@@ -194,7 +252,7 @@ export function monthForecast(s: AppState): MonthForecast {
   const day = fromISO(t).getDate()
   const daysLeft = Math.max(dim - day, 0)
   const m = monthStats(s)
-  const balance = s.settings.balance || 0
+  const balance = currentBalance(s)
 
   // recorrentes que ainda caem/vencem dentro deste mês
   const untilEnd = (list: UpcomingBill[]) => list.filter(b => fromISO(b.date) <= fromISO(t.slice(0, 8) + String(dim).padStart(2, '0')))
@@ -212,7 +270,7 @@ export function monthForecast(s: AppState): MonthForecast {
     balance, received: m.income, incomingLeft, paid: m.expense, billsLeft, installmentsLeft,
     estimatedEnd,
     estimatedSavable: Math.max(Math.min(estimatedEnd, target || estimatedEnd), 0),
-    hasData: balance > 0 || m.income > 0 || s.recurring.length > 0 || (s.installmentPlans?.length || 0) > 0,
+    hasData: balance !== 0 || m.income > 0 || s.recurring.length > 0 || (s.installmentPlans?.length || 0) > 0,
     daysLeft,
   }
 }
@@ -255,7 +313,7 @@ export function monthlyProjections(s: AppState, months = 12): MonthProjection[] 
   const t = todayISO()
   const start = fromISO(t)
   const out: MonthProjection[] = []
-  let running = s.settings.balance || 0
+  let running = currentBalance(s)
 
   for (let i = 0; i < months; i++) {
     const d = new Date(start.getFullYear(), start.getMonth() + i, 1)
@@ -290,40 +348,39 @@ export function hasProjectionData(s: AppState): boolean {
 export interface PendingRecurring {
   rec: RecurringExpense
   monthKey: string   // 'YYYY-MM' de referência
-  dueDate: string    // data prevista neste mês
+  dueDate: string    // data exata da ocorrência pendente
   kind: 'income' | 'expense'
   /** Dias desde/até o vencimento REAL: 0 = hoje, negativo = já venceu. */
   inDays: number
 }
 
+/** Quanto tempo para trás o app ainda pergunta sobre uma ocorrência não resolvida. */
+const PENDING_LOOKBACK_DAYS = 60
+
 /**
- * Recorrentes cujo dia previsto já chegou neste mês e que ainda não foram
- * resolvidos. Nada é lançado automaticamente — só vira pergunta ao usuário.
+ * Ocorrências cuja data já chegou e que ainda não foram resolvidas — em QUALQUER
+ * frequência, não só mensal. Nada é lançado automaticamente: só vira pergunta.
  */
 export function pendingRecurrings(s: AppState): PendingRecurring[] {
   const t = todayISO()
-  const mk = monthKey(t)
   const today = fromISO(t)
+  const from = addDays(t, -PENDING_LOOKBACK_DAYS)
   const out: PendingRecurring[] = []
   for (const r of s.recurring) {
-    if (r.frequency !== 'monthly') continue // mensal é o caso do salário/aluguel
-    if (r.handledMonths?.includes(mk)) continue
     if (r.snoozeUntil && t < r.snoozeUntil) continue
-    // Uma recorrente cadastrada hoje NÃO nasce atrasada: o startDate define a
-    // primeira ocorrência e nada antes dele vira pendência (item 31).
-    const dueIso = occurrenceInMonth(r, mk)
-    if (!recurringActiveOn(r, dueIso)) continue
-    if (r.startDate && t < r.startDate) continue
-    const due = fromISO(dueIso)
-    if (due > today) continue // ainda não chegou o dia
-    // já existe lançamento deste recorrente neste mês? então não pergunta
-    const already = s.transactions.some(x => x.recurringId === r.id && monthKey(x.date) === mk)
-    if (already) continue
-    out.push({
-      rec: r, monthKey: mk, dueDate: dueIso,
-      kind: r.kind === 'income' ? 'income' : 'expense',
-      inDays: Math.round((due.getTime() - today.getTime()) / 86400000),
-    })
+    for (const dueIso of occurrencesBetween(r, from, t)) {
+      // Uma recorrente cadastrada hoje NÃO nasce atrasada: a âncora define a
+      // primeira ocorrência e nada antes dela vira pendência.
+      if (!recurringActiveOn(r, dueIso)) continue
+      if (isOccurrenceResolved(r, dueIso)) continue
+      // Lançamento já existente para esta ocorrência (ex.: registrado na criação).
+      if (s.transactions.some(x => x.recurringId === r.id && x.occurrenceDate === dueIso)) continue
+      out.push({
+        rec: r, monthKey: monthKey(dueIso), dueDate: dueIso,
+        kind: r.kind === 'income' ? 'income' : 'expense',
+        inDays: Math.round((fromISO(dueIso).getTime() - today.getTime()) / 86400000),
+      })
+    }
   }
   return out.sort((a, b) => a.dueDate.localeCompare(b.dueDate))
 }
@@ -447,14 +504,130 @@ export interface UpcomingBill { name: string; amount: number; inDays: number; da
 
 /**
  * Data real da ocorrência de um recorrente mensal/anual dentro de um mês.
- * FONTE ÚNICA de data de recorrente — Home, Planejamento, alertas e o card de
- * confirmação usam esta função, senão cada tela mostra um dia diferente para a
- * mesma conta. Dia 31 em fevereiro vira o último dia do mês (nunca o dia 28).
+ * Dia 31 em fevereiro vira o último dia do mês (nunca o dia 28 fixo).
  */
 export function occurrenceInMonth(r: RecurringExpense, mk: string): string {
   const [y, m] = mk.split('-').map(Number)
   return toISO(dateForDayOfMonth(y, m - 1, r.dueDay))
 }
+
+// ---------- MOTOR DE RECORRÊNCIA ----------
+/**
+ * Passo de repetição. Recorrências antigas só têm `frequency`; as novas trazem
+ * `interval` + `intervalUnit`. Esta função é o único ponto que traduz um no outro.
+ */
+export function recurrenceStep(r: RecurringExpense): { interval: number; unit: IntervalUnit } {
+  if (r.interval && r.intervalUnit) return { interval: Math.max(Math.round(r.interval), 1), unit: r.intervalUnit }
+  if (r.frequency === 'weekly') return { interval: 1, unit: 'week' }
+  if (r.frequency === 'yearly') return { interval: 1, unit: 'year' }
+  return { interval: 1, unit: 'month' }
+}
+
+/**
+ * Data da primeira ocorrência. Com `startDate` é ele, ponto.
+ * FALLBACK DOCUMENTADO para recorrências criadas antes deste campo existir:
+ * - mensal: o dia `dueDay` do mês corrente;
+ * - anual: `dueDay`/`dueMonth` do ano corrente;
+ * - semanal: o próximo dia da semana `dueDay % 7` a partir de hoje.
+ * O fallback nunca inventa passado: a sequência é reconstruída a partir dele.
+ */
+export function recurrenceAnchor(r: RecurringExpense): string {
+  if (r.startDate) return r.startDate
+  const t = fromISO(todayISO())
+  const { unit } = recurrenceStep(r)
+  if (unit === 'week' || unit === 'day') {
+    const target = ((r.dueDay % 7) + 7) % 7
+    const d = new Date(t)
+    while (d.getDay() !== target) d.setDate(d.getDate() + 1)
+    return toISO(d)
+  }
+  if (unit === 'year') {
+    const month = (r.dueMonth || t.getMonth() + 1) - 1
+    return toISO(dateForDayOfMonth(t.getFullYear(), month, r.dueDay))
+  }
+  return toISO(dateForDayOfMonth(t.getFullYear(), t.getMonth(), r.dueDay))
+}
+
+/**
+ * n-ésima ocorrência (0 = a primeira) a partir da âncora.
+ *
+ * POLÍTICA DE MESES CURTOS (unidades `month`/`year`): o DIA ORIGINAL da âncora é
+ * sempre preservado e só é reduzido ao último dia do mês quando aquele mês não
+ * tem o dia. Início em 31/01 com passo de 2 meses → 31/03, 31/05, 31/07…
+ * (março tem 31); se caísse em um mês de 30 dias, seria o dia 30 SÓ naquele mês.
+ * O dia nunca "gruda" no 28 nem degrada permanentemente.
+ */
+function occurrenceAt(r: RecurringExpense, anchor: string, n: number): string {
+  const { interval, unit } = recurrenceStep(r)
+  const a = fromISO(anchor)
+  if (unit === 'day') return addDays(anchor, interval * n)
+  if (unit === 'week') return addDays(anchor, interval * 7 * n)
+  const months = unit === 'year' ? interval * 12 * n : interval * n
+  return toISO(dateForDayOfMonth(a.getFullYear(), a.getMonth() + months, a.getDate()))
+}
+
+/** Limite de segurança: nenhuma janela consultada gera mais que isto. */
+const MAX_OCCURRENCES = 400
+
+/**
+ * Todas as ocorrências de uma recorrência dentro de [from, to].
+ * FONTE ÚNICA de datas: Home, Planejamento, alertas e o card de confirmação
+ * consomem daqui, senão cada tela mostra um dia diferente para a mesma conta.
+ */
+export function occurrencesBetween(r: RecurringExpense, from: string, to: string): string[] {
+  if (r.active === false) return []
+  const anchor = recurrenceAnchor(r)
+  const out: string[] = []
+  for (let n = 0; n < MAX_OCCURRENCES; n++) {
+    const d = occurrenceAt(r, anchor, n)
+    if (d > to) break
+    if (r.endDate && d > r.endDate) break
+    if (d >= from) out.push(d)
+  }
+  return out
+}
+
+/**
+ * Descrição legível da repetição — nunca expõe número de dia da semana.
+ * "Toda segunda-feira", "A cada 2 semanas, às segundas-feiras", "Todo dia 5",
+ * "A cada 3 meses, no dia 10", "A cada 15 dias".
+ */
+export function describeRecurrence(r: RecurringExpense): string {
+  const { interval, unit } = recurrenceStep(r)
+  const anchor = fromISO(recurrenceAnchor(r))
+  const day = anchor.getDate()
+  const weekday = weekdayName(anchor.getDay()).toLowerCase()
+  const plural = weekday.replace('-feira', 's-feira').replace(/^(domingo|sábado)$/, '$1s')
+
+  if (unit === 'day') return interval === 1 ? 'Todo dia' : `A cada ${interval} dias`
+  if (unit === 'week') {
+    return interval === 1
+      ? `Toda ${weekday}`
+      : `A cada ${interval} semanas, às ${plural}`
+  }
+  if (unit === 'year') {
+    const month = anchor.toLocaleDateString('pt-BR', { month: 'long' })
+    return interval === 1 ? `Todo ano, em ${day} de ${month}` : `A cada ${interval} anos, em ${day} de ${month}`
+  }
+  if (interval === 1) return `Todo dia ${day}`
+  if (interval === 12) return `Todo ano, no dia ${day}`
+  return `A cada ${interval} meses, no dia ${day}`
+}
+
+/** Situação registrada de uma ocorrência específica (undefined = ainda em aberto). */
+export function occurrenceRecord(r: RecurringExpense, date: string): RecurrenceOccurrence | undefined {
+  const exact = r.occurrences?.find(o => o.date === date)
+  if (exact) return exact
+  // Compatibilidade: recorrência antiga só marcava o mês inteiro como resolvido.
+  if (!r.occurrences?.length && r.handledMonths?.includes(monthKey(date))) {
+    return { date, status: 'confirmed' }
+  }
+  return undefined
+}
+
+/** A ocorrência já foi resolvida (confirmada ou marcada como não recebida/paga)? */
+export const isOccurrenceResolved = (r: RecurringExpense, date: string): boolean =>
+  !!occurrenceRecord(r, date)
 
 /** O recorrente está valendo nesta data? (desativado, ainda não começou, já terminou) */
 export function recurringActiveOn(r: RecurringExpense, iso: string): boolean {
@@ -464,28 +637,24 @@ export function recurringActiveOn(r: RecurringExpense, iso: string): boolean {
   return true
 }
 
+/**
+ * Próximas ocorrências ainda PREVISTAS (não realizadas) dentro do horizonte.
+ * Ocorrência já confirmada sai daqui: senão o mesmo salário apareceria ao mesmo
+ * tempo como saldo realizado e como entrada prevista (item 11).
+ */
 function upcomingFrom(list: RecurringExpense[], horizon: number): UpcomingBill[] {
   const t = todayISO()
   const today = fromISO(t)
+  const to = addDays(t, horizon)
   const out: UpcomingBill[] = []
   for (const r of list) {
     const kind = r.kind === 'income' ? 'income' : 'expense'
-    if (r.frequency === 'monthly' || r.frequency === 'yearly') {
-      for (let m = 0; m < 3; m++) {
-        const ref = new Date(today.getFullYear(), today.getMonth() + m, 1)
-        const iso = occurrenceInMonth(r, monthKey(toISO(ref)))
-        const d = fromISO(iso)
-        if (r.frequency === 'yearly' && r.dueMonth && d.getMonth() !== r.dueMonth - 1) continue
-        if (!recurringActiveOn(r, iso)) continue
-        const diff = Math.round((d.getTime() - today.getTime()) / 86400000)
-        if (diff >= 0 && diff <= horizon) out.push({ name: r.name, amount: r.amount, inDays: diff, date: iso, kind })
-      }
-    } else {
-      for (let i = 0; i <= horizon; i++) {
-        const d = new Date(today); d.setDate(d.getDate() + i)
-        if (!recurringActiveOn(r, toISO(d))) continue
-        if (d.getDay() === r.dueDay % 7) { out.push({ name: r.name, amount: r.amount, inDays: i, date: toISO(d), kind }); break }
-      }
+    for (const iso of occurrencesBetween(r, t, to)) {
+      if (isOccurrenceResolved(r, iso)) continue
+      out.push({
+        name: r.name, amount: r.amount, date: iso, kind,
+        inDays: Math.round((fromISO(iso).getTime() - today.getTime()) / 86400000),
+      })
     }
   }
   return out.sort((a, b) => a.inDays - b.inDays)
@@ -514,7 +683,7 @@ export interface BalanceOutlook {
 }
 
 export function balanceOutlook(s: AppState, horizon = 7): BalanceOutlook {
-  const balance = s.settings.balance || 0
+  const balance = currentBalance(s)
   const bills = upcomingBills(s, horizon)
   const billsSoon = bills.reduce((a, b) => a + b.amount, 0)
   const diff = balance - billsSoon
@@ -673,7 +842,7 @@ export function notifications(s: AppState): Insight[] {
     out.push({ id: 'bill-' + b.name, icon: '📄', title: `${sentenceCase(b.name)}: ${dueLabel(b.inDays).toLowerCase()}`, text: `${fmtBRL(b.amount)} — programe-se para o pagamento.`, tone: 'warning' })
 
   // MODO BANCO: saldo não cobre as contas próximas → aviso auto-adaptativo
-  if (s.settings.balance > 0 || s.recurring.length > 0) {
+  if (currentBalance(s) > 0 || s.recurring.length > 0) {
     const bo = balanceOutlook(s, 7)
     if (bo.bills.length && bo.shortfall > 1) {
       out.push({

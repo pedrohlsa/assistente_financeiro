@@ -13,7 +13,7 @@ import {
 } from '../utils/format'
 import { sentenceCase } from '../utils/text'
 import {
-  analyzeRide, avgDailyProfit, balanceOutlook, bestWorstDay, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
+  analyzeRide, avgDailyProfit, balanceOutlook, bestWorstDay, currentBalance, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
   monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections,
 } from './calc'
 import { describeAction, parseNaturalFull } from './nlp'
@@ -57,7 +57,7 @@ export function buildAiContext(s: AppState) {
   const base: Record<string, any> = {
     perfil: s.settings.profile,
     nome: s.settings.name || undefined,
-    saldoEmConta: r2(s.settings.balance || 0),
+    saldoEmConta: r2(currentBalance(s)),
     saldoVsContas7dias: {
       contasAVencer: r2(banco.billsSoon),
       cobreAsContas: banco.ok,
@@ -150,7 +150,9 @@ export function buildAiContext(s: AppState) {
       resultadoLiquidoDoMes: r2(mensal.net),
       faltaParaMeta: r2(mensal.missing),
       percentualAtingido: mensal.pct,
+      guardadoDeVerdade: r2(mensal.saved),
       metaAlcancada: mensal.reached,
+      temSobraSuficienteParaGuardar: mensal.canReach,
     },
   }
 }
@@ -428,10 +430,14 @@ function resolveLocal(s: AppState, input: string): AiReply {
       }
       return {
         text: `Sua meta é guardar ${fmtBRL(mg.target)} por mês.\n\n` +
-          `• Entradas do mês: ${fmtBRL(mg.income)}\n• Despesas do mês: ${fmtBRL(mg.expense)}\n• Resultado líquido: ${fmtBRL(mg.net)} (${mg.pct}% da meta)\n\n` +
+          `• Entradas recebidas: ${fmtBRL(mg.income)}\n• Despesas realizadas: ${fmtBRL(mg.expense)}\n` +
+          `• ${mg.net >= 0 ? 'Sobra do mês' : 'Déficit do mês'}: ${fmtBRL(Math.abs(mg.net))}\n` +
+          `• Guardado de verdade: ${fmtBRL(mg.saved)} (${mg.pct}% da meta)\n\n` +
           (mg.reached
-            ? 'Meta mensal alcançada! Seu resultado líquido passou do valor que você pretendia guardar. 🎉'
-            : `Faltam ${fmtBRL(mg.missing)} para alcançar sua meta mensal.`),
+            ? 'Meta mensal alcançada! Você já transferiu para a reserva o valor que pretendia guardar. 🎉'
+            : mg.canReach
+              ? `Há sobra suficiente para cumprir a meta — ${mg.availablePct}% do valor necessário está disponível. Faltam ${fmtBRL(mg.missing)} para guardar de verdade.`
+              : `Faltam ${fmtBRL(mg.missing)} para alcançar sua meta mensal.`),
       }
     }
 
@@ -440,7 +446,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
       const bo = balanceOutlook(s, 7)
       return {
         text: `Seu mês até agora (dados reais):\n\n` +
-          `• Entrou: ${fmtBRL(mg.income)}\n• Saiu: ${fmtBRL(mg.expense)}\n• Resultado líquido: ${fmtBRL(mg.net)}\n` +
+          `• Entrou: ${fmtBRL(mg.income)}\n• Saiu: ${fmtBRL(mg.expense)}\n• ${mg.net >= 0 ? 'Sobra do mês' : 'Déficit do mês'}: ${fmtBRL(Math.abs(mg.net))}\n` +
           (mg.target > 0 ? `• Meta para guardar: ${fmtBRL(mg.target)} (${mg.pct}% atingido)\n` : '') +
           (bo.bills.length
             ? `\nContas nos próximos 7 dias: ${fmtBRL(bo.billsSoon)} — ${bo.ok ? `seu saldo cobre e sobra ${fmtBRL(bo.leftover)}.` : `faltam ${fmtBRL(bo.shortfall)}.`}`
@@ -499,7 +505,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
     const ts = todayStats(s)
     const goal = dailyGoal(s)
     const bo = balanceOutlook(s, 7)
-    if (s.settings.balance > 0) {
+    if (currentBalance(s) !== 0) {
       const livre = Math.max(bo.leftover, 0)
       if (bo.ok) {
         return {
@@ -539,7 +545,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // "qual meu saldo" / "quanto tenho no banco"
   if (/(qual|quanto).*(saldo|no banco|na conta)|meu saldo/.test(t)) {
     const bo = balanceOutlook(s, 7)
-    if (s.settings.balance <= 0) return { text: 'Você ainda não informou seu saldo. Toque em "Saldo em conta" na tela inicial, ou me diga "meu saldo é 1500".' }
+    if (currentBalance(s) === 0) return { text: 'Seu saldo em conta está zerado. Toque em "Saldo em conta" na tela inicial, ou me diga "meu saldo é 1500".' }
     return {
       text: `Seu saldo em conta é ${fmtBRL(bo.balance)}.` +
         (bo.bills.length
@@ -701,7 +707,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
         text: `Sua situação neste mês (dados reais):\n\n` +
           `• Entradas: ${fmtBRL(mg.income)}\n` +
           `• Despesas: ${fmtBRL(mg.expense)}\n` +
-          `• Resultado líquido: ${fmtBRL(mg.net)}\n` +
+          `• ${mg.net >= 0 ? 'Sobra do mês' : 'Déficit do mês'}: ${fmtBRL(Math.abs(mg.net))}\n` +
           `• Já guardado de verdade: ${fmtBRL(mg.saved)}\n` +
           (mg.target > 0 ? `• Meta mensal para guardar: ${fmtBRL(mg.target)} (${mg.pct}% atingido)\n` : '') +
           (inst > 0 ? `• Parcelas e faturas que vencem neste mês: ${fmtBRL(inst)}\n` : '') +

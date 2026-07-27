@@ -1,8 +1,8 @@
 # AssistFin — Estado do Projeto
 
-**Última atualização**: 2026-07-27 — rodada de correções de UX, valores monetários, linguagem
-natural, datas e reset. Ver "🟢 Rodada de correções de UX, valores, linguagem natural e datas"
-para o trabalho mais recente.
+**Última atualização**: 2026-07-27 (2ª rodada) — previsto x realizado, saldo com fonte única e
+recorrências flexíveis. Ver "🟢 Previsto x realizado, saldo único e recorrências flexíveis" para
+o trabalho mais recente.
 **Pasta canônica do projeto (mudou nesta sessão)**: `D:\Claude\AssistFin`. A cópia antiga em
 `C:\Users\ph969\OneDrive\Área de Trabalho\AssistFin` foi deixada intacta, mas **não é mais usada**
 — era uma cópia interrompida no meio (faltavam `profile.ts`, `PendingRecurrings.tsx`,
@@ -905,6 +905,118 @@ local, que é quem atende esses casos.
 6. `settleAll`, "Cancelar futuras" e a remoção de assinatura ainda usam `window.confirm` —
    funcionam no navegador, mas merecem `<ConfirmDialog>` pelo mesmo motivo do reset.
 7. `CONTEXTO.md` referenciado no README continua inexistente.
+
+---
+
+## 🟢 Previsto x realizado, saldo único e recorrências flexíveis — 2026-07-27 (2ª rodada do dia)
+
+Rodada baseada em teste real: cadastrar um salário recorrente de R$ 1.625,00 e confirmar o
+recebimento fazia a "Entradas" do card da meta subir, mas o saldo em conta ficava em R$ 0,00.
+
+### Auditoria antes de mexer (estado encontrado)
+
+| Situação | O quê |
+|---|---|
+| **Concluído** | Parser monetário, sentence case, FAB contextual, reset, cartões/juros, categoria "Obra e construção", ambiguidade do gás, múltiplos comandos, meta duplicada, ritmo das metas, detalhes das movimentações, `startDate` + `occurrenceInMonth` + `dueLabel` |
+| **Parcialmente implementado** | `startDate` só era gravado em recorrência **mensal**; `pendingRecurrings` só tratava `frequency === 'monthly'` (semanal e anual nunca perguntavam); ocorrência tinha só `handledMonths`, sem estado por data |
+| **Comportamento antigo não alterado** | `settings.balance` era um número **digitado à mão** e isolado: nenhuma receita/despesa o alterava; `frequency` só tinha 3 valores; o formulário exibia "Dia da semana (0=dom)" |
+| **Regressão criada na rodada anterior** | Nenhuma. Confirmado no navegador que cadastrar a recorrente **não** inflava "Entradas" (`monthStats` só soma `transactions`) — o defeito era o saldo não acompanhar. |
+
+### Causa raiz do salário não aparecer no saldo (reproduzida antes da correção)
+
+| Momento | Saldo em conta | Entradas | % da meta |
+|---|---|---|---|
+| Recorrente só cadastrada | R$ 0,00 | R$ 0,00 | 0% |
+| Após "Confirmar recebimento" | **R$ 0,00** | R$ 1.625,00 | **847% + "Meta alcançada!"** |
+
+`confirmar()` em `PendingRecurrings.tsx` criava a `Transaction` (que entra em `monthStats().income`)
+mas **não tocava em `settings.balance`** — e nenhum lançamento tocava. Só 4 pontos escreviam no
+saldo: o input da Home, a ação `balance` da IA, a entrada financiada (+) e o pagamento de fatura (−).
+O saldo não era uma consequência das movimentações, era um retrato manual paralelo.
+
+### Regras de previsto x realizado (agora explícitas)
+
+- **Previsão** (recorrente cadastrada, parcela futura, assinatura não cobrada): aparece só em
+  entradas/saídas previstas, calendário, projeções e saldo estimado. Não cria movimentação, não
+  mexe no saldo, não conta no mês, não influencia a meta.
+- **Realizado**: nasce da confirmação do usuário. Cria `Transaction`, entra no saldo, no mês, no
+  resultado e na meta.
+- Ocorrência confirmada **sai** das listas de previsto (`upcomingFrom` ignora resolvidas), então
+  nada é contado como saldo atual e entrada prevista ao mesmo tempo.
+
+### Saldo: fonte única
+
+`currentBalance(state)` em `calc.ts`. `settings.balance` virou **âncora** + `balanceAsOf`; o saldo
+de hoje é a âncora mais receitas, despesas, entradas financiadas e faturas pagas "do saldo"
+posteriores a ela. As mutações imperativas em `addCardPayment` e na entrada financiada foram
+**removidas** (contariam duas vezes). Leitores atualizados: Home, Planejamento, `monthForecast`,
+`monthlyProjections`, `balanceOutlook`, `notifications`, contexto e respostas da IA, `CardPaymentForm`.
+Compatibilidade: sem `balanceAsOf`, a âncora vale a partir do início de hoje.
+`type:'saving'` continua fora do saldo por decisão de projeto (a reserva pode ser cofrinho).
+
+### Frequências disponíveis
+
+Semanal · A cada 2 semanas · Mensal · A cada 2 meses · A cada 3 meses · A cada 6 meses · Anual ·
+**Personalizada** (repetir a cada N dias/semanas/meses/anos, com data inicial, data final opcional
+e "sem data final"). Modelo: `interval` + `intervalUnit`; `frequency` permanece como campo legado.
+
+**Cálculo**: sempre a partir de `startDate`, por soma real — 15 dias são 15 dias corridos, nunca
+"duas vezes por mês". **Política de meses curtos**: o dia original é preservado e só reduzido ao
+último dia do mês quando aquele mês não o tem — 31/01 a cada 2 meses → 31/03, 31/05, 31/07,
+**30/09**, **30/11**, **31/01**. O dia nunca degrada permanentemente para 28.
+
+### Dias da semana
+
+`weekdayName`/`weekdayShort`/`weekdayList` em `src/utils/text.ts` e a frase pronta de
+`describeRecurrence()`. A interface mostra "Toda segunda-feira", "A cada 2 semanas, às
+segundas-feiras", "A cada 15 dias", "Todo dia 5", "Todo ano, em 20 de novembro" — nunca `0`, `1`, `2`.
+
+### Card da meta
+
+- `Entradas` → **Entradas recebidas**; `Despesas` → **Despesas realizadas**.
+- `Resultado líquido` → **Sobra do mês** (positivo) / **Déficit do mês** (negativo).
+- Progresso principal = **valor realmente guardado** (`saved/target`). Antes era `net/target`, que
+  produzia "847% da meta" com R$ 0,00 guardado.
+- `reached` agora exige `saved >= target`; `canReach` (sobra cobre a meta) e `availablePct` são
+  campos novos, rotulados "% do valor necessário está disponível" — nunca "% da meta".
+- Com sobra suficiente e nada guardado, o card oferece o botão **"Guardar R$ X"**.
+
+### Testes executados (navegador, dados reais)
+
+| Cenário | Resultado |
+|---|---|
+| **A — salário só previsto** | Data futura → **não** perguntou nada, 0 transações, saldo R$ 0,00, entradas recebidas R$ 0,00, salário só em "Próximas entradas"; saldo estimado R$ 1.625,00. Card da meta sem sobra fantasma. |
+| **B — salário já recebido** | Data passada → perguntou "Você já recebeu esta entrada neste período?" com as 3 opções. "Cadastrar e registrar recebimento" → **1** transação com `occurrenceDate: 2026-07-05`, ocorrência marcada `confirmed`, **saldo R$ 1.625,00**. A ocorrência de agosto continua prevista. |
+| **C — despesas** | Com salário recebido + R$ 355,00 de despesas → saldo R$ 1.270,00 e "**Sobra do mês** R$ 1.270,00". Removendo o recebimento → saldo −R$ 355,00 e "**Déficit do mês** R$ 355,00". |
+| **D — meta** | Meta R$ 150, sobra R$ 1.270, guardado R$ 0 → **não** mostrou "Meta alcançada"; mostrou "Você já tem valor disponível para cumprir sua meta de R$ 150,00", "1083% do valor necessário está disponível" e o botão "Guardar R$ 150,00". Após guardar R$ 150 → "🎉 **Meta mensal alcançada**" e "Guardado: R$ 150,00 de R$ 150,00". |
+| **E — a cada 15 dias** | Início 10/08 → **10/08 · 25/08 · 09/09 · 24/09**, conferido no motor e na prévia do formulário. |
+| **F — a cada 2 meses** | Início 31/01 → 31/01, 31/03, 31/05, 31/07, **30/09**, **30/11**, **31/01**. Política documentada acima. |
+| **G — semanal** | Escolhido 03/08 (segunda) → prévia "**Toda segunda-feira** · 03/08 · 10/08 · 17/08 · 24/08", zero números de dia da semana; após recarregar, "Feira · Toda segunda-feira" persistiu. |
+| **Compatibilidade** | Recorrências antigas (só `frequency` + `dueDay` + `handledMonths`, sem `startDate`/`interval`/`occurrences`) carregaram, geraram "Todo dia 10" e "Todo ano, em 20 de novembro", próxima ocorrência correta, e o `handledMonths` de julho continuou impedindo a pendência. |
+| **Prevenção de duplicidade** | Chave `recurringId` + `occurrenceDate` no lançamento e em `occurrences`; `pendingRecurrings` e `upcomingFrom` pulam ocorrências resolvidas. |
+
+### Build e checagens
+
+```
+node node_modules/typescript/bin/tsc --noEmit          → exit 0
+node node_modules/typescript/bin/tsc --noEmit (api/**) → exit 0
+npm run build                                          → ✓ dist/assets/index-BVEYAyzN.js 437.38 kB │ gzip: 128.20 kB
+npx vercel build --prod                                → {"status":"ok"}  (build local, NADA publicado)
+```
+Bundle sem `sk-`, `DEEPSEEK` ou `deepseek.com`; a função serverless mantém `from '../_lib/deepseek.js'`.
+
+### Limitações que permanecem
+
+1. `describeRecurrence` cobre um dia da semana por recorrência — `weekdayList` já suporta
+   "segunda, quarta e sexta", mas o formulário ainda não oferece múltiplos dias.
+2. Estados de ocorrência gravados são `confirmed` e `skipped`; "adiada" continua sendo o
+   `snoozeUntil` e "atrasada"/"prevista" são derivados da data, não persistidos.
+3. Editar uma recorrência existente (valor, frequência, data inicial) ainda não tem tela — só
+   criar e remover.
+4. `type:'saving'` fora do saldo é uma decisão, não um consenso: se a reserva for outra conta
+   bancária, o saldo exibido ficará maior que o extrato.
+5. Antecipação de parcela sem desconto/juros, edição de parcela específica e Analytics por perfil
+   seguem pendentes das rodadas anteriores.
 
 ---
 

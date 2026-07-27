@@ -1,9 +1,11 @@
 // Formulários de registro — curtos, mobile-first (seções 11, 21, 22, 17, 24, 31, 32)
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { findGoalByExactName, useStore } from '../store/store'
 import { ConfirmDialog, MoneyInput, useToast } from './ui'
-import { Budget, CategoryType, FinancialGoal, FuelRecord, MaintenanceItem, RecurringExpense, Transaction } from '../models/types'
-import { dateForDayOfMonth, fromISO, nowTime, parseMoney, todayISO, toISO, uid, fmtBRL } from '../utils/format'
+import { Budget, CategoryType, FinancialGoal, FuelRecord, IntervalUnit, MaintenanceItem, RecurringExpense, Transaction } from '../models/types'
+import { addDays, fromISO, nowTime, parseMoney, todayISO, uid, fmtBRL } from '../utils/format'
+import { describeRecurrence, occurrencesBetween } from '../services/calc'
+import { sentenceCase } from '../utils/text'
 import { guessCategory } from '../data/categories'
 import { defaultIncomeCategory, isDriver } from '../services/profile'
 
@@ -289,16 +291,41 @@ export function GoalForm({ onDone, goal }: { onDone: () => void; goal?: Financia
   )
 }
 
+/**
+ * Frequências rápidas. Cada uma é só um par intervalo+unidade — não existe
+ * aproximação do tipo "quinzenal = 2x por mês": 15 dias são 15 dias corridos
+ * contados a partir da data inicial.
+ */
+const QUICK_FREQUENCIES: { id: string; label: string; interval: number; unit: IntervalUnit }[] = [
+  { id: 'weekly', label: 'Semanal', interval: 1, unit: 'week' },
+  { id: 'biweekly', label: 'A cada 2 semanas', interval: 2, unit: 'week' },
+  { id: 'monthly', label: 'Mensal', interval: 1, unit: 'month' },
+  { id: 'bimonthly', label: 'A cada 2 meses', interval: 2, unit: 'month' },
+  { id: 'quarterly', label: 'A cada 3 meses', interval: 3, unit: 'month' },
+  { id: 'semiannual', label: 'A cada 6 meses', interval: 6, unit: 'month' },
+  { id: 'yearly', label: 'Anual', interval: 1, unit: 'year' },
+]
+
+const UNIT_LABEL: Record<IntervalUnit, string> = { day: 'dias', week: 'semanas', month: 'meses', year: 'anos' }
+
+/** `frequency` legado equivalente, para não quebrar dados/telas antigas. */
+const legacyFrequency = (unit: IntervalUnit): RecurringExpense['frequency'] =>
+  unit === 'week' || unit === 'day' ? 'weekly' : unit === 'year' ? 'yearly' : 'monthly'
+
 export function RecurringForm({ onDone, defaultKind }: { onDone: () => void; defaultKind?: 'income' | 'expense' }) {
   const { state, dispatch } = useStore()
   const toast = useToast()
   const [kind, setKind] = useState<'income' | 'expense'>(defaultKind || 'expense')
   const [name, setName] = useState('')
   const [amount, setAmount] = useState('')
-  const [frequency, setFrequency] = useState<RecurringExpense['frequency']>('monthly')
-  const [dueDay, setDueDay] = useState('5')
+  const [freqId, setFreqId] = useState('monthly')
+  const [customInterval, setCustomInterval] = useState('15')
+  const [customUnit, setCustomUnit] = useState<IntervalUnit>('day')
+  const [startDate, setStartDate] = useState(todayISO())
+  const [endDate, setEndDate] = useState('')
+  const [noEnd, setNoEnd] = useState(true)
   const [category, setCategory] = useState(defaultKind === 'income' ? 'salario' : 'casa')
-  const [includeThisMonth, setIncludeThisMonth] = useState(false)
+  const [askReceived, setAskReceived] = useState(false)
 
   const catList = state.categories.filter(c => c.type === kind && !c.archived)
   const switchKind = (k: 'income' | 'expense') => {
@@ -306,28 +333,88 @@ export function RecurringForm({ onDone, defaultKind }: { onDone: () => void; def
     setCategory(k === 'income' ? 'salario' : 'casa')
   }
 
-  const day = Math.min(Math.max(parseInt(dueDay, 10) || 1, 1), 31)
-  const today = todayISO()
-  const d = fromISO(today)
-  const thisMonthOccurrence = toISO(dateForDayOfMonth(d.getFullYear(), d.getMonth(), day))
-  const nextMonthOccurrence = toISO(dateForDayOfMonth(d.getFullYear(), d.getMonth() + 1, day))
-  // Cadastrar hoje uma conta cujo dia já passou NÃO cria uma pendência retroativa:
-  // a primeira ocorrência padrão é a do mês que vem (item 31).
-  const alreadyPassed = frequency === 'monthly' && thisMonthOccurrence < today
-  const firstOccurrence = alreadyPassed && !includeThisMonth ? nextMonthOccurrence : thisMonthOccurrence
+  const isCustom = freqId === 'custom'
+  const quick = QUICK_FREQUENCIES.find(f => f.id === freqId)
+  const interval = isCustom ? Math.max(parseInt(customInterval, 10) || 0, 0) : quick!.interval
+  const unit: IntervalUnit = isCustom ? customUnit : quick!.unit
+  const intervalOk = !isCustom || (interval >= 1 && interval <= 999)
 
-  const save = () => {
-    const v = parseMoney(amount)
-    if (!name.trim() || !v) return
+  const today = todayISO()
+  const anchor = fromISO(startDate)
+  // Prévia real das próximas datas — calculada pelo mesmo motor que o app usa.
+  const preview = useMemo(() => {
+    if (!startDate || !intervalOk) return []
+    const fake: RecurringExpense = {
+      id: 'preview', name: 'preview', amount: 0, category, kind,
+      frequency: legacyFrequency(unit), dueDay: anchor.getDate(),
+      interval, intervalUnit: unit, startDate,
+      endDate: !noEnd && endDate ? endDate : undefined,
+    }
+    return occurrencesBetween(fake, startDate, addDays(startDate, 400)).slice(0, 4)
+  }, [startDate, interval, unit, intervalOk, endDate, noEnd, category, kind])
+
+  const description = useMemo(() => {
+    if (!startDate || !intervalOk) return ''
+    return describeRecurrence({
+      id: 'p', name: 'p', amount: 0, category, kind,
+      frequency: legacyFrequency(unit), dueDay: anchor.getDate(),
+      interval, intervalUnit: unit, startDate,
+    })
+  }, [startDate, interval, unit, intervalOk, category, kind])
+
+  const valid = !!name.trim() && !!parseMoney(amount) && !!startDate && intervalOk
+  // A primeira ocorrência já chegou? Aí faz sentido perguntar se já foi recebida.
+  const firstAlreadyDue = startDate <= today
+
+  const build = (): RecurringExpense => ({
+    id: uid(), name: name.trim(), amount: parseMoney(amount), category, kind,
+    frequency: legacyFrequency(unit),
+    // `dueDay` é o campo LEGADO: em semanal/diário ele significa dia da SEMANA,
+    // nos demais, dia do mês. Manter a semântica certa evita que um leitor
+    // antigo interprete a data errada.
+    dueDay: unit === 'week' || unit === 'day' ? anchor.getDay() : anchor.getDate(),
+    dueMonth: unit === 'year' ? anchor.getMonth() + 1 : undefined,
+    interval, intervalUnit: unit,
+    startDate,
+    endDate: !noEnd && endDate ? endDate : undefined,
+  })
+
+  /** Só cadastra a previsão: nada de movimentação, nada de saldo. */
+  const saveOnly = (rec?: RecurringExpense) => {
+    const r = rec || build()
+    dispatch({ type: 'addRecurring', r })
+    setAskReceived(false)
+    toast({ text: kind === 'income' ? 'Entrada fixa adicionada como prevista.' : 'Conta fixa adicionada.' })
+    onDone()
+  }
+
+  /** Cadastra E registra a primeira ocorrência como realizada — uma só vez. */
+  const saveAndRegister = () => {
+    const r = build()
+    const txId = uid()
+    dispatch({ type: 'addRecurring', r })
     dispatch({
-      type: 'addRecurring',
-      r: {
-        id: uid(), name: name.trim(), amount: v, frequency, dueDay: day, category, kind,
-        startDate: frequency === 'monthly' ? firstOccurrence : undefined,
+      type: 'addTx',
+      tx: {
+        id: txId, type: kind, amount: r.amount, category: r.category,
+        description: r.name, origin: r.origin, date: startDate, time: nowTime(),
+        source: 'recurring', recurringId: r.id, occurrenceDate: startDate,
+        profileAtCreation: state.settings.profile,
       },
     })
-    toast({ text: kind === 'income' ? 'Entrada fixa adicionada.' : 'Conta fixa adicionada.' })
+    // Marca a ocorrência como resolvida: ela não volta a ser perguntada nem
+    // aparece como entrada prevista. As próximas seguem previstas.
+    dispatch({ type: 'resolveOccurrence', recurringId: r.id, occurrence: { date: startDate, status: 'confirmed', txId, amount: r.amount } })
+    setAskReceived(false)
+    toast({ text: kind === 'income' ? `${fmtBRL(r.amount)} registrados como recebidos.` : `${fmtBRL(r.amount)} registrados como pagos.` })
     onDone()
+  }
+
+  const save = () => {
+    if (!valid) return
+    // Data futura não pergunta nada: é previsão, por definição.
+    if (firstAlreadyDue) { setAskReceived(true); return }
+    saveOnly()
   }
 
   return (
@@ -339,33 +426,73 @@ export function RecurringForm({ onDone, defaultKind }: { onDone: () => void; def
       <div className="form-grid">
         <div className="field full"><label>Nome</label><input className="input" autoFocus placeholder={kind === 'income' ? 'ex.: Salário, Aluguel casa 1' : 'ex.: Aluguel, Internet, Netflix'} value={name} onChange={e => setName(e.target.value)} /></div>
         <div className="field"><label>Valor (R$)</label><MoneyInput value={amount} onChange={setAmount} /></div>
-        <div className="field"><label>Frequência</label>
-          <select className="input" value={frequency} onChange={e => setFrequency(e.target.value as any)}>
-            <option value="monthly">Mensal</option><option value="weekly">Semanal</option><option value="yearly">Anual</option>
-          </select>
-        </div>
-        <div className="field"><label>{frequency === 'weekly' ? 'Dia da semana (0=dom)' : kind === 'income' ? 'Dia que recebe' : 'Dia do vencimento'}</label><input className="input" inputMode="numeric" maxLength={2} value={dueDay} onChange={e => setDueDay(e.target.value.replace(/\D/g, ''))} /></div>
         <div className="field"><label>Categoria</label>
           <select className="input" value={category} onChange={e => setCategory(e.target.value)}>
             {catList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
-      </div>
-      {frequency === 'monthly' && (
-        <div className="card" style={{ padding: '10px 14px', background: 'var(--accent-soft)', borderColor: 'transparent' }}>
-          <p className="tiny" style={{ margin: 0 }}>
-            Primeira ocorrência: <strong>{fromISO(firstOccurrence).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })}</strong>
-            {alreadyPassed && !includeThisMonth ? ` — o dia ${day} deste mês já passou.` : ''}
-          </p>
-          {alreadyPassed && (
-            <label className="row" style={{ gap: 8, marginTop: 8, cursor: 'pointer' }}>
-              <input type="checkbox" checked={includeThisMonth} onChange={e => setIncludeThisMonth(e.target.checked)} />
-              <span className="tiny">Incluir também a ocorrência deste mês ({fromISO(thisMonthOccurrence).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })})</span>
-            </label>
+        <div className="field full"><label>Com que frequência se repete?</label>
+          <select className="input" value={freqId} onChange={e => setFreqId(e.target.value)}>
+            {QUICK_FREQUENCIES.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+            <option value="custom">Personalizada…</option>
+          </select>
+        </div>
+        {isCustom && (
+          <div className="field full">
+            <label>Repetir a cada</label>
+            <div className="row" style={{ gap: 8 }}>
+              <input className="input" inputMode="numeric" style={{ maxWidth: 90 }} value={customInterval}
+                onChange={e => setCustomInterval(e.target.value.replace(/\D/g, ''))} />
+              <select className="input" value={customUnit} onChange={e => setCustomUnit(e.target.value as IntervalUnit)}>
+                <option value="day">Dias</option><option value="week">Semanas</option>
+                <option value="month">Meses</option><option value="year">Anos</option>
+              </select>
+            </div>
+            {!intervalOk && <span className="tiny" style={{ color: 'var(--danger)' }}>Informe um número entre 1 e 999.</span>}
+          </div>
+        )}
+        <div className="field full">
+          <label>{kind === 'income' ? 'Data do primeiro recebimento' : 'Data do primeiro vencimento'}</label>
+          <input type="date" className="input" value={startDate} onChange={e => setStartDate(e.target.value)} />
+          <span className="tiny">Todas as próximas datas são contadas a partir daqui.</span>
+        </div>
+        <div className="field full">
+          <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
+            <input type="checkbox" checked={noEnd} onChange={e => setNoEnd(e.target.checked)} />
+            <span className="tiny">Sem data final (repete indefinidamente)</span>
+          </label>
+          {!noEnd && (
+            <input type="date" className="input" style={{ marginTop: 8 }} value={endDate} onChange={e => setEndDate(e.target.value)} />
           )}
         </div>
+      </div>
+
+      {preview.length > 0 && (
+        <div className="card" style={{ padding: '10px 14px', background: 'var(--accent-soft)', borderColor: 'transparent' }}>
+          <p className="tiny" style={{ margin: 0, fontWeight: 650 }}>{description}</p>
+          <p className="tiny" style={{ margin: '4px 0 0' }}>
+            Próximas: {preview.map(d => fromISO(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })).join(' · ')}
+          </p>
+          <p className="tiny" style={{ margin: '4px 0 0' }}>
+            {kind === 'income'
+              ? 'Cadastrar aqui é só uma previsão — o saldo só muda quando você confirmar o recebimento.'
+              : 'Cadastrar aqui é só uma previsão — o saldo só muda quando você confirmar o pagamento.'}
+          </p>
+        </div>
       )}
-      <button className="btn btn-primary btn-block" disabled={!name.trim() || !parseMoney(amount)} onClick={save}>Salvar</button>
+
+      <button className="btn btn-primary btn-block" disabled={!valid} onClick={save}>Salvar</button>
+
+      <ConfirmDialog
+        open={askReceived}
+        onClose={() => setAskReceived(false)}
+        title={kind === 'income' ? 'Você já recebeu esta entrada neste período?' : 'Esta conta já foi paga neste período?'}
+        text={`${sentenceCase(name)} de ${fmtBRL(parseMoney(amount) || 0)} com ${kind === 'income' ? 'recebimento' : 'vencimento'} em ${fromISO(startDate).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })}. Registrar agora cria uma única movimentação e atualiza o saldo; as próximas ocorrências continuam apenas previstas.`}
+        actions={[
+          { label: kind === 'income' ? 'Cadastrar e registrar recebimento' : 'Cadastrar e registrar pagamento', onClick: saveAndRegister, tone: 'primary' },
+          { label: 'Cadastrar apenas como previsto', onClick: () => saveOnly() },
+        ]}
+      />
     </div>
   )
 }

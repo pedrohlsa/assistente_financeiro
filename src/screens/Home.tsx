@@ -2,10 +2,11 @@
 import React, { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useStore } from '../store/store'
-import { dailyGoal, generateInsights, notifications, todayStats, weekStats, avgDailyProfit, kmCost, periodStats, balanceOutlook, monthStats, forecast30, upcomingIncomes, monthlySavingGoal, upcomingBills, monthForecast } from '../services/calc'
-import { fmtBRL, fmtNum, greeting, todayISO, addDays, dueLabel, parseMoney } from '../utils/format'
+import { dailyGoal, generateInsights, notifications, todayStats, weekStats, avgDailyProfit, kmCost, periodStats, balanceOutlook, currentBalance, monthStats, forecast30, upcomingIncomes, monthlySavingGoal, upcomingBills, monthForecast } from '../services/calc'
+import { fmtBRL, fmtNum, greeting, todayISO, addDays, dueLabel, nowStamp, parseMoney } from '../utils/format'
 import { sentenceCase } from '../utils/text'
-import { MoneyInput, Progress, EmptyState } from '../components/ui'
+import { MoneyInput, Progress, EmptyState, Sheet } from '../components/ui'
+import { SavingForm } from '../components/forms'
 import PendingRecurrings from '../components/PendingRecurrings'
 import { uid } from '../utils/format'
 
@@ -30,6 +31,7 @@ export default function Home() {
   const [balanceInput, setBalanceInput] = useState('')
   const [showMath, setShowMath] = useState(false)
   const [showForecastMath, setShowForecastMath] = useState(false)
+  const [savingOpen, setSavingOpen] = useState(false)
 
   const isDriver = state.settings.profile === 'driver'
   const ts = useMemo(() => todayStats(state), [state])
@@ -93,8 +95,12 @@ export default function Home() {
   const sobra = month.income - month.expense
 
   const outlook = useMemo(() => balanceOutlook(state, 7), [state])
+  // Saldo exibido vem SEMPRE da fonte única; settings.balance é só a âncora.
+  const balance = useMemo(() => currentBalance(state), [state])
   const saveBalance = () => {
-    dispatch({ type: 'settings', patch: { balance: parseMoney(balanceInput) || 0 } })
+    // Informar o saldo reancora a partir de agora — o que veio antes já está
+    // embutido no número digitado.
+    dispatch({ type: 'settings', patch: { balance: parseMoney(balanceInput) || 0, balanceAsOf: nowStamp() } })
     setEditingBalance(false)
   }
 
@@ -122,14 +128,14 @@ export default function Home() {
               />
             ) : (
               <button
-                onClick={() => { setBalanceInput(state.settings.balance ? String(state.settings.balance) : ''); setEditingBalance(true) }}
+                onClick={() => { setBalanceInput(balance ? String(balance) : ''); setEditingBalance(true) }}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, font: 'inherit', color: 'inherit' }}>
-                <div className="big-number" style={{ fontSize: '1.6rem' }}>{fmtBRL(state.settings.balance || 0)}</div>
+                <div className="big-number" style={{ fontSize: '1.6rem' }}>{fmtBRL(balance)}</div>
               </button>
             )}
           </div>
-          <button className="link" onClick={() => { setBalanceInput(state.settings.balance ? String(state.settings.balance) : ''); setEditingBalance(true) }}>
-            {state.settings.balance ? 'Editar' : 'Informar'}
+          <button className="link" onClick={() => { setBalanceInput(balance ? String(balance) : ''); setEditingBalance(true) }}>
+            {balance ? 'Editar' : 'Informar'}
           </button>
         </div>
         {outlook.bills.length > 0 && (
@@ -163,30 +169,49 @@ export default function Home() {
               <h3 className="muted">Meta mensal para guardar</h3>
               <Link to="/analises" className="tiny">Ver análises</Link>
             </div>
-            <div className={`big-number ${msg.net >= 0 ? 'amount-pos' : 'amount-neg'}`}>{fmtBRL(msg.net)}</div>
-            <div className="tiny">{msg.net >= 0 ? 'disponível para guardar neste mês' : 'resultado líquido do mês'}</div>
+            {/* Só valores realizados: "sobra" nunca é previsão (item 8). */}
+            <div className={`big-number ${msg.net >= 0 ? 'amount-pos' : 'amount-neg'}`}>{fmtBRL(Math.abs(msg.net))}</div>
+            <div className="tiny">{msg.net >= 0 ? 'sobra do mês, após entradas e despesas confirmadas' : 'déficit do mês, após entradas e despesas confirmadas'}</div>
 
             <div className="grid-3" style={{ margin: '16px 0 14px' }}>
-              <div><div className="tiny">Entradas</div><div className="mono-num amount-pos" style={{ fontWeight: 700 }}>{fmtBRL(msg.income)}</div></div>
-              <div><div className="tiny">Despesas</div><div className="mono-num amount-neg" style={{ fontWeight: 700 }}>{fmtBRL(msg.expense)}</div></div>
-              <div><div className="tiny">Meta</div><div className="mono-num" style={{ fontWeight: 700 }}>{fmtBRL(msg.target)}</div></div>
+              <div><div className="tiny">Entradas recebidas</div><div className="mono-num amount-pos" style={{ fontWeight: 700 }}>{fmtBRL(msg.income)}</div></div>
+              <div><div className="tiny">Despesas realizadas</div><div className="mono-num amount-neg" style={{ fontWeight: 700 }}>{fmtBRL(msg.expense)}</div></div>
+              <div><div className="tiny">Meta mensal</div><div className="mono-num" style={{ fontWeight: 700 }}>{fmtBRL(msg.target)}</div></div>
             </div>
 
             {msg.target > 0 && (
               <>
+                {/* Progresso principal = dinheiro REALMENTE guardado (itens 9 e 10). */}
                 <Progress pct={Math.min(msg.pct, 100)} tone={msg.negative ? 'danger' : msg.pct < 40 ? 'warn' : undefined} />
                 <div className="spread" style={{ marginTop: 8 }}>
-                  <span className="small muted">{msg.pct}% da meta</span>
+                  <span className="small muted">Guardado: {fmtBRL(msg.saved)} de {fmtBRL(msg.target)}</span>
                   <span className="small" style={{ fontWeight: 650 }}>
-                    {msg.reached ? '🎉 Meta alcançada!' : `Faltam ${fmtBRL(msg.missing)}`}
+                    {msg.reached ? '🎉 Meta mensal alcançada!' : `Faltam ${fmtBRL(msg.missing)}`}
                   </span>
                 </div>
+                {/* Disponibilidade é informação auxiliar, com nome que não se
+                    confunde com progresso da meta. */}
+                {!msg.reached && msg.canReach && (
+                  <div className="card" style={{ padding: '10px 14px', marginTop: 10, background: 'var(--accent-soft)', borderColor: 'transparent' }}>
+                    <p className="tiny" style={{ margin: 0 }}>
+                      {msg.saved > 0
+                        ? `Você guardou ${fmtBRL(msg.saved)} de uma meta de ${fmtBRL(msg.target)}. Há sobra suficiente para completar os ${fmtBRL(msg.missing)} que faltam.`
+                        : `Você já tem valor disponível para cumprir sua meta de ${fmtBRL(msg.target)}.`}
+                    </p>
+                    <p className="tiny" style={{ margin: '4px 0 0' }}>
+                      {msg.availablePct}% do valor necessário está disponível ({fmtBRL(msg.stillAvailable)} de sobra ainda não guardada).
+                    </p>
+                    <button className="btn btn-primary btn-sm" style={{ marginTop: 8 }} onClick={() => setSavingOpen(true)}>
+                      Guardar {fmtBRL(msg.missing)}
+                    </button>
+                  </div>
+                )}
               </>
             )}
 
             {/* Guardado REAL x apenas disponível (14.3) */}
             <div className="stack small" style={{ marginTop: 12, gap: 4 }}>
-              <div className="spread"><span className="muted">Resultado líquido</span><span className="mono-num">{fmtBRL(msg.net)}</span></div>
+              <div className="spread"><span className="muted">{msg.net >= 0 ? 'Sobra do mês' : 'Déficit do mês'}</span><span className="mono-num">{fmtBRL(Math.abs(msg.net))}</span></div>
               <div className="spread"><span className="muted">Já guardado de verdade</span><span className="mono-num amount-pos">{fmtBRL(msg.saved)}</span></div>
               <div className="spread"><span className="muted">Ainda disponível para guardar</span><span className="mono-num">{fmtBRL(msg.stillAvailable)}</span></div>
               {/* Parcelas do mês: projeção, não altera o valor realmente guardado (13) */}
@@ -213,10 +238,10 @@ export default function Home() {
               {msg.target <= 0
                 ? 'Defina em Configurações quanto pretende guardar por mês.'
                 : msg.negative
-                  ? `Neste mês, suas despesas estão ${fmtBRL(-msg.net)} acima das suas entradas. Antes de guardar, será necessário equilibrar esse valor.`
+                  ? `Neste mês, suas despesas confirmadas estão ${fmtBRL(-msg.net)} acima das entradas recebidas. Antes de guardar, será necessário equilibrar esse valor.`
                   : msg.reached
-                    ? 'Meta mensal alcançada! Seu resultado líquido passou do valor que você pretendia guardar.'
-                    : `Sua meta é guardar ${fmtBRL(msg.target)} por mês. Seu resultado líquido neste mês é ${fmtBRL(msg.net)} — faltam ${fmtBRL(msg.missing)}.`}
+                    ? 'Meta mensal alcançada! Você transferiu para a reserva o valor que pretendia guardar.'
+                    : `Sua meta é guardar ${fmtBRL(msg.target)} por mês. Você já guardou ${fmtBRL(msg.saved)} — faltam ${fmtBRL(msg.missing)}.`}
             </p>
             <button className="link tiny" style={{ marginTop: 6 }} onClick={() => setShowMath(m => !m)}>
               {showMath ? 'Ocultar cálculo' : 'Como foi calculado?'}
@@ -224,11 +249,11 @@ export default function Home() {
             {showMath && (
               <div className="stack tiny" style={{ marginTop: 8, gap: 3 }}>
                 <div className="spread"><span>Entradas recebidas no mês</span><span className="mono-num">{fmtBRL(msg.income)}</span></div>
-                <div className="spread"><span>− Despesas pagas no mês</span><span className="mono-num">{fmtBRL(msg.expense)}</span></div>
-                <div className="spread" style={{ fontWeight: 700 }}><span>= Resultado líquido</span><span className="mono-num">{fmtBRL(msg.net)}</span></div>
+                <div className="spread"><span>− Despesas realizadas no mês</span><span className="mono-num">{fmtBRL(msg.expense)}</span></div>
+                <div className="spread" style={{ fontWeight: 700 }}><span>= {msg.net >= 0 ? 'Sobra do mês' : 'Déficit do mês'}</span><span className="mono-num">{fmtBRL(Math.abs(msg.net))}</span></div>
                 <div className="spread"><span>− Já transferido para reserva</span><span className="mono-num">{fmtBRL(msg.saved)}</span></div>
                 <div className="spread" style={{ fontWeight: 700 }}><span>= Ainda disponível</span><span className="mono-num">{fmtBRL(msg.stillAvailable)}</span></div>
-                <p style={{ marginTop: 4 }}>Transferências para reserva não são despesas — elas só indicam quanto do resultado já foi guardado.</p>
+                <p style={{ marginTop: 4 }}>Só entram valores já confirmados — salário previsto e conta futura ficam fora. Transferências para reserva não são despesas: elas indicam quanto da sobra já foi guardado.</p>
               </div>
             )}
           </div>
@@ -457,6 +482,10 @@ export default function Home() {
           )}
         </>
       )}
+
+      <Sheet open={savingOpen} onClose={() => setSavingOpen(false)} title="Guardar dinheiro">
+        <SavingForm onDone={() => setSavingOpen(false)} />
+      </Sheet>
     </div>
   )
 }

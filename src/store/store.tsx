@@ -4,12 +4,12 @@
 import React, { createContext, useContext, useEffect, useMemo, useReducer } from 'react'
 import {
   AppState, Transaction, WorkSession, FuelRecord, MaintenanceItem, FinancialGoal,
-  Deficit, RecurringExpense, Budget, ChatMessage, Settings, Vehicle, ParsedAction, Category,
+  Deficit, RecurringExpense, RecurrenceOccurrence, Budget, ChatMessage, Settings, Vehicle, ParsedAction, Category,
   CreditCard, InstallmentPlan, Installment, CardPayment, RecurringCardCharge,
 } from '../models/types'
 import { DEFAULT_CATEGORIES, mergeDefaultCategories } from '../data/categories'
 import { buildDemoData } from '../data/demo'
-import { addDays, monthKey, nowTime, todayISO, uid } from '../utils/format'
+import { addDays, monthKey, nowStamp, nowTime, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { can99FeeApply, defaultIncomeCategory } from '../services/profile'
 import { buildInstallments, cardInvoice, suggestedFirstDueDate } from '../services/cards'
@@ -92,6 +92,7 @@ type Action =
   | { type: 'addCategory'; c: Category }
   | { type: 'archiveCategory'; id: string; archived: boolean }
   | { type: 'updateRecurring'; id: string; patch: Partial<RecurringExpense> }
+  | { type: 'resolveOccurrence'; recurringId: string; occurrence: RecurrenceOccurrence }
   | { type: 'mergeState'; state: Partial<AppState> }
   // --- cartões e parcelamentos ---
   | { type: 'addCard'; card: CreditCard }
@@ -174,6 +175,17 @@ function reducer(s: AppState, a: Action): AppState {
       return { ...s, categories: s.categories.map(c => c.id === a.id ? { ...c, archived: a.archived } : c) }
     case 'updateRecurring':
       return { ...s, recurring: s.recurring.map(r => r.id === a.id ? { ...r, ...a.patch } : r) }
+    case 'resolveOccurrence':
+      // Chave única recurringId + date: reconfirmar a mesma ocorrência substitui
+      // o registro em vez de criar um segundo.
+      return {
+        ...s,
+        recurring: s.recurring.map(r => r.id !== a.recurringId ? r : {
+          ...r,
+          snoozeUntil: undefined,
+          occurrences: [...(r.occurrences || []).filter(o => o.date !== a.occurrence.date), a.occurrence],
+        }),
+      }
     case 'mergeState': {
       // Importação "Mesclar": junta sem apagar, deduplicando por id (14.10).
       const byId = <T extends { id: string }>(cur: T[], inc?: T[]) => {
@@ -255,9 +267,8 @@ function reducer(s: AppState, a: Action): AppState {
         installments: settle.size
           ? s.installments.map(i => settle.has(i.id) ? { ...i, status: 'paid' as const, paidAt: a.payment.paymentDate, paidAmount: i.amount } : i)
           : s.installments,
-        settings: a.payment.fromBalance
-          ? { ...s.settings, balance: Math.max((s.settings.balance || 0) - a.payment.amount, 0) }
-          : s.settings,
+        // O saldo NÃO é alterado aqui: ele é derivado em currentBalance(), que já
+        // desconta os pagamentos com `fromBalance`. Mexer nos dois lugares contaria duas vezes.
       }
     }
     case 'removeCardPayment': return { ...s, cardPayments: s.cardPayments.filter(p => p.id !== a.id) }
@@ -437,7 +448,9 @@ export function applyParsedAction(dispatch: React.Dispatch<Action>, state: AppSt
       break
     }
     case 'balance':
-      dispatch({ type: 'settings', patch: { balance: a.amount } })
+      // Informar o saldo redefine a ÂNCORA a partir de agora: as movimentações
+      // anteriores já estão embutidas no número que o usuário acabou de dizer.
+      dispatch({ type: 'settings', patch: { balance: a.amount, balanceAsOf: nowStamp() } })
       break
 
     // ---------- Cartões e parcelamentos ----------
@@ -497,7 +510,8 @@ export function applyParsedAction(dispatch: React.Dispatch<Action>, state: AppSt
           profileAtCreation: state.settings.profile,
         },
       })
-      dispatch({ type: 'settings', patch: { balance: (state.settings.balance || 0) + a.netReceived } })
+      // O saldo sobe sozinho: a Transaction 'financed-cash-inflow' acima já é
+      // contada por currentBalance(). Somar aqui também dobraria o valor.
       break
     }
     case 'card-payment': {

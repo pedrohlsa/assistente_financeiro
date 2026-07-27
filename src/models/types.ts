@@ -29,6 +29,11 @@ export interface Transaction {
   paymentMethod?: string
   note?: string
   recurringId?: string
+  /**
+   * Data da ocorrência que originou este lançamento. Junto com `recurringId`
+   * forma a chave única que impede confirmar duas vezes o mesmo período.
+   */
+  occurrenceDate?: string
   source?: 'manual' | 'ai' | 'voice' | 'quick' | 'demo' | 'recurring'
   /** Origem/fonte informada pelo usuário: "Casa 1", "Cliente João" (14.6). */
   origin?: string
@@ -104,24 +109,54 @@ export interface Deficit {
 
 export type Recurrence = 'weekly' | 'monthly' | 'yearly'
 
+/** Unidade do intervalo de repetição. */
+export type IntervalUnit = 'day' | 'week' | 'month' | 'year'
+
+/** Situação de UMA ocorrência específica de uma recorrência. */
+export type OccurrenceStatus = 'confirmed' | 'skipped'
+
+/**
+ * Ocorrência já resolvida. A chave única é `recurringId` (dono) + `date` — é o
+ * que impede registrar duas vezes o mesmo salário do mesmo período.
+ */
+export interface RecurrenceOccurrence {
+  date: string   // YYYY-MM-DD da ocorrência prevista
+  status: OccurrenceStatus
+  /** Transação criada ao confirmar (ausente em 'skipped'). */
+  txId?: string
+  /** Valor realmente confirmado, quando diferente do previsto. */
+  amount?: number
+}
+
 export interface RecurringExpense {
   id: string
   name: string
   amount: number
+  /** Legado, mantido para dados antigos. A repetição real é interval+intervalUnit. */
   frequency: Recurrence
   dueDay: number // dia do mês (monthly/yearly) ou dia da semana (weekly)
   dueMonth?: number // para anual
   category: string
   kind?: 'income' | 'expense' // entrada (salário/aluguel) ou saída (conta). Ausente = expense.
   origin?: string        // fonte: "Casa 1", "Empresa X" (14.6)
-  startDate?: string     // a partir de quando vale (YYYY-MM-DD)
+  /**
+   * Data da PRIMEIRA ocorrência. É a âncora de toda a sequência futura: com
+   * intervalo em dias ou semanas as próximas datas saem daqui por soma, nunca
+   * do dia do mês. Ausente (dados antigos) = fallback em `recurrenceAnchor()`.
+   */
+  startDate?: string
   endDate?: string       // até quando vale (opcional)
   active?: boolean       // desativada não gera pendência. Ausente = true.
+  /** Repetir a cada N unidades. Ausente = derivado de `frequency`. */
+  interval?: number
+  intervalUnit?: IntervalUnit
   /**
-   * Meses já resolvidos ('YYYY-MM'), seja por confirmação ou por "não recebi".
-   * É o que impede lançamento duplicado do mesmo mês (14.2).
+   * Meses já resolvidos ('YYYY-MM'). LEGADO: só é consultado para recorrências
+   * mensais antigas. O controle novo é `occurrences`, por data exata.
    */
   handledMonths?: string[]
+  /** Ocorrências resolvidas por data — evita duplicidade em qualquer frequência. */
+  occurrences?: RecurrenceOccurrence[]
   /** "Adiar": não perguntar de novo antes desta data. */
   snoozeUntil?: string
 }
@@ -311,7 +346,17 @@ export interface Settings {
   comfortPerKm: number
   fixedMonthlyCosts: number // seguro, IPVA, financiamento etc (soma mensal p/ custo por km)
   notifications: boolean
-  balance: number           // saldo atual em conta (modo banco) — atualizado pelo usuário
+  /**
+   * ÂNCORA do saldo, não o saldo atual: é o valor que o usuário informou na data
+   * `balanceAsOf`. O saldo de hoje é sempre `currentBalance(state)` — âncora mais
+   * as movimentações REALIZADAS depois dela. Nunca ler este campo direto na UI.
+   */
+  balance: number
+  /**
+   * Data/hora ('YYYY-MM-DDTHH:mm') em que o saldo âncora foi informado.
+   * Ausente (dados antigos) = início do dia de hoje, ver currentBalance().
+   */
+  balanceAsOf?: string
   ask99Fee: boolean         // ao registrar faturamento, perguntar se foi saque da 99 (−R$1)
   platform99Fee: number     // valor da taxa de saque da 99
   /** IA remota (DeepSeek). Desligada = só o motor local/offline responde (14.11). */

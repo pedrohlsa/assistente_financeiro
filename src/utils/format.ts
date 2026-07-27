@@ -28,6 +28,12 @@ export const nowTime = () => {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+/** Carimbo 'YYYY-MM-DDTHH:mm' — ordenável como string, usado pela âncora do saldo. */
+export const nowStamp = () => `${todayISO()}T${nowTime()}`
+
+/** Mesmo formato de `nowStamp`, montado a partir de uma transação. */
+export const stampOf = (date: string, time?: string) => `${date}T${time || '00:00'}`
+
 export const fmtDateShort = (iso: string) => {
   const d = fromISO(iso)
   return d.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })

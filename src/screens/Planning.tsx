@@ -2,7 +2,7 @@
 import React, { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/store'
-import { budgetUsage, forecast30, upcomingBills } from '../services/calc'
+import { budgetUsage, currentBalance, describeRecurrence, forecast30, upcomingBills, upcomingIncomes } from '../services/calc'
 import { dueLabel, fmtBRL } from '../utils/format'
 import { sentenceCase } from '../utils/text'
 import { ConfirmDialog, EmptyState, Progress, Sheet, useToast } from '../components/ui'
@@ -18,8 +18,13 @@ export default function Planning() {
   const [budgetOpen, setBudgetOpen] = useState(false)
   const [removing, setRemoving] = useState<RecurringExpense | null>(null)
 
-  const fc = useMemo(() => forecast30(state), [state])
   const bills = useMemo(() => upcomingBills(state, 30), [state])
+  const incomes = useMemo(() => upcomingIncomes(state, 30), [state])
+  // Realizado x previsto: nunca somados na mesma linha (item 11).
+  const saldoAtual = useMemo(() => currentBalance(state), [state])
+  const entradasPrevistas = incomes.reduce((a, b) => a + b.amount, 0)
+  const saidasPrevistas = bills.reduce((a, b) => a + b.amount, 0)
+  const saldoEstimado = saldoAtual + entradasPrevistas - saidasPrevistas
 
   return (
     <div className="fade-slide">
@@ -28,18 +33,23 @@ export default function Planning() {
         <h1>Planejamento</h1>
       </div>
 
-      {/* PREVISÃO 30 DIAS (seção 25) */}
+      {/* PREVISÃO 30 DIAS (seção 25 + item 11) — realizado e previsto sempre
+          em linhas separadas. Uma entrada já confirmada sai de "previstas"
+          automaticamente (upcomingIncomes ignora ocorrências resolvidas). */}
       <div className="card">
         <h3 className="muted">Próximos 30 dias (estimativa)</h3>
         <div className="stack small" style={{ marginTop: 10 }}>
-          <div className="spread"><span className="muted">Saldo atual (receitas − despesas)</span><span className="mono-num" style={{ fontWeight: 700 }}>{fmtBRL(fc.balance)}</span></div>
-          <div className="spread"><span className="muted">Entradas previstas</span><span className="amount-pos mono-num">+ {fmtBRL(fc.expectedIncome)}</span></div>
-          <div className="spread"><span className="muted">Saídas previstas (inclui {fmtBRL(fc.recurringTotal)} de contas fixas)</span><span className="amount-neg mono-num">− {fmtBRL(fc.expectedExpense)}</span></div>
+          <div className="spread"><span className="muted">Saldo atual (já realizado)</span><span className="mono-num" style={{ fontWeight: 700 }}>{fmtBRL(saldoAtual)}</span></div>
+          <div className="spread"><span className="muted">Entradas previstas</span><span className="amount-pos mono-num">+ {fmtBRL(entradasPrevistas)}</span></div>
+          <div className="spread"><span className="muted">Saídas previstas</span><span className="amount-neg mono-num">− {fmtBRL(saidasPrevistas)}</span></div>
           <div className="divider" />
           {/* "Estimado", não "projetado": o valor não é realizado (item 35). */}
-          <div className="spread" style={{ fontWeight: 750, fontSize: '1.05rem' }}><span>Saldo estimado</span><span className={fc.projected >= 0 ? 'amount-pos' : 'amount-neg'}>{fmtBRL(fc.projected)}</span></div>
+          <div className="spread" style={{ fontWeight: 750, fontSize: '1.05rem' }}><span>Saldo estimado</span><span className={saldoEstimado >= 0 ? 'amount-pos' : 'amount-neg'}>{fmtBRL(saldoEstimado)}</span></div>
         </div>
-        <p className="tiny" style={{ marginTop: 10 }}>Projeção baseada na sua média real dos últimos 30 dias e nas contas cadastradas. É uma estimativa, não uma garantia.</p>
+        <p className="tiny" style={{ marginTop: 10 }}>
+          Saldo atual é só o que já entrou e saiu de verdade. As linhas previstas são contas e
+          entradas cadastradas que ainda não foram confirmadas — é uma estimativa, não uma garantia.
+        </p>
       </div>
 
       {/* CONTAS FIXAS (seção 24) */}
@@ -71,9 +81,8 @@ export default function Planning() {
             <div key={r.id} className="row list-item">
               <div className="grow">
                 <span className="small" style={{ fontWeight: 650 }}>{sentenceCase(r.name)}</span>
-                <span className="tiny"> · {r.frequency === 'monthly'
-                  ? `Mensal · ${r.kind === 'income' ? 'cai' : 'vence'} todo dia ${r.dueDay}`
-                  : r.frequency === 'weekly' ? 'Semanal' : 'Anual'}</span>
+                {/* Descrição legível — nunca "dia 0", "dia 1" (item 2). */}
+                <span className="tiny"> · {describeRecurrence(r)}</span>
               </div>
               <span className="small mono-num">{fmtBRL(r.amount)}</span>
               <button className="link tiny" onClick={() => setRemoving(r)}>Remover</button>

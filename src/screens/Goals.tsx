@@ -158,20 +158,21 @@ export default function Goals() {
           <h3 className="muted">Meta mensal para guardar</h3>
           <div className="big-number" style={{ margin: '4px 0 10px' }}>{fmtBRL(msg.target)}</div>
           <div className="stack" style={{ fontSize: '0.9rem' }}>
-            <div className="spread"><span className="muted">Entradas do mês</span><span className="mono-num amount-pos">{fmtBRL(msg.income)}</span></div>
-            <div className="spread"><span className="muted">Despesas do mês</span><span className="mono-num amount-neg">− {fmtBRL(msg.expense)}</span></div>
+            <div className="spread"><span className="muted">Entradas recebidas</span><span className="mono-num amount-pos">{fmtBRL(msg.income)}</span></div>
+            <div className="spread"><span className="muted">Despesas realizadas</span><span className="mono-num amount-neg">− {fmtBRL(msg.expense)}</span></div>
             <div className="divider" />
             <div className="spread" style={{ fontWeight: 750 }}>
-              <span>Resultado líquido do mês</span>
-              <span className={`mono-num ${msg.net >= 0 ? 'amount-pos' : 'amount-neg'}`}>{fmtBRL(msg.net)}</span>
+              <span>{msg.net >= 0 ? 'Sobra do mês' : 'Déficit do mês'}</span>
+              <span className={`mono-num ${msg.net >= 0 ? 'amount-pos' : 'amount-neg'}`}>{fmtBRL(Math.abs(msg.net))}</span>
             </div>
           </div>
           {msg.target > 0 && (
             <div style={{ marginTop: 12 }}>
+              {/* O progresso é o que foi REALMENTE guardado, não a sobra. */}
               <Progress pct={Math.min(msg.pct, 100)} tone={msg.negative ? 'danger' : msg.pct < 40 ? 'warn' : undefined} />
               <div className="spread" style={{ marginTop: 8 }}>
-                <span className="small muted">{msg.pct}% da meta</span>
-                <span className="small" style={{ fontWeight: 650 }}>{msg.reached ? '🎉 Meta alcançada!' : `Faltam ${fmtBRL(msg.missing)}`}</span>
+                <span className="small muted">Guardado: {fmtBRL(msg.saved)} de {fmtBRL(msg.target)}</span>
+                <span className="small" style={{ fontWeight: 650 }}>{msg.reached ? '🎉 Meta mensal alcançada!' : `Faltam ${fmtBRL(msg.missing)}`}</span>
               </div>
             </div>
           )}
@@ -179,10 +180,12 @@ export default function Goals() {
             {msg.target <= 0
               ? 'Defina em Mais → Configurações quanto pretende guardar por mês.'
               : msg.negative
-                ? `Neste mês, suas despesas estão ${fmtBRL(-msg.net)} acima das suas entradas. Antes de guardar, será necessário equilibrar esse valor.`
+                ? `Neste mês, suas despesas confirmadas estão ${fmtBRL(-msg.net)} acima das entradas recebidas. Antes de guardar, será necessário equilibrar esse valor.`
                 : msg.reached
-                  ? 'Meta mensal alcançada! Seu resultado líquido passou do valor que você pretendia guardar.'
-                  : `Faltam ${fmtBRL(msg.missing)} para alcançar sua meta mensal. Ajuste em Mais → Configurações.`}
+                  ? 'Meta mensal alcançada! Você transferiu para a reserva o valor que pretendia guardar.'
+                  : msg.canReach
+                    ? `Você já tem valor disponível para cumprir sua meta de ${fmtBRL(msg.target)} — ${msg.availablePct}% do valor necessário está disponível. Faltam ${fmtBRL(msg.missing)} para guardar de verdade.`
+                    : `Faltam ${fmtBRL(msg.missing)} para alcançar sua meta mensal. Ajuste em Mais → Configurações.`}
           </p>
         </div>
       )}

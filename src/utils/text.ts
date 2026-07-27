@@ -36,3 +36,28 @@ export const sameName = (a?: string | null, b?: string | null): boolean => {
   const x = normalizeName(a)
   return !!x && x === normalizeName(b)
 }
+
+// ---------- DIAS DA SEMANA ----------
+// O índice 0–6 é detalhe do JavaScript e NUNCA aparece para o usuário: a
+// interface sempre mostra o nome. Abreviação só onde o espaço aperta.
+export const WEEKDAY_NAMES = [
+  'Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado',
+] as const
+
+export const WEEKDAY_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'] as const
+
+export const weekdayName = (i: number): string => WEEKDAY_NAMES[((i % 7) + 7) % 7]
+export const weekdayShort = (i: number): string => WEEKDAY_SHORT[((i % 7) + 7) % 7]
+
+/**
+ * "Toda segunda-feira", "Toda segunda, quarta e sexta-feira".
+ * Só o último nome mantém o sufixo "-feira", como se fala em pt-BR.
+ */
+export function weekdayList(days: number[]): string {
+  const uniq = [...new Set(days.map(d => ((d % 7) + 7) % 7))].sort()
+  if (!uniq.length) return ''
+  const names = uniq.map((d, i) =>
+    i === uniq.length - 1 ? weekdayName(d).toLowerCase() : weekdayName(d).toLowerCase().replace('-feira', ''))
+  if (names.length === 1) return names[0]
+  return `${names.slice(0, -1).join(', ')} e ${names[names.length - 1]}`
+}

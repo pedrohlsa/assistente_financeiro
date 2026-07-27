@@ -100,6 +100,39 @@ código consulta essas funções em vez de comparar `profile === 'driver'` inlin
     categoria, horário e valor. Ações destrutivas não ficam visíveis em cada linha: o toque
     abre a folha de detalhes, onde ficam origem, pagamento, observação, perfil na criação e a
     remoção (com confirmação + "Desfazer" no toast).
+18. **Previsão nunca altera o saldo real**. Cadastrar salário, aluguel, conta, parcela ou
+    assinatura cria apenas uma PREVISÃO: não gera movimentação, não mexe no saldo, não conta
+    como entrada do mês e não influencia a meta. Previsão só aparece em "entradas/saídas
+    previstas", calendário, projeções e saldo estimado.
+19. **Entrada recorrente só vira saldo depois de confirmada**. O usuário confirma o
+    recebimento (no card de pendências ou já no cadastro, quando a data atual ou passada faz a
+    pergunta ser útil) e só então nasce a `Transaction` realizada. A chave única
+    `recurringId` + `occurrenceDate` — espelhada em `RecurringExpense.occurrences` — é o que
+    impede confirmar duas vezes o mesmo período. Ocorrência resolvida sai automaticamente das
+    listas de previsto, para nada ser contado como realizado e previsto ao mesmo tempo.
+20. **Saldo em conta tem fonte única**: `currentBalance(state)` em `calc.ts`. Nenhuma tela
+    calcula saldo por conta própria e nenhum reducer soma/subtrai `settings.balance` — esse
+    campo é só a ÂNCORA informada pelo usuário (`balance` + `balanceAsOf`), e o saldo de hoje é
+    a âncora mais as movimentações realizadas depois dela (receitas, despesas, entrada
+    financiada e fatura paga com "descontar do saldo"). `type: 'saving'` fica de fora por
+    decisão de projeto — a reserva não é necessariamente outra conta.
+21. **Meta alcançada = dinheiro realmente guardado**. "Meta mensal alcançada" só aparece quando
+    `saved >= target` (transferências `type:'saving'`). Ter sobra suficiente **não** é ter
+    guardado: nesse caso a mensagem é "há valor disponível para cumprir sua meta", e o
+    percentual de disponibilidade é rotulado "% do valor necessário está disponível", nunca
+    "% da meta". Resultado positivo do mês chama-se **Sobra do mês**; negativo, **Déficit do
+    mês** — nunca "sobra" para uma previsão.
+22. **Recorrência é calculada a partir da data inicial**. `startDate` é a âncora da sequência:
+    com intervalo em dias/semanas as próximas datas saem por soma real (15 dias = 15 dias
+    corridos, nunca "duas vezes por mês"). Frequência = `interval` + `intervalUnit`
+    (`day|week|month|year`); `frequency` é legado e só alimenta o fallback documentado em
+    `recurrenceAnchor()`. Em meses curtos o DIA ORIGINAL é preservado e só reduzido ao último
+    dia daquele mês (31/01 a cada 2 meses → 31/03, 31/05, 30/09, 31/01) — nunca degrada
+    permanentemente para 28. Tudo sai de `occurrencesBetween()` em `calc.ts`.
+23. **Dia da semana nunca aparece como número**. `0`, `1`, `2` são detalhe do JavaScript. A
+    interface usa `weekdayName`/`weekdayShort`/`weekdayList` (`src/utils/text.ts`) e a frase
+    pronta de `describeRecurrence()` ("Toda segunda-feira", "A cada 2 semanas, às
+    segundas-feiras", "A cada 15 dias").
 
 ## Arquitetura e tecnologias
 

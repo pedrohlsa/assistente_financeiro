@@ -13,6 +13,7 @@ import {
   round2, simulatePurchase, splitInstallmentAmounts, suggestedDueDay, suggestedFirstDueDate,
 } from '../services/cards'
 import { monthKey } from '../utils/format'
+import { currentBalance } from '../services/calc'
 import { sentenceCase } from '../utils/text'
 
 const CARD_COLORS = ['#6C5CE7', '#0984E3', '#00B894', '#E17055', '#D63031', '#2D3436']
@@ -663,7 +664,7 @@ export function CardPaymentForm({ onDone, card, referenceMonth }: { onDone: () =
       </div>
       <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
         <input type="checkbox" checked={fromBalance} onChange={e => setFromBalance(e.target.checked)} />
-        <span className="tiny">Descontar do meu saldo em conta ({fmtBRL(state.settings.balance || 0)})</span>
+        <span className="tiny">Descontar do meu saldo em conta ({fmtBRL(currentBalance(state))})</span>
       </label>
       {over && (
         <div className="card" style={{ padding: '10px 14px', borderColor: 'var(--warning)', borderWidth: 1.5 }}>

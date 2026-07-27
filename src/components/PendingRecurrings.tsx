@@ -19,25 +19,25 @@ export default function PendingRecurrings() {
   const pendings = useMemo(() => pendingRecurrings(state), [state])
   if (!pendings.length) return null
 
-  const markHandled = (recId: string, mk: string) => {
-    const rec = state.recurring.find(r => r.id === recId)
-    const months = [...(rec?.handledMonths || []), mk]
-    dispatch({ type: 'updateRecurring', id: recId, patch: { handledMonths: months, snoozeUntil: undefined } })
-  }
-
-  const confirmar = (recId: string, mk: string, kind: 'income' | 'expense', amount: number) => {
+  /**
+   * Confirmar cria a movimentação REALIZADA (que é o que move o saldo) e marca a
+   * ocorrência daquela data exata como resolvida — a chave recurringId+date é o
+   * que impede confirmar duas vezes o mesmo período.
+   */
+  const confirmar = (recId: string, occurrenceDate: string, kind: 'income' | 'expense', amount: number) => {
     const rec = state.recurring.find(r => r.id === recId)
     if (!rec) return
+    const txId = uid()
     dispatch({
       type: 'addTx',
       tx: {
-        id: uid(), type: kind, amount, category: rec.category,
+        id: txId, type: kind, amount, category: rec.category,
         description: rec.name, origin: rec.origin,
         date: todayISO(), time: nowTime(), source: 'recurring',
-        recurringId: rec.id, profileAtCreation: state.settings.profile,
+        recurringId: rec.id, occurrenceDate, profileAtCreation: state.settings.profile,
       },
     })
-    markHandled(recId, mk)
+    dispatch({ type: 'resolveOccurrence', recurringId: recId, occurrence: { date: occurrenceDate, status: 'confirmed', txId, amount } })
     setEditingId(null)
     toast({ text: kind === 'income' ? `${fmtBRL(amount)} recebidos.` : `${fmtBRL(amount)} pagos.` })
   }
@@ -47,18 +47,18 @@ export default function PendingRecurrings() {
     toast({ text: 'Ok, pergunto de novo amanhã.' })
   }
 
-  const naoRecebi = (recId: string, mk: string, kind: 'income' | 'expense') => {
-    markHandled(recId, mk)
-    toast({ text: kind === 'income' ? 'Marcado como não recebido neste mês.' : 'Marcado como não pago neste mês.' })
+  const naoRecebi = (recId: string, occurrenceDate: string, kind: 'income' | 'expense') => {
+    dispatch({ type: 'resolveOccurrence', recurringId: recId, occurrence: { date: occurrenceDate, status: 'skipped' } })
+    toast({ text: kind === 'income' ? 'Marcado como não recebido nesta ocorrência.' : 'Marcado como não pago nesta ocorrência.' })
   }
 
   return (
     <>
       {pendings.map(p => {
         const isIncome = p.kind === 'income'
-        const editing = editingId === p.rec.id
+        const editing = editingId === p.rec.id + p.dueDate
         return (
-          <div key={p.rec.id} className="card" style={{ borderColor: 'var(--warning)', borderWidth: 1.5 }}>
+          <div key={p.rec.id + p.dueDate} className="card" style={{ borderColor: 'var(--warning)', borderWidth: 1.5 }}>
             <h3>
               {isIncome ? 'Entrada prevista' : 'Conta prevista'}: {p.rec.name}
               {p.rec.origin ? ` — ${p.rec.origin}` : ''}
@@ -82,22 +82,22 @@ export default function PendingRecurrings() {
                   <label>Valor real (R$)</label>
                   <MoneyInput
                     autoFocus value={valueInput} onChange={setValueInput}
-                    onKeyDown={e => e.key === 'Enter' && confirmar(p.rec.id, p.monthKey, p.kind, parseMoney(valueInput) || p.rec.amount)}
+                    onKeyDown={e => e.key === 'Enter' && confirmar(p.rec.id, p.dueDate, p.kind, parseMoney(valueInput) || p.rec.amount)}
                   />
                 </div>
                 <div className="row" style={{ gap: 8 }}>
-                  <button className="btn btn-primary btn-sm" onClick={() => confirmar(p.rec.id, p.monthKey, p.kind, parseMoney(valueInput) || p.rec.amount)}>Salvar</button>
+                  <button className="btn btn-primary btn-sm" onClick={() => confirmar(p.rec.id, p.dueDate, p.kind, parseMoney(valueInput) || p.rec.amount)}>Salvar</button>
                   <button className="btn btn-ghost btn-sm" onClick={() => setEditingId(null)}>Cancelar</button>
                 </div>
               </div>
             ) : (
               <div className="suggestion-row">
-                <button className="chip active" onClick={() => confirmar(p.rec.id, p.monthKey, p.kind, p.rec.amount)}>
+                <button className="chip active" onClick={() => confirmar(p.rec.id, p.dueDate, p.kind, p.rec.amount)}>
                   {isIncome ? 'Confirmar recebimento' : 'Confirmar pagamento'}
                 </button>
-                <button className="chip" onClick={() => { setEditingId(p.rec.id); setValueInput(String(p.rec.amount)) }}>Alterar valor</button>
+                <button className="chip" onClick={() => { setEditingId(p.rec.id + p.dueDate); setValueInput(String(p.rec.amount)) }}>Alterar valor</button>
                 <button className="chip" onClick={() => adiar(p.rec.id)}>Adiar</button>
-                <button className="chip" onClick={() => naoRecebi(p.rec.id, p.monthKey, p.kind)}>{isIncome ? 'Não recebi' : 'Não paguei'}</button>
+                <button className="chip" onClick={() => naoRecebi(p.rec.id, p.dueDate, p.kind)}>{isIncome ? 'Não recebi' : 'Não paguei'}</button>
               </div>
             )}
           </div>
