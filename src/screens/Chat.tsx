@@ -1,7 +1,7 @@
 // Chat financeiro com IA + entrada por voz (seções 8, 9, 10)
 import React, { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { applyParsedAction, useStore } from '../store/store'
+import { applyParsedAction, findGoalByExactName, useStore } from '../store/store'
 import { askAssistant, askAssistantRemote } from '../services/ai'
 import { describeAction, describeActionDetailed } from '../services/nlp'
 import { ChatMessage, ParsedAction } from '../models/types'
@@ -92,6 +92,14 @@ export default function Chat() {
       reply = (await askAssistantRemote(state, t, history)) || { ...local, engine: 'local' }
     }
     setThinking(false)
+    // Pergunta de desambiguação: só as opções, nenhuma ação pendente ainda.
+    if (reply.choices?.length) {
+      dispatch({
+        type: 'chat',
+        msg: { id: uid(), role: 'assistant', text: reply.text, time: nowTime(), choices: reply.choices },
+      })
+      return
+    }
     dispatch({
       type: 'chat',
       msg: {
@@ -104,6 +112,14 @@ export default function Chat() {
             }).join('\n')).join('\n\n')
           : undefined,
         duplicateWarning: reply.actions?.map(a => {
+          // Meta com nome já existente: a ação 'goal' CRIA outra meta, nunca
+          // altera a atual em silêncio — por isso o aviso é obrigatório aqui.
+          if (a.kind === 'goal') {
+            const g = findGoalByExactName(state, a.name)
+            return g
+              ? `⚠️ Já existe uma meta chamada “${g.name}” (${fmtBRL(g.saved)} de ${fmtBRL(g.target)}). Confirmar vai criar uma SEGUNDA meta com o mesmo nome — a atual não será alterada. Para mudar a existente, peça "muda a meta ${g.name} para X".`
+              : null
+          }
           const dup = findPossibleDuplicate(state, a)
           if (!dup) return null
           return `⚠️ Já existe ${dup.type === 'income' ? 'uma receita' : 'uma despesa'} parecida de ${fmtBRL(dup.amount)} registrada ${dup.date === new Date().toISOString().slice(0, 10) ? 'hoje' : 'ontem'}. Deseja registrar novamente?`
@@ -152,6 +168,26 @@ export default function Chat() {
         },
       })
     }
+  }
+
+  /**
+   * Usuário escolheu uma opção de desambiguação. Isso NÃO registra nada: só
+   * transforma a escolha na confirmação normal, com o detalhamento completo.
+   */
+  const chooseOption = (msgId: string, actions: ParsedAction[]) => {
+    dispatch({ type: 'chatResolve', id: msgId })
+    dispatch({
+      type: 'chat',
+      msg: {
+        id: uid(), role: 'assistant', time: nowTime(),
+        text: 'Entendi isso:\n\n' + actions.map(a => '• ' + describeAction(a)).join('\n') + '\n\nConfirmar?',
+        pending: actions.map(a => ({ label: describeAction(a), action: a })),
+        detail: actions.map(a => describeActionDetailed(a, {
+          fee: state.settings.platform99Fee,
+          categoryName: id => catById(state.categories, id).name,
+        }).join('\n')).join('\n\n'),
+      },
+    })
   }
 
   const cancelActions = (msgId: string) => {
@@ -207,6 +243,14 @@ export default function Chat() {
             )}
             {m.duplicateWarning && (
               <div className="tiny" style={{ marginTop: 8, color: 'var(--warning)', whiteSpace: 'pre-line' }}>{m.duplicateWarning}</div>
+            )}
+            {m.choices && m.choices.length > 0 && (
+              <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {m.choices.map(c => (
+                  <button key={c.label} className="btn btn-soft btn-sm" onClick={() => chooseOption(m.id, c.actions)}>{c.label}</button>
+                ))}
+                <button className="btn btn-danger-soft btn-sm" onClick={() => cancelActions(m.id)}>Cancelar</button>
+              </div>
             )}
             {m.pending && m.pending.length > 0 && (
               <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>

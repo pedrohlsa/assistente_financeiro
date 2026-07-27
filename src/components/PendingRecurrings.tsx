@@ -3,8 +3,12 @@
 import React, { useMemo, useState } from 'react'
 import { useStore } from '../store/store'
 import { pendingRecurrings } from '../services/calc'
-import { addDays, fmtBRL, nowTime, parseMoney, todayISO, uid } from '../utils/format'
-import { useToast } from './ui'
+import { addDays, dueLabel, fmtBRL, fromISO, nowTime, parseMoney, todayISO, uid } from '../utils/format'
+import { sentenceCase } from '../utils/text'
+import { MoneyInput, useToast } from './ui'
+
+const longDate = (iso: string) =>
+  fromISO(iso).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })
 
 export default function PendingRecurrings() {
   const { state, dispatch } = useStore()
@@ -60,18 +64,24 @@ export default function PendingRecurrings() {
               {p.rec.origin ? ` — ${p.rec.origin}` : ''}
             </h3>
             <p className="small muted" style={{ margin: '6px 0 12px' }}>
+              {/* Nunca escrever "vence hoje" para uma data passada: o texto sai
+                  da data REAL da ocorrência (item 32). */}
               {isIncome
-                ? `${p.rec.name} de ${fmtBRL(p.rec.amount)}, previsto para hoje, foi recebido?`
-                : `${p.rec.name} de ${fmtBRL(p.rec.amount)} vence hoje. Já foi paga?`}
+                ? p.inDays === 0
+                  ? `${sentenceCase(p.rec.name)} de ${fmtBRL(p.rec.amount)}, previsto para hoje, foi recebido?`
+                  : `${sentenceCase(p.rec.name)} de ${fmtBRL(p.rec.amount)} era previsto para ${longDate(p.dueDate)}. Já foi recebido?`
+                : p.inDays === 0
+                  ? `A conta ${sentenceCase(p.rec.name)}, de ${fmtBRL(p.rec.amount)}, vence hoje. Ela foi paga?`
+                  : `A conta ${sentenceCase(p.rec.name)}, de ${fmtBRL(p.rec.amount)}, venceu em ${longDate(p.dueDate)}. Ela foi paga?`}
             </p>
+            <p className="tiny" style={{ margin: '-6px 0 12px' }}>{dueLabel(p.inDays, p.kind)}</p>
 
             {editing ? (
               <div className="stack">
                 <div className="field">
                   <label>Valor real (R$)</label>
-                  <input
-                    className="input" inputMode="decimal" autoFocus value={valueInput}
-                    onChange={e => setValueInput(e.target.value)}
+                  <MoneyInput
+                    autoFocus value={valueInput} onChange={setValueInput}
                     onKeyDown={e => e.key === 'Enter' && confirmar(p.rec.id, p.monthKey, p.kind, parseMoney(valueInput) || p.rec.amount)}
                   />
                 </div>

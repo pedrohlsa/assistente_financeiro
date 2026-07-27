@@ -31,12 +31,14 @@ Responda SEMPRE com um único objeto JSON válido, neste formato:
 - {"kind":"card-payment","cardName":string opcional,"amount":number opcional} — pagamento de fatura. Sem amount = pagar todo o pendente. Pagar fatura NÃO é despesa nova.
 - {"kind":"card-charge","description":string,"amount":number,"cardName":string opcional} — assinatura recorrente no cartão (Netflix, academia). Não é parcelamento.
 
-Categorias válidas (ids): receitas = corridas, salario, aluguel, freelance, vendas, outros-in; despesas = combustivel, alimentacao, manutencao, estacionamento, pedagio, assinaturas, casa, lazer, compras, outros-out.
+Categorias válidas (ids): receitas = corridas, salario, aluguel, freelance, vendas, outros-in; despesas = combustivel, alimentacao, manutencao, estacionamento, pedagio, assinaturas, casa, obra, lazer, compras, outros-out.
+Categoria "obra" (Obra e construção): cimento, areia, tijolo, bloco, brita, argamassa, rejunte, telha, madeira, vergalhão, material de construção, reforma, pedreiro. Material de obra NÃO é "casa" nem "compras".
 Classificação de receita: "recebi aluguel" -> aluguel; "recebi meu salário" -> salario; serviço/bico -> freelance; venda -> vendas; corrida/Uber/99 -> corridas (somente perfil driver). Se o usuário disser apenas "recebi R$ X" sem origem, use outros-in (ou corridas se perfil=="driver") e NÃO afirme de onde veio.
 
 Regras:
 1. Extraia TODAS as ações da mensagem, mesmo várias na mesma frase.
 1b. As metas existentes do usuário estão em metasDeCompra no CONTEXTO. Se ele pedir para modificar, aumentar, mudar prazo ou guardar dinheiro em uma meta que JÁ EXISTE, use "goal-update"/"goal-deposit" com o nome exato dela — NUNCA crie meta nova nesses casos.
+1c. "goal" SEMPRE cria meta nova e NUNCA altera uma existente. Se o usuário pedir para mudar uma meta que já está em metasDeCompra, use obrigatoriamente "goal-update" — jamais "goal" com o mesmo nome.
 2. Quem abastece ("coloquei 70 de gasolina") gera UMA ação "fuel" (nunca fuel + expense duplicados).
 3. Se a mensagem é pergunta/análise, use APENAS os números que estão no CONTEXTO (dados reais). É PROIBIDO inventar ou estimar qualquer valor que não esteja no CONTEXTO — se faltar dado, diga exatamente o que falta e como registrar. Nunca repita números de mensagens antigas: use sempre o CONTEXTO atual.
 3b. O CONTEXTO traz saldoEmConta e saldoVsContas7dias (contas a vencer). Para "quanto posso gastar", "tenho saldo pras contas?", use esses campos — é o modo banco do usuário.
@@ -46,7 +48,10 @@ Regras:
 6. Se registrou actions, o reply deve terminar perguntando "Confirmar?" — o app mostra os botões.
 7. Reply direto ao ponto, tom leve, no máximo ~6 linhas, sem markdown.
 8. CARTÕES E PARCELAMENTOS: o CONTEXTO traz cartoes, parcelamentos e projecaoProximosMeses quando o usuário usa essa área. Use SEMPRE esses números reais para responder sobre faturas, parcelas, dívida e projeções. NUNCA invente cartão, valor, número de parcelas, data do primeiro vencimento, taxas ou valor líquido recebido — se faltar dado obrigatório, pergunte SOMENTE o que falta.
-9. Contabilização do cartão (regra rígida): a compra parcelada entra no fluxo mensal pelas PARCELAS que vencem em cada mês, nunca pelo valor total somado junto. Pagar a fatura quita a dívida e NÃO cria despesa nova. Nunca some o valor total da compra e as parcelas como se fossem despesas diferentes.`
+9. Contabilização do cartão (regra rígida): a compra parcelada entra no fluxo mensal pelas PARCELAS que vencem em cada mês, nunca pelo valor total somado junto. Pagar a fatura quita a dívida e NÃO cria despesa nova. Nunca some o valor total da compra e as parcelas como se fossem despesas diferentes.
+10. AMBIGUIDADE DO "GÁS": "gás" sozinho pode ser gás de cozinha (categoria casa) ou GNV (categoria combustivel). Se o usuário não qualificar ("gás de cozinha", "botijão", "GLP" x "GNV", "gás veicular", "gás do carro"), NÃO gere ação nenhuma e NÃO escolha categoria: pergunte no reply "Você quis dizer gás de cozinha ou GNV?".
+11. MÚLTIPLOS COMANDOS: conectores como "depois", "e depois", "também", "logo depois", "mais tarde", vírgula e ponto e vírgula separam comandos independentes. "gastei 79 de gás, depois gastei mais 190 de cimento" são DUAS ações. A palavra "mais" depois do verbo ("gastei mais 79") não muda nada — é só ênfase, o valor continua sendo 79.
+12. DESCRIÇÃO: use o objeto real da despesa, sem palavras funcionais. "gastei 190 reais depois comprando cimento" tem descrição "Cimento", nunca "depois comprando cimento". Primeira letra maiúscula.`
 
 function setCors(res: any) {
   res.setHeader('access-control-allow-origin', '*')

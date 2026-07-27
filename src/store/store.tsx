@@ -7,9 +7,10 @@ import {
   Deficit, RecurringExpense, Budget, ChatMessage, Settings, Vehicle, ParsedAction, Category,
   CreditCard, InstallmentPlan, Installment, CardPayment, RecurringCardCharge,
 } from '../models/types'
-import { DEFAULT_CATEGORIES } from '../data/categories'
+import { DEFAULT_CATEGORIES, mergeDefaultCategories } from '../data/categories'
 import { buildDemoData } from '../data/demo'
 import { addDays, monthKey, nowTime, todayISO, uid } from '../utils/format'
+import { normalizeName, sameName } from '../utils/text'
 import { can99FeeApply, defaultIncomeCategory } from '../services/profile'
 import { buildInstallments, cardInvoice, suggestedFirstDueDate } from '../services/cards'
 
@@ -47,7 +48,9 @@ function normalizeState(raw: any): AppState {
     ...raw,
     settings: { ...defaultSettings, ...(raw?.settings || {}) },
     transactions: arr(raw?.transactions),
-    categories: raw?.categories?.length ? raw.categories : DEFAULT_CATEGORIES,
+    // Fusão, não substituição: quem já usava o app recebe as categorias padrão
+    // novas sem perder as personalizadas nem o estado "arquivada".
+    categories: mergeDefaultCategories(raw?.categories),
     workSessions: arr(raw?.workSessions),
     fuelRecords: arr(raw?.fuelRecords),
     maintenance: arr(raw?.maintenance),
@@ -263,7 +266,7 @@ function reducer(s: AppState, a: Action): AppState {
       return { ...s, cardCharges: s.cardCharges.map(c => c.id === a.id ? { ...c, ...a.patch } : c) }
     case 'removeCardCharge': return { ...s, cardCharges: s.cardCharges.filter(c => c.id !== a.id) }
     case 'chat': return { ...s, chat: [...s.chat, a.msg].slice(-200) }
-    case 'chatResolve': return { ...s, chat: s.chat.map(m => m.id === a.id ? { ...m, pending: undefined } : m) }
+    case 'chatResolve': return { ...s, chat: s.chat.map(m => m.id === a.id ? { ...m, pending: undefined, choices: undefined } : m) }
     case 'chatClear': return { ...s, chat: [] }
     case 'loadDemo': {
       const demo = buildDemoData()
@@ -276,14 +279,42 @@ function reducer(s: AppState, a: Action): AppState {
 
 const StoreCtx = createContext<{ state: AppState; dispatch: React.Dispatch<Action> }>({ state: initialState, dispatch: () => {} })
 
+/**
+ * Handle da gravação debounced. Precisa ser visível fora do provider porque o
+ * reset tem que CANCELAR a gravação pendente do estado antigo — senão ela roda
+ * 150ms depois e ressuscita tudo que acabou de ser apagado.
+ */
+let pendingSave: any = null
+
+/**
+ * ÚNICA operação de apagar tudo do app (item 38). Usada pelo botão das
+ * Configurações e pelo comando confirmado da IA — os dois caminhos precisam ser
+ * exatamente o mesmo, senão um apaga e o outro não.
+ *
+ * Ordem importa:
+ * 1. cancela a gravação pendente do estado ANTIGO;
+ * 2. remove imediatamente SÓ a chave do AssistFin (nunca `localStorage.clear()`,
+ *    que apagaria dados de outros apps do mesmo domínio);
+ * 3. restaura o estado inicial completo, o que devolve o usuário ao onboarding.
+ * Com a chave já removida, um reload em qualquer instante encontra o app limpo.
+ */
+export function resetAllData(dispatch: React.Dispatch<Action>) {
+  if (pendingSave) { clearTimeout(pendingSave); pendingSave = null }
+  try { localStorage.removeItem(STORAGE_KEY) } catch { /* storage indisponível */ }
+  dispatch({ type: 'reset' })
+}
+
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState, (init) => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) {
         const parsed = JSON.parse(raw)
-        // confirmações pendentes não sobrevivem entre sessões (evita aplicar ações velhas)
-        const chat = Array.isArray(parsed.chat) ? parsed.chat.map((m: ChatMessage) => (m.pending ? { ...m, pending: undefined } : m)) : []
+        // confirmações e perguntas pendentes não sobrevivem entre sessões
+        // (evita aplicar ações velhas em cima de um estado que já mudou)
+        const chat = Array.isArray(parsed.chat)
+          ? parsed.chat.map((m: ChatMessage) => (m.pending || m.choices ? { ...m, pending: undefined, choices: undefined } : m))
+          : []
         return normalizeState({ ...parsed, chat })
       }
     } catch { /* estado corrompido → começa limpo */ }
@@ -291,8 +322,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   })
 
   useEffect(() => {
-    const t = setTimeout(() => localStorage.setItem(STORAGE_KEY, JSON.stringify(state)), 150)
-    return () => clearTimeout(t)
+    clearTimeout(pendingSave)
+    pendingSave = setTimeout(() => {
+      pendingSave = null
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+    }, 150)
+    return () => clearTimeout(pendingSave)
   }, [state])
 
   const value = useMemo(() => ({ state, dispatch }), [state])
@@ -315,6 +350,17 @@ export function findCardByName(state: AppState, name?: string) {
     active.find(c => norm(c.name).includes(n) || n.includes(norm(c.name))) ||
     active.find(c => norm(c.institution || '').includes(n))
   )
+}
+
+/**
+ * Meta com nome EQUIVALENTE (ignora caixa, acento e espaços) — usada para o
+ * aviso de duplicidade no onboarding, no GoalForm, no FAB e nas ações da IA.
+ * Diferente de `findGoalByName`, que é aproximada e serve para "guardar dinheiro
+ * na meta do iphone": esta aqui só casa quando o nome é realmente o mesmo.
+ */
+export function findGoalByExactName(state: AppState, name?: string, exceptId?: string) {
+  if (!normalizeName(name)) return undefined
+  return state.goals.find(g => g.id !== exceptId && sameName(g.name, name))
 }
 
 /** Encontra uma meta existente pelo nome (aproximado). Sem nome: usa a única ativa. */
@@ -365,16 +411,12 @@ export function applyParsedAction(dispatch: React.Dispatch<Action>, state: AppSt
       if (a.km && state.vehicle && a.km > state.vehicle.odometer) dispatch({ type: 'setVehicle', v: { ...state.vehicle, odometer: a.km } })
       break
     }
-    case 'goal': {
-      // se já existe meta com nome parecido, atualiza em vez de duplicar
-      const existing = a.name ? findGoalByName(state, a.name) : undefined
-      if (existing) {
-        dispatch({ type: 'updateGoal', id: existing.id, patch: { target: a.target, deadline: a.months ? addDays(date, Math.round(a.months * 30)) : existing.deadline } })
-      } else {
-        dispatch({ type: 'addGoal', g: { id: uid(), name: a.name, target: a.target, saved: 0, deadline: a.months ? addDays(date, Math.round(a.months * 30)) : undefined, createdAt: date } })
-      }
+    case 'goal':
+      // 'goal' significa SEMPRE criar meta nova. Alterar uma meta existente é
+      // 'goal-update' — nenhuma meta pode ser modificada sem o usuário saber.
+      // O aviso de duplicidade é mostrado no chat antes da confirmação.
+      dispatch({ type: 'addGoal', g: { id: uid(), name: a.name, target: a.target, saved: 0, deadline: a.months ? addDays(date, Math.round(a.months * 30)) : undefined, createdAt: date } })
       break
-    }
     case 'goal-update': {
       const g = findGoalByName(state, a.name)
       if (!g) return false
@@ -493,7 +535,8 @@ export function applyParsedAction(dispatch: React.Dispatch<Action>, state: AppSt
     }
 
     case 'reset':
-      dispatch({ type: 'reset' })
+      // Mesmo caminho do botão das Configurações — ver resetAllData().
+      resetAllData(dispatch)
       break
   }
   return true

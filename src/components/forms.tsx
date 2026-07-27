@@ -1,9 +1,9 @@
 // Formulários de registro — curtos, mobile-first (seções 11, 21, 22, 17, 24, 31, 32)
 import React, { useState } from 'react'
-import { useStore } from '../store/store'
-import { useToast } from './ui'
+import { findGoalByExactName, useStore } from '../store/store'
+import { ConfirmDialog, MoneyInput, useToast } from './ui'
 import { Budget, CategoryType, FinancialGoal, FuelRecord, MaintenanceItem, RecurringExpense, Transaction } from '../models/types'
-import { nowTime, parseMoney, todayISO, uid, fmtBRL } from '../utils/format'
+import { dateForDayOfMonth, fromISO, nowTime, parseMoney, todayISO, toISO, uid, fmtBRL } from '../utils/format'
 import { guessCategory } from '../data/categories'
 import { defaultIncomeCategory, isDriver } from '../services/profile'
 
@@ -49,7 +49,7 @@ export function TransactionForm({ type: initialType, onDone }: { type?: Category
       </div>
       <div className="field">
         <label>Valor (R$)</label>
-        <input className="input" inputMode="decimal" placeholder="0,00" autoFocus value={amount} onChange={e => setAmount(e.target.value)} style={{ fontSize: '1.4rem', fontWeight: 700 }} />
+        <MoneyInput autoFocus value={amount} onChange={setAmount} style={{ fontSize: '1.4rem', fontWeight: 700 }} />
       </div>
       <div className="field">
         <label>Descrição {suggested && !category && <span className="tiny">→ sugestão: {state.categories.find(c => c.id === suggested)?.name}</span>}</label>
@@ -108,7 +108,7 @@ export function WorkForm({ onDone }: { onDone: () => void }) {
         <div className="field"><label>KM rodados</label><input className="input" inputMode="decimal" value={km} onChange={e => setKm(e.target.value)} placeholder="0" /></div>
         <div className="field"><label>Viagens</label><input className="input" inputMode="numeric" value={trips} onChange={e => setTrips(e.target.value)} placeholder="0" /></div>
         <div className="field"><label>Horas online</label><input className="input" inputMode="decimal" value={hours} onChange={e => setHours(e.target.value)} placeholder="0" /></div>
-        <div className="field"><label>Faturamento (R$)</label><input className="input" inputMode="decimal" value={earned} onChange={e => setEarned(e.target.value)} placeholder="opcional" /></div>
+        <div className="field"><label>Faturamento (opcional)</label><MoneyInput value={earned} onChange={setEarned} /></div>
       </div>
       <button className="btn btn-primary btn-block" onClick={save}>Salvar</button>
     </div>
@@ -155,8 +155,8 @@ export function FuelForm({ onDone }: { onDone: () => void }) {
   return (
     <div className="stack">
       <div className="form-grid">
-        <div className="field"><label>Preço por litro (R$)</label><input className="input" inputMode="decimal" autoFocus value={price} onChange={e => setPrice(e.target.value)} placeholder="4,99" /></div>
-        <div className="field"><label>Valor pago (R$)</label><input className="input" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} placeholder="200" /></div>
+        <div className="field"><label>Preço por litro (R$)</label><MoneyInput autoFocus value={price} onChange={setPrice} placeholder="4,99" /></div>
+        <div className="field"><label>Valor pago (R$)</label><MoneyInput value={amount} onChange={setAmount} placeholder="200,00" /></div>
         <div className="field"><label>Litros</label><input className="input" inputMode="decimal" value={liters} onChange={e => setLiters(e.target.value)} placeholder="41" /></div>
         <div className="field"><label>KM atual (hodômetro)</label><input className="input" inputMode="numeric" value={odometer} onChange={e => setOdometer(e.target.value)} placeholder="222000" /></div>
         <div className="field"><label>Combustível</label>
@@ -215,7 +215,7 @@ export function MaintenanceForm({ onDone }: { onDone: () => void }) {
         ))}</div>
       </div>
       <div className="form-grid">
-        <div className="field"><label>Custo (R$)</label><input className="input" inputMode="decimal" autoFocus value={cost} onChange={e => setCost(e.target.value)} /></div>
+        <div className="field"><label>Custo (R$)</label><MoneyInput autoFocus value={cost} onChange={setCost} /></div>
         <div className="field"><label>KM da instalação</label><input className="input" inputMode="numeric" value={km} onChange={e => setKm(e.target.value)} /></div>
         <div className="field full"><label>Vida útil (km)</label><input className="input" inputMode="numeric" value={life} onChange={e => setLife(e.target.value)} /></div>
       </div>
@@ -225,34 +225,66 @@ export function MaintenanceForm({ onDone }: { onDone: () => void }) {
 }
 
 export function GoalForm({ onDone, goal }: { onDone: () => void; goal?: FinancialGoal }) {
-  const { dispatch } = useStore()
+  const { state, dispatch } = useStore()
   const toast = useToast()
   const [name, setName] = useState(goal?.name || '')
   const [target, setTarget] = useState(goal ? String(goal.target) : '')
   const [saved, setSaved] = useState(goal ? String(goal.saved) : '')
   const [deadline, setDeadline] = useState(goal?.deadline || '')
+  const [askDuplicate, setAskDuplicate] = useState(false)
+
+  // Nome equivalente ignorando acento, caixa e espaços — "Casa" e "  cása" são a mesma coisa.
+  const duplicate = findGoalByExactName(state, name, goal?.id)
+
+  const commit = (mode: 'new' | 'existing') => {
+    const t = parseMoney(target)
+    const patch = { target: t, saved: parseMoney(saved) || 0, deadline: deadline || undefined }
+    if (mode === 'existing' && duplicate) {
+      dispatch({ type: 'updateGoal', id: duplicate.id, patch })
+      toast({ text: `Meta "${duplicate.name}" atualizada.` })
+    } else if (goal) {
+      dispatch({ type: 'updateGoal', id: goal.id, patch: { ...patch, name: name.trim() } })
+      toast({ text: 'Meta salva. 🎯' })
+    } else {
+      dispatch({ type: 'addGoal', g: { id: uid(), name: name.trim(), ...patch, createdAt: todayISO() } })
+      toast({ text: 'Meta salva. 🎯' })
+    }
+    setAskDuplicate(false)
+    onDone()
+  }
 
   const save = () => {
-    const t = parseMoney(target)
-    if (!name || !t) return
-    if (goal) {
-      dispatch({ type: 'updateGoal', id: goal.id, patch: { name, target: t, saved: parseMoney(saved) || 0, deadline: deadline || undefined } })
-    } else {
-      dispatch({ type: 'addGoal', g: { id: uid(), name, target: t, saved: parseMoney(saved) || 0, deadline: deadline || undefined, createdAt: todayISO() } })
-    }
-    toast({ text: 'Meta salva. 🎯' })
-    onDone()
+    if (!name.trim() || !parseMoney(target)) return
+    // Duplicidade não bloqueia: o usuário pode querer duas metas com o mesmo nome.
+    if (duplicate) { setAskDuplicate(true); return }
+    commit('new')
   }
 
   return (
     <div className="stack">
       <div className="field"><label>O que você quer?</label><input className="input" autoFocus placeholder="ex.: iPhone, viagem, reserva" value={name} onChange={e => setName(e.target.value)} /></div>
       <div className="form-grid">
-        <div className="field"><label>Valor total (R$)</label><input className="input" inputMode="decimal" value={target} onChange={e => setTarget(e.target.value)} /></div>
-        <div className="field"><label>Já guardado (R$)</label><input className="input" inputMode="decimal" value={saved} onChange={e => setSaved(e.target.value)} /></div>
-        <div className="field full"><label>Prazo desejado</label><input type="date" className="input" value={deadline} onChange={e => setDeadline(e.target.value)} /></div>
+        <div className="field"><label>Valor total (R$)</label><MoneyInput value={target} onChange={setTarget} /></div>
+        <div className="field"><label>Já guardado (R$)</label><MoneyInput value={saved} onChange={setSaved} /></div>
+        <div className="field full"><label>Prazo desejado (opcional)</label><input type="date" className="input" value={deadline} onChange={e => setDeadline(e.target.value)} /></div>
       </div>
-      <button className="btn btn-primary btn-block" disabled={!name || !parseMoney(target)} onClick={save}>Salvar meta</button>
+      {duplicate && !askDuplicate && (
+        <p className="tiny" style={{ color: 'var(--warning)' }}>
+          Já existe uma meta chamada “{duplicate.name}”. Vou confirmar com você antes de salvar.
+        </p>
+      )}
+      <button className="btn btn-primary btn-block" disabled={!name.trim() || !parseMoney(target)} onClick={save}>Salvar meta</button>
+
+      <ConfirmDialog
+        open={askDuplicate}
+        onClose={() => setAskDuplicate(false)}
+        title={`Já existe uma meta chamada “${duplicate?.name || name}”.`}
+        text="Deseja criar outra meta com o mesmo nome?"
+        actions={[
+          { label: 'Criar mesmo assim', onClick: () => commit('new'), tone: 'primary' },
+          { label: 'Editar a existente', onClick: () => commit('existing') },
+        ]}
+      />
     </div>
   )
 }
@@ -266,6 +298,7 @@ export function RecurringForm({ onDone, defaultKind }: { onDone: () => void; def
   const [frequency, setFrequency] = useState<RecurringExpense['frequency']>('monthly')
   const [dueDay, setDueDay] = useState('5')
   const [category, setCategory] = useState(defaultKind === 'income' ? 'salario' : 'casa')
+  const [includeThisMonth, setIncludeThisMonth] = useState(false)
 
   const catList = state.categories.filter(c => c.type === kind && !c.archived)
   const switchKind = (k: 'income' | 'expense') => {
@@ -273,10 +306,26 @@ export function RecurringForm({ onDone, defaultKind }: { onDone: () => void; def
     setCategory(k === 'income' ? 'salario' : 'casa')
   }
 
+  const day = Math.min(Math.max(parseInt(dueDay, 10) || 1, 1), 31)
+  const today = todayISO()
+  const d = fromISO(today)
+  const thisMonthOccurrence = toISO(dateForDayOfMonth(d.getFullYear(), d.getMonth(), day))
+  const nextMonthOccurrence = toISO(dateForDayOfMonth(d.getFullYear(), d.getMonth() + 1, day))
+  // Cadastrar hoje uma conta cujo dia já passou NÃO cria uma pendência retroativa:
+  // a primeira ocorrência padrão é a do mês que vem (item 31).
+  const alreadyPassed = frequency === 'monthly' && thisMonthOccurrence < today
+  const firstOccurrence = alreadyPassed && !includeThisMonth ? nextMonthOccurrence : thisMonthOccurrence
+
   const save = () => {
     const v = parseMoney(amount)
-    if (!name || !v) return
-    dispatch({ type: 'addRecurring', r: { id: uid(), name, amount: v, frequency, dueDay: parseInt(dueDay) || 1, category, kind } })
+    if (!name.trim() || !v) return
+    dispatch({
+      type: 'addRecurring',
+      r: {
+        id: uid(), name: name.trim(), amount: v, frequency, dueDay: day, category, kind,
+        startDate: frequency === 'monthly' ? firstOccurrence : undefined,
+      },
+    })
     toast({ text: kind === 'income' ? 'Entrada fixa adicionada.' : 'Conta fixa adicionada.' })
     onDone()
   }
@@ -289,20 +338,34 @@ export function RecurringForm({ onDone, defaultKind }: { onDone: () => void; def
       </div>
       <div className="form-grid">
         <div className="field full"><label>Nome</label><input className="input" autoFocus placeholder={kind === 'income' ? 'ex.: Salário, Aluguel casa 1' : 'ex.: Aluguel, Internet, Netflix'} value={name} onChange={e => setName(e.target.value)} /></div>
-        <div className="field"><label>Valor (R$)</label><input className="input" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} /></div>
+        <div className="field"><label>Valor (R$)</label><MoneyInput value={amount} onChange={setAmount} /></div>
         <div className="field"><label>Frequência</label>
           <select className="input" value={frequency} onChange={e => setFrequency(e.target.value as any)}>
             <option value="monthly">Mensal</option><option value="weekly">Semanal</option><option value="yearly">Anual</option>
           </select>
         </div>
-        <div className="field"><label>{frequency === 'weekly' ? 'Dia da semana (0=dom)' : kind === 'income' ? 'Dia que recebe' : 'Dia do vencimento'}</label><input className="input" inputMode="numeric" value={dueDay} onChange={e => setDueDay(e.target.value)} /></div>
+        <div className="field"><label>{frequency === 'weekly' ? 'Dia da semana (0=dom)' : kind === 'income' ? 'Dia que recebe' : 'Dia do vencimento'}</label><input className="input" inputMode="numeric" maxLength={2} value={dueDay} onChange={e => setDueDay(e.target.value.replace(/\D/g, ''))} /></div>
         <div className="field"><label>Categoria</label>
           <select className="input" value={category} onChange={e => setCategory(e.target.value)}>
             {catList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
       </div>
-      <button className="btn btn-primary btn-block" disabled={!name || !parseMoney(amount)} onClick={save}>Salvar</button>
+      {frequency === 'monthly' && (
+        <div className="card" style={{ padding: '10px 14px', background: 'var(--accent-soft)', borderColor: 'transparent' }}>
+          <p className="tiny" style={{ margin: 0 }}>
+            Primeira ocorrência: <strong>{fromISO(firstOccurrence).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })}</strong>
+            {alreadyPassed && !includeThisMonth ? ` — o dia ${day} deste mês já passou.` : ''}
+          </p>
+          {alreadyPassed && (
+            <label className="row" style={{ gap: 8, marginTop: 8, cursor: 'pointer' }}>
+              <input type="checkbox" checked={includeThisMonth} onChange={e => setIncludeThisMonth(e.target.checked)} />
+              <span className="tiny">Incluir também a ocorrência deste mês ({fromISO(thisMonthOccurrence).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })})</span>
+            </label>
+          )}
+        </div>
+      )}
+      <button className="btn btn-primary btn-block" disabled={!name.trim() || !parseMoney(amount)} onClick={save}>Salvar</button>
     </div>
   )
 }
@@ -326,7 +389,7 @@ export function BudgetForm({ onDone }: { onDone: () => void }) {
           {state.categories.filter(c => c.type === 'expense' && !c.archived).map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
         </select>
       </div>
-      <div className="field"><label>Limite mensal (R$)</label><input className="input" inputMode="decimal" autoFocus value={limit} onChange={e => setLimit(e.target.value)} /></div>
+      <div className="field"><label>Limite mensal (R$)</label><MoneyInput autoFocus value={limit} onChange={setLimit} /></div>
       <button className="btn btn-primary btn-block" disabled={!parseMoney(limit)} onClick={save}>Salvar</button>
     </div>
   )
@@ -362,8 +425,7 @@ export function SavingForm({ onDone }: { onDone: () => void }) {
       </p>
       <div className="field">
         <label>Valor guardado (R$)</label>
-        <input className="input" inputMode="decimal" autoFocus placeholder="0,00" value={amount}
-          onChange={e => setAmount(e.target.value)} style={{ fontSize: '1.4rem', fontWeight: 700 }} />
+        <MoneyInput autoFocus value={amount} onChange={setAmount} style={{ fontSize: '1.4rem', fontWeight: 700 }} />
       </div>
       <div className="field">
         <label>Onde guardou (opcional)</label>

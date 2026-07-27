@@ -1,7 +1,8 @@
 // Onboarding em 4 telas (seção 33)
 import React, { useState } from 'react'
 import { useStore } from '../store/store'
-import { parseMoney, todayISO, uid, addDays } from '../utils/format'
+import { parseMoney, todayISO, uid } from '../utils/format'
+import { MoneyInput } from '../components/ui'
 
 const PROFILES = [
   { id: 'driver', label: '🚗 Motorista de aplicativo', hint: 'Corridas, km, combustível e meta diária.' },
@@ -22,8 +23,16 @@ export default function Onboarding() {
   const [priority, setPriority] = useState('')
   const [goalName, setGoalName] = useState('')
   const [goalValue, setGoalValue] = useState('')
+  const [goalDeadline, setGoalDeadline] = useState('')
 
-  const finish = (withDemo: boolean) => {
+  const hasName = !!goalName.trim()
+  const hasValue = parseMoney(goalValue) > 0
+  // Vazio dos dois lados = pular. Só um preenchido = incompleto, não conclui em silêncio.
+  const goalState: 'empty' | 'complete' | 'partial' =
+    !hasName && !hasValue ? 'empty' : hasName && hasValue ? 'complete' : 'partial'
+
+  const finish = () => {
+    if (goalState === 'partial') return
     const isDriver = profile === 'driver'
     dispatch({
       type: 'settings',
@@ -31,13 +40,21 @@ export default function Onboarding() {
         name: name.trim(), profile, priority, onboarded: true,
         homeCards: isDriver ? ['km', 'trips', 'netkm', 'perhour'] : [],
         workDays: profile === 'clt' ? [1, 2, 3, 4, 5] : [1, 2, 3, 4, 5, 6],
+        // Motorista pensa por dia; os outros perfis, por mês (item 36).
+        goalCadence: isDriver ? 'daily' : 'monthly',
       },
     })
-    const v = parseMoney(goalValue)
-    if (goalName.trim() && v > 0) {
-      dispatch({ type: 'addGoal', g: { id: uid(), name: goalName.trim(), target: v, saved: 0, deadline: addDays(todayISO(), 90), createdAt: todayISO() } })
+    if (goalState === 'complete') {
+      dispatch({
+        type: 'addGoal',
+        g: {
+          id: uid(), name: goalName.trim(), target: parseMoney(goalValue), saved: 0,
+          // Sem prazo informado = sem prazo. Nunca inventamos 90 dias.
+          deadline: goalDeadline || undefined,
+          createdAt: todayISO(),
+        },
+      })
     }
-    if (withDemo) dispatch({ type: 'loadDemo' })
   }
 
   return (
@@ -87,15 +104,24 @@ export default function Onboarding() {
             <p className="muted small">Opcional — dá para criar depois com um simples "quero comprar um celular de 5000 em 6 meses".</p>
             <div className="form-grid">
               <div className="field"><label>O que?</label><input className="input" placeholder="ex.: iPhone" value={goalName} onChange={e => setGoalName(e.target.value)} /></div>
-              <div className="field"><label>Valor (R$)</label><input className="input" inputMode="decimal" placeholder="7000" value={goalValue} onChange={e => setGoalValue(e.target.value)} /></div>
+              <div className="field"><label>Valor (R$)</label><MoneyInput value={goalValue} onChange={setGoalValue} /></div>
+              <div className="field full"><label>Prazo desejado (opcional)</label>
+                <input type="date" className="input" value={goalDeadline} onChange={e => setGoalDeadline(e.target.value)} />
+              </div>
             </div>
-            <button className="btn btn-primary btn-block" onClick={() => finish(false)}>Concluir</button>
-            <button className="btn btn-ghost btn-block" onClick={() => finish(true)}>Concluir e ver com dados de exemplo</button>
+            {goalState === 'partial' && (
+              <p className="tiny" style={{ color: 'var(--warning)' }}>
+                Informe o nome e o valor da meta ou deixe os dois campos vazios para pular.
+              </p>
+            )}
+            <button className="btn btn-primary btn-block" disabled={goalState === 'partial'} onClick={finish}>
+              {goalState === 'complete' ? 'Concluir' : 'Pular por agora'}
+            </button>
           </div>
         )}
 
         {step > 0 && (
-          <button className="link" style={{ marginTop: 16 }} onClick={() => setStep(s => s - 1)}>‹ voltar</button>
+          <button className="link" style={{ marginTop: 16 }} onClick={() => setStep(s => s - 1)}>‹ Voltar</button>
         )}
       </div>
     </div>

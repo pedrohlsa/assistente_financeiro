@@ -3,8 +3,9 @@ import React, { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useStore } from '../store/store'
 import { dailyGoal, generateInsights, notifications, todayStats, weekStats, avgDailyProfit, kmCost, periodStats, balanceOutlook, monthStats, forecast30, upcomingIncomes, monthlySavingGoal, upcomingBills, monthForecast } from '../services/calc'
-import { fmtBRL, fmtNum, greeting, todayISO, addDays, parseMoney } from '../utils/format'
-import { Progress, EmptyState } from '../components/ui'
+import { fmtBRL, fmtNum, greeting, todayISO, addDays, dueLabel, parseMoney } from '../utils/format'
+import { sentenceCase } from '../utils/text'
+import { MoneyInput, Progress, EmptyState } from '../components/ui'
 import PendingRecurrings from '../components/PendingRecurrings'
 import { uid } from '../utils/format'
 
@@ -111,11 +112,11 @@ export default function Home() {
           <div>
             <div className="tiny">Saldo em conta</div>
             {editingBalance ? (
-              <input
-                className="input" inputMode="decimal" autoFocus
+              <MoneyInput
+                autoFocus
                 style={{ fontSize: '1.4rem', fontWeight: 750, padding: '4px 8px', maxWidth: 180 }}
                 value={balanceInput}
-                onChange={e => setBalanceInput(e.target.value)}
+                onChange={setBalanceInput}
                 onKeyDown={e => e.key === 'Enter' && saveBalance()}
                 onBlur={saveBalance}
               />
@@ -128,7 +129,7 @@ export default function Home() {
             )}
           </div>
           <button className="link" onClick={() => { setBalanceInput(state.settings.balance ? String(state.settings.balance) : ''); setEditingBalance(true) }}>
-            {state.settings.balance ? 'editar' : 'informar'}
+            {state.settings.balance ? 'Editar' : 'Informar'}
           </button>
         </div>
         {outlook.bills.length > 0 && (
@@ -146,7 +147,11 @@ export default function Home() {
       {!hasData && (
         <div className="card">
           <EmptyState emoji="🍃" text="Seu financeiro está quietinho por aqui." cta="Adicionar primeira movimentação" onCta={() => navigate('/assistente')} />
-          <button className="btn btn-soft btn-block" onClick={() => dispatch({ type: 'loadDemo' })}>Ver com dados de demonstração</button>
+          {/* Dados de demonstração são ferramenta de desenvolvimento — nunca
+              aparecem na experiência normal do usuário final. */}
+          {import.meta.env.DEV && (
+            <button className="btn btn-soft btn-block" onClick={() => dispatch({ type: 'loadDemo' })}>Ver com dados de demonstração (dev)</button>
+          )}
         </div>
       )}
 
@@ -156,7 +161,7 @@ export default function Home() {
           <div className={`card ${msg.reached ? 'celebrate' : ''}`}>
             <div className="spread">
               <h3 className="muted">Meta mensal para guardar</h3>
-              <Link to="/analises" className="tiny">ver análises</Link>
+              <Link to="/analises" className="tiny">Ver análises</Link>
             </div>
             <div className={`big-number ${msg.net >= 0 ? 'amount-pos' : 'amount-neg'}`}>{fmtBRL(msg.net)}</div>
             <div className="tiny">{msg.net >= 0 ? 'disponível para guardar neste mês' : 'resultado líquido do mês'}</div>
@@ -214,7 +219,7 @@ export default function Home() {
                     : `Sua meta é guardar ${fmtBRL(msg.target)} por mês. Seu resultado líquido neste mês é ${fmtBRL(msg.net)} — faltam ${fmtBRL(msg.missing)}.`}
             </p>
             <button className="link tiny" style={{ marginTop: 6 }} onClick={() => setShowMath(m => !m)}>
-              {showMath ? 'ocultar cálculo' : 'Como foi calculado?'}
+              {showMath ? 'Ocultar cálculo' : 'Como foi calculado?'}
             </button>
             {showMath && (
               <div className="stack tiny" style={{ marginTop: 8, gap: 3 }}>
@@ -236,8 +241,8 @@ export default function Home() {
                 <div key={b.name + i} className="row list-item">
                   <div className="tx-icon">🔑</div>
                   <div className="grow">
-                    <div style={{ fontWeight: 650, fontSize: '0.9rem' }}>{b.name}</div>
-                    <div className="tiny">{b.inDays === 0 ? 'cai hoje' : b.inDays === 1 ? 'cai amanhã' : `em ${b.inDays} dias`}</div>
+                    <div style={{ fontWeight: 650, fontSize: '0.9rem' }}>{sentenceCase(b.name)}</div>
+                    <div className="tiny">{dueLabel(b.inDays, 'income')}</div>
                   </div>
                   <span className="mono-num amount-pos" style={{ fontWeight: 700 }}>+ {fmtBRL(b.amount)}</span>
                 </div>
@@ -253,15 +258,15 @@ export default function Home() {
                 <div key={b.name + i} className="row list-item">
                   <div className="tx-icon">📄</div>
                   <div className="grow">
-                    <div style={{ fontWeight: 650, fontSize: '0.9rem' }}>{b.name}</div>
+                    <div style={{ fontWeight: 650, fontSize: '0.9rem' }}>{sentenceCase(b.name)}</div>
                     <div className="tiny" style={{ color: b.inDays <= 2 ? 'var(--danger)' : undefined }}>
-                      {b.inDays === 0 ? 'vence hoje' : b.inDays === 1 ? 'vence amanhã' : `vence em ${b.inDays} dias`}
+                      {dueLabel(b.inDays, 'expense')}
                     </div>
                   </div>
                   <span className="mono-num amount-neg" style={{ fontWeight: 700 }}>− {fmtBRL(b.amount)}</span>
                 </div>
               ))}
-              <Link to="/planejamento" className="link tiny" style={{ display: 'inline-block', padding: '6px 0' }}>gerenciar contas e entradas →</Link>
+              <Link to="/planejamento" className="link tiny" style={{ display: 'inline-block', padding: '6px 0' }}>Gerenciar contas e entradas →</Link>
             </div>
           )}
           {/* PREVISÃO ATÉ O FIM DO MÊS (14.4) — sempre marcada como estimativa */}
@@ -275,7 +280,7 @@ export default function Home() {
                 Esse valor pode mudar se houver novas despesas. (estimativa)
               </p>
               <button className="link tiny" style={{ marginTop: 6 }} onClick={() => setShowForecastMath(m => !m)}>
-                {showForecastMath ? 'ocultar cálculo' : 'Como foi calculado?'}
+                {showForecastMath ? 'Ocultar cálculo' : 'Como foi calculado?'}
               </button>
               {showForecastMath && (
                 <div className="stack tiny" style={{ marginTop: 8, gap: 3 }}>
@@ -396,7 +401,7 @@ export default function Home() {
             <>
               <div className="section-title">
                 <h2>Resumo rápido</h2>
-                <button className="link" onClick={() => setCustomizing(c => !c)}>{customizing ? 'concluir' : 'personalizar'}</button>
+                <button className="link" onClick={() => setCustomizing(c => !c)}>{customizing ? 'Concluir' : 'Personalizar'}</button>
               </div>
               {customizing && (
                 <div className="chips" style={{ marginBottom: 10 }}>
@@ -423,7 +428,7 @@ export default function Home() {
           {/* INSIGHTS (seção 15) */}
           {insights.length > 1 && (
             <>
-              <div className="section-title"><h2>Insights</h2><Link to="/analises">ver análises</Link></div>
+              <div className="section-title"><h2>Insights</h2><Link to="/analises">Ver análises</Link></div>
               <div className="stack">
                 {insights.slice(1).map(i => (
                   <div key={i.id} className="card" style={{ padding: '14px 16px' }}>

@@ -1,14 +1,17 @@
 # AssistFin — Estado do Projeto
 
-**Última atualização**: 2026-07-24 20:10 (horário local da máquina) — sessão de correção da IA
-remota, ver seção "🟢 Sessão de correção da IA remota" abaixo para o trabalho mais recente.
+**Última atualização**: 2026-07-27 — rodada de correções de UX, valores monetários, linguagem
+natural, datas e reset. Ver "🟢 Rodada de correções de UX, valores, linguagem natural e datas"
+para o trabalho mais recente.
 **Pasta canônica do projeto (mudou nesta sessão)**: `D:\Claude\AssistFin`. A cópia antiga em
 `C:\Users\ph969\OneDrive\Área de Trabalho\AssistFin` foi deixada intacta, mas **não é mais usada**
 — era uma cópia interrompida no meio (faltavam `profile.ts`, `PendingRecurrings.tsx`,
 `notifications.ts` e várias telas estavam desatualizadas). O conteúdo completo e atual foi
 copiado da pasta antiga pra cá antes desta sessão.
 **Branch**: `main`
-**Commit atual**: `28677b9` — "Estado atual do AssistFin: 4 perfis, metas, recorrentes, IA local+remota"
+**Commits**: `28677b9` (estado inicial) → `646ee63` / `12925d4` (correção da DeepSeek) →
+`a94309a` (cartões e parcelamentos) → `3b59ca3` (chore: parar de versionar `tsconfig.tsbuildinfo`)
+→ rodada de UX de 2026-07-27.
 **Remote**: `https://github.com/pedrohlsa/assistente_financeiro` (push --force feito, sobrescreveu
 o conteúdo antigo do repo a pedido do usuário)
 
@@ -353,7 +356,10 @@ confirmado, está limpo dos dois jeitos.
 2. 🟡 **Prompt remoto sem `saving`/`origin`** — ver divergência dev×produção acima. Ainda pendente.
 3. ⬜ **Analytics.tsx não adaptado por perfil** — item 14.13 do escopo original, nunca implementado.
 4. ❓ **CONTEXTO.md referenciado no README mas não existe no projeto** — link quebrado, impacto cosmético apenas.
-5. 🆕⬜ **"Resumo geral" do chat local não adaptado por perfil** — achado nesta sessão (teste end-to-end), ver seção "🟢 Sessão de correção da IA remota". `src/services/ai.ts`, bloco `/resumo|como estou|situação/`. Não corrigido (fora do escopo desta sessão).
+5. ✅ **"Resumo geral" do chat local não adaptado por perfil** — CORRIGIDO em 2026-07-27 na rodada
+   de UX (item 29). `resolveLocal()` agora bifurca por perfil: não-motorista recebe entradas,
+   despesas, líquido, guardado, meta mensal e parcelas do mês, sem nenhuma métrica de motorista.
+   Testado no navegador com perfil CLT.
 
 ## Possíveis regressões
 
@@ -789,6 +795,116 @@ Bundle: sem `sk-`, sem a chave real, sem `DEEPSEEK`/`deepseek.com`, sem `getDeep
 4. **`accountId` em `CardPayment`**: o app tem um único saldo (`settings.balance`), então o
    pagamento oferece apenas "descontar do meu saldo" em vez de escolher entre contas.
 5. **Analytics por perfil** continua pendente (fora do escopo desta tarefa, como instruído).
+
+---
+
+## 🟢 Rodada de correções de UX, valores, linguagem natural e datas — 2026-07-27
+
+Rodada de 54 itens sobre bugs encontrados em uso real. Nenhuma funcionalidade existente foi
+removida; motorista, cartões, contabilização e confirmação da IA seguem intactos.
+
+### Bugs encontrados e causa raiz REAL de cada um
+
+| # | Sintoma | Causa raiz confirmada | Correção |
+|---|---|---|---|
+| 5–7 | `100.000` virava `100` | `parseMoney()` tratava qualquer ponto sem vírgula como separador decimal; `nlp.ts` tinha um `parseNum` próprio e incompatível, e o padrão `NUM` não capturava mais de um separador | Parser pt-BR único em `format.ts` com heurística "último separador com 3 dígitos = milhar"; `NUM` virou `(\d+(?:[.,]\d+)*)` e `parseNum` passou a delegar |
+| 8 | Onboarding criava prazo de 90 dias que o usuário nunca pediu | `finish()` gravava `deadline: addDays(todayISO(), 90)` fixo | Campo "Prazo desejado (opcional)"; sem prazo → `deadline: undefined` |
+| 10 | IA sobrescrevia meta existente sem avisar | `applyParsedAction` case `'goal'` chamava `findGoalByName` e fazia `updateGoal` | `'goal'` só cria; alterar é `'goal-update'`; aviso obrigatório no chat |
+| 17 | Preencher juros não mudava nada | O código gravava `interestAmount` mas usava só `totalV` no preview, na divisão, no `totalAmount` e nas projeções | `totalAmount = principalAmount + interestAmount`; novo campo opcional `principalAmount` |
+| 22 | "Corridas" aparecia como filtro principal em CLT/autônomo | `Transactions.tsx` renderizava `state.categories` inteiro sem consultar o perfil | Filtros principais adaptados; categorias de motorista vão para "Mais categorias" (e voltam sozinhas se houver movimentação no período) |
+| 24–25 | "gastei **mais** 79" e dois comandos numa frase falhavam | `splitClauses` só quebrava antes de um verbo colado ao separador — "`, depois gastei`" não casava; os regex de valor não previam "mais" depois do verbo | Conector opcional no split (`depois`, `e depois`, `também`, `logo depois`, `mais tarde`, `então`); `(?:mais\s+)?` nos verbos |
+| 26 | "gás" era classificado como Casa automaticamente | `CATEGORY_KEYWORDS.casa` continha `'gás'`/`'gas'` | "gás" sozinho saiu de `casa`; `isAmbiguousGas()` dispara pergunta com botões |
+| 27 | Descrição saía "colocando gas", "prando cimento" | Não havia limpeza; e a preposição `com` do regex casava dentro de "**com**prando" | `cleanDescription()` remove palavras funcionais só das **pontas**; preposições passaram a exigir `\s+` |
+| 30–33 | "vence hoje" x "em 10 dias" para a mesma conta; dias 29–31 viravam 28 | `upcomingFrom()` usava `Math.min(r.dueDay, 28)` e olhava o mês seguinte, enquanto `pendingRecurrings` olhava o mês corrente e o card escrevia "vence hoje" fixo | Fonte única `occurrenceInMonth()` + `dateForDayOfMonth()` (último dia real do mês) + `dueLabel()` a partir do `inDays` real |
+| 31 | Conta cadastrada dia 27 com vencimento dia 5 já nascia "vencendo hoje" | Recorrente não tinha data de início | `startDate` na criação = próxima ocorrência; checkbox "Incluir também a ocorrência deste mês" |
+| 38 | Botão "Apagar todos os dados" não apagava de forma confiável, mas o comando da IA sim | Duas causas: (a) o botão dependia de `window.confirm`, bloqueado em parte dos WebViews do Android — o caminho da IA não usava; (b) a gravação debounced de 150ms podia reescrever o estado antigo | `resetAllData()` único: cancela o debounce, remove só a chave do AssistFin e restaura o estado; `<ConfirmDialog>` no lugar do `window.confirm` |
+| — | (achado nesta rodada) `1.234,56` gerava DUAS despesas | A vírgula decimal casava como separador de itens enumerados | `,(?!\d)` no separador |
+
+Também corrigido nesta rodada o **bug 5 da lista de bugs conhecidos** ("resumo geral" do chat
+local usando formato de motorista em perfil não-motorista), que estava pendente desde a sessão
+da IA remota.
+
+### Arquivos alterados
+
+| Arquivo | Mudança |
+|---|---|
+| `src/utils/format.ts` | `parseMoney` reescrito, `formatMoneyInput`, `dateForDayOfMonth`, `lastDayOfMonth`, `daysBetween`, `dueLabel` |
+| `src/utils/text.ts` | **Novo.** `sentenceCase`, `normalizeName`, `sameName` |
+| `src/components/ui.tsx` | **Novos** `<MoneyInput>` (formata só no blur) e `<ConfirmDialog>` |
+| `src/components/forms.tsx` | `MoneyInput` em todos os campos de dinheiro; `GoalForm` com confirmação de duplicidade; `RecurringForm` com `startDate` e primeira ocorrência |
+| `src/components/cardForms.tsx` | Duplicidade de cartão, validação de fechamento/vencimento com sugestão de 7 dias, atalhos `1x–4x/Mais`, juros no total financiado, `<RoundingNote>` |
+| `src/components/nav.tsx` | FAB contextual por rota |
+| `src/components/PendingRecurrings.tsx` | Texto a partir da data real do vencimento |
+| `src/screens/Onboarding.tsx` | Botão dinâmico, prazo opcional, sem dados de exemplo, "‹ Voltar" |
+| `src/screens/Transactions.tsx` | Cards enxutos + folha de detalhes; filtros adaptados por perfil |
+| `src/screens/Planning.tsx` | "Saldo estimado", `+ Conta fixa`, `+ Limite`, `Remover` com confirmação e desfazer |
+| `src/screens/Goals.tsx` | Um ritmo por vez + "Ver detalhes" + seletor de ritmo |
+| `src/screens/Settings.tsx` | "Ritmo exibido nas metas", reset com `ConfirmDialog`, demo só em dev |
+| `src/screens/Home.tsx` | `dueLabel`, `MoneyInput`, sentence case, demo só em dev |
+| `src/screens/Cards.tsx` | `Pagar`/`Parcial`/`Desfazer`/`+ Novo cartão`/`Mostrar arquivados`, decomposição dos juros |
+| `src/screens/Vehicle.tsx` | Sentence case nos botões |
+| `src/services/nlp.ts` | Conectores, "mais", ordem inversa ("cimento por 190"), `cleanDescription`, `parseNaturalFull` com ambiguidade do gás |
+| `src/services/ai.ts` | `choices` na resposta, "resumo geral" adaptado por perfil |
+| `src/services/calc.ts` | `occurrenceInMonth`, `recurringActiveOn`, `upcomingFrom` corrigido, `inDays` em `pendingRecurrings` |
+| `src/services/cards.ts` | `suggestedDueDay`, `findCardByExactName` |
+| `src/services/profile.ts` | `goalCadenceOf` e rótulos do ritmo |
+| `src/data/categories.ts` | Categoria `obra`, palavras-chave, `mergeDefaultCategories` |
+| `src/store/store.tsx` | `resetAllData`, `findGoalByExactName`, fusão de categorias, `choices` no chat |
+| `src/models/types.ts` | `principalAmount`, `goalCadence`, `choices` |
+| `vite.config.ts` + `api/ai/chat.ts` | `SYSTEM_PROMPT` com categoria `obra`, regra do gás, múltiplos comandos, descrição e `goal` x `goal-update` — **confirmado byte-idêntico entre os dois** |
+| `scripts/test-money.mjs` | **Novo.** 43 asserções do parser monetário e dos helpers de texto |
+
+### Testes executados e resultados reais
+
+| Cenário | Resultado |
+|---|---|
+| **40 — valores** | 43/43 asserções OK. `100.000`→100000, `100.000,00`→100000, `10,000,00`→10000, `1,234.56`→1234.56, `R$ 5.000,00`→5000; `.` `,` `-` `R$` `abc` → NaN |
+| **41 — onboarding** | Vazio → "Pular por agora"; só nome → botão desabilitado + "Informe o nome e o valor…"; apagou os dois → volta a "Pular por agora"; completo → meta `target: 100000` com o prazo **exato** escolhido |
+| **42 — meta duplicada** | "  CÁSA  " reconhecida como "Casa". Cancelar → 1 meta; Editar a existente → 1 meta atualizada (nome original preservado); Criar mesmo assim → 2 metas. IA: aviso explícito e, após confirmar, a meta original ficou **intacta** (alvo 100000, guardado 2000, prazo 2027-05-28) |
+| **43 — cartão** | "Nubank (Cirinha)", limite `5.000` → `5000`. " NUBANK   (CIRINHA) " → aviso de duplicidade. Vencimento em branco → "usaremos 7 dias após o fechamento — dia 1" (fechamento 25 em julho). Dia 45 → "Informe um dia entre 1 e 31" e botão bloqueado. Dias 29/30/31 → 28/02 (29/02 em ano bissexto), 30/04 |
+| **44 — juros e arredondamento** | Compra R$ 410,99 + juros R$ 1,00 = **total financiado R$ 411,99**; 4 parcelas `102,99 · 102,99 · 102,99 · 103,02`, soma exata R$ 411,99; dívida, limite comprometido e fatura usam 411,99; **0 transactions criadas**; texto: "A última parcela recebeu um ajuste de R$ 0,03 para que a soma seja exatamente R$ 411,99" |
+| **45 — múltiplas despesas** | "gastei 79 reais colocando gás, depois gastei mais 190 reais comprando cimento" → pergunta "Você quis dizer gás de cozinha ou GNV?"; escolhendo cozinha → R$ 79,00/Casa/"Gás de cozinha" **e** R$ 190,00/Obra e construção/"Cimento", em blocos separados, registrados só após confirmar |
+| **46 — descrição e detalhes** | Lista mostra "Cimento · Obra e construção · 03:47 · -R$ 190,00"; sem botão remover por linha; toque abre detalhes com tipo, categoria, data por extenso, horário, origem do registro e perfil na criação |
+| **47 — recorrentes** | Conta dia 5 cadastrada em 27/07 → "Primeira ocorrência: 5 de agosto — o dia 5 deste mês já passou" + opção de incluir; **nenhuma** pergunta "vence hoje"; Home e Planejamento mostram "Vence em 9 dias" (mesma data). Conta realmente vencida → "A conta Internet, de R$ 120,00, venceu em 5 de julho" + "Venceu há 22 dias" |
+| **48 — ritmo das metas** | Por mês R$ 688,52 → Por semana R$ 160,66 → Por dia R$ 22,95, **um de cada vez**; preferência sobreviveu ao reload (`goalCadence: 'daily'`) |
+| **49 — apagar dados** | Estado com 2 transações, 2 metas, 2 contas, 1 cartão, 1 plano, 4 parcelas e 7 mensagens → botão apagou tudo, chave removida **imediatamente** (sem esperar o debounce), voltou ao onboarding, e o reload não trouxe nada de volta. Chave `outro-app-teste` **preservada** (nada de `localStorage.clear()`). Comando "apaga tudo" pela IA: efeito idêntico, mesmo caminho |
+| **50 — motorista** | Meta diária **R$ 241,34** — idêntica à registrada antes desta rodada; km, viagens, R$/km líquido, lucro por hora, "Resumo rápido" e sugestões de corrida intactos |
+| **50 — CLT/autônomo** | "como estou?" respondeu com entradas/despesas/líquido/guardado/meta mensal e **zero** menção a meta diária, km, corrida, combustível ou veículo |
+| **21/51 — migração** | Estado antigo sem os 5 arrays de cartão, sem `goalCadence` e com lista de categorias antiga → app carregou, arrays criados, dados preservados, categoria `obra` **adicionada sem duplicar** (19 categorias, 0 duplicadas), categoria personalizada arquivada preservada |
+| Console | Nenhum erro |
+| Responsividade | 375×812 sem estouro horizontal (`scrollWidth === innerWidth`) |
+
+### Build e checagens
+
+```
+node node_modules/typescript/bin/tsc --noEmit          → exit 0
+node node_modules/typescript/bin/tsc --noEmit (api/**) → exit 0   (mesma config da Vercel)
+npm run build                                          → ✓ 67 modules, dist/assets/index-cu1jfs4W.js 430.76 kB │ gzip: 126.21 kB
+npx vercel build --prod                                → {"status":"ok"} (build local, NADA publicado)
+node --experimental-strip-types scripts/test-money.mjs → 43/43 OK
+```
+Bundle: sem `sk-`, sem `DEEPSEEK`, sem `deepseek.com`, sem `getDeepSeekConfig`/`callDeepSeekChat`.
+`.vercel/output/functions/.../chat.js` mantém `from '../_lib/deepseek.js'` e o módulo está no
+pacote. `.vercel/output` e `.vercel/.env.production.local` apagados ao final.
+
+**⚠️ A `SYSTEM_PROMPT` mudou nos dois backends.** Produção continua rodando o prompt antigo até
+um `npx vercel --prod` — que **não** foi feito nesta rodada (sem autorização). O app não quebra:
+o comportamento novo do gás, dos múltiplos comandos e da categoria `obra` já funciona no motor
+local, que é quem atende esses casos.
+
+### Limitações que permanecem
+
+1. **Antecipação sem desconto/juros** — antecipar marca parcelas como pagas, mas não há campo
+   para desconto por antecipação nem multa/juros de atraso.
+2. **Editar parcela específica** (valor/vencimento) só existe no reducer (`updateInstallment`),
+   sem UI.
+3. **`accountId` em `CardPayment`** não é usado — o app tem um saldo único.
+4. **Assinatura no mês de cadastro** — `monthlyCommitments` conta no mês corrente e `cardInvoice`
+   joga para o próximo vencimento; diferença de um mês só na primeira ocorrência.
+5. **Analytics por perfil** continua pendente (fora do escopo, como instruído).
+6. `settleAll`, "Cancelar futuras" e a remoção de assinatura ainda usam `window.confirm` —
+   funcionam no navegador, mas merecem `<ConfirmDialog>` pelo mesmo motivo do reset.
+7. `CONTEXTO.md` referenciado no README continua inexistente.
 
 ---
 

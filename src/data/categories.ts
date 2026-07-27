@@ -16,6 +16,7 @@ export const DEFAULT_CATEGORIES: Category[] = [
   { id: 'pedagio', name: 'Pedágio', type: 'expense', icon: '🛣️' },
   { id: 'assinaturas', name: 'Assinaturas', type: 'expense', icon: '📱' },
   { id: 'casa', name: 'Casa', type: 'expense', icon: '🏠' },
+  { id: 'obra', name: 'Obra e construção', type: 'expense', icon: '🧱' },
   { id: 'lazer', name: 'Lazer', type: 'expense', icon: '🎮' },
   { id: 'compras', name: 'Compras', type: 'expense', icon: '🛍️' },
   { id: 'outros-out', name: 'Outros', type: 'expense', icon: '📦' },
@@ -27,15 +28,35 @@ export const DEFAULT_CATEGORIES: Category[] = [
 export const catById = (cats: Category[], id: string): Category =>
   cats.find(c => c.id === id) || { id, name: id, type: 'expense', icon: '📦' }
 
-// Palavras-chave para categorização inteligente (seção 12)
+/**
+ * Funde as categorias padrão nas categorias já salvas do usuário.
+ * - preserva TODAS as categorias atuais, inclusive personalizadas e arquivadas;
+ * - acrescenta apenas as padrão que faltam, comparando por `id`;
+ * - nunca duplica, nunca renomeia o que o usuário já tem, nunca apaga histórico.
+ * Sem isso, quem já usava o app nunca receberia uma categoria padrão nova.
+ */
+export function mergeDefaultCategories(current?: Category[] | null): Category[] {
+  if (!current?.length) return DEFAULT_CATEGORIES
+  const known = new Set(current.map(c => c.id))
+  const missing = DEFAULT_CATEGORIES.filter(c => !known.has(c.id))
+  return missing.length ? [...current, ...missing] : current
+}
+
+// Palavras-chave para categorização inteligente (seção 12).
+// A ORDEM importa: a primeira categoria cujo termo aparecer no texto ganha.
+// Por isso "obra" vem antes de "casa" (cimento/reforma não é conta de casa) e
+// "combustivel" vem antes de tudo que possa casar com "gás".
 export const CATEGORY_KEYWORDS: Record<string, string[]> = {
-  combustivel: ['gasolina', 'etanol', 'alcool', 'álcool', 'diesel', 'gnv', 'posto', 'shell', 'ipiranga', 'petrobras', 'br ', 'abasteci', 'combustivel', 'combustível'],
+  combustivel: ['gasolina', 'etanol', 'alcool', 'álcool', 'diesel', 'gnv', 'gás veicular', 'gas veicular', 'gás do carro', 'posto', 'shell', 'ipiranga', 'petrobras', 'br ', 'abasteci', 'combustivel', 'combustível'],
+  obra: ['cimento', 'areia', 'tijolo', 'bloco', 'brita', 'argamassa', 'rejunte', 'telha', 'madeira', 'vergalhão', 'vergalhao', 'material de construção', 'material de construcao', 'obra', 'construção', 'construcao', 'reforma', 'pedreiro'],
   alimentacao: ['almoço', 'almoco', 'janta', 'jantar', 'lanche', 'comida', 'ifood', 'restaurante', 'padaria', 'mercado', 'café', 'cafe', 'marmita', 'pizza', 'burger', 'açaí', 'acai'],
   manutencao: ['óleo', 'oleo', 'pneu', 'freio', 'pastilha', 'revisão', 'revisao', 'mecânico', 'mecanico', 'oficina', 'peça', 'peca', 'filtro', 'vela', 'correia', 'amortecedor', 'manutenção', 'manutencao', 'lavagem', 'lava'],
   estacionamento: ['estacionamento', 'estacionei', 'zona azul', 'parquímetro', 'parquimetro'],
   pedagio: ['pedágio', 'pedagio', 'sem parar', 'veloe', 'conectcar'],
   assinaturas: ['netflix', 'spotify', 'assinatura', 'plano', 'internet', 'celular', 'amazon prime', 'disney', 'hbo', 'globoplay', 'youtube premium'],
-  casa: ['aluguel', 'luz', 'energia', 'água', 'agua', 'gás', 'gas', 'condomínio', 'condominio', 'iptu'],
+  // "gás" sozinho NÃO entra aqui: é ambíguo (cozinha ou GNV) e o assistente
+  // pergunta em vez de escolher — ver isAmbiguousGas() em services/nlp.ts.
+  casa: ['aluguel', 'luz', 'energia', 'água', 'agua', 'gás de cozinha', 'gas de cozinha', 'botijão', 'botijao', 'glp', 'condomínio', 'condominio', 'iptu'],
   lazer: ['cinema', 'bar', 'balada', 'show', 'jogo', 'festa', 'cerveja', 'passeio'],
   compras: ['roupa', 'tênis', 'tenis', 'shopping', 'loja', 'presente', 'farmácia', 'farmacia'],
   corridas: ['corrida', 'uber', '99', 'indriver', 'app', 'viagem', 'passageiro'],

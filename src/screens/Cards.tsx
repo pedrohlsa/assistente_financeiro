@@ -156,7 +156,7 @@ function Overview({ ov, onAddCard, onAddPurchase, onAddFinanced, onAddPlan, onSe
           <div className="big-number" style={{ fontSize: '1.7rem' }}>{thisMonth.commitmentPct}%</div>
           <div className="tiny">das entradas previstas deste mês</div>
           <button className="link tiny" style={{ marginTop: 8 }} onClick={() => setShowMath(m => !m)}>
-            {showMath ? 'ocultar cálculo' : 'Como foi calculado?'}
+            {showMath ? 'Ocultar cálculo' : 'Como foi calculado?'}
           </button>
           {showMath && (
             <div className="stack tiny" style={{ marginTop: 8, gap: 3 }}>
@@ -213,9 +213,9 @@ function CardsTab({ onAddCard, onAddPurchase, onAddCharge }: { onAddCard: () => 
   return (
     <>
       <div className="spread" style={{ marginBottom: 10 }}>
-        <button className="link" onClick={onAddCard}>+ novo cartão</button>
+        <button className="link" onClick={onAddCard}>+ Novo cartão</button>
         <button className="link" onClick={() => setShowArchived(v => !v)}>
-          {showArchived ? 'ocultar arquivados' : 'mostrar arquivados'}
+          {showArchived ? 'Ocultar arquivados' : 'Mostrar arquivados'}
         </button>
       </div>
 
@@ -257,7 +257,7 @@ function CardsTab({ onAddCard, onAddPurchase, onAddCharge }: { onAddCard: () => 
               )}
 
               <button className="link tiny" style={{ marginTop: 10 }} onClick={() => setExpanded(isOpen ? null : card.id)}>
-                {isOpen ? 'ocultar detalhes' : 'ver compras e próximas faturas'}
+                {isOpen ? 'Ocultar detalhes' : 'Ver compras e próximas faturas'}
               </button>
 
               {isOpen && (
@@ -338,7 +338,7 @@ function ChargesList() {
               <div className="grow">
                 <div className="small" style={{ fontWeight: 650 }}>{c.description}</div>
                 <div className="tiny">
-                  {card?.name || 'cartão removido'} · {c.frequency === 'monthly' ? 'mensal' : 'anual'}
+                  {card?.name || 'cartão removido'} · {c.frequency === 'monthly' ? 'Mensal' : 'Anual'}
                   {c.active === false ? ' · pausada' : ''}
                   {c.endDate ? ` · até ${fmtDateShort(c.endDate)}` : ''}
                 </div>
@@ -347,13 +347,13 @@ function ChargesList() {
               <button className="link tiny" onClick={() => {
                 dispatch({ type: 'updateCardCharge', id: c.id, patch: { active: c.active === false } })
                 toast({ text: c.active === false ? 'Assinatura retomada.' : 'Assinatura pausada. As cobranças anteriores foram preservadas.' })
-              }}>{c.active === false ? 'retomar' : 'pausar'}</button>
+              }}>{c.active === false ? 'Retomar' : 'Pausar'}</button>
               <button className="link tiny" onClick={() => {
                 if (confirm(`Remover a assinatura "${c.description}"? As cobranças já lançadas nas faturas anteriores continuam no histórico.`)) {
                   dispatch({ type: 'removeCardCharge', id: c.id })
                   toast({ text: 'Assinatura removida.' })
                 }
-              }}>remover</button>
+              }}>Remover</button>
             </div>
           )
         })}
@@ -546,7 +546,17 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
           )}
           {plan.source && <p className="tiny" style={{ marginBottom: 4 }}>Origem: {plan.source}</p>}
           {plan.note && <p className="tiny" style={{ marginBottom: 4 }}>Obs.: {plan.note}</p>}
-          {!!plan.interestAmount && <p className="tiny" style={{ marginBottom: 4 }}>Juros/acréscimo: {fmtBRL(plan.interestAmount)}</p>}
+          {/* Planos antigos não têm principalAmount: neles totalAmount já é o valor
+              final e não existe decomposição a mostrar. */}
+          {!!plan.interestAmount && (
+            <div className="stack tiny" style={{ gap: 2, marginBottom: 6 }}>
+              {!!plan.principalAmount && (
+                <div className="spread"><span>Valor da compra</span><span className="mono-num">{fmtBRL(plan.principalAmount)}</span></div>
+              )}
+              <div className="spread"><span>+ Juros ou acréscimo</span><span className="mono-num">{fmtBRL(plan.interestAmount)}</span></div>
+              <div className="spread" style={{ fontWeight: 700 }}><span>= Total financiado</span><span className="mono-num">{fmtBRL(plan.totalAmount)}</span></div>
+            </div>
+          )}
 
           <p className="tiny" style={{ fontWeight: 650, margin: '10px 0 2px' }}>Todas as parcelas</p>
           {pp.installments.map(i => {
@@ -569,8 +579,8 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
                 <span className="mono-num small" style={{ color }}>{fmtBRL(i.amount)}</span>
                 {i.status === 'pending' && (
                   <>
-                    <button className="link tiny" onClick={() => markPaid(i)}>pagar</button>
-                    <button className="link tiny" onClick={() => setPartial(i)}>parcial</button>
+                    <button className="link tiny" onClick={() => markPaid(i)}>Pagar</button>
+                    <button className="link tiny" onClick={() => setPartial(i)}>Parcial</button>
                   </>
                 )}
                 {i.status === 'paid' && (
@@ -578,7 +588,7 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
                     dispatch({ type: 'unpayInstallment', id: i.id })
                     if (plan.status === 'settled') dispatch({ type: 'updatePlan', id: plan.id, patch: { status: 'active' } })
                     toast({ text: 'Parcela reaberta.' })
-                  }}>desfazer</button>
+                  }}>Desfazer</button>
                 )}
               </div>
             )

@@ -171,11 +171,22 @@ export interface InstallmentPlan {
   description: string
   cardId?: string
   categoryId?: string
-  /** Valor total da dívida (no financed-cash-inflow: o valor COBRADO no cartão). */
+  /**
+   * TOTAL FINANCIADO — é o que as parcelas somam e o que entra em faturas e
+   * projeções. Quando há juros/acréscimo: totalAmount = principalAmount + interestAmount.
+   * No financed-cash-inflow: o valor COBRADO no cartão.
+   */
   totalAmount: number
   installmentCount: number
   firstDueDate: string
   purchaseDate: string
+  /**
+   * Preço da compra sem os juros. Opcional e retrocompatível: planos criados
+   * antes deste campo não o têm, e nesses casos totalAmount já é o valor final —
+   * nunca reinterprete um plano antigo como se tivesse juros embutidos.
+   */
+  principalAmount?: number
+  /** Juros/acréscimo cobrado além do preço da compra. Já incluído em totalAmount. */
   interestAmount?: number
   feeAmount?: number
   /** Credor, estabelecimento ou intermediário — sempre informado pelo usuário. */
@@ -241,6 +252,12 @@ export interface ChatMessage {
   detail?: string
   /** Aviso de possível lançamento duplicado (14.8). */
   duplicateWarning?: string
+  /**
+   * Pergunta de desambiguação (ex.: "gás de cozinha ou GNV?"). Cada opção já
+   * traz a lista completa de ações; escolher NÃO registra nada — só gera a
+   * confirmação normal com Confirmar/Cancelar.
+   */
+  choices?: { label: string; actions: ParsedAction[] }[]
 }
 
 export interface PendingAction {
@@ -299,6 +316,13 @@ export interface Settings {
   platform99Fee: number     // valor da taxa de saque da 99
   /** IA remota (DeepSeek). Desligada = só o motor local/offline responde (14.11). */
   remoteAi?: boolean
+  /**
+   * Como o ritmo dos objetivos de compra é exibido. É preferência VISUAL: não
+   * altera a regra financeira da meta diária do motorista nem a frequência das
+   * contas recorrentes. Ausente = fallback por perfil (motorista: 'daily';
+   * autônomo/CLT/outro: 'monthly') — ver goalCadenceOf() em services/profile.ts.
+   */
+  goalCadence?: 'daily' | 'weekly' | 'monthly'
 }
 
 export interface AppState {

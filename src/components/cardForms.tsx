@@ -3,46 +3,79 @@
 // só as parcelas entram no fluxo mensal (ver services/cards.ts).
 import React, { useMemo, useState } from 'react'
 import { useStore } from '../store/store'
-import { useToast } from './ui'
+import { ConfirmDialog, MoneyInput, useToast } from './ui'
 import {
   CreditCard, Installment, InstallmentPlan, RecurringCardCharge,
 } from '../models/types'
 import { fmtBRL, fmtDateShort, parseMoney, todayISO, uid } from '../utils/format'
 import {
-  activeCards, buildInstallments, cardInvoice, cardById, planInstallments,
-  simulatePurchase, splitInstallmentAmounts, suggestedFirstDueDate,
+  activeCards, buildInstallments, cardInvoice, cardById, findCardByExactName, planInstallments,
+  round2, simulatePurchase, splitInstallmentAmounts, suggestedDueDay, suggestedFirstDueDate,
 } from '../services/cards'
 import { monthKey } from '../utils/format'
+import { sentenceCase } from '../utils/text'
 
 const CARD_COLORS = ['#6C5CE7', '#0984E3', '#00B894', '#E17055', '#D63031', '#2D3436']
 
-export function CardForm({ onDone, card }: { onDone: () => void; card?: CreditCard }) {
-  const { dispatch } = useStore()
+/**
+ * Número de parcelas válido, ou null. Nunca "corrige" um valor absurdo em
+ * silêncio — o formulário mostra o erro e não deixa salvar.
+ */
+function clampCount(v: string): number | null {
+  const n = parseInt(String(v).trim(), 10)
+  if (!Number.isFinite(n) || n < 1 || n > 120) return null
+  return n
+}
+
+export function CardForm({ onDone, card: initialCard }: { onDone: () => void; card?: CreditCard }) {
+  const { state, dispatch } = useStore()
   const toast = useToast()
+  // Ao escolher "Editar o existente" o formulário passa a editar o cartão duplicado.
+  const [card, setCard] = useState<CreditCard | undefined>(initialCard)
   const [name, setName] = useState(card?.name || '')
   const [institution, setInstitution] = useState(card?.institution || '')
   const [last4, setLast4] = useState(card?.lastFourDigits || '')
   const [limit, setLimit] = useState(card ? String(card.limit) : '')
   const [closingDay, setClosingDay] = useState(String(card?.closingDay ?? 25))
-  const [dueDay, setDueDay] = useState(String(card?.dueDay ?? 5))
+  const [dueDay, setDueDay] = useState(card ? String(card.dueDay) : '')
   const [initial, setInitial] = useState(card?.initialInvoiceBalance ? String(card.initialInvoiceBalance) : '')
   const [color, setColor] = useState(card?.color || CARD_COLORS[0])
   const [notes, setNotes] = useState(card?.notes || '')
+  const [askDuplicate, setAskDuplicate] = useState(false)
 
-  const day = (v: string, fallback: number) => {
-    const n = parseInt(v, 10)
-    return isNaN(n) ? fallback : Math.min(Math.max(n, 1), 31)
+  /** Dia do mês válido. Devolve null em vez de corrigir em silêncio. */
+  const dayValue = (v: string): number | null => {
+    const t = v.trim()
+    if (!t) return null
+    if (!/^\d{1,2}$/.test(t)) return null
+    const n = parseInt(t, 10)
+    return n >= 1 && n <= 31 ? n : null
   }
 
-  const save = () => {
-    if (!name.trim()) return
+  const closing = dayValue(closingDay)
+  const dueTyped = dueDay.trim() ? dayValue(dueDay) : null
+  const dueSuggested = closing ? suggestedDueDay(closing) : null
+  const effectiveDue = dueTyped ?? dueSuggested
+
+  const closingError = closingDay.trim() && closing === null
+    ? 'Informe um dia entre 1 e 31.' : ''
+  const dueError = dueDay.trim() && dueTyped === null
+    ? 'Informe um dia entre 1 e 31 ou deixe em branco.' : ''
+
+  const duplicate = findCardByExactName(state, name, card?.id)
+  const sameLast4 = !!duplicate && !!last4.replace(/\D/g, '') &&
+    duplicate.lastFourDigits === last4.replace(/\D/g, '').slice(-4)
+  const valid = !!name.trim() && closing !== null && !dueError && effectiveDue !== null
+
+  const commit = () => {
+    if (!valid) return
     const patch = {
       name: name.trim(),
       institution: institution.trim() || undefined,
       lastFourDigits: last4.replace(/\D/g, '').slice(-4) || undefined,
       limit: parseMoney(limit) || 0,
-      closingDay: day(closingDay, 25),
-      dueDay: day(dueDay, 5),
+      closingDay: closing!,
+      dueDay: effectiveDue!,
       initialInvoiceBalance: parseMoney(initial) || undefined,
       color,
       notes: notes.trim() || undefined,
@@ -54,7 +87,32 @@ export function CardForm({ onDone, card }: { onDone: () => void; card?: CreditCa
       dispatch({ type: 'addCard', card: { id: uid(), ...patch, createdAt: todayISO() } })
       toast({ text: 'Cartão cadastrado. 💳' })
     }
+    setAskDuplicate(false)
     onDone()
+  }
+
+  const save = () => {
+    if (!valid) return
+    // Duplicidade não bloqueia: dá para ter dois cartões com nome parecido.
+    if (duplicate) { setAskDuplicate(true); return }
+    commit()
+  }
+
+  /** Carrega o cartão duplicado no formulário em vez de criar um segundo. */
+  const editExisting = () => {
+    const c = duplicate!
+    setCard(c)
+    setName(c.name)
+    setInstitution(c.institution || '')
+    setLast4(c.lastFourDigits || '')
+    setLimit(String(c.limit))
+    setClosingDay(String(c.closingDay))
+    setDueDay(String(c.dueDay))
+    setInitial(c.initialInvoiceBalance ? String(c.initialInvoiceBalance) : '')
+    setColor(c.color || CARD_COLORS[0])
+    setNotes(c.notes || '')
+    setAskDuplicate(false)
+    toast({ text: `Editando o cartão “${c.name}”.` })
   }
 
   return (
@@ -74,21 +132,31 @@ export function CardForm({ onDone, card }: { onDone: () => void; card?: CreditCa
           <input className="input" inputMode="numeric" maxLength={4} placeholder="1234" value={last4} onChange={e => setLast4(e.target.value)} />
         </div>
         <div className="field"><label>Limite total (R$)</label>
-          <input className="input" inputMode="decimal" value={limit} onChange={e => setLimit(e.target.value)} />
+          <MoneyInput value={limit} onChange={setLimit} />
         </div>
-        <div className="field"><label>Fatura atual em aberto (R$)</label>
-          <input className="input" inputMode="decimal" placeholder="opcional" value={initial} onChange={e => setInitial(e.target.value)} />
+        <div className="field"><label>Fatura atual em aberto (opcional)</label>
+          <MoneyInput value={initial} onChange={setInitial} />
         </div>
         <div className="field"><label>Dia do fechamento</label>
-          <input className="input" inputMode="numeric" value={closingDay} onChange={e => setClosingDay(e.target.value)} />
+          <input className="input" inputMode="numeric" maxLength={2} value={closingDay} onChange={e => setClosingDay(e.target.value)} />
+          {closingError && <span className="tiny" style={{ color: 'var(--danger)' }}>{closingError}</span>}
         </div>
         <div className="field"><label>Dia do vencimento</label>
-          <input className="input" inputMode="numeric" value={dueDay} onChange={e => setDueDay(e.target.value)} />
+          <input className="input" inputMode="numeric" maxLength={2} placeholder={dueSuggested ? String(dueSuggested) : ''} value={dueDay} onChange={e => setDueDay(e.target.value)} />
+          {dueError
+            ? <span className="tiny" style={{ color: 'var(--danger)' }}>{dueError}</span>
+            : <span className="tiny">
+                {dueDay.trim()
+                  ? 'Dia em que a fatura vence.'
+                  : dueSuggested
+                    ? `Se ficar em branco, usaremos 7 dias após o fechamento — dia ${dueSuggested}. Você pode editar antes de salvar.`
+                    : 'Se ficar em branco, usaremos 7 dias após o fechamento.'}
+              </span>}
         </div>
         <div className="field full"><label>Cor de identificação</label>
           <div className="chips">
             {CARD_COLORS.map(c => (
-              <button key={c} onClick={() => setColor(c)} aria-label={`cor ${c}`}
+              <button key={c} onClick={() => setColor(c)} aria-label={`Cor ${c}`}
                 style={{
                   width: 34, height: 34, borderRadius: 10, background: c, flex: '0 0 auto', cursor: 'pointer',
                   border: color === c ? '3px solid var(--text)' : '1px solid var(--border)',
@@ -100,9 +168,76 @@ export function CardForm({ onDone, card }: { onDone: () => void; card?: CreditCa
           <input className="input" value={notes} onChange={e => setNotes(e.target.value)} />
         </div>
       </div>
-      <button className="btn btn-primary btn-block" disabled={!name.trim()} onClick={save}>
+      <button className="btn btn-primary btn-block" disabled={!valid} onClick={save}>
         {card ? 'Salvar alterações' : 'Cadastrar cartão'}
       </button>
+
+      <ConfirmDialog
+        open={askDuplicate}
+        onClose={() => setAskDuplicate(false)}
+        title={sameLast4
+          ? 'Este cartão parece já estar cadastrado com o mesmo nome e final.'
+          : `Já existe um cartão chamado “${duplicate?.name || name}”.`}
+        text={sameLast4
+          ? `“${duplicate?.name}” já existe com o final ····${duplicate?.lastFourDigits}. Cadastrar de novo cria um segundo cartão e o limite passa a ser contado em dobro.`
+          : 'Deseja cadastrar outro mesmo assim?'}
+        actions={[
+          { label: 'Cadastrar mesmo assim', onClick: commit, tone: sameLast4 ? 'soft' : 'primary' },
+          { label: 'Editar o existente', onClick: editExisting },
+        ]}
+      />
+    </div>
+  )
+}
+
+/** Atalhos de parcelamento mais usados; "Mais" abre o campo numérico livre. */
+const COUNT_SHORTCUTS = [1, 2, 3, 4]
+const MAX_INSTALLMENTS = 120
+
+/**
+ * Explicação do ajuste de centavos. A divisão exata quase nunca fecha: a última
+ * parcela absorve a diferença. O texto não pode parecer cobrança extra.
+ */
+function RoundingNote({ amounts, total }: { amounts: number[]; total: number }) {
+  if (amounts.length < 2) return null
+  const last = amounts[amounts.length - 1]
+  if (Math.abs(last - amounts[0]) < 0.005) return null
+  const diff = Math.round((last - amounts[0]) * 100) / 100
+  return (
+    <p className="tiny" style={{ margin: '4px 0 0' }}>
+      {amounts.length - 1} parcelas de {fmtBRL(amounts[0])} · última parcela de {fmtBRL(last)}.
+      A última parcela recebeu um ajuste de {fmtBRL(Math.abs(diff))} para que a soma seja
+      exatamente {fmtBRL(total)}.
+    </p>
+  )
+}
+
+/** Seletor de parcelas com atalhos (item 16). */
+function InstallmentCount({ count, setCount }: { count: string; setCount: (v: string) => void }) {
+  const n = parseInt(count, 10)
+  const isShortcut = COUNT_SHORTCUTS.includes(n)
+  const [free, setFree] = useState(!isShortcut)
+  const invalid = count.trim() !== '' && (!Number.isFinite(n) || n < 1 || n > MAX_INSTALLMENTS)
+  return (
+    <div className="field full">
+      <label>Parcelas</label>
+      <div className="chips">
+        {COUNT_SHORTCUTS.map(c => (
+          <button key={c} className={`chip ${!free && n === c ? 'active' : ''}`}
+            onClick={() => { setFree(false); setCount(String(c)) }}>{c}x</button>
+        ))}
+        <button className={`chip ${free ? 'active' : ''}`} onClick={() => setFree(true)}>Mais</button>
+      </div>
+      {free && (
+        <input className="input" inputMode="numeric" autoFocus style={{ marginTop: 8 }}
+          placeholder={`Quantas parcelas? (até ${MAX_INSTALLMENTS})`}
+          value={count} onChange={e => setCount(e.target.value.replace(/\D/g, ''))} />
+      )}
+      {invalid && (
+        <span className="tiny" style={{ color: 'var(--danger)' }}>
+          Informe um número de parcelas entre 1 e {MAX_INSTALLMENTS}.
+        </span>
+      )}
     </div>
   )
 }
@@ -124,27 +259,32 @@ export function PurchaseForm({ onDone, defaultCardId }: { onDone: () => void; de
   const [customFirstDue, setCustomFirstDue] = useState('')
 
   const card = cardById(state, cardId)
-  const totalV = parseMoney(total) || 0
-  const n = Math.max(parseInt(count, 10) || 1, 1)
+  // Valor da compra + juros = TOTAL FINANCIADO. É o total financiado que vira
+  // parcelas, fatura e projeção — os juros não podem ficar só decorando a tela.
+  const principalV = parseMoney(total) || 0
+  const interestV = parseMoney(interest) || 0
+  const financedV = round2(principalV + interestV)
+  const n = clampCount(count)
   const firstDue = customFirstDue || suggestedFirstDueDate(card, purchaseDate)
-  const preview = totalV > 0 ? simulatePurchase(totalV, n, firstDue) : null
-  const amounts = totalV > 0 ? splitInstallmentAmounts(totalV, n) : []
-  const uneven = amounts.length > 1 && amounts[0] !== amounts[amounts.length - 1]
+  const preview = financedV > 0 && n ? simulatePurchase(financedV, n, firstDue) : null
+  const amounts = financedV > 0 && n ? splitInstallmentAmounts(financedV, n) : []
 
   const cats = state.categories.filter(c => c.type === 'expense' && !c.archived)
+  const valid = principalV > 0 && n !== null
 
   const save = () => {
-    if (!(totalV > 0)) return
+    if (!valid) return
     const plan: InstallmentPlan = {
       id: uid(),
-      description: description.trim() || 'Compra no cartão',
+      description: sentenceCase(description) || 'Compra no cartão',
       cardId: cardId || undefined,
       categoryId: category,
-      totalAmount: totalV,
-      installmentCount: n,
+      totalAmount: financedV,
+      principalAmount: interestV > 0 ? principalV : undefined,
+      installmentCount: n!,
       firstDueDate: firstDue,
       purchaseDate,
-      interestAmount: parseMoney(interest) || undefined,
+      interestAmount: interestV > 0 ? interestV : undefined,
       source: origin.trim() || undefined,
       status: 'active',
       operationType: cardId ? 'card-purchase' : 'standalone',
@@ -153,7 +293,7 @@ export function PurchaseForm({ onDone, defaultCardId }: { onDone: () => void; de
       createdAt: todayISO(),
     }
     dispatch({ type: 'addPlan', plan, installments: buildInstallments(plan, uid) })
-    toast({ text: n > 1 ? `Compra em ${n}x registrada.` : 'Compra registrada.' })
+    toast({ text: n! > 1 ? `Compra em ${n}x registrada.` : 'Compra registrada.' })
     onDone()
   }
 
@@ -166,12 +306,14 @@ export function PurchaseForm({ onDone, defaultCardId }: { onDone: () => void; de
         <div className="field full"><label>O que você comprou?</label>
           <input className="input" autoFocus placeholder="ex.: computador, geladeira" value={description} onChange={e => setDescription(e.target.value)} />
         </div>
-        <div className="field"><label>Valor total (R$)</label>
-          <input className="input" inputMode="decimal" value={total} onChange={e => setTotal(e.target.value)} />
+        <div className="field"><label>Valor da compra (R$)</label>
+          <MoneyInput value={total} onChange={setTotal} />
         </div>
-        <div className="field"><label>Parcelas</label>
-          <input className="input" inputMode="numeric" value={count} onChange={e => setCount(e.target.value)} />
+        <div className="field"><label>Juros ou acréscimo total (opcional)</label>
+          <MoneyInput value={interest} onChange={setInterest} />
+          <span className="tiny">Valor adicional cobrado além do preço da compra.</span>
         </div>
+        <InstallmentCount count={count} setCount={setCount} />
         {cards.length > 0 && (
           <div className="field full"><label>Cartão</label>
             <select className="input" value={cardId} onChange={e => setCardId(e.target.value)}>
@@ -186,13 +328,10 @@ export function PurchaseForm({ onDone, defaultCardId }: { onDone: () => void; de
         <div className="field"><label>1º vencimento</label>
           <input type="date" className="input" value={firstDue} onChange={e => setCustomFirstDue(e.target.value)} />
         </div>
-        <div className="field"><label>Categoria</label>
+        <div className="field full"><label>Categoria</label>
           <select className="input" value={category} onChange={e => setCategory(e.target.value)}>
             {cats.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
           </select>
-        </div>
-        <div className="field"><label>Juros/acréscimo (R$)</label>
-          <input className="input" inputMode="decimal" placeholder="opcional" value={interest} onChange={e => setInterest(e.target.value)} />
         </div>
         <div className="field full"><label>Estabelecimento (opcional)</label>
           <input className="input" value={origin} onChange={e => setOrigin(e.target.value)} />
@@ -204,20 +343,27 @@ export function PurchaseForm({ onDone, defaultCardId }: { onDone: () => void; de
 
       {preview && (
         <div className="card" style={{ padding: '12px 14px', background: 'var(--accent-soft)', borderColor: 'transparent' }}>
+          {interestV > 0 && (
+            <div className="stack tiny" style={{ gap: 3, marginBottom: 8 }}>
+              <div className="spread"><span>Valor da compra</span><span className="mono-num">{fmtBRL(principalV)}</span></div>
+              <div className="spread"><span>+ Juros ou acréscimo</span><span className="mono-num">{fmtBRL(interestV)}</span></div>
+              <div className="spread" style={{ fontWeight: 700 }}><span>= Total financiado</span><span className="mono-num">{fmtBRL(financedV)}</span></div>
+            </div>
+          )}
           <p className="small" style={{ margin: 0, fontWeight: 650 }}>
-            {n > 1 ? `${n}x de ${fmtBRL(preview.installmentAmount)}` : `1x de ${fmtBRL(preview.installmentAmount)}`} · total {fmtBRL(preview.totalAmount)}
+            {n! > 1 ? `${n}x de ${fmtBRL(preview.installmentAmount)}` : `1x de ${fmtBRL(preview.installmentAmount)}`} · total {fmtBRL(preview.totalAmount)}
           </p>
           <p className="tiny" style={{ margin: '4px 0 0' }}>
             1ª parcela em {fmtDateShort(preview.firstDueDate)}
-            {n > 1 ? ` · última em ${fmtDateShort(preview.lastDueDate)}` : ''}
-            {uneven ? ` · última parcela de ${fmtBRL(amounts[amounts.length - 1])} por arredondamento` : ''}
+            {n! > 1 ? ` · última em ${fmtDateShort(preview.lastDueDate)}` : ''}
           </p>
+          <RoundingNote amounts={amounts} total={financedV} />
           <p className="tiny" style={{ margin: '4px 0 0' }}>
             Sua projeção mensal será reduzida em {fmtBRL(preview.installmentAmount)} pelos próximos {n} mês(es).
           </p>
         </div>
       )}
-      <button className="btn btn-primary btn-block" disabled={!(totalV > 0)} onClick={save}>Registrar compra</button>
+      <button className="btn btn-primary btn-block" disabled={!valid} onClick={save}>Registrar compra</button>
     </div>
   )
 }
@@ -241,10 +387,10 @@ export function FinancedInflowForm({ onDone }: { onDone: () => void }) {
   const chargedV = parseMoney(charged) || 0
   const receivedV = parseMoney(received) || 0
   const cost = Math.max(chargedV - receivedV, 0)
-  const n = Math.max(parseInt(count, 10) || 1, 1)
+  const n = clampCount(count) ?? 1
   const firstDue = customFirstDue || suggestedFirstDueDate(card, date)
   const amounts = chargedV > 0 ? splitInstallmentAmounts(chargedV, n) : []
-  const valid = chargedV > 0 && receivedV > 0 && receivedV <= chargedV && confirmed
+  const valid = chargedV > 0 && receivedV > 0 && receivedV <= chargedV && confirmed && clampCount(count) !== null
 
   const save = () => {
     if (!valid) return
@@ -298,15 +444,13 @@ export function FinancedInflowForm({ onDone }: { onDone: () => void }) {
           </div>
         )}
         <div className="field"><label>Valor cobrado no cartão (R$)</label>
-          <input className="input" inputMode="decimal" autoFocus value={charged} onChange={e => setCharged(e.target.value)} />
+          <MoneyInput autoFocus value={charged} onChange={setCharged} />
         </div>
         <div className="field"><label>Valor líquido recebido (R$)</label>
-          <input className="input" inputMode="decimal" value={received} onChange={e => setReceived(e.target.value)} />
+          <MoneyInput value={received} onChange={setReceived} />
         </div>
-        <div className="field"><label>Parcelas</label>
-          <input className="input" inputMode="numeric" value={count} onChange={e => setCount(e.target.value)} />
-        </div>
-        <div className="field"><label>Data da operação</label>
+        <InstallmentCount count={count} setCount={setCount} />
+        <div className="field full"><label>Data da operação</label>
           <input type="date" className="input" value={date} onChange={e => setDate(e.target.value)} />
         </div>
         <div className="field full"><label>1º vencimento</label>
@@ -368,23 +512,30 @@ export function StandalonePlanForm({ onDone }: { onDone: () => void }) {
   const [interest, setInterest] = useState('')
   const [note, setNote] = useState('')
 
-  const totalV = parseMoney(total) || 0
-  const n = Math.max(parseInt(count, 10) || 1, 1)
+  // Mesma regra da compra no crédito: os juros entram no total financiado, que
+  // é o que vira parcela, fatura e projeção.
+  const principalV = parseMoney(total) || 0
+  const interestV = parseMoney(interest) || 0
+  const financedV = round2(principalV + interestV)
+  const countOk = clampCount(count)
+  const n = countOk ?? 1
   const paidCount = Math.min(Math.max(parseInt(alreadyPaid, 10) || 0, 0), n)
-  const amounts = totalV > 0 ? splitInstallmentAmounts(totalV, n) : []
+  const amounts = financedV > 0 && countOk ? splitInstallmentAmounts(financedV, n) : []
   const cats = state.categories.filter(c => c.type === 'expense' && !c.archived)
+  const valid = principalV > 0 && !!description.trim() && countOk !== null
 
   const save = () => {
-    if (!(totalV > 0) || !description.trim()) return
+    if (!valid) return
     const plan: InstallmentPlan = {
       id: uid(),
-      description: description.trim(),
+      description: sentenceCase(description),
       categoryId: category,
-      totalAmount: totalV,
+      totalAmount: financedV,
+      principalAmount: interestV > 0 ? principalV : undefined,
       installmentCount: n,
       firstDueDate: firstDue,
       purchaseDate: todayISO(),
-      interestAmount: parseMoney(interest) || undefined,
+      interestAmount: interestV > 0 ? interestV : undefined,
       source: source.trim() || undefined,
       status: paidCount >= n ? 'settled' : 'active',
       operationType: 'standalone',
@@ -407,24 +558,23 @@ export function StandalonePlanForm({ onDone }: { onDone: () => void }) {
           <input className="input" autoFocus placeholder="ex.: empréstimo, acordo, carnê da loja" value={description} onChange={e => setDescription(e.target.value)} />
         </div>
         <div className="field"><label>Valor total (R$)</label>
-          <input className="input" inputMode="decimal" value={total} onChange={e => setTotal(e.target.value)} />
+          <MoneyInput value={total} onChange={setTotal} />
         </div>
-        <div className="field"><label>Nº de parcelas</label>
-          <input className="input" inputMode="numeric" value={count} onChange={e => setCount(e.target.value)} />
+        <div className="field"><label>Juros ou acréscimo total (opcional)</label>
+          <MoneyInput value={interest} onChange={setInterest} />
+          <span className="tiny">Valor adicional cobrado além do valor original.</span>
         </div>
+        <InstallmentCount count={count} setCount={setCount} />
         <div className="field"><label>Parcelas já pagas</label>
-          <input className="input" inputMode="numeric" value={alreadyPaid} onChange={e => setAlreadyPaid(e.target.value)} />
+          <input className="input" inputMode="numeric" value={alreadyPaid} onChange={e => setAlreadyPaid(e.target.value.replace(/\D/g, ''))} />
         </div>
         <div className="field"><label>1º vencimento</label>
           <input type="date" className="input" value={firstDue} onChange={e => setFirstDue(e.target.value)} />
         </div>
-        <div className="field"><label>Categoria</label>
+        <div className="field full"><label>Categoria</label>
           <select className="input" value={category} onChange={e => setCategory(e.target.value)}>
             {cats.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
           </select>
-        </div>
-        <div className="field"><label>Juros (R$, opcional)</label>
-          <input className="input" inputMode="decimal" value={interest} onChange={e => setInterest(e.target.value)} />
         </div>
         <div className="field full"><label>Credor / origem (opcional)</label>
           <input className="input" value={source} onChange={e => setSource(e.target.value)} />
@@ -435,11 +585,19 @@ export function StandalonePlanForm({ onDone }: { onDone: () => void }) {
       </div>
       {amounts.length > 0 && (
         <div className="card" style={{ padding: '12px 14px', background: 'var(--accent-soft)', borderColor: 'transparent' }}>
-          <p className="small" style={{ margin: 0, fontWeight: 650 }}>{n}x de {fmtBRL(amounts[0])} · total {fmtBRL(totalV)}</p>
+          {interestV > 0 && (
+            <div className="stack tiny" style={{ gap: 3, marginBottom: 8 }}>
+              <div className="spread"><span>Valor original</span><span className="mono-num">{fmtBRL(principalV)}</span></div>
+              <div className="spread"><span>+ Juros ou acréscimo</span><span className="mono-num">{fmtBRL(interestV)}</span></div>
+              <div className="spread" style={{ fontWeight: 700 }}><span>= Total financiado</span><span className="mono-num">{fmtBRL(financedV)}</span></div>
+            </div>
+          )}
+          <p className="small" style={{ margin: 0, fontWeight: 650 }}>{n}x de {fmtBRL(amounts[0])} · total {fmtBRL(financedV)}</p>
+          <RoundingNote amounts={amounts} total={financedV} />
           {paidCount > 0 && <p className="tiny" style={{ margin: '4px 0 0' }}>{paidCount} parcela(s) já paga(s) — faltam {n - paidCount}.</p>}
         </div>
       )}
-      <button className="btn btn-primary btn-block" disabled={!(totalV > 0) || !description.trim()} onClick={save}>Registrar parcelamento</button>
+      <button className="btn btn-primary btn-block" disabled={!valid} onClick={save}>Registrar parcelamento</button>
     </div>
   )
 }
@@ -494,7 +652,7 @@ export function CardPaymentForm({ onDone, card, referenceMonth }: { onDone: () =
       </p>
       <div className="form-grid">
         <div className="field"><label>Valor pago (R$)</label>
-          <input className="input" inputMode="decimal" autoFocus value={amount} onChange={e => setAmount(e.target.value)} />
+          <MoneyInput autoFocus value={amount} onChange={setAmount} />
         </div>
         <div className="field"><label>Data do pagamento</label>
           <input type="date" className="input" value={date} onChange={e => setDate(e.target.value)} />
@@ -542,7 +700,7 @@ export function CardChargeForm({ onDone, charge }: { onDone: () => void; charge?
   const save = () => {
     if (!(v > 0) || !description.trim() || !cardId) return
     const patch = {
-      cardId, description: description.trim(), amount: v, categoryId: category,
+      cardId, description: sentenceCase(description), amount: v, categoryId: category,
       frequency, nextDate, endDate: endDate || undefined,
     }
     if (charge) {
@@ -566,7 +724,7 @@ export function CardChargeForm({ onDone, charge }: { onDone: () => void; charge?
           <input className="input" autoFocus placeholder="ex.: Netflix, academia" value={description} onChange={e => setDescription(e.target.value)} />
         </div>
         <div className="field"><label>Valor (R$)</label>
-          <input className="input" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} />
+          <MoneyInput value={amount} onChange={setAmount} />
         </div>
         <div className="field"><label>Cartão</label>
           <select className="input" value={cardId} onChange={e => setCardId(e.target.value)}>

@@ -11,14 +11,32 @@
 import {
   AppState, CreditCard, Installment, InstallmentPlan, RecurringCardCharge,
 } from '../models/types'
-import { addDays, fromISO, monthKey, todayISO, toISO } from '../utils/format'
+import { addDays, dateForDayOfMonth, fromISO, monthKey, todayISO, toISO } from '../utils/format'
+import { normalizeName, sameName } from '../utils/text'
 
 const round2 = (v: number) => Math.round(v * 100) / 100
 
 /** Dia válido dentro do mês (dia 31 em fevereiro vira o último dia). */
-function clampDay(year: number, month: number, day: number): Date {
-  const last = new Date(year, month + 1, 0).getDate()
-  return new Date(year, month, Math.min(Math.max(day, 1), last))
+const clampDay = dateForDayOfMonth
+
+/**
+ * Vencimento sugerido quando o usuário não informa: 7 dias corridos depois do
+ * fechamento, com cálculo real de calendário (fechamento dia 25 em julho cai no
+ * dia 1º de agosto). Nunca um dia 5 fixo.
+ */
+export function suggestedDueDay(closingDay: number, reference = todayISO()): number {
+  const ref = fromISO(reference)
+  const closing = clampDay(ref.getFullYear(), ref.getMonth(), closingDay)
+  return new Date(closing.getFullYear(), closing.getMonth(), closing.getDate() + 7).getDate()
+}
+
+/**
+ * Cartão já cadastrado com nome equivalente (ignora caixa, acento e espaços).
+ * Não bloqueia o cadastro — serve para pedir confirmação (item 12).
+ */
+export function findCardByExactName(s: AppState, name?: string, exceptId?: string): CreditCard | undefined {
+  if (!normalizeName(name)) return undefined
+  return (s.cards || []).find(c => c.id !== exceptId && sameName(c.name, name))
 }
 
 /**

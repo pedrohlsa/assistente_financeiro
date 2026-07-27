@@ -67,6 +67,39 @@ código consulta essas funções em vez de comparar `profile === 'driver'` inlin
     `TxType: 'financed-cash-inflow'` — **nunca** `'income'`. Todos os somatórios filtram
     `type === 'income'` explicitamente, então ele fica fora de receita/lucro/faturamento por
     construção. A UI precisa deixar claro que o patrimônio líquido não aumentou.
+12. **Um único parser monetário**. `parseMoney()` em `src/utils/format.ts` é o ÚNICO conversor
+    de dinheiro do app — formulários, telas, `nlp.ts` e IA local sempre delegam a ele. Nunca
+    escrever `parseFloat(x.replace(...))` em outro arquivo: foi exatamente isso que fazia
+    `100.000` virar `100`. Entrada inválida devolve **NaN**, nunca `0` silencioso. Formatação
+    (`formatMoneyInput`) só acontece no **blur** — formatar durante a digitação move o cursor.
+    Campo de dinheiro na UI = `<MoneyInput>` (`components/ui.tsx`).
+13. **Sentence case em toda a interface**. Só a primeira palavra de títulos, botões e frases
+    leva maiúscula ("Novo cartão", "Mostrar arquivados", "Vence em 10 dias"). Nada de title
+    case artificial nem de ação começando em minúscula. Abreviações convencionais mantêm a
+    grafia normal do pt-BR (`dd/mm/aaaa`, `(opcional)`). Texto digitado pelo usuário é
+    capitalizado só na **exibição**, via `sentenceCase()` (`src/utils/text.ts`), que preserva
+    `GNV` e `iPhone` — o valor armazenado nunca é reescrito.
+14. **Meta duplicada nunca é atualizada em silêncio**. A ação `kind: 'goal'` SEMPRE cria meta
+    nova; alterar uma existente é `kind: 'goal-update'`. Nome equivalente (ignorando caixa,
+    acento e espaços — `sameName()`) gera confirmação com três saídas: criar mesmo assim,
+    editar a existente, cancelar. Vale para onboarding, `GoalForm`, FAB, tela de Metas e IA.
+    Mesma regra para cartões (`findCardByExactName`).
+15. **Recorrente não nasce atrasada**. Ao cadastrar uma conta cujo dia já passou no mês
+    corrente, a primeira ocorrência é a do mês seguinte, gravada em `startDate` — incluir a
+    ocorrência deste mês é uma escolha explícita do usuário, nunca presunção. Toda data de
+    recorrente sai de `occurrenceInMonth()` (`calc.ts`), que respeita o último dia real do mês
+    (dia 31 em fevereiro → 28/29, nunca o dia 28 forçado). O texto de vencimento vem de
+    `dueLabel()` e **jamais** escreve "vence hoje" para uma data passada.
+16. **Reset apaga storage e estado pelo mesmo caminho**. `resetAllData()` (`store.tsx`) é a
+    única operação de apagar tudo — usada pelo botão das Configurações e pelo comando
+    confirmado da IA. Ela cancela a gravação debounced pendente, remove **somente** a chave
+    `assistfin-state-v1` (nunca `localStorage.clear()`, que afetaria outros apps do domínio) e
+    só então restaura o estado inicial. Confirmação destrutiva usa `<ConfirmDialog>`, não
+    `window.confirm` — que é bloqueado em parte dos WebViews do Android.
+17. **Lista curta, detalhe sob demanda**. A listagem de movimentações mostra só descrição,
+    categoria, horário e valor. Ações destrutivas não ficam visíveis em cada linha: o toque
+    abre a folha de detalhes, onde ficam origem, pagamento, observação, perfil na criação e a
+    remoção (com confirmação + "Desfazer" no toast).
 
 ## Arquitetura e tecnologias
 
@@ -148,7 +181,9 @@ editar `api/ai/chat.ts`, sempre redeployar com `npx vercel --prod`, senão a mud
 
 | Arquivo | Responsabilidade |
 |---|---|
-| `src/services/profile.ts` | Regras de perfil — ler antes de mexer em qualquer feature perfil-dependente |
+| `src/services/profile.ts` | Regras de perfil e ritmo das metas (`goalCadenceOf`) — ler antes de mexer em qualquer feature perfil-dependente |
+| `src/utils/format.ts` | `parseMoney`/`formatMoneyInput` (regra 12), datas de calendário (`dateForDayOfMonth`) e `dueLabel` (regra 15) |
+| `src/utils/text.ts` | `sentenceCase` (regra 13) e `normalizeName`/`sameName` (regra 14) |
 | `src/services/calc.ts` | Todo cálculo financeiro (meta diária, meta mensal, previsão, custo/km, déficits, pendências de recorrentes) |
 | `src/services/nlp.ts` | Parser de linguagem natural pt-BR (determinístico, offline) |
 | `src/services/ai.ts` | Motor de respostas local + contexto/sanitização da IA remota |
@@ -164,6 +199,9 @@ editar `api/ai/chat.ts`, sempre redeployar com `npx vercel --prod`, senão a mud
 
 ## localStorage, migração e compatibilidade
 
+- Categorias padrão novas chegam a quem já usa o app por **fusão**, não substituição:
+  `mergeDefaultCategories()` (`src/data/categories.ts`) acrescenta só os `id` ausentes,
+  preservando personalizadas e o estado "arquivada". Nunca trocar a lista inteira do usuário.
 - Chave única: `assistfin-state-v1`. **Nunca existiu uma v2** — todo campo novo em
   `Settings`/`Transaction`/`RecurringExpense`/`Category` deve ser **opcional** (`campo?: tipo`)
   para que dados salvos antes da mudança continuem carregando sem erro.

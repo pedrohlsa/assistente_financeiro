@@ -1,12 +1,12 @@
 // Configurações (seções 34, 35, 36 — backup/exportação/privacidade)
 import React, { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useStore } from '../store/store'
+import { resetAllData, useStore } from '../store/store'
 import { monthKey, parseMoney, todayISO, uid } from '../utils/format'
 import { catById } from '../data/categories'
 import { monthStats, monthlySavingGoal } from '../services/calc'
-import { useToast } from '../components/ui'
-import { isDriver } from '../services/profile'
+import { ConfirmDialog, useToast } from '../components/ui'
+import { GOAL_CADENCE_LABEL, GoalCadence, goalCadenceOf, isDriver } from '../services/profile'
 
 const WD = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
@@ -20,6 +20,7 @@ export default function SettingsScreen() {
   const [newCat, setNewCat] = useState('')
   const [newCatType, setNewCatType] = useState<'income' | 'expense'>('expense')
   const [pendingImport, setPendingImport] = useState<any>(null)
+  const [confirmReset, setConfirmReset] = useState(false)
 
   const num = (v: string, fallback: number) => { const n = parseMoney(v); return isNaN(n) ? fallback : n }
 
@@ -211,12 +212,31 @@ export default function SettingsScreen() {
                   {c.icon} {c.name} <span className="tiny">({c.type === 'income' ? 'entrada' : 'despesa'}{c.archived ? ' · arquivada' : ''})</span>
                 </span>
                 <button className="link tiny" onClick={() => dispatch({ type: 'archiveCategory', id: c.id, archived: !c.archived })}>
-                  {c.archived ? 'reativar' : 'arquivar'}
+                  {c.archived ? 'Reativar' : 'Arquivar'}
                 </button>
               </div>
             ))}
           </div>
         )}
+      </div>
+
+      {/* RITMO EXIBIDO NAS METAS (itens 36 e 37) — preferência visual dos
+          objetivos de compra. Não muda a meta diária do motorista nem a
+          frequência das contas recorrentes. */}
+      <div className="card stack">
+        <h3>Ritmo exibido nas metas</h3>
+        <p className="tiny">
+          Como o valor a guardar aparece nos seus objetivos de compra. É só a forma de mostrar —
+          o cálculo da meta e as contas recorrentes não mudam.
+        </p>
+        <div className="chips">
+          {(['daily', 'weekly', 'monthly'] as GoalCadence[]).map(c => (
+            <button key={c} className={`chip ${goalCadenceOf(s) === c ? 'active' : ''}`}
+              onClick={() => dispatch({ type: 'settings', patch: { goalCadence: c } })}>
+              {GOAL_CADENCE_LABEL[c]}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="card stack">
@@ -290,16 +310,27 @@ export default function SettingsScreen() {
           </div>
         )}
         <div className="divider" />
-        {!state.settings.demo && state.transactions.length === 0 && (
-          <button className="btn btn-soft btn-sm" onClick={() => { dispatch({ type: 'loadDemo' }); toast({ text: 'Dados de demonstração carregados.' }) }}>Carregar dados de demonstração</button>
+        {/* Só em desenvolvimento: dados fictícios não são oferecidos ao usuário final. */}
+        {import.meta.env.DEV && !state.settings.demo && state.transactions.length === 0 && (
+          <button className="btn btn-soft btn-sm" onClick={() => { dispatch({ type: 'loadDemo' }); toast({ text: 'Dados de demonstração carregados.' }) }}>Carregar dados de demonstração (dev)</button>
         )}
-        <button className="btn btn-danger-soft btn-sm" onClick={() => {
-          if (confirm('Apagar TODOS os dados do aplicativo neste aparelho? Essa ação não pode ser desfeita.')) {
-            dispatch({ type: 'reset' })
-            toast({ text: 'Dados apagados.' })
-          }
-        }}>Apagar todos os dados</button>
+        <button className="btn btn-danger-soft btn-sm" onClick={() => setConfirmReset(true)}>Apagar todos os dados</button>
       </div>
+
+      {/* Confirmação própria da interface: window.confirm é bloqueado ou ignorado
+          em parte dos WebViews do Android, e era por isso que o botão parecia
+          não funcionar enquanto o comando pela IA funcionava (item 39). */}
+      <ConfirmDialog
+        open={confirmReset}
+        onClose={() => setConfirmReset(false)}
+        title="Apagar todos os dados?"
+        text="Isso apagará permanentemente movimentações, metas, contas, cartões, parcelas e configurações deste aparelho. Essa ação não pode ser desfeita."
+        actions={[{
+          label: 'Apagar definitivamente',
+          tone: 'danger',
+          onClick: () => { setConfirmReset(false); resetAllData(dispatch) },
+        }]}
+      />
     </div>
   )
 }

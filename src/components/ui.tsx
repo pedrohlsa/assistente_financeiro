@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
-import { fmtBRL } from '../utils/format'
+import { fmtBRL, formatMoneyInput } from '../utils/format'
 
 // ---------- Ícones (SVG minimalistas) ----------
 export const Icon = {
@@ -55,6 +55,68 @@ export function Sheet({ open, onClose, children, title }: { open: boolean; onClo
         <div className="sheet-handle" />
         {title && <h2 style={{ marginBottom: 14 }}>{title}</h2>}
         {children}
+      </div>
+    </>
+  )
+}
+
+// ---------- Campo monetário ----------
+/**
+ * Único campo de dinheiro do app. Aceita qualquer formato tolerado por
+ * `parseMoney` e só normaliza a exibição no BLUR — formatar durante a digitação
+ * moveria o cursor. Valor inválido volta intacto para o usuário corrigir.
+ */
+export function MoneyInput({ value, onChange, className, onBlur, ...rest }: {
+  value: string
+  onChange: (v: string) => void
+} & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'>) {
+  return (
+    <input
+      {...rest}
+      className={className || 'input'}
+      inputMode="decimal"
+      placeholder={rest.placeholder ?? '0,00'}
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      onBlur={e => { onChange(formatMoneyInput(e.target.value)); onBlur?.(e) }}
+    />
+  )
+}
+
+// ---------- Confirmação destrutiva / ambígua ----------
+/**
+ * Diálogo próprio da interface — não usar `window.confirm` em ação destrutiva:
+ * no WebView do Android ele é bloqueado ou ignorado em parte dos aparelhos.
+ */
+export function ConfirmDialog({ open, title, text, actions, onClose }: {
+  open: boolean
+  title: string
+  text?: React.ReactNode
+  actions: { label: string; onClick: () => void; tone?: 'primary' | 'danger' | 'soft' }[]
+  onClose: () => void
+}) {
+  useEffect(() => {
+    if (!open) return
+    const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [open, onClose])
+  if (!open) return null
+  const cls = (tone?: string) =>
+    tone === 'danger' ? 'btn btn-danger-soft' : tone === 'primary' ? 'btn btn-primary' : 'btn btn-soft'
+  return (
+    <>
+      <div className="sheet-backdrop" onClick={onClose} />
+      <div className="sheet" role="alertdialog" aria-label={title}>
+        <div className="sheet-handle" />
+        <h2 style={{ marginBottom: 10 }}>{title}</h2>
+        {text && <div className="small muted" style={{ marginBottom: 16 }}>{text}</div>}
+        <div className="stack">
+          {actions.map(a => (
+            <button key={a.label} className={`${cls(a.tone)} btn-block`} onClick={a.onClick}>{a.label}</button>
+          ))}
+          <button className="btn btn-ghost btn-block" onClick={onClose}>Cancelar</button>
+        </div>
       </div>
     </>
   )

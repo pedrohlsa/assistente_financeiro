@@ -4,9 +4,14 @@
 import { ParsedAction } from '../models/types'
 import { guessCategory } from '../data/categories'
 import { MENTIONS_99 } from './profile'
+import { parseMoney } from '../utils/format'
+import { sentenceCase } from '../utils/text'
 
-const NUM = String.raw`(\d+(?:[.,]\d+)?)`
-const parseNum = (s: string) => parseFloat(s.replace(/\./g, '').replace(',', '.').replace(/[^\d.]/g, '')) || parseFloat(s.replace(',', '.'))
+// Captura valores com QUALQUER combinação de separadores ("100.000,00",
+// "10,000,00", "1.234,56", "5000"). A interpretação é sempre delegada ao
+// parser monetário central — este módulo não converte número por conta própria.
+const NUM = String.raw`(\d+(?:[.,]\d+)*)`
+const parseNum = (s: string) => parseMoney(s)
 
 const MAINT_ITEMS = ['óleo', 'oleo', 'pneu', 'pneus', 'pastilha', 'pastilhas', 'freio', 'freios', 'correia', 'filtro', 'filtros', 'vela', 'velas', 'amortecedor', 'amortecedores', 'bateria', 'embreagem']
 const MAINT_LIFE: Record<string, number> = { 'óleo': 10000, pneu: 40000, pastilha: 30000, freio: 30000, correia: 60000, filtro: 10000, vela: 30000, amortecedor: 60000, bateria: 50000, embreagem: 80000 }
@@ -32,10 +37,35 @@ const COMMAND_VERBS = ['ganhei', 'recebi', 'faturei', 'lucrei', 'gastei', 'pague
 // ("retira 100km rodados", "diminui 80 km dos rodados hoje", "tira 2 viagens")
 const WORK_SUB_VERBS = String.raw`retira|retirei|tira|tirei|remove|removi|desconta|descontei|diminui|diminuir|reduz(?:e|i)?|corrige|corrigi`
 
+// Conectores que ligam dois comandos na mesma mensagem: "gastei 79 de gás,
+// DEPOIS gastei mais 190 de cimento". Sem isso a segunda ação se perdia.
+const CONNECTOR = String.raw`(?:e\s+)?(?:logo\s+)?(?:depois|em\s+seguida|mais\s+tarde|tamb[ée]m|ent[ãa]o|a[ií])\s+`
+
+/** Palavras funcionais que nunca são o objeto real da despesa (item 27). */
+const DESC_STOPWORDS = new Set([
+  'colocando', 'comprando', 'pagando', 'gastando', 'depois', 'pois', 'logo', 'entao', 'então',
+  'tambem', 'também', 'ainda', 'mais', 'de', 'do', 'da', 'no', 'na', 'em', 'com', 'para', 'pra',
+  'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas', 'reais', 'conto', 'contos',
+])
+
+/**
+ * Limpa a descrição extraída removendo palavras funcionais SÓ das pontas.
+ * Remoção no meio destruiria nomes legítimos ("gás de cozinha",
+ * "material de construção"), por isso nunca é feita.
+ */
+export function cleanDescription(raw?: string): string | undefined {
+  if (!raw) return undefined
+  const words = raw.toLowerCase().replace(/[.,;!?]+$/g, '').split(/\s+/).filter(Boolean)
+  while (words.length && DESC_STOPWORDS.has(words[0])) words.shift()
+  while (words.length && DESC_STOPWORDS.has(words[words.length - 1])) words.pop()
+  const out = words.join(' ').trim()
+  return out ? sentenceCase(out) : undefined
+}
+
 function splitClauses(input: string): string[] {
   const marked = input
     .toLowerCase()
-    .replace(new RegExp(String.raw`[\s,;]+(?:e\s+)?(?=(?:${COMMAND_VERBS.join('|')})\b)`, 'g'), '\n')
+    .replace(new RegExp(String.raw`[\s,;]+(?:${CONNECTOR})?(?:e\s+)?(?=(?:${COMMAND_VERBS.join('|')})\b)`, 'g'), '\n')
   return marked.split(/\n|;|\.\s/).map(s => s.trim()).filter(Boolean)
 }
 
@@ -64,6 +94,74 @@ export function parseNatural(input: string): ParsedAction[] {
     seen.add(k)
     return true
   })
+}
+
+// ---------- AMBIGUIDADE DO "GÁS" (item 26) ----------
+// No Rio, "gás" tanto é o botijão de cozinha quanto o GNV do carro. Sem contexto
+// suficiente o app NÃO escolhe: pergunta. Escolher sozinho erra a categoria e
+// contamina o custo por km do motorista.
+const GAS_MENTION = /\bg[áa]s\b|\bg[áa]s\s|\bgas\b/i
+const GAS_KITCHEN = /g[áa]s\s+de\s+cozinha|botij[ãa]o|\bglp\b|g[áa]s\s+da\s+casa|g[áa]s\s+de\s+casa/i
+const GAS_VEHICLE = /\bgnv\b|g[áa]s\s+veicular|g[áa]s\s+do\s+carro|abasteci\s+com\s+g[áa]s|posto\s+de\s+g[áa]s|g[áa]s\s+no\s+carro/i
+
+export interface ParseResult {
+  actions: ParsedAction[]
+  /**
+   * Pergunta obrigatória antes de qualquer registro. Cada opção já carrega a
+   * lista COMPLETA de ações resolvidas — as demais ações da mensagem são
+   * preservadas em todas as alternativas.
+   */
+  ambiguity?: {
+    question: string
+    options: { label: string; actions: ParsedAction[] }[]
+  }
+}
+
+/** É menção a gás sem qualificação suficiente para decidir a categoria? */
+export function isAmbiguousGas(text: string): boolean {
+  return GAS_MENTION.test(text) && !GAS_KITCHEN.test(text) && !GAS_VEHICLE.test(text)
+}
+
+/**
+ * Parse completo: além das ações, devolve a pergunta de desambiguação quando o
+ * texto não permite decidir com segurança.
+ */
+export function parseNaturalFull(input: string, opts?: { driver?: boolean }): ParseResult {
+  const actions = parseNatural(input)
+  if (!isAmbiguousGas(input)) return { actions }
+
+  // Qual ação veio do "gás"? A despesa cuja descrição/categoria bate com gás.
+  const idx = actions.findIndex(a =>
+    (a.kind === 'expense' && (GAS_MENTION.test(a.description || '') || a.category === 'casa')) ||
+    a.kind === 'fuel')
+  if (idx < 0) return { actions }
+
+  const amount = (actions[idx] as any).amount
+  if (!(amount > 0)) return { actions }
+
+  const withReplaced = (replacement: ParsedAction): ParsedAction[] =>
+    actions.map((a, i) => (i === idx ? replacement : a))
+
+  return {
+    actions,
+    ambiguity: {
+      question: 'Você quis dizer gás de cozinha ou GNV?',
+      options: [
+        {
+          label: 'Gás de cozinha',
+          actions: withReplaced({ kind: 'expense', amount, category: 'casa', description: 'Gás de cozinha' }),
+        },
+        {
+          // Motorista tem estrutura de abastecimento; os outros perfis registram
+          // como despesa de combustível, sem nada exclusivo de motorista.
+          label: 'GNV',
+          actions: withReplaced(opts?.driver
+            ? { kind: 'fuel', amount }
+            : { kind: 'expense', amount, category: 'combustivel', description: 'GNV' }),
+        },
+      ],
+    },
+  }
 }
 
 /**
@@ -174,7 +272,7 @@ function parseClause(input: string): ParsedAction[] {
   }
 
   // ----- guardar dinheiro numa meta: "guardei 100 para o iphone", "guarda 50 na meta da viagem"
-  const depositRe = new RegExp(String.raw`(?:guardei|guarda|guardar|separei|separa|separar|deposita|depositei)\s*(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:para|pra|pro|na|no|da|do|em)?\s*(?:a\s+|o\s+)?(?:meta\s+)?(?:d[oa]\s+)?([\wçãõáéíóúâêô\s]+)?`, 'i')
+  const depositRe = new RegExp(String.raw`(?:guardei|guarda|guardar|separei|separa|separar|deposita|depositei)\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:para|pra|pro|na|no|da|do|em)?\s*(?:a\s+|o\s+)?(?:meta\s+)?(?:d[oa]\s+)?([\wçãõáéíóúâêô\s]+)?`, 'i')
   const dep = text.match(depositRe)
   if (dep) {
     actions.push({ kind: 'goal-deposit', amount: parseNum(dep[1]), name: (dep[2] || '').trim() })
@@ -207,7 +305,7 @@ function parseClause(input: string): ParsedAction[] {
 
   // ----- abastecimento: "abasteci 70", "coloquei 70 reais de gasolina", "coloquei 30 litros"
   const fuelRe = new RegExp(String.raw`abasteci(?:mento)?\s*(?:com|de)?\s*(?:r\$)?\s*${NUM}`, 'i')
-  const fuelRe2 = new RegExp(String.raw`(?:coloquei|botei|gastei|paguei)\s*(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:de|em|no|na)?\s*(?:gasolina|etanol|[áa]lcool|diesel|gnv|combust[íi]vel)`, 'i')
+  const fuelRe2 = new RegExp(String.raw`(?:coloquei|botei|gastei|paguei)\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:de|em|no|na)?\s*(?:gasolina|etanol|[áa]lcool|diesel|gnv|combust[íi]vel)`, 'i')
   const f = text.match(fuelRe) || text.match(fuelRe2)
   const litersM = text.match(new RegExp(String.raw`${NUM}\s*litros?`, 'i'))
   if (f || (litersM && /(coloquei|botei|abasteci|posto)/.test(text))) {
@@ -217,7 +315,7 @@ function parseClause(input: string): ParsedAction[] {
 
   // ----- receita: "ganhei 250", "fiz 320 reais", "recebi 100"
   if (!actions.length || !actions.some(a => a.kind === 'goal')) {
-    const incRe = new RegExp(String.raw`(?:ganhei|recebi|faturei|lucrei|entrou|fiz)\s*(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?|pila)?`, 'i')
+    const incRe = new RegExp(String.raw`(?:ganhei|recebi|faturei|lucrei|entrou|fiz)\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?|pila)?`, 'i')
     const inc = text.match(incRe)
     // evita conflito com "fiz 14 viagens"
     if (inc && !new RegExp(String.raw`fiz\s*${NUM}\s*(viagens|corridas|km)`).test(text.replace(inc[0], m2 => m2))) {
@@ -229,26 +327,50 @@ function parseClause(input: string): ParsedAction[] {
     }
   }
 
-  // ----- despesa: "gastei 40 de gasolina", "paguei 120 de internet"
-  const expRe = new RegExp(String.raw`(?:gastei|paguei|comprei|saiu|foi)\s*(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:de|com|no|na|em)?\s*([\wçãõáéíóú\s]*)`, 'i')
+  // ----- despesa: "gastei 40 de gasolina", "gastei MAIS 79 de gás", "paguei 120 de internet"
+  // A preposição precisa de espaço depois: sem isso "com" casava dentro de
+  // "COMprando" e a descrição virava "prando cimento".
+  const expRe = new RegExp(String.raw`(?:gastei|paguei|comprei|torrei|saiu|foi)\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:(?:de|com|no|na|em|para|pra)\s+)?([\wçãõáéíóúâê\s]*)`, 'i')
   const e = text.match(expRe)
   if (e && !m && !f) {
-    const desc = (e[2] || '').trim().split(/\s+e\s+|,/)[0].trim()
-    actions.push({ kind: 'expense', amount: parseNum(e[1]), category: guessCategory(desc || text, 'expense'), description: desc || undefined })
+    const rawDesc = (e[2] || '').trim().split(/\s+e\s+|,/)[0].trim()
+    const desc = cleanDescription(rawDesc)
+    actions.push({ kind: 'expense', amount: parseNum(e[1]), category: guessCategory(rawDesc || text, 'expense'), description: desc })
   }
 
-  // itens enumerados após o verbo: "gastei 20 de pedágio e 40 de gasolina, 15 de lanche"
-  if (/(gastei|paguei|comprei|coloquei|botei)/.test(text) && !m) {
-    const enumRe = new RegExp(String.raw`(?:\se\s|,)\s*(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:de|com|no|na|em)\s+([a-zà-úçãõ]+(?:\s+[a-zà-úçãõ]+)?)`, 'gi')
+  // ----- despesa na ordem inversa: "comprei cimento por 190", "paguei a internet a 120"
+  if (!e && !m && !f) {
+    const invRe = new RegExp(String.raw`(?:gastei|paguei|comprei|torrei)\s+(?:mais\s+)?(?:um|uma|o|a|uns|umas)?\s*([a-zà-úçãõ][\wçãõáéíóúâê]*(?:\s+[\wçãõáéíóúâê]+){0,2}?)\s+(?:por|a|custou|saiu por)\s*(?:r\$)?\s*${NUM}`, 'i')
+    const inv = text.match(invRe)
+    if (inv) {
+      const desc = cleanDescription(inv[1])
+      actions.push({ kind: 'expense', amount: parseNum(inv[2]), category: guessCategory(inv[1] || text, 'expense'), description: desc })
+    }
+  }
+
+  // itens enumerados após o verbo, nas duas ordens:
+  // "gastei 20 de pedágio e 40 de gasolina, 15 de lanche"
+  // "comprei cimento por 190 e depois areia por 150"
+  if (/(gastei|paguei|comprei|torrei|coloquei|botei)/.test(text) && !m) {
+    // `,(?!\d)` é essencial: sem isso a vírgula decimal de "1.234,56" era lida
+    // como separador de itens e inventava uma segunda despesa de R$ 56.
+    const sep = String.raw`(?:\se\s|,(?!\d)|;|\s(?:${CONNECTOR}))`
+    const enumRe = new RegExp(String.raw`${sep}\s*(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:de|com|no|na|em)\s+([a-zà-úçãõ]+(?:\s+[a-zà-úçãõ]+)?)`, 'gi')
     for (const mm of text.matchAll(enumRe)) {
-      const desc = mm[2].trim()
+      const rawDesc = mm[2].trim()
       const amount = parseNum(mm[1])
-      const isFuel = /gasolina|etanol|alcool|álcool|diesel|combust/.test(desc)
+      const isFuel = /gasolina|etanol|alcool|álcool|diesel|combust/.test(rawDesc)
       if (isFuel) {
         if (!f) actions.push({ kind: 'fuel', amount })
       } else {
-        actions.push({ kind: 'expense', amount, category: guessCategory(desc, 'expense'), description: desc })
+        actions.push({ kind: 'expense', amount, category: guessCategory(rawDesc, 'expense'), description: cleanDescription(rawDesc) })
       }
+    }
+    const enumInvRe = new RegExp(String.raw`${sep}\s*([a-zà-úçãõ][\wçãõáéíóúâê]*(?:\s+[\wçãõáéíóúâê]+)?)\s+(?:por|a|custou)\s*(?:r\$)?\s*${NUM}`, 'gi')
+    for (const mm of text.matchAll(enumInvRe)) {
+      const rawDesc = mm[1].trim()
+      if (DESC_STOPWORDS.has(rawDesc)) continue
+      actions.push({ kind: 'expense', amount: parseNum(mm[2]), category: guessCategory(rawDesc, 'expense'), description: cleanDescription(rawDesc) })
     }
   }
 
@@ -310,10 +432,10 @@ export function describeActionDetailed(a: ParsedAction, opts?: { fee?: number; c
     case 'expense': {
       lines.push(`${a.kind === 'income' ? 'Receita' : 'Despesa'} de ${money(a.amount)}`)
       const c = catName(a.category)
-      if (c) lines.push(`Categoria: ${c}`)
-      if ((a as any).origin) lines.push(`Origem: ${(a as any).origin}`)
-      if (a.description) lines.push(`Descrição: ${a.description}`)
-      lines.push('Data: hoje')
+      if (c) lines.push(`Categoria: ${sentenceCase(c)}`)
+      if ((a as any).origin) lines.push(`Origem: ${sentenceCase((a as any).origin)}`)
+      if (a.description) lines.push(`Descrição: ${sentenceCase(a.description)}`)
+      lines.push('Data: Hoje')
       if (a.kind === 'income') {
         lines.push(a.is99 && opts?.fee ? `Taxa de saque 99: −${money(opts.fee)}` : 'Nenhuma taxa será aplicada.')
       }
@@ -321,19 +443,19 @@ export function describeActionDetailed(a: ParsedAction, opts?: { fee?: number; c
     }
     case 'saving':
       lines.push(`Guardar ${money(a.amount)} na reserva`)
-      if (a.description) lines.push(`Onde: ${a.description}`)
-      lines.push('Data: hoje')
+      if (a.description) lines.push(`Onde: ${sentenceCase(a.description)}`)
+      lines.push('Data: Hoje')
       lines.push('Não conta como despesa.')
       break
     case 'card-purchase': {
       const per = a.total / Math.max(a.installments, 1)
-      lines.push(`Compra parcelada${a.description ? `: ${a.description}` : ''}`)
+      lines.push(`Compra parcelada${a.description ? `: ${sentenceCase(a.description)}` : ''}`)
       lines.push(`Valor total: ${money(a.total)}`)
       lines.push(`Parcelas: ${a.installments}x de ${money(per)}`)
       lines.push(`Cartão: ${a.cardName || 'não informado (registra sem cartão)'}`)
       lines.push(`1º vencimento: ${a.firstDueDate ? a.firstDueDate.split('-').reverse().join('/') : 'próxima fatura'}`)
       const c = catName(a.category)
-      if (c) lines.push(`Categoria: ${c}`)
+      if (c) lines.push(`Categoria: ${sentenceCase(c)}`)
       lines.push(`Impacto: ${money(per)} por mês nas próximas ${a.installments} fatura(s).`)
       break
     }
@@ -355,7 +477,7 @@ export function describeActionDetailed(a: ParsedAction, opts?: { fee?: number; c
       lines.push('Não gera despesa nova — as compras já foram contadas como parcelas.')
       break
     case 'card-charge':
-      lines.push(`Assinatura${a.description ? `: ${a.description}` : ''}`)
+      lines.push(`Assinatura${a.description ? `: ${sentenceCase(a.description)}` : ''}`)
       lines.push(`Valor: ${money(a.amount)} por mês`)
       lines.push(`Cartão: ${a.cardName || 'não informado'}`)
       lines.push('Recorrente até você cancelar — não é parcelamento.')

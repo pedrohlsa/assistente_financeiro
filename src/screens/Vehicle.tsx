@@ -103,7 +103,7 @@ export default function VehicleScreen() {
       {/* COMBUSTÍVEL (seção 21) */}
       <div className="section-title">
         <h2>Combustível</h2>
-        <button className="link" onClick={() => setFuelOpen(true)}>+ abastecimento</button>
+        <button className="link" onClick={() => setFuelOpen(true)}>+ Abastecimento</button>
       </div>
       <div className="grid-3">
         <div className="mini-card"><div className="mini-value">{eff ? fmtNum(eff) : '—'}</div><div className="mini-label">km/L real</div></div>
@@ -132,7 +132,7 @@ export default function VehicleScreen() {
       {/* MANUTENÇÃO (seção 22) */}
       <div className="section-title">
         <h2>Manutenção</h2>
-        <button className="link" onClick={() => setMaintOpen(true)}>+ registrar</button>
+        <button className="link" onClick={() => setMaintOpen(true)}>+ Registrar</button>
       </div>
       {state.maintenance.length === 0 ? (
         <div className="card">
@@ -157,7 +157,7 @@ export default function VehicleScreen() {
                 <Progress pct={pct} tone={pct >= 100 ? 'danger' : pct >= 80 ? 'warn' : undefined} />
                 <div className="spread" style={{ marginTop: 8 }}>
                   <span className="tiny">Instalado aos {fmtNum(mi.kmInstalled, 0)} km por {fmtBRL(mi.cost)}</span>
-                  <button className="link tiny" onClick={() => dispatch({ type: 'removeMaintenance', id: mi.id })}>remover</button>
+                  <button className="link tiny" onClick={() => dispatch({ type: 'removeMaintenance', id: mi.id })}>Remover</button>
                 </div>
               </div>
             )

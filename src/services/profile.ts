@@ -67,3 +67,24 @@ export function findPossibleDuplicate(state: AppState, action: ParsedAction) {
 export function monthlyTargetLabel(s: Settings): string {
   return isDriver(s) ? 'Objetivo de lucro mensal' : 'Quanto deseja guardar por mês'
 }
+
+export type GoalCadence = 'daily' | 'weekly' | 'monthly'
+
+/**
+ * Ritmo exibido nos objetivos de compra. Estados salvos antes desta preferência
+ * existir não têm o campo — o fallback é por perfil, nunca um erro.
+ */
+export function goalCadenceOf(s: Settings): GoalCadence {
+  return s.goalCadence || (isDriver(s) ? 'daily' : 'monthly')
+}
+
+export const GOAL_CADENCE_LABEL: Record<GoalCadence, string> = {
+  daily: 'Por dia', weekly: 'Por semana', monthly: 'Por mês',
+}
+
+/** Divisor de dias para converter "quanto falta" no ritmo escolhido. */
+export const GOAL_CADENCE_DAYS: Record<GoalCadence, number> = { daily: 1, weekly: 7, monthly: 30 }
+
+export const GOAL_CADENCE_SUFFIX: Record<GoalCadence, string> = {
+  daily: 'por dia', weekly: 'por semana', monthly: 'por mês',
+}

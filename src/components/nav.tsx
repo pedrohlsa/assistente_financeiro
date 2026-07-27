@@ -3,7 +3,8 @@ import React, { useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useStore } from '../store/store'
 import { Icon, Sheet } from './ui'
-import { TransactionForm, WorkForm, FuelForm, MaintenanceForm, GoalForm, RecurringForm, QuickAdd, SavingForm } from './forms'
+import { TransactionForm, WorkForm, FuelForm, MaintenanceForm, GoalForm, RecurringForm, QuickAdd, SavingForm, BudgetForm } from './forms'
+import { CardChargeForm, CardForm, FinancedInflowForm, PurchaseForm, StandalonePlanForm } from './cardForms'
 
 const tabs = [
   { to: '/', label: 'Início', icon: Icon.home },
@@ -26,7 +27,71 @@ export function BottomNav() {
   )
 }
 
-type SheetKind = null | 'menu' | 'quick' | 'income' | 'expense' | 'work' | 'fuel' | 'maintenance' | 'goal' | 'recurring' | 'income-fixed' | 'saving'
+type SheetKind =
+  | null | 'menu' | 'quick' | 'income' | 'expense' | 'work' | 'fuel' | 'maintenance'
+  | 'goal' | 'recurring' | 'income-fixed' | 'saving' | 'budget'
+  | 'card' | 'purchase' | 'plan' | 'financed' | 'charge'
+
+interface FabAction { label: string; icon: string; kind: Exclude<SheetKind, null | 'menu'> }
+
+/**
+ * O + é a ação principal DO CONTEXTO, não um menu global repetido em toda tela.
+ * `null` = esconder o botão; um único item = abre direto, sem menu intermediário.
+ */
+function actionsForRoute(path: string, isDriver: boolean): FabAction[] | null {
+  const money: FabAction[] = [
+    { label: 'Registro rápido', icon: '⚡', kind: 'quick' },
+    { label: 'Adicionar receita', icon: '💵', kind: 'income' },
+    { label: 'Adicionar despesa', icon: '🧾', kind: 'expense' },
+  ]
+
+  if (path === '/') {
+    return [
+      ...money,
+      ...(isDriver
+        ? [
+            { label: 'Registrar trabalho', icon: '🚗', kind: 'work' as const },
+            { label: 'Abastecimento', icon: '⛽', kind: 'fuel' as const },
+            { label: 'Manutenção', icon: '🔧', kind: 'maintenance' as const },
+          ]
+        : [
+            { label: 'Entrada recorrente (salário, aluguel…)', icon: '🔑', kind: 'income-fixed' as const },
+            { label: 'Guardar dinheiro', icon: '🏦', kind: 'saving' as const },
+          ]),
+      { label: 'Conta a pagar', icon: '📄', kind: 'recurring' },
+      { label: 'Nova meta', icon: '🎯', kind: 'goal' },
+    ]
+  }
+  if (path.startsWith('/movimentacoes')) {
+    return [
+      { label: 'Receita', icon: '💵', kind: 'income' },
+      { label: 'Despesa', icon: '🧾', kind: 'expense' },
+      { label: 'Registro rápido', icon: '⚡', kind: 'quick' },
+    ]
+  }
+  // Uma ação só: o + abre o formulário direto, sem menu intermediário.
+  if (path.startsWith('/metas')) return [{ label: 'Nova meta', icon: '🎯', kind: 'goal' }]
+  if (path.startsWith('/cartoes')) {
+    return [
+      { label: 'Nova compra', icon: '🛍️', kind: 'purchase' },
+      { label: 'Novo cartão', icon: '💳', kind: 'card' },
+      { label: 'Novo parcelamento', icon: '🧾', kind: 'plan' },
+      { label: 'Entrada financiada', icon: '💸', kind: 'financed' },
+      { label: 'Nova assinatura', icon: '📱', kind: 'charge' },
+    ]
+  }
+  if (path.startsWith('/planejamento')) {
+    return [
+      { label: 'Conta a pagar', icon: '📄', kind: 'recurring' },
+      { label: 'Entrada recorrente', icon: '🔑', kind: 'income-fixed' },
+      { label: 'Novo orçamento', icon: '🎯', kind: 'budget' },
+    ]
+  }
+  // Assistente (o + atrapalha o campo de texto), configurações, análises,
+  // veículo e corrida: sem ação principal evidente aqui — o FAB some em vez de
+  // competir com os botões que a própria tela já oferece.
+  return null
+}
 
 export function Fab() {
   const { state } = useStore()
@@ -37,31 +102,16 @@ export function Fab() {
   const holdTimer = React.useRef<any>(null)
   const isDriver = state.settings.profile === 'driver'
 
-  // No assistente o + atrapalha o campo de digitação — some com ele lá.
-  if (location.pathname === '/assistente') return null
-
-  const actions: { label: string; icon: string; kind: SheetKind }[] = [
-    { label: 'Registro rápido', icon: '⚡', kind: 'quick' },
-    { label: 'Adicionar receita', icon: '💵', kind: 'income' },
-    { label: 'Adicionar despesa', icon: '🧾', kind: 'expense' },
-    ...(isDriver ? [
-      { label: 'Registrar trabalho', icon: '🚗', kind: 'work' as const },
-      { label: 'Abastecimento', icon: '⛽', kind: 'fuel' as const },
-      { label: 'Manutenção', icon: '🔧', kind: 'maintenance' as const },
-    ] : [
-      { label: 'Entrada recorrente (salário, aluguel…)', icon: '🔑', kind: 'income-fixed' as const },
-      { label: 'Guardar dinheiro', icon: '🏦', kind: 'saving' as const },
-    ]),
-    { label: 'Nova meta', icon: '🎯', kind: 'goal' },
-    { label: 'Conta a pagar', icon: '📄', kind: 'recurring' },
-  ]
+  const actions = actionsForRoute(location.pathname, isDriver)
+  if (!actions) return null
+  const single = actions.length === 1 ? actions[0] : null
 
   return (
     <>
       <button
-        className="fab" aria-label="Adicionar"
-        onClick={() => setSheet(s => (s ? null : 'menu'))}
-        onPointerDown={() => { holdTimer.current = setTimeout(() => setSheet('quick'), 450) }}
+        className="fab" aria-label={single ? single.label : 'Adicionar'}
+        onClick={() => setSheet(s => (s ? null : single ? single.kind : 'menu'))}
+        onPointerDown={() => { if (!single) holdTimer.current = setTimeout(() => setSheet('quick'), 450) }}
         onPointerUp={() => clearTimeout(holdTimer.current)}
         onPointerLeave={() => clearTimeout(holdTimer.current)}
       >
@@ -78,7 +128,9 @@ export function Fab() {
             </button>
           ))}
         </div>
-        <p className="tiny" style={{ marginTop: 14, textAlign: 'center' }}>Dica: segure o botão + para abrir o registro rápido.</p>
+        {actions.some(a => a.kind === 'quick') && (
+          <p className="tiny" style={{ marginTop: 14, textAlign: 'center' }}>Dica: segure o botão + para abrir o registro rápido.</p>
+        )}
       </Sheet>
 
       <Sheet open={sheet === 'quick'} onClose={close} title="Registro rápido"><QuickAdd onDone={close} /></Sheet>
@@ -91,6 +143,12 @@ export function Fab() {
       <Sheet open={sheet === 'recurring'} onClose={close} title="Conta a pagar"><RecurringForm onDone={close} defaultKind="expense" /></Sheet>
       <Sheet open={sheet === 'income-fixed'} onClose={close} title="Entrada recorrente"><RecurringForm onDone={close} defaultKind="income" /></Sheet>
       <Sheet open={sheet === 'saving'} onClose={close} title="Guardar dinheiro"><SavingForm onDone={close} /></Sheet>
+      <Sheet open={sheet === 'budget'} onClose={close} title="Novo orçamento"><BudgetForm onDone={close} /></Sheet>
+      <Sheet open={sheet === 'card'} onClose={close} title="Novo cartão"><CardForm onDone={close} /></Sheet>
+      <Sheet open={sheet === 'purchase'} onClose={close} title="Compra no crédito"><PurchaseForm onDone={close} /></Sheet>
+      <Sheet open={sheet === 'plan'} onClose={close} title="Parcelamento sem cartão"><StandalonePlanForm onDone={close} /></Sheet>
+      <Sheet open={sheet === 'financed'} onClose={close} title="Entrada financiada pelo cartão"><FinancedInflowForm onDone={close} /></Sheet>
+      <Sheet open={sheet === 'charge'} onClose={close} title="Assinatura no cartão"><CardChargeForm onDone={close} /></Sheet>
     </>
   )
 }

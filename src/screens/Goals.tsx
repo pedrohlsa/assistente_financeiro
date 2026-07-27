@@ -2,9 +2,11 @@
 import React, { useMemo, useState } from 'react'
 import { useStore } from '../store/store'
 import { avgDailyProfit, dailyGoal, monthlySavingGoal } from '../services/calc'
-import { isDriver } from '../services/profile'
+import {
+  GOAL_CADENCE_DAYS, GOAL_CADENCE_LABEL, GOAL_CADENCE_SUFFIX, GoalCadence, goalCadenceOf, isDriver,
+} from '../services/profile'
 import { addDays, fmtBRL, fromISO, parseMoney, todayISO } from '../utils/format'
-import { EmptyState, Progress, Sheet, useToast } from '../components/ui'
+import { EmptyState, MoneyInput, Progress, Sheet, useToast } from '../components/ui'
 import { GoalForm } from '../components/forms'
 import { FinancialGoal } from '../models/types'
 
@@ -18,6 +20,11 @@ function GoalCard({ g }: { g: FinancialGoal }) {
   const pct = g.target > 0 ? Math.round((g.saved / g.target) * 100) : 0
   const remaining = Math.max(g.target - g.saved, 0)
   const avg = avgDailyProfit(state)
+
+  // Ritmo exibido: um só, o escolhido pelo usuário (item 37). As equivalências
+  // completas ficam em "Ver detalhes" para não poluir o card.
+  const cadence = goalCadenceOf(state.settings)
+  const [showRates, setShowRates] = useState(false)
 
   // previsão e viabilidade (seção 17)
   const forecast = useMemo(() => {
@@ -40,8 +47,14 @@ function GoalCard({ g }: { g: FinancialGoal }) {
         suggestion: addDays(todayISO(), comfortableDays),
       }
     }
-    return { text: `Guardando ${fmtBRL(perDay)}/dia (${fmtBRL(perDay * 7)}/semana · ${fmtBRL(perDay * 30)}/mês) você chega lá em ${fromISO(g.deadline).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })}.${pctOfAvg > 0 ? ` Isso é ${pctOfAvg}% do seu lucro médio.` : ''}`, ok: true }
-  }, [g, remaining, avg])
+    const when = fromISO(g.deadline).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })
+    const rate = perDay * GOAL_CADENCE_DAYS[cadence]
+    return {
+      text: `Guardando ${fmtBRL(rate)} ${GOAL_CADENCE_SUFFIX[cadence]}, você chega lá em ${when}.${pctOfAvg > 0 ? ` Isso é ${pctOfAvg}% do seu lucro médio.` : ''}`,
+      ok: true,
+      rates: { day: perDay, week: perDay * 7, month: perDay * 30 },
+    }
+  }, [g, remaining, avg, cadence])
 
   const doDeposit = () => {
     const v = parseMoney(deposit)
@@ -64,6 +77,21 @@ function GoalCard({ g }: { g: FinancialGoal }) {
       </div>
       <Progress pct={pct} />
       <p className="small muted" style={{ marginTop: 10 }}>{forecast.text}</p>
+      {(forecast as any).rates && (
+        <>
+          <button className="link tiny" onClick={() => setShowRates(v => !v)}>
+            {showRates ? 'Ocultar detalhes' : 'Ver detalhes'}
+          </button>
+          {showRates && (
+            <div className="stack tiny" style={{ marginTop: 6, gap: 3 }}>
+              <div className="spread"><span>Por dia</span><span className="mono-num">{fmtBRL((forecast as any).rates.day)}</span></div>
+              <div className="spread"><span>Por semana</span><span className="mono-num">{fmtBRL((forecast as any).rates.week)}</span></div>
+              <div className="spread"><span>Por mês</span><span className="mono-num">{fmtBRL((forecast as any).rates.month)}</span></div>
+              <p style={{ marginTop: 4 }}>Você escolhe qual desses aparece no card em Mais → Configurações → Ritmo exibido nas metas.</p>
+            </div>
+          )}
+        </>
+      )}
       {!forecast.ok && (forecast as any).suggestion && (
         <button className="btn btn-soft btn-sm" style={{ marginTop: 8 }}
           onClick={() => { dispatch({ type: 'updateGoal', id: g.id, patch: { deadline: (forecast as any).suggestion } }); toast({ text: 'Prazo ajustado. 👍' }) }}>
@@ -78,7 +106,7 @@ function GoalCard({ g }: { g: FinancialGoal }) {
 
       <Sheet open={depositing} onClose={() => setDepositing(false)} title={`Guardar para ${g.name}`}>
         <div className="stack">
-          <input className="input" inputMode="decimal" autoFocus placeholder="0,00" value={deposit} onChange={e => setDeposit(e.target.value)} style={{ fontSize: '1.4rem', fontWeight: 700, textAlign: 'center' }} onKeyDown={e => e.key === 'Enter' && doDeposit()} />
+          <MoneyInput autoFocus value={deposit} onChange={setDeposit} style={{ fontSize: '1.4rem', fontWeight: 700, textAlign: 'center' }} onKeyDown={e => e.key === 'Enter' && doDeposit()} />
           <button className="btn btn-primary btn-block" disabled={!parseMoney(deposit)} onClick={doDeposit}>Guardar</button>
         </div>
       </Sheet>
@@ -170,7 +198,7 @@ export default function Goals() {
                   <div style={{ fontWeight: 650, fontSize: '0.9rem' }}>Déficit de {fromISO(d.date).toLocaleDateString('pt-BR')}</div>
                   <div className="tiny">Restam {fmtBRL(d.remaining)} · {fmtBRL(d.perDay)}/dia somados à sua meta</div>
                 </div>
-                <button className="btn btn-ghost btn-sm" onClick={() => dispatch({ type: 'dismissDeficit', date: d.date })}>ignorar</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => dispatch({ type: 'dismissDeficit', date: d.date })}>Ignorar</button>
               </div>
             </div>
           ))}
@@ -179,6 +207,19 @@ export default function Goals() {
 
       {/* METAS DE COMPRA */}
       <div className="section-title"><h2>Objetivos de compra</h2></div>
+      {state.goals.length > 0 && (
+        <div className="field" style={{ marginBottom: 12 }}>
+          <label>Ritmo exibido</label>
+          <div className="chips">
+            {(['daily', 'weekly', 'monthly'] as GoalCadence[]).map(c => (
+              <button key={c} className={`chip ${goalCadenceOf(state.settings) === c ? 'active' : ''}`}
+                onClick={() => dispatch({ type: 'settings', patch: { goalCadence: c } })}>
+                {GOAL_CADENCE_LABEL[c]}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {state.goals.length === 0 ? (
         <div className="card">
           <EmptyState emoji="🎯" text="Tem algum plano em mente?" cta="Criar minha primeira meta" onCta={() => setCreating(true)} />

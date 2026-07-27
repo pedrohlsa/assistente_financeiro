@@ -1,6 +1,7 @@
 // Motor de cálculos financeiros — todos os números do app saem daqui.
 import { AppState, Insight, RecurringExpense, Transaction } from '../models/types'
-import { addDays, daysInMonth, fmtBRL, fmtNum, fromISO, monthKey, todayISO, toISO } from '../utils/format'
+import { addDays, dateForDayOfMonth, daysInMonth, dueLabel, fmtBRL, fmtNum, fromISO, monthKey, todayISO, toISO } from '../utils/format'
+import { sentenceCase } from '../utils/text'
 import { installmentsThisMonth, monthlyCommitments, installmentsInMonth } from './cards'
 
 export interface PeriodStats {
@@ -291,6 +292,8 @@ export interface PendingRecurring {
   monthKey: string   // 'YYYY-MM' de referência
   dueDate: string    // data prevista neste mês
   kind: 'income' | 'expense'
+  /** Dias desde/até o vencimento REAL: 0 = hoje, negativo = já venceu. */
+  inDays: number
 }
 
 /**
@@ -303,19 +306,24 @@ export function pendingRecurrings(s: AppState): PendingRecurring[] {
   const today = fromISO(t)
   const out: PendingRecurring[] = []
   for (const r of s.recurring) {
-    if (r.active === false) continue
     if (r.frequency !== 'monthly') continue // mensal é o caso do salário/aluguel
     if (r.handledMonths?.includes(mk)) continue
     if (r.snoozeUntil && t < r.snoozeUntil) continue
+    // Uma recorrente cadastrada hoje NÃO nasce atrasada: o startDate define a
+    // primeira ocorrência e nada antes dele vira pendência (item 31).
+    const dueIso = occurrenceInMonth(r, mk)
+    if (!recurringActiveOn(r, dueIso)) continue
     if (r.startDate && t < r.startDate) continue
-    if (r.endDate && t > r.endDate) continue
-    const dueDay = Math.min(r.dueDay, daysInMonth(t))
-    const due = new Date(today.getFullYear(), today.getMonth(), dueDay)
+    const due = fromISO(dueIso)
     if (due > today) continue // ainda não chegou o dia
     // já existe lançamento deste recorrente neste mês? então não pergunta
     const already = s.transactions.some(x => x.recurringId === r.id && monthKey(x.date) === mk)
     if (already) continue
-    out.push({ rec: r, monthKey: mk, dueDate: toISO(due), kind: r.kind === 'income' ? 'income' : 'expense' })
+    out.push({
+      rec: r, monthKey: mk, dueDate: dueIso,
+      kind: r.kind === 'income' ? 'income' : 'expense',
+      inDays: Math.round((due.getTime() - today.getTime()) / 86400000),
+    })
   }
   return out.sort((a, b) => a.dueDate.localeCompare(b.dueDate))
 }
@@ -437,21 +445,45 @@ export function forecast30(s: AppState): Forecast {
 // ---------- RECORRENTES: próximos vencimentos/entradas (seção 24) ----------
 export interface UpcomingBill { name: string; amount: number; inDays: number; date: string; kind: 'income' | 'expense' }
 
+/**
+ * Data real da ocorrência de um recorrente mensal/anual dentro de um mês.
+ * FONTE ÚNICA de data de recorrente — Home, Planejamento, alertas e o card de
+ * confirmação usam esta função, senão cada tela mostra um dia diferente para a
+ * mesma conta. Dia 31 em fevereiro vira o último dia do mês (nunca o dia 28).
+ */
+export function occurrenceInMonth(r: RecurringExpense, mk: string): string {
+  const [y, m] = mk.split('-').map(Number)
+  return toISO(dateForDayOfMonth(y, m - 1, r.dueDay))
+}
+
+/** O recorrente está valendo nesta data? (desativado, ainda não começou, já terminou) */
+export function recurringActiveOn(r: RecurringExpense, iso: string): boolean {
+  if (r.active === false) return false
+  if (r.startDate && iso < r.startDate) return false
+  if (r.endDate && iso > r.endDate) return false
+  return true
+}
+
 function upcomingFrom(list: RecurringExpense[], horizon: number): UpcomingBill[] {
-  const today = fromISO(todayISO())
+  const t = todayISO()
+  const today = fromISO(t)
   const out: UpcomingBill[] = []
   for (const r of list) {
     const kind = r.kind === 'income' ? 'income' : 'expense'
     if (r.frequency === 'monthly' || r.frequency === 'yearly') {
-      for (let m = 0; m < 2; m++) {
-        const d = new Date(today.getFullYear(), today.getMonth() + m, Math.min(r.dueDay, 28))
+      for (let m = 0; m < 3; m++) {
+        const ref = new Date(today.getFullYear(), today.getMonth() + m, 1)
+        const iso = occurrenceInMonth(r, monthKey(toISO(ref)))
+        const d = fromISO(iso)
         if (r.frequency === 'yearly' && r.dueMonth && d.getMonth() !== r.dueMonth - 1) continue
+        if (!recurringActiveOn(r, iso)) continue
         const diff = Math.round((d.getTime() - today.getTime()) / 86400000)
-        if (diff >= 0 && diff <= horizon) out.push({ name: r.name, amount: r.amount, inDays: diff, date: toISO(d), kind })
+        if (diff >= 0 && diff <= horizon) out.push({ name: r.name, amount: r.amount, inDays: diff, date: iso, kind })
       }
     } else {
       for (let i = 0; i <= horizon; i++) {
         const d = new Date(today); d.setDate(d.getDate() + i)
+        if (!recurringActiveOn(r, toISO(d))) continue
         if (d.getDay() === r.dueDay % 7) { out.push({ name: r.name, amount: r.amount, inDays: i, date: toISO(d), kind }); break }
       }
     }
@@ -638,7 +670,7 @@ export function notifications(s: AppState): Insight[] {
   }
 
   for (const b of upcomingBills(s, 2))
-    out.push({ id: 'bill-' + b.name, icon: '📄', title: `${b.name} vence ${b.inDays === 0 ? 'hoje' : b.inDays === 1 ? 'amanhã' : `em ${b.inDays} dias`}`, text: `${fmtBRL(b.amount)} — programe-se para o pagamento.`, tone: 'warning' })
+    out.push({ id: 'bill-' + b.name, icon: '📄', title: `${sentenceCase(b.name)}: ${dueLabel(b.inDays).toLowerCase()}`, text: `${fmtBRL(b.amount)} — programe-se para o pagamento.`, tone: 'warning' })
 
   // MODO BANCO: saldo não cobre as contas próximas → aviso auto-adaptativo
   if (s.settings.balance > 0 || s.recurring.length > 0) {

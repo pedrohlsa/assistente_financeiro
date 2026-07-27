@@ -9,23 +9,26 @@
 
 import { AppState, ParsedAction } from '../models/types'
 import {
-  addDays, fmtBRL, fmtNum, fromISO, todayISO, daysInMonth,
+  addDays, dueLabel, fmtBRL, fmtNum, fromISO, todayISO, daysInMonth,
 } from '../utils/format'
+import { sentenceCase } from '../utils/text'
 import {
   analyzeRide, avgDailyProfit, balanceOutlook, bestWorstDay, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
   monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections,
 } from './calc'
-import { describeAction, parseNatural } from './nlp'
+import { describeAction, parseNaturalFull } from './nlp'
 import { catById } from '../data/categories'
 import { isDriver } from './profile'
 import {
   activeCards, cardsOverview, currentInvoice, monthlyCommitments, activePlans,
-  planProgress, overdueInstallments, upcomingInvoices,
+  planProgress, overdueInstallments, upcomingInvoices, installmentsThisMonth,
 } from './cards'
 
 export interface AiReply {
   text: string
   actions?: ParsedAction[] // ações que precisam de confirmação
+  /** Opções de desambiguação — nada é registrado até o usuário escolher e confirmar. */
+  choices?: { label: string; actions: ParsedAction[] }[]
   engine?: 'remote' | 'local'
   handled?: boolean // true = o motor local respondeu com certeza (não precisa da IA remota)
 }
@@ -297,9 +300,15 @@ function resolveLocal(s: AppState, input: string): AiReply {
   const driverMode = isDriver(s.settings)
 
   // ---------- 1) Comandos de registro ----------
-  const actions = parseNatural(input)
+  const parsed = parseNaturalFull(input, { driver: driverMode })
+  const actions = parsed.actions
   const isQuestion = /\?|quanto|quando|qual|como|vale a pena|posso|preciso|devo|t[oô] gastando|melhor|pior|m[ií]nimo|lucrando|aceitar/.test(t)
   if (actions.length && !isQuestion) {
+    // Ambiguidade real ("gás") interrompe o fluxo: pergunta primeiro, registra
+    // depois. Nenhuma ação vira botão de confirmação enquanto isso.
+    if (parsed.ambiguity) {
+      return { text: parsed.ambiguity.question, choices: parsed.ambiguity.options }
+    }
     return {
       text: 'Entendi isso:\n\n' + actions.map(a => '• ' + describeAction(a)).join('\n') + '\n\nConfirmar?',
       actions,
@@ -671,7 +680,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   if (/contas?( fixas)?|vencimento|vence/.test(t)) {
     const bills = upcomingBills(s, 15)
     if (!bills.length) return { text: 'Nenhuma conta fixa vence nos próximos 15 dias.' }
-    return { text: 'Próximas contas:\n\n' + bills.map(b => `• ${b.name}: ${fmtBRL(b.amount)} ${b.inDays === 0 ? 'hoje' : b.inDays === 1 ? 'amanhã' : `em ${b.inDays} dias`}`).join('\n') }
+    return { text: 'Próximas contas:\n\n' + bills.map(b => `• ${sentenceCase(b.name)}: ${fmtBRL(b.amount)} — ${dueLabel(b.inDays).toLowerCase()}`).join('\n') }
   }
 
   // consumo
@@ -681,8 +690,26 @@ function resolveLocal(s: AppState, input: string): AiReply {
     return { text: `Seu carro está fazendo ${fmtNum(eff)} km/L, calculado com base nos seus abastecimentos (dado real).` }
   }
 
-  // resumo geral
+  // resumo geral — o formato muda por perfil: meta diária/km só existem no motorista
   if (/resumo|como estou|situa[çc][aã]o/.test(t)) {
+    if (!driverMode) {
+      const mg = monthlySavingGoal(s)
+      const bo = balanceOutlook(s, 7)
+      const bills = upcomingBills(s, 7)
+      const inst = installmentsThisMonth(s)
+      return {
+        text: `Sua situação neste mês (dados reais):\n\n` +
+          `• Entradas: ${fmtBRL(mg.income)}\n` +
+          `• Despesas: ${fmtBRL(mg.expense)}\n` +
+          `• Resultado líquido: ${fmtBRL(mg.net)}\n` +
+          `• Já guardado de verdade: ${fmtBRL(mg.saved)}\n` +
+          (mg.target > 0 ? `• Meta mensal para guardar: ${fmtBRL(mg.target)} (${mg.pct}% atingido)\n` : '') +
+          (inst > 0 ? `• Parcelas e faturas que vencem neste mês: ${fmtBRL(inst)}\n` : '') +
+          (bills.length
+            ? `\nContas nos próximos 7 dias: ${fmtBRL(bo.billsSoon)} — ${bo.ok ? `seu saldo cobre e sobra ${fmtBRL(bo.leftover)}.` : `faltam ${fmtBRL(bo.shortfall)}.`}`
+            : '\nNenhuma conta cadastrada vence nos próximos 7 dias.'),
+      }
+    }
     const ts = todayStats(s); const w = weekStats(s); const m2 = monthStats(s); const g = dailyGoal(s)
     return {
       text: `Resumo rápido:\n\n• Hoje: lucro de ${fmtBRL(ts.profit)} (meta ${fmtBRL(g.total)})\n• 7 dias: lucro de ${fmtBRL(w.profit)}\n• Mês: receitas ${fmtBRL(m2.income)}, despesas ${fmtBRL(m2.expense)}, lucro ${fmtBRL(m2.profit)}` +
@@ -715,6 +742,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
 
   // Se o parser achou ações mas parecia pergunta, ofereça registro
   if (actions.length) {
+    if (parsed.ambiguity) return { text: parsed.ambiguity.question, choices: parsed.ambiguity.options }
     return { text: 'Entendi isso:\n\n' + actions.map(a => '• ' + describeAction(a)).join('\n') + '\n\nConfirmar?', actions }
   }
 
