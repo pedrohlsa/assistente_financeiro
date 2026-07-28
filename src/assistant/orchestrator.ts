@@ -536,11 +536,23 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
     reply = answerPart
   } else {
     mode = 'answer'
+    const negadas = analysis.clauses.filter(c => c.intent === 'correction' && !c.actions.length)
     const notUnderstood = unresolved.filter(u => u.reason !== 'question-unanswered')
-    if (notUnderstood.length && (candidates.length || analysis.clauses.some(c => c.handled))) {
+    if (negadas.length) {
+      // O usuário disse que NÃO fez o lançamento. Confirmar isso em voz alta é
+      // parte da correção — e nada pode sugerir registro.
+      reply = 'Entendi que isso não aconteceu — não registrei nada. Se quiser lançar outra coisa, é só me dizer.'
+    } else if (notUnderstood.length && (candidates.length || analysis.clauses.some(c => c.handled))) {
       reply = `Não consegui interpretar esta parte: "${notUnderstood[0].text}". Pode reformular só esse pedaço?`
     } else {
-      reply = askAssistant(input.state, input.message).text
+      // CUIDADO: `askAssistant` tem o próprio parser e monta "Entendi isso… /
+      // Confirmar?" a partir dele. Se o orquestrador decidiu que NÃO há ação
+      // (negação, hipótese, perfil), esse texto seria uma promessa falsa: a tela
+      // mostraria a proposta sem nenhum botão. Só aproveitamos a RESPOSTA.
+      const local = askAssistant(input.state, input.message)
+      reply = local.actions?.length
+        ? 'Não tenho certeza do que registrar aqui. Pode escrever de outro jeito?'
+        : local.text
     }
   }
   reply += rejectionNote(rejectedAll)

@@ -10,7 +10,7 @@ import type { AssistantConfidence, AssistantIntent } from './contracts'
 import { parseNaturalFull } from '../services/nlp'
 import { findDate, dateLabel } from './dates'
 import { normalizeNumberWords } from './numbers'
-import { todayISO } from '../utils/format'
+import { parseMoney, todayISO } from '../utils/format'
 
 export interface AnalyzedClause {
   id: string
@@ -89,6 +89,23 @@ const CORRECTION_PATTERNS: RegExp[] = [
   /\b[ée]\s+gnv\b/i,
 ]
 
+/**
+ * Negação de um relato: "não gastei 100", "nao foi 99", "não quero guardar 150".
+ *
+ * Sem esta guarda o parser via o verbo e o valor e propunha a ação POSITIVA —
+ * o usuário dizia que NÃO gastou e o app oferecia registrar o gasto. É o erro
+ * mais perigoso possível num app de dinheiro.
+ */
+const NEGATED_VERBS =
+  'gastei|gastou|paguei|pagou|recebi|recebeu|ganhei|ganhou|comprei|comprou|guardar|guardei|separei|abasteci|coloquei|botei|rodei|trabalhei|fiz|foi|era|quero|vou|registra|registre|salva|salve'
+
+const NEGATED_STATEMENT = new RegExp(
+  String.raw`^\s*(?:mas\s+|e\s+|ah\s+|olha\s+)?n[ãa]o\s+(?:\S+\s+){0,3}?(?:${NEGATED_VERBS})(?![a-zà-ú])`,
+  'i',
+)
+
+export const looksNegated = (t: string): boolean => NEGATED_STATEMENT.test(t)
+
 const hasAny = (t: string, list: RegExp[]) => list.some(r => r.test(t))
 
 export const looksLikeQuestion = (t: string): boolean =>
@@ -118,6 +135,15 @@ const CONNECTORS = '(?:e\\s+)?(?:logo\\s+)?(?:depois|em\\s+seguida|mais\\s+tarde
  * cortar ali destrói a entrada financiada e cria uma receita de 1850 — que é
  * exatamente o erro que a regra 11 proíbe.
  */
+/**
+ * Marcadores de correção DENTRO da mesma mensagem: "gastei 100 no mercado quer
+ * dizer 80". A segunda metade não é um lançamento novo — é o valor certo do
+ * primeiro. Antes, virava uma despesa a mais (ou pior, uma despesa de 1850 numa
+ * frase que falava de receita).
+ */
+const INTRA_CORRECTION =
+  String.raw`(?:quer\s+dizer|na\s+verdade|ou\s+melhor|melhor\s+dizendo|digo|perd[ãa]o|desculpa|n[ãa]o\s+pera|pera[íi]?|corrigindo)`
+
 const PROTECTED: RegExp[] = [
   /(?:passei|passou|fiz)\s+(?:r\$\s*)?[\d.,]+[^.;!?]*?(?:recebi|receber|peguei|caiu)\s+(?:r\$\s*)?[\d.,]+/gi,
   /comprei[^.;!?]*?\b(?:em|x)\s*\d+\s*(?:vez(?:es)?|x|parcelas?)/gi,
@@ -153,6 +179,16 @@ export function segment(text: string): { text: string; start: number; end: numbe
   }
   // "mas", "porém" e "só que" separam registro de pergunta.
   for (const m of text.matchAll(/[,;]?\s+(?:mas|por[ée]m|s[óo]\s+que)\s+/gi)) push((m.index || 0) + m[0].length)
+  // Palavra interrogativa começando uma pergunta colada ao registro:
+  // "gastei 80 de mercado QUANTO sobrou" — sem este corte a pergunta virava
+  // parte da descrição ("Mercado quanto") e nunca era respondida.
+  for (const m of text.matchAll(/\s+(?=(?:e\s+)?(?:quanto|quantos|quantas|qual|quais|quando)\b)/gi)) {
+    push((m.index || 0) + m[0].length)
+  }
+  // Marcador de correção dentro da própria mensagem.
+  for (const m of text.matchAll(new RegExp(String.raw`\s+(?=${INTRA_CORRECTION})`, 'gi'))) {
+    push((m.index || 0) + m[0].length)
+  }
 
   const sorted = [...cuts].sort((a, b) => a - b)
   const out: { text: string; start: number; end: number }[] = []
@@ -215,6 +251,32 @@ let seq = 0
 const clauseId = () => `c${++seq}`
 
 /**
+ * Onde, no texto, está escrito o valor desta ação. Serve para ligar cada
+ * lançamento à origem que o usuário citou logo depois dele.
+ * Devolve -1 quando o valor não aparece de forma reconhecível.
+ */
+function amountPosition(text: string, amount?: number): number {
+  if (!(amount > 0)) return -1
+  const inteiro = Math.round(amount)
+  const candidatos = [
+    String(amount).replace('.', ','),
+    String(inteiro),
+    inteiro.toLocaleString('pt-BR'),
+  ]
+  for (const c of candidatos) {
+    const i = text.indexOf(c)
+    if (i >= 0) return i
+  }
+  return -1
+}
+
+/** Primeiro valor monetário de um trecho — usado só pela correção intramensagem. */
+function parseFirstAmount(text: string): number {
+  const m = text.match(/(\d+(?:[.,]\d+)*)/)
+  return m ? parseMoney(m[1]) : NaN
+}
+
+/**
  * Analisa a mensagem inteira, cláusula por cláusula.
  *
  * `handled` de uma cláusula NÃO significa que a mensagem foi compreendida: é
@@ -274,18 +336,24 @@ export function analyzeMessage(
     // fontes numa cláusula só. Quando a quantidade de origens bate com a de
     // ações que aceitam origem, elas são pareadas na ordem; do contrário a
     // única origem encontrada vale para todas — e nenhuma é inventada.
+    // Origem por PROXIMIDADE: numa cláusula como "recebi 1800 da casa 1 e 1750
+    // da casa 2 gastei 200 de obra", parear por ordem não funciona (há 4 ações
+    // que aceitam origem e só 2 fontes). Cada ação é ligada à fonte que aparece
+    // logo depois do SEU valor no texto — e nenhuma origem é inventada.
     const origins = extractOrigins(part.text)
-    const originIdx = actions.map(a => ORIGINABLE.has(a.kind))
-    const originCount = originIdx.filter(Boolean).length
-    let seenOriginable = 0
 
     actions = actions.map(a => {
       const next: any = { ...a }
       if (date && DATABLE.has(a.kind)) next.date = date
       if (ORIGINABLE.has(a.kind) && !next.origin && origins.length) {
-        const pick = origins.length === originCount ? origins[seenOriginable] : origins[0]
+        const at = amountPosition(part.text, next.amount)
+        const perto = at >= 0
+          ? origins.filter(o => o.at > at).sort((x, y) => x.at - y.at)[0]
+          : undefined
+        // Sem conseguir localizar o valor no texto, só usa a origem quando ela é
+        // única — do contrário arriscaria colar a fonte errada no lançamento.
+        const pick = perto || (origins.length === 1 ? origins[0] : undefined)
         if (pick) next.origin = pick.value
-        seenOriginable++
       }
       return next as ParsedAction
     })
@@ -298,10 +366,22 @@ export function analyzeMessage(
     if (isQuestion && /\bvale\s+a\s+pena\b|\bcompensa\b|\bdevo\s+aceitar\b|\bacei(?:to|tar)\b/i.test(part.text)) {
       actions = []
     }
+
+    // Relato NEGADO nunca vira lançamento: "não gastei 100" propunha registrar
+    // a despesa de 100 — o erro mais perigoso possível num app de dinheiro.
+    const negated = looksNegated(part.text)
+    if (negated) actions = []
+
+    // Hipótese descreve um cenário, não um fato consumado.
+    if (/\bse\s+(?:eu|voc[êe]|a\s+gente)\b|\bt[ôo]\s+pensando\b|\bestou\s+pensando\b|\bacho\s+que\b/i.test(part.text)) {
+      actions = []
+    }
+
     const isCorrection = !isConversation && looksLikeCorrection(part.text)
 
     let intent: AssistantIntent
     if (isConversation) intent = 'conversation'
+    else if (negated) intent = 'correction'
     else if (isCorrection && !actions.length) intent = 'correction'
     else if (actions.length && !isQuestion) intent = 'record'
     else if (actions.length && isQuestion) intent = 'record' // a pergunta vira cláusula própria abaixo
@@ -352,6 +432,29 @@ export function analyzeMessage(
         return remaining === 0 ? [merged as ParsedAction] : []
       })
     }
+  }
+
+  // CORREÇÃO DENTRO DA MESMA MENSAGEM: "gastei 100 no mercado quer dizer 80".
+  // A cláusula que começa com o marcador não é um lançamento novo — carrega o
+  // valor certo do anterior. Antes disso, "recebi 1800 não pera foi 1850" criava
+  // uma receita de 1800 E uma despesa de 1850.
+  const startsWithCorrection = new RegExp(String.raw`^\s*${INTRA_CORRECTION}`, 'i')
+  for (let i = 1; i < clauses.length; i++) {
+    const c = clauses[i]
+    if (!startsWithCorrection.test(c.text)) continue
+    const novo = c.actions.map(a => (a as any).amount ?? (a as any).total ?? (a as any).cost).find(v => v > 0)
+      ?? parseFirstAmount(c.text)
+    // Última cláusula anterior que tem ação com valor.
+    let alvo: AnalyzedClause | undefined
+    for (let j = i - 1; j >= 0; j--) if (clauses[j].actions.length) { alvo = clauses[j]; break }
+    if (alvo && novo > 0) {
+      const ult: any = alvo.actions[alvo.actions.length - 1]
+      const campo = ult.amount !== undefined ? 'amount' : ult.total !== undefined ? 'total' : ult.cost !== undefined ? 'cost' : null
+      if (campo) ult[campo] = novo
+    }
+    c.actions = []
+    c.intent = 'correction'
+    c.handled = true
   }
 
   const actions = clauses.flatMap(c => c.actions)
