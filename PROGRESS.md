@@ -1,7 +1,7 @@
 # AssistFin — Estado do Projeto
 
-**Última atualização**: 2026-07-28 — confirmações destrutivas internas em cartões e backup.
-Ver "🟢 Confirmações destrutivas compatíveis com Android/WebView" para o trabalho mais recente.
+**Última atualização**: 2026-07-28 — publicação no GitHub/Vercel e APK Android atualizado.
+Ver "🟢 Entrega operacional: GitHub, produção e Android" para o trabalho mais recente.
 **Pasta canônica do projeto (mudou nesta sessão)**: `D:\Claude\AssistFin`. A cópia antiga em
 `C:\Users\ph969\OneDrive\Área de Trabalho\AssistFin` foi deixada intacta, mas **não é mais usada**
 — era uma cópia interrompida no meio (faltavam `profile.ts`, `PendingRecurrings.tsx`,
@@ -1056,6 +1056,46 @@ relatório era o uso de `window.confirm` em quatro ações.
 
 O arquivo JSON usado no teste de importação foi criado fora do projeto e removido ao final. Nenhum
 push ou deploy foi realizado.
+
+---
+
+## 🟢 Entrega operacional: GitHub, produção e Android — 2026-07-28
+
+O usuário autorizou explicitamente push, deploy e geração/instalação do APK depois da conclusão
+das correções.
+
+### GitHub
+
+- Os 7 commits locais foram enviados para `origin/main`.
+- Commit de código publicado: `17cd97bd6c9a2d89d55c9aaccc8a60ddfa061da8`.
+- Repositório: `https://github.com/pedrohlsa/assistente_financeiro`.
+
+### Vercel
+
+- Projeto confirmado: `assist-fin`.
+- Deployment de produção: `dpl_FjpKctiwGGAEYJqQegMQ3bLj2F4u`.
+- URL do deployment: `https://assist-6b1u8eyfr-stuartand.vercel.app`.
+- Alias público atualizado: `https://assist-fin.vercel.app`.
+- Build remoto: 67 módulos, `index-CQyzVmvx.js` 438,40 kB (gzip 128,50 kB).
+- HTTP do app: 200 e HTML apontando para o bundle atual.
+- Endpoint da IA: mensagem vazia retorna 400; pergunta aberta retorna resposta real da DeepSeek,
+  sem ação financeira sugerida.
+- Teste no navegador de produção: onboarding, cartões, IA remota e reset concluídos; console sem
+  erros. Os dados fictícios criados no teste foram apagados pelo próprio reset do app.
+
+### Android
+
+- `npx cap sync android`: sucesso; assets atuais e plugin de notificações sincronizados.
+- `assembleDebug`: sucesso.
+- APK: `android/app/build/outputs/apk/debug/app-debug.apk`.
+- Tamanho: 4.302.624 bytes.
+- SHA-256: `59C55B8A649A5A8E9F27CDFF13B9C7D705420D0780B609018199C740FFCD9386`.
+- O APK contém `assets/public/assets/index-CQyzVmvx.js`, o mesmo bundle publicado na Vercel.
+- Assinatura verificada com `apksigner`: APK Signature Scheme v2, 1 signatário.
+- Instalado com sucesso em um Moto G50 5G conectado (`adb install`).
+- `com.assistfin.app/.MainActivity` iniciou com status OK, processo permaneceu ativo e nenhum
+  `FATAL EXCEPTION` apareceu no log. A tela estava em modo ambiente/bloqueada, então o teste visual
+  no aparelho foi deixado para a validação manual seguinte, sem tentar desbloquear o dispositivo.
 
 ---
 
