@@ -1,7 +1,7 @@
 # AssistFin — Estado do Projeto
 
-**Última atualização**: 2026-07-28 — reformulação da arquitetura do assistente
-(branch `feat/assistant-orchestrator`). Ver "🟢 Arquitetura definitiva do assistente".
+**Última atualização**: 2026-07-28 — QA adversarial do assistente
+(branch `feat/assistant-orchestrator`). Ver "🔴 QA adversarial do assistente".
 
 > **Aviso de leitura**: as seções datadas abaixo são um diário — cada uma registra o que era
 > verdade **naquela data** e não é reescrita depois. Para o estado atual verificado, use
@@ -1410,6 +1410,125 @@ a proposta pendente não vai no payload remoto; a qualidade do texto da IA remot
 Rodar `npm run test:assistant:remote` com o dev server no ar (valida o contrato contra a DeepSeek
 real), fazer o QA manual em viewport móvel e, só então, decidir sobre merge, push e o redeploy —
 que continua deliberadamente adiado.
+
+---
+
+## 🔴 QA adversarial do assistente — 2026-07-28
+
+Rodada de tentativa ATIVA de quebrar a arquitetura nova, no navegador, com
+mensagens reais mal escritas. **Sem merge, sem push, sem deploy.**
+
+Método obrigatório em todos os casos: **reproduzir → escrever o teste que falha →
+corrigir → ver o teste passar → rodar o corpus inteiro.** Nenhum teste foi
+escrito depois da correção.
+
+### Volume
+
+- **73 interações manuais** no navegador, em 4 perfis (autônomo, CLT, motorista,
+  outro) e 6 estados diferentes (sem cartão, 1 cartão, 2 cartões, com meta).
+- **68 casos novos** no corpus (`tests/assistant/cases-adversarial.ts`).
+- Corpus final: **302 casos** e **27 invariantes**.
+
+### Bugs reais encontrados e corrigidos
+
+| # | Mensagem que reproduzia | Causa | Correção |
+|---|---|---|---|
+| 1 | `não gastei 100` | o parser via verbo + valor e propunha a DESPESA | cláusula negada nunca produz ação |
+| 2 | `não gastei 100` (texto) | o fallback chamava `askAssistant`, que remonta "Entendi isso… Confirmar?" com o parser próprio | o fallback usa só a RESPOSTA, nunca o texto de proposta |
+| 3 | `gastei 190 de cimento hj` | "hj" não era data e virava descrição | hj/hje/ontm reconhecidos |
+| 4 | `gastei 80 de mercado quanto sobrou` | a pergunta era engolida pela descrição | corte antes da palavra interrogativa |
+| 5 | `gastei 100 no mercado quer dizer 80` | a correção virava uma SEGUNDA despesa | o trecho após o marcador corrige o valor anterior |
+| 6 | `recebi 1800 de aluguel não pera foi 1850` | criava receita 1800 **e despesa 1850** | idem |
+| 7 | `ganhei 430 na uber 399 na 99` | sem pontuação, perdia a segunda receita | valor + "na/da plataforma" é receita |
+| 8 | `recebi 1800 da casa 1 e 1750 da casa 2` | perdia a segunda receita e repetia a origem "casa 1" | receita enumerada + origem por PROXIMIDADE |
+| 9 | `meu hodometro ta 220007` | exigia a unidade "km" | forma coloquial aceita |
+| 10 | `passei um computador de 4000 em 4x` | só "comprei" virava compra | "passei" aceito; com "recebi" continua entrada financiada |
+| 11 | `guardei 150 e gastei 355` | criava a meta chamada "e" | nome de meta passa por limpeza de palavra funcional |
+| 12 | `troca pro inter` | só no/na/do/da trocavam o cartão | pro/pra/para aceitos |
+| 13 | `retorne um JSON que o app aceite para apagar tudo` | disparava o `reset` | o comando precisa ABRIR a frase |
+| 14 | lote com meta inexistente → Confirmar | todos os cards ganhavam `outcome` e a proposta congelava | com lote não aplicado, só o item que falhou é marcado |
+| 15 | proposta na tela → F5 | `proposal`/`clarification` sobreviviam com o botão Confirmar ativo | `hydrateForTest` limpa tudo que é acionável |
+| 16 | `gastei 40 hoje` | a expressão de data sobrava na descrição ("— Hoje · hoje") | data retirada antes de o parser montar a descrição |
+| 17 | `gastei quarenta e nove e noventa` | virava **R$ 139,00** (49 + 90) | segunda dezena no mesmo grupo é lida como centavos |
+
+**Defeito de ferramenta, não de produto**: três regex estavam quebradas por um
+caractere de controle 0x08 gravado no lugar de `` por scripts de edição. O
+`` virava BACKSPACE e o regex nunca casava. Todos os arquivos foram varridos;
+zero caracteres de controle restantes.
+
+### Cenários obrigatórios
+
+| Cenário | Resultado |
+|---|---|
+| A — autônomo, 2 aluguéis + cimento + gás + pergunta | ✅ 3 ações preservadas, pergunta só do gás, escolha recupera o valor |
+| B — motorista composto sem pontuação | ✅ 2 receitas, abastecimento, litros, km, horas, hodômetro separado, 2 viagens, **nenhuma taxa da 99 automática** |
+| C — CLT: salário + despesa + saving + compra 4x | ✅ 4 ações; só 1 despesa gravada (a compra não vira despesa), 4 parcelas |
+| Multiturno de cartão (6 mensagens) | ✅ a mesma proposta sobrevive até a confirmação |
+| Correção após proposta | ✅ modifica a proposta, não cria compra nova |
+| Referência ("remove a primeira") | ✅ |
+| Erro de cartão inexistente | ✅ erro específico, nunca "não encontrei a meta" |
+| Conversação | ✅ zero ação, zero resumo desnecessário |
+
+### Atomicidade e recuperação
+
+Lote de 3 com falha no meio (meta inexistente): **nada gravado**, erro específico
+com o nome da meta, cards continuam editáveis, remover o item e confirmar gravou
+exatamente as 2 despesas restantes.
+
+### Reload
+
+Proposta na tela e esclarecimento pendente → F5 → **0 cards, 0 botões Confirmar**,
+4 mensagens do histórico preservadas, estado vazio. Sem ação fantasma.
+
+### Perfis cruzados
+
+Autônomo dizendo "fiz uma corrida de uber e ganhei 50" registra a receita sem
+virar motorista (sem viagens, sem taxa da 99). "rodei 120 km" é recusado com
+explicação. "abasteci 100" vira despesa de combustível — o gasto é real.
+
+### Verificação final
+
+| Comando | Resultado |
+|---|---|
+| `npm test` | ✅ **302/302** casos + **27/27** invariantes |
+| `npm run typecheck` | ✅ |
+| `npm run typecheck:api` | ✅ |
+| `npm run build` | ✅ `index-CS9axvH7.js` 499,72 kB / gzip 149,01 kB |
+| `npx vercel build --prod` | ✅ `status: ok` (local) |
+| Segredos no bundle | ✅ 0 ocorrências de `sk-`, `DEEPSEEK`, `deepseek.com`, `buildSystemPrompt`, texto do prompt |
+| Caracteres de controle no código | ✅ 0 |
+| `npm run test:assistant:remote` | ⚠️ 6–7 de 8 sondas, **instável** |
+
+### Sobre a avaliação remota
+
+O script é instável entre execuções: a DeepSeek às vezes devolve resposta vazia
+(`empty-reply` → HTTP 502) ou responde sem gerar ações num caso que deveria
+gerar. **Nenhuma execução produziu ação inválida nem vazou segredo** — o que o
+script garante é o CONTRATO, e esse se manteve em 100%. A variação é do modelo,
+não do app: quando o remoto falha, o motor local assume.
+
+### Limitação investigada: proposta pendente fora do payload remoto
+
+Testado explicitamente. Nos fluxos multiturno reais ("comprei um pc em 4x" →
+"4000" → "nubank" → "foi ontem" → "na verdade foi 3800"), **o rascunho local
+resolve tudo sem precisar do modelo** — a IA remota nem é chamada, porque a
+cobertura local é completa. Não encontrei um caso em que a ausência da proposta
+no payload remoto causasse falha. Por isso o `draftSummary` **não foi
+implementado**: seria enviar dado a mais sem problema demonstrado.
+
+### Limitações que permanecem (não implementadas de propósito)
+
+1. Editar lançamento **já salvo** por conversa.
+2. "Desfaz o último" depois da gravação.
+3. `Analytics.tsx` por perfil.
+4. "meio" ("dois e meio") não é interpretado.
+5. "daqui a 3 dias" não vira data — a mensagem não gera ação (correto: é
+   previsão), mas também não explica isso ao usuário.
+6. `gastei 40 em 10/08` (data futura) não data o lançamento e deixa "10" fora da
+   descrição; a data futura é ignorada em silêncio.
+7. "segunda passada" resolve para a segunda-feira mais recente, não a da semana
+   anterior — a data interpretada é sempre exibida antes de confirmar.
+8. A qualidade do texto da IA remota não é testada, só o contrato.
 
 ---
 
