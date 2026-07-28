@@ -62,7 +62,8 @@ código consulta essas funções em vez de comparar `profile === 'driver'` inlin
     (`Installment.dueDate`). Nunca some os dois. Pagar a fatura (`CardPayment`) quita a dívida e
     reduz `settings.balance`, mas **não gera despesa** — ela já foi contada como parcela.
     Consequência desejada: `periodStats`/`monthStats` continuam idênticos para quem não usa
-    cartões. Ver `src/services/cards.ts`.
+    cartões. Assinatura removida usa `RecurringCardCharge.removedAt?` + `endDate`, some da lista
+    ativa sem apagar cobranças de faturas anteriores. Ver `src/services/cards.ts`.
 11. **Entrada financiada não é receita**. Dinheiro recebido em troca de dívida no cartão usa
     `TxType: 'financed-cash-inflow'` — **nunca** `'income'`. Todos os somatórios filtram
     `type === 'income'` explicitamente, então ele fica fora de receita/lucro/faturamento por
@@ -90,12 +91,15 @@ código consulta essas funções em vez de comparar `profile === 'driver'` inlin
     recorrente sai de `occurrenceInMonth()` (`calc.ts`), que respeita o último dia real do mês
     (dia 31 em fevereiro → 28/29, nunca o dia 28 forçado). O texto de vencimento vem de
     `dueLabel()` e **jamais** escreve "vence hoje" para uma data passada.
-16. **Reset apaga storage e estado pelo mesmo caminho**. `resetAllData()` (`store.tsx`) é a
+16. **Ações destrutivas não usam `window.confirm`**. Confirmações de reset, substituição de
+    backup, remoção de assinatura, quitação e cancelamento de parcelas usam
+    `<ConfirmDialog>` (`components/ui.tsx`), porque a janela nativa é bloqueada ou ignorada em
+    parte dos WebViews do Android. **Reset apaga storage e estado pelo mesmo caminho**:
+    `resetAllData()` (`store.tsx`) é a
     única operação de apagar tudo — usada pelo botão das Configurações e pelo comando
     confirmado da IA. Ela cancela a gravação debounced pendente, remove **somente** a chave
     `assistfin-state-v1` (nunca `localStorage.clear()`, que afetaria outros apps do domínio) e
-    só então restaura o estado inicial. Confirmação destrutiva usa `<ConfirmDialog>`, não
-    `window.confirm` — que é bloqueado em parte dos WebViews do Android.
+    só então restaura o estado inicial.
 17. **Lista curta, detalhe sob demanda**. A listagem de movimentações mostra só descrição,
     categoria, horário e valor. Ações destrutivas não ficam visíveis em cada linha: o toque
     abre a folha de detalhes, onde ficam origem, pagamento, observação, perfil na criação e a

@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/store'
 import { CreditCard, Installment, InstallmentPlan } from '../models/types'
 import { fmtBRL, fmtDateShort, monthKey, todayISO, toISO, fromISO, parseMoney, uid } from '../utils/format'
-import { EmptyState, Progress, Sheet, useToast } from '../components/ui'
+import { ConfirmDialog, EmptyState, Progress, Sheet, useToast } from '../components/ui'
 import {
   CardChargeForm, CardForm, CardPaymentForm, FinancedInflowForm, PurchaseForm, StandalonePlanForm,
 } from '../components/cardForms'
@@ -325,7 +325,9 @@ function CardsTab({ onAddCard, onAddPurchase, onAddCharge }: { onAddCard: () => 
 function ChargesList() {
   const { state, dispatch } = useStore()
   const toast = useToast()
-  const charges = state.cardCharges || []
+  const charges = (state.cardCharges || []).filter(c => !c.removedAt)
+  const [removingId, setRemovingId] = useState<string | null>(null)
+  const removing = charges.find(c => c.id === removingId)
   if (!charges.length) return null
   return (
     <>
@@ -348,16 +350,27 @@ function ChargesList() {
                 dispatch({ type: 'updateCardCharge', id: c.id, patch: { active: c.active === false } })
                 toast({ text: c.active === false ? 'Assinatura retomada.' : 'Assinatura pausada. As cobranças anteriores foram preservadas.' })
               }}>{c.active === false ? 'Retomar' : 'Pausar'}</button>
-              <button className="link tiny" onClick={() => {
-                if (confirm(`Remover a assinatura "${c.description}"? As cobranças já lançadas nas faturas anteriores continuam no histórico.`)) {
-                  dispatch({ type: 'removeCardCharge', id: c.id })
-                  toast({ text: 'Assinatura removida.' })
-                }
-              }}>Remover</button>
+              <button className="link tiny" onClick={() => setRemovingId(c.id)}>Remover</button>
             </div>
           )
         })}
       </div>
+      <ConfirmDialog
+        open={!!removing}
+        onClose={() => setRemovingId(null)}
+        title={`Remover "${removing?.description || 'assinatura'}"?`}
+        text="As cobranças já lançadas nas faturas anteriores continuarão no histórico."
+        actions={[{
+          label: 'Remover assinatura',
+          tone: 'danger',
+          onClick: () => {
+            if (!removing) return
+            dispatch({ type: 'removeCardCharge', id: removing.id })
+            setRemovingId(null)
+            toast({ text: 'Assinatura removida.' })
+          },
+        }]}
+      />
     </>
   )
 }
@@ -464,6 +477,7 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
   const { state, dispatch } = useStore()
   const toast = useToast()
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmAction, setConfirmAction] = useState<'settle' | 'cancel-future' | null>(null)
   const [partial, setPartial] = useState<Installment | null>(null)
   const plan = pp.plan
   const cat = plan.categoryId ? catById(state.categories, plan.categoryId) : undefined
@@ -491,10 +505,17 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
 
   const settleAll = () => {
     const pending = pp.installments.filter(i => i.status === 'pending')
-    if (!confirm(`Quitar "${plan.description}"? Isso marca as ${pending.length} parcela(s) restante(s) como pagas.`)) return
     pending.forEach(i => dispatch({ type: 'payInstallment', id: i.id, paidAt: todayISO() }))
     dispatch({ type: 'updatePlan', id: plan.id, patch: { status: 'settled' } })
+    setConfirmAction(null)
     toast({ text: 'Parcelamento quitado. 🎉' })
+  }
+
+  const cancelFuture = () => {
+    dispatch({ type: 'cancelFutureInstallments', planId: plan.id })
+    dispatch({ type: 'updatePlan', id: plan.id, patch: { status: 'cancelled' } })
+    setConfirmAction(null)
+    toast({ text: 'Parcelas futuras canceladas. O histórico foi preservado.' })
   }
 
   return (
@@ -599,14 +620,9 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
           <div className="suggestion-row" style={{ marginTop: 12 }}>
             {pp.remainingCount > 1 && <button className="btn btn-soft btn-sm" onClick={() => anticipate(1)}>Antecipar 1</button>}
             {pp.remainingCount > 2 && <button className="btn btn-soft btn-sm" onClick={() => anticipate(2)}>Antecipar 2</button>}
-            {pp.remainingCount > 0 && <button className="btn btn-soft btn-sm" onClick={settleAll}>Quitar tudo</button>}
+            {pp.remainingCount > 0 && <button className="btn btn-soft btn-sm" onClick={() => setConfirmAction('settle')}>Quitar tudo</button>}
             {pp.remainingCount > 0 && (
-              <button className="btn btn-soft btn-sm" onClick={() => {
-                if (!confirm('Cancelar as parcelas futuras? As parcelas já pagas continuam no histórico.')) return
-                dispatch({ type: 'cancelFutureInstallments', planId: plan.id })
-                dispatch({ type: 'updatePlan', id: plan.id, patch: { status: 'cancelled' } })
-                toast({ text: 'Parcelas futuras canceladas. O histórico foi preservado.' })
-              }}>Cancelar futuras</button>
+              <button className="btn btn-soft btn-sm" onClick={() => setConfirmAction('cancel-future')}>Cancelar futuras</button>
             )}
             <button className="btn btn-danger-soft btn-sm" onClick={() => setConfirmDelete(true)}>Excluir</button>
           </div>
@@ -636,6 +652,20 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
           )}
         </>
       )}
+      <ConfirmDialog
+        open={confirmAction === 'settle'}
+        onClose={() => setConfirmAction(null)}
+        title={`Quitar "${plan.description}"?`}
+        text={`Isso marcará as ${pp.remainingCount} parcela(s) restante(s) como pagas hoje.`}
+        actions={[{ label: 'Quitar parcelamento', tone: 'primary', onClick: settleAll }]}
+      />
+      <ConfirmDialog
+        open={confirmAction === 'cancel-future'}
+        onClose={() => setConfirmAction(null)}
+        title="Cancelar as parcelas futuras?"
+        text="As parcelas já pagas continuarão no histórico. Somente as parcelas pendentes serão canceladas."
+        actions={[{ label: 'Cancelar parcelas futuras', tone: 'danger', onClick: cancelFuture }]}
+      />
     </div>
   )
 }

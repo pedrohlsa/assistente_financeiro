@@ -12,7 +12,7 @@ import { buildDemoData } from '../data/demo'
 import { addDays, monthKey, nowStamp, nowTime, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { can99FeeApply, defaultIncomeCategory } from '../services/profile'
-import { buildInstallments, cardInvoice, suggestedFirstDueDate } from '../services/cards'
+import { buildInstallments, cardInvoice, currentInvoice, suggestedFirstDueDate } from '../services/cards'
 
 const STORAGE_KEY = 'assistfin-state-v1'
 
@@ -275,7 +275,29 @@ function reducer(s: AppState, a: Action): AppState {
     case 'addCardCharge': return { ...s, cardCharges: [a.charge, ...s.cardCharges] }
     case 'updateCardCharge':
       return { ...s, cardCharges: s.cardCharges.map(c => c.id === a.id ? { ...c, ...a.patch } : c) }
-    case 'removeCardCharge': return { ...s, cardCharges: s.cardCharges.filter(c => c.id !== a.id) }
+    case 'removeCardCharge': {
+      const removedAt = todayISO()
+      const charge = s.cardCharges.find(c => c.id === a.id)
+      const card = charge ? s.cards.find(c => c.id === charge.cardId) : undefined
+      // A cobrança feita antes do fechamento pertence à fatura cujo vencimento
+      // pode cair no mês seguinte. Encerrar no dia da remoção apagaria justamente
+      // essa fatura corrente; por isso preservamos até o vencimento calculado dela.
+      const archiveThrough = card ? currentInvoice(s, card).dueDate : removedAt
+      return {
+        ...s,
+        // Remoção lógica: a recorrência para hoje, some da lista ativa e continua
+        // disponível para reconstruir faturas anteriores. O campo opcional mantém
+        // compatibilidade com backups que já existiam.
+        cardCharges: s.cardCharges.map(c => c.id === a.id
+          ? {
+              ...c,
+              active: true,
+              endDate: c.endDate && c.endDate < archiveThrough ? c.endDate : archiveThrough,
+              removedAt,
+            }
+          : c),
+      }
+    }
     case 'chat': return { ...s, chat: [...s.chat, a.msg].slice(-200) }
     case 'chatResolve': return { ...s, chat: s.chat.map(m => m.id === a.id ? { ...m, pending: undefined, choices: undefined } : m) }
     case 'chatClear': return { ...s, chat: [] }

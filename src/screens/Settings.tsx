@@ -20,6 +20,7 @@ export default function SettingsScreen() {
   const [newCat, setNewCat] = useState('')
   const [newCatType, setNewCatType] = useState<'income' | 'expense'>('expense')
   const [pendingImport, setPendingImport] = useState<any>(null)
+  const [confirmReplace, setConfirmReplace] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
 
   const num = (v: string, fallback: number) => { const n = parseMoney(v); return isNaN(n) ? fallback : n }
@@ -299,12 +300,7 @@ export default function SettingsScreen() {
                 dispatch({ type: 'mergeState', state: pendingImport })
                 setPendingImport(null); toast({ text: 'Backup mesclado. ✅' })
               }}>Mesclar</button>
-              <button className="chip" onClick={() => {
-                if (confirm('Substituir TODOS os dados atuais pelos do arquivo?')) {
-                  dispatch({ type: 'hydrate', state: pendingImport })
-                  setPendingImport(null); toast({ text: 'Backup restaurado. ✅' })
-                }
-              }}>Substituir tudo</button>
+              <button className="chip" onClick={() => setConfirmReplace(true)}>Substituir tudo</button>
               <button className="chip" onClick={() => setPendingImport(null)}>Cancelar</button>
             </div>
           </div>
@@ -320,6 +316,23 @@ export default function SettingsScreen() {
       {/* Confirmação própria da interface: window.confirm é bloqueado ou ignorado
           em parte dos WebViews do Android, e era por isso que o botão parecia
           não funcionar enquanto o comando pela IA funcionava (item 39). */}
+      <ConfirmDialog
+        open={confirmReplace}
+        onClose={() => setConfirmReplace(false)}
+        title="Substituir todos os dados?"
+        text="Os dados atuais deste aparelho serão substituídos pelos dados do backup. Essa ação não pode ser desfeita."
+        actions={[{
+          label: 'Substituir pelos dados do backup',
+          tone: 'danger',
+          onClick: () => {
+            if (!pendingImport) return
+            dispatch({ type: 'hydrate', state: pendingImport })
+            setPendingImport(null)
+            setConfirmReplace(false)
+            toast({ text: 'Backup restaurado. ✅' })
+          },
+        }]}
+      />
       <ConfirmDialog
         open={confirmReset}
         onClose={() => setConfirmReset(false)}

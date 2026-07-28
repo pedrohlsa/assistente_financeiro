@@ -273,6 +273,8 @@ export interface RecurringCardCharge {
   nextDate: string
   endDate?: string
   active?: boolean
+  /** Remoção lógica: some da lista ativa sem apagar cobranças de faturas anteriores. */
+  removedAt?: string
   createdAt: string
 }
 

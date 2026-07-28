@@ -1,8 +1,7 @@
 # AssistFin — Estado do Projeto
 
-**Última atualização**: 2026-07-27 (2ª rodada) — previsto x realizado, saldo com fonte única e
-recorrências flexíveis. Ver "🟢 Previsto x realizado, saldo único e recorrências flexíveis" para
-o trabalho mais recente.
+**Última atualização**: 2026-07-28 — confirmações destrutivas internas em cartões e backup.
+Ver "🟢 Confirmações destrutivas compatíveis com Android/WebView" para o trabalho mais recente.
 **Pasta canônica do projeto (mudou nesta sessão)**: `D:\Claude\AssistFin`. A cópia antiga em
 `C:\Users\ph969\OneDrive\Área de Trabalho\AssistFin` foi deixada intacta, mas **não é mais usada**
 — era uma cópia interrompida no meio (faltavam `profile.ts`, `PendingRecurrings.tsx`,
@@ -902,8 +901,8 @@ local, que é quem atende esses casos.
 4. **Assinatura no mês de cadastro** — `monthlyCommitments` conta no mês corrente e `cardInvoice`
    joga para o próximo vencimento; diferença de um mês só na primeira ocorrência.
 5. **Analytics por perfil** continua pendente (fora do escopo, como instruído).
-6. `settleAll`, "Cancelar futuras" e a remoção de assinatura ainda usam `window.confirm` —
-   funcionam no navegador, mas merecem `<ConfirmDialog>` pelo mesmo motivo do reset.
+6. ✅ `settleAll`, "Cancelar futuras" e a remoção de assinatura agora usam `<ConfirmDialog>`,
+   assim como reset e substituição de backup; não restam confirmações nativas no código executável.
 7. `CONTEXTO.md` referenciado no README continua inexistente.
 
 ---
@@ -1017,6 +1016,46 @@ Bundle sem `sk-`, `DEEPSEEK` ou `deepseek.com`; a função serverless mantém `f
    bancária, o saldo exibido ficará maior que o extrato.
 5. Antecipação de parcela sem desconto/juros, edição de parcela específica e Analytics por perfil
    seguem pendentes das rodadas anteriores.
+
+---
+
+## 🟢 Confirmações destrutivas compatíveis com Android/WebView — 2026-07-28
+
+Auditoria de retomada confirmou que as 54 correções do briefing original e a rodada posterior de
+previsto x realizado já estavam concluídas, testadas e commitadas. A pendência concreta deixada no
+relatório era o uso de `window.confirm` em quatro ações.
+
+### Correção aplicada
+
+- Remover assinatura, quitar parcelamento e cancelar parcelas futuras em `Cards.tsx` agora usam
+  o `<ConfirmDialog>` compartilhado.
+- "Substituir tudo" na importação de backup em `Settings.tsx` usa o mesmo diálogo interno.
+- Quitação continua marcando parcelas como pagas e cancelamento continua preservando o histórico.
+- Foi corrigida uma inconsistência descoberta no teste: `removeCardCharge` apagava a recorrência
+  inteira e, com ela, as cobranças históricas calculadas. Agora a remoção é lógica, com os campos
+  opcionais `removedAt` e `endDate`: a assinatura some da lista ativa, para de gerar cobranças
+  futuras e continua compondo as faturas anteriores.
+- O backup só substitui o estado depois da confirmação.
+- Busca em `src/**` confirmou zero chamadas executáveis a `window.confirm`/`confirm()`.
+
+### Testes executados
+
+| Cenário | Resultado |
+|---|---|
+| Quitar parcelamento | Diálogo interno abriu, nenhuma janela nativa; confirmar marcou 2/2 parcelas como pagas e o plano como "Quitado" |
+| Cancelar futuras | Cancelar o diálogo manteve 3 parcelas pendentes; confirmar marcou o plano como "Cancelado" e preservou as 3 parcelas no histórico |
+| Remover assinatura | Cancelar manteve a assinatura; confirmar a removeu da lista ativa, preservou R$ 49,90 na fatura já lançada e eliminou cobranças futuras |
+| Substituir backup | Cancelar manteve o backup pendente e os dados atuais; confirmar restaurou o arquivo de teste e removeu o estado anterior |
+| Console | Nenhum erro durante os quatro fluxos |
+| TypeScript `src/**` | exit 0 |
+| TypeScript `api/**` + `vite.config.ts` | exit 0 |
+| `test-money.mjs` | 43/43 |
+| `npm run build` | 67 módulos; `index-CQyzVmvx.js` 438,40 kB, gzip 128,50 kB |
+| `npx vercel build --prod` | `status: ok`, build somente local, nada publicado |
+| Segurança | zero padrões de segredo no bundle do cliente; módulo server-only e import ESM com `.js` presentes no pacote da função |
+
+O arquivo JSON usado no teste de importação foi criado fora do projeto e removido ao final. Nenhum
+push ou deploy foi realizado.
 
 ---
 
