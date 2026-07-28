@@ -6,6 +6,7 @@
 // contabilidade sem ninguém perceber.
 
 import { buildState, TODAY } from './harness'
+import { hydrateForTest } from '../../src/store/store'
 import { applyBatchPure, planAssistantActions } from '../../src/assistant/execute'
 import { validateAction, isValidationFailure, ACTION_CATALOG, allowedRemoteKinds } from '../../src/assistant/contracts'
 import { buildCapabilities } from '../../src/assistant/orchestrator'
@@ -325,6 +326,26 @@ export function runProperties(): PropertyReport {
       const text = describeAction({ kind: spec.kind, ...sample[spec.kind] } as any)
       if (!text || /undefined|\[object/.test(text)) return `${spec.kind} → "${text}"`
     }
+    return null
+  })
+
+  // --- 27. Proposta não sobrevive ao reload (nada de ação fantasma) --------
+  check(r, 'reload limpa propostas pendentes', () => {
+    const salvo = {
+      settings: {}, chat: [
+        { id: 'm1', role: 'assistant', text: 'Entendi isso…', time: '10:00',
+          proposal: [{ id: 'a1', action: { kind: 'expense', amount: 120 } }] },
+        { id: 'm2', role: 'assistant', text: 'Qual o valor?', time: '10:01',
+          clarification: { question: 'Qual o valor?' } },
+        { id: 'm3', role: 'assistant', text: 'Registrado!', time: '10:02' },
+      ],
+    }
+    const hidratado = hydrateForTest(salvo)
+    const m1 = hidratado.chat.find((m: any) => m.id === 'm1')
+    const m2 = hidratado.chat.find((m: any) => m.id === 'm2')
+    if (m1?.proposal) return 'proposta pendente sobreviveu ao reload'
+    if (m2?.clarification) return 'esclarecimento pendente sobreviveu ao reload'
+    if (hidratado.chat.length !== 3) return 'mensagens antigas foram perdidas'
     return null
   })
 
