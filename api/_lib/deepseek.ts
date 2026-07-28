@@ -95,7 +95,18 @@ function classifyHttpError(status: number, bodyText: string): DeepSeekErrorCode 
 }
 
 export interface DeepSeekMessage { role: string; content: string }
-export interface DeepSeekSuccess { ok: true; reply: string; actions: any[] }
+export interface DeepSeekSuccess {
+  ok: true
+  reply: string
+  actions: any[]
+  /**
+   * Objeto JSON completo devolvido pelo modelo, sem interpretação nenhuma.
+   * É ele que passa pela validação de contrato. `null` quando o modelo devolveu
+   * texto puro — nesse caso o chamador NÃO pode tratar a resposta como proposta
+   * de ações, só como conversa.
+   */
+  envelope: any | null
+}
 export interface DeepSeekFailure { ok: false; code: DeepSeekErrorCode }
 
 /**
@@ -133,7 +144,7 @@ export async function callDeepSeekChat(
         body: JSON.stringify({
           model: config.model,
           messages: extraNudge
-            ? [...messages, { role: 'system', content: 'ATENÇÃO: responda apenas com o objeto JSON {"reply": "...", "actions": [...]}, nunca vazio.' }]
+            ? [...messages, { role: 'system', content: 'ATENÇÃO: responda APENAS com o objeto JSON do contrato {"version":1,"mode":"...","reply":"...","actions":[...]}, sem texto fora dele e nunca vazio.' }]
             : messages,
           temperature: extraNudge ? 0 : 0.2,
           max_tokens: 900,
@@ -155,9 +166,11 @@ export async function callDeepSeekChat(
       if (parsed && typeof parsed === 'object') {
         const reply = String(parsed.reply || '').trim()
         if (!reply) return null
-        return { ok: true, reply, actions: Array.isArray(parsed.actions) ? parsed.actions : [] }
+        return { ok: true, reply, actions: Array.isArray(parsed.actions) ? parsed.actions : [], envelope: parsed }
       }
-      return { ok: true, reply: content.replace(/```(json)?/g, '').trim(), actions: [] }
+      // Texto puro: `envelope: null` avisa o chamador de que NÃO houve contrato.
+      // Nenhuma ação pode ser inferida daqui — é isso que impede a perda silenciosa.
+      return { ok: true, reply: content.replace(/```(json)?/g, '').trim(), actions: [], envelope: null }
     } catch (e: any) {
       if (e?.name === 'AbortError') return { ok: false, code: 'timeout' }
       return { ok: false, code: 'network-error' }

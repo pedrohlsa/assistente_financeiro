@@ -304,14 +304,17 @@ export interface PendingAction {
   action: ParsedAction
 }
 
+// `date?: string` (YYYY-MM-DD) é OPCIONAL em toda ação datável: ausente = hoje,
+// que é exatamente o comportamento de antes desta versão. Uma proposta com data
+// sempre mostra a data interpretada antes de o usuário confirmar.
 export type ParsedAction =
-  | { kind: 'income'; amount: number; category?: string; description?: string; is99?: boolean; origin?: string }
-  | { kind: 'expense'; amount: number; category?: string; description?: string; origin?: string }
-  | { kind: 'saving'; amount: number; description?: string }
-  | { kind: 'work'; km?: number; trips?: number; hours?: number }
-  | { kind: 'fuel'; amount?: number; liters?: number; pricePerLiter?: number; odometer?: number }
+  | { kind: 'income'; amount: number; category?: string; description?: string; is99?: boolean; origin?: string; date?: string }
+  | { kind: 'expense'; amount: number; category?: string; description?: string; origin?: string; date?: string }
+  | { kind: 'saving'; amount: number; description?: string; date?: string }
+  | { kind: 'work'; km?: number; trips?: number; hours?: number; date?: string }
+  | { kind: 'fuel'; amount?: number; liters?: number; pricePerLiter?: number; odometer?: number; date?: string }
   | { kind: 'odometer'; value: number }
-  | { kind: 'maintenance'; item: string; cost: number; km?: number; lifeKm?: number }
+  | { kind: 'maintenance'; item: string; cost: number; km?: number; lifeKm?: number; date?: string }
   | { kind: 'goal'; name: string; target: number; months?: number }
   | { kind: 'goal-update'; name: string; target?: number; months?: number }
   | { kind: 'goal-deposit'; name: string; amount: number }
