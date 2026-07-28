@@ -184,6 +184,10 @@ export default function Chat() {
       const r = byId.get(p.id)
       if (!r) return p
       if (isActionFailure(r)) return { ...p, outcome: { ok: false, message: r.message } }
+      // Lote atômico que falhou: NADA foi gravado, então marcar os outros itens
+      // como "registrado" seria mentira — e travava a interface, porque só quem
+      // não tem `outcome` pode ser editado ou removido para tentar de novo.
+      if (!applied) return p
       return { ...p, outcome: { ok: true } }
     })
     updateProposal(msgId, next)

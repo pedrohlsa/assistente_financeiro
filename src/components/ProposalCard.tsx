@@ -95,7 +95,9 @@ export function ProposalCard({
                 </div>
                 {v !== undefined && <div className="mono-num">{fmtBRL(v)}</div>}
               </div>
-              {!p.outcome && (
+              {/* Só some quando o item foi REALMENTE gravado. Com erro, o
+                  usuário precisa poder corrigir e tentar de novo. */}
+              {!p.outcome?.ok && (
                 <div className="row" style={{ gap: 6 }}>
                   <button className="btn btn-soft btn-sm" onClick={() => setEditing({ id: p.id, action: { ...a } })}>Editar</button>
                   <button className="btn btn-danger-soft btn-sm" onClick={() => onRemove(p.id)} aria-label="Remover">✕</button>
@@ -122,7 +124,7 @@ export function ProposalCard({
                 {p.outcome.ok ? '✓ Registrado' : `✕ ${p.outcome.message}`}
               </div>
             )}
-            {!p.outcome && proposal.length > 1 && (
+            {!p.outcome?.ok && proposal.length > 1 && (
               <button className="link tiny" style={{ marginTop: 6 }} onClick={() => onConfirmOne(p.id)}>
                 Confirmar só este
               </button>
@@ -131,7 +133,7 @@ export function ProposalCard({
         )
       })}
 
-      {proposal.some(p => !p.outcome) && (
+      {proposal.some(p => !p.outcome?.ok) && (
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           <button className="btn btn-primary btn-sm" onClick={onConfirmAll}>
             {proposal.length > 1 ? `Confirmar ${proposal.length}` : 'Confirmar'}

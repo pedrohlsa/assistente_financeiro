@@ -72,6 +72,27 @@ function normalizeState(raw: any): AppState {
   }
 }
 
+/**
+ * Reidrata o estado salvo, APAGANDO toda proposta/pergunta pendente.
+ *
+ * Uma proposta é uma intenção da sessão anterior, calculada sobre um estado que
+ * já mudou. Se ela sobreviver ao reload, o usuário reencontra um botão
+ * "Confirmar" órfão — foi exatamente o que aconteceu no QA: a despesa de R$
+ * 120,00 continuava clicável depois de recarregar. As mensagens antigas
+ * continuam visíveis; só o que é acionável some.
+ *
+ * Exportada para o teste conseguir provar isso sem abrir o navegador.
+ */
+export function hydrateForTest(parsed: any): AppState {
+  const chat = Array.isArray(parsed?.chat)
+    ? parsed.chat.map((m: ChatMessage) =>
+        (m.pending || m.choices || m.proposal || m.clarification)
+          ? { ...m, pending: undefined, choices: undefined, proposal: undefined, clarification: undefined }
+          : m)
+    : []
+  return normalizeState({ ...parsed, chat })
+}
+
 type Action =
   | { type: 'hydrate'; state: AppState }
   | { type: 'settings'; patch: Partial<Settings> }
@@ -370,15 +391,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState, (init) => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        // confirmações e perguntas pendentes não sobrevivem entre sessões
-        // (evita aplicar ações velhas em cima de um estado que já mudou)
-        const chat = Array.isArray(parsed.chat)
-          ? parsed.chat.map((m: ChatMessage) => (m.pending || m.choices ? { ...m, pending: undefined, choices: undefined } : m))
-          : []
-        return normalizeState({ ...parsed, chat })
-      }
+      if (raw) return hydrateForTest(JSON.parse(raw))
     } catch { /* estado corrompido → começa limpo */ }
     return init
   })
