@@ -316,10 +316,16 @@ export function analyzeMessage(
     const forParser = aligned ? normalizedParts[i].text : normalized
     const id = clauseId()
 
-    const parsed = parseNaturalFull(forParser, { driver: opts?.driver })
-    let actions = parsed.actions
-
+    // A expressão de data é retirada ANTES de o parser rodar: sem isso ela
+    // sobrava na descrição do lançamento ("Despesa de R$ 40,00 — Hoje · hoje").
     const dateRes = findDate(part.text, today)
+    const dateInParser = findDate(forParser, today)
+    const semData = dateInParser
+      ? (forParser.slice(0, dateInParser.start) + ' ' + forParser.slice(dateInParser.end)).replace(/\s{2,}/g, ' ').trim()
+      : forParser
+
+    const parsed = parseNaturalFull(semData || forParser, { driver: opts?.driver })
+    let actions = parsed.actions
     let date: string | undefined
     let dLabel: string | undefined
     let dateAmbiguity: AnalyzedClause['dateAmbiguity']

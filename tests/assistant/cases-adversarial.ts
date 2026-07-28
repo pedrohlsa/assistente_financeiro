@@ -190,6 +190,29 @@ export const ADVERSARIAL: AssistantCase[] = [
     messages: ['passei 2000 em 5x e recebi 1850'],
     expectActions: [{ kind: 'financed-cash-inflow', total: 2000, netReceived: 1850 }] },
 
+  // ===== BUG 12 — a expressão de data sobrava na descrição =====
+  { id: 'dsd-01', group: 'datadesc', ...other, messages: ['gastei 40 hoje'],
+    expectActions: [{ kind: 'expense', amount: 40, description: null, date: '2026-07-15' }] },
+  { id: 'dsd-02', group: 'datadesc', ...other, messages: ['gastei 40 ontem'],
+    expectActions: [{ kind: 'expense', amount: 40, description: null, date: '2026-07-14' }] },
+  { id: 'dsd-03', group: 'datadesc', ...other, messages: ['gastei 40 dia 5'],
+    expectActions: [{ kind: 'expense', amount: 40, description: null, date: '2026-07-05' }] },
+  { id: 'dsd-04', group: 'datadesc', ...other, messages: ['gastei 190 de cimento ontem'],
+    expectActions: [{ kind: 'expense', amount: 190, description: 'Cimento', date: '2026-07-14' }] },
+  { id: 'dsd-05', group: 'datadesc', ...other, messages: ['gastei 40 na sexta'],
+    expectActions: [{ kind: 'expense', amount: 40, description: null, date: '2026-07-10' }] },
+
+  // ===== BUG 13 — reais e centavos falados =====
+  { id: 'ctv-01', group: 'centavos', ...other, messages: ['gastei quarenta e nove e noventa'],
+    expectActions: [{ kind: 'expense', amount: 49.9 }] },
+  { id: 'ctv-02', group: 'centavos', ...other, messages: ['gastei trinta e nove e noventa no lanche'],
+    expectActions: [{ kind: 'expense', amount: 39.9 }] },
+  // Números legítimos com um único grupo de dezena continuam somando.
+  { id: 'ctv-03', group: 'centavos', ...other, messages: ['gastei cento e cinquenta e cinco'],
+    expectActions: [{ kind: 'expense', amount: 155 }] },
+  { id: 'ctv-04', group: 'centavos', ...clt, messages: ['recebi mil e seiscentos e vinte e cinco'],
+    expectActions: [{ kind: 'income', amount: 1625 }] },
+
   // ===== DATA AINDA NÃO SUPORTADA — nunca usar hoje em silêncio =====
   { id: 'dtf-01', group: 'datafutura', ...other, messages: ['daqui a 3 dias vou pagar 200'],
     // É previsão, não fato: não pode virar lançamento datado de hoje.

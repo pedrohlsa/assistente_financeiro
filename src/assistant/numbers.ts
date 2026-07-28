@@ -47,16 +47,38 @@ const isNumberWord = (w: string): boolean => {
  * Devolve `null` quando a sequência não forma um número (ex.: só "e").
  */
 export function wordsToNumber(words: string[]): number | null {
+  const r = wordsToNumberParts(words)
+  return r ? r.value : null
+}
+
+/**
+ * Além do valor, devolve onde a sequência deixou de ser UM número só.
+ *
+ * Em pt-BR não existe número com duas dezenas seguidas: "quarenta e nove e
+ * noventa" não é 139 — é R$ 49,90 dito em voz alta. Somar tudo produzia um
+ * VALOR ERRADO, que é o pior defeito possível aqui.
+ */
+export function wordsToNumberParts(words: string[]): { value: number; cents?: number } | null {
   let total = 0
   let current = 0
   let sawDigit = false
+  let tensUsed = false
+  let cents: number | undefined
 
-  for (const raw of words) {
+  for (let i = 0; i < words.length; i++) {
+    const raw = words[i]
     const w = strip(raw)
     if (FILLER.has(w)) continue
 
+    if (w in TENS && tensUsed && total === 0) {
+      // Segunda dezena sem escala no meio: o resto são os centavos.
+      const rest = wordsToNumberParts(words.slice(i))
+      if (rest && rest.value > 0 && rest.value < 100) cents = rest.value
+      break
+    }
+
     if (w in UNITS) { current += UNITS[w]; sawDigit = true; continue }
-    if (w in TENS) { current += TENS[w]; sawDigit = true; continue }
+    if (w in TENS) { current += TENS[w]; sawDigit = true; tensUsed = true; continue }
     if (w in HUNDREDS) { current += HUNDREDS[w]; sawDigit = true; continue }
 
     const scale = SCALES.find(s => s.word.test(w))
@@ -66,12 +88,13 @@ export function wordsToNumber(words: string[]): number | null {
       total += factor * scale.value
       current = 0
       sawDigit = true
+      tensUsed = false // "mil e vinte e cinco" reabre a contagem
       continue
     }
     return null
   }
-  const value = total + current
-  return sawDigit ? value : null
+  const value = total + current + (cents ? cents / 100 : 0)
+  return sawDigit ? { value, cents } : null
 }
 
 export interface NumberWordMatch {
