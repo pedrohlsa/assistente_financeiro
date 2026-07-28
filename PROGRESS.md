@@ -1,7 +1,12 @@
 # AssistFin — Estado do Projeto
 
-**Última atualização**: 2026-07-28 — publicação no GitHub/Vercel e APK Android atualizado.
-Ver "🟢 Entrega operacional: GitHub, produção e Android" para o trabalho mais recente.
+**Última atualização**: 2026-07-28 — auditoria documental, criação do `CONTEXTO.md` e da
+documentação da IA. Ver "📋 Auditoria documental e consolidação" para o trabalho mais recente.
+
+> **Aviso de leitura**: as seções datadas abaixo são um diário — cada uma registra o que era
+> verdade **naquela data** e não é reescrita depois. Para o estado atual verificado, use
+> [CONTEXTO.md](CONTEXTO.md), [docs/AI_CURRENT_STATE.md](docs/AI_CURRENT_STATE.md) e a última
+> seção deste arquivo.
 **Pasta canônica do projeto (mudou nesta sessão)**: `D:\Claude\AssistFin`. A cópia antiga em
 `C:\Users\ph969\OneDrive\Área de Trabalho\AssistFin` foi deixada intacta, mas **não é mais usada**
 — era uma cópia interrompida no meio (faltavam `profile.ts`, `PendingRecurrings.tsx`,
@@ -87,10 +92,16 @@ perguntas realmente abertas ficavam sem resposta útil da IA remota.
 
 ## ⚠️ Divergência dev × produção no prompt da IA
 
-Comparando manualmente `vite.config.ts` e `api/ai/chat.ts`: o corpo do `SYSTEM_PROMPT` (regras
-de perfil, categorias, `is99`, `balance`) está **sincronizado** entre os dois arquivos hoje.
+> **⚠️ Corrigido em 28/07/2026 pela auditoria documental.** Esta seção afirmava, no presente, que
+> o corpo do `SYSTEM_PROMPT` estava **sincronizado** entre os dois arquivos. Isso era verdade
+> quando foi escrito (24/07) e **deixou de ser**: a rodada `eabca4a` acrescentou `odometer`, a
+> categoria `autocuidado` e as regras 2b/2c/6b **só em `api/ai/chat.ts`**, e o `is99` continuou
+> **só em `vite.config.ts`**. São 6 divergências, listadas em
+> [docs/AI_CURRENT_STATE.md § 3](docs/AI_CURRENT_STATE.md). O parágrafo abaixo sobre
+> `saving`/`origin` permanece **correto e pendente**.
 
-Porém: **nenhum dos dois prompts menciona a ação `"saving"` nem o campo `"origin"`**, adicionados
+Comparando manualmente `vite.config.ts` e `api/ai/chat.ts`:
+**nenhum dos dois prompts menciona a ação `"saving"` nem o campo `"origin"`**, adicionados
 na segunda leva de mudanças (seção 14 do escopo). Confirmado por busca textual — zero ocorrências
 de `saving`/`origin` (fora do CORS header `access-control-allow-origin`, que é outra coisa) em
 ambos os arquivos.
@@ -354,7 +365,8 @@ confirmado, está limpo dos dois jeitos.
 1. ✅ **Chat de IA remota** — CORRIGIDO e EM PRODUÇÃO (2026-07-25). Duas causas encontradas e corrigidas em sequência: (a) modelo `deepseek-chat` descontinuado → `deepseek-v4-flash`; (b) import ESM sem extensão em `api/ai/chat.ts` quebrava a função na Vercel (`ERR_MODULE_NOT_FOUND`) → corrigido para `'../_lib/deepseek.js'`. Ver seção "🟢 Causa raiz comprovada e correção aplicada". Testado em produção: HTTP 200 em mensagens válidas, erro seguro em mensagem vazia, perfil respeitado, nenhum registro automático.
 2. 🟡 **Prompt remoto sem `saving`/`origin`** — ver divergência dev×produção acima. Ainda pendente.
 3. ⬜ **Analytics.tsx não adaptado por perfil** — item 14.13 do escopo original, nunca implementado.
-4. ❓ **CONTEXTO.md referenciado no README mas não existe no projeto** — link quebrado, impacto cosmético apenas.
+4. ✅ **CONTEXTO.md referenciado no README mas não existe no projeto** — RESOLVIDO em 2026-07-28
+   na auditoria documental. O arquivo foi criado na raiz e o link do README é válido.
 5. ✅ **"Resumo geral" do chat local não adaptado por perfil** — CORRIGIDO em 2026-07-27 na rodada
    de UX (item 29). `resolveLocal()` agora bifurca por perfil: não-motorista recebe entradas,
    despesas, líquido, guardado, meta mensal e parcelas do mês, sem nenhuma métrica de motorista.
@@ -903,7 +915,7 @@ local, que é quem atende esses casos.
 5. **Analytics por perfil** continua pendente (fora do escopo, como instruído).
 6. ✅ `settleAll`, "Cancelar futuras" e a remoção de assinatura agora usam `<ConfirmDialog>`,
    assim como reset e substituição de backup; não restam confirmações nativas no código executável.
-7. `CONTEXTO.md` referenciado no README continua inexistente.
+7. ~~`CONTEXTO.md` referenciado no README continua inexistente.~~ Resolvido em 28/07/2026.
 
 ---
 
@@ -1235,6 +1247,28 @@ Divergências reais entre os dois `SYSTEM_PROMPT`, encontradas nesta auditoria:
 3. Categoria `autocuidado` está **só na lista de produção**.
 4. Regras 2b, 2c e 6b existem **só em produção**.
 5. **Nenhum dos dois** menciona `saving` ou `origin`.
+
+**Origem da divergência**: a rodada `eabca4a` (motorista + painel Android) editou apenas
+`api/ai/chat.ts` ao acrescentar `odometer`, a categoria `autocuidado` e as regras 2b/2c/6b. Até
+`6c4934c` os dois prompts eram byte-idênticos — o próprio PROGRESS.md registrava isso nas rodadas
+de 26 e 27 de julho, e a afirmação continuou lá depois de deixar de valer. É o risco previsto na
+regra da duplicação manual se concretizando.
+
+### Afirmações desatualizadas corrigidas neste arquivo
+
+A auditoria comparou o que o PROGRESS.md afirma **no presente** contra o código e corrigiu três
+pontos, sem reescrever nenhuma seção histórica (elas registram o que era verdade na data):
+
+1. Cabeçalho "Última atualização" — apontava para a entrega operacional; agora aponta para esta
+   auditoria, com um aviso explicando que as seções datadas são um diário.
+2. Seção "⚠️ Divergência dev × produção no prompt da IA" — afirmava que o `SYSTEM_PROMPT` estava
+   sincronizado. Recebeu nota de correção com as 6 divergências reais.
+3. Duas ocorrências de "`CONTEXTO.md` não existe" — marcadas como resolvidas.
+
+Verificado e **mantido como está** (continua correto): `Analytics.tsx` sem adaptação por perfil,
+`origin` desconhecido pelo prompt remoto, `accountId` não usado, assinatura com diferença de um
+mês na primeira ocorrência, antecipação sem desconto/juros, sem UI para editar parcela ou
+recorrência, `describeRecurrence` com um único dia da semana.
 
 Outras falhas confirmadas, em ordem de impacto:
 
