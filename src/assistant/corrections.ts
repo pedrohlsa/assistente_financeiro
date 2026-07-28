@@ -187,7 +187,9 @@ export function parseCorrection(
   // Cartão: "era no Inter, não no Nubank" · "foi no Inter"
   if (caps.cardNames.length) {
     const cardHit = caps.cardNames.find(c => {
-      const re = new RegExp(String.raw`(?:^|\s)(?:no|na|pelo|pela|do|da|era|foi)\s+${normalizeName(c).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\b`, 'i')
+      // "pro/pra/para" são como se fala ("troca PRO inter"); sem eles a correção
+      // de cartão só funcionava com "no/na/do/da".
+      const re = new RegExp(String.raw`(?:^|\s)(?:no|na|pelo|pela|do|da|pro|pra|para|era|foi)\s+${normalizeName(c).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\b`, 'i')
       return re.test(normalizeName(t))
     })
     if (cardHit) {

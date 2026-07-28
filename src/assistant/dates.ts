@@ -82,11 +82,13 @@ const RULES: Rule[] = [
     build: (_m, t) => ({ kind: 'date', date: addDays(t, -2), label: 'anteontem' }),
   },
   {
-    re: /\bontem\b/i,
+    re: /\b(?:ontem|ontm)\b/i,
     build: (_m, t) => ({ kind: 'date', date: addDays(t, -1), label: 'ontem' }),
   },
   {
-    re: /\bhoje\b/i,
+    // "hj" é como se escreve "hoje" no celular. Sem isto a abreviação sobrava
+    // dentro da descrição do lançamento ("Cimento hj").
+    re: /\b(?:hoje|hj|hje)\b/i,
     build: (_m, t) => ({ kind: 'date', date: t, label: 'hoje' }),
   },
   {
