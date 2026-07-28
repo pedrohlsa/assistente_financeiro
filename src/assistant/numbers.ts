@@ -140,6 +140,13 @@ export function findNumberWords(text: string): NumberWordMatch[] {
     }
     const start = tokens[i].start
     const end = tokens[j - 1].end
+
+    // "84 mil km" já é um número escrito com algarismo: converter o "mil"
+    // sozinho produziria "84 1000 km". Multiplicador colado a um dígito é
+    // trabalho do `parseKmValue`/`parseMoney`, não deste módulo.
+    const before = text.slice(Math.max(0, start - 12), start)
+    if (/\d\s*$/.test(before)) { i = j; continue }
+
     const literal = text.slice(start, end)
     const after = text.slice(end)
     const unitM = after.match(UNIT_AFTER)
@@ -148,11 +155,12 @@ export function findNumberWords(text: string): NumberWordMatch[] {
     let value = wordsToNumber(seq)
     if (value !== null) {
       const meaningful = seq.filter(w => !FILLER.has(strip(w)))
-      const ambiguousArticle = meaningful.length === 1 && /^(um|uma|dois|duas)$/.test(strip(meaningful[0]))
-      if (ambiguousArticle && !unit) {
-        i = j
-        continue
-      }
+      const single = meaningful.length === 1 ? strip(meaningful[0]) : ''
+      // "um"/"uma" sozinhos são artigo, não quantidade: "uma corrida de 37" não
+      // é o número 1, e convertê-lo criava uma receita fantasma de R$ 1,00.
+      // "dois"/"duas" só valem como número quando vêm com unidade.
+      if (single === 'um' || single === 'uma') { i = j; continue }
+      if ((single === 'dois' || single === 'duas') && !unit) { i = j; continue }
 
       let explicitMoney = unit === 'money'
       let consumedEnd = end + (unit === 'money' ? (unitM?.[0].length || 0) : 0)

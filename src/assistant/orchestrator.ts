@@ -13,7 +13,7 @@ import type {
   AssistantCandidateAction, AssistantCapabilities, AssistantClarification,
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
 } from './contracts'
-import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, isValidationFailure, validateAction } from './contracts'
+import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, isValidationFailure, validateAction } from './contracts'
 import { analyzeMessage } from './clauses'
 import type { AnalyzedClause, MessageAnalysis } from './clauses'
 import { detectIncomplete, isDraftFresh, newDraft, resolveDraftAnswer } from './drafts'
@@ -23,9 +23,10 @@ import type { CorrectionPlan } from './corrections'
 import { findGoalByName, planAssistantActions } from './execute'
 import { askAssistant } from '../services/ai'
 import { describeAction } from '../services/nlp'
-import { isDriver, findPossibleDuplicate } from '../services/profile'
+import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
 import { catById } from '../data/categories'
 import { fmtBRL, todayISO, uid } from '../utils/format'
+import { normalizeName } from '../utils/text'
 import { dateLabel } from './dates'
 
 // ---------------------------------------------------------------------------
@@ -66,6 +67,8 @@ export interface OrchestratorInput {
   draft?: AssistantDraft
   /** Proposta ainda na tela — alvo de correções. */
   pending?: AssistantCandidateAction[]
+  /** Pergunta de esclarecimento aberta, para casar a resposta do usuário. */
+  pendingClarification?: AssistantClarification
   remoteEnabled: boolean
   /** Injetável: os testes rodam sem rede. */
   askRemote?: (args: { state: AppState; message: string; history: { role: string; text: string }[] }) => Promise<RemoteResult | null>
@@ -150,13 +153,32 @@ function runLocal(input: OrchestratorInput, caps: AssistantCapabilities): LocalP
   for (const clause of analysis.clauses) {
     for (const raw of clause.actions) {
       const idx = analysis.actions.indexOf(raw)
-      const action = idx >= 0 ? reconciled[idx] : raw
+      let action = idx >= 0 ? reconciled[idx] : raw
+
+      // Quem não é motorista também abastece e faz manutenção — só não tem a
+      // estrutura de veículo do app. Em vez de descartar o lançamento (o
+      // usuário gastou o dinheiro de verdade), ele vira despesa da categoria
+      // correspondente. `work` e `odometer` não têm equivalente e são recusados.
+      if (!caps.isDriver) {
+        const a: any = action
+        if (a.kind === 'fuel' && a.amount > 0) {
+          action = { kind: 'expense', amount: a.amount, category: 'combustivel', description: 'Combustível', date: a.date }
+        } else if (a.kind === 'maintenance') {
+          action = { kind: 'expense', amount: a.cost, category: 'manutencao', description: `Troca de ${a.item}`, date: a.date }
+        }
+      }
+
       const res = validateAction(action, caps, today)
       if (isValidationFailure(res)) {
         rejected.push({ kind: action.kind, code: res.code, detail: res.detail })
         continue
       }
-      candidates.push(candidate(res.action, 'local', clause.id, clause.confidence))
+      // A proposta mostra a categoria que SERÁ gravada, não um campo vazio que
+      // o usuário só descobre depois de confirmar.
+      const withDefaults: any = { ...res.action }
+      if (withDefaults.kind === 'income' && !withDefaults.category) withDefaults.category = defaultIncomeCategory(input.state.settings)
+      if (withDefaults.kind === 'expense' && !withDefaults.category) withDefaults.category = 'outros-out'
+      candidates.push(candidate(withDefaults, 'local', clause.id, clause.confidence))
     }
   }
 
@@ -165,10 +187,47 @@ function runLocal(input: OrchestratorInput, caps: AssistantCapabilities): LocalP
     .map(c => unresolvedOf(c, c.intent === 'question' ? 'question-unanswered' : 'not-understood'))
 
   if (!clarification && ambiguous?.ambiguity) {
+    // Cada opção carrega a lista COMPLETA de ações já resolvidas: escolher
+    // "GNV" não obriga o usuário a repetir o valor nem a descrição.
     clarification = {
       question: ambiguous.ambiguity.question,
-      options: ambiguous.ambiguity.options.map(o => ({ label: o.label, value: o.label })),
+      options: ambiguous.ambiguity.options.map(o => ({ label: o.label, value: o.label, actions: o.actions })),
       field: 'ambiguity',
+    }
+  }
+
+  // Cartão citado que não existe, ou fatura sem cartão com vários cadastrados:
+  // não vira ação executável — vira pergunta específica.
+  for (const c of candidates) {
+    const a: any = c.action
+    // `'cardName' in a` não serve: a validação remove campos ausentes, então a
+    // chave simplesmente não existe. Quem sabe se a ação ACEITA cartão é o
+    // catálogo.
+    if (!actionSpec(a.kind)?.fields.some(f => f.name === 'cardName')) continue
+    if (a.cardName) {
+      const known = caps.cardNames.some(n => normalizeName(n) === normalizeName(a.cardName)
+        || normalizeName(n).includes(normalizeName(a.cardName)))
+      if (!known) {
+        clarification = clarification || {
+          question: caps.cardNames.length
+            ? `Não encontrei um cartão chamado "${a.cardName}". Qual dos seus cartões é?`
+            : `Não encontrei um cartão chamado "${a.cardName}". Você quer cadastrar esse cartão antes?`,
+          field: 'cardName',
+          options: caps.cardNames.map(n => ({ label: n, value: n })),
+        }
+      }
+    } else if (caps.cardNames.length > 1) {
+      // Com vários cartões, escolher sozinho seria adivinhar. Cada opção já
+      // carrega a proposta COMPLETA com aquele cartão — o usuário só escolhe.
+      clarification = clarification || {
+        question: 'Em qual cartão?',
+        field: 'cardName',
+        options: caps.cardNames.map(n => ({
+          label: n,
+          value: n,
+          actions: candidates.map(x => (x.id === c.id ? { ...(x.action as any), cardName: n } : x.action)),
+        })),
+      }
     }
   }
   if (!clarification && dateAmbiguous?.dateAmbiguity) {
@@ -217,16 +276,30 @@ function answerQuestions(
   return { text: parts.join('\n\n'), answered }
 }
 
-/** Resumo hipotético de um lote — usado quando a pergunta é sobre "quanto sobrou". */
+/**
+ * Resposta HIPOTÉTICA para uma pergunta que o motor local não sabe responder
+ * sozinho, mas que depende do que está sendo proposto.
+ *
+ * Sempre deixa explícito que o número depende da confirmação — nada foi gravado.
+ */
 function hypotheticalSummary(candidates: AssistantCandidateAction[]): string | null {
-  const inc = candidates.filter(c => c.action.kind === 'income').reduce((a, c) => a + (c.action as any).amount, 0)
-  const exp = candidates.filter(c => c.action.kind === 'expense').reduce((a, c) => a + (c.action as any).amount, 0)
-  if (!inc && !exp) return null
+  const sum = (kind: string, field = 'amount') =>
+    candidates.filter(c => c.action.kind === kind).reduce((a, c) => a + ((c.action as any)[field] || 0), 0)
+  const inc = sum('income')
+  const exp = sum('expense')
+  const sav = sum('saving')
+  if (!inc && !exp && !sav) return null
+
+  const parts: string[] = []
+  if (inc) parts.push(`entram ${fmtBRL(inc)}`)
+  if (exp) parts.push(`saem ${fmtBRL(exp)}`)
+  if (sav) parts.push(`${fmtBRL(sav)} vão para a reserva`)
+
   const diff = inc - exp
-  if (inc && exp) {
-    return `Se você confirmar, entram ${fmtBRL(inc)} e saem ${fmtBRL(exp)} — diferença de ${fmtBRL(Math.abs(diff))}${diff < 0 ? ' negativa' : ''}.`
-  }
-  return null
+  const tail = inc && exp
+    ? ` — diferença de ${fmtBRL(Math.abs(diff))}${diff < 0 ? ', negativa' : ''}.`
+    : '.'
+  return `Se você confirmar, ${parts.join(', ')}${tail} Nada foi registrado ainda.`
 }
 
 function proposalText(candidates: AssistantCandidateAction[]): string {
@@ -253,6 +326,32 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
   const started = Date.now()
   const caps = buildCapabilities(input.state)
   const today = input.today || todayISO()
+
+  // ---- 0) A mensagem escolhe uma opção que o assistente ofereceu? --------
+  // "GNV" logo depois de "gás de cozinha ou GNV?" precisa recuperar o valor e
+  // a descrição da mensagem anterior — o usuário não repete nada.
+  const pc = input.pendingClarification
+  if (pc?.options?.length) {
+    const said = normalizeName(input.message)
+    const hit = pc.options.find(o =>
+      normalizeName(o.label) === said || normalizeName(o.value) === said ||
+      (said.length > 2 && (normalizeName(o.label).includes(said) || said.includes(normalizeName(o.label)))))
+    if (hit) {
+      if (hit.actions?.length) {
+        const cands = hit.actions.map(a => candidate(a, 'local'))
+        return {
+          draft: null,
+          response: {
+            version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
+            actions: cands, unresolved: [],
+            reply: `${proposalText(cands)}\n\nConfirmar?`,
+          },
+        }
+      }
+      // Opção sem efeito pré-calculado (ex.: escolha de cartão): a resposta
+      // segue o fluxo normal já com o valor escolhido embutido na frase.
+    }
+  }
 
   // ---- 1) A mensagem responde a uma pergunta pendente? -------------------
   if (isDraftFresh(input.draft)) {

@@ -112,9 +112,28 @@ const CONNECTORS = '(?:e\\s+)?(?:logo\\s+)?(?:depois|em\\s+seguida|mais\\s+tarde
  * onde cortar, para cada cláusula manter posição real e poder ser citada de
  * volta ao usuário.
  */
+/**
+ * Trechos que NÃO podem ser cortados: a frase inteira é uma unidade só.
+ * "passei 2000 em 5 vezes e recebi 1850" tem um verbo de comando no meio, mas
+ * cortar ali destrói a entrada financiada e cria uma receita de 1850 — que é
+ * exatamente o erro que a regra 11 proíbe.
+ */
+const PROTECTED: RegExp[] = [
+  /(?:passei|passou|fiz)\s+(?:r\$\s*)?[\d.,]+[^.;!?]*?(?:recebi|receber|peguei|caiu)\s+(?:r\$\s*)?[\d.,]+/gi,
+  /comprei[^.;!?]*?\b(?:em|x)\s*\d+\s*(?:vez(?:es)?|x|parcelas?)/gi,
+]
+
 export function segment(text: string): { text: string; start: number; end: number }[] {
+  const guarded: [number, number][] = []
+  for (const re of PROTECTED) {
+    for (const m of text.matchAll(re)) {
+      if (m.index !== undefined) guarded.push([m.index, m.index + m[0].length])
+    }
+  }
+  const inside = (i: number) => guarded.some(([a, b]) => i > a && i < b)
+
   const cuts = new Set<number>([0])
-  const push = (i: number) => { if (i > 0 && i < text.length) cuts.add(i) }
+  const push = (i: number) => { if (i > 0 && i < text.length && !inside(i)) cuts.add(i) }
 
   // Fim de frase.
   for (const m of text.matchAll(/[.!?;]+\s+/g)) push((m.index || 0) + m[0].length)
@@ -126,8 +145,10 @@ export function segment(text: string): { text: string; start: number; end: numbe
   for (const m of text.matchAll(new RegExp(String.raw`\s+e\s+(?=(?:${COMMAND_VERBS})\b)`, 'gi'))) {
     push((m.index || 0) + m[0].length)
   }
-  // Conector explícito começando uma nova ideia.
-  for (const m of text.matchAll(new RegExp(String.raw`[,;]?\s+${CONNECTORS}`, 'gi'))) {
+  // Conector explícito começando uma nova ideia — só quando um verbo de comando
+  // vem logo depois. Sem essa exigência, "gastei 190 reais DEPOIS comprando
+  // cimento" era cortado no meio e a descrição se perdia.
+  for (const m of text.matchAll(new RegExp(String.raw`[,;]?\s+${CONNECTORS}(?=(?:${COMMAND_VERBS})\b)`, 'gi'))) {
     push((m.index || 0) + m[0].length)
   }
   // "mas", "porém" e "só que" separam registro de pergunta.
@@ -152,28 +173,36 @@ export function segment(text: string): { text: string; start: number; end: numbe
 const ORIGIN_NOUNS = 'casa|cliente|empresa|loja|apart(?:amento)?|kitnet|kitinete|sala|ponto|unidade|obra|inquilin[oa]|contrato'
 
 /**
- * Extrai a origem SÓ quando o usuário a marcou explicitamente. Dois sinais são
- * aceitos, e nenhum deles é dedução:
+ * TODAS as origens explícitas do trecho, com posição. Dois sinais são aceitos,
+ * e nenhum deles é dedução:
  *   1. "da Casa 1", "do Cliente João" — substantivo de fonte + identificador;
- *   2. "da Empresa X" com Inicial Maiúscula no texto original (nome próprio).
+ *   2. "da Empresa X" com Inicial Maiúscula no original (nome próprio).
  * "gastei 190 de cimento" nunca vira origem: "cimento" não é nome próprio nem
  * substantivo de fonte.
  */
-export function extractOrigin(originalClause: string): string | undefined {
-  const known = originalClause.match(new RegExp(String.raw`\bd[ao]s?\s+((?:${ORIGIN_NOUNS})\s+[\wçãõáéíóúâê\d]+)`, 'i'))
-  if (known) return known[1].replace(/\s+/g, ' ').trim()
-
-  const proper = originalClause.match(
-    /\bd[ao]s?\s+((?:[A-ZÀ-ÖØ-Þ][\wçãõáéíóúâêô]+)(?:\s+(?:[A-ZÀ-ÖØ-Þ][\wçãõáéíóúâêô]+|\d+))*)/,
-  )
-  if (proper) {
-    const v = proper[1].trim()
-    // Plataformas de corrida são descrição, não origem.
-    if (/^(uber|99|indrive|indriver)$/i.test(v)) return undefined
-    return v
+export function extractOrigins(originalClause: string): { value: string; at: number }[] {
+  const out: { value: string; at: number }[] = []
+  const taken: [number, number][] = []
+  const add = (v: string, start: number, end: number) => {
+    if (taken.some(([a, b]) => start < b && end > a)) return
+    if (/^(uber|99|indrive|indriver)$/i.test(v)) return // plataforma é descrição
+    taken.push([start, end])
+    out.push({ value: v.replace(/\s+/g, ' ').trim(), at: start })
   }
-  return undefined
+
+  for (const m of originalClause.matchAll(new RegExp(String.raw`\bd[ao]s?\s+((?:${ORIGIN_NOUNS})\s+[\wçãõáéíóúâê\d]+)`, 'gi'))) {
+    if (m.index !== undefined) add(m[1], m.index, m.index + m[0].length)
+  }
+  for (const m of originalClause.matchAll(
+    /\bd[ao]s?\s+((?:[A-ZÀ-ÖØ-Þ][\wçãõáéíóúâêô]+)(?:\s+(?:[A-ZÀ-ÖØ-Þ][\wçãõáéíóúâêô]+|\d+))*)/g,
+  )) {
+    if (m.index !== undefined) add(m[1], m.index, m.index + m[0].length)
+  }
+  return out.sort((a, b) => a.at - b.at)
 }
+
+/** Compatibilidade: a primeira origem do trecho. */
+export const extractOrigin = (t: string): string | undefined => extractOrigins(t)[0]?.value
 
 // ---------------------------------------------------------------------------
 // Análise
@@ -212,6 +241,14 @@ export function analyzeMessage(
   const clauses: AnalyzedClause[] = []
   const parts = aligned ? originalParts : [{ text: original, start: 0, end: original.length }]
 
+  /**
+   * Data herdada: "ONTEM recebi 1800 e gastei 150" tem uma data só, dita uma
+   * vez, valendo para a frase inteira. Sem herança a segunda ação caía em hoje
+   * e o usuário só descobria depois de confirmar.
+   */
+  let inheritedDate: string | undefined
+  let inheritedLabel: string | undefined
+
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i]
     const forParser = aligned ? normalizedParts[i].text : normalized
@@ -230,18 +267,37 @@ export function analyzeMessage(
       // 'future' e 'period' não datam um fato já ocorrido: ficam de fora e a
       // cláusula segue com a data de hoje, como sempre foi.
     }
+    if (date) { inheritedDate = date; inheritedLabel = dLabel }
+    else if (inheritedDate) { date = inheritedDate; dLabel = inheritedLabel }
 
-    const origin = extractOrigin(part.text)
+    // Origem por posição: "recebi 1800 da Casa 1, mais 1750 da Casa 2" tem duas
+    // fontes numa cláusula só. Quando a quantidade de origens bate com a de
+    // ações que aceitam origem, elas são pareadas na ordem; do contrário a
+    // única origem encontrada vale para todas — e nenhuma é inventada.
+    const origins = extractOrigins(part.text)
+    const originIdx = actions.map(a => ORIGINABLE.has(a.kind))
+    const originCount = originIdx.filter(Boolean).length
+    let seenOriginable = 0
 
     actions = actions.map(a => {
       const next: any = { ...a }
       if (date && DATABLE.has(a.kind)) next.date = date
-      if (origin && ORIGINABLE.has(a.kind) && !next.origin) next.origin = origin
+      if (ORIGINABLE.has(a.kind) && !next.origin && origins.length) {
+        const pick = origins.length === originCount ? origins[seenOriginable] : origins[0]
+        if (pick) next.origin = pick.value
+        seenOriginable++
+      }
       return next as ParsedAction
     })
 
     const isConversation = looksLikeConversation(part.text)
     const isQuestion = !isConversation && looksLikeQuestion(part.text)
+
+    // Pergunta de ANÁLISE cita valores para serem avaliados, não registrados:
+    // "essa corrida de 18 por 12 km vale a pena?" não é uma receita de 18.
+    if (isQuestion && /\bvale\s+a\s+pena\b|\bcompensa\b|\bdevo\s+aceitar\b|\bacei(?:to|tar)\b/i.test(part.text)) {
+      actions = []
+    }
     const isCorrection = !isConversation && looksLikeCorrection(part.text)
 
     let intent: AssistantIntent
@@ -270,6 +326,30 @@ export function analyzeMessage(
       clauses.push({
         id: clauseId(), text: part.text, start: part.start, end: part.end,
         intent: 'question', handled: false, confidence: 'low', actions: [],
+      })
+    }
+  }
+
+  // Registros de trabalho de cláusulas diferentes são o MESMO dia: "rodei 120 km
+  // e fiz 14 viagens" não são dois turnos. A fusão acontece aqui porque a
+  // segmentação separou o que o parser antigo via junto.
+  const works = clauses.flatMap(c => c.actions.filter(a => a.kind === 'work')) as any[]
+  if (works.length > 1) {
+    const merged: any = { kind: 'work' }
+    for (const w of works) {
+      for (const f of ['km', 'trips', 'hours'] as const) {
+        if (w[f] !== undefined) merged[f] = (merged[f] || 0) + w[f]
+      }
+      if (w.date && !merged.date) merged.date = w.date
+    }
+    // O resumo de trabalho fica na ÚLTIMA cláusula que falava de trabalho: é
+    // como a frase é lida ("ganhei X, gastei Y, rodei Z km").
+    let remaining = works.length
+    for (const c of clauses) {
+      c.actions = c.actions.flatMap(a => {
+        if (a.kind !== 'work') return [a]
+        remaining--
+        return remaining === 0 ? [merged as ParsedAction] : []
       })
     }
   }

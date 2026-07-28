@@ -60,7 +60,7 @@ export function detectIncomplete(text: string, caps: AssistantCapabilities): Inc
 
   // Compra parcelada sem valor e/ou sem número de parcelas.
   if (/\b(comprei|compra|parcelei|parcelad[oa])\b/.test(t)) {
-    const instM = t.match(/(?:em|x)\s*(\d+)\s*(?:vezes|x|parcelas?)|(\d+)\s*x\b/)
+    const instM = t.match(/(?:em|x)\s*(\d+)\s*(?:vez(?:es)?|x|parcelas?)|(\d+)\s*x\b/)
     const valM = t.match(new RegExp(String.raw`(?:de|por|custou|valor de)\s*(?:r\$)?\s*${NUMBER}`))
       || t.match(new RegExp(String.raw`r\$\s*${NUMBER}`))
     const descM = text.match(/comprei\s+(?:um|uma|o|a|uns|umas)\s+([\wçãõáéíóúâê]+(?:\s+[\wçãõáéíóúâê]+)*?)(?=\s+(?:de|por|em|no|na)\b|\s*r\$|\s*\d|$)/i)
@@ -71,12 +71,17 @@ export function detectIncomplete(text: string, caps: AssistantCapabilities): Inc
     if (!(installments > 0)) missing.push('installments')
     // Sem NENHUM dos dois não há intenção suficiente para abrir rascunho.
     if (missing.length === 2) return null
+    // Com vários cartões, saber qual é obrigatório — e essa checagem precisa
+    // vir ANTES da saída antecipada, senão "comprei X de 4000 em 4 vezes" com
+    // dois cartões cadastrados nunca perguntava nada.
+    const citedCard = caps.cardNames.find(c => t.includes(normalizeName(c)))
+    if (caps.cardNames.length > 1 && !citedCard) missing.push('cardName')
     if (!missing.length) return null // completa: o parser normal dá conta
     const partial: any = { kind: 'card-purchase' }
     if (total > 0) partial.total = total
     if (installments > 0) partial.installments = installments
+    if (citedCard) partial.cardName = citedCard
     if (descM) partial.description = sentenceCase(descM[1].trim())
-    if (caps.cardNames.length > 1) missing.push('cardName')
     return { partial, missing }
   }
 
@@ -175,8 +180,9 @@ export function resolveDraftAnswer(
     pending.delete('cardName')
   }
 
-  // Nome de cartão citado em qualquer lugar da frase.
-  if (pending.has('cardName')) {
+  // Nome de cartão citado em qualquer lugar da frase — mesmo que o assistente
+  // não tenha perguntado. "Quatro mil no Nubank" informa as duas coisas.
+  if (!(next.partial as any).cardName) {
     const hit = caps.cardNames.find(c => normalizeName(lower).includes(normalizeName(c)))
     if (hit) { (next.partial as any).cardName = hit; resolved.push('cardName'); pending.delete('cardName') }
   }

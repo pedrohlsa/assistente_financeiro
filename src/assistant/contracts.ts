@@ -300,12 +300,23 @@ export interface AssistantCandidateAction {
   duplicateWarning?: string
 }
 
+export interface AssistantClarificationOption {
+  label: string
+  value: string
+  /**
+   * Efeito COMPLETO de escolher esta opção. É o que impede o usuário de ter que
+   * repetir valor e descrição depois de responder "GNV": a escolha já carrega a
+   * lista inteira de ações resolvidas. Escolher continua não registrando nada —
+   * vira a confirmação normal.
+   */
+  actions?: ParsedAction[]
+}
+
 export interface AssistantClarification {
   /** Pergunta única, curta. */
   question: string
   field?: string
-  /** Cada opção já carrega o efeito completo — escolher não registra nada. */
-  options?: { label: string; value: string }[]
+  options?: AssistantClarificationOption[]
   /** Ação a que a pergunta se refere, quando aplicável. */
   actionId?: string
 }
@@ -520,6 +531,14 @@ export function validateAction(
 export type EnvelopeOutcome =
   | { ok: true; reply: string; rawActions: any[]; clarification?: AssistantClarification; mode: string }
   | { ok: false; reason: 'not-object' | 'bad-version' | 'no-reply' | 'bad-mode' | 'bad-actions' }
+
+
+export interface EnvelopeFailure { ok: false; reason: 'not-object' | 'bad-version' | 'no-reply' | 'bad-mode' | 'bad-actions' }
+
+/** Predicado explícito — obrigatório sob `strict: false` (ver regra 24). */
+export function isEnvelopeFailure(o: EnvelopeOutcome): o is EnvelopeFailure {
+  return o.ok === false
+}
 
 const VALID_MODES = ['answer', 'propose_actions', 'answer_and_actions', 'clarify']
 

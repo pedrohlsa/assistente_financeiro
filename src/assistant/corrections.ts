@@ -52,7 +52,9 @@ function resolveTarget(
   pending: AssistantCandidateAction[],
 ): { id: string } | { ambiguousAmong: AssistantCandidateAction[] } | null {
   if (!pending.length) return null
-  const t = text.toLowerCase()
+  // Sem acento: "última" pode chegar com o acento composto (u + ˊ) da entrada
+  // por voz ou de outro teclado, e aí um `[úu]ltim[ao]` literal não casa.
+  const t = normalizeName(text)
 
   // "a última"
   if (/\b[úu]ltim[ao]\b/.test(t)) return { id: pending[pending.length - 1].id }
@@ -66,8 +68,8 @@ function resolveTarget(
 
   // "o gasto de 190" — valor citado
   const { text: norm } = normalizeNumberWords(t)
-  for (const m of norm.matchAll(new RegExp(String.raw`(?:de|do|da)\s*(?:r\$)?\s*${NUMBER}`, 'g'))) {
-    const v = parseMoney(m[1])
+  for (const m of norm.matchAll(new RegExp(String.raw`(?:de|do|da)\s*(?:r\$)?\s*${NUMBER}(\s*mil)?`, 'g'))) {
+    const v = parseMoney(m[1]) * (m[2] ? 1000 : 1)
     const hits = pending.filter(p => Math.abs((amountOf(p.action) ?? NaN) - v) < 0.005)
     if (hits.length === 1) return { id: hits[0].id }
     if (hits.length > 1) return { ambiguousAmong: hits }
@@ -144,15 +146,19 @@ export function parseCorrection(
   const remaining = pending.filter(p => !plan.remove.includes(p.id))
 
   // Valor: "não foi 100, foi 80" · "troca o valor para 80" · "a segunda foi 190"
+  // `(?:\s*mil)?` é essencial: "não foi 4 mil, foi 3.800" é como se fala.
+  const MIL = String.raw`(?:\s*(mil))?`
   const valueRe = new RegExp(
-    String.raw`(?:n[ãa]o\s+(?:foi|era|é|e)\s*(?:r\$)?\s*${NUMBER}\s*,?\s*(?:e|mas)?\s*(?:foi|era|é|e|sim)?\s*(?:r\$)?\s*${NUMBER})` +
-    String.raw`|(?:(?:troca|trocar|muda|mudar|altera|alterar|corrige|corrigir|ajusta|ajustar)\s+(?:o\s+)?valor\s+(?:para|pra|por|em)\s*(?:r\$)?\s*${NUMBER})` +
-    String.raw`|(?:(?:foi|era|é)\s*(?:r\$)?\s*${NUMBER}\s*(?:reais)?\s*$)`,
+    String.raw`(?:n[ãa]o\s+(?:foi|era|é|e)\s*(?:r\$)?\s*${NUMBER}${MIL}\s*,?\s*(?:e|mas)?\s*(?:foi|era|é|e|sim)?\s*(?:r\$)?\s*${NUMBER}${MIL})` +
+    String.raw`|(?:(?:troca|trocar|muda|mudar|altera|alterar|corrige|corrigir|ajusta|ajustar)\s+(?:o\s+)?valor\s+(?:para|pra|por|em)\s*(?:r\$)?\s*${NUMBER}${MIL})` +
+    String.raw`|(?:(?:foi|era|é)\s*(?:r\$)?\s*${NUMBER}${MIL}\s*(?:reais)?\s*$)`,
     'i',
   )
   const vm = t.match(valueRe)
   if (vm) {
-    const newValue = parseMoney(vm[2] ?? vm[3] ?? vm[4] ?? vm[1])
+    // Pares [valor, "mil"]: 1/2 = antigo, 3/4 = novo, 5/6 e 7/8 = formas curtas.
+    const pick = (n: number, m: number) => (vm[n] ? parseMoney(vm[n]) * (vm[m] ? 1000 : 1) : NaN)
+    const newValue = [pick(3, 4), pick(5, 6), pick(7, 8), pick(1, 2)].find(v => v > 0) ?? NaN
     if (newValue > 0) {
       const target = resolveTarget(t, remaining)
       if (target && 'id' in target) {
