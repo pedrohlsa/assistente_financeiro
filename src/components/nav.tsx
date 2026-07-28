@@ -15,14 +15,18 @@ const tabs = [
 ]
 
 export function BottomNav() {
+  const location = useLocation()
+  const moreRoutes = ['/mais', '/analises', '/veiculo', '/corrida', '/planejamento', '/cartoes', '/config']
   return (
     <nav className="bottom-nav">
-      {tabs.map(t => (
-        <NavLink key={t.to} to={t.to} end={t.to === '/'} className={({ isActive }) => (t.ai ? 'nav-ai' : 'nav-item' + (isActive ? ' active' : ''))} aria-label={t.ai ? 'Assistente IA' : t.label}>
+      {tabs.map(t => {
+        const staysInMore = t.to === '/mais' && moreRoutes.some(route => location.pathname.startsWith(route))
+        return (
+        <NavLink key={t.to} to={t.to} end={t.to === '/'} className={({ isActive }) => (t.ai ? 'nav-ai' : 'nav-item' + ((isActive || staysInMore) ? ' active' : ''))} aria-label={t.ai ? 'Assistente IA' : t.label}>
           {t.icon}
           {t.label && <span>{t.label}</span>}
         </NavLink>
-      ))}
+      )})}
     </nav>
   )
 }
@@ -55,7 +59,7 @@ function actionsForRoute(path: string, isDriver: boolean): FabAction[] | null {
             { label: 'Manutenção', icon: '🔧', kind: 'maintenance' as const },
           ]
         : [
-            { label: 'Entrada recorrente (salário, aluguel…)', icon: '🔑', kind: 'income-fixed' as const },
+      { label: 'Entrada recorrente (salário, aluguel…)', icon: '🔑', kind: 'income-fixed' as const },
             { label: 'Guardar dinheiro', icon: '🏦', kind: 'saving' as const },
           ]),
       { label: 'Conta a pagar', icon: '📄', kind: 'recurring' },
@@ -140,8 +144,8 @@ export function Fab() {
       <Sheet open={sheet === 'fuel'} onClose={close} title="Abastecimento"><FuelForm onDone={close} /></Sheet>
       <Sheet open={sheet === 'maintenance'} onClose={close} title="Manutenção"><MaintenanceForm onDone={close} /></Sheet>
       <Sheet open={sheet === 'goal'} onClose={close} title="Nova meta"><GoalForm onDone={close} /></Sheet>
-      <Sheet open={sheet === 'recurring'} onClose={close} title="Conta a pagar"><RecurringForm onDone={close} defaultKind="expense" /></Sheet>
-      <Sheet open={sheet === 'income-fixed'} onClose={close} title="Entrada recorrente"><RecurringForm onDone={close} defaultKind="income" /></Sheet>
+      <Sheet open={sheet === 'recurring'} onClose={close} title="Conta a pagar"><RecurringForm onDone={close} defaultKind="expense" lockKind /></Sheet>
+      <Sheet open={sheet === 'income-fixed'} onClose={close} title="Entrada recorrente"><RecurringForm onDone={close} defaultKind="income" lockKind /></Sheet>
       <Sheet open={sheet === 'saving'} onClose={close} title="Guardar dinheiro"><SavingForm onDone={close} /></Sheet>
       <Sheet open={sheet === 'budget'} onClose={close} title="Novo orçamento"><BudgetForm onDone={close} /></Sheet>
       <Sheet open={sheet === 'card'} onClose={close} title="Novo cartão"><CardForm onDone={close} /></Sheet>

@@ -9,6 +9,7 @@ import { nowTime, uid, fmtBRL } from '../utils/format'
 import { Icon, useToast } from '../components/ui'
 import { findPossibleDuplicate, isDriver, shouldAsk99Fee } from '../services/profile'
 import { catById } from '../data/categories'
+import { plainChatText } from '../utils/text'
 
 const SUGGESTIONS_BY_PROFILE: Record<string, string[]> = {
   driver: [
@@ -163,8 +164,8 @@ export default function Chat() {
         type: 'chat',
         msg: {
           id: uid(), role: 'assistant', time: nowTime(),
-          text: `Esse faturamento foi um saque da 99? Se sim, eu registro a taxa de ${fmtBRL(fee)}.`,
-          pending: [{ label: `Sim — taxa de saque 99 (−${fmtBRL(fee)})`, action: { kind: 'expense', amount: fee, category: 'outros-out', description: 'Taxa de saque 99' } }],
+          text: `Você quer registrar a taxa da 99 agora? Ela só deve entrar quando o saque realmente acontecer.`,
+          pending: [{ label: `Sim — Taxa 99 (−${fmtBRL(fee)})`, action: { kind: 'expense', amount: fee, category: 'outros-out', description: 'Taxa 99' } }],
         },
       })
     }
@@ -237,7 +238,7 @@ export default function Chat() {
         )}
         {state.chat.map(m => (
           <div key={m.id} className={`bubble ${m.role === 'user' ? 'user' : 'ai'}`}>
-            {m.text}
+            {plainChatText(m.text)}
             {m.detail && (
               <div className="stack tiny" style={{ marginTop: 8, gap: 2, opacity: 0.9, whiteSpace: 'pre-line' }}>{m.detail}</div>
             )}

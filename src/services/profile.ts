@@ -25,7 +25,6 @@ export function shouldAsk99Fee(state: AppState, action: ParsedAction): boolean {
   if (!isDriver(s)) return false
   if (!s.ask99Fee || !(s.platform99Fee > 0)) return false
   if (action.kind !== 'income') return false
-  if ((action as any).is99) return false // já marcado, taxa aplicada direto
   return RIDE_INCOME_CATEGORIES.includes(action.category || defaultIncomeCategory(s))
 }
 

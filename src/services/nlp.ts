@@ -3,7 +3,6 @@
 // por um serviço de IA no backend (ver services/ai.ts).
 import { ParsedAction } from '../models/types'
 import { guessCategory } from '../data/categories'
-import { MENTIONS_99 } from './profile'
 import { parseMoney } from '../utils/format'
 import { sentenceCase } from '../utils/text'
 
@@ -14,8 +13,6 @@ const NUM = String.raw`(\d+(?:[.,]\d+)*)`
 const parseNum = (s: string) => parseMoney(s)
 
 const MAINT_ITEMS = ['óleo', 'oleo', 'pneu', 'pneus', 'pastilha', 'pastilhas', 'freio', 'freios', 'correia', 'filtro', 'filtros', 'vela', 'velas', 'amortecedor', 'amortecedores', 'bateria', 'embreagem']
-const MAINT_LIFE: Record<string, number> = { 'óleo': 10000, pneu: 40000, pastilha: 30000, freio: 30000, correia: 60000, filtro: 10000, vela: 30000, amortecedor: 60000, bateria: 50000, embreagem: 80000 }
-
 function normalizeMaint(item: string): string {
   const i = item.toLowerCase().replace(/s$/, '')
   if (i === 'oleo') return 'óleo'
@@ -25,7 +22,9 @@ function normalizeMaint(item: string): string {
 /** Extrai um valor "X mil" ou número com sufixo km */
 function parseKmValue(raw: string): number {
   let v = parseNum(raw)
-  if (/mil/.test(raw)) v = parseNum(raw) * 1000
+  // "220.800 mil km" aparece na fala coloquial, mas 220.800 já é 220800.
+  // Só multiplica "mil" quando o número ainda está abaixo de mil ("84 mil").
+  if (/mil/.test(raw) && v < 1000) v *= 1000
   return v
 }
 
@@ -127,7 +126,28 @@ export function isAmbiguousGas(text: string): boolean {
  * texto não permite decidir com segurança.
  */
 export function parseNaturalFull(input: string, opts?: { driver?: boolean }): ParseResult {
-  const actions = parseNatural(input)
+  let actions = parseNatural(input)
+
+  // No perfil motorista, uma receita sem origem explícita continua sendo de
+  // corridas. Se a frase menciona corrida/Uber/99, o contexto vale também para
+  // cláusulas curtas como "ganhei 150" logo após "fiz uma corrida".
+  if (opts?.driver) {
+    const rideContext = /\bcorridas?\b|\buber\b|\bindriver\b|\b99\b/i.test(input)
+    actions = actions.map(a => a.kind === 'income' && (!a.category || rideContext)
+      ? { ...a, category: a.category || 'corridas' }
+      : a)
+
+    // Um registro de receita de corrida representa uma viagem quando o usuário
+    // não informou uma quantidade explícita. "Fiz 14 viagens" continua valendo 14.
+    const hasExplicitTrips = actions.some(a => a.kind === 'work' && a.trips !== undefined)
+    const rideEntries = actions.filter(a => a.kind === 'income' && a.category === 'corridas').length
+    if (!hasExplicitTrips && rideEntries > 0) {
+      const work = actions.find(a => a.kind === 'work') as Extract<ParsedAction, { kind: 'work' }> | undefined
+      if (work) work.trips = rideEntries
+      else actions.push({ kind: 'work', trips: rideEntries })
+    }
+  }
+
   if (!isAmbiguousGas(input)) return { actions }
 
   // Qual ação veio do "gás"? A despesa cuja descrição/categoria bate com gás.
@@ -267,7 +287,7 @@ function parseClause(input: string): ParsedAction[] {
       kind: 'maintenance', item,
       cost: parseNum(m[2]),
       km: m[3] ? parseKmValue(m[3]) : undefined,
-      lifeKm: MAINT_LIFE[item] || 10000,
+      lifeKm: undefined,
     })
   }
 
@@ -304,7 +324,7 @@ function parseClause(input: string): ParsedAction[] {
   }
 
   // ----- abastecimento: "abasteci 70", "coloquei 70 reais de gasolina", "coloquei 30 litros"
-  const fuelRe = new RegExp(String.raw`abasteci(?:mento)?\s*(?:com|de)?\s*(?:r\$)?\s*${NUM}`, 'i')
+  const fuelRe = new RegExp(String.raw`abastec(?:i|er|endo)(?:mento)?\s*(?:com|de)?\s*(?:r\$)?\s*${NUM}`, 'i')
   const fuelRe2 = new RegExp(String.raw`(?:coloquei|botei|gastei|paguei)\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:de|em|no|na)?\s*(?:gasolina|etanol|[áa]lcool|diesel|gnv|combust[íi]vel)`, 'i')
   const f = text.match(fuelRe) || text.match(fuelRe2)
   const litersM = text.match(new RegExp(String.raw`${NUM}\s*litros?`, 'i'))
@@ -313,17 +333,60 @@ function parseClause(input: string): ParsedAction[] {
     actions.push({ kind: 'fuel', amount, liters: litersM ? parseNum(litersM[1]) : undefined })
   }
 
-  // ----- receita: "ganhei 250", "fiz 320 reais", "recebi 100"
+  // Hodômetro é dado do veículo, NUNCA distância trabalhada.
+  const odoM = text.match(new RegExp(
+    String.raw`(?:hod[oô]metro(?:\s+atual)?|km\s+atual|(?:estou|t[oô])\s+(?:atualmente\s+)?com)\s*(?:em|de|:|est[aá]\s+em)?\s*${NUM}\s*(?:mil\s*)?(?:km|quil[oô]metros?)(?:\s+rodados?)?`,
+    'i',
+  ))
+  if (odoM) {
+    const value = parseKmValue(odoM[1])
+    const fuel = actions.find(a => a.kind === 'fuel') as Extract<ParsedAction, { kind: 'fuel' }> | undefined
+    if (fuel) fuel.odometer = value
+    else actions.push({ kind: 'odometer', value })
+  }
+
+  // ----- receitas, inclusive várias na mesma cláusula:
+  // "ganhei 430 Uber, mais 399 da 99"
   if (!actions.length || !actions.some(a => a.kind === 'goal')) {
-    const incRe = new RegExp(String.raw`(?:ganhei|recebi|faturei|lucrei|entrou|fiz)\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?|pila)?`, 'i')
-    const inc = text.match(incRe)
-    // evita conflito com "fiz 14 viagens"
-    if (inc && !new RegExp(String.raw`fiz\s*${NUM}\s*(viagens|corridas|km)`).test(text.replace(inc[0], m2 => m2))) {
-      const isTrips = /fiz\s*\d+\s*(viagens|corridas)/.test(inc[0])
-      // Só marca saque quando a plataforma 99 é citada EXPLICITAMENTE
-      // ("caiu da 99", "saque da 99"). "recebi 99 reais" NÃO conta.
-      const is99 = MENTIONS_99.test(text)
-      if (!isTrips) actions.push({ kind: 'income', amount: parseNum(inc[1]), category: guessCategory(text, 'income'), description: undefined, is99: is99 || undefined })
+    const incRe = new RegExp(
+      String.raw`(?:\b(?:ganhei|recebi|faturei|lucrei|entrou|fiz)\s*(?:mais\s+)?|\bmais\s+)(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?|pila)?(?:\s+(?:(?:d[ao]|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(uber|99|indriver|corrida(?:\s+privada)?))?`,
+      'gi',
+    )
+    for (const inc of text.matchAll(incRe)) {
+      const at = inc.index || 0
+      const tail = text.slice(at)
+      if (/^fiz\b/i.test(inc[0]) && new RegExp(String.raw`^fiz\s*(?:mais\s+)?${NUM}\s*(?:viagens|corridas|km)`, 'i').test(tail)) continue
+      const afterAmount = text.slice(at + inc[0].length)
+      const nearbyPlatform = afterAmount.match(/^\s*(?:(?:d[ao]|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(uber|99|indriver|corrida(?:\s+privada)?)/i)
+      const platform = (inc[2] || nearbyPlatform?.[1] || '').trim().toLowerCase()
+      const description = platform === 'uber' ? 'Uber'
+        : platform === '99' ? '99'
+          : platform === 'indriver' ? 'inDrive'
+            : platform.includes('privada') ? 'Corrida privada'
+              : undefined
+      const context = platform || text
+      actions.push({
+        kind: 'income',
+        amount: parseNum(inc[1]),
+        category: platform ? 'corridas' : guessCategory(context, 'income'),
+        description,
+      })
+    }
+
+    // Ordem coloquial: "mais uma corrida de 49 reais" / "fiz uma corrida
+    // na 99 no valor de 37". O valor vem depois do substantivo.
+    const rideIncomeRe = new RegExp(
+      String.raw`(?:fiz\s+|mais\s+)?(?:uma\s+)?corrida(?:\s+(?:n[ao]|d[ao]|pel[ao]|via)\s*(uber|99|indriver))?\s+(?:de|por|no\s+valor\s+de)\s*(?:r\$)?\s*${NUM}`,
+      'gi',
+    )
+    for (const ride of text.matchAll(rideIncomeRe)) {
+      const platform = (ride[1] || '').toLowerCase()
+      const amount = parseNum(ride[2])
+      if (actions.some(a => a.kind === 'income' && a.amount === amount && a.category === 'corridas')) continue
+      actions.push({
+        kind: 'income', amount, category: 'corridas',
+        description: platform === 'uber' ? 'Uber' : platform === '99' ? '99' : platform === 'indriver' ? 'inDrive' : 'Corrida',
+      })
     }
   }
 
@@ -399,8 +462,7 @@ function parseClause(input: string): ParsedAction[] {
   // ----- trabalho: "rodei 120 km", "fiz 14 viagens", "trabalhei 8 horas"
   // (não confundir "faz 8 km/litro" — consumo — com distância rodada)
   const kmConsumo = /km\s*(?:\/\s*l\b|\/\s*litro|\s+l\b|\s+litro|\s+por\s+litro)/.test(text)
-  const kmM = text.match(new RegExp(String.raw`(?:rodei|andei|dirigi|percorri)\s*${NUM}\s*(?:km|quil[oô]metros?)?`, 'i'))
-    || (kmConsumo ? null : text.match(new RegExp(String.raw`${NUM}\s*(?:km|quil[oô]metros?)\b(?!\s*(?:\/?\s*l\b|\/?\s*litro|por\s*litro))`, 'i')))
+  const kmM = kmConsumo ? null : text.match(new RegExp(String.raw`(?:rodei|andei|dirigi|percorri|consegui\s+rodar)\s*${NUM}\s*(?:km|quil[oô]metros?)?`, 'i'))
   const tripsM = text.match(new RegExp(String.raw`(?:fiz|realizei|completei)?\s*${NUM}\s*(?:viagens|corridas)`, 'i'))
   const hoursM = text.match(new RegExp(String.raw`(?:trabalhei|fiquei|rodei por)\s*${NUM}\s*(?:horas?|h)\b`, 'i'))
     || text.match(new RegExp(String.raw`${NUM}\s*horas?\s*(?:online|trabalhad)`, 'i'))
@@ -436,8 +498,8 @@ export function describeActionDetailed(a: ParsedAction, opts?: { fee?: number; c
       if ((a as any).origin) lines.push(`Origem: ${sentenceCase((a as any).origin)}`)
       if (a.description) lines.push(`Descrição: ${sentenceCase(a.description)}`)
       lines.push('Data: Hoje')
-      if (a.kind === 'income') {
-        lines.push(a.is99 && opts?.fee ? `Taxa de saque 99: −${money(opts.fee)}` : 'Nenhuma taxa será aplicada.')
+      if (a.kind === 'income' && (a.category === 'corridas' || a.is99)) {
+        lines.push('A taxa da 99 só será incluída se você confirmar o saque separadamente.')
       }
       break
     }
@@ -490,7 +552,7 @@ export function describeActionDetailed(a: ParsedAction, opts?: { fee?: number; c
 
 export function describeAction(a: ParsedAction): string {
   switch (a.kind) {
-    case 'income': return `Receita de R$ ${a.amount.toFixed(2).replace('.', ',')}${a.category ? ` (${a.category})` : ''}${a.is99 ? ' — saque 99 (−R$ 1,00)' : ''}`
+    case 'income': return `Receita de R$ ${a.amount.toFixed(2).replace('.', ',')}${a.category ? ` (${a.category})` : ''}${a.is99 ? ' — plataforma 99' : ''}`
     case 'expense': return `Despesa de R$ ${a.amount.toFixed(2).replace('.', ',')}${a.category ? ` (${a.category})` : ''}${a.description ? ` — ${a.description}` : ''}`
     case 'work': {
       const parts = []
@@ -499,7 +561,8 @@ export function describeAction(a: ParsedAction): string {
       if (a.hours) parts.push(a.hours > 0 ? `${a.hours}h trabalhadas` : `${Math.abs(a.hours)}h removidas`)
       return `Trabalho: ${parts.join(', ')}`
     }
-    case 'fuel': return `Abastecimento${a.amount ? ` de R$ ${a.amount.toFixed(2).replace('.', ',')}` : ''}${a.liters ? ` (${a.liters} L)` : ''}`
+    case 'fuel': return `Abastecimento${a.amount ? ` de R$ ${a.amount.toFixed(2).replace('.', ',')}` : ''}${a.liters ? ` (${a.liters} L)` : ''}${a.odometer ? ` · hodômetro ${a.odometer.toLocaleString('pt-BR')} km` : ''}`
+    case 'odometer': return `Hodômetro atual: ${a.value.toLocaleString('pt-BR')} km`
     case 'maintenance': return `Manutenção: ${a.item} — R$ ${a.cost.toFixed(2).replace('.', ',')}${a.km ? ` aos ${a.km.toLocaleString('pt-BR')} km` : ''}`
     case 'goal': return `Meta: ${a.name} — R$ ${a.target.toLocaleString('pt-BR')}${a.months ? ` em ${Math.round(a.months)} meses` : ''}`
     case 'goal-update': return `Alterar meta${a.name ? ` "${a.name}"` : ''}${a.target ? ` para R$ ${a.target.toLocaleString('pt-BR')}` : ''}`

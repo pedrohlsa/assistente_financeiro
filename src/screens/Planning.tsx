@@ -15,7 +15,9 @@ export default function Planning() {
   const navigate = useNavigate()
   const toast = useToast()
   const [billOpen, setBillOpen] = useState(false)
+  const [incomeOpen, setIncomeOpen] = useState(false)
   const [budgetOpen, setBudgetOpen] = useState(false)
+  const [recurringTab, setRecurringTab] = useState<'expense' | 'income'>('expense')
   const [removing, setRemoving] = useState<RecurringExpense | null>(null)
 
   const bills = useMemo(() => upcomingBills(state, 30), [state])
@@ -52,21 +54,45 @@ export default function Planning() {
         </p>
       </div>
 
-      {/* CONTAS FIXAS (seção 24) */}
+      {/* CONTAS E ENTRADAS RECORRENTES — áreas separadas para não misturar conceitos. */}
       <div className="section-title">
-        <h2>Próximas contas</h2>
-        <button className="link" onClick={() => setBillOpen(true)}>+ Conta fixa</button>
+        <h2>Recorrências</h2>
       </div>
-      {bills.length === 0 ? (
-        <div className="card"><EmptyState emoji="📄" text="Nenhuma conta fixa cadastrada." cta="Adicionar conta" onCta={() => setBillOpen(true)} /></div>
+      <div className="chips" style={{ marginBottom: 12 }}>
+        <button className={`chip ${recurringTab === 'expense' ? 'active' : ''}`} onClick={() => setRecurringTab('expense')}>Contas a pagar</button>
+        <button className={`chip ${recurringTab === 'income' ? 'active' : ''}`} onClick={() => setRecurringTab('income')}>Entradas recorrentes</button>
+      </div>
+      <div className="card" style={{ marginBottom: 12, background: 'var(--accent-soft)', borderColor: 'transparent' }}>
+        <div className="spread">
+          <div className="grow">
+            <h3>{recurringTab === 'expense' ? 'Contas a pagar' : 'Entradas recorrentes'}</h3>
+            <p className="tiny" style={{ marginTop: 4 }}>
+              {recurringTab === 'expense'
+                ? 'Despesas que voltam a vencer, como aluguel, internet e assinaturas.'
+                : 'Dinheiro previsto que costuma entrar novamente, como salário e aluguel recebido.'}
+            </p>
+          </div>
+          <button className="btn btn-primary btn-sm" onClick={() => recurringTab === 'expense' ? setBillOpen(true) : setIncomeOpen(true)}>
+            {recurringTab === 'expense' ? '+ Nova conta' : '+ Nova entrada'}
+          </button>
+        </div>
+      </div>
+      {(recurringTab === 'expense' ? bills : incomes).length === 0 ? (
+        <div className="card">
+          <EmptyState
+            emoji={recurringTab === 'expense' ? '📄' : '💵'}
+            text={recurringTab === 'expense' ? 'Nenhuma conta a pagar cadastrada.' : 'Nenhuma entrada recorrente cadastrada.'}
+            cta={recurringTab === 'expense' ? 'Adicionar conta' : 'Adicionar entrada'}
+            onCta={() => recurringTab === 'expense' ? setBillOpen(true) : setIncomeOpen(true)}
+          />
+        </div>
       ) : (
         <div className="card" style={{ padding: '4px 16px' }}>
-          {bills.map((b, i) => (
+          {(recurringTab === 'expense' ? bills : incomes).map((b, i) => (
             <div key={b.name + i} className="row list-item">
-              <div className="tx-icon">📄</div>
+              <div className="tx-icon">{recurringTab === 'expense' ? '📄' : '💵'}</div>
               <div className="grow">
                 <div style={{ fontWeight: 650, fontSize: '0.92rem' }}>{sentenceCase(b.name)}</div>
-                {/* Forma única em todo o app: "Vence em 10 dias" (item 34). */}
                 <div className="tiny">{dueLabel(b.inDays, b.kind)}</div>
               </div>
               <span className="mono-num" style={{ fontWeight: 700 }}>{fmtBRL(b.amount)}</span>
@@ -74,10 +100,12 @@ export default function Planning() {
           ))}
         </div>
       )}
-      {state.recurring.length > 0 && (
+      {state.recurring.some(r => (r.kind || 'expense') === recurringTab) && (
         <div className="card" style={{ marginTop: 12, padding: '4px 16px' }}>
-          <p className="tiny" style={{ padding: '10px 0 2px' }}>Cadastradas ({state.recurring.length}):</p>
-          {state.recurring.map(r => (
+          <p className="tiny" style={{ padding: '10px 0 2px' }}>
+            Todas cadastradas ({state.recurring.filter(r => (r.kind || 'expense') === recurringTab).length}):
+          </p>
+          {state.recurring.filter(r => (r.kind || 'expense') === recurringTab).map(r => (
             <div key={r.id} className="row list-item">
               <div className="grow">
                 <span className="small" style={{ fontWeight: 650 }}>{sentenceCase(r.name)}</span>
@@ -94,7 +122,7 @@ export default function Planning() {
       {/* ORÇAMENTOS (seção 26) */}
       <div className="section-title">
         <h2>Orçamentos por categoria</h2>
-        <button className="link" onClick={() => setBudgetOpen(true)}>+ Limite</button>
+        <button className="link" onClick={() => setBudgetOpen(true)}>+ Novo orçamento</button>
       </div>
       {state.budgets.length === 0 ? (
         <div className="card"><EmptyState emoji="🎯" text="Crie limites mensais por categoria para controlar gastos." cta="Criar orçamento" onCta={() => setBudgetOpen(true)} /></div>
@@ -119,7 +147,8 @@ export default function Planning() {
         </div>
       )}
 
-      <Sheet open={billOpen} onClose={() => setBillOpen(false)} title="Conta fixa"><RecurringForm onDone={() => setBillOpen(false)} /></Sheet>
+      <Sheet open={billOpen} onClose={() => setBillOpen(false)} title="Nova conta a pagar"><RecurringForm onDone={() => setBillOpen(false)} defaultKind="expense" lockKind /></Sheet>
+      <Sheet open={incomeOpen} onClose={() => setIncomeOpen(false)} title="Nova entrada recorrente"><RecurringForm onDone={() => setIncomeOpen(false)} defaultKind="income" lockKind /></Sheet>
       <Sheet open={budgetOpen} onClose={() => setBudgetOpen(false)} title="Novo orçamento"><BudgetForm onDone={() => setBudgetOpen(false)} /></Sheet>
       <ConfirmDialog
         open={!!removing}

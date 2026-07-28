@@ -109,7 +109,7 @@ export function WorkForm({ onDone }: { onDone: () => void }) {
       <div className="form-grid">
         <div className="field"><label>KM rodados</label><input className="input" inputMode="decimal" value={km} onChange={e => setKm(e.target.value)} placeholder="0" /></div>
         <div className="field"><label>Viagens</label><input className="input" inputMode="numeric" value={trips} onChange={e => setTrips(e.target.value)} placeholder="0" /></div>
-        <div className="field"><label>Horas online</label><input className="input" inputMode="decimal" value={hours} onChange={e => setHours(e.target.value)} placeholder="0" /></div>
+        <div className="field"><label>Horas trabalhadas</label><input className="input" inputMode="decimal" value={hours} onChange={e => setHours(e.target.value)} placeholder="0" /></div>
         <div className="field"><label>Faturamento (opcional)</label><MoneyInput value={earned} onChange={setEarned} /></div>
       </div>
       <button className="btn btn-primary btn-block" onClick={save}>Salvar</button>
@@ -120,7 +120,7 @@ export function WorkForm({ onDone }: { onDone: () => void }) {
 export function FuelForm({ onDone }: { onDone: () => void }) {
   const { state, dispatch } = useStore()
   const toast = useToast()
-  const [price, setPrice] = useState(state.settings.fuelPricePerLiter ? String(state.settings.fuelPricePerLiter).replace('.', ',') : '')
+  const [price, setPrice] = useState('')
   const [amount, setAmount] = useState('')
   const [liters, setLiters] = useState('')
   const [odometer, setOdometer] = useState(state.vehicle ? String(state.vehicle.odometer) : '')
@@ -144,7 +144,7 @@ export function FuelForm({ onDone }: { onDone: () => void }) {
   const consumo = kmSince > 0 && l > 0 ? kmSince / l : 0
 
   const save = () => {
-    if (!a || a <= 0) return
+    if ((!a || a <= 0) && (!l || l <= 0)) return
     const f: FuelRecord = { id: uid(), date: todayISO(), amount: a, liters: l || 0, pricePerLiter: ppl || state.settings.fuelPricePerLiter, odometer: odo || undefined, station: station || undefined, fuelType }
     dispatch({ type: 'addFuel', f })
     dispatch({ type: 'addTx', tx: { id: uid(), type: 'expense', amount: a, category: 'combustivel', description: `Abastecimento${station ? ' ' + station : ''}`, date: todayISO(), time: nowTime(), source: 'manual' } })
@@ -180,16 +180,16 @@ export function FuelForm({ onDone }: { onDone: () => void }) {
           )}
         </div>
       )}
-      <button className="btn btn-primary btn-block" disabled={!a || a <= 0} onClick={save}>Salvar</button>
+      <p className="tiny">
+        Com valor e litros, o preço por litro é calculado sozinho. A partir do segundo
+        abastecimento com hodômetro, o consumo em km/L aparece como estimativa.
+      </p>
+      <button className="btn btn-primary btn-block" disabled={(!a || a <= 0) && (!l || l <= 0)} onClick={save}>Salvar</button>
     </div>
   )
 }
 
-const MAINT_OPTIONS = [
-  { name: 'Óleo', life: 10000 }, { name: 'Pneus', life: 40000 }, { name: 'Pastilhas', life: 30000 },
-  { name: 'Freios', life: 30000 }, { name: 'Correia', life: 60000 }, { name: 'Filtros', life: 10000 },
-  { name: 'Velas', life: 30000 }, { name: 'Amortecedores', life: 60000 }, { name: 'Outros', life: 20000 },
-]
+const MAINT_OPTIONS = ['Óleo', 'Pneus', 'Pastilhas', 'Freios', 'Correia', 'Filtros', 'Velas', 'Amortecedores', 'Outros']
 
 export function MaintenanceForm({ onDone }: { onDone: () => void }) {
   const { state, dispatch } = useStore()
@@ -197,12 +197,12 @@ export function MaintenanceForm({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState('Óleo')
   const [cost, setCost] = useState('')
   const [km, setKm] = useState(state.vehicle ? String(state.vehicle.odometer) : '')
-  const [life, setLife] = useState('10000')
+  const [life, setLife] = useState('')
 
   const save = () => {
     const c = parseMoney(cost)
     if (!c) return
-    const m: MaintenanceItem = { id: uid(), name, cost: c, kmInstalled: parseMoney(km) || 0, lifeKm: parseMoney(life) || 10000, date: todayISO() }
+    const m: MaintenanceItem = { id: uid(), name, cost: c, kmInstalled: parseMoney(km) || 0, lifeKm: parseMoney(life) || 0, date: todayISO() }
     dispatch({ type: 'addMaintenance', m })
     dispatch({ type: 'addTx', tx: { id: uid(), type: 'expense', amount: c, category: 'manutencao', description: `Troca: ${name}`, date: todayISO(), time: nowTime(), source: 'manual' } })
     toast({ text: `${name} registrado.` })
@@ -213,14 +213,15 @@ export function MaintenanceForm({ onDone }: { onDone: () => void }) {
     <div className="stack">
       <div className="field"><label>Item</label>
         <div className="chips">{MAINT_OPTIONS.map(o => (
-          <button key={o.name} className={`chip ${name === o.name ? 'active' : ''}`} onClick={() => { setName(o.name); setLife(String(o.life)) }}>{o.name}</button>
+          <button key={o} className={`chip ${name === o ? 'active' : ''}`} onClick={() => setName(o)}>{o}</button>
         ))}</div>
       </div>
       <div className="form-grid">
         <div className="field"><label>Custo (R$)</label><MoneyInput autoFocus value={cost} onChange={setCost} /></div>
         <div className="field"><label>KM da instalação</label><input className="input" inputMode="numeric" value={km} onChange={e => setKm(e.target.value)} /></div>
-        <div className="field full"><label>Vida útil (km)</label><input className="input" inputMode="numeric" value={life} onChange={e => setLife(e.target.value)} /></div>
+        <div className="field full"><label>Vida útil (km, opcional)</label><input className="input" inputMode="numeric" value={life} onChange={e => setLife(e.target.value)} placeholder="Consulte o fabricante ou seu mecânico" /></div>
       </div>
+      <p className="tiny">Se deixar a vida útil em branco, a manutenção será salva no histórico, mas o app não projetará a próxima troca nem quanto reservar.</p>
       <button className="btn btn-primary btn-block" disabled={!parseMoney(cost)} onClick={save}>Salvar</button>
     </div>
   )
@@ -297,12 +298,9 @@ export function GoalForm({ onDone, goal }: { onDone: () => void; goal?: Financia
  * contados a partir da data inicial.
  */
 const QUICK_FREQUENCIES: { id: string; label: string; interval: number; unit: IntervalUnit }[] = [
+  { id: 'daily', label: 'Diário', interval: 1, unit: 'day' },
   { id: 'weekly', label: 'Semanal', interval: 1, unit: 'week' },
-  { id: 'biweekly', label: 'A cada 2 semanas', interval: 2, unit: 'week' },
   { id: 'monthly', label: 'Mensal', interval: 1, unit: 'month' },
-  { id: 'bimonthly', label: 'A cada 2 meses', interval: 2, unit: 'month' },
-  { id: 'quarterly', label: 'A cada 3 meses', interval: 3, unit: 'month' },
-  { id: 'semiannual', label: 'A cada 6 meses', interval: 6, unit: 'month' },
   { id: 'yearly', label: 'Anual', interval: 1, unit: 'year' },
 ]
 
@@ -312,7 +310,7 @@ const UNIT_LABEL: Record<IntervalUnit, string> = { day: 'dias', week: 'semanas',
 const legacyFrequency = (unit: IntervalUnit): RecurringExpense['frequency'] =>
   unit === 'week' || unit === 'day' ? 'weekly' : unit === 'year' ? 'yearly' : 'monthly'
 
-export function RecurringForm({ onDone, defaultKind }: { onDone: () => void; defaultKind?: 'income' | 'expense' }) {
+export function RecurringForm({ onDone, defaultKind, lockKind = false }: { onDone: () => void; defaultKind?: 'income' | 'expense'; lockKind?: boolean }) {
   const { state, dispatch } = useStore()
   const toast = useToast()
   const [kind, setKind] = useState<'income' | 'expense'>(defaultKind || 'expense')
@@ -384,7 +382,7 @@ export function RecurringForm({ onDone, defaultKind }: { onDone: () => void; def
     const r = rec || build()
     dispatch({ type: 'addRecurring', r })
     setAskReceived(false)
-    toast({ text: kind === 'income' ? 'Entrada fixa adicionada como prevista.' : 'Conta fixa adicionada.' })
+    toast({ text: kind === 'income' ? 'Entrada recorrente adicionada como prevista.' : 'Conta a pagar adicionada.' })
     onDone()
   }
 
@@ -419,10 +417,17 @@ export function RecurringForm({ onDone, defaultKind }: { onDone: () => void; def
 
   return (
     <div className="stack">
-      <div className="chips">
-        <button className={`chip ${kind === 'expense' ? 'active' : ''}`} onClick={() => switchKind('expense')}>Conta a pagar</button>
-        <button className={`chip ${kind === 'income' ? 'active' : ''}`} onClick={() => switchKind('income')}>Entrada fixa</button>
-      </div>
+      {!lockKind && (
+        <div className="chips">
+          <button className={`chip ${kind === 'expense' ? 'active' : ''}`} onClick={() => switchKind('expense')}>Conta a pagar</button>
+          <button className={`chip ${kind === 'income' ? 'active' : ''}`} onClick={() => switchKind('income')}>Entrada recorrente</button>
+        </div>
+      )}
+      <p className="tiny">
+        {kind === 'income'
+          ? 'Entrada recorrente é um dinheiro que costuma entrar de novo, como salário ou aluguel recebido. Aqui ele fica previsto; o saldo só muda quando você confirmar o recebimento.'
+          : 'Conta a pagar é uma despesa que se repete, como aluguel, internet ou assinatura. Cadastrar não desconta o saldo até você confirmar o pagamento.'}
+      </p>
       <div className="form-grid">
         <div className="field full"><label>Nome</label><input className="input" autoFocus placeholder={kind === 'income' ? 'ex.: Salário, Aluguel casa 1' : 'ex.: Aluguel, Internet, Netflix'} value={name} onChange={e => setName(e.target.value)} /></div>
         <div className="field"><label>Valor (R$)</label><MoneyInput value={amount} onChange={setAmount} /></div>

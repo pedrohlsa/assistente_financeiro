@@ -37,6 +37,14 @@ export const sameName = (a?: string | null, b?: string | null): boolean => {
   return !!x && x === normalizeName(b)
 }
 
+/** A conversa é texto simples; remove marcas que modelos às vezes devolvem. */
+export function plainChatText(s?: string | null): string {
+  return String(s || '')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/__(.*?)__/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+}
+
 // ---------- DIAS DA SEMANA ----------
 // O índice 0–6 é detalhe do JavaScript e NUNCA aparece para o usuário: a
 // interface sempre mostra o nome. Abreviação só onde o espaço aperta.

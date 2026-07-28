@@ -124,6 +124,18 @@ export default function Goals() {
   const msg = useMemo(() => monthlySavingGoal(state), [state])
   const driverMode = isDriver(state.settings)
   const activeDeficits = state.deficits.filter(d => !d.ignored && d.remaining > 0.01)
+  const cadence = goalCadenceOf(state.settings)
+  const monthlyWorkDays = useMemo(() => {
+    const now = new Date()
+    const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+    let count = 0
+    for (let day = 1; day <= last; day++) {
+      if (state.settings.workDays.includes(new Date(now.getFullYear(), now.getMonth(), day).getDay())) count++
+    }
+    return Math.max(count, 1)
+  }, [state.settings.workDays])
+  const goalFactor = cadence === 'daily' ? 1 : cadence === 'weekly' ? Math.max(state.settings.workDays.length, 1) : monthlyWorkDays
+  const cadenceTitle = cadence === 'daily' ? 'diária' : cadence === 'weekly' ? 'semanal' : 'mensal'
 
   return (
     <div className="fade-slide">
@@ -135,20 +147,20 @@ export default function Goals() {
       {/* META DIÁRIA (seção 16) — só motorista */}
       {driverMode && (
         <div className="card">
-          <h3 className="muted">Sua meta diária</h3>
-          <div className="big-number" style={{ margin: '4px 0 10px' }}>{fmtBRL(goal.total)}</div>
+          <h3 className="muted">Sua meta {cadenceTitle}</h3>
+          <div className="big-number" style={{ margin: '4px 0 10px' }}>{fmtBRL(goal.total * goalFactor)}</div>
           <div className="stack" style={{ fontSize: '0.9rem' }}>
-            <div className="spread"><span className="muted">Meta base (contas + objetivo)</span><span className="mono-num">{fmtBRL(goal.base)}</span></div>
-            <div className="spread"><span className="muted">Metas pessoais</span><span className="mono-num">+ {fmtBRL(goal.personal)}</span></div>
-            <div className="spread"><span className="muted">Déficits</span><span className="mono-num">+ {fmtBRL(goal.deficit)}</span></div>
+            <div className="spread"><span className="muted">Meta base (contas + objetivo)</span><span className="mono-num">{fmtBRL(goal.base * goalFactor)}</span></div>
+            <div className="spread"><span className="muted">Metas pessoais</span><span className="mono-num">+ {fmtBRL(goal.personal * goalFactor)}</span></div>
+            <div className="spread"><span className="muted">Déficits</span><span className="mono-num">+ {fmtBRL(goal.deficit * goalFactor)}</span></div>
             {goal.installments > 0 && (
-              <div className="spread"><span className="muted">Parcelas e faturas do mês</span><span className="mono-num">+ {fmtBRL(goal.installments)}</span></div>
+              <div className="spread"><span className="muted">Parcelas e faturas do período</span><span className="mono-num">+ {fmtBRL(goal.installments * goalFactor)}</span></div>
             )}
-            <div className="spread"><span className="muted">Margem de segurança ({state.settings.safetyMarginPct}%)</span><span className="mono-num">+ {fmtBRL(goal.margin)}</span></div>
+            <div className="spread"><span className="muted">Margem de segurança ({state.settings.safetyMarginPct}%)</span><span className="mono-num">+ {fmtBRL(goal.margin * goalFactor)}</span></div>
             <div className="divider" />
-            <div className="spread" style={{ fontWeight: 750 }}><span>Meta final</span><span className="mono-num">{fmtBRL(goal.total)}</span></div>
+            <div className="spread" style={{ fontWeight: 750 }}><span>Meta final</span><span className="mono-num">{fmtBRL(goal.total * goalFactor)}</span></div>
           </div>
-          <p className="tiny" style={{ marginTop: 10 }}>Calculada com base nas suas contas fixas, metas, déficits e {goal.workDaysLeft} dias de trabalho restantes. Ajuste em Mais → Configurações.</p>
+          <p className="tiny" style={{ marginTop: 10 }}>A mesma meta está sendo exibida {GOAL_CADENCE_SUFFIX[cadence]}. A opção escolhida em Mais → Configurações vale também para a tela inicial. Restam {goal.workDaysLeft} dias de trabalho no mês.</p>
         </div>
       )}
 

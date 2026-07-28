@@ -1099,6 +1099,70 @@ das correções.
 
 ---
 
+## 🟢 Motorista, assistente composto e painel Android — 2026-07-28
+
+### Dados e cálculos
+
+- Custos do veículo começam em zero; o app não inventa preço, consumo, custo fixo
+  ou valor mínimo por km.
+- Hodômetro foi separado de km trabalhado. Registrar trabalho não altera mais o
+  hodômetro, e frases como "estou com 220.007 km" não contaminam as estatísticas.
+- Abastecimentos aceitam valor + litros + hodômetro no mesmo registro, calculam
+  preço/L e, a partir de dois hodômetros, estimam km/L.
+- Vida útil de manutenção começa em branco. Sem ela não existe projeção falsa;
+  com vida útil e média diária de km, aparecem data aproximada e reserva diária.
+- Receita de corrida conta uma viagem quando o usuário não informou quantidade.
+
+### Assistente
+
+- O parser preserva todas as partes de mensagens compostas, incluindo
+  "430 Uber, mais 399 da 99, 163 de gasolina, 24 L e 161 km".
+- "Mais uma corrida de 49" e "corrida na 99 no valor de 37" funcionam localmente.
+- Mensagens que misturam registro e pergunta de orçamento respondem às duas partes.
+- Avisos de intenção ("vou te passar...") recebem resposta conversacional, sem
+  disparar resumo ou registro.
+- A taxa é uma confirmação separada e curta ("Taxa 99"); citar a 99 não desconta
+  automaticamente.
+- Marcas Markdown devolvidas pela IA são removidas na conversa.
+
+### Interface
+
+- Planejamento separa "Contas a pagar" e "Entradas recorrentes", com explicação
+  simples, formulários travados no tipo correto e botão de novo orçamento.
+- Frequências rápidas: diário, semanal, mensal, anual e personalizada.
+- Categoria padrão "Autocuidado" adicionada.
+- Ritmo diário/semanal/mensal agora vale na Home e em Metas. Motorista continua
+  diário por padrão; os outros perfis, mensal.
+- Home usa "Resultado realizado" e avisa que contas previstas ainda não pagas
+  ficam fora desse número.
+- A barra inferior permanece visível; "Mais" continua verde em Planejamento,
+  Veículo, Cartões, Análises e Configurações.
+- Configurações ganhou "Limpar lançamentos e trabalho", preservando cadastros.
+
+### Android
+
+- Novo analisador flutuante ativado em Mais. Usa sobreposição e acesso a
+  notificações concedidos pelo usuário; não usa serviço de acessibilidade.
+- Ofertas da Uber, 99 e inDrive que trazem valor/km na notificação recebem cálculo
+  local de R$/km bruto e após custos.
+- Quando a plataforma não expõe os dados na notificação, tocar no painel volta ao
+  app para análise manual.
+- Versão Android: 1.1.0 (versionCode 2).
+
+### Testes desta rodada
+
+- `npm test`: cenários exatos do briefing passaram.
+- `npx tsc -b`: sem erros.
+- `npm run build`: sucesso.
+- `assembleDebug` com JDK 21: sucesso.
+- QA móvel em 430 × 900: Home, Planejamento, formulário recorrente, Configurações,
+  Veículo, Assistente e destaque de Mais verificados.
+- Fluxo real no navegador: R$ 430 Uber + R$ 399 da 99 + combustível + 161 km
+  gerou duas receitas, duas viagens, um abastecimento e um trabalho; o hodômetro
+  220.007 permaneceu separado.
+
+---
+
 ## Comandos exatos para retomar o desenvolvimento
 
 ```bash

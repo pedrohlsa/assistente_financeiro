@@ -14,7 +14,7 @@ import {
 import { sentenceCase } from '../utils/text'
 import {
   analyzeRide, avgDailyProfit, balanceOutlook, bestWorstDay, currentBalance, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
-  monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections,
+  monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections, budgetUsage,
 } from './calc'
 import { describeAction, parseNaturalFull } from './nlp'
 import { catById } from '../data/categories'
@@ -134,8 +134,11 @@ export function buildAiContext(s: AppState) {
         minimoRecomendado: r2(custoKm.minRecommended), confortavel: r2(custoKm.comfort),
       },
       consumoKmPorLitro: fuelEfficiency(s) ? r2(fuelEfficiency(s)!) : null,
-      veiculo: s.vehicle ? { modelo: `${s.vehicle.brand} ${s.vehicle.model}`, hodometro: s.vehicle.odometer } : null,
-      manutencoes: s.maintenance.map(m => ({ item: m.name, instaladoKm: m.kmInstalled, vidaUtilKm: m.lifeKm, proximaTrocaKm: m.kmInstalled + m.lifeKm })),
+      veiculo: s.vehicle ? { modelo: `${s.vehicle.brand} ${s.vehicle.model}`.trim(), hodometro: s.vehicle.odometer, mediaKmDia: s.vehicle.averageDailyKm || null } : null,
+      manutencoes: s.maintenance.map(m => ({
+        item: m.name, instaladoKm: m.kmInstalled, vidaUtilKm: m.lifeKm || null,
+        proximaTrocaKm: m.lifeKm > 0 ? m.kmInstalled + m.lifeKm : null,
+      })),
     }
   }
 
@@ -168,7 +171,7 @@ function sanitizeActions(raw: any[]): ParsedAction[] {
     if (!a || typeof a !== 'object') continue
     switch (a.kind) {
       case 'income':
-        if (isNum(a.amount)) out.push({ kind: 'income', amount: a.amount, category: optStr(a.category), description: optStr(a.description), is99: a.is99 === true || undefined })
+        if (isNum(a.amount)) out.push({ kind: 'income', amount: a.amount, category: optStr(a.category), description: optStr(a.description) })
         break
       case 'expense':
         if (isNum(a.amount)) out.push({ kind: 'expense', amount: a.amount, category: optStr(a.category), description: optStr(a.description) })
@@ -178,6 +181,9 @@ function sanitizeActions(raw: any[]): ParsedAction[] {
         break
       case 'fuel':
         if (isNum(a.amount) || isNum(a.liters)) out.push({ kind: 'fuel', amount: optNum(a.amount), liters: optNum(a.liters), pricePerLiter: optNum(a.pricePerLiter), odometer: optNum(a.odometer) })
+        break
+      case 'odometer':
+        if (isNum(a.value)) out.push({ kind: 'odometer', value: a.value })
         break
       case 'maintenance':
         if (optStr(a.item) && isNum(a.cost)) out.push({ kind: 'maintenance', item: optStr(a.item)!, cost: a.cost, km: optNum(a.km), lifeKm: optNum(a.lifeKm) })
@@ -240,7 +246,7 @@ function sanitizeActions(raw: any[]): ParsedAction[] {
 // Em dev, o Vite serve /api/ai/chat (middleware em vite.config.ts) na mesma origem.
 // Em produção (build empacotado num APK/PWA), não existe dev server: aponte
 // VITE_AI_API_URL para o backend publicado (ex.: https://seu-projeto.vercel.app/api/ai/chat).
-const AI_API_URL = import.meta.env.VITE_AI_API_URL || '/api/ai/chat'
+const AI_API_URL = import.meta.env?.VITE_AI_API_URL || '/api/ai/chat'
 
 /**
  * Chama o backend de IA (DeepSeek — a chave fica só no servidor).
@@ -265,8 +271,7 @@ export async function askAssistantRemote(
     const text = String(data.reply || '').trim()
     if (!text) return null
     let actions = sanitizeActions(data.actions)
-    // Defesa extra: fora do perfil motorista, um is99 vindo da IA é descartado
-    // (aluguel/salário jamais geram taxa de saque da 99).
+    // Defesa extra para respostas de versões antigas do backend.
     if (!isDriver(s.settings)) {
       actions = actions.map(a => (a.kind === 'income' && a.is99 ? { ...a, is99: undefined } : a))
     }
@@ -301,6 +306,15 @@ function resolveLocal(s: AppState, input: string): AiReply {
   const t = input.toLowerCase().trim()
   const driverMode = isDriver(s.settings)
 
+  // Intenção de conversar/avisar o que virá não é um pedido de resumo.
+  if (/\b(?:vou|posso|quero)\s+(?:te\s+)?(?:passar|falar|dizer|mandar)\b/.test(t) && !/\b\d+(?:[.,]\d+)*\b/.test(t)) {
+    return {
+      text: driverMode
+        ? 'Claro. Pode mandar na mesma mensagem quanto ganhou, quanto gastou, os km, as horas e, se souber, as viagens. Eu vou ler tudo antes de propor os registros.'
+        : 'Claro. Pode mandar na mesma mensagem tudo que entrou, tudo que saiu e qualquer detalhe importante. Eu vou ler a mensagem inteira antes de propor os registros.',
+    }
+  }
+
   // ---------- 1) Comandos de registro ----------
   const parsed = parseNaturalFull(input, { driver: driverMode })
   const actions = parsed.actions
@@ -318,6 +332,29 @@ function resolveLocal(s: AppState, input: string): AiReply {
   }
 
   // ---------- 2) Perguntas ----------
+
+  // Registro + pergunta sobre orçamento na mesma mensagem. A resposta usa o
+  // valor projetado após as ações, mas nada é salvo antes da confirmação.
+  if (actions.length && /(?:quanto|qual).*(?:limite|dispon[ií]vel|resta|sobrou)|ainda\s+tenho.*limite/.test(t)) {
+    const expenseActions = actions.filter(a => a.kind === 'expense') as Extract<ParsedAction, { kind: 'expense' }>[]
+    const categoryId = expenseActions.find(a => a.category)?.category
+      || s.budgets.find(b => t.includes(catById(s.categories, b.category).name.toLowerCase()))?.category
+    const budget = categoryId ? s.budgets.find(b => b.category === categoryId) : undefined
+    if (budget) {
+      const used = budgetUsage(s, budget.category)
+      const pending = expenseActions.filter(a => a.category === budget.category).reduce((sum, a) => sum + a.amount, 0)
+      const after = Math.max(budget.limit - used - pending, 0)
+      const cat = catById(s.categories, budget.category)
+      return {
+        text: `Entendi o gasto e também a sua pergunta. Se você confirmar, o orçamento de ${cat.name} ficará com ${fmtBRL(after)} disponíveis neste mês (${fmtBRL(used + pending)} de ${fmtBRL(budget.limit)} usados).\n\nConfirmar o registro?`,
+        actions,
+      }
+    }
+    return {
+      text: `Entendi o registro, mas essa categoria ainda não tem orçamento cadastrado. Você pode criar em Mais → Planejamento → Novo orçamento.\n\nConfirmar o registro mesmo assim?`,
+      actions,
+    }
+  }
 
   // ===== Cartões, parcelas e faturas (todos os perfis) =====
   const ov = cardsOverview(s)
@@ -650,6 +687,9 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // "quanto meu carro custa por km"
   if (driverMode && /custa por km|custo por km|custo.*km|por km.*custo/.test(t)) {
     const kc = kmCost(s)
+    if (kc.total <= 0) {
+      return { text: 'Os custos do veículo ainda estão zerados. Registre abastecimentos com valor, litros e hodômetro; informe manutenções e custos fixos quando souber. Aí eu calculo sem inventar médias.' }
+    }
     return {
       text: `Custo real do seu veículo (estimativa com base nos seus registros):\n\n` +
         `• Combustível: ${fmtBRL(kc.fuelPerKm)}/km\n• Manutenção: ${fmtBRL(kc.maintenancePerKm)}/km\n• Custos fixos: ${fmtBRL(kc.fixedPerKm)}/km\n\n` +

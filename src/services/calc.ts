@@ -397,24 +397,25 @@ export interface KmCost {
 }
 
 export function kmCost(s: AppState): KmCost {
-  // consumo real a partir dos abastecimentos, senão configuração
-  const kml = fuelEfficiency(s) || s.settings.kmPerLiter || 10
-  const price = lastFuelPrice(s) || s.settings.fuelPricePerLiter || 6
-  const fuelPerKm = price / kml
+  // Sem dados do usuário, permanece zero: nunca inventa consumo ou preço.
+  const kml = fuelEfficiency(s) || s.settings.kmPerLiter || 0
+  const price = lastFuelPrice(s) || s.settings.fuelPricePerLiter || 0
+  const fuelPerKm = kml > 0 && price > 0 ? price / kml : 0
 
   const maintenancePerKm = s.maintenance.reduce((a, m) => a + (m.lifeKm > 0 ? m.cost / m.lifeKm : 0), 0)
 
   const st = monthStats(s)
-  const kmMonth = st.km > 300 ? st.km : 2000 // estimativa se pouco histórico
-  const fixedPerKm = (s.settings.fixedMonthlyCosts || 0) / kmMonth
+  const informedKmMonth = (s.vehicle?.averageDailyKm || 0) * 30
+  const kmMonth = st.km > 0 ? st.km : informedKmMonth
+  const fixedPerKm = kmMonth > 0 ? (s.settings.fixedMonthlyCosts || 0) / kmMonth : 0
 
   const operational = fuelPerKm + maintenancePerKm
   return {
     fuelPerKm, maintenancePerKm, fixedPerKm,
     operational,
     total: operational + fixedPerKm,
-    minRecommended: s.settings.minPerKm || Math.max((operational + fixedPerKm) * 2, 1.2),
-    comfort: s.settings.comfortPerKm || Math.max((operational + fixedPerKm) * 2.6, 1.8),
+    minRecommended: s.settings.minPerKm || (operational + fixedPerKm > 0 ? (operational + fixedPerKm) * 2 : 0),
+    comfort: s.settings.comfortPerKm || (operational + fixedPerKm > 0 ? (operational + fixedPerKm) * 2.6 : 0),
   }
 }
 
@@ -431,7 +432,7 @@ export function fuelEfficiency(s: AppState): number | null {
 }
 
 export function lastFuelPrice(s: AppState): number | null {
-  const recs = [...s.fuelRecords].sort((a, b) => b.date.localeCompare(a.date))
+  const recs = [...s.fuelRecords].filter(r => r.pricePerLiter > 0).sort((a, b) => b.date.localeCompare(a.date))
   return recs.length ? recs[0].pricePerLiter : null
 }
 

@@ -21,6 +21,7 @@ export default function SettingsScreen() {
   const [newCatType, setNewCatType] = useState<'income' | 'expense'>('expense')
   const [pendingImport, setPendingImport] = useState<any>(null)
   const [confirmReplace, setConfirmReplace] = useState(false)
+  const [confirmClearActivity, setConfirmClearActivity] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
 
   const num = (v: string, fallback: number) => { const n = parseMoney(v); return isNaN(n) ? fallback : n }
@@ -155,7 +156,7 @@ export default function SettingsScreen() {
           <h3>Motorista de app</h3>
           <div className="spread">
             <div>
-              <div className="small" style={{ fontWeight: 650 }}>Taxa de saque da 99</div>
+              <div className="small" style={{ fontWeight: 650 }}>Taxa 99</div>
               <div className="tiny">Ao registrar uma receita de corridas, pergunto se foi saque da 99 e desconto a taxa.</div>
             </div>
             <button className={`chip ${s.ask99Fee ? 'active' : ''}`} onClick={() => dispatch({ type: 'settings', patch: { ask99Fee: !s.ask99Fee } })}>
@@ -173,18 +174,18 @@ export default function SettingsScreen() {
         <div className="card stack">
           <h3>Custos do veículo</h3>
           <div className="form-grid">
-            <div className="field"><label>Preço combustível (R$/L)</label>
-              <input className="input" inputMode="decimal" defaultValue={String(s.fuelPricePerLiter)} onBlur={e => dispatch({ type: 'settings', patch: { fuelPricePerLiter: num(e.target.value, s.fuelPricePerLiter) } })} /></div>
-            <div className="field"><label>Consumo (km/L)</label>
-              <input className="input" inputMode="decimal" defaultValue={String(s.kmPerLiter)} onBlur={e => dispatch({ type: 'settings', patch: { kmPerLiter: num(e.target.value, s.kmPerLiter) } })} /></div>
+            <div className="field"><label>Preço combustível manual (R$/L)</label>
+              <input className="input" inputMode="decimal" defaultValue={s.fuelPricePerLiter || ''} placeholder="0,00" onBlur={e => dispatch({ type: 'settings', patch: { fuelPricePerLiter: num(e.target.value, 0) } })} /></div>
+            <div className="field"><label>Consumo manual (km/L)</label>
+              <input className="input" inputMode="decimal" defaultValue={s.kmPerLiter || ''} placeholder="0" onBlur={e => dispatch({ type: 'settings', patch: { kmPerLiter: num(e.target.value, 0) } })} /></div>
             <div className="field"><label>Custos fixos mensais (R$)</label>
-              <input className="input" inputMode="decimal" defaultValue={String(s.fixedMonthlyCosts)} onBlur={e => dispatch({ type: 'settings', patch: { fixedMonthlyCosts: num(e.target.value, s.fixedMonthlyCosts) } })} /></div>
+              <input className="input" inputMode="decimal" defaultValue={s.fixedMonthlyCosts || ''} placeholder="0,00" onBlur={e => dispatch({ type: 'settings', patch: { fixedMonthlyCosts: num(e.target.value, 0) } })} /></div>
             <div className="field"><label>Mínimo por km (R$)</label>
-              <input className="input" inputMode="decimal" defaultValue={String(s.minPerKm)} onBlur={e => dispatch({ type: 'settings', patch: { minPerKm: num(e.target.value, s.minPerKm) } })} /></div>
+              <input className="input" inputMode="decimal" defaultValue={s.minPerKm || ''} placeholder="0,00" onBlur={e => dispatch({ type: 'settings', patch: { minPerKm: num(e.target.value, 0) } })} /></div>
             <div className="field"><label>Confortável por km (R$)</label>
-              <input className="input" inputMode="decimal" defaultValue={String(s.comfortPerKm)} onBlur={e => dispatch({ type: 'settings', patch: { comfortPerKm: num(e.target.value, s.comfortPerKm) } })} /></div>
+              <input className="input" inputMode="decimal" defaultValue={s.comfortPerKm || ''} placeholder="0,00" onBlur={e => dispatch({ type: 'settings', patch: { comfortPerKm: num(e.target.value, 0) } })} /></div>
           </div>
-          <p className="tiny">Seguro, IPVA, licenciamento e financiamento entram em "custos fixos mensais" para compor o custo real por km.</p>
+          <p className="tiny">Tudo começa zerado. Abastecimentos com valor, litros e hodômetro formam as médias reais; os campos manuais servem apenas como referência quando ainda não há histórico.</p>
         </div>
       )}
 
@@ -195,7 +196,7 @@ export default function SettingsScreen() {
           Arquivar uma categoria só a esconde dos seletores: os lançamentos antigos continuam intactos.
         </p>
         <div className="row">
-          <input className="input" placeholder="nome da categoria" value={newCat} onChange={e => setNewCat(e.target.value)} />
+          <input className="input" placeholder="Nome da categoria" value={newCat} onChange={e => setNewCat(e.target.value)} />
           <select className="input" style={{ width: 130 }} value={newCatType} onChange={e => setNewCatType(e.target.value as any)}>
             <option value="expense">Despesa</option><option value="income">Receita</option>
           </select>
@@ -225,10 +226,10 @@ export default function SettingsScreen() {
           objetivos de compra. Não muda a meta diária do motorista nem a
           frequência das contas recorrentes. */}
       <div className="card stack">
-        <h3>Ritmo exibido nas metas</h3>
+        <h3>Ritmo exibido no app</h3>
         <p className="tiny">
-          Como o valor a guardar aparece nos seus objetivos de compra. É só a forma de mostrar —
-          o cálculo da meta e as contas recorrentes não mudam.
+          A opção escolhida aqui será refletida na tela inicial e nas metas. Ela muda
+          o período exibido, não transforma previsões em movimentações realizadas.
         </p>
         <div className="chips">
           {(['daily', 'weekly', 'monthly'] as GoalCadence[]).map(c => (
@@ -310,7 +311,8 @@ export default function SettingsScreen() {
         {import.meta.env.DEV && !state.settings.demo && state.transactions.length === 0 && (
           <button className="btn btn-soft btn-sm" onClick={() => { dispatch({ type: 'loadDemo' }); toast({ text: 'Dados de demonstração carregados.' }) }}>Carregar dados de demonstração (dev)</button>
         )}
-        <button className="btn btn-danger-soft btn-sm" onClick={() => setConfirmReset(true)}>Apagar todos os dados</button>
+        <button className="btn btn-danger-soft btn-sm" onClick={() => setConfirmClearActivity(true)}>Limpar lançamentos e trabalho</button>
+        <button className="btn btn-danger-soft btn-sm" onClick={() => setConfirmReset(true)}>Apagar tudo e refazer cadastro</button>
       </div>
 
       {/* Confirmação própria da interface: window.confirm é bloqueado ou ignorado
@@ -330,6 +332,21 @@ export default function SettingsScreen() {
             setPendingImport(null)
             setConfirmReplace(false)
             toast({ text: 'Backup restaurado. ✅' })
+          },
+        }]}
+      />
+      <ConfirmDialog
+        open={confirmClearActivity}
+        onClose={() => setConfirmClearActivity(false)}
+        title="Limpar lançamentos e trabalho?"
+        text="Isso apaga movimentações, abastecimentos, manutenções, km, viagens, horas e conversa. Seu perfil, veículo, contas, orçamentos, metas e cartões continuam cadastrados."
+        actions={[{
+          label: 'Limpar registros',
+          tone: 'danger',
+          onClick: () => {
+            dispatch({ type: 'clearActivity' })
+            setConfirmClearActivity(false)
+            toast({ text: 'Registros limpos. Você pode recomeçar.' })
           },
         }]}
       />

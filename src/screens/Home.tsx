@@ -9,6 +9,7 @@ import { MoneyInput, Progress, EmptyState, Sheet } from '../components/ui'
 import { SavingForm } from '../components/forms'
 import PendingRecurrings from '../components/PendingRecurrings'
 import { uid } from '../utils/format'
+import { goalCadenceOf } from '../services/profile'
 
 const ALL_CARDS: { id: string; label: string; value: (s: any, ts: any, kc: any) => string }[] = [
   { id: 'km', label: 'KM rodados', value: (_s, ts) => fmtNum(ts.km, 0) + ' km' },
@@ -25,7 +26,7 @@ const ALL_CARDS: { id: string; label: string; value: (s: any, ts: any, kc: any) 
 export default function Home() {
   const { state, dispatch } = useStore()
   const navigate = useNavigate()
-  const [metric, setMetric] = useState<'profit' | 'balance' | 'gross'>('profit')
+  const [metric, setMetric] = useState<'result' | 'gross'>('result')
   const [customizing, setCustomizing] = useState(false)
   const [editingBalance, setEditingBalance] = useState(false)
   const [balanceInput, setBalanceInput] = useState('')
@@ -47,7 +48,21 @@ export default function Home() {
   const msg = useMemo(() => monthlySavingGoal(state), [state])
   const mfc = useMemo(() => monthForecast(state), [state])
 
-  const pct = goal.total > 0 ? Math.round((ts.profit / goal.total) * 100) : 0
+  const cadence = goalCadenceOf(state.settings)
+  const cadenceStats = cadence === 'daily' ? ts : cadence === 'weekly' ? week : month
+  const monthlyWorkDays = useMemo(() => {
+    const now = new Date()
+    const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+    let count = 0
+    for (let day = 1; day <= last; day++) {
+      if (state.settings.workDays.includes(new Date(now.getFullYear(), now.getMonth(), day).getDay())) count++
+    }
+    return Math.max(count, 1)
+  }, [state.settings.workDays])
+  const cadenceFactor = cadence === 'daily' ? 1 : cadence === 'weekly' ? Math.max(state.settings.workDays.length, 1) : monthlyWorkDays
+  const cadenceGoal = goal.total * cadenceFactor
+  const cadenceLabel = cadence === 'daily' ? 'hoje' : cadence === 'weekly' ? 'nos últimos 7 dias' : 'neste mês'
+  const pct = cadenceGoal > 0 ? Math.round((cadenceStats.profit / cadenceGoal) * 100) : 0
   const avg = avgDailyProfit(state)
 
   const headline = useMemo(() => {
@@ -58,19 +73,21 @@ export default function Home() {
         ? `Este mês você está no azul: sobrou ${fmtBRL(sobra)} até agora.`
         : `Atenção: este mês você já gastou ${fmtBRL(-sobra)} a mais do que entrou.`
     }
-    if (ts.income === 0 && ts.expense === 0) return 'Pronto para começar o dia?'
-    if (ts.profit >= goal.total && goal.total > 0) return `Meta batida! Você superou sua meta em ${fmtBRL(ts.profit - goal.total)}. 🎉`
-    if (ts.hours > 1 && ts.profit > 0) {
-      const pace = ts.profit / ts.hours
-      const projected = ts.profit + pace * 3
-      if (projected >= goal.total) return `Se mantiver seu ritmo atual, você deve superar sua meta em ${fmtBRL(Math.max(projected - goal.total, 0))}.`
+    if (cadenceStats.income === 0 && cadenceStats.expense === 0) return cadence === 'daily' ? 'Pronto para começar o dia?' : `Ainda não há movimentações ${cadenceLabel}.`
+    if (cadenceStats.profit >= cadenceGoal && cadenceGoal > 0) return `Meta batida! Você superou a meta do período em ${fmtBRL(cadenceStats.profit - cadenceGoal)}. 🎉`
+    if (cadenceStats.hours > 1 && cadenceStats.profit > 0 && cadence === 'daily') {
+      const pace = cadenceStats.profit / cadenceStats.hours
+      const projected = cadenceStats.profit + pace * 3
+      if (projected >= cadenceGoal) return `Se mantiver seu ritmo atual, você deve superar sua meta em ${fmtBRL(Math.max(projected - cadenceGoal, 0))}.`
     }
-    if (goal.total > 0 && ts.profit < goal.total) return `Você está ${fmtBRL(goal.total - ts.profit)} abaixo da sua meta de hoje.`
-    return 'Seu dia está indo bem.'
-  }, [ts, goal, isDriver, month])
+    if (cadenceGoal > 0 && cadenceStats.profit < cadenceGoal) return `Você está ${fmtBRL(cadenceGoal - cadenceStats.profit)} abaixo da meta ${cadenceLabel}.`
+    return `Seu resultado ${cadenceLabel} está positivo.`
+  }, [cadenceStats, cadenceGoal, cadence, cadenceLabel, isDriver, month])
 
-  const mainValue = metric === 'profit' ? ts.profit : metric === 'gross' ? ts.income : ts.income - ts.expense
-  const mainLabel = metric === 'profit' ? 'Lucro estimado hoje' : metric === 'gross' ? 'Faturamento de hoje' : 'Saldo de hoje'
+  const mainValue = metric === 'gross' ? cadenceStats.income : cadenceStats.profit
+  const mainLabel = metric === 'gross'
+    ? `Receitas realizadas ${cadenceLabel}`
+    : `Receitas menos despesas registradas ${cadenceLabel}`
 
   // Déficit de ontem ainda não tratado? (seção 18)
   const yesterday = addDays(todayISO(), -1)
@@ -327,7 +344,7 @@ export default function Home() {
 
           {bills30.length === 0 && incomes.length === 0 && (
             <div className="card">
-              <p className="small muted">Cadastre suas contas e entradas fixas pra eu te avisar dos vencimentos e prever seu mês.</p>
+              <p className="small muted">Cadastre suas contas e entradas recorrentes pra eu te avisar dos vencimentos e prever seu mês.</p>
               <button className="btn btn-soft btn-block" onClick={() => navigate('/planejamento')} style={{ marginTop: 10 }}>Cadastrar contas e entradas</button>
             </div>
           )}
@@ -339,31 +356,32 @@ export default function Home() {
           {/* CARD PRINCIPAL */}
           <div className={`card ${pct >= 100 ? 'celebrate' : ''}`}>
             <div className="spread">
-              <h3 className="muted">Resultado de hoje</h3>
+              <h3 className="muted">Resultado realizado {cadenceLabel}</h3>
               <span className="tiny">toque no valor para alternar</span>
             </div>
-            <button onClick={() => setMetric(m => m === 'profit' ? 'balance' : m === 'balance' ? 'gross' : 'profit')}
+            <button onClick={() => setMetric(m => m === 'result' ? 'gross' : 'result')}
               style={{ background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, font: 'inherit', color: 'inherit' }}>
               <div className={`big-number ${mainValue >= 0 ? 'amount-pos' : 'amount-neg'}`}>{fmtBRL(mainValue)}</div>
               <div className="tiny">{mainLabel}</div>
             </button>
 
             <div className="grid-3" style={{ margin: '16px 0 14px' }}>
-              <div><div className="tiny">Receitas</div><div className="mono-num" style={{ fontWeight: 700 }}>{fmtBRL(ts.income)}</div></div>
-              <div><div className="tiny">Despesas</div><div className="mono-num" style={{ fontWeight: 700 }}>{fmtBRL(ts.expense)}</div></div>
-              <div><div className="tiny">Meta</div><div className="mono-num" style={{ fontWeight: 700 }}>{fmtBRL(goal.total)}</div></div>
+              <div><div className="tiny">Receitas</div><div className="mono-num" style={{ fontWeight: 700 }}>{fmtBRL(cadenceStats.income)}</div></div>
+              <div><div className="tiny">Despesas</div><div className="mono-num" style={{ fontWeight: 700 }}>{fmtBRL(cadenceStats.expense)}</div></div>
+              <div><div className="tiny">Meta do período</div><div className="mono-num" style={{ fontWeight: 700 }}>{fmtBRL(cadenceGoal)}</div></div>
             </div>
 
             <Progress pct={pct} tone={pct < 40 ? 'warn' : undefined} />
             <div className="spread" style={{ marginTop: 8 }}>
               <span className="small muted">{Math.min(pct, 999)}% da meta atingida</span>
               <span className="small" style={{ fontWeight: 650 }}>
-                {pct >= 100 ? '🎉 Meta batida!' : `Faltam ${fmtBRL(goal.total - ts.profit)}`}
+                {pct >= 100 ? '🎉 Meta batida!' : `Faltam ${fmtBRL(Math.max(cadenceGoal - cadenceStats.profit, 0))}`}
               </span>
             </div>
-            {pct < 100 && ts.hours > 0.5 && ts.profit > 0 && (
+            <p className="tiny" style={{ marginTop: 8 }}>Contas previstas ainda não pagas não entram neste resultado; elas aparecem no planejamento.</p>
+            {pct < 100 && cadence === 'daily' && cadenceStats.hours > 0.5 && cadenceStats.profit > 0 && (
               <p className="tiny" style={{ marginTop: 8 }}>
-                No seu ritmo atual ({fmtBRL(ts.profit / ts.hours)}/h), faltam aproximadamente {fmtNum((goal.total - ts.profit) / (ts.profit / ts.hours))}h de trabalho.
+                No seu ritmo atual ({fmtBRL(cadenceStats.profit / cadenceStats.hours)}/h), faltam aproximadamente {fmtNum((cadenceGoal - cadenceStats.profit) / (cadenceStats.profit / cadenceStats.hours))}h de trabalho.
               </p>
             )}
             <Link to="/metas" className="link">Por que essa meta? →</Link>
@@ -442,8 +460,8 @@ export default function Home() {
               <div className="grid-2">
                 {cards.map(c => (
                   <div key={c.id} className="mini-card">
-                    <div className="mini-value">{c.value(state, ts.km > 0 || ts.trips > 0 ? ts : week, kc)}</div>
-                    <div className="mini-label">{c.label}{ts.km === 0 && ts.trips === 0 ? ' (7 dias)' : ''}</div>
+                    <div className="mini-value">{c.value(state, cadenceStats, kc)}</div>
+                    <div className="mini-label">{c.label} ({cadence === 'daily' ? 'hoje' : cadence === 'weekly' ? '7 dias' : 'mês'})</div>
                   </div>
                 ))}
               </div>

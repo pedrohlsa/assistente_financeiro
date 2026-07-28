@@ -76,6 +76,8 @@ export interface Vehicle {
   model: string
   year?: string
   odometer: number
+  /** Média informada pelo usuário para estimar datas de manutenção. */
+  averageDailyKm?: number
 }
 
 export interface MaintenanceItem {
@@ -308,6 +310,7 @@ export type ParsedAction =
   | { kind: 'saving'; amount: number; description?: string }
   | { kind: 'work'; km?: number; trips?: number; hours?: number }
   | { kind: 'fuel'; amount?: number; liters?: number; pricePerLiter?: number; odometer?: number }
+  | { kind: 'odometer'; value: number }
   | { kind: 'maintenance'; item: string; cost: number; km?: number; lifeKm?: number }
   | { kind: 'goal'; name: string; target: number; months?: number }
   | { kind: 'goal-update'; name: string; target?: number; months?: number }
@@ -342,6 +345,7 @@ export interface Settings {
   safetyMarginPct: number
   workDays: number[] // 0-6 (dom-sáb)
   homeCards: string[]
+  /** Referências manuais. Começam em zero e são substituídas por dados reais. */
   fuelPricePerLiter: number
   kmPerLiter: number
   minPerKm: number // valor mínimo recomendado configurável

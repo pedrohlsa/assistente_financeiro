@@ -11,7 +11,7 @@ import { DEFAULT_CATEGORIES, mergeDefaultCategories } from '../data/categories'
 import { buildDemoData } from '../data/demo'
 import { addDays, monthKey, nowStamp, nowTime, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
-import { can99FeeApply, defaultIncomeCategory } from '../services/profile'
+import { defaultIncomeCategory } from '../services/profile'
 import { buildInstallments, cardInvoice, currentInvoice, suggestedFirstDueDate } from '../services/cards'
 
 const STORAGE_KEY = 'assistfin-state-v1'
@@ -22,8 +22,8 @@ const defaultSettings: Settings = {
   monthlyProfitTarget: 4500, safetyMarginPct: 10,
   workDays: [1, 2, 3, 4, 5, 6],
   homeCards: ['km', 'trips', 'netkm', 'perhour'],
-  fuelPricePerLiter: 6.1, kmPerLiter: 11, minPerKm: 1.55, comfortPerKm: 2,
-  fixedMonthlyCosts: 450, notifications: true,
+  fuelPricePerLiter: 0, kmPerLiter: 0, minPerKm: 0, comfortPerKm: 0,
+  fixedMonthlyCosts: 0, notifications: true,
   balance: 0, ask99Fee: true, platform99Fee: 1, remoteAi: true,
 }
 
@@ -115,6 +115,7 @@ type Action =
   | { type: 'chat'; msg: ChatMessage }
   | { type: 'chatResolve'; id: string }
   | { type: 'chatClear' }
+  | { type: 'clearActivity' }
   | { type: 'loadDemo' }
   | { type: 'reset' }
 
@@ -134,18 +135,17 @@ function reducer(s: AppState, a: Action): AppState {
           workSessions: s.workSessions.map(w => w.date === date
             ? { ...w, km: w.km + (a.w.km || 0), trips: w.trips + (a.w.trips || 0), hours: w.hours + (a.w.hours || 0) }
             : w),
-          vehicle: s.vehicle && a.w.km ? { ...s.vehicle, odometer: s.vehicle.odometer + (a.w.km || 0) } : s.vehicle,
         }
       }
       return {
         ...s,
         workSessions: [{ id: uid(), date, km: a.w.km || 0, trips: a.w.trips || 0, hours: a.w.hours || 0 }, ...s.workSessions],
-        vehicle: s.vehicle && a.w.km ? { ...s.vehicle, odometer: s.vehicle.odometer + (a.w.km || 0) } : s.vehicle,
       }
     }
     case 'addFuel': {
-      const v = s.vehicle && a.f.odometer && a.f.odometer > (s.vehicle.odometer || 0)
-        ? { ...s.vehicle, odometer: a.f.odometer } : s.vehicle
+      const v = a.f.odometer && a.f.odometer > (s.vehicle?.odometer || 0)
+        ? { ...(s.vehicle || { brand: '', model: 'Meu veículo', odometer: 0 }), odometer: a.f.odometer }
+        : s.vehicle
       return { ...s, fuelRecords: [a.f, ...s.fuelRecords], vehicle: v }
     }
     case 'setVehicle': return { ...s, vehicle: a.v }
@@ -301,6 +301,17 @@ function reducer(s: AppState, a: Action): AppState {
     case 'chat': return { ...s, chat: [...s.chat, a.msg].slice(-200) }
     case 'chatResolve': return { ...s, chat: s.chat.map(m => m.id === a.id ? { ...m, pending: undefined, choices: undefined } : m) }
     case 'chatClear': return { ...s, chat: [] }
+    case 'clearActivity':
+      return {
+        ...s,
+        transactions: [],
+        workSessions: [],
+        fuelRecords: [],
+        maintenance: [],
+        deficits: [],
+        chat: [],
+        dismissedDeficitDates: [],
+      }
     case 'loadDemo': {
       const demo = buildDemoData()
       return { ...s, ...demo, settings: { ...s.settings, demo: true } } as AppState
@@ -414,11 +425,6 @@ export function applyParsedAction(dispatch: React.Dispatch<Action>, state: AppSt
   switch (a.kind) {
     case 'income':
       dispatch({ type: 'addTx', tx: { id: uid(), type: 'income', amount: a.amount, category: a.category || defaultIncomeCategory(state.settings), description: a.description, origin: a.origin, date, time, source, profileAtCreation: state.settings.profile } })
-      // Taxa de saque da 99 — SOMENTE no perfil motorista. Em autônomo/CLT/outro
-      // um is99 vindo da IA é ignorado (aluguel/salário nunca geram taxa).
-      if (a.is99 && can99FeeApply(state.settings)) {
-        dispatch({ type: 'addTx', tx: { id: uid(), type: 'expense', amount: state.settings.platform99Fee, category: 'outros-out', description: 'Taxa de saque 99', date, time, source } })
-      }
       break
     case 'expense':
       dispatch({ type: 'addTx', tx: { id: uid(), type: 'expense', amount: a.amount, category: a.category || 'outros-out', description: a.description, origin: a.origin, date, time, source, profileAtCreation: state.settings.profile } })
@@ -437,9 +443,14 @@ export function applyParsedAction(dispatch: React.Dispatch<Action>, state: AppSt
       if (a.amount) dispatch({ type: 'addTx', tx: { id: uid(), type: 'expense', amount: a.amount, category: 'combustivel', description: 'Abastecimento', date, time, source } })
       break
     }
+    case 'odometer': {
+      const vehicle = state.vehicle || { brand: '', model: 'Meu veículo', odometer: 0 }
+      dispatch({ type: 'setVehicle', v: { ...vehicle, odometer: a.value } })
+      break
+    }
     case 'maintenance': {
       const name = a.item.charAt(0).toUpperCase() + a.item.slice(1)
-      dispatch({ type: 'addMaintenance', m: { id: uid(), name, cost: a.cost, kmInstalled: a.km ?? (state.vehicle?.odometer || 0), lifeKm: a.lifeKm || 10000, date } })
+      dispatch({ type: 'addMaintenance', m: { id: uid(), name, cost: a.cost, kmInstalled: a.km ?? (state.vehicle?.odometer || 0), lifeKm: a.lifeKm || 0, date } })
       dispatch({ type: 'addTx', tx: { id: uid(), type: 'expense', amount: a.cost, category: 'manutencao', description: `Troca de ${a.item}`, date, time, source } })
       if (a.km && state.vehicle && a.km > state.vehicle.odometer) dispatch({ type: 'setVehicle', v: { ...state.vehicle, odometer: a.km } })
       break

@@ -19,6 +19,7 @@ export const DEFAULT_CATEGORIES: Category[] = [
   { id: 'obra', name: 'Obra e construção', type: 'expense', icon: '🧱' },
   { id: 'lazer', name: 'Lazer', type: 'expense', icon: '🎮' },
   { id: 'compras', name: 'Compras', type: 'expense', icon: '🛍️' },
+  { id: 'autocuidado', name: 'Autocuidado', type: 'expense', icon: '🧴' },
   { id: 'outros-out', name: 'Outros', type: 'expense', icon: '📦' },
   // Reserva/investimento: usada só por lançamentos type:'saving' (14.3).
   // Arquivada para não aparecer como opção de despesa nos seletores.
@@ -59,6 +60,7 @@ export const CATEGORY_KEYWORDS: Record<string, string[]> = {
   casa: ['aluguel', 'luz', 'energia', 'água', 'agua', 'gás de cozinha', 'gas de cozinha', 'botijão', 'botijao', 'glp', 'condomínio', 'condominio', 'iptu'],
   lazer: ['cinema', 'bar', 'balada', 'show', 'jogo', 'festa', 'cerveja', 'passeio'],
   compras: ['roupa', 'tênis', 'tenis', 'shopping', 'loja', 'presente', 'farmácia', 'farmacia'],
+  autocuidado: ['autocuidado', 'auto cuidado', 'cabeleireiro', 'barbeiro', 'barbearia', 'salão', 'salao', 'manicure', 'pedicure', 'cosmético', 'cosmetico', 'skincare', 'academia'],
   corridas: ['corrida', 'uber', '99', 'indriver', 'app', 'viagem', 'passageiro'],
   salario: ['salário', 'salario', 'pagamento', 'holerite'],
   aluguel: ['aluguel', 'aluguéis', 'alugueis', 'inquilino', 'locação', 'locacao', 'imóvel', 'imovel', 'casa alugada'],

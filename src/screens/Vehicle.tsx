@@ -18,6 +18,7 @@ export default function VehicleScreen() {
   const [model, setModel] = useState(state.vehicle?.model || '')
   const [year, setYear] = useState(state.vehicle?.year || '')
   const [odo, setOdo] = useState(state.vehicle ? String(state.vehicle.odometer) : '')
+  const [averageDailyKm, setAverageDailyKm] = useState(state.vehicle?.averageDailyKm ? String(state.vehicle.averageDailyKm) : '')
 
   const kc = useMemo(() => kmCost(state), [state])
   const eff = useMemo(() => fuelEfficiency(state), [state])
@@ -26,7 +27,7 @@ export default function VehicleScreen() {
   const odometer = state.vehicle?.odometer || 0
 
   const saveVehicle = () => {
-    dispatch({ type: 'setVehicle', v: { brand, model, year, odometer: parseMoney(odo) || 0 } })
+    dispatch({ type: 'setVehicle', v: { brand, model, year, odometer: parseMoney(odo) || 0, averageDailyKm: parseMoney(averageDailyKm) || undefined } })
     setEditingVehicle(false)
     toast({ text: 'Veículo salvo.' })
   }
@@ -62,8 +63,10 @@ export default function VehicleScreen() {
             <div className="field"><label>Marca</label><input className="input" value={brand} onChange={e => setBrand(e.target.value)} placeholder="Chevrolet" /></div>
             <div className="field"><label>Modelo</label><input className="input" value={model} onChange={e => setModel(e.target.value)} placeholder="Onix" /></div>
             <div className="field"><label>Ano</label><input className="input" inputMode="numeric" value={year} onChange={e => setYear(e.target.value)} placeholder="2021" /></div>
-            <div className="field"><label>KM atual</label><input className="input" inputMode="numeric" value={odo} onChange={e => setOdo(e.target.value)} placeholder="80000" /></div>
+            <div className="field"><label>Hodômetro atual</label><input className="input" inputMode="numeric" value={odo} onChange={e => setOdo(e.target.value)} placeholder="80000" /></div>
+            <div className="field full"><label>Média de km por dia (opcional)</label><input className="input" inputMode="decimal" value={averageDailyKm} onChange={e => setAverageDailyKm(e.target.value)} placeholder="ex.: 180" /></div>
           </div>
+          <p className="tiny" style={{ marginTop: 10 }}>O hodômetro fica no cadastro do carro e nunca entra como “km trabalhados”. A média diária serve apenas para estimar quando uma manutenção pode chegar.</p>
           <button className="btn btn-primary btn-block" style={{ marginTop: 14 }} onClick={saveVehicle} disabled={!model}>Salvar</button>
         </div>
       ) : (
@@ -97,7 +100,11 @@ export default function VehicleScreen() {
             <div className="mini-value">{fmtBRL(kc.comfort)}</div><div className="mini-label">Meta confortável/km</div>
           </div>
         </div>
-        <p className="tiny" style={{ marginTop: 10 }}>Estimativa com base nos seus abastecimentos, manutenções e custos fixos configurados. Ajuste os valores em Configurações.</p>
+        <p className="tiny" style={{ marginTop: 10 }}>
+          {kc.total > 0
+            ? 'Estimativa com base somente nos seus abastecimentos, manutenções, km registrados e custos configurados.'
+            : 'Ainda não há dados suficientes. Os custos ficam zerados até você registrar abastecimentos, km, manutenções ou valores manuais.'}
+        </p>
       </div>
 
       {/* COMBUSTÍVEL (seção 21) */}
@@ -142,19 +149,30 @@ export default function VehicleScreen() {
         <div className="stack">
           {state.maintenance.map(mi => {
             const used = Math.max(odometer - mi.kmInstalled, 0)
-            const pct = mi.lifeKm > 0 ? Math.min((used / mi.lifeKm) * 100, 100) : 0
+            const hasLife = mi.lifeKm > 0
+            const pct = hasLife ? Math.min((used / mi.lifeKm) * 100, 100) : 0
             const next = mi.kmInstalled + mi.lifeKm
-            const status = pct >= 100 ? 'Troca vencida!' : pct >= 80 ? 'Troca próxima' : 'Em dia'
+            const status = !hasLife ? 'Sem projeção' : pct >= 100 ? 'Troca vencida!' : pct >= 80 ? 'Troca próxima' : 'Em dia'
+            const kmLeft = Math.max(next - odometer, 0)
+            const daysLeft = hasLife && (state.vehicle?.averageDailyKm || 0) > 0 ? Math.ceil(kmLeft / state.vehicle!.averageDailyKm!) : 0
+            const reservePerDay = hasLife && (state.vehicle?.averageDailyKm || 0) > 0 ? (mi.cost / mi.lifeKm) * state.vehicle!.averageDailyKm! : 0
             return (
               <div key={mi.id} className="card" style={{ padding: '14px 16px' }}>
                 <div className="spread">
                   <h3>{mi.name}</h3>
-                  <span className={`badge ${pct >= 100 ? 'neg' : pct >= 80 ? 'warn' : 'pos'}`}>{status}</span>
+                  <span className={`badge ${!hasLife ? 'neutral' : pct >= 100 ? 'neg' : pct >= 80 ? 'warn' : 'pos'}`}>{status}</span>
                 </div>
-                <p className="tiny" style={{ margin: '4px 0 8px' }}>
-                  {fmtNum(used, 0)} / {fmtNum(mi.lifeKm, 0)} km · próxima troca aos {fmtNum(next, 0)} km · custo diluído {fmtBRL(mi.lifeKm > 0 ? mi.cost / mi.lifeKm : 0)}/km
-                </p>
-                <Progress pct={pct} tone={pct >= 100 ? 'danger' : pct >= 80 ? 'warn' : undefined} />
+                {hasLife ? (
+                  <>
+                    <p className="tiny" style={{ margin: '4px 0 8px' }}>
+                      {fmtNum(used, 0)} / {fmtNum(mi.lifeKm, 0)} km · próxima troca aos {fmtNum(next, 0)} km · custo diluído {fmtBRL(mi.cost / mi.lifeKm)}/km
+                    </p>
+                    <Progress pct={pct} tone={pct >= 100 ? 'danger' : pct >= 80 ? 'warn' : undefined} />
+                    {daysLeft > 0 && <p className="tiny" style={{ marginTop: 7 }}>Pela sua média diária: cerca de {daysLeft} dias · reserve aproximadamente {fmtBRL(reservePerDay)}/dia.</p>}
+                  </>
+                ) : (
+                  <p className="tiny" style={{ margin: '4px 0 8px' }}>Vida útil não informada. O registro fica salvo, mas não há projeção de troca nem valor sugerido para reservar.</p>
+                )}
                 <div className="spread" style={{ marginTop: 8 }}>
                   <span className="tiny">Instalado aos {fmtNum(mi.kmInstalled, 0)} km por {fmtBRL(mi.cost)}</span>
                   <button className="link tiny" onClick={() => dispatch({ type: 'removeMaintenance', id: mi.id })}>Remover</button>
@@ -172,7 +190,7 @@ export default function VehicleScreen() {
           <div className="grid-3">
             <div className="mini-card"><div className="mini-value">{fmtNum(m.km, 0)}</div><div className="mini-label">km rodados</div></div>
             <div className="mini-card"><div className="mini-value">{fmtNum(m.trips, 0)}</div><div className="mini-label">viagens</div></div>
-            <div className="mini-card"><div className="mini-value">{fmtNum(m.hours, 0)}h</div><div className="mini-label">online</div></div>
+            <div className="mini-card"><div className="mini-value">{fmtNum(m.hours, 0)}h</div><div className="mini-label">horas trabalhadas</div></div>
             <div className="mini-card"><div className="mini-value">{fmtBRL(m.grossPerKm)}</div><div className="mini-label">R$/km bruto</div></div>
             <div className="mini-card"><div className="mini-value">{fmtBRL(m.netPerKm)}</div><div className="mini-label">R$/km líquido</div></div>
             <div className="mini-card"><div className="mini-value">{fmtBRL(m.perTrip)}</div><div className="mini-label">média/viagem</div></div>
