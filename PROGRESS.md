@@ -1155,11 +1155,18 @@ das correções.
 - `npx tsc -b`: sem erros.
 - `npm run build`: sucesso.
 - `assembleDebug` com JDK 21: sucesso.
+- APK 1.1.0 instalado com sucesso no Moto G50; processo iniciou sem `FATAL EXCEPTION`.
+- APK: 4.316.612 bytes; SHA-256
+  `EB9B247A6A8103C981955A1B74BFBD7A112FEE595FC2E5040FE8E318C59BE651`.
 - QA móvel em 430 × 900: Home, Planejamento, formulário recorrente, Configurações,
   Veículo, Assistente e destaque de Mais verificados.
 - Fluxo real no navegador: R$ 430 Uber + R$ 399 da 99 + combustível + 161 km
   gerou duas receitas, duas viagens, um abastecimento e um trabalho; o hodômetro
   220.007 permaneceu separado.
+- Código: commit `eabca4a`, enviado para `origin/main`.
+- Produção: deployment `dpl_HkvzbjZcwauE3wojBoj4SKm2rMct`, alias
+  `https://assist-fin.vercel.app`, HTTP 200 e bundle `index-CnBwvYNY.js`.
+- Endpoint remoto respondeu sem criar ações a uma pergunta conversacional.
 
 ---
 
