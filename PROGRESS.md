@@ -1,7 +1,7 @@
 # AssistFin — Estado do Projeto
 
-**Última atualização**: 2026-07-28 — auditoria documental, criação do `CONTEXTO.md` e da
-documentação da IA. Ver "📋 Auditoria documental e consolidação" para o trabalho mais recente.
+**Última atualização**: 2026-07-28 — reformulação da arquitetura do assistente
+(branch `feat/assistant-orchestrator`). Ver "🟢 Arquitetura definitiva do assistente".
 
 > **Aviso de leitura**: as seções datadas abaixo são um diário — cada uma registra o que era
 > verdade **naquela data** e não é reescrita depois. Para o estado atual verificado, use
@@ -1305,6 +1305,111 @@ sugerida, da maior dor para a menor:
 Continuam pendentes e **deliberadamente adiados**: o redeploy da `SYSTEM_PROMPT` sincronizada
 (será feito uma única vez, junto com as demais alterações verificadas) e o tratamento de
 `type: 'saving'` como transferência interna, com "Retirar da reserva".
+
+---
+
+## 🟢 Arquitetura definitiva do assistente — 2026-07-28
+
+Branch dedicada `feat/assistant-orchestrator`. **Sem push e sem deploy.**
+
+### Baseline (antes de tocar em qualquer arquivo)
+
+- Raiz `D:/Claude/AssistFin`, branch `main` sincronizada, working tree limpo.
+- Commit de partida `d3e25a4`.
+- `npm test` ✅ · `tsc --noEmit` ✅ · `npm run build` ✅ (`index-CnBwvYNY.js`) ·
+  `npx vercel build --prod` ✅. Sem segredo, sem artefato, sem alteração desconhecida.
+
+### A causa estrutural
+
+Não era o prompt. Era `Chat.tsx` decidir tudo com um `if`: **achou ação → usa o local e encerra;
+não achou → manda a mensagem inteira pro modelo**. Desse único ponto saíam quase todos os
+sintomas — metade da mensagem se perdia quando a outra metade era entendida, "registro +
+pergunta" só funcionava para orçamento, e o remoto duplicava o que o local já tinha visto.
+
+Somavam-se prompt duplicado à mão, validação que descartava ação em silêncio, lote aplicado sobre
+estado obsoleto e erro genérico ("não encontrei a meta") para qualquer falha.
+
+### O que foi construído
+
+`src/assistant/`: `contracts.ts` (catálogo de ações, validação determinística, 18 códigos de erro,
+resposta versionada), `clauses.ts` (segmentação com posição e **cobertura**), `numbers.ts`
+(por extenso), `dates.ts` (datas e períodos), `drafts.ts` (multiturno), `corrections.ts`,
+`execute.ts` (aplicação pura, sequencial e atômica) e `orchestrator.ts`.
+
+`api/_lib/assistantPrompt.ts` virou a **fonte única** da SYSTEM_PROMPT, **gerada** a partir do
+catálogo e das capacidades reais do usuário. `api/_lib/assistantHandler.ts` concentra o pipeline;
+`vite.config.ts` e `api/ai/chat.ts` viraram cascas finas. Divergência dev × produção deixou de ser
+possível por construção.
+
+`src/components/ProposalCard.tsx` traz revisão por item: confirmar tudo, confirmar um, editar
+campos com a MESMA validação dos formulários manuais, remover ou cancelar.
+
+### Bugs reais encontrados pelo próprio corpus
+
+Cada um destes só apareceu porque o teste existia:
+
+1. `vezes?` em regex significa "veze" + "s" opcional e **nunca** casava "vez": compra "em 1 vez"
+   não virava nada.
+2. "uma corrida de 37" tinha o artigo "uma" convertido em número e gerava uma receita de R$ 1,00.
+3. "gastei MAIS 190" criava uma despesa **e** uma receita de 190.
+4. "meu salário foi 1625" caía no regex de despesa por causa do verbo "foi".
+5. "84 mil km" virava "84 1000 km" ao converter números por extenso.
+6. "gastei 190 reais depois comprando cimento" era cortado no conector e perdia a descrição.
+7. "paguei 600 da fatura do Nubank" não achava o cartão: a captura de duas palavras engolia
+   "fatura do".
+8. "recebi 1800 da Casa 1, mais 1750 da Casa 2" aplicava a mesma origem nas duas.
+9. "Ontem recebi X e gastei Y" datava só a primeira ação.
+10. "passei 2000 em 5 vezes e recebi 1850" era cortado e virava receita de 1850.
+11. `describeAction` não cobria `saving` e a proposta mostrava "undefined".
+
+### Testes
+
+| Comando | Resultado |
+|---|---|
+| `npm test` | ✅ núcleo + **234/234** casos + **26/26** invariantes |
+| `npm run typecheck` | ✅ exit 0 |
+| `npm run typecheck:api` | ✅ exit 0 (novo `tsconfig.api.json` replica a checagem da Vercel) |
+| `npm run build` | ✅ `index-CjGhr7CS.js` 496,37 kB / gzip 147,94 kB |
+| `npx vercel build --prod` | ✅ `status: ok` — build local, nada publicado |
+
+Segurança: `dist/` sem `sk-`, `DEEPSEEK`, `deepseek.com`, `getDeepSeekConfig`, `callDeepSeekChat`,
+`buildSystemPrompt` ou texto do prompt — **0 ocorrências de cada**. Única URL de IA no bundle é a
+pública. `.vercel/output` sem padrão de chave; a função continua com
+`from '../_lib/deepseek.js'` e `src/assistant/contracts.js` no caminho exato do import, sem nenhum
+import relativo próprio.
+
+### Navegador (dev server, perfil CLT)
+
+- "Meu salário foi mil seiscentos e vinte e cinco, paguei trezentos e cinquenta e cinco nas contas
+  e guardei cento e cinquenta. Quanto sobrou?" → 3 cards (receita 1.625, despesa 355, reserva 150),
+  resposta hipotética com a diferença de R$ 1.270,00 e o aviso de que nada foi registrado.
+- "Ontem recebi 1800 de aluguel da Casa 1 e gastei 150 de areia" → duas ações marcadas "· ontem",
+  categorias aluguel e obra, descrição Areia.
+- Confirmado o lote: gravou `date: 2026-07-27`, `origin: "Casa 1"`, `source: 'ai'` e
+  `assistantBatchId` nos dois lançamentos.
+
+### Commits
+
+- `f6d3e6e` — contratos versionados e fonte única do prompt.
+- `ba30a2f` — orquestrador por cláusula, rascunhos, correções e lote atômico.
+- `e462d29` — corpus de regressão, invariantes e as onze correções acima.
+- `<docs>` — documentação (este arquivo, CLAUDE.md 25–30, CONTEXTO.md, AI_CURRENT_STATE.md,
+  AI_REGRESSION_MATRIX.md, README.md).
+
+### Limitações honestas que permanecem
+
+Listadas em [docs/AI_CURRENT_STATE.md §6](docs/AI_CURRENT_STATE.md). As principais: editar um
+lançamento **já salvo** por conversa não existe; "desfaz o último" depois da gravação também não;
+a proposta pendente não vai no payload remoto; a qualidade do texto da IA remota não é testada
+(só o contrato); `Analytics.tsx` continua sem adaptação por perfil.
+
+**A contabilização de `saving` NÃO foi alterada**, de propósito — a regra 20 continua valendo.
+
+### Próxima etapa recomendada
+
+Rodar `npm run test:assistant:remote` com o dev server no ar (valida o contrato contra a DeepSeek
+real), fazer o QA manual em viewport móvel e, só então, decidir sobre merge, push e o redeploy —
+que continua deliberadamente adiado.
 
 ---
 

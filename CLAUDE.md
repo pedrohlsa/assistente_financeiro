@@ -146,6 +146,37 @@ código consulta essas funções em vez de comparar `profile === 'driver'` inlin
     `if (!out.ok)` — use o predicado `isDeepSeekFailure()`. Antes de publicar qualquer mudança em
     `api/**` ou `vite.config.ts`, rodar `npx vercel build --prod` localmente.
 
+25. **A `SYSTEM_PROMPT` tem UMA fonte só**. Ela vive em `api/_lib/assistantPrompt.ts`
+    e é GERADA a partir do catálogo de ações (`ACTION_CATALOG` em
+    `src/assistant/contracts.ts`) mais as capacidades reais do usuário. `vite.config.ts`
+    e `api/ai/chat.ts` são cascas finas sobre `handleAssistantRequest` — nenhum dos dois
+    contém prompt, validação ou regra de negócio. Nunca voltar a copiar prompt: foi assim
+    que dev e produção divergiram em silêncio por duas rodadas.
+26. **Nada entra no estado sem passar por `validateAction()`**. É a MESMA função no
+    servidor e no cliente, e valida contra o catálogo: tipo do campo, faixa de valor,
+    categoria existente e do tipo certo, e perfil. Ação recusada é sempre DEVOLVIDA com o
+    código do motivo — descartar em silêncio é proibido. `reset` nunca é aceito do canal
+    remoto (`remoteAllowed: false`).
+27. **Achar uma ação não é compreender a mensagem**. A interpretação é por CLÁUSULA
+    (`src/assistant/clauses.ts`), com posição preservada e cobertura calculada; a IA
+    remota só é chamada pelo que sobrou, e reconcilia em vez de duplicar. Uma mensagem
+    que registra E pergunta responde às duas metades, com o número marcado como
+    hipotético até a confirmação.
+28. **Lote do assistente é atômico e sequencial**. `applyBatchPure()`
+    (`src/assistant/execute.ts`) aplica cada ação sobre o estado que a anterior produziu
+    e só grava se TODAS passarem; o reducer usa a action única `assistantBatch`. Nunca
+    voltar ao `forEach(applyParsedAction(dispatch, state, ...))`: ele passava o mesmo
+    estado velho para todas e dois depósitos na mesma meta se sobrescreviam.
+29. **Erro específico, sempre**. Cada ação confirmada devolve
+    `ActionExecutionResult` com código próprio (`card-not-found`, `invoice-empty`,
+    `category-wrong-type`, `goal-not-found`…). É proibido reportar "não encontrei a meta"
+    para qualquer falha — foi exatamente esse erro genérico que mandava o usuário para a
+    tela errada.
+30. **Um regex novo exige um caso novo**. `tests/assistant/cases*.ts` é o corpus de
+    regressão (roda em `npm test`, offline e com data fixa) e
+    `tests/assistant/properties.ts` guarda as invariantes financeiras. Mexeu em parser,
+    orquestrador ou validação sem acrescentar caso? A mudança não está terminada.
+
 ## Arquitetura e tecnologias
 
 - **Frontend**: React 18 + TypeScript + Vite 5 + React Router (`HashRouter`) — SPA, sem SSR.

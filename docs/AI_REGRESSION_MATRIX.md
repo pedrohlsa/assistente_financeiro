@@ -1,5 +1,19 @@
 # Matriz de regressão do assistente — AssistFin
 
+> **Status: esta matriz virou código.** O documento continua servindo como visão panorâmica,
+> mas a fonte de verdade agora é executável:
+>
+> - `tests/assistant/cases.ts` e `tests/assistant/cases-critical.ts` — **234 casos**;
+> - `tests/assistant/properties.ts` — **26 invariantes financeiras**;
+> - `npm run test:assistant` — roda tudo offline, com data fixa, contra o orquestrador real.
+>
+> **Resultado da última execução (28/07/2026, branch `feat/assistant-orchestrator`):
+> 234/234 casos e 26/26 invariantes.**
+>
+> A coluna "Atual" abaixo descreve o estado **anterior** à reformulação e foi mantida como
+> registro histórico — é o retrato do que motivou cada correção. O que vale hoje está em
+> [AI_CURRENT_STATE.md](AI_CURRENT_STATE.md) §4 e §6.
+
 Casos representativos para avaliar o assistente antes e depois da reformulação da arquitetura.
 Montada em 28/07/2026 sobre o commit `7dc1832`.
 
@@ -20,8 +34,24 @@ estão marcados como **não verificável estaticamente** — o que se avalia nel
 **Mecanismo esperado**: `local` (determinístico e offline), `remoto` (DeepSeek), `híbrido`
 (registro local + resposta remota na mesma mensagem).
 
-A coluna **Pós-correção** fica em branco de propósito: será preenchida quando a nova arquitetura
-existir. Nada dela está implementado.
+A coluna **Pós-correção** ficou em branco de propósito quando esta matriz foi escrita. Em vez de
+preenchê-la à mão — o que envelheceria na primeira mudança —, cada linha virou um caso executável.
+Os grupos correspondem assim:
+
+| Seção desta matriz | Grupo no corpus |
+|---|---|
+| 1–3 receitas, despesas, várias ações | `receitas`, `origem`, `despesas`, `multi` |
+| 4 perguntas | `perguntas`, `coloquial` |
+| 5 registro + pergunta | `misto`, `mistos2` |
+| 6 números pt-BR | `valores`, `extenso` |
+| 7 datas e recorrências | `datas`, `datas2` |
+| 8 cartões | `cartoes`, `cartoes2` |
+| 9 metas, saving, saldo | `metas`, `saving`, `saldo` |
+| 10 motorista | `motorista`, `motorista2`, `perfil` |
+| 11 ambiguidades e correções | `ambiguidade`, `correcoes`, `correcoes2`, `multiturno` |
+| 12 conversacional | `conversa`, `conversa2`, `incompletas` |
+| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 26 invariantes |
+| Cenários obrigatórios do briefing | `criticos` (10 casos, frases literais) |
 
 ---
 

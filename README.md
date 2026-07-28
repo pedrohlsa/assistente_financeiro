@@ -11,9 +11,13 @@ está em [CONTEXTO.md](CONTEXTO.md). As regras permanentes de implementação es
 
 ```bash
 npm install
-npm run dev      # http://localhost:5199
-npm test         # testes do núcleo (parser, assistente local, custo por km)
-npm run build    # build de produção em dist/
+npm run dev                    # http://localhost:5199
+npm test                       # núcleo + corpus do assistente (offline)
+npm run test:assistant         # só o corpus (234 casos + 26 invariantes)
+npm run test:assistant:remote  # opcional: valida o contrato contra a IA real
+npm run typecheck              # checagem estrita de src/
+npm run typecheck:api          # mesma checagem que a Vercel faz em api/**
+npm run build                  # build de produção em dist/
 ```
 
 (Nesta máquina o cmd.exe não existe em System32 — o npm está configurado com

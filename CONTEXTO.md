@@ -111,6 +111,27 @@ scripts/              # test-app.mts (npm test) e test-money.mjs
 android/              # projeto Capacitor
 ```
 
+### Assistente (arquitetura v1)
+
+O assistente tem contrato versionado e vive em `src/assistant/`:
+
+- **`contracts.ts`** — catálogo de ações (`ACTION_CATALOG`), validação determinística e códigos
+  de erro. É a fonte de tudo: tipos, validação, schema do prompt, documentação e testes.
+- **`clauses.ts`** — segmenta a mensagem em cláusulas com posição, classifica intenção e calcula
+  **cobertura**. Achar uma ação não significa ter compreendido a mensagem.
+- **`numbers.ts` / `dates.ts`** — números por extenso e datas em pt-BR.
+- **`drafts.ts`** — conversa multiturno: guarda a ação incompleta e encaixa respostas curtas.
+- **`corrections.ts`** — correções e referências sobre a proposta pendente.
+- **`execute.ts`** — aplicação pura, sequencial e **atômica** do lote confirmado.
+- **`orchestrator.ts`** — amarra tudo e decide local × remoto por cobertura.
+
+`api/_lib/assistantPrompt.ts` é a **fonte única** da SYSTEM_PROMPT, gerada a partir do catálogo e
+das capacidades reais do usuário; `api/_lib/assistantHandler.ts` concentra o pipeline do endpoint.
+`vite.config.ts` e `api/ai/chat.ts` são cascas finas sobre ele — divergência dev × produção deixou
+de ser possível por construção.
+
+Detalhes e limitações honestas em [docs/AI_CURRENT_STATE.md](docs/AI_CURRENT_STATE.md).
+
 ### Endpoints
 
 Só existe um: **`POST /api/ai/chat`**.
@@ -330,13 +351,16 @@ Confirmadas no código em 28/07/2026.
 Vinte pontos confirmados e detalhados em [docs/AI_CURRENT_STATE.md](docs/AI_CURRENT_STATE.md).
 Os mais estruturais:
 
-8. `SYSTEM_PROMPT` duplicado entre `vite.config.ts` e `api/ai/chat.ts`, **com divergências reais
-   hoje** (dev tem `is99`, produção tem `odometer`, `autocuidado` e três regras extras).
-9. `sanitizeActions()` não suporta `saving` nem `origin`, e não valida categoria contra o estado.
-10. `src/services/ai.ts` tem um parser monetário paralelo (`parseFloat`), contrariando a regra 12.
-11. Não há data nas ações financeiras — tudo é gravado como "hoje".
-12. Não há rascunho estruturado para esclarecimentos em várias mensagens.
-13. Confirmação é tudo-ou-nada e as ações do lote são aplicadas sobre o mesmo `state` antigo.
+Os treze pontos estruturais listados aqui na auditoria de 28/07/2026 foram resolvidos na
+reformulação do assistente. O que **permanece** está em
+[docs/AI_CURRENT_STATE.md §6](docs/AI_CURRENT_STATE.md), resumido:
+
+8. Editar um lançamento **já salvo** por conversa não existe (só enquanto a proposta está na tela).
+9. "Desfaz o último" depois da gravação não existe — o `assistantBatchId` já viabiliza, falta o fluxo.
+10. A proposta pendente não vai no payload remoto (só o histórico de texto).
+11. Números por extenso não cobrem "meio" nem centavos em qualquer posição.
+12. Datas não cobrem "daqui a 3 dias" nem intervalos.
+13. A qualidade do texto da IA remota não é testada — só o contrato.
 
 ### Produto
 
