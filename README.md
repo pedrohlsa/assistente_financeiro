@@ -1,7 +1,9 @@
 # AssistFin — Assistente Financeiro Inteligente
 
-Aplicativo mobile-first de gestão financeira pessoal com assistente em linguagem natural,
-construído a partir da especificação em [CONTEXTO.md](CONTEXTO.md).
+Aplicativo mobile-first de gestão financeira pessoal com assistente em linguagem natural.
+A visão consolidada do produto — perfis, arquitetura, regras financeiras e pendências reais —
+está em [CONTEXTO.md](CONTEXTO.md). As regras permanentes de implementação estão em
+[CLAUDE.md](CLAUDE.md).
 
 > "Eu cuido dos seus números enquanto você cuida da sua rotina."
 
@@ -10,6 +12,7 @@ construído a partir da especificação em [CONTEXTO.md](CONTEXTO.md).
 ```bash
 npm install
 npm run dev      # http://localhost:5199
+npm test         # testes do núcleo (parser, assistente local, custo por km)
 npm run build    # build de produção em dist/
 ```
 
@@ -65,15 +68,22 @@ O assistente usa dois motores:
 1. **Parser local** (`services/nlp.ts`) — registros de dinheiro ("ganhei 300 e
    coloquei 70 de gasolina") são extraídos deterministicamente, offline, com
    suporte a vários comandos na mesma frase.
-2. **DeepSeek** (`deepseek-chat`) — perguntas e análises livres. A chave fica em
-   `.env` (`DEEPSEEK_API_KEY`) e é usada **apenas no servidor**: o middleware em
-   `vite.config.ts` expõe `POST /api/ai/chat`, monta o contexto financeiro
-   estruturado (nunca a base bruta) e valida a resposta. Se estiver offline ou o
+2. **DeepSeek** (modelo padrão `deepseek-v4-flash`, configurável por
+   `DEEPSEEK_MODEL`) — perguntas e análises livres. A chave fica em `.env`
+   (`DEEPSEEK_API_KEY`) e é usada **apenas no servidor**. `POST /api/ai/chat`
+   tem duas implementações espelhadas: o middleware em `vite.config.ts` (dev) e
+   a função serverless `api/ai/chat.ts` (produção/APK, endereçada por
+   `VITE_AI_API_URL`). As duas compartilham `api/_lib/deepseek.ts` e recebem um
+   contexto financeiro estruturado (nunca a base bruta). Se estiver offline ou o
    serviço falhar, o motor local de respostas (`services/ai.ts`) assume.
 
-Nota: o modo `response_format: json_object` do deepseek-chat foi evitado de
-propósito — ele tem um bug que devolve respostas só com espaços em branco em
-prompts longos. Pedimos JSON via prompt e aceitamos texto puro como fallback.
+Nota: o modo `response_format: json_object` foi evitado de propósito — em
+modelos anteriores ele devolvia respostas só com espaços em branco em prompts
+longos. Pedimos JSON via prompt e aceitamos texto puro como fallback.
+
+O estado real do pipeline do assistente, com as limitações confirmadas, está em
+[docs/AI_CURRENT_STATE.md](docs/AI_CURRENT_STATE.md) e
+[docs/AI_REGRESSION_MATRIX.md](docs/AI_REGRESSION_MATRIX.md).
 
 ### Real × mock × integração pendente
 

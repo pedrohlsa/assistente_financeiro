@@ -1170,6 +1170,110 @@ das correções.
 
 ---
 
+## 📋 Auditoria documental e consolidação — 2026-07-28
+
+Etapa **somente documental**. Nenhuma mudança funcional, nenhuma regra financeira alterada,
+nenhum push e nenhum deploy.
+
+### Estado do Git no início e no fim
+
+- Raiz: `D:/Claude/AssistFin` (confirmada por `git rev-parse --show-toplevel`).
+- Branch: `main`, sincronizada com `origin/main`.
+- Commit de partida: `7dc1832` (`docs: record driver release delivery`).
+- `git status` no início: **working tree clean**. `git diff` e `git diff --stat` vazios.
+- Nenhum arquivo externo rastreado, nenhum segredo, nenhum `.env`, nenhum arquivo temporário
+  de teste, nenhuma alteração funcional não documentada.
+- Não havia código de rodada anterior pendente de commit — a documentação criada aqui não se
+  misturou com nada.
+- `.vercel/output` gerado pelo build local não aparece no `git status` (já ignorado).
+
+### Testes e builds executados (resultados reais)
+
+| Comando | Resultado |
+|---|---|
+| `npm test` | ✅ exit 0 — "Todos os testes do núcleo passaram." |
+| `node node_modules/typescript/bin/tsc --noEmit` | ✅ exit 0, sem erros |
+| `npm run build` | ✅ `dist/assets/index-CnBwvYNY.js` (449,30 kB / gzip 132,03 kB), 68 módulos, 1,45 s |
+| `npx vercel build --prod` | ✅ `"status": "ok"` — build **local**, sem deploy |
+
+Nenhuma falha. O bundle gerado é idêntico ao que já está em produção
+(`index-CnBwvYNY.js`), confirmando que nada funcional mudou.
+
+### Documentação criada
+
+- **`CONTEXTO.md`** (novo, na raiz — o README já apontava para ele e o arquivo não existia).
+  Visão consolidada: produto, público, perfis, offline-first, mobile-first, estado de
+  Web/Vercel/Android, arquitetura, endpoints, integração DeepSeek, build e deploy, regras
+  financeiras permanentes, estado funcional por área e pendências reais.
+- **`docs/AI_CURRENT_STATE.md`** (novo). Pipeline em 12 etapas do texto do usuário até a
+  gravação, com arquivo, função, entrada, saída, responsabilidades, limitações, falhas possíveis
+  e dependências de cada uma; a tabela de divergências entre os dois `SYSTEM_PROMPT`; e os 20
+  pontos auditados, cada um confirmado no código.
+- **`docs/AI_REGRESSION_MATRIX.md`** (novo). 126 casos por perfil e tipo de intenção, com frase,
+  resultado esperado, ações esperadas, pergunta esperada, data esperada, mecanismo esperado
+  (local/remoto/híbrido) e status atual honesto. A coluna "pós-correção" está vazia de propósito.
+- **`CLAUDE.md`**: acrescentada a regra permanente **24** — `api/**` fora do `tsc` local,
+  extensão `.js` obrigatória nos imports ESM da função serverless e `isDeepSeekFailure()`
+  obrigatório sob `strict: false`.
+- **`README.md`**: corrigido o modelo da DeepSeek (era `deepseek-chat`, o padrão real é
+  `deepseek-v4-flash`), acrescentada a existência da função serverless de produção ao lado do
+  middleware de dev, incluído `npm test` e apontados os dois documentos de IA. O link para
+  `CONTEXTO.md` passou a ser válido.
+
+### Arquitetura atual da IA (resumo)
+
+`Chat.tsx` → `askAssistant()` → `parseNaturalFull()` + `resolveLocal()` → decisão binária
+local × remoto → `buildAiContext()` → `POST /api/ai/chat` → `callDeepSeekChat()` →
+`sanitizeActions()` → confirmação no chat → `applyParsedAction()` → reducer + `localStorage`.
+
+### Problemas confirmados (nenhum corrigido nesta etapa)
+
+Divergências reais entre os dois `SYSTEM_PROMPT`, encontradas nesta auditoria:
+
+1. Ação `odometer` existe **só em produção**.
+2. Variante `is99` existe **só no dev** — e é letra morta: `sanitizeActions()` não tem o campo.
+3. Categoria `autocuidado` está **só na lista de produção**.
+4. Regras 2b, 2c e 6b existem **só em produção**.
+5. **Nenhum dos dois** menciona `saving` ou `origin`.
+
+Outras falhas confirmadas, em ordem de impacto:
+
+- Perda silenciosa de ações: `saving`, `origin` e resposta remota sem JSON são descartados sem
+  aviso ao usuário.
+- Confirmação tudo-ou-nada, sem atomicidade, com todas as ações do lote aplicadas sobre o mesmo
+  `state` antigo (dois `goal-deposit` na mesma meta se sobrescrevem).
+- `Chat.tsx:154` reporta **qualquer** falha como "Não encontrei a meta correspondente", inclusive
+  cartão inexistente e fatura sem pendência.
+- Nenhuma ação financeira carrega data — tudo grava `todayISO()`.
+- Roteamento local encerra a mensagem na primeira intenção que casar; "registro + pergunta" só é
+  tratado no caso de orçamento.
+- `src/services/ai.ts:285` mantém um parser monetário paralelo com `parseFloat`, contra a regra 12.
+- `sanitizeActions()` não valida categoria contra `state.categories` nem bloqueia ação de
+  motorista em perfil não-motorista.
+- Sem números por extenso, sem correções/negações/referências, sem rascunho estruturado para
+  esclarecimento em várias mensagens.
+- `scripts/test-app.mts` tem 8 blocos de asserção, todos de perfil motorista.
+- `Analytics.tsx` continua sem qualquer uso de `isDriver()` — não é sensível a perfil.
+
+### Próxima etapa recomendada
+
+Implementar a arquitetura definitiva do assistente. **Nada dela está implementado.** Ordem
+sugerida, da maior dor para a menor:
+
+1. Unificar a `SYSTEM_PROMPT` num módulo compartilhado, eliminando a divergência dev × produção.
+2. Ampliar o contrato remoto e a sanitização (`saving`, `origin`, data, validação de categoria e
+   de perfil) e nunca descartar ação em silêncio.
+3. Confirmação por item, com estado atualizado entre ações e erro específico por falha.
+4. Datas nas ações financeiras.
+5. Rascunho estruturado para esclarecimento em várias mensagens.
+6. Cobertura de regressão a partir da matriz.
+
+Continuam pendentes e **deliberadamente adiados**: o redeploy da `SYSTEM_PROMPT` sincronizada
+(será feito uma única vez, junto com as demais alterações verificadas) e o tratamento de
+`type: 'saving'` como transferência interna, com "Retirar da reserva".
+
+---
+
 ## Comandos exatos para retomar o desenvolvimento
 
 ```bash

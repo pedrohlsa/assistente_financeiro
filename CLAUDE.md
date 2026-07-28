@@ -137,6 +137,14 @@ código consulta essas funções em vez de comparar `profile === 'driver'` inlin
     interface usa `weekdayName`/`weekdayShort`/`weekdayList` (`src/utils/text.ts`) e a frase
     pronta de `describeRecurrence()` ("Toda segunda-feira", "A cada 2 semanas, às
     segundas-feiras", "A cada 15 dias").
+24. **`api/**` não é checado pelo `tsc` local**. `tsconfig.json` inclui só `"src"`, então
+    `node node_modules/typescript/bin/tsc --noEmit` passa mesmo com erro na função serverless —
+    quem valida esses arquivos é o build da Vercel. Duas consequências permanentes: (a) como
+    `package.json` tem `"type": "module"`, todo import relativo dentro de `api/**` precisa de
+    extensão explícita (`from '../_lib/deepseek.js'`), senão o loader ESM do Node quebra em
+    produção; (b) sob `strict: false` o TypeScript não estreita união discriminada a partir de
+    `if (!out.ok)` — use o predicado `isDeepSeekFailure()`. Antes de publicar qualquer mudança em
+    `api/**` ou `vite.config.ts`, rodar `npx vercel build --prod` localmente.
 
 ## Arquitetura e tecnologias
 

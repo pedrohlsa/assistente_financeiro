@@ -1,0 +1,348 @@
+# AssistFin — Contexto do produto
+
+Visão consolidada e **verificada no código** em 28/07/2026 (commit `7dc1832`, branch `main`).
+Este arquivo descreve o que o aplicativo é hoje. Regras permanentes de implementação ficam no
+[CLAUDE.md](CLAUDE.md); o histórico de rodadas fica no [PROGRESS.md](PROGRESS.md).
+
+---
+
+## 1. Produto
+
+### Finalidade
+
+Gestão financeira pessoal em pt-BR com um assistente que entende linguagem natural. O usuário
+registra dinheiro conversando ("ganhei 250 hoje", "gastei 40 de gasolina") ou por formulários, e
+o app responde perguntas usando **somente os dados reais dele** — nunca médias inventadas.
+
+> "Eu cuido dos seus números enquanto você cuida da sua rotina."
+
+### Público
+
+Pessoas com renda variável ou pouco controle formal: motoristas de aplicativo, autônomos,
+assalariados e qualquer pessoa que queira acompanhar entradas, saídas, contas e reserva sem
+planilha.
+
+### Perfis
+
+`state.settings.profile: 'driver' | 'autonomo' | 'clt' | 'business' (legado) | 'other'`
+
+O onboarding oferece 4 opções. `'business'` só existe em dados antigos e é tratado como
+não-motorista.
+
+| Perfil | Quem é | O que vê de diferente |
+|---|---|---|
+| `driver` | Motorista de aplicativo (Uber/99/inDrive) | Meta **diária**, km, viagens, horas, veículo, combustível, manutenção, custo por km, analisador de corrida, taxa da 99, analisador flutuante no Android |
+| `autonomo` | Renda própria: aluguéis, serviços, vendas, comissões | Meta **mensal para guardar**, entradas recorrentes, previsão do mês |
+| `clt` | Salário fixo | Igual ao autônomo, sem dias de trabalho configuráveis |
+| `other` | Genérico | Igual ao autônomo, linguagem neutra |
+
+`src/services/profile.ts` é a fonte única dessas regras (`isDriver`, `shouldAsk99Fee`,
+`can99FeeApply`, `defaultIncomeCategory`, `MENTIONS_99`, `findPossibleDuplicate`,
+`monthlyTargetLabel`, `goalCadenceOf`). Nenhum outro arquivo compara `profile === 'driver'`
+diretamente.
+
+### Offline-first
+
+Não existe backend de dados. Todo o estado vive no `localStorage` do dispositivo, na chave
+`assistfin-state-v1`. O app funciona inteiro sem rede: registros, cálculos, metas, projeções,
+cartões e o motor de respostas local. Só a IA remota (perguntas abertas) exige internet, e ela é
+opcional (`settings.remoteAi`). Sincronização em nuvem é **integração pendente**.
+
+### Mobile-first
+
+Layout desenhado para telas pequenas (verificado a 430 × 900), navegação por barra inferior,
+folhas (sheets) em vez de páginas, botão flutuante contextual, entrada por voz via Web Speech API.
+
+### Estado atual das plataformas
+
+- **Web**: SPA em produção na Vercel, alias `https://assist-fin.vercel.app`.
+- **Vercel**: além do site estático, hospeda a função serverless `api/ai/chat.ts`.
+- **Android**: APK gerado por Capacitor 8, versão **1.1.0 (versionCode 2)**, instalado e testado
+  em um Moto G50. Inclui o analisador de corrida flutuante (overlay + acesso a notificações).
+
+---
+
+## 2. Arquitetura
+
+### Tecnologias
+
+- **React 18** + **TypeScript 5.5** + **Vite 5**.
+- **React Router 6** com `HashRouter` — SPA sem SSR, necessário para funcionar dentro do APK.
+- **Capacitor 8** empacota o build web como app Android nativo (pasta `android/`), com
+  `@capacitor/local-notifications` para avisos de contas a vencer e um plugin nativo próprio
+  `RideOverlay` (ponte em `src/services/rideOverlay.ts`).
+
+### Estado
+
+`useReducer` + Context em `src/store/store.tsx`. Toda mutação passa por `dispatch`, o que deixa o
+caminho pronto para uma fila de sincronização futura. A persistência é um `useEffect` com
+**debounce de 150 ms** que grava o estado inteiro em `localStorage`.
+
+Chave: **`assistfin-state-v1`**. Nunca existiu uma v2 — a compatibilidade é mantida por campos
+opcionais e por `normalizeState()`, que garante que todo array esperado exista mesmo em estados
+salvos antes da funcionalidade existir.
+
+### Estrutura de pastas
+
+```
+src/
+  models/types.ts     # todas as entidades e o tipo ParsedAction
+  data/               # categorias padrão (+ mergeDefaultCategories) e gerador de dados demo
+  utils/
+    format.ts         # parseMoney (parser monetário único), datas, dueLabel
+    text.ts           # sentenceCase, normalizeName/sameName, nomes de dias da semana
+  services/
+    calc.ts           # motor financeiro: saldo, metas, recorrências, projeções, insights
+    cards.ts          # cartões, faturas, parcelas, limites
+    nlp.ts            # parser determinístico pt-BR
+    ai.ts             # motor de respostas local + contexto e sanitização da IA remota
+    profile.ts        # regras de perfil
+    notifications.ts  # agendamento de notificações locais
+    rideOverlay.ts    # ponte para o plugin Android do analisador flutuante
+  store/store.tsx     # estado global, reducer, persistência, applyParsedAction
+  components/         # design system: ui, forms, cardForms, nav, PendingRecurrings
+  screens/            # Home, Chat, Transactions, Goals, Planning, Cards, Vehicle,
+                      # RideAnalyzer, Analytics, Settings, More, Onboarding
+api/
+  _lib/deepseek.ts    # config e chamada da DeepSeek — server-only
+  ai/chat.ts          # função serverless de produção
+vite.config.ts        # dev server + middleware de IA equivalente
+scripts/              # test-app.mts (npm test) e test-money.mjs
+android/              # projeto Capacitor
+```
+
+### Endpoints
+
+Só existe um: **`POST /api/ai/chat`**.
+
+- Corpo: `{ message, context, history }`. O `context` é um **agregado** montado por
+  `buildAiContext()` — nunca a lista bruta de transações.
+- Resposta: `{ reply, actions }` em caso de sucesso, ou `{ error, message }` com uma mensagem
+  segura em caso de falha.
+- Duas implementações espelhadas: o middleware `aiProxy()` em `vite.config.ts` (dev) e
+  `api/ai/chat.ts` (Vercel, produção/APK, endereçado por `VITE_AI_API_URL`).
+
+### Integração DeepSeek
+
+`api/_lib/deepseek.ts` centraliza config e chamada: modelo (default `deepseek-v4-flash`), base URL
+(default `https://api.deepseek.com`), timeout (20 s), classificação de erro, retry único quando a
+resposta vem vazia, e mensagens de erro seguras. A chave nunca chega ao cliente.
+
+`response_format: json_object` é evitado de propósito: em modelos anteriores ele devolvia respostas
+em branco com prompts longos. O JSON é pedido no prompt e extraído da resposta; texto puro vira
+`reply` sem ações.
+
+Variáveis de ambiente (server-only, sem prefixo `VITE_`): `DEEPSEEK_API_KEY` (obrigatória),
+`DEEPSEEK_MODEL`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_TIMEOUT_MS`. Ver `.env.example`.
+
+### Build e deploy
+
+```bash
+npm install
+npm run dev      # http://localhost:5199 (inclui o proxy de IA)
+npm test         # tsx scripts/test-app.mts
+npm run build    # tsc -b --noCheck && vite build → dist/
+node node_modules/typescript/bin/tsc --noEmit   # checagem ESTRITA (o build usa --noCheck)
+npx vercel build --prod                          # build local, sem publicar
+npx vercel --prod                                # deploy (só com autorização)
+```
+
+APK: `npm run build` → `npx cap sync android` → `./gradlew.bat assembleDebug`.
+
+**Atenção**: `tsconfig.json` inclui apenas `"src"`. `api/**` e `vite.config.ts` **não** são
+checados por `tsc --noEmit`; quem valida esses arquivos é o build da Vercel. E como
+`package.json` tem `"type": "module"`, os imports relativos dentro de `api/**` precisam de
+extensão explícita (`from '../_lib/deepseek.js'`).
+
+---
+
+## 3. Regras financeiras permanentes
+
+As invariantes completas estão no [CLAUDE.md](CLAUDE.md) (regras 1–24). Resumo do modelo:
+
+### Saldo real
+
+Fonte única: **`currentBalance(state)`** em `calc.ts`. Nenhuma tela calcula saldo por conta
+própria e nenhum reducer soma ou subtrai `settings.balance`.
+
+`settings.balance` é só a **âncora** informada pelo usuário, com data em `settings.balanceAsOf`.
+O saldo de hoje é a âncora mais tudo que realmente mexeu no caixa depois dela:
+
+```
+saldo = âncora
+      + receitas confirmadas        (type: 'income')
+      + entradas financiadas        (type: 'financed-cash-inflow')
+      − despesas confirmadas        (type: 'expense')
+      − faturas pagas com "descontar do saldo" (CardPayment.fromBalance)
+```
+
+### Entradas recebidas × previstas
+
+Nunca se misturam. Uma entrada recorrente (salário, aluguel) é **previsão** até o usuário
+confirmar o recebimento. Só a confirmação cria a `Transaction`, e a chave única
+`recurringId` + `occurrenceDate` — espelhada em `RecurringExpense.occurrences[]` — impede
+confirmar o mesmo período duas vezes. Ocorrência resolvida sai automaticamente das listas de
+previsto.
+
+### Despesas
+
+Somatórios filtram `type === 'expense'` explicitamente. Contas fixas cadastradas são previsão:
+não geram movimentação nem alteram saldo até serem confirmadas.
+
+### Saving e reserva
+
+`type: 'saving'` é transferência para reserva/investimento. Não é receita nem despesa; hoje só
+alimenta `savedThisMonth()` e, por decisão de projeto documentada em `currentBalance()`, **fica
+fora do saldo em conta** — a reserva do AssistFin não é necessariamente outra conta bancária.
+Registro: FAB → "Guardar dinheiro" (`SavingForm` em `components/forms.tsx`), categoria `reserva`.
+
+> Pendência conhecida: tratar `saving` como transferência interna (reduzir o saldo disponível,
+> aumentar a reserva, sem virar despesa) e criar "Retirar da reserva" ainda **não** foi
+> implementado. Ver seção 5.
+
+### Resultado do mês
+
+`Sobra do mês` (positivo) ou `Déficit do mês` (negativo) = entradas − despesas **realizadas**
+(`monthStats`). Resultado líquido **não** é dinheiro guardado. "Meta mensal alcançada" só aparece
+quando `saved >= target`; ter sobra suficiente é rotulado "há valor disponível para cumprir sua
+meta".
+
+### Cartões, parcelas e faturas
+
+Regra rígida, para nunca contar duas vezes:
+
+- Compra parcelada **não cria `Transaction`**. Ela vira `InstallmentPlan` + `Installment[]`.
+- O histórico da compra é o **valor total** (no plano); o fluxo de caixa mensal são as **parcelas
+  que vencem no mês** (`Installment.dueDate`). Nunca os dois somados.
+- Pagar a fatura (`CardPayment`) quita a dívida e reduz o saldo, mas **não gera despesa** — ela já
+  foi contada como parcela.
+- Consequência desejada: quem não usa cartões tem `monthStats` idêntico ao que sempre foi.
+- Juros: `totalAmount = principalAmount + interestAmount`. Planos antigos sem `principalAmount`
+  já têm o valor final em `totalAmount` e nunca devem ser reinterpretados.
+- Assinatura removida usa remoção **lógica** (`removedAt` + `endDate`): some da lista ativa sem
+  apagar cobranças de faturas anteriores.
+- Dados de cartão armazenados: apenas nome, instituição, **4 últimos dígitos**, limite, dia de
+  fechamento e de vencimento. Nunca número completo, CVV, senha ou token.
+
+### Entrada financiada
+
+`type: 'financed-cash-inflow'` — dinheiro recebido agora em troca de dívida parcelada no cartão.
+**Nunca** é `'income'`: fica fora de receita, lucro e faturamento por construção. O dinheiro entra
+no saldo, a dívida vive no `InstallmentPlan`, e a UI deixa claro que o patrimônio não aumentou.
+
+### Metas
+
+`kind: 'goal'` **sempre cria** meta nova; alterar uma existente é `goal-update`; guardar nela é
+`goal-deposit`. Nome equivalente (`sameName()` — ignora caixa, acento e espaços) gera confirmação
+com três saídas: criar mesmo assim, editar a existente, cancelar. Vale para onboarding, formulário,
+FAB, tela de Metas e IA. Mesma regra para cartões (`findCardByExactName`).
+
+Meta diária (`dailyGoal()`) só existe no perfil motorista, e é composta por contas fixas +
+objetivo de lucro + metas pessoais + déficits + parcelas do mês + margem de segurança, diluídos
+pelos dias de trabalho.
+
+### Recorrências
+
+`startDate` é a âncora da sequência. A frequência real é `interval` + `intervalUnit`
+(`day|week|month|year`); `frequency` é legado e só alimenta o fallback documentado em
+`recurrenceAnchor()`. Em meses curtos o dia original é preservado e só reduzido ao último dia
+daquele mês — nunca degrada permanentemente para 28. Uma conta cadastrada com o dia já vencido
+**não nasce atrasada**: a primeira ocorrência é a do próximo período. Toda data sai de
+`occurrencesBetween()`; o texto legível sai de `describeRecurrence()`, que nunca mostra dia da
+semana como número.
+
+### Taxa da 99
+
+Existe **somente** quando `perfil === 'driver'` **E** a receita é da categoria `corridas` **OU** o
+usuário menciona a plataforma explicitamente (`MENTIONS_99`, que não casa com "recebi 99 reais").
+Nunca em aluguel, salário, venda ou freelance. Nunca em outro perfil. É sempre uma **pergunta
+separada** depois do registro, porque a taxa só existe quando o saque acontece.
+
+### Motorista
+
+O perfil `driver` é o mais maduro e não pode perder funcionalidade quando outro perfil muda.
+Hodômetro (`Vehicle.odometer`) é dado do veículo e **nunca** vira km trabalhado (`WorkSession.km`).
+Custos do veículo começam em zero e só são calculados a partir de registros reais — o app nunca
+inventa consumo ou preço de combustível.
+
+### Confirmação de ações
+
+**Nada é registrado sem confirmação explícita.** Toda ação proposta pela IA (local ou remota) vira
+um par de botões Confirmar/Cancelar no chat. Ambiguidade real ("gás") interrompe o fluxo e vira
+pergunta antes de qualquer ação. Ações destrutivas (reset, substituir backup, remover assinatura,
+cancelar parcelas) usam `<ConfirmDialog>`, nunca `window.confirm`, porque a janela nativa é
+bloqueada em parte dos WebViews do Android.
+
+### Compatibilidade de dados
+
+Todo campo novo em `Settings`/`Transaction`/`RecurringExpense`/`Category`/`InstallmentPlan` é
+**opcional**. O hidrate faz merge raso de `settings` com os defaults, então campo novo em
+`Settings` já nasce com fallback; campos novos em outras entidades devem ser tratados como
+`undefined`. Categorias padrão novas chegam por **fusão** (`mergeDefaultCategories`), preservando
+personalizadas e o estado "arquivada". Importar backup oferece **Mesclar** (dedup por `id`) ou
+**Substituir tudo** — nunca substitui em silêncio.
+
+---
+
+## 4. Estado funcional atual
+
+Verificado no código nesta auditoria.
+
+| Área | Situação |
+|---|---|
+| **Onboarding** | Implementado. Escolha de perfil, nome, prioridade e primeira meta, com aviso de meta duplicada. |
+| **Home** | Implementado e bifurcado por `isDriver()`. Motorista: meta diária, cards de km/viagens/R$ por km/por hora, insights. Demais perfis: resultado realizado do mês, sobra/déficit, meta mensal para guardar com "já transferido para reserva", contas próximas. Ritmo dos objetivos configurável (diário/semanal/mensal). |
+| **Movimentações** | Implementado. Timeline com filtros de período e categoria, busca global (inclusive "mais de R$ 100"), lista curta com folha de detalhes, remoção com confirmação e "Desfazer". |
+| **Metas** | Implementado. Metas de compra com viabilidade e sugestão de prazo, meta mensal para guardar, distinção explícita entre sobra disponível e dinheiro guardado. |
+| **Planejamento** | Implementado. Contas fixas e entradas recorrentes separadas, timeline de vencimentos, previsão do mês, projeção mês a mês, orçamentos por categoria. |
+| **Cartões** | Implementado. Cadastro (sem dados sensíveis), fatura corrente com status, próximas faturas, limite comprometido/disponível, pagamento total ou parcial, assinaturas recorrentes com remoção lógica. |
+| **Parcelamentos** | Implementado. Compra parcelada com ou sem cartão, parcelamento avulso, entrada financiada, juros separados do principal, progresso do plano, cancelamento de parcelas futuras preservando histórico. |
+| **Veículo** | Implementado (motorista). Hodômetro separado dos km trabalhados, abastecimentos com km/L real, manutenções com vida útil, custo real por km. |
+| **Motorista** | Implementado. Meta diária, analisador de corrida "vale a pena?", taxa da 99 como pergunta separada, parser composto ("430 Uber, mais 399 da 99, 163 de gasolina, 24 L e 161 km"). |
+| **IA** | Funcionando, com arquitetura conhecidamente limitada. Motor local determinístico + DeepSeek para perguntas abertas. Detalhes e falhas confirmadas em [docs/AI_CURRENT_STATE.md](docs/AI_CURRENT_STATE.md). |
+| **Análises** | Implementado, mas **não é sensível a perfil** (ver pendências). Diário/semanal/mensal/anual, comparativo com período anterior, gastos por categoria, exportação CSV e impressão. |
+| **Configurações** | Implementado. Perfil, tema, dias de trabalho, custos do veículo, categorias personalizadas, notificações, IA remota ligada/desligada, "Limpar lançamentos e trabalho", reset total. |
+| **Backup** | Implementado. Exportar JSON; restaurar com escolha entre Mesclar e Substituir tudo, usando `<ConfirmDialog>`. |
+| **Android** | Implementado. 1.1.0 (versionCode 2), notificações locais, analisador flutuante por overlay + acesso a notificações (sem serviço de acessibilidade). Quando a plataforma não expõe valor/km na notificação, o painel devolve ao app para análise manual. |
+| **Modo demo** | Implementado, com selo "demo" visível. |
+
+---
+
+## 5. Limitações e pendências reais
+
+Confirmadas no código em 28/07/2026.
+
+### Financeiro
+
+1. **`type: 'saving'` ainda não é transferência interna.** Guardar dinheiro não reduz o saldo
+   disponível (`currentBalance` ignora `saving`), não existe "Retirar da reserva", e não há campo
+   para marcar um saving como transferência de saldo. Solicitado, ainda não implementado.
+2. **Antecipação de parcelas** não tem campos de desconto ou juros.
+3. **Não há tela para editar uma parcela específica** de um plano.
+4. **`CardPayment.accountId`** não existe; pagamento de fatura não é atribuído a uma conta.
+5. **Primeira ocorrência de assinatura** de cartão tem uma inconsistência de um mês em relação a
+   contas recorrentes comuns.
+6. **Não há tela para editar uma recorrência existente** — só criar e remover.
+7. **`describeRecurrence()` suporta um único dia da semana** por recorrência.
+
+### IA
+
+Vinte pontos confirmados e detalhados em [docs/AI_CURRENT_STATE.md](docs/AI_CURRENT_STATE.md).
+Os mais estruturais:
+
+8. `SYSTEM_PROMPT` duplicado entre `vite.config.ts` e `api/ai/chat.ts`, **com divergências reais
+   hoje** (dev tem `is99`, produção tem `odometer`, `autocuidado` e três regras extras).
+9. `sanitizeActions()` não suporta `saving` nem `origin`, e não valida categoria contra o estado.
+10. `src/services/ai.ts` tem um parser monetário paralelo (`parseFloat`), contrariando a regra 12.
+11. Não há data nas ações financeiras — tudo é gravado como "hoje".
+12. Não há rascunho estruturado para esclarecimentos em várias mensagens.
+13. Confirmação é tudo-ou-nada e as ações do lote são aplicadas sobre o mesmo `state` antigo.
+
+### Produto
+
+14. **`Analytics.tsx` não é sensível a perfil** (`isDriver` não é usado lá): relatórios mostram a
+    mesma estrutura para motorista e não motorista.
+15. **Sincronização em nuvem** não existe — o app é single-device.
+16. **Sem autenticação e sem multiusuário.**
+17. **`SYSTEM_PROMPT` sincronizada ainda não foi republicada** em produção: o redeploy está
+    deliberadamente adiado até reunir as alterações verificadas.
