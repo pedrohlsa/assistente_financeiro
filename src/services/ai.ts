@@ -8,8 +8,11 @@
 // `askAssistant` pode ser trocado por uma chamada remota mantendo o mesmo contrato.
 
 import { AppState, ParsedAction } from '../models/types'
+import { validateAction, isValidationFailure } from '../assistant/contracts'
+import type { AssistantErrorCode } from '../assistant/contracts'
+import { buildCapabilities } from '../assistant/orchestrator'
 import {
-  addDays, dueLabel, fmtBRL, fmtNum, fromISO, todayISO, daysInMonth,
+  addDays, dueLabel, fmtBRL, fmtNum, fromISO, todayISO, daysInMonth, parseMoney,
 } from '../utils/format'
 import { sentenceCase } from '../utils/text'
 import {
@@ -72,6 +75,12 @@ export function buildAiContext(s: AppState) {
     proximasContas: upcomingBills(s, 15).map(b => ({ nome: b.name, valor: b.amount, emDias: b.inDays })),
     proximasEntradas: upcomingIncomes(s, 31).map(b => ({ nome: b.name, valor: b.amount, emDias: b.inDays })),
     orcamentos: s.budgets.map(b => ({ categoria: b.category, limiteMensal: b.limit })),
+    // Categorias REAIS deste usuário (inclusive personalizadas). É a partir
+    // desta lista que o prompt remoto é montado e que a categoria devolvida pelo
+    // modelo é validada — nunca de uma lista escrita à mão no prompt.
+    categorias: s.categories
+      .filter(c => !c.archived)
+      .map(c => ({ id: c.id, name: c.name, type: c.type })),
   }
 
   // Cartões e parcelamentos — só entra no contexto se o usuário usa a área.
@@ -160,102 +169,34 @@ export function buildAiContext(s: AppState) {
   }
 }
 
-// ---------- Validação das ações vindas da IA remota ----------
-const isNum = (v: any) => typeof v === 'number' && isFinite(v) && v > 0
-const optNum = (v: any) => (isNum(v) ? v : undefined)
-const optStr = (v: any) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 80) : undefined)
-
-function sanitizeActions(raw: any[]): ParsedAction[] {
-  const out: ParsedAction[] = []
-  for (const a of raw || []) {
-    if (!a || typeof a !== 'object') continue
-    switch (a.kind) {
-      case 'income':
-        if (isNum(a.amount)) out.push({ kind: 'income', amount: a.amount, category: optStr(a.category), description: optStr(a.description) })
-        break
-      case 'expense':
-        if (isNum(a.amount)) out.push({ kind: 'expense', amount: a.amount, category: optStr(a.category), description: optStr(a.description) })
-        break
-      case 'work':
-        if (isNum(a.km) || isNum(a.trips) || isNum(a.hours)) out.push({ kind: 'work', km: optNum(a.km), trips: optNum(a.trips), hours: optNum(a.hours) })
-        break
-      case 'fuel':
-        if (isNum(a.amount) || isNum(a.liters)) out.push({ kind: 'fuel', amount: optNum(a.amount), liters: optNum(a.liters), pricePerLiter: optNum(a.pricePerLiter), odometer: optNum(a.odometer) })
-        break
-      case 'odometer':
-        if (isNum(a.value)) out.push({ kind: 'odometer', value: a.value })
-        break
-      case 'maintenance':
-        if (optStr(a.item) && isNum(a.cost)) out.push({ kind: 'maintenance', item: optStr(a.item)!, cost: a.cost, km: optNum(a.km), lifeKm: optNum(a.lifeKm) })
-        break
-      case 'goal':
-        if (optStr(a.name) && isNum(a.target)) out.push({ kind: 'goal', name: optStr(a.name)!, target: a.target, months: optNum(a.months) })
-        break
-      case 'goal-update':
-        if (optStr(a.name) && (isNum(a.target) || isNum(a.months))) out.push({ kind: 'goal-update', name: optStr(a.name)!, target: optNum(a.target), months: optNum(a.months) })
-        break
-      case 'goal-deposit':
-        if (isNum(a.amount)) out.push({ kind: 'goal-deposit', name: optStr(a.name) || '', amount: a.amount })
-        break
-      case 'balance':
-        if (isNum(a.amount)) out.push({ kind: 'balance', amount: a.amount })
-        break
-      // Cartões: só aceita quando os dados obrigatórios vieram completos e
-      // coerentes. Nada é preenchido por conta própria.
-      case 'card-purchase': {
-        const n = Math.round(a.installments)
-        if (isNum(a.total) && Number.isFinite(n) && n >= 1 && n <= 120) {
-          out.push({
-            kind: 'card-purchase', total: a.total, installments: n,
-            description: optStr(a.description), cardName: optStr(a.cardName),
-            category: optStr(a.category),
-            firstDueDate: /^\d{4}-\d{2}-\d{2}$/.test(a.firstDueDate) ? a.firstDueDate : undefined,
-          })
-        }
-        break
-      }
-      case 'financed-cash-inflow': {
-        const n = Math.round(a.installments)
-        // recebido nunca pode superar o valor cobrado no cartão
-        if (isNum(a.total) && isNum(a.netReceived) && a.netReceived <= a.total && Number.isFinite(n) && n >= 1 && n <= 120) {
-          out.push({
-            kind: 'financed-cash-inflow', total: a.total, netReceived: a.netReceived,
-            installments: n, cardName: optStr(a.cardName), source: optStr(a.source),
-          })
-        }
-        break
-      }
-      case 'card-payment':
-        // valor ausente = pagar o pendente da fatura; valor presente precisa ser válido
-        if (a.amount === undefined || a.amount === null || isNum(a.amount)) {
-          out.push({ kind: 'card-payment', cardName: optStr(a.cardName), amount: optNum(a.amount) })
-        }
-        break
-      case 'card-charge':
-        if (isNum(a.amount)) {
-          out.push({ kind: 'card-charge', amount: a.amount, description: optStr(a.description), cardName: optStr(a.cardName), category: optStr(a.category) })
-        }
-        break
-      // 'reset' NÃO é aceito da IA remota — só via parser local ("reseta tudo"),
-      // para evitar que um mal-entendido apague os dados do usuário.
-    }
-  }
-  return out.slice(0, 8)
-}
+// ---------- Chamada ao backend de IA (contrato v1) ----------
+// A validação NÃO mora mais aqui: quem valida é `validateAction()` em
+// src/assistant/contracts.ts, o MESMO código que o servidor usa. Havia antes um
+// `sanitizeActions` local que não conhecia `saving` nem `origin` e descartava
+// ação em silêncio — os dois problemas sumiram junto com ele.
 
 // Em dev, o Vite serve /api/ai/chat (middleware em vite.config.ts) na mesma origem.
-// Em produção (build empacotado num APK/PWA), não existe dev server: aponte
-// VITE_AI_API_URL para o backend publicado (ex.: https://seu-projeto.vercel.app/api/ai/chat).
+// Em produção (APK/PWA) aponte VITE_AI_API_URL para o backend publicado.
 const AI_API_URL = import.meta.env?.VITE_AI_API_URL || '/api/ai/chat'
 
+export interface RemoteAssistantResult {
+  reply: string
+  mode: string
+  actions: ParsedAction[]
+  clarification?: { question: string; field?: string; options?: { label: string; value: string }[] }
+  rejected: { kind: string; code: AssistantErrorCode; detail?: string }[]
+  contractFallback: boolean
+}
+
 /**
- * Chama o backend de IA (DeepSeek — a chave fica só no servidor).
- * Retorna null em qualquer falha para o chamador cair no motor local.
+ * Chama o backend de IA (DeepSeek — a chave fica só no servidor) e revalida
+ * TUDO no cliente antes de deixar qualquer ação chegar perto do estado.
+ * Devolve null em qualquer falha, para o chamador cair no motor local.
  */
 export async function askAssistantRemote(
   s: AppState, input: string,
   history: { role: string; text: string }[],
-): Promise<AiReply | null> {
+): Promise<RemoteAssistantResult | null> {
   try {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 35000)
@@ -268,21 +209,37 @@ export async function askAssistantRemote(
     clearTimeout(timer)
     if (!res.ok) return null
     const data = await res.json()
-    const text = String(data.reply || '').trim()
-    if (!text) return null
-    let actions = sanitizeActions(data.actions)
-    // Defesa extra para respostas de versões antigas do backend.
-    if (!isDriver(s.settings)) {
-      actions = actions.map(a => (a.kind === 'income' && a.is99 ? { ...a, is99: undefined } : a))
+    const reply = String(data?.reply || '').trim()
+    if (!reply) return null
+
+    // Defesa em profundidade: o servidor já validou, mas o cliente valida de
+    // novo com as capacidades REAIS deste dispositivo (categorias personalizadas,
+    // cartões, perfil). Uma ação de motorista jamais passa em perfil CLT.
+    const caps = buildCapabilities(s)
+    const today = todayISO()
+    const actions: ParsedAction[] = []
+    const rejected: RemoteAssistantResult['rejected'] = Array.isArray(data?.rejected) ? data.rejected.slice(0, 12) : []
+    for (const raw of Array.isArray(data?.actions) ? data.actions.slice(0, 12) : []) {
+      const out = validateAction(raw, caps, today, { allowRemoteOnly: true })
+      if (isValidationFailure(out)) rejected.push({ kind: String(raw?.kind || '?'), code: out.code, detail: out.detail })
+      else actions.push(out.action)
     }
-    return { text, actions: actions.length ? actions : undefined, engine: 'remote' }
+
+    return {
+      reply,
+      mode: typeof data?.mode === 'string' ? data.mode : 'answer',
+      actions,
+      clarification: data?.clarification,
+      rejected,
+      contractFallback: data?.contractFallback === true,
+    }
   } catch {
     return null
   }
 }
 
-const NUM = String.raw`(\d+(?:[.,]\d+)?)`
-const n = (s: string) => parseFloat(s.replace(',', '.'))
+const NUM = String.raw`(\d+(?:[.,]\d+)*)`
+const n = (s: string) => parseMoney(s)
 
 function periodFromText(t: string): { from: string; to: string; label: string } {
   const today = todayISO()

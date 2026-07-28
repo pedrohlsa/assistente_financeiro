@@ -1,55 +1,56 @@
-// Chat financeiro com IA + entrada por voz (seções 8, 9, 10)
+// Assistente — a tela é fina de propósito.
+//
+// Toda a interpretação (segmentação, cobertura, roteamento local×remoto,
+// rascunhos, correções) vive em `src/assistant/orchestrator.ts`. Antes ela
+// estava espalhada aqui em dois `if`, e era por isso que metade da mensagem se
+// perdia. Aqui só há: enviar, renderizar e confirmar.
+
 import React, { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { applyParsedAction, findGoalByExactName, useStore } from '../store/store'
-import { askAssistant, askAssistantRemote } from '../services/ai'
-import { describeAction, describeActionDetailed } from '../services/nlp'
-import { ChatMessage, ParsedAction } from '../models/types'
-import { nowTime, uid, fmtBRL } from '../utils/format'
+import { applyAssistantBatch, useStore } from '../store/store'
+import { askAssistantRemote } from '../services/ai'
+import { orchestrate, buildCapabilities } from '../assistant/orchestrator'
+import type { AssistantDraft } from '../assistant/drafts'
+import { isActionFailure } from '../assistant/contracts'
+import type { ActionFailure } from '../assistant/contracts'
+import { ChatMessage, ProposedAction } from '../models/types'
+import { nowTime, uid } from '../utils/format'
 import { Icon, useToast } from '../components/ui'
-import { findPossibleDuplicate, isDriver, shouldAsk99Fee } from '../services/profile'
-import { catById } from '../data/categories'
+import { ProposalCard } from '../components/ProposalCard'
+import { isDriver, shouldAsk99Fee } from '../services/profile'
 import { plainChatText } from '../utils/text'
+import { fmtBRL } from '../utils/format'
 
 const SUGGESTIONS_BY_PROFILE: Record<string, string[]> = {
   driver: [
     'Quanto posso gastar hoje?',
     'Como está minha meta?',
-    'Quanto preciso ganhar amanhã?',
     'Quanto gastei com gasolina esse mês?',
     'Quando preciso trocar meu óleo?',
     'Quanto meu carro custa por km?',
-    'Quanto tenho de parcela no mês que vem?',
     'ganhei 250 hoje',
-    'gastei 40 de gasolina',
+    'ganhei 430 na Uber e 399 na 99, rodei 161 km',
   ],
   autonomo: [
     'Como está meu mês?',
     'Quanto recebi de aluguéis este mês?',
     'Tenho saldo para as próximas contas?',
     'Quanto posso guardar este mês?',
-    'Qual foi minha maior despesa?',
-    'Quanto posso gastar sem comprometer minhas contas?',
-    'Quanto tenho de parcela no mês que vem?',
-    'recebi 1800 de aluguel',
+    'recebi 1800 de aluguel da Casa 1',
+    'ontem gastei 150 de areia',
   ],
   clt: [
     'Meu salário cobre minhas contas?',
     'Quanto tenho de parcela no mês que vem?',
     'Quanto posso guardar este mês?',
-    'Quanto posso gastar até o próximo pagamento?',
-    'Como está meu orçamento?',
-    'Qual foi minha maior despesa?',
     'Como está minha meta mensal?',
-    'recebi meu salário de 3000',
+    'recebi meu salário de 3000 e guardei 150',
   ],
   other: [
     'Como está meu mês?',
     'Quanto posso guardar este mês?',
     'Tenho saldo para as próximas contas?',
     'Qual foi minha maior despesa?',
-    'Como está minha meta mensal?',
-    'recebi 500 hoje',
     'gastei 80 no mercado',
   ],
 }
@@ -69,64 +70,81 @@ export default function Chat() {
   const askHandled = useRef(false)
   const driverMode = isDriver(state.settings)
 
+  /**
+   * Rascunho da conversa em andamento. Fica em memória de propósito: uma
+   * pergunta pendente NÃO deve ressuscitar depois de recarregar o app.
+   */
+  const draftRef = useRef<AssistantDraft | null>(null)
+  /** Proposta ainda na tela — alvo das correções ("não foi 100, foi 80"). */
+  const pendingRef = useRef<{ msgId: string; actions: ProposedAction[] } | null>(null)
+
+  const caps = buildCapabilities(state)
+
   const send = async (text: string) => {
     const t = text.trim()
     if (!t || thinking) return
-    const userMsg: ChatMessage = { id: uid(), role: 'user', text: t, time: nowTime() }
-    dispatch({ type: 'chat', msg: userMsg })
+    dispatch({ type: 'chat', msg: { id: uid(), role: 'user', text: t, time: nowTime() } })
     setInput('')
     setThinking(true)
-    // Registros de dinheiro usam o parser local (determinístico e offline).
-    // Perguntas/análises vão ao backend de IA (DeepSeek — chave só no servidor),
-    // com o motor local como fallback se estiver offline ou o serviço falhar.
-    const local = askAssistant(state, t)
-    let reply: typeof local
-    if (local.actions?.length || local.handled) {
-      // Registro OU pergunta que o cálculo local responde com certeza → usa local
-      // (determinístico, instantâneo, sempre com o número atual — sem depender da IA).
-      reply = { ...local, engine: 'local' }
-    } else if (state.settings.remoteAi === false) {
-      // IA remota desligada (14.11): responde só com o motor local/offline.
-      reply = { ...local, engine: 'local' }
-    } else {
-      const history = state.chat.slice(-6).map(m => ({ role: m.role, text: m.text }))
-      reply = (await askAssistantRemote(state, t, history)) || { ...local, engine: 'local' }
-    }
+
+    const out = await orchestrate({
+      state,
+      message: t,
+      history: state.chat.slice(-8).map(m => ({ role: m.role, text: m.text })),
+      draft: draftRef.current || undefined,
+      pending: pendingRef.current?.actions.map(p => ({
+        id: p.id, action: p.action, engine: p.engine || 'local', confidence: p.confidence || 'high',
+      })),
+      remoteEnabled: state.settings.remoteAi !== false,
+      askRemote: async ({ state: s, message, history }) => {
+        const r = await askAssistantRemote(s, message, history)
+        return r ? { ...r, rejected: r.rejected || [] } : null
+      },
+      devDiagnostics: import.meta.env?.DEV === true,
+    })
     setThinking(false)
-    // Pergunta de desambiguação: só as opções, nenhuma ação pendente ainda.
-    if (reply.choices?.length) {
-      dispatch({
-        type: 'chat',
-        msg: { id: uid(), role: 'assistant', text: reply.text, time: nowTime(), choices: reply.choices },
+
+    if (out.response.diagnostics) {
+      // Só em desenvolvimento; nunca aparece para o usuário final e nunca
+      // registra valores financeiros completos.
+      // eslint-disable-next-line no-console
+      console.debug('[assistant]', {
+        engine: out.response.diagnostics.engine,
+        coverage: out.response.diagnostics.coverage,
+        clauses: out.response.diagnostics.clauses.map(c => `${c.intent}${c.handled ? '' : '?'}`),
+        rejected: out.response.diagnostics.rejected,
+        ms: out.response.diagnostics.elapsedMs,
       })
-      return
     }
+
+    draftRef.current = out.draft
+    // Correção aplicada: a proposta antiga some da mensagem anterior.
+    if (out.correctedPending) {
+      const old = pendingRef.current
+      if (old) dispatch({ type: 'chatResolve', id: old.msgId })
+      pendingRef.current = null
+    }
+
+    const msgId = uid()
+    const proposal: ProposedAction[] | undefined = out.response.actions.length
+      ? out.response.actions.map(a => ({
+          id: a.id, action: a.action, engine: a.engine,
+          confidence: a.confidence, duplicateWarning: a.duplicateWarning,
+        }))
+      : undefined
+
     dispatch({
       type: 'chat',
       msg: {
-        id: uid(), role: 'assistant', text: reply.text, time: nowTime(),
-        pending: reply.actions?.map(a => ({ label: describeAction(a), action: a })),
-        detail: reply.actions?.length
-          ? reply.actions.map(a => describeActionDetailed(a, {
-              fee: state.settings.platform99Fee,
-              categoryName: id => catById(state.categories, id).name,
-            }).join('\n')).join('\n\n')
-          : undefined,
-        duplicateWarning: reply.actions?.map(a => {
-          // Meta com nome já existente: a ação 'goal' CRIA outra meta, nunca
-          // altera a atual em silêncio — por isso o aviso é obrigatório aqui.
-          if (a.kind === 'goal') {
-            const g = findGoalByExactName(state, a.name)
-            return g
-              ? `⚠️ Já existe uma meta chamada “${g.name}” (${fmtBRL(g.saved)} de ${fmtBRL(g.target)}). Confirmar vai criar uma SEGUNDA meta com o mesmo nome — a atual não será alterada. Para mudar a existente, peça "muda a meta ${g.name} para X".`
-              : null
-          }
-          const dup = findPossibleDuplicate(state, a)
-          if (!dup) return null
-          return `⚠️ Já existe ${dup.type === 'income' ? 'uma receita' : 'uma despesa'} parecida de ${fmtBRL(dup.amount)} registrada ${dup.date === new Date().toISOString().slice(0, 10) ? 'hoje' : 'ontem'}. Deseja registrar novamente?`
-        }).filter(Boolean).join('\n') || undefined,
+        id: msgId, role: 'assistant', text: out.response.reply, time: nowTime(),
+        proposal,
+        clarification: out.response.mode === 'clarify' ? (out.response as any).clarification : undefined,
+        engine: out.response.engine,
+        contractVersion: out.response.version,
       },
     })
+
+    pendingRef.current = proposal ? { msgId, actions: proposal } : null
   }
 
   // pergunta vinda da Home
@@ -145,56 +163,84 @@ export default function Chat() {
     window.scrollTo({ top: document.body.scrollHeight })
   }, [state.chat.length])
 
-  const confirmActions = (msgId: string, actions: ParsedAction[]) => {
-    dispatch({ type: 'chatResolve', id: msgId }) // remove os botões do popup
-    const ok: ParsedAction[] = []
-    const failed: ParsedAction[] = []
-    actions.forEach(a => (applyParsedAction(dispatch, state, a, 'ai') ? ok : failed).push(a))
-    let text = ok.length ? `Registrado! ✅\n\n${ok.map(a => '• ' + describeAction(a)).join('\n')}` : ''
-    if (failed.length) text += `${text ? '\n\n' : ''}⚠️ Não encontrei a meta correspondente:\n${failed.map(a => '• ' + describeAction(a)).join('\n')}\nConfira o nome na aba Metas e tente de novo.`
-    dispatch({ type: 'chat', msg: { id: uid(), role: 'assistant', text, time: nowTime() } })
-    if (ok.length) toast({ text: ok.length > 1 ? `${ok.length} registros salvos.` : 'Registro salvo.' })
+  // ---------- Confirmação ----------
 
-    // Regra da 99: só no perfil motorista, só para receita de corridas ainda
-    // não marcada como saque. Aluguel, salário, venda e freelance nunca perguntam.
-    const fee = state.settings.platform99Fee
-    const hasRideIncome = ok.some(a => shouldAsk99Fee(state, a))
-    if (hasRideIncome) {
-      dispatch({
-        type: 'chat',
-        msg: {
-          id: uid(), role: 'assistant', time: nowTime(),
-          text: `Você quer registrar a taxa da 99 agora? Ela só deve entrar quando o saque realmente acontecer.`,
-          pending: [{ label: `Sim — Taxa 99 (−${fmtBRL(fee)})`, action: { kind: 'expense', amount: fee, category: 'outros-out', description: 'Taxa 99' } }],
-        },
-      })
+  const updateProposal = (msgId: string, next: ProposedAction[]) => {
+    dispatch({ type: 'chatUpdateProposal', id: msgId, proposal: next })
+    if (pendingRef.current?.msgId === msgId) {
+      pendingRef.current = next.length ? { msgId, actions: next } : null
     }
   }
 
-  /**
-   * Usuário escolheu uma opção de desambiguação. Isso NÃO registra nada: só
-   * transforma a escolha na confirmação normal, com o detalhamento completo.
-   */
-  const chooseOption = (msgId: string, actions: ParsedAction[]) => {
-    dispatch({ type: 'chatResolve', id: msgId })
-    dispatch({
-      type: 'chat',
-      msg: {
-        id: uid(), role: 'assistant', time: nowTime(),
-        text: 'Entendi isso:\n\n' + actions.map(a => '• ' + describeAction(a)).join('\n') + '\n\nConfirmar?',
-        pending: actions.map(a => ({ label: describeAction(a), action: a })),
-        detail: actions.map(a => describeActionDetailed(a, {
-          fee: state.settings.platform99Fee,
-          categoryName: id => catById(state.categories, id).name,
-        }).join('\n')).join('\n\n'),
-      },
+  const commit = (msgId: string, items: ProposedAction[], all: ProposedAction[]) => {
+    const { results, applied } = applyAssistantBatch(
+      dispatch, state, items.map(p => ({ id: p.id, action: p.action })), 'ai',
+    )
+    const byId = new Map(results.map(r => [r.actionId, r]))
+
+    // Cada card recebe o SEU resultado. Nada de "não encontrei a meta" para
+    // cartão inexistente ou fatura sem pendência.
+    const next = all.map(p => {
+      const r = byId.get(p.id)
+      if (!r) return p
+      if (isActionFailure(r)) return { ...p, outcome: { ok: false, message: r.message } }
+      return { ...p, outcome: { ok: true } }
     })
+    updateProposal(msgId, next)
+
+    const okCount = results.filter(r => r.ok).length
+    // `filter(predicado)` não estreita o tipo do array sob `strict: false`;
+    // o laço com o predicado estreita sempre (ver regra 24).
+    const failures: ActionFailure[] = []
+    for (const r of results) if (isActionFailure(r)) failures.push(r)
+
+    let text: string
+    if (applied) {
+      text = okCount > 1 ? `Registrado! ✅ ${okCount} lançamentos salvos.` : 'Registrado! ✅'
+    } else {
+      // Atômico: nada foi salvo. A mensagem diz exatamente o que travou.
+      text = `Não registrei nada ainda — o lote inteiro depende de todos os itens.\n\n` +
+        failures.map(f => `• ${f.message}`).join('\n') +
+        `\n\nCorrija ou remova esse item e confirme de novo.`
+    }
+    dispatch({ type: 'chat', msg: { id: uid(), role: 'assistant', text, time: nowTime(), batchId: undefined } })
+    if (applied) toast({ text: okCount > 1 ? `${okCount} registros salvos.` : 'Registro salvo.' })
+    if (pendingRef.current?.msgId === msgId && applied) pendingRef.current = null
+
+    // Regra da 99: pergunta separada, só no perfil motorista e só para receita
+    // de corridas. Citar a 99 nunca desconta sozinho.
+    if (applied) {
+      const fee = state.settings.platform99Fee
+      if (items.some(p => shouldAsk99Fee(state, p.action))) {
+        const feeId = uid()
+        dispatch({
+          type: 'chat',
+          msg: {
+            id: feeId, role: 'assistant', time: nowTime(),
+            text: 'Você quer registrar a taxa da 99 agora? Ela só deve entrar quando o saque realmente acontecer.',
+            proposal: [{
+              id: uid(),
+              action: { kind: 'expense', amount: fee, category: 'outros-out', description: 'Taxa 99' },
+              engine: 'local', confidence: 'high',
+            }],
+          },
+        })
+      }
+    }
   }
 
-  const cancelActions = (msgId: string) => {
+  const cancel = (msgId: string) => {
     dispatch({ type: 'chatResolve', id: msgId })
+    if (pendingRef.current?.msgId === msgId) pendingRef.current = null
     dispatch({ type: 'chat', msg: { id: uid(), role: 'assistant', text: 'Ok, descartei. Pode reformular se quiser.', time: nowTime() } })
   }
+
+  const chooseClarification = (msgId: string, value: string, label: string) => {
+    dispatch({ type: 'chatResolve', id: msgId })
+    send(label || value)
+  }
+
+  // ---------- Voz ----------
 
   const startVoice = () => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
@@ -204,11 +250,7 @@ export default function Chat() {
     recRef.current = rec
     rec.lang = 'pt-BR'
     rec.interimResults = false
-    rec.onresult = (e: any) => {
-      const text = e.results[0][0].transcript
-      setRecording(false)
-      send(text)
-    }
+    rec.onresult = (e: any) => { setRecording(false); send(e.results[0][0].transcript) }
     rec.onend = () => setRecording(false)
     rec.onerror = () => { setRecording(false); toast({ text: 'Não consegui te ouvir. Tente de novo.' }) }
     setRecording(true)
@@ -221,7 +263,7 @@ export default function Chat() {
         <h1>Assistente</h1>
         <div className="row" style={{ gap: 12 }}>
           <button className="link" onClick={() => window.location.reload()} title="Recarregar dados">↻ Atualizar</button>
-          {state.chat.length > 0 && <button className="link" onClick={() => dispatch({ type: 'chatClear' })}>Limpar</button>}
+          {state.chat.length > 0 && <button className="link" onClick={() => { pendingRef.current = null; draftRef.current = null; dispatch({ type: 'chatClear' }) }}>Limpar</button>}
         </div>
       </div>
 
@@ -231,36 +273,52 @@ export default function Chat() {
             <h3 style={{ marginBottom: 6 }}>Eu cuido dos seus números enquanto você cuida da sua rotina. ✦</h3>
             <p className="small muted">
               {driverMode
-                ? 'Escreva ou fale naturalmente: registre ganhos, gastos, km, abastecimentos e manutenções — ou me faça perguntas sobre seu dinheiro.'
-                : 'Escreva ou fale naturalmente: registre o que entrou e o que saiu, suas contas e metas — ou me faça perguntas sobre seu dinheiro.'}
+                ? 'Escreva ou fale naturalmente: ganhos, gastos, km, abastecimentos e manutenções — ou pergunte sobre seu dinheiro. Pode mandar tudo numa mensagem só.'
+                : 'Escreva ou fale naturalmente: o que entrou, o que saiu, contas e metas — ou pergunte sobre seu dinheiro. Pode mandar tudo numa mensagem só.'}
             </p>
           </div>
         )}
+
         {state.chat.map(m => (
           <div key={m.id} className={`bubble ${m.role === 'user' ? 'user' : 'ai'}`}>
             {plainChatText(m.text)}
-            {m.detail && (
-              <div className="stack tiny" style={{ marginTop: 8, gap: 2, opacity: 0.9, whiteSpace: 'pre-line' }}>{m.detail}</div>
-            )}
-            {m.duplicateWarning && (
-              <div className="tiny" style={{ marginTop: 8, color: 'var(--warning)', whiteSpace: 'pre-line' }}>{m.duplicateWarning}</div>
-            )}
-            {m.choices && m.choices.length > 0 && (
-              <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {m.choices.map(c => (
-                  <button key={c.label} className="btn btn-soft btn-sm" onClick={() => chooseOption(m.id, c.actions)}>{c.label}</button>
-                ))}
-                <button className="btn btn-danger-soft btn-sm" onClick={() => cancelActions(m.id)}>Cancelar</button>
-              </div>
-            )}
+
+            {/* LEGADO: mensagens salvas antes do contrato v1 */}
             {m.pending && m.pending.length > 0 && (
-              <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button className="btn btn-primary btn-sm" onClick={() => confirmActions(m.id, m.pending!.map(p => p.action))}>Confirmar</button>
-                <button className="btn btn-danger-soft btn-sm" onClick={() => cancelActions(m.id)}>Cancelar</button>
+              <div style={{ marginTop: 10 }} className="tiny muted">
+                Esta proposta é de uma versão anterior do assistente e não pode mais ser confirmada. Mande de novo, por favor.
               </div>
+            )}
+
+            {m.clarification?.options && m.clarification.options.length > 0 && (
+              <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {m.clarification.options.map(o => (
+                  <button key={o.value} className="btn btn-soft btn-sm"
+                    onClick={() => chooseClarification(m.id, o.value, o.label)}>{o.label}</button>
+                ))}
+                <button className="btn btn-danger-soft btn-sm" onClick={() => cancel(m.id)}>Cancelar</button>
+              </div>
+            )}
+
+            {m.proposal && m.proposal.length > 0 && (
+              <ProposalCard
+                proposal={m.proposal}
+                categories={state.categories}
+                cardNames={caps.cardNames}
+                onConfirmAll={() => commit(m.id, m.proposal!.filter(p => !p.outcome), m.proposal!)}
+                onConfirmOne={id => commit(m.id, m.proposal!.filter(p => p.id === id), m.proposal!)}
+                onEdit={(id, action) => updateProposal(m.id, m.proposal!.map(p => (p.id === id ? { ...p, action } : p)))}
+                onRemove={id => {
+                  const next = m.proposal!.filter(p => p.id !== id)
+                  updateProposal(m.id, next)
+                  if (!next.length) cancel(m.id)
+                }}
+                onCancel={() => cancel(m.id)}
+              />
             )}
           </div>
         ))}
+
         {thinking && (
           <div className="bubble ai" style={{ opacity: 0.7 }}>
             <span className="thinking-dots"><span>●</span><span>●</span><span>●</span></span>

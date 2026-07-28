@@ -16,8 +16,8 @@ import type { ParsedAction, ProfileId } from '../models/types'
  * cliente antigo não entenderia. Resposta com versão desconhecida é recusada —
  * nunca interpretada "na sorte".
  */
-export const ASSISTANT_CONTRACT_VERSION = 1
-export type AssistantContractVersion = typeof ASSISTANT_CONTRACT_VERSION
+export type AssistantContractVersion = 1
+export const ASSISTANT_CONTRACT_VERSION: AssistantContractVersion = 1
 
 export type AssistantEngine = 'local' | 'remote' | 'hybrid'
 export type AssistantConfidence = 'high' | 'medium' | 'low'
@@ -349,16 +349,23 @@ export interface AssistantDiagnostics {
 // RESULTADO DE EXECUÇÃO
 // ---------------------------------------------------------------------------
 
+export interface ActionFailure {
+  ok: false
+  actionId: string
+  code: AssistantErrorCode
+  message: string
+  /** O usuário consegue consertar respondendo algo? */
+  recoverable: boolean
+}
+
 export type ActionExecutionResult =
   | { ok: true; actionId: string; entityId?: string }
-  | {
-      ok: false
-      actionId: string
-      code: AssistantErrorCode
-      message: string
-      /** O usuário consegue consertar respondendo algo? */
-      recoverable: boolean
-    }
+  | ActionFailure
+
+/** Predicado explícito — obrigatório sob `strict: false` (ver regra 24). */
+export function isActionFailure(r: ActionExecutionResult): r is ActionFailure {
+  return r.ok === false
+}
 
 // ---------------------------------------------------------------------------
 // CAPACIDADES — o que ESTE usuário, neste perfil, pode registrar agora

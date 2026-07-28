@@ -39,6 +39,12 @@ export interface Transaction {
   origin?: string
   /** Perfil ativo quando o lançamento foi criado — histórico nunca é reinterpretado (14.1). */
   profileAtCreation?: ProfileId
+  /**
+   * Lote do assistente que criou este lançamento. Opcional e retrocompatível:
+   * serve para auditar o que entrou junto e para "desfazer o último" saber
+   * exatamente o que remover. Ausente em tudo que foi criado à mão.
+   */
+  assistantBatchId?: string
 }
 
 export interface Category {
@@ -234,6 +240,8 @@ export interface InstallmentPlan {
   netReceived?: number
   note?: string
   profileAtCreation?: ProfileId
+  /** Lote do assistente que criou o plano (opcional, retrocompatível). */
+  assistantBatchId?: string
   createdAt: string
 }
 
@@ -285,7 +293,21 @@ export interface ChatMessage {
   role: 'user' | 'assistant'
   text: string
   time: string
+  /** LEGADO: proposta tudo-ou-nada. Mensagens antigas continuam renderizando. */
   pending?: PendingAction[]
+  /**
+   * Proposta do contrato v1: cada ação tem id próprio e pode ser confirmada,
+   * editada ou removida sozinha. Todos os campos são opcionais para que uma
+   * conversa salva antes desta versão carregue sem erro.
+   */
+  proposal?: ProposedAction[]
+  /** Pergunta de esclarecimento (um campo por vez). */
+  clarification?: { question: string; field?: string; options?: { label: string; value: string }[] }
+  /** Motor que produziu a resposta — auditoria, não decoração. */
+  engine?: 'local' | 'remote' | 'hybrid'
+  contractVersion?: number
+  /** Lote gravado a partir desta mensagem, quando confirmada. */
+  batchId?: string
   kind?: 'text' | 'confirm' | 'report'
   /** Resumo detalhado do que será registrado (14.7). */
   detail?: string
@@ -302,6 +324,20 @@ export interface ChatMessage {
 export interface PendingAction {
   label: string
   action: ParsedAction
+}
+
+/**
+ * Ação proposta e ainda não confirmada. O `id` é o que permite revisão por item
+ * — confirmar uma, editar outra e remover a terceira sem mexer nas demais.
+ */
+export interface ProposedAction {
+  id: string
+  action: ParsedAction
+  engine?: 'local' | 'remote' | 'hybrid'
+  confidence?: 'high' | 'medium' | 'low'
+  duplicateWarning?: string
+  /** Preenchido depois da confirmação: o que aconteceu com esta ação. */
+  outcome?: { ok: boolean; message?: string }
 }
 
 // `date?: string` (YYYY-MM-DD) é OPCIONAL em toda ação datável: ausente = hoje,

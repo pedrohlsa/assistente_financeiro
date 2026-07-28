@@ -4,7 +4,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useReducer } from 'react'
 import {
   AppState, Transaction, WorkSession, FuelRecord, MaintenanceItem, FinancialGoal,
-  Deficit, RecurringExpense, RecurrenceOccurrence, Budget, ChatMessage, Settings, Vehicle, ParsedAction, Category,
+  Deficit, RecurringExpense, RecurrenceOccurrence, Budget, ChatMessage, ProposedAction, Settings, Vehicle, ParsedAction, Category,
   CreditCard, InstallmentPlan, Installment, CardPayment, RecurringCardCharge,
 } from '../models/types'
 import { DEFAULT_CATEGORIES, mergeDefaultCategories } from '../data/categories'
@@ -12,7 +12,10 @@ import { buildDemoData } from '../data/demo'
 import { addDays, monthKey, nowStamp, nowTime, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
-import { buildInstallments, cardInvoice, currentInvoice, suggestedFirstDueDate } from '../services/cards'
+import { currentInvoice } from '../services/cards'
+import { applyBatchPure } from '../assistant/execute'
+import type { BatchItem } from '../assistant/execute'
+import type { ActionExecutionResult } from '../assistant/contracts'
 
 const STORAGE_KEY = 'assistfin-state-v1'
 
@@ -112,7 +115,13 @@ type Action =
   | { type: 'addCardCharge'; charge: RecurringCardCharge }
   | { type: 'updateCardCharge'; id: string; patch: Partial<RecurringCardCharge> }
   | { type: 'removeCardCharge'; id: string }
+  /**
+   * Lote confirmado do assistente. É UMA action só de propósito: aplicar as
+   * ações em dispatches separados devolveria o mesmo estado antigo para todas.
+   */
+  | { type: 'assistantBatch'; items: BatchItem[]; source: Transaction['source']; batchId: string }
   | { type: 'chat'; msg: ChatMessage }
+  | { type: 'chatUpdateProposal'; id: string; proposal: ProposedAction[] }
   | { type: 'chatResolve'; id: string }
   | { type: 'chatClear' }
   | { type: 'clearActivity' }
@@ -298,8 +307,17 @@ function reducer(s: AppState, a: Action): AppState {
           : c),
       }
     }
+    case 'assistantBatch': {
+      // Atômico: `applyBatchPure` devolve o estado original quando qualquer
+      // ação falha, então nunca sobra meio lote gravado.
+      const out = applyBatchPure(s, a.items, { source: a.source, batchId: a.batchId })
+      return out.applied ? out.state : s
+    }
     case 'chat': return { ...s, chat: [...s.chat, a.msg].slice(-200) }
-    case 'chatResolve': return { ...s, chat: s.chat.map(m => m.id === a.id ? { ...m, pending: undefined, choices: undefined } : m) }
+    case 'chatUpdateProposal':
+      return { ...s, chat: s.chat.map(m => (m.id === a.id ? { ...m, proposal: a.proposal } : m)) }
+    case 'chatResolve':
+      return { ...s, chat: s.chat.map(m => m.id === a.id ? { ...m, pending: undefined, choices: undefined, proposal: undefined, clarification: undefined } : m) }
     case 'chatClear': return { ...s, chat: [] }
     case 'clearActivity':
       return {
@@ -382,209 +400,51 @@ export const useStore = () => useContext(StoreCtx)
 
 // ---------- Helpers de alto nível ----------
 
-const norm = (x: string) => (x || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
+// Os resolvedores de referência e a aplicação das ações vivem em
+// `src/assistant/execute.ts`, em forma PURA. O store apenas os expõe para quem
+// já os importava daqui — nenhuma tela precisou mudar de import.
+export { findCardByName, findGoalByName, findGoalByExactName } from '../assistant/execute'
 
-/** Encontra um cartão pelo nome/instituição (aproximado). Sem nome: usa o único ativo. */
-export function findCardByName(state: AppState, name?: string) {
-  const active = (state.cards || []).filter(c => !c.archived)
-  const n = norm(name || '')
-  if (!n) return active.length === 1 ? active[0] : undefined
-  return (
-    active.find(c => norm(c.name) === n) ||
-    active.find(c => norm(c.name).includes(n) || n.includes(norm(c.name))) ||
-    active.find(c => norm(c.institution || '').includes(n))
-  )
+/**
+ * Aplica um LOTE de ações confirmadas do assistente, de forma atômica.
+ *
+ * Substitui o antigo `applyParsedAction` chamado em `forEach`: aquele passava o
+ * MESMO estado para todas as ações (o React só reprocessa depois), então dois
+ * depósitos na mesma meta se sobrescreviam e uma falha no meio deixava o lote
+ * pela metade. Aqui o reducer aplica tudo em sequência, sobre o estado que a
+ * ação anterior produziu, e só grava se o lote inteiro passar.
+ *
+ * Devolve o resultado POR AÇÃO — a interface consegue dizer exatamente o que
+ * falhou e por quê, em vez de uma mensagem genérica para tudo.
+ */
+export function applyAssistantBatch(
+  dispatch: React.Dispatch<Action>,
+  state: AppState,
+  items: BatchItem[],
+  source: Transaction['source'] = 'ai',
+): { results: ActionExecutionResult[]; applied: boolean; batchId: string } {
+  const batchId = uid()
+  // Simulação antes de despachar: o resultado por ação vem daqui, e o reducer
+  // repete exatamente o mesmo cálculo de forma determinística.
+  const dry = applyBatchPure(state, items, { source, batchId })
+  if (dry.applied) dispatch({ type: 'assistantBatch', items, source, batchId })
+  return { results: dry.results, applied: dry.applied, batchId }
 }
 
 /**
- * Meta com nome EQUIVALENTE (ignora caixa, acento e espaços) — usada para o
- * aviso de duplicidade no onboarding, no GoalForm, no FAB e nas ações da IA.
- * Diferente de `findGoalByName`, que é aproximada e serve para "guardar dinheiro
- * na meta do iphone": esta aqui só casa quando o nome é realmente o mesmo.
+ * Compatibilidade: aplica UMA ação. Mantida porque o reset tem caminho próprio
+ * e alguns fluxos antigos ainda registram uma coisa de cada vez.
  */
-export function findGoalByExactName(state: AppState, name?: string, exceptId?: string) {
-  if (!normalizeName(name)) return undefined
-  return state.goals.find(g => g.id !== exceptId && sameName(g.name, name))
-}
-
-/** Encontra uma meta existente pelo nome (aproximado). Sem nome: usa a única ativa. */
-export function findGoalByName(state: AppState, name?: string) {
-  const active = state.goals.filter(g => !g.done)
-  const n = norm(name || '')
-  if (!n) return active.length === 1 ? active[0] : undefined
-  return (
-    active.find(g => norm(g.name) === n) ||
-    active.find(g => norm(g.name).includes(n) || n.includes(norm(g.name))) ||
-    active.find(g => n.split(/\s+/).some(w => w.length > 2 && norm(g.name).includes(w)))
-  )
-}
-
-/** Aplica uma ação confirmada. Retorna false quando não foi possível (ex.: meta não encontrada). */
-export function applyParsedAction(dispatch: React.Dispatch<Action>, state: AppState, a: ParsedAction, source: Transaction['source'] = 'ai'): boolean {
-  const date = todayISO(); const time = nowTime()
-  switch (a.kind) {
-    case 'income':
-      dispatch({ type: 'addTx', tx: { id: uid(), type: 'income', amount: a.amount, category: a.category || defaultIncomeCategory(state.settings), description: a.description, origin: a.origin, date, time, source, profileAtCreation: state.settings.profile } })
-      break
-    case 'expense':
-      dispatch({ type: 'addTx', tx: { id: uid(), type: 'expense', amount: a.amount, category: a.category || 'outros-out', description: a.description, origin: a.origin, date, time, source, profileAtCreation: state.settings.profile } })
-      break
-    case 'saving':
-      // Transferência para reserva: não é despesa, só marca quanto foi guardado (14.3).
-      dispatch({ type: 'addTx', tx: { id: uid(), type: 'saving', amount: a.amount, category: 'reserva', description: a.description || 'Guardado', date, time, source, profileAtCreation: state.settings.profile } })
-      break
-    case 'work':
-      dispatch({ type: 'addWork', w: { date, km: a.km, trips: a.trips, hours: a.hours } })
-      break
-    case 'fuel': {
-      const liters = a.liters || (a.amount && state.settings.fuelPricePerLiter ? a.amount / state.settings.fuelPricePerLiter : 0)
-      const price = a.pricePerLiter || (a.amount && liters ? a.amount / liters : state.settings.fuelPricePerLiter)
-      dispatch({ type: 'addFuel', f: { id: uid(), date, amount: a.amount || 0, liters: Math.round(liters * 100) / 100, pricePerLiter: Math.round(price * 100) / 100, odometer: a.odometer } })
-      if (a.amount) dispatch({ type: 'addTx', tx: { id: uid(), type: 'expense', amount: a.amount, category: 'combustivel', description: 'Abastecimento', date, time, source } })
-      break
-    }
-    case 'odometer': {
-      const vehicle = state.vehicle || { brand: '', model: 'Meu veículo', odometer: 0 }
-      dispatch({ type: 'setVehicle', v: { ...vehicle, odometer: a.value } })
-      break
-    }
-    case 'maintenance': {
-      const name = a.item.charAt(0).toUpperCase() + a.item.slice(1)
-      dispatch({ type: 'addMaintenance', m: { id: uid(), name, cost: a.cost, kmInstalled: a.km ?? (state.vehicle?.odometer || 0), lifeKm: a.lifeKm || 0, date } })
-      dispatch({ type: 'addTx', tx: { id: uid(), type: 'expense', amount: a.cost, category: 'manutencao', description: `Troca de ${a.item}`, date, time, source } })
-      if (a.km && state.vehicle && a.km > state.vehicle.odometer) dispatch({ type: 'setVehicle', v: { ...state.vehicle, odometer: a.km } })
-      break
-    }
-    case 'goal':
-      // 'goal' significa SEMPRE criar meta nova. Alterar uma meta existente é
-      // 'goal-update' — nenhuma meta pode ser modificada sem o usuário saber.
-      // O aviso de duplicidade é mostrado no chat antes da confirmação.
-      dispatch({ type: 'addGoal', g: { id: uid(), name: a.name, target: a.target, saved: 0, deadline: a.months ? addDays(date, Math.round(a.months * 30)) : undefined, createdAt: date } })
-      break
-    case 'goal-update': {
-      const g = findGoalByName(state, a.name)
-      if (!g) return false
-      dispatch({
-        type: 'updateGoal', id: g.id,
-        patch: {
-          ...(a.target ? { target: a.target, done: g.saved >= a.target } : {}),
-          ...(a.months ? { deadline: addDays(date, Math.round(a.months * 30)) } : {}),
-        },
-      })
-      break
-    }
-    case 'goal-deposit': {
-      const g = findGoalByName(state, a.name)
-      if (!g) return false
-      const saved = g.saved + a.amount
-      dispatch({ type: 'updateGoal', id: g.id, patch: { saved, done: saved >= g.target } })
-      break
-    }
-    case 'balance':
-      // Informar o saldo redefine a ÂNCORA a partir de agora: as movimentações
-      // anteriores já estão embutidas no número que o usuário acabou de dizer.
-      dispatch({ type: 'settings', patch: { balance: a.amount, balanceAsOf: nowStamp() } })
-      break
-
-    // ---------- Cartões e parcelamentos ----------
-    // Nenhum destes cria Transaction de despesa: a compra vira dívida parcelada
-    // e só as PARCELAS entram no fluxo mensal (ver services/cards.ts).
-    case 'card-purchase': {
-      const card = findCardByName(state, a.cardName)
-      if (a.cardName && !card) return false // cartão citado não existe — não inventa
-      const count = Math.max(Math.round(a.installments || 1), 1)
-      const firstDue = a.firstDueDate || suggestedFirstDueDate(card, date)
-      const plan: InstallmentPlan = {
-        id: uid(),
-        description: a.description || 'Compra no cartão',
-        cardId: card?.id,
-        categoryId: a.category || 'compras',
-        totalAmount: a.total,
-        installmentCount: count,
-        firstDueDate: firstDue,
-        purchaseDate: date,
-        status: 'active',
-        operationType: card ? 'card-purchase' : 'standalone',
-        profileAtCreation: state.settings.profile,
-        createdAt: date,
-      }
-      dispatch({ type: 'addPlan', plan, installments: buildInstallments(plan, uid) })
-      break
-    }
-    case 'financed-cash-inflow': {
-      const card = findCardByName(state, a.cardName)
-      if (a.cardName && !card) return false
-      const count = Math.max(Math.round(a.installments || 1), 1)
-      const plan: InstallmentPlan = {
-        id: uid(),
-        description: 'Entrada financiada pelo cartão',
-        cardId: card?.id,
-        categoryId: 'outros-out',
-        totalAmount: a.total,
-        installmentCount: count,
-        firstDueDate: suggestedFirstDueDate(card, date),
-        purchaseDate: date,
-        feeAmount: Math.max(a.total - a.netReceived, 0),
-        source: a.source,
-        status: 'active',
-        operationType: 'financed-cash-inflow',
-        netReceived: a.netReceived,
-        profileAtCreation: state.settings.profile,
-        createdAt: date,
-      }
-      dispatch({ type: 'addPlan', plan, installments: buildInstallments(plan, uid) })
-      // O dinheiro recebido entra no caixa, mas NUNCA como receita/lucro:
-      // type próprio, fora de todos os somatórios de income.
-      dispatch({
-        type: 'addTx',
-        tx: {
-          id: uid(), type: 'financed-cash-inflow', amount: a.netReceived, category: 'outros-in',
-          description: 'Entrada financiada pelo cartão', date, time, source,
-          profileAtCreation: state.settings.profile,
-        },
-      })
-      // O saldo sobe sozinho: a Transaction 'financed-cash-inflow' acima já é
-      // contada por currentBalance(). Somar aqui também dobraria o valor.
-      break
-    }
-    case 'card-payment': {
-      const card = findCardByName(state, a.cardName)
-      if (!card) return false
-      const mk = monthKey(date)
-      const invoice = cardInvoice(state, card, mk)
-      const amount = a.amount ?? invoice.pending
-      if (!(amount > 0)) return false
-      const fullyPaid = amount >= invoice.pending - 0.009
-      dispatch({
-        type: 'addCardPayment',
-        payment: { id: uid(), cardId: card.id, amount, paymentDate: date, referenceMonth: mk, fromBalance: true },
-        // só quita as parcelas quando a fatura foi paga por inteiro
-        settleInstallmentIds: fullyPaid
-          ? invoice.items.filter(i => i.kind === 'installment' && i.planId)
-              .map(i => (state.installments || []).find(x => x.planId === i.planId && x.number === i.installmentNumber)?.id)
-              .filter((x): x is string => !!x)
-          : [],
-      })
-      break
-    }
-    case 'card-charge': {
-      const card = findCardByName(state, a.cardName)
-      if (!card) return false
-      dispatch({
-        type: 'addCardCharge',
-        charge: {
-          id: uid(), cardId: card.id, description: a.description || 'Assinatura',
-          amount: a.amount, categoryId: a.category || 'assinaturas',
-          frequency: 'monthly', nextDate: date, active: true, createdAt: date,
-        },
-      })
-      break
-    }
-
-    case 'reset':
-      // Mesmo caminho do botão das Configurações — ver resetAllData().
-      resetAllData(dispatch)
-      break
+export function applyParsedAction(
+  dispatch: React.Dispatch<Action>,
+  state: AppState,
+  a: ParsedAction,
+  source: Transaction['source'] = 'ai',
+): boolean {
+  if (a.kind === 'reset') {
+    // Mesmo caminho do botão das Configurações — destrutivo, nunca em lote.
+    resetAllData(dispatch)
+    return true
   }
-  return true
+  return applyAssistantBatch(dispatch, state, [{ id: uid(), action: a }], source).applied
 }

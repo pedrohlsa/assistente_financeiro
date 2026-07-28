@@ -291,11 +291,37 @@ function parseClause(input: string): ParsedAction[] {
     })
   }
 
+  // ----- guardar na RESERVA (não é meta): "guardei 150", "coloquei 300 na reserva",
+  // "separei 500 para investir". Vira `type:'saving'` — nem receita nem despesa.
+  const savingRe = new RegExp(
+    String.raw`(?:guardei|guardar|guarda|separei|separar|separa|reservei|poupei|apliquei|investi|coloquei|botei|depositei)\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:(?:na|no|em|para|pra|pro)\s+(?:a\s+|o\s+)?(reserva|poupan[çc]a|investimento|investir|guardado|caixinha|cofrinho))?`,
+    'i',
+  )
+  const sav = text.match(savingRe)
+  const SAVING_VERB_ONLY = /^(?:guardei|guardar|guarda|separei|separar|separa|reservei|poupei)/i
+  if (sav) {
+    const target = (sav[2] || '').trim()
+    const bareVerb = SAVING_VERB_ONLY.test(sav[0])
+    // Sem destino nomeado, ou destino explicitamente "reserva/poupança": saving.
+    // Com um nome qualquer depois ("para o iphone"), é depósito em meta — quem
+    // decide se a meta existe é o orquestrador, que tem o estado.
+    const namedTarget = text.slice((sav.index || 0) + sav[0].length).trim()
+    if (target || (bareVerb && !namedTarget)) {
+      actions.push({ kind: 'saving', amount: parseNum(sav[1]), description: target ? sentenceCase(target) : undefined })
+      return actions
+    }
+  }
+
   // ----- guardar dinheiro numa meta: "guardei 100 para o iphone", "guarda 50 na meta da viagem"
   const depositRe = new RegExp(String.raw`(?:guardei|guarda|guardar|separei|separa|separar|deposita|depositei)\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:para|pra|pro|na|no|da|do|em)?\s*(?:a\s+|o\s+)?(?:meta\s+)?(?:d[oa]\s+)?([\wçãõáéíóúâêô\s]+)?`, 'i')
   const dep = text.match(depositRe)
   if (dep) {
-    actions.push({ kind: 'goal-deposit', amount: parseNum(dep[1]), name: (dep[2] || '').trim() })
+    const name = (dep[2] || '').trim()
+    if (!name) {
+      actions.push({ kind: 'saving', amount: parseNum(dep[1]) })
+    } else {
+      actions.push({ kind: 'goal-deposit', amount: parseNum(dep[1]), name })
+    }
     return actions
   }
 
