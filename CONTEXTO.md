@@ -125,6 +125,9 @@ O assistente tem contrato versionado e vive em `src/assistant/`:
 - **`drafts.ts`** — conversa multiturno: guarda a ação incompleta e encaixa respostas curtas.
 - **`corrections.ts`** — correções e referências sobre a proposta pendente.
 - **`execute.ts`** — aplicação pura, sequencial e **atômica** do lote confirmado.
+- **`journal.ts`** — auditoria por diferença de estado e reversão do lote inteiro.
+- **`editSaved.ts`** — correção de lançamento já salvo, com busca **local** de candidatos.
+- **`proposalEdit.ts`** — campos editáveis da proposta, derivados do catálogo.
 - **`orchestrator.ts`** — amarra tudo e decide local × remoto por cobertura.
 
 `api/_lib/assistantPrompt.ts` é a **fonte única** da SYSTEM_PROMPT, gerada a partir do catálogo e
@@ -363,11 +366,21 @@ Detalhe completo em [docs/AI_CURRENT_STATE.md §6](docs/AI_CURRENT_STATE.md).
   preserva o que o motor local entendeu e explica a indisponibilidade quando a pergunta dependia
   só do remoto. Nenhum retry novo foi adicionado.
 
+**Implementado em 29/07/2026 (segunda rodada)**:
+
+- **Auditoria completa e reversível** de todo lote do assistente (`assistantJournal`),
+  cobrindo entidades criadas **e alteradas**. Ver [CLAUDE.md](CLAUDE.md) regra 31.
+- **Edição da proposta** derivada do catálogo e validada por `validateAction()`.
+- **"Desfaz o último"**: reverte o lote inteiro pelo journal, listando o que sai e
+  exigindo confirmação; lote sem journal é recusado.
+- **Corrigir lançamento já salvo** por conversa: `Transaction` simples e ocorrência
+  recorrente materializada, com busca local e desambiguação. Ver regra 32.
+
 **Fora do escopo por decisão** (documentado, não esquecido):
 
-8. Editar um lançamento **já salvo** por conversa — só enquanto a proposta está na tela.
-9. **"Desfaz o último"** depois da gravação — o `assistantBatchId` já viabiliza, falta o fluxo.
-10. **`Analytics.tsx` por perfil** — pendência anterior a esta reformulação.
+8. Editar por conversa a **estrutura** de parcelamento, cartão, meta, abastecimento,
+   trabalho, manutenção e template de recorrência — o assistente recusa e indica a tela.
+9. **`Analytics.tsx` por perfil** — pendência anterior a esta reformulação.
 
 **Menores**: "meio" não é interpretado; intervalos de data não viram intervalo estruturado — a
 barreira pede esclarecimento em vez de usar hoje. A proposta pendente não vai no payload remoto

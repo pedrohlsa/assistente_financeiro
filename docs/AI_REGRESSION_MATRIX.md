@@ -9,11 +9,13 @@
 >   cada um escrito ANTES da correção do bug que o originou;
 > - `tests/assistant/cases-temporal.ts` — **43 casos** de datas futuras, inválidas,
 >   períodos, correções e frases mistas;
-> - `tests/assistant/properties.ts` — **36 invariantes financeiras e de segurança**;
+> - `tests/assistant/cases-undo.ts` — **11 casos** de "desfaz o último";
+> - `tests/assistant/cases-edit.ts` — **12 casos** de correção de lançamento salvo;
+> - `tests/assistant/properties.ts` — **53 invariantes financeiras e de segurança**;
 > - `npm run test:assistant` — roda tudo offline, com data fixa, contra o orquestrador real.
 >
 > **Resultado da última execução (29/07/2026, branch `feat/assistant-orchestrator`):
-> 345/345 casos e 36/36 invariantes.**
+> 368/368 casos e 53/53 invariantes.**
 >
 > ⚠️ **100% aqui não significa "a IA está correta".** Na rodada adversarial, 8 dos 17 bugs só
 > apareceram no navegador com mensagem real — o corpus passava 100% enquanto "não gastei 100"
@@ -59,8 +61,10 @@ Os grupos correspondem assim:
 | 10 motorista | `motorista`, `motorista2`, `perfil` |
 | 11 ambiguidades e correções | `ambiguidade`, `correcoes`, `correcoes2`, `multiturno` |
 | 12 conversacional | `conversa`, `conversa2`, `incompletas` |
-| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 36 invariantes |
+| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 53 invariantes |
 | 14 datas futuras, inválidas e períodos | `temporal` (43 casos) |
+| 15 desfazer o último lote | `undo` (11 casos) |
+| 16 corrigir lançamento já salvo | `edicao` (12 casos) |
 | Cenários obrigatórios do briefing | `criticos` (10 casos, frases literais) |
 
 Grupos criados na rodada adversarial de 28/07, todos em `cases-adversarial.ts`:
@@ -302,7 +306,7 @@ Auditoria da DeepSeek:
 
 O quadro abaixo é o retrato **histórico anterior** à reformulação, mantido para
 explicar de onde o trabalho partiu. O estado executável atual é
-**345/345 casos e 36/36 invariantes**.
+**368/368 casos e 53/53 invariantes**.
 
 | Situação | Casos |
 |---|---|
@@ -315,3 +319,33 @@ explicar de onde o trabalho partiu. O estado executável atual é
 Concentração das falhas: **datas** (6 casos), **`saving`/reserva** (5), **`origin`** (3),
 **correções e referências** (5), **contrato remoto** (6), **atomicidade e confirmação parcial**
 (3), **criação de recorrentes por conversa** (4).
+
+---
+
+## 15–16. Desfazer e corrigir (29/07/2026, segunda rodada)
+
+Fonte de verdade: `tests/assistant/cases-undo.ts` e `tests/assistant/cases-edit.ts`,
+mais as invariantes 37–53.
+
+| Grupo | Casos | Regra protegida | Resultado |
+|---|---:|---|---|
+| Desfazer — caminho feliz | 4 | Lista o que sai, exige confirmação, reverte o lote inteiro | ✅ |
+| Desfazer — lote de correção | 1 | O valor que VOLTA aparece antes de confirmar | ✅ |
+| Desfazer — nada a desfazer | 3 | Lote inexistente, sem journal ou já desfeito é recusado com explicação | ✅ |
+| Desfazer — não confundir | 3 | `apaga tudo` continua reset; "último" numa frase de registro não vira undo | ✅ |
+| Corrigir — um candidato | 4 | Antes→depois à vista; valor, categoria e descrição | ✅ |
+| Corrigir — vários candidatos | 2 | Pergunta com as opções; valor antigo dito desempata | ✅ |
+| Corrigir — nenhum candidato | 2 | Explica, nunca inventa | ✅ |
+| Corrigir — fora do escopo | 1 | Entrada financiada recusada, com a tela certa indicada | ✅ |
+| Corrigir — não confundir | 2 | `goal-update` e registro novo seguem intactos | ✅ |
+| Corrigir — ocorrência recorrente | 1 | Template preservado, ocorrência não liberada | ✅ |
+| **Total** | **23** | | **23/23** |
+
+Invariantes 37–53 cobrem: journal com entidades criadas e alteradas, lote recusado sem
+rastro, ausência de texto de conversa e segredo no journal, cobertura de todas as
+entidades, campos editáveis derivados do catálogo, `validateAction` em toda edição,
+`firstDueDate` futuro permitido, reversão exata de vários formatos de lote, pagamento de
+fatura reaberto, ocorrência recorrente devolvida a pendente, recusa de lote sem journal,
+duplo undo, ausência de órfãos, undo que não vira lote novo, tipo preservado na correção,
+correção auditável e reversível, template de recorrente intocado e bloqueio de
+`edit-transaction`/`undo-batch` no canal remoto.

@@ -72,6 +72,9 @@ store.tsx · action única `assistantBatch`
 | `src/assistant/drafts.ts` | Rascunho multiturno e encaixe de respostas curtas |
 | `src/assistant/corrections.ts` | Correções, negações e referências sobre a proposta |
 | `src/assistant/execute.ts` | Aplicação pura, sequencial e atômica + resolvedores de referência |
+| `src/assistant/journal.ts` | Auditoria por diferença de estado e reversão de lote inteiro |
+| `src/assistant/editSaved.ts` | Correção de lançamento salvo: busca local e desambiguação |
+| `src/assistant/proposalEdit.ts` | Campos editáveis da proposta, derivados do catálogo |
 | `src/assistant/orchestrator.ts` | Orquestração e decisão local × remoto |
 | `api/_lib/assistantPrompt.ts` | **Fonte única** da SYSTEM_PROMPT (gerada do catálogo) e do sanitizador |
 | `api/_lib/assistantHandler.ts` | Pipeline do endpoint, compartilhado pelos dois backends |
@@ -162,7 +165,7 @@ Auditoria opcional em cada lançamento: `source: 'ai'`, `assistantBatchId`, `pro
 | 17 | Contrato remoto pobre | **Resolvido** — envelope versionado com `mode` e `clarification` |
 | 18 | Texto puro engolindo ações | **Resolvido** — `envelope: null` e `contractFallback: true` |
 | 19 | Validação de categoria e perfil | **Resolvido** |
-| 20 | Testes insuficientes | **Resolvido** — 345 casos + 36 invariantes |
+| 20 | Testes insuficientes | **Resolvido** — 368 casos + 53 invariantes |
 
 ---
 
@@ -171,7 +174,7 @@ Auditoria opcional em cada lançamento: `source: 'ai'`, `assistantBatchId`, `pro
 | Comando | O que roda |
 |---|---|
 | `npm test` | núcleo + corpus do assistente (offline, data fixa 2026-07-15) |
-| `npm run test:assistant` | **345 casos + 36 invariantes** |
+| `npm run test:assistant` | **368 casos + 53 invariantes** |
 | `npm run test:assistant:remote` | 8 sondas contra a IA real; última execução: **8/8** |
 | `npm run typecheck` / `typecheck:api` | `src/` e a mesma checagem que a Vercel faz |
 
@@ -182,7 +185,7 @@ obrigatórios do briefing, com as frases literais) e `cases-adversarial.ts` (68 
 rodada de QA de 28/07 — cada um escrito ANTES da correção do bug que o originou), mais
 `cases-temporal.ts` (43 casos de data futura, inválida, período, correção e frase mista).
 
-> **O que 345/345 NÃO prova.** Na rodada adversarial, **8 dos 17 bugs só apareceram no
+> **O que 368/368 NÃO prova.** Na rodada adversarial, **8 dos 17 bugs só apareceram no
 > navegador com mensagem real** — o corpus passava 100% enquanto "não gastei 100" ainda
 > propunha registrar a despesa. O corpus cobre bem o que foi imaginado; teste manual com
 > linguagem torta continua sendo necessário antes de cada entrega.
@@ -218,15 +221,31 @@ conscientemente.
    orquestrador. Os botões de data/plano funcionam no navegador e “Confirmar?” nunca aparece sem
    uma ação e um botão correspondentes.
 
+### 6.1b Resolvido em 29/07 (segunda rodada): auditoria, edição, undo e correção
+
+1. **Auditoria completa e reversível.** `AppState.assistantJournal` guarda, por lote,
+   `batchId`, versão do contrato, motor, `createdAt` completo, perfil na criação e o **ID**
+   da mensagem de origem — nunca o texto da conversa. As operações vêm da DIFERENÇA entre o
+   estado antes e depois, então cobrem entidade criada, alterada e apagada, inclusive
+   depósito em meta, pagamento de fatura e substituição de peça na manutenção.
+2. **Edição da proposta completa e validada.** Os controles saem do catálogo (nada de lista
+   escrita à mão que envelhece) e toda edição passa por `validateAction()`, com erro
+   específico no formulário. `future-date` continua valendo; `firstDueDate` é exceção.
+3. **"Desfaz o último".** Reverte o último lote INTEIRO pelo journal, depois de listar o que
+   sai e receber confirmação. Lote sem journal é recusado com explicação; desfazer marca
+   `undoneAt` e não vira lote novo, então não existe duplo undo nem redo acidental.
+4. **Corrigir lançamento já salvo.** `Transaction` simples e ocorrência recorrente
+   materializada, busca **local**, desambiguação quando há mais de um candidato, antes→depois
+   à vista e confirmação. O tipo nunca muda. Editar a ocorrência não mexe no template nem a
+   libera; desfazer o lote libera.
+
 ### 6.2 Fora do escopo por decisão (documentado, não esquecido)
 
-1. **Editar um lançamento já salvo por conversa.** "O mercado de ontem foi 80, não 100" é
-   entendido como correção apenas enquanto a proposta está na tela. Depois de gravado, a edição é
-   pela tela de Movimentações. Exigiria uma ação de edição auditável no store — ampliar o escopo
-   sem autorização seria pior que a limitação.
-2. **"Desfaz o último" depois da gravação.** O `assistantBatchId` já é gravado em cada
-   lançamento e torna isso viável, mas o fluxo de remoção com confirmação não foi feito.
-3. **`Analytics.tsx` por perfil.** Continua mostrando a mesma estrutura para motorista e
+1. **Editar por conversa a ESTRUTURA de parcelamento, cartão, meta, abastecimento, trabalho,
+   manutenção e template de recorrência.** O assistente recusa e diz qual tela corrige. Uma
+   `Transaction` que é a ponta de uma dessas estruturas (entrada financiada, espelho de
+   abastecimento ou manutenção) entra na mesma recusa.
+2. **`Analytics.tsx` por perfil.** Continua mostrando a mesma estrutura para motorista e
    não-motorista. Pendência antiga, anterior a esta reformulação.
 
 ### 6.3 Limitações menores

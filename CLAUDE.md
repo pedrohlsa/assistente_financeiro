@@ -176,6 +176,25 @@ código consulta essas funções em vez de comparar `profile === 'driver'` inlin
     regressão (roda em `npm test`, offline e com data fixa) e
     `tests/assistant/properties.ts` guarda as invariantes financeiras. Mexeu em parser,
     orquestrador ou validação sem acrescentar caso? A mudança não está terminada.
+31. **Todo lote do assistente é auditável e reversível**. `AppState.assistantJournal`
+    (opcional, retrocompatível) guarda por lote: `batchId`, versão do contrato, motor,
+    `createdAt` completo, perfil na criação e o **ID** da mensagem de origem — nunca o
+    texto da conversa. As operações são derivadas por DIFERENÇA entre o estado antes e
+    depois (`src/assistant/journal.ts`), então ação nova nasce auditada sem que cada
+    `case` do executor precise se registrar. `assistantBatchId` dentro da entidade **não
+    basta**: ele só marca o que nasceu no lote, e depósito em meta, pagamento de fatura e
+    manutenção ALTERAM objetos que já existiam. Journal e lote gravam no mesmo estado
+    atômico. Lote sem entrada no journal (anterior a esta versão ou fora do limite de 20)
+    é **recusado** — nunca revertido por adivinhação. Desfazer fecha o lote com `undoneAt`
+    em vez de virar um lote novo, e backup mesclado nunca traz o journal do outro estado.
+32. **Corrigir e desfazer são coisas diferentes**. `edit-transaction` altera uma
+    `Transaction` já salva (valor, descrição, categoria, origem, data — **nunca o tipo**);
+    `undo-batch` reverte o lote inteiro. Editar uma ocorrência recorrente materializada
+    não toca no template nem a libera para nova confirmação; desfazer o lote libera.
+    As duas ações têm `remoteAllowed: false`: o histórico não vai para a IA remota, então
+    ela também não propõe correção nem reversão sobre o que não vê. Lançamento que é a
+    ponta de outra estrutura (entrada financiada, abastecimento, manutenção) é **recusado**
+    com o nome da tela que corrige de verdade.
 
 ## Arquitetura e tecnologias
 

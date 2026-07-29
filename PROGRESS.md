@@ -1,7 +1,7 @@
 # AssistFin — Estado do Projeto
 
-**Última atualização**: 2026-07-29 — aba ativa da barra inferior centralizada em
-`src/services/navigation.ts`. Ver a última seção.
+**Última atualização**: 2026-07-29 — auditoria reversível, edição validada da proposta,
+"desfaz o último" e correção de lançamento salvo. Ver a última seção.
 
 > **Aviso de leitura**: as seções datadas abaixo são um diário — cada uma registra o que era
 > verdade **naquela data** e não é reescrita depois. Para o estado atual verificado, use
@@ -1898,3 +1898,107 @@ exatamente na aba correta e em nenhuma outra.
   ganhar a entrada correspondente — a verificação 7 falha até que isso aconteça.
 - O `Fab` continua com seu próprio casamento de rota por `startsWith`. Não é o
   indicador da barra, mas tem a mesma fragilidade e vale centralizar depois.
+
+---
+
+## 🟢 Auditoria, edição, desfazer e correção — 2026-07-29 (itens 40, 34, 23, 22+26)
+
+Quatro blocos, quatro commits isolados, na ordem em que um destrava o seguinte.
+Nenhuma regra financeira, Analytics ou navegação foi alterada. Sem push, deploy ou APK.
+
+### Baseline confirmado antes de tocar em qualquer arquivo
+
+345/345 casos · 36/36 invariantes · 43/43 temporais · árvore limpa em `5dcac42`.
+
+### Casos vermelhos iniciais (todos vistos antes da respectiva correção)
+
+| Bloco | Vermelho inicial |
+|---|---|
+| 40 — auditoria | **38/40 invariantes**: o journal não existia; o depósito em meta não deixava rastro do valor anterior e meta/cartão/assinatura/abastecimento/trabalho/manutenção não eram auditados |
+| 34 — edição | **módulo ausente**; a folha era uma lista escrita à mão sem `name`, `months`, `item`, `lifeKm`, `pricePerLiter`, `firstDueDate`, `source`, e o hodômetro não tinha campo nenhum |
+| 23 — desfazer | **3/10 casos**: `desfaz o último` não existia; depois, **10/11**, porque um lote de correção listava vazio |
+| 22+26 — corrigir | **2/12 casos**: corrigir histórico por conversa não existia |
+
+### Decisões de projeto
+
+1. **Auditoria por DIFERENÇA de estado**, não por registro manual em cada `case`.
+   `assistantBatchId` dentro da entidade só marca o que NASCEU no lote; depósito em meta,
+   pagamento de fatura (que quita parcelas), abastecimento que atualiza o hodômetro e
+   manutenção que substitui a peça anterior alteram ou apagam objetos que já existiam.
+   O diff cobre criação, alteração e remoção — e ação nova nasce auditada.
+2. **Journal no mesmo estado atômico do lote.** Ou os dois gravam, ou nenhum.
+3. **Só o ID da mensagem**, nunca o texto da conversa: ele já vive em `chat`, e duplicá-lo
+   aumentaria o dado sensível guardado no aparelho sem necessidade.
+4. **Lote sem journal é recusado**, com explicação e o caminho alternativo. Reconstruir o
+   passado procurando ids parecidos é exatamente o chute que a estrutura existe para impedir.
+5. **Desfazer não vira lote auditável**: fecha o anterior com `undoneAt`. Sem isso,
+   "desfaz o último" logo depois refaria tudo — um redo que ninguém pediu.
+6. **Backup mesclado não traz o journal do outro estado** — seus retratos descrevem outra base.
+7. **Campos editáveis derivados do catálogo**, com `validateAction()` em toda edição. A lista
+   escrita à mão já tinha envelhecido uma vez; derivar impede que envelheça de novo.
+8. **`edit-transaction` e `undo-batch` com `remoteAllowed: false`.** O histórico não é enviado
+   para a IA remota, então ela também não propõe correção nem reversão sobre o que não vê.
+9. **Corrigir ≠ desfazer** numa recorrente: editar a ocorrência materializada não toca no
+   template nem a libera para nova confirmação; desfazer o lote libera.
+10. **Limite de 20 lotes no journal.** Além disso o undo recusa em vez de chutar.
+
+### Arquivos
+
+| Arquivo | Mudança |
+|---|---|
+| `src/assistant/journal.ts` | **Novo.** Diff de estado, `revertBatchPure`, `lastReversibleBatch`, predicado `isRevertFailure` |
+| `src/assistant/proposalEdit.ts` | **Novo.** `editableFieldsFor` derivado do catálogo |
+| `src/assistant/editSaved.ts` | **Novo.** Detecção do pedido, busca local de candidatos, ação de correção |
+| `src/models/types.ts` | `AssistantJournalEntry`/`Op`, `assistantJournal?` em `AppState`, ações `undo-batch` e `edit-transaction` |
+| `src/assistant/contracts.ts` | Duas ações no catálogo (`remoteAllowed: false`) e 5 códigos de erro novos |
+| `src/assistant/execute.ts` | Journal no lote, `editBlockReason`, execução de `edit-transaction` e `undo-batch` |
+| `src/assistant/orchestrator.ts` | Passos 2b (desfazer) e 2c (corrigir), com listagem e desambiguação |
+| `src/components/ProposalCard.tsx` | Campos do catálogo, `validateAction` ao salvar, rótulo do catálogo |
+| `src/store/store.tsx` | `assistantJournal` em `normalizeState`, `engine`/`messageId` no lote, journal fora do merge |
+| `src/screens/Chat.tsx` | Passa `caps` e a auditoria (motor + id da mensagem) |
+| `src/services/nlp.ts` | `describeAction` das duas ações novas |
+| `tests/assistant/cases-undo.ts` | **Novo.** 11 casos |
+| `tests/assistant/cases-edit.ts` | **Novo.** 12 casos |
+| `tests/assistant/properties.ts` | Invariantes 37–53 |
+| `tests/assistant/harness.ts` | `journal` no cenário, `id` e campos extras preservados |
+
+### Testes
+
+| Verificação | Resultado |
+|---|---|
+| `npm test` | ✅ núcleo (9 verificações de navegação) + **368/368 casos** |
+| Invariantes | ✅ **53/53** |
+| Grupos novos | ✅ `undo` 11/11 · `edicao` 12/12 |
+| `npm run typecheck` | ✅ exit 0 |
+| `npm run typecheck:api` | ✅ exit 0 |
+| `npm run build` | ✅ `index-SZR44-7M.js` 520,46 kB / gzip 155,40 kB |
+| `npx vercel build --prod` | ✅ `status: ok`, somente local |
+| Segredos no bundle | ✅ 0 ocorrências de `sk-`, `DEEPSEEK`, `deepseek.com`, `buildSystemPrompt`, `callDeepSeekChat`, `getDeepSeekConfig`, `Bearer` |
+| Função empacotada | ✅ nenhum import relativo sem `.js`, nenhum padrão de chave |
+
+### Smoke test móvel (375 × 812)
+
+Lote de duas ações confirmado → journal com motor, id da mensagem, carimbo completo,
+contrato e perfil. Edição da proposta com valor zero → erro específico e folha aberta;
+valor válido → grava. Correção de lançamento salvo mostrando `R$ 120,00 → R$ 95,00` →
+grava 95 com o tipo preservado e `before: { amount: 120 }` no journal. `desfaz o último` →
+lista o que volta, confirma, restaura 120 e marca `undoneAt`. Segundo `desfaz o último` →
+recusado com explicação. Sem estouro horizontal, barra inferior visível, console limpo.
+
+> Os erros de `ProposalCard` vistos numa aba durante o desenvolvimento eram do HMR: o
+> componente foi trocado a quente enquanto o `Chat` ainda passava a prop antiga. Em aba
+> nova, o fluxo inteiro roda sem nenhum erro de console.
+
+### Limitações que permanecem
+
+1. **O assistente ainda não confirma ocorrência recorrente por conversa.** O journal e a
+   reversão já tratam `recurring` genericamente, e a invariante 46 prova o mecanismo com uma
+   operação de recorrência — mas hoje nenhum lote do assistente produz uma.
+2. **Só 20 lotes ficam no journal.** Passou disso, o undo recusa (não erra, mas não desfaz).
+3. **A correção muda um campo por vez.** "muda para 80 e para lazer" não é interpretado.
+4. **A busca de candidatos usa data, valor e janela de 120 dias**, não o tipo dito. Com uma
+   despesa e uma reserva no mesmo dia, "corrige o gasto de hoje" pergunta qual — seguro,
+   mas poderia desempatar sozinho pelo substantivo.
+5. **Editar por conversa a estrutura de parcelamento, cartão, meta, veículo e template de
+   recorrência continua fora**, por decisão desta rodada.
+6. **`Analytics.tsx` por perfil** segue pendente, anterior a tudo isto.
