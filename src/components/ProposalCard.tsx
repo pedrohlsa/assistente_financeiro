@@ -12,7 +12,9 @@ import { MoneyInput, Sheet } from './ui'
 import { fmtBRL, parseMoney, todayISO } from '../utils/format'
 import { sentenceCase } from '../utils/text'
 import { dateLabel } from '../assistant/dates'
-import { actionSpec } from '../assistant/contracts'
+import { errorMessage, isValidationFailure, validateAction } from '../assistant/contracts'
+import type { AssistantCapabilities } from '../assistant/contracts'
+import { editableFieldsFor } from '../assistant/proposalEdit'
 
 const KIND_LABEL: Record<string, string> = {
   income: 'Receita', expense: 'Despesa', saving: 'Guardar na reserva',
@@ -53,11 +55,11 @@ function detailRows(a: any, catName: (id: string) => string): [string, string][]
 interface EditState { id: string; action: any }
 
 export function ProposalCard({
-  proposal, categories, cardNames, onConfirmAll, onConfirmOne, onEdit, onRemove, onCancel,
+  proposal, categories, caps, onConfirmAll, onConfirmOne, onEdit, onRemove, onCancel,
 }: {
   proposal: ProposedAction[]
   categories: Category[]
-  cardNames: string[]
+  caps: AssistantCapabilities
   onConfirmAll: () => void
   onConfirmOne: (id: string) => void
   onEdit: (id: string, action: ParsedAction) => void
@@ -65,18 +67,29 @@ export function ProposalCard({
   onCancel: () => void
 }) {
   const [editing, setEditing] = useState<EditState | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const catName = (id: string) => categories.find(c => c.id === id)?.name || id
 
-  const spec = editing ? actionSpec(editing.action.kind) : undefined
-  const editableCats = editing
-    ? categories.filter(c => !c.archived && c.type === (spec?.fields.find(f => f.name === 'category')?.categoryOf || 'expense'))
-    : []
+  const campos = editing ? editableFieldsFor(editing.action, caps) : []
+  const setCampo = (name: string, value: unknown) => {
+    setErro(null)
+    setEditing(e => e && ({ ...e, action: { ...e.action, [name]: value } }))
+  }
 
   const save = () => {
     if (!editing) return
-    onEdit(editing.id, editing.action as ParsedAction)
+    // MESMA validação do servidor e do motor local — nunca uma segunda regra
+    // para o que o usuário digita à mão (regra 26). É isto que mantém a
+    // barreira `future-date` valendo também depois de uma edição.
+    const res = validateAction(editing.action, caps, todayISO())
+    if (isValidationFailure(res)) {
+      setErro(errorMessage(res.code, res.detail))
+      return
+    }
+    onEdit(editing.id, res.action)
     setEditing(null)
+    setErro(null)
   }
 
   return (
@@ -142,64 +155,66 @@ export function ProposalCard({
         </div>
       )}
 
-      <Sheet open={!!editing} onClose={() => setEditing(null)} title="Editar lançamento">
+      <Sheet open={!!editing} onClose={() => { setEditing(null); setErro(null) }} title="Editar lançamento">
         {editing && (
           <div className="stack" style={{ gap: 12 }}>
-            {['amount', 'total', 'cost', 'target', 'netReceived'].filter(f => editing.action[f] !== undefined).map(f => (
-              <label key={f} className="field">
-                <span>{f === 'netReceived' ? 'Recebido agora' : 'Valor'}</span>
-                <MoneyInput
-                  value={String(editing.action[f] ?? '')}
-                  onChange={val => setEditing(e => e && ({ ...e, action: { ...e.action, [f]: parseMoney(val) } }))}
-                />
-              </label>
-            ))}
-            {editing.action.description !== undefined && (
-              <label className="field"><span>Descrição</span>
-                <input value={editing.action.description || ''}
-                  onChange={e => setEditing(s => s && ({ ...s, action: { ...s.action, description: e.target.value } }))} />
-              </label>
-            )}
-            {editing.action.origin !== undefined && (
-              <label className="field"><span>Origem</span>
-                <input value={editing.action.origin || ''}
-                  onChange={e => setEditing(s => s && ({ ...s, action: { ...s.action, origin: e.target.value } }))} />
-              </label>
-            )}
-            {editing.action.category !== undefined && (
-              <label className="field"><span>Categoria</span>
-                <select value={editing.action.category || ''}
-                  onChange={e => setEditing(s => s && ({ ...s, action: { ...s.action, category: e.target.value } }))}>
-                  {editableCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </label>
-            )}
-            {cardNames.length > 0 && editing.action.cardName !== undefined && (
-              <label className="field"><span>Cartão</span>
-                <select value={editing.action.cardName || ''}
-                  onChange={e => setEditing(s => s && ({ ...s, action: { ...s.action, cardName: e.target.value } }))}>
-                  {cardNames.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </label>
-            )}
-            {editing.action.installments !== undefined && (
-              <label className="field"><span>Parcelas</span>
-                <input type="number" min={1} max={120} value={editing.action.installments || 1}
-                  onChange={e => setEditing(s => s && ({ ...s, action: { ...s.action, installments: Math.max(1, Number(e.target.value) || 1) } }))} />
-              </label>
-            )}
-            {['km', 'trips', 'hours', 'liters', 'odometer'].filter(f => editing.action[f] !== undefined).map(f => (
-              <label key={f} className="field">
-                <span>{f === 'km' ? 'Km rodados' : f === 'trips' ? 'Viagens' : f === 'hours' ? 'Horas' : f === 'liters' ? 'Litros' : 'Hodômetro'}</span>
-                <input type="number" value={editing.action[f] ?? ''}
-                  onChange={e => setEditing(s => s && ({ ...s, action: { ...s.action, [f]: Number(e.target.value) } }))} />
-              </label>
-            ))}
-            {actionSpec(editing.action.kind)?.fields.some(f => f.name === 'date') && (
-              <label className="field"><span>Data</span>
-                <input type="date" value={editing.action.date || todayISO()}
-                  onChange={e => setEditing(s => s && ({ ...s, action: { ...s.action, date: e.target.value } }))} />
-              </label>
+            {/* Os campos vêm do CATÁLOGO, na ordem dele. Campo ainda vazio
+                também aparece: é assim que o usuário acrescenta a origem ou o
+                prazo que o parser não pegou. */}
+            {campos.map(f => {
+              const v = (editing.action as any)[f.name]
+              if (f.control === 'money') {
+                return (
+                  <label key={f.name} className="field"><span>{f.label}</span>
+                    <MoneyInput value={v === undefined || v === null ? '' : String(v)}
+                      onChange={val => setCampo(f.name, val === '' ? undefined : parseMoney(val))} />
+                  </label>
+                )
+              }
+              if (f.control === 'number') {
+                return (
+                  <label key={f.name} className="field"><span>{f.label}</span>
+                    <input type="number" min={f.min} max={f.max} value={v ?? ''}
+                      onChange={e => setCampo(f.name, e.target.value === '' ? undefined : Number(e.target.value))} />
+                  </label>
+                )
+              }
+              if (f.control === 'select') {
+                return (
+                  <label key={f.name} className="field"><span>{f.label}</span>
+                    <select value={v ?? ''} onChange={e => setCampo(f.name, e.target.value || undefined)}>
+                      <option value="">— não informado —</option>
+                      {f.options?.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </label>
+                )
+              }
+              if (f.control === 'date') {
+                return (
+                  <label key={f.name} className="field">
+                    <span>{f.label}{f.allowsFuture ? '' : ' (só o que já aconteceu)'}</span>
+                    <input type="date" value={v || ''} max={f.allowsFuture ? undefined : todayISO()}
+                      onChange={e => setCampo(f.name, e.target.value || undefined)} />
+                  </label>
+                )
+              }
+              if (f.control === 'flag') {
+                return (
+                  <label key={f.name} className="row" style={{ gap: 8 }}>
+                    <input type="checkbox" checked={!!v} onChange={e => setCampo(f.name, e.target.checked)} />
+                    <span>{f.label}</span>
+                  </label>
+                )
+              }
+              return (
+                <label key={f.name} className="field"><span>{f.label}</span>
+                  <input maxLength={f.maxLength} value={v ?? ''}
+                    onChange={e => setCampo(f.name, e.target.value || undefined)} />
+                </label>
+              )
+            })}
+            {erro && (
+              <div className="tiny" role="alert" style={{ color: 'var(--danger)' }}>✕ {erro}</div>
             )}
             <button className="btn btn-primary" onClick={save}>Salvar alteração</button>
           </div>

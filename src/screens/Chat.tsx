@@ -322,7 +322,7 @@ export default function Chat() {
               <ProposalCard
                 proposal={m.proposal}
                 categories={state.categories}
-                cardNames={caps.cardNames}
+                caps={caps}
                 onConfirmAll={() => commit(m.id, m.proposal!.filter(p => !p.outcome), m.proposal!)}
                 onConfirmOne={id => commit(m.id, m.proposal!.filter(p => p.id === id), m.proposal!)}
                 onEdit={(id, action) => updateProposal(m.id, m.proposal!.map(p => (p.id === id ? { ...p, action } : p)))}

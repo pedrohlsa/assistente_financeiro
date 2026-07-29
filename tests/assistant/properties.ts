@@ -12,6 +12,7 @@ import { applyBatchPure, planAssistantActions } from '../../src/assistant/execut
 import { validateAction, isValidationFailure, ACTION_CATALOG, allowedRemoteKinds, actionSpec } from '../../src/assistant/contracts'
 import { buildCapabilities, orchestrate } from '../../src/assistant/orchestrator'
 import { findDate, findUnresolvedTemporalHint } from '../../src/assistant/dates'
+import { editableFieldsFor } from '../../src/assistant/proposalEdit'
 import { currentBalance, savedThisMonth, monthStats } from '../../src/services/calc'
 import { buildSystemPrompt, normalizeCapabilities, sanitizeRemoteResponse } from '../../api/_lib/assistantPrompt'
 import { callDeepSeekChat, isDeepSeekFailure } from '../../api/_lib/deepseek'
@@ -86,6 +87,26 @@ const FRASES_TEMPORAIS = [
   // fato — a expressão pertence à meta e o lançamento nem existe.
   'quero comprar um celular de 5000 em 6 meses',
 ]
+
+/** Uma ação de exemplo por tipo do catálogo, com todos os campos preenchidos. */
+const AMOSTRA: Record<string, any> = {
+  income: { amount: 100, category: 'salario', description: 'X', origin: 'Casa 1', date: TODAY },
+  expense: { amount: 100, category: 'casa', description: 'X', origin: 'Casa 1', date: TODAY },
+  saving: { amount: 100, description: 'X', date: TODAY },
+  work: { km: 10, trips: 2, hours: 3, date: TODAY },
+  fuel: { amount: 100, liters: 20, pricePerLiter: 5, odometer: 90000, date: TODAY },
+  odometer: { value: 90000 },
+  maintenance: { item: 'óleo', cost: 200, km: 90000, lifeKm: 10000, date: TODAY },
+  goal: { name: 'Bike', target: 2000, months: 6 },
+  'goal-update': { name: 'Bike', target: 3000, months: 8 },
+  'goal-deposit': { name: 'Bike', amount: 100 },
+  balance: { amount: 1500 },
+  'card-purchase': { total: 400, installments: 4, description: 'PC', cardName: 'Nubank', category: 'casa', firstDueDate: '2026-09-10' },
+  'financed-cash-inflow': { total: 2000, netReceived: 1850, installments: 5, cardName: 'Nubank', source: 'Loja X' },
+  'card-payment': { cardName: 'Nubank', amount: 300 },
+  'card-charge': { amount: 39.9, description: 'Netflix', cardName: 'Nubank', category: 'assinaturas' },
+  reset: {},
+}
 
 const rodar = (message: string) =>
   orchestrate({ state: buildState({ profile: 'other' }), message, history: [], remoteEnabled: false, today: TODAY })
@@ -689,6 +710,62 @@ export async function runProperties(): Promise<PropertyReport> {
       if (!feitos.includes(esperado)) return `${nome}: faltou ${esperado} (veio: ${feitos.join(', ') || 'nada'})`
     }
     return null
+  })
+
+  // --- 41. Todo campo do catálogo é editável na proposta ----------------
+  // A folha de edição era uma lista escrita à mão e ficou para trás do
+  // catálogo: `name`, `months`, `item`, `lifeKm`, `pricePerLiter`,
+  // `firstDueDate`, `source` e o `value` do hodômetro não apareciam — e a ação
+  // de hodômetro não tinha NENHUM campo editável.
+  check(r, 'todo campo do catálogo é editável na proposta', () => {
+    const caps = buildCapabilities(buildState({ profile: 'driver', cards: [{ name: 'Nubank' }], goals: [{ name: 'Bike', target: 2000 }] }))
+    for (const spec of ACTION_CATALOG) {
+      if (spec.kind === 'reset') continue
+      const acao: any = { kind: spec.kind, ...AMOSTRA[spec.kind] }
+      const campos = editableFieldsFor(acao, caps).map(f => f.name)
+      for (const f of spec.fields) {
+        if (!campos.includes(f.name)) return `${spec.kind}.${f.name} não aparece na edição`
+      }
+      const extras = campos.filter(n => !spec.fields.some(f => f.name === n))
+      if (extras.length) return `${spec.kind} oferece campo fora do catálogo: ${extras.join(', ')}`
+    }
+    return null
+  })
+
+  // --- 42. Edição inválida ou maliciosa nunca entra na proposta ---------
+  check(r, 'edição passa por validateAction', () => {
+    const caps = buildCapabilities(buildState({ profile: 'other', cards: [{ name: 'Nubank' }] }))
+    const casos: [string, any, string][] = [
+      ['valor zero', { kind: 'expense', amount: 0, category: 'casa' }, 'invalid-amount'],
+      ['valor negativo', { kind: 'expense', amount: -50, category: 'casa' }, 'invalid-amount'],
+      ['valor absurdo', { kind: 'expense', amount: 1e12, category: 'casa' }, 'invalid-amount'],
+      ['categoria inventada', { kind: 'expense', amount: 10, category: 'xpto' }, 'category-not-found'],
+      ['categoria de entrada numa despesa', { kind: 'expense', amount: 10, category: 'salario' }, 'category-wrong-type'],
+      ['data futura', { kind: 'expense', amount: 10, category: 'casa', date: '2027-01-01' }, 'future-date'],
+      ['data impossível', { kind: 'expense', amount: 10, category: 'casa', date: '2026-02-31' }, 'invalid-date'],
+      ['parcelas zero', { kind: 'card-purchase', total: 100, installments: 0 }, 'invalid-number'],
+      ['descrição gigante', { kind: 'expense', amount: 10, category: 'casa', description: 'x'.repeat(200) }, 'text-too-long'],
+      ['ação de motorista fora do perfil', { kind: 'fuel', amount: 50 }, 'profile-forbidden'],
+    ]
+    for (const [nome, acao, codigo] of casos) {
+      const res = validateAction(acao, caps, TODAY)
+      if (!isValidationFailure(res)) return `${nome}: passou na validação`
+      if (res.code !== codigo) return `${nome}: código ${res.code}, esperava ${codigo}`
+    }
+    return null
+  })
+
+  // --- 43. Campo de PREVISÃO continua podendo ser futuro ----------------
+  // `firstDueDate` é vencimento, não fato consumado: a barreira `future-date`
+  // não pode alcançá-lo, senão parcelamento nenhum seria editável.
+  check(r, 'primeiro vencimento aceita data futura', () => {
+    const caps = buildCapabilities(buildState({ cards: [{ name: 'Nubank' }] }))
+    const res = validateAction(
+      { kind: 'card-purchase', total: 400, installments: 4, cardName: 'Nubank', firstDueDate: '2027-03-10' },
+      caps, TODAY,
+    )
+    if (isValidationFailure(res)) return `recusou com ${res.code}`
+    return (res.action as any).firstDueDate === '2027-03-10' ? null : 'perdeu o vencimento'
   })
 
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
