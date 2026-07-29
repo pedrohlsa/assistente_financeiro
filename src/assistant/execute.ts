@@ -14,7 +14,7 @@ import type {
 } from '../models/types'
 import type { ActionExecutionResult, AssistantErrorCode } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, errorMessage } from './contracts'
-import { JOURNAL_LIMIT, diffForJournal } from './journal'
+import { JOURNAL_LIMIT, diffForJournal, isRevertFailure, revertBatchPure } from './journal'
 import { addDays, monthKey, nowStamp, nowTime, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
@@ -350,6 +350,11 @@ export function applyActionPure(
       }
       return { state: { ...state, cardCharges: [charge, ...state.cardCharges] }, result: { ok: true, actionId, entityId: charge.id } }
     }
+    case 'undo-batch': {
+      const rev = revertBatchPure(state, action.batchId, opts.stamp || nowStamp())
+      if (isRevertFailure(rev)) return { state, result: fail(actionId, rev.code, undefined, false) }
+      return { state: rev.state, result: { ok: true, actionId, entityId: action.batchId } }
+    }
     case 'reset':
       // Reset NUNCA passa por aqui: é destrutivo e tem caminho próprio
       // (`resetAllData`), fora do lote, com diálogo de confirmação reforçado.
@@ -395,7 +400,11 @@ export function applyBatchPure(
   // O journal entra no MESMO estado do lote: ou os dois gravam, ou nenhum.
   // Sem `batchId` não há o que auditar — é o caso da simulação, que descarta
   // o estado inteiro e não pode deixar rastro.
-  if (opts.batchId) {
+  // Desfazer FECHA o lote anterior; ele mesmo não vira um lote auditável,
+  // senão "desfaz o último" logo depois refaria tudo — um "refazer" que
+  // ninguém pediu e que confundiria o histórico.
+  const ehUndo = items.some(i => i.action.kind === 'undo-batch')
+  if (opts.batchId && !ehUndo) {
     const ops = diffForJournal(state, cur)
     if (ops.length) {
       const entry: AssistantJournalEntry = {

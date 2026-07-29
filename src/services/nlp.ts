@@ -720,5 +720,6 @@ export function describeAction(a: ParsedAction): string {
     case 'card-charge':
       return `Assinatura${a.description ? ` ${a.description}` : ''} de R$ ${a.amount.toFixed(2).replace('.', ',')}/mês${a.cardName ? ` no ${a.cardName}` : ''}`
     case 'reset': return 'Apagar TODOS os dados do app'
+    case 'undo-batch': return 'Desfazer o último registro do assistente'
   }
 }

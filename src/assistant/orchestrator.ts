@@ -8,7 +8,8 @@
 // resolvido, e só o que sobrou justifica chamar a IA remota — que reconcilia,
 // nunca duplica.
 
-import type { AppState, ParsedAction } from '../models/types'
+import type { AppState, AssistantJournalEntry, ParsedAction } from '../models/types'
+import { lastReversibleBatch } from './journal'
 import type {
   AssistantCandidateAction, AssistantCapabilities, AssistantClarification,
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
@@ -123,6 +124,74 @@ const withDate = (actions: ParsedAction[], iso?: string): ParsedAction[] =>
     else delete next.date
     return next as ParsedAction
   })
+
+// ---------------------------------------------------------------------------
+// Desfazer o último lote
+// ---------------------------------------------------------------------------
+
+/**
+ * Pedido de desfazer. Exige o VERBO abrindo a frase e um alvo referencial
+ * ("o último", "isso") — sem as duas coisas, "gastei 30 no último posto" viraria
+ * uma reversão, e "apaga tudo" continuaria sendo o reset destrutivo de sempre.
+ */
+// `\b` antes de "último" NÃO funciona: em JS o "ú" não é caractere de palavra,
+// então a borda nunca casa — a mesma armadilha que já tinha escondido "amanhã".
+const UNDO_REQUEST =
+  /^\s*(?:pode\s+|por\s+favor\s+)?(?:desfaz|desfazer|desfa[çc]a|cancela|cancelar|remove|remover|apaga|apagar|exclui|excluir)(?![a-zà-ú])[^.?!]{0,40}?\s(?:[úu]ltim[oa]|isso|isto)(?![\wà-úÀ-Ú])/i
+
+const dinheiro = (v: number) => fmtBRL(v)
+
+/** Uma linha legível por entidade que a reversão vai remover ou restaurar. */
+function describeUndoTarget(state: AppState, entity: string, alvo: any): string | null {
+  switch (entity) {
+    case 'transactions': {
+      const rotulo = alvo.type === 'income' ? 'Receita' : alvo.type === 'saving' ? 'Reserva' : alvo.type === 'financed-cash-inflow' ? 'Entrada financiada' : 'Despesa'
+      return `${rotulo} de ${dinheiro(alvo.amount)}${alvo.description ? ` — ${alvo.description}` : ''}`
+    }
+    case 'goals': return `Meta "${alvo.name}"`
+    case 'installmentPlans': return `${alvo.description || 'Parcelamento'} de ${dinheiro(alvo.totalAmount)} em ${alvo.installmentCount}x`
+    case 'cardPayments': return `Pagamento de fatura de ${dinheiro(alvo.amount)}`
+    case 'cardCharges': return `Assinatura ${alvo.description} de ${dinheiro(alvo.amount)}/mês`
+    case 'fuelRecords': return `Abastecimento de ${dinheiro(alvo.amount)}`
+    case 'workSessions': return `Registro de trabalho de ${alvo.date}`
+    case 'maintenance': return `Manutenção "${alvo.name}"`
+    case 'cards': return `Cartão ${alvo.name}`
+    // Parcelas são detalhe do plano: listá-las uma a uma só faria ruído.
+    default: return null
+  }
+}
+
+/**
+ * O que o usuário vai perder ao confirmar. Mostrar isso ANTES de reverter é
+ * requisito, não cortesia: desfazer é destrutivo e silencioso por natureza.
+ */
+export function describeUndo(state: AppState, entry: AssistantJournalEntry): string[] {
+  const linhas: string[] = []
+  for (const op of entry.ops) {
+    if (op.op !== 'create') continue
+    const lista: any[] = (state as any)[op.entity] || []
+    const alvo = lista.find(x => x.id === op.id)
+    if (!alvo) continue
+    const linha = describeUndoTarget(state, op.entity, alvo)
+    if (linha) linhas.push(linha)
+  }
+  for (const op of entry.ops) {
+    if (op.op !== 'update') continue
+    if (op.entity === 'goals') {
+      const g: any = (state.goals || []).find(x => x.id === op.id)
+      const antes = (op.before as any).saved
+      if (g && typeof antes === 'number') linhas.push(`Depósito de ${dinheiro(g.saved - antes)} na meta "${g.name}"`)
+    } else if (op.entity === 'recurring') {
+      linhas.push('Confirmação de uma conta recorrente (volta a ficar pendente)')
+    }
+  }
+  for (const op of entry.ops) {
+    if (op.op === 'patch' && op.entity === 'settings' && 'balance' in (op.before as any)) {
+      linhas.push('Saldo em conta informado')
+    }
+  }
+  return linhas
+}
 
 /**
  * Explicação honesta para uma intenção futura. O app não agenda lançamentos —
@@ -599,6 +668,41 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
           reply: `${plan.summary.join(' ')}\n\n${proposalText(next)}\n\nConfirmar?`,
         },
       }
+    }
+  }
+
+  // ---- 2b) A mensagem pede para desfazer o último lote? ------------------
+  // Depois das correções de propósito: com uma proposta na tela, "cancela
+  // isso" descarta a proposta, não mexe no que já foi gravado.
+  if (UNDO_REQUEST.test(input.message)) {
+    const alvo = lastReversibleBatch(input.state)
+    if (alvo) {
+      const itens = describeUndo(input.state, alvo)
+      const cand = [candidate({ kind: 'undo-batch', batchId: alvo.batchId }, 'local')]
+      return {
+        draft: null,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
+          actions: cand, unresolved: [],
+          reply: itens.length
+            ? `Isto é o que vou desfazer:\n\n${itens.map(l => `• ${l}`).join('\n')}\n\nConfirmar?`
+            : 'Vou desfazer o último registro do assistente.\n\nConfirmar?',
+        },
+      }
+    }
+    // Sem journal não se reverte por adivinhação — e o usuário precisa saber
+    // por quê, além de para onde ir.
+    const temHistorico = (input.state.transactions?.length || 0) > 0
+      || (input.state.installmentPlans?.length || 0) > 0
+    return {
+      draft: null,
+      response: {
+        version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local',
+        actions: [], unresolved: [],
+        reply: temHistorico
+          ? 'Não tenho o registro detalhado desses lançamentos, então não sei desfazer com segurança. Dá para apagar pela tela de Movimentações.'
+          : 'Não tenho nenhum registro recente do assistente para desfazer.',
+      },
     }
   }
 

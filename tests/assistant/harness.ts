@@ -4,7 +4,7 @@
 // nenhum localStorage, nenhuma dependência de horário além da data injetada.
 // É o mesmo código que a tela usa — não uma reimplementação para o teste.
 
-import type { AppState, ParsedAction, ProfileId } from '../../src/models/types'
+import type { AppState, AssistantJournalEntry, ParsedAction, ProfileId } from '../../src/models/types'
 import { DEFAULT_CATEGORIES } from '../../src/data/categories'
 import { orchestrate } from '../../src/assistant/orchestrator'
 import type { AssistantCandidateAction, AssistantResponse } from '../../src/assistant/contracts'
@@ -18,9 +18,12 @@ export interface CaseState {
   balance?: number
   cards?: { name: string; limit?: number; closingDay?: number; dueDay?: number }[]
   goals?: { name: string; target: number; saved?: number }[]
-  transactions?: Partial<ParsedAction & { type: string; amount: number; category: string; date: string }>[]
+  /** `id` explícito quando o caso precisa referenciá-lo (journal do undo). */
+  transactions?: Partial<ParsedAction & { id: string; type: string; amount: number; category: string; date: string }>[]
   monthlyProfitTarget?: number
   remoteAi?: boolean
+  /** Lotes já confirmados pelo assistente — base do "desfaz o último". */
+  journal?: AssistantJournalEntry[]
 }
 
 export function buildState(cs: CaseState = {}): AppState {
@@ -36,7 +39,9 @@ export function buildState(cs: CaseState = {}): AppState {
       remoteAi: cs.remoteAi ?? false,
     },
     transactions: (cs.transactions || []).map((t: any, i) => ({
-      id: `tx${i}`, type: t.type || 'expense', amount: t.amount, category: t.category || 'outros-out',
+      // Id explícito é preservado: o journal do "desfaz o último" aponta para
+      // ele, e sobrescrever aqui fazia a reversão não achar o lançamento.
+      id: t.id || `tx${i}`, type: t.type || 'expense', amount: t.amount, category: t.category || 'outros-out',
       description: t.description, date: t.date || TODAY, time: '10:00',
     })) as any,
     categories: DEFAULT_CATEGORIES,
@@ -50,6 +55,7 @@ export function buildState(cs: CaseState = {}): AppState {
       closingDay: c.closingDay ?? 1, dueDay: c.dueDay ?? 10, createdAt: TODAY,
     })),
     installmentPlans: [], installments: [], cardPayments: [], cardCharges: [],
+    assistantJournal: cs.journal || [],
   }
 }
 

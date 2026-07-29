@@ -363,6 +363,9 @@ export type ParsedAction =
   | { kind: 'card-payment'; cardName?: string; amount?: number }  // amount ausente = fatura toda
   | { kind: 'card-charge'; description?: string; amount: number; cardName?: string; category?: string } // assinatura
   | { kind: 'reset' }                           // apaga todos os dados (confirmação obrigatória)
+  // Desfaz um LOTE inteiro já confirmado, pelo journal. Nunca um pedaço, nunca
+  // um registro manual, e sempre com confirmação depois de listar o que sai.
+  | { kind: 'undo-batch'; batchId: string }
 
 export interface Insight {
   id: string

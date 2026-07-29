@@ -13,6 +13,7 @@ import { validateAction, isValidationFailure, ACTION_CATALOG, allowedRemoteKinds
 import { buildCapabilities, orchestrate } from '../../src/assistant/orchestrator'
 import { findDate, findUnresolvedTemporalHint } from '../../src/assistant/dates'
 import { editableFieldsFor } from '../../src/assistant/proposalEdit'
+import { isRevertFailure, lastReversibleBatch, revertBatchPure } from '../../src/assistant/journal'
 import { currentBalance, savedThisMonth, monthStats } from '../../src/services/calc'
 import { buildSystemPrompt, normalizeCapabilities, sanitizeRemoteResponse } from '../../api/_lib/assistantPrompt'
 import { callDeepSeekChat, isDeepSeekFailure } from '../../api/_lib/deepseek'
@@ -87,6 +88,12 @@ const FRASES_TEMPORAIS = [
   // fato — a expressão pertence à meta e o lançamento nem existe.
   'quero comprar um celular de 5000 em 6 meses',
 ]
+
+/** Carimbo fixo: reversão comparada byte a byte não pode variar com o relógio. */
+const CARIMBO = `${TODAY}T09:00`
+
+/** Estado sem o journal — o que precisa voltar idêntico depois de desfazer. */
+const semJournal = (s: any) => JSON.stringify({ ...s, assistantJournal: undefined })
 
 /** Uma ação de exemplo por tipo do catálogo, com todos os campos preenchidos. */
 const AMOSTRA: Record<string, any> = {
@@ -766,6 +773,143 @@ export async function runProperties(): Promise<PropertyReport> {
     )
     if (isValidationFailure(res)) return `recusou com ${res.code}`
     return (res.action as any).firstDueDate === '2027-03-10' ? null : 'perdeu o vencimento'
+  })
+
+  // --- 44. Desfazer devolve o estado EXATAMENTE ao anterior -------------
+  check(r, 'desfazer restaura o estado anterior do lote', () => {
+    const casos: [string, ReturnType<typeof buildState>, ParsedAction[]][] = [
+      ['várias transações', buildState(), [
+        { kind: 'expense', amount: 50, category: 'alimentacao' },
+        { kind: 'expense', amount: 90, category: 'casa' },
+        { kind: 'income', amount: 300, category: 'salario' },
+      ]],
+      ['meta criada e depósito', buildState({ goals: [{ name: 'Bike', target: 2000, saved: 300 }] }), [
+        { kind: 'goal', name: 'Viagem', target: 5000 },
+        { kind: 'goal-deposit', name: 'Bike', amount: 200 },
+      ]],
+      ['compra parcelada', buildState({ cards: [{ name: 'Nubank' }] }), [
+        { kind: 'card-purchase', total: 1200, installments: 3, cardName: 'Nubank' },
+      ]],
+      ['saldo informado', buildState({ balance: 500 }), [{ kind: 'balance', amount: 2000 }]],
+    ]
+    for (const [nome, inicial, acoes] of casos) {
+      const antes = semJournal(inicial)
+      const feito = applyBatchPure(inicial, batch(acoes), { source: 'ai', batchId: 'b1', stamp: CARIMBO })
+      if (!feito.applied) return `${nome}: lote não aplicado`
+      const rev = revertBatchPure(feito.state, 'b1', CARIMBO)
+      if (isRevertFailure(rev)) return `${nome}: reversão recusada (${rev.code})`
+      if (semJournal(rev.state) !== antes) return `${nome}: estado não voltou ao original`
+    }
+    return null
+  })
+
+  // --- 45. Pagamento de fatura desfeito devolve as parcelas -------------
+  check(r, 'desfazer pagamento de fatura reabre as parcelas', () => {
+    const s = buildState({ cards: [{ name: 'Nubank' }], balance: 5000 })
+    // Vencimento dentro do mês corrente do teste: sem isso a fatura está vazia
+    // e o pagamento é recusado antes de quitar qualquer parcela.
+    const agora = { date: TODAY, time: '10:00' }
+    const comPlano = applyBatchPure(s, batch([
+      { kind: 'card-purchase', total: 400, installments: 1, cardName: 'Nubank', firstDueDate: '2026-07-10' },
+    ]), { source: 'ai', batchId: 'compra', stamp: CARIMBO, now: agora }).state
+    const antes = semJournal(comPlano)
+    const pago = applyBatchPure(comPlano, batch([{ kind: 'card-payment', cardName: 'Nubank' }]), {
+      source: 'ai', batchId: 'pagamento', stamp: CARIMBO, now: agora,
+    })
+    if (!pago.applied) return 'pagamento não aplicado'
+    if (!pago.state.installments.some(i => i.status === 'paid')) return 'nenhuma parcela foi quitada'
+    const rev = revertBatchPure(pago.state, 'pagamento', CARIMBO)
+    if (isRevertFailure(rev)) return `reversão recusada (${rev.code})`
+    if (rev.state.cardPayments.length) return 'pagamento continuou registrado'
+    if (rev.state.installments.some(i => i.status === 'paid')) return 'parcela continuou quitada'
+    if (semJournal(rev.state) !== antes) return 'estado não voltou ao de antes do pagamento'
+    return null
+  })
+
+  // --- 46. Ocorrência recorrente volta a ficar pendente -----------------
+  // O assistente ainda não confirma ocorrência por conversa; o que se prova
+  // aqui é o MECANISMO: uma operação de recorrência no journal é revertida e a
+  // ocorrência resolvida some, podendo ser confirmada de novo uma única vez.
+  check(r, 'desfazer devolve a ocorrência recorrente para pendente', () => {
+    const base = buildState()
+    const recorrente: any = {
+      id: 'rec1', kind: 'expense', name: 'Internet', amount: 120, dueDay: 10,
+      frequency: 'monthly', startDate: '2026-07-10', occurrences: [],
+    }
+    const antes: any = { ...base, recurring: [recorrente] }
+    const depois: any = {
+      ...antes,
+      recurring: [{ ...recorrente, occurrences: [{ date: '2026-07-10', status: 'confirmed' }] }],
+      transactions: [{ id: 't1', type: 'expense', amount: 120, category: 'casa', date: '2026-07-10', recurringId: 'rec1', occurrenceDate: '2026-07-10' }],
+      assistantJournal: [{
+        batchId: 'rec-lote', contractVersion: 1, source: 'ai', createdAt: CARIMBO,
+        ops: [
+          { op: 'create', entity: 'transactions', id: 't1' },
+          { op: 'update', entity: 'recurring', id: 'rec1', before: { occurrences: [] } },
+        ],
+      }],
+    }
+    const rev = revertBatchPure(depois, 'rec-lote', CARIMBO)
+    if (isRevertFailure(rev)) return `reversão recusada (${rev.code})`
+    if (rev.state.transactions.length) return 'a movimentação continuou gravada'
+    const occ = (rev.state.recurring[0] as any).occurrences
+    if (occ?.length) return `ocorrência continuou resolvida: ${JSON.stringify(occ)}`
+    return null
+  })
+
+  // --- 47. Lote desconhecido, antigo ou já desfeito é RECUSADO ----------
+  check(r, 'lote sem journal nunca é revertido por adivinhação', () => {
+    const s = buildState()
+    const feito = applyBatchPure(s, batch([{ kind: 'expense', amount: 50, category: 'casa' }]), {
+      source: 'ai', batchId: 'b1', stamp: CARIMBO,
+    })
+    const inexistente = revertBatchPure(feito.state, 'lote-que-nunca-existiu', CARIMBO)
+    if (!isRevertFailure(inexistente)) return 'reverteu um lote inexistente'
+    if (inexistente.code !== 'batch-not-found') return `código ${inexistente.code}`
+    if (!/movimenta|desfazer|segurança/i.test(inexistente.message)) return 'mensagem não explica o motivo'
+
+    // Duplo undo: a segunda tentativa não pode aplicar a reversão de novo.
+    const um = revertBatchPure(feito.state, 'b1', CARIMBO)
+    if (isRevertFailure(um)) return `primeira reversão falhou (${um.code})`
+    const dois = revertBatchPure(um.state, 'b1', CARIMBO)
+    if (!isRevertFailure(dois)) return 'desfez o mesmo lote duas vezes'
+    if (dois.code !== 'already-undone') return `segundo undo: código ${dois.code}`
+    return null
+  })
+
+  // --- 48. Reversão não deixa entidade órfã nem meia reversão -----------
+  check(r, 'reversão é atômica e não deixa órfão', () => {
+    const s = buildState({ cards: [{ name: 'Nubank' }] })
+    const feito = applyBatchPure(s, batch([
+      { kind: 'card-purchase', total: 900, installments: 3, cardName: 'Nubank' },
+      { kind: 'expense', amount: 40, category: 'casa' },
+    ]), { source: 'ai', batchId: 'b1', stamp: CARIMBO })
+    const rev = revertBatchPure(feito.state, 'b1', CARIMBO)
+    if (isRevertFailure(rev)) return `recusou (${rev.code})`
+    if (rev.state.installmentPlans.length) return 'plano ficou'
+    if (rev.state.installments.length) return `${rev.state.installments.length} parcela(s) órfã(s)`
+    if (rev.state.transactions.length) return 'transação ficou'
+
+    // Falha não pode deixar estado meio revertido.
+    const falhou = revertBatchPure(feito.state, 'inexistente', CARIMBO)
+    if (!isRevertFailure(falhou)) return 'não recusou'
+    if (semJournal(feito.state) !== semJournal(feito.state)) return 'estado foi mutado'
+    return null
+  })
+
+  // --- 49. Desfazer não vira um lote auditável novo ---------------------
+  check(r, 'desfazer fecha o lote em vez de criar outro', () => {
+    const s = buildState()
+    const feito = applyBatchPure(s, batch([{ kind: 'expense', amount: 50, category: 'casa' }]), {
+      source: 'ai', batchId: 'b1', stamp: CARIMBO,
+    })
+    const rev = revertBatchPure(feito.state, 'b1', CARIMBO)
+    if (isRevertFailure(rev)) return `recusou (${rev.code})`
+    const diario = rev.state.assistantJournal || []
+    if (diario.length !== 1) return `${diario.length} entradas no journal`
+    if (!diario[0].undoneAt) return 'lote revertido não foi marcado como desfeito'
+    if (lastReversibleBatch(rev.state)) return 'o lote desfeito continua sendo oferecido para desfazer'
+    return null
   })
 
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---

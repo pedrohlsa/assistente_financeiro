@@ -12,19 +12,16 @@ import { MoneyInput, Sheet } from './ui'
 import { fmtBRL, parseMoney, todayISO } from '../utils/format'
 import { sentenceCase } from '../utils/text'
 import { dateLabel } from '../assistant/dates'
-import { errorMessage, isValidationFailure, validateAction } from '../assistant/contracts'
+import { actionSpec, errorMessage, isValidationFailure, validateAction } from '../assistant/contracts'
 import type { AssistantCapabilities } from '../assistant/contracts'
 import { editableFieldsFor } from '../assistant/proposalEdit'
 
-const KIND_LABEL: Record<string, string> = {
-  income: 'Receita', expense: 'Despesa', saving: 'Guardar na reserva',
-  work: 'Trabalho', fuel: 'Abastecimento', odometer: 'Hodômetro',
-  maintenance: 'Manutenção', goal: 'Nova meta', 'goal-update': 'Alterar meta',
-  'goal-deposit': 'Guardar na meta', balance: 'Saldo em conta',
-  'card-purchase': 'Compra parcelada', 'financed-cash-inflow': 'Entrada financiada',
-  'card-payment': 'Pagamento de fatura', 'card-charge': 'Assinatura',
-  reset: 'Apagar todos os dados',
-}
+// O rótulo vem do CATÁLOGO. Havia um mapa paralelo aqui e ele ficou para trás
+// assim que uma ação nova entrou: o card mostrava "undo-batch" cru.
+const kindLabel = (kind: string) => actionSpec(kind)?.label || kind
+
+/** Ações sem campo que faça sentido editar à mão. */
+const NAO_EDITAVEL = new Set(['undo-batch', 'reset'])
 
 const primaryValue = (a: ParsedAction): number | undefined =>
   (a as any).amount ?? (a as any).total ?? (a as any).cost ?? (a as any).target ?? (a as any).value
@@ -104,7 +101,7 @@ export function ProposalCard({
             <div className="spread">
               <div>
                 <div className="small" style={{ fontWeight: 600 }}>
-                  {i + 1}. {KIND_LABEL[p.action.kind] || p.action.kind}
+                  {i + 1}. {kindLabel(p.action.kind)}
                 </div>
                 {v !== undefined && <div className="mono-num">{fmtBRL(v)}</div>}
               </div>
@@ -112,7 +109,9 @@ export function ProposalCard({
                   usuário precisa poder corrigir e tentar de novo. */}
               {!p.outcome?.ok && (
                 <div className="row" style={{ gap: 6 }}>
-                  <button className="btn btn-soft btn-sm" onClick={() => setEditing({ id: p.id, action: { ...a } })}>Editar</button>
+                  {!NAO_EDITAVEL.has(p.action.kind) && (
+                    <button className="btn btn-soft btn-sm" onClick={() => setEditing({ id: p.id, action: { ...a } })}>Editar</button>
+                  )}
                   <button className="btn btn-danger-soft btn-sm" onClick={() => onRemove(p.id)} aria-label="Remover">✕</button>
                 </div>
               )}

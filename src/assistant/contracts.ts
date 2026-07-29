@@ -227,6 +227,13 @@ export const ACTION_CATALOG: ActionSpec[] = [
     ],
   },
   {
+    kind: 'undo-batch', label: 'Desfazer o último registro',
+    // Como o `reset`: destrutivo, então a IA remota NUNCA pode propor. O
+    // usuário pede, o app lista o que sai e só reverte depois de confirmar.
+    remoteAllowed: false,
+    fields: [{ name: 'batchId', type: 'text', required: true, maxLength: 40, describe: 'lote a desfazer' }],
+  },
+  {
     kind: 'reset', label: 'Apagar todos os dados',
     // Barreira determinística: a IA remota NUNCA pode propor reset. Só o parser
     // local, a partir de uma frase explícita do usuário, e ainda com confirmação.
@@ -255,6 +262,7 @@ export type AssistantErrorCode =
   | 'duplicate' | 'missing-field' | 'profile-forbidden'
   | 'invoice-empty' | 'insufficient-reserve'
   | 'unsupported-action' | 'conflict' | 'text-too-long' | 'unknown-field'
+  | 'batch-not-found' | 'batch-not-reversible' | 'already-undone'
 
 /** Mensagem em pt-BR para o usuário. NUNCA "não encontrei a meta" para tudo. */
 export const ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
@@ -277,6 +285,9 @@ export const ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
   'conflict': 'Esse registro entra em conflito com outro da mesma mensagem.',
   'text-too-long': 'O texto informado é longo demais.',
   'unknown-field': 'Recebi um campo que não reconheço.',
+  'batch-not-found': 'Não tenho o registro detalhado desse lançamento para desfazer com segurança.',
+  'batch-not-reversible': 'Esse lote não tem detalhe suficiente para ser desfeito com segurança.',
+  'already-undone': 'Esse lote já foi desfeito.',
 }
 
 export const errorMessage = (code: AssistantErrorCode, detail?: string): string =>
