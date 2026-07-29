@@ -614,6 +614,83 @@ export async function runProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 37. O lote grava um journal com o que CRIOU e o que ALTEROU ------
+  // `assistantBatchId` dentro da entidade só marca o que NASCEU no lote. Um
+  // depósito em meta e um pagamento de fatura alteram objetos que já existiam,
+  // e sem registrar o estado anterior não há como reverter sem adivinhar.
+  check(r, 'lote grava journal com entidades criadas e alteradas', () => {
+    const s = buildState({ goals: [{ name: 'Viagem', target: 5000, saved: 100 }], cards: [{ name: 'Nubank' }] })
+    const out = applyBatchPure(s, batch([
+      { kind: 'expense', amount: 50, category: 'alimentacao' },
+      { kind: 'goal-deposit', name: 'Viagem', amount: 200 },
+      { kind: 'card-purchase', total: 400, installments: 2, cardName: 'Nubank' },
+    ]), { source: 'ai', batchId: 'lote-1', engine: 'local', messageId: 'msg-1' })
+    if (!out.applied) return 'lote não foi aplicado'
+    const diario = out.state.assistantJournal
+    if (!Array.isArray(diario) || diario.length !== 1) return `journal com ${diario?.length} entrada(s)`
+    const e = diario[0]
+    if (e.batchId !== 'lote-1') return `batchId "${e.batchId}"`
+    if (e.engine !== 'local') return `engine "${e.engine}"`
+    if (e.contractVersion !== 1) return `contrato ${e.contractVersion}`
+    if (!/^\d{4}-\d{2}-\d{2}T/.test(String(e.createdAt))) return `createdAt "${e.createdAt}"`
+    if (!e.profileAtCreation) return 'sem perfil na criação'
+    if (e.messageId !== 'msg-1') return 'sem referência à mensagem de origem'
+    if (e.source !== 'ai') return `source "${e.source}"`
+    const feitos = e.ops.map(o => `${o.op}:${o.entity}`)
+    for (const esperado of ['create:transactions', 'update:goals', 'create:installmentPlans', 'create:installments']) {
+      if (!feitos.includes(esperado)) return `faltou ${esperado} (veio: ${feitos.join(', ')})`
+    }
+    const dep: any = e.ops.find(o => o.op === 'update' && o.entity === 'goals')
+    if (dep?.before?.saved !== 100) return `estado anterior da meta: ${JSON.stringify(dep?.before)}`
+    return null
+  })
+
+  // --- 38. Lote recusado não deixa rastro -------------------------------
+  check(r, 'lote não aplicado não grava journal', () => {
+    const s = buildState()
+    const out = applyBatchPure(s, batch([
+      { kind: 'expense', amount: 50, category: 'alimentacao' },
+      { kind: 'goal-deposit', name: 'Meta que não existe', amount: 10 },
+    ]), { source: 'ai', batchId: 'lote-2' })
+    if (out.applied) return 'lote com falha foi aplicado'
+    if (out.state.assistantJournal?.length) return 'gravou journal de um lote que não entrou'
+    return null
+  })
+
+  // --- 39. O journal não guarda conversa nem segredo ---------------------
+  check(r, 'journal guarda referência, nunca o texto da conversa', () => {
+    const s = buildState()
+    const out = applyBatchPure(s, batch([{ kind: 'expense', amount: 50, category: 'casa' }]), {
+      source: 'ai', batchId: 'lote-3', engine: 'remote', messageId: 'msg-9',
+    })
+    const bruto = JSON.stringify(out.state.assistantJournal)
+    if (/sk-[A-Za-z0-9]/.test(bruto)) return 'padrão de chave no journal'
+    if (/gastei|recebi|mensagem|prompt/i.test(bruto)) return 'texto de conversa no journal'
+    return null
+  })
+
+  // --- 40. Toda entidade que o assistente cria é auditável ---------------
+  // Meta, cartão, assinatura, abastecimento, trabalho e manutenção também
+  // precisam aparecer — não só transação e plano de parcelas.
+  check(r, 'journal cobre todas as entidades do assistente', () => {
+    const casos: [string, ParsedAction[], string][] = [
+      ['meta', [{ kind: 'goal', name: 'Bike', target: 2000 }], 'create:goals'],
+      ['abastecimento', [{ kind: 'fuel', amount: 100, liters: 20 }], 'create:fuelRecords'],
+      ['trabalho', [{ kind: 'work', km: 120 }], 'create:workSessions'],
+      ['manutenção', [{ kind: 'maintenance', item: 'óleo', cost: 200 }], 'create:maintenance'],
+      ['saldo', [{ kind: 'balance', amount: 1500 }], 'patch:settings'],
+      ['hodômetro', [{ kind: 'odometer', value: 90000 }], 'patch:vehicle'],
+    ]
+    for (const [nome, acoes, esperado] of casos) {
+      const s = buildState({ profile: 'driver' })
+      const out = applyBatchPure(s, batch(acoes), { source: 'ai', batchId: `b-${nome}` })
+      if (!out.applied) return `${nome}: lote não aplicado`
+      const feitos = (out.state.assistantJournal?.[0]?.ops || []).map(o => `${o.op}:${o.entity}`)
+      if (!feitos.includes(esperado)) return `${nome}: faltou ${esperado} (veio: ${feitos.join(', ') || 'nada'})`
+    }
+    return null
+  })
+
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
   // Invariante de FIAÇÃO, não de lógica: o corpus sempre passou
   // `pendingClarification`, então ele nunca poderia ver que `Chat.tsx` não

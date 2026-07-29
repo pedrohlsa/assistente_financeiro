@@ -415,6 +415,49 @@ export interface Settings {
   goalCadence?: 'daily' | 'weekly' | 'monthly'
 }
 
+// ---------------------------------------------------------------------------
+// Auditoria dos lotes do assistente
+// ---------------------------------------------------------------------------
+
+/** Coleções do estado que um lote do assistente pode tocar. */
+export type JournalCollection =
+  | 'transactions' | 'goals' | 'cards' | 'installmentPlans' | 'installments'
+  | 'cardPayments' | 'cardCharges' | 'fuelRecords' | 'workSessions'
+  | 'maintenance' | 'recurring' | 'budgets' | 'deficits'
+
+/**
+ * O que o lote fez, no nível de entidade. `update` e `delete` guardam o estado
+ * ANTERIOR porque `assistantBatchId` dentro da entidade só marca o que nasceu
+ * no lote — um depósito em meta ou um pagamento de fatura alteram objetos que
+ * já existiam, e sem o valor anterior a reversão seria adivinhação.
+ */
+export type AssistantJournalOp =
+  | { op: 'create'; entity: JournalCollection; id: string }
+  | { op: 'update'; entity: JournalCollection; id: string; before: Record<string, unknown> }
+  | { op: 'delete'; entity: JournalCollection; id: string; snapshot: Record<string, unknown> }
+  | { op: 'patch'; entity: 'settings'; before: Record<string, unknown> }
+  | { op: 'patch'; entity: 'vehicle'; before: Vehicle | null }
+
+export interface AssistantJournalEntry {
+  batchId: string
+  contractVersion: number
+  source: Transaction['source']
+  /** Motor que produziu o lote. */
+  engine?: 'local' | 'remote' | 'hybrid'
+  /** Carimbo completo (`YYYY-MM-DDTHH:mm`). */
+  createdAt: string
+  profileAtCreation?: ProfileId
+  /**
+   * Mensagem do chat que originou o lote — **só o ID**. O texto da conversa
+   * nunca entra aqui: ele já vive em `chat` e duplicá-lo aumentaria a
+   * superfície de dado sensível guardado no aparelho sem necessidade.
+   */
+  messageId?: string
+  ops: AssistantJournalOp[]
+  /** Carimbo da reversão. Preenchido = lote já desfeito, não desfaz de novo. */
+  undoneAt?: string
+}
+
 export interface AppState {
   settings: Settings
   transactions: Transaction[]
@@ -437,4 +480,10 @@ export interface AppState {
   installments: Installment[]
   cardPayments: CardPayment[]
   cardCharges: RecurringCardCharge[]
+  /**
+   * Auditoria dos lotes do assistente. Opcional e retrocompatível: estados e
+   * backups salvos antes desta versão simplesmente não têm o campo, e um lote
+   * sem entrada aqui **nunca** é revertido por adivinhação.
+   */
+  assistantJournal?: AssistantJournalEntry[]
 }

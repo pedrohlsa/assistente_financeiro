@@ -6,6 +6,7 @@ import {
   AppState, Transaction, WorkSession, FuelRecord, MaintenanceItem, FinancialGoal,
   Deficit, RecurringExpense, RecurrenceOccurrence, Budget, ChatMessage, ProposedAction, Settings, Vehicle, ParsedAction, Category,
   CreditCard, InstallmentPlan, Installment, CardPayment, RecurringCardCharge,
+  AssistantJournalEntry,
 } from '../models/types'
 import { DEFAULT_CATEGORIES, mergeDefaultCategories } from '../data/categories'
 import { buildDemoData } from '../data/demo'
@@ -63,6 +64,9 @@ function normalizeState(raw: any): AppState {
     budgets: arr(raw?.budgets),
     chat: arr(raw?.chat),
     dismissedDeficitDates: arr(raw?.dismissedDeficitDates),
+    // Backup anterior a esta versão não tem journal: o array nasce vazio e os
+    // lotes antigos ficam sem entrada — o undo recusa em vez de adivinhar.
+    assistantJournal: arr(raw?.assistantJournal),
     vehicle: raw?.vehicle ?? null,
     cards: arr(raw?.cards),
     installmentPlans: arr(raw?.installmentPlans),
@@ -140,7 +144,7 @@ type Action =
    * Lote confirmado do assistente. É UMA action só de propósito: aplicar as
    * ações em dispatches separados devolveria o mesmo estado antigo para todas.
    */
-  | { type: 'assistantBatch'; items: BatchItem[]; source: Transaction['source']; batchId: string }
+  | { type: 'assistantBatch'; items: BatchItem[]; source: Transaction['source']; batchId: string; engine?: AssistantJournalEntry['engine']; messageId?: string }
   | { type: 'chat'; msg: ChatMessage }
   | { type: 'chatUpdateProposal'; id: string; proposal: ProposedAction[] }
   | { type: 'chatResolve'; id: string }
@@ -241,6 +245,11 @@ function reducer(s: AppState, a: Action): AppState {
         installments: byId(s.installments, a.state.installments),
         cardPayments: byId(s.cardPayments, a.state.cardPayments),
         cardCharges: byId(s.cardCharges, a.state.cardCharges),
+        // O journal do backup NÃO é mesclado de propósito: as operações dele
+        // descrevem um estado que não é este. Desfazer um lote apoiado em
+        // retratos de outra base seria exatamente o chute que o journal existe
+        // para impedir. Fica só o desta base.
+        assistantJournal: s.assistantJournal || [],
       }
     }
     // ---------- cartões e parcelamentos ----------
@@ -331,7 +340,9 @@ function reducer(s: AppState, a: Action): AppState {
     case 'assistantBatch': {
       // Atômico: `applyBatchPure` devolve o estado original quando qualquer
       // ação falha, então nunca sobra meio lote gravado.
-      const out = applyBatchPure(s, a.items, { source: a.source, batchId: a.batchId })
+      const out = applyBatchPure(s, a.items, {
+        source: a.source, batchId: a.batchId, engine: a.engine, messageId: a.messageId,
+      })
       return out.applied ? out.state : s
     }
     case 'chat': return { ...s, chat: [...s.chat, a.msg].slice(-200) }
@@ -435,12 +446,14 @@ export function applyAssistantBatch(
   state: AppState,
   items: BatchItem[],
   source: Transaction['source'] = 'ai',
+  /** Auditoria: motor que produziu o lote e ID (nunca o texto) da mensagem. */
+  meta: { engine?: AssistantJournalEntry['engine']; messageId?: string } = {},
 ): { results: ActionExecutionResult[]; applied: boolean; batchId: string } {
   const batchId = uid()
   // Simulação antes de despachar: o resultado por ação vem daqui, e o reducer
   // repete exatamente o mesmo cálculo de forma determinística.
-  const dry = applyBatchPure(state, items, { source, batchId })
-  if (dry.applied) dispatch({ type: 'assistantBatch', items, source, batchId })
+  const dry = applyBatchPure(state, items, { source, batchId, ...meta })
+  if (dry.applied) dispatch({ type: 'assistantBatch', items, source, batchId, ...meta })
   return { results: dry.results, applied: dry.applied, batchId }
 }
 

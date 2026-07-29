@@ -9,10 +9,12 @@
 // validado antes de qualquer gravação: ou tudo entra, ou nada entra.
 
 import type {
-  AppState, ParsedAction, Transaction, InstallmentPlan, FinancialGoal, CreditCard,
+  AppState, AssistantJournalEntry, ParsedAction, Transaction, InstallmentPlan,
+  FinancialGoal, CreditCard,
 } from '../models/types'
 import type { ActionExecutionResult, AssistantErrorCode } from './contracts'
-import { errorMessage } from './contracts'
+import { ASSISTANT_CONTRACT_VERSION, errorMessage } from './contracts'
+import { JOURNAL_LIMIT, diffForJournal } from './journal'
 import { addDays, monthKey, nowStamp, nowTime, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
@@ -65,6 +67,12 @@ export interface ApplyOptions {
   /** Gerador de id injetável, para os testes serem determinísticos. */
   newId?: () => string
   now?: { date: string; time: string }
+  /** Motor que produziu o lote — vai para o journal. */
+  engine?: AssistantJournalEntry['engine']
+  /** ID da mensagem do chat que originou o lote. NUNCA o texto dela. */
+  messageId?: string
+  /** Carimbo completo injetável, para os testes serem determinísticos. */
+  stamp?: string
 }
 
 const fail = (actionId: string, code: AssistantErrorCode, detail?: string, recoverable = true): ActionExecutionResult =>
@@ -383,6 +391,27 @@ export function applyBatchPure(
     if (step.result.ok) cur = step.state
     else if (atomic) return { state, results, applied: false }
   }
+
+  // O journal entra no MESMO estado do lote: ou os dois gravam, ou nenhum.
+  // Sem `batchId` não há o que auditar — é o caso da simulação, que descarta
+  // o estado inteiro e não pode deixar rastro.
+  if (opts.batchId) {
+    const ops = diffForJournal(state, cur)
+    if (ops.length) {
+      const entry: AssistantJournalEntry = {
+        batchId: opts.batchId,
+        contractVersion: ASSISTANT_CONTRACT_VERSION,
+        source: opts.source || 'ai',
+        engine: opts.engine,
+        createdAt: opts.stamp || nowStamp(),
+        profileAtCreation: state.settings.profile,
+        messageId: opts.messageId,
+        ops,
+      }
+      cur = { ...cur, assistantJournal: [entry, ...(cur.assistantJournal || [])].slice(0, JOURNAL_LIMIT) }
+    }
+  }
+
   return { state: cur, results, applied: true }
 }
 

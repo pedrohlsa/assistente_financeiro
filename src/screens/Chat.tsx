@@ -182,8 +182,12 @@ export default function Chat() {
   }
 
   const commit = (msgId: string, items: ProposedAction[], all: ProposedAction[]) => {
+    const origem = state.chat.find(m => m.id === msgId)
     const { results, applied } = applyAssistantBatch(
       dispatch, state, items.map(p => ({ id: p.id, action: p.action })), 'ai',
+      // Auditoria: o motor que produziu a proposta e o ID da mensagem que a
+      // originou. O texto da conversa NÃO vai junto — ele já está em `chat`.
+      { engine: origem?.engine as any, messageId: msgId },
     )
     const byId = new Map(results.map(r => [r.actionId, r]))
 
