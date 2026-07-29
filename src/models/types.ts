@@ -39,6 +39,12 @@ export interface Transaction {
   origin?: string
   /** Perfil ativo quando o lançamento foi criado — histórico nunca é reinterpretado (14.1). */
   profileAtCreation?: ProfileId
+  /**
+   * Lote do assistente que criou este lançamento. Opcional e retrocompatível:
+   * serve para auditar o que entrou junto e para "desfazer o último" saber
+   * exatamente o que remover. Ausente em tudo que foi criado à mão.
+   */
+  assistantBatchId?: string
 }
 
 export interface Category {
@@ -234,6 +240,8 @@ export interface InstallmentPlan {
   netReceived?: number
   note?: string
   profileAtCreation?: ProfileId
+  /** Lote do assistente que criou o plano (opcional, retrocompatível). */
+  assistantBatchId?: string
   createdAt: string
 }
 
@@ -285,7 +293,21 @@ export interface ChatMessage {
   role: 'user' | 'assistant'
   text: string
   time: string
+  /** LEGADO: proposta tudo-ou-nada. Mensagens antigas continuam renderizando. */
   pending?: PendingAction[]
+  /**
+   * Proposta do contrato v1: cada ação tem id próprio e pode ser confirmada,
+   * editada ou removida sozinha. Todos os campos são opcionais para que uma
+   * conversa salva antes desta versão carregue sem erro.
+   */
+  proposal?: ProposedAction[]
+  /** Pergunta de esclarecimento (um campo por vez). */
+  clarification?: { question: string; field?: string; options?: { label: string; value: string }[] }
+  /** Motor que produziu a resposta — auditoria, não decoração. */
+  engine?: 'local' | 'remote' | 'hybrid'
+  contractVersion?: number
+  /** Lote gravado a partir desta mensagem, quando confirmada. */
+  batchId?: string
   kind?: 'text' | 'confirm' | 'report'
   /** Resumo detalhado do que será registrado (14.7). */
   detail?: string
@@ -304,14 +326,31 @@ export interface PendingAction {
   action: ParsedAction
 }
 
+/**
+ * Ação proposta e ainda não confirmada. O `id` é o que permite revisão por item
+ * — confirmar uma, editar outra e remover a terceira sem mexer nas demais.
+ */
+export interface ProposedAction {
+  id: string
+  action: ParsedAction
+  engine?: 'local' | 'remote' | 'hybrid'
+  confidence?: 'high' | 'medium' | 'low'
+  duplicateWarning?: string
+  /** Preenchido depois da confirmação: o que aconteceu com esta ação. */
+  outcome?: { ok: boolean; message?: string }
+}
+
+// `date?: string` (YYYY-MM-DD) é OPCIONAL em toda ação datável: ausente = hoje,
+// que é exatamente o comportamento de antes desta versão. Uma proposta com data
+// sempre mostra a data interpretada antes de o usuário confirmar.
 export type ParsedAction =
-  | { kind: 'income'; amount: number; category?: string; description?: string; is99?: boolean; origin?: string }
-  | { kind: 'expense'; amount: number; category?: string; description?: string; origin?: string }
-  | { kind: 'saving'; amount: number; description?: string }
-  | { kind: 'work'; km?: number; trips?: number; hours?: number }
-  | { kind: 'fuel'; amount?: number; liters?: number; pricePerLiter?: number; odometer?: number }
+  | { kind: 'income'; amount: number; category?: string; description?: string; is99?: boolean; origin?: string; date?: string }
+  | { kind: 'expense'; amount: number; category?: string; description?: string; origin?: string; date?: string }
+  | { kind: 'saving'; amount: number; description?: string; date?: string }
+  | { kind: 'work'; km?: number; trips?: number; hours?: number; date?: string }
+  | { kind: 'fuel'; amount?: number; liters?: number; pricePerLiter?: number; odometer?: number; date?: string }
   | { kind: 'odometer'; value: number }
-  | { kind: 'maintenance'; item: string; cost: number; km?: number; lifeKm?: number }
+  | { kind: 'maintenance'; item: string; cost: number; km?: number; lifeKm?: number; date?: string }
   | { kind: 'goal'; name: string; target: number; months?: number }
   | { kind: 'goal-update'; name: string; target?: number; months?: number }
   | { kind: 'goal-deposit'; name: string; amount: number }
@@ -324,6 +363,13 @@ export type ParsedAction =
   | { kind: 'card-payment'; cardName?: string; amount?: number }  // amount ausente = fatura toda
   | { kind: 'card-charge'; description?: string; amount: number; cardName?: string; category?: string } // assinatura
   | { kind: 'reset' }                           // apaga todos os dados (confirmação obrigatória)
+  // Desfaz um LOTE inteiro já confirmado, pelo journal. Nunca um pedaço, nunca
+  // um registro manual, e sempre com confirmação depois de listar o que sai.
+  | { kind: 'undo-batch'; batchId: string }
+  // Corrige um lançamento JÁ SALVO. Só `Transaction` simples e ocorrência
+  // recorrente materializada; o TIPO nunca muda, e o que depende de plano,
+  // cartão, meta, veículo ou template de recorrência é recusado.
+  | { kind: 'edit-transaction'; transactionId: string; amount?: number; description?: string; category?: string; origin?: string; date?: string }
 
 export interface Insight {
   id: string
@@ -376,6 +422,49 @@ export interface Settings {
   goalCadence?: 'daily' | 'weekly' | 'monthly'
 }
 
+// ---------------------------------------------------------------------------
+// Auditoria dos lotes do assistente
+// ---------------------------------------------------------------------------
+
+/** Coleções do estado que um lote do assistente pode tocar. */
+export type JournalCollection =
+  | 'transactions' | 'goals' | 'cards' | 'installmentPlans' | 'installments'
+  | 'cardPayments' | 'cardCharges' | 'fuelRecords' | 'workSessions'
+  | 'maintenance' | 'recurring' | 'budgets' | 'deficits'
+
+/**
+ * O que o lote fez, no nível de entidade. `update` e `delete` guardam o estado
+ * ANTERIOR porque `assistantBatchId` dentro da entidade só marca o que nasceu
+ * no lote — um depósito em meta ou um pagamento de fatura alteram objetos que
+ * já existiam, e sem o valor anterior a reversão seria adivinhação.
+ */
+export type AssistantJournalOp =
+  | { op: 'create'; entity: JournalCollection; id: string }
+  | { op: 'update'; entity: JournalCollection; id: string; before: Record<string, unknown> }
+  | { op: 'delete'; entity: JournalCollection; id: string; snapshot: Record<string, unknown> }
+  | { op: 'patch'; entity: 'settings'; before: Record<string, unknown> }
+  | { op: 'patch'; entity: 'vehicle'; before: Vehicle | null }
+
+export interface AssistantJournalEntry {
+  batchId: string
+  contractVersion: number
+  source: Transaction['source']
+  /** Motor que produziu o lote. */
+  engine?: 'local' | 'remote' | 'hybrid'
+  /** Carimbo completo (`YYYY-MM-DDTHH:mm`). */
+  createdAt: string
+  profileAtCreation?: ProfileId
+  /**
+   * Mensagem do chat que originou o lote — **só o ID**. O texto da conversa
+   * nunca entra aqui: ele já vive em `chat` e duplicá-lo aumentaria a
+   * superfície de dado sensível guardado no aparelho sem necessidade.
+   */
+  messageId?: string
+  ops: AssistantJournalOp[]
+  /** Carimbo da reversão. Preenchido = lote já desfeito, não desfaz de novo. */
+  undoneAt?: string
+}
+
 export interface AppState {
   settings: Settings
   transactions: Transaction[]
@@ -398,4 +487,10 @@ export interface AppState {
   installments: Installment[]
   cardPayments: CardPayment[]
   cardCharges: RecurringCardCharge[]
+  /**
+   * Auditoria dos lotes do assistente. Opcional e retrocompatível: estados e
+   * backups salvos antes desta versão simplesmente não têm o campo, e um lote
+   * sem entrada aqui **nunca** é revertido por adivinhação.
+   */
+  assistantJournal?: AssistantJournalEntry[]
 }

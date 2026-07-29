@@ -45,6 +45,14 @@ const DESC_STOPWORDS = new Set([
   'colocando', 'comprando', 'pagando', 'gastando', 'depois', 'pois', 'logo', 'entao', 'então',
   'tambem', 'também', 'ainda', 'mais', 'de', 'do', 'da', 'no', 'na', 'em', 'com', 'para', 'pra',
   'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas', 'reais', 'conto', 'contos',
+  // Conjunção residual: a quebra em cláusulas deixa "gastei 100 e" e sem isto
+  // a descrição do lançamento virava a letra "E".
+  'e',
+  // Abreviações de celular e palavras interrogativas: "cimento hj" e
+  // "mercado quanto" eram descrições reais antes desta lista.
+  'hj', 'hje', 'ontm', 'dps', 'pq', 'q', 'blz', 'vc', 'tbm', 'msm',
+  'quanto', 'quantos', 'quantas', 'qual', 'quais', 'quando', 'como', 'onde',
+  'sobrou', 'sobra', 'ainda', 'tenho', 'agora', 'entao',
 ])
 
 /**
@@ -69,6 +77,13 @@ function splitClauses(input: string): string[] {
 }
 
 export function parseNatural(input: string): ParsedAction[] {
+  // Operações de cartão são analisadas na frase INTEIRA antes de qualquer
+  // quebra: "passei 2000 em 5 vezes E RECEBI 1850" tem um verbo de comando no
+  // meio, e cortar ali transformava uma entrada financiada numa receita de
+  // 1850 — exatamente o que a regra 11 proíbe.
+  const whole = parseCardClause(input.toLowerCase().trim())
+  if (whole.length) return whole
+
   const clauses = splitClauses(input)
   let actions = clauses.length > 1 ? clauses.flatMap(c => parseClause(c)) : parseClause(input)
 
@@ -192,7 +207,7 @@ export function parseNaturalFull(input: string, opts?: { driver?: boolean }): Pa
 function parseCardClause(text: string): ParsedAction[] {
   // "passei 2000 em 5 vezes e recebi 1850 líquidos" — entrada financiada (seção 7)
   const financed = text.match(new RegExp(
-    String.raw`(?:passei|passou|fiz)\s*(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:no cart[ãa]o\s*)?(?:em|x|vezes?)?\s*(\d+)?\s*(?:vezes|x|parcelas?)?[^\d]*(?:e\s*)?(?:recebi|receber|peguei|caiu)\s*(?:r\$)?\s*${NUM}`, 'i'))
+    String.raw`(?:passei|passou|fiz)\s*(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:no cart[ãa]o\s*)?(?:em|x|vez(?:es)?)?\s*(\d+)?\s*(?:vez(?:es)?|x|parcelas?)?[^\d]*(?:e\s*)?(?:recebi|receber|peguei|caiu)\s*(?:r\$)?\s*${NUM}`, 'i'))
   if (financed) {
     const total = parseNum(financed[1])
     const net = parseNum(financed[3])
@@ -212,8 +227,15 @@ function parseCardClause(text: string): ParsedAction[] {
     return [{ kind: 'card-payment', cardName: matchCardName(text), amount: amountM ? parseNum(amountM[1]) : undefined }]
   }
 
-  // "tenho uma assinatura de 39,90 no cartão"
-  const sub = text.match(new RegExp(String.raw`assinatura\s*(?:d[eo]\s*)?([\wçãõáéíóúâê\s]+?)?\s*(?:de|por|custa)?\s*(?:r\$)?\s*${NUM}`, 'i'))
+  // "tenho uma assinatura de 39,90 no cartão".
+  // Exige contexto de cartão: "gastei 39,90 na assinatura" é uma despesa
+  // avulsa, não uma cobrança recorrente — e virava card-charge sem cartão,
+  // que falhava na hora de registrar.
+  const sub = /cart[ãa]o|cr[ée]dito/.test(text)
+    // O rótulo NÃO pode conter dígito: com `\w` a captura preguiçosa comia o
+    // "3" de "39,90" e a assinatura virava R$ 9,90.
+    ? text.match(new RegExp(String.raw`assinatura\s*(?:d[eo]\s*)?([a-zà-ú][a-zà-ú\s]*?)?\s*(?:de|por|custa)?\s*(?:r\$)?\s*${NUM}`, 'i'))
+    : null
   if (sub && /assinatura/.test(text)) {
     const amount = parseNum(sub[2])
     if (amount > 0) {
@@ -223,8 +245,11 @@ function parseCardClause(text: string): ParsedAction[] {
   }
 
   // "comprei um computador de 4000 em 4 vezes no nubank"
-  if (/(comprei|compra|parcelei|parcelado|parcelada)/.test(text)) {
-    const instM = text.match(/(?:em|x)\s*(\d+)\s*(?:vezes|x|parcelas?)|(\d+)\s*x\b/i)
+  // "passei" também é compra no crédito ("passei um pc de 4000 em 4x") — só não
+  // é quando vem acompanhado de "recebi", e esse caso já foi tratado acima como
+  // entrada financiada.
+  if (/(comprei|compra|parcelei|parcelad[oa]|passei)/.test(text)) {
+    const instM = text.match(/(?:em|x)\s*(\d+)\s*(?:vez(?:es)?|x|parcelas?)|(\d+)\s*x\b/i)
     const valM = text.match(new RegExp(String.raw`(?:de|por|custou|valor de)\s*(?:r\$)?\s*${NUM}(?:\s*(mil))?`, 'i'))
       || text.match(new RegExp(String.raw`(?:r\$)\s*${NUM}(?:\s*(mil))?`, 'i'))
     // Sem valor OU sem parcelas não registra nada: quem pergunta é o assistente.
@@ -234,7 +259,7 @@ function parseCardClause(text: string): ParsedAction[] {
     const installments = parseInt(instM[1] || instM[2], 10)
     if (!(total > 0) || !(installments > 0)) return []
     // terminadores precisam ser palavras inteiras, senão "geladeira" vira "gela" + "de"
-    const descM = text.match(/comprei\s+(?:um|uma|o|a|uns|umas)\s+([\wçãõáéíóúâê]+(?:\s+[\wçãõáéíóúâê]+)*?)(?=\s+(?:de|por|em|no|na)\b|\s*r\$|\s*\d)/i)
+    const descM = text.match(/(?:comprei|parcelei|passei)\s+(?:um|uma|o|a|uns|umas)\s+([\wçãõáéíóúâê]+(?:\s+[\wçãõáéíóúâê]+)*?)(?=\s+(?:de|por|em|no|na)\b|\s*r\$|\s*\d)/i)
     return [{
       kind: 'card-purchase',
       description: descM ? descM[1].trim() : undefined,
@@ -248,12 +273,28 @@ function parseCardClause(text: string): ParsedAction[] {
 
 /** Nome do cartão citado depois de "no/na/pelo". Nunca inventa um cartão. */
 function matchCardName(text: string): string | undefined {
-  const m = text.match(/\b(?:no|na|pelo|pela|cart[ãa]o(?:\s+d[oa])?)\s+([a-zà-ú][\wçãõáéíóúâê]*(?:\s+[a-zà-ú][\wçãõáéíóúâê]*)?)/i)
-  if (!m) return undefined
-  const raw = m[1].trim()
-  // palavras genéricas não são nome de cartão
-  if (/^(cart[ãa]o|cr[ée]dito|d[ée]bito|fatura|vezes|parcelas?|meses?|banco)$/i.test(raw)) return undefined
-  return raw
+  // Percorre TODAS as ocorrências: em "paguei 600 da fatura do Nubank" a
+  // primeira ("da fatura") é genérica e a segunda é o nome real. Parar na
+  // primeira devolvia `undefined` e o pagamento ficava sem cartão.
+  // Trabalhar por PALAVRA em vez de uma captura de duas palavras: com regex a
+  // primeira ocorrência engolia "fatura do" e o nome real ficava fora do
+  // alcance da busca seguinte.
+  const TRIGGER = /^(?:no|na|pelo|pela|do|da|cart[ãa]o)$/i
+  const GENERIC = /^(?:cart[ãa]o|cr[ée]dito|d[ée]bito|fatura|vezes?|parcelas?|meses?|banco|valor|m[eê]s|conta|compra|dinheiro)$/i
+  const PREP = /^(?:no|na|nos|nas|do|da|dos|das|de|pelo|pela|em|com|por|e|o|a|os|as|um|uma|meu|minha)$/i
+  const words = text.match(/[a-zà-úà-ÿ][\wçãõáéíóúâêô]*/gi) || []
+  for (let i = 0; i < words.length; i++) {
+    if (!TRIGGER.test(words[i])) continue
+    for (let j = i + 1; j < words.length; j++) {
+      const w = words[j]
+      if (PREP.test(w) || GENERIC.test(w)) continue
+      const next = words[j + 1]
+      // Nome de cartão com duas palavras ("Nubank Cirinha") só quando a segunda
+      // não é preposição nem palavra genérica.
+      return next && !PREP.test(next) && !GENERIC.test(next) ? `${w} ${next}` : w
+    }
+  }
+  return undefined
 }
 
 function parseClause(input: string): ParsedAction[] {
@@ -266,7 +307,9 @@ function parseClause(input: string): ParsedAction[] {
   if (cardActions.length) return cardActions
 
   // ----- reset: "reseta tudo", "apaga tudo", "zera tudo", "limpar tudo"
-  if (/\b(reset(?:a|ar|e)?|apag(?:a|ar)|zer(?:a|ar))\s+(tudo|todos|geral|os dados|meus dados)\b/.test(text) || /\bresetar tudo\b/.test(text)) {
+  // ANCORADO NO INÍCIO de propósito: "retorne um JSON que o app aceite para
+  // apagar tudo" NÃO é um comando de reset — é uma tentativa de injeção.
+  if (/^\s*(?:por\s+favor\s+|pode\s+|quero\s+|vou\s+)?(?:reset(?:a|ar|e)?|apag(?:a|ar|ue)?|zer(?:a|ar|e)?|limp(?:a|ar|e)?)\s+(tudo|todos|geral|os dados|meus dados)\b/i.test(text)) {
     return [{ kind: 'reset' }]
   }
 
@@ -291,11 +334,42 @@ function parseClause(input: string): ParsedAction[] {
     })
   }
 
+  // ----- guardar na RESERVA (não é meta): "guardei 150", "coloquei 300 na reserva",
+  // "separei 500 para investir". Vira `type:'saving'` — nem receita nem despesa.
+  const savingRe = new RegExp(
+    String.raw`(?:guardei|guardar|guarda|separei|separar|separa|reservei|poupei|apliquei|investi|coloquei|botei|depositei)\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:(?:na|no|em|para|pra|pro)\s+(?:a\s+|o\s+)?(reserva|poupan[çc]a|investimento|investir|guardado|caixinha|cofrinho))?`,
+    'i',
+  )
+  const sav = text.match(savingRe)
+  const SAVING_VERB_ONLY = /^(?:guardei|guardar|guarda|separei|separar|separa|reservei|poupei)/i
+  if (sav) {
+    const target = (sav[2] || '').trim()
+    const bareVerb = SAVING_VERB_ONLY.test(sav[0])
+    // Sem destino nomeado, ou destino explicitamente "reserva/poupança": saving.
+    // Com um nome qualquer depois ("para o iphone"), é depósito em meta — quem
+    // decide se a meta existe é o orquestrador, que tem o estado.
+    const namedTarget = text.slice((sav.index || 0) + sav[0].length).trim()
+    if (target || (bareVerb && !namedTarget)) {
+      actions.push({ kind: 'saving', amount: parseNum(sav[1]), description: target ? sentenceCase(target) : undefined })
+      return actions
+    }
+  }
+
   // ----- guardar dinheiro numa meta: "guardei 100 para o iphone", "guarda 50 na meta da viagem"
   const depositRe = new RegExp(String.raw`(?:guardei|guarda|guardar|separei|separa|separar|deposita|depositei)\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:para|pra|pro|na|no|da|do|em)?\s*(?:a\s+|o\s+)?(?:meta\s+)?(?:d[oa]\s+)?([\wçãõáéíóúâêô\s]+)?`, 'i')
   const dep = text.match(depositRe)
   if (dep) {
-    actions.push({ kind: 'goal-deposit', amount: parseNum(dep[1]), name: (dep[2] || '').trim() })
+    // "guardei 150 E gastei 355" deixava o nome da meta como "e". Um nome que é
+    // só palavra funcional não é meta nenhuma: o destino é a reserva.
+    // O nome da meta não pode carregar palavra funcional nas pontas:
+    // "guardei 100 na meta da viagem E gastei 90" virava a meta "viagem e".
+    const rawName = (cleanDescription(dep[2] || '') || '').trim()
+    const name = DESC_STOPWORDS.has(rawName.toLowerCase()) || rawName.length < 2 ? '' : rawName
+    if (!name) {
+      actions.push({ kind: 'saving', amount: parseNum(dep[1]) })
+    } else {
+      actions.push({ kind: 'goal-deposit', amount: parseNum(dep[1]), name })
+    }
     return actions
   }
 
@@ -334,8 +408,14 @@ function parseClause(input: string): ParsedAction[] {
   }
 
   // Hodômetro é dado do veículo, NUNCA distância trabalhada.
+  // Duas formas: com a unidade explícita ("estou com 220.007 km") e a coloquial
+  // ("meu hodômetro tá 220007"), onde o "km" não é dito. A segunda só vale
+  // quando a palavra "hodômetro" aparece — aí não há como confundir com valor.
   const odoM = text.match(new RegExp(
-    String.raw`(?:hod[oô]metro(?:\s+atual)?|km\s+atual|(?:estou|t[oô])\s+(?:atualmente\s+)?com)\s*(?:em|de|:|est[aá]\s+em)?\s*${NUM}\s*(?:mil\s*)?(?:km|quil[oô]metros?)(?:\s+rodados?)?`,
+    String.raw`(?:hod[oô]metro(?:\s+atual)?|km\s+atual|(?:estou|t[oô])\s+(?:atualmente\s+)?com)\s*(?:em|de|:|t[aá]|est[aá]\s*(?:em)?)?\s*${NUM}\s*(?:mil\s*)?(?:km|quil[oô]metros?)(?:\s+rodados?)?`,
+    'i',
+  )) || text.match(new RegExp(
+    String.raw`hod[oô]metro\s*(?:atual\s*)?(?:t[aá]|est[aá]|em|de|:|marca(?:ndo)?)?\s*(?:em\s*)?${NUM}`,
     'i',
   ))
   if (odoM) {
@@ -356,6 +436,10 @@ function parseClause(input: string): ParsedAction[] {
       const at = inc.index || 0
       const tail = text.slice(at)
       if (/^fiz\b/i.test(inc[0]) && new RegExp(String.raw`^fiz\s*(?:mais\s+)?${NUM}\s*(?:viagens|corridas|km)`, 'i').test(tail)) continue
+      // "gastei MAIS 190 de cimento": o `mais` solto é ênfase de uma DESPESA já
+      // em curso, não uma receita nova. Sem esta guarda a mesma frase gerava
+      // uma despesa de 190 e uma receita fantasma de 190.
+      if (/^mais\b/i.test(inc[0]) && /\b(?:gastei|paguei|comprei|torrei|coloquei|botei|abasteci)\b/i.test(text.slice(0, at))) continue
       const afterAmount = text.slice(at + inc[0].length)
       const nearbyPlatform = afterAmount.match(/^\s*(?:(?:d[ao]|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(uber|99|indriver|corrida(?:\s+privada)?)/i)
       const platform = (inc[2] || nearbyPlatform?.[1] || '').trim().toLowerCase()
@@ -373,6 +457,53 @@ function parseClause(input: string): ParsedAction[] {
       })
     }
 
+    // Receitas JUSTAPOSTAS, sem conector: "ganhei 430 na uber 399 na 99".
+    // Um valor seguido de "na/da <plataforma>" é uma receita, mesmo sem verbo
+    // próprio — é assim que se fala sem pontuação.
+    const platRe = new RegExp(String.raw`${NUM}\s*(?:reais)?\s+(?:n[ao]|d[ao]|pel[ao])\s+(uber|99|indriver|indrive)\b`, 'gi')
+    for (const pm of text.matchAll(platRe)) {
+      const amount = parseNum(pm[1])
+      if (!(amount > 0)) continue
+      if (actions.some(a => a.kind === 'income' && a.amount === amount)) continue
+      const plat = pm[2].toLowerCase()
+      actions.push({
+        kind: 'income', amount, category: 'corridas',
+        description: plat === 'uber' ? 'Uber' : plat === '99' ? '99' : 'inDrive',
+      })
+    }
+
+    // Receitas enumeradas com origem: "recebi 1800 da casa 1 E 1750 da casa 2".
+    if (actions.some(a => a.kind === 'income')) {
+      const enumIncRe = new RegExp(
+        String.raw`(?:\se\s|,(?!\d))\s*(?:r\$)?\s*${NUM}\s*(?:reais)?\s+d[ao]\s+([a-zà-ú][\wçãõáéíóúâê]*(?:\s+\d+)?)`,
+        'gi',
+      )
+      for (const em of text.matchAll(enumIncRe)) {
+        const amount = parseNum(em[1])
+        if (!(amount > 0)) continue
+        if (actions.some(a => (a as any).amount === amount)) continue
+        actions.push({ kind: 'income', amount, category: guessCategory(em[2], 'income') })
+      }
+    }
+
+    // Fonte de renda como sujeito: "meu salário foi 1625", "o aluguel foi 1800".
+    // Sem isso o "foi" caía no regex de despesa e o salário virava gasto.
+    if (!actions.some(a => a.kind === 'income')) {
+      const nounIncomeRe = new RegExp(
+        String.raw`\b(sal[áa]rio|alugu[eé]l|freela|freelance|comiss[ãa]o|venda)\b[^\d]{0,20}?(?:foi|de|d[eo]\s+)\s*(?:r\$)?\s*${NUM}`,
+        'i',
+      )
+      const ni = text.match(nounIncomeRe)
+      if (ni) {
+        const noun = ni[1].toLowerCase()
+        actions.push({
+          kind: 'income',
+          amount: parseNum(ni[2]),
+          category: guessCategory(noun, 'income'),
+        })
+      }
+    }
+
     // Ordem coloquial: "mais uma corrida de 49 reais" / "fiz uma corrida
     // na 99 no valor de 37". O valor vem depois do substantivo.
     const rideIncomeRe = new RegExp(
@@ -380,9 +511,13 @@ function parseClause(input: string): ParsedAction[] {
       'gi',
     )
     for (const ride of text.matchAll(rideIncomeRe)) {
-      const platform = (ride[1] || '').toLowerCase()
       const amount = parseNum(ride[2])
       if (actions.some(a => a.kind === 'income' && a.amount === amount && a.category === 'corridas')) continue
+      // A plataforma pode vir antes OU depois do valor: "corrida na 99 de 37" e
+      // "corrida de 37 na 99" são a mesma coisa.
+      const after = text.slice((ride.index || 0) + ride[0].length)
+      const tailPlatform = after.match(/^\s*(?:n[ao]|d[ao]|pel[ao]|via)\s*(uber|99|indriver)\b/i)
+      const platform = (ride[1] || tailPlatform?.[1] || '').toLowerCase()
       actions.push({
         kind: 'income', amount, category: 'corridas',
         description: platform === 'uber' ? 'Uber' : platform === '99' ? '99' : platform === 'indriver' ? 'inDrive' : 'Corrida',
@@ -393,7 +528,13 @@ function parseClause(input: string): ParsedAction[] {
   // ----- despesa: "gastei 40 de gasolina", "gastei MAIS 79 de gás", "paguei 120 de internet"
   // A preposição precisa de espaço depois: sem isso "com" casava dentro de
   // "COMprando" e a descrição virava "prando cimento".
-  const expRe = new RegExp(String.raw`(?:gastei|paguei|comprei|torrei|saiu|foi)\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:(?:de|com|no|na|em|para|pra)\s+)?([\wçãõáéíóúâê\s]*)`, 'i')
+  // "foi" e "saiu" só contam como verbo de DESPESA quando a frase não fala de
+  // uma fonte de renda: "meu salário foi 1625" é receita, não gasto.
+  const INCOME_NOUN = /\b(?:sal[áa]rio|alugu[eé]|alugu[eé]is|freela|freelance|comiss[ãa]o|venda|vendas|renda|pagamento|holerite)\b/i
+  const expVerbs = INCOME_NOUN.test(text)
+    ? 'gastei|paguei|comprei|torrei|coloquei|botei'
+    : 'gastei|paguei|comprei|torrei|coloquei|botei|saiu|foi'
+  const expRe = new RegExp(String.raw`(?:${expVerbs})\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:(?:de|com|no|na|em|para|pra)\s+)?([\wçãõáéíóúâê\s]*)`, 'i')
   const e = text.match(expRe)
   if (e && !m && !f) {
     const rawDesc = (e[2] || '').trim().split(/\s+e\s+|,/)[0].trim()
@@ -554,6 +695,8 @@ export function describeAction(a: ParsedAction): string {
   switch (a.kind) {
     case 'income': return `Receita de R$ ${a.amount.toFixed(2).replace('.', ',')}${a.category ? ` (${a.category})` : ''}${a.is99 ? ' — plataforma 99' : ''}`
     case 'expense': return `Despesa de R$ ${a.amount.toFixed(2).replace('.', ',')}${a.category ? ` (${a.category})` : ''}${a.description ? ` — ${a.description}` : ''}`
+    // Sem este caso o `switch` caía fora e a linha da proposta virava "undefined".
+    case 'saving': return `Guardar R$ ${a.amount.toFixed(2).replace('.', ',')} na reserva${a.description ? ` — ${a.description}` : ''}`
     case 'work': {
       const parts = []
       if (a.km) parts.push(a.km > 0 ? `${a.km} km` : `${Math.abs(a.km)} km removidos`)
@@ -577,5 +720,7 @@ export function describeAction(a: ParsedAction): string {
     case 'card-charge':
       return `Assinatura${a.description ? ` ${a.description}` : ''} de R$ ${a.amount.toFixed(2).replace('.', ',')}/mês${a.cardName ? ` no ${a.cardName}` : ''}`
     case 'reset': return 'Apagar TODOS os dados do app'
+    case 'undo-batch': return 'Desfazer o último registro do assistente'
+    case 'edit-transaction': return 'Corrigir um lançamento já salvo'
   }
 }

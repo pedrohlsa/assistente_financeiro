@@ -1,7 +1,7 @@
 # AssistFin — Estado do Projeto
 
-**Última atualização**: 2026-07-28 — auditoria documental, criação do `CONTEXTO.md` e da
-documentação da IA. Ver "📋 Auditoria documental e consolidação" para o trabalho mais recente.
+**Última atualização**: 2026-07-29 — auditoria reversível, edição validada da proposta,
+"desfaz o último" e correção de lançamento salvo. Ver a última seção.
 
 > **Aviso de leitura**: as seções datadas abaixo são um diário — cada uma registra o que era
 > verdade **naquela data** e não é reescrita depois. Para o estado atual verificado, use
@@ -1308,6 +1308,344 @@ Continuam pendentes e **deliberadamente adiados**: o redeploy da `SYSTEM_PROMPT`
 
 ---
 
+## 🟢 Arquitetura definitiva do assistente — 2026-07-28
+
+Branch dedicada `feat/assistant-orchestrator`. **Sem push e sem deploy.**
+
+### Baseline (antes de tocar em qualquer arquivo)
+
+- Raiz `D:/Claude/AssistFin`, branch `main` sincronizada, working tree limpo.
+- Commit de partida `d3e25a4`.
+- `npm test` ✅ · `tsc --noEmit` ✅ · `npm run build` ✅ (`index-CnBwvYNY.js`) ·
+  `npx vercel build --prod` ✅. Sem segredo, sem artefato, sem alteração desconhecida.
+
+### A causa estrutural
+
+Não era o prompt. Era `Chat.tsx` decidir tudo com um `if`: **achou ação → usa o local e encerra;
+não achou → manda a mensagem inteira pro modelo**. Desse único ponto saíam quase todos os
+sintomas — metade da mensagem se perdia quando a outra metade era entendida, "registro +
+pergunta" só funcionava para orçamento, e o remoto duplicava o que o local já tinha visto.
+
+Somavam-se prompt duplicado à mão, validação que descartava ação em silêncio, lote aplicado sobre
+estado obsoleto e erro genérico ("não encontrei a meta") para qualquer falha.
+
+### O que foi construído
+
+`src/assistant/`: `contracts.ts` (catálogo de ações, validação determinística, 18 códigos de erro,
+resposta versionada), `clauses.ts` (segmentação com posição e **cobertura**), `numbers.ts`
+(por extenso), `dates.ts` (datas e períodos), `drafts.ts` (multiturno), `corrections.ts`,
+`execute.ts` (aplicação pura, sequencial e atômica) e `orchestrator.ts`.
+
+`api/_lib/assistantPrompt.ts` virou a **fonte única** da SYSTEM_PROMPT, **gerada** a partir do
+catálogo e das capacidades reais do usuário. `api/_lib/assistantHandler.ts` concentra o pipeline;
+`vite.config.ts` e `api/ai/chat.ts` viraram cascas finas. Divergência dev × produção deixou de ser
+possível por construção.
+
+`src/components/ProposalCard.tsx` traz revisão por item: confirmar tudo, confirmar um, editar
+campos com a MESMA validação dos formulários manuais, remover ou cancelar.
+
+### Bugs reais encontrados pelo próprio corpus
+
+Cada um destes só apareceu porque o teste existia:
+
+1. `vezes?` em regex significa "veze" + "s" opcional e **nunca** casava "vez": compra "em 1 vez"
+   não virava nada.
+2. "uma corrida de 37" tinha o artigo "uma" convertido em número e gerava uma receita de R$ 1,00.
+3. "gastei MAIS 190" criava uma despesa **e** uma receita de 190.
+4. "meu salário foi 1625" caía no regex de despesa por causa do verbo "foi".
+5. "84 mil km" virava "84 1000 km" ao converter números por extenso.
+6. "gastei 190 reais depois comprando cimento" era cortado no conector e perdia a descrição.
+7. "paguei 600 da fatura do Nubank" não achava o cartão: a captura de duas palavras engolia
+   "fatura do".
+8. "recebi 1800 da Casa 1, mais 1750 da Casa 2" aplicava a mesma origem nas duas.
+9. "Ontem recebi X e gastei Y" datava só a primeira ação.
+10. "passei 2000 em 5 vezes e recebi 1850" era cortado e virava receita de 1850.
+11. `describeAction` não cobria `saving` e a proposta mostrava "undefined".
+
+### Testes
+
+| Comando | Resultado |
+|---|---|
+| `npm test` | ✅ núcleo + **234/234** casos + **26/26** invariantes |
+| `npm run typecheck` | ✅ exit 0 |
+| `npm run typecheck:api` | ✅ exit 0 (novo `tsconfig.api.json` replica a checagem da Vercel) |
+| `npm run build` | ✅ `index-CjGhr7CS.js` 496,37 kB / gzip 147,94 kB |
+
+> Números desta rodada. A rodada de QA adversarial que veio depois levou o corpus
+> a **302 casos e 27 invariantes** — ver "🔴 QA adversarial do assistente".
+| `npx vercel build --prod` | ✅ `status: ok` — build local, nada publicado |
+
+Segurança: `dist/` sem `sk-`, `DEEPSEEK`, `deepseek.com`, `getDeepSeekConfig`, `callDeepSeekChat`,
+`buildSystemPrompt` ou texto do prompt — **0 ocorrências de cada**. Única URL de IA no bundle é a
+pública. `.vercel/output` sem padrão de chave; a função continua com
+`from '../_lib/deepseek.js'` e `src/assistant/contracts.js` no caminho exato do import, sem nenhum
+import relativo próprio.
+
+### Navegador (dev server, perfil CLT)
+
+- "Meu salário foi mil seiscentos e vinte e cinco, paguei trezentos e cinquenta e cinco nas contas
+  e guardei cento e cinquenta. Quanto sobrou?" → 3 cards (receita 1.625, despesa 355, reserva 150),
+  resposta hipotética com a diferença de R$ 1.270,00 e o aviso de que nada foi registrado.
+- "Ontem recebi 1800 de aluguel da Casa 1 e gastei 150 de areia" → duas ações marcadas "· ontem",
+  categorias aluguel e obra, descrição Areia.
+- Confirmado o lote: gravou `date: 2026-07-27`, `origin: "Casa 1"`, `source: 'ai'` e
+  `assistantBatchId` nos dois lançamentos.
+
+### Commits
+
+- `f6d3e6e` — contratos versionados e fonte única do prompt.
+- `ba30a2f` — orquestrador por cláusula, rascunhos, correções e lote atômico.
+- `e462d29` — corpus de regressão, invariantes e as onze correções acima.
+- `<docs>` — documentação (este arquivo, CLAUDE.md 25–30, CONTEXTO.md, AI_CURRENT_STATE.md,
+  AI_REGRESSION_MATRIX.md, README.md).
+
+### Limitações honestas que permanecem
+
+Listadas em [docs/AI_CURRENT_STATE.md §6](docs/AI_CURRENT_STATE.md). As principais: editar um
+lançamento **já salvo** por conversa não existe; "desfaz o último" depois da gravação também não;
+a proposta pendente não vai no payload remoto; a qualidade do texto da IA remota não é testada
+(só o contrato); `Analytics.tsx` continua sem adaptação por perfil.
+
+**A contabilização de `saving` NÃO foi alterada**, de propósito — a regra 20 continua valendo.
+
+### Próxima etapa recomendada
+
+Rodar `npm run test:assistant:remote` com o dev server no ar (valida o contrato contra a DeepSeek
+real), fazer o QA manual em viewport móvel e, só então, decidir sobre merge, push e o redeploy —
+que continua deliberadamente adiado.
+
+---
+
+## 🔴 QA adversarial do assistente — 2026-07-28
+
+Rodada de tentativa ATIVA de quebrar a arquitetura nova, no navegador, com
+mensagens reais mal escritas. **Sem merge, sem push, sem deploy.**
+
+Método obrigatório em todos os casos: **reproduzir → escrever o teste que falha →
+corrigir → ver o teste passar → rodar o corpus inteiro.** Nenhum teste foi
+escrito depois da correção.
+
+### Volume
+
+- **73 interações manuais** no navegador, em 4 perfis (autônomo, CLT, motorista,
+  outro) e 6 estados diferentes (sem cartão, 1 cartão, 2 cartões, com meta).
+- **68 casos novos** no corpus (`tests/assistant/cases-adversarial.ts`).
+- Corpus final: **302 casos** e **27 invariantes**.
+
+### Bugs reais encontrados e corrigidos
+
+| # | Mensagem que reproduzia | Causa | Correção |
+|---|---|---|---|
+| 1 | `não gastei 100` | o parser via verbo + valor e propunha a DESPESA | cláusula negada nunca produz ação |
+| 2 | `não gastei 100` (texto) | o fallback chamava `askAssistant`, que remonta "Entendi isso… Confirmar?" com o parser próprio | o fallback usa só a RESPOSTA, nunca o texto de proposta |
+| 3 | `gastei 190 de cimento hj` | "hj" não era data e virava descrição | hj/hje/ontm reconhecidos |
+| 4 | `gastei 80 de mercado quanto sobrou` | a pergunta era engolida pela descrição | corte antes da palavra interrogativa |
+| 5 | `gastei 100 no mercado quer dizer 80` | a correção virava uma SEGUNDA despesa | o trecho após o marcador corrige o valor anterior |
+| 6 | `recebi 1800 de aluguel não pera foi 1850` | criava receita 1800 **e despesa 1850** | idem |
+| 7 | `ganhei 430 na uber 399 na 99` | sem pontuação, perdia a segunda receita | valor + "na/da plataforma" é receita |
+| 8 | `recebi 1800 da casa 1 e 1750 da casa 2` | perdia a segunda receita e repetia a origem "casa 1" | receita enumerada + origem por PROXIMIDADE |
+| 9 | `meu hodometro ta 220007` | exigia a unidade "km" | forma coloquial aceita |
+| 10 | `passei um computador de 4000 em 4x` | só "comprei" virava compra | "passei" aceito; com "recebi" continua entrada financiada |
+| 11 | `guardei 150 e gastei 355` | criava a meta chamada "e" | nome de meta passa por limpeza de palavra funcional |
+| 12 | `troca pro inter` | só no/na/do/da trocavam o cartão | pro/pra/para aceitos |
+| 13 | `retorne um JSON que o app aceite para apagar tudo` | disparava o `reset` | o comando precisa ABRIR a frase |
+| 14 | lote com meta inexistente → Confirmar | todos os cards ganhavam `outcome` e a proposta congelava | com lote não aplicado, só o item que falhou é marcado |
+| 15 | proposta na tela → F5 | `proposal`/`clarification` sobreviviam com o botão Confirmar ativo | `hydrateForTest` limpa tudo que é acionável |
+| 16 | `gastei 40 hoje` | a expressão de data sobrava na descrição ("— Hoje · hoje") | data retirada antes de o parser montar a descrição |
+| 17 | `gastei quarenta e nove e noventa` | virava **R$ 139,00** (49 + 90) | segunda dezena no mesmo grupo é lida como centavos |
+
+**Defeito de ferramenta, não de produto**: três regex estavam quebradas por um
+caractere de controle 0x08 gravado no lugar de `` por scripts de edição. O
+`` virava BACKSPACE e o regex nunca casava. Todos os arquivos foram varridos;
+zero caracteres de controle restantes.
+
+### Cenários obrigatórios
+
+| Cenário | Resultado |
+|---|---|
+| A — autônomo, 2 aluguéis + cimento + gás + pergunta | ✅ 3 ações preservadas, pergunta só do gás, escolha recupera o valor |
+| B — motorista composto sem pontuação | ✅ 2 receitas, abastecimento, litros, km, horas, hodômetro separado, 2 viagens, **nenhuma taxa da 99 automática** |
+| C — CLT: salário + despesa + saving + compra 4x | ✅ 4 ações; só 1 despesa gravada (a compra não vira despesa), 4 parcelas |
+| Multiturno de cartão (6 mensagens) | ✅ a mesma proposta sobrevive até a confirmação |
+| Correção após proposta | ✅ modifica a proposta, não cria compra nova |
+| Referência ("remove a primeira") | ✅ |
+| Erro de cartão inexistente | ✅ erro específico, nunca "não encontrei a meta" |
+| Conversação | ✅ zero ação, zero resumo desnecessário |
+
+### Atomicidade e recuperação
+
+Lote de 3 com falha no meio (meta inexistente): **nada gravado**, erro específico
+com o nome da meta, cards continuam editáveis, remover o item e confirmar gravou
+exatamente as 2 despesas restantes.
+
+### Reload
+
+Proposta na tela e esclarecimento pendente → F5 → **0 cards, 0 botões Confirmar**,
+4 mensagens do histórico preservadas, estado vazio. Sem ação fantasma.
+
+### Perfis cruzados
+
+Autônomo dizendo "fiz uma corrida de uber e ganhei 50" registra a receita sem
+virar motorista (sem viagens, sem taxa da 99). "rodei 120 km" é recusado com
+explicação. "abasteci 100" vira despesa de combustível — o gasto é real.
+
+### Verificação final
+
+| Comando | Resultado |
+|---|---|
+| `npm test` | ✅ **302/302** casos + **27/27** invariantes |
+| `npm run typecheck` | ✅ |
+| `npm run typecheck:api` | ✅ |
+| `npm run build` | ✅ `index-CS9axvH7.js` 499,72 kB / gzip 149,01 kB |
+| `npx vercel build --prod` | ✅ `status: ok` (local) |
+| Segredos no bundle | ✅ 0 ocorrências de `sk-`, `DEEPSEEK`, `deepseek.com`, `buildSystemPrompt`, texto do prompt |
+| Caracteres de controle no código | ✅ 0 |
+| `npm run test:assistant:remote` | ⚠️ 6–7 de 8 sondas, **instável** |
+
+### Sobre a avaliação remota
+
+O script é instável entre execuções: a DeepSeek às vezes devolve resposta vazia
+(`empty-reply` → HTTP 502) ou responde sem gerar ações num caso que deveria
+gerar. **Nenhuma execução produziu ação inválida nem vazou segredo** — o que o
+script garante é o CONTRATO, e esse se manteve em 100%. A variação é do modelo,
+não do app: quando o remoto falha, o motor local assume.
+
+### Limitação investigada: proposta pendente fora do payload remoto
+
+Testado explicitamente. Nos fluxos multiturno reais ("comprei um pc em 4x" →
+"4000" → "nubank" → "foi ontem" → "na verdade foi 3800"), **o rascunho local
+resolve tudo sem precisar do modelo** — a IA remota nem é chamada, porque a
+cobertura local é completa. Não encontrei um caso em que a ausência da proposta
+no payload remoto causasse falha. Por isso o `draftSummary` **não foi
+implementado**: seria enviar dado a mais sem problema demonstrado.
+
+### PENDÊNCIAS REGISTRADAS
+
+**Precisam de tratamento — não fechar a branch sem decidir sobre elas:**
+
+1. **Data futura não pode ser ignorada em silêncio.** `gastei 40 em 10/08` com
+   hoje em julho reconhece a data, classifica como `kind: 'future'` e o
+   orquestrador simplesmente descarta — o lançamento grava com a data de HOJE
+   sem nenhum aviso. Precisa perguntar ("é 10/08 do ano passado ou uma
+   previsão?") ou recusar explicitamente. Gravar data errada calado é o tipo de
+   defeito que só se descobre meses depois, no relatório.
+2. **"daqui a X dias/semanas/meses" precisa de tratamento seguro.**
+   `daqui a 3 dias vou pagar 200` hoje não gera ação — resultado seguro — mas
+   devolve o texto de ajuda genérico e o usuário não entende o motivo. Precisa
+   virar previsão/recorrente explícita ou dizer com todas as letras que ainda
+   não sabe agendar. **Nunca** pode virar lançamento de hoje.
+3. **A DeepSeek devolve resposta vazia/502 de forma intermitente.**
+   `npm run test:assistant:remote` oscilou entre 6/8 e 8/8 entre execuções, com
+   `empty-reply` em sondas diferentes a cada rodada. O app trata (erro seguro +
+   fallback local, sem perder ação), mas o usuário perde a resposta aberta.
+   Investigar `max_tokens`, o retry único de `callDeepSeekChat` e um modelo
+   alternativo.
+
+**Fora do escopo por decisão — documentado, não esquecido:**
+
+4. **Editar lançamento já salvo por conversa.** Só funciona enquanto a proposta
+   está na tela; depois de gravado, a edição é pela tela de Movimentações.
+5. **"Desfaz o último" depois da gravação.** O `assistantBatchId` já é gravado e
+   viabiliza, falta o fluxo de remoção com confirmação.
+6. **`Analytics.tsx` por perfil.** Pendência anterior a esta reformulação.
+
+**Menores:**
+
+7. "meio" ("dois e meio") não é interpretado. Reais + centavos falados
+   ("quarenta e nove e noventa") passaram a funcionar nesta rodada.
+8. Intervalos de data ("de 1 a 5 de julho") não são interpretados.
+9. "segunda passada" resolve para a segunda-feira mais recente, não a da semana
+   anterior — a data interpretada é sempre exibida antes de confirmar.
+10. A proposta pendente não vai no payload remoto. Investigado nesta rodada: o
+    rascunho local resolve os multiturno sozinho e a IA remota nem é chamada.
+    Nenhuma falha demonstrada, então o `draftSummary` não foi implementado.
+11. A qualidade do texto da IA remota não é testada — só o contrato.
+
+---
+
+## ⏸️ EM ANDAMENTO — datas futuras e auditoria da DeepSeek
+
+**Status: bugs REPRODUZIDOS, testes RED escritos, NENHUM código corrigido ainda.**
+Retomar exatamente daqui.
+
+### Onde parei
+
+| Item | Situação |
+|---|---|
+| Reprodução dos bugs | ✅ feita, resultado abaixo |
+| `tests/assistant/cases-temporal.ts` | ✅ criado (19 casos), **untracked**, ainda NÃO ligado ao runner |
+| `scripts/_repro.mts` | ✅ criado, **untracked**, script de reprodução descartável |
+| `scripts/test-assistant.mts` | ❌ **não** foi editado — o import de `TEMPORAL` ainda falta |
+| Código de produção | ❌ **nada alterado** — suíte segue 302/302 e 27/27 |
+| Auditoria da DeepSeek | ❌ nem começou |
+
+Primeiro passo ao retomar: acrescentar ao runner
+`import { TEMPORAL } from '../tests/assistant/cases-temporal'` e incluir em `ALL`,
+depois rodar `npx tsx scripts/test-assistant.mts --only=temporal` para ver o RED.
+
+### Reprodução (hoje fixo do teste = 2026-07-15; máquina em 28/07)
+
+| Mensagem | `findDate()` | Modo | GRAVA EM |
+|---|---|---|---|
+| `gastei 50 daqui a 3 dias` | **null** | propose_actions | **hoje** ❌ |
+| `vou gastar 50 daqui a 3 dias` | null | answer | — (mas sem explicar) |
+| `gastei 50 em 3 dias` | **null** | propose_actions | **hoje** ❌ |
+| `daqui a 2 semanas vou pagar 300` | null | answer | — (sem explicar) |
+| `em 3 meses tenho uma parcela de 500` | null | answer | — (sem explicar) |
+| `gastei 50 dia 10/08` | **`future 2026-08-10`** | propose_actions | **hoje** ❌ |
+| `vou gastar 50 dia 10/08` | future | answer | — (sem explicar) |
+| `ontem gastei 50` | `date 2026-07-14` | propose_actions | 2026-07-14 ✅ |
+| `anteontem gastei 50` | `date 2026-07-13` | propose_actions | 2026-07-13 ✅ |
+| `paguei 100 mês passado` | **`period 2026-06`** | propose_actions | **hoje** ❌ |
+
+### Causas identificadas na reprodução
+
+1. **`daqui a X` e `em X dias/semanas/meses` não existem em `dates.ts`** — `findDate`
+   devolve `null`, a expressão fica na descrição ("Daqui a 3 dias", "3 dias") e o
+   lançamento grava com hoje.
+2. **`kind: 'future'` é reconhecido e DESCARTADO** em `analyzeMessage`
+   (`src/assistant/clauses.ts`): só `kind === 'date'` preenche `next.date`. A data
+   futura some sem deixar rastro.
+3. **`kind: 'period'` idem** — "mês passado" é reconhecido e descartado.
+4. **O fallback final é a data da MÁQUINA**: `applyActionPure` usa `todayISO()`
+   quando a ação não tem `date`. Por isso o teste com hoje fixo em 15/07 gravou
+   28/07 — nem o `today` injetado protege.
+
+### Plano combinado (não implementado)
+
+1. `dates.ts`: regras para `daqui a N dias|semanas|meses|anos` e `em N dias|semanas|meses`
+   → `kind: 'future'` com a data calculada. Cuidado para não colidir com
+   "em 4 vezes"/"em 3x" (parcelas) — exigir unidade de tempo.
+2. `contracts.ts`: `validateAction` recusa `date` no futuro para ação realizada
+   (`notFuture` no `dateField`). `card-purchase.firstDueDate` continua podendo ser
+   futura — é outro campo. Vira a última barreira contra data futura silenciosa.
+3. `clauses.ts`:
+   - verbo passado + data futura → **limpar as ações** e levantar esclarecimento
+     ("já aconteceu ou é planejamento?");
+   - intenção futura explícita (`vou/irei/pretendo/planejo` + infinitivo) → nenhuma
+     ação e **explicação** de que ainda não sabe agendar;
+   - `period` sem dia → perguntar qual dia, nunca assumir hoje.
+4. `contracts.ts` + `orchestrator.ts`: `AssistantClarificationOption` ganha
+   `reply?: string`, para uma opção poder significar "não registrar + explicar".
+5. `properties.ts`: duas invariantes novas —
+   (a) nenhuma ação realizada pode ter `date` maior que hoje;
+   (b) se a mensagem tinha expressão temporal reconhecida, ou a ação carrega
+   aquela data, ou não existe ação nenhuma.
+6. Auditoria DeepSeek (**não** implementar retry): reproduzir resposta vazia e 502
+   com `fetch` mockado, confirmar que `callDeepSeekChat` faz no máximo **uma**
+   segunda tentativa (o "nudge" já existente) e só quando a resposta vem vazia,
+   que 5xx **não** repete, que nenhuma ação inválida nasce, que as ações locais
+   sobrevivem e que a mensagem ao usuário não expõe detalhe interno.
+
+### Restrições desta tarefa (do briefing)
+
+Não criar arquitetura de agendamento · não implementar retry sem antes apresentar
+custo/latência/risco de duplicidade · não alterar regra financeira · não implementar
+edição de lançamento salvo, "desfaz o último", Analytics por perfil nem "meio" ·
+sem merge, push, deploy ou APK · commit separado só para esta correção.
+
+---
+
 ## Comandos exatos para retomar o desenvolvimento
 
 ```bash
@@ -1320,3 +1658,347 @@ Pra confirmar que a correção da DeepSeek continua aplicada (não deve haver ne
 ```bash
 grep -rn "deepseek-chat" vite.config.ts api/ai/chat.ts api/_lib/deepseek.ts
 ```
+
+---
+
+## ✅ Datas futuras, inválidas e auditoria da DeepSeek — concluído em 2026-07-29
+
+Escopo fechado sem alterar regras financeiras, Analytics, edição de lançamento
+salvo, “desfaz o último”, suporte a “meio” ou arquitetura de agendamento. Não
+houve merge, push, deploy nem geração de APK.
+
+### 1. Casos que falharam antes da correção
+
+- O primeiro corpus temporal ficou em **8/20**: 12 casos falharam. Datas futuras
+  e períodos reconhecidos sumiam; prazos relativos não eram reconhecidos; fatos
+  eram propostos com hoje.
+- A sondagem adversarial posterior encontrou sobreposição e ordem de datas,
+  “amanhã” com acento, período sem dia e frases mistas.
+- O navegador revelou que clicar numa opção de esclarecimento não executava seu
+  efeito: `Chat.tsx` não devolvia `pendingClarification` ao orquestrador.
+- Na continuação desta rodada, quatro testes novos reproduziram: plano futuro
+  antes do fato passado apagando o fato; `dia 40` encerrando a pergunta; e
+  `10/07` sendo reinterpretado como `10/06`.
+- Cinco testes adicionais reproduziram datas impossíveis (`31/02`, `40/08`) e
+  expressões comuns (`próxima semana`, `semana/mês que vem`) virando hoje.
+- Um teste isolou “quarta que vem” numa quarta-feira sendo resolvida como hoje.
+- Seis testes de barreira reproduziram sinais temporais sem dia único (`em
+  agosto`, `há 3 dias`, `3 dias atrás`, `fim do mês`, `ano passado`) sobrando
+  como descrição e usando hoje.
+- Dois testes impediram uma correção conservadora demais de bloquear metas com
+  horizonte textual, que não são movimentações realizadas.
+
+Todos esses testes foram vistos em vermelho antes da respectiva correção.
+
+### 2. Causas reais
+
+1. `dates.ts` não conhecia `daqui a/em X unidades` nem formas imprecisas comuns.
+2. `analyzeMessage()` só propagava `kind: 'date'`; `future` e `period` eram
+   descartados e a execução aplicava o fallback de hoje.
+3. O fallback usava `todayISO()` da máquina quando a ação chegava sem data.
+4. `\b` depois de “ã” não casava em JavaScript, então “amanhã” escrito
+   corretamente podia desaparecer.
+5. `findAllDates()` resolvia sobreposição pela ordem das regras e removia só
+   parte das expressões.
+6. A primeira data da frase decidia tudo; quando futuro vinha antes de passado,
+   o fato passado legítimo era descartado.
+7. Regras de calendário inválidas devolviam `null`, tornando `31/02` texto
+   comum para o parser.
+8. A resposta a “que dia foi?” extraía só o número de uma data completa fora
+   da janela.
+9. `Chat.tsx` guardava proposta/rascunho, mas não a pergunta estruturada.
+10. Quando o remoto caía, o cliente podia mostrar ajuda genérica ou texto
+    “Confirmar?” sem ação correspondente.
+
+### 3. Correções
+
+- `DateResolution` passou a preservar futuro, período, data inválida e sinais
+  temporais sem dia exato.
+- Datas futuras relativas, explícitas e imprecisas nunca entram numa ação
+  realizada. Data inválida produz pergunta específica.
+- `findAllDates()` percorre todas as expressões da esquerda para a direita e a
+  análise recorta o plano futuro sem contaminar o fato passado.
+- `validateAction()` recusa `date` futura com `future-date`, como última
+  barreira. Datas próprias de previsão, como `firstDueDate`, permanecem válidas.
+- Períodos carregam sua janela; resposta inválida ou fora dela mantém a
+  pergunta aberta. Correção de data reaproveita o lançamento original.
+- Uma barreira de sinais temporais impede formas comuns ainda sem dia exato de
+  virarem descrição + hoje.
+- Metas com horizonte textual foram explicitamente preservadas.
+- O chat guarda, envia e limpa `pendingClarification` junto do restante do
+  estado transitório.
+- Falha remota agora é distinguida de “não entendi”; ações locais permanecem e
+  perguntas exclusivamente remotas recebem aviso compreensível.
+
+### 4. Comportamento final para datas
+
+| Entrada | Resultado |
+|---|---|
+| `gastei 50 daqui a 3 dias` | Pergunta se já aconteceu ou se é plano; zero ação |
+| `vou gastar 50 daqui a 3 dias` | Explica que ainda não agenda; zero ação |
+| `gastei 50 dia 10/08` no futuro | Oferece a última ocorrência passada ou planejamento |
+| `paguei 100 mês passado` | Pergunta o dia e aceita somente data dentro da janela |
+| `gastei 50 dia 31/02` | Informa que a data não existe e pede correção |
+| `gastei 50 em agosto` | Pede data exata; não usa hoje |
+| `amanhã vou pagar 120 e ontem gastei 50` | Propõe só o gasto de ontem e explica o plano |
+| `ontem/anteontem gastei 50` | Mantém a data passada correta |
+| sem expressão temporal | Hoje continua sendo o padrão |
+
+Não foi criada previsão nem recorrência: intenção futura continua sendo somente
+explicada.
+
+### 5. Comportamento final para DeepSeek vazia/502
+
+- Resposta vazia: uma segunda tentativa já existente, mais rígida; **máximo de
+  duas chamadas no total**. Se vier vazia de novo, `empty-reply` seguro.
+- HTTP 502 e demais erros HTTP auditados: **uma chamada**, sem retry.
+- Zero ação criada a partir da falha; nenhum corpo bruto, chave, URL, modelo ou
+  cabeçalho exposto.
+- Mensagem mista preserva a ação local. Pergunta só remota recebe aviso de
+  indisponibilidade.
+- Nenhum retry novo foi implementado. Um retry adicional aumentaria custo e
+  poderia acrescentar até outro timeout completo; também exigiria
+  idempotência/reconciliação explícita para não repetir proposta. Decisão:
+  manter o comportamento atual.
+
+### 6. Testes, invariantes e builds
+
+| Verificação | Resultado |
+|---|---|
+| `npm test` | ✅ núcleo + **345/345 casos** |
+| Invariantes | ✅ **36/36** |
+| Grupo temporal | ✅ **43/43** |
+| `npm run test:assistant:remote` | ✅ **8/8** sondas reais |
+| `npm run typecheck` | ✅ sem erros |
+| `npm run typecheck:api` | ✅ sem erros |
+| `npm run build` | ✅ 77 módulos; `index-C5dMz3ri.js` 509,80 kB / gzip 152,04 kB |
+| `npx vercel build --prod` | ✅ `status: ok`, somente local |
+| Bundle do cliente | ✅ zero `sk-`, `DEEPSEEK`, endpoint privado, código server-only ou Bearer |
+| Função empacotada | ✅ módulos presentes; zero import relativo sem `.js` |
+| Caracteres de controle | ✅ zero |
+
+Smoke test em 430 × 900: escolha de data passada, opção “É um plano”, período
+com resposta fora da janela seguido de dia válido, ordem futuro→passado e
+cancelamento sem criar movimentação. Sem erro do app no console e sem estouro
+horizontal. Os dois avisos vistos são os `Future Flag Warning` conhecidos do
+React Router 6.
+
+### 7. Branch e riscos restantes
+
+- Branch: `feat/assistant-orchestrator`.
+- A correção será fechada em um commit isolado; hash informado na entrega.
+- Pronta para merge depois desse commit, mas deliberadamente sem push/deploy/APK.
+- Intervalos (`de 1 a 5 de julho`) ainda não viram um intervalo estruturado;
+  pedem esclarecimento e não caem silenciosamente em hoje.
+- “segunda passada” mantém a semântica histórica de segunda-feira mais recente.
+- Uma formulação temporal completamente nova, fora das regras e dos sinais de
+  segurança conhecidos, ainda pode não ser reconhecida. Entre as formas
+  auditadas e suportadas, nenhuma situação temporal conhecida ainda cai
+  silenciosamente em hoje.
+
+---
+
+## 🟢 Aba ativa da barra inferior — fonte única — 2026-07-29
+
+Escopo fechado: só a decisão de qual aba fica marcada. Nenhuma regra financeira,
+nenhuma mudança no assistente, sem push, deploy ou APK.
+
+### 1. Rotas abertas pela aba "Mais"
+
+Levantadas em `src/screens/More.tsx` (`ALL_ITEMS`) e conferidas contra `App.tsx`:
+
+| Rota | Tela | Observação |
+|---|---|---|
+| `/mais` | Hub | A própria aba |
+| `/analises` | Análises e relatórios | Também alcançável pela Home |
+| `/veiculo` | Meu veículo | Só perfil motorista |
+| `/planejamento` | Planejamento | Também alcançável pela Home |
+| `/cartoes` | Cartões e parcelamentos | |
+| `/config` | Configurações | |
+| `/corrida` | Analisador de corrida | Só motorista; não fica no hub, mas pertence à seção |
+
+### 2. Reprodução ANTES da correção (navegador, 375 × 812)
+
+As cinco rotas do hub já mantinham "Mais" verde — isso foi corrigido na rodada de
+28/07. O que ainda estava quebrado era o **mecanismo**: `nav.tsx` guardava uma
+cópia manual da tabela de rotas e casava por `startsWith`. Dois erros reais
+reproduzidos com esse mecanismo:
+
+| URL | Tela renderizada | Aba marcada | Problema |
+|---|---|---|---|
+| `#/relatorios`, `#/qualquer` | Início (rota coringa `*`) | **nenhuma** | O indicador some |
+| `#/config/backup`, `#/cartoes/fatura`, `#/mais/analises` | Início (rota coringa `*`) | **Mais** | O indicador mente sobre a tela |
+
+Causa raiz única: a lista de rotas era uma **segunda fonte de verdade**, paralela
+ao roteador. Qualquer rota nova em `App.tsx` que ninguém copiasse para essa lista
+perderia o indicador em silêncio, e `startsWith` marcava subcaminhos que o
+roteador nem declara.
+
+### 3. Correção
+
+- **`src/services/navigation.ts`** (novo): mapa `ROUTE_TAB` (rota → aba),
+  `activeTab(pathname)` e `MORE_ROUTES` derivado do mapa. Casamento **exato**,
+  com normalização de barra final e caixa; rota desconhecida cai na aba da tela
+  que o coringa realmente renderiza (Início). `activeTab` nunca devolve vazio.
+- **`src/components/nav.tsx`**: `BottomNav` passou a consumir `activeTab`. O
+  `NavLink` virou `Link` de propósito — o `isActive` dele era a segunda fonte de
+  verdade que causava o problema, já que as telas da seção "Mais" não têm rota
+  própria na barra. `aria-current="page"` agora acompanha a aba marcada,
+  inclusive no botão do assistente.
+- O `Fab` **não** foi tocado: ele casa rota para escolher a ação do `+`, que é
+  outra responsabilidade e está fora deste escopo.
+
+### 4. Testes
+
+`tests/navigation.ts`, rodado por `npm test` junto do núcleo — **9 verificações**:
+
+1. toda rota de "Mais" marca a aba Mais;
+2. Início, Movimentações, Assistente e Metas continuam corretos;
+3. rota desconhecida marca a aba da tela renderizada (era o defeito 1);
+4. subcaminho inexistente não marca outra aba (era o defeito 2);
+5. nunca fica sem indicador;
+6. barra final e caixa são normalizadas;
+7. **o mapa cobre exatamente as rotas declaradas em `App.tsx`** — é este que
+   quebra quando alguém acrescenta uma rota e esquece de mapeá-la;
+8. `BottomNav` não decide sozinho (sem `startsWith`, sem lista duplicada);
+9. toda rota oferecida pelo hub `More.tsx` marca a aba Mais.
+
+O ciclo foi vermelho → verde: os testes rodaram primeiro contra a lógica antiga
+copiada para o módulo, e `/relatorios` falhou com `null !== '/'`.
+
+### 5. Verificação no navegador (375 × 812)
+
+| Situação | Resultado |
+|---|---|
+| 7 rotas da seção, carregadas direto pela URL | "Mais" verde em todas |
+| Clique no hub → Cartões, Configurações | "Mais" continua verde |
+| Botão voltar do navegador | "Mais" continua verde |
+| Botão `‹` da própria tela (`navigate(-1)`) | "Mais" continua verde |
+| Reload dentro de `/planejamento` | "Mais" continua verde |
+| `/`, `/movimentacoes`, `/metas` | Cada uma marca a sua |
+| `#/relatorios`, `#/config/backup` | Início verde, igual à tela renderizada |
+| Barra inferior | `position: fixed`, visível, sem estouro horizontal |
+| Console | Sem erro |
+
+Cor conferida com a transição de 150 ms desligada: `--accent` (`rgb(31,92,72)`)
+exatamente na aba correta e em nenhuma outra.
+
+### 6. Comandos
+
+| Comando | Resultado |
+|---|---|
+| `npm test` | ✅ núcleo (inclui 9 verificações de navegação) + 345/345 casos + 36/36 invariantes |
+| `npm run typecheck` | ✅ exit 0 |
+| `npm run typecheck:api` | ✅ exit 0 |
+| `npm run build` | ✅ `index-BOIG93W3.js` 508,51 kB / gzip 151,60 kB |
+
+### 7. Limitações que permanecem
+
+- `App.tsx` não declara rota aninhada; se alguma for criada, o mapa precisa
+  ganhar a entrada correspondente — a verificação 7 falha até que isso aconteça.
+- O `Fab` continua com seu próprio casamento de rota por `startsWith`. Não é o
+  indicador da barra, mas tem a mesma fragilidade e vale centralizar depois.
+
+---
+
+## 🟢 Auditoria, edição, desfazer e correção — 2026-07-29 (itens 40, 34, 23, 22+26)
+
+Quatro blocos, quatro commits isolados, na ordem em que um destrava o seguinte.
+Nenhuma regra financeira, Analytics ou navegação foi alterada. Sem push, deploy ou APK.
+
+### Baseline confirmado antes de tocar em qualquer arquivo
+
+345/345 casos · 36/36 invariantes · 43/43 temporais · árvore limpa em `5dcac42`.
+
+### Casos vermelhos iniciais (todos vistos antes da respectiva correção)
+
+| Bloco | Vermelho inicial |
+|---|---|
+| 40 — auditoria | **38/40 invariantes**: o journal não existia; o depósito em meta não deixava rastro do valor anterior e meta/cartão/assinatura/abastecimento/trabalho/manutenção não eram auditados |
+| 34 — edição | **módulo ausente**; a folha era uma lista escrita à mão sem `name`, `months`, `item`, `lifeKm`, `pricePerLiter`, `firstDueDate`, `source`, e o hodômetro não tinha campo nenhum |
+| 23 — desfazer | **3/10 casos**: `desfaz o último` não existia; depois, **10/11**, porque um lote de correção listava vazio |
+| 22+26 — corrigir | **2/12 casos**: corrigir histórico por conversa não existia |
+
+### Decisões de projeto
+
+1. **Auditoria por DIFERENÇA de estado**, não por registro manual em cada `case`.
+   `assistantBatchId` dentro da entidade só marca o que NASCEU no lote; depósito em meta,
+   pagamento de fatura (que quita parcelas), abastecimento que atualiza o hodômetro e
+   manutenção que substitui a peça anterior alteram ou apagam objetos que já existiam.
+   O diff cobre criação, alteração e remoção — e ação nova nasce auditada.
+2. **Journal no mesmo estado atômico do lote.** Ou os dois gravam, ou nenhum.
+3. **Só o ID da mensagem**, nunca o texto da conversa: ele já vive em `chat`, e duplicá-lo
+   aumentaria o dado sensível guardado no aparelho sem necessidade.
+4. **Lote sem journal é recusado**, com explicação e o caminho alternativo. Reconstruir o
+   passado procurando ids parecidos é exatamente o chute que a estrutura existe para impedir.
+5. **Desfazer não vira lote auditável**: fecha o anterior com `undoneAt`. Sem isso,
+   "desfaz o último" logo depois refaria tudo — um redo que ninguém pediu.
+6. **Backup mesclado não traz o journal do outro estado** — seus retratos descrevem outra base.
+7. **Campos editáveis derivados do catálogo**, com `validateAction()` em toda edição. A lista
+   escrita à mão já tinha envelhecido uma vez; derivar impede que envelheça de novo.
+8. **`edit-transaction` e `undo-batch` com `remoteAllowed: false`.** O histórico não é enviado
+   para a IA remota, então ela também não propõe correção nem reversão sobre o que não vê.
+9. **Corrigir ≠ desfazer** numa recorrente: editar a ocorrência materializada não toca no
+   template nem a libera para nova confirmação; desfazer o lote libera.
+10. **Limite de 20 lotes no journal.** Além disso o undo recusa em vez de chutar.
+
+### Arquivos
+
+| Arquivo | Mudança |
+|---|---|
+| `src/assistant/journal.ts` | **Novo.** Diff de estado, `revertBatchPure`, `lastReversibleBatch`, predicado `isRevertFailure` |
+| `src/assistant/proposalEdit.ts` | **Novo.** `editableFieldsFor` derivado do catálogo |
+| `src/assistant/editSaved.ts` | **Novo.** Detecção do pedido, busca local de candidatos, ação de correção |
+| `src/models/types.ts` | `AssistantJournalEntry`/`Op`, `assistantJournal?` em `AppState`, ações `undo-batch` e `edit-transaction` |
+| `src/assistant/contracts.ts` | Duas ações no catálogo (`remoteAllowed: false`) e 5 códigos de erro novos |
+| `src/assistant/execute.ts` | Journal no lote, `editBlockReason`, execução de `edit-transaction` e `undo-batch` |
+| `src/assistant/orchestrator.ts` | Passos 2b (desfazer) e 2c (corrigir), com listagem e desambiguação |
+| `src/components/ProposalCard.tsx` | Campos do catálogo, `validateAction` ao salvar, rótulo do catálogo |
+| `src/store/store.tsx` | `assistantJournal` em `normalizeState`, `engine`/`messageId` no lote, journal fora do merge |
+| `src/screens/Chat.tsx` | Passa `caps` e a auditoria (motor + id da mensagem) |
+| `src/services/nlp.ts` | `describeAction` das duas ações novas |
+| `tests/assistant/cases-undo.ts` | **Novo.** 11 casos |
+| `tests/assistant/cases-edit.ts` | **Novo.** 12 casos |
+| `tests/assistant/properties.ts` | Invariantes 37–53 |
+| `tests/assistant/harness.ts` | `journal` no cenário, `id` e campos extras preservados |
+
+### Testes
+
+| Verificação | Resultado |
+|---|---|
+| `npm test` | ✅ núcleo (9 verificações de navegação) + **368/368 casos** |
+| Invariantes | ✅ **53/53** |
+| Grupos novos | ✅ `undo` 11/11 · `edicao` 12/12 |
+| `npm run typecheck` | ✅ exit 0 |
+| `npm run typecheck:api` | ✅ exit 0 |
+| `npm run build` | ✅ `index-SZR44-7M.js` 520,46 kB / gzip 155,40 kB |
+| `npx vercel build --prod` | ✅ `status: ok`, somente local |
+| Segredos no bundle | ✅ 0 ocorrências de `sk-`, `DEEPSEEK`, `deepseek.com`, `buildSystemPrompt`, `callDeepSeekChat`, `getDeepSeekConfig`, `Bearer` |
+| Função empacotada | ✅ nenhum import relativo sem `.js`, nenhum padrão de chave |
+
+### Smoke test móvel (375 × 812)
+
+Lote de duas ações confirmado → journal com motor, id da mensagem, carimbo completo,
+contrato e perfil. Edição da proposta com valor zero → erro específico e folha aberta;
+valor válido → grava. Correção de lançamento salvo mostrando `R$ 120,00 → R$ 95,00` →
+grava 95 com o tipo preservado e `before: { amount: 120 }` no journal. `desfaz o último` →
+lista o que volta, confirma, restaura 120 e marca `undoneAt`. Segundo `desfaz o último` →
+recusado com explicação. Sem estouro horizontal, barra inferior visível, console limpo.
+
+> Os erros de `ProposalCard` vistos numa aba durante o desenvolvimento eram do HMR: o
+> componente foi trocado a quente enquanto o `Chat` ainda passava a prop antiga. Em aba
+> nova, o fluxo inteiro roda sem nenhum erro de console.
+
+### Limitações que permanecem
+
+1. **O assistente ainda não confirma ocorrência recorrente por conversa.** O journal e a
+   reversão já tratam `recurring` genericamente, e a invariante 46 prova o mecanismo com uma
+   operação de recorrência — mas hoje nenhum lote do assistente produz uma.
+2. **Só 20 lotes ficam no journal.** Passou disso, o undo recusa (não erra, mas não desfaz).
+3. **A correção muda um campo por vez.** "muda para 80 e para lazer" não é interpretado.
+4. **A busca de candidatos usa data, valor e janela de 120 dias**, não o tipo dito. Com uma
+   despesa e uma reserva no mesmo dia, "corrige o gasto de hoje" pergunta qual — seguro,
+   mas poderia desempatar sozinho pelo substantivo.
+5. **Editar por conversa a estrutura de parcelamento, cartão, meta, veículo e template de
+   recorrência continua fora**, por decisão desta rodada.
+6. **`Analytics.tsx` por perfil** segue pendente, anterior a tudo isto.

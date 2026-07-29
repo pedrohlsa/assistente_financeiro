@@ -1,0 +1,18 @@
+{
+  "//": "Replica a checagem que a Vercel faz: `api/**` e vite.config.ts NÃO entram no tsconfig.json principal (que inclui só `src`). Sem isto, um erro de tipo na função serverless só aparece no deploy — ver regra 24 do CLAUDE.md.",
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": false
+  },
+  "include": ["api/**/*.ts", "vite.config.ts", "src/**/*.ts", "tests/**/*.ts", "scripts/**/*.mts"]
+}

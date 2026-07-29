@@ -1,6 +1,7 @@
 # AssistFin — Contexto do produto
 
-Visão consolidada e **verificada no código** em 28/07/2026 (commit `7dc1832`, branch `main`).
+Visão consolidada e **verificada no código** em 29/07/2026
+(branch `feat/assistant-orchestrator`).
 Este arquivo descreve o que o aplicativo é hoje. Regras permanentes de implementação ficam no
 [CLAUDE.md](CLAUDE.md); o histórico de rodadas fica no [PROGRESS.md](PROGRESS.md).
 
@@ -97,6 +98,7 @@ src/
     nlp.ts            # parser determinístico pt-BR
     ai.ts             # motor de respostas local + contexto e sanitização da IA remota
     profile.ts        # regras de perfil
+    navigation.ts     # rota → aba da barra inferior (fonte única do indicador)
     notifications.ts  # agendamento de notificações locais
     rideOverlay.ts    # ponte para o plugin Android do analisador flutuante
   store/store.tsx     # estado global, reducer, persistência, applyParsedAction
@@ -110,6 +112,30 @@ vite.config.ts        # dev server + middleware de IA equivalente
 scripts/              # test-app.mts (npm test) e test-money.mjs
 android/              # projeto Capacitor
 ```
+
+### Assistente (arquitetura v1)
+
+O assistente tem contrato versionado e vive em `src/assistant/`:
+
+- **`contracts.ts`** — catálogo de ações (`ACTION_CATALOG`), validação determinística e códigos
+  de erro. É a fonte de tudo: tipos, validação, schema do prompt, documentação e testes.
+- **`clauses.ts`** — segmenta a mensagem em cláusulas com posição, classifica intenção e calcula
+  **cobertura**. Achar uma ação não significa ter compreendido a mensagem.
+- **`numbers.ts` / `dates.ts`** — números por extenso e datas em pt-BR.
+- **`drafts.ts`** — conversa multiturno: guarda a ação incompleta e encaixa respostas curtas.
+- **`corrections.ts`** — correções e referências sobre a proposta pendente.
+- **`execute.ts`** — aplicação pura, sequencial e **atômica** do lote confirmado.
+- **`journal.ts`** — auditoria por diferença de estado e reversão do lote inteiro.
+- **`editSaved.ts`** — correção de lançamento já salvo, com busca **local** de candidatos.
+- **`proposalEdit.ts`** — campos editáveis da proposta, derivados do catálogo.
+- **`orchestrator.ts`** — amarra tudo e decide local × remoto por cobertura.
+
+`api/_lib/assistantPrompt.ts` é a **fonte única** da SYSTEM_PROMPT, gerada a partir do catálogo e
+das capacidades reais do usuário; `api/_lib/assistantHandler.ts` concentra o pipeline do endpoint.
+`vite.config.ts` e `api/ai/chat.ts` são cascas finas sobre ele — divergência dev × produção deixou
+de ser possível por construção.
+
+Detalhes e limitações honestas em [docs/AI_CURRENT_STATE.md](docs/AI_CURRENT_STATE.md).
 
 ### Endpoints
 
@@ -299,7 +325,7 @@ Verificado no código nesta auditoria.
 | **Parcelamentos** | Implementado. Compra parcelada com ou sem cartão, parcelamento avulso, entrada financiada, juros separados do principal, progresso do plano, cancelamento de parcelas futuras preservando histórico. |
 | **Veículo** | Implementado (motorista). Hodômetro separado dos km trabalhados, abastecimentos com km/L real, manutenções com vida útil, custo real por km. |
 | **Motorista** | Implementado. Meta diária, analisador de corrida "vale a pena?", taxa da 99 como pergunta separada, parser composto ("430 Uber, mais 399 da 99, 163 de gasolina, 24 L e 161 km"). |
-| **IA** | Funcionando, com arquitetura conhecidamente limitada. Motor local determinístico + DeepSeek para perguntas abertas. Detalhes e falhas confirmadas em [docs/AI_CURRENT_STATE.md](docs/AI_CURRENT_STATE.md). |
+| **IA** | Funcionando. Motor local determinístico + DeepSeek para perguntas abertas, com datas futuras/inválidas tratadas sem criar movimentação realizada e falha remota explícita. Detalhes e limites em [docs/AI_CURRENT_STATE.md](docs/AI_CURRENT_STATE.md). |
 | **Análises** | Implementado, mas **não é sensível a perfil** (ver pendências). Diário/semanal/mensal/anual, comparativo com período anterior, gastos por categoria, exportação CSV e impressão. |
 | **Configurações** | Implementado. Perfil, tema, dias de trabalho, custos do veículo, categorias personalizadas, notificações, IA remota ligada/desligada, "Limpar lançamentos e trabalho", reset total. |
 | **Backup** | Implementado. Exportar JSON; restaurar com escolha entre Mesclar e Substituir tudo, usando `<ConfirmDialog>`. |
@@ -327,22 +353,45 @@ Confirmadas no código em 28/07/2026.
 
 ### IA
 
-Vinte pontos confirmados e detalhados em [docs/AI_CURRENT_STATE.md](docs/AI_CURRENT_STATE.md).
-Os mais estruturais:
+Os vinte pontos estruturais da auditoria de 28/07/2026 foram resolvidos na reformulação do
+assistente, e a rodada de QA adversarial corrigiu mais 17 defeitos de interpretação e interface.
+Detalhe completo em [docs/AI_CURRENT_STATE.md §6](docs/AI_CURRENT_STATE.md).
 
-8. `SYSTEM_PROMPT` duplicado entre `vite.config.ts` e `api/ai/chat.ts`, **com divergências reais
-   hoje** (dev tem `is99`, produção tem `odometer`, `autocuidado` e três regras extras).
-9. `sanitizeActions()` não suporta `saving` nem `origin`, e não valida categoria contra o estado.
-10. `src/services/ai.ts` tem um parser monetário paralelo (`parseFloat`), contrariando a regra 12.
-11. Não há data nas ações financeiras — tudo é gravado como "hoje".
-12. Não há rascunho estruturado para esclarecimentos em várias mensagens.
-13. Confirmação é tudo-ou-nada e as ações do lote são aplicadas sobre o mesmo `state` antigo.
+**Corrigido em 29/07/2026**:
+
+- Datas futuras, inválidas e períodos sem dia exato não são mais substituídos por hoje.
+- `daqui a/em X dias|semanas|meses|anos`, `próxima semana`, `mês que vem` e sinais comuns sem dia
+  exato falham de forma explícita. O app não ganhou agendamento: intenção futura é explicada.
+- Resposta vazia e HTTP 502 da DeepSeek foram reproduzidos e auditados. Falha não cria ação,
+  preserva o que o motor local entendeu e explica a indisponibilidade quando a pergunta dependia
+  só do remoto. Nenhum retry novo foi adicionado.
+
+**Implementado em 29/07/2026 (segunda rodada)**:
+
+- **Auditoria completa e reversível** de todo lote do assistente (`assistantJournal`),
+  cobrindo entidades criadas **e alteradas**. Ver [CLAUDE.md](CLAUDE.md) regra 31.
+- **Edição da proposta** derivada do catálogo e validada por `validateAction()`.
+- **"Desfaz o último"**: reverte o lote inteiro pelo journal, listando o que sai e
+  exigindo confirmação; lote sem journal é recusado.
+- **Corrigir lançamento já salvo** por conversa: `Transaction` simples e ocorrência
+  recorrente materializada, com busca local e desambiguação. Ver regra 32.
+
+**Fora do escopo por decisão** (documentado, não esquecido):
+
+8. Editar por conversa a **estrutura** de parcelamento, cartão, meta, abastecimento,
+   trabalho, manutenção e template de recorrência — o assistente recusa e indica a tela.
+9. **`Analytics.tsx` por perfil** — pendência anterior a esta reformulação.
+
+**Menores**: "meio" não é interpretado; intervalos de data não viram intervalo estruturado — a
+barreira pede esclarecimento em vez de usar hoje. A proposta pendente não vai no payload remoto
+(investigado, sem falha demonstrada); a qualidade do texto da IA remota não é testada, só o
+contrato.
 
 ### Produto
 
-14. **`Analytics.tsx` não é sensível a perfil** (`isDriver` não é usado lá): relatórios mostram a
+11. **`Analytics.tsx` não é sensível a perfil** (`isDriver` não é usado lá): relatórios mostram a
     mesma estrutura para motorista e não motorista.
-15. **Sincronização em nuvem** não existe — o app é single-device.
-16. **Sem autenticação e sem multiusuário.**
-17. **`SYSTEM_PROMPT` sincronizada ainda não foi republicada** em produção: o redeploy está
+12. **Sincronização em nuvem** não existe — o app é single-device.
+13. **Sem autenticação e sem multiusuário.**
+14. **`SYSTEM_PROMPT` sincronizada ainda não foi republicada** em produção: o redeploy está
     deliberadamente adiado até reunir as alterações verificadas.

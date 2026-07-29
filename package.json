@@ -7,7 +7,13 @@
     "dev": "vite",
     "build": "tsc -b --noCheck && vite build",
     "preview": "vite preview",
-    "test": "tsx scripts/test-app.mts"
+    "test": "tsx scripts/test-app.mts && tsx scripts/test-assistant.mts",
+    "test:core": "tsx scripts/test-app.mts",
+    "test:assistant": "tsx scripts/test-assistant.mts",
+    "test:assistant:remote": "tsx scripts/test-assistant-remote.mts",
+    "test:money": "node --experimental-strip-types scripts/test-money.mjs",
+    "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
+    "typecheck:api": "node node_modules/typescript/bin/tsc --noEmit -p tsconfig.api.json"
   },
   "dependencies": {
     "@capacitor/local-notifications": "^8.2.1",

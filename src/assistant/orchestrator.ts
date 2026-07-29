@@ -1,0 +1,969 @@
+// ORQUESTRADOR — o cérebro do assistente.
+//
+// Antes, `Chat.tsx` decidia tudo com dois `if`: "achou ação? usa local; senão
+// manda pro remoto". Uma mensagem que registrava E perguntava perdia a pergunta;
+// uma mensagem meio entendida ia inteira pro modelo e voltava duplicada.
+//
+// Aqui a decisão é por COBERTURA: o que o motor local resolveu com certeza fica
+// resolvido, e só o que sobrou justifica chamar a IA remota — que reconcilia,
+// nunca duplica.
+
+import type { AppState, AssistantJournalEntry, ParsedAction, Transaction } from '../models/types'
+import { lastReversibleBatch } from './journal'
+import { editActionFor, findEditCandidates, parseEditRequest } from './editSaved'
+import type { EditableTxField } from './editSaved'
+import { editBlockReason } from './execute'
+import type {
+  AssistantCandidateAction, AssistantCapabilities, AssistantClarification,
+  AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
+} from './contracts'
+import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, isValidationFailure, validateAction } from './contracts'
+import { analyzeMessage } from './clauses'
+import type { AnalyzedClause, MessageAnalysis, TemporalSignal } from './clauses'
+import { detectIncomplete, isDraftFresh, newDraft, resolveDraftAnswer } from './drafts'
+import type { AssistantDraft } from './drafts'
+import { applyCorrection, parseCorrection } from './corrections'
+import type { CorrectionPlan } from './corrections'
+import { findGoalByName, planAssistantActions } from './execute'
+import { askAssistant } from '../services/ai'
+import { describeAction } from '../services/nlp'
+import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
+import { catById } from '../data/categories'
+import { fmtBRL, todayISO, uid } from '../utils/format'
+import { normalizeName, sentenceCase } from '../utils/text'
+import { brDate, dateLabel, findDate, previousYearOf, resolveDayInWindow } from './dates'
+
+// ---------------------------------------------------------------------------
+// Capacidades reais do usuário
+// ---------------------------------------------------------------------------
+
+export function buildCapabilities(state: AppState): AssistantCapabilities {
+  const driver = isDriver(state.settings)
+  return {
+    profile: state.settings.profile,
+    isDriver: driver,
+    kinds: [],
+    categories: state.categories
+      .filter(c => !c.archived || c.id === 'reserva')
+      .map(c => ({ id: c.id, name: c.name, type: c.type })),
+    cardNames: (state.cards || []).filter(c => !c.archived).map(c => c.name),
+    goalNames: state.goals.filter(g => !g.done).map(g => g.name),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Entrada e saída
+// ---------------------------------------------------------------------------
+
+export interface RemoteResult {
+  reply: string
+  mode: string
+  actions: ParsedAction[]
+  clarification?: AssistantClarification
+  rejected: { kind: string; code: AssistantErrorCode; detail?: string }[]
+  contractFallback?: boolean
+}
+
+export interface OrchestratorInput {
+  state: AppState
+  message: string
+  history: { role: string; text: string }[]
+  draft?: AssistantDraft
+  /** Proposta ainda na tela — alvo de correções. */
+  pending?: AssistantCandidateAction[]
+  /** Pergunta de esclarecimento aberta, para casar a resposta do usuário. */
+  pendingClarification?: AssistantClarification
+  remoteEnabled: boolean
+  /** Injetável: os testes rodam sem rede. */
+  askRemote?: (args: { state: AppState; message: string; history: { role: string; text: string }[] }) => Promise<RemoteResult | null>
+  today?: string
+  devDiagnostics?: boolean
+}
+
+export interface OrchestratorOutput {
+  response: AssistantResponse
+  /** Rascunho atualizado. `null` = apagar o rascunho atual. */
+  draft: AssistantDraft | null
+  /** Proposta corrigida, quando a mensagem era uma correção. */
+  correctedPending?: AssistantCandidateAction[]
+}
+
+const candidate = (
+  action: ParsedAction,
+  engine: AssistantCandidateAction['engine'],
+  clauseId?: string,
+  confidence: AssistantCandidateAction['confidence'] = 'high',
+): AssistantCandidateAction => ({ id: uid(), action, engine, clauseId, confidence })
+
+const unresolvedOf = (c: AnalyzedClause, reason: AssistantUnresolvedClause['reason']): AssistantUnresolvedClause =>
+  ({ clauseId: c.id, text: c.text, reason })
+
+// ---------------------------------------------------------------------------
+// Etapa local
+// ---------------------------------------------------------------------------
+
+interface LocalPass {
+  analysis: MessageAnalysis
+  candidates: AssistantCandidateAction[]
+  rejected: { kind: string; code: AssistantErrorCode; detail?: string }[]
+  clarification?: AssistantClarification
+  /** Ainda precisa da IA remota? */
+  needsRemote: boolean
+  unresolved: AssistantUnresolvedClause[]
+  /** Intenção futura declarada: explicar, nunca registrar. */
+  temporalPlan?: TemporalSignal
+}
+
+// ---------------------------------------------------------------------------
+// Tempo — nada do que o usuário disse sobre QUANDO pode sumir
+// ---------------------------------------------------------------------------
+
+/** Copia as ações com uma data explícita, respeitando o catálogo. */
+const withDate = (actions: ParsedAction[], iso?: string): ParsedAction[] =>
+  actions.map(a => {
+    const next: any = { ...a }
+    if (!actionSpec(a.kind)?.fields.some(f => f.name === 'date')) return next as ParsedAction
+    if (iso) next.date = iso
+    else delete next.date
+    return next as ParsedAction
+  })
+
+// ---------------------------------------------------------------------------
+// Corrigir um lançamento já salvo
+// ---------------------------------------------------------------------------
+
+const CAMPO_LABEL: Record<EditableTxField, string> = {
+  amount: 'Valor', category: 'Categoria', description: 'Descrição',
+  origin: 'Origem', date: 'Data',
+}
+
+/** Uma linha curta que identifica o lançamento sem ambiguidade. */
+const labelOfTx = (t: Transaction): string =>
+  `${t.description ? sentenceCase(t.description) : 'Sem descrição'} — ${fmtBRL(t.amount)} (${brDate(t.date)})`
+
+/** Mostra o ANTES e o DEPOIS. Corrigir dinheiro salvo às cegas não é opção. */
+function describeEdit(state: AppState, t: Transaction, req: { field: EditableTxField; value: string | number }): string {
+  const nomeCat = (id?: string) => state.categories.find(c => c.id === id)?.name || id || '—'
+  const antes = req.field === 'amount' ? fmtBRL(t.amount)
+    : req.field === 'category' ? nomeCat(t.category)
+      : req.field === 'date' ? brDate(t.date)
+        : String((t as any)[req.field] || '—')
+  const depois = req.field === 'amount' ? fmtBRL(Number(req.value))
+    : req.field === 'category' ? nomeCat(String(req.value))
+      : req.field === 'date' ? brDate(String(req.value))
+        : String(req.value)
+  return `Vou corrigir este lançamento:\n\n• ${labelOfTx(t)}\n• ${CAMPO_LABEL[req.field]}: ${antes} → ${depois}`
+}
+
+// ---------------------------------------------------------------------------
+// Desfazer o último lote
+// ---------------------------------------------------------------------------
+
+/**
+ * Pedido de desfazer. Exige o VERBO abrindo a frase e um alvo referencial
+ * ("o último", "isso") — sem as duas coisas, "gastei 30 no último posto" viraria
+ * uma reversão, e "apaga tudo" continuaria sendo o reset destrutivo de sempre.
+ */
+// `\b` antes de "último" NÃO funciona: em JS o "ú" não é caractere de palavra,
+// então a borda nunca casa — a mesma armadilha que já tinha escondido "amanhã".
+const UNDO_REQUEST =
+  /^\s*(?:pode\s+|por\s+favor\s+)?(?:desfaz|desfazer|desfa[çc]a|cancela|cancelar|remove|remover|apaga|apagar|exclui|excluir)(?![a-zà-ú])[^.?!]{0,40}?\s(?:[úu]ltim[oa]|isso|isto)(?![\wà-úÀ-Ú])/i
+
+const dinheiro = (v: number) => fmtBRL(v)
+
+/** Uma linha legível por entidade que a reversão vai remover ou restaurar. */
+function describeUndoTarget(state: AppState, entity: string, alvo: any): string | null {
+  switch (entity) {
+    case 'transactions': {
+      const rotulo = alvo.type === 'income' ? 'Receita' : alvo.type === 'saving' ? 'Reserva' : alvo.type === 'financed-cash-inflow' ? 'Entrada financiada' : 'Despesa'
+      return `${rotulo} de ${dinheiro(alvo.amount)}${alvo.description ? ` — ${alvo.description}` : ''}`
+    }
+    case 'goals': return `Meta "${alvo.name}"`
+    case 'installmentPlans': return `${alvo.description || 'Parcelamento'} de ${dinheiro(alvo.totalAmount)} em ${alvo.installmentCount}x`
+    case 'cardPayments': return `Pagamento de fatura de ${dinheiro(alvo.amount)}`
+    case 'cardCharges': return `Assinatura ${alvo.description} de ${dinheiro(alvo.amount)}/mês`
+    case 'fuelRecords': return `Abastecimento de ${dinheiro(alvo.amount)}`
+    case 'workSessions': return `Registro de trabalho de ${alvo.date}`
+    case 'maintenance': return `Manutenção "${alvo.name}"`
+    case 'cards': return `Cartão ${alvo.name}`
+    // Parcelas são detalhe do plano: listá-las uma a uma só faria ruído.
+    default: return null
+  }
+}
+
+/**
+ * O que o usuário vai perder ao confirmar. Mostrar isso ANTES de reverter é
+ * requisito, não cortesia: desfazer é destrutivo e silencioso por natureza.
+ */
+export function describeUndo(state: AppState, entry: AssistantJournalEntry): string[] {
+  const linhas: string[] = []
+  for (const op of entry.ops) {
+    if (op.op !== 'create') continue
+    const lista: any[] = (state as any)[op.entity] || []
+    const alvo = lista.find(x => x.id === op.id)
+    if (!alvo) continue
+    const linha = describeUndoTarget(state, op.entity, alvo)
+    if (linha) linhas.push(linha)
+  }
+  for (const op of entry.ops) {
+    if (op.op !== 'update') continue
+    if (op.entity === 'goals') {
+      const g: any = (state.goals || []).find(x => x.id === op.id)
+      const antes = (op.before as any).saved
+      if (g && typeof antes === 'number') linhas.push(`Depósito de ${dinheiro(g.saved - antes)} na meta "${g.name}"`)
+    } else if (op.entity === 'recurring') {
+      linhas.push('Confirmação de uma conta recorrente (volta a ficar pendente)')
+    } else if (op.entity === 'transactions') {
+      // Lote de CORREÇÃO: sem esta linha o card só dizia "vou desfazer o
+      // último registro" e o usuário confirmava sem saber o que voltava.
+      const t: any = (state.transactions || []).find(x => x.id === op.id)
+      if (!t) continue
+      const volta = Object.entries(op.before as Record<string, unknown>)
+        .map(([campo, valor]) => `${CAMPO_LABEL[campo as EditableTxField] || campo} volta para ${campo === 'amount' ? dinheiro(Number(valor)) : String(valor ?? '—')}`)
+      linhas.push(`Correção em "${t.description ? sentenceCase(t.description) : 'lançamento'}" — ${volta.join(', ')}`)
+    }
+  }
+  for (const op of entry.ops) {
+    if (op.op === 'patch' && op.entity === 'settings' && 'balance' in (op.before as any)) {
+      linhas.push('Saldo em conta informado')
+    }
+  }
+  return linhas
+}
+
+/**
+ * Explicação honesta para uma intenção futura. O app não agenda lançamentos —
+ * dizer isso com todas as letras é melhor do que registrar na data errada ou
+ * responder com o texto genérico de ajuda, que foi o que motivou esta correção.
+ */
+function futurePlanReply(t: TemporalSignal): string {
+  const quando = t.date && !t.imprecise ? ` (${brDate(t.date)})` : ''
+  return `Isso ainda não aconteceu — você falou de "${t.text}"${quando}. `
+    + 'Eu ainda não sei agendar lançamentos futuros, então não registrei nada. '
+    + 'Quando acontecer, é só me avisar que eu registro na hora.'
+}
+
+/**
+ * Pergunta para uma expressão temporal que não pode datar um fato. Cada opção
+ * carrega o efeito COMPLETO: escolher não obriga o usuário a repetir o valor.
+ */
+function temporalClarification(t: TemporalSignal): AssistantClarification {
+  if (t.kind === 'invalid' || t.kind === 'unknown') {
+    return {
+      question: t.question || `A data "${t.text}" é inválida. Qual foi a data correta?`,
+      field: 'date',
+      pendingActions: t.actions,
+    }
+  }
+  if (t.kind === 'period') {
+    return {
+      question: `Você disse "${t.text}", mas não disse o dia. Que dia foi?`,
+      field: 'date',
+      dateWindow: { from: t.from!, to: t.to! },
+      pendingActions: t.actions,
+    }
+  }
+
+  const plano = { label: 'É um plano', value: 'plano', reply: futurePlanReply(t) }
+  // Data dita por extenso ("dia 10/08"): a leitura mais provável é o mesmo dia
+  // do ano passado. Mostramos as duas datas para o usuário escolher de olho.
+  if (!t.relative && t.date) {
+    const anterior = previousYearOf(t.date)
+    return {
+      question: `A data ${brDate(t.date)} ainda não chegou. Foi ${brDate(anterior)} ou você quer planejar para ${brDate(t.date)}?`,
+      field: 'date',
+      options: [
+        { label: brDate(anterior), value: anterior, actions: withDate(t.actions, anterior) },
+        plano,
+      ],
+    }
+  }
+  const quando = t.date && !t.imprecise ? ` (${brDate(t.date)})` : ''
+  return {
+    question: `"${t.text}"${quando} ainda não chegou. Isso já aconteceu ou é um plano que você quer registrar quando acontecer?`,
+    field: 'date',
+    options: [
+      { label: 'Já aconteceu', value: 'ja-aconteceu', actions: withDate(t.actions) },
+      plano,
+    ],
+  }
+}
+
+/**
+ * `goal-deposit` sem meta correspondente não pode virar meta nova nem sumir:
+ * o dinheiro provavelmente foi para a reserva. Perguntamos.
+ */
+function reconcileGoalDeposits(
+  state: AppState,
+  actions: ParsedAction[],
+): { actions: ParsedAction[]; clarification?: AssistantClarification } {
+  let clarification: AssistantClarification | undefined
+  const out = actions.map(a => {
+    if (a.kind !== 'goal-deposit') return a
+    const g = findGoalByName(state, a.name)
+    if (g) return a
+    if (!clarification) {
+      clarification = {
+        question: `Não encontrei uma meta chamada "${a.name}". Você quer guardar esse valor na reserva?`,
+        options: [
+          { label: 'Guardar na reserva', value: 'saving' },
+          { label: 'Escolher outra meta', value: 'pick-goal' },
+        ],
+      }
+    }
+    return a
+  })
+  return { actions: out, clarification }
+}
+
+function runLocal(input: OrchestratorInput, caps: AssistantCapabilities): LocalPass {
+  const today = input.today || todayISO()
+  const analysis = analyzeMessage(input.message, { driver: caps.isDriver, today })
+
+  const rejected: LocalPass['rejected'] = []
+  const candidates: AssistantCandidateAction[] = []
+  let clarification: AssistantClarification | undefined
+
+  // Ambiguidade real (gás) interrompe: pergunta primeiro, registra depois.
+  const ambiguous = analysis.clauses.find(c => c.ambiguity)
+  const dateAmbiguous = analysis.clauses.find(c => c.dateAmbiguity)
+
+  // A informação temporal tem PRIORIDADE sobre as outras perguntas: ela decide
+  // se o lançamento existe. Perguntar o cartão antes de saber se a despesa
+  // aconteceu seria conversar sobre um fato que talvez nem exista.
+  const temporalAsk = analysis.clauses.find(c => c.temporal && !c.temporal.plan)?.temporal
+  const temporalPlan = analysis.clauses.find(c => c.temporal?.plan)?.temporal
+  if (temporalAsk) clarification = temporalClarification(temporalAsk)
+
+  const { actions: reconciled, clarification: goalClar } = reconcileGoalDeposits(input.state, analysis.actions)
+  if (goalClar && !clarification) clarification = goalClar
+
+  for (const clause of analysis.clauses) {
+    for (const raw of clause.actions) {
+      const idx = analysis.actions.indexOf(raw)
+      let action = idx >= 0 ? reconciled[idx] : raw
+
+      // Quem não é motorista também abastece e faz manutenção — só não tem a
+      // estrutura de veículo do app. Em vez de descartar o lançamento (o
+      // usuário gastou o dinheiro de verdade), ele vira despesa da categoria
+      // correspondente. `work` e `odometer` não têm equivalente e são recusados.
+      if (!caps.isDriver) {
+        const a: any = action
+        if (a.kind === 'fuel' && a.amount > 0) {
+          action = { kind: 'expense', amount: a.amount, category: 'combustivel', description: 'Combustível', date: a.date }
+        } else if (a.kind === 'maintenance') {
+          action = { kind: 'expense', amount: a.cost, category: 'manutencao', description: `Troca de ${a.item}`, date: a.date }
+        }
+      }
+
+      const res = validateAction(action, caps, today)
+      if (isValidationFailure(res)) {
+        rejected.push({ kind: action.kind, code: res.code, detail: res.detail })
+        continue
+      }
+      // A proposta mostra a categoria que SERÁ gravada, não um campo vazio que
+      // o usuário só descobre depois de confirmar.
+      const withDefaults: any = { ...res.action }
+      if (withDefaults.kind === 'income' && !withDefaults.category) withDefaults.category = defaultIncomeCategory(input.state.settings)
+      if (withDefaults.kind === 'expense' && !withDefaults.category) withDefaults.category = 'outros-out'
+      candidates.push(candidate(withDefaults, 'local', clause.id, clause.confidence))
+    }
+  }
+
+  const unresolved = analysis.unresolvedClauses
+    .filter(c => c.intent !== 'conversation')
+    .map(c => unresolvedOf(c, c.intent === 'question' ? 'question-unanswered' : 'not-understood'))
+
+  if (!clarification && ambiguous?.ambiguity) {
+    // Cada opção carrega a lista COMPLETA de ações já resolvidas: escolher
+    // "GNV" não obriga o usuário a repetir o valor nem a descrição.
+    clarification = {
+      question: ambiguous.ambiguity.question,
+      options: ambiguous.ambiguity.options.map(o => ({ label: o.label, value: o.label, actions: o.actions })),
+      field: 'ambiguity',
+    }
+  }
+
+  // Cartão citado que não existe, ou fatura sem cartão com vários cadastrados:
+  // não vira ação executável — vira pergunta específica.
+  for (const c of candidates) {
+    const a: any = c.action
+    // `'cardName' in a` não serve: a validação remove campos ausentes, então a
+    // chave simplesmente não existe. Quem sabe se a ação ACEITA cartão é o
+    // catálogo.
+    if (!actionSpec(a.kind)?.fields.some(f => f.name === 'cardName')) continue
+    if (a.cardName) {
+      const known = caps.cardNames.some(n => normalizeName(n) === normalizeName(a.cardName)
+        || normalizeName(n).includes(normalizeName(a.cardName)))
+      if (!known) {
+        clarification = clarification || {
+          question: caps.cardNames.length
+            ? `Não encontrei um cartão chamado "${a.cardName}". Qual dos seus cartões é?`
+            : `Não encontrei um cartão chamado "${a.cardName}". Você quer cadastrar esse cartão antes?`,
+          field: 'cardName',
+          options: caps.cardNames.map(n => ({ label: n, value: n })),
+        }
+      }
+    } else if (caps.cardNames.length > 1) {
+      // Com vários cartões, escolher sozinho seria adivinhar. Cada opção já
+      // carrega a proposta COMPLETA com aquele cartão — o usuário só escolhe.
+      clarification = clarification || {
+        question: 'Em qual cartão?',
+        field: 'cardName',
+        options: caps.cardNames.map(n => ({
+          label: n,
+          value: n,
+          actions: candidates.map(x => (x.id === c.id ? { ...(x.action as any), cardName: n } : x.action)),
+        })),
+      }
+    }
+  }
+  if (!clarification && dateAmbiguous?.dateAmbiguity) {
+    clarification = {
+      question: dateAmbiguous.dateAmbiguity.question,
+      options: dateAmbiguous.dateAmbiguity.options,
+      field: 'date',
+    }
+  }
+
+  // Regra central: ACHAR AÇÃO NÃO É COMPREENDER A MENSAGEM.
+  const needsRemote = analysis.clauses.some(c =>
+    !c.handled && c.intent !== 'conversation' && !(c.intent === 'question' && false))
+    || analysis.coverage < 0.999
+
+  return { analysis, candidates, rejected, clarification, needsRemote, unresolved, temporalPlan }
+}
+
+// ---------------------------------------------------------------------------
+// Respostas locais
+// ---------------------------------------------------------------------------
+
+/**
+ * Responde perguntas usando o estado PROJETADO (estado atual + ações propostas),
+ * deixando explícito que o número depende da confirmação. Reaproveita o motor de
+ * respostas local inteiro em vez de duplicar regra de cálculo.
+ */
+function answerQuestions(
+  state: AppState,
+  questions: AnalyzedClause[],
+  candidates: AssistantCandidateAction[],
+): { text: string; answered: AnalyzedClause[] } {
+  if (!questions.length) return { text: '', answered: [] }
+  const projected = candidates.length
+    ? planAssistantActions(state, candidates.map(c => ({ id: c.id, action: c.action }))).projected
+    : state
+
+  const parts: string[] = []
+  const answered: AnalyzedClause[] = []
+  for (const q of questions) {
+    const r = askAssistant(projected, q.text)
+    if (r.handled === false) continue
+    // CUIDADO: `askAssistant` tem parser próprio e, quando acha uma ação, monta
+    // "Entendi isso… / Confirmar?". Isso é uma PROPOSTA, não a resposta de uma
+    // pergunta — usá-la aqui mostrava a proposta na tela sem nenhum botão para
+    // confirmar. A pergunta segue em aberto e vai para quem sabe respondê-la.
+    if (r.actions?.length || /entendi isso/i.test(r.text)) continue
+    parts.push(r.text)
+    answered.push(q)
+  }
+  return { text: parts.join('\n\n'), answered }
+}
+
+/**
+ * Resposta HIPOTÉTICA para uma pergunta que o motor local não sabe responder
+ * sozinho, mas que depende do que está sendo proposto.
+ *
+ * Sempre deixa explícito que o número depende da confirmação — nada foi gravado.
+ */
+function hypotheticalSummary(candidates: AssistantCandidateAction[]): string | null {
+  const sum = (kind: string, field = 'amount') =>
+    candidates.filter(c => c.action.kind === kind).reduce((a, c) => a + ((c.action as any)[field] || 0), 0)
+  const inc = sum('income')
+  const exp = sum('expense')
+  const sav = sum('saving')
+  if (!inc && !exp && !sav) return null
+
+  const parts: string[] = []
+  if (inc) parts.push(`entram ${fmtBRL(inc)}`)
+  if (exp) parts.push(`saem ${fmtBRL(exp)}`)
+  if (sav) parts.push(`${fmtBRL(sav)} vão para a reserva`)
+
+  const diff = inc - exp
+  const tail = inc && exp
+    ? ` — diferença de ${fmtBRL(Math.abs(diff))}${diff < 0 ? ', negativa' : ''}.`
+    : '.'
+  return `Se você confirmar, ${parts.join(', ')}${tail} Nada foi registrado ainda.`
+}
+
+function proposalText(candidates: AssistantCandidateAction[]): string {
+  const lines = candidates.map(c => {
+    const d = (c.action as any).date
+    const suffix = d ? ` · ${dateLabel(d)}` : ''
+    return `• ${describeAction(c.action)}${suffix}`
+  })
+  return `Entendi isso:\n\n${lines.join('\n')}`
+}
+
+// ---------------------------------------------------------------------------
+// Orquestração
+// ---------------------------------------------------------------------------
+
+const rejectionNote = (rejected: LocalPass['rejected']): string => {
+  if (!rejected.length) return ''
+  const first = rejected[0]
+  const what = first.detail ? `${first.kind} (${first.detail})` : first.kind
+  return `\n\nUma parte não pôde ser registrada — ${what}. Se quiser, reformule só esse pedaço.`
+}
+
+export async function orchestrate(input: OrchestratorInput): Promise<OrchestratorOutput> {
+  const started = Date.now()
+  const caps = buildCapabilities(input.state)
+  const today = input.today || todayISO()
+
+  // ---- 0) A mensagem escolhe uma opção que o assistente ofereceu? --------
+  // "GNV" logo depois de "gás de cozinha ou GNV?" precisa recuperar o valor e
+  // a descrição da mensagem anterior — o usuário não repete nada.
+  const pc = input.pendingClarification
+  if (pc?.options?.length) {
+    const said = normalizeName(input.message)
+    const hit = pc.options.find(o =>
+      normalizeName(o.label) === said || normalizeName(o.value) === said ||
+      (said.length > 2 && (normalizeName(o.label).includes(said) || said.includes(normalizeName(o.label)))))
+    if (hit) {
+      if (hit.actions?.length) {
+        const cands = hit.actions.map(a => candidate(a, 'local'))
+        return {
+          draft: null,
+          response: {
+            version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
+            actions: cands, unresolved: [],
+            reply: `${proposalText(cands)}\n\nConfirmar?`,
+          },
+        }
+      }
+      // Escolha que significa NÃO REGISTRAR ("é um plano"): a explicação já vem
+      // pronta na opção, para o usuário não ficar sem saber por que nada foi
+      // lançado.
+      if (hit.reply) {
+        return {
+          draft: null,
+          response: {
+            version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local',
+            actions: [], unresolved: [], reply: hit.reply,
+          },
+        }
+      }
+      // Opção sem efeito pré-calculado (ex.: escolha de cartão): a resposta
+      // segue o fluxo normal já com o valor escolhido embutido na frase.
+    }
+  }
+
+  // ---- 0b) A mensagem responde "que dia foi?" dentro de um período? ------
+  // "mês passado" + "dia 10" só pode virar 10 do mês passado. Fora da janela a
+  // pergunta continua aberta — nada é aproximado e nada cai em hoje.
+  if (pc?.field === 'date' && pc.dateWindow && pc.pendingActions?.length) {
+    const iso = resolveDayInWindow(input.message, pc.dateWindow, today)
+    if (iso) {
+      const cands = withDate(pc.pendingActions, iso).map(a => candidate(a, 'local'))
+      return {
+        draft: null,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
+          actions: cands, unresolved: [],
+          reply: `${proposalText(cands)}\n\nConfirmar?`,
+        },
+      }
+    }
+    // Resposta inválida ou fora da janela: a pergunta continua aberta. Cair no
+    // fluxo comum descartava `pendingClarification`; pior, uma data completa de
+    // outro mês podia ser reduzida ao número do dia e reinterpretada.
+    const from = brDate(pc.dateWindow.from)
+    const to = brDate(pc.dateWindow.to)
+    return {
+      draft: null,
+      response: {
+        version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
+        actions: [], unresolved: [],
+        clarification: pc,
+        reply: `Essa data é inválida ou fica fora do período que você informou (${from} a ${to}). ${pc.question}`,
+      },
+    }
+  }
+
+  // ---- 0c) A mensagem corrige uma data inválida? ------------------------
+  // A ação original fica guardada, mas só volta a ser proposta quando a nova
+  // data for válida e já tiver acontecido. Futuro volta ao esclarecimento de
+  // plano; entrada ainda inválida mantém a mesma pergunta aberta.
+  if (pc?.field === 'date' && !pc.dateWindow && pc.pendingActions?.length) {
+    const corrected = findDate(input.message, today)
+    if (corrected?.kind === 'date') {
+      const cands = withDate(pc.pendingActions, corrected.date).map(a => candidate(a, 'local'))
+      return {
+        draft: null,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
+          actions: cands, unresolved: [],
+          reply: `${proposalText(cands)}\n\nConfirmar?`,
+        },
+      }
+    }
+    if (corrected?.kind === 'future') {
+      const clarification = temporalClarification({
+        kind: 'future', text: corrected.text, label: corrected.label,
+        date: corrected.date, relative: corrected.relative,
+        imprecise: corrected.imprecise, actions: pc.pendingActions,
+        conflict: true,
+      })
+      return {
+        draft: null,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
+          actions: [], unresolved: [], clarification, reply: clarification.question,
+        },
+      }
+    }
+    return {
+      draft: null,
+      response: {
+        version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
+        actions: [], unresolved: [], clarification: pc,
+        reply: `Ainda não consegui entender uma data válida. ${pc.question}`,
+      },
+    }
+  }
+
+  // ---- 1) A mensagem responde a uma pergunta pendente? -------------------
+  if (isDraftFresh(input.draft)) {
+    const res = resolveDraftAnswer(input.draft!, input.message, caps, today)
+    if (!res.unmatched) {
+      if (res.draft.status === 'ready') {
+        const v = validateAction(res.draft.partial, caps, today)
+        if (isValidationFailure(v)) {
+          return {
+            draft: null,
+            response: {
+              version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [],
+              unresolved: [],
+              reply: `Não consegui completar esse registro: ${v.detail || v.code}. Pode mandar de novo com os dados completos?`,
+            },
+          }
+        }
+        const cand = [candidate(v.action, 'local')]
+        return {
+          draft: null,
+          response: {
+            version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
+            actions: cand, unresolved: [],
+            reply: `${proposalText(cand)}\n\nConfirmar?`,
+          },
+        }
+      }
+      const nextQ = res.draft.missingFields[0]
+      return {
+        draft: res.draft,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
+          actions: [], unresolved: [],
+          clarification: { question: nextQ.question, field: nextQ.field, options: nextQ.options },
+          reply: nextQ.question,
+        },
+      }
+    }
+    // Não encaixou: o usuário mudou de assunto. O rascunho é descartado em vez
+    // de contaminar a próxima mensagem.
+  }
+
+  // ---- 2) A mensagem corrige a proposta na tela? -------------------------
+  if (input.pending?.length) {
+    const plan: CorrectionPlan | null = parseCorrection(input.message, input.pending, caps, today)
+    if (plan) {
+      if (plan.ambiguous) {
+        return {
+          draft: null,
+          response: {
+            version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
+            actions: input.pending, unresolved: [],
+            clarification: plan.ambiguous,
+            reply: plan.ambiguous.question,
+          },
+        }
+      }
+      const next = applyCorrection(input.pending, plan)
+      if (!next.length) {
+        return {
+          draft: null, correctedPending: [],
+          response: {
+            version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [],
+            unresolved: [], reply: plan.summary.join(' ') || 'Ok, descartei a proposta.',
+          },
+        }
+      }
+      return {
+        draft: null, correctedPending: next,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
+          actions: next, unresolved: [],
+          reply: `${plan.summary.join(' ')}\n\n${proposalText(next)}\n\nConfirmar?`,
+        },
+      }
+    }
+  }
+
+  // ---- 2b) A mensagem pede para desfazer o último lote? ------------------
+  // Depois das correções de propósito: com uma proposta na tela, "cancela
+  // isso" descarta a proposta, não mexe no que já foi gravado.
+  if (UNDO_REQUEST.test(input.message)) {
+    const alvo = lastReversibleBatch(input.state)
+    if (alvo) {
+      const itens = describeUndo(input.state, alvo)
+      const cand = [candidate({ kind: 'undo-batch', batchId: alvo.batchId }, 'local')]
+      return {
+        draft: null,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
+          actions: cand, unresolved: [],
+          reply: itens.length
+            ? `Isto é o que vou desfazer:\n\n${itens.map(l => `• ${l}`).join('\n')}\n\nConfirmar?`
+            : 'Vou desfazer o último registro do assistente.\n\nConfirmar?',
+        },
+      }
+    }
+    // Sem journal não se reverte por adivinhação — e o usuário precisa saber
+    // por quê, além de para onde ir.
+    const temHistorico = (input.state.transactions?.length || 0) > 0
+      || (input.state.installmentPlans?.length || 0) > 0
+    return {
+      draft: null,
+      response: {
+        version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local',
+        actions: [], unresolved: [],
+        reply: temHistorico
+          ? 'Não tenho o registro detalhado desses lançamentos, então não sei desfazer com segurança. Dá para apagar pela tela de Movimentações.'
+          : 'Não tenho nenhum registro recente do assistente para desfazer.',
+      },
+    }
+  }
+
+  // ---- 2c) A mensagem corrige um lançamento JÁ SALVO? -------------------
+  // Depois do undo e das correções da proposta: com algo na tela, a frase se
+  // refere ao que está na tela, não ao histórico.
+  if (!input.pending?.length) {
+    const pedido = parseEditRequest(input.message, caps, today)
+    if (pedido) {
+      const candidatos = findEditCandidates(input.state, pedido, today)
+      const resposta = (reply: string): OrchestratorOutput => ({
+        draft: null,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local',
+          actions: [], unresolved: [], reply,
+        },
+      })
+      if (!candidatos.length) {
+        return resposta('Não encontrei nenhum lançamento que combine com isso. Me diga o dia e o valor atual que eu procuro de novo.')
+      }
+      if (candidatos.length === 1) {
+        const bloqueio = editBlockReason(input.state, candidatos[0])
+        if (bloqueio) return resposta(`Esse lançamento não dá para corrigir por aqui: ${bloqueio}`)
+        const cand = [candidate(editActionFor(candidatos[0], pedido) as ParsedAction, 'local')]
+        return {
+          draft: null,
+          response: {
+            version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
+            actions: cand, unresolved: [],
+            reply: `${describeEdit(input.state, candidatos[0], pedido)}\n\nConfirmar?`,
+          },
+        }
+      }
+      // Mais de um: PERGUNTAR. Escolher o mais provável seria adivinhar sobre
+      // dinheiro que já está gravado.
+      const opcoes = candidatos.slice(0, 6)
+      return {
+        draft: null,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
+          actions: [], unresolved: [],
+          clarification: {
+            question: `Qual lançamento você quer corrigir?\n\n${opcoes.map(t => `• ${labelOfTx(t)}`).join('\n')}`,
+            field: 'transactionId',
+            options: opcoes.map(t => ({
+              label: labelOfTx(t),
+              value: t.id,
+              actions: editBlockReason(input.state, t) ? undefined : [editActionFor(t, pedido) as ParsedAction],
+            })),
+          },
+          reply: `Qual lançamento você quer corrigir?\n\n${opcoes.map(t => `• ${labelOfTx(t)}`).join('\n')}`,
+        },
+      }
+    }
+  }
+
+  // ---- 3) Análise local por cláusula -------------------------------------
+  const local = runLocal(input, caps)
+  const { analysis } = local
+  let candidates = local.candidates.slice(0, MAX_ACTIONS_PER_BATCH)
+  let engine: AssistantCandidateAction['engine'] = 'local'
+  let unresolved = local.unresolved
+  let clarification = local.clarification
+  let remoteReply = ''
+  let remoteRejected: LocalPass['rejected'] = []
+
+  // ---- 4) Intenção incompleta vira rascunho ------------------------------
+  if (!candidates.length && !clarification) {
+    const incomplete = detectIncomplete(input.message, caps)
+    if (incomplete) {
+      const d = newDraft(incomplete, input.message, caps)
+      const q = d.missingFields[0]
+      return {
+        draft: d,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
+          actions: [], unresolved: [],
+          clarification: { question: q.question, field: q.field, options: q.options },
+          reply: q.question,
+        },
+      }
+    }
+  }
+
+  // ---- 5) Perguntas respondidas localmente -------------------------------
+  const questions = analysis.clauses.filter(c => c.intent === 'question')
+  const local_answers = answerQuestions(input.state, questions, candidates)
+  const answeredIds = new Set(local_answers.answered.map(c => c.id))
+  unresolved = unresolved.filter(u => !answeredIds.has(u.clauseId))
+
+  // ---- 6) IA remota só para o que sobrou ---------------------------------
+  const stillOpen = unresolved.length > 0
+  if (stillOpen && input.remoteEnabled && input.askRemote && !clarification) {
+    const remote = await input.askRemote({ state: input.state, message: input.message, history: input.history })
+    if (remote) {
+      remoteReply = remote.reply
+      remoteRejected = remote.rejected || []
+      engine = candidates.length ? 'hybrid' : 'remote'
+      if (!remote.contractFallback) {
+        // Reconciliação: o remoto não repete o que o local já entendeu.
+        const seen = new Set(candidates.map(c => JSON.stringify(c.action)))
+        for (const a of remote.actions) {
+          const key = JSON.stringify(a)
+          if (seen.has(key)) continue
+          const dup = candidates.some(c =>
+            c.action.kind === a.kind &&
+            (c.action as any).amount === (a as any).amount &&
+            (c.action as any).total === (a as any).total)
+          if (dup) continue
+          seen.add(key)
+          candidates.push(candidate(a, 'remote'))
+        }
+        if (remote.clarification && !clarification) clarification = remote.clarification
+      }
+      unresolved = []
+    } else {
+      unresolved = unresolved.map(u => ({ ...u, reason: 'remote-unavailable' as const }))
+    }
+  }
+
+  candidates = candidates.slice(0, MAX_ACTIONS_PER_BATCH)
+
+  // ---- 7) Avisos de duplicidade (contra o estado E dentro do lote) -------
+  const batchSeen = new Map<string, number>()
+  candidates = candidates.map(c => {
+    const a: any = c.action
+    const dupState = findPossibleDuplicate(input.state, c.action)
+    const key = `${c.action.kind}:${a.amount ?? a.total ?? ''}:${(a.description || '').toLowerCase()}`
+    const n = (batchSeen.get(key) || 0) + 1
+    batchSeen.set(key, n)
+    let warn: string | undefined
+    if (n > 1) warn = 'Esta é a segunda vez que esse mesmo valor aparece nesta mensagem. Pode ser proposital — confira antes de confirmar.'
+    else if (dupState) {
+      warn = `Já existe ${dupState.type === 'income' ? 'uma receita' : 'uma despesa'} parecida de ${fmtBRL(dupState.amount)} registrada recentemente.`
+    }
+    return warn ? { ...c, duplicateWarning: warn } : c
+  })
+
+  // ---- 8) Texto final ----------------------------------------------------
+  const hypo = questions.length && candidates.length && !local_answers.text ? hypotheticalSummary(candidates) : null
+  // A intenção futura vira TEXTO, nunca lançamento — e continua aparecendo
+  // mesmo quando o resto da mensagem gerou registros.
+  const planNote = local.temporalPlan ? futurePlanReply(local.temporalPlan) : null
+  // A IA remota caiu (vazia, 502, timeout, rede). O usuário precisa saber que a
+  // pergunta ficou sem resposta POR ISSO — antes ele recebia o texto genérico
+  // de ajuda e não tinha como distinguir "não entendi" de "estou fora do ar".
+  const remoteNote = !remoteReply && unresolved.some(u => u.reason === 'remote-unavailable')
+    ? 'Não consegui falar com o assistente por IA agora, então essa pergunta ficou sem resposta. Tente de novo em instantes — registrar e consultar seus números continua funcionando normalmente.'
+    : null
+  const answerPart = [local_answers.text, remoteReply, hypo, planNote, remoteNote].filter(Boolean).join('\n\n')
+  const rejectedAll = [...local.rejected, ...remoteRejected]
+
+  let reply: string
+  let mode: AssistantResponse['mode']
+
+  if (clarification) {
+    mode = 'clarify'
+    reply = candidates.length
+      ? `${proposalText(candidates)}\n\n${clarification.question}`
+      : clarification.question
+  } else if (candidates.length && answerPart) {
+    mode = 'answer_and_actions'
+    reply = `${proposalText(candidates)}\n\n${answerPart}\n\nConfirmar os registros?`
+  } else if (candidates.length) {
+    mode = 'propose_actions'
+    reply = `${proposalText(candidates)}\n\nConfirmar?`
+  } else if (answerPart) {
+    mode = 'answer'
+    reply = answerPart
+  } else {
+    mode = 'answer'
+    const negadas = analysis.clauses.filter(c => c.intent === 'correction' && !c.actions.length)
+    const notUnderstood = unresolved.filter(u => u.reason !== 'question-unanswered')
+    if (negadas.length) {
+      // O usuário disse que NÃO fez o lançamento. Confirmar isso em voz alta é
+      // parte da correção — e nada pode sugerir registro.
+      reply = 'Entendi que isso não aconteceu — não registrei nada. Se quiser lançar outra coisa, é só me dizer.'
+    } else if (notUnderstood.length && (candidates.length || analysis.clauses.some(c => c.handled))) {
+      reply = `Não consegui interpretar esta parte: "${notUnderstood[0].text}". Pode reformular só esse pedaço?`
+    } else {
+      // CUIDADO: `askAssistant` tem o próprio parser e monta "Entendi isso… /
+      // Confirmar?" a partir dele. Se o orquestrador decidiu que NÃO há ação
+      // (negação, hipótese, perfil), esse texto seria uma promessa falsa: a tela
+      // mostraria a proposta sem nenhum botão. Só aproveitamos a RESPOSTA.
+      const local = askAssistant(input.state, input.message)
+      reply = local.actions?.length
+        ? 'Não tenho certeza do que registrar aqui. Pode escrever de outro jeito?'
+        : local.text
+    }
+  }
+  reply += rejectionNote(rejectedAll)
+
+  const diagnostics: AssistantDiagnostics | undefined = input.devDiagnostics
+    ? {
+        engine, coverage: analysis.coverage,
+        clauses: analysis.clauses.map(c => ({ id: c.id, text: c.text, intent: c.intent, handled: c.handled, confidence: c.confidence })),
+        localActions: local.candidates.length,
+        remoteActions: candidates.length - local.candidates.length,
+        rejected: rejectedAll,
+        elapsedMs: Date.now() - started,
+      }
+    : undefined
+
+  const base = { version: ASSISTANT_CONTRACT_VERSION, engine, unresolved, diagnostics, reply }
+  const response: AssistantResponse =
+    mode === 'clarify'
+      ? { ...base, mode, actions: candidates, clarification: clarification! }
+      : mode === 'answer'
+        ? { ...base, mode, actions: [] }
+        : { ...base, mode, actions: candidates }
+
+  return { draft: null, response }
+}
+
+/**
+ * Versão determinística e OFFLINE — é o que o corpus de regressão exercita.
+ * Continua sendo `async` de propósito: fingir uma API síncrona exigiria um
+ * truque com microtask que devolve `undefined` na prática.
+ */
+export function orchestrateLocal(
+  input: Omit<OrchestratorInput, 'askRemote' | 'remoteEnabled'>,
+): Promise<OrchestratorOutput> {
+  return orchestrate({ ...input, remoteEnabled: false })
+}
+
+export { catById }

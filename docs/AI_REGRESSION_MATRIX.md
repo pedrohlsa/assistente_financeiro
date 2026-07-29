@@ -1,5 +1,30 @@
 # Matriz de regressão do assistente — AssistFin
 
+> **Status: esta matriz virou código.** O documento continua servindo como visão panorâmica,
+> mas a fonte de verdade agora é executável:
+>
+> - `tests/assistant/cases.ts` — regressão da reformulação;
+> - `tests/assistant/cases-critical.ts` — os dez cenários obrigatórios do briefing;
+> - `tests/assistant/cases-adversarial.ts` — **68 casos** da rodada de QA adversarial,
+>   cada um escrito ANTES da correção do bug que o originou;
+> - `tests/assistant/cases-temporal.ts` — **43 casos** de datas futuras, inválidas,
+>   períodos, correções e frases mistas;
+> - `tests/assistant/cases-undo.ts` — **11 casos** de "desfaz o último";
+> - `tests/assistant/cases-edit.ts` — **12 casos** de correção de lançamento salvo;
+> - `tests/assistant/properties.ts` — **53 invariantes financeiras e de segurança**;
+> - `npm run test:assistant` — roda tudo offline, com data fixa, contra o orquestrador real.
+>
+> **Resultado da última execução (29/07/2026, branch `feat/assistant-orchestrator`):
+> 368/368 casos e 53/53 invariantes.**
+>
+> ⚠️ **100% aqui não significa "a IA está correta".** Na rodada adversarial, 8 dos 17 bugs só
+> apareceram no navegador com mensagem real — o corpus passava 100% enquanto "não gastei 100"
+> ainda propunha registrar a despesa. Teste manual com linguagem torta continua obrigatório.
+>
+> A coluna "Atual" abaixo descreve o estado **anterior** à reformulação e foi mantida como
+> registro histórico — é o retrato do que motivou cada correção. O que vale hoje está em
+> [AI_CURRENT_STATE.md](AI_CURRENT_STATE.md) §4 e §6.
+
 Casos representativos para avaliar o assistente antes e depois da reformulação da arquitetura.
 Montada em 28/07/2026 sobre o commit `7dc1832`.
 
@@ -20,8 +45,32 @@ estão marcados como **não verificável estaticamente** — o que se avalia nel
 **Mecanismo esperado**: `local` (determinístico e offline), `remoto` (DeepSeek), `híbrido`
 (registro local + resposta remota na mesma mensagem).
 
-A coluna **Pós-correção** fica em branco de propósito: será preenchida quando a nova arquitetura
-existir. Nada dela está implementado.
+A coluna **Pós-correção** ficou em branco de propósito quando esta matriz foi escrita. Em vez de
+preenchê-la à mão — o que envelheceria na primeira mudança —, cada linha virou um caso executável.
+Os grupos correspondem assim:
+
+| Seção desta matriz | Grupo no corpus |
+|---|---|
+| 1–3 receitas, despesas, várias ações | `receitas`, `origem`, `despesas`, `multi` |
+| 4 perguntas | `perguntas`, `coloquial` |
+| 5 registro + pergunta | `misto`, `mistos2` |
+| 6 números pt-BR | `valores`, `extenso` |
+| 7 datas e recorrências | `datas`, `datas2` |
+| 8 cartões | `cartoes`, `cartoes2` |
+| 9 metas, saving, saldo | `metas`, `saving`, `saldo` |
+| 10 motorista | `motorista`, `motorista2`, `perfil` |
+| 11 ambiguidades e correções | `ambiguidade`, `correcoes`, `correcoes2`, `multiturno` |
+| 12 conversacional | `conversa`, `conversa2`, `incompletas` |
+| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 53 invariantes |
+| 14 datas futuras, inválidas e períodos | `temporal` (43 casos) |
+| 15 desfazer o último lote | `undo` (11 casos) |
+| 16 corrigir lançamento já salvo | `edicao` (12 casos) |
+| Cenários obrigatórios do briefing | `criticos` (10 casos, frases literais) |
+
+Grupos criados na rodada adversarial de 28/07, todos em `cases-adversarial.ts`:
+`negacao`, `hipoteses`, `abreviacao`, `descricao`, `sempontuacao`, `metanome`, `gasadv`,
+`correcaomsg`, `preposicao`, `hodometro`, `passei`, `datadesc`, `centavos`, `falados`,
+`explicacao`, `injecao`, `datafutura`.
 
 ---
 
@@ -218,7 +267,46 @@ existir. Nada dela está implementado.
 
 ---
 
+## 14. Datas futuras, inválidas, períodos e DeepSeek indisponível
+
+Adicionado em 29/07/2026. A fonte de verdade é
+`tests/assistant/cases-temporal.ts`; todos os grupos abaixo passam contra o
+orquestrador real com hoje fixo em 15/07/2026.
+
+| Grupo | Casos | Regra protegida | Resultado |
+|---|---:|---|---|
+| Futuro e prazo relativo | 15 | Futuro nunca vira movimentação realizada; intenção futura é explicada | ✅ |
+| Período sem dia | 2 | `mês/semana passada` perguntam o dia e preservam a janela | ✅ |
+| Passado explícito | 5 | Hoje, ontem, anteontem e datas passadas continuam corretos | ✅ |
+| Sem tempo informado | 1 | Hoje continua sendo o padrão somente quando o usuário não falou de tempo | ✅ |
+| Escolha e correção | 5 | Opção de plano/data, dia inválido e data fora da janela não perdem o contexto | ✅ |
+| Data impossível | 3 | `31/02` e `40/08` não viram descrição nem lançamento de hoje | ✅ |
+| Sinais temporais sem dia exato | 6 | `em agosto`, `há 3 dias`, `fim do mês`, `ano passado` falham fechados | ✅ |
+| Metas com horizonte textual | 2 | A barreira temporal não bloqueia meta, que não é fato realizado | ✅ |
+| Passado + futuro na mesma frase | 4 | O fato passado sobrevive em qualquer ordem; o plano só é explicado | ✅ |
+| **Total temporal** | **43** | | **43/43** |
+
+As invariantes 28–36 cobrem a barreira de data futura, o não descarte de sinais
+temporais, resposta vazia, HTTP 502/5xx/429/401/402, preservação de ações locais,
+mensagem compreensível quando o remoto cai, ausência de “Confirmar?” sem ação e
+a fiação de `pendingClarification` em `Chat.tsx`.
+
+Auditoria da DeepSeek:
+
+- resposta vazia: exatamente duas tentativas no total (a original + um `nudge`);
+- HTTP 502 e demais erros HTTP: uma tentativa, sem retry automático;
+- falha: zero ações, resposta segura e nenhum detalhe interno;
+- mensagem mista: ação local preservada;
+- pergunta só remota: aviso claro de indisponibilidade;
+- teste real em 29/07: **8/8 sondas**.
+
+---
+
 ## Resumo quantitativo
+
+O quadro abaixo é o retrato **histórico anterior** à reformulação, mantido para
+explicar de onde o trabalho partiu. O estado executável atual é
+**368/368 casos e 53/53 invariantes**.
 
 | Situação | Casos |
 |---|---|
@@ -231,3 +319,33 @@ existir. Nada dela está implementado.
 Concentração das falhas: **datas** (6 casos), **`saving`/reserva** (5), **`origin`** (3),
 **correções e referências** (5), **contrato remoto** (6), **atomicidade e confirmação parcial**
 (3), **criação de recorrentes por conversa** (4).
+
+---
+
+## 15–16. Desfazer e corrigir (29/07/2026, segunda rodada)
+
+Fonte de verdade: `tests/assistant/cases-undo.ts` e `tests/assistant/cases-edit.ts`,
+mais as invariantes 37–53.
+
+| Grupo | Casos | Regra protegida | Resultado |
+|---|---:|---|---|
+| Desfazer — caminho feliz | 4 | Lista o que sai, exige confirmação, reverte o lote inteiro | ✅ |
+| Desfazer — lote de correção | 1 | O valor que VOLTA aparece antes de confirmar | ✅ |
+| Desfazer — nada a desfazer | 3 | Lote inexistente, sem journal ou já desfeito é recusado com explicação | ✅ |
+| Desfazer — não confundir | 3 | `apaga tudo` continua reset; "último" numa frase de registro não vira undo | ✅ |
+| Corrigir — um candidato | 4 | Antes→depois à vista; valor, categoria e descrição | ✅ |
+| Corrigir — vários candidatos | 2 | Pergunta com as opções; valor antigo dito desempata | ✅ |
+| Corrigir — nenhum candidato | 2 | Explica, nunca inventa | ✅ |
+| Corrigir — fora do escopo | 1 | Entrada financiada recusada, com a tela certa indicada | ✅ |
+| Corrigir — não confundir | 2 | `goal-update` e registro novo seguem intactos | ✅ |
+| Corrigir — ocorrência recorrente | 1 | Template preservado, ocorrência não liberada | ✅ |
+| **Total** | **23** | | **23/23** |
+
+Invariantes 37–53 cobrem: journal com entidades criadas e alteradas, lote recusado sem
+rastro, ausência de texto de conversa e segredo no journal, cobertura de todas as
+entidades, campos editáveis derivados do catálogo, `validateAction` em toda edição,
+`firstDueDate` futuro permitido, reversão exata de vários formatos de lote, pagamento de
+fatura reaberto, ocorrência recorrente devolvida a pendente, recusa de lote sem journal,
+duplo undo, ausência de órfãos, undo que não vira lote novo, tipo preservado na correção,
+correção auditável e reversível, template de recorrente intocado e bloqueio de
+`edit-transaction`/`undo-batch` no canal remoto.

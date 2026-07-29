@@ -1,7 +1,8 @@
 // Bottom navigation + FAB + Bottom sheet de ações rápidas (seções 4 e 31)
 import React, { useState } from 'react'
-import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useStore } from '../store/store'
+import { activeTab } from '../services/navigation'
 import { Icon, Sheet } from './ui'
 import { TransactionForm, WorkForm, FuelForm, MaintenanceForm, GoalForm, RecurringForm, QuickAdd, SavingForm, BudgetForm } from './forms'
 import { CardChargeForm, CardForm, FinancedInflowForm, PurchaseForm, StandalonePlanForm } from './cardForms'
@@ -16,17 +17,26 @@ const tabs = [
 
 export function BottomNav() {
   const location = useLocation()
-  const moreRoutes = ['/mais', '/analises', '/veiculo', '/corrida', '/planejamento', '/cartoes', '/config']
+  // Uma decisão só, tomada em `services/navigation.ts`. `NavLink` foi trocado
+  // por `Link` de propósito: o `isActive` dele é uma SEGUNDA fonte de verdade,
+  // e as telas abertas pela aba "Mais" não têm rota própria na barra.
+  const current = activeTab(location.pathname)
   return (
     <nav className="bottom-nav">
       {tabs.map(t => {
-        const staysInMore = t.to === '/mais' && moreRoutes.some(route => location.pathname.startsWith(route))
+        const isActive = current === t.to
         return (
-        <NavLink key={t.to} to={t.to} end={t.to === '/'} className={({ isActive }) => (t.ai ? 'nav-ai' : 'nav-item' + ((isActive || staysInMore) ? ' active' : ''))} aria-label={t.ai ? 'Assistente IA' : t.label}>
-          {t.icon}
-          {t.label && <span>{t.label}</span>}
-        </NavLink>
-      )})}
+          <Link
+            key={t.to} to={t.to}
+            className={t.ai ? 'nav-ai' : 'nav-item' + (isActive ? ' active' : '')}
+            aria-current={isActive ? 'page' : undefined}
+            aria-label={t.ai ? 'Assistente IA' : t.label}
+          >
+            {t.icon}
+            {t.label && <span>{t.label}</span>}
+          </Link>
+        )
+      })}
     </nav>
   )
 }
