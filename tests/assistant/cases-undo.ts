@@ -48,6 +48,24 @@ export const UNDO: AssistantCase[] = [
     expectActions: [{ kind: 'undo-batch', batchId: 'b1' }],
   },
 
+  // ===== LOTE DE CORREÇÃO — o que VOLTA também precisa aparecer =====
+  {
+    id: 'und-11', group: 'undo', ...other,
+    state: {
+      transactions: [{ id: 'tx-corrigido', type: 'expense', amount: 80, category: 'alimentacao', description: 'Mercado', date: '2026-07-14' }],
+      journal: [{
+        batchId: 'b-edit', contractVersion: 1, source: 'ai' as const, createdAt: CARIMBO,
+        ops: [{ op: 'update' as const, entity: 'transactions' as const, id: 'tx-corrigido', before: { amount: 100 } }],
+      }],
+    },
+    messages: ['desfaz o último'],
+    expectActions: [{ kind: 'undo-batch', batchId: 'b-edit' }],
+    // Sem esta linha o card dizia só "vou desfazer o último registro", e o
+    // usuário confirmava sem saber que o valor voltaria para 100.
+    expectReply: [/mercado/i, /100,00/],
+    thenConfirm: s => (s.transactions[0]?.amount === 100 ? null : `valor ${s.transactions[0]?.amount}`),
+  },
+
   // ===== NÃO HÁ O QUE DESFAZER — explicar, nunca inventar =====
   {
     id: 'und-05', group: 'undo', ...other,

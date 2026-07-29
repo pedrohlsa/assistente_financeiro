@@ -227,6 +227,23 @@ export const ACTION_CATALOG: ActionSpec[] = [
     ],
   },
   {
+    kind: 'edit-transaction', label: 'Corrigir lançamento',
+    // Local-only: o histórico nunca é enviado para a IA remota, então ela
+    // também não pode propor correção sobre o que não vê.
+    remoteAllowed: false,
+    anyOf: ['amount', 'description', 'category', 'origin', 'date'],
+    fields: [
+      { name: 'transactionId', type: 'text', required: true, maxLength: 40, describe: 'id do lançamento a corrigir' },
+      { name: 'amount', type: 'money', required: false, min: 0.01, max: 99_999_999, describe: 'novo valor' },
+      textField('description', 'nova descrição'),
+      // A categoria só pode ser conferida contra o TIPO do lançamento alvo,
+      // que a ação sozinha não conhece: a checagem acontece na execução.
+      { name: 'category', type: 'text', required: false, describe: 'novo id de categoria' },
+      textField('origin', 'nova origem'),
+      dateField,
+    ],
+  },
+  {
     kind: 'undo-batch', label: 'Desfazer o último registro',
     // Como o `reset`: destrutivo, então a IA remota NUNCA pode propor. O
     // usuário pede, o app lista o que sai e só reverte depois de confirmar.
@@ -263,6 +280,7 @@ export type AssistantErrorCode =
   | 'invoice-empty' | 'insufficient-reserve'
   | 'unsupported-action' | 'conflict' | 'text-too-long' | 'unknown-field'
   | 'batch-not-found' | 'batch-not-reversible' | 'already-undone'
+  | 'transaction-not-found' | 'edit-not-allowed'
 
 /** Mensagem em pt-BR para o usuário. NUNCA "não encontrei a meta" para tudo. */
 export const ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
@@ -288,6 +306,8 @@ export const ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
   'batch-not-found': 'Não tenho o registro detalhado desse lançamento para desfazer com segurança.',
   'batch-not-reversible': 'Esse lote não tem detalhe suficiente para ser desfeito com segurança.',
   'already-undone': 'Esse lote já foi desfeito.',
+  'transaction-not-found': 'Não encontrei esse lançamento.',
+  'edit-not-allowed': 'Esse lançamento não dá para corrigir por aqui.',
 }
 
 export const errorMessage = (code: AssistantErrorCode, detail?: string): string =>

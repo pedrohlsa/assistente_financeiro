@@ -8,8 +8,11 @@
 // resolvido, e só o que sobrou justifica chamar a IA remota — que reconcilia,
 // nunca duplica.
 
-import type { AppState, AssistantJournalEntry, ParsedAction } from '../models/types'
+import type { AppState, AssistantJournalEntry, ParsedAction, Transaction } from '../models/types'
 import { lastReversibleBatch } from './journal'
+import { editActionFor, findEditCandidates, parseEditRequest } from './editSaved'
+import type { EditableTxField } from './editSaved'
+import { editBlockReason } from './execute'
 import type {
   AssistantCandidateAction, AssistantCapabilities, AssistantClarification,
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
@@ -27,7 +30,7 @@ import { describeAction } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
 import { catById } from '../data/categories'
 import { fmtBRL, todayISO, uid } from '../utils/format'
-import { normalizeName } from '../utils/text'
+import { normalizeName, sentenceCase } from '../utils/text'
 import { brDate, dateLabel, findDate, previousYearOf, resolveDayInWindow } from './dates'
 
 // ---------------------------------------------------------------------------
@@ -126,6 +129,33 @@ const withDate = (actions: ParsedAction[], iso?: string): ParsedAction[] =>
   })
 
 // ---------------------------------------------------------------------------
+// Corrigir um lançamento já salvo
+// ---------------------------------------------------------------------------
+
+const CAMPO_LABEL: Record<EditableTxField, string> = {
+  amount: 'Valor', category: 'Categoria', description: 'Descrição',
+  origin: 'Origem', date: 'Data',
+}
+
+/** Uma linha curta que identifica o lançamento sem ambiguidade. */
+const labelOfTx = (t: Transaction): string =>
+  `${t.description ? sentenceCase(t.description) : 'Sem descrição'} — ${fmtBRL(t.amount)} (${brDate(t.date)})`
+
+/** Mostra o ANTES e o DEPOIS. Corrigir dinheiro salvo às cegas não é opção. */
+function describeEdit(state: AppState, t: Transaction, req: { field: EditableTxField; value: string | number }): string {
+  const nomeCat = (id?: string) => state.categories.find(c => c.id === id)?.name || id || '—'
+  const antes = req.field === 'amount' ? fmtBRL(t.amount)
+    : req.field === 'category' ? nomeCat(t.category)
+      : req.field === 'date' ? brDate(t.date)
+        : String((t as any)[req.field] || '—')
+  const depois = req.field === 'amount' ? fmtBRL(Number(req.value))
+    : req.field === 'category' ? nomeCat(String(req.value))
+      : req.field === 'date' ? brDate(String(req.value))
+        : String(req.value)
+  return `Vou corrigir este lançamento:\n\n• ${labelOfTx(t)}\n• ${CAMPO_LABEL[req.field]}: ${antes} → ${depois}`
+}
+
+// ---------------------------------------------------------------------------
 // Desfazer o último lote
 // ---------------------------------------------------------------------------
 
@@ -183,6 +213,14 @@ export function describeUndo(state: AppState, entry: AssistantJournalEntry): str
       if (g && typeof antes === 'number') linhas.push(`Depósito de ${dinheiro(g.saved - antes)} na meta "${g.name}"`)
     } else if (op.entity === 'recurring') {
       linhas.push('Confirmação de uma conta recorrente (volta a ficar pendente)')
+    } else if (op.entity === 'transactions') {
+      // Lote de CORREÇÃO: sem esta linha o card só dizia "vou desfazer o
+      // último registro" e o usuário confirmava sem saber o que voltava.
+      const t: any = (state.transactions || []).find(x => x.id === op.id)
+      if (!t) continue
+      const volta = Object.entries(op.before as Record<string, unknown>)
+        .map(([campo, valor]) => `${CAMPO_LABEL[campo as EditableTxField] || campo} volta para ${campo === 'amount' ? dinheiro(Number(valor)) : String(valor ?? '—')}`)
+      linhas.push(`Correção em "${t.description ? sentenceCase(t.description) : 'lançamento'}" — ${volta.join(', ')}`)
     }
   }
   for (const op of entry.ops) {
@@ -703,6 +741,59 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
           ? 'Não tenho o registro detalhado desses lançamentos, então não sei desfazer com segurança. Dá para apagar pela tela de Movimentações.'
           : 'Não tenho nenhum registro recente do assistente para desfazer.',
       },
+    }
+  }
+
+  // ---- 2c) A mensagem corrige um lançamento JÁ SALVO? -------------------
+  // Depois do undo e das correções da proposta: com algo na tela, a frase se
+  // refere ao que está na tela, não ao histórico.
+  if (!input.pending?.length) {
+    const pedido = parseEditRequest(input.message, caps, today)
+    if (pedido) {
+      const candidatos = findEditCandidates(input.state, pedido, today)
+      const resposta = (reply: string): OrchestratorOutput => ({
+        draft: null,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local',
+          actions: [], unresolved: [], reply,
+        },
+      })
+      if (!candidatos.length) {
+        return resposta('Não encontrei nenhum lançamento que combine com isso. Me diga o dia e o valor atual que eu procuro de novo.')
+      }
+      if (candidatos.length === 1) {
+        const bloqueio = editBlockReason(input.state, candidatos[0])
+        if (bloqueio) return resposta(`Esse lançamento não dá para corrigir por aqui: ${bloqueio}`)
+        const cand = [candidate(editActionFor(candidatos[0], pedido) as ParsedAction, 'local')]
+        return {
+          draft: null,
+          response: {
+            version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
+            actions: cand, unresolved: [],
+            reply: `${describeEdit(input.state, candidatos[0], pedido)}\n\nConfirmar?`,
+          },
+        }
+      }
+      // Mais de um: PERGUNTAR. Escolher o mais provável seria adivinhar sobre
+      // dinheiro que já está gravado.
+      const opcoes = candidatos.slice(0, 6)
+      return {
+        draft: null,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
+          actions: [], unresolved: [],
+          clarification: {
+            question: `Qual lançamento você quer corrigir?\n\n${opcoes.map(t => `• ${labelOfTx(t)}`).join('\n')}`,
+            field: 'transactionId',
+            options: opcoes.map(t => ({
+              label: labelOfTx(t),
+              value: t.id,
+              actions: editBlockReason(input.state, t) ? undefined : [editActionFor(t, pedido) as ParsedAction],
+            })),
+          },
+          reply: `Qual lançamento você quer corrigir?\n\n${opcoes.map(t => `• ${labelOfTx(t)}`).join('\n')}`,
+        },
+      }
     }
   }
 

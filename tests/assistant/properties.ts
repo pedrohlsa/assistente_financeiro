@@ -912,6 +912,75 @@ export async function runProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 50. Corrigir NUNCA muda o tipo da movimentação -------------------
+  // Trocar despesa por receita em silêncio inverteria o sinal do dinheiro no
+  // mês inteiro. O campo simplesmente não existe na ação.
+  check(r, 'correção não troca o tipo do lançamento', () => {
+    if (actionSpec('edit-transaction')?.fields.some(f => f.name === 'type')) return 'o catálogo aceita trocar o tipo'
+    for (const tipo of ['income', 'expense', 'saving'] as const) {
+      const s = buildState()
+      s.transactions = [{ id: 'tx1', type: tipo, amount: 100, category: tipo === 'income' ? 'salario' : 'casa', date: TODAY, time: '10:00' } as any]
+      const out = applyBatchPure(s, batch([
+        { kind: 'edit-transaction', transactionId: 'tx1', amount: 80, type: 'income' } as any,
+      ]), { source: 'ai', batchId: 'b1', stamp: CARIMBO })
+      const t: any = out.state.transactions[0]
+      if (t.type !== tipo) return `${tipo} virou ${t.type}`
+      if (t.amount !== 80) return `${tipo}: valor ${t.amount}`
+    }
+    return null
+  })
+
+  // --- 51. Correção é auditável e reversível ----------------------------
+  check(r, 'correção guarda o valor anterior no journal', () => {
+    const s = buildState()
+    s.transactions = [{ id: 'tx1', type: 'expense', amount: 100, category: 'casa', description: 'Mercado', date: '2026-07-14', time: '10:00' } as any]
+    const antes = semJournal(s)
+    const out = applyBatchPure(s, batch([
+      { kind: 'edit-transaction', transactionId: 'tx1', amount: 80 },
+    ]), { source: 'ai', batchId: 'b1', stamp: CARIMBO })
+    const op: any = out.state.assistantJournal?.[0]?.ops?.find(o => o.op === 'update' && o.entity === 'transactions')
+    if (!op) return 'a correção não foi registrada como alteração'
+    if (op.before?.amount !== 100) return `valor anterior ${JSON.stringify(op.before)}`
+    const rev = revertBatchPure(out.state, 'b1', CARIMBO)
+    if (isRevertFailure(rev)) return `reversão recusada (${rev.code})`
+    if (semJournal(rev.state) !== antes) return 'desfazer não devolveu o valor original'
+    return null
+  })
+
+  // --- 52. Ocorrência recorrente: editar ≠ desfazer ---------------------
+  // Editar o valor de uma conta já confirmada não pode liberar a ocorrência
+  // para ser confirmada outra vez — isso duplicaria o lançamento do mês.
+  check(r, 'editar ocorrência materializada não mexe na recorrente', () => {
+    const s = buildState()
+    const rec: any = { id: 'rec1', kind: 'expense', name: 'Luz', amount: 120, dueDay: 10, frequency: 'monthly', startDate: '2026-07-10', occurrences: [{ date: '2026-07-10', status: 'confirmed' }] }
+    s.recurring = [rec]
+    s.transactions = [{ id: 'tx1', type: 'expense', amount: 120, category: 'casa', date: '2026-07-10', time: '10:00', recurringId: 'rec1', occurrenceDate: '2026-07-10' } as any]
+    const out = applyBatchPure(s, batch([
+      { kind: 'edit-transaction', transactionId: 'tx1', amount: 135 },
+    ]), { source: 'ai', batchId: 'b1', stamp: CARIMBO })
+    const t: any = out.state.transactions[0]
+    if (t.amount !== 135) return `valor ${t.amount}`
+    if (t.recurringId !== 'rec1' || t.occurrenceDate !== '2026-07-10') return 'perdeu o vínculo com a recorrente'
+    if (JSON.stringify(out.state.recurring) !== JSON.stringify(s.recurring)) return 'o template da recorrente foi alterado'
+    return null
+  })
+
+  // --- 53. Correção nunca vem do canal remoto ---------------------------
+  // O histórico não é enviado para a IA remota, então ela também não pode
+  // propor correção sobre lançamentos que não vê.
+  check(r, 'edit-transaction e undo-batch são bloqueados no remoto', () => {
+    const caps = buildCapabilities(buildState())
+    for (const kind of ['edit-transaction', 'undo-batch']) {
+      const res = validateAction({ kind, transactionId: 'tx1', batchId: 'b1', amount: 10 }, caps, TODAY, { allowRemoteOnly: true })
+      if (!isValidationFailure(res)) return `${kind} aceito do remoto`
+      if (res.code !== 'unsupported-action') return `${kind}: código ${res.code}`
+      for (const p of ['driver', 'clt', 'other'] as const) {
+        if (allowedRemoteKinds(p).includes(kind as any)) return `${kind} listado como remoto em ${p}`
+      }
+    }
+    return null
+  })
+
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
   // Invariante de FIAÇÃO, não de lógica: o corpus sempre passou
   // `pendingClarification`, então ele nunca poderia ver que `Chat.tsx` não

@@ -41,8 +41,11 @@ export function buildState(cs: CaseState = {}): AppState {
     transactions: (cs.transactions || []).map((t: any, i) => ({
       // Id explícito é preservado: o journal do "desfaz o último" aponta para
       // ele, e sobrescrever aqui fazia a reversão não achar o lançamento.
+      // O espalhamento preserva campos extras do cenário (`recurringId`,
+      // `occurrenceDate`) que a edição de ocorrência materializada precisa.
+      ...t,
       id: t.id || `tx${i}`, type: t.type || 'expense', amount: t.amount, category: t.category || 'outros-out',
-      description: t.description, date: t.date || TODAY, time: '10:00',
+      description: t.description, date: t.date || TODAY, time: t.time || '10:00',
     })) as any,
     categories: DEFAULT_CATEGORIES,
     workSessions: [], fuelRecords: [], vehicle: null, maintenance: [],

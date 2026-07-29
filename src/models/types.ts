@@ -366,6 +366,10 @@ export type ParsedAction =
   // Desfaz um LOTE inteiro já confirmado, pelo journal. Nunca um pedaço, nunca
   // um registro manual, e sempre com confirmação depois de listar o que sai.
   | { kind: 'undo-batch'; batchId: string }
+  // Corrige um lançamento JÁ SALVO. Só `Transaction` simples e ocorrência
+  // recorrente materializada; o TIPO nunca muda, e o que depende de plano,
+  // cartão, meta, veículo ou template de recorrência é recusado.
+  | { kind: 'edit-transaction'; transactionId: string; amount?: number; description?: string; category?: string; origin?: string; date?: string }
 
 export interface Insight {
   id: string

@@ -75,6 +75,29 @@ export interface ApplyOptions {
   stamp?: string
 }
 
+/**
+ * Por que este lançamento NÃO pode ser corrigido isoladamente, ou `null`.
+ *
+ * Uma `Transaction` às vezes é só a ponta visível de outra estrutura: a entrada
+ * financiada tem um plano de parcelas atrás, o abastecimento tem o registro do
+ * veículo, a manutenção tem a peça. Mexer só no dinheiro deixaria as duas
+ * metades divergentes — melhor recusar e dizer onde se corrige de verdade.
+ */
+export function editBlockReason(state: AppState, t: Transaction): string | null {
+  if (t.type === 'financed-cash-inflow') {
+    return 'ele faz parte de um parcelamento — corrija pela tela de Cartões e parcelamentos.'
+  }
+  const mesmoDiaEValor = (list: any[]) =>
+    (list || []).some(x => x.date === t.date && Math.abs((x.amount ?? x.cost ?? 0) - t.amount) < 0.005)
+  if (t.category === 'combustivel' && mesmoDiaEValor(state.fuelRecords)) {
+    return 'ele acompanha um abastecimento — corrija pela tela do Veículo.'
+  }
+  if (t.category === 'manutencao' && mesmoDiaEValor(state.maintenance)) {
+    return 'ele acompanha uma manutenção — corrija pela tela do Veículo.'
+  }
+  return null
+}
+
 const fail = (actionId: string, code: AssistantErrorCode, detail?: string, recoverable = true): ActionExecutionResult =>
   ({ ok: false, actionId, code, message: errorMessage(code, detail), recoverable })
 
@@ -349,6 +372,33 @@ export function applyActionPure(
         frequency: 'monthly' as const, nextDate: date, active: true, createdAt: date,
       }
       return { state: { ...state, cardCharges: [charge, ...state.cardCharges] }, result: { ok: true, actionId, entityId: charge.id } }
+    }
+    case 'edit-transaction': {
+      const alvo = state.transactions.find(t => t.id === action.transactionId)
+      if (!alvo) return { state, result: fail(actionId, 'transaction-not-found', undefined, false) }
+      const bloqueio = editBlockReason(state, alvo)
+      if (bloqueio) return { state, result: fail(actionId, 'edit-not-allowed', bloqueio, false) }
+
+      const patch: any = {}
+      if (action.amount !== undefined) patch.amount = action.amount
+      if (action.description !== undefined) patch.description = action.description
+      if (action.origin !== undefined) patch.origin = action.origin
+      if (action.date !== undefined) patch.date = action.date
+      if (action.category !== undefined) {
+        const cat = state.categories.find(c => c.id === action.category)
+        if (!cat) return { state, result: fail(actionId, 'category-not-found', action.category, false) }
+        // O TIPO do lançamento nunca muda; a categoria tem que ser compatível
+        // com ele. `saving` usa a categoria própria de reserva.
+        const esperado = alvo.type === 'income' ? 'income' : 'expense'
+        if (alvo.type !== 'saving' && cat.type !== esperado) {
+          return { state, result: fail(actionId, 'category-wrong-type', cat.name, false) }
+        }
+        patch.category = cat.id
+      }
+      return {
+        state: { ...state, transactions: state.transactions.map(t => (t.id === alvo.id ? { ...t, ...patch } : t)) },
+        result: { ok: true, actionId, entityId: alvo.id },
+      }
     }
     case 'undo-batch': {
       const rev = revertBatchPure(state, action.batchId, opts.stamp || nowStamp())
