@@ -1,7 +1,7 @@
 # AssistFin — Estado do Projeto
 
-**Última atualização**: 2026-07-28 — QA adversarial do assistente
-(branch `feat/assistant-orchestrator`). Ver "🔴 QA adversarial do assistente".
+**Última atualização**: 2026-07-28 — **TAREFA EM ANDAMENTO**: correção das falhas
+temporais silenciosas. Ver "⏸️ EM ANDAMENTO — datas futuras e auditoria da DeepSeek".
 
 > **Aviso de leitura**: as seções datadas abaixo são um diário — cada uma registra o que era
 > verdade **naquela data** e não é reescrita depois. Para o estado atual verificado, use
@@ -1560,6 +1560,89 @@ implementado**: seria enviar dado a mais sem problema demonstrado.
     rascunho local resolve os multiturno sozinho e a IA remota nem é chamada.
     Nenhuma falha demonstrada, então o `draftSummary` não foi implementado.
 11. A qualidade do texto da IA remota não é testada — só o contrato.
+
+---
+
+## ⏸️ EM ANDAMENTO — datas futuras e auditoria da DeepSeek
+
+**Status: bugs REPRODUZIDOS, testes RED escritos, NENHUM código corrigido ainda.**
+Retomar exatamente daqui.
+
+### Onde parei
+
+| Item | Situação |
+|---|---|
+| Reprodução dos bugs | ✅ feita, resultado abaixo |
+| `tests/assistant/cases-temporal.ts` | ✅ criado (19 casos), **untracked**, ainda NÃO ligado ao runner |
+| `scripts/_repro.mts` | ✅ criado, **untracked**, script de reprodução descartável |
+| `scripts/test-assistant.mts` | ❌ **não** foi editado — o import de `TEMPORAL` ainda falta |
+| Código de produção | ❌ **nada alterado** — suíte segue 302/302 e 27/27 |
+| Auditoria da DeepSeek | ❌ nem começou |
+
+Primeiro passo ao retomar: acrescentar ao runner
+`import { TEMPORAL } from '../tests/assistant/cases-temporal'` e incluir em `ALL`,
+depois rodar `npx tsx scripts/test-assistant.mts --only=temporal` para ver o RED.
+
+### Reprodução (hoje fixo do teste = 2026-07-15; máquina em 28/07)
+
+| Mensagem | `findDate()` | Modo | GRAVA EM |
+|---|---|---|---|
+| `gastei 50 daqui a 3 dias` | **null** | propose_actions | **hoje** ❌ |
+| `vou gastar 50 daqui a 3 dias` | null | answer | — (mas sem explicar) |
+| `gastei 50 em 3 dias` | **null** | propose_actions | **hoje** ❌ |
+| `daqui a 2 semanas vou pagar 300` | null | answer | — (sem explicar) |
+| `em 3 meses tenho uma parcela de 500` | null | answer | — (sem explicar) |
+| `gastei 50 dia 10/08` | **`future 2026-08-10`** | propose_actions | **hoje** ❌ |
+| `vou gastar 50 dia 10/08` | future | answer | — (sem explicar) |
+| `ontem gastei 50` | `date 2026-07-14` | propose_actions | 2026-07-14 ✅ |
+| `anteontem gastei 50` | `date 2026-07-13` | propose_actions | 2026-07-13 ✅ |
+| `paguei 100 mês passado` | **`period 2026-06`** | propose_actions | **hoje** ❌ |
+
+### Causas identificadas na reprodução
+
+1. **`daqui a X` e `em X dias/semanas/meses` não existem em `dates.ts`** — `findDate`
+   devolve `null`, a expressão fica na descrição ("Daqui a 3 dias", "3 dias") e o
+   lançamento grava com hoje.
+2. **`kind: 'future'` é reconhecido e DESCARTADO** em `analyzeMessage`
+   (`src/assistant/clauses.ts`): só `kind === 'date'` preenche `next.date`. A data
+   futura some sem deixar rastro.
+3. **`kind: 'period'` idem** — "mês passado" é reconhecido e descartado.
+4. **O fallback final é a data da MÁQUINA**: `applyActionPure` usa `todayISO()`
+   quando a ação não tem `date`. Por isso o teste com hoje fixo em 15/07 gravou
+   28/07 — nem o `today` injetado protege.
+
+### Plano combinado (não implementado)
+
+1. `dates.ts`: regras para `daqui a N dias|semanas|meses|anos` e `em N dias|semanas|meses`
+   → `kind: 'future'` com a data calculada. Cuidado para não colidir com
+   "em 4 vezes"/"em 3x" (parcelas) — exigir unidade de tempo.
+2. `contracts.ts`: `validateAction` recusa `date` no futuro para ação realizada
+   (`notFuture` no `dateField`). `card-purchase.firstDueDate` continua podendo ser
+   futura — é outro campo. Vira a última barreira contra data futura silenciosa.
+3. `clauses.ts`:
+   - verbo passado + data futura → **limpar as ações** e levantar esclarecimento
+     ("já aconteceu ou é planejamento?");
+   - intenção futura explícita (`vou/irei/pretendo/planejo` + infinitivo) → nenhuma
+     ação e **explicação** de que ainda não sabe agendar;
+   - `period` sem dia → perguntar qual dia, nunca assumir hoje.
+4. `contracts.ts` + `orchestrator.ts`: `AssistantClarificationOption` ganha
+   `reply?: string`, para uma opção poder significar "não registrar + explicar".
+5. `properties.ts`: duas invariantes novas —
+   (a) nenhuma ação realizada pode ter `date` maior que hoje;
+   (b) se a mensagem tinha expressão temporal reconhecida, ou a ação carrega
+   aquela data, ou não existe ação nenhuma.
+6. Auditoria DeepSeek (**não** implementar retry): reproduzir resposta vazia e 502
+   com `fetch` mockado, confirmar que `callDeepSeekChat` faz no máximo **uma**
+   segunda tentativa (o "nudge" já existente) e só quando a resposta vem vazia,
+   que 5xx **não** repete, que nenhuma ação inválida nasce, que as ações locais
+   sobrevivem e que a mensagem ao usuário não expõe detalhe interno.
+
+### Restrições desta tarefa (do briefing)
+
+Não criar arquitetura de agendamento · não implementar retry sem antes apresentar
+custo/latência/risco de duplicidade · não alterar regra financeira · não implementar
+edição de lançamento salvo, "desfaz o último", Analytics por perfil nem "meio" ·
+sem merge, push, deploy ou APK · commit separado só para esta correção.
 
 ---
 
