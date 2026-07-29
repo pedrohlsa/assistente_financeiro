@@ -15,8 +15,15 @@ export type DateResolution =
   | { kind: 'ambiguous'; question: string; options: { label: string; value: string }[]; text: string; start: number; end: number }
   /** Intervalo — serve para pergunta/relatório, nunca para datar um lançamento. */
   | { kind: 'period'; from: string; to: string; label: string; text: string; start: number; end: number }
-  /** Data no futuro: válida para previsão, inválida para um fato já ocorrido. */
-  | { kind: 'future'; date: string; label: string; text: string; start: number; end: number }
+  /** A expressão parece uma data, mas o calendário prova que ela não existe. */
+  | { kind: 'invalid'; question: string; label: string; text: string; start: number; end: number }
+  /**
+   * Data no futuro: válida para previsão, inválida para um fato já ocorrido.
+   * `relative` marca as formas contadas a partir de hoje ("daqui a 3 dias",
+   * "em 2 semanas") — só elas podem colidir com um PRAZO ("em 6 meses" de uma
+   * meta), e quem desempata é `clauses.ts`.
+   */
+  | { kind: 'future'; date: string; label: string; relative?: boolean; imprecise?: boolean; text: string; start: number; end: number }
 
 const MONTHS = [
   'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
@@ -62,16 +69,54 @@ function lastWeekday(target: number, today: string): string {
   return addDays(today, -back)
 }
 
-/** Próxima ocorrência (no futuro, incluindo hoje) de um dia da semana. */
+/** Próxima ocorrência estritamente futura de um dia da semana. */
 function nextWeekday(target: number, today: string): string {
   const d = fromISO(today)
-  const fwd = (target - d.getDay() + 7) % 7
+  let fwd = (target - d.getDay() + 7) % 7
+  if (fwd === 0) fwd = 7
   return addDays(today, fwd)
 }
 
 interface Rule {
   re: RegExp
   build: (m: RegExpMatchArray, today: string) => Omit<DateResolution, 'text' | 'start' | 'end'> | null
+}
+
+/** Quantidades escritas por extenso que aparecem em prazo falado. */
+const SMALL_WORDS: Record<string, number> = {
+  um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6,
+  sete: 7, oito: 8, nove: 9, dez: 10, onze: 11, doze: 12, quinze: 15,
+  vinte: 20, trinta: 30,
+}
+const COUNT_RE = `\\d{1,3}|tr[êe]s|${Object.keys(SMALL_WORDS).join('|')}`
+const UNIT_RE = String.raw`dias?|semanas?|m[eê]s(?:es)?|anos?`
+
+const countOf = (raw: string): number => {
+  const n = Number(raw)
+  if (Number.isFinite(n)) return n
+  return SMALL_WORDS[raw.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()] ?? NaN
+}
+
+/** Soma `n` unidades a partir de `today`, preservando o dia em meses curtos. */
+function addUnits(today: string, n: number, unit: string): string {
+  const u = unit.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  const d = fromISO(today)
+  if (u.startsWith('dia')) return addDays(today, n)
+  if (u.startsWith('semana')) return addDays(today, n * 7)
+  if (u.startsWith('ano')) return toISO(dateForDayOfMonth(d.getFullYear() + n, d.getMonth(), d.getDate()))
+  return toISO(dateForDayOfMonth(d.getFullYear(), d.getMonth() + n, d.getDate()))
+}
+
+const invalidDate = (raw: string): Omit<Extract<DateResolution, { kind: 'invalid' }>, 'text' | 'start' | 'end'> => ({
+  kind: 'invalid',
+  label: 'data inválida',
+  question: `A data "${raw.trim()}" não existe. Qual foi a data correta?`,
+})
+
+function startOfNextWeek(today: string): string {
+  const d = fromISO(today)
+  const days = d.getDay() === 0 ? 1 : 8 - d.getDay()
+  return addDays(today, days)
 }
 
 // A ORDEM importa: expressões mais específicas primeiro, senão "segunda-feira
@@ -92,12 +137,66 @@ const RULES: Rule[] = [
     build: (_m, t) => ({ kind: 'date', date: t, label: 'hoje' }),
   },
   {
-    re: /\bamanh[ãa]\b/i,
-    build: (_m, t) => ({ kind: 'future', date: addDays(t, 1), label: 'amanhã' }),
+    // `\b` NÃO funciona depois de letra acentuada: em JS o "ã" não é caractere
+    // de palavra, então `/amanh[ãa]\b/` casava só a grafia sem til e "amanhã"
+    // escrito certo era ignorado em silêncio. O lookahead resolve.
+    re: /\bamanh[ãa](?![\wà-úÀ-Ú])/i,
+    build: (_m, t) => ({ kind: 'future', date: addDays(t, 1), label: 'amanhã', relative: true }),
   },
   {
-    re: /\bdepois\s+de\s+amanh[ãa]\b/i,
-    build: (_m, t) => ({ kind: 'future', date: addDays(t, 2), label: 'depois de amanhã' }),
+    re: /\bdepois\s+de\s+amanh[ãa](?![\wà-úÀ-Ú])/i,
+    build: (_m, t) => ({ kind: 'future', date: addDays(t, 2), label: 'depois de amanhã', relative: true }),
+  },
+  {
+    // "daqui a 3 dias", "daqui há duas semanas". Exige UNIDADE DE TEMPO: sem
+    // isso "daqui a pouco" (aviso, não data) viraria lançamento datado.
+    re: new RegExp(String.raw`\bdaqui\s+(?:a|h[áa])\s+(${COUNT_RE})\s+(${UNIT_RE})\b`, 'i'),
+    build: (m, t) => {
+      const n = countOf(m[1])
+      if (!Number.isFinite(n) || n <= 0 || n > 600) return null
+      const iso = addUnits(t, n, m[2])
+      return { kind: 'future', date: iso, label: brDate(iso), relative: true }
+    },
+  },
+  {
+    // "em 3 dias", "em 2 semanas", "em 3 meses". A unidade de tempo é o que
+    // separa isto de "em 4 vezes"/"em 3x", que são PARCELAS e nunca uma data.
+    re: new RegExp(String.raw`\bem\s+(${COUNT_RE})\s+(${UNIT_RE})\b`, 'i'),
+    build: (m, t) => {
+      const n = countOf(m[1])
+      if (!Number.isFinite(n) || n <= 0 || n > 600) return null
+      const iso = addUnits(t, n, m[2])
+      return { kind: 'future', date: iso, label: brDate(iso), relative: true }
+    },
+  },
+  {
+    re: /\b(?:na\s+)?(?:pr[óo]xima\s+semana|semana\s+que\s+vem)\b/i,
+    build: (m, t) => ({
+      kind: 'future', date: startOfNextWeek(t), label: m[0].trim(),
+      relative: true, imprecise: true,
+    }),
+  },
+  {
+    re: /\b(?:no\s+)?(?:pr[óo]ximo\s+m[eê]s|m[eê]s\s+que\s+vem)\b/i,
+    build: (m, t) => {
+      const d = fromISO(t)
+      return {
+        kind: 'future',
+        date: toISO(dateForDayOfMonth(d.getFullYear(), d.getMonth() + 1, 1)),
+        label: m[0].trim(), relative: true, imprecise: true,
+      }
+    },
+  },
+  {
+    re: /\b(?:no\s+)?(?:pr[óo]ximo\s+ano|ano\s+que\s+vem)\b/i,
+    build: (m, t) => {
+      const d = fromISO(t)
+      return {
+        kind: 'future',
+        date: toISO(dateForDayOfMonth(d.getFullYear() + 1, 0, 1)),
+        label: m[0].trim(), relative: true, imprecise: true,
+      }
+    },
   },
   {
     // "semana passada", "na semana passada"
@@ -114,15 +213,17 @@ const RULES: Rule[] = [
     },
   },
   {
-    // "10/08", "10/08/2026", "10-08"
-    re: /\b(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\b/,
+    // "10/08", "dia 10/08", "10/08/2026", "10-08". O "dia" entra na expressão
+    // para ser retirado junto: sem isso a palavra sobrava e o lançamento
+    // nascia descrito como "Mercado dia".
+    re: /\b(?:dia\s+)?(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\b/,
     build: (m, t) => {
       const day = Number(m[1]); const mon = Number(m[2])
-      if (day < 1 || day > 31 || mon < 1 || mon > 12) return null
+      if (day < 1 || day > 31 || mon < 1 || mon > 12) return invalidDate(m[0])
       let year = m[3] ? Number(m[3]) : fromISO(t).getFullYear()
       if (year < 100) year += 2000
       const iso = toISO(dateForDayOfMonth(year, mon - 1, day))
-      if (fromISO(iso).getDate() !== day) return null
+      if (fromISO(iso).getDate() !== day) return invalidDate(m[0])
       return iso > t
         ? { kind: 'future', date: iso, label: brDate(iso) }
         : { kind: 'date', date: iso, label: brDate(iso) }
@@ -134,9 +235,10 @@ const RULES: Rule[] = [
     build: (m, t) => {
       const day = Number(m[1])
       const mon = monthIndex(m[2])
-      if (mon < 0 || day < 1 || day > 31) return null
+      if (mon < 0 || day < 1 || day > 31) return invalidDate(m[0])
       const year = m[3] ? Number(m[3]) : fromISO(t).getFullYear()
       const iso = toISO(dateForDayOfMonth(year, mon, day))
+      if (fromISO(iso).getDate() !== day) return invalidDate(m[0])
       // Sem ano explícito e no futuro: quase sempre o usuário fala do ano passado.
       if (!m[3] && iso > t) {
         const prev = toISO(dateForDayOfMonth(year - 1, mon, day))
@@ -157,9 +259,10 @@ const RULES: Rule[] = [
     re: /\bdia\s+(\d{1,2})\s+d[oe]\s+m[eê]s\s+passado\b/i,
     build: (m, t) => {
       const day = Number(m[1])
-      if (day < 1 || day > 31) return null
+      if (day < 1 || day > 31) return invalidDate(m[0])
       const d = fromISO(t)
       const iso = toISO(dateForDayOfMonth(d.getFullYear(), d.getMonth() - 1, day))
+      if (fromISO(iso).getDate() !== day) return invalidDate(m[0])
       return { kind: 'date', date: iso, label: brDate(iso) }
     },
   },
@@ -168,9 +271,10 @@ const RULES: Rule[] = [
     re: /\bdia\s+(\d{1,2})\s+d(?:este|esse)\s+m[eê]s\b/i,
     build: (m, t) => {
       const day = Number(m[1])
-      if (day < 1 || day > 31) return null
+      if (day < 1 || day > 31) return invalidDate(m[0])
       const d = fromISO(t)
       const iso = toISO(dateForDayOfMonth(d.getFullYear(), d.getMonth(), day))
+      if (fromISO(iso).getDate() !== day) return invalidDate(m[0])
       return iso > t ? { kind: 'future', date: iso, label: brDate(iso) } : { kind: 'date', date: iso, label: brDate(iso) }
     },
   },
@@ -189,7 +293,7 @@ const RULES: Rule[] = [
       const idx = weekdayIndex(m[1])
       if (m[2]) {
         const iso = nextWeekday(idx, t)
-        return { kind: 'future', date: iso, label: `${weekdayName(idx).toLowerCase()}, ${brDate(iso)}` }
+        return { kind: 'future', date: iso, label: `${weekdayName(idx).toLowerCase()}, ${brDate(iso)}`, relative: true }
       }
       const iso = lastWeekday(idx, t)
       return { kind: 'date', date: iso, label: `${weekdayName(idx).toLowerCase()}, ${brDate(iso)}` }
@@ -200,7 +304,7 @@ const RULES: Rule[] = [
     re: /\bdia\s+(\d{1,2})\b(?!\s*(?:de\s|d[oe]\s|\/))/i,
     build: (m, t) => {
       const day = Number(m[1])
-      if (day < 1 || day > 31) return null
+      if (day < 1 || day > 31) return invalidDate(m[0])
       const d = fromISO(t)
       const thisMonth = toISO(dateForDayOfMonth(d.getFullYear(), d.getMonth(), day))
       if (thisMonth <= t) return { kind: 'date', date: thisMonth, label: brDate(thisMonth) }
@@ -236,20 +340,104 @@ export function findDate(text: string, today = todayISO()): DateResolution | nul
   return best
 }
 
-/** Todas as expressões de data do texto, sem sobreposição, da esquerda pra direita. */
+export interface UnresolvedTemporalHint {
+  text: string
+  start: number
+  end: number
+}
+
+/**
+ * Barreira de segurança para expressões que claramente falam de tempo, mas não
+ * identificam um único dia. Elas não servem para datar um fato e também não
+ * podem sobrar como mera descrição enquanto o lançamento cai em hoje.
+ */
+export function findUnresolvedTemporalHint(text: string): UnresolvedTemporalHint | null {
+  const rules = [
+    new RegExp(String.raw`\b(?:em|durante|n[oe]\s+m[eê]s\s+de)\s+(?:${MONTH_RE})\b`, 'i'),
+    /\b(?:h[áa]|faz)\s+(?:\d{1,3}|[a-zà-ú]+(?:\s+e\s+[a-zà-ú]+)*)\s+(?:dias?|semanas?|m[eê]s(?:es)?|anos?)\b/i,
+    /\b(?:\d{1,3}|[a-zà-ú]+(?:\s+e\s+[a-zà-ú]+)*)\s+(?:dias?|semanas?|m[eê]s(?:es)?|anos?)\s+atr[áa]s\b/i,
+    /\b(?:semana|m[eê]s|ano)\s+(?:retrasad[oa]|anterior)\b/i,
+    /\b(?:no|na)?\s*(?:fim|final|in[íi]cio|come[çc]o|metade)\s+(?:d[oa]\s+)?(?:semana|m[eê]s|ano)\b/i,
+    /\b(?:no|na)?\s*pr[óo]xim[oa]\s+(?:fim\s+de\s+semana|feriado)\b/i,
+    /\b(?:semana|m[eê]s|ano)\s+seguinte\b/i,
+    /\bano\s+passado\b/i,
+    /\bdaqui\s+(?:a|h[áa])\s+pouco\b/i,
+    /\bmais\s+tarde\b/i,
+  ]
+  let best: UnresolvedTemporalHint | null = null
+  for (const rule of rules) {
+    const match = text.match(rule)
+    if (!match || match.index === undefined) continue
+    const found = { text: match[0], start: match.index, end: match.index + match[0].length }
+    if (!best || found.start < best.start) best = found
+  }
+  return best
+}
+
+/** Mesmo dia do ano anterior — 29/02 recua para 28/02 em vez de virar 01/03. */
+export function previousYearOf(iso: string): string {
+  const d = fromISO(iso)
+  return toISO(dateForDayOfMonth(d.getFullYear() - 1, d.getMonth(), d.getDate()))
+}
+
+/**
+ * O usuário disse "mês passado" e nós perguntamos QUE DIA. Esta função lê a
+ * resposta curta ("dia 10", "10", "10/06") e a coloca dentro da janela que a
+ * pergunta abriu. Fora da janela devolve `null` — nunca aproxima, nunca cai em
+ * hoje: a pergunta simplesmente continua aberta.
+ */
+export function resolveDayInWindow(
+  answer: string,
+  window: { from: string; to: string },
+  today = todayISO(),
+): string | null {
+  const within = (iso: string) => (iso >= window.from && iso <= window.to ? iso : null)
+
+  // Uma data completa é uma afirmação explícita. Se ela cair fora da janela,
+  // não podemos arrancar apenas o dia e reinterpretá-lo dentro de outro mês:
+  // "10/07" como resposta a "que dia de junho?" continua sendo julho.
+  const explicitCalendar = /\b(?:dia\s+)?\d{1,2}[\/-]\d{1,2}(?:[\/-]\d{2,4})?\b/i.test(answer)
+    || new RegExp(String.raw`\b\d{1,2}\s+de\s+(?:${MONTH_RE})(?:\s+de\s+\d{4})?\b`, 'i').test(answer)
+  const said = findDate(answer, today)
+  if (explicitCalendar) {
+    return said && said.kind === 'date' ? within(said.date) : null
+  }
+
+  const m = answer.match(/\b(?:dia\s+)?(\d{1,2})\b/)
+  if (!m) return null
+  const day = Number(m[1])
+  if (day < 1 || day > 31) return null
+  // A janela pode atravessar dois meses ("semana passada"): tenta os dois.
+  for (const anchor of [window.from, window.to]) {
+    const d = fromISO(anchor)
+    const iso = toISO(dateForDayOfMonth(d.getFullYear(), d.getMonth(), day))
+    if (fromISO(iso).getDate() === day && within(iso)) return iso
+  }
+  return null
+}
+
+/**
+ * TODAS as expressões de data do texto, da esquerda para a direita.
+ *
+ * Varre com `findDate` e continua a partir do fim de cada achado, de modo que a
+ * segunda expressão de uma frase composta ("ontem gastei 50 E DAQUI A 3 DIAS
+ * pago mais 100") não se perca. Perdê-la não era só perder a data: o "3" ficava
+ * solto no texto e virava uma despesa fantasma de R$ 3,00.
+ *
+ * A varredura reaproveita a regra "a mais à esquerda vence" de `findDate`, em
+ * vez de resolver sobreposição por ordem de regra — que fazia "dia 5 do mês
+ * passado" perder para o "mês passado" contido nele.
+ */
 export function findAllDates(text: string, today = todayISO()): DateResolution[] {
   const out: DateResolution[] = []
-  const taken: [number, number][] = []
-  for (const rule of RULES) {
-    for (const m of text.matchAll(new RegExp(rule.re.source, rule.re.flags.includes('g') ? rule.re.flags : rule.re.flags + 'g'))) {
-      if (m.index === undefined) continue
-      const start = m.index; const end = start + m[0].length
-      if (taken.some(([a, b]) => start < b && end > a)) continue
-      const built = rule.build(m, today)
-      if (!built) continue
-      taken.push([start, end])
-      out.push({ ...built, text: m[0], start, end } as DateResolution)
-    }
+  let offset = 0
+  let rest = text
+  while (rest) {
+    const found = findDate(rest, today)
+    if (!found) break
+    out.push({ ...found, start: found.start + offset, end: found.end + offset })
+    offset += found.end
+    rest = rest.slice(found.end)
   }
-  return out.sort((a, b) => a.start - b.start)
+  return out
 }

@@ -1,6 +1,7 @@
 # AssistFin — Contexto do produto
 
-Visão consolidada e **verificada no código** em 28/07/2026 (commit `7dc1832`, branch `main`).
+Visão consolidada e **verificada no código** em 29/07/2026
+(branch `feat/assistant-orchestrator`).
 Este arquivo descreve o que o aplicativo é hoje. Regras permanentes de implementação ficam no
 [CLAUDE.md](CLAUDE.md); o histórico de rodadas fica no [PROGRESS.md](PROGRESS.md).
 
@@ -320,7 +321,7 @@ Verificado no código nesta auditoria.
 | **Parcelamentos** | Implementado. Compra parcelada com ou sem cartão, parcelamento avulso, entrada financiada, juros separados do principal, progresso do plano, cancelamento de parcelas futuras preservando histórico. |
 | **Veículo** | Implementado (motorista). Hodômetro separado dos km trabalhados, abastecimentos com km/L real, manutenções com vida útil, custo real por km. |
 | **Motorista** | Implementado. Meta diária, analisador de corrida "vale a pena?", taxa da 99 como pergunta separada, parser composto ("430 Uber, mais 399 da 99, 163 de gasolina, 24 L e 161 km"). |
-| **IA** | Funcionando, com arquitetura conhecidamente limitada. Motor local determinístico + DeepSeek para perguntas abertas. Detalhes e falhas confirmadas em [docs/AI_CURRENT_STATE.md](docs/AI_CURRENT_STATE.md). |
+| **IA** | Funcionando. Motor local determinístico + DeepSeek para perguntas abertas, com datas futuras/inválidas tratadas sem criar movimentação realizada e falha remota explícita. Detalhes e limites em [docs/AI_CURRENT_STATE.md](docs/AI_CURRENT_STATE.md). |
 | **Análises** | Implementado, mas **não é sensível a perfil** (ver pendências). Diário/semanal/mensal/anual, comparativo com período anterior, gastos por categoria, exportação CSV e impressão. |
 | **Configurações** | Implementado. Perfil, tema, dias de trabalho, custos do veículo, categorias personalizadas, notificações, IA remota ligada/desligada, "Limpar lançamentos e trabalho", reset total. |
 | **Backup** | Implementado. Exportar JSON; restaurar com escolha entre Mesclar e Substituir tudo, usando `<ConfirmDialog>`. |
@@ -352,33 +353,31 @@ Os vinte pontos estruturais da auditoria de 28/07/2026 foram resolvidos na refor
 assistente, e a rodada de QA adversarial corrigiu mais 17 defeitos de interpretação e interface.
 Detalhe completo em [docs/AI_CURRENT_STATE.md §6](docs/AI_CURRENT_STATE.md).
 
-**Precisam de tratamento** (ordem de prioridade):
+**Corrigido em 29/07/2026**:
 
-8. **Data futura é ignorada em silêncio.** `gastei 40 em 10/08` com hoje em julho reconhece a
-   data, classifica como futura e grava como HOJE sem avisar. Tem que perguntar ou recusar —
-   nunca gravar a data errada calado.
-9. **"daqui a X dias/semanas/meses" precisa de tratamento seguro.** Hoje não gera ação (resultado
-   seguro) mas responde com o texto de ajuda genérico. Precisa virar previsão explícita ou dizer
-   claramente que ainda não sabe agendar. Nunca pode virar lançamento de hoje.
-10. **A DeepSeek devolve resposta vazia de forma intermitente** (`empty-reply` → HTTP 502). O app
-    trata com erro seguro e fallback local, sem perder ação, mas o usuário perde a resposta
-    aberta. Investigar `max_tokens` e o retry único de `callDeepSeekChat`.
+- Datas futuras, inválidas e períodos sem dia exato não são mais substituídos por hoje.
+- `daqui a/em X dias|semanas|meses|anos`, `próxima semana`, `mês que vem` e sinais comuns sem dia
+  exato falham de forma explícita. O app não ganhou agendamento: intenção futura é explicada.
+- Resposta vazia e HTTP 502 da DeepSeek foram reproduzidos e auditados. Falha não cria ação,
+  preserva o que o motor local entendeu e explica a indisponibilidade quando a pergunta dependia
+  só do remoto. Nenhum retry novo foi adicionado.
 
 **Fora do escopo por decisão** (documentado, não esquecido):
 
-11. Editar um lançamento **já salvo** por conversa — só enquanto a proposta está na tela.
-12. **"Desfaz o último"** depois da gravação — o `assistantBatchId` já viabiliza, falta o fluxo.
-13. **`Analytics.tsx` por perfil** — pendência anterior a esta reformulação.
+8. Editar um lançamento **já salvo** por conversa — só enquanto a proposta está na tela.
+9. **"Desfaz o último"** depois da gravação — o `assistantBatchId` já viabiliza, falta o fluxo.
+10. **`Analytics.tsx` por perfil** — pendência anterior a esta reformulação.
 
-**Menores**: "meio" não é interpretado; intervalos de data não são cobertos; a proposta pendente
-não vai no payload remoto (investigado, sem falha demonstrada); a qualidade do texto da IA remota
-não é testada, só o contrato.
+**Menores**: "meio" não é interpretado; intervalos de data não viram intervalo estruturado — a
+barreira pede esclarecimento em vez de usar hoje. A proposta pendente não vai no payload remoto
+(investigado, sem falha demonstrada); a qualidade do texto da IA remota não é testada, só o
+contrato.
 
 ### Produto
 
-14. **`Analytics.tsx` não é sensível a perfil** (`isDriver` não é usado lá): relatórios mostram a
+11. **`Analytics.tsx` não é sensível a perfil** (`isDriver` não é usado lá): relatórios mostram a
     mesma estrutura para motorista e não motorista.
-15. **Sincronização em nuvem** não existe — o app é single-device.
-16. **Sem autenticação e sem multiusuário.**
-17. **`SYSTEM_PROMPT` sincronizada ainda não foi republicada** em produção: o redeploy está
+12. **Sincronização em nuvem** não existe — o app é single-device.
+13. **Sem autenticação e sem multiusuário.**
+14. **`SYSTEM_PROMPT` sincronizada ainda não foi republicada** em produção: o redeploy está
     deliberadamente adiado até reunir as alterações verificadas.

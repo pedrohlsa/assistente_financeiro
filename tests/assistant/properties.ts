@@ -5,15 +5,20 @@
 // nunca pode virar receita. É isto que impede uma regex nova de quebrar a
 // contabilidade sem ninguém perceber.
 
+import { readFileSync } from 'node:fs'
 import { buildState, TODAY } from './harness'
 import { hydrateForTest } from '../../src/store/store'
 import { applyBatchPure, planAssistantActions } from '../../src/assistant/execute'
-import { validateAction, isValidationFailure, ACTION_CATALOG, allowedRemoteKinds } from '../../src/assistant/contracts'
-import { buildCapabilities } from '../../src/assistant/orchestrator'
+import { validateAction, isValidationFailure, ACTION_CATALOG, allowedRemoteKinds, actionSpec } from '../../src/assistant/contracts'
+import { buildCapabilities, orchestrate } from '../../src/assistant/orchestrator'
+import { findDate, findUnresolvedTemporalHint } from '../../src/assistant/dates'
 import { currentBalance, savedThisMonth, monthStats } from '../../src/services/calc'
 import { buildSystemPrompt, normalizeCapabilities, sanitizeRemoteResponse } from '../../api/_lib/assistantPrompt'
+import { callDeepSeekChat, isDeepSeekFailure } from '../../api/_lib/deepseek'
+import { handleAssistantRequest } from '../../api/_lib/assistantHandler'
 import { describeAction } from '../../src/services/nlp'
 import type { ParsedAction } from '../../src/models/types'
+import type { AssistantCandidateAction, AssistantResponse } from '../../src/assistant/contracts'
 
 export interface PropertyReport { total: number; failures: string[] }
 
@@ -29,7 +34,107 @@ const check = (report: PropertyReport, name: string, fn: () => string | null) =>
 
 const batch = (actions: ParsedAction[]) => actions.map((action, i) => ({ id: `a${i}`, action }))
 
-export function runProperties(): PropertyReport {
+const checkAsync = async (report: PropertyReport, name: string, fn: () => Promise<string | null>) => {
+  report.total++
+  try {
+    const err = await fn()
+    if (err) report.failures.push(`${name}: ${err}`)
+  } catch (e: any) {
+    report.failures.push(`${name}: exceção ${e?.message || e}`)
+  }
+}
+
+/**
+ * Frases usadas pelas invariantes temporais. Não são casos de regressão — cada
+ * uma é só uma amostra para a REGRA ser exercitada: qualquer forma de falar de
+ * tempo, entendida ou não, jamais pode virar um lançamento na data errada.
+ */
+const FRASES_TEMPORAIS = [
+  'gastei 50 daqui a 3 dias',
+  'gastei 50 em 3 dias',
+  'gastei 50 no mercado dia 10/08',
+  'paguei 200 dia 20/12',
+  'gastei 50 dia 31/02',
+  'gastei 50 dia 40/08',
+  'gastei 40 amanhã',
+  'depois de amanhã gastei 90',
+  'gastei 50 na próxima semana',
+  'mês que vem vou pagar 300',
+  'gastei 80 na semana que vem',
+  'gastei 50 em agosto',
+  'vou pagar 100 em agosto',
+  'gastei 50 há 3 dias',
+  'gastei 50 3 dias atrás',
+  'gastei 50 no fim do mês',
+  'paguei 100 ano passado',
+  'vou gastar 50 daqui a 3 dias',
+  'daqui a 2 semanas vou pagar 300',
+  'em 3 meses tenho uma parcela de 500',
+  'vou gastar 50 dia 10/08',
+  'amanhã vou pagar 120 de luz',
+  'daqui a 1 ano vou trocar de carro por 40000',
+  'em 2 semanas recebo 1200',
+  'recebi 300 na sexta que vem',
+  'paguei 100 mês passado',
+  'gastei 80 semana passada',
+  'ontem gastei 50',
+  'anteontem gastei 50',
+  'gastei 50 hoje',
+  'gastei 50 dia 10/07',
+  'gastei 50 no mercado',
+  // Prazo de meta: "em 6 meses" é o horizonte do objetivo, não a data de um
+  // fato — a expressão pertence à meta e o lançamento nem existe.
+  'quero comprar um celular de 5000 em 6 meses',
+]
+
+const rodar = (message: string) =>
+  orchestrate({ state: buildState({ profile: 'other' }), message, history: [], remoteEnabled: false, today: TODAY })
+
+/**
+ * No modo `answer` o contrato tipa `actions` como tupla vazia, então percorrer
+ * a união estreita o elemento para `never`. Isto devolve a lista já com o tipo
+ * útil, em vez de espalhar `as any` pelos testes.
+ */
+const acoesDe = (res: AssistantResponse): AssistantCandidateAction[] => res.actions
+
+/** A ação aceita data? Meta e saldo não aceitam — não faz sentido cobrá-las. */
+const aceitaData = (kind: string) => !!actionSpec(kind)?.fields.some(f => f.name === 'date')
+
+// --- Auditoria da DeepSeek, 100% offline -----------------------------------
+// A API é substituída por um `fetch` falso. Nada sai da máquina, nenhuma chave
+// real é usada e nenhum corpo de resposta é impresso.
+const CFG_FALSA = { apiKey: 'chave-de-teste', model: 'modelo-de-teste', baseUrl: 'http://exemplo.invalido', timeoutMs: 2000 }
+
+async function comFetchFalso<T>(
+  responder: () => any,
+  fn: (chamadas: any[]) => Promise<T>,
+): Promise<T> {
+  const chamadas: any[] = []
+  const original = globalThis.fetch
+  globalThis.fetch = (async (_url: any, init: any) => {
+    chamadas.push(JSON.parse(init.body))
+    return responder()
+  }) as any
+  try {
+    return await fn(chamadas)
+  } finally {
+    globalThis.fetch = original
+  }
+}
+
+const respostaVazia = () => ({
+  ok: true, status: 200,
+  json: async () => ({ choices: [{ message: { content: '   ' } }] }),
+  text: async () => '',
+})
+
+const resposta502 = () => ({
+  ok: false, status: 502,
+  text: async () => 'Bad gateway: upstream pool exhausted for deepseek',
+  json: async () => ({}),
+})
+
+export async function runProperties(): Promise<PropertyReport> {
   const r: PropertyReport = { total: 0, failures: [] }
 
   // --- 1. `saving` nunca é receita nem despesa ---------------------------
@@ -346,6 +451,182 @@ export function runProperties(): PropertyReport {
     if (m1?.proposal) return 'proposta pendente sobreviveu ao reload'
     if (m2?.clarification) return 'esclarecimento pendente sobreviveu ao reload'
     if (hidratado.chat.length !== 3) return 'mensagens antigas foram perdidas'
+    return null
+  })
+
+  // --- 28. Fato realizado NUNCA nasce com data futura --------------------
+  // Vale para a proposta E para as opções de esclarecimento: escolher uma
+  // opção também não pode gravar um dia que ainda não chegou.
+  await checkAsync(r, 'nenhuma ação realizada tem data futura', async () => {
+    for (const msg of FRASES_TEMPORAIS) {
+      const out = await rodar(msg)
+      for (const c of out.response.actions) {
+        const d = (c.action as any).date
+        if (d && d > TODAY) return `"${msg}" propôs ${c.action.kind} em ${d}`
+      }
+      const opts = out.response.mode === 'clarify' ? out.response.clarification.options || [] : []
+      for (const o of opts) {
+        for (const a of o.actions || []) {
+          const d = (a as any).date
+          if (d && d > TODAY) return `"${msg}" ofereceu ${a.kind} em ${d} na opção "${o.label}"`
+        }
+      }
+    }
+    return null
+  })
+
+  // --- 29. Expressão temporal reconhecida nunca é trocada por hoje -------
+  // Esta é a invariante que faltava: `findDate` enxergava "10/08" e "mês
+  // passado", a análise descartava, e o lançamento nascia com a data de hoje
+  // sem ninguém avisar. Ou a ação carrega a data dita, ou não existe ação.
+  await checkAsync(r, 'data reconhecida não vira hoje em silêncio', async () => {
+    for (const msg of FRASES_TEMPORAIS) {
+      const dito = findDate(msg, TODAY)
+      const hint = dito ? null : findUnresolvedTemporalHint(msg)
+      if (!dito && !hint) continue
+      const out = await rodar(msg)
+      const datáveis = acoesDe(out.response).filter(c => aceitaData(c.action.kind))
+      if (!datáveis.length) continue
+      if (hint) {
+        return `"${msg}": o sinal temporal "${hint.text}" foi ignorado e ${datáveis.length} ação(ões) propostas`
+      }
+      if (dito.kind === 'date') {
+        for (const c of datáveis) {
+          const d = (c.action as any).date
+          if (d !== dito.date) return `"${msg}": disse ${dito.date}, propôs ${d || 'sem data'}`
+        }
+      } else {
+        // future/ambiguous/period não datam um fato: propor mesmo assim é
+        // exatamente a falha silenciosa que esta tarefa foi corrigir.
+        return `"${msg}": "${dito.text}" (${dito.kind}) foi ignorada e ${datáveis.length} ação(ões) propostas`
+      }
+    }
+    return null
+  })
+
+  // --- 30. Resposta vazia: UMA segunda tentativa, e só ------------------
+  // O "nudge" existe porque a DeepSeek devolve conteúdo em branco de forma
+  // intermitente. Ele é uma tentativa única e mais rígida — nunca um laço.
+  await checkAsync(r, 'resposta vazia tenta no máximo uma segunda vez', async () =>
+    comFetchFalso(respostaVazia, async chamadas => {
+      const out = await callDeepSeekChat(CFG_FALSA, [{ role: 'user', content: 'oi' }])
+      if (!isDeepSeekFailure(out)) return 'aceitou resposta vazia como sucesso'
+      if (out.code !== 'empty-reply') return `código ${out.code}`
+      if (chamadas.length !== 2) return `${chamadas.length} tentativas, esperava exatamente 2`
+      if (chamadas[1].messages.length !== chamadas[0].messages.length + 1) return 'a 2ª tentativa não é o nudge'
+      if (chamadas[1].temperature !== 0) return 'a 2ª tentativa não baixou a temperatura'
+      return null
+    }))
+
+  // --- 31. Erro HTTP nunca é repetido automaticamente -------------------
+  await checkAsync(r, 'erro HTTP da DeepSeek não repete', async () => {
+    for (const [status, esperado] of [[502, 'server-error'], [500, 'server-error'], [429, 'rate-limit'], [401, 'auth-invalid'], [402, 'insufficient-balance']] as const) {
+      const err = await comFetchFalso(
+        () => ({ ok: false, status, text: async () => '', json: async () => ({}) }),
+        async chamadas => {
+          const out = await callDeepSeekChat(CFG_FALSA, [{ role: 'user', content: 'oi' }])
+          if (!isDeepSeekFailure(out)) return `${status} virou sucesso`
+          if (out.code !== esperado) return `${status} → código ${out.code}, esperava ${esperado}`
+          if (chamadas.length !== 1) return `${status} fez ${chamadas.length} tentativas`
+          return null
+        })
+      if (err) return err
+    }
+    return null
+  })
+
+  // --- 32. Falha remota não vira ação nem vaza detalhe interno ----------
+  await checkAsync(r, 'falha remota é segura e sem ação', async () => {
+    for (const responder of [respostaVazia, resposta502]) {
+      const res = await comFetchFalso(responder, () =>
+        handleAssistantRequest({ message: 'vale a pena trocar de plano?', context: {}, history: [] }, CFG_FALSA))
+      const corpo = JSON.stringify(res.body)
+      if (res.status !== 502) return `status ${res.status}`
+      if (res.body.actions?.length) return 'criou ação a partir de uma falha'
+      if (/upstream|pool exhausted|Bad gateway/i.test(corpo)) return 'vazou o corpo bruto da API'
+      if (/chave-de-teste|Bearer|authorization|exemplo\.invalido|modelo-de-teste/i.test(corpo)) return 'vazou chave, cabeçalho, URL ou modelo'
+      if (!res.body.message) return 'sem mensagem para o usuário'
+    }
+    return null
+  })
+
+  // --- 33. Remoto indisponível não apaga o que o local entendeu ---------
+  await checkAsync(r, 'ação local sobrevive à queda do remoto', async () => {
+    const msgs = [
+      'gastei 50 no mercado, o que você acha disso?',
+      // O gasto é um FATO relatado no passado; a pergunta ao lado é opinião.
+      // A regra de "pergunta de análise" engolia a despesa inteira.
+      'gastei 50 no mercado, vale a pena trocar de plano?',
+    ]
+    for (const msg of msgs) {
+      const out = await orchestrate({
+        state: buildState({ profile: 'other' }), message: msg,
+        history: [], remoteEnabled: true, askRemote: async () => null, today: TODAY,
+      })
+      const gasto = acoesDe(out.response).find(c => c.action.kind === 'expense')
+      if (!gasto) return `"${msg}": a despesa sumiu (${out.response.actions.length} ações, modo ${out.response.mode})`
+      if ((gasto.action as any).amount !== 50) return `"${msg}": valor ${(gasto.action as any).amount}`
+    }
+    return null
+  })
+
+  // --- 34. Pergunta que só o remoto responde tem resposta compreensível --
+  // Sem isto o usuário recebia o texto genérico de ajuda — ou, pior, a frase
+  // de negação ("entendi que isso não aconteceu") — sem nunca saber que a IA
+  // remota é que estava fora do ar.
+  await checkAsync(r, 'queda do remoto é explicada ao usuário', async () => {
+    for (const msg of ['vale a pena eu trocar de plano de celular?', 'o que você acha de eu mudar de banco?']) {
+      const out = await orchestrate({
+        state: buildState({ profile: 'other' }), message: msg,
+        history: [], remoteEnabled: true, askRemote: async () => null, today: TODAY,
+      })
+      const reply = out.response.reply
+      if (/n[ãa]o aconteceu|n[ãa]o registrei nada/i.test(reply)) return `"${msg}" respondeu com a frase de negação`
+      if (!/n[ãa]o consegui falar|indispon[íi]vel|tente de novo|instantes/i.test(reply)) {
+        return `"${msg}" não avisou que o assistente está fora do ar: "${reply.slice(0, 80)}"`
+      }
+    }
+    return null
+  })
+
+  // --- 35. "Confirmar?" só existe quando há botão para confirmar --------
+  // `askAssistant` tem parser próprio e monta "Entendi isso… / Confirmar?".
+  // Reaproveitar esse texto como RESPOSTA de uma pergunta produzia uma promessa
+  // falsa: a tela mostrava a proposta e nenhum botão. Vale para qualquer modo.
+  await checkAsync(r, 'proposta na resposta implica ação proposta', async () => {
+    const msgs = [
+      'gastei 50 no mercado, vale a pena trocar de plano?',
+      'vale a pena eu trocar de plano de celular?',
+      'o que você acha de eu mudar de banco?',
+    ]
+    for (const remoto of [true, false]) {
+      for (const msg of msgs) {
+        const out = await orchestrate({
+          state: buildState({ profile: 'other' }), message: msg, history: [],
+          remoteEnabled: remoto, askRemote: remoto ? async () => null : undefined, today: TODAY,
+        })
+        const prometeu = /entendi isso|confirmar\?/i.test(out.response.reply)
+        if (prometeu && !out.response.actions.length) {
+          return `"${msg}" (remoto ${remoto ? 'caído' : 'desligado'}) prometeu confirmação sem nenhuma ação`
+        }
+      }
+    }
+    return null
+  })
+
+  // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
+  // Invariante de FIAÇÃO, não de lógica: o corpus sempre passou
+  // `pendingClarification`, então ele nunca poderia ver que `Chat.tsx` não
+  // passava. Resultado: clicar numa opção mandava o rótulo como texto solto e o
+  // efeito embutido na opção era perdido — só aparecia no navegador.
+  check(r, 'Chat devolve a pergunta pendente ao orquestrador', () => {
+    const src = readFileSync(new URL('../../src/screens/Chat.tsx', import.meta.url), 'utf8')
+    if (!/pendingClarification:\s*clarificationRef\.current/.test(src)) {
+      return 'Chat.tsx não passa pendingClarification para orchestrate'
+    }
+    if (!/clarificationRef\.current\s*=\s*out\.response\.mode === 'clarify'/.test(src)) {
+      return 'Chat.tsx não guarda a pergunta de esclarecimento da resposta'
+    }
     return null
   })
 

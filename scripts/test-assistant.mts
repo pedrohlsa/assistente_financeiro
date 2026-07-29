@@ -6,6 +6,7 @@
 import { CASES } from '../tests/assistant/cases'
 import { CRITICAL } from '../tests/assistant/cases-critical'
 import { ADVERSARIAL } from '../tests/assistant/cases-adversarial'
+import { TEMPORAL } from '../tests/assistant/cases-temporal'
 import { runProperties } from '../tests/assistant/properties'
 import { runCase } from '../tests/assistant/harness'
 import type { CaseResult } from '../tests/assistant/harness'
@@ -13,7 +14,7 @@ import type { CaseResult } from '../tests/assistant/harness'
 const only = process.argv.find(a => a.startsWith('--only='))?.slice(7)
 const verbose = process.argv.includes('--verbose')
 
-const ALL = [...CASES, ...CRITICAL, ...ADVERSARIAL]
+const ALL = [...CASES, ...CRITICAL, ...ADVERSARIAL, ...TEMPORAL]
 const selected = only
   ? ALL.filter(c => c.id.includes(only) || c.group.includes(only))
   : ALL
@@ -58,7 +59,7 @@ if (verbose) {
 }
 
 // Invariantes financeiras: valem para QUALQUER entrada, não para uma frase.
-const props = only ? { total: 0, failures: [] as string[] } : runProperties()
+const props = only ? { total: 0, failures: [] as string[] } : await runProperties()
 if (props.total) {
   console.log('\n=== Invariantes ===')
   console.log(props.failures.length

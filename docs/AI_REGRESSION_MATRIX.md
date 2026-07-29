@@ -7,11 +7,13 @@
 > - `tests/assistant/cases-critical.ts` — os dez cenários obrigatórios do briefing;
 > - `tests/assistant/cases-adversarial.ts` — **68 casos** da rodada de QA adversarial,
 >   cada um escrito ANTES da correção do bug que o originou;
-> - `tests/assistant/properties.ts` — **27 invariantes financeiras**;
+> - `tests/assistant/cases-temporal.ts` — **43 casos** de datas futuras, inválidas,
+>   períodos, correções e frases mistas;
+> - `tests/assistant/properties.ts` — **36 invariantes financeiras e de segurança**;
 > - `npm run test:assistant` — roda tudo offline, com data fixa, contra o orquestrador real.
 >
-> **Resultado da última execução (28/07/2026, branch `feat/assistant-orchestrator`):
-> 302/302 casos e 27/27 invariantes.**
+> **Resultado da última execução (29/07/2026, branch `feat/assistant-orchestrator`):
+> 345/345 casos e 36/36 invariantes.**
 >
 > ⚠️ **100% aqui não significa "a IA está correta".** Na rodada adversarial, 8 dos 17 bugs só
 > apareceram no navegador com mensagem real — o corpus passava 100% enquanto "não gastei 100"
@@ -57,7 +59,8 @@ Os grupos correspondem assim:
 | 10 motorista | `motorista`, `motorista2`, `perfil` |
 | 11 ambiguidades e correções | `ambiguidade`, `correcoes`, `correcoes2`, `multiturno` |
 | 12 conversacional | `conversa`, `conversa2`, `incompletas` |
-| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 27 invariantes |
+| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 36 invariantes |
+| 14 datas futuras, inválidas e períodos | `temporal` (43 casos) |
 | Cenários obrigatórios do briefing | `criticos` (10 casos, frases literais) |
 
 Grupos criados na rodada adversarial de 28/07, todos em `cases-adversarial.ts`:
@@ -260,7 +263,46 @@ Grupos criados na rodada adversarial de 28/07, todos em `cases-adversarial.ts`:
 
 ---
 
+## 14. Datas futuras, inválidas, períodos e DeepSeek indisponível
+
+Adicionado em 29/07/2026. A fonte de verdade é
+`tests/assistant/cases-temporal.ts`; todos os grupos abaixo passam contra o
+orquestrador real com hoje fixo em 15/07/2026.
+
+| Grupo | Casos | Regra protegida | Resultado |
+|---|---:|---|---|
+| Futuro e prazo relativo | 15 | Futuro nunca vira movimentação realizada; intenção futura é explicada | ✅ |
+| Período sem dia | 2 | `mês/semana passada` perguntam o dia e preservam a janela | ✅ |
+| Passado explícito | 5 | Hoje, ontem, anteontem e datas passadas continuam corretos | ✅ |
+| Sem tempo informado | 1 | Hoje continua sendo o padrão somente quando o usuário não falou de tempo | ✅ |
+| Escolha e correção | 5 | Opção de plano/data, dia inválido e data fora da janela não perdem o contexto | ✅ |
+| Data impossível | 3 | `31/02` e `40/08` não viram descrição nem lançamento de hoje | ✅ |
+| Sinais temporais sem dia exato | 6 | `em agosto`, `há 3 dias`, `fim do mês`, `ano passado` falham fechados | ✅ |
+| Metas com horizonte textual | 2 | A barreira temporal não bloqueia meta, que não é fato realizado | ✅ |
+| Passado + futuro na mesma frase | 4 | O fato passado sobrevive em qualquer ordem; o plano só é explicado | ✅ |
+| **Total temporal** | **43** | | **43/43** |
+
+As invariantes 28–36 cobrem a barreira de data futura, o não descarte de sinais
+temporais, resposta vazia, HTTP 502/5xx/429/401/402, preservação de ações locais,
+mensagem compreensível quando o remoto cai, ausência de “Confirmar?” sem ação e
+a fiação de `pendingClarification` em `Chat.tsx`.
+
+Auditoria da DeepSeek:
+
+- resposta vazia: exatamente duas tentativas no total (a original + um `nudge`);
+- HTTP 502 e demais erros HTTP: uma tentativa, sem retry automático;
+- falha: zero ações, resposta segura e nenhum detalhe interno;
+- mensagem mista: ação local preservada;
+- pergunta só remota: aviso claro de indisponibilidade;
+- teste real em 29/07: **8/8 sondas**.
+
+---
+
 ## Resumo quantitativo
+
+O quadro abaixo é o retrato **histórico anterior** à reformulação, mantido para
+explicar de onde o trabalho partiu. O estado executável atual é
+**345/345 casos e 36/36 invariantes**.
 
 | Situação | Casos |
 |---|---|

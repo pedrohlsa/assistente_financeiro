@@ -12,7 +12,7 @@ import { askAssistantRemote } from '../services/ai'
 import { orchestrate, buildCapabilities } from '../assistant/orchestrator'
 import type { AssistantDraft } from '../assistant/drafts'
 import { isActionFailure } from '../assistant/contracts'
-import type { ActionFailure } from '../assistant/contracts'
+import type { ActionFailure, AssistantClarification } from '../assistant/contracts'
 import { ChatMessage, ProposedAction } from '../models/types'
 import { nowTime, uid } from '../utils/format'
 import { Icon, useToast } from '../components/ui'
@@ -77,6 +77,13 @@ export default function Chat() {
   const draftRef = useRef<AssistantDraft | null>(null)
   /** Proposta ainda na tela — alvo das correções ("não foi 100, foi 80"). */
   const pendingRef = useRef<{ msgId: string; actions: ProposedAction[] } | null>(null)
+  /**
+   * Pergunta de esclarecimento ainda aberta. Sem ela o orquestrador não sabe
+   * que a próxima mensagem é a RESPOSTA de uma pergunta, e o efeito embutido em
+   * cada opção nunca era aplicado: clicar num botão mandava o rótulo como texto
+   * solto e o usuário recebia a mensagem genérica de ajuda.
+   */
+  const clarificationRef = useRef<AssistantClarification | null>(null)
 
   const caps = buildCapabilities(state)
 
@@ -95,6 +102,7 @@ export default function Chat() {
       pending: pendingRef.current?.actions.map(p => ({
         id: p.id, action: p.action, engine: p.engine || 'local', confidence: p.confidence || 'high',
       })),
+      pendingClarification: clarificationRef.current || undefined,
       remoteEnabled: state.settings.remoteAi !== false,
       askRemote: async ({ state: s, message, history }) => {
         const r = await askAssistantRemote(s, message, history)
@@ -145,6 +153,7 @@ export default function Chat() {
     })
 
     pendingRef.current = proposal ? { msgId, actions: proposal } : null
+    clarificationRef.current = out.response.mode === 'clarify' ? out.response.clarification : null
   }
 
   // pergunta vinda da Home
@@ -236,6 +245,7 @@ export default function Chat() {
   const cancel = (msgId: string) => {
     dispatch({ type: 'chatResolve', id: msgId })
     if (pendingRef.current?.msgId === msgId) pendingRef.current = null
+    clarificationRef.current = null
     dispatch({ type: 'chat', msg: { id: uid(), role: 'assistant', text: 'Ok, descartei. Pode reformular se quiser.', time: nowTime() } })
   }
 
@@ -267,7 +277,7 @@ export default function Chat() {
         <h1>Assistente</h1>
         <div className="row" style={{ gap: 12 }}>
           <button className="link" onClick={() => window.location.reload()} title="Recarregar dados">↻ Atualizar</button>
-          {state.chat.length > 0 && <button className="link" onClick={() => { pendingRef.current = null; draftRef.current = null; dispatch({ type: 'chatClear' }) }}>Limpar</button>}
+          {state.chat.length > 0 && <button className="link" onClick={() => { pendingRef.current = null; draftRef.current = null; clarificationRef.current = null; dispatch({ type: 'chatClear' }) }}>Limpar</button>}
         </div>
       </div>
 

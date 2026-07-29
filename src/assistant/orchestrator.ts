@@ -15,7 +15,7 @@ import type {
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, isValidationFailure, validateAction } from './contracts'
 import { analyzeMessage } from './clauses'
-import type { AnalyzedClause, MessageAnalysis } from './clauses'
+import type { AnalyzedClause, MessageAnalysis, TemporalSignal } from './clauses'
 import { detectIncomplete, isDraftFresh, newDraft, resolveDraftAnswer } from './drafts'
 import type { AssistantDraft } from './drafts'
 import { applyCorrection, parseCorrection } from './corrections'
@@ -27,7 +27,7 @@ import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../servi
 import { catById } from '../data/categories'
 import { fmtBRL, todayISO, uid } from '../utils/format'
 import { normalizeName } from '../utils/text'
-import { dateLabel } from './dates'
+import { brDate, dateLabel, findDate, previousYearOf, resolveDayInWindow } from './dates'
 
 // ---------------------------------------------------------------------------
 // Capacidades reais do usuário
@@ -106,6 +106,80 @@ interface LocalPass {
   /** Ainda precisa da IA remota? */
   needsRemote: boolean
   unresolved: AssistantUnresolvedClause[]
+  /** Intenção futura declarada: explicar, nunca registrar. */
+  temporalPlan?: TemporalSignal
+}
+
+// ---------------------------------------------------------------------------
+// Tempo — nada do que o usuário disse sobre QUANDO pode sumir
+// ---------------------------------------------------------------------------
+
+/** Copia as ações com uma data explícita, respeitando o catálogo. */
+const withDate = (actions: ParsedAction[], iso?: string): ParsedAction[] =>
+  actions.map(a => {
+    const next: any = { ...a }
+    if (!actionSpec(a.kind)?.fields.some(f => f.name === 'date')) return next as ParsedAction
+    if (iso) next.date = iso
+    else delete next.date
+    return next as ParsedAction
+  })
+
+/**
+ * Explicação honesta para uma intenção futura. O app não agenda lançamentos —
+ * dizer isso com todas as letras é melhor do que registrar na data errada ou
+ * responder com o texto genérico de ajuda, que foi o que motivou esta correção.
+ */
+function futurePlanReply(t: TemporalSignal): string {
+  const quando = t.date && !t.imprecise ? ` (${brDate(t.date)})` : ''
+  return `Isso ainda não aconteceu — você falou de "${t.text}"${quando}. `
+    + 'Eu ainda não sei agendar lançamentos futuros, então não registrei nada. '
+    + 'Quando acontecer, é só me avisar que eu registro na hora.'
+}
+
+/**
+ * Pergunta para uma expressão temporal que não pode datar um fato. Cada opção
+ * carrega o efeito COMPLETO: escolher não obriga o usuário a repetir o valor.
+ */
+function temporalClarification(t: TemporalSignal): AssistantClarification {
+  if (t.kind === 'invalid' || t.kind === 'unknown') {
+    return {
+      question: t.question || `A data "${t.text}" é inválida. Qual foi a data correta?`,
+      field: 'date',
+      pendingActions: t.actions,
+    }
+  }
+  if (t.kind === 'period') {
+    return {
+      question: `Você disse "${t.text}", mas não disse o dia. Que dia foi?`,
+      field: 'date',
+      dateWindow: { from: t.from!, to: t.to! },
+      pendingActions: t.actions,
+    }
+  }
+
+  const plano = { label: 'É um plano', value: 'plano', reply: futurePlanReply(t) }
+  // Data dita por extenso ("dia 10/08"): a leitura mais provável é o mesmo dia
+  // do ano passado. Mostramos as duas datas para o usuário escolher de olho.
+  if (!t.relative && t.date) {
+    const anterior = previousYearOf(t.date)
+    return {
+      question: `A data ${brDate(t.date)} ainda não chegou. Foi ${brDate(anterior)} ou você quer planejar para ${brDate(t.date)}?`,
+      field: 'date',
+      options: [
+        { label: brDate(anterior), value: anterior, actions: withDate(t.actions, anterior) },
+        plano,
+      ],
+    }
+  }
+  const quando = t.date && !t.imprecise ? ` (${brDate(t.date)})` : ''
+  return {
+    question: `"${t.text}"${quando} ainda não chegou. Isso já aconteceu ou é um plano que você quer registrar quando acontecer?`,
+    field: 'date',
+    options: [
+      { label: 'Já aconteceu', value: 'ja-aconteceu', actions: withDate(t.actions) },
+      plano,
+    ],
+  }
 }
 
 /**
@@ -147,8 +221,15 @@ function runLocal(input: OrchestratorInput, caps: AssistantCapabilities): LocalP
   const ambiguous = analysis.clauses.find(c => c.ambiguity)
   const dateAmbiguous = analysis.clauses.find(c => c.dateAmbiguity)
 
+  // A informação temporal tem PRIORIDADE sobre as outras perguntas: ela decide
+  // se o lançamento existe. Perguntar o cartão antes de saber se a despesa
+  // aconteceu seria conversar sobre um fato que talvez nem exista.
+  const temporalAsk = analysis.clauses.find(c => c.temporal && !c.temporal.plan)?.temporal
+  const temporalPlan = analysis.clauses.find(c => c.temporal?.plan)?.temporal
+  if (temporalAsk) clarification = temporalClarification(temporalAsk)
+
   const { actions: reconciled, clarification: goalClar } = reconcileGoalDeposits(input.state, analysis.actions)
-  if (goalClar) clarification = goalClar
+  if (goalClar && !clarification) clarification = goalClar
 
   for (const clause of analysis.clauses) {
     for (const raw of clause.actions) {
@@ -243,7 +324,7 @@ function runLocal(input: OrchestratorInput, caps: AssistantCapabilities): LocalP
     !c.handled && c.intent !== 'conversation' && !(c.intent === 'question' && false))
     || analysis.coverage < 0.999
 
-  return { analysis, candidates, rejected, clarification, needsRemote, unresolved }
+  return { analysis, candidates, rejected, clarification, needsRemote, unresolved, temporalPlan }
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +351,11 @@ function answerQuestions(
   for (const q of questions) {
     const r = askAssistant(projected, q.text)
     if (r.handled === false) continue
+    // CUIDADO: `askAssistant` tem parser próprio e, quando acha uma ação, monta
+    // "Entendi isso… / Confirmar?". Isso é uma PROPOSTA, não a resposta de uma
+    // pergunta — usá-la aqui mostrava a proposta na tela sem nenhum botão para
+    // confirmar. A pergunta segue em aberto e vai para quem sabe respondê-la.
+    if (r.actions?.length || /entendi isso/i.test(r.text)) continue
     parts.push(r.text)
     answered.push(q)
   }
@@ -348,8 +434,94 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
           },
         }
       }
+      // Escolha que significa NÃO REGISTRAR ("é um plano"): a explicação já vem
+      // pronta na opção, para o usuário não ficar sem saber por que nada foi
+      // lançado.
+      if (hit.reply) {
+        return {
+          draft: null,
+          response: {
+            version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local',
+            actions: [], unresolved: [], reply: hit.reply,
+          },
+        }
+      }
       // Opção sem efeito pré-calculado (ex.: escolha de cartão): a resposta
       // segue o fluxo normal já com o valor escolhido embutido na frase.
+    }
+  }
+
+  // ---- 0b) A mensagem responde "que dia foi?" dentro de um período? ------
+  // "mês passado" + "dia 10" só pode virar 10 do mês passado. Fora da janela a
+  // pergunta continua aberta — nada é aproximado e nada cai em hoje.
+  if (pc?.field === 'date' && pc.dateWindow && pc.pendingActions?.length) {
+    const iso = resolveDayInWindow(input.message, pc.dateWindow, today)
+    if (iso) {
+      const cands = withDate(pc.pendingActions, iso).map(a => candidate(a, 'local'))
+      return {
+        draft: null,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
+          actions: cands, unresolved: [],
+          reply: `${proposalText(cands)}\n\nConfirmar?`,
+        },
+      }
+    }
+    // Resposta inválida ou fora da janela: a pergunta continua aberta. Cair no
+    // fluxo comum descartava `pendingClarification`; pior, uma data completa de
+    // outro mês podia ser reduzida ao número do dia e reinterpretada.
+    const from = brDate(pc.dateWindow.from)
+    const to = brDate(pc.dateWindow.to)
+    return {
+      draft: null,
+      response: {
+        version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
+        actions: [], unresolved: [],
+        clarification: pc,
+        reply: `Essa data é inválida ou fica fora do período que você informou (${from} a ${to}). ${pc.question}`,
+      },
+    }
+  }
+
+  // ---- 0c) A mensagem corrige uma data inválida? ------------------------
+  // A ação original fica guardada, mas só volta a ser proposta quando a nova
+  // data for válida e já tiver acontecido. Futuro volta ao esclarecimento de
+  // plano; entrada ainda inválida mantém a mesma pergunta aberta.
+  if (pc?.field === 'date' && !pc.dateWindow && pc.pendingActions?.length) {
+    const corrected = findDate(input.message, today)
+    if (corrected?.kind === 'date') {
+      const cands = withDate(pc.pendingActions, corrected.date).map(a => candidate(a, 'local'))
+      return {
+        draft: null,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
+          actions: cands, unresolved: [],
+          reply: `${proposalText(cands)}\n\nConfirmar?`,
+        },
+      }
+    }
+    if (corrected?.kind === 'future') {
+      const clarification = temporalClarification({
+        kind: 'future', text: corrected.text, label: corrected.label,
+        date: corrected.date, relative: corrected.relative,
+        imprecise: corrected.imprecise, actions: pc.pendingActions,
+        conflict: true,
+      })
+      return {
+        draft: null,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
+          actions: [], unresolved: [], clarification, reply: clarification.question,
+        },
+      }
+    }
+    return {
+      draft: null,
+      response: {
+        version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
+        actions: [], unresolved: [], clarification: pc,
+        reply: `Ainda não consegui entender uma data válida. ${pc.question}`,
+      },
     }
   }
 
@@ -514,7 +686,16 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
 
   // ---- 8) Texto final ----------------------------------------------------
   const hypo = questions.length && candidates.length && !local_answers.text ? hypotheticalSummary(candidates) : null
-  const answerPart = [local_answers.text, remoteReply, hypo].filter(Boolean).join('\n\n')
+  // A intenção futura vira TEXTO, nunca lançamento — e continua aparecendo
+  // mesmo quando o resto da mensagem gerou registros.
+  const planNote = local.temporalPlan ? futurePlanReply(local.temporalPlan) : null
+  // A IA remota caiu (vazia, 502, timeout, rede). O usuário precisa saber que a
+  // pergunta ficou sem resposta POR ISSO — antes ele recebia o texto genérico
+  // de ajuda e não tinha como distinguir "não entendi" de "estou fora do ar".
+  const remoteNote = !remoteReply && unresolved.some(u => u.reason === 'remote-unavailable')
+    ? 'Não consegui falar com o assistente por IA agora, então essa pergunta ficou sem resposta. Tente de novo em instantes — registrar e consultar seus números continua funcionando normalmente.'
+    : null
+  const answerPart = [local_answers.text, remoteReply, hypo, planNote, remoteNote].filter(Boolean).join('\n\n')
   const rejectedAll = [...local.rejected, ...remoteRejected]
 
   let reply: string

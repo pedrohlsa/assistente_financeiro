@@ -1,7 +1,7 @@
 # AssistFin — Estado do Projeto
 
-**Última atualização**: 2026-07-28 — **TAREFA EM ANDAMENTO**: correção das falhas
-temporais silenciosas. Ver "⏸️ EM ANDAMENTO — datas futuras e auditoria da DeepSeek".
+**Última atualização**: 2026-07-29 — correção das falhas temporais silenciosas e
+auditoria de resposta vazia/HTTP 502 da DeepSeek concluídas. Ver a última seção.
 
 > **Aviso de leitura**: as seções datadas abaixo são um diário — cada uma registra o que era
 > verdade **naquela data** e não é reescrita depois. Para o estado atual verificado, use
@@ -1658,3 +1658,140 @@ Pra confirmar que a correção da DeepSeek continua aplicada (não deve haver ne
 ```bash
 grep -rn "deepseek-chat" vite.config.ts api/ai/chat.ts api/_lib/deepseek.ts
 ```
+
+---
+
+## ✅ Datas futuras, inválidas e auditoria da DeepSeek — concluído em 2026-07-29
+
+Escopo fechado sem alterar regras financeiras, Analytics, edição de lançamento
+salvo, “desfaz o último”, suporte a “meio” ou arquitetura de agendamento. Não
+houve merge, push, deploy nem geração de APK.
+
+### 1. Casos que falharam antes da correção
+
+- O primeiro corpus temporal ficou em **8/20**: 12 casos falharam. Datas futuras
+  e períodos reconhecidos sumiam; prazos relativos não eram reconhecidos; fatos
+  eram propostos com hoje.
+- A sondagem adversarial posterior encontrou sobreposição e ordem de datas,
+  “amanhã” com acento, período sem dia e frases mistas.
+- O navegador revelou que clicar numa opção de esclarecimento não executava seu
+  efeito: `Chat.tsx` não devolvia `pendingClarification` ao orquestrador.
+- Na continuação desta rodada, quatro testes novos reproduziram: plano futuro
+  antes do fato passado apagando o fato; `dia 40` encerrando a pergunta; e
+  `10/07` sendo reinterpretado como `10/06`.
+- Cinco testes adicionais reproduziram datas impossíveis (`31/02`, `40/08`) e
+  expressões comuns (`próxima semana`, `semana/mês que vem`) virando hoje.
+- Um teste isolou “quarta que vem” numa quarta-feira sendo resolvida como hoje.
+- Seis testes de barreira reproduziram sinais temporais sem dia único (`em
+  agosto`, `há 3 dias`, `3 dias atrás`, `fim do mês`, `ano passado`) sobrando
+  como descrição e usando hoje.
+- Dois testes impediram uma correção conservadora demais de bloquear metas com
+  horizonte textual, que não são movimentações realizadas.
+
+Todos esses testes foram vistos em vermelho antes da respectiva correção.
+
+### 2. Causas reais
+
+1. `dates.ts` não conhecia `daqui a/em X unidades` nem formas imprecisas comuns.
+2. `analyzeMessage()` só propagava `kind: 'date'`; `future` e `period` eram
+   descartados e a execução aplicava o fallback de hoje.
+3. O fallback usava `todayISO()` da máquina quando a ação chegava sem data.
+4. `\b` depois de “ã” não casava em JavaScript, então “amanhã” escrito
+   corretamente podia desaparecer.
+5. `findAllDates()` resolvia sobreposição pela ordem das regras e removia só
+   parte das expressões.
+6. A primeira data da frase decidia tudo; quando futuro vinha antes de passado,
+   o fato passado legítimo era descartado.
+7. Regras de calendário inválidas devolviam `null`, tornando `31/02` texto
+   comum para o parser.
+8. A resposta a “que dia foi?” extraía só o número de uma data completa fora
+   da janela.
+9. `Chat.tsx` guardava proposta/rascunho, mas não a pergunta estruturada.
+10. Quando o remoto caía, o cliente podia mostrar ajuda genérica ou texto
+    “Confirmar?” sem ação correspondente.
+
+### 3. Correções
+
+- `DateResolution` passou a preservar futuro, período, data inválida e sinais
+  temporais sem dia exato.
+- Datas futuras relativas, explícitas e imprecisas nunca entram numa ação
+  realizada. Data inválida produz pergunta específica.
+- `findAllDates()` percorre todas as expressões da esquerda para a direita e a
+  análise recorta o plano futuro sem contaminar o fato passado.
+- `validateAction()` recusa `date` futura com `future-date`, como última
+  barreira. Datas próprias de previsão, como `firstDueDate`, permanecem válidas.
+- Períodos carregam sua janela; resposta inválida ou fora dela mantém a
+  pergunta aberta. Correção de data reaproveita o lançamento original.
+- Uma barreira de sinais temporais impede formas comuns ainda sem dia exato de
+  virarem descrição + hoje.
+- Metas com horizonte textual foram explicitamente preservadas.
+- O chat guarda, envia e limpa `pendingClarification` junto do restante do
+  estado transitório.
+- Falha remota agora é distinguida de “não entendi”; ações locais permanecem e
+  perguntas exclusivamente remotas recebem aviso compreensível.
+
+### 4. Comportamento final para datas
+
+| Entrada | Resultado |
+|---|---|
+| `gastei 50 daqui a 3 dias` | Pergunta se já aconteceu ou se é plano; zero ação |
+| `vou gastar 50 daqui a 3 dias` | Explica que ainda não agenda; zero ação |
+| `gastei 50 dia 10/08` no futuro | Oferece a última ocorrência passada ou planejamento |
+| `paguei 100 mês passado` | Pergunta o dia e aceita somente data dentro da janela |
+| `gastei 50 dia 31/02` | Informa que a data não existe e pede correção |
+| `gastei 50 em agosto` | Pede data exata; não usa hoje |
+| `amanhã vou pagar 120 e ontem gastei 50` | Propõe só o gasto de ontem e explica o plano |
+| `ontem/anteontem gastei 50` | Mantém a data passada correta |
+| sem expressão temporal | Hoje continua sendo o padrão |
+
+Não foi criada previsão nem recorrência: intenção futura continua sendo somente
+explicada.
+
+### 5. Comportamento final para DeepSeek vazia/502
+
+- Resposta vazia: uma segunda tentativa já existente, mais rígida; **máximo de
+  duas chamadas no total**. Se vier vazia de novo, `empty-reply` seguro.
+- HTTP 502 e demais erros HTTP auditados: **uma chamada**, sem retry.
+- Zero ação criada a partir da falha; nenhum corpo bruto, chave, URL, modelo ou
+  cabeçalho exposto.
+- Mensagem mista preserva a ação local. Pergunta só remota recebe aviso de
+  indisponibilidade.
+- Nenhum retry novo foi implementado. Um retry adicional aumentaria custo e
+  poderia acrescentar até outro timeout completo; também exigiria
+  idempotência/reconciliação explícita para não repetir proposta. Decisão:
+  manter o comportamento atual.
+
+### 6. Testes, invariantes e builds
+
+| Verificação | Resultado |
+|---|---|
+| `npm test` | ✅ núcleo + **345/345 casos** |
+| Invariantes | ✅ **36/36** |
+| Grupo temporal | ✅ **43/43** |
+| `npm run test:assistant:remote` | ✅ **8/8** sondas reais |
+| `npm run typecheck` | ✅ sem erros |
+| `npm run typecheck:api` | ✅ sem erros |
+| `npm run build` | ✅ 77 módulos; `index-C5dMz3ri.js` 509,80 kB / gzip 152,04 kB |
+| `npx vercel build --prod` | ✅ `status: ok`, somente local |
+| Bundle do cliente | ✅ zero `sk-`, `DEEPSEEK`, endpoint privado, código server-only ou Bearer |
+| Função empacotada | ✅ módulos presentes; zero import relativo sem `.js` |
+| Caracteres de controle | ✅ zero |
+
+Smoke test em 430 × 900: escolha de data passada, opção “É um plano”, período
+com resposta fora da janela seguido de dia válido, ordem futuro→passado e
+cancelamento sem criar movimentação. Sem erro do app no console e sem estouro
+horizontal. Os dois avisos vistos são os `Future Flag Warning` conhecidos do
+React Router 6.
+
+### 7. Branch e riscos restantes
+
+- Branch: `feat/assistant-orchestrator`.
+- A correção será fechada em um commit isolado; hash informado na entrega.
+- Pronta para merge depois desse commit, mas deliberadamente sem push/deploy/APK.
+- Intervalos (`de 1 a 5 de julho`) ainda não viram um intervalo estruturado;
+  pedem esclarecimento e não caem silenciosamente em hoje.
+- “segunda passada” mantém a semântica histórica de segunda-feira mais recente.
+- Uma formulação temporal completamente nova, fora das regras e dos sinais de
+  segurança conhecidos, ainda pode não ser reconhecida. Entre as formas
+  auditadas e suportadas, nenhuma situação temporal conhecida ainda cai
+  silenciosamente em hoje.

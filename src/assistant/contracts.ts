@@ -51,6 +51,13 @@ export interface ActionFieldSpec {
   min?: number
   max?: number
   maxLength?: number
+  /**
+   * Data de um fato JÁ OCORRIDO — não pode estar no futuro. É a última barreira
+   * contra o defeito que motivou esta regra: uma data futura reconhecida sendo
+   * trocada por hoje sem ninguém avisar. Vencimento e previsão usam campos
+   * próprios (`firstDueDate`), que continuam podendo ser futuros.
+   */
+  notFuture?: boolean
   /** Texto usado para gerar o schema do prompt remoto. */
   describe: string
 }
@@ -73,8 +80,8 @@ const money = (name: string, describe: string, required = true): ActionFieldSpec
   ({ name, type: 'money', required, min: 0.01, max: 99_999_999, describe })
 
 const dateField: ActionFieldSpec = {
-  name: 'date', type: 'date', required: false,
-  describe: 'data do fato no formato YYYY-MM-DD. Omita quando for hoje. NUNCA invente uma data',
+  name: 'date', type: 'date', required: false, notFuture: true,
+  describe: 'data do fato no formato YYYY-MM-DD. Omita quando for hoje. NUNCA invente uma data e NUNCA use uma data futura: o que ainda não aconteceu não se registra',
 }
 
 const textField = (name: string, describe: string, maxLength = 80): ActionFieldSpec =>
@@ -242,7 +249,7 @@ export function allowedRemoteKinds(profile: ProfileId): AssistantActionKind[] {
 // ---------------------------------------------------------------------------
 
 export type AssistantErrorCode =
-  | 'invalid-amount' | 'invalid-date' | 'invalid-number'
+  | 'invalid-amount' | 'invalid-date' | 'future-date' | 'invalid-number'
   | 'category-not-found' | 'category-wrong-type'
   | 'card-not-found' | 'card-ambiguous' | 'goal-not-found' | 'goal-ambiguous'
   | 'duplicate' | 'missing-field' | 'profile-forbidden'
@@ -253,6 +260,7 @@ export type AssistantErrorCode =
 export const ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
   'invalid-amount': 'O valor informado não é um número válido.',
   'invalid-date': 'Não consegui entender a data.',
+  'future-date': 'Essa data ainda não chegou — só registro o que já aconteceu.',
   'invalid-number': 'Um dos números informados não é válido.',
   'category-not-found': 'Essa categoria não existe no seu app.',
   'category-wrong-type': 'Essa categoria não serve para esse tipo de lançamento.',
@@ -310,6 +318,12 @@ export interface AssistantClarificationOption {
    * vira a confirmação normal.
    */
   actions?: ParsedAction[]
+  /**
+   * Resposta pronta quando a escolha significa NÃO REGISTRAR. Sem isto, "é um
+   * plano futuro" cairia no texto genérico de proposta e o usuário ficaria sem
+   * entender por que nada foi lançado.
+   */
+  reply?: string
 }
 
 export interface AssistantClarification {
@@ -319,6 +333,14 @@ export interface AssistantClarification {
   options?: AssistantClarificationOption[]
   /** Ação a que a pergunta se refere, quando aplicável. */
   actionId?: string
+  /**
+   * "Que dia foi?" precisa de uma janela: a resposta curta ("dia 10") só vale
+   * dentro do período que o usuário citou. Fora dela a pergunta continua aberta
+   * — nada é aproximado e nada cai em hoje.
+   */
+  dateWindow?: { from: string; to: string }
+  /** Ações que só serão propostas depois da resposta. Nada foi registrado. */
+  pendingActions?: ParsedAction[]
 }
 
 export interface AssistantUnresolvedClause {
@@ -501,6 +523,9 @@ export function validateAction(
       }
       case 'date': {
         if (!isPlausibleDate(v, todayIso)) return { ok: false, code: 'invalid-date', detail: String(v).slice(0, 20) }
+        // Última barreira: se uma data futura chegou até aqui, ela é RECUSADA
+        // com motivo — nunca silenciosamente trocada por hoje.
+        if (f.notFuture && v > todayIso) return { ok: false, code: 'future-date', detail: String(v).slice(0, 10) }
         out[f.name] = v
         break
       }

@@ -8,7 +8,8 @@
 import type { ParsedAction } from '../models/types'
 import type { AssistantConfidence, AssistantIntent } from './contracts'
 import { parseNaturalFull } from '../services/nlp'
-import { findDate, dateLabel } from './dates'
+import { findAllDates, findUnresolvedTemporalHint, dateLabel } from './dates'
+import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
 import { parseMoney, todayISO } from '../utils/format'
 
@@ -29,6 +30,40 @@ export interface AnalyzedClause {
   ambiguity?: { question: string; options: { label: string; actions: ParsedAction[] }[] }
   /** Data ambígua: precisa de escolha antes de virar lançamento. */
   dateAmbiguity?: { question: string; options: { label: string; value: string }[] }
+  /**
+   * Expressão temporal reconhecida que NÃO pode datar um fato já ocorrido.
+   * Existe para que nada seja descartado em silêncio: quem recebe isto tem que
+   * perguntar ou explicar, jamais gravar com a data de hoje.
+   */
+  temporal?: TemporalSignal
+}
+
+export interface TemporalSignal {
+  /** Futuro, intervalo sem dia certo ou expressão de calendário impossível. */
+  kind: 'future' | 'period' | 'invalid' | 'unknown'
+  /** Trecho literal que o usuário escreveu ("daqui a 3 dias", "mês passado"). */
+  text: string
+  label: string
+  /** Data calculada, quando a expressão aponta para um dia único. */
+  date?: string
+  /** Janela do período, quando não há dia único. */
+  from?: string
+  to?: string
+  /** Contada a partir de hoje ("daqui a 3 dias") em vez de dita ("10/08"). */
+  relative?: boolean
+  /** Período futuro sem um dia exato ("próxima semana", "mês que vem"). */
+  imprecise?: boolean
+  /** Pergunta pronta para corrigir uma data inválida. */
+  question?: string
+  /**
+   * Verbo no passado + data futura: "gastei 50 daqui a 3 dias". A frase se
+   * contradiz, então o assistente PERGUNTA em vez de escolher uma das leituras.
+   */
+  conflict?: boolean
+  /** Intenção declaradamente futura: "vou gastar 50 daqui a 3 dias". */
+  plan?: boolean
+  /** Ações que a frase descrevia, guardadas para depois da resposta. */
+  actions: ParsedAction[]
 }
 
 export interface MessageAnalysis {
@@ -105,6 +140,19 @@ const NEGATED_STATEMENT = new RegExp(
 )
 
 export const looksNegated = (t: string): boolean => NEGATED_STATEMENT.test(t)
+
+/**
+ * Verbo de dinheiro no PASSADO. É o que separa "gastei 50 daqui a 3 dias"
+ * (contradição — o usuário afirma um fato consumado numa data que não chegou)
+ * de "vou gastar 50 daqui a 3 dias" (plano declarado). As duas situações têm
+ * respostas diferentes, e nenhuma delas é gravar na data de hoje.
+ */
+const PAST_MONEY_VERBS =
+  'gastei|gastou|gastamos|paguei|pagou|pagamos|recebi|recebeu|recebemos|ganhei|ganhou|ganhamos|comprei|comprou|compramos|parcelei|passei|abasteci|coloquei|botei|guardei|separei|depositei|investi|apliquei|tirei|retirei|vendi|faturei|lucrei|rodei|andei|dirigi|percorri|trabalhei|fiz|fizemos|troquei|instalei|entrou|caiu|sobrou'
+
+const PAST_STATEMENT = new RegExp(String.raw`\b(?:${PAST_MONEY_VERBS})\b`, 'i')
+
+export const looksPast = (t: string): boolean => PAST_STATEMENT.test(t)
 
 const hasAny = (t: string, list: RegExp[]) => list.some(r => r.test(t))
 
@@ -247,6 +295,13 @@ export const extractOrigin = (t: string): string | undefined => extractOrigins(t
 const DATABLE = new Set(['income', 'expense', 'saving', 'work', 'fuel', 'maintenance'])
 const ORIGINABLE = new Set(['income', 'expense'])
 
+// Predicados explícitos: sob `strict: false` o TypeScript não estreita união
+// discriminada dentro de `find()` sem eles (ver CLAUDE.md, regra 24).
+const isFutureDate = (d: DateResolution): d is Extract<DateResolution, { kind: 'future' }> => d.kind === 'future'
+const isPeriodDate = (d: DateResolution): d is Extract<DateResolution, { kind: 'period' }> => d.kind === 'period'
+const isInvalidDate = (d: DateResolution): d is Extract<DateResolution, { kind: 'invalid' }> => d.kind === 'invalid'
+const isRelativeFuture = (d: DateResolution): boolean => isFutureDate(d) && d.relative === true
+
 let seq = 0
 const clauseId = () => `c${++seq}`
 
@@ -316,24 +371,101 @@ export function analyzeMessage(
     const forParser = aligned ? normalizedParts[i].text : normalized
     const id = clauseId()
 
-    // A expressão de data é retirada ANTES de o parser rodar: sem isso ela
-    // sobrava na descrição do lançamento ("Despesa de R$ 40,00 — Hoje · hoje").
-    const dateRes = findDate(part.text, today)
-    const dateInParser = findDate(forParser, today)
-    const semData = dateInParser
-      ? (forParser.slice(0, dateInParser.start) + ' ' + forParser.slice(dateInParser.end)).replace(/\s{2,}/g, ' ').trim()
-      : forParser
+    // TODAS as expressões de data são retiradas ANTES de o parser rodar. Só a
+    // primeira era retirada, e a que sobrava no texto virava número e descrição
+    // do lançamento: "ontem gastei 50 e daqui a 3 dias pago mais 100" criava uma
+    // despesa fantasma de R$ 3,00, datada de ontem.
+    let datesOriginal = findAllDates(part.text, today)
+    let datesParser = findAllDates(forParser, today)
+    let hintOriginal = datesOriginal.length ? null : findUnresolvedTemporalHint(part.text)
+    let hintParser = datesParser.length ? null : findUnresolvedTemporalHint(forParser)
+
+    // "em 6 meses" em "quero comprar um celular de 5000 em 6 meses" é o PRAZO
+    // da meta, não a data de um fato. Só as formas relativas colidem assim, e o
+    // desempate é o parser: se a frase inteira produz uma meta, a expressão
+    // pertence a ela e não pode ser arrancada do texto.
+    if (datesOriginal.some(isRelativeFuture) || datesParser.some(isRelativeFuture)) {
+      const full = parseNaturalFull(forParser, { driver: opts?.driver })
+      if (full.actions.some(a => a.kind === 'goal' || a.kind === 'goal-update')) {
+        datesOriginal = datesOriginal.filter(d => !isRelativeFuture(d))
+        datesParser = datesParser.filter(d => !isRelativeFuture(d))
+        hintOriginal = null
+        hintParser = null
+      }
+    }
+    if (hintOriginal || hintParser) {
+      const full = parseNaturalFull(forParser, { driver: opts?.driver })
+      if (full.actions.some(a => a.kind === 'goal' || a.kind === 'goal-update')) {
+        hintOriginal = null
+        hintParser = null
+      }
+    }
+
+    // O trecho que fala do FUTURO não descreve o fato passado. Sem recortá-lo,
+    // "gastei 40 hoje e amanhã vou pagar 120" gravava a despesa de hoje com a
+    // descrição "Vou pagar 120" — o plano contaminava o lançamento real.
+    let base = forParser
+    const futParser = datesParser.find(isFutureDate)
+    const pastParser = datesParser.find(d => d.kind === 'date')
+    if (futParser && pastParser) {
+      const retoma = datesParser.find(d => d.kind === 'date' && d.start > futParser.start)?.start ?? forParser.length
+      base = `${forParser.slice(0, futParser.start)} ${forParser.slice(retoma)}`
+    }
+    if (hintParser && !datesParser.length) {
+      base = `${base.slice(0, hintParser.start)} ${base.slice(hintParser.end)}`
+    }
+
+    let semData = base
+    for (const d of [...findAllDates(base, today)].sort((a, b) => b.start - a.start)) {
+      semData = semData.slice(0, d.start) + ' ' + semData.slice(d.end)
+    }
+    // Conector órfão deixado pelo recorte ("gastei 40 e") não é descrição.
+    semData = semData.replace(/\s{2,}/g, ' ').replace(/[\s,;]*\b(?:e|mas|por[ée]m)\s*$/i, '').trim()
 
     const parsed = parseNaturalFull(semData || forParser, { driver: opts?.driver })
     let actions = parsed.actions
     let date: string | undefined
     let dLabel: string | undefined
     let dateAmbiguity: AnalyzedClause['dateAmbiguity']
-    if (dateRes) {
-      if (dateRes.kind === 'date') { date = dateRes.date; dLabel = dateRes.label }
-      else if (dateRes.kind === 'ambiguous') dateAmbiguity = { question: dateRes.question, options: dateRes.options }
-      // 'future' e 'period' não datam um fato já ocorrido: ficam de fora e a
-      // cláusula segue com a data de hoje, como sempre foi.
+    // A expressão pode aparecer só no texto normalizado ("daqui a três dias"):
+    // ignorar esse caso seria descartar em silêncio exatamente o que a regra
+    // temporal proíbe.
+    const resolved = datesOriginal.length ? datesOriginal : datesParser
+    const future = resolved.find(isFutureDate)
+    const period = resolved.find(isPeriodDate)
+    const invalid = resolved.find(isInvalidDate)
+    const past = resolved.find(d => d.kind === 'date')
+    // Quando há plano futuro e fato passado na mesma frase, a ordem das duas
+    // metades não pode decidir qual delas sobrevive. `base` já isolou o fato;
+    // aqui ligamos a ele a data passada mesmo quando o plano veio primeiro.
+    const primary = future && past ? past : resolved[0]
+    let temporal: TemporalSignal | undefined
+    if (primary && primary.kind === 'date') { date = primary.date; dLabel = primary.label }
+    else if (primary && primary.kind === 'ambiguous') dateAmbiguity = { question: primary.question, options: primary.options }
+
+    if (invalid) {
+      temporal = {
+        kind: 'invalid', text: invalid.text, label: invalid.label,
+        question: invalid.question, actions: [],
+      }
+    } else if (future) {
+      temporal = {
+        kind: 'future', text: future.text, label: future.label,
+        date: future.date, relative: future.relative,
+        imprecise: future.imprecise, actions: [],
+      }
+    } else if (period) {
+      temporal = {
+        kind: 'period', text: period.text, label: period.label,
+        from: period.from, to: period.to, actions: [],
+      }
+    } else if (hintOriginal || hintParser) {
+      const hint = hintOriginal || hintParser!
+      temporal = {
+        kind: 'unknown', text: hint.text, label: 'data não definida',
+        question: `Você mencionou "${hint.text}", mas eu não consegui identificar uma data exata. Qual foi a data correta?`,
+        actions: [],
+      }
     }
     if (date) { inheritedDate = date; inheritedLabel = dLabel }
     else if (inheritedDate) { date = inheritedDate; dLabel = inheritedLabel }
@@ -369,7 +501,11 @@ export function analyzeMessage(
 
     // Pergunta de ANÁLISE cita valores para serem avaliados, não registrados:
     // "essa corrida de 18 por 12 km vale a pena?" não é uma receita de 18.
-    if (isQuestion && /\bvale\s+a\s+pena\b|\bcompensa\b|\bdevo\s+aceitar\b|\bacei(?:to|tar)\b/i.test(part.text)) {
+    // Mas com verbo no passado o dinheiro JÁ saiu: "gastei 50 no mercado, vale
+    // a pena trocar de plano?" é um fato mais uma opinião, e descartar tudo
+    // fazia a despesa real do usuário desaparecer sem aviso.
+    if (isQuestion && !looksPast(part.text)
+      && /\bvale\s+a\s+pena\b|\bcompensa\b|\bdevo\s+aceitar\b|\bacei(?:to|tar)\b/i.test(part.text)) {
       actions = []
     }
 
@@ -383,7 +519,47 @@ export function analyzeMessage(
       actions = []
     }
 
-    const isCorrection = !isConversation && looksLikeCorrection(part.text)
+    // NENHUMA EXPRESSÃO TEMPORAL É DESCARTADA. Uma data que ainda não chegou,
+    // ou um período sem dia certo, não pode virar um lançamento de hoje: as
+    // ações ficam guardadas no sinal e quem decide é o usuário.
+    if (temporal && !negated && !isConversation) {
+      const dataveis = actions.filter(a => DATABLE.has(a.kind))
+      const falaDeDinheiro = dataveis.length > 0 || /\d/.test(semData)
+      if (date) {
+        // Data passada explícita E plano futuro na mesma frase ("gastei 40 hoje
+        // e amanhã vou pagar 120"): o registro legítimo continua com a data
+        // certa, e o plano vira explicação — nunca um segundo lançamento.
+        if (temporal.kind === 'future' && falaDeDinheiro) temporal.plan = true
+        else temporal = undefined
+      } else if (temporal.kind === 'future' && (dataveis.length || (!isQuestion && falaDeDinheiro))) {
+        // Perguntar não autoriza gravar na data errada: "gastei 50 daqui a 3
+        // dias?" também para aqui.
+        temporal.actions = actions
+        // Passado + futuro é contradição: perguntar. Sem verbo no passado, é
+        // plano declarado: explicar que ainda não sabemos agendar.
+        if (looksPast(part.text)) temporal.conflict = true
+        else temporal.plan = true
+        actions = []
+      } else if ((temporal.kind === 'period' || temporal.kind === 'invalid') && dataveis.length) {
+        temporal.actions = actions
+        actions = []
+      } else if (temporal.kind === 'unknown' && (dataveis.length || (!isQuestion && falaDeDinheiro))) {
+        temporal.actions = actions
+        if (looksPast(part.text)) temporal.conflict = true
+        else temporal.plan = true
+        actions = []
+      } else {
+        temporal = undefined
+      }
+    } else if (temporal) {
+      temporal = undefined
+    }
+
+    // Uma PERGUNTA que por acaso contém "trocar"/"mudar" não é uma correção:
+    // "vale a pena trocar de plano?" era classificada como correção e o
+    // assistente respondia "entendi que isso não aconteceu — não registrei
+    // nada", que não tem relação nenhuma com o que foi perguntado.
+    const isCorrection = !isConversation && !isQuestion && looksLikeCorrection(part.text)
 
     let intent: AssistantIntent
     if (isConversation) intent = 'conversation'
@@ -394,9 +570,14 @@ export function analyzeMessage(
     else if (isQuestion) intent = 'question'
     else intent = 'unknown'
 
+    // A cláusula temporal FOI compreendida — o que falta é a decisão do
+    // usuário. Marcá-la como resolvida é o que impede a mensagem de ir para a
+    // IA remota e voltar de lá como um lançamento datado de hoje.
+    if (temporal) intent = 'record'
+
     // Uma cláusula com ação E pergunta juntas ("gastei 40, ainda bato a meta?")
     // rende DUAS entradas: a pergunta não pode sumir porque a ação foi entendida.
-    const handled = intent === 'conversation' || (intent === 'record' && actions.length > 0)
+    const handled = intent === 'conversation' || (intent === 'record' && actions.length > 0) || !!temporal
 
     clauses.push({
       id, text: part.text, start: part.start, end: part.end,
@@ -406,6 +587,7 @@ export function analyzeMessage(
       date, dateLabel: date ? dLabel || dateLabel(date, today) : undefined,
       ambiguity: parsed.ambiguity,
       dateAmbiguity,
+      temporal,
     })
 
     if (actions.length && isQuestion) {
