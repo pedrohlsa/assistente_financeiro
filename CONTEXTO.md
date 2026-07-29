@@ -98,6 +98,7 @@ src/
     nlp.ts            # parser determinístico pt-BR
     ai.ts             # motor de respostas local + contexto e sanitização da IA remota
     profile.ts        # regras de perfil
+    navigation.ts     # rota → aba da barra inferior (fonte única do indicador)
     notifications.ts  # agendamento de notificações locais
     rideOverlay.ts    # ponte para o plugin Android do analisador flutuante
   store/store.tsx     # estado global, reducer, persistência, applyParsedAction

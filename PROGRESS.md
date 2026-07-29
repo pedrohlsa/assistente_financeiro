@@ -1,7 +1,7 @@
 # AssistFin — Estado do Projeto
 
-**Última atualização**: 2026-07-29 — correção das falhas temporais silenciosas e
-auditoria de resposta vazia/HTTP 502 da DeepSeek concluídas. Ver a última seção.
+**Última atualização**: 2026-07-29 — aba ativa da barra inferior centralizada em
+`src/services/navigation.ts`. Ver a última seção.
 
 > **Aviso de leitura**: as seções datadas abaixo são um diário — cada uma registra o que era
 > verdade **naquela data** e não é reescrita depois. Para o estado atual verificado, use
@@ -1795,3 +1795,106 @@ React Router 6.
   segurança conhecidos, ainda pode não ser reconhecida. Entre as formas
   auditadas e suportadas, nenhuma situação temporal conhecida ainda cai
   silenciosamente em hoje.
+
+---
+
+## 🟢 Aba ativa da barra inferior — fonte única — 2026-07-29
+
+Escopo fechado: só a decisão de qual aba fica marcada. Nenhuma regra financeira,
+nenhuma mudança no assistente, sem push, deploy ou APK.
+
+### 1. Rotas abertas pela aba "Mais"
+
+Levantadas em `src/screens/More.tsx` (`ALL_ITEMS`) e conferidas contra `App.tsx`:
+
+| Rota | Tela | Observação |
+|---|---|---|
+| `/mais` | Hub | A própria aba |
+| `/analises` | Análises e relatórios | Também alcançável pela Home |
+| `/veiculo` | Meu veículo | Só perfil motorista |
+| `/planejamento` | Planejamento | Também alcançável pela Home |
+| `/cartoes` | Cartões e parcelamentos | |
+| `/config` | Configurações | |
+| `/corrida` | Analisador de corrida | Só motorista; não fica no hub, mas pertence à seção |
+
+### 2. Reprodução ANTES da correção (navegador, 375 × 812)
+
+As cinco rotas do hub já mantinham "Mais" verde — isso foi corrigido na rodada de
+28/07. O que ainda estava quebrado era o **mecanismo**: `nav.tsx` guardava uma
+cópia manual da tabela de rotas e casava por `startsWith`. Dois erros reais
+reproduzidos com esse mecanismo:
+
+| URL | Tela renderizada | Aba marcada | Problema |
+|---|---|---|---|
+| `#/relatorios`, `#/qualquer` | Início (rota coringa `*`) | **nenhuma** | O indicador some |
+| `#/config/backup`, `#/cartoes/fatura`, `#/mais/analises` | Início (rota coringa `*`) | **Mais** | O indicador mente sobre a tela |
+
+Causa raiz única: a lista de rotas era uma **segunda fonte de verdade**, paralela
+ao roteador. Qualquer rota nova em `App.tsx` que ninguém copiasse para essa lista
+perderia o indicador em silêncio, e `startsWith` marcava subcaminhos que o
+roteador nem declara.
+
+### 3. Correção
+
+- **`src/services/navigation.ts`** (novo): mapa `ROUTE_TAB` (rota → aba),
+  `activeTab(pathname)` e `MORE_ROUTES` derivado do mapa. Casamento **exato**,
+  com normalização de barra final e caixa; rota desconhecida cai na aba da tela
+  que o coringa realmente renderiza (Início). `activeTab` nunca devolve vazio.
+- **`src/components/nav.tsx`**: `BottomNav` passou a consumir `activeTab`. O
+  `NavLink` virou `Link` de propósito — o `isActive` dele era a segunda fonte de
+  verdade que causava o problema, já que as telas da seção "Mais" não têm rota
+  própria na barra. `aria-current="page"` agora acompanha a aba marcada,
+  inclusive no botão do assistente.
+- O `Fab` **não** foi tocado: ele casa rota para escolher a ação do `+`, que é
+  outra responsabilidade e está fora deste escopo.
+
+### 4. Testes
+
+`tests/navigation.ts`, rodado por `npm test` junto do núcleo — **9 verificações**:
+
+1. toda rota de "Mais" marca a aba Mais;
+2. Início, Movimentações, Assistente e Metas continuam corretos;
+3. rota desconhecida marca a aba da tela renderizada (era o defeito 1);
+4. subcaminho inexistente não marca outra aba (era o defeito 2);
+5. nunca fica sem indicador;
+6. barra final e caixa são normalizadas;
+7. **o mapa cobre exatamente as rotas declaradas em `App.tsx`** — é este que
+   quebra quando alguém acrescenta uma rota e esquece de mapeá-la;
+8. `BottomNav` não decide sozinho (sem `startsWith`, sem lista duplicada);
+9. toda rota oferecida pelo hub `More.tsx` marca a aba Mais.
+
+O ciclo foi vermelho → verde: os testes rodaram primeiro contra a lógica antiga
+copiada para o módulo, e `/relatorios` falhou com `null !== '/'`.
+
+### 5. Verificação no navegador (375 × 812)
+
+| Situação | Resultado |
+|---|---|
+| 7 rotas da seção, carregadas direto pela URL | "Mais" verde em todas |
+| Clique no hub → Cartões, Configurações | "Mais" continua verde |
+| Botão voltar do navegador | "Mais" continua verde |
+| Botão `‹` da própria tela (`navigate(-1)`) | "Mais" continua verde |
+| Reload dentro de `/planejamento` | "Mais" continua verde |
+| `/`, `/movimentacoes`, `/metas` | Cada uma marca a sua |
+| `#/relatorios`, `#/config/backup` | Início verde, igual à tela renderizada |
+| Barra inferior | `position: fixed`, visível, sem estouro horizontal |
+| Console | Sem erro |
+
+Cor conferida com a transição de 150 ms desligada: `--accent` (`rgb(31,92,72)`)
+exatamente na aba correta e em nenhuma outra.
+
+### 6. Comandos
+
+| Comando | Resultado |
+|---|---|
+| `npm test` | ✅ núcleo (inclui 9 verificações de navegação) + 345/345 casos + 36/36 invariantes |
+| `npm run typecheck` | ✅ exit 0 |
+| `npm run typecheck:api` | ✅ exit 0 |
+| `npm run build` | ✅ `index-BOIG93W3.js` 508,51 kB / gzip 151,60 kB |
+
+### 7. Limitações que permanecem
+
+- `App.tsx` não declara rota aninhada; se alguma for criada, o mapa precisa
+  ganhar a entrada correspondente — a verificação 7 falha até que isso aconteça.
+- O `Fab` continua com seu próprio casamento de rota por `startsWith`. Não é o
+  indicador da barra, mas tem a mesma fragilidade e vale centralizar depois.

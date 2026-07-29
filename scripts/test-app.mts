@@ -5,6 +5,7 @@ import { kmCost } from '../src/services/calc'
 import { plainChatText } from '../src/utils/text'
 import { AppState } from '../src/models/types'
 import { DEFAULT_CATEGORIES } from '../src/data/categories'
+import { runNavigationTests } from '../tests/navigation'
 
 const state = (): AppState => ({
   settings: {
@@ -92,4 +93,6 @@ const state = (): AppState => ({
   })
 }
 
-console.log('Todos os testes do núcleo passaram.')
+const navChecks = runNavigationTests()
+
+console.log(`Todos os testes do núcleo passaram (inclui ${navChecks} verificações de navegação).`)
