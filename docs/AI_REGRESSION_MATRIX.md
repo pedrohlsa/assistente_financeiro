@@ -3,12 +3,19 @@
 > **Status: esta matriz virou código.** O documento continua servindo como visão panorâmica,
 > mas a fonte de verdade agora é executável:
 >
-> - `tests/assistant/cases.ts` e `tests/assistant/cases-critical.ts` — **234 casos**;
-> - `tests/assistant/properties.ts` — **26 invariantes financeiras**;
+> - `tests/assistant/cases.ts` — regressão da reformulação;
+> - `tests/assistant/cases-critical.ts` — os dez cenários obrigatórios do briefing;
+> - `tests/assistant/cases-adversarial.ts` — **68 casos** da rodada de QA adversarial,
+>   cada um escrito ANTES da correção do bug que o originou;
+> - `tests/assistant/properties.ts` — **27 invariantes financeiras**;
 > - `npm run test:assistant` — roda tudo offline, com data fixa, contra o orquestrador real.
 >
 > **Resultado da última execução (28/07/2026, branch `feat/assistant-orchestrator`):
-> 234/234 casos e 26/26 invariantes.**
+> 302/302 casos e 27/27 invariantes.**
+>
+> ⚠️ **100% aqui não significa "a IA está correta".** Na rodada adversarial, 8 dos 17 bugs só
+> apareceram no navegador com mensagem real — o corpus passava 100% enquanto "não gastei 100"
+> ainda propunha registrar a despesa. Teste manual com linguagem torta continua obrigatório.
 >
 > A coluna "Atual" abaixo descreve o estado **anterior** à reformulação e foi mantida como
 > registro histórico — é o retrato do que motivou cada correção. O que vale hoje está em
@@ -50,8 +57,13 @@ Os grupos correspondem assim:
 | 10 motorista | `motorista`, `motorista2`, `perfil` |
 | 11 ambiguidades e correções | `ambiguidade`, `correcoes`, `correcoes2`, `multiturno` |
 | 12 conversacional | `conversa`, `conversa2`, `incompletas` |
-| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 26 invariantes |
+| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 27 invariantes |
 | Cenários obrigatórios do briefing | `criticos` (10 casos, frases literais) |
+
+Grupos criados na rodada adversarial de 28/07, todos em `cases-adversarial.ts`:
+`negacao`, `hipoteses`, `abreviacao`, `descricao`, `sempontuacao`, `metanome`, `gasadv`,
+`correcaomsg`, `preposicao`, `hodometro`, `passei`, `datadesc`, `centavos`, `falados`,
+`explicacao`, `injecao`, `datafutura`.
 
 ---
 

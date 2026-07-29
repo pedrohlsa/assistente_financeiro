@@ -348,19 +348,31 @@ Confirmadas no código em 28/07/2026.
 
 ### IA
 
-Vinte pontos confirmados e detalhados em [docs/AI_CURRENT_STATE.md](docs/AI_CURRENT_STATE.md).
-Os mais estruturais:
+Os vinte pontos estruturais da auditoria de 28/07/2026 foram resolvidos na reformulação do
+assistente, e a rodada de QA adversarial corrigiu mais 17 defeitos de interpretação e interface.
+Detalhe completo em [docs/AI_CURRENT_STATE.md §6](docs/AI_CURRENT_STATE.md).
 
-Os treze pontos estruturais listados aqui na auditoria de 28/07/2026 foram resolvidos na
-reformulação do assistente. O que **permanece** está em
-[docs/AI_CURRENT_STATE.md §6](docs/AI_CURRENT_STATE.md), resumido:
+**Precisam de tratamento** (ordem de prioridade):
 
-8. Editar um lançamento **já salvo** por conversa não existe (só enquanto a proposta está na tela).
-9. "Desfaz o último" depois da gravação não existe — o `assistantBatchId` já viabiliza, falta o fluxo.
-10. A proposta pendente não vai no payload remoto (só o histórico de texto).
-11. Números por extenso não cobrem "meio" nem centavos em qualquer posição.
-12. Datas não cobrem "daqui a 3 dias" nem intervalos.
-13. A qualidade do texto da IA remota não é testada — só o contrato.
+8. **Data futura é ignorada em silêncio.** `gastei 40 em 10/08` com hoje em julho reconhece a
+   data, classifica como futura e grava como HOJE sem avisar. Tem que perguntar ou recusar —
+   nunca gravar a data errada calado.
+9. **"daqui a X dias/semanas/meses" precisa de tratamento seguro.** Hoje não gera ação (resultado
+   seguro) mas responde com o texto de ajuda genérico. Precisa virar previsão explícita ou dizer
+   claramente que ainda não sabe agendar. Nunca pode virar lançamento de hoje.
+10. **A DeepSeek devolve resposta vazia de forma intermitente** (`empty-reply` → HTTP 502). O app
+    trata com erro seguro e fallback local, sem perder ação, mas o usuário perde a resposta
+    aberta. Investigar `max_tokens` e o retry único de `callDeepSeekChat`.
+
+**Fora do escopo por decisão** (documentado, não esquecido):
+
+11. Editar um lançamento **já salvo** por conversa — só enquanto a proposta está na tela.
+12. **"Desfaz o último"** depois da gravação — o `assistantBatchId` já viabiliza, falta o fluxo.
+13. **`Analytics.tsx` por perfil** — pendência anterior a esta reformulação.
+
+**Menores**: "meio" não é interpretado; intervalos de data não são cobertos; a proposta pendente
+não vai no payload remoto (investigado, sem falha demonstrada); a qualidade do texto da IA remota
+não é testada, só o contrato.
 
 ### Produto
 

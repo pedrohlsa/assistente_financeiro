@@ -161,7 +161,7 @@ Auditoria opcional em cada lançamento: `source: 'ai'`, `assistantBatchId`, `pro
 | 17 | Contrato remoto pobre | **Resolvido** — envelope versionado com `mode` e `clarification` |
 | 18 | Texto puro engolindo ações | **Resolvido** — `envelope: null` e `contractFallback: true` |
 | 19 | Validação de categoria e perfil | **Resolvido** |
-| 20 | Testes insuficientes | **Resolvido** — 234 casos + 26 invariantes |
+| 20 | Testes insuficientes | **Resolvido** — 302 casos + 27 invariantes |
 
 ---
 
@@ -170,33 +170,77 @@ Auditoria opcional em cada lançamento: `source: 'ai'`, `assistantBatchId`, `pro
 | Comando | O que roda |
 |---|---|
 | `npm test` | núcleo + corpus do assistente (offline, data fixa 2026-07-15) |
-| `npm run test:assistant` | 234 casos + 26 invariantes |
+| `npm run test:assistant` | **302 casos + 27 invariantes** |
 | `npm run test:assistant:remote` | 8 sondas contra a IA real; valida o CONTRATO, não o texto |
 | `npm run typecheck` / `typecheck:api` | `src/` e a mesma checagem que a Vercel faz |
 
 O corpus roda o orquestrador **real**, não uma reimplementação.
 
+Três arquivos de casos: `cases.ts` (regressão), `cases-critical.ts` (os dez cenários
+obrigatórios do briefing, com as frases literais) e `cases-adversarial.ts` (68 casos vindos da
+rodada de QA de 28/07 — cada um escrito ANTES da correção do bug que o originou).
+
+> **O que 302/302 NÃO prova.** Na rodada adversarial, **8 dos 17 bugs só apareceram no
+> navegador com mensagem real** — o corpus passava 100% enquanto "não gastei 100" ainda
+> propunha registrar a despesa. O corpus cobre bem o que foi imaginado; teste manual com
+> linguagem torta continua sendo necessário antes de cada entrega.
+
 ---
 
-## 6. Limitações honestas que permanecem
+## 6. Pendências e limitações conhecidas
 
-1. **Editar um lançamento já salvo por conversa** não existe. "O mercado de ontem foi 80, não
-   100" é reconhecido como correção apenas enquanto a proposta está na tela. Depois de gravado,
-   a edição é pela tela de Movimentações. Não foi implementado porque exigiria uma ação de edição
-   auditável no store, e ampliar o escopo sem confirmação seria pior que a limitação.
-2. **"Desfaz o último"** após a gravação também não existe. O `assistantBatchId` já está gravado
-   e torna isso viável depois, mas o fluxo de remoção com confirmação não foi feito.
-3. **A proposta pendente não vai no payload remoto** — o modelo recebe o histórico de texto, não
-   os candidatos estruturados. Na prática o local já resolve os casos de correção, mas a
-   reconciliação remota poderia ser melhor.
-4. **Números por extenso não cobrem centavos em toda posição** nem "meio" ("dois e meio").
-5. **Datas**: "daqui a 3 dias" e intervalos ("de 1 a 5 de julho") não são interpretados; período
-   ("semana passada") serve para pergunta, não para datar um lançamento.
-6. **Uma origem por cláusula** quando a quantidade de origens não bate com a de ações.
-7. **A qualidade do texto da IA remota não é testada** — só o contrato. Um modelo que responda
-   algo educado e inútil passa nos testes.
-8. **`Analytics.tsx` continua sem adaptação por perfil** — fora do escopo desta rodada.
-9. **`type: 'saving'` continua fora do saldo**, como a regra 20 manda. A reformulação **não**
-   mudou contabilização nenhuma, de propósito.
+Estado em 28/07/2026, depois da rodada de QA adversarial. Nada aqui é surpresa: tudo foi
+testado, reproduzido e deixado de fora conscientemente.
+
+### 6.1 Pendências que precisam de tratamento (ordem de prioridade)
+
+1. **Data futura é ignorada em silêncio — corrigir.**
+   `gastei 40 em 10/08` (com hoje em julho) reconhece a data, classifica como futura e
+   simplesmente **não data o lançamento**, gravando como hoje sem avisar. O comportamento certo é
+   perguntar ("essa data ainda não chegou — foi 10/08 do ano passado ou é uma previsão?") ou
+   recusar explicitamente. Silêncio aqui grava a data errada.
+   Vale para `findDate()` → `kind: 'future'`, hoje descartado em `analyzeMessage`.
+
+2. **"daqui a X dias/semanas/meses" precisa de tratamento seguro.**
+   `daqui a 3 dias vou pagar 200` hoje não gera ação nenhuma — o que é o resultado seguro, mas o
+   usuário recebe o texto de ajuda genérico e não entende por quê. Precisa de uma das duas
+   saídas: virar recorrente/previsão explícita, ou dizer com todas as letras que ainda não sabe
+   agendar. **Nunca** pode virar lançamento de hoje.
+
+3. **A DeepSeek devolve resposta vazia de forma intermitente.**
+   `npm run test:assistant:remote` oscila entre 6/8 e 8/8 entre execuções, com
+   `empty-reply` → HTTP 502 em sondas diferentes a cada rodada. O app trata: erro seguro e
+   fallback local, sem nunca perder ação. Mas o usuário perde a resposta aberta. Investigar
+   `max_tokens`, o retry único de `callDeepSeekChat` e a possibilidade de um segundo modelo.
+
+### 6.2 Fora do escopo por decisão (documentado, não esquecido)
+
+4. **Editar um lançamento já salvo por conversa.** "O mercado de ontem foi 80, não 100" é
+   entendido como correção apenas enquanto a proposta está na tela. Depois de gravado, a edição é
+   pela tela de Movimentações. Exigiria uma ação de edição auditável no store — ampliar o escopo
+   sem autorização seria pior que a limitação.
+5. **"Desfaz o último" depois da gravação.** O `assistantBatchId` já é gravado em cada
+   lançamento e torna isso viável, mas o fluxo de remoção com confirmação não foi feito.
+6. **`Analytics.tsx` por perfil.** Continua mostrando a mesma estrutura para motorista e
+   não-motorista. Pendência antiga, anterior a esta reformulação.
+
+### 6.3 Limitações menores
+
+7. **Números por extenso**: "meio" ("dois e meio") não é interpretado. Reais + centavos falados
+   ("quarenta e nove e noventa") funcionam desde 28/07.
+8. **Datas**: intervalos ("de 1 a 5 de julho") não são interpretados; período ("semana passada")
+   serve para pergunta, não para datar um lançamento. "segunda passada" resolve para a
+   segunda-feira mais recente, não a da semana anterior — a data interpretada é sempre exibida
+   antes da confirmação.
+9. **Uma origem por cláusula** quando não é possível localizar o valor no texto para parear por
+   proximidade.
+10. **A proposta pendente não vai no payload remoto.** Investigado na rodada adversarial: nos
+    fluxos multiturno reais o rascunho local resolve sozinho e a IA remota nem é chamada. Nenhum
+    caso de falha foi encontrado, então o `draftSummary` **não** foi implementado — enviar dado a
+    mais sem problema demonstrado seria o contrário do que a arquitetura pede.
+11. **A qualidade do texto da IA remota não é testada** — só o contrato. Um modelo que responda
+    algo educado e inútil passa nos testes.
+12. **`type: 'saving'` continua fora do saldo**, como a regra 20 manda. A reformulação **não**
+    mudou contabilização nenhuma, de propósito.
 
 A matriz caso a caso está em [AI_REGRESSION_MATRIX.md](AI_REGRESSION_MATRIX.md).

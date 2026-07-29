@@ -1370,6 +1370,9 @@ Cada um destes só apareceu porque o teste existia:
 | `npm run typecheck` | ✅ exit 0 |
 | `npm run typecheck:api` | ✅ exit 0 (novo `tsconfig.api.json` replica a checagem da Vercel) |
 | `npm run build` | ✅ `index-CjGhr7CS.js` 496,37 kB / gzip 147,94 kB |
+
+> Números desta rodada. A rodada de QA adversarial que veio depois levou o corpus
+> a **302 casos e 27 invariantes** — ver "🔴 QA adversarial do assistente".
 | `npx vercel build --prod` | ✅ `status: ok` — build local, nada publicado |
 
 Segurança: `dist/` sem `sk-`, `DEEPSEEK`, `deepseek.com`, `getDeepSeekConfig`, `callDeepSeekChat`,
@@ -1516,19 +1519,47 @@ cobertura local é completa. Não encontrei um caso em que a ausência da propos
 no payload remoto causasse falha. Por isso o `draftSummary` **não foi
 implementado**: seria enviar dado a mais sem problema demonstrado.
 
-### Limitações que permanecem (não implementadas de propósito)
+### PENDÊNCIAS REGISTRADAS
 
-1. Editar lançamento **já salvo** por conversa.
-2. "Desfaz o último" depois da gravação.
-3. `Analytics.tsx` por perfil.
-4. "meio" ("dois e meio") não é interpretado.
-5. "daqui a 3 dias" não vira data — a mensagem não gera ação (correto: é
-   previsão), mas também não explica isso ao usuário.
-6. `gastei 40 em 10/08` (data futura) não data o lançamento e deixa "10" fora da
-   descrição; a data futura é ignorada em silêncio.
-7. "segunda passada" resolve para a segunda-feira mais recente, não a da semana
+**Precisam de tratamento — não fechar a branch sem decidir sobre elas:**
+
+1. **Data futura não pode ser ignorada em silêncio.** `gastei 40 em 10/08` com
+   hoje em julho reconhece a data, classifica como `kind: 'future'` e o
+   orquestrador simplesmente descarta — o lançamento grava com a data de HOJE
+   sem nenhum aviso. Precisa perguntar ("é 10/08 do ano passado ou uma
+   previsão?") ou recusar explicitamente. Gravar data errada calado é o tipo de
+   defeito que só se descobre meses depois, no relatório.
+2. **"daqui a X dias/semanas/meses" precisa de tratamento seguro.**
+   `daqui a 3 dias vou pagar 200` hoje não gera ação — resultado seguro — mas
+   devolve o texto de ajuda genérico e o usuário não entende o motivo. Precisa
+   virar previsão/recorrente explícita ou dizer com todas as letras que ainda
+   não sabe agendar. **Nunca** pode virar lançamento de hoje.
+3. **A DeepSeek devolve resposta vazia/502 de forma intermitente.**
+   `npm run test:assistant:remote` oscilou entre 6/8 e 8/8 entre execuções, com
+   `empty-reply` em sondas diferentes a cada rodada. O app trata (erro seguro +
+   fallback local, sem perder ação), mas o usuário perde a resposta aberta.
+   Investigar `max_tokens`, o retry único de `callDeepSeekChat` e um modelo
+   alternativo.
+
+**Fora do escopo por decisão — documentado, não esquecido:**
+
+4. **Editar lançamento já salvo por conversa.** Só funciona enquanto a proposta
+   está na tela; depois de gravado, a edição é pela tela de Movimentações.
+5. **"Desfaz o último" depois da gravação.** O `assistantBatchId` já é gravado e
+   viabiliza, falta o fluxo de remoção com confirmação.
+6. **`Analytics.tsx` por perfil.** Pendência anterior a esta reformulação.
+
+**Menores:**
+
+7. "meio" ("dois e meio") não é interpretado. Reais + centavos falados
+   ("quarenta e nove e noventa") passaram a funcionar nesta rodada.
+8. Intervalos de data ("de 1 a 5 de julho") não são interpretados.
+9. "segunda passada" resolve para a segunda-feira mais recente, não a da semana
    anterior — a data interpretada é sempre exibida antes de confirmar.
-8. A qualidade do texto da IA remota não é testada, só o contrato.
+10. A proposta pendente não vai no payload remoto. Investigado nesta rodada: o
+    rascunho local resolve os multiturno sozinho e a IA remota nem é chamada.
+    Nenhuma falha demonstrada, então o `draftSummary` não foi implementado.
+11. A qualidade do texto da IA remota não é testada — só o contrato.
 
 ---
 
