@@ -2002,3 +2002,42 @@ recusado com explicação. Sem estouro horizontal, barra inferior visível, cons
 5. **Editar por conversa a estrutura de parcelamento, cartão, meta, veículo e template de
    recorrência continua fora**, por decisão desta rodada.
 6. **`Analytics.tsx` por perfil** segue pendente, anterior a tudo isto.
+
+---
+
+## 🟡 Bugs de UI reportados em produção (29/07/2026, teste manual do usuário) — NÃO CORRIGIDOS AINDA
+
+Achados testando `https://assist-fin.vercel.app` direto no celular, depois do deploy desta
+sessão. Registrado por instrução explícita do usuário para retomar depois — "pouco token
+disponível" no momento do reporte, nada foi alterado no código ainda.
+
+1. **Campo de texto do chat não quebra linha.** Digitando uma mensagem longa na aba do
+   Assistente, o texto continua rolando para a esquerda em vez de quebrar para a linha de
+   baixo. Precisa investigar o input do `Chat.tsx` (provavelmente falta `white-space` /
+   `word-wrap` ou o campo é um `<input>` de uma linha só quando deveria comportar-se como
+   `<textarea>` que cresce).
+
+2. **Folha "Editar lançamento" (ação `work`) malformada.** Print mostra os campos Km,
+   Viagens, Horas e Data como `<input>` sem estilo do design system — bordas retas, sem
+   padding visual consistente com o resto do app. Comparar com os outros campos de
+   `ProposalCard.tsx` (o que usa `MoneyInput`/`.field` vs. o que caiu no fallback genérico de
+   `<input>` puro). Aconteceu na correção manual da ação `work` visto que ela usa os campos
+   numéricos (`km`, `trips`, `hours`) da folha de edição criada no item 34 desta sessão.
+
+3. **"Ver detalhes" e "Confirmar só este" colados.** No card da proposta (`ProposalCard.tsx`),
+   os dois links ficam grudados um no outro, sem espaçamento — texto ilegível como dois
+   links separados. Precisa de `gap`/margem entre eles.
+
+4. **Testar campo `km` vazio na edição do `work`.** O usuário vai testar se deixar `Km` em
+   branco na folha de edição aplica algum valor "de hoje" por engano (suspeita de fallback
+   indevido). Ainda não testado/confirmado — só a intenção de testar foi registrada.
+
+5. **Vazamento visual atrás da folha de edição.** No print mais recente, a barra de
+   navegação inferior (`Início ... Mais`) e os ícones de microfone/localização aparecem
+   "vazando" por trás/ao lado da folha modal (`Sheet`), sugerindo problema de `z-index`,
+   `overflow` ou posicionamento fixo colidindo com o modal em telas de celular reais
+   (diferente do preview em 375×812 do navegador de desenvolvimento).
+
+**Nenhuma dessas 5 pendências foi investigada ou corrigida.** Retomar com: reproduzir cada
+uma no navegador (mobile real, não só resize do preview), escrever antes/depois se aplicável,
+corrigir, e visualmente confirmar em produção depois do próximo deploy.
