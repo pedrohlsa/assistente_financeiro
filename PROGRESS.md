@@ -2002,3 +2002,87 @@ recusado com explicação. Sem estouro horizontal, barra inferior visível, cons
 5. **Editar por conversa a estrutura de parcelamento, cartão, meta, veículo e template de
    recorrência continua fora**, por decisão desta rodada.
 6. **`Analytics.tsx` por perfil** segue pendente, anterior a tudo isto.
+
+---
+
+## ✅ Bugs de UI corrigidos (29/07/2026) — reportados em teste manual de produção
+
+**Resolvidos** logo depois do reporte abaixo. Correção e verificação no navegador (375×812)
+resumidas ao fim desta seção. Suíte: 368/368 · 53/53, typecheck src+api e build ok.
+
+### O que foi feito
+
+1. **Input do chat vira `<textarea>` que cresce e quebra linha.** `Chat.tsx`: `<input>` de uma
+   linha virou `<textarea rows={1}>` com auto-grow (`height = scrollHeight`), Enter envia e
+   Shift+Enter quebra. CSS: `white-space: pre-wrap`, `word-break`, `max-height: 7.5em` (≈5
+   linhas, depois rola), barra alinha os botões embaixo. Não rola mais infinito pra esquerda.
+2. **Campos da folha "Editar lançamento" estilizados.** `ProposalCard.tsx`: os `<input>`,
+   `<select>` e o campo de data crus ganharam `className="input"` — antes só o `MoneyInput`
+   tinha estilo (ele já traz `.input` por padrão), por isso Km/Viagens/Horas/Data saíam como
+   caixas cinzas sem borda/padding do design system.
+3. **"Ver detalhes" e "Confirmar só este" separados.** Os dois `.link` do card eram
+   `inline-block` (o `.link` não define `display`), então grudavam. Agora `display: block`,
+   cada um na sua linha.
+5. **Vazamento da barra atrás da folha modal — causa raiz encontrada.** O `Sheet` era
+   renderizado dentro de `.chat-screen`, que anima `transform` (`cardIn`). **`position: fixed`
+   fica contido por qualquer ancestral com `transform`** — a folha encolhia (medida: 237px de
+   largura em vez de 375) e o backdrop não cobria a viewport, deixando a barra inferior
+   aparecer por baixo. Corrigido renderizando o `Sheet` via `createPortal(..., document.body)`,
+   que escapa de qualquer ancestral transformado. Vale para TODAS as folhas do app (FAB
+   também). Verificado: folha com 375px, backdrop cobrindo a nav, portal no `<body>`.
+
+### Bug 4 — investigado, NÃO é bug
+
+O usuário suspeitava que deixar a data em branco na edição gravasse "de hoje" por engano.
+Testado: uma ação `work` sem data explícita grava a data de **hoje** — que é o padrão
+**correto e intencional** (um lançamento que você registra agora, sem dizer quando, é de
+hoje). A barreira `future-date` continua impedindo data futura. Nenhuma mudança de código.
+
+### Verificação no navegador (375 × 812)
+
+Textarea cresce e quebra (`pre-wrap`); folha de edição com todos os campos estilizados e em
+largura total, sem barra vazando; os dois links do card em linhas separadas (`display: block`,
+tops distintos); console sem erros. Screenshot da folha "Editar lançamento" confirmou o antes
+feio (image 1 do reporte) agora limpo.
+
+---
+
+### Reporte original (mantido como registro)
+
+Achados testando `https://assist-fin.vercel.app` direto no celular, depois do deploy da rodada
+anterior.
+
+Achados testando `https://assist-fin.vercel.app` direto no celular, depois do deploy desta
+sessão. Registrado por instrução explícita do usuário para retomar depois — "pouco token
+disponível" no momento do reporte, nada foi alterado no código ainda.
+
+1. **Campo de texto do chat não quebra linha.** Digitando uma mensagem longa na aba do
+   Assistente, o texto continua rolando para a esquerda em vez de quebrar para a linha de
+   baixo. Precisa investigar o input do `Chat.tsx` (provavelmente falta `white-space` /
+   `word-wrap` ou o campo é um `<input>` de uma linha só quando deveria comportar-se como
+   `<textarea>` que cresce).
+
+2. **Folha "Editar lançamento" (ação `work`) malformada.** Print mostra os campos Km,
+   Viagens, Horas e Data como `<input>` sem estilo do design system — bordas retas, sem
+   padding visual consistente com o resto do app. Comparar com os outros campos de
+   `ProposalCard.tsx` (o que usa `MoneyInput`/`.field` vs. o que caiu no fallback genérico de
+   `<input>` puro). Aconteceu na correção manual da ação `work` visto que ela usa os campos
+   numéricos (`km`, `trips`, `hours`) da folha de edição criada no item 34 desta sessão.
+
+3. **"Ver detalhes" e "Confirmar só este" colados.** No card da proposta (`ProposalCard.tsx`),
+   os dois links ficam grudados um no outro, sem espaçamento — texto ilegível como dois
+   links separados. Precisa de `gap`/margem entre eles.
+
+4. **Testar campo `km` vazio na edição do `work`.** O usuário vai testar se deixar `Km` em
+   branco na folha de edição aplica algum valor "de hoje" por engano (suspeita de fallback
+   indevido). Ainda não testado/confirmado — só a intenção de testar foi registrada.
+
+5. **Vazamento visual atrás da folha de edição.** No print mais recente, a barra de
+   navegação inferior (`Início ... Mais`) e os ícones de microfone/localização aparecem
+   "vazando" por trás/ao lado da folha modal (`Sheet`), sugerindo problema de `z-index`,
+   `overflow` ou posicionamento fixo colidindo com o modal em telas de celular reais
+   (diferente do preview em 375×812 do navegador de desenvolvimento).
+
+**Nenhuma dessas 5 pendências foi investigada ou corrigida.** Retomar com: reproduzir cada
+uma no navegador (mobile real, não só resize do preview), escrever antes/depois se aplicável,
+corrigir, e visualmente confirmar em produção depois do próximo deploy.

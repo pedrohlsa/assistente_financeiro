@@ -240,10 +240,15 @@ h3 { font-size: 0.95rem; font-weight: 650; }
 .bubble.ai { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 6px; box-shadow: var(--shadow); }
 .chat-input-bar {
   position: sticky; bottom: calc(var(--nav-h) + 10px); display: flex; gap: 8px;
-  background: var(--surface); border-radius: 999px; padding: 6px 6px 6px 18px;
-  box-shadow: var(--shadow-lg); border: 1px solid var(--border); align-items: center;
+  background: var(--surface); border-radius: 24px; padding: 6px 6px 6px 18px;
+  box-shadow: var(--shadow-lg); border: 1px solid var(--border); align-items: flex-end;
 }
-.chat-input-bar input { flex: 1; border: none; outline: none; background: transparent; font: inherit; color: var(--text); min-width: 0; }
+.chat-input-bar textarea {
+  flex: 1; border: none; outline: none; background: transparent; font: inherit; color: var(--text);
+  min-width: 0; resize: none; overflow-y: auto; line-height: 1.35;
+  /* Quebra a linha em vez de rolar pro lado; cresce até ~5 linhas e aí rola. */
+  max-height: 7.5em; padding: 10px 0; white-space: pre-wrap; word-break: break-word;
+}
 .icon-btn {
   width: 42px; height: 42px; flex: 0 0 42px; border-radius: 999px; border: none; cursor: pointer;
   display: flex; align-items: center; justify-content: center;

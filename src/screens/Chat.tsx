@@ -350,11 +350,24 @@ export default function Chat() {
       </div>
 
       <div className="chat-input-bar">
-        <input
+        <textarea
+          rows={1}
           placeholder={recording ? 'Ouvindo...' : 'ganhei 250 hoje...'}
           value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && send(input)}
+          onChange={e => {
+            setInput(e.target.value)
+            // Cresce com o conteúdo até o teto de CSS (max-height), aí rola.
+            e.target.style.height = 'auto'
+            e.target.style.height = `${e.target.scrollHeight}px`
+          }}
+          onKeyDown={e => {
+            // Enter envia; Shift+Enter quebra linha, como em qualquer chat.
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              send(input)
+              ;(e.target as HTMLTextAreaElement).style.height = 'auto'
+            }
+          }}
         />
         <button className={`icon-btn secondary ${recording ? 'recording' : ''}`} aria-label="Falar" onClick={startVoice}>{Icon.mic}</button>
         <button className="icon-btn" aria-label="Enviar" onClick={() => send(input)}>{Icon.send}</button>
