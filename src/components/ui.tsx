@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { fmtBRL, formatMoneyInput } from '../utils/format'
 
 // ---------- Ícones (SVG minimalistas) ----------
@@ -48,7 +49,11 @@ export function Sheet({ open, onClose, children, title }: { open: boolean; onClo
     return () => window.removeEventListener('keydown', h)
   }, [open, onClose])
   if (!open) return null
-  return (
+  // Portal para o <body>: `position: fixed` fica contido por qualquer ancestral
+  // com `transform` (a tela do chat anima `cardIn`), o que encolhia a folha e
+  // deixava a barra inferior vazar por baixo. No body a folha volta a ser
+  // relativa à viewport de verdade.
+  return createPortal(
     <>
       <div className="sheet-backdrop" onClick={onClose} />
       <div className="sheet" role="dialog">
@@ -56,7 +61,8 @@ export function Sheet({ open, onClose, children, title }: { open: boolean; onClo
         {title && <h2 style={{ marginBottom: 14 }}>{title}</h2>}
         {children}
       </div>
-    </>
+    </>,
+    document.body,
   )
 }
 

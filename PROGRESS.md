@@ -2005,7 +2005,52 @@ recusado com explicação. Sem estouro horizontal, barra inferior visível, cons
 
 ---
 
-## 🟡 Bugs de UI reportados em produção (29/07/2026, teste manual do usuário) — NÃO CORRIGIDOS AINDA
+## ✅ Bugs de UI corrigidos (29/07/2026) — reportados em teste manual de produção
+
+**Resolvidos** logo depois do reporte abaixo. Correção e verificação no navegador (375×812)
+resumidas ao fim desta seção. Suíte: 368/368 · 53/53, typecheck src+api e build ok.
+
+### O que foi feito
+
+1. **Input do chat vira `<textarea>` que cresce e quebra linha.** `Chat.tsx`: `<input>` de uma
+   linha virou `<textarea rows={1}>` com auto-grow (`height = scrollHeight`), Enter envia e
+   Shift+Enter quebra. CSS: `white-space: pre-wrap`, `word-break`, `max-height: 7.5em` (≈5
+   linhas, depois rola), barra alinha os botões embaixo. Não rola mais infinito pra esquerda.
+2. **Campos da folha "Editar lançamento" estilizados.** `ProposalCard.tsx`: os `<input>`,
+   `<select>` e o campo de data crus ganharam `className="input"` — antes só o `MoneyInput`
+   tinha estilo (ele já traz `.input` por padrão), por isso Km/Viagens/Horas/Data saíam como
+   caixas cinzas sem borda/padding do design system.
+3. **"Ver detalhes" e "Confirmar só este" separados.** Os dois `.link` do card eram
+   `inline-block` (o `.link` não define `display`), então grudavam. Agora `display: block`,
+   cada um na sua linha.
+5. **Vazamento da barra atrás da folha modal — causa raiz encontrada.** O `Sheet` era
+   renderizado dentro de `.chat-screen`, que anima `transform` (`cardIn`). **`position: fixed`
+   fica contido por qualquer ancestral com `transform`** — a folha encolhia (medida: 237px de
+   largura em vez de 375) e o backdrop não cobria a viewport, deixando a barra inferior
+   aparecer por baixo. Corrigido renderizando o `Sheet` via `createPortal(..., document.body)`,
+   que escapa de qualquer ancestral transformado. Vale para TODAS as folhas do app (FAB
+   também). Verificado: folha com 375px, backdrop cobrindo a nav, portal no `<body>`.
+
+### Bug 4 — investigado, NÃO é bug
+
+O usuário suspeitava que deixar a data em branco na edição gravasse "de hoje" por engano.
+Testado: uma ação `work` sem data explícita grava a data de **hoje** — que é o padrão
+**correto e intencional** (um lançamento que você registra agora, sem dizer quando, é de
+hoje). A barreira `future-date` continua impedindo data futura. Nenhuma mudança de código.
+
+### Verificação no navegador (375 × 812)
+
+Textarea cresce e quebra (`pre-wrap`); folha de edição com todos os campos estilizados e em
+largura total, sem barra vazando; os dois links do card em linhas separadas (`display: block`,
+tops distintos); console sem erros. Screenshot da folha "Editar lançamento" confirmou o antes
+feio (image 1 do reporte) agora limpo.
+
+---
+
+### Reporte original (mantido como registro)
+
+Achados testando `https://assist-fin.vercel.app` direto no celular, depois do deploy da rodada
+anterior.
 
 Achados testando `https://assist-fin.vercel.app` direto no celular, depois do deploy desta
 sessão. Registrado por instrução explícita do usuário para retomar depois — "pouco token

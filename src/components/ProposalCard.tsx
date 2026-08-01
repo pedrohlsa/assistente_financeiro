@@ -117,7 +117,7 @@ export function ProposalCard({
               )}
             </div>
 
-            <button className="link tiny" style={{ marginTop: 4 }} onClick={() => setOpen(o => ({ ...o, [p.id]: !isOpen }))}>
+            <button className="link tiny" style={{ display: 'block', marginTop: 6 }} onClick={() => setOpen(o => ({ ...o, [p.id]: !isOpen }))}>
               {isOpen ? 'Ocultar detalhes' : 'Ver detalhes'}
             </button>
             {isOpen && (
@@ -137,7 +137,7 @@ export function ProposalCard({
               </div>
             )}
             {!p.outcome?.ok && proposal.length > 1 && (
-              <button className="link tiny" style={{ marginTop: 6 }} onClick={() => onConfirmOne(p.id)}>
+              <button className="link tiny" style={{ display: 'block', marginTop: 6 }} onClick={() => onConfirmOne(p.id)}>
                 Confirmar só este
               </button>
             )}
@@ -173,7 +173,7 @@ export function ProposalCard({
               if (f.control === 'number') {
                 return (
                   <label key={f.name} className="field"><span>{f.label}</span>
-                    <input type="number" min={f.min} max={f.max} value={v ?? ''}
+                    <input className="input" type="number" min={f.min} max={f.max} value={v ?? ''}
                       onChange={e => setCampo(f.name, e.target.value === '' ? undefined : Number(e.target.value))} />
                   </label>
                 )
@@ -181,7 +181,7 @@ export function ProposalCard({
               if (f.control === 'select') {
                 return (
                   <label key={f.name} className="field"><span>{f.label}</span>
-                    <select value={v ?? ''} onChange={e => setCampo(f.name, e.target.value || undefined)}>
+                    <select className="input" value={v ?? ''} onChange={e => setCampo(f.name, e.target.value || undefined)}>
                       <option value="">— não informado —</option>
                       {f.options?.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
@@ -192,7 +192,7 @@ export function ProposalCard({
                 return (
                   <label key={f.name} className="field">
                     <span>{f.label}{f.allowsFuture ? '' : ' (só o que já aconteceu)'}</span>
-                    <input type="date" value={v || ''} max={f.allowsFuture ? undefined : todayISO()}
+                    <input className="input" type="date" value={v || ''} max={f.allowsFuture ? undefined : todayISO()}
                       onChange={e => setCampo(f.name, e.target.value || undefined)} />
                   </label>
                 )
@@ -207,7 +207,7 @@ export function ProposalCard({
               }
               return (
                 <label key={f.name} className="field"><span>{f.label}</span>
-                  <input maxLength={f.maxLength} value={v ?? ''}
+                  <input className="input" maxLength={f.maxLength} value={v ?? ''}
                     onChange={e => setCampo(f.name, e.target.value || undefined)} />
                 </label>
               )
