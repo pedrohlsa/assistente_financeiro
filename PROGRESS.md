@@ -2086,3 +2086,72 @@ disponível" no momento do reporte, nada foi alterado no código ainda.
 **Nenhuma dessas 5 pendências foi investigada ou corrigida.** Retomar com: reproduzir cada
 uma no navegador (mobile real, não só resize do preview), escrever antes/depois se aplicável,
 corrigir, e visualmente confirmar em produção depois do próximo deploy.
+
+---
+
+## 🟢 Auditoria da qualidade da IA — fala real do usuário — 2026-08-01
+
+Pedido: "verifica se os códigos dela estão bons ou se ela vai ficar meio retardada".
+Auditoria feita com mensagens reais e tortas, não com as frases do manual.
+
+### O que ESTAVA bom (registro)
+
+O núcleo de registro é sólido. Verificado com mensagens de motorista sem pontuação e
+com gíria: `fiz 380 na uber hj rodei 210km gastei 90 de gasolina` produz receita 380
+(corridas/Uber) + trabalho 210 km/1 viagem + abastecimento 90, tudo separado. Erro de
+digitação não quebra (`merkado`, `hje`, `gazolina`, `300 conto`). Negação, hipótese e
+saudação continuam sem gerar ação. CLT e autônomo idem (salário, aluguel+luz numa frase,
+reserva, freela com data).
+
+### O que estava RUIM (perguntas) — o defeito real
+
+Medido em 10 pares "frase do manual × frase que o usuário digita":
+
+| | Respondidas localmente |
+|---|---|
+| Frase do manual (`como está meu mês?`) | **9/10** |
+| Frase real (`como ta meu mes`) | **2/10** |
+
+Causa raiz: `resolveLocal()` fazia só `input.toLowerCase()`. Sem tirar acento e sem
+expandir abreviação, `ta`, `to`, `pra`, `hj`, `qnt` e qualquer palavra sem acento não
+casavam padrão nenhum e caíam no texto genérico de ajuda. Em produção isso não dá erro
+visível — a pergunta vai para a DeepSeek — mas viola a regra do projeto de que pergunta
+factual é respondida LOCALMENTE com dado real, além de custar chamada e latência à toa.
+
+Achado extra: `como está meu mês?` tinha resposta **apenas no ramo não-motorista**. No
+perfil `driver` — o principal do app — caía no genérico.
+
+### Correção
+
+- **`normalizeQuestion()`** (novo, `ai.ts`): minúsculas + remoção de acento + expansão de
+  21 abreviações de conversa. Usada só para reconhecer a INTENÇÃO; o registro continua
+  lendo o texto original, então nenhum valor se perde. Tirar acento é seguro porque as 17
+  regexes acentuadas do roteador já usam classe com as duas formas (`m[eê]s`, `est[aá]`).
+- **Padrões ampliados**: saldo (`quanto eu tenho`), quanto posso gastar (`quanto da pra
+  gastar`), custo por km (`quanto sai o km`), melhor dia (`qual dia eu fiz mais grana`),
+  gasto por categoria (`quanto eu JÁ gastei de...`), comparação de ritmo (`to ganhando
+  mais que mes passado`), meta pelo NOME (`quanto falta pra minha moto`).
+- **Resumo do mês agora vale para motorista também.**
+
+Resultado: **10/10 na frase do manual e 10/10 na frase real**, com números reais na
+resposta (saldo, meta faltando, melhor dia com valor, comparação proporcional).
+
+### Regressão
+
+`tests/assistant/cases-fala-real.ts` — **17 casos**. A asserção é sempre "a resposta NÃO
+pode ser o texto genérico de ajuda", que é exatamente o sintoma da regressão. Três casos
+garantem que a normalização não transforma REGISTRO em pergunta (`ganhei 200 hj`,
+`fiz 300 conto hoje`, `gastei 50 no merkado` continuam virando lançamento).
+
+Corpus: **385/385 · 53/53 invariantes**, typecheck src+api e build ok.
+
+### Limitações que continuam (honestas)
+
+1. **`hoje foi fraco so 150 reais 8 horas na rua`** não registra nada — o parser não liga
+   "150 reais" a receita sem verbo de ganho explícito. Perde receita + horas.
+2. **`gastei 20 e 30`** vira uma despesa de 20 com descrição "30", em vez de duas ou de
+   uma pergunta.
+3. **`gastei 30 pila no lanche`** deixa a gíria na descrição ("Pila no lanche").
+4. **`paguei 80 de gazolina`** com typo cai em `outros-out`, não em combustível.
+5. Perguntas abertas de verdade (`vale a pena comprar um carro de 40000?`) continuam
+   dependendo da IA remota — é o desenho, não um defeito.

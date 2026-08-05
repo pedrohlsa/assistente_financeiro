@@ -259,8 +259,37 @@ function periodFromText(t: string): { from: string; to: string; label: string } 
 
 // Motor local determinístico. Retorna handled:false SÓ no fallback genérico
 // (aí sim vale tentar a IA remota). Todo o resto é resposta confiável e local.
+/**
+ * Abreviações de conversa que o usuário REAL digita. Sem isto, "como ta meu
+ * mes" não casava nada e caía no texto genérico de ajuda — a pergunta ia parar
+ * na IA remota, contra a regra de que pergunta factual é sempre local.
+ */
+const ABREVIACOES: [RegExp, string][] = [
+  [/\bta\b/g, 'esta'], [/\btah\b/g, 'esta'], [/\bto\b/g, 'estou'], [/\btou\b/g, 'estou'],
+  [/\bpra\b/g, 'para'], [/\bpro\b/g, 'para'], [/\bpq\b/g, 'porque'],
+  [/\bvc\b/g, 'voce'], [/\bq\b/g, 'que'], [/\bhj\b/g, 'hoje'], [/\bhje\b/g, 'hoje'],
+  [/\bontm\b/g, 'ontem'], [/\btb\b/g, 'tambem'], [/\btbm\b/g, 'tambem'],
+  [/\bqnt\b/g, 'quanto'], [/\bqto\b/g, 'quanto'], [/\bqnd\b/g, 'quando'],
+  [/\bmsm\b/g, 'mesmo'], [/\bdps\b/g, 'depois'], [/\bmt\b/g, 'muito'],
+  [/\bgrana\b/g, 'dinheiro'], [/\bconto\b/g, 'reais'],
+]
+
+/**
+ * Texto usado SÓ para reconhecer a intenção da pergunta: minúsculas, sem
+ * acento e com abreviação expandida. O registro continua lendo o texto
+ * ORIGINAL — aqui não se perde nada, só se ganha tolerância.
+ *
+ * Tirar o acento é seguro porque todo padrão do roteador já usa classe com as
+ * duas formas (`m[eê]s`, `est[aá]`, `cart[ãa]o`).
+ */
+export function normalizeQuestion(input: string): string {
+  let t = input.toLowerCase().trim().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  for (const [re, sub] of ABREVIACOES) t = t.replace(re, sub)
+  return t
+}
+
 function resolveLocal(s: AppState, input: string): AiReply {
-  const t = input.toLowerCase().trim()
+  const t = normalizeQuestion(input)
   const driverMode = isDriver(s.settings)
 
   // Intenção de conversar/avisar o que virá não é um pedido de resumo.
@@ -495,7 +524,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   }
 
   // "quanto posso gastar hoje" — usa o saldo (modo banco) quando informado
-  if (/quanto\s+(?:eu\s+)?posso\s+gastar/.test(t)) {
+  if (/quanto\s+(?:eu\s+)?(?:posso|da\s+para|consigo|poderia)\s+gastar|da\s+para\s+gastar\s+quanto/.test(t)) {
     const ts = todayStats(s)
     const goal = dailyGoal(s)
     const bo = balanceOutlook(s, 7)
@@ -537,7 +566,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   }
 
   // "qual meu saldo" / "quanto tenho no banco"
-  if (/(qual|quanto).*(saldo|no banco|na conta)|meu saldo/.test(t)) {
+  if (/(qual|quanto).*(saldo|no banco|na conta)|meu saldo|quanto\s+(?:eu\s+)?tenho(?:\s+(?:de\s+)?(?:dinheiro|guardado|sobrando))?\s*\??$|quanto\s+sobrou\s+(?:de\s+)?dinheiro/.test(t)) {
     const bo = balanceOutlook(s, 7)
     if (currentBalance(s) === 0) return { text: 'Seu saldo em conta está zerado. Toque em "Saldo em conta" na tela inicial, ou me diga "meu saldo é 1500".' }
     return {
@@ -586,7 +615,11 @@ function resolveLocal(s: AppState, input: string): AiReply {
   }
 
   // "quando vou conseguir comprar meu X" — metas
-  if (/quando\s+(vou|consigo|vou conseguir|poderei)\s+(comprar|atingir|juntar)/.test(t) || /quando.*meta/.test(t)) {
+  // "quanto falta pra minha moto" também cai aqui: o usuário pergunta pelo
+  // NOME da meta, não pela palavra "meta".
+  const metaPeloNome = /quanto\s+falta/.test(t)
+    && s.goals.some(g => !g.done && t.includes(g.name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(' ')[0]))
+  if (metaPeloNome || /quando\s+(vou|consigo|vou conseguir|poderei)\s+(comprar|atingir|juntar)/.test(t) || /quando.*meta/.test(t) || /quanto\s+falta\s+(?:para|pra)\s+(?:a\s+|o\s+|minha\s+|meu\s+)?meta/.test(t)) {
     const goal = s.goals.find(g => !g.done && t.includes(g.name.toLowerCase().split(' ')[0])) || s.goals.filter(g => !g.done)[0]
     if (!goal) return { text: 'Você ainda não tem metas de compra cadastradas. Diga algo como "quero comprar um celular de 5000 em 6 meses" que eu crio para você.' }
     const remaining = goal.target - goal.saved
@@ -609,7 +642,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   }
 
   // "qual foi meu melhor dia"
-  if (/melhor dia|pior dia/.test(t)) {
+  if (/melhor dia|pior dia|(?:qual|que)\s+dia\s+(?:eu\s+)?(?:fiz|ganhei|faturei|rendeu)\s+mais|dia\s+que\s+(?:eu\s+)?mais\s+(?:fiz|ganhei)/.test(t)) {
     const { best, worst } = bestWorstDay(s)
     if (!best) return { text: 'Ainda não há dados suficientes nos últimos 30 dias.' }
     if (/pior/.test(t)) return { text: `Seu pior dia nos últimos 30 dias foi ${fromISO(worst!.date).toLocaleDateString('pt-BR')}, com lucro de ${fmtBRL(worst!.profit)}.` }
@@ -617,7 +650,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   }
 
   // "quanto gastei com gasolina esse mês" / "quanto perco por mês com gasolina"
-  const spentM = t.match(/quanto\s+(?:eu\s+)?(?:gastei|gasto|perco|perdi)\s*(?:por m[eê]s)?\s*(?:com|de|em)\s+([\wçãõáéíóú\s]+?)(?:\s+(?:esse|este|nesse|neste)?\s*(m[eê]s|semana|hoje|ano)|\?|$)/)
+  const spentM = t.match(/quanto\s+(?:eu\s+)?(?:ja\s+)?(?:gastei|gasto|perco|perdi|torrei)\s*(?:por m[eê]s)?\s*(?:com|de|em)\s+([\wçãõáéíóú\s]+?)(?:\s+(?:esse|este|nesse|neste)?\s*(m[eê]s|semana|hoje|ano)|\?|$)/)
   if (spentM) {
     const what = spentM[1].trim()
     const p = periodFromText(t)
@@ -642,7 +675,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   }
 
   // "quanto meu carro custa por km"
-  if (driverMode && /custa por km|custo por km|custo.*km|por km.*custo/.test(t)) {
+  if (driverMode && /custa por km|custo por km|custo.*km|por km.*custo|sai o km|km sai|quanto.*km.*(?:carro|veiculo|moto)|(?:carro|veiculo|moto).*por km/.test(t)) {
     const kc = kmCost(s)
     if (kc.total <= 0) {
       return { text: 'Os custos do veículo ainda estão zerados. Registre abastecimentos com valor, litros e hodômetro; informe manutenções e custos fixos quando souber. Aí eu calculo sem inventar médias.' }
@@ -667,7 +700,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   }
 
   // "tô gastando demais esse mês?"
-  if (/gastando demais|gastei demais/.test(t)) {
+  if (/gastando demais|gastei demais|(?:estou|to)\s+(?:ganhando|faturando|indo)\s+(?:mais|melhor|pior|menos)|(?:ganhei|fiz|faturei)\s+mais\s+que\s+(?:o\s+)?m[eê]s\s+passado|comparado\s+(?:ao|com)\s+(?:o\s+)?m[eê]s\s+passado/.test(t)) {
     const cur = monthStats(s), prev = prevMonthStats(s)
     const day = fromISO(todayISO()).getDate()
     const prevPace = prev.expense > 0 ? (prev.expense / daysInMonth(addDays(todayISO(), -day))) * day : 0
@@ -693,8 +726,10 @@ function resolveLocal(s: AppState, input: string): AiReply {
     return { text: `Seu carro está fazendo ${fmtNum(eff)} km/L, calculado com base nos seus abastecimentos (dado real).` }
   }
 
-  // resumo geral — o formato muda por perfil: meta diária/km só existem no motorista
-  if (/resumo|como estou|situa[çc][aã]o/.test(t)) {
+  // resumo geral — o formato muda por perfil: meta diária/km só existem no motorista.
+  // "como está meu mês" tinha resposta SÓ no ramo não-motorista; no perfil
+  // motorista caía no texto genérico de ajuda.
+  if (/resumo|como estou|situa[çc][aã]o|como\s+(?:esta|foi|vai|anda)\s+(?:o\s+)?meu\s+m[eê]s|meu m[eê]s(?:\s|\?|$)|como\s+(?:esta|foi)\s+(?:o\s+)?m[eê]s/.test(t)) {
     if (!driverMode) {
       const mg = monthlySavingGoal(s)
       const bo = balanceOutlook(s, 7)
