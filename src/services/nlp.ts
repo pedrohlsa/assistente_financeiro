@@ -524,17 +524,36 @@ function parseClause(input: string): ParsedAction[] {
   }
 
   // ----- meta: "quero comprar um celular de 5000 em 6 meses"
-  const goalRe = new RegExp(String.raw`(?:quero|queria|vou|preciso)\s+(?:comprar|juntar|guardar)(?:\s+(?:uma|um|para|pra|o|a))?\s*([\wçãõáéíóú\s]*?)\s*(?:de|por|no valor de)?\s*(?:r\$)?\s*${NUM}(?:\s*(?:reais|mil|conto[s]?))?(?:\s*em\s*(\d+)\s*(mes(?:es)?|dias?|semanas?))?`, 'i')
+  // O nome pode vir ANTES do valor ("um celular de 5000") ou DEPOIS ("5000 pra
+  // uma moto"). Só o primeiro era capturado, e toda meta dita do segundo jeito
+  // nascia chamada "Objetivo" — com duas ou três assim, a lista de metas fica
+  // ilegível e o usuário não sabe qual é qual.
+  const goalRe = new RegExp(String.raw`(?:quero|queria|vou|preciso)\s+(?:comprar|juntar|guardar)(?:\s+(?:uma|um|para|pra|o|a))?\s*([\wçãõáéíóú\s]*?)\s*(?:de|por|no valor de)?\s*(?:r\$)?\s*${NUM}(?:\s*(?:reais|mil|conto[s]?))?(?:\s*(?:pra|para|pro|p\/)\s+(?:uma?\s+|o\s+|a\s+|meu\s+|minha\s+)?([a-zà-úçãõ][\wçãõáéíóú]*(?:\s+[a-zà-úçãõ][\wçãõáéíóú]*){0,2}))?(?:\s*em\s*(\d+)\s*(mes(?:es)?|dias?|semanas?))?`, 'i')
   const g = text.match(goalRe)
   if (g && !m) {
     let target = parseNum(g[2])
     if (/(\d+(?:[.,]\d+)?)\s*mil/.test(text)) target = target < 100 ? target * 1000 : target
     let months: number | undefined
-    if (g[3]) {
-      const n = parseInt(g[3])
-      months = /dia/.test(g[4]) ? n / 30 : /semana/.test(g[4]) ? n / 4.33 : n
+    if (g[4]) {
+      const n = parseInt(g[4])
+      months = /dia/.test(g[5]) ? n / 30 : /semana/.test(g[5]) ? n / 4.33 : n
     }
-    actions.push({ kind: 'goal', name: (g[1] || 'Objetivo').trim() || 'Objetivo', target, months })
+    const nome = cleanDescription(g[1]) || cleanDescription(g[3])
+    actions.push({ kind: 'goal', name: nome || 'Objetivo', target, months })
+  }
+
+  // "meta de 10 mil pro carro" — sem verbo nenhum, direto ao ponto.
+  // Exige o VALOR logo depois de "meta": "qual é a minha meta" é PERGUNTA e
+  // não pode virar meta nova.
+  if (!actions.some(a => a.kind === 'goal') && !m) {
+    const metaRe = new RegExp(String.raw`\bmeta\s+(?:de\s+)?(?:r\$)?\s*${NUM}\s*(?:reais|mil|conto[s]?)?\s*(?:pra|para|pro|p\/|d[oa])\s*(?:uma?|o|a|meu|minha)?\s*([a-zà-úçãõ][\wçãõáéíóú\s]*)`, 'i')
+    const meta = text.match(metaRe)
+    if (meta) {
+      let target = parseNum(meta[1])
+      if (new RegExp(String.raw`${NUM}\s*mil`, 'i').test(text)) target = target < 100 ? target * 1000 : target
+      const nome = cleanDescription(meta[2])
+      if (nome && target > 0) actions.push({ kind: 'goal', name: nome, target })
+    }
   }
 
   // ----- abastecimento: "abasteci 70", "coloquei 70 reais de gasolina", "coloquei 30 litros"

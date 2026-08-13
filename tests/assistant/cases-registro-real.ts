@@ -251,6 +251,28 @@ export const REGISTRO_REAL: AssistantCase[] = [
     messages: ['rodei 120 km'],
     expectActions: [{ kind: 'work', km: 120 }],
   },
+
+  // ===== A meta guarda o nome que o usuário deu =====
+  {
+    id: 'rr-36', group: 'registroreal', ...motorista,
+    // Virava uma meta chamada "Objetivo": o nome dito ia embora, e a lista de
+    // metas fica ilegível quando todas se chamam a mesma coisa.
+    messages: ['quero juntar 5000 pra uma moto'],
+    expectActions: [{ kind: 'goal', target: 5000, name: /moto/i }],
+  },
+  {
+    id: 'rr-37', group: 'registroreal', ...motorista,
+    messages: ['meta de 10 mil pro carro'],
+    expectActions: [{ kind: 'goal', target: 10000, name: /carro/i }],
+  },
+  {
+    id: 'rr-38', group: 'registroreal', ...naoMotorista,
+    // Sem meta "Viagem" cadastrada, guardar PARA ela é ambíguo entre criar a
+    // meta e mandar para a reserva — e o app já pergunta em vez de escolher.
+    messages: ['quero guardar 2000 para a viagem'],
+    expectMode: 'clarify',
+    expectClarification: /viagem|reserva/i,
+  },
 ]
 
 export default REGISTRO_REAL
