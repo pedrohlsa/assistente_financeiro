@@ -19,6 +19,7 @@ import { buildSystemPrompt, normalizeCapabilities, sanitizeRemoteResponse } from
 import { callDeepSeekChat, isDeepSeekFailure } from '../../api/_lib/deepseek'
 import { handleAssistantRequest } from '../../api/_lib/assistantHandler'
 import { describeAction } from '../../src/services/nlp'
+import { todayISO } from '../../src/utils/format'
 import type { ParsedAction } from '../../src/models/types'
 import type { AssistantCandidateAction, AssistantResponse } from '../../src/assistant/contracts'
 
@@ -1038,6 +1039,36 @@ export async function runProperties(): Promise<PropertyReport> {
         if (registro) return `[${p}] "${message}" virou ${registro.action.kind}`
       }
     }
+    return null
+  })
+
+  // --- 57. "Tô no lucro?" e "tô no vermelho?" têm polaridade OPOSTA --------
+  // Um "Sim" fixo respondia "sim, você está no vermelho" para quem tinha
+  // sobra: número certo, resposta errada. O corpus não pegaria isto porque
+  // `resolveLocal` lê o relógio real da máquina, não a data injetada — por
+  // isso a invariante monta as datas a partir de `todayISO()`.
+  await checkAsync(r, 'lucro e vermelho respondem com sinais opostos', async () => {
+    const hoje = todayISO()
+    const cenario = (income: number, expense: number) => {
+      const s = buildState({ profile: 'driver' })
+      s.transactions = [
+        { id: 'i', type: 'income', amount: income, category: 'corridas', date: hoje, time: '10:00' },
+        { id: 'e', type: 'expense', amount: expense, category: 'alimentacao', date: hoje, time: '11:00' },
+      ] as any
+      return s
+    }
+    const perguntar = async (s: any, message: string) =>
+      (await orchestrate({ state: s, message, history: [], remoteEnabled: false, today: TODAY })).response.reply
+
+    const sobra = cenario(600, 135)
+    const deficit = cenario(100, 400)
+
+    if (!/^Sim/.test(await perguntar(sobra, 'to no lucro?'))) return 'com sobra, "tô no lucro?" não respondeu Sim'
+    if (!/^N[ãa]o/.test(await perguntar(sobra, 'to no vermelho?'))) return 'com sobra, "tô no vermelho?" não respondeu Não'
+    if (!/^N[ãa]o/.test(await perguntar(deficit, 'to no lucro?'))) return 'com déficit, "tô no lucro?" não respondeu Não'
+    if (!/^Sim/.test(await perguntar(deficit, 'to no vermelho?'))) return 'com déficit, "tô no vermelho?" não respondeu Sim'
+    // Pergunta de VALOR não começa com sim/não — seria resposta de outra.
+    if (/^(Sim|N[ãa]o)\b/.test(await perguntar(sobra, 'quanto sobrou'))) return '"quanto sobrou" respondeu como sim/não'
     return null
   })
 

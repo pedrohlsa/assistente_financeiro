@@ -506,6 +506,33 @@ function resolveLocal(s: AppState, input: string): AiReply {
     }
   }
 
+  // "vale a pena corrida de 8 reais" — o VALOR sem a distância.
+  // É assim que a pergunta aparece na rua: o app mostra o valor antes do km.
+  // Sem esta resposta a pergunta caía no parser e virava tentativa de
+  // REGISTRO, que é o pior desfecho: perguntar não é gastar nem ganhar.
+  const rideValorM = driverMode && !rideM && /vale\s*(?:a\s*)?pena|aceito|pego|compensa/.test(t)
+    ? t.match(new RegExp(String.raw`(?:corrida|viagem|chamada|corrid[ao])[^\d]{0,12}(?:r\$)?\s*${NUM}|(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?|pila)`))
+    : null
+  if (rideValorM) {
+    const valor = n(rideValorM[1] || rideValorM[2])
+    const kc = kmCost(s)
+    const custoKm = kc.fuelPerKm + kc.maintenancePerKm + kc.fixedPerKm
+    if (!(valor > 0)) return { text: 'Me diga o valor da corrida que eu comparo com o seu custo por km.' }
+    if (custoKm <= 0) {
+      return {
+        text: `Para dizer se ${fmtBRL(valor)} compensa eu preciso saber quanto seu carro custa por km.\n\n`
+          + 'Registre um abastecimento com o km do hodômetro ("botei 100 de gasolina, hodômetro 220007") que eu calculo com o consumo real do seu carro.',
+      }
+    }
+    const minKm = Math.max(custoKm * 2, custoKm + 0.5)
+    const kmQueCompensa = valor / minKm
+    return {
+      text: `Seu custo é cerca de ${fmtBRL(custoKm)}/km, e o mínimo para lucrar é ${fmtBRL(minKm)}/km.\n\n`
+        + `Então ${fmtBRL(valor)} compensa até cerca de ${fmtNum(kmQueCompensa)} km. Mais que isso e você está pagando para trabalhar.\n\n`
+        + 'Se me disser a distância ("corrida de 8 reais por 3 km") eu faço a conta exata.',
+    }
+  }
+
   // "vale a pena trabalhar mais 3 horas hoje?"
   const hoursM = driverMode ? t.match(new RegExp(String.raw`trabalhar\s*(?:mais)?\s*${NUM}\s*horas?`)) : null
   if (hoursM) {
@@ -629,6 +656,86 @@ function resolveLocal(s: AppState, input: string): AiReply {
     const days = Math.ceil(remaining / savePerDay)
     const when = fromISO(addDays(todayISO(), days)).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })
     return { text: `Meta "${goal.name}": faltam ${fmtBRL(remaining)} de ${fmtBRL(goal.target)}.\n\nProjeção: guardando 30% da sua média diária de lucro (${fmtBRL(savePerDay)}/dia), você chegaria lá por volta de ${when} (~${days} dias). Isso é uma estimativa com base na sua média dos últimos 30 dias.` }
+  }
+
+  // "quanto eu gastei essa semana / ontem / esse mês" — SEM categoria.
+  // O caminho de categoria existe há tempo, mas exigia "com/de/em <coisa>", e
+  // a pergunta mais comum não tem categoria nenhuma.
+  if (/quanto\s+(?:eu\s+)?(?:j[áa]\s+)?(?:gastei|gastou|torrei|saiu|foi)\b(?!\s*(?:com|de|em)\s+[a-zà-ú])/.test(t)
+    && !/quanto\s+(?:eu\s+)?(?:posso|da\s+para|consigo)/.test(t)) {
+    const p = periodFromText(t)
+    const st = periodStats(s, p.from, p.to)
+    return {
+      text: st.expense > 0
+        ? `Você gastou ${fmtBRL(st.expense)} ${p.label} (dado real). Nesse mesmo período entraram ${fmtBRL(st.income)}.`
+        : `Não tenho nenhuma despesa registrada ${p.label}.`,
+    }
+  }
+
+  // "quanto eu preciso fazer hoje ainda" — o que falta para a meta do dia.
+  if (driverMode && /quanto\s+(?:eu\s+)?(?:ainda\s+)?(?:preciso|falta|falto|tenho\s+que|tenho\s+de)\s*(?:fazer|ganhar|rodar|tirar|faturar|trabalhar)?/.test(t)) {
+    const goal = dailyGoal(s)
+    const ts = todayStats(s)
+    const falta = goal.total - ts.profit
+    const w = weekStats(s)
+    return {
+      text: falta > 0
+        ? `Sua meta de hoje é ${fmtBRL(goal.total)} e você já fez ${fmtBRL(ts.profit)} — faltam ${fmtBRL(falta)} (dado real).`
+          + (w.profitPerHour > 0 ? `\n\nNo seu ritmo de ${fmtBRL(w.profitPerHour)}/hora, isso dá cerca de ${fmtNum(falta / w.profitPerHour)}h de trabalho.` : '')
+        : `Você já bateu a meta de hoje: fez ${fmtBRL(ts.profit)} contra a meta de ${fmtBRL(goal.total)}. O que vier agora é lucro.`,
+    }
+  }
+
+  // "quanto to gastando de gasolina por dia"
+  if (driverMode && /(?:gastando|gasto|gastei|sai)\s*(?:de|com|em)?\s*(?:gasolina|combust[íi]vel|etanol|[áa]lcool|gnv)\s*(?:por|ao|no)\s*(?:dia|m[eê]s|semana)/.test(t)) {
+    const dias = /m[eê]s/.test(t) ? 30 : /semana/.test(t) ? 7 : 1
+    const p = { from: addDays(todayISO(), -29), to: todayISO() }
+    const st = periodStats(s, p.from, p.to)
+    const gasto = s.transactions
+      .filter(x => x.date >= p.from && x.date <= p.to && x.type === 'expense' && x.category === 'combustivel')
+      .reduce((a, x) => a + x.amount, 0)
+    const abastecido = (s.fuelRecords || [])
+      .filter(x => x.date >= p.from && x.date <= p.to)
+      .reduce((a, x) => a + (x.amount || 0), 0)
+    const total = gasto + abastecido
+    if (total <= 0) return { text: 'Ainda não tenho abastecimento registrado nos últimos 30 dias. Registre um ("botei 100 de gasolina") e eu te digo a média.' }
+    const unidade = dias === 1 ? 'por dia' : dias === 7 ? 'por semana' : 'por mês'
+    return {
+      text: `Nos últimos 30 dias você gastou ${fmtBRL(total)} com combustível — cerca de ${fmtBRL(total / 30 * dias)} ${unidade} (dado real).`
+        + (st.income > 0 ? `\n\nIsso é ${fmtNum(total / st.income * 100)}% de tudo que você faturou no período.` : ''),
+    }
+  }
+
+  // "to no lucro esse mes?" / "quanto sobrou"
+  if (/(?:t[oô]|estou|to)\s+no\s+lucro|(?:t[oô]|estou)\s+no\s+(?:azul|vermelho)|quanto\s+sobrou\s*\??$|sobrou\s+quanto/.test(t)) {
+    const p = /semana/.test(t) ? periodFromText(t) : { from: todayISO().slice(0, 8) + '01', to: todayISO(), label: 'este mês' }
+    const st = periodStats(s, p.from, p.to)
+    const saldo = st.income - st.expense
+    // Sem movimento nenhum não existe "sim": zero não é lucro, é ausência de
+    // dado. Responder "Sim, sobrando R$ 0,00" seria mentir com número certo.
+    if (st.income === 0 && st.expense === 0) {
+      return { text: `Não tenho nada registrado ${p.label} para dizer se você está no lucro. Me conte o que entrou e o que saiu que eu faço a conta.` }
+    }
+    // Duas coisas diferentes na mesma pergunta:
+    // - "quanto sobrou" pede um VALOR: começar com "Sim" responderia outra coisa.
+    // - "tô no lucro?" e "tô no vermelho?" pedem sim/não com polaridade
+    //   OPOSTA. Um "Sim" fixo respondia "sim, você está no vermelho" para quem
+    //   tinha sobra — a resposta certa com o número certo, e ainda assim errada.
+    const perguntaNegativa = /vermelho|preju|no\s+negativo/.test(t)
+    const perguntaSimNao = perguntaNegativa || /lucro|azul/.test(t)
+    const positivo = saldo > 0
+    const prefixo = !perguntaSimNao || saldo === 0
+      ? ''
+      : (positivo !== perguntaNegativa ? 'Sim — ' : 'Não — ')
+
+    const detalhe = `${p.label} entraram ${fmtBRL(st.income)} e saíram ${fmtBRL(st.expense)}`
+    const corpo = prefixo ? detalhe : detalhe[0].toUpperCase() + detalhe.slice(1)
+    const fecho = positivo
+      ? `, sobrando ${fmtBRL(saldo)} (dado real).`
+      : saldo === 0
+        ? `: não sobrou nada (dado real).`
+        : `, um déficit de ${fmtBRL(-saldo)} (dado real).`
+    return { text: prefixo + corpo + fecho }
   }
 
   // "qual foi meu maior gasto"
