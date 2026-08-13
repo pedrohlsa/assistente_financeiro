@@ -18,7 +18,7 @@ import type {
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, isValidationFailure, validateAction } from './contracts'
-import { analyzeMessage, looksLikeRetraction } from './clauses'
+import { analyzeMessage, looksLikeRetraction, looksRecurring } from './clauses'
 import type { AnalyzedClause, MessageAnalysis, TemporalSignal } from './clauses'
 import { detectIncomplete, isDraftFresh, newDraft, resolveDraftAnswer } from './drafts'
 import type { AssistantDraft } from './drafts'
@@ -112,6 +112,8 @@ interface LocalPass {
   unresolved: AssistantUnresolvedClause[]
   /** Intenção futura declarada: explicar, nunca registrar. */
   temporalPlan?: TemporalSignal
+  /** Conta que se repete: é previsão, e o cadastro dela não é por conversa. */
+  recorrenteDeclarada?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -349,8 +351,24 @@ function runLocal(input: OrchestratorInput, caps: AssistantCapabilities): LocalP
   // proposta na tela é tratada antes daqui, no passo de correções.
   const semAlvo = !input.pending?.length
 
+  // Conta que se repete é PREVISÃO, não movimentação de hoje (regra 18).
+  // "Pago 90 de internet todo mês" virava despesa avulsa de 90 e inflava o mês
+  // com dinheiro que ainda não saiu. Vale só para movimento de dinheiro: "rodei
+  // todo dia" continua sendo registro de trabalho.
+  const MOVIMENTO = new Set(['income', 'expense', 'saving'])
+  let recorrenteDeclarada = false
+
   for (const clause of analysis.clauses) {
     if (semAlvo && looksLikeRetraction(clause.text)) continue
+    // O valor precisa estar na frase: "todo mês" sozinho não descreve conta
+    // nenhuma. Com valor, tanto faz o parser ter achado a despesa ("pago 90 de
+    // internet todo mês") ou não ("minha internet é 90 por mês") — nos dois
+    // casos a resposta certa é a mesma, e nos dois é errado registrar hoje.
+    if (looksRecurring(clause.text) && /\d/.test(clause.text)
+      && !clause.actions.some(a => !MOVIMENTO.has(a.kind))) {
+      recorrenteDeclarada = true
+      continue
+    }
     for (const raw of clause.actions) {
       const idx = analysis.actions.indexOf(raw)
       let action = idx >= 0 ? reconciled[idx] : raw
@@ -443,7 +461,7 @@ function runLocal(input: OrchestratorInput, caps: AssistantCapabilities): LocalP
     !c.handled && c.intent !== 'conversation' && !(c.intent === 'question' && false))
     || analysis.coverage < 0.999
 
-  return { analysis, candidates, rejected, clarification, needsRemote, unresolved, temporalPlan }
+  return { analysis, candidates, rejected, clarification, needsRemote, unresolved, temporalPlan, recorrenteDeclarada }
 }
 
 // ---------------------------------------------------------------------------
@@ -926,7 +944,14 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
     mode = 'answer'
     const negadas = analysis.clauses.filter(c => c.intent === 'correction' && !c.actions.length)
     const notUnderstood = unresolved.filter(u => u.reason !== 'question-unanswered')
-    if (negadas.length) {
+    if (local.recorrenteDeclarada) {
+      // Conta que se repete é previsão: registrar como gasto de hoje somaria ao
+      // mês um dinheiro que ainda não saiu (regra 18). O cadastro de recorrência
+      // não é por conversa — a tela certa faz isso com data e frequência.
+      reply = 'Isso se repete todo período, então não registrei como movimentação de hoje — '
+        + 'é uma previsão, não algo que já entrou ou saiu.\n\n'
+        + 'Cadastre em Planejamento para eu acompanhar todo mês e te avisar do vencimento.'
+    } else if (negadas.length) {
       // O usuário disse que NÃO fez o lançamento. Confirmar isso em voz alta é
       // parte da correção — e nada pode sugerir registro.
       reply = 'Entendi que isso não aconteceu — não registrei nada. Se quiser lançar outra coisa, é só me dizer.'

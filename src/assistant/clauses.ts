@@ -7,7 +7,7 @@
 
 import type { ParsedAction } from '../models/types'
 import type { AssistantConfidence, AssistantIntent } from './contracts'
-import { parseNaturalFull } from '../services/nlp'
+import { looksRecurring, parseNaturalFull } from '../services/nlp'
 import { findAllDates, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
@@ -182,6 +182,21 @@ const RETRACTION_PATTERNS: RegExp[] = [
 ]
 
 export const looksLikeRetraction = (t: string): boolean => hasAny(t, RETRACTION_PATTERNS)
+
+/**
+ * Conta que SE REPETE — "pago 90 de internet todo mês", "minha luz é 150 por
+ * mês". Isso é PREVISÃO, não movimentação realizada (regra 18): registrar como
+ * despesa de hoje inflava o mês com dinheiro que ainda não saiu.
+ *
+ * O assistente não cadastra recorrência (não existe ação para isso no
+ * catálogo), então o certo é não registrar nada e mandar para a tela que
+ * cadastra de verdade.
+ *
+ * A lista mora em `nlp.ts`: este módulo importa aquele, então o contrário seria
+ * ciclo, e o parser precisa da mesma checagem para não confundir "todo dia 10"
+ * (vencimento) com o resultado do dia do motorista.
+ */
+export { looksRecurring }
 
 export const looksLikeConversation = (t: string): boolean => hasAny(t, CONVERSATION_PATTERNS)
 
@@ -447,7 +462,12 @@ export function analyzeMessage(
     // A expressão de dia foi RETIRADA do texto acima. O parser precisa saber que
     // ela existia: "deu 200 hoje" chega como "deu 200", e é justamente o "hoje"
     // que transforma um número solto no resultado do dia do motorista.
-    const dayHint = [...datesOriginal, ...datesParser].some(d => d.kind === 'date')
+    // A checagem de recorrência é no texto ORIGINAL: "todo dia 10" tem o "dia
+    // 10" arrancado como data logo acima, e o que sobra ("minha conta de luz é
+    // 150 todo") não parece mais conta nenhuma. Sem isto o resultado do dia
+    // perguntava "esses R$ 150 foram ganho ou gasto?" para uma conta de luz.
+    const dayHint = !looksRecurring(part.text)
+      && [...datesOriginal, ...datesParser].some(d => d.kind === 'date')
     const parsed = parseNaturalFull(semData || forParser, { driver: opts?.driver, dayHint })
     let actions = parsed.actions
     let date: string | undefined

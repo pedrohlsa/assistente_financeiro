@@ -166,6 +166,24 @@ const DAY_RESULT_VERB = /\b(?:deu|deram|fez|fiz|foi|fechei|fechou|tirei|tirou|re
 const DAY_QUALIFIER = /\b(?:fraco|fraca|fraquinho|bom|boa|[óo]tim[oa]|ruim|puxad[oa]|parad[oa]|movimentad[oa]|tranquil[oa]|l[íi]quido|limpo|s[óo]|apenas|somente)\b/i
 const MONEY_MARK = /r\$|\breais\b|\bconto?s?\b|\bpila\b|\bmang[oa]s?\b/i
 
+/**
+ * Conta que SE REPETE. Mora aqui, e não no segmentador, porque `clauses.ts`
+ * importa este módulo — o contrário seria ciclo. Quem precisa da checagem no
+ * orquestrador usa o reexport de `clauses.ts`, para a lista existir uma vez só.
+ *
+ * "Todo dia 10" é DIA DE VENCIMENTO, não o resultado do dia: sem esta guarda a
+ * regra do resultado do dia perguntava "esses R$ 150 foram ganho ou gasto?"
+ * para quem estava descrevendo a conta de luz.
+ */
+const RECORRENCIA = new RegExp([
+  String.raw`\btod[oa]s?\s+(?:o\s+)?(?:m[eê]s|m[eê]ses|dia\s+\d{1,2}|semana|ano)\b`,
+  String.raw`\b(?:por|ao|a\s+cada)\s+m[eê]s\b`,
+  String.raw`\bmensalmente\b|\btodo\s+m[eê]s\b|\bmensal\b`,
+  String.raw`\bcada\s+\d{1,2}\s+(?:dias|semanas|meses)\b`,
+].join('|'), 'i')
+
+export const looksRecurring = (t: string): boolean => RECORRENCIA.test(t)
+
 // Número que carrega unidade não é dinheiro: "8 horas", "120 km", "14 viagens".
 const UNIT_AFTER = String.raw`\s*(?:h\b|horas?\b|hrs?\b|km\b|quil[oô]metros?\b|viagens?\b|corridas?\b|litros?\b|l\b|%|minutos?\b|min\b|vezes\b|x\b)`
 const HOURS_ANY = new RegExp(String.raw`${NUM}\s*(?:horas?|hrs?|h)\b`, 'i')
@@ -191,6 +209,8 @@ interface DayResult {
 function driverDayResult(input: string, actions: ParsedAction[], dayHint?: boolean): DayResult | null {
   const t = input.toLowerCase()
   if (STRONG_EXPENSE_VERB.test(t)) return null
+  // "Todo dia 10" é vencimento de conta, não o resultado do dia de trabalho.
+  if (RECORRENCIA.test(t)) return null
   // O `dayHint` existe porque quem segmenta a mensagem ARRANCA a expressão de
   // data antes de chamar o parser: "deu 200 hoje" chega aqui como "deu 200".
   // Sem o aviso, o contexto de dia — que é o que dá sentido ao valor — some.

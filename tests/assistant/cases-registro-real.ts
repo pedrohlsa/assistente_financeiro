@@ -223,6 +223,34 @@ export const REGISTRO_REAL: AssistantCase[] = [
     messages: ['gastei 100 no mercado', 'na verdade foi 80'],
     expectActions: [{ kind: 'expense', amount: 80, category: 'alimentacao' }],
   },
+
+  // ===== Conta que se repete não é gasto de hoje (regra 18) =====
+  {
+    id: 'rr-32', group: 'registroreal', ...naoMotorista,
+    // Virava despesa avulsa de 90 com a descrição "Pago de internet todo mes":
+    // inflava o mês com um valor que é PREVISÃO, não movimentação realizada.
+    messages: ['pago 90 de internet todo mes'],
+    expectNoActions: true,
+    expectReply: [/planejamento/i],
+  },
+  {
+    id: 'rr-33', group: 'registroreal', ...naoMotorista,
+    messages: ['minha internet e 90 por mes'],
+    expectNoActions: true,
+    expectReply: [/planejamento/i],
+  },
+  {
+    id: 'rr-34', group: 'registroreal', ...naoMotorista,
+    // Sem marca de repetição, gasto é gasto: a guarda não pode engolir isso.
+    messages: ['gastei 90 de internet'],
+    expectActions: [{ kind: 'expense', amount: 90 }],
+  },
+  {
+    id: 'rr-35', group: 'registroreal', ...motorista,
+    // "Todo dia" descrevendo a rotina de trabalho não é conta a pagar.
+    messages: ['rodei 120 km'],
+    expectActions: [{ kind: 'work', km: 120 }],
+  },
 ]
 
 export default REGISTRO_REAL
