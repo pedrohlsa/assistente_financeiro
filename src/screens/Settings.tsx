@@ -7,6 +7,7 @@ import { catById } from '../data/categories'
 import { monthStats, monthlySavingGoal } from '../services/calc'
 import { ConfirmDialog, useToast } from '../components/ui'
 import { GOAL_CADENCE_LABEL, GoalCadence, goalCadenceOf, isDriver } from '../services/profile'
+import { canShareFile, saveTextFile, shareTextFile } from '../services/exportFile'
 
 const WD = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
@@ -23,25 +24,35 @@ export default function SettingsScreen() {
   const [confirmReplace, setConfirmReplace] = useState(false)
   const [confirmClearActivity, setConfirmClearActivity] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
+  // Último arquivo exportado, para o botão de enviar aparecer só depois de
+  // existir arquivo — oferecer "compartilhar" antes disso é oferecer nada.
+  const [lastExport, setLastExport] = useState<{ filename: string; mime: string; content: string } | null>(null)
 
   const num = (v: string, fallback: number) => { const n = parseMoney(v); return isNaN(n) ? fallback : n }
 
-  const exportBackup = () => {
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `assistfin-backup-${new Date().toISOString().slice(0, 10)}.json`
-    a.click()
-    toast({ text: 'Backup exportado.' })
+  /**
+   * Exportar de verdade. O caminho antigo (`<a download>` com Blob) não fazia
+   * nada dentro do APK — o WebView do Capacitor não tem DownloadListener — e o
+   * app dizia "exportado" para um arquivo que nunca existiu. Agora a mensagem
+   * só aparece quando o arquivo foi realmente escrito, e diz onde ele ficou.
+   */
+  const download = async (content: string, filename: string, mime: string, rotulo: string) => {
+    const out = await saveTextFile(filename, mime, content)
+    if (!out.ok) {
+      toast({ text: `Não consegui salvar o arquivo. ${out.error || ''}`.trim() })
+      return
+    }
+    setLastExport(canShareFile() ? { filename, mime, content } : null)
+    toast({ text: out.where ? `${rotulo} salvo em ${out.where}.` : `${rotulo} exportado.` })
   }
 
-  const download = (content: string, filename: string, mime: string) => {
-    const blob = new Blob([content], { type: mime })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = filename
-    a.click()
-  }
+  const exportBackup = () =>
+    download(
+      JSON.stringify(state, null, 2),
+      `assistfin-backup-${todayISO()}.json`,
+      'application/json',
+      'Backup',
+    )
 
   /** CSV de todas as movimentações (14.10). */
   const exportCsv = () => {
@@ -54,8 +65,7 @@ export default function SettingsScreen() {
         .map(t => [t.date, t.type, t.amount.toFixed(2), catById(state.categories, t.category).name,
           t.description, t.origin, t.paymentMethod, t.source].map(esc).join(',')),
     ].join('\n')
-    download('﻿' + rows, `assistfin-movimentacoes-${todayISO()}.csv`, 'text/csv;charset=utf-8')
-    toast({ text: 'CSV exportado.' })
+    download('﻿' + rows, `assistfin-movimentacoes-${todayISO()}.csv`, 'text/csv;charset=utf-8', 'CSV')
   }
 
   /** Resumo do mês em CSV (14.10). */
@@ -76,8 +86,7 @@ export default function SettingsScreen() {
       ].map(r => r.map(esc).join(',')),
       ...(driverMode ? [['KM', String(m.km)], ['Viagens', String(m.trips)]].map(r => r.map(esc).join(',')) : []),
     ].join('\n')
-    download('﻿' + lines, `assistfin-resumo-${monthKey(todayISO())}.csv`, 'text/csv;charset=utf-8')
-    toast({ text: 'Resumo mensal exportado.' })
+    download('﻿' + lines, `assistfin-resumo-${monthKey(todayISO())}.csv`, 'text/csv;charset=utf-8', 'Resumo mensal')
   }
 
   /** Importa validando e perguntando antes de substituir (14.10). */
@@ -286,6 +295,12 @@ export default function SettingsScreen() {
           <button className="btn btn-soft btn-sm" onClick={exportCsv}>Movimentações (CSV)</button>
           <button className="btn btn-soft btn-sm" onClick={exportMonthlySummary}>Resumo do mês (CSV)</button>
           <button className="btn btn-soft btn-sm" onClick={() => fileRef.current?.click()}>Importar backup</button>
+          {lastExport && (
+            <button className="btn btn-soft btn-sm"
+              onClick={() => shareTextFile(lastExport.filename, lastExport.mime, lastExport.content)}>
+              Enviar {lastExport.filename.endsWith('.json') ? 'backup' : 'planilha'}
+            </button>
+          )}
           <input ref={fileRef} type="file" accept=".json" hidden onChange={e => { if (e.target.files?.[0]) importBackup(e.target.files[0]); e.target.value = '' }} />
         </div>
 

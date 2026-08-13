@@ -8,6 +8,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(RideOverlayPlugin.class);
         registerPlugin(SpeechPlugin.class);
+        registerPlugin(ExportPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
