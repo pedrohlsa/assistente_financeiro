@@ -392,6 +392,10 @@ function parseCardClause(text: string): ParsedAction[] {
     const instM = text.match(/(?:em|x)\s*(\d+)\s*(?:vez(?:es)?|x|parcelas?)|(\d+)\s*x\b/i)
     const valM = text.match(new RegExp(String.raw`(?:de|por|custou|valor de)\s*(?:r\$)?\s*${NUM}(?:\s*(mil))?`, 'i'))
       || text.match(new RegExp(String.raw`(?:r\$)\s*${NUM}(?:\s*(mil))?`, 'i'))
+      // Valor colado no verbo, sem dizer o que foi comprado: "passei 1200 no
+      // nubank em 3x". Sem esta forma a compra parcelada inteira se perdia —
+      // e nem todo mundo descreve o item ao lançar.
+      || text.match(new RegExp(String.raw`(?:comprei|parcelei|passei)\s+(?:r\$)?\s*${NUM}(?:\s*(mil))?`, 'i'))
     // Sem valor OU sem parcelas não registra nada: quem pergunta é o assistente.
     if (!valM || !instM) return []
     let total = parseNum(valM[1])

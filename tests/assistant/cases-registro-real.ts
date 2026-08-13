@@ -273,6 +273,30 @@ export const REGISTRO_REAL: AssistantCase[] = [
     expectMode: 'clarify',
     expectClarification: /viagem|reserva/i,
   },
+
+  // ===== Parcelamento sem dizer o que foi comprado =====
+  {
+    id: 'rr-39', group: 'registroreal', ...naoMotorista,
+    state: { cards: [{ name: 'Nubank' }] },
+    // Sem um item descrito ("passei UM PC de 4000"), o valor não era achado e
+    // a compra parcelada inteira se perdia.
+    messages: ['passei 1200 no nubank em 3x'],
+    expectActions: [{ kind: 'card-purchase', total: 1200, installments: 3, cardName: 'nubank' }],
+  },
+  {
+    id: 'rr-40', group: 'registroreal', ...naoMotorista,
+    state: { cards: [{ name: 'Nubank' }] },
+    messages: ['parcelei 1200 em 3x no nubank'],
+    expectActions: [{ kind: 'card-purchase', total: 1200, installments: 3 }],
+  },
+  {
+    id: 'rr-41', group: 'registroreal', ...naoMotorista,
+    state: { cards: [{ name: 'Nubank' }] },
+    // A guarda da regra 11: com "recebi" continua sendo entrada financiada,
+    // nunca uma compra e nunca receita.
+    messages: ['passei 2000 em 5x e recebi 1850'],
+    expectActions: [{ kind: 'financed-cash-inflow', total: 2000, netReceived: 1850 }],
+  },
 ]
 
 export default REGISTRO_REAL
