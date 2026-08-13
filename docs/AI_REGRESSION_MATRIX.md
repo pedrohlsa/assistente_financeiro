@@ -69,7 +69,7 @@ Os grupos correspondem assim:
 | 10 motorista | `motorista`, `motorista2`, `perfil` |
 | 11 ambiguidades e correções | `ambiguidade`, `correcoes`, `correcoes2`, `multiturno` |
 | 12 conversacional | `conversa`, `conversa2`, `incompletas` |
-| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 58 invariantes |
+| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 60 invariantes |
 | 14 datas futuras, inválidas e períodos | `temporal` (43 casos) |
 | 15 desfazer o último lote | `undo` (14 casos) |
 | 16 corrigir lançamento já salvo | `edicao` (17 casos) |

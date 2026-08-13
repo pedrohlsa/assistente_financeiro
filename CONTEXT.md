@@ -41,11 +41,17 @@ via função serverless na Vercel.
   respondendo com o contrato v1).
 - APK debug gerado e entregue ao usuário nesta sessão (para o tio).
 
-**Onde o desenvolvimento parou (13/08/2026):** dez commits que atacaram o REGISTRO em fala
-real (os quatro parsers pendentes e mais onze defeitos achados por sonda), sete perguntas que
-caíam no texto de ajuda, e dois plugins nativos novos (ditado por voz e exportação de
-arquivo, que simplesmente não funcionavam dentro do APK). **Nada pela metade**, mas os
-commits estão SÓ NESTA MÁQUINA — sem push, sem deploy, sem APK, por não ter autorização.
+**Onde o desenvolvimento parou (13/08/2026):** vinte e dois commits em cinco rodadas de
+sondagem. Atacaram o REGISTRO em fala real (os quatro parsers pendentes e mais vinte
+defeitos que o corpus não achava), as perguntas que caíam no texto de ajuda, a correção de
+lançamento salvo, e dois plugins nativos novos (ditado por voz e exportação de arquivo, que
+simplesmente não funcionavam dentro do APK). **Nada pela metade**, mas os commits estão SÓ
+NESTA MÁQUINA — sem push, sem deploy, sem APK, por não ter autorização.
+
+**O método que achou quase tudo:** rodar frases de fala real pelo orquestrador numa sonda
+descartável e LER as respostas. Vários defeitos não apareciam em teste nenhum — só na
+leitura ("tô no vermelho?" respondia "Sim" para quem tinha sobra; o lembrete de óleo dizia
+JÁ VENCIDA para uma troca recém-feita). Ver regra 35 do `CLAUDE.md`.
 
 O que já está implementado e funcionando (arquitetura da IA v1, contrato versionado):
 - Registro por linguagem natural (receita, despesa, saving, trabalho, combustível,
