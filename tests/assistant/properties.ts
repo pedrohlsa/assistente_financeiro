@@ -981,6 +981,44 @@ export async function runProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 54. O sinal do dinheiro do motorista nunca se inverte -------------
+  // "foi 400 hoje" registrava R$ 400 de DESPESA: `foi` é verbo de gasto no
+  // parser, e o faturamento do dia entrava com o sinal trocado. A invariante
+  // vale para a classe inteira, não para a frase que o bug mostrou.
+  await checkAsync(r, 'resultado do dia do motorista nunca vira despesa', async () => {
+    const frases = [
+      'deu 200 hoje', 'foi 400 hoje', 'hoje foi fraco so 150 reais',
+      'fechei o dia com 280', 'tirei 300 liquido hoje', 'dia bom hoje 320',
+      'so 90 reais hoje', 'rodei o dia todo e deu 180', 'hoje deu 250 na rua',
+    ]
+    const s = buildState({ profile: 'driver' })
+    for (const message of frases) {
+      const out = await orchestrate({ state: s, message, history: [], remoteEnabled: false, today: TODAY })
+      const acoes: AssistantCandidateAction[] = out.response.actions
+      const gasto = acoes.find(a => a.action.kind === 'expense')
+      if (gasto) return `"${message}" virou despesa de ${(gasto.action as any).amount}`
+    }
+    return null
+  })
+
+  // --- 55. Verbo de gasto explícito manda sempre -------------------------
+  // A regra do resultado do dia não pode "promover" um gasto a receita só
+  // porque a frase fala de hoje — seria o mesmo erro no sentido contrário.
+  await checkAsync(r, 'verbo de gasto explícito nunca vira receita', async () => {
+    const frases = [
+      'gastei 200 hoje', 'paguei 90 hoje', 'comprei 50 hoje',
+      'torrei 120 hoje', 'gastei o dia todo 80',
+    ]
+    const s = buildState({ profile: 'driver' })
+    for (const message of frases) {
+      const out = await orchestrate({ state: s, message, history: [], remoteEnabled: false, today: TODAY })
+      const acoes: AssistantCandidateAction[] = out.response.actions
+      const receita = acoes.find(a => a.action.kind === 'income')
+      if (receita) return `"${message}" virou receita de ${(receita.action as any).amount}`
+    }
+    return null
+  })
+
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
   // Invariante de FIAÇÃO, não de lógica: o corpus sempre passou
   // `pendingClarification`, então ele nunca poderia ver que `Chat.tsx` não

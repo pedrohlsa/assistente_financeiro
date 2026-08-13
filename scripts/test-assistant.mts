@@ -10,6 +10,7 @@ import { TEMPORAL } from '../tests/assistant/cases-temporal'
 import { UNDO } from '../tests/assistant/cases-undo'
 import { EDIT } from '../tests/assistant/cases-edit'
 import { FALA_REAL } from '../tests/assistant/cases-fala-real'
+import { REGISTRO_REAL } from '../tests/assistant/cases-registro-real'
 import { runProperties } from '../tests/assistant/properties'
 import { runCase } from '../tests/assistant/harness'
 import type { CaseResult } from '../tests/assistant/harness'
@@ -17,7 +18,7 @@ import type { CaseResult } from '../tests/assistant/harness'
 const only = process.argv.find(a => a.startsWith('--only='))?.slice(7)
 const verbose = process.argv.includes('--verbose')
 
-const ALL = [...CASES, ...CRITICAL, ...ADVERSARIAL, ...TEMPORAL, ...UNDO, ...EDIT, ...FALA_REAL]
+const ALL = [...CASES, ...CRITICAL, ...ADVERSARIAL, ...TEMPORAL, ...UNDO, ...EDIT, ...FALA_REAL, ...REGISTRO_REAL]
 const selected = only
   ? ALL.filter(c => c.id.includes(only) || c.group.includes(only))
   : ALL

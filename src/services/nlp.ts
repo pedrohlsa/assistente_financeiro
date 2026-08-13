@@ -3,7 +3,7 @@
 // por um serviço de IA no backend (ver services/ai.ts).
 import { ParsedAction } from '../models/types'
 import { guessCategory } from '../data/categories'
-import { parseMoney } from '../utils/format'
+import { fmtBRL, parseMoney } from '../utils/format'
 import { sentenceCase } from '../utils/text'
 
 // Captura valores com QUALQUER combinação de separadores ("100.000,00",
@@ -136,17 +136,118 @@ export function isAmbiguousGas(text: string): boolean {
   return GAS_MENTION.test(text) && !GAS_KITCHEN.test(text) && !GAS_VEHICLE.test(text)
 }
 
+// ---------- RESULTADO DO DIA DO MOTORISTA (item 41) ----------
+// Quem roda o dia inteiro não escreve "ganhei 150": escreve "hoje foi fraco só
+// 150", "deu 200 hoje", "fechei o dia com 280". Sem esta regra a receita do dia
+// se perdia por completo — e, pior, "foi 400 hoje" caía no verbo de DESPESA e
+// registrava o faturamento do dia como gasto, invertendo o sinal do dinheiro.
+//
+// A regra é EXCLUSIVA do perfil motorista: para os outros perfis um valor solto
+// junto de "hoje" não tem leitura padrão nenhuma, e chutar seria invenção.
+
+/** Verbo de gasto explícito. Onde ele aparece, a leitura é gasto e ponto. */
+const STRONG_EXPENSE_VERB = /\b(?:gastei|paguei|comprei|torrei|coloquei|botei|abasteci|enchi|parcelei|passei|guardei|separei)\b/i
+const DAY_WORD = /\b(?:hoje|hj|ontem|anteontem|o\s+dia|no\s+dia|dia|na\s+rua|de\s+rua|no\s+corre|na\s+ativa|na\s+labuta|no\s+trampo|rodando)\b/i
+const DAY_RESULT_VERB = /\b(?:deu|deram|fez|fiz|foi|fechei|fechou|tirei|tirou|rendeu|rendi|saiu|bati|consegui|entrou)\b/i
+const DAY_QUALIFIER = /\b(?:fraco|fraca|fraquinho|bom|boa|[óo]tim[oa]|ruim|puxad[oa]|parad[oa]|movimentad[oa]|tranquil[oa]|l[íi]quido|limpo|s[óo]|apenas|somente)\b/i
+const MONEY_MARK = /r\$|\breais\b|\bconto?s?\b|\bpila\b|\bmang[oa]s?\b/i
+
+// Número que carrega unidade não é dinheiro: "8 horas", "120 km", "14 viagens".
+const UNIT_AFTER = String.raw`\s*(?:h\b|horas?\b|hrs?\b|km\b|quil[oô]metros?\b|viagens?\b|corridas?\b|litros?\b|l\b|%|minutos?\b|min\b|vezes\b|x\b)`
+const HOURS_ANY = new RegExp(String.raw`${NUM}\s*(?:horas?|hrs?|h)\b`, 'i')
+
+/** Valores monetários de um texto, já descartando o que é unidade. */
+function moneyValuesIn(text: string): number[] {
+  const out: number[] = []
+  for (const m of text.matchAll(new RegExp(String.raw`(?:r\$\s*)?${NUM}`, 'gi'))) {
+    const after = text.slice((m.index || 0) + m[0].length)
+    if (new RegExp(`^${UNIT_AFTER}`, 'i').test(after)) continue
+    const v = parseNum(m[1])
+    if (v > 0) out.push(v)
+  }
+  return out
+}
+
+interface DayResult {
+  actions: ParsedAction[]
+  /** Valor solto demais para decidir sozinho — pergunta em vez de chutar. */
+  ask?: NonNullable<ParseResult['ambiguity']>
+}
+
+function driverDayResult(input: string, actions: ParsedAction[], dayHint?: boolean): DayResult | null {
+  const t = input.toLowerCase()
+  if (STRONG_EXPENSE_VERB.test(t)) return null
+  // O `dayHint` existe porque quem segmenta a mensagem ARRANCA a expressão de
+  // data antes de chamar o parser: "deu 200 hoje" chega aqui como "deu 200".
+  // Sem o aviso, o contexto de dia — que é o que dá sentido ao valor — some.
+  if (!dayHint && !DAY_WORD.test(t)) return null
+
+  // `work` e `odometer` descrevem o dia, não o dinheiro dele: convivem com a
+  // receita do resultado. Qualquer outra ação significa que a frase já foi
+  // entendida por um caminho melhor e não pode ser reinterpretada.
+  const monetary = actions.filter(a => a.kind !== 'work' && a.kind !== 'odometer')
+  // "foi 400 hoje" vira despesa porque `foi` é verbo de gasto no parser. Sem
+  // verbo de gasto explícito na frase, essa despesa é o faturamento do dia.
+  const weak = monetary.length === 1 && monetary[0].kind === 'expense' ? monetary[0] : null
+  if (monetary.length && !weak) return null
+
+  const amount = weak ? (weak as any).amount : moneyValuesIn(t)[0]
+  if (!(amount > 0)) return null
+
+  const rest = actions.filter(a => a !== weak)
+
+  // Horas ditas sem qualificação ("foi 400 hoje 12 horas") só são jornada
+  // dentro deste contexto — fora dele, um número seguido de "h" pode ser hora
+  // do relógio.
+  const jaTemHoras = rest.some(a => a.kind === 'work' && (a as any).hours)
+  const hm = jaTemHoras ? null : t.match(HOURS_ANY)
+  const comHoras = hm
+    ? [...rest, { kind: 'work', hours: parseNum(hm[1]) } as ParsedAction]
+    : rest
+
+  const income: ParsedAction = { kind: 'income', amount, category: 'corridas' }
+
+  // Sinal forte de resultado (verbo, qualificação ou marca de dinheiro) decide
+  // sozinho. "hoje 250", sem nenhum deles, é ambíguo de verdade: pergunta.
+  if (DAY_RESULT_VERB.test(t) || DAY_QUALIFIER.test(t) || MONEY_MARK.test(t)) {
+    return { actions: [income, ...comHoras] }
+  }
+
+  return {
+    actions: comHoras,
+    ask: {
+      question: `Esses ${fmtBRL(amount)} foram o que você ganhou ou o que você gastou?`,
+      options: [
+        { label: 'Ganhei', actions: [income, ...comHoras] },
+        { label: 'Gastei', actions: [{ kind: 'expense', amount, category: 'outros-out' }, ...comHoras] },
+      ],
+    },
+  }
+}
+
 /**
  * Parse completo: além das ações, devolve a pergunta de desambiguação quando o
  * texto não permite decidir com segurança.
  */
-export function parseNaturalFull(input: string, opts?: { driver?: boolean }): ParseResult {
+export function parseNaturalFull(
+  input: string,
+  opts?: { driver?: boolean; dayHint?: boolean },
+): ParseResult {
   let actions = parseNatural(input)
+  let dayAsk: DayResult['ask']
+  let doDia = false
 
   // No perfil motorista, uma receita sem origem explícita continua sendo de
   // corridas. Se a frase menciona corrida/Uber/99, o contexto vale também para
   // cláusulas curtas como "ganhei 150" logo após "fiz uma corrida".
   if (opts?.driver) {
+    const dia = driverDayResult(input, actions, opts?.dayHint)
+    if (dia) {
+      actions = dia.actions
+      dayAsk = dia.ask
+      doDia = !dia.ask
+    }
+
     const rideContext = /\bcorridas?\b|\buber\b|\bindriver\b|\b99\b/i.test(input)
     actions = actions.map(a => a.kind === 'income' && (!a.category || rideContext)
       ? { ...a, category: a.category || 'corridas' }
@@ -154,14 +255,19 @@ export function parseNaturalFull(input: string, opts?: { driver?: boolean }): Pa
 
     // Um registro de receita de corrida representa uma viagem quando o usuário
     // não informou uma quantidade explícita. "Fiz 14 viagens" continua valendo 14.
+    // O resultado do DIA é a exceção: "fechei o dia com 280" não diz nada sobre
+    // quantas viagens foram, e cravar "1 viagem" num dia inteiro destruiria o
+    // ganho por viagem do motorista.
     const hasExplicitTrips = actions.some(a => a.kind === 'work' && a.trips !== undefined)
     const rideEntries = actions.filter(a => a.kind === 'income' && a.category === 'corridas').length
-    if (!hasExplicitTrips && rideEntries > 0) {
+    if (!hasExplicitTrips && rideEntries > 0 && !doDia) {
       const work = actions.find(a => a.kind === 'work') as Extract<ParsedAction, { kind: 'work' }> | undefined
       if (work) work.trips = rideEntries
       else actions.push({ kind: 'work', trips: rideEntries })
     }
   }
+
+  if (dayAsk) return { actions, ambiguity: dayAsk }
 
   if (!isAmbiguousGas(input)) return { actions }
 
@@ -607,6 +713,8 @@ function parseClause(input: string): ParsedAction[] {
   const tripsM = text.match(new RegExp(String.raw`(?:fiz|realizei|completei)?\s*${NUM}\s*(?:viagens|corridas)`, 'i'))
   const hoursM = text.match(new RegExp(String.raw`(?:trabalhei|fiquei|rodei por)\s*${NUM}\s*(?:horas?|h)\b`, 'i'))
     || text.match(new RegExp(String.raw`${NUM}\s*horas?\s*(?:online|trabalhad)`, 'i'))
+    // Jornada como o motorista fala: "8 horas na rua", "10 horas rodando".
+    || text.match(new RegExp(String.raw`${NUM}\s*(?:horas?|hrs?)\s+(?:na\s+rua|de\s+rua|rodando|na\s+ativa|no\s+corre|na\s+labuta|no\s+trampo|trabalhando|de\s+trabalho)`, 'i'))
 
   const kmIsMaint = m && m[3] // km da manutenção
   if ((kmM && !kmIsMaint && !kmSubM) || (tripsM && !tripsSubM) || (hoursM && !hoursSubM)) {

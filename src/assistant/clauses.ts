@@ -422,7 +422,11 @@ export function analyzeMessage(
     // Conector órfão deixado pelo recorte ("gastei 40 e") não é descrição.
     semData = semData.replace(/\s{2,}/g, ' ').replace(/[\s,;]*\b(?:e|mas|por[ée]m)\s*$/i, '').trim()
 
-    const parsed = parseNaturalFull(semData || forParser, { driver: opts?.driver })
+    // A expressão de dia foi RETIRADA do texto acima. O parser precisa saber que
+    // ela existia: "deu 200 hoje" chega como "deu 200", e é justamente o "hoje"
+    // que transforma um número solto no resultado do dia do motorista.
+    const dayHint = [...datesOriginal, ...datesParser].some(d => d.kind === 'date')
+    const parsed = parseNaturalFull(semData || forParser, { driver: opts?.driver, dayHint })
     let actions = parsed.actions
     let date: string | undefined
     let dLabel: string | undefined
