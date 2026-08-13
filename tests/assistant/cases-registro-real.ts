@@ -300,6 +300,39 @@ export const REGISTRO_REAL: AssistantCase[] = [
     expectActions: [{ kind: 'financed-cash-inflow', total: 2000, netReceived: 1850 }],
   },
 
+  // ===== Valor aproximado: "uns 50", "cerca de 200" =====
+  {
+    id: 'rr-61', group: 'registroreal', ...naoMotorista,
+    // O "uns" entre o verbo e o número fazia o parser não achar o valor, e o
+    // gasto inteiro se perdia. É como se fala quando não se lembra o centavo.
+    messages: ['gastei uns 50'],
+    expectActions: [{ kind: 'expense', amount: 50 }],
+  },
+  {
+    id: 'rr-62', group: 'registroreal', ...naoMotorista,
+    messages: ['paguei uns 200 no mercado'],
+    expectActions: [{ kind: 'expense', amount: 200, category: 'alimentacao' }],
+  },
+  {
+    id: 'rr-63', group: 'registroreal', ...motorista,
+    messages: ['botei mais ou menos 80 de gasolina'],
+    expectActions: [{ kind: 'fuel', amount: 80 }],
+  },
+
+  // ===== Compra sem valor: perguntar, guardando o que já foi dito =====
+  {
+    id: 'rr-64', group: 'registroreal', ...naoMotorista,
+    messages: ['comprei uma tv'],
+    expectMode: 'clarify',
+    expectClarification: /valor/i,
+  },
+  {
+    id: 'rr-65', group: 'registroreal', ...naoMotorista,
+    // A descrição dita no primeiro turno não pode se perder no caminho.
+    messages: ['comprei uma tv', '3000'],
+    expectActions: [{ kind: 'expense', amount: 3000, description: /tv/i }],
+  },
+
   // ===== Duas receitas de fontes diferentes na mesma frase =====
   {
     id: 'rr-58', group: 'registroreal', ...autonomo,

@@ -6,7 +6,7 @@
 
 import type { ParsedAction } from '../models/types'
 import type { AssistantCandidateAction, AssistantCapabilities } from './contracts'
-import { parseMoney, todayISO } from '../utils/format'
+import { fmtBRL, parseMoney, todayISO } from '../utils/format'
 import { normalizeNumberWords } from './numbers'
 import { findDate } from './dates'
 import { normalizeName } from '../utils/text'
@@ -93,7 +93,7 @@ const describe = (a: ParsedAction): string => {
   const label = a.kind === 'income' ? 'receita' : a.kind === 'expense' ? 'despesa'
     : a.kind === 'saving' ? 'valor guardado' : a.kind === 'fuel' ? 'abastecimento'
       : a.kind === 'card-purchase' ? 'compra' : a.kind
-  return v !== undefined ? `${label} de R$ ${v.toFixed(2).replace('.', ',')}` : label
+  return v !== undefined ? `${label} de ${fmtBRL(v)}` : label
 }
 
 /**
@@ -151,14 +151,21 @@ export function parseCorrection(
   const valueRe = new RegExp(
     String.raw`(?:n[ãa]o\s+(?:foi|era|é|e)\s*(?:r\$)?\s*${NUMBER}${MIL}\s*,?\s*(?:e|mas)?\s*(?:foi|era|é|e|sim)?\s*(?:r\$)?\s*${NUMBER}${MIL})` +
     String.raw`|(?:(?:troca|trocar|muda|mudar|altera|alterar|corrige|corrigir|ajusta|ajustar)\s+(?:o\s+)?valor\s+(?:para|pra|por|em)\s*(?:r\$)?\s*${NUMBER}${MIL})` +
-    String.raw`|(?:(?:foi|era|é)\s*(?:r\$)?\s*${NUMBER}${MIL}\s*(?:reais)?\s*$)`,
+    String.raw`|(?:(?:foi|era|é)\s*(?:r\$)?\s*${NUMBER}${MIL}\s*(?:reais)?\s*$)` +
+    // "Na verdade 80", "quer dizer 80 reais" — o conserto mais natural que
+    // existe, e o único caminho que faltava reconhecer.
+    String.raw`|(?:(?:na\s+verdade|na\s+real|quer\s+dizer|queria\s+dizer|ou\s+melhor|melhor\s+dizendo|corrigindo|errei|me\s+enganei|foi\s+mal)\b[^\d]{0,12}(?:r\$)?\s*${NUMBER}${MIL})` +
+    // A mensagem inteira é um número: com a proposta na tela isso só pode ser
+    // o valor certo. Sem proposta, `parseCorrection` nem é chamada.
+    String.raw`|(?:^\s*(?:r\$)?\s*${NUMBER}${MIL}\s*(?:reais)?\s*$)`,
     'i',
   )
   const vm = t.match(valueRe)
   if (vm) {
-    // Pares [valor, "mil"]: 1/2 = antigo, 3/4 = novo, 5/6 e 7/8 = formas curtas.
+    // Pares [valor, "mil"]: 1/2 = antigo, 3/4 = novo, 5/6 e 7/8 = formas
+    // curtas, 9/10 = "na verdade X", 11/12 = a mensagem inteira sendo o valor.
     const pick = (n: number, m: number) => (vm[n] ? parseMoney(vm[n]) * (vm[m] ? 1000 : 1) : NaN)
-    const newValue = [pick(3, 4), pick(5, 6), pick(7, 8), pick(1, 2)].find(v => v > 0) ?? NaN
+    const newValue = [pick(3, 4), pick(5, 6), pick(7, 8), pick(9, 10), pick(11, 12), pick(1, 2)].find(v => v > 0) ?? NaN
     if (newValue > 0) {
       const target = resolveTarget(t, remaining)
       if (target && 'id' in target) {
@@ -169,14 +176,14 @@ export function parseCorrection(
         const was = (p.action as any)[field]
         if (was !== newValue) {
           plan.edits.push({ id: p.id, field, value: newValue, was })
-          plan.summary.push(`Troquei o valor de R$ ${Number(was).toFixed(2).replace('.', ',')} para R$ ${newValue.toFixed(2).replace('.', ',')}.`)
+          plan.summary.push(`Troquei o valor de ${fmtBRL(Number(was))} para ${fmtBRL(newValue)}.`)
           touched = true
         }
       } else if (target && 'ambiguousAmong' in target) {
         return {
           ...plan,
           ambiguous: {
-            question: `Qual lançamento passa a ser R$ ${newValue.toFixed(2).replace('.', ',')}?`,
+            question: `Qual lançamento passa a ser ${fmtBRL(newValue)}?`,
             options: target.ambiguousAmong.map(p => ({ label: describe(p.action), value: p.id })),
           },
         }

@@ -1098,8 +1098,10 @@ export async function runProperties(): Promise<PropertyReport> {
   // exata tela onde o usuário confere antes de gravar. "R$ 15000,00" se lê
   // errado com muito mais facilidade que "R$ 15.000,00".
   check(r, 'nlp.ts não formata dinheiro à mão', () => {
-    const src = readFileSync(new URL('../../src/services/nlp.ts', import.meta.url), 'utf8')
-    if (/toFixed\(2\)\s*\.replace\(/.test(src)) return 'ainda há formatação manual de dinheiro em nlp.ts'
+    for (const arquivo of ['../../src/services/nlp.ts', '../../src/assistant/corrections.ts']) {
+      const src = readFileSync(new URL(arquivo, import.meta.url), 'utf8')
+      if (/toFixed\(2\)\s*\.replace\(/.test(src)) return `ainda há formatação manual de dinheiro em ${arquivo}`
+    }
     const proposta = describeAction({ kind: 'income', amount: 15000, category: 'salario' } as any)
     if (!/15\.000,00/.test(proposta)) return `sem separador de milhar: "${proposta}"`
     return null

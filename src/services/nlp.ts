@@ -17,6 +17,13 @@ const parseNum = (s: string) => parseMoney(s)
 // "Pila no lanche". Uma fonte só — todo regex de valor consome esta lista.
 const MOEDA = String.raw`(?:reais|real|conto[s]?|pila[s]?|mang[oa]s?|pau[s]?|prata[s]?)`
 
+// Valor aproximado, como se fala quando não se lembra o centavo: "gastei UNS
+// 50", "botei MAIS OU MENOS 80". Sem consumir isso o número não fica logo
+// depois do verbo e o lançamento inteiro se perdia. Substitui o antigo
+// `(?:mais\s+)?` — "mais ou menos" vem antes de "mais" na alternância para a
+// forma longa ganhar.
+const APROX = String.raw`(?:(?:mais\s+ou\s+menos|uns|umas|cerca\s+de|em\s+torno\s+de|aproximadamente|quase|tipo|mais)\s+)?`
+
 // Combustível como se digita no celular, com os erros de sempre. Escrever
 // "gazolina" não pode tirar o gasto do custo de combustível do motorista.
 const COMBUSTIVEL = String.raw`(?:ga[sz]olina|gasolna|etanol|[áa]lcool|alcool|diesel|d[ie]zel|gnv|combust[íi]vel)`
@@ -498,7 +505,7 @@ function parseClause(input: string): ParsedAction[] {
   // ----- guardar na RESERVA (não é meta): "guardei 150", "coloquei 300 na reserva",
   // "separei 500 para investir". Vira `type:'saving'` — nem receita nem despesa.
   const savingRe = new RegExp(
-    String.raw`(?:guardei|guardar|guarda|separei|separar|separa|reservei|poupei|apliquei|investi|coloquei|botei|depositei)\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:(?:na|no|em|para|pra|pro)\s+(?:a\s+|o\s+)?(reserva|poupan[çc]a|investimento|investir|guardado|caixinha|cofrinho))?`,
+    String.raw`(?:guardei|guardar|guarda|separei|separar|separa|reservei|poupei|apliquei|investi|coloquei|botei|depositei)\s*${APROX}(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:(?:na|no|em|para|pra|pro)\s+(?:a\s+|o\s+)?(reserva|poupan[çc]a|investimento|investir|guardado|caixinha|cofrinho))?`,
     'i',
   )
   const sav = text.match(savingRe)
@@ -517,7 +524,7 @@ function parseClause(input: string): ParsedAction[] {
   }
 
   // ----- guardar dinheiro numa meta: "guardei 100 para o iphone", "guarda 50 na meta da viagem"
-  const depositRe = new RegExp(String.raw`(?:guardei|guarda|guardar|separei|separa|separar|deposita|depositei)\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:para|pra|pro|na|no|da|do|em)?\s*(?:a\s+|o\s+)?(?:meta\s+)?(?:d[oa]\s+)?([\wçãõáéíóúâêô\s]+)?`, 'i')
+  const depositRe = new RegExp(String.raw`(?:guardei|guarda|guardar|separei|separa|separar|deposita|depositei)\s*${APROX}(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:para|pra|pro|na|no|da|do|em)?\s*(?:a\s+|o\s+)?(?:meta\s+)?(?:d[oa]\s+)?([\wçãõáéíóúâêô\s]+)?`, 'i')
   const dep = text.match(depositRe)
   if (dep) {
     // "guardei 150 E gastei 355" deixava o nome da meta como "e". Um nome que é
@@ -579,7 +586,7 @@ function parseClause(input: string): ParsedAction[] {
 
   // ----- abastecimento: "abasteci 70", "coloquei 70 reais de gasolina", "coloquei 30 litros"
   const fuelRe = new RegExp(String.raw`abastec(?:i|er|endo)(?:mento)?\s*(?:com|de)?\s*(?:r\$)?\s*${NUM}`, 'i')
-  const fuelRe2 = new RegExp(String.raw`(?:coloquei|botei|gastei|paguei)\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:de|em|no|na)?\s*${COMBUSTIVEL}`, 'i')
+  const fuelRe2 = new RegExp(String.raw`(?:coloquei|botei|gastei|paguei)\s*${APROX}(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:de|em|no|na)?\s*${COMBUSTIVEL}`, 'i')
   // Sem verbo nenhum: "80 pila de gasolina". Só vale quando NÃO há verbo de
   // comando na frase — senão "gastei 20 de pedágio e 40 de gasolina" casaria
   // aqui, bloquearia a despesa do pedágio e perderia um lançamento inteiro.
@@ -724,7 +731,7 @@ function parseClause(input: string): ParsedAction[] {
   const expVerbs = INCOME_NOUN.test(text)
     ? 'gastei|paguei|comprei|torrei|coloquei|botei'
     : 'gastei|paguei|comprei|torrei|coloquei|botei|saiu|foi'
-  const expRe = new RegExp(String.raw`(?:${expVerbs})\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:(?:de|com|no|na|em|para|pra)\s+)?([\wçãõáéíóúâê\s]*)`, 'i')
+  const expRe = new RegExp(String.raw`(?:${expVerbs})\s*${APROX}(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:(?:de|com|no|na|em|para|pra)\s+)?([\wçãõáéíóúâê\s]*)`, 'i')
   const e = text.match(expRe)
   if (e && !m && !f) {
     const rawDesc = (e[2] || '').trim().split(/\s+e\s+|,/)[0].trim()
@@ -734,7 +741,7 @@ function parseClause(input: string): ParsedAction[] {
 
   // ----- despesa na ordem inversa: "comprei cimento por 190", "paguei a internet a 120"
   if (!e && !m && !f) {
-    const invRe = new RegExp(String.raw`(?:gastei|paguei|comprei|torrei)\s+(?:mais\s+)?(?:um|uma|o|a|uns|umas)?\s*([a-zà-úçãõ][\wçãõáéíóúâê]*(?:\s+[\wçãõáéíóúâê]+){0,2}?)\s+(?:por|a|custou|saiu por)\s*(?:r\$)?\s*${NUM}`, 'i')
+    const invRe = new RegExp(String.raw`(?:gastei|paguei|comprei|torrei)\s+${APROX}(?:um|uma|o|a|uns|umas)?\s*([a-zà-úçãõ][\wçãõáéíóúâê]*(?:\s+[\wçãõáéíóúâê]+){0,2}?)\s+(?:por|a|custou|saiu por)\s*(?:r\$)?\s*${NUM}`, 'i')
     const inv = text.match(invRe)
     if (inv) {
       const desc = cleanDescription(inv[1])
