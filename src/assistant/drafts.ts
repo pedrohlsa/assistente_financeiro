@@ -85,6 +85,28 @@ export function detectIncomplete(text: string, caps: AssistantCapabilities): Inc
     return { partial, missing }
   }
 
+  // Registro começado sem o valor: "recebi o salário", "abasteci", "gastei no
+  // mercado". Antes caía no texto genérico de ajuda — o usuário tinha COMEÇADO
+  // a registrar e o app respondia como se não tivesse entendido nada.
+  //
+  // As três guardas são o que separa isto de uma pergunta: nenhum número na
+  // frase (senão o parser normal já resolveu), nenhuma palavra interrogativa
+  // ("quanto eu gastei essa semana" tem o mesmo verbo) e nenhuma negação
+  // ("não gastei nada" é o contrário de um registro).
+  const SEM_VALOR = /^\s*(?:eu\s+)?(?:j[áa]\s+)?(ganhei|recebi|faturei|lucrei|gastei|paguei|comprei|torrei|abasteci|guardei|separei)\b/i
+  const semValor = text.match(SEM_VALOR)
+  if (semValor
+    && !/\d/.test(t)
+    && !/\?|\b(?:quanto|quantos|quantas|qual|quais|quando|como|onde|quem)\b/i.test(t)
+    && !/\bn[ãa]o\b/i.test(t)) {
+    const verbo = semValor[1].toLowerCase()
+    const kind = /ganhei|recebi|faturei|lucrei/.test(verbo) ? 'income'
+      : /guardei|separei/.test(verbo) ? 'saving'
+        : verbo === 'abasteci' && caps.isDriver ? 'fuel'
+          : 'expense'
+    return { partial: { kind } as any, missing: ['amount'] }
+  }
+
   // Pagamento de fatura sem saber o cartão, com mais de um cadastrado.
   if (/\bfatura\b/.test(t) && /\b(paguei|pagar|quitei|quitar)\b/.test(t) && caps.cardNames.length > 1) {
     const hasCard = caps.cardNames.some(c => t.includes(normalizeName(c)))

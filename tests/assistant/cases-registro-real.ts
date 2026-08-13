@@ -13,6 +13,7 @@ import type { AssistantCase } from './harness'
 
 const motorista = { profile: 'driver' as const }
 const naoMotorista = { profile: 'other' as const }
+const assalariado = { profile: 'clt' as const }
 
 export const REGISTRO_REAL: AssistantCase[] = [
   // ===== Resultado do dia sem verbo de ganho explícito =====
@@ -296,6 +297,72 @@ export const REGISTRO_REAL: AssistantCase[] = [
     // nunca uma compra e nunca receita.
     messages: ['passei 2000 em 5x e recebi 1850'],
     expectActions: [{ kind: 'financed-cash-inflow', total: 2000, netReceived: 1850 }],
+  },
+
+  // ===== Valor grande precisa ser LEGÍVEL na hora de confirmar =====
+  {
+    id: 'rr-51', group: 'registroreal', ...assalariado,
+    // A proposta escrevia "R$ 3200,00" — sem separador de milhar. É a tela
+    // onde o usuário confere antes de gravar, e "R$ 15000,00" se lê errado
+    // com muito mais facilidade que "R$ 15.000,00".
+    messages: ['meu salario caiu hoje 3200'],
+    expectActions: [{ kind: 'income', amount: 3200 }],
+    expectReply: [/R\$\s*3\.200,00/],
+  },
+  {
+    id: 'rr-52', group: 'registroreal', ...naoMotorista,
+    state: { cards: [{ name: 'Nubank' }] },
+    messages: ['comprei uma geladeira de 4500 em 10x no nubank'],
+    expectReply: [/R\$\s*4\.500,00/],
+  },
+  {
+    id: 'rr-53', group: 'registroreal', ...motorista,
+    // A proposta escrevia "1 viagens".
+    messages: ['ganhei 250 hoje'],
+    expectReply: [/1 viagem\b/],
+    forbidReply: [/1 viagens/],
+  },
+
+  // ===== Dinheiro que "cai" na conta =====
+  {
+    id: 'rr-45', group: 'registroreal', ...assalariado,
+    // "Caiu" é o verbo mais natural para salário e pagamento, e não estava
+    // entre os verbos de receita do parser: a entrada inteira se perdia.
+    messages: ['meu salario caiu hoje 3200'],
+    expectActions: [{ kind: 'income', amount: 3200, category: 'salario' }],
+  },
+  {
+    id: 'rr-46', group: 'registroreal', ...naoMotorista,
+    messages: ['caiu 500 na conta hoje'],
+    expectActions: [{ kind: 'income', amount: 500 }],
+  },
+  {
+    id: 'rr-47', group: 'registroreal', ...naoMotorista,
+    messages: ['entrou 800 ontem'],
+    expectActions: [{ kind: 'income', amount: 800, date: '2026-07-14' }],
+  },
+
+  // ===== Registro começado sem o valor: perguntar, não oferecer ajuda =====
+  {
+    id: 'rr-48', group: 'registroreal', ...assalariado,
+    // Caía no texto genérico de ajuda — o usuário começou a registrar e o app
+    // respondia como se não tivesse entendido nada.
+    messages: ['recebi o salario'],
+    expectMode: 'clarify',
+    expectClarification: /valor/i,
+  },
+  {
+    id: 'rr-49', group: 'registroreal', ...assalariado,
+    // E a resposta seguinte completa o registro.
+    messages: ['recebi o salario', '3200'],
+    expectActions: [{ kind: 'income', amount: 3200 }],
+  },
+  {
+    id: 'rr-50', group: 'registroreal', ...naoMotorista,
+    // Pergunta com o mesmo verbo NÃO pode virar rascunho de registro.
+    messages: ['quanto eu gastei essa semana'],
+    expectNoActions: true,
+    forbidReply: [/qual foi o valor/i],
   },
 
   // ===== Jornada colada na distância =====

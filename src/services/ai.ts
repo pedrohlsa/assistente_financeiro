@@ -714,7 +714,10 @@ function resolveLocal(s: AppState, input: string): AiReply {
   }
 
   // "to no lucro esse mes?" / "quanto sobrou"
-  if (/(?:t[oô]|estou|to)\s+no\s+lucro|(?:t[oô]|estou)\s+no\s+(?:azul|vermelho)|quanto\s+sobrou\s*\??$|sobrou\s+quanto/.test(t)) {
+  // "Tô gastando mais do que ganho?" é a pergunta mais direta sobre a saúde do
+  // mês, e é a mesma conta do "tô no lucro" com o sinal invertido.
+  if (/(?:t[oô]|estou|to)\s+no\s+lucro|(?:t[oô]|estou)\s+no\s+(?:azul|vermelho)|quanto\s+sobrou\s*\??$|sobrou\s+quanto/.test(t)
+    || /(?:gastando|gasto|gastei)\s+mais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:ganho|ganhei|recebo|recebi|entra|faturo)/.test(t)) {
     const p = /semana/.test(t) ? periodFromText(t) : { from: todayISO().slice(0, 8) + '01', to: todayISO(), label: 'este mês' }
     const st = periodStats(s, p.from, p.to)
     const saldo = st.income - st.expense
@@ -728,7 +731,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
     // - "tô no lucro?" e "tô no vermelho?" pedem sim/não com polaridade
     //   OPOSTA. Um "Sim" fixo respondia "sim, você está no vermelho" para quem
     //   tinha sobra — a resposta certa com o número certo, e ainda assim errada.
-    const perguntaNegativa = /vermelho|preju|no\s+negativo/.test(t)
+    const perguntaNegativa = /vermelho|preju|no\s+negativo|gastando\s+mais|gasto\s+mais|gastei\s+mais/.test(t)
     const perguntaSimNao = perguntaNegativa || /lucro|azul/.test(t)
     const positivo = saldo > 0
     const prefixo = !perguntaSimNao || saldo === 0

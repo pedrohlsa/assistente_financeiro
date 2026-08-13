@@ -1092,6 +1092,19 @@ export async function runProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 59. Dinheiro tem UM formatador, como tem UM parser (regra 12) ------
+  // `describeAction` montava o valor à mão com `toFixed(2).replace('.', ',')`,
+  // que não põe separador de milhar: a proposta mostrava "R$ 3200,00" na
+  // exata tela onde o usuário confere antes de gravar. "R$ 15000,00" se lê
+  // errado com muito mais facilidade que "R$ 15.000,00".
+  check(r, 'nlp.ts não formata dinheiro à mão', () => {
+    const src = readFileSync(new URL('../../src/services/nlp.ts', import.meta.url), 'utf8')
+    if (/toFixed\(2\)\s*\.replace\(/.test(src)) return 'ainda há formatação manual de dinheiro em nlp.ts'
+    const proposta = describeAction({ kind: 'income', amount: 15000, category: 'salario' } as any)
+    if (!/15\.000,00/.test(proposta)) return `sem separador de milhar: "${proposta}"`
+    return null
+  })
+
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
   // Invariante de FIAÇÃO, não de lógica: o corpus sempre passou
   // `pendingClarification`, então ele nunca poderia ver que `Chat.tsx` não

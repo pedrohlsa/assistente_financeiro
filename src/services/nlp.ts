@@ -611,7 +611,9 @@ function parseClause(input: string): ParsedAction[] {
   // "ganhei 430 Uber, mais 399 da 99"
   if (!actions.length || !actions.some(a => a.kind === 'goal')) {
     const incRe = new RegExp(
-      String.raw`(?:\b(?:ganhei|recebi|faturei|lucrei|entrou|fiz)\s*(?:mais\s+)?|\bmais\s+)(?:r\$)?\s*${NUM}\s*${MOEDA}?(?:\s+(?:(?:d[ao]|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(uber|99|indriver|corrida(?:\s+privada)?))?`,
+      // "Caiu" é o verbo mais natural para salário e pagamento que chega na
+      // conta — sem ele, "caiu 500 na conta hoje" não registrava nada.
+      String.raw`(?:\b(?:ganhei|recebi|faturei|lucrei|entrou|caiu|cairam|pingou|fiz)\s*(?:mais\s+)?|\bmais\s+)(?:r\$)?\s*${NUM}\s*${MOEDA}?(?:\s+(?:(?:d[ao]|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(uber|99|indriver|corrida(?:\s+privada)?))?`,
       'gi',
     )
     for (const inc of text.matchAll(incRe)) {
@@ -878,7 +880,7 @@ function parseSemVerbo(text: string): ParsedAction[] {
  * origem, data e taxa. O usuário sempre vê exatamente o que será gravado.
  */
 export function describeActionDetailed(a: ParsedAction, opts?: { fee?: number; categoryName?: (id: string) => string }): string[] {
-  const money = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`
+  const money = (v: number) => `${fmtBRL(v)}`
   const catName = (id?: string) => (id ? (opts?.categoryName?.(id) || id) : undefined)
   const lines: string[] = []
   switch (a.kind) {
@@ -944,32 +946,39 @@ export function describeActionDetailed(a: ParsedAction, opts?: { fee?: number; c
 
 export function describeAction(a: ParsedAction): string {
   switch (a.kind) {
-    case 'income': return `Receita de R$ ${a.amount.toFixed(2).replace('.', ',')}${a.category ? ` (${a.category})` : ''}${a.is99 ? ' — plataforma 99' : ''}`
-    case 'expense': return `Despesa de R$ ${a.amount.toFixed(2).replace('.', ',')}${a.category ? ` (${a.category})` : ''}${a.description ? ` — ${a.description}` : ''}`
+    case 'income': return `Receita de ${fmtBRL(a.amount)}${a.category ? ` (${a.category})` : ''}${a.is99 ? ' — plataforma 99' : ''}`
+    case 'expense': return `Despesa de ${fmtBRL(a.amount)}${a.category ? ` (${a.category})` : ''}${a.description ? ` — ${a.description}` : ''}`
     // Sem este caso o `switch` caía fora e a linha da proposta virava "undefined".
-    case 'saving': return `Guardar R$ ${a.amount.toFixed(2).replace('.', ',')} na reserva${a.description ? ` — ${a.description}` : ''}`
+    case 'saving': return `Guardar ${fmtBRL(a.amount)} na reserva${a.description ? ` — ${a.description}` : ''}`
     case 'work': {
+      // A proposta escrevia "1 viagens". É o texto que o usuário lê para
+      // conferir antes de gravar — concordância errada ali passa desleixo.
+      const viagem = (n: number) => `${n} ${n === 1 ? 'viagem' : 'viagens'}`
       const parts = []
       if (a.km) parts.push(a.km > 0 ? `${a.km} km` : `${Math.abs(a.km)} km removidos`)
-      if (a.trips) parts.push(a.trips > 0 ? `${a.trips} viagens` : `${Math.abs(a.trips)} viagens removidas`)
+      if (a.trips) {
+        parts.push(a.trips > 0
+          ? viagem(a.trips)
+          : `${viagem(Math.abs(a.trips))} ${Math.abs(a.trips) === 1 ? 'removida' : 'removidas'}`)
+      }
       if (a.hours) parts.push(a.hours > 0 ? `${a.hours}h trabalhadas` : `${Math.abs(a.hours)}h removidas`)
       return `Trabalho: ${parts.join(', ')}`
     }
-    case 'fuel': return `Abastecimento${a.amount ? ` de R$ ${a.amount.toFixed(2).replace('.', ',')}` : ''}${a.liters ? ` (${a.liters} L)` : ''}${a.odometer ? ` · hodômetro ${a.odometer.toLocaleString('pt-BR')} km` : ''}`
+    case 'fuel': return `Abastecimento${a.amount ? ` de ${fmtBRL(a.amount)}` : ''}${a.liters ? ` (${a.liters} L)` : ''}${a.odometer ? ` · hodômetro ${a.odometer.toLocaleString('pt-BR')} km` : ''}`
     case 'odometer': return `Hodômetro atual: ${a.value.toLocaleString('pt-BR')} km`
-    case 'maintenance': return `Manutenção: ${a.item} — R$ ${a.cost.toFixed(2).replace('.', ',')}${a.km ? ` aos ${a.km.toLocaleString('pt-BR')} km` : ''}`
+    case 'maintenance': return `Manutenção: ${a.item} — ${fmtBRL(a.cost)}${a.km ? ` aos ${a.km.toLocaleString('pt-BR')} km` : ''}`
     case 'goal': return `Meta: ${a.name} — R$ ${a.target.toLocaleString('pt-BR')}${a.months ? ` em ${Math.round(a.months)} meses` : ''}`
     case 'goal-update': return `Alterar meta${a.name ? ` "${a.name}"` : ''}${a.target ? ` para R$ ${a.target.toLocaleString('pt-BR')}` : ''}`
-    case 'goal-deposit': return `Guardar R$ ${a.amount.toFixed(2).replace('.', ',')}${a.name ? ` na meta "${a.name}"` : ' na meta'}`
-    case 'balance': return `Saldo em conta: R$ ${a.amount.toFixed(2).replace('.', ',')}`
+    case 'goal-deposit': return `Guardar ${fmtBRL(a.amount)}${a.name ? ` na meta "${a.name}"` : ' na meta'}`
+    case 'balance': return `Saldo em conta: ${fmtBRL(a.amount)}`
     case 'card-purchase':
-      return `Compra${a.description ? ` de ${a.description}` : ''} de R$ ${a.total.toFixed(2).replace('.', ',')} em ${a.installments}x${a.cardName ? ` no ${a.cardName}` : ''}`
+      return `Compra${a.description ? ` de ${a.description}` : ''} de ${fmtBRL(a.total)} em ${a.installments}x${a.cardName ? ` no ${a.cardName}` : ''}`
     case 'financed-cash-inflow':
-      return `Entrada financiada: recebeu R$ ${a.netReceived.toFixed(2).replace('.', ',')} e deve R$ ${a.total.toFixed(2).replace('.', ',')} em ${a.installments}x`
+      return `Entrada financiada: recebeu ${fmtBRL(a.netReceived)} e deve ${fmtBRL(a.total)} em ${a.installments}x`
     case 'card-payment':
-      return `Pagar fatura${a.cardName ? ` do ${a.cardName}` : ''}${a.amount ? ` — R$ ${a.amount.toFixed(2).replace('.', ',')}` : ' (valor pendente)'}`
+      return `Pagar fatura${a.cardName ? ` do ${a.cardName}` : ''}${a.amount ? ` — ${fmtBRL(a.amount)}` : ' (valor pendente)'}`
     case 'card-charge':
-      return `Assinatura${a.description ? ` ${a.description}` : ''} de R$ ${a.amount.toFixed(2).replace('.', ',')}/mês${a.cardName ? ` no ${a.cardName}` : ''}`
+      return `Assinatura${a.description ? ` ${a.description}` : ''} de ${fmtBRL(a.amount)}/mês${a.cardName ? ` no ${a.cardName}` : ''}`
     case 'reset': return 'Apagar TODOS os dados do app'
     case 'undo-batch': return 'Desfazer o último registro do assistente'
     case 'edit-transaction': return 'Corrigir um lançamento já salvo'
