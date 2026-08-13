@@ -813,6 +813,9 @@ function parseClause(input: string): ParsedAction[] {
     || text.match(new RegExp(String.raw`${NUM}\s*horas?\s*(?:online|trabalhad)`, 'i'))
     // Jornada como o motorista fala: "8 horas na rua", "10 horas rodando".
     || text.match(new RegExp(String.raw`${NUM}\s*(?:horas?|hrs?)\s+(?:na\s+rua|de\s+rua|rodando|na\s+ativa|no\s+corre|na\s+labuta|no\s+trampo|trabalhando|de\s+trabalho)`, 'i'))
+    // "rodei 200 km EM 10 HORAS" — a jornada vinha junto da distância e se
+    // perdia inteira, porque nenhum dos padrões acima cobre "em N horas".
+    || text.match(new RegExp(String.raw`(?:km|quil[oô]metros?|viagens|corridas)\s*(?:em|durante)\s*${NUM}\s*(?:horas?|hrs?|h)\b`, 'i'))
 
   const kmIsMaint = m && m[3] // km da manutenção
   if ((kmM && !kmIsMaint && !kmSubM) || (tripsM && !tripsSubM) || (hoursM && !hoursSubM)) {

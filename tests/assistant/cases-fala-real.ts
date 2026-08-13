@@ -51,6 +51,9 @@ export const FALA_REAL: AssistantCase[] = [
 
   // ===== Meta pelo NOME, não pela palavra "meta" =====
   q('fr-11', 'quanto falta pra minha moto', { expectReply: [/moto/i] }),
+  // A mesma pergunta pelo outro lado: quem pergunta o progresso tanto faz se
+  // pede o que falta ou o que já tem. A resposta agora diz os dois.
+  q('fr-11b', 'quanto ja juntei da moto', { expectReply: [/moto/i, /2\.000,00/] }),
 
   // ===== A forma do manual continua funcionando =====
   q('fr-12', 'como está meu mês?'),

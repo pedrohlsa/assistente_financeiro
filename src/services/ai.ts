@@ -644,18 +644,25 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // "quando vou conseguir comprar meu X" — metas
   // "quanto falta pra minha moto" também cai aqui: o usuário pergunta pelo
   // NOME da meta, não pela palavra "meta".
-  const metaPeloNome = /quanto\s+falta/.test(t)
+  // "Quanto já juntei da moto" é a mesma pergunta pelo outro lado — o usuário
+  // quer o progresso, e tanto faz se pediu o que falta ou o que já tem.
+  const metaPeloNome = /quanto\s+(?:falta|(?:eu\s+)?(?:j[áa]\s+)?(?:juntei|guardei|tenho|consegui|separei))/.test(t)
     && s.goals.some(g => !g.done && t.includes(g.name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(' ')[0]))
   if (metaPeloNome || /quando\s+(vou|consigo|vou conseguir|poderei)\s+(comprar|atingir|juntar)/.test(t) || /quando.*meta/.test(t) || /quanto\s+falta\s+(?:para|pra)\s+(?:a\s+|o\s+|minha\s+|meu\s+)?meta/.test(t)) {
     const goal = s.goals.find(g => !g.done && t.includes(g.name.toLowerCase().split(' ')[0])) || s.goals.filter(g => !g.done)[0]
     if (!goal) return { text: 'Você ainda não tem metas de compra cadastradas. Diga algo como "quero comprar um celular de 5000 em 6 meses" que eu crio para você.' }
     const remaining = goal.target - goal.saved
     const avg = avgDailyProfit(s)
-    if (avg <= 0) return { text: `Para "${goal.name}" faltam ${fmtBRL(remaining)}. Ainda não tenho histórico suficiente para projetar uma data — registre seus ganhos diários.` }
+    if (avg <= 0) {
+      return {
+        text: `Meta "${goal.name}": você já juntou ${fmtBRL(goal.saved)} de ${fmtBRL(goal.target)} — faltam ${fmtBRL(remaining)} (dado real).\n\n`
+          + 'Ainda não tenho histórico de ganhos para projetar uma data. Registre seus dias que eu te digo quando chega lá.',
+      }
+    }
     const savePerDay = avg * 0.3
     const days = Math.ceil(remaining / savePerDay)
     const when = fromISO(addDays(todayISO(), days)).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })
-    return { text: `Meta "${goal.name}": faltam ${fmtBRL(remaining)} de ${fmtBRL(goal.target)}.\n\nProjeção: guardando 30% da sua média diária de lucro (${fmtBRL(savePerDay)}/dia), você chegaria lá por volta de ${when} (~${days} dias). Isso é uma estimativa com base na sua média dos últimos 30 dias.` }
+    return { text: `Meta "${goal.name}": você já juntou ${fmtBRL(goal.saved)} e faltam ${fmtBRL(remaining)} de ${fmtBRL(goal.target)}.\n\nProjeção: guardando 30% da sua média diária de lucro (${fmtBRL(savePerDay)}/dia), você chegaria lá por volta de ${when} (~${days} dias). Isso é uma estimativa com base na sua média dos últimos 30 dias.` }
   }
 
   // "quanto eu gastei essa semana / ontem / esse mês" — SEM categoria.

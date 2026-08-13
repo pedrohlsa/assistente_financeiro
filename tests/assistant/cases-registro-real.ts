@@ -298,6 +298,15 @@ export const REGISTRO_REAL: AssistantCase[] = [
     expectActions: [{ kind: 'financed-cash-inflow', total: 2000, netReceived: 1850 }],
   },
 
+  // ===== Jornada colada na distância =====
+  {
+    id: 'rr-44', group: 'registroreal', ...motorista,
+    // As 10 horas se perdiam: nenhum padrão cobria "em N horas" depois do km,
+    // e a jornada é o que dá o lucro por hora do motorista.
+    messages: ['rodei 200 km em 10 horas'],
+    expectActions: [{ kind: 'work', km: 200, hours: 10 }],
+  },
+
   // ===== Dois dias na mesma mensagem =====
   {
     id: 'rr-42', group: 'registroreal', ...motorista,
