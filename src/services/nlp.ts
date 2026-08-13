@@ -12,6 +12,15 @@ import { sentenceCase } from '../utils/text'
 const NUM = String.raw`(\d+(?:[.,]\d+)*)`
 const parseNum = (s: string) => parseMoney(s)
 
+// Como o brasileiro chama a moeda depois do número. É a UNIDADE do valor, nunca
+// o objeto do gasto: sem isto "gastei 30 pila no lanche" gravava a descrição
+// "Pila no lanche". Uma fonte só — todo regex de valor consome esta lista.
+const MOEDA = String.raw`(?:reais|real|conto[s]?|pila[s]?|mang[oa]s?|pau[s]?|prata[s]?)`
+
+// Combustível como se digita no celular, com os erros de sempre. Escrever
+// "gazolina" não pode tirar o gasto do custo de combustível do motorista.
+const COMBUSTIVEL = String.raw`(?:ga[sz]olina|gasolna|etanol|[áa]lcool|alcool|diesel|d[ie]zel|gnv|combust[íi]vel)`
+
 const MAINT_ITEMS = ['óleo', 'oleo', 'pneu', 'pneus', 'pastilha', 'pastilhas', 'freio', 'freios', 'correia', 'filtro', 'filtros', 'vela', 'velas', 'amortecedor', 'amortecedores', 'bateria', 'embreagem']
 function normalizeMaint(item: string): string {
   const i = item.toLowerCase().replace(/s$/, '')
@@ -44,7 +53,9 @@ const CONNECTOR = String.raw`(?:e\s+)?(?:logo\s+)?(?:depois|em\s+seguida|mais\s+
 const DESC_STOPWORDS = new Set([
   'colocando', 'comprando', 'pagando', 'gastando', 'depois', 'pois', 'logo', 'entao', 'então',
   'tambem', 'também', 'ainda', 'mais', 'de', 'do', 'da', 'no', 'na', 'em', 'com', 'para', 'pra',
-  'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas', 'reais', 'conto', 'contos',
+  'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas',
+  // Gíria de dinheiro é a UNIDADE do valor, nunca o objeto do gasto.
+  'reais', 'real', 'conto', 'contos', 'pila', 'pilas', 'mango', 'mangos', 'pau', 'paus', 'prata',
   // Conjunção residual: a quebra em cláusulas deixa "gastei 100 e" e sem isto
   // a descrição do lançamento virava a letra "E".
   'e',
@@ -313,7 +324,7 @@ export function parseNaturalFull(
 function parseCardClause(text: string): ParsedAction[] {
   // "passei 2000 em 5 vezes e recebi 1850 líquidos" — entrada financiada (seção 7)
   const financed = text.match(new RegExp(
-    String.raw`(?:passei|passou|fiz)\s*(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:no cart[ãa]o\s*)?(?:em|x|vez(?:es)?)?\s*(\d+)?\s*(?:vez(?:es)?|x|parcelas?)?[^\d]*(?:e\s*)?(?:recebi|receber|peguei|caiu)\s*(?:r\$)?\s*${NUM}`, 'i'))
+    String.raw`(?:passei|passou|fiz)\s*(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:no cart[ãa]o\s*)?(?:em|x|vez(?:es)?)?\s*(\d+)?\s*(?:vez(?:es)?|x|parcelas?)?[^\d]*(?:e\s*)?(?:recebi|receber|peguei|caiu)\s*(?:r\$)?\s*${NUM}`, 'i'))
   if (financed) {
     const total = parseNum(financed[1])
     const net = parseNum(financed[3])
@@ -420,7 +431,7 @@ function parseClause(input: string): ParsedAction[] {
   }
 
   // ----- saldo em conta: "meu saldo é 1500", "tenho 1500 no banco/na conta", "saldo 1500"
-  const balanceRe = new RegExp(String.raw`(?:meu\s+)?saldo\s*(?:atual|em conta|no banco|de|é|e|:)?\s*(?:r\$)?\s*${NUM}|(?:tenho|tem)\s*(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:no banco|na conta|em conta|de saldo|guardado)`, 'i')
+  const balanceRe = new RegExp(String.raw`(?:meu\s+)?saldo\s*(?:atual|em conta|no banco|de|é|e|:)?\s*(?:r\$)?\s*${NUM}|(?:tenho|tem)\s*(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:no banco|na conta|em conta|de saldo|guardado)`, 'i')
   const bal = text.match(balanceRe)
   if (bal) {
     const raw = bal[1] ?? bal[2]
@@ -428,7 +439,7 @@ function parseClause(input: string): ParsedAction[] {
   }
 
   // ----- manutenção: "troquei o óleo por 280 com 84 mil km"
-  const maintRe = new RegExp(String.raw`(?:troquei|trocar|coloquei|instalei)\s+(?:o|a|os|as)?\s*(${MAINT_ITEMS.join('|')})[^\d]*(?:por|de)?\s*(?:r\$)?\s*${NUM}(?:\s*(?:reais|conto[s]?))?(?:.*?com\s+(\d+(?:[.,]\d+)?\s*(?:mil)?)\s*km)?`, 'i')
+  const maintRe = new RegExp(String.raw`(?:troquei|trocar|coloquei|instalei)\s+(?:o|a|os|as)?\s*(${MAINT_ITEMS.join('|')})[^\d]*(?:por|de)?\s*(?:r\$)?\s*${NUM}(?:\s*${MOEDA})?(?:.*?com\s+(\d+(?:[.,]\d+)?\s*(?:mil)?)\s*km)?`, 'i')
   const m = text.match(maintRe)
   if (m) {
     const item = normalizeMaint(m[1])
@@ -443,7 +454,7 @@ function parseClause(input: string): ParsedAction[] {
   // ----- guardar na RESERVA (não é meta): "guardei 150", "coloquei 300 na reserva",
   // "separei 500 para investir". Vira `type:'saving'` — nem receita nem despesa.
   const savingRe = new RegExp(
-    String.raw`(?:guardei|guardar|guarda|separei|separar|separa|reservei|poupei|apliquei|investi|coloquei|botei|depositei)\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:(?:na|no|em|para|pra|pro)\s+(?:a\s+|o\s+)?(reserva|poupan[çc]a|investimento|investir|guardado|caixinha|cofrinho))?`,
+    String.raw`(?:guardei|guardar|guarda|separei|separar|separa|reservei|poupei|apliquei|investi|coloquei|botei|depositei)\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:(?:na|no|em|para|pra|pro)\s+(?:a\s+|o\s+)?(reserva|poupan[çc]a|investimento|investir|guardado|caixinha|cofrinho))?`,
     'i',
   )
   const sav = text.match(savingRe)
@@ -462,7 +473,7 @@ function parseClause(input: string): ParsedAction[] {
   }
 
   // ----- guardar dinheiro numa meta: "guardei 100 para o iphone", "guarda 50 na meta da viagem"
-  const depositRe = new RegExp(String.raw`(?:guardei|guarda|guardar|separei|separa|separar|deposita|depositei)\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:para|pra|pro|na|no|da|do|em)?\s*(?:a\s+|o\s+)?(?:meta\s+)?(?:d[oa]\s+)?([\wçãõáéíóúâêô\s]+)?`, 'i')
+  const depositRe = new RegExp(String.raw`(?:guardei|guarda|guardar|separei|separa|separar|deposita|depositei)\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:para|pra|pro|na|no|da|do|em)?\s*(?:a\s+|o\s+)?(?:meta\s+)?(?:d[oa]\s+)?([\wçãõáéíóúâêô\s]+)?`, 'i')
   const dep = text.match(depositRe)
   if (dep) {
     // "guardei 150 E gastei 355" deixava o nome da meta como "e". Um nome que é
@@ -505,8 +516,14 @@ function parseClause(input: string): ParsedAction[] {
 
   // ----- abastecimento: "abasteci 70", "coloquei 70 reais de gasolina", "coloquei 30 litros"
   const fuelRe = new RegExp(String.raw`abastec(?:i|er|endo)(?:mento)?\s*(?:com|de)?\s*(?:r\$)?\s*${NUM}`, 'i')
-  const fuelRe2 = new RegExp(String.raw`(?:coloquei|botei|gastei|paguei)\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:de|em|no|na)?\s*(?:gasolina|etanol|[áa]lcool|diesel|gnv|combust[íi]vel)`, 'i')
-  const f = text.match(fuelRe) || text.match(fuelRe2)
+  const fuelRe2 = new RegExp(String.raw`(?:coloquei|botei|gastei|paguei)\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:de|em|no|na)?\s*${COMBUSTIVEL}`, 'i')
+  // Sem verbo nenhum: "80 pila de gasolina". Só vale quando NÃO há verbo de
+  // comando na frase — senão "gastei 20 de pedágio e 40 de gasolina" casaria
+  // aqui, bloquearia a despesa do pedágio e perderia um lançamento inteiro.
+  const fuelRe3 = /(?:gastei|paguei|comprei|coloquei|botei|abasteci|torrei)/.test(text)
+    ? null
+    : new RegExp(String.raw`(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:de|em)\s+${COMBUSTIVEL}`, 'i')
+  const f = text.match(fuelRe) || text.match(fuelRe2) || (fuelRe3 && text.match(fuelRe3))
   const litersM = text.match(new RegExp(String.raw`${NUM}\s*litros?`, 'i'))
   if (f || (litersM && /(coloquei|botei|abasteci|posto)/.test(text))) {
     const amount = f ? parseNum(f[1]) : undefined
@@ -535,7 +552,7 @@ function parseClause(input: string): ParsedAction[] {
   // "ganhei 430 Uber, mais 399 da 99"
   if (!actions.length || !actions.some(a => a.kind === 'goal')) {
     const incRe = new RegExp(
-      String.raw`(?:\b(?:ganhei|recebi|faturei|lucrei|entrou|fiz)\s*(?:mais\s+)?|\bmais\s+)(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?|pila)?(?:\s+(?:(?:d[ao]|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(uber|99|indriver|corrida(?:\s+privada)?))?`,
+      String.raw`(?:\b(?:ganhei|recebi|faturei|lucrei|entrou|fiz)\s*(?:mais\s+)?|\bmais\s+)(?:r\$)?\s*${NUM}\s*${MOEDA}?(?:\s+(?:(?:d[ao]|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(uber|99|indriver|corrida(?:\s+privada)?))?`,
       'gi',
     )
     for (const inc of text.matchAll(incRe)) {
@@ -640,7 +657,7 @@ function parseClause(input: string): ParsedAction[] {
   const expVerbs = INCOME_NOUN.test(text)
     ? 'gastei|paguei|comprei|torrei|coloquei|botei'
     : 'gastei|paguei|comprei|torrei|coloquei|botei|saiu|foi'
-  const expRe = new RegExp(String.raw`(?:${expVerbs})\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:(?:de|com|no|na|em|para|pra)\s+)?([\wçãõáéíóúâê\s]*)`, 'i')
+  const expRe = new RegExp(String.raw`(?:${expVerbs})\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:(?:de|com|no|na|em|para|pra)\s+)?([\wçãõáéíóúâê\s]*)`, 'i')
   const e = text.match(expRe)
   if (e && !m && !f) {
     const rawDesc = (e[2] || '').trim().split(/\s+e\s+|,/)[0].trim()
@@ -665,7 +682,7 @@ function parseClause(input: string): ParsedAction[] {
     // `,(?!\d)` é essencial: sem isso a vírgula decimal de "1.234,56" era lida
     // como separador de itens e inventava uma segunda despesa de R$ 56.
     const sep = String.raw`(?:\se\s|,(?!\d)|;|\s(?:${CONNECTOR}))`
-    const enumRe = new RegExp(String.raw`${sep}\s*(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?)?\s*(?:de|com|no|na|em)\s+([a-zà-úçãõ]+(?:\s+[a-zà-úçãõ]+)?)`, 'gi')
+    const enumRe = new RegExp(String.raw`${sep}\s*(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:de|com|no|na|em)\s+([a-zà-úçãõ]+(?:\s+[a-zà-úçãõ]+)?)`, 'gi')
     for (const mm of text.matchAll(enumRe)) {
       const rawDesc = mm[2].trim()
       const amount = parseNum(mm[1])

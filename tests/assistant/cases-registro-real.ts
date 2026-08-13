@@ -97,6 +97,42 @@ export const REGISTRO_REAL: AssistantCase[] = [
     messages: ['deu 200 hoje'],
     expectNoActions: true,
   },
+
+  // ===== Gíria de dinheiro não é o objeto do gasto =====
+  {
+    id: 'rr-13', group: 'registroreal', ...motorista,
+    // "Pila" é a moeda, não a compra. Ia parar na descrição do lançamento.
+    messages: ['gastei 30 pila no lanche'],
+    expectActions: [{ kind: 'expense', amount: 30, category: 'alimentacao', description: 'Lanche' }],
+  },
+  {
+    id: 'rr-14', group: 'registroreal', ...motorista,
+    messages: ['gastei 50 conto no mercado'],
+    expectActions: [{ kind: 'expense', amount: 50, category: 'alimentacao', description: 'Mercado' }],
+  },
+  {
+    id: 'rr-15', group: 'registroreal', ...motorista,
+    messages: ['80 pila de gasolina'],
+    expectActions: [{ kind: 'fuel', amount: 80 }],
+  },
+
+  // ===== Erro de digitação não pode trocar a categoria =====
+  {
+    id: 'rr-16', group: 'registroreal', ...motorista,
+    // Ia para "outros-out" e sumia do custo de combustível do motorista.
+    messages: ['paguei 80 de gazolina'],
+    expectActions: [{ kind: 'fuel', amount: 80 }],
+  },
+  {
+    id: 'rr-17', group: 'registroreal', ...motorista,
+    messages: ['botei 60 de alcool'],
+    expectActions: [{ kind: 'fuel', amount: 60 }],
+  },
+  {
+    id: 'rr-18', group: 'registroreal', ...naoMotorista,
+    messages: ['gastei 45 no mercadinho'],
+    expectActions: [{ kind: 'expense', amount: 45, category: 'alimentacao' }],
+  },
 ]
 
 export default REGISTRO_REAL
