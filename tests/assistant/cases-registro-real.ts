@@ -203,6 +203,26 @@ export const REGISTRO_REAL: AssistantCase[] = [
     messages: ['da pra gastar 80 hoje no lanche?'],
     expectNoActions: true,
   },
+
+  // ===== Corrigir sem ter o que corrigir não cria lançamento =====
+  {
+    id: 'rr-29', group: 'registroreal', ...naoMotorista,
+    // Sem nada na tela para corrigir, "na verdade foi 200" criava uma despesa
+    // de R$ 200 do nada: a frase de CORREÇÃO virava registro novo.
+    messages: ['na verdade foi 200'],
+    expectNoActions: true,
+  },
+  {
+    id: 'rr-30', group: 'registroreal', ...naoMotorista,
+    messages: ['me enganei foi 50'],
+    expectNoActions: true,
+  },
+  {
+    id: 'rr-31', group: 'registroreal', ...naoMotorista,
+    // A correção sobre uma proposta na tela continua funcionando.
+    messages: ['gastei 100 no mercado', 'na verdade foi 80'],
+    expectActions: [{ kind: 'expense', amount: 80, category: 'alimentacao' }],
+  },
 ]
 
 export default REGISTRO_REAL

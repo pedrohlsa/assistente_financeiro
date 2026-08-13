@@ -18,7 +18,7 @@ import type {
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, isValidationFailure, validateAction } from './contracts'
-import { analyzeMessage } from './clauses'
+import { analyzeMessage, looksLikeRetraction } from './clauses'
 import type { AnalyzedClause, MessageAnalysis, TemporalSignal } from './clauses'
 import { detectIncomplete, isDraftFresh, newDraft, resolveDraftAnswer } from './drafts'
 import type { AssistantDraft } from './drafts'
@@ -168,6 +168,11 @@ function describeEdit(state: AppState, t: Transaction, req: { field: EditableTxF
 // então a borda nunca casa — a mesma armadilha que já tinha escondido "amanhã".
 const UNDO_REQUEST =
   /^\s*(?:pode\s+|por\s+favor\s+)?(?:desfaz|desfazer|desfa[çc]a|cancela|cancelar|remove|remover|apaga|apagar|exclui|excluir)(?![a-zà-ú])[^.?!]{0,40}?\s(?:[úu]ltim[oa]|isso|isto)(?![\wà-úÀ-Ú])/i
+
+// Como se pede para desfazer sem usar a palavra "último": "volta atrás",
+// "desfaz aí". Não têm complemento nenhum, então não casam no padrão acima.
+const UNDO_SHORT =
+  /^\s*(?:pode\s+)?(?:volta(?:r)?\s+atr[áa]s|voltar\s+atr[áa]s|desfaz(?:er)?\s*(?:a[íi])?|desfa[çc]a\s*(?:a[íi])?)\s*[.!]?\s*$/i
 
 const dinheiro = (v: number) => fmtBRL(v)
 
@@ -338,7 +343,14 @@ function runLocal(input: OrchestratorInput, caps: AssistantCapabilities): LocalP
   const { actions: reconciled, clarification: goalClar } = reconcileGoalDeposits(input.state, analysis.actions)
   if (goalClar && !clarification) clarification = goalClar
 
+  // Corrigir exige algo para corrigir. Sem proposta na tela, "na verdade foi
+  // 200" é um conserto sem alvo — e como `foi` é verbo de despesa no parser,
+  // deixar passar criava um gasto de R$ 200 que ninguém pediu. A correção COM
+  // proposta na tela é tratada antes daqui, no passo de correções.
+  const semAlvo = !input.pending?.length
+
   for (const clause of analysis.clauses) {
+    if (semAlvo && looksLikeRetraction(clause.text)) continue
     for (const raw of clause.actions) {
       const idx = analysis.actions.indexOf(raw)
       let action = idx >= 0 ? reconciled[idx] : raw
@@ -712,7 +724,7 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
   // ---- 2b) A mensagem pede para desfazer o último lote? ------------------
   // Depois das correções de propósito: com uma proposta na tela, "cancela
   // isso" descarta a proposta, não mexe no que já foi gravado.
-  if (UNDO_REQUEST.test(input.message)) {
+  if (UNDO_REQUEST.test(input.message) || UNDO_SHORT.test(input.message)) {
     const alvo = lastReversibleBatch(input.state)
     if (alvo) {
       const itens = describeUndo(input.state, alvo)

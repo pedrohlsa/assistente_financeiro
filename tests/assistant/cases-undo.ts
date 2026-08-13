@@ -47,6 +47,22 @@ export const UNDO: AssistantCase[] = [
     messages: ['desfaz isso'],
     expectActions: [{ kind: 'undo-batch', batchId: 'b1' }],
   },
+  // Sem a palavra "último" e sem complemento nenhum — como se pede de verdade.
+  {
+    id: 'und-04b', group: 'undo', ...other, state: loteDespesa,
+    messages: ['volta atras'],
+    expectActions: [{ kind: 'undo-batch', batchId: 'b1' }],
+  },
+  {
+    id: 'und-04c', group: 'undo', ...other, state: loteDespesa,
+    messages: ['desfaz ai'],
+    expectActions: [{ kind: 'undo-batch', batchId: 'b1' }],
+  },
+  {
+    id: 'und-04d', group: 'undo', ...other, state: loteDespesa,
+    messages: ['desfazer'],
+    expectActions: [{ kind: 'undo-batch', batchId: 'b1' }],
+  },
 
   // ===== LOTE DE CORREÇÃO — o que VOLTA também precisa aparecer =====
   {

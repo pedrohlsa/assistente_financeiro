@@ -121,6 +121,11 @@ const CORRECTION_PATTERNS: RegExp[] = [
   /\b(?:remove|remover|remova|tira|tirar|retira|retirar|apaga|apagar|exclui|excluir|cancela|cancelar)\b/i,
   /\b(?:desfaz|desfazer|desfaça)\b/i,
   /\bera\s+(?:ontem|hoje|anteontem|no|na|de|do|da)\b/i,
+  // "Na verdade foi 200" é conserto do que está na tela, não lançamento novo:
+  // `foi` é verbo de despesa no parser, e sem isto a frase criava um gasto de
+  // R$ 200 do nada.
+  /\b(?:na\s+verdade|na\s+real|pensando\s+bem|quis\s+dizer|queria\s+dizer)\b/i,
+  /\b(?:errei|me\s+enganei|enganei|foi\s+mal|desculpa)\b/i,
   /\b[ée]\s+gnv\b/i,
 ]
 
@@ -160,6 +165,23 @@ export const looksLikeQuestion = (t: string): boolean =>
   !hasAny(t, CONVERSATION_PATTERNS) && hasAny(t, QUESTION_PATTERNS)
 
 export const looksLikeCorrection = (t: string): boolean => hasAny(t, CORRECTION_PATTERNS)
+
+/**
+ * Frases que SÓ existem para consertar algo já dito. Diferente da lista geral
+ * de correção, nenhuma delas cabe num registro de primeira vez: ninguém abre a
+ * conversa com "na verdade foi 200".
+ *
+ * A distinção importa porque a lista geral tem palavras que aparecem em
+ * registro legítimo ("comprei uma TROCA de óleo"), e barrar por ela cortaria
+ * lançamento de verdade.
+ */
+const RETRACTION_PATTERNS: RegExp[] = [
+  /\b(?:na\s+verdade|na\s+real|pensando\s+bem|quis\s+dizer|queria\s+dizer)\b/i,
+  /\b(?:errei|me\s+enganei|enganei|foi\s+mal)\b/i,
+  /\bn[ãa]o\s+(?:foi|era)\b/i,
+]
+
+export const looksLikeRetraction = (t: string): boolean => hasAny(t, RETRACTION_PATTERNS)
 
 export const looksLikeConversation = (t: string): boolean => hasAny(t, CONVERSATION_PATTERNS)
 
