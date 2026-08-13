@@ -300,6 +300,27 @@ export const REGISTRO_REAL: AssistantCase[] = [
     expectActions: [{ kind: 'financed-cash-inflow', total: 2000, netReceived: 1850 }],
   },
 
+  // ===== Saldo dito de outro jeito =====
+  {
+    id: 'rr-66', group: 'registroreal', ...naoMotorista,
+    // Respondia "Nenhuma conta fixa vence nos próximos 15 dias": a palavra
+    // "conta" puxava a pergunta de contas a pagar, e o usuário estava
+    // informando o SALDO.
+    messages: ['to com 3000 na conta'],
+    expectActions: [{ kind: 'balance', amount: 3000 }],
+  },
+  {
+    id: 'rr-67', group: 'registroreal', ...naoMotorista,
+    messages: ['estou com 1500 no banco'],
+    expectActions: [{ kind: 'balance', amount: 1500 }],
+  },
+  {
+    id: 'rr-68', group: 'registroreal', ...naoMotorista,
+    // Gíria de guardar dinheiro.
+    messages: ['joguei 200 na poupanca'],
+    expectActions: [{ kind: 'saving', amount: 200 }],
+  },
+
   // ===== Valor aproximado: "uns 50", "cerca de 200" =====
   {
     id: 'rr-61', group: 'registroreal', ...naoMotorista,

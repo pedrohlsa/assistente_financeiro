@@ -478,7 +478,9 @@ function parseClause(input: string): ParsedAction[] {
   }
 
   // ----- saldo em conta: "meu saldo é 1500", "tenho 1500 no banco/na conta", "saldo 1500"
-  const balanceRe = new RegExp(String.raw`(?:meu\s+)?saldo\s*(?:atual|em conta|no banco|de|é|e|:)?\s*(?:r\$)?\s*${NUM}|(?:tenho|tem)\s*(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:no banco|na conta|em conta|de saldo|guardado)`, 'i')
+  // "Tô com 3000 na conta" respondia sobre CONTAS A VENCER: a palavra "conta"
+  // puxava a pergunta de contas a pagar, e o usuário estava informando o saldo.
+  const balanceRe = new RegExp(String.raw`(?:meu\s+)?saldo\s*(?:atual|em conta|no banco|de|é|e|:)?\s*(?:r\$)?\s*${NUM}|(?:tenho|tem|t[oô]\s+com|estou\s+com|fiquei\s+com)\s*${APROX}(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:no banco|na conta|em conta|de saldo|guardado)`, 'i')
   const bal = text.match(balanceRe)
   if (bal) {
     const raw = bal[1] ?? bal[2]
@@ -505,7 +507,7 @@ function parseClause(input: string): ParsedAction[] {
   // ----- guardar na RESERVA (não é meta): "guardei 150", "coloquei 300 na reserva",
   // "separei 500 para investir". Vira `type:'saving'` — nem receita nem despesa.
   const savingRe = new RegExp(
-    String.raw`(?:guardei|guardar|guarda|separei|separar|separa|reservei|poupei|apliquei|investi|coloquei|botei|depositei)\s*${APROX}(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:(?:na|no|em|para|pra|pro)\s+(?:a\s+|o\s+)?(reserva|poupan[çc]a|investimento|investir|guardado|caixinha|cofrinho))?`,
+    String.raw`(?:guardei|guardar|guarda|separei|separar|separa|reservei|poupei|apliquei|investi|coloquei|botei|depositei|joguei|meti)\s*${APROX}(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:(?:na|no|em|para|pra|pro)\s+(?:a\s+|o\s+)?(reserva|poupan[çc]a|investimento|investir|guardado|caixinha|cofrinho))?`,
     'i',
   )
   const sav = text.match(savingRe)
