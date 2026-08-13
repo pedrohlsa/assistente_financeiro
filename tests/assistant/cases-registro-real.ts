@@ -297,6 +297,28 @@ export const REGISTRO_REAL: AssistantCase[] = [
     messages: ['passei 2000 em 5x e recebi 1850'],
     expectActions: [{ kind: 'financed-cash-inflow', total: 2000, netReceived: 1850 }],
   },
+
+  // ===== Dois dias na mesma mensagem =====
+  {
+    id: 'rr-42', group: 'registroreal', ...motorista,
+    // Registrava só os 280 de ontem; o "hoje 320" sumia sem aviso nenhum. Perda
+    // silenciosa é o pior desfecho: o usuário acha que lançou os dois.
+    messages: ['ontem fiz 280 e hoje 320'],
+    expectActions: [
+      { kind: 'income', amount: 280, date: '2026-07-14' },
+      { kind: 'work', trips: 1, date: '2026-07-14' },
+      { kind: 'income', amount: 320, date: '2026-07-15' },
+      { kind: 'work', trips: 1, date: '2026-07-15' },
+    ],
+  },
+  {
+    id: 'rr-43', group: 'registroreal', ...naoMotorista,
+    messages: ['ontem gastei 50 e hoje gastei 80'],
+    expectActions: [
+      { kind: 'expense', amount: 50, date: '2026-07-14' },
+      { kind: 'expense', amount: 80, date: '2026-07-15' },
+    ],
+  },
 ]
 
 export default REGISTRO_REAL

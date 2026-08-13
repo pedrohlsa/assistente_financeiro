@@ -265,7 +265,7 @@ function driverDayResult(input: string, actions: ParsedAction[], dayHint?: boole
  */
 export function parseNaturalFull(
   input: string,
-  opts?: { driver?: boolean; dayHint?: boolean },
+  opts?: { driver?: boolean; dayHint?: boolean; inheritedKind?: 'income' | 'expense' },
 ): ParseResult {
   let actions = parseNatural(input)
   let dayAsk: DayResult['ask']
@@ -280,6 +280,19 @@ export function parseNaturalFull(
       actions = dia.actions
       dayAsk = dia.ask
       doDia = !dia.ask
+      // "Ontem fiz 280 E HOJE 320": a metade anterior da mensagem já disse se
+      // era ganho ou gasto. Herdar o verbo não é o mesmo que ler um valor
+      // solto — o usuário DISSE "fiz", só não repetiu. Por isso a ação segue o
+      // caminho normal (com a viagem implícita) em vez do resultado do dia, e a
+      // mesma frase não trata os dois dias de forma diferente.
+      if (dia.ask && opts?.inheritedKind) {
+        const escolhida = dia.ask.options.find(o => o.actions[0]?.kind === opts.inheritedKind)
+        if (escolhida) {
+          actions = escolhida.actions
+          dayAsk = undefined
+          doDia = false
+        }
+      }
     }
 
     const rideContext = /\bcorridas?\b|\buber\b|\bindriver\b|\b99\b/i.test(input)

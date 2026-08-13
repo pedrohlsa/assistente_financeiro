@@ -256,6 +256,14 @@ export function segment(text: string): { text: string; start: number; end: numbe
   for (const m of text.matchAll(new RegExp(String.raw`\s+e\s+(?=(?:${COMMAND_VERBS})\b)`, 'gi'))) {
     push((m.index || 0) + m[0].length)
   }
+  // Dois DIAS na mesma mensagem: "ontem fiz 280 e hoje 320". Sem este corte a
+  // frase virava uma cláusula só, a data do primeiro dia valia para tudo, e o
+  // segundo dia era perdido em silêncio — o usuário achava que tinha lançado os
+  // dois. Exige um número depois da palavra de dia: "trabalhei ontem e hoje"
+  // não descreve dois lançamentos e não pode ser cortado.
+  for (const m of text.matchAll(/[,;]?\s+e\s+(?=(?:hoje|hj|ontem|anteontem)\b[^,;.!?]*\d)/gi)) {
+    push((m.index || 0) + m[0].length)
+  }
   // Conector explícito começando uma nova ideia — só quando um verbo de comando
   // vem logo depois. Sem essa exigência, "gastei 190 reais DEPOIS comprando
   // cimento" era cortado no meio e a descrição se perdia.
@@ -402,6 +410,13 @@ export function analyzeMessage(
    */
   let inheritedDate: string | undefined
   let inheritedLabel: string | undefined
+  /**
+   * Verbo herdado: "ontem fiz 280 e hoje 320". O "fiz" da primeira metade vale
+   * para a segunda — o usuário não repete o verbo ao mudar de dia. Sem isto o
+   * app perguntava "esses R$ 320 foram ganho ou gasto?" numa frase que já
+   * tinha respondido isso.
+   */
+  let inheritedKind: 'income' | 'expense' | undefined
 
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i]
@@ -468,8 +483,17 @@ export function analyzeMessage(
     // perguntava "esses R$ 150 foram ganho ou gasto?" para uma conta de luz.
     const dayHint = !looksRecurring(part.text)
       && [...datesOriginal, ...datesParser].some(d => d.kind === 'date')
-    const parsed = parseNaturalFull(semData || forParser, { driver: opts?.driver, dayHint })
-    let actions = parsed.actions
+    const parsed = parseNaturalFull(semData || forParser, { driver: opts?.driver, dayHint, inheritedKind })
+    const actions0 = parsed.actions
+    const ambiguity = parsed.ambiguity
+
+    // O verbo herdado só vale para a PRÓXIMA metade se esta metade disse uma
+    // coisa só: "ganhei 200 e gastei 50" não deixa contexto, deixa confusão.
+    const kindsDinheiro = actions0.filter(a => a.kind === 'income' || a.kind === 'expense')
+    if (kindsDinheiro.length && new Set(kindsDinheiro.map(a => a.kind)).size === 1) {
+      inheritedKind = kindsDinheiro[0].kind as 'income' | 'expense'
+    }
+    let actions = actions0
     let date: string | undefined
     let dLabel: string | undefined
     let dateAmbiguity: AnalyzedClause['dateAmbiguity']
@@ -628,10 +652,10 @@ export function analyzeMessage(
     clauses.push({
       id, text: part.text, start: part.start, end: part.end,
       intent, handled,
-      confidence: actions.length ? (parsed.ambiguity ? 'medium' : 'high') : (intent === 'conversation' ? 'high' : 'low'),
+      confidence: actions.length ? (ambiguity ? 'medium' : 'high') : (intent === 'conversation' ? 'high' : 'low'),
       actions,
       date, dateLabel: date ? dLabel || dateLabel(date, today) : undefined,
-      ambiguity: parsed.ambiguity,
+      ambiguity,
       dateAmbiguity,
       temporal,
     })
@@ -647,23 +671,41 @@ export function analyzeMessage(
   // Registros de trabalho de cláusulas diferentes são o MESMO dia: "rodei 120 km
   // e fiz 14 viagens" não são dois turnos. A fusão acontece aqui porque a
   // segmentação separou o que o parser antigo via junto.
+  // A fusão é POR DIA. "Ontem fiz 280 e hoje 320" são dois turnos diferentes, e
+  // somá-los punha as viagens de hoje na conta de ontem — o dia do motorista
+  // ficava com o número errado nos dois lados.
   const works = clauses.flatMap(c => c.actions.filter(a => a.kind === 'work')) as any[]
-  if (works.length > 1) {
-    const merged: any = { kind: 'work' }
-    for (const w of works) {
-      for (const f of ['km', 'trips', 'hours'] as const) {
-        if (w[f] !== undefined) merged[f] = (merged[f] || 0) + w[f]
+  const porDia = new Map<string, any[]>()
+  for (const w of works) {
+    const chave = w.date || ''
+    porDia.set(chave, [...(porDia.get(chave) || []), w])
+  }
+  if (works.length > porDia.size) {
+    const fundido = new Map<string, any>()
+    for (const [chave, lista] of porDia) {
+      if (lista.length < 2) continue
+      const merged: any = { kind: 'work' }
+      for (const w of lista) {
+        for (const f of ['km', 'trips', 'hours'] as const) {
+          if (w[f] !== undefined) merged[f] = (merged[f] || 0) + w[f]
+        }
+        if (w.date && !merged.date) merged.date = w.date
       }
-      if (w.date && !merged.date) merged.date = w.date
+      fundido.set(chave, merged)
     }
-    // O resumo de trabalho fica na ÚLTIMA cláusula que falava de trabalho: é
+    // O resumo de cada dia fica na ÚLTIMA cláusula que falou daquele dia: é
     // como a frase é lida ("ganhei X, gastei Y, rodei Z km").
-    let remaining = works.length
+    const restantes = new Map<string, number>()
+    for (const [chave, lista] of porDia) restantes.set(chave, lista.length)
     for (const c of clauses) {
       c.actions = c.actions.flatMap(a => {
         if (a.kind !== 'work') return [a]
-        remaining--
-        return remaining === 0 ? [merged as ParsedAction] : []
+        const chave = (a as any).date || ''
+        const merged = fundido.get(chave)
+        if (!merged) return [a]
+        const n = (restantes.get(chave) || 1) - 1
+        restantes.set(chave, n)
+        return n === 0 ? [merged as ParsedAction] : []
       })
     }
   }

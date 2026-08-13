@@ -1072,6 +1072,26 @@ export async function runProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 58. Trabalho de dias diferentes nunca é somado ---------------------
+  // A fusão de registros de trabalho existe porque "rodei 120 km e fiz 14
+  // viagens" é UM turno. Mas ela somava tudo sem olhar a data, então "ontem
+  // rodei 100 km e hoje rodei 200 km" virava um único dia de 300 km — com o km
+  // de hoje lançado em ontem, estragando o custo por km dos dois dias.
+  await checkAsync(r, 'km e viagens não atravessam dias', async () => {
+    const s = buildState({ profile: 'driver' })
+    const out = await orchestrate({
+      state: s, message: 'ontem rodei 100 km e hoje rodei 200 km',
+      history: [], remoteEnabled: false, today: TODAY,
+    })
+    const acoes: AssistantCandidateAction[] = out.response.actions
+    const works = acoes.map(a => a.action).filter(a => a.kind === 'work') as any[]
+    if (works.length !== 2) return `esperava 2 registros de trabalho, veio ${works.length}`
+    const porData = new Map(works.map(w => [w.date, w.km]))
+    if (porData.get('2026-07-14') !== 100) return `ontem ficou com ${porData.get('2026-07-14')} km`
+    if (porData.get('2026-07-15') !== 200) return `hoje ficou com ${porData.get('2026-07-15')} km`
+    return null
+  })
+
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
   // Invariante de FIAÇÃO, não de lógica: o corpus sempre passou
   // `pendingClarification`, então ele nunca poderia ver que `Chat.tsx` não
