@@ -5,7 +5,7 @@
 > **[FATO]** verificado no repo · **[INFERÊNCIA]** deduzido · **[PENDÊNCIA]** não feito.
 >
 > Fontes de verdade permanentes, mais detalhadas que este arquivo:
-> `CLAUDE.md` (regras 1–32), `CONTEXTO.md` (produto), `PROGRESS.md` (diário por rodada),
+> `CLAUDE.md` (regras 1–36), `CONTEXTO.md` (produto), `PROGRESS.md` (diário por rodada),
 > `docs/AI_CURRENT_STATE.md` e `docs/AI_REGRESSION_MATRIX.md` (IA). Este `CONTEXT.md`
 > resume e aponta para eles — em caso de divergência, o código vence.
 
@@ -33,18 +33,19 @@ via função serverless na Vercel.
 
 ## 2. Estado atual
 
-**[FATO] Tudo verde e em produção.**
-- Suíte: **385/385 casos + 53/53 invariantes** (rodado nesta sessão, `npm test`).
+**[FATO] Tudo verde.**
+- Suíte: **436/436 casos + 57/57 invariantes** (rodado em 13/08/2026, `npm test`).
 - `npm run typecheck` e `npm run typecheck:api`: exit 0.
 - `npm run build`: exit 0.
 - Produção Vercel no ar: `https://assist-fin.vercel.app` (app HTTP 200, endpoint de IA
   respondendo com o contrato v1).
 - APK debug gerado e entregue ao usuário nesta sessão (para o tio).
 
-**Onde o desenvolvimento parou:** acabei de auditar a qualidade da IA e corrigir o roteador
-de perguntas (fala real do usuário). Últimos commits já mergeados em `main`, enviados ao
-GitHub e deployados. **O ciclo está fechado** — não há trabalho pela metade. O próximo passo
-é opcional (ver §11): melhorar 4 casos de parser ainda fracos.
+**Onde o desenvolvimento parou (13/08/2026):** dez commits que atacaram o REGISTRO em fala
+real (os quatro parsers pendentes e mais onze defeitos achados por sonda), sete perguntas que
+caíam no texto de ajuda, e dois plugins nativos novos (ditado por voz e exportação de
+arquivo, que simplesmente não funcionavam dentro do APK). **Nada pela metade**, mas os
+commits estão SÓ NESTA MÁQUINA — sem push, sem deploy, sem APK, por não ter autorização.
 
 O que já está implementado e funcionando (arquitetura da IA v1, contrato versionado):
 - Registro por linguagem natural (receita, despesa, saving, trabalho, combustível,
@@ -87,8 +88,10 @@ O que já está implementado e funcionando (arquitetura da IA v1, contrato versi
 ### Motor local e serviços — `src/services/` [FATO]
 | Arquivo | Responsabilidade |
 |---|---|
-| `ai.ts` | Motor de respostas local (`resolveLocal`), contexto/sanitização remota. **`normalizeQuestion()`** (novo nesta sessão) normaliza acento + abreviações para reconhecer perguntas. |
-| `nlp.ts` | Parser determinístico pt-BR, `parseNaturalFull`, `describeAction`. |
+| `ai.ts` | Motor de respostas local (`resolveLocal`), contexto/sanitização remota. `normalizeQuestion()` normaliza acento + abreviações para reconhecer perguntas. |
+| `nlp.ts` | Parser determinístico pt-BR, `parseNaturalFull`, `describeAction`. Constantes-fonte `MOEDA`, `COMBUSTIVEL` e `looksRecurring` (esta reexportada por `clauses.ts` — o contrário seria ciclo). `driverDayResult()` é o resultado do dia do motorista. |
+| `speech.ts` | Ditado por voz: plugin nativo no Android, Web Speech API no navegador. |
+| `exportFile.ts` | Escrita de arquivo: plugin nativo no Android, `<a download>` no navegador. |
 | `calc.ts` | Todo cálculo financeiro: `currentBalance`, `dailyGoal`, `monthlySavingGoal`, `occurrencesBetween`, projeções. |
 | `cards.ts` | Cartões, faturas, parcelas, limites. |
 | `profile.ts` | Regras de perfil (`isDriver`, `shouldAsk99Fee`, `MENTIONS_99`, etc.). |
@@ -114,9 +117,12 @@ O que já está implementado e funcionando (arquitetura da IA v1, contrato versi
   `undo-batch` e `edit-transaction` em `ParsedAction`.
 
 ### Testes — `tests/assistant/` e `scripts/` [FATO]
-- `harness.ts` (`TODAY = '2026-07-15'`, `buildState`, `runCase`), `properties.ts` (53 invariantes).
+- `harness.ts` (`TODAY = '2026-07-15'`, `buildState`, `runCase`), `properties.ts` (57 invariantes).
 - Corpus: `cases.ts`, `cases-critical.ts`, `cases-adversarial.ts`, `cases-temporal.ts`,
-  `cases-undo.ts`, `cases-edit.ts`, `cases-fala-real.ts`.
+  `cases-undo.ts`, `cases-edit.ts`, `cases-fala-real.ts`, `cases-registro-real.ts`.
+- **Cuidado ao escrever caso novo:** `resolveLocal` lê o RELÓGIO REAL da máquina, não a data
+  injetada `TODAY`. Asserção que depende de mês/semana precisa montar as datas a partir de
+  `todayISO()` — foi por isso que a invariante 57 existe em vez de um caso de corpus.
 - Runner: `scripts/test-assistant.mts` (importa todos). `scripts/test-app.mts` (núcleo +
   `tests/navigation.ts`). `scripts/test-money.mjs`.
 
@@ -216,13 +222,26 @@ Duas frentes: 5 bugs de UI mobile + auditoria de qualidade da IA.
 - Editar recorrência existente (valor/frequência/data inicial) não tem tela — só criar/remover.
 - Antecipação de parcela sem desconto/juros; editar parcela específica só existe no reducer.
 
-### Problemas conhecidos do parser (medidos nesta sessão, NÃO corrigidos) [PENDÊNCIA]
-Prioridade sugerida do mais para o menos importante (o nº 1 afeta o motorista):
-1. **`hoje foi fraco so 150 reais 8 horas na rua`** → não registra nada. Perde receita e horas
-   por não haver verbo de ganho explícito.
-2. **`gastei 20 e 30`** → vira uma despesa de 20 com descrição "30".
-3. **`gastei 30 pila no lanche`** → deixa a gíria "Pila" na descrição.
-4. **`paguei 80 de gazolina`** (com typo) → cai em `outros-out`, não em combustível.
+### Problemas do parser — TODOS CORRIGIDOS em 13/08/2026 [FATO]
+Os quatro estão no corpus `tests/assistant/cases-registro-real.ts` (41 casos):
+1. ~~`hoje foi fraco so 150 reais 8 horas na rua`~~ → registra receita + horas. Junto veio
+   um defeito pior que ninguém tinha visto: **`foi 400 hoje` gravava o faturamento do dia
+   como DESPESA** (o `foi` é verbo de gasto no parser). Invariantes 54 e 55 travam os dois
+   sentidos.
+2. ~~`gastei 20 e 30`~~ → duas despesas; descrição puramente numérica é recusada.
+3. ~~`gastei 30 pila no lanche`~~ → constante `MOEDA` única (pila, conto, mango, pau, prata).
+4. ~~`paguei 80 de gazolina`~~ → termos de categoria viraram RADICAIS (`gasolin`/`gazolin`).
+
+### Defeitos achados pela SONDA na mesma rodada e corrigidos [FATO]
+Nenhum deles apareceria só rodando o corpus:
+- `posso gastar 50 no mercado?` virava despesa de 50 (verbo no infinitivo). Invariante 56.
+- `na verdade foi 200`, sem nada na tela, criava gasto de R$ 200. `looksLikeRetraction`.
+- `tô no vermelho?` respondia "Sim" para quem tinha sobra — polaridade. Invariante 57.
+- `pago 90 de internet todo mês` virava despesa avulsa e inflava o mês (regra 18).
+- `quero juntar 5000 pra uma moto` criava meta chamada "Objetivo".
+- `passei 1200 no nubank em 3x` não registrava nada.
+- 7 perguntas que o app sabia responder caíam no texto de ajuda, entre elas
+  `vale a pena corrida de 8 reais` — que ainda virava tentativa de REGISTRO.
 
 ### Melhorias desejáveis [PENDÊNCIA]
 - Assistente confirmar **ocorrência recorrente por conversa** (o journal/reversão já tratam
@@ -235,6 +254,14 @@ Prioridade sugerida do mais para o menos importante (o nº 1 afeta o motorista):
 - Teste no **aparelho real** do tio (motorista): fluxo de registro do dia, perguntas, undo.
 - Confirmar as 5 correções de UI num Android físico (o preview do navegador não compõe frames
   de forma idêntica).
+- **Os dois plugins nativos novos (Speech e Export) só foram COMPILADOS**, nunca executados
+  em Android físico. `cap sync` e `compileDebugJavaWithJavac` passam; o comportamento em
+  aparelho é desconhecido. É a maior incerteza aberta desta rodada.
+- **"Aquela coisa que fica na tela principal só pra clicar"** (relatado pelo dono, 13/08):
+  NÃO mexido. Há quatro candidatos na Home — o card do assistente com os chips, o
+  "toque no valor para alternar" do resultado do dia, o alerta 🎯 que repete o que o card
+  da meta já diz, e o "Por que essa meta? →". Mudar a Home do motorista no escuro violaria
+  a regra 2. Precisa o dono apontar qual é.
 
 ### Ideias discutidas, NÃO aprovadas [INFERÊNCIA — não implementar sem pedir]
 - Nenhuma ideia grande pendente de aprovação neste momento.
@@ -272,10 +299,12 @@ em teste manual isolado — não é bug de produção, é o fixture defasado.
 ## 9. Estado do Git
 
 - **Branch atual [FATO]:** `feat/assistant-orchestrator`.
-- **Último commit [FATO]:** `389e2a1 fix: answer real user phrasing locally instead of falling back to the model`.
+- **Último commit [FATO]:** `52feef4 fix: parcelamento sem descrever o item se perdia inteiro`
+  (13/08/2026). Antes dele, dez commits desta rodada — ver `PROGRESS.md`.
 - **`main` [FATO]:** contém tudo mergeado (último merge `a8d9073`), em sincronia com `origin/main`.
-- **Commits locais não enviados [FATO]:** nenhum. Branch e `main` estão em sincronia com o
-  remoto (`git log origin/..` vazio nos dois).
+- **Commits locais não enviados [PENDÊNCIA]:** os desta rodada (a partir de `2a65d1e`)
+  ainda NÃO foram enviados — o dono não autorizou push, deploy nem APK.
+  `origin/feat/assistant-orchestrator` está em `389e2a1`; `origin/main` em `a8d9073`.
 - **Arquivos modificados / não rastreados [FATO]:** nenhum (working tree limpo — este
   `CONTEXT.md` novo será a única alteração até você commitar, se pedir).
 - **Remoto:** `https://github.com/pedrohlsa/assistente_financeiro`. Sem PRs nem issues abertos.
@@ -287,12 +316,12 @@ em teste manual isolado — não é bug de produção, é o fixture defasado.
 
 ## 10. Próximos passos (priorizado)
 
-1. **Validar no aparelho do tio** (motorista) — é o teste que falta e o público-alvo real.
-2. **Corrigir o parser nº 1** do §7 (`150 reais 8 horas` sem verbo → perde receita+horas).
-   É o que mais dói para motorista. Seguir o método: reproduzir → caso vermelho → corrigir →
-   corpus inteiro → commit isolado.
-3. Corrigir os parsers nº 2–4 do §7 (menos urgentes).
-4. Só então avaliar features maiores (Analytics por perfil, confirmar recorrente por conversa).
+1. **Gerar APK e validar no aparelho do tio** — os dois plugins nativos (ditado e
+   exportação) NUNCA rodaram em Android físico. É a maior incerteza aberta.
+2. **Perguntar ao dono qual é "aquela coisa da tela principal"** (§7) antes de mexer na Home.
+3. **Enviar ao GitHub e deployar** quando o dono autorizar — dez commits estão só aqui.
+4. Só então avaliar features maiores (Analytics por perfil, confirmar recorrente por conversa,
+   cadastrar recorrência por conversa — hoje o assistente recusa e aponta o Planejamento).
 
 ---
 

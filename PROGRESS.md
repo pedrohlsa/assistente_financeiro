@@ -2155,3 +2155,99 @@ Corpus: **385/385 · 53/53 invariantes**, typecheck src+api e build ok.
 4. **`paguei 80 de gazolina`** com typo cai em `outros-out`, não em combustível.
 5. Perguntas abertas de verdade (`vale a pena comprar um carro de 40000?`) continuam
    dependendo da IA remota — é o desenho, não um defeito.
+
+---
+
+## Rodada — fala real de registro, perguntas de motorista e exportação (13/08/2026)
+
+Pedido: "melhorar a IA o máximo possível", mais três defeitos relatados do APK (áudio,
+exportar JSON, algo na tela principal). Método de sempre: sonda → caso vermelho →
+correção → corpus inteiro → commit isolado.
+
+### Como os defeitos foram achados
+
+Uma **sonda** (`orchestrate` sobre frases de fala real) mostrou o que o corpus não
+mostrava, porque o corpus só sabe o que já perguntaram a ele. Foi assim que apareceram
+tanto os quatro parsers já conhecidos quanto sete classes novas — e três bugs que
+**nenhum teste pegaria**, porque só apareciam ao LER a resposta.
+
+Registro honesto de um erro do processo: numa primeira passada eu afirmei que
+`gastei 20 no lanche e 30 na farmácia` perdia a segunda despesa. Era artefato da própria
+sonda (o `grep` cortava a segunda linha). O parser sempre acertou esse caso.
+
+### Registro em fala real (corpus novo `cases-registro-real.ts`, 41 casos)
+
+1. **Resultado do dia do motorista** — `hoje foi fraco so 150 reais 8 horas na rua`,
+   `deu 200 hoje`, `fechei o dia com 280`, `tirei 300 líquido`. Não registrava nada. Pior:
+   `foi 400 hoje` caía no verbo de DESPESA e gravava o faturamento do dia **com o sinal
+   invertido**. Regra nova em `driverDayResult()`, exclusiva do perfil motorista.
+   Valor sem nenhum sinal de resultado (`hoje 250`) vira PERGUNTA, não palpite.
+   Dia inteiro não inventa "1 viagem" — isso destruiria o ganho por viagem.
+2. **`dayHint` de `clauses.ts` → `nlp.ts`** — quem segmenta ARRANCA a expressão de data
+   antes de chamar o parser, e `deu 200 hoje` chegava como `deu 200`. Sem o aviso, o
+   contexto que dá sentido ao número sumia.
+3. **Gíria de dinheiro** — `pila`, `conto`, `mango`, `pau`, `prata` viravam descrição
+   ("Pila no lanche"). Agora há uma constante `MOEDA` única, consumida por todo regex de
+   valor, no lugar de `reais|conto` repetido em nove pontos.
+4. **Erro de digitação** — `gazolina` caía em `outros-out` e sumia do custo de
+   combustível. Os termos de categoria viraram RADICAIS (`gasolin`, `gazolin`, `mercad`).
+5. **Valores enumerados** — `gastei 20 e 30` virava uma despesa de 20 com descrição "30".
+   `cleanDescription` passou a recusar descrição puramente numérica.
+6. **Gasto anotado sem verbo** — `almoço 25`, `25 no almoço`, `lanche 15 e café 5`,
+   `paguei o aluguel 900`. A trava contra invenção é a CATEGORIA: o substantivo precisa
+   ser reconhecido, então `hoje 250` e `8 horas` continuam não virando gasto.
+7. **Nome da meta** — `quero juntar 5000 pra uma moto` criava meta chamada "Objetivo".
+   O nome só era capturado antes do valor. `meta de 10 mil pro carro` não criava nada.
+8. **Parcelamento sem item** — `passei 1200 no nubank em 3x` não registrava nada: o valor
+   só era achado quando o item era descrito.
+
+### O que a sonda pegou e o teste não pegaria
+
+- **`posso gastar 50 no mercado?` virava despesa de 50.** O verbo está no infinitivo,
+  então nenhuma lista de verbo conjugado o barrava. Guarda de pergunta + invariante 56.
+- **`na verdade foi 200`, sem nada na tela, criava um gasto de R$ 200.** A frase de
+  CONSERTO virava lançamento. `looksLikeRetraction` é estreita de propósito: a lista geral
+  de correção tem palavras que aparecem em registro legítimo ("comprei uma TROCA de óleo").
+- **`tô no vermelho?` respondia "Sim" para quem tinha R$ 465 de sobra.** Polaridade
+  oposta com um "Sim" fixo: número certo, resposta errada. Invariante 57.
+- **`ganho 3000 por mês` dizia "não registrei como GASTO de hoje"** — era receita.
+
+### Conta que se repete é previsão (regra 18)
+
+`pago 90 de internet todo mês` virava despesa avulsa e **inflava o mês** com dinheiro que
+ainda não saiu. O assistente não cadastra recorrência, então agora não registra e manda
+para Planejamento. A guarda exige o VALOR na frase e vale só para movimento de dinheiro —
+`rodei 120 km todo dia` continua sendo trabalho.
+
+Sub-achado: a regra do resultado do dia roubava `todo dia 10` (vencimento) porque a data
+já tinha sido arrancada do texto. A checagem de recorrência passou a ser no texto original.
+
+### Perguntas que o app sabia responder e mandava para o texto de ajuda
+
+`vale a pena corrida de 8 reais` (a pior: caía no parser e virava tentativa de REGISTRO),
+`quanto eu preciso fazer hoje ainda`, `quanto eu gastei essa semana/ontem` sem categoria,
+`quanto to gastando de gasolina por dia`, `to no lucro esse mes`, `quanto sobrou`.
+
+### Três defeitos do APK
+
+- **Áudio** — o microfone usava `webkitSpeechRecognition`, que **não existe** no Android
+  System WebView. Dentro do APK a API não estava lá e o botão não fazia nada. Agora usa o
+  ditado do sistema (`ACTION_RECOGNIZE_SPEECH`, plugin nativo no padrão do RideOverlay):
+  quem grava é o app de voz do Android, então o AssistFin não pede `RECORD_AUDIO` nem
+  guarda áudio. Falha passou a ter motivo, e o botão some onde não há ditado.
+- **Exportar** — `<a download>` com Blob não faz nada no WebView do Capacitor (não há
+  DownloadListener). O app dizia "Backup exportado." para um arquivo que nunca existiu.
+  Plugin nativo Export escreve em Downloads via MediaStore, sem permissão de armazenamento.
+  A mensagem só aparece quando o arquivo foi escrito, e diz onde ficou.
+- **Tela principal** — NÃO mexido. Há quatro candidatos plausíveis ao que foi relatado e
+  mudar a Home do motorista no escuro seria chute (regra 2). Aguarda o usuário apontar.
+
+### Verificação
+
+`npm test` **436/436 casos + 57/57 invariantes**, `typecheck`, `typecheck:api` e `build`
+exit 0. `cap sync` e `compileDebugJavaWithJavac` exit 0 para os dois plugins nativos.
+No navegador (375×812): registro do dia proposto e confirmado, gravando receita de
+R$ 150 em corridas, sessão de 8h **sem viagem inventada**, e o lote no journal.
+
+**Não verificado, e precisa do aparelho:** o caminho NATIVO do ditado e da escrita do
+arquivo. Compilam, mas não foram executados em Android físico.

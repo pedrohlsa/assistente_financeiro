@@ -11,15 +11,19 @@
 >   períodos, correções e frases mistas;
 > - `tests/assistant/cases-undo.ts` — **11 casos** de "desfaz o último";
 > - `tests/assistant/cases-edit.ts` — **12 casos** de correção de lançamento salvo;
-> - `tests/assistant/properties.ts` — **53 invariantes financeiras e de segurança**;
+> - `tests/assistant/properties.ts` — **57 invariantes financeiras e de segurança**;
 > - `npm run test:assistant` — roda tudo offline, com data fixa, contra o orquestrador real.
 >
 > **Resultado da última execução (29/07/2026, branch `feat/assistant-orchestrator`):
-> 368/368 casos e 53/53 invariantes.**
+> 436/436 casos e 57/57 invariantes.**
 >
 > ⚠️ **100% aqui não significa "a IA está correta".** Na rodada adversarial, 8 dos 17 bugs só
-> apareceram no navegador com mensagem real — o corpus passava 100% enquanto "não gastei 100"
-> ainda propunha registrar a despesa. Teste manual com linguagem torta continua obrigatório.
+> apareceram no navegador com mensagem real. Na rodada de 13/08/2026 repetiu-se o padrão por
+> outro caminho: uma SONDA sobre fala real achou 15 defeitos que o corpus não achava — o
+> corpus só sabe o que já perguntaram a ele. Três deles nenhum teste pegaria, porque só
+> apareciam ao LER a resposta ("tô no vermelho?" respondendo "Sim" para quem tinha sobra).
+> Exemplo do que o corpus deixava passar: "não gastei 100" propunha registrar a despesa.
+> Sondar com frase torta e ler a resposta continua obrigatório.
 >
 > A coluna "Atual" abaixo descreve o estado **anterior** à reformulação e foi mantida como
 > registro histórico — é o retrato do que motivou cada correção. O que vale hoje está em
@@ -61,7 +65,7 @@ Os grupos correspondem assim:
 | 10 motorista | `motorista`, `motorista2`, `perfil` |
 | 11 ambiguidades e correções | `ambiguidade`, `correcoes`, `correcoes2`, `multiturno` |
 | 12 conversacional | `conversa`, `conversa2`, `incompletas` |
-| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 53 invariantes |
+| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 57 invariantes |
 | 14 datas futuras, inválidas e períodos | `temporal` (43 casos) |
 | 15 desfazer o último lote | `undo` (11 casos) |
 | 16 corrigir lançamento já salvo | `edicao` (12 casos) |
@@ -306,7 +310,7 @@ Auditoria da DeepSeek:
 
 O quadro abaixo é o retrato **histórico anterior** à reformulação, mantido para
 explicar de onde o trabalho partiu. O estado executável atual é
-**368/368 casos e 53/53 invariantes**.
+**436/436 casos e 57/57 invariantes**.
 
 | Situação | Casos |
 |---|---|

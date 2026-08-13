@@ -196,6 +196,43 @@ código consulta essas funções em vez de comparar `profile === 'driver'` inlin
     ponta de outra estrutura (entrada financiada, abastecimento, manutenção) é **recusado**
     com o nome da tela que corrige de verdade.
 
+33. **Perguntar não é movimentar dinheiro, e corrigir não é registrar.** Três guardas
+    que valem para a classe inteira, não para a frase que revelou cada uma:
+    (a) pergunta com valor nunca vira lançamento — o verbo da pergunta está no
+    INFINITIVO ("posso GASTAR 50 no mercado?"), então nenhuma lista de verbo
+    conjugado a barra; (b) frase que só existe para consertar algo já dito
+    (`looksLikeRetraction`: "na verdade", "me enganei", "errei", "não foi/era")
+    não cria lançamento quando não há proposta na tela — sem alvo, "na verdade foi
+    200" inventava um gasto de R$ 200; (c) conta que se repete (`looksRecurring`)
+    é PREVISÃO pela regra 18 e nunca é gravada como movimento de hoje — o
+    assistente não cadastra recorrência e aponta o Planejamento. As guardas (b) e
+    (c) são estreitas de propósito: a lista geral de correção contém palavras de
+    registro legítimo ("comprei uma TROCA de óleo"), e "todo mês" sem valor não
+    descreve conta nenhuma. Invariantes 56 e 57.
+34. **O sinal do dinheiro do motorista nunca se inverte.** `foi`, `deu` e `saiu` são
+    verbos de DESPESA no parser, mas para quem roda o dia inteiro "foi 400 hoje" é o
+    FATURAMENTO. `driverDayResult()` (`nlp.ts`) trata a classe, só no perfil
+    motorista, e só quando não há verbo de gasto explícito — este manda sempre.
+    Valor sem nenhum sinal de resultado ("hoje 250") vira PERGUNTA, jamais palpite.
+    Um dia inteiro NÃO inventa "1 viagem": cravar isso destrói o ganho por viagem.
+    Invariantes 54 e 55 travam os dois sentidos.
+35. **O corpus só sabe o que já perguntaram a ele.** Duas rodadas seguidas
+    encontraram a maioria dos defeitos FORA dele: a adversarial no navegador, a de
+    13/08 com uma sonda sobre fala real. Três defeitos daquela rodada não apareciam
+    em teste nenhum, só ao LER a resposta ("tô no vermelho?" respondia "Sim" para
+    quem tinha sobra). Depois de mexer no roteador de perguntas, LEIA as respostas —
+    passar no corpus prova apenas que não é o texto genérico de ajuda. E note que
+    `resolveLocal` usa o RELÓGIO REAL da máquina, não a data injetada nos testes:
+    asserção que depende de mês/semana precisa montar as datas com `todayISO()`.
+36. **`webkitSpeechRecognition` e `<a download>` NÃO funcionam dentro do APK.** O
+    Android System WebView não tem a API de voz, e o WebView do Capacitor não tem
+    DownloadListener — os dois falhavam em silêncio, e a exportação ainda dizia
+    "Backup exportado." para um arquivo que nunca existiu. Ambos passam por plugin
+    nativo (`SpeechPlugin`, `ExportPlugin`), com `src/services/speech.ts` e
+    `src/services/exportFile.ts` como porta única para navegador e APK. Regra geral:
+    **antes de usar API de navegador que toca hardware ou sistema de arquivos,
+    confirme que ela existe no WebView** — no navegador tudo passa.
+
 ## Arquitetura e tecnologias
 
 - **Frontend**: React 18 + TypeScript + Vite 5 + React Router (`HashRouter`) — SPA, sem SSR.
