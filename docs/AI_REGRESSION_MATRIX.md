@@ -9,13 +9,17 @@
 >   cada um escrito ANTES da correção do bug que o originou;
 > - `tests/assistant/cases-temporal.ts` — **43 casos** de datas futuras, inválidas,
 >   períodos, correções e frases mistas;
-> - `tests/assistant/cases-undo.ts` — **11 casos** de "desfaz o último";
+> - `tests/assistant/cases-undo.ts` — **14 casos** de "desfaz o último";
 > - `tests/assistant/cases-edit.ts` — **12 casos** de correção de lançamento salvo;
-> - `tests/assistant/properties.ts` — **57 invariantes financeiras e de segurança**;
+> - `tests/assistant/cases-fala-real.ts` — **25 casos** de PERGUNTA como o usuário digita;
+> - `tests/assistant/cases-registro-real.ts` — **44 casos** de REGISTRO em fala real
+>   (resultado do dia do motorista, gíria de dinheiro, typo, valor sem verbo, dois dias
+>   na mesma mensagem);
+> - `tests/assistant/properties.ts` — **58 invariantes financeiras e de segurança**;
 > - `npm run test:assistant` — roda tudo offline, com data fixa, contra o orquestrador real.
 >
-> **Resultado da última execução (29/07/2026, branch `feat/assistant-orchestrator`):
-> 436/436 casos e 57/57 invariantes.**
+> **Resultado da última execução (13/08/2026, branch `feat/assistant-orchestrator`):
+> 440/440 casos e 58/58 invariantes.**
 >
 > ⚠️ **100% aqui não significa "a IA está correta".** Na rodada adversarial, 8 dos 17 bugs só
 > apareceram no navegador com mensagem real. Na rodada de 13/08/2026 repetiu-se o padrão por
@@ -65,9 +69,9 @@ Os grupos correspondem assim:
 | 10 motorista | `motorista`, `motorista2`, `perfil` |
 | 11 ambiguidades e correções | `ambiguidade`, `correcoes`, `correcoes2`, `multiturno` |
 | 12 conversacional | `conversa`, `conversa2`, `incompletas` |
-| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 57 invariantes |
+| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 58 invariantes |
 | 14 datas futuras, inválidas e períodos | `temporal` (43 casos) |
-| 15 desfazer o último lote | `undo` (11 casos) |
+| 15 desfazer o último lote | `undo` (14 casos) |
 | 16 corrigir lançamento já salvo | `edicao` (12 casos) |
 | Cenários obrigatórios do briefing | `criticos` (10 casos, frases literais) |
 
@@ -310,7 +314,7 @@ Auditoria da DeepSeek:
 
 O quadro abaixo é o retrato **histórico anterior** à reformulação, mantido para
 explicar de onde o trabalho partiu. O estado executável atual é
-**436/436 casos e 57/57 invariantes**.
+**440/440 casos e 58/58 invariantes**.
 
 | Situação | Casos |
 |---|---|

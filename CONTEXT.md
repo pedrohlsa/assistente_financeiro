@@ -34,7 +34,7 @@ via função serverless na Vercel.
 ## 2. Estado atual
 
 **[FATO] Tudo verde.**
-- Suíte: **436/436 casos + 57/57 invariantes** (rodado em 13/08/2026, `npm test`).
+- Suíte: **440/440 casos + 58/58 invariantes** (rodado em 13/08/2026, `npm test`).
 - `npm run typecheck` e `npm run typecheck:api`: exit 0.
 - `npm run build`: exit 0.
 - Produção Vercel no ar: `https://assist-fin.vercel.app` (app HTTP 200, endpoint de IA
@@ -240,6 +240,11 @@ Nenhum deles apareceria só rodando o corpus:
 - `pago 90 de internet todo mês` virava despesa avulsa e inflava o mês (regra 18).
 - `quero juntar 5000 pra uma moto` criava meta chamada "Objetivo".
 - `passei 1200 no nubank em 3x` não registrava nada.
+- `ontem fiz 280 e hoje 320` registrava só os 280, e `ontem gastei 50 e hoje gastei 80`
+  gravava as duas despesas em ONTEM. Junto veio um bug pré-existente: a fusão de registros
+  de trabalho somava dias diferentes (invariante 58).
+- `rodei 200 km em 10 horas` perdia a jornada; `quanto já juntei da moto` não era
+  respondida.
 - 7 perguntas que o app sabia responder caíam no texto de ajuda, entre elas
   `vale a pena corrida de 8 reais` — que ainda virava tentativa de REGISTRO.
 
@@ -299,8 +304,8 @@ em teste manual isolado — não é bug de produção, é o fixture defasado.
 ## 9. Estado do Git
 
 - **Branch atual [FATO]:** `feat/assistant-orchestrator`.
-- **Último commit [FATO]:** `52feef4 fix: parcelamento sem descrever o item se perdia inteiro`
-  (13/08/2026). Antes dele, dez commits desta rodada — ver `PROGRESS.md`.
+- **Último commit [FATO]:** `feb6b05 fix: jornada colada na distância e progresso da meta pelo outro lado`
+  (13/08/2026). Treze commits nesta rodada — ver `PROGRESS.md`.
 - **`main` [FATO]:** contém tudo mergeado (último merge `a8d9073`), em sincronia com `origin/main`.
 - **Commits locais não enviados [PENDÊNCIA]:** os desta rodada (a partir de `2a65d1e`)
   ainda NÃO foram enviados — o dono não autorizou push, deploy nem APK.
@@ -319,7 +324,7 @@ em teste manual isolado — não é bug de produção, é o fixture defasado.
 1. **Gerar APK e validar no aparelho do tio** — os dois plugins nativos (ditado e
    exportação) NUNCA rodaram em Android físico. É a maior incerteza aberta.
 2. **Perguntar ao dono qual é "aquela coisa da tela principal"** (§7) antes de mexer na Home.
-3. **Enviar ao GitHub e deployar** quando o dono autorizar — dez commits estão só aqui.
+3. **Enviar ao GitHub e deployar** quando o dono autorizar — treze commits estão só aqui.
 4. Só então avaliar features maiores (Analytics por perfil, confirmar recorrente por conversa,
    cadastrar recorrência por conversa — hoje o assistente recusa e aponta o Planejamento).
 

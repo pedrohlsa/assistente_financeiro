@@ -2242,9 +2242,28 @@ já tinha sido arrancada do texto. A checagem de recorrência passou a ser no te
 - **Tela principal** — NÃO mexido. Há quatro candidatos plausíveis ao que foi relatado e
   mudar a Home do motorista no escuro seria chute (regra 2). Aguarda o usuário apontar.
 
+### Segunda rodada de sondagem (mesma sessão)
+
+9. **Dois dias na mesma mensagem paravam de existir.** `ontem fiz 280 e hoje 320`
+   registrava só os 280 — o segmentador só corta antes de VERBO, então "e hoje 320" ficava
+   colado e a data de ontem valia para tudo. Pior ainda: `ontem gastei 50 e hoje gastei 80`
+   gravava as DUAS despesas em ontem. Corte novo antes de "e hoje/ontem" (exigindo um
+   número depois, para "trabalhei ontem e hoje" não ser cortado) mais **verbo herdado**: o
+   "fiz" da primeira metade vale para a segunda, resolvido DENTRO do parser para a viagem
+   implícita continuar valendo nos dois dias.
+10. **Bug pré-existente que o corte expôs:** a fusão de registros de trabalho somava tudo
+    sem olhar a data. `ontem rodei 100 km e hoje rodei 200 km` virava um único dia de
+    300 km, com o km de hoje lançado em ontem — estragando o custo por km dos dois dias.
+    Fusão agora é POR DIA. Invariante 58.
+11. **`rodei 200 km em 10 horas` perdia as 10 horas** — e a jornada é metade do lucro por
+    hora do motorista.
+12. **`quanto já juntei da moto`** caía no texto de ajuda, enquanto `quanto falta pra minha
+    moto` já funcionava. É a mesma pergunta pelo outro lado; a resposta agora dá os dois
+    números.
+
 ### Verificação
 
-`npm test` **436/436 casos + 57/57 invariantes**, `typecheck`, `typecheck:api` e `build`
+`npm test` **440/440 casos + 58/58 invariantes**, `typecheck`, `typecheck:api` e `build`
 exit 0. `cap sync` e `compileDebugJavaWithJavac` exit 0 para os dois plugins nativos.
 No navegador (375×812): registro do dia proposto e confirmado, gravando receita de
 R$ 150 em corridas, sessão de 8h **sem viagem inventada**, e o lote no journal.
