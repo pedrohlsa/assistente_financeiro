@@ -77,7 +77,10 @@ export function cleanDescription(raw?: string): string | undefined {
   while (words.length && DESC_STOPWORDS.has(words[0])) words.shift()
   while (words.length && DESC_STOPWORDS.has(words[words.length - 1])) words.pop()
   const out = words.join(' ').trim()
-  return out ? sentenceCase(out) : undefined
+  // Um número sozinho nunca descreve um gasto: "gastei 20 e 30" deixava a
+  // descrição "30" no primeiro lançamento, escondendo ali o segundo valor.
+  if (!out || /^[\d\s.,r$]+$/i.test(out)) return undefined
+  return sentenceCase(out)
 }
 
 function splitClauses(input: string): string[] {
@@ -672,6 +675,16 @@ function parseClause(input: string): ParsedAction[] {
     if (inv) {
       const desc = cleanDescription(inv[1])
       actions.push({ kind: 'expense', amount: parseNum(inv[2]), category: guessCategory(inv[1] || text, 'expense'), description: desc })
+    } else {
+      // Sem preposição nenhuma no meio: "paguei o aluguel 900". Exige que o
+      // substantivo seja de uma categoria conhecida — é o que separa isto de
+      // um número solto que ninguém sabe o que é.
+      const nuRe = new RegExp(String.raw`(?:gastei|paguei|comprei|torrei)\s+(?:mais\s+)?(?:o|a|os|as|um|uma|meu|minha)?\s*([a-zà-úçãõ][\wçãõáéíóúâê]*(?:\s+[a-zà-úçãõ][\wçãõáéíóúâê]*)?)\s+(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*$`, 'i')
+      const nu = text.match(nuRe)
+      const cat = nu ? guessCategory(nu[1], 'expense') : undefined
+      if (nu && cat) {
+        actions.push({ kind: 'expense', amount: parseNum(nu[2]), category: cat, description: cleanDescription(nu[1]) })
+      }
     }
   }
 
@@ -693,6 +706,18 @@ function parseClause(input: string): ParsedAction[] {
         actions.push({ kind: 'expense', amount, category: guessCategory(rawDesc, 'expense'), description: cleanDescription(rawDesc) })
       }
     }
+    // Valor enumerado SEM descrição própria: "gastei 20 e 30" são dois gastos.
+    // O segundo valor virava a descrição do primeiro e o dinheiro sumia. O
+    // lookahead é a trava: o valor precisa terminar a frase ou ser seguido de
+    // outro separador — se vier "30 na farmácia", quem cuida é o regex acima.
+    const enumBareRe = new RegExp(String.raw`${sep}\s*(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?=$|\se\s|,(?!\d)|;)`, 'gi')
+    for (const mm of text.matchAll(enumBareRe)) {
+      const amount = parseNum(mm[1])
+      if (!(amount > 0)) continue
+      if (actions.some(a => (a as any).amount === amount)) continue
+      actions.push({ kind: 'expense', amount, category: guessCategory(text, 'expense') })
+    }
+
     const enumInvRe = new RegExp(String.raw`${sep}\s*([a-zà-úçãõ][\wçãõáéíóúâê]*(?:\s+[\wçãõáéíóúâê]+)?)\s+(?:por|a|custou)\s*(?:r\$)?\s*${NUM}`, 'gi')
     for (const mm of text.matchAll(enumInvRe)) {
       const rawDesc = mm[1].trim()
@@ -743,8 +768,50 @@ function parseClause(input: string): ParsedAction[] {
     })
   }
 
+  // Último recurso: nem verbo, nem preposição, só o item e o preço.
+  if (!actions.length) actions.push(...parseSemVerbo(text))
+
   // dedupe: receita detectada dentro de frase de meta
   return actions
+}
+
+/**
+ * "Almoço 25", "25 no almoço", "lanche 15 e café 5".
+ *
+ * É como se anota gasto no bloquinho: item e preço, sem verbo nenhum. Só entra
+ * quando a frase NÃO tem verbo de comando — os caminhos acima já atenderam quem
+ * disse o verbo, e disputar com eles duplicaria o lançamento.
+ *
+ * A trava contra invenção é a CATEGORIA: o substantivo precisa ser reconhecido
+ * por `guessCategory`. "Hoje 250" e "8 horas" não viram gasto porque "hoje" e
+ * "horas" não são categoria de nada.
+ */
+function parseSemVerbo(text: string): ParsedAction[] {
+  if (new RegExp(String.raw`\b(?:${COMMAND_VERBS.join('|')})\b`, 'i').test(text)) return []
+  // Perguntar quanto PODE gastar não é dizer que gastou. Sem esta guarda,
+  // "posso gastar 50 no mercado?" virava uma despesa de 50 — o verbo está no
+  // infinitivo, então nenhuma das listas de comando o barrava.
+  if (/\?|^\s*(?:quanto|quantos|quantas|qual|quais|quando|como|onde|posso|poderia|devo|preciso|vale|d[áa]\s+pra|d[áa]\s+para|ser[áa]|tem\s+como)\b/i.test(text)) return []
+
+  const out: ParsedAction[] = []
+  // `,(?!\d)` preserva a vírgula decimal: "1.234,56" é um valor, não dois itens.
+  for (const trecho of text.split(/\s+e\s+|,(?!\d)|;/)) {
+    const t = trecho.trim()
+    if (!t) continue
+    const vm = t.match(new RegExp(String.raw`(?:r\$)?\s*${NUM}\s*${MOEDA}?`, 'i'))
+    if (!vm) continue
+    const amount = parseNum(vm[1])
+    if (!(amount > 0)) continue
+    // Número com unidade é quantidade, não preço.
+    const depois = t.slice((vm.index || 0) + vm[0].length)
+    if (new RegExp(`^${UNIT_AFTER}`, 'i').test(depois)) continue
+
+    const nome = (t.slice(0, vm.index || 0) + ' ' + depois).replace(/\s+/g, ' ').trim()
+    const cat = guessCategory(nome, 'expense')
+    if (!cat) continue
+    out.push({ kind: 'expense', amount, category: cat, description: cleanDescription(nome) })
+  }
+  return out
 }
 
 /**

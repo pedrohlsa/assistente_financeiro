@@ -133,6 +133,76 @@ export const REGISTRO_REAL: AssistantCase[] = [
     messages: ['gastei 45 no mercadinho'],
     expectActions: [{ kind: 'expense', amount: 45, category: 'alimentacao' }],
   },
+
+  // ===== Valores enumerados sem descrição própria =====
+  {
+    id: 'rr-19', group: 'registroreal', ...naoMotorista,
+    // Virava UMA despesa de 20 com a descrição "30": o segundo valor sumia
+    // dentro do texto do primeiro lançamento.
+    messages: ['gastei 20 e 30'],
+    expectActions: [
+      // Um número nunca é a descrição de um gasto.
+      { kind: 'expense', amount: 20, description: null },
+      { kind: 'expense', amount: 30, description: null },
+    ],
+  },
+  {
+    id: 'rr-20', group: 'registroreal', ...naoMotorista,
+    // Guarda da vírgula decimal: 1.234,56 é UM valor, não 1.234 e 56.
+    messages: ['gastei 1.234,56 no mercado'],
+    expectActions: [{ kind: 'expense', amount: 1234.56, category: 'alimentacao' }],
+  },
+
+  // ===== Substantivo e valor, sem verbo nenhum =====
+  {
+    id: 'rr-21', group: 'registroreal', ...naoMotorista,
+    messages: ['almoço 25'],
+    expectActions: [{ kind: 'expense', amount: 25, category: 'alimentacao' }],
+  },
+  {
+    id: 'rr-22', group: 'registroreal', ...naoMotorista,
+    messages: ['25 no almoço'],
+    expectActions: [{ kind: 'expense', amount: 25, category: 'alimentacao' }],
+  },
+  {
+    id: 'rr-23', group: 'registroreal', ...naoMotorista,
+    messages: ['lanche 15 e cafe 5'],
+    expectActions: [
+      { kind: 'expense', amount: 15, category: 'alimentacao' },
+      { kind: 'expense', amount: 5, category: 'alimentacao' },
+    ],
+  },
+  {
+    id: 'rr-24', group: 'registroreal', ...naoMotorista,
+    // O valor vem DEPOIS do substantivo, sem preposição nenhuma no meio.
+    messages: ['paguei o aluguel 900'],
+    expectActions: [{ kind: 'expense', amount: 900, category: 'casa' }],
+  },
+
+  // ===== As guardas do que já funcionava =====
+  {
+    id: 'rr-25', group: 'registroreal', ...motorista,
+    // "14 viagens" é quantidade, não dinheiro: não pode virar receita de 14.
+    messages: ['fiz 14 viagens'],
+    expectActions: [{ kind: 'work', trips: 14 }],
+  },
+  {
+    id: 'rr-26', group: 'registroreal', ...motorista,
+    messages: ['rodei 120 km'],
+    expectActions: [{ kind: 'work', km: 120 }],
+  },
+  {
+    id: 'rr-27', group: 'registroreal', ...naoMotorista,
+    // Perguntar quanto PODE gastar não é dizer que gastou. A regra sem verbo
+    // registrava a pergunta como despesa de 50.
+    messages: ['posso gastar 50 no mercado?'],
+    expectNoActions: true,
+  },
+  {
+    id: 'rr-28', group: 'registroreal', ...naoMotorista,
+    messages: ['da pra gastar 80 hoje no lanche?'],
+    expectNoActions: true,
+  },
 ]
 
 export default REGISTRO_REAL

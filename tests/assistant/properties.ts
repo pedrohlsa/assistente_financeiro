@@ -1019,6 +1019,28 @@ export async function runProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 56. Perguntar sobre dinheiro nunca é gastar dinheiro ---------------
+  // A regra "item e preço, sem verbo" (parseSemVerbo) casa com frases que não
+  // têm verbo conjugado — e pergunta usa infinitivo: "posso GASTAR 50 no
+  // mercado?" virava despesa de 50. Vale para a classe toda.
+  await checkAsync(r, 'pergunta com valor nunca vira lançamento', async () => {
+    const frases = [
+      'posso gastar 50 no mercado?', 'da pra gastar 80 hoje no lanche?',
+      'quanto posso gastar de gasolina?', 'vale a pena uma corrida de 12 reais?',
+      'devo separar 200 esse mes?', 'tem como economizar 300 no mercado?',
+    ]
+    for (const p of ['driver', 'other'] as const) {
+      const s = buildState({ profile: p })
+      for (const message of frases) {
+        const out = await orchestrate({ state: s, message, history: [], remoteEnabled: false, today: TODAY })
+        const acoes: AssistantCandidateAction[] = out.response.actions
+        const registro = acoes.find(a => ['expense', 'income', 'fuel', 'saving'].includes(a.action.kind))
+        if (registro) return `[${p}] "${message}" virou ${registro.action.kind}`
+      }
+    }
+    return null
+  })
+
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
   // Invariante de FIAÇÃO, não de lógica: o corpus sempre passou
   // `pendingClarification`, então ele nunca poderia ver que `Chat.tsx` não
