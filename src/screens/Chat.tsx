@@ -20,6 +20,7 @@ import { ProposalCard } from '../components/ProposalCard'
 import { isDriver, shouldAsk99Fee } from '../services/profile'
 import { plainChatText } from '../utils/text'
 import { fmtBRL } from '../utils/format'
+import { listenOnce, SPEECH_MESSAGES, SpeechError, speechAvailable, stopListening } from '../services/speech'
 
 const SUGGESTIONS_BY_PROFILE: Record<string, string[]> = {
   driver: [
@@ -64,9 +65,11 @@ export default function Chat() {
   const location = useLocation() as any
   const [input, setInput] = useState('')
   const [recording, setRecording] = useState(false)
+  // Botão de microfone que não faz nada é pior do que botão nenhum: some quando
+  // o aparelho não tem ditado.
+  const [micOk, setMicOk] = useState(true)
   const [thinking, setThinking] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const recRef = useRef<any>(null)
   const askHandled = useRef(false)
   const driverMode = isDriver(state.settings)
 
@@ -172,6 +175,12 @@ export default function Chat() {
     window.scrollTo({ top: document.body.scrollHeight })
   }, [state.chat.length])
 
+  useEffect(() => {
+    let vivo = true
+    speechAvailable().then(ok => { if (vivo) setMicOk(ok) })
+    return () => { vivo = false }
+  }, [])
+
   // ---------- Confirmação ----------
 
   const updateProposal = (msgId: string, next: ProposedAction[]) => {
@@ -260,19 +269,21 @@ export default function Chat() {
 
   // ---------- Voz ----------
 
-  const startVoice = () => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SR) { toast({ text: 'Reconhecimento de voz não disponível neste navegador.' }); return }
-    if (recording) { recRef.current?.stop(); return }
-    const rec = new SR()
-    recRef.current = rec
-    rec.lang = 'pt-BR'
-    rec.interimResults = false
-    rec.onresult = (e: any) => { setRecording(false); send(e.results[0][0].transcript) }
-    rec.onend = () => setRecording(false)
-    rec.onerror = () => { setRecording(false); toast({ text: 'Não consegui te ouvir. Tente de novo.' }) }
+  const startVoice = async () => {
+    // No APK quem ouve é o app de voz do Android; no navegador, a Web Speech
+    // API. `listenOnce` esconde essa diferença — a tela só pede uma fala.
+    if (recording) { stopListening(); setRecording(false); return }
     setRecording(true)
-    rec.start()
+    try {
+      const { text, cancelled } = await listenOnce('Fale o que você quer registrar')
+      setRecording(false)
+      // Desistir de falar não é erro: nada de mensagem de falha.
+      if (!cancelled && text.trim()) send(text)
+    } catch (e) {
+      setRecording(false)
+      const motivo = e instanceof SpeechError ? e.reason : 'error'
+      toast({ text: SPEECH_MESSAGES[motivo] })
+    }
   }
 
   return (
@@ -369,7 +380,10 @@ export default function Chat() {
             }
           }}
         />
-        <button className={`icon-btn secondary ${recording ? 'recording' : ''}`} aria-label="Falar" onClick={startVoice}>{Icon.mic}</button>
+        {micOk && (
+          <button className={`icon-btn secondary ${recording ? 'recording' : ''}`}
+            aria-label={recording ? 'Parar de ouvir' : 'Falar'} onClick={startVoice}>{Icon.mic}</button>
+        )}
         <button className="icon-btn" aria-label="Enviar" onClick={() => send(input)}>{Icon.send}</button>
       </div>
     </div>

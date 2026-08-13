@@ -64,4 +64,20 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+      A partir do Android 11 um app só enxerga os outros que declara aqui.
+      Sem esta consulta, `queryIntentActivities` volta vazio mesmo com o app de
+      ditado instalado, e o microfone diria "não disponível" no aparelho errado.
+      Nenhuma permissão de gravação é pedida: quem captura o áudio é o app de
+      voz do sistema, o AssistFin só recebe o texto.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
+    </queries>
 </manifest>
