@@ -2304,3 +2304,23 @@ Os perfis que eu tinha testado menos renderam a leva mais grave.
 
 Verificado: **465/465 casos + 60/60 invariantes**, typecheck (src e api) e build exit 0.
 No navegador: "ganhei 15000 hoje" aparece na proposta como **R$ 15.000,00**.
+
+### Quinta rodada — conversa multiturno e fala corriqueira
+
+20. **"Gastei uns 50" não registrava nada.** O "uns" entre o verbo e o número fazia o parser
+    não achar o valor. É como se fala quando não se lembra o centavo, e valia para todas as
+    formas ("cerca de", "mais ou menos", "quase"). Virou a constante `APROX`, que substituiu
+    o antigo `(?:mais\s+)?` em todos os regex de valor.
+21. **"Comprei uma tv" caía no texto de ajuda.** O rascunho de parcelamento desistia quando
+    faltavam valor E parcelas, e nada assumia depois. Agora pergunta o preço guardando a
+    descrição e a categoria já ditas — quem escreveu "comprei uma TV" não vai repetir "tv"
+    ao responder o valor.
+22. **Com a proposta na tela, "80" e "na verdade 80" não corrigiam o valor.** O primeiro caía
+    na ajuda; o segundo respondia "entendi que isso não aconteceu" enquanto a proposta ERRADA
+    seguia lá esperando o Confirmar. São os dois jeitos mais naturais de consertar um valor.
+23. **"Tô com 3000 na conta" respondia sobre contas a vencer.** A palavra "conta" puxava a
+    pergunta de contas a pagar, e o usuário estava informando o saldo — resposta de outra
+    conversa sobre assunto parecido, o tipo de erro que mais confunde.
+24. `joguei 200 na poupança` não registrava nada.
+
+Verificado: **477/477 casos + 60/60 invariantes**, typecheck (src e api) e build exit 0.
