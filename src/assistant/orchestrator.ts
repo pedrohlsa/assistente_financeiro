@@ -779,8 +779,12 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
   // refere ao que está na tela, não ao histórico.
   if (!input.pending?.length) {
     const pedido = parseEditRequest(input.message, caps, today)
-    if (pedido) {
-      const candidatos = findEditCandidates(input.state, pedido, today)
+    const candidatos = pedido ? findEditCandidates(input.state, pedido, today) : []
+    // Pedido reconhecido só pelo verbo e sem nenhum lançamento que combine:
+    // com um apelido citado ("muda o CINEMA para 80") vale dizer que não achou
+    // aquele lançamento; sem apelido nenhum não dá para afirmar que era
+    // correção, e a frase segue o caminho normal.
+    if (pedido && (candidatos.length || !pedido.loose || pedido.hints.text)) {
       const resposta = (reply: string): OrchestratorOutput => ({
         draft: null,
         response: {
@@ -789,7 +793,9 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
         },
       })
       if (!candidatos.length) {
-        return resposta('Não encontrei nenhum lançamento que combine com isso. Me diga o dia e o valor atual que eu procuro de novo.')
+        return resposta(pedido.hints.text
+          ? `Não achei nenhum lançamento de "${sentenceCase(pedido.hints.text)}" nos últimos meses. Confira o nome, ou me diga o dia e o valor atual.`
+          : 'Não encontrei nenhum lançamento que combine com isso. Me diga o dia e o valor atual que eu procuro de novo.')
       }
       if (candidatos.length === 1) {
         const bloqueio = editBlockReason(input.state, candidatos[0])
