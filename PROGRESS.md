@@ -2270,3 +2270,37 @@ R$ 150 em corridas, sessão de 8h **sem viagem inventada**, e o lote no journal.
 
 **Não verificado, e precisa do aparelho:** o caminho NATIVO do ditado e da escrita do
 arquivo. Compilam, mas não foram executados em Android físico.
+
+### Terceira e quarta rodadas de sondagem (perfis CLT, autônomo e veículo)
+
+Os perfis que eu tinha testado menos renderam a leva mais grave.
+
+13. **"Quando tenho que trocar o óleo" dizia JÁ VENCIDA para uma troca feita naquele
+    minuto.** O assistente grava `lifeKm: 0` quando o usuário não diz de quantos em quantos
+    km troca — e é o caso NORMAL, porque a frase que o próprio app sugere ("troquei o óleo
+    por 280 com 84 mil km") nem pede o intervalo. O lembrete fazia `kmInstalado + 0` e
+    concluía que a próxima troca já tinha passado. Sem intervalo não existe próxima troca:
+    agora o app PEDE o intervalo em vez de inventar um alarme, e passou a ouvir "troco a
+    cada 10 mil km". Manutenção realmente atrasada continua sendo avisada.
+14. **"Caiu" não era verbo de receita** — o mais natural para salário e pagamento que chega
+    na conta. "Meu salário caiu hoje 3200" não registrava nada.
+15. **Registro começado sem o valor caía no texto de ajuda.** "Recebi o salário" fazia o app
+    responder como se não tivesse entendido nada. Agora abre rascunho e pergunta quanto foi.
+16. **"Recebi 1800 de aluguel e 900 de um freela" registrava só os 1.800**, porque a
+    enumeração exigia "da/do" e a preposição mais comum é "de". Terceiro bug da mesma
+    família nesta sessão, por isso virou a invariante 60 — que cobre a CLASSE, com seis
+    frases de perfis diferentes.
+17. **A proposta mostrava "R$ 3200,00", sem separador de milhar.** Formatação de dinheiro à
+    mão em treze pontos de `nlp.ts`, justamente na tela onde o usuário confere antes de
+    gravar. Agora tudo passa por `fmtBRL` (invariante 59). Junto, a concordância: dizia
+    "1 viagens".
+18. **A correção de lançamento salvo quase não funcionava com fala real.** Exigia substantivo
+    genérico ("corrige o GASTO de ontem"), mas ninguém fala assim — fala "muda o mercado de
+    100 pra 80". Agora o lançamento pode ser citado pela própria descrição, e o apelido
+    também desempata quando há vários candidatos. Reconhecer pelo verbo é mais frouxo, então
+    o pedido só vira correção se existir mesmo um lançamento que combine.
+19. **"Quanto tô fazendo por hora" e "quanto por viagem"** — as duas métricas que o motorista
+    mais olha — caíam no texto de ajuda.
+
+Verificado: **465/465 casos + 60/60 invariantes**, typecheck (src e api) e build exit 0.
+No navegador: "ganhei 15000 hoje" aparece na proposta como **R$ 15.000,00**.

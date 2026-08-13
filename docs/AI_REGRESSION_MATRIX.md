@@ -10,16 +10,16 @@
 > - `tests/assistant/cases-temporal.ts` — **43 casos** de datas futuras, inválidas,
 >   períodos, correções e frases mistas;
 > - `tests/assistant/cases-undo.ts` — **14 casos** de "desfaz o último";
-> - `tests/assistant/cases-edit.ts` — **12 casos** de correção de lançamento salvo;
-> - `tests/assistant/cases-fala-real.ts` — **25 casos** de PERGUNTA como o usuário digita;
-> - `tests/assistant/cases-registro-real.ts` — **44 casos** de REGISTRO em fala real
+> - `tests/assistant/cases-edit.ts` — **17 casos** de correção de lançamento salvo;
+> - `tests/assistant/cases-fala-real.ts` — **29 casos** de PERGUNTA como o usuário digita;
+> - `tests/assistant/cases-registro-real.ts` — **60 casos** de REGISTRO em fala real
 >   (resultado do dia do motorista, gíria de dinheiro, typo, valor sem verbo, dois dias
 >   na mesma mensagem);
-> - `tests/assistant/properties.ts` — **58 invariantes financeiras e de segurança**;
+> - `tests/assistant/properties.ts` — **60 invariantes financeiras e de segurança**;
 > - `npm run test:assistant` — roda tudo offline, com data fixa, contra o orquestrador real.
 >
 > **Resultado da última execução (13/08/2026, branch `feat/assistant-orchestrator`):
-> 440/440 casos e 58/58 invariantes.**
+> 465/465 casos e 60/60 invariantes.**
 >
 > ⚠️ **100% aqui não significa "a IA está correta".** Na rodada adversarial, 8 dos 17 bugs só
 > apareceram no navegador com mensagem real. Na rodada de 13/08/2026 repetiu-se o padrão por
@@ -72,7 +72,7 @@ Os grupos correspondem assim:
 | 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 58 invariantes |
 | 14 datas futuras, inválidas e períodos | `temporal` (43 casos) |
 | 15 desfazer o último lote | `undo` (14 casos) |
-| 16 corrigir lançamento já salvo | `edicao` (12 casos) |
+| 16 corrigir lançamento já salvo | `edicao` (17 casos) |
 | Cenários obrigatórios do briefing | `criticos` (10 casos, frases literais) |
 
 Grupos criados na rodada adversarial de 28/07, todos em `cases-adversarial.ts`:
@@ -314,7 +314,7 @@ Auditoria da DeepSeek:
 
 O quadro abaixo é o retrato **histórico anterior** à reformulação, mantido para
 explicar de onde o trabalho partiu. O estado executável atual é
-**440/440 casos e 58/58 invariantes**.
+**465/465 casos e 60/60 invariantes**.
 
 | Situação | Casos |
 |---|---|

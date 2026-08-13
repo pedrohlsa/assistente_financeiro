@@ -34,7 +34,7 @@ via função serverless na Vercel.
 ## 2. Estado atual
 
 **[FATO] Tudo verde.**
-- Suíte: **440/440 casos + 58/58 invariantes** (rodado em 13/08/2026, `npm test`).
+- Suíte: **465/465 casos + 60/60 invariantes** (rodado em 13/08/2026, `npm test`).
 - `npm run typecheck` e `npm run typecheck:api`: exit 0.
 - `npm run build`: exit 0.
 - Produção Vercel no ar: `https://assist-fin.vercel.app` (app HTTP 200, endpoint de IA
@@ -245,6 +245,14 @@ Nenhum deles apareceria só rodando o corpus:
   de trabalho somava dias diferentes (invariante 58).
 - `rodei 200 km em 10 horas` perdia a jornada; `quanto já juntei da moto` não era
   respondida.
+- **"Quando trocar o óleo" dizia JÁ VENCIDA para uma troca recém-feita** — o assistente
+  grava `lifeKm: 0` e o lembrete somava zero. O pior achado da sessão.
+- `meu salário caiu hoje 3200` não registrava nada ("caiu" não era verbo de receita);
+  `recebi o salário` caía no texto de ajuda em vez de perguntar o valor.
+- `recebi 1800 de aluguel e 900 de um freela` perdia a segunda receita (invariante 60).
+- A proposta mostrava `R$ 3200,00`, sem separador de milhar (invariante 59).
+- Corrigir lançamento salvo só funcionava com substantivo genérico; agora aceita o nome
+  do próprio lançamento ("muda o mercado de 100 pra 80").
 - 7 perguntas que o app sabia responder caíam no texto de ajuda, entre elas
   `vale a pena corrida de 8 reais` — que ainda virava tentativa de REGISTRO.
 
@@ -304,8 +312,8 @@ em teste manual isolado — não é bug de produção, é o fixture defasado.
 ## 9. Estado do Git
 
 - **Branch atual [FATO]:** `feat/assistant-orchestrator`.
-- **Último commit [FATO]:** `feb6b05 fix: jornada colada na distância e progresso da meta pelo outro lado`
-  (13/08/2026). Treze commits nesta rodada — ver `PROGRESS.md`.
+- **Último commit [FATO]:** `51cfea8 fix: segunda receita perdida por causa de uma preposição`
+  (13/08/2026). Dezenove commits nesta rodada — ver `PROGRESS.md`.
 - **`main` [FATO]:** contém tudo mergeado (último merge `a8d9073`), em sincronia com `origin/main`.
 - **Commits locais não enviados [PENDÊNCIA]:** os desta rodada (a partir de `2a65d1e`)
   ainda NÃO foram enviados — o dono não autorizou push, deploy nem APK.
@@ -324,7 +332,7 @@ em teste manual isolado — não é bug de produção, é o fixture defasado.
 1. **Gerar APK e validar no aparelho do tio** — os dois plugins nativos (ditado e
    exportação) NUNCA rodaram em Android físico. É a maior incerteza aberta.
 2. **Perguntar ao dono qual é "aquela coisa da tela principal"** (§7) antes de mexer na Home.
-3. **Enviar ao GitHub e deployar** quando o dono autorizar — treze commits estão só aqui.
+3. **Enviar ao GitHub e deployar** quando o dono autorizar — dezenove commits estão só aqui.
 4. Só então avaliar features maiores (Analytics por perfil, confirmar recorrente por conversa,
    cadastrar recorrência por conversa — hoje o assistente recusa e aponta o Planejamento).
 
