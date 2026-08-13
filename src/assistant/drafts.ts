@@ -95,8 +95,11 @@ export function detectIncomplete(text: string, caps: AssistantCapabilities): Inc
   // ("não gastei nada" é o contrário de um registro).
   const SEM_VALOR = /^\s*(?:eu\s+)?(?:j[áa]\s+)?(ganhei|recebi|faturei|lucrei|gastei|paguei|comprei|torrei|abasteci|guardei|separei)\b/i
   const semValor = text.match(SEM_VALOR)
+  // Número de UM dígito não é dinheiro: "recebi o aluguel da CASA 1" tem um
+  // "1" que faz parte do nome, e a guarda antiga o tomava por valor — o pedido
+  // voltava para o texto genérico de ajuda em vez de perguntar quanto foi.
   if (semValor
-    && !/\d/.test(t)
+    && !/r\$\s*\d|\b\d{2,}\b|\b\d+[.,]\d/i.test(t)
     && !/\?|\b(?:quanto|quantos|quantas|qual|quais|quando|como|onde|quem)\b/i.test(t)
     && !/\bn[ãa]o\b/i.test(t)) {
     const verbo = semValor[1].toLowerCase()

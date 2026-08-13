@@ -662,8 +662,10 @@ function parseClause(input: string): ParsedAction[] {
 
     // Receitas enumeradas com origem: "recebi 1800 da casa 1 E 1750 da casa 2".
     if (actions.some(a => a.kind === 'income')) {
+      // `d[ao]` cobria "da" e "do" mas NÃO "de" — e "de" é a preposição mais
+      // comum ("e 900 DE um freela"). A segunda receita sumia em silêncio.
       const enumIncRe = new RegExp(
-        String.raw`(?:\se\s|,(?!\d))\s*(?:r\$)?\s*${NUM}\s*(?:reais)?\s+d[ao]\s+([a-zà-ú][\wçãõáéíóúâê]*(?:\s+\d+)?)`,
+        String.raw`(?:\se\s|,(?!\d))\s*(?:r\$)?\s*${NUM}\s*${MOEDA}?\s+d[aoe]\s+(?:um\s+|uma\s+|o\s+|a\s+)?([a-zà-ú][\wçãõáéíóúâê]*(?:\s+\d+)?)`,
         'gi',
       )
       for (const em of text.matchAll(enumIncRe)) {

@@ -1105,6 +1105,34 @@ export async function runProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 60. Valor enumerado não some em silêncio -------------------------
+  // Três bugs desta família já apareceram: "e 30" virando descrição, o segundo
+  // dia sendo engolido, e a segunda receita perdida porque a enumeração exigia
+  // "da/do" e a preposição era "de". O sintoma é sempre o mesmo — o usuário
+  // dita dois valores e o app propõe um só, sem avisar que ignorou o outro.
+  await checkAsync(r, 'dois valores ditos viram dois lançamentos', async () => {
+    const casos: { p: 'driver' | 'autonomo' | 'other'; msg: string; valores: number[] }[] = [
+      { p: 'autonomo', msg: 'recebi 1800 de aluguel e 900 de um freela', valores: [1800, 900] },
+      { p: 'autonomo', msg: 'recebi 1200 da casa 1 e 800 da casa 2', valores: [1200, 800] },
+      { p: 'other', msg: 'gastei 20 no lanche e 30 na farmacia', valores: [20, 30] },
+      { p: 'other', msg: 'gastei 20 e 30', valores: [20, 30] },
+      { p: 'other', msg: 'paguei 50 de luz e 80 de agua', valores: [50, 80] },
+      { p: 'driver', msg: 'ontem gastei 50 e hoje gastei 80', valores: [50, 80] },
+    ]
+    for (const c of casos) {
+      const out = await orchestrate({
+        state: buildState({ profile: c.p }), message: c.msg,
+        history: [], remoteEnabled: false, today: TODAY,
+      })
+      const acoes: AssistantCandidateAction[] = out.response.actions
+      const vistos = acoes.map(a => (a.action as any).amount).filter(v => typeof v === 'number')
+      for (const v of c.valores) {
+        if (!vistos.includes(v)) return `"${c.msg}" perdeu o valor ${v} (veio ${JSON.stringify(vistos)})`
+      }
+    }
+    return null
+  })
+
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
   // Invariante de FIAÇÃO, não de lógica: o corpus sempre passou
   // `pendingClarification`, então ele nunca poderia ver que `Chat.tsx` não

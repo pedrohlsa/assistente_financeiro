@@ -14,6 +14,7 @@ import type { AssistantCase } from './harness'
 const motorista = { profile: 'driver' as const }
 const naoMotorista = { profile: 'other' as const }
 const assalariado = { profile: 'clt' as const }
+const autonomo = { profile: 'autonomo' as const }
 
 export const REGISTRO_REAL: AssistantCase[] = [
   // ===== Resultado do dia sem verbo de ganho explícito =====
@@ -297,6 +298,36 @@ export const REGISTRO_REAL: AssistantCase[] = [
     // nunca uma compra e nunca receita.
     messages: ['passei 2000 em 5x e recebi 1850'],
     expectActions: [{ kind: 'financed-cash-inflow', total: 2000, netReceived: 1850 }],
+  },
+
+  // ===== Duas receitas de fontes diferentes na mesma frase =====
+  {
+    id: 'rr-58', group: 'registroreal', ...autonomo,
+    // Registrava só os 1.800: a enumeração de receitas exigia "da/do" e a
+    // preposição mais comum é "DE" — a segunda entrada sumia em silêncio.
+    messages: ['recebi 1800 de aluguel e 900 de um freela'],
+    expectActions: [
+      { kind: 'income', amount: 1800, category: 'aluguel' },
+      { kind: 'income', amount: 900, category: 'freelance' },
+    ],
+  },
+  {
+    id: 'rr-59', group: 'registroreal', ...autonomo,
+    messages: ['recebi 1200 da casa 1 e 800 da casa 2'],
+    expectActions: [
+      { kind: 'income', amount: 1200 },
+      { kind: 'income', amount: 800 },
+    ],
+  },
+
+  // ===== Registro sem valor, quando o texto tem número que NÃO é dinheiro ==
+  {
+    id: 'rr-60', group: 'registroreal', ...autonomo,
+    // O "1" de "casa 1" fazia a guarda achar que havia valor na frase, e o
+    // pedido caía no texto genérico de ajuda em vez de perguntar quanto foi.
+    messages: ['recebi o aluguel da casa 1'],
+    expectMode: 'clarify',
+    expectClarification: /valor/i,
   },
 
   // ===== Manutenção sem intervalo informado nunca está "vencida" =====
