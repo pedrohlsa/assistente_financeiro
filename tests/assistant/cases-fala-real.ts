@@ -91,6 +91,9 @@ export const FALA_REAL: AssistantCase[] = [
   // A pergunta mais direta que existe sobre a saúde do mês, e caía na ajuda.
   q('fr-25', 'to gastando mais do que ganho?'),
   q('fr-26', 'gasto mais do que recebo'),
+  // As duas métricas que o motorista mais olha, e as duas caíam na ajuda.
+  q('fr-27', 'quanto to fazendo por hora'),
+  q('fr-28', 'quanto por viagem'),
   {
     id: 'fr-24', group: 'falareal', ...motorista,
     // Pergunta central de motorista. Além do texto de ajuda, caía no "não

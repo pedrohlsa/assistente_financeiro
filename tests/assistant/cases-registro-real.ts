@@ -299,6 +299,54 @@ export const REGISTRO_REAL: AssistantCase[] = [
     expectActions: [{ kind: 'financed-cash-inflow', total: 2000, netReceived: 1850 }],
   },
 
+  // ===== Manutenção sem intervalo informado nunca está "vencida" =====
+  {
+    id: 'rr-54', group: 'registroreal', ...motorista,
+    // O assistente grava `lifeKm: 0` quando o usuário não diz de quantos em
+    // quantos km troca — e é o normal, porque a frase sugerida no próprio app
+    // ("troquei o óleo por 280 com 84 mil km") não pede isso. O lembrete então
+    // fazia 84000 + 0 e anunciava que a troca RECÉM-FEITA já estava vencida.
+    state: {
+      vehicle: { odometer: 85000 },
+      maintenance: [{ name: 'Óleo', cost: 250, kmInstalled: 85000, lifeKm: 0, date: '2026-07-15' }],
+    },
+    messages: ['quando tenho que trocar o oleo'],
+    expectNoActions: true,
+    forbidReply: [/vencida/i],
+    expectReply: [/[óo]leo/i, /intervalo|de quantos em quantos/i],
+  },
+  {
+    id: 'rr-55', group: 'registroreal', ...motorista,
+    // Com o intervalo informado, o lembrete continua igual.
+    state: {
+      vehicle: { odometer: 85000 },
+      maintenance: [{ name: 'Óleo', cost: 250, kmInstalled: 80000, lifeKm: 10000, date: '2026-05-10' }],
+    },
+    messages: ['quando tenho que trocar o oleo'],
+    expectReply: [/90\.000 km/, /faltam/i],
+    forbidReply: [/vencida/i],
+  },
+  {
+    id: 'rr-56', group: 'registroreal', ...motorista,
+    // Vencida de verdade continua sendo avisada — a guarda não pode esconder
+    // manutenção realmente atrasada.
+    state: {
+      vehicle: { odometer: 95000 },
+      maintenance: [{ name: 'Óleo', cost: 250, kmInstalled: 80000, lifeKm: 10000, date: '2026-05-10' }],
+    },
+    messages: ['quando tenho que trocar o oleo'],
+    expectReply: [/vencida/i],
+  },
+
+  {
+    id: 'rr-57', group: 'registroreal', ...motorista,
+    // Quem sabe o intervalo é o usuário. Ouvir quando ele diz é o que faz o
+    // lembrete de troca poder existir.
+    messages: ['troquei o oleo por 250 com 85000 km e troco a cada 10 mil km'],
+    expectActions: [{ kind: 'maintenance', item: 'óleo', cost: 250, km: 85000, lifeKm: 10000 }],
+    expectReply: [/a cada 10\.000 km/],
+  },
+
   // ===== Valor grande precisa ser LEGÍVEL na hora de confirmar =====
   {
     id: 'rr-51', group: 'registroreal', ...assalariado,

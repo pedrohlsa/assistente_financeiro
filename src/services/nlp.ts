@@ -483,11 +483,15 @@ function parseClause(input: string): ParsedAction[] {
   const m = text.match(maintRe)
   if (m) {
     const item = normalizeMaint(m[1])
+    // De quantos em quantos km a peça é trocada. Sem isso o lembrete não tem
+    // como calcular a próxima troca — e é o usuário quem sabe, então basta
+    // ouvir quando ele diz: "troco a cada 10 mil km".
+    const vidaM = text.match(new RegExp(String.raw`(?:a\s+)?cada\s+${NUM}\s*(?:mil\s*)?(?:km|quil[oô]metros?)`, 'i'))
     actions.push({
       kind: 'maintenance', item,
       cost: parseNum(m[2]),
       km: m[3] ? parseKmValue(m[3]) : undefined,
-      lifeKm: undefined,
+      lifeKm: vidaM ? parseKmValue(vidaM[0]) : undefined,
     })
   }
 
@@ -966,7 +970,9 @@ export function describeAction(a: ParsedAction): string {
     }
     case 'fuel': return `Abastecimento${a.amount ? ` de ${fmtBRL(a.amount)}` : ''}${a.liters ? ` (${a.liters} L)` : ''}${a.odometer ? ` · hodômetro ${a.odometer.toLocaleString('pt-BR')} km` : ''}`
     case 'odometer': return `Hodômetro atual: ${a.value.toLocaleString('pt-BR')} km`
-    case 'maintenance': return `Manutenção: ${a.item} — ${fmtBRL(a.cost)}${a.km ? ` aos ${a.km.toLocaleString('pt-BR')} km` : ''}`
+    // O intervalo aparece na proposta porque é ele que faz o lembrete de troca
+    // existir — confirmar sem ver isso esconde metade do que foi entendido.
+    case 'maintenance': return `Manutenção: ${a.item} — ${fmtBRL(a.cost)}${a.km ? ` aos ${a.km.toLocaleString('pt-BR')} km` : ''}${a.lifeKm ? ` · troca a cada ${a.lifeKm.toLocaleString('pt-BR')} km` : ''}`
     case 'goal': return `Meta: ${a.name} — R$ ${a.target.toLocaleString('pt-BR')}${a.months ? ` em ${Math.round(a.months)} meses` : ''}`
     case 'goal-update': return `Alterar meta${a.name ? ` "${a.name}"` : ''}${a.target ? ` para R$ ${a.target.toLocaleString('pt-BR')}` : ''}`
     case 'goal-deposit': return `Guardar ${fmtBRL(a.amount)}${a.name ? ` na meta "${a.name}"` : ' na meta'}`

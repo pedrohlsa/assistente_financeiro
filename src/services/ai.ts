@@ -804,15 +804,44 @@ function resolveLocal(s: AppState, input: string): AiReply {
     }
   }
 
+  // "quanto tô fazendo por hora" / "quanto por viagem" — as duas métricas que
+  // o motorista mais olha, e as duas caíam no texto genérico de ajuda.
+  if (driverMode && /(?:quanto|qual).*(?:por\s+hora|a\s+hora|hora\b)|ganho\s+por\s+hora|lucro\s+por\s+hora/.test(t)
+    && !/vale a pena|trabalhar/.test(t)) {
+    const w = weekStats(s)
+    if (w.hours <= 0) return { text: 'Ainda não tenho horas registradas. Diga "trabalhei 8 horas" (ou mande junto com o ganho do dia) que eu calculo seu lucro por hora real.' }
+    return {
+      text: `Nos últimos 7 dias você trabalhou ${fmtNum(w.hours)}h e lucrou ${fmtBRL(w.profit)} — ${fmtBRL(w.profitPerHour)}/hora (dado real).`,
+    }
+  }
+  if (driverMode && /(?:quanto|qual).*(?:por\s+viagem|por\s+corrida|a\s+viagem|cada\s+viagem|m[ée]dia\s+(?:por|da)\s+(?:viagem|corrida))/.test(t)) {
+    const w = weekStats(s)
+    if (w.trips <= 0) return { text: 'Ainda não tenho viagens registradas nos últimos 7 dias. Diga "fiz 14 viagens" que eu calculo sua média por viagem.' }
+    return {
+      text: `Nos últimos 7 dias foram ${w.trips} viagens e ${fmtBRL(w.income)} de receita — ${fmtBRL(w.perTrip)} por viagem (dado real).`,
+    }
+  }
+
   // "quando preciso trocar meu óleo"
   if (driverMode && (/trocar.*(óleo|oleo|pneu|pastilha|filtro)/.test(t) || /quando.*troca/.test(t))) {
     if (!s.maintenance.length) return { text: 'Você ainda não registrou manutenções. Diga por exemplo: "troquei o óleo por 280 com 84 mil km".' }
     const odo = s.vehicle?.odometer || 0
-    const lines = s.maintenance.map(mi => {
+    // Sem o intervalo (`lifeKm`), NÃO existe "próxima troca": a conta virava
+    // kmInstalado + 0 e o app anunciava que uma troca recém-feita já estava
+    // vencida. E `lifeKm: 0` é o caso comum — a frase que o próprio app
+    // sugere ("troquei o óleo por 280 com 84 mil km") não pede o intervalo.
+    const semIntervalo = s.maintenance.filter(mi => !(mi.lifeKm > 0))
+    const comIntervalo = s.maintenance.filter(mi => mi.lifeKm > 0)
+
+    const lines = comIntervalo.map(mi => {
       const next = mi.kmInstalled + mi.lifeKm
       const left = next - odo
       return `• ${mi.name}: próxima troca aos ${fmtNum(next, 0)} km ${left > 0 ? `(faltam ${fmtNum(left, 0)} km)` : '— JÁ VENCIDA'}`
     })
+    for (const mi of semIntervalo) {
+      lines.push(`• ${mi.name}: trocado aos ${fmtNum(mi.kmInstalled, 0)} km. Não sei o intervalo dessa peça —`
+        + ' me diga de quantos em quantos km você troca que eu passo a avisar.')
+    }
     return { text: `Com o hodômetro em ${fmtNum(odo, 0)} km:\n\n${lines.join('\n')}` }
   }
 

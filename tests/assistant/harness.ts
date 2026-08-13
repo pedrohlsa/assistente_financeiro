@@ -24,6 +24,9 @@ export interface CaseState {
   remoteAi?: boolean
   /** Lotes já confirmados pelo assistente — base do "desfaz o último". */
   journal?: AssistantJournalEntry[]
+  /** Veículo e manutenções — perguntas de motorista dependem dos dois. */
+  vehicle?: { name?: string; odometer?: number } | null
+  maintenance?: { id?: string; name: string; cost?: number; kmInstalled?: number; lifeKm?: number; date?: string }[]
 }
 
 export function buildState(cs: CaseState = {}): AppState {
@@ -48,7 +51,12 @@ export function buildState(cs: CaseState = {}): AppState {
       description: t.description, date: t.date || TODAY, time: t.time || '10:00',
     })) as any,
     categories: DEFAULT_CATEGORIES,
-    workSessions: [], fuelRecords: [], vehicle: null, maintenance: [],
+    workSessions: [], fuelRecords: [],
+    vehicle: cs.vehicle ? { name: cs.vehicle.name || 'Carro', odometer: cs.vehicle.odometer ?? 0 } as any : null,
+    maintenance: (cs.maintenance || []).map((m, i) => ({
+      id: m.id || `mt${i}`, name: m.name, cost: m.cost ?? 0,
+      kmInstalled: m.kmInstalled ?? 0, lifeKm: m.lifeKm ?? 0, date: m.date || TODAY,
+    })),
     goals: (cs.goals || []).map((g, i) => ({
       id: `g${i}`, name: g.name, target: g.target, saved: g.saved ?? 0, createdAt: TODAY,
     })),
