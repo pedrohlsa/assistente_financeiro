@@ -5,7 +5,7 @@
 > **[FATO]** verificado no repo · **[INFERÊNCIA]** deduzido · **[PENDÊNCIA]** não feito.
 >
 > Fontes de verdade permanentes, mais detalhadas que este arquivo:
-> `CLAUDE.md` (regras 1–36), `CONTEXTO.md` (produto), `PROGRESS.md` (diário por rodada),
+> `CLAUDE.md` (regras 1–38), `CONTEXTO.md` (produto), `PROGRESS.md` (diário por rodada),
 > `docs/AI_CURRENT_STATE.md` e `docs/AI_REGRESSION_MATRIX.md` (IA). Este `CONTEXT.md`
 > resume e aponta para eles — em caso de divergência, o código vence.
 
@@ -34,7 +34,7 @@ via função serverless na Vercel.
 ## 2. Estado atual
 
 **[FATO] Tudo verde.**
-- Suíte: **477/477 casos + 60/60 invariantes** (rodado em 13/08/2026, `npm test`).
+- Suíte: **486/486 casos + 62/62 invariantes** (rodado em 13/08/2026, `npm test`).
 - `npm run typecheck` e `npm run typecheck:api`: exit 0.
 - `npm run build`: exit 0.
 - Produção Vercel no ar: `https://assist-fin.vercel.app` (app HTTP 200, endpoint de IA
@@ -97,6 +97,7 @@ O que já está implementado e funcionando (arquitetura da IA v1, contrato versi
 | `ai.ts` | Motor de respostas local (`resolveLocal`), contexto/sanitização remota. `normalizeQuestion()` normaliza acento + abreviações para reconhecer perguntas. |
 | `nlp.ts` | Parser determinístico pt-BR, `parseNaturalFull`, `describeAction`. Constantes-fonte `MOEDA`, `COMBUSTIVEL` e `looksRecurring` (esta reexportada por `clauses.ts` — o contrário seria ciclo). `driverDayResult()` é o resultado do dia do motorista. |
 | `speech.ts` | Ditado por voz: plugin nativo no Android, Web Speech API no navegador. |
+| `assistant/learning.ts` | O que o app aprende com o PRÓPRIO usuário — categoria, grafia e ordem de grandeza —, tudo DERIVADO de `state.transactions`. Sem campo novo, sem migração. Regras 37 e 38. |
 | `exportFile.ts` | Escrita de arquivo: plugin nativo no Android, `<a download>` no navegador. |
 | `calc.ts` | Todo cálculo financeiro: `currentBalance`, `dailyGoal`, `monthlySavingGoal`, `occurrencesBetween`, projeções. |
 | `cards.ts` | Cartões, faturas, parcelas, limites. |

@@ -165,7 +165,7 @@ Auditoria opcional em cada lançamento: `source: 'ai'`, `assistantBatchId`, `pro
 | 17 | Contrato remoto pobre | **Resolvido** — envelope versionado com `mode` e `clarification` |
 | 18 | Texto puro engolindo ações | **Resolvido** — `envelope: null` e `contractFallback: true` |
 | 19 | Validação de categoria e perfil | **Resolvido** |
-| 20 | Testes insuficientes | **Resolvido** — 477 casos + 60 invariantes |
+| 20 | Testes insuficientes | **Resolvido** — 486 casos + 62 invariantes |
 
 ---
 
@@ -174,7 +174,7 @@ Auditoria opcional em cada lançamento: `source: 'ai'`, `assistantBatchId`, `pro
 | Comando | O que roda |
 |---|---|
 | `npm test` | núcleo + corpus do assistente (offline, data fixa 2026-07-15) |
-| `npm run test:assistant` | **477 casos + 60 invariantes** |
+| `npm run test:assistant` | **486 casos + 62 invariantes** |
 | `npm run test:assistant:remote` | 8 sondas contra a IA real; última execução: **8/8** |
 | `npm run typecheck` / `typecheck:api` | `src/` e a mesma checagem que a Vercel faz |
 

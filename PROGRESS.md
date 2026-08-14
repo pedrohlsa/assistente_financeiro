@@ -2324,3 +2324,62 @@ No navegador: "ganhei 15000 hoje" aparece na proposta como **R$ 15.000,00**.
 24. `joguei 200 na poupança` não registrava nada.
 
 Verificado: **477/477 casos + 60/60 invariantes**, typecheck (src e api) e build exit 0.
+
+---
+
+## Rodada — assistente adaptativo (13/08/2026)
+
+Pedido: "uma IA autoadaptativa, que se adapte ao meu cliente".
+
+### A decisão de arquitetura
+
+Tudo é **derivado** do histórico que já existe em `state.transactions`. Não há campo novo,
+migração nem armazenamento paralelo — mesma decisão do journal por diferença de estado:
+dado derivado não desincroniza, backup antigo carrega sem conversão, e apagar o histórico
+apaga o aprendizado junto, que é o que o usuário espera.
+
+Alternativa rejeitada: uma tabela de aprendizado em `AppState`. Ela desincronizaria do
+histórico na primeira edição ou remoção de lançamento, e exigiria migração.
+
+### O que é aprendido
+
+1. **Categoria.** A lista de palavras-chave é genérica e sempre vai errar em nome de lugar
+   ("Zé da esquina", "posto do Tião"). Se ele já classificou três vezes, o app tem a
+   resposta. E quando o histórico CONTRADIZ a lista de forma consistente, quem manda é o
+   histórico: corrigiu "mercado" para compras quatro vezes, já disse o que quer.
+2. **Grafia.** Ele escreveu "Zé da esquina" e agora digitou sem acento. Sem normalizar, a
+   lista fica com dois lugares parecidos e o próprio aprendizado enfraquece — o histórico
+   se divide. Só vale quando o texto é O MESMO ignorando acento e caixa.
+3. **Ordem de grandeza.** Dez dias de R$ 300 e um lançamento de R$ 3.000 é quase certamente
+   um zero a mais. O app AVISA e deixa confirmar.
+
+### Os limites (invariantes 61 e 62)
+
+- Aprender exige REPETIÇÃO: 2 vezes para preencher vazio, 3 e 75% para contrariar a lista.
+- Categoria aprendida passa por `validateAction` como qualquer outra, e nunca pode ser uma
+  que o usuário não tem — senão a ação seria recusada e o lançamento sumiria por um palpite.
+- O aprendizado **só toca em categoria e grafia**. Nunca valor, data ou tipo.
+- O aviso de padrão **nunca bloqueia**: o dia excepcional existe, e barrá-lo seria pior que
+  o erro de digitação. Sem amostra (menos de 6 lançamentos do mesmo tipo e categoria), CALA.
+- Nada é gravado sozinho: aprender muda o que é PROPOSTO, e a proposta continua precisando
+  do Confirmar (regra 8).
+
+### Sugestões da tela
+
+A lista fixa por perfil virou ponto de partida. Quem tem meta "Moto" vê "quanto falta pra
+minha moto"; quem lança "Zé da esquina" toda semana ganha um atalho. O atalho vem SEM valor
+de propósito — o assistente pergunta quanto foi, que é a conversa mais curta possível.
+
+### Achado no navegador, não no corpus
+
+Esse atalho leva ao caminho "registro sem valor → pergunta → resposta", que **não passava
+pelo vocabulário**: o lançamento saía sem categoria e com a grafia errada, dividindo
+justamente o histórico de onde o atalho veio. Só apareceu clicando no botão de verdade.
+
+### Verificação
+
+`npm test` **486/486 casos + 62/62 invariantes**, typecheck (src e api) e build exit 0.
+No navegador, com dez dias de R$ 260–368 e quatro lançamentos "Zé da esquina":
+- "ganhei 3000 hoje" → ⚠️ "Bem acima do seu normal — você costuma lançar perto de
+  R$ 314,00. Confere se não sobrou um zero."
+- atalho → "Qual foi o valor?" → "35" → "Despesa de R$ 35,00 (alimentacao) — Zé da esquina"

@@ -15,11 +15,13 @@
 > - `tests/assistant/cases-registro-real.ts` — **68 casos** de REGISTRO em fala real
 >   (resultado do dia do motorista, gíria de dinheiro, typo, valor sem verbo, dois dias
 >   na mesma mensagem);
-> - `tests/assistant/properties.ts` — **60 invariantes financeiras e de segurança**;
+> - `tests/assistant/cases-adaptativo.ts` — **9 casos** do que o app aprende com o próprio
+>   usuário (categoria, grafia e ordem de grandeza);
+> - `tests/assistant/properties.ts` — **62 invariantes financeiras e de segurança**;
 > - `npm run test:assistant` — roda tudo offline, com data fixa, contra o orquestrador real.
 >
 > **Resultado da última execução (13/08/2026, branch `feat/assistant-orchestrator`):
-> 477/477 casos e 60/60 invariantes.**
+> 486/486 casos e 62/62 invariantes.**
 >
 > ⚠️ **100% aqui não significa "a IA está correta".** Na rodada adversarial, 8 dos 17 bugs só
 > apareceram no navegador com mensagem real. Na rodada de 13/08/2026 repetiu-se o padrão por
@@ -69,7 +71,7 @@ Os grupos correspondem assim:
 | 10 motorista | `motorista`, `motorista2`, `perfil` |
 | 11 ambiguidades e correções | `ambiguidade`, `correcoes`, `correcoes2`, `multiturno` |
 | 12 conversacional | `conversa`, `conversa2`, `incompletas` |
-| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 60 invariantes |
+| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 62 invariantes |
 | 14 datas futuras, inválidas e períodos | `temporal` (43 casos) |
 | 15 desfazer o último lote | `undo` (14 casos) |
 | 16 corrigir lançamento já salvo | `edicao` (17 casos) |
@@ -314,7 +316,7 @@ Auditoria da DeepSeek:
 
 O quadro abaixo é o retrato **histórico anterior** à reformulação, mantido para
 explicar de onde o trabalho partiu. O estado executável atual é
-**477/477 casos e 60/60 invariantes**.
+**486/486 casos e 62/62 invariantes**.
 
 | Situação | Casos |
 |---|---|
