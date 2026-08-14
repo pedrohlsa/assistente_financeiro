@@ -141,6 +141,7 @@ export default function Chat() {
       ? out.response.actions.map(a => ({
           id: a.id, action: a.action, engine: a.engine,
           confidence: a.confidence, duplicateWarning: a.duplicateWarning,
+          patternWarning: a.patternWarning,
         }))
       : undefined
 

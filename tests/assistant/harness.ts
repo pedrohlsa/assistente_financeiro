@@ -92,6 +92,13 @@ export interface AssistantCase {
   expectReply?: (string | RegExp)[]
   /** Trechos proibidos na resposta. */
   forbidReply?: (string | RegExp)[]
+  /**
+   * Aviso mostrado no card da proposta. Não sai no texto da resposta — mora no
+   * candidato —, então precisa de asserção própria.
+   */
+  expectWarning?: string | RegExp
+  /** Nenhum item da proposta pode trazer aviso. */
+  expectNoWarning?: boolean
   /** A pergunta de esclarecimento precisa casar. */
   expectClarification?: string | RegExp
   /** Confirmar o lote e conferir o estado resultante. */
@@ -171,6 +178,13 @@ export async function runCase(c: AssistantCase): Promise<CaseResult> {
   }
   for (const m of c.forbidReply || []) {
     if (matches(last.reply, m)) errors.push(`resposta contém proibido ${m}`)
+  }
+  const avisos = last.actions.map(a => a.patternWarning || a.duplicateWarning || '').filter(Boolean)
+  if (c.expectWarning && !avisos.some(a => matches(a, c.expectWarning!))) {
+    errors.push(`nenhum aviso casa ${c.expectWarning} (avisos: ${JSON.stringify(avisos)})`)
+  }
+  if (c.expectNoWarning && avisos.length) {
+    errors.push(`esperava nenhum aviso, veio ${JSON.stringify(avisos)}`)
   }
   if (c.expectClarification) {
     const q = last.mode === 'clarify' ? (last as any).clarification?.question || '' : ''

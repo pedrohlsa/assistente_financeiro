@@ -14,6 +14,7 @@ import { buildCapabilities, orchestrate } from '../../src/assistant/orchestrator
 import { findDate, findUnresolvedTemporalHint } from '../../src/assistant/dates'
 import { editableFieldsFor } from '../../src/assistant/proposalEdit'
 import { isRevertFailure, lastReversibleBatch, revertBatchPure } from '../../src/assistant/journal'
+import { withLearnedCategory } from '../../src/assistant/learning'
 import { currentBalance, savedThisMonth, monthStats } from '../../src/services/calc'
 import { buildSystemPrompt, normalizeCapabilities, sanitizeRemoteResponse } from '../../api/_lib/assistantPrompt'
 import { callDeepSeekChat, isDeepSeekFailure } from '../../api/_lib/deepseek'
@@ -1132,6 +1133,60 @@ export async function runProperties(): Promise<PropertyReport> {
         if (!vistos.includes(v)) return `"${c.msg}" perdeu o valor ${v} (veio ${JSON.stringify(vistos)})`
       }
     }
+    return null
+  })
+
+  // --- 61. Aprender muda a CATEGORIA e mais nada -------------------------
+  // O aprendizado lê o histórico do próprio usuário para escolher categoria.
+  // Ele não pode encostar em valor, data, descrição nem tipo — e não pode
+  // inventar categoria que não exista para aquele usuário, senão a ação seria
+  // recusada na validação e o lançamento sumiria por causa de um palpite.
+  check(r, 'aprendizado só toca na categoria, e só em categoria existente', () => {
+    const s = buildState()
+    s.transactions = Array.from({ length: 6 }, (_, i) => ({
+      id: `h${i}`, type: 'expense', amount: 40 + i, category: 'compras',
+      description: 'Mercado', date: TODAY, time: '10:00',
+    })) as any
+    const original: any = { kind: 'expense', amount: 77, category: 'alimentacao', description: 'Mercado', date: '2026-07-10' }
+    const depois: any = withLearnedCategory(s, { ...original })
+    if (depois.amount !== original.amount) return `mexeu no valor: ${depois.amount}`
+    if (depois.date !== original.date) return `mexeu na data: ${depois.date}`
+    if (depois.description !== original.description) return `mexeu na descrição: ${depois.description}`
+    if (depois.kind !== original.kind) return `mexeu no tipo: ${depois.kind}`
+    if (depois.category !== 'compras') return `não aprendeu a categoria: ${depois.category}`
+    if (!s.categories.some(c => c.id === depois.category)) return 'inventou categoria inexistente'
+
+    // Categoria que o usuário não tem: o aprendizado precisa desistir.
+    const s2 = buildState()
+    s2.transactions = Array.from({ length: 6 }, (_, i) => ({
+      id: `x${i}`, type: 'expense', amount: 40, category: 'categoria-fantasma',
+      description: 'Mercado', date: TODAY, time: '10:00',
+    })) as any
+    const out2: any = withLearnedCategory(s2, { kind: 'expense', amount: 50, description: 'Mercado' } as any)
+    if (out2.category === 'categoria-fantasma') return 'aceitou categoria que não existe'
+
+    // Um único lançamento não vira regra.
+    const s3 = buildState()
+    s3.transactions = [{ id: 'u1', type: 'expense', amount: 40, category: 'lazer', description: 'Padaria', date: TODAY, time: '10:00' }] as any
+    const out3: any = withLearnedCategory(s3, { kind: 'expense', amount: 15, category: 'alimentacao', description: 'Padaria' } as any)
+    if (out3.category !== 'alimentacao') return `um lançamento só virou regra: ${out3.category}`
+    return null
+  })
+
+  // --- 62. O aviso de padrão nunca vira bloqueio -------------------------
+  // A ação continua sendo proposta e continua válida: o dia excepcional existe,
+  // e barrá-lo seria pior que o erro de digitação que se quer evitar.
+  await checkAsync(r, 'valor fora do padrão avisa mas não bloqueia', async () => {
+    const s = buildState({ profile: 'driver' })
+    s.transactions = Array.from({ length: 8 }, (_, i) => ({
+      id: `d${i}`, type: 'income', amount: 300, category: 'corridas', date: TODAY, time: '10:00',
+    })) as any
+    const out = await orchestrate({ state: s, message: 'ganhei 3000 hoje', history: [], remoteEnabled: false, today: TODAY })
+    const acoes: AssistantCandidateAction[] = out.response.actions
+    const receita = acoes.find(a => a.action.kind === 'income')
+    if (!receita) return 'o aviso bloqueou o lançamento'
+    if ((receita.action as any).amount !== 3000) return `mexeu no valor: ${(receita.action as any).amount}`
+    if (!receita.patternWarning) return 'não avisou nada sobre o valor fora do padrão'
     return null
   })
 

@@ -336,6 +336,11 @@ export interface ProposedAction {
   engine?: 'local' | 'remote' | 'hybrid'
   confidence?: 'high' | 'medium' | 'low'
   duplicateWarning?: string
+  /**
+   * Valor muito fora do que o usuário costuma lançar — quase sempre um zero a
+   * mais. Avisa, nunca bloqueia: o dia excepcional existe.
+   */
+  patternWarning?: string
   /** Preenchido depois da confirmação: o que aconteceu com esta ação. */
   outcome?: { ok: boolean; message?: string }
 }

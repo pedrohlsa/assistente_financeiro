@@ -19,6 +19,7 @@ import type {
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, isValidationFailure, validateAction } from './contracts'
 import { analyzeMessage, looksLikeRetraction, looksRecurring } from './clauses'
+import { outOfPatternWarning, withLearnedCategory } from './learning'
 import type { AnalyzedClause, MessageAnalysis, TemporalSignal } from './clauses'
 import { detectIncomplete, isDraftFresh, newDraft, resolveDraftAnswer } from './drafts'
 import type { AssistantDraft } from './drafts'
@@ -385,6 +386,10 @@ function runLocal(input: OrchestratorInput, caps: AssistantCapabilities): LocalP
           action = { kind: 'expense', amount: a.cost, category: 'manutencao', description: `Troca de ${a.item}`, date: a.date }
         }
       }
+
+      // O vocabulário do usuário entra ANTES da validação: a categoria que ele
+      // mesmo usa precisa passar pelas mesmas regras de qualquer outra.
+      action = withLearnedCategory(input.state, action)
 
       const res = validateAction(action, caps, today)
       if (isValidationFailure(res)) {
@@ -912,7 +917,12 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
     else if (dupState) {
       warn = `Já existe ${dupState.type === 'income' ? 'uma receita' : 'uma despesa'} parecida de ${fmtBRL(dupState.amount)} registrada recentemente.`
     }
-    return warn ? { ...c, duplicateWarning: warn } : c
+    // Valor muito fora do padrão do próprio usuário — quase sempre um zero a
+    // mais. AVISA, nunca bloqueia: o dia excepcional existe, e barrá-lo seria
+    // pior que o erro que se quer evitar.
+    const pattern = outOfPatternWarning(input.state, c.action)
+    const next = warn ? { ...c, duplicateWarning: warn } : c
+    return pattern ? { ...next, patternWarning: pattern } : next
   })
 
   // ---- 8) Texto final ----------------------------------------------------
