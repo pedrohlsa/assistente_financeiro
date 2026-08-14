@@ -78,6 +78,32 @@ export const ADAPTATIVO: AssistantCase[] = [
     expectActions: [{ kind: 'expense', amount: 50, category: 'alimentacao' }],
   },
 
+  // ===== A grafia é a do usuário, não a que ele digitou com pressa =====
+  {
+    id: 'ad-07', group: 'adaptativo', ...other, state: historicoZe,
+    // Ele escreveu "Zé da esquina" três vezes. Digitou sem acento agora, no
+    // celular, com a mão na direção — a lista de movimentações não pode virar
+    // "Ze da esquina" ao lado de "Zé da esquina" e parecerem dois lugares.
+    messages: ['gastei 30 no ze da esquina'],
+    expectActions: [{ kind: 'expense', amount: 30, description: 'Zé da esquina' }],
+  },
+  {
+    id: 'ad-08', group: 'adaptativo', ...other, state: historicoZe,
+    // Descrição que ele nunca usou continua sendo a que ele acabou de digitar.
+    messages: ['gastei 30 na oficina do joao'],
+    expectActions: [{ kind: 'expense', amount: 30, description: /oficina/i }],
+  },
+
+  {
+    id: 'ad-09', group: 'adaptativo', ...other, state: historicoZe,
+    // O atalho personalizado da tela leva a este caminho: registro sem valor,
+    // pergunta, resposta. O que sai tem que ser IGUAL ao que ele já lançou —
+    // mesma grafia e mesma categoria —, senão o histórico se divide em dois
+    // lugares parecidos e o próprio aprendizado enfraquece.
+    messages: ['gastei no ze da esquina', '35'],
+    expectActions: [{ kind: 'expense', amount: 35, description: 'Zé da esquina', category: 'alimentacao' }],
+  },
+
   // ===== Valor muito fora do padrão do usuário: AVISAR, nunca bloquear =====
   {
     id: 'ad-05', group: 'adaptativo', ...driver,

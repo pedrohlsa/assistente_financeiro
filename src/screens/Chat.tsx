@@ -21,6 +21,7 @@ import { isDriver, shouldAsk99Fee } from '../services/profile'
 import { plainChatText } from '../utils/text'
 import { fmtBRL } from '../utils/format'
 import { listenOnce, SPEECH_MESSAGES, SpeechError, speechAvailable, stopListening } from '../services/speech'
+import { personalSuggestions } from '../assistant/learning'
 
 const SUGGESTIONS_BY_PROFILE: Record<string, string[]> = {
   driver: [
@@ -356,7 +357,7 @@ export default function Chat() {
         )}
         {state.chat.length === 0 && (
           <div className="suggestion-row">
-            {suggestionsFor(state.settings.profile).map(s => <button key={s} className="chip" onClick={() => send(s)}>{s}</button>)}
+            {personalSuggestions(state, suggestionsFor(state.settings.profile)).map(s => <button key={s} className="chip" onClick={() => send(s)}>{s}</button>)}
           </div>
         )}
       </div>

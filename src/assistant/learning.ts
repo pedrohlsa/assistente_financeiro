@@ -110,17 +110,97 @@ export function withLearnedCategory(state: AppState, action: ParsedAction): Pars
   const texto = String(a.description || a.origin || '')
   if (!texto) return action
 
+  let out: any = action
+
+  // A grafia dele ganha da que ele digitou com pressa.
+  if (a.description) {
+    const grafia = canonicalDescription(state, a.description, action.kind)
+    if (grafia) out = { ...out, description: grafia }
+  }
+
   const aprendido = learnedCategory(state, texto, action.kind)
-  if (!aprendido) return action
-  if (!(state.categories || []).some(c => c.id === aprendido.category)) return action
+  if (!aprendido) return out
+  if (!(state.categories || []).some(c => c.id === aprendido.category)) return out
 
   // Vazio: qualquer aprendizado serve. Já preenchido pela lista genérica: só
   // troca com evidência forte — o usuário corrigiu aquilo várias vezes.
-  if (!a.category) return { ...a, category: aprendido.category }
+  if (!a.category) return { ...out, category: aprendido.category }
   if (a.category !== aprendido.category && aprendido.forte) {
-    return { ...a, category: aprendido.category }
+    return { ...out, category: aprendido.category }
   }
-  return action
+  return out
+}
+
+/**
+ * A grafia que o usuário já usou para este mesmo lugar.
+ *
+ * Ele escreveu "Zé da esquina" três vezes e agora digitou sem acento, no
+ * celular, com pressa. Sem isto a lista de movimentações fica com "Ze da
+ * esquina" ao lado de "Zé da esquina" parecendo dois lugares diferentes — e o
+ * próprio aprendizado de categoria enfraquece, porque o histórico se divide.
+ *
+ * Só entra quando o texto é O MESMO ignorando acento e caixa. Nada de
+ * aproximação: trocar a descrição por algo que o usuário não escreveu seria
+ * inventar.
+ */
+export function canonicalDescription(
+  state: AppState,
+  texto: string,
+  tipo: 'income' | 'expense',
+): string | undefined {
+  const alvo = normalizeName(texto)
+  if (alvo.length < 3) return undefined
+
+  const contagem = new Map<string, number>()
+  for (const t of recentes(state)) {
+    if (t.type !== tipo || !t.description) continue
+    if (normalizeName(t.description) !== alvo) continue
+    contagem.set(t.description, (contagem.get(t.description) || 0) + 1)
+  }
+  if (!contagem.size) return undefined
+
+  let melhor: { texto: string; n: number } | undefined
+  for (const [grafia, n] of contagem) {
+    if (!melhor || n > melhor.n) melhor = { texto: grafia, n }
+  }
+  if (!melhor || melhor.n < MIN_PARA_APRENDER) return undefined
+  // Já está escrito igualzinho: nada a fazer.
+  return melhor.texto === texto ? undefined : melhor.texto
+}
+
+/**
+ * Sugestões da tela do assistente, montadas com a vida DESTE usuário.
+ *
+ * A lista fixa por perfil é o ponto de partida, não a resposta: quem tem uma
+ * meta chamada "Moto" quer ver "quanto falta pra minha moto", e quem lança
+ * "Mercado" toda semana ganha mais com um atalho para isso do que com um
+ * exemplo genérico. O atalho vem SEM valor de propósito — o assistente pergunta
+ * quanto foi, que é a conversa mais curta possível.
+ *
+ * As sugestões da lista fixa nunca somem: elas ensinam o que dá para fazer.
+ */
+export function personalSuggestions(state: AppState, base: string[]): string[] {
+  const minhas: string[] = []
+
+  const meta = (state.goals || []).find(g => !g.done && g.name)
+  if (meta) minhas.push(`Quanto falta pra minha ${meta.name.toLowerCase()}?`)
+
+  // O gasto que ele mais repete — vira atalho de registro.
+  const contagem = new Map<string, number>()
+  for (const t of recentes(state)) {
+    if (t.type !== 'expense' || !t.description) continue
+    contagem.set(t.description, (contagem.get(t.description) || 0) + 1)
+  }
+  let campeao: { texto: string; n: number } | undefined
+  for (const [texto, n] of contagem) {
+    if (!campeao || n > campeao.n) campeao = { texto, n }
+  }
+  if (campeao && campeao.n >= MIN_PARA_CONTRARIAR) {
+    minhas.push(`gastei no ${campeao.texto.toLowerCase()}`)
+  }
+
+  const vistas = new Set(minhas.map(s => normalizeName(s)))
+  return [...minhas, ...base.filter(s => !vistas.has(normalizeName(s)))]
 }
 
 // ---------------------------------------------------------------------------

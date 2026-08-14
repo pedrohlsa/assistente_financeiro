@@ -233,6 +233,28 @@ código consulta essas funções em vez de comparar `profile === 'driver'` inlin
     **antes de usar API de navegador que toca hardware ou sistema de arquivos,
     confirme que ela existe no WebView** — no navegador tudo passa.
 
+37. **O assistente aprende com o usuário, e o aprendizado é DERIVADO.**
+    `src/assistant/learning.ts` lê o histórico que já existe em
+    `state.transactions` — não há campo novo, migração nem armazenamento
+    paralelo. Mesma decisão do journal por diferença de estado: dado derivado
+    não desincroniza, backup antigo carrega sem conversão, e apagar o histórico
+    apaga o aprendizado junto. Três coisas são aprendidas: a **categoria** que
+    ele usa para cada palavra (a lista genérica sempre erra em nome de lugar), a
+    **grafia** que ele já escreveu (senão "Ze" e "Zé" viram dois lugares e o
+    histórico se divide), e a **ordem de grandeza** dos valores dele. Limites
+    que não podem ser afrouxados sem caso novo: aprender exige REPETIÇÃO (2
+    vezes para preencher vazio, 3 e 75% para contrariar a lista genérica);
+    categoria aprendida passa por `validateAction` como qualquer outra e nunca
+    pode ser uma que o usuário não tem; e o aprendizado **só toca em categoria e
+    grafia** — nunca em valor, data ou tipo. Invariantes 61 e 62.
+38. **Valor fora do padrão AVISA, nunca bloqueia.** Quem lança R$ 300 por dia há
+    dez dias e digita R$ 3.000 quase certamente pôs um zero a mais — mas o dia
+    excepcional existe, e barrá-lo seria pior que o erro. O aviso
+    (`patternWarning`) aparece no card da proposta ao lado do de duplicidade, e
+    a ação segue confirmável. A comparação é sempre com o MESMO tipo e a MESMA
+    categoria (o padrão de combustível não diz nada sobre o de aluguel), e sem
+    amostra suficiente o app CALA: sem base, alarmar é chutar.
+
 ## Arquitetura e tecnologias
 
 - **Frontend**: React 18 + TypeScript + Vite 5 + React Router (`HashRouter`) — SPA, sem SSR.

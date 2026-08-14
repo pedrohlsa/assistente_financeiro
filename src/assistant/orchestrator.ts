@@ -672,7 +672,11 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
     const res = resolveDraftAnswer(input.draft!, input.message, caps, today)
     if (!res.unmatched) {
       if (res.draft.status === 'ready') {
-        const v = validateAction(res.draft.partial, caps, today)
+        // O rascunho também passa pelo vocabulário do usuário: "gastei no zé da
+        // esquina" → "35" tem que sair com a MESMA categoria e a MESMA grafia
+        // que os outros lançamentos daquele lugar, senão o histórico se divide
+        // e o próprio aprendizado enfraquece.
+        const v = validateAction(withLearnedCategory(input.state, res.draft.partial as ParsedAction), caps, today)
         if (isValidationFailure(v)) {
           return {
             draft: null,
