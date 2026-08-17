@@ -27,6 +27,16 @@ export interface CaseState {
   /** Veículo e manutenções — perguntas de motorista dependem dos dois. */
   vehicle?: { name?: string; odometer?: number } | null
   maintenance?: { id?: string; name: string; cost?: number; kmInstalled?: number; lifeKm?: number; date?: string }[]
+  /**
+   * Categorias que o usuário arquivou DEPOIS de já ter usado no histórico. É o
+   * cenário que fazia o aprendizado propor uma categoria que a validação
+   * recusava — e o lançamento inteiro sumia.
+   */
+  archivedCategories?: string[]
+  /** Aprendizado pessoal ligado/desligado (ausente = ligado). */
+  adaptiveAssistant?: boolean
+  workSessions?: { id?: string; date: string; km?: number; hours?: number; trips?: number }[]
+  fuelRecords?: { id?: string; date: string; amount?: number; liters?: number; odometer?: number }[]
 }
 
 export function buildState(cs: CaseState = {}): AppState {
@@ -40,6 +50,7 @@ export function buildState(cs: CaseState = {}): AppState {
       fixedMonthlyCosts: 0, notifications: true,
       balance: cs.balance ?? 0, ask99Fee: true, platform99Fee: 1,
       remoteAi: cs.remoteAi ?? false,
+      adaptiveAssistant: cs.adaptiveAssistant,
     },
     transactions: (cs.transactions || []).map((t: any, i) => ({
       // Id explícito é preservado: o journal do "desfaz o último" aponta para
@@ -50,8 +61,15 @@ export function buildState(cs: CaseState = {}): AppState {
       id: t.id || `tx${i}`, type: t.type || 'expense', amount: t.amount, category: t.category || 'outros-out',
       description: t.description, date: t.date || TODAY, time: t.time || '10:00',
     })) as any,
-    categories: DEFAULT_CATEGORIES,
-    workSessions: [], fuelRecords: [],
+    categories: cs.archivedCategories?.length
+      ? DEFAULT_CATEGORIES.map(c => (cs.archivedCategories!.includes(c.id) ? { ...c, archived: true } : c))
+      : DEFAULT_CATEGORIES,
+    workSessions: (cs.workSessions || []).map((w, i) => ({
+      id: w.id || `ws${i}`, date: w.date, km: w.km ?? 0, hours: w.hours ?? 0, trips: w.trips ?? 0,
+    })) as any,
+    fuelRecords: (cs.fuelRecords || []).map((f, i) => ({
+      id: f.id || `fr${i}`, date: f.date, amount: f.amount ?? 0, liters: f.liters ?? 0, odometer: f.odometer ?? 0,
+    })) as any,
     vehicle: cs.vehicle ? { name: cs.vehicle.name || 'Carro', odometer: cs.vehicle.odometer ?? 0 } as any : null,
     maintenance: (cs.maintenance || []).map((m, i) => ({
       id: m.id || `mt${i}`, name: m.name, cost: m.cost ?? 0,

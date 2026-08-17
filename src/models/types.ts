@@ -419,6 +419,15 @@ export interface Settings {
   /** IA remota (DeepSeek). Desligada = só o motor local/offline responde (14.11). */
   remoteAi?: boolean
   /**
+   * Aprendizado pessoal: o assistente usa o histórico DESTE aparelho para
+   * escolher categoria, restaurar a grafia que o usuário já escreveu e montar
+   * sugestões. Ausente = LIGADO (é o padrão, e dado antigo não tem o campo).
+   *
+   * Desligado, o parser, a validação e todos os cálculos continuam idênticos —
+   * o que some é a camada pessoal. Nunca altera dado já gravado.
+   */
+  adaptiveAssistant?: boolean
+  /**
    * Como o ritmo dos objetivos de compra é exibido. É preferência VISUAL: não
    * altera a regra financeira da meta diária do motorista nem a frequência das
    * contas recorrentes. Ausente = fallback por perfil (motorista: 'daily';
