@@ -532,6 +532,41 @@ export const ADAPTATIVO: AssistantCase[] = [
     forbidReply: [/acima do seu normal|abaixo do seu normal/i],
   },
 
+  // ----- O dinheiro do dia não pode ser contado duas vezes ---------------
+  {
+    id: 'ad-37', group: 'adaptativo', ...driver,
+    // "hoje FOI 430 na uber e 380 na 99": `foi` é verbo de despesa no parser,
+    // e a receita da plataforma já tinha lido esse mesmo dinheiro. Saía uma
+    // despesa GÊMEA de R$ 430 com a mesma descrição, que zerava o dia do
+    // motorista. É a regra 34 pelo lado que ninguém tinha olhado: o sinal não
+    // se inverteu, ele foi DUPLICADO.
+    messages: ['boa noite, hoje foi 430 na uber e 380 na 99, rodei 172 km em 10 horas'],
+    expectActions: [
+      { kind: 'income', amount: 430, category: 'corridas' },
+      { kind: 'income', amount: 380, category: 'corridas' },
+      { kind: 'work', km: 172, hours: 10 },
+    ],
+  },
+  {
+    id: 'ad-38', group: 'adaptativo', ...driver,
+    // A mesma frase com verbo de gasto EXPLÍCITO continua sendo gasto: o
+    // conserto não pode engolir despesa de verdade.
+    // (No perfil motorista combustível tem estrutura própria: vira `fuel`.)
+    messages: ['hoje gastei 430 de gasolina'],
+    expectActions: [{ kind: 'fuel', amount: 430 }],
+  },
+  {
+    id: 'ad-39', group: 'adaptativo', ...driver,
+    // Despesa de verdade com o MESMO valor de uma receita continua existindo:
+    // o conserto só apaga a gêmea sem categoria e com a mesma descrição.
+    messages: ['hoje foi 430 na uber e paguei 430 de manutenção'],
+    expectActions: [
+      { kind: 'income', amount: 430, category: 'corridas' },
+      { kind: 'work', trips: 1 },
+      { kind: 'expense', amount: 430, category: 'manutencao' },
+    ],
+  },
+
   // ----- O aviso de padrão é por CATEGORIA, não pelo total ----------------
   {
     id: 'ad-25', group: 'adaptativo', ...other,

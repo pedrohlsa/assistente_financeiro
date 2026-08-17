@@ -1579,6 +1579,45 @@ export async function runProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 74. O dinheiro do dia nunca é lido duas vezes ---------------------
+  // A invariante 54 protege o SINAL do dinheiro do motorista. Esta protege a
+  // CONTAGEM: "hoje foi 430 na uber" tem um verbo que o parser lê como despesa
+  // e uma receita de plataforma que lê o mesmo valor. O resultado eram duas
+  // ações com o mesmo número e sinais opostos — o dia zerava.
+  await checkAsync(r, 'valor único não vira receita e despesa ao mesmo tempo', async () => {
+    const frases = [
+      'hoje foi 430 na uber',
+      'boa noite, hoje foi 430 na uber e 380 na 99, rodei 172 km em 10 horas',
+      'hoje deu 300 na uber',
+      'hoje saiu 250 na 99',
+    ]
+    for (const frase of frases) {
+      const s = buildState({ profile: 'driver' })
+      const out = await orchestrate({ state: s, message: frase, history: [], remoteEnabled: false, today: TODAY })
+      const acoes: AssistantCandidateAction[] = out.response.actions
+      const receitas = acoes.filter(a => a.action.kind === 'income').map(a => (a.action as any).amount)
+      const despesas = acoes.filter(a => a.action.kind === 'expense').map(a => (a.action as any).amount)
+      for (const v of despesas) {
+        if (receitas.includes(v)) return `"${frase}" propôs receita E despesa de ${v}`
+      }
+      if (!receitas.length) return `"${frase}" não virou faturamento nenhum`
+    }
+    // O corte não pode engolir despesa de verdade com valor coincidente.
+    const s2 = buildState({ profile: 'driver' })
+    const misto = await orchestrate({
+      state: s2, message: 'hoje foi 430 na uber e paguei 430 de manutenção',
+      history: [], remoteEnabled: false, today: TODAY,
+    })
+    const mistas: AssistantCandidateAction[] = misto.response.actions
+    if (!mistas.some(a => a.action.kind === 'expense' && (a.action as any).amount === 430)) {
+      return 'o conserto engoliu uma despesa de verdade'
+    }
+    if (!mistas.some(a => a.action.kind === 'income' && (a.action as any).amount === 430)) {
+      return 'o conserto engoliu a receita'
+    }
+    return null
+  })
+
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
   // Invariante de FIAÇÃO, não de lógica: o corpus sempre passou
   // `pendingClarification`, então ele nunca poderia ver que `Chat.tsx` não

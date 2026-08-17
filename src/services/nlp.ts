@@ -282,6 +282,27 @@ export function parseNaturalFull(
   // corridas. Se a frase menciona corrida/Uber/99, o contexto vale também para
   // cláusulas curtas como "ganhei 150" logo após "fiz uma corrida".
   if (opts?.driver) {
+    // "hoje FOI 430 na uber e 380 na 99": `foi` é verbo de despesa no parser, e
+    // a receita da plataforma JÁ leu esse mesmo dinheiro. O que sobrava era uma
+    // despesa gêmea — mesmo valor, mesma descrição, sem categoria — que zerava
+    // o dia do motorista. `driverDayResult` não pegava este caso porque ele só
+    // converte a despesa fraca quando ela é a ÚNICA ação monetária da frase.
+    //
+    // O corte é estreito: sem verbo de gasto explícito, e só a despesa que não
+    // tem categoria própria e repete o valor de uma receita da mesma mensagem
+    // trazendo a MESMA descrição ou nenhuma — os dois jeitos que a despesa
+    // fantasma aparece ("foi 430 na uber" traz "Uber", "saiu 250 na 99" vem
+    // sem descrição). Despesa de verdade tem categoria ou verbo próprio e
+    // continua existindo.
+    if (!STRONG_EXPENSE_VERB.test(input.toLowerCase())) {
+      const gemea = (a: ParsedAction) => a.kind === 'expense' && !(a as any).category
+        && actions.some(b => b.kind === 'income'
+          && (b as any).amount === (a as any).amount
+          && (!(a as any).description
+            || String((b as any).description || '') === String((a as any).description)))
+      if (actions.some(gemea)) actions = actions.filter(a => !gemea(a))
+    }
+
     const dia = driverDayResult(input, actions, opts?.dayHint)
     if (dia) {
       actions = dia.actions
