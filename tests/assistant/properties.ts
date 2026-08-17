@@ -1148,7 +1148,10 @@ export async function runProperties(): Promise<PropertyReport> {
       description: 'Mercado', date: TODAY, time: '10:00',
     })) as any
     const original: any = { kind: 'expense', amount: 77, category: 'alimentacao', description: 'Mercado', date: '2026-07-10' }
-    const depois: any = withLearnedCategory(s, { ...original })
+    // `today` explícito: o aprendizado passou a pesar por RECÊNCIA, e sem
+    // injetar a data o teste iria envelhecendo junto com o relógio da máquina
+    // até um dia falhar sozinho (regra 35).
+    const depois: any = withLearnedCategory(s, { ...original }, TODAY)
     if (depois.amount !== original.amount) return `mexeu no valor: ${depois.amount}`
     if (depois.date !== original.date) return `mexeu na data: ${depois.date}`
     if (depois.description !== original.description) return `mexeu na descrição: ${depois.description}`
@@ -1162,13 +1165,13 @@ export async function runProperties(): Promise<PropertyReport> {
       id: `x${i}`, type: 'expense', amount: 40, category: 'categoria-fantasma',
       description: 'Mercado', date: TODAY, time: '10:00',
     })) as any
-    const out2: any = withLearnedCategory(s2, { kind: 'expense', amount: 50, description: 'Mercado' } as any)
+    const out2: any = withLearnedCategory(s2, { kind: 'expense', amount: 50, description: 'Mercado' } as any, TODAY)
     if (out2.category === 'categoria-fantasma') return 'aceitou categoria que não existe'
 
     // Um único lançamento não vira regra.
     const s3 = buildState()
     s3.transactions = [{ id: 'u1', type: 'expense', amount: 40, category: 'lazer', description: 'Padaria', date: TODAY, time: '10:00' }] as any
-    const out3: any = withLearnedCategory(s3, { kind: 'expense', amount: 15, category: 'alimentacao', description: 'Padaria' } as any)
+    const out3: any = withLearnedCategory(s3, { kind: 'expense', amount: 15, category: 'alimentacao', description: 'Padaria' } as any, TODAY)
     if (out3.category !== 'alimentacao') return `um lançamento só virou regra: ${out3.category}`
     return null
   })
@@ -1187,6 +1190,156 @@ export async function runProperties(): Promise<PropertyReport> {
     if (!receita) return 'o aviso bloqueou o lançamento'
     if ((receita.action as any).amount !== 3000) return `mexeu no valor: ${(receita.action as any).amount}`
     if (!receita.patternWarning) return 'não avisou nada sobre o valor fora do padrão'
+    return null
+  })
+
+  // --- 63. O aprendizado de um cliente não vaza para outro ---------------
+  // O modelo é derivado do estado e o cache é chaveado pelo PRÓPRIO objeto de
+  // estado. Dois clientes com a mesma frase e históricos diferentes têm que
+  // receber respostas diferentes; com o mesmo histórico, respostas iguais — e
+  // consultar um jamais pode mudar o que o outro responde.
+  check(r, 'aprendizado não atravessa estados', () => {
+    const historia = (cat: string) => Array.from({ length: 4 }, (_, i) => ({
+      id: `h${i}`, type: 'expense', amount: 50, category: cat,
+      description: 'Quiosque do Beto', date: `2026-07-0${i + 1}`, time: '10:00',
+    })) as any
+
+    const a = buildState(); a.transactions = historia('compras')
+    const b = buildState(); b.transactions = historia('lazer')
+    const novo = buildState(); novo.transactions = []
+    const acao = () => ({ kind: 'expense', amount: 30, description: 'Quiosque do Beto' } as any)
+
+    const rA1: any = withLearnedCategory(a, acao(), TODAY)
+    const rB: any = withLearnedCategory(b, acao(), TODAY)
+    const rNovo: any = withLearnedCategory(novo, acao(), TODAY)
+    // De novo em A, DEPOIS de ter passado por B: nada pode ter mudado.
+    const rA2: any = withLearnedCategory(a, acao(), TODAY)
+
+    if (rA1.category !== 'compras') return `cliente A aprendeu errado: ${rA1.category}`
+    if (rB.category !== 'lazer') return `cliente B recebeu o aprendizado de A: ${rB.category}`
+    if (rNovo.category) return `usuário novo herdou categoria: ${rNovo.category}`
+    if (rA2.category !== rA1.category) return 'consultar B alterou a resposta de A'
+    return null
+  })
+
+  // --- 64. Sumiu a evidência, sumiu o aprendizado ------------------------
+  // É o que torna o "desfazer", o "apagar movimentação" e o "corrigir
+  // lançamento" honestos: como tudo é derivado de `state.transactions`, tirar o
+  // histórico tira o padrão junto, sem migração e sem armazenamento paralelo.
+  check(r, 'remover a evidência remove o aprendizado', () => {
+    const s = buildState()
+    s.transactions = Array.from({ length: 4 }, (_, i) => ({
+      id: `e${i}`, type: 'expense', amount: 60, category: 'compras',
+      description: 'Feira do Zeca', date: `2026-07-0${i + 1}`, time: '10:00',
+    })) as any
+    const acao = () => ({ kind: 'expense', amount: 25, description: 'Feira do Zeca' } as any)
+    const com: any = withLearnedCategory(s, acao(), TODAY)
+    if (com.category !== 'compras') return `não aprendeu com 4 lançamentos: ${com.category}`
+
+    // Sobra UM: uma ocorrência isolada nunca vira preferência.
+    const menos = buildState()
+    menos.transactions = s.transactions.slice(0, 1)
+    const depois: any = withLearnedCategory(menos, acao(), TODAY)
+    if (depois.category) return `um lançamento só continuou ensinando: ${depois.category}`
+
+    const vazio = buildState()
+    vazio.transactions = []
+    const nada: any = withLearnedCategory(vazio, acao(), TODAY)
+    if (nada.category) return `histórico apagado continuou ensinando: ${nada.category}`
+    return null
+  })
+
+  // --- 65. Categoria arquivada nunca é aplicada, e nunca engole o gasto ---
+  // Era o pior defeito da auditoria: o aprendizado propunha a categoria que o
+  // usuário tinha arquivado, `validateAction` recusava por categoria
+  // inexistente nas capacidades, e o lançamento inteiro desaparecia. Aprender
+  // não pode destruir um registro que funcionava sem aprender nada.
+  await checkAsync(r, 'categoria arquivada não é aprendida nem derruba o lançamento', async () => {
+    const s = buildState()
+    s.categories = s.categories.map(c => (c.id === 'lazer' ? { ...c, archived: true } : c))
+    s.transactions = Array.from({ length: 5 }, (_, i) => ({
+      id: `k${i}`, type: 'expense', amount: 40, category: 'lazer',
+      description: 'Clube do bairro', date: `2026-07-0${i + 1}`, time: '10:00',
+    })) as any
+
+    const direto: any = withLearnedCategory(s, { kind: 'expense', amount: 25, description: 'Clube do bairro' } as any, TODAY)
+    if (direto.category === 'lazer') return 'propôs categoria arquivada'
+
+    const out = await orchestrate({
+      state: s, message: 'gastei 25 no clube do bairro', history: [], remoteEnabled: false, today: TODAY,
+    })
+    const acoes: AssistantCandidateAction[] = out.response.actions
+    const gasto = acoes.find(a => a.action.kind === 'expense')
+    if (!gasto) return 'o aprendizado fez o lançamento inteiro desaparecer'
+    if ((gasto.action as any).amount !== 25) return `mexeu no valor: ${(gasto.action as any).amount}`
+    const caps = buildCapabilities(s)
+    if (!caps.categories.some(c => c.id === (gasto.action as any).category)) {
+      return `propôs categoria fora das capacidades: ${(gasto.action as any).category}`
+    }
+    return null
+  })
+
+  // --- 66. Desligado, o app genérico continua inteiro --------------------
+  // `adaptiveAssistant: false` desliga a camada pessoal e MAIS NADA: parser,
+  // validação, valor, data e tipo continuam idênticos. É o que permite oferecer
+  // a chave sem medo de quebrar quem a usar.
+  await checkAsync(r, 'aprendizado desligado não altera cálculo nem registro', async () => {
+    const historia = () => Array.from({ length: 5 }, (_, i) => ({
+      id: `d${i}`, type: 'expense', amount: 120, category: 'compras',
+      description: 'Mercado', date: `2026-07-0${i + 1}`, time: '10:00',
+    })) as any
+
+    const ligado = buildState(); ligado.transactions = historia()
+    const desligado = buildState(); desligado.transactions = historia()
+    desligado.settings = { ...desligado.settings, adaptiveAssistant: false }
+
+    const msg = 'gastei 50 no mercado'
+    const a = await orchestrate({ state: ligado, message: msg, history: [], remoteEnabled: false, today: TODAY })
+    const b = await orchestrate({ state: desligado, message: msg, history: [], remoteEnabled: false, today: TODAY })
+    const aAcoes: AssistantCandidateAction[] = a.response.actions
+    const bAcoes: AssistantCandidateAction[] = b.response.actions
+    const ax: any = aAcoes[0]?.action
+    const bx: any = bAcoes[0]?.action
+    if (!ax || !bx) return 'uma das duas configurações deixou de propor o gasto'
+    if (ax.category !== 'compras') return `ligado não aprendeu: ${ax.category}`
+    if (bx.category === 'compras') return 'desligado continuou usando o histórico'
+    if (ax.amount !== bx.amount || ax.kind !== bx.kind || ax.date !== bx.date) {
+      return 'desligar o aprendizado mudou valor, tipo ou data'
+    }
+    // Nem aviso de padrão: ele também é camada pessoal.
+    const s = buildState({ profile: 'driver' })
+    s.settings = { ...s.settings, adaptiveAssistant: false }
+    s.transactions = Array.from({ length: 8 }, (_, i) => ({
+      id: `p${i}`, type: 'income', amount: 300, category: 'corridas', date: TODAY, time: '10:00',
+    })) as any
+    const out = await orchestrate({ state: s, message: 'ganhei 3000 hoje', history: [], remoteEnabled: false, today: TODAY })
+    const avisos: AssistantCandidateAction[] = out.response.actions
+    if (avisos.some(x => x.patternWarning)) return 'desligado continuou avisando sobre padrão'
+    return null
+  })
+
+  // --- 67. Evidência velha não decide sozinha, mas também não some -------
+  // Os dois lados da mesma régua. Quatro lançamentos de seis anos atrás não
+  // podem mandar num gasto de hoje; e um padrão sazonal, repetido muitas vezes,
+  // não pode ser destruído só por estar fora da estação.
+  check(r, 'recência tem peso, o passado tem piso', () => {
+    const fossil = buildState()
+    fossil.transactions = Array.from({ length: 4 }, (_, i) => ({
+      id: `f${i}`, type: 'expense', amount: 60, category: 'lazer',
+      description: 'Cantina do Nico', date: `2020-03-0${i + 1}`, time: '10:00',
+    })) as any
+    const velho: any = withLearnedCategory(fossil, { kind: 'expense', amount: 20, description: 'Cantina do Nico' } as any, TODAY)
+    if (velho.category) return `histórico de 2020 decidiu sozinho: ${velho.category}`
+
+    // Mesmo lugar, mesma idade, MUITAS repetições: o piso mantém a evidência
+    // viva. Sem isso um gasto sazonal seria esquecido todo ano.
+    const sazonal = buildState()
+    sazonal.transactions = Array.from({ length: 16 }, (_, i) => ({
+      id: `s${i}`, type: 'expense', amount: 60, category: 'lazer',
+      description: 'Cantina do Nico', date: `2020-03-${String((i % 28) + 1).padStart(2, '0')}`, time: '10:00',
+    })) as any
+    const repetido: any = withLearnedCategory(sazonal, { kind: 'expense', amount: 20, description: 'Cantina do Nico' } as any, TODAY)
+    if (repetido.category !== 'lazer') return `o piso não segurou o padrão sazonal: ${repetido.category}`
     return null
   })
 

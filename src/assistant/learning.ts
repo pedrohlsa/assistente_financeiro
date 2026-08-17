@@ -1,134 +1,58 @@
-// O que o app aprende com o PRÓPRIO usuário.
+// APLICAÇÃO do que o app aprendeu com o PRÓPRIO usuário.
 //
-// Tudo aqui é DERIVADO do histórico que já existe em `state.transactions`: não
-// há campo novo, migração nem armazenamento paralelo. É a mesma decisão do
-// journal por diferença de estado — dado derivado não desincroniza, backup
-// antigo funciona sem conversão, e apagar o histórico apaga o aprendizado
-// junto, que é o comportamento que o usuário espera.
+// Quem CONSTRÓI o conhecimento é `personalModel.ts`. Aqui só se decide o que
+// fazer com ele — e a resposta quase sempre é "quase nada": aprender muda o que
+// é PROPOSTO, e a proposta continua precisando do botão Confirmar (regra 8).
 //
-// Duas coisas são aprendidas:
+// A hierarquia é fixa e o aprendizado ocupa o penúltimo degrau:
 //
-// 1. VOCABULÁRIO. A lista de palavras-chave de categoria é genérica e sempre
-//    vai errar em nome de lugar ("Zé da esquina", "posto do Tião"). O histórico
-//    é dele: se já classificou aquilo três vezes, o app tem a resposta. E
-//    quando o histórico CONTRADIZ a lista genérica de forma consistente, quem
-//    manda é o histórico — foi o usuário que corrigiu, então ele já disse o que
-//    quer.
+//   1. regra financeira e segurança      ← nada aqui pode chegar perto
+//   2. validação determinística          ← toda categoria aprendida passa por ela
+//   3. o que o usuário disse AGORA       ← valor, data, tipo, origem: intocáveis
+//   4. preferência confirmada por ele
+//   5. padrão histórico com evidência    ← é este módulo
+//   6. lista genérica do app
+//   7. IA remota, só para o que sobrou
 //
-// 2. ORDEM DE GRANDEZA. Quem lança R$ 300 por dia há dez dias e digita R$ 3.000
-//    quase certamente pôs um zero a mais. O app AVISA e deixa confirmar: o dia
-//    excepcional existe, e bloquear seria pior que o erro.
+// O que o aprendizado PODE fazer: preencher uma categoria que ninguém informou,
+// contrariar a lista genérica quando o histórico é forte e consistente,
+// restaurar a grafia que o próprio usuário já escreveu, e AVISAR sobre um valor
+// fora do padrão dele.
 //
-// Nada aqui grava coisa alguma. Aprender muda o que é PROPOSTO, e a proposta
-// continua precisando do botão Confirmar (regra 8).
+// O que ele NUNCA pode fazer: registrar, alterar valor, data ou tipo, criar
+// taxa, escolher cartão, pagar fatura, desfazer, apagar, mexer no histórico, ou
+// escolher entre duas entidades ambíguas sem perguntar.
 
-import type { AppState, ParsedAction, Transaction } from '../models/types'
-import { fmtBRL } from '../utils/format'
-import { normalizeName } from '../utils/text'
+import type { AppState, ParsedAction } from '../models/types'
+import { usableCategories } from '../data/categories'
+import { fmtBRL, todayISO } from '../utils/format'
+import { adaptiveEnabled, buildPersonalModel } from './personalModel'
+import type { LearnedPattern, MoneyType, PersonalAssistantModel } from './personalModel'
 
-/** Janela do aprendizado: recente o bastante para refletir a vida de hoje. */
-const MAX_TRANSACOES = 500
+export { adaptiveEnabled, buildPersonalModel } from './personalModel'
+export type { LearnedPattern, PersonalAssistantModel } from './personalModel'
 
-/** Repetições mínimas para uma palavra virar regra. Uma só é ruído. */
-const MIN_PARA_APRENDER = 2
-/** Para CONTRARIAR a lista genérica a evidência precisa ser mais forte. */
-const MIN_PARA_CONTRARIAR = 3
-const MAIORIA = 0.6
-const MAIORIA_PARA_CONTRARIAR = 0.75
+const isMoney = (kind: ParsedAction['kind']): kind is MoneyType =>
+  kind === 'income' || kind === 'expense'
 
-/** Palavras curtas ou funcionais não identificam nada. */
-const IRRELEVANTES = new Set([
-  'de', 'do', 'da', 'no', 'na', 'em', 'com', 'para', 'pra', 'por',
-  'um', 'uma', 'uns', 'umas', 'os', 'as', 'meu', 'minha', 'seu', 'sua',
-])
-
-const tokens = (texto: string): string[] =>
-  normalizeName(texto)
-    .split(/[^a-z0-9]+/)
-    .filter(w => w.length >= 3 && !IRRELEVANTES.has(w))
-
-const recentes = (state: AppState): Transaction[] =>
-  (state.transactions || []).slice(0, MAX_TRANSACOES)
+/** O texto que identifica o lançamento: o que o usuário escreveu sobre ele. */
+const entityText = (a: any): string => String(a.description || a.origin || '').trim()
 
 /**
- * Categoria que o usuário costuma dar para as palavras deste texto.
+ * Categoria que o usuário costuma dar para este texto, com a evidência junto.
  *
- * `forte` diz se a evidência basta para CONTRARIAR a lista genérica — o chamador
- * decide, porque preencher um vazio e discordar de um palpite são coisas
- * diferentes.
+ * `strength` é o que separa os dois usos possíveis: `strong` basta para
+ * preencher um campo vazio; contrariar um palpite da lista genérica exige
+ * `overriding`, porque discordar do app é afirmar que o usuário já corrigiu
+ * aquilo várias vezes.
  */
 export function learnedCategory(
   state: AppState,
   texto: string,
-  tipo: 'income' | 'expense',
-): { category: string; forte: boolean } | undefined {
-  const alvo = tokens(texto)
-  if (!alvo.length) return undefined
-
-  // token → categoria → quantas vezes
-  const contagem = new Map<string, Map<string, number>>()
-  for (const t of recentes(state)) {
-    if (t.type !== tipo || !t.category || !t.description) continue
-    for (const w of tokens(t.description)) {
-      if (!alvo.includes(w)) continue
-      const porCat = contagem.get(w) || new Map<string, number>()
-      porCat.set(t.category, (porCat.get(t.category) || 0) + 1)
-      contagem.set(w, porCat)
-    }
-  }
-  if (!contagem.size) return undefined
-
-  // A palavra mais usada é a que melhor identifica o lançamento.
-  let melhor: { category: string; n: number; total: number } | undefined
-  for (const porCat of contagem.values()) {
-    let total = 0
-    let top: { category: string; n: number } | undefined
-    for (const [cat, n] of porCat) {
-      total += n
-      if (!top || n > top.n) top = { category: cat, n }
-    }
-    if (!top) continue
-    if (!melhor || top.n > melhor.n) melhor = { ...top, total }
-  }
-  if (!melhor) return undefined
-
-  const proporcao = melhor.n / melhor.total
-  if (melhor.n < MIN_PARA_APRENDER || proporcao < MAIORIA) return undefined
-  return {
-    category: melhor.category,
-    forte: melhor.n >= MIN_PARA_CONTRARIAR && proporcao >= MAIORIA_PARA_CONTRARIAR,
-  }
-}
-
-/**
- * Aplica o vocabulário aprendido à ação, sem nunca inventar categoria que não
- * exista para o usuário.
- */
-export function withLearnedCategory(state: AppState, action: ParsedAction): ParsedAction {
-  if (action.kind !== 'income' && action.kind !== 'expense') return action
-  const a: any = action
-  const texto = String(a.description || a.origin || '')
-  if (!texto) return action
-
-  let out: any = action
-
-  // A grafia dele ganha da que ele digitou com pressa.
-  if (a.description) {
-    const grafia = canonicalDescription(state, a.description, action.kind)
-    if (grafia) out = { ...out, description: grafia }
-  }
-
-  const aprendido = learnedCategory(state, texto, action.kind)
-  if (!aprendido) return out
-  if (!(state.categories || []).some(c => c.id === aprendido.category)) return out
-
-  // Vazio: qualquer aprendizado serve. Já preenchido pela lista genérica: só
-  // troca com evidência forte — o usuário corrigiu aquilo várias vezes.
-  if (!a.category) return { ...out, category: aprendido.category }
-  if (a.category !== aprendido.category && aprendido.forte) {
-    return { ...out, category: aprendido.category }
-  }
-  return out
+  tipo: MoneyType,
+  today = todayISO(),
+): LearnedPattern<string> | undefined {
+  return buildPersonalModel(state, today).categoryFor(texto, tipo)
 }
 
 /**
@@ -137,86 +61,162 @@ export function withLearnedCategory(state: AppState, action: ParsedAction): Pars
  * Ele escreveu "Zé da esquina" três vezes e agora digitou sem acento, no
  * celular, com pressa. Sem isto a lista de movimentações fica com "Ze da
  * esquina" ao lado de "Zé da esquina" parecendo dois lugares diferentes — e o
- * próprio aprendizado de categoria enfraquece, porque o histórico se divide.
+ * próprio aprendizado enfraquece, porque o histórico se divide.
  *
  * Só entra quando o texto é O MESMO ignorando acento e caixa. Nada de
  * aproximação: trocar a descrição por algo que o usuário não escreveu seria
- * inventar.
+ * inventar, e a fase 4 é explícita — nenhuma aproximação pode trocar uma
+ * entidade por outra em silêncio.
  */
 export function canonicalDescription(
   state: AppState,
   texto: string,
-  tipo: 'income' | 'expense',
+  tipo: MoneyType,
+  today = todayISO(),
+  campo: 'description' | 'origin' = 'description',
 ): string | undefined {
-  const alvo = normalizeName(texto)
-  if (alvo.length < 3) return undefined
+  const p = buildPersonalModel(state, today).spellingFor(texto, tipo, campo)
+  if (!p) return undefined
+  return p.value === texto ? undefined : p.value
+}
 
-  const contagem = new Map<string, number>()
-  for (const t of recentes(state)) {
-    if (t.type !== tipo || !t.description) continue
-    if (normalizeName(t.description) !== alvo) continue
-    contagem.set(t.description, (contagem.get(t.description) || 0) + 1)
-  }
-  if (!contagem.size) return undefined
+/** Por que a categoria da proposta ficou assim — matéria-prima da explicação. */
+export interface CategoryDecision {
+  applied: boolean
+  /** `fill` preencheu um vazio; `override` discordou da lista genérica. */
+  how?: 'fill' | 'override'
+  pattern?: LearnedPattern<string>
+  /** Dois candidatos fortes e próximos: quem decide é o usuário. */
+  dilemma?: { a: string; b: string }
+}
 
-  let melhor: { texto: string; n: number } | undefined
-  for (const [grafia, n] of contagem) {
-    if (!melhor || n > melhor.n) melhor = { texto: grafia, n }
+function decideCategory(
+  model: PersonalAssistantModel,
+  state: AppState,
+  action: ParsedAction,
+): CategoryDecision {
+  if (!isMoney(action.kind)) return { applied: false }
+  const a: any = action
+  const texto = entityText(a)
+  if (!texto) return { applied: false }
+
+  const p = model.categoryFor(texto, action.kind)
+  if (!p) return { applied: false }
+
+  // Defesa em profundidade: o modelo só indexa categoria oferecível, mas se
+  // isso mudar aqui a proposta não pode sair com uma categoria que a validação
+  // vai recusar — foi exatamente assim que o gasto no Clube sumiu inteiro
+  // depois de o usuário arquivar "lazer".
+  if (!usableCategories(state.categories || []).some(c => c.id === p.value)) return { applied: false }
+
+  if (!a.category) {
+    if (p.strength === 'strong' || p.strength === 'overriding') {
+      return { applied: true, how: 'fill', pattern: p }
+    }
+    return { applied: false, pattern: p }
   }
-  if (!melhor || melhor.n < MIN_PARA_APRENDER) return undefined
-  // Já está escrito igualzinho: nada a fazer.
-  return melhor.texto === texto ? undefined : melhor.texto
+  if (a.category !== p.value && p.strength === 'overriding') {
+    return { applied: true, how: 'override', pattern: p }
+  }
+  return { applied: false, pattern: p }
 }
 
 /**
- * Sugestões da tela do assistente, montadas com a vida DESTE usuário.
+ * Aplica o vocabulário e a grafia do usuário à ação.
  *
- * A lista fixa por perfil é o ponto de partida, não a resposta: quem tem uma
- * meta chamada "Moto" quer ver "quanto falta pra minha moto", e quem lança
- * "Mercado" toda semana ganha mais com um atalho para isso do que com um
- * exemplo genérico. O atalho vem SEM valor de propósito — o assistente pergunta
- * quanto foi, que é a conversa mais curta possível.
- *
- * As sugestões da lista fixa nunca somem: elas ensinam o que dá para fazer.
+ * Nunca toca em valor, data, tipo, origem informada ou qualquer campo que o
+ * usuário tenha dito nesta mensagem: só categoria e grafia, e só quando a
+ * evidência sustenta.
  */
-export function personalSuggestions(state: AppState, base: string[]): string[] {
-  const minhas: string[] = []
+export function withLearnedCategory(
+  state: AppState,
+  action: ParsedAction,
+  today = todayISO(),
+): ParsedAction {
+  if (!isMoney(action.kind)) return action
+  if (!adaptiveEnabled(state)) return action
+  const model = buildPersonalModel(state, today)
+  const a: any = action
+  if (!entityText(a)) return action
 
-  const meta = (state.goals || []).find(g => !g.done && g.name)
-  if (meta) minhas.push(`Quanto falta pra minha ${meta.name.toLowerCase()}?`)
+  let out: any = action
 
-  // O gasto que ele mais repete — vira atalho de registro.
-  const contagem = new Map<string, number>()
-  for (const t of recentes(state)) {
-    if (t.type !== 'expense' || !t.description) continue
-    contagem.set(t.description, (contagem.get(t.description) || 0) + 1)
+  // A grafia dele ganha da que ele digitou com pressa — na descrição e na
+  // origem. Sem a origem, "casa 1" e "Casa 1" viravam dois imóveis.
+  if (a.description) {
+    const g = model.spellingFor(a.description, action.kind, 'description')
+    if (g && g.value !== a.description) out = { ...out, description: g.value }
   }
-  let campeao: { texto: string; n: number } | undefined
-  for (const [texto, n] of contagem) {
-    if (!campeao || n > campeao.n) campeao = { texto, n }
-  }
-  if (campeao && campeao.n >= MIN_PARA_CONTRARIAR) {
-    minhas.push(`gastei no ${campeao.texto.toLowerCase()}`)
+  if (a.origin) {
+    const g = model.spellingFor(a.origin, action.kind, 'origin')
+    if (g && g.value !== a.origin) out = { ...out, origin: g.value }
   }
 
-  const vistas = new Set(minhas.map(s => normalizeName(s)))
-  return [...minhas, ...base.filter(s => !vistas.has(normalizeName(s)))]
+  const d = decideCategory(model, state, action)
+  return d.applied ? { ...out, category: d.pattern!.value } : out
 }
+
+/** A decisão de categoria, sem aplicar — para explicar e para perguntar. */
+export function categoryDecision(
+  state: AppState,
+  action: ParsedAction,
+  today = todayISO(),
+): CategoryDecision {
+  if (!adaptiveEnabled(state)) return { applied: false }
+  return decideCategory(buildPersonalModel(state, today), state, action)
+}
+
+/**
+ * Duas categorias fortes disputando a mesma frase.
+ *
+ * O usuário lança no Quiosque tanto em Lazer quanto em Compras. Escolher uma
+ * seria dar cara de certeza a um sorteio, e ignorar as duas joga fora uma
+ * informação que ele já deu. A saída é a mesma do resto do app: perguntar, com
+ * as duas opções já carregando a proposta pronta.
+ */
+export function categoryDilemma(
+  state: AppState,
+  action: ParsedAction,
+  today = todayISO(),
+): { entity: string; options: string[] } | undefined {
+  if (!adaptiveEnabled(state) || !isMoney(action.kind)) return undefined
+  const a: any = action
+  // Campo já preenchido não é dilema: a lista genérica deu um palpite e ele
+  // fica, porque discordar exige evidência forte de UM lado só.
+  if (a.category) return undefined
+  const texto = entityText(a)
+  if (!texto) return undefined
+
+  const model = buildPersonalModel(state, today)
+  // `categoryFor` devolve `undefined` justamente por causa do empate. O dilema
+  // só existe quando cada ponta, sozinha, bastaria para preencher o campo —
+  // senão a resposta certa continua sendo calar e usar a lista genérica.
+  if (model.categoryFor(texto, action.kind)) return undefined
+  const bruto = model.rawCandidates(texto, action.kind)
+  if (bruto.length < 2) return undefined
+  const [x, y] = bruto
+  if (y.weight < x.weight * 0.7) return undefined
+  if (x.weight < PESO_PARA_PERGUNTAR || y.weight < PESO_PARA_PERGUNTAR) return undefined
+  const usable = new Set(usableCategories(state.categories || []).map(c => c.id))
+  if (!usable.has(x.category) || !usable.has(y.category)) return undefined
+  return { entity: texto, options: [x.category, y.category] }
+}
+
+/** Cada lado do dilema precisa, sozinho, de evidência de preencher um vazio. */
+const PESO_PARA_PERGUNTAR = 1.7
+
+/**
+ * Sugestões da tela do assistente. Mora em `suggestions.ts`; reexportado aqui
+ * só enquanto a tela não migra.
+ */
+export { personalSuggestions } from './suggestions'
 
 // ---------------------------------------------------------------------------
 // Ordem de grandeza
 // ---------------------------------------------------------------------------
 
-/** Amostra mínima para o "padrão" do usuário significar alguma coisa. */
-const MIN_AMOSTRA = 6
 /** Quantas vezes acima da mediana já é quase certamente um zero a mais. */
 const FATOR = 6
-
-const mediana = (v: number[]): number => {
-  const s = [...v].sort((a, b) => a - b)
-  const meio = Math.floor(s.length / 2)
-  return s.length % 2 ? s[meio] : (s[meio - 1] + s[meio]) / 2
-}
 
 /**
  * Aviso quando o valor está muito fora do que o usuário costuma lançar.
@@ -224,27 +224,29 @@ const mediana = (v: number[]): number => {
  * Compara com lançamentos do MESMO tipo e da MESMA categoria: o padrão de
  * combustível não diz nada sobre o padrão de aluguel. Devolve `undefined`
  * quando não há amostra suficiente — sem base, calar é melhor que alarmar.
+ *
+ * AVISA, nunca bloqueia: o dia excepcional existe, e barrá-lo seria pior que o
+ * erro de digitação que se quer evitar (regra 38).
  */
-export function outOfPatternWarning(state: AppState, action: ParsedAction): string | undefined {
-  if (action.kind !== 'income' && action.kind !== 'expense') return undefined
+export function outOfPatternWarning(
+  state: AppState,
+  action: ParsedAction,
+  today = todayISO(),
+): string | undefined {
+  if (!isMoney(action.kind)) return undefined
+  if (!adaptiveEnabled(state)) return undefined
   const a: any = action
   const valor = Number(a.amount)
-  if (!(valor > 0)) return undefined
+  if (!(valor > 0) || !a.category) return undefined
 
-  const iguais = recentes(state)
-    .filter(t => t.type === action.kind && (!a.category || t.category === a.category))
-    .map(t => t.amount)
-    .filter(v => v > 0)
-  if (iguais.length < MIN_AMOSTRA) return undefined
+  const p = buildPersonalModel(state, today).amountProfile(action.kind, a.category)
+  if (!p) return undefined
 
-  const m = mediana(iguais)
-  if (!(m > 0)) return undefined
-
-  if (valor >= m * FATOR) {
-    return `Bem acima do seu normal — você costuma lançar perto de ${fmtBRL(m)}. Confere se não sobrou um zero.`
+  if (valor >= p.median * FATOR) {
+    return `Bem acima do seu normal — nos seus ${p.sampleSize} últimos lançamentos dessa categoria o valor fica perto de ${fmtBRL(p.median)}. Confere se não sobrou um zero.`
   }
-  if (valor * FATOR <= m) {
-    return `Bem abaixo do seu normal — você costuma lançar perto de ${fmtBRL(m)}. Confere se não faltou um dígito.`
+  if (valor * FATOR <= p.median) {
+    return `Bem abaixo do seu normal — nos seus ${p.sampleSize} últimos lançamentos dessa categoria o valor fica perto de ${fmtBRL(p.median)}. Confere se não faltou um dígito.`
   }
   return undefined
 }

@@ -30,6 +30,19 @@ export const catById = (cats: Category[], id: string): Category =>
   cats.find(c => c.id === id) || { id, name: id, type: 'expense', icon: '📦' }
 
 /**
+ * Categorias que o app pode OFERECER hoje: arquivada some dos seletores, e
+ * `reserva` é a exceção histórica (só `type: 'saving'` a usa, e ela nasce
+ * arquivada justamente para não aparecer como despesa).
+ *
+ * Fonte única de propósito. `buildCapabilities` usava este filtro inline e o
+ * aprendizado usava outro (só "a categoria existe?"): o resultado é que o
+ * aprendizado propunha uma categoria arquivada, a validação recusava por
+ * categoria inexistente e o lançamento inteiro sumia.
+ */
+export const usableCategories = (cats: Category[]): Category[] =>
+  cats.filter(c => !c.archived || c.id === 'reserva')
+
+/**
  * Funde as categorias padrão nas categorias já salvas do usuário.
  * - preserva TODAS as categorias atuais, inclusive personalizadas e arquivadas;
  * - acrescenta apenas as padrão que faltam, comparando por `id`;

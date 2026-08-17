@@ -19,7 +19,7 @@ import type {
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, isValidationFailure, validateAction } from './contracts'
 import { analyzeMessage, looksLikeRetraction, looksRecurring } from './clauses'
-import { outOfPatternWarning, withLearnedCategory } from './learning'
+import { categoryDilemma, outOfPatternWarning, withLearnedCategory } from './learning'
 import type { AnalyzedClause, MessageAnalysis, TemporalSignal } from './clauses'
 import { detectIncomplete, isDraftFresh, newDraft, resolveDraftAnswer } from './drafts'
 import type { AssistantDraft } from './drafts'
@@ -29,7 +29,7 @@ import { findGoalByName, planAssistantActions } from './execute'
 import { askAssistant } from '../services/ai'
 import { describeAction } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
-import { catById } from '../data/categories'
+import { catById, usableCategories } from '../data/categories'
 import { fmtBRL, todayISO, uid } from '../utils/format'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { brDate, dateLabel, findDate, previousYearOf, resolveDayInWindow } from './dates'
@@ -44,9 +44,7 @@ export function buildCapabilities(state: AppState): AssistantCapabilities {
     profile: state.settings.profile,
     isDriver: driver,
     kinds: [],
-    categories: state.categories
-      .filter(c => !c.archived || c.id === 'reserva')
-      .map(c => ({ id: c.id, name: c.name, type: c.type })),
+    categories: usableCategories(state.categories).map(c => ({ id: c.id, name: c.name, type: c.type })),
     cardNames: (state.cards || []).filter(c => !c.archived).map(c => c.name),
     goalNames: state.goals.filter(g => !g.done).map(g => g.name),
   }
@@ -358,6 +356,8 @@ function runLocal(input: OrchestratorInput, caps: AssistantCapabilities): LocalP
   // todo dia" continua sendo registro de trabalho.
   const MOVIMENTO = new Set(['income', 'expense', 'saving'])
   let recorrenteDeclarada = false
+  /** Frase que o usuário classifica de dois jeitos, com evidência dos dois. */
+  const dilemas: { actionId: string; entity: string; options: string[] }[] = []
 
   for (const clause of analysis.clauses) {
     if (semAlvo && looksLikeRetraction(clause.text)) continue
@@ -389,13 +389,20 @@ function runLocal(input: OrchestratorInput, caps: AssistantCapabilities): LocalP
 
       // O vocabulário do usuário entra ANTES da validação: a categoria que ele
       // mesmo usa precisa passar pelas mesmas regras de qualquer outra.
-      action = withLearnedCategory(input.state, action)
+      action = withLearnedCategory(input.state, action, today)
 
       const res = validateAction(action, caps, today)
       if (isValidationFailure(res)) {
         rejected.push({ kind: action.kind, code: res.code, detail: res.detail })
         continue
       }
+      // Duas categorias fortes disputando a mesma frase: o usuário lança no
+      // Quiosque tanto em Lazer quanto em Compras. Escolher seria sortear;
+      // ignorar as duas jogaria fora o que ele já disse. A saída é a mesma do
+      // resto do app — perguntar, com as opções carregando a proposta pronta.
+      const dilema = categoryDilemma(input.state, res.action, today)
+      if (dilema && !dilemas.length) dilemas.push({ actionId: '', ...dilema })
+
       // A proposta mostra a categoria que SERÁ gravada, não um campo vazio que
       // o usuário só descobre depois de confirmar.
       const withDefaults: any = { ...res.action }
@@ -458,6 +465,30 @@ function runLocal(input: OrchestratorInput, caps: AssistantCapabilities): LocalP
       question: dateAmbiguous.dateAmbiguity.question,
       options: dateAmbiguous.dateAmbiguity.options,
       field: 'date',
+    }
+  }
+
+  // Última na fila de propósito: cartão inexistente e data ambígua são dúvidas
+  // sobre O QUE ACONTECEU; esta é só sobre como ARQUIVAR. Cada opção carrega o
+  // lote inteiro já com aquela categoria, então responder não repete nada.
+  if (!clarification && dilemas.length === 1 && candidates.length) {
+    const d = dilemas[0]
+    const alvo = candidates.find(c => {
+      const a: any = c.action
+      return String(a.description || a.origin || '').trim() === d.entity
+    })
+    if (alvo) {
+      const nome = (id: string) => catById(input.state.categories, id).name
+      clarification = {
+        question: `Você lança ${d.entity} tanto em ${nome(d.options[0])} quanto em ${nome(d.options[1])}. Qual é desta vez?`,
+        field: 'category',
+        actionId: alvo.id,
+        options: d.options.map(id => ({
+          label: nome(id),
+          value: id,
+          actions: candidates.map(x => (x.id === alvo.id ? { ...(x.action as any), category: id } : x.action)),
+        })),
+      }
     }
   }
 
@@ -676,7 +707,7 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
         // esquina" → "35" tem que sair com a MESMA categoria e a MESMA grafia
         // que os outros lançamentos daquele lugar, senão o histórico se divide
         // e o próprio aprendizado enfraquece.
-        const v = validateAction(withLearnedCategory(input.state, res.draft.partial as ParsedAction), caps, today)
+        const v = validateAction(withLearnedCategory(input.state, res.draft.partial as ParsedAction, today), caps, today)
         if (isValidationFailure(v)) {
           return {
             draft: null,
@@ -924,7 +955,7 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
     // Valor muito fora do padrão do próprio usuário — quase sempre um zero a
     // mais. AVISA, nunca bloqueia: o dia excepcional existe, e barrá-lo seria
     // pior que o erro que se quer evitar.
-    const pattern = outOfPatternWarning(input.state, c.action)
+    const pattern = outOfPatternWarning(input.state, c.action, today)
     const next = warn ? { ...c, duplicateWarning: warn } : c
     return pattern ? { ...next, patternWarning: pattern } : next
   })
