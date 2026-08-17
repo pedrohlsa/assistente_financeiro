@@ -119,6 +119,9 @@ h3 { font-size: 0.95rem; font-weight: 650; }
   cursor: pointer; white-space: nowrap; transition: all 0.18s ease;
 }
 .chip.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+/* Atalho de registro x pergunta: o toque precisa avisar o que vai fazer.
+   O atalho ainda passa pelo Confirmar — a diferença é só de expectativa. */
+.chip-shortcut { border-style: dashed; color: var(--text); }
 
 /* ---------- Inputs ---------- */
 .field { display: flex; flex-direction: column; gap: 6px; }

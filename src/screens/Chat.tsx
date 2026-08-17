@@ -21,44 +21,7 @@ import { isDriver, shouldAsk99Fee } from '../services/profile'
 import { plainChatText } from '../utils/text'
 import { fmtBRL } from '../utils/format'
 import { listenOnce, SPEECH_MESSAGES, SpeechError, speechAvailable, stopListening } from '../services/speech'
-import { personalSuggestions } from '../assistant/learning'
-
-const SUGGESTIONS_BY_PROFILE: Record<string, string[]> = {
-  driver: [
-    'Quanto posso gastar hoje?',
-    'Como está minha meta?',
-    'Quanto gastei com gasolina esse mês?',
-    'Quando preciso trocar meu óleo?',
-    'Quanto meu carro custa por km?',
-    'ganhei 250 hoje',
-    'ganhei 430 na Uber e 399 na 99, rodei 161 km',
-  ],
-  autonomo: [
-    'Como está meu mês?',
-    'Quanto recebi de aluguéis este mês?',
-    'Tenho saldo para as próximas contas?',
-    'Quanto posso guardar este mês?',
-    'recebi 1800 de aluguel da Casa 1',
-    'ontem gastei 150 de areia',
-  ],
-  clt: [
-    'Meu salário cobre minhas contas?',
-    'Quanto tenho de parcela no mês que vem?',
-    'Quanto posso guardar este mês?',
-    'Como está minha meta mensal?',
-    'recebi meu salário de 3000 e guardei 150',
-  ],
-  other: [
-    'Como está meu mês?',
-    'Quanto posso guardar este mês?',
-    'Tenho saldo para as próximas contas?',
-    'Qual foi minha maior despesa?',
-    'gastei 80 no mercado',
-  ],
-}
-
-const suggestionsFor = (profile: string) =>
-  SUGGESTIONS_BY_PROFILE[profile] || SUGGESTIONS_BY_PROFILE.other
+import { assistantSuggestions } from '../assistant/suggestions'
 
 export default function Chat() {
   const { state, dispatch } = useStore()
@@ -357,7 +320,19 @@ export default function Chat() {
         )}
         {state.chat.length === 0 && (
           <div className="suggestion-row">
-            {personalSuggestions(state, suggestionsFor(state.settings.profile)).map(s => <button key={s} className="chip" onClick={() => send(s)}>{s}</button>)}
+            {assistantSuggestions(state, { now: new Date() }).map(sg => (
+              // O usuário precisa saber o que o toque vai fazer antes de tocar:
+              // atalho começa um registro (e termina num Confirmar), pergunta
+              // só consulta e nunca mexe em nada.
+              <button
+                key={sg.text}
+                className={`chip ${sg.kind === 'shortcut' ? 'chip-shortcut' : ''}`}
+                title={sg.kind === 'shortcut' ? 'Atalho de registro — ainda vai pedir confirmação' : 'Pergunta — não registra nada'}
+                onClick={() => send(sg.text)}
+              >
+                {sg.kind === 'shortcut' ? '+ ' : ''}{sg.text}
+              </button>
+            ))}
           </div>
         )}
       </div>

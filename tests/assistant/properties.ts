@@ -15,6 +15,7 @@ import { findDate, findUnresolvedTemporalHint } from '../../src/assistant/dates'
 import { editableFieldsFor } from '../../src/assistant/proposalEdit'
 import { isRevertFailure, lastReversibleBatch, revertBatchPure } from '../../src/assistant/journal'
 import { withLearnedCategory } from '../../src/assistant/learning'
+import { assistantSuggestions } from '../../src/assistant/suggestions'
 import { currentBalance, savedThisMonth, monthStats } from '../../src/services/calc'
 import { buildSystemPrompt, normalizeCapabilities, sanitizeRemoteResponse } from '../../api/_lib/assistantPrompt'
 import { callDeepSeekChat, isDeepSeekFailure } from '../../api/_lib/deepseek'
@@ -1340,6 +1341,90 @@ export async function runProperties(): Promise<PropertyReport> {
     })) as any
     const repetido: any = withLearnedCategory(sazonal, { kind: 'expense', amount: 20, description: 'Cantina do Nico' } as any, TODAY)
     if (repetido.category !== 'lazer') return `o piso não segurou o padrão sazonal: ${repetido.category}`
+    return null
+  })
+
+  // --- 68. Sugestão nunca é um lançamento pronto com valor do histórico ---
+  // O atalho vem SEM valor de propósito. Com o valor histórico dentro dele, um
+  // toque distraído viraria um gasto que nunca aconteceu — o app afirmando
+  // quanto o usuário gastou hoje. Sem valor, o assistente pergunta "qual foi o
+  // valor?" e a resposta ainda passa pelo Confirmar.
+  await checkAsync(r, 'sugestão personalizada não carrega valor nem registra sozinha', async () => {
+    const s = buildState({ profile: 'other' })
+    s.goals = [{ id: 'g0', name: 'Moto', target: 12000, saved: 0, createdAt: TODAY }] as any
+    s.transactions = Array.from({ length: 5 }, (_, i) => ({
+      id: `v${i}`, type: 'expense', amount: 137.5, category: 'alimentacao',
+      description: 'Zé da esquina', date: `2026-07-0${i + 1}`, time: '10:00',
+    })) as any
+
+    const sugestoes = assistantSuggestions(s, { today: TODAY })
+    const pessoais = sugestoes.filter(x => /z[ée] da esquina|meta moto/i.test(x.text))
+    if (!pessoais.length) return 'não personalizou nada com um histórico que sustenta'
+    for (const x of pessoais) {
+      if (/\d/.test(x.text)) return `sugestão pessoal levou número: "${x.text}"`
+    }
+    // O atalho personalizado, enviado de verdade, tem que PERGUNTAR o valor —
+    // nunca propor um lançamento pronto.
+    const atalho = sugestoes.find(x => x.kind === 'shortcut' && /esquina/i.test(x.text))
+    if (!atalho) return 'o lugar mais repetido não virou atalho'
+    const out = await orchestrate({ state: s, message: atalho.text, history: [], remoteEnabled: false, today: TODAY })
+    if (out.response.actions.length) return `o atalho propôs ${out.response.actions.length} ação(ões) sem o usuário dizer o valor`
+    if (out.response.mode !== 'clarify') return `o atalho não perguntou o valor: ${out.response.mode}`
+    return null
+  })
+
+  // --- 69. Sugestão não inventa gênero, não xinga e respeita o perfil -----
+  // "Quanto falta pra minha moto" virava "minha notebook" no cliente seguinte:
+  // flexionar o nome da meta é inferir gênero de um texto que o usuário
+  // escreveu. E dado de motorista em perfil CLT quebraria a regra 3.
+  check(r, 'sugestão é neutra, limpa e do perfil certo', () => {
+    const clt = buildState({ profile: 'clt' })
+    clt.goals = [{ id: 'g0', name: 'Notebook', target: 4000, saved: 0, createdAt: TODAY }] as any
+    clt.transactions = Array.from({ length: 4 }, (_, i) => ({
+      id: `n${i}`, type: 'expense', amount: 50, category: 'alimentacao',
+      description: 'Padaria da esquina', date: `2026-07-0${i + 1}`, time: '10:00',
+    })) as any
+    const doClt = assistantSuggestions(clt, { today: TODAY })
+    for (const x of doClt) {
+      if (/minha notebook|meu notebook/i.test(x.text)) return `inventou gênero: "${x.text}"`
+      if (/\bkm\b|gasolina|hod[oô]metro|uber|\b99\b|corrida|[oó]leo|ve[íi]culo/i.test(x.text)) {
+        return `sugeriu dado de motorista em perfil CLT: "${x.text}"`
+      }
+    }
+
+    // Nome de lugar ofensivo não volta como botão, mesmo tendo sido ele quem
+    // escreveu: o histórico é dele, a tela inicial do app é outra coisa.
+    const feio = buildState({ profile: 'other' })
+    feio.transactions = Array.from({ length: 5 }, (_, i) => ({
+      id: `f${i}`, type: 'expense', amount: 30, category: 'alimentacao',
+      description: 'Bar do caralho', date: `2026-07-0${i + 1}`, time: '10:00',
+    })) as any
+    if (assistantSuggestions(feio, { today: TODAY }).some(x => /caralho/i.test(x.text))) {
+      return 'repetiu linguagem ofensiva do histórico num botão'
+    }
+
+    // Diversidade: nada de cinco variações do mesmo assunto, e no máximo dois
+    // atalhos de registro na fileira.
+    const cheio = buildState({ profile: 'driver' })
+    cheio.goals = [{ id: 'g0', name: 'Moto', target: 9000, saved: 0, createdAt: TODAY }] as any
+    cheio.transactions = Array.from({ length: 9 }, (_, i) => ({
+      id: `c${i}`, type: 'expense', amount: 100, category: 'combustivel',
+      description: i % 3 === 0 ? 'Posto do Tião' : i % 3 === 1 ? 'Posto do Zeca' : 'Posto do João',
+      date: `2026-07-0${i + 1}`, time: '10:00',
+    })) as any
+    const lista = assistantSuggestions(cheio, { today: TODAY })
+    const temas = lista.map(x => x.topic)
+    if (new Set(temas).size !== temas.length) return `repetiu assunto na fileira: ${temas.join(', ')}`
+    if (lista.filter(x => x.kind === 'shortcut').length > 2) return 'mais de dois atalhos de registro na fileira'
+    if (lista.length > 6) return `fileira longa demais: ${lista.length}`
+
+    // Desligado, sobra exatamente a lista educativa do perfil.
+    const off = buildState({ profile: 'other' })
+    off.settings = { ...off.settings, adaptiveAssistant: false }
+    off.goals = [{ id: 'g1', name: 'Moto', target: 9000, saved: 0, createdAt: TODAY }] as any
+    if (assistantSuggestions(off, { today: TODAY }).some(x => /meta moto/i.test(x.text))) {
+      return 'desligado continuou personalizando a fileira'
+    }
     return null
   })
 
