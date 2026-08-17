@@ -21,6 +21,7 @@ import {
 } from './calc'
 import { describeAction, parseNaturalFull } from './nlp'
 import { driverInsight } from '../assistant/driverInsights'
+import { adaptiveEnabled, buildPersonalModel } from '../assistant/personalModel'
 import { catById } from '../data/categories'
 import { isDriver } from './profile'
 import {
@@ -82,6 +83,21 @@ export function buildAiContext(s: AppState) {
     categorias: s.categories
       .filter(c => !c.archived)
       .map(c => ({ id: c.id, name: c.name, type: c.type })),
+  }
+
+  // Preferência aprendida, no MÍNIMO agregado possível: só os IDs de categoria
+  // que ele mais usa, para o modelo remoto propor a categoria certa em vez da
+  // que a lista genérica sugeriria. Nada além disso sai daqui — nem
+  // estabelecimento, nem cliente, nem descrição, nem grafia, nem journal, nem
+  // um único valor de lançamento. E não sai nada se ele desligou o aprendizado.
+  if (adaptiveEnabled(s)) {
+    const model = buildPersonalModel(s, t)
+    if (model.sample.total) {
+      base.categoriasQueMaisUso = {
+        despesas: model.topCategories('expense', 4).map(c => c.id),
+        receitas: model.topCategories('income', 3).map(c => c.id),
+      }
+    }
   }
 
   // Cartões e parcelamentos — só entra no contexto se o usuário usa a área.

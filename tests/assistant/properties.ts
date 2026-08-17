@@ -16,6 +16,7 @@ import { editableFieldsFor } from '../../src/assistant/proposalEdit'
 import { isRevertFailure, lastReversibleBatch, revertBatchPure } from '../../src/assistant/journal'
 import { withLearnedCategory } from '../../src/assistant/learning'
 import { assistantSuggestions } from '../../src/assistant/suggestions'
+import { buildAiContext } from '../../src/services/ai'
 import { currentBalance, savedThisMonth, monthStats } from '../../src/services/calc'
 import { buildSystemPrompt, normalizeCapabilities, sanitizeRemoteResponse } from '../../api/_lib/assistantPrompt'
 import { callDeepSeekChat, isDeepSeekFailure } from '../../api/_lib/deepseek'
@@ -1475,6 +1476,106 @@ export async function runProperties(): Promise<PropertyReport> {
       state: base, message: 'por que essa categoria?', history: [], pending: pend, remoteEnabled: false, today: TODAY,
     })
     if (!depois.keepPending) return 'explicar descartou a proposta que estava na tela'
+    return null
+  })
+
+  // --- 71. O que é pessoal não sai do aparelho --------------------------
+  // O aprendizado é feito de nome de lugar, de cliente e de grafia — o pedaço
+  // mais identificável do estado. O contexto remoto pode saber QUAIS
+  // categorias ele mais usa (id de categoria é constante do app); não pode
+  // saber ONDE ele come, para quem ele presta serviço nem quanto ele lançou.
+  check(r, 'contexto remoto não leva estabelecimento, cliente nem journal', () => {
+    const s = buildState({ profile: 'autonomo' })
+    s.transactions = [
+      { id: 't1', type: 'expense', amount: 32, category: 'alimentacao', description: 'Zé da esquina', date: TODAY, time: '10:00' },
+      { id: 't2', type: 'expense', amount: 32, category: 'alimentacao', description: 'Zé da esquina', date: TODAY, time: '11:00' },
+      { id: 't3', type: 'income', amount: 1800, category: 'aluguel', description: 'Aluguel', origin: 'Casa 1 — Rua das Flores 42', date: TODAY, time: '09:00' },
+      { id: 't4', type: 'income', amount: 900, category: 'freelance', description: 'Projeto', origin: 'Cliente João', date: TODAY, time: '09:00' },
+    ] as any
+    s.assistantJournal = [{
+      batchId: 'b1', contractVersion: 1, source: 'ai', engine: 'local',
+      createdAt: `${TODAY}T10:00`, messageId: 'm1', ops: [{ op: 'create', entity: 'transactions', id: 't1' }],
+    }] as any
+
+    const json = JSON.stringify(buildAiContext(s))
+    const proibidos = ['Zé da esquina', 'Ze da esquina', 'Casa 1', 'Rua das Flores', 'Cliente João', 'Cliente Joao', 'batchId', 'assistantJournal', 'm1']
+    for (const p of proibidos) {
+      if (json.includes(p)) return `vazou "${p}" para o contexto remoto`
+    }
+    // O agregado permitido está lá, e é só id de categoria.
+    const ctx: any = buildAiContext(s)
+    if (!ctx.categoriasQueMaisUso) return 'o agregado de categorias não foi montado'
+    for (const id of [...ctx.categoriasQueMaisUso.despesas, ...ctx.categoriasQueMaisUso.receitas]) {
+      if (!s.categories.some(c => c.id === id)) return `mandou algo que não é id de categoria: ${id}`
+    }
+
+    // Desligado, nem o agregado sai.
+    const off = buildState({ profile: 'autonomo' })
+    off.transactions = s.transactions
+    off.settings = { ...off.settings, adaptiveAssistant: false }
+    if ((buildAiContext(off) as any).categoriasQueMaisUso) {
+      return 'mandou preferência aprendida com o aprendizado desligado'
+    }
+    return null
+  })
+
+  // --- 72. O aprendizado nasce do estado, e morre com ele ----------------
+  // Sem histórico não existe preferência nenhuma embutida no app: o
+  // conhecimento não vem do bundle, vem do aparelho. E como ele é derivado,
+  // apagar tudo apaga o aprendizado junto, e importar um backup faz o
+  // aprendizado ser o DAQUELE backup — sem migração e sem cache sobrevivente.
+  check(r, 'nada é aprendido de fábrica, e o aprendizado morre com o estado', () => {
+    const vazio = buildState()
+    const frases = ['Mercado', 'Zé da esquina', 'Posto do Tião', 'Uber', 'Gasolina', 'Casa 1', 'Padaria']
+    for (const f of frases) {
+      for (const tipo of ['income', 'expense'] as const) {
+        const out: any = withLearnedCategory(vazio, { kind: tipo, amount: 10, description: f } as any, TODAY)
+        if (out.category) return `o app já vinha "sabendo" que ${f} é ${out.category} sem histórico nenhum`
+      }
+    }
+
+    // Um backup importado passa a ser a ÚNICA fonte do aprendizado.
+    const backup = hydrateForTest({
+      settings: { profile: 'other', onboarded: true },
+      transactions: Array.from({ length: 5 }, (_, i) => ({
+        id: `b${i}`, type: 'expense', amount: 70, category: 'obra',
+        description: 'Depósito do Nilo', date: `2026-07-0${i + 1}`, time: '10:00',
+      })),
+    })
+    const doBackup: any = withLearnedCategory(backup, { kind: 'expense', amount: 40, description: 'Depósito do Nilo' } as any, TODAY)
+    if (doBackup.category !== 'obra') return `o backup importado não passou a ser a fonte: ${doBackup.category}`
+
+    // Apagar tudo: o estado volta a ser o inicial e o aprendizado some junto.
+    // `resetAllData` é o caminho único de apagar (regra 16); aqui a hidratação
+    // do estado inicial prova a consequência sem depender de React.
+    const depoisDoReset = hydrateForTest({ settings: { profile: 'other', onboarded: true }, transactions: [] })
+    const nada: any = withLearnedCategory(depoisDoReset, { kind: 'expense', amount: 40, description: 'Depósito do Nilo' } as any, TODAY)
+    if (nada.category) return `o aprendizado sobreviveu ao apagar tudo: ${nada.category}`
+    return null
+  })
+
+  // --- 73. O aprendizado inteiro funciona offline -----------------------
+  // É o que separa "adaptativo" de "depende do servidor". Categoria aprendida,
+  // grafia, aviso de valor, explicação e sugestão: nenhum deles pode precisar
+  // de rede, e nenhum deles pode acionar a IA remota.
+  await checkAsync(r, 'aprender, explicar e sugerir não dependem de rede', async () => {
+    const s = buildState({ profile: 'other' })
+    s.transactions = Array.from({ length: 5 }, (_, i) => ({
+      id: `o${i}`, type: 'expense', amount: 120, category: 'compras',
+      description: 'Mercado', date: `2026-07-0${i + 1}`, time: '10:00',
+    })) as any
+
+    let chamouRemoto = false
+    const askRemote = async () => { chamouRemoto = true; return null }
+
+    for (const msg of ['gastei 50 no mercado', 'o que você aprendeu sobre mim?', 'por que essa categoria?']) {
+      const out = await orchestrate({
+        state: s, message: msg, history: [], remoteEnabled: true, today: TODAY, askRemote,
+      })
+      if (chamouRemoto) return `"${msg}" precisou da IA remota`
+      if (out.response.engine !== 'local') return `"${msg}" não foi resolvida localmente`
+    }
+    if (!assistantSuggestions(s, { today: TODAY }).length) return 'sugestões vazias sem rede'
     return null
   })
 
