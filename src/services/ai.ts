@@ -783,6 +783,20 @@ function resolveLocal(s: AppState, input: string): AiReply {
     return { text: `Seu melhor dia nos últimos 30 dias foi ${fromISO(best.date).toLocaleDateString('pt-BR')}, com lucro de ${fmtBRL(best.profit)} (${fmtBRL(best.income)} de receitas).` }
   }
 
+  // "quanto eu COSTUMO gastar de suco por dia?" — a pergunta é sobre o hábito,
+  // não sobre o total do período, e o nome da coisa é o DELE: o motorista que
+  // chama combustível de "suco" não é atendido por uma lista de palavras do
+  // app. Quem sabe o que é "suco" é o histórico dele.
+  const habitualM = t.match(
+    /quanto\s+(?:eu\s+)?(?:costumo|costuma|normalmente|geralmente|em m[ée]dia)\s*(?:gast\w+|pag\w+|torr\w+)?\s*(?:de|com|em|n[oa]s?)\s+([\wçãõáéíóú\s]+?)\s*(?:por\s+(dia|semana|m[eê]s)|\?|$)/,
+  )
+  if (habitualM) {
+    const alvo = habitualM[1].trim()
+    const escala = habitualM[2] || 'mes'
+    const resposta = habitualSpending(s, alvo, escala)
+    if (resposta) return { text: resposta }
+  }
+
   // "quanto gastei com gasolina esse mês" / "quanto perco por mês com gasolina"
   const spentM = t.match(/quanto\s+(?:eu\s+)?(?:ja\s+)?(?:gastei|gasto|perco|perdi|torrei)\s*(?:por m[eê]s)?\s*(?:com|de|em)\s+([\wçãõáéíóú\s]+?)(?:\s+(?:esse|este|nesse|neste)?\s*(m[eê]s|semana|hoje|ano)|\?|$)/)
   if (spentM) {
@@ -962,6 +976,59 @@ function resolveLocal(s: AppState, input: string): AiReply {
       : 'Posso te ajudar com coisas como:\n\n• "recebi 1800 de aluguel"\n• "gastei 250 no mercado"\n• "meu saldo é 3200"\n• "como está meu mês?"\n• "quanto posso guardar este mês?"\n• "tenho saldo para as próximas contas?"\n• "qual foi minha maior despesa?"\n\nOu me faça outra pergunta que eu tento responder.',
     handled: false,
   }
+}
+
+/**
+ * "Quanto eu costumo gastar em X?" respondido com o vocabulário do usuário.
+ *
+ * O alvo é resolvido em duas tentativas, nesta ordem: o nome de uma categoria
+ * que ele tem, e depois o que o HISTÓRICO dele diz que aquela palavra é. É a
+ * segunda que atende quem chama combustível de "suco" ou a padaria de "padoca
+ * da Rita" — nenhuma lista de palavras do app conhece esses nomes.
+ *
+ * Devolve `undefined` quando não há base: somar zero e chamar de hábito seria
+ * inventar um número com cara de dado real.
+ */
+function habitualSpending(s: AppState, alvo: string, escala: string): string | undefined {
+  if (alvo.length < 3 || !adaptiveEnabled(s)) return undefined
+  const hoje = todayISO()
+  const from = addDays(hoje, -29)
+  const alvoNorm = normalizeQuestion(alvo)
+
+  const porNome = s.categories.find(c => !c.archived && c.type === 'expense'
+    && normalizeQuestion(c.name) === alvoNorm)
+  const aprendida = buildPersonalModel(s, hoje).categoryFor(alvo, 'expense')
+  // A pergunta é específica demais para cair no texto genérico de ajuda: se
+  // não há base, o certo é dizer isso, não somar zero e chamar de hábito.
+  const semBase = `Ainda não tenho lançamentos com esse nome nos últimos 30 dias, então não sei dizer quanto você costuma gastar com ${sentenceCase(alvo)}.\n\n`
+    + 'Registre algumas vezes ("gastei 40 na padoca da Rita") que eu passo a responder com os seus números.'
+
+  const cat = porNome?.id || aprendida?.value
+  if (!cat) return semBase
+
+  // O recorte por DESCRIÇÃO é mais fiel quando o alvo é um lugar: quem pergunta
+  // pela padoca não quer o total de alimentação. Só cai na categoria inteira
+  // quando o nome citado É o nome de uma categoria.
+  const porDescricao = !porNome
+  const txs = s.transactions.filter(x => x.type === 'expense' && x.date >= from
+    && (porDescricao
+      ? normalizeQuestion(x.description || '').includes(alvoNorm)
+        || normalizeQuestion(alvo).includes(normalizeQuestion(x.description || '')) && !!x.description
+      : x.category === cat))
+  if (!txs.length) return semBase
+
+  const total = txs.reduce((a, x) => a + x.amount, 0)
+  const diasComGasto = new Set(txs.map(x => x.date)).size
+  const nome = catById(s.categories, cat).name
+  const rotulo = porNome ? nome : `${sentenceCase(alvo)} (${nome})`
+  const divisor = escala === 'dia' ? 30 : escala === 'semana' ? 30 / 7 : 1
+  const unidade = escala === 'dia' ? 'por dia' : escala === 'semana' ? 'por semana' : 'por mês'
+
+  return `${rotulo}: você gastou ${fmtBRL(total)} nos últimos 30 dias, em ${txs.length} lançamentos `
+    + `espalhados por ${diasComGasto} ${diasComGasto === 1 ? 'dia' : 'dias'} (dado real).\n\n`
+    + `• Média: ${fmtBRL(total / divisor)} ${unidade}\n`
+    + `• Por vez que você lança: ${fmtBRL(total / txs.length)}\n\n`
+    + 'São os seus lançamentos do período, não uma média genérica.'
 }
 
 /** Motor de resposta local com marcação de confiança (handled). */

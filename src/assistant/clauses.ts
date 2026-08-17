@@ -319,7 +319,12 @@ export function extractOrigins(originalClause: string): { value: string; at: num
     out.push({ value: v.replace(/\s+/g, ' ').trim(), at: start })
   }
 
-  for (const m of originalClause.matchAll(new RegExp(String.raw`\bd[ao]s?\s+((?:${ORIGIN_NOUNS})\s+[\wçãõáéíóúâê\d]+)`, 'gi'))) {
+  // O identificador pode vir ligado por preposição: "kitnet DO fundo", "casa DO
+  // meio", "loja DE roupas". Sem aceitar esse conector o casamento parava na
+  // própria preposição e a origem virava "kitnet do" — um nome truncado que
+  // ainda por cima não bate com a grafia guardada no histórico, fazendo o mesmo
+  // imóvel existir duas vezes.
+  for (const m of originalClause.matchAll(new RegExp(String.raw`\bd[ao]s?\s+((?:${ORIGIN_NOUNS})\s+(?:d[aeo]s?\s+)?[\wçãõáéíóúâê\d]+)`, 'gi'))) {
     if (m.index !== undefined) add(m[1], m.index, m.index + m[0].length)
   }
   for (const m of originalClause.matchAll(

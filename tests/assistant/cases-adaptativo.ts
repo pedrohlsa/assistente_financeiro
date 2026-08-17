@@ -148,6 +148,21 @@ const semanaDeMotorista = {
   })),
 }
 
+/**
+ * "Quanto eu costumo gastar em X" olha os últimos 30 dias pelo RELÓGIO REAL
+ * (`resolveLocal`, regra 35), então estes dois cenários precisam de datas
+ * relativas a hoje — com data fixa eles envelheciam para fora da janela.
+ */
+const sucoRecente = Array.from({ length: 4 }, (_, i) => ({
+  id: `sr${i}`, type: 'expense', amount: 90 + i, category: 'combustivel',
+  description: 'Suco', date: addDays(todayISO(), -(i + 2)),
+}))
+
+const padocaRecente = Array.from({ length: 6 }, (_, i) => ({
+  id: `pd${i}`, type: 'expense', amount: 15, category: 'alimentacao',
+  description: 'Padoca da Rita', date: addDays(todayISO(), -(i + 1)),
+}))
+
 /** Três dias soltos: existe registro, mas não existe padrão semanal. */
 const tresDiasDeMotorista = {
   transactions: Array.from({ length: 3 }, (_, i) => ({
@@ -342,12 +357,56 @@ export const ADAPTATIVO: AssistantCase[] = [
     expectActions: [{ kind: 'income', amount: 1800, origin: /^Casa 1$/ }],
   },
 
+  {
+    id: 'ad-40', group: 'adaptativo', ...autonomo,
+    state: {
+      transactions: Array.from({ length: 4 }, (_, i) => ({
+        id: `kn${i}`, type: 'income', amount: 1200, category: 'aluguel',
+        description: 'Aluguel', origin: 'Kitnet do fundo', date: `2026-07-0${i + 1}`,
+      })) as any,
+    },
+    // "da kitnet do fundo" virava a origem "kitnet do": o identificador depois
+    // do substantivo de fonte parava na primeira palavra, e ela era o
+    // conector. Além de guardar um nome truncado, isso quebrava o
+    // reconhecimento da grafia — "kitnet do" não é "Kitnet do fundo", então o
+    // imóvel passava a existir duas vezes no histórico.
+    messages: ['recebi 1200 da kitnet do fundo'],
+    expectActions: [{ kind: 'income', amount: 1200, origin: /^Kitnet do fundo$/ }],
+  },
+
   // ----- Clientes diferentes, a MESMA frase --------------------------------
   {
     id: 'ad-17', group: 'adaptativo', ...driver, state: motoristaDoSuco,
     // Para ele "suco" é combustível. A lista genérica diria alimentação.
     messages: ['gastei 100 de suco'],
     expectActions: [{ kind: 'expense', amount: 100, category: 'combustivel' }],
+  },
+  {
+    id: 'ad-41', group: 'adaptativo', ...driver, state: { transactions: sucoRecente as any },
+    // Ele chama combustível de "suco". Perguntar quanto costuma gastar DE SUCO
+    // caía no resumo do dia inteiro, porque a resposta de combustível só
+    // conhecia as palavras do dicionário do app. Quem sabe o que é "suco" é o
+    // histórico dele.
+    messages: ['quanto eu costumo gastar de suco por dia?'],
+    expectNoActions: true,
+    expectReply: [/combust[íi]vel/i, /4 lan[çc]amentos|4 registros/i],
+    forbidReply: [/faturamento|jornada/i],
+  },
+  {
+    id: 'ad-42', group: 'adaptativo', ...other,
+    state: { transactions: padocaRecente as any },
+    // A mesma pergunta fora do perfil motorista, com o nome de um lugar.
+    messages: ['quanto eu costumo gastar na padoca da rita?'],
+    expectNoActions: true,
+    expectReply: [/padoca/i, /6 lan[çc]amentos|6 registros/i],
+  },
+  {
+    id: 'ad-43', group: 'adaptativo', ...other,
+    // Sem histórico daquilo, o app diz que não sabe em vez de somar zero.
+    messages: ['quanto eu costumo gastar na padoca da rita?'],
+    expectNoActions: true,
+    expectReply: [/ainda n[ãa]o|n[ãa]o encontrei|n[ãa]o tenho/i],
+    forbidReply: [/R\$ 0,00 por dia/i],
   },
   {
     id: 'ad-18', group: 'adaptativo', ...clt, state: cltDoMercado,
