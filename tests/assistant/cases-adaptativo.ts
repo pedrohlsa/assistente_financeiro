@@ -23,6 +23,7 @@
 // 17/08/2026, e o número é o rastro dessa origem.
 
 import type { AssistantCase } from './harness'
+import { addDays, todayISO } from '../../src/utils/format'
 
 const other = { profile: 'other' as const }
 const driver = { profile: 'driver' as const }
@@ -111,6 +112,51 @@ const habitoQueMudou = {
     { id: 'h7', type: 'expense', amount: 38, category: 'lazer', description: 'Bar do Tião', date: '2026-01-08' },
     { id: 'h8', type: 'expense', amount: 44, category: 'lazer', description: 'Bar do Tião', date: '2026-01-09' },
   ],
+}
+
+/**
+ * Oito dias reais de motorista: receita por plataforma, combustível e as
+ * sessões de trabalho com km, horas e viagens. É a base de tudo que o app pode
+ * afirmar sobre o ritmo dele — e do que ele NÃO pode afirmar sem isso.
+ *
+ * As datas saem de `todayISO()`, não da data fixa do corpus, porque estas
+ * perguntas passam por `resolveLocal`, que usa o RELÓGIO REAL da máquina
+ * (regra 35). Com datas fixas o cenário envelhecia para fora da janela de 30
+ * dias e o teste passava a medir a passagem do tempo, não o comportamento.
+ */
+const DIAS_RODADOS = 21
+const diaDeTrabalho = (i: number) => addDays(todayISO(), -(DIAS_RODADOS - i))
+const rodados = <T>(f: (i: number) => T): T[] => Array.from({ length: DIAS_RODADOS }, (_, i) => f(i))
+
+const semanaDeMotorista = {
+  transactions: [
+    ...rodados(i => ({
+      id: `u${i}`, type: 'income', amount: 180 + (i % 7) * 5, category: 'corridas',
+      description: 'Uber', date: diaDeTrabalho(i),
+    })),
+    ...rodados(i => ({
+      id: `n${i}`, type: 'income', amount: 110 + (i % 7) * 3, category: 'corridas',
+      description: '99', date: diaDeTrabalho(i),
+    })),
+    ...rodados(i => ({
+      id: `g${i}`, type: 'expense', amount: 70, category: 'combustivel',
+      description: 'Gasolina', date: diaDeTrabalho(i),
+    })),
+  ],
+  workSessions: rodados(i => ({
+    id: `w${i}`, date: diaDeTrabalho(i), km: 150 + (i % 7) * 8, hours: 9, trips: 18 + (i % 7),
+  })),
+}
+
+/** Três dias soltos: existe registro, mas não existe padrão semanal. */
+const tresDiasDeMotorista = {
+  transactions: Array.from({ length: 3 }, (_, i) => ({
+    id: `t${i}`, type: 'income', amount: 300, category: 'corridas',
+    description: 'Uber', date: addDays(todayISO(), -(3 - i)),
+  })),
+  workSessions: Array.from({ length: 3 }, (_, i) => ({
+    id: `tw${i}`, date: addDays(todayISO(), -(3 - i)), km: 160, hours: 9, trips: 20,
+  })),
 }
 
 /** Histórico fossilizado: quatro lançamentos de seis anos atrás. */
@@ -420,6 +466,70 @@ export const ADAPTATIVO: AssistantCase[] = [
     messages: ['ganhei 3000 hoje', 'por que você acha esse valor estranho?'],
     expectNoActions: true,
     expectReply: [/10 [úu]ltimos/i, /corridas/i],
+  },
+
+  // ----- Motorista: o que É típico DELE, com a amostra à vista ------------
+  {
+    id: 'ad-30', group: 'adaptativo', ...driver, state: semanaDeMotorista,
+    // "Quanto eu costumo fazer por dia?" caía no texto genérico de ajuda,
+    // que é a pergunta mais óbvia de quem roda o dia inteiro.
+    messages: ['quanto eu costumo fazer por dia?'],
+    expectNoActions: true,
+    expectReply: [/21 dias/i, /dado real|realizado/i],
+    forbidReply: [/posso te ajudar com coisas como/i],
+  },
+  {
+    id: 'ad-31', group: 'adaptativo', ...driver, state: semanaDeMotorista,
+    messages: ['quais são meus dias mais fortes?'],
+    expectNoActions: true,
+    expectReply: [/(segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado|domingo)/i],
+    forbidReply: [/posso te ajudar com coisas como/i],
+  },
+  {
+    id: 'ad-32', group: 'adaptativo', ...driver, state: semanaDeMotorista,
+    // Uber, 99 e privada na mesma semana: de onde vem o dinheiro dele.
+    messages: ['de onde vem mais dinheiro, uber ou 99?'],
+    expectNoActions: true,
+    expectReply: [/uber/i, /99/i],
+    forbidReply: [/posso te ajudar com coisas como/i],
+  },
+  {
+    id: 'ad-33', group: 'adaptativo', ...driver,
+    // Sem amostra o app CALA em vez de inventar média — e diz o que registrar
+    // para a conta passar a existir.
+    messages: ['quanto eu costumo fazer por dia?'],
+    expectNoActions: true,
+    expectReply: [/ainda n[ãa]o tenho|registre/i],
+    forbidReply: [/R\$ 0,00\s*por dia/i],
+  },
+  {
+    id: 'ad-34', group: 'adaptativo', ...clt,
+    // A mesma pergunta em perfil CLT não pode responder com dado de
+    // motorista (regra 3).
+    messages: ['quais são meus dias mais fortes?'],
+    expectNoActions: true,
+    forbidReply: [/km|gasolina|hod[oô]metro|corrida|viagem/i],
+  },
+  {
+    id: 'ad-35', group: 'adaptativo', ...driver, state: tresDiasDeMotorista,
+    // Três dias soltos dão UM registro por dia da semana. Ranquear terça
+    // contra quinta com uma observação cada é ruído com cara de padrão —
+    // "Sábado: R$ 328,00 por dia (1 dia nessa amostra)" é uma afirmação que o
+    // dado não sustenta. O app precisa dizer que ainda não sabe.
+    messages: ['quais são meus dias mais fortes?'],
+    expectNoActions: true,
+    expectReply: [/ainda n[ãa]o|mais algumas semanas|poucos dias/i],
+    forbidReply: [/\(1 dia nessa amostra\)/i],
+  },
+  {
+    id: 'ad-36', group: 'adaptativo', ...driver, state: tresDiasDeMotorista,
+    // "Seu normal nos 30 dias anteriores: R$ 254,00 (2 dias)" comparava a
+    // semana com uma base de dois dias e ainda chamava isso de normal. Sem
+    // base para comparar, o certo é dizer que ainda não dá.
+    messages: ['essa semana está melhor que o normal?'],
+    expectNoActions: true,
+    expectReply: [/ainda n[ãa]o|n[ãa]o d[áa] para comparar/i],
+    forbidReply: [/acima do seu normal|abaixo do seu normal/i],
   },
 
   // ----- O aviso de padrão é por CATEGORIA, não pelo total ----------------

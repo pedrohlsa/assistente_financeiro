@@ -20,6 +20,7 @@ import {
   monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections, budgetUsage,
 } from './calc'
 import { describeAction, parseNaturalFull } from './nlp'
+import { driverInsight } from '../assistant/driverInsights'
 import { catById } from '../data/categories'
 import { isDriver } from './profile'
 import {
@@ -922,6 +923,15 @@ function resolveLocal(s: AppState, input: string): AiReply {
         `Na prática: corrida de 5 km vale a partir de ${fmtBRL(min * 5)}; de 10 km, ${fmtBRL(min * 10)}.` +
         (usouInformado ? '' : `\n\nDica: registre um abastecimento com o km do hodômetro que eu calculo isso com o consumo real do seu carro.`),
     }
+  }
+
+  // O ritmo DELE: ganho típico por dia, dias mais fortes, de onde vem o
+  // dinheiro, tendência contra o próprio normal. Fica por último entre as
+  // respostas de motorista porque as perguntas acima são mais específicas —
+  // "quanto gastei com gasolina esse mês" pede um total, não um padrão.
+  if (driverMode) {
+    const insight = driverInsight(s, input)
+    if (insight) return { text: insight }
   }
 
   // Se o parser achou ações mas parecia pergunta, ofereça registro
