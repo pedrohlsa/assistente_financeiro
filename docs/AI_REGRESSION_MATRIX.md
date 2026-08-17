@@ -15,13 +15,14 @@
 > - `tests/assistant/cases-registro-real.ts` — **68 casos** de REGISTRO em fala real
 >   (resultado do dia do motorista, gíria de dinheiro, typo, valor sem verbo, dois dias
 >   na mesma mensagem);
-> - `tests/assistant/cases-adaptativo.ts` — **9 casos** do que o app aprende com o próprio
->   usuário (categoria, grafia e ordem de grandeza);
-> - `tests/assistant/properties.ts` — **62 invariantes financeiras e de segurança**;
+> - `tests/assistant/cases-adaptativo.ts` — **43 casos** do que o app aprende com o próprio
+>   usuário (vocabulário, grafia, recência, clientes isolados, explicabilidade e o ritmo do
+>   motorista);
+> - `tests/assistant/properties.ts` — **74 invariantes financeiras e de segurança**;
 > - `npm run test:assistant` — roda tudo offline, com data fixa, contra o orquestrador real.
 >
-> **Resultado da última execução (13/08/2026, branch `feat/assistant-orchestrator`):
-> 486/486 casos e 62/62 invariantes.**
+> **Resultado da última execução (17/08/2026, branch `feat/assistant-orchestrator`):
+> 520/520 casos e 74/74 invariantes.**
 >
 > ⚠️ **100% aqui não significa "a IA está correta".** Na rodada adversarial, 8 dos 17 bugs só
 > apareceram no navegador com mensagem real. Na rodada de 13/08/2026 repetiu-se o padrão por
@@ -71,7 +72,7 @@ Os grupos correspondem assim:
 | 10 motorista | `motorista`, `motorista2`, `perfil` |
 | 11 ambiguidades e correções | `ambiguidade`, `correcoes`, `correcoes2`, `multiturno` |
 | 12 conversacional | `conversa`, `conversa2`, `incompletas` |
-| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 62 invariantes |
+| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 74 invariantes |
 | 14 datas futuras, inválidas e períodos | `temporal` (43 casos) |
 | 15 desfazer o último lote | `undo` (14 casos) |
 | 16 corrigir lançamento já salvo | `edicao` (17 casos) |
@@ -316,7 +317,7 @@ Auditoria da DeepSeek:
 
 O quadro abaixo é o retrato **histórico anterior** à reformulação, mantido para
 explicar de onde o trabalho partiu. O estado executável atual é
-**486/486 casos e 62/62 invariantes**.
+**520/520 casos e 74/74 invariantes**.
 
 | Situação | Casos |
 |---|---|
@@ -359,3 +360,48 @@ fatura reaberto, ocorrência recorrente devolvida a pendente, recusa de lote sem
 duplo undo, ausência de órfãos, undo que não vira lote novo, tipo preservado na correção,
 correção auditável e reversível, template de recorrente intocado e bloqueio de
 `edit-transaction`/`undo-batch` no canal remoto.
+
+---
+
+## 17. Camada adaptativa (17/08/2026)
+
+Fonte de verdade: `tests/assistant/cases-adaptativo.ts` (43 casos) e as invariantes 63–74.
+
+Cada caso `ad-10` em diante nasceu de um defeito REAL, reproduzido numa sonda descartável
+antes de existir correção. Os oito primeiros vieram da auditoria adversarial do mecanismo
+antigo; os últimos vieram de LER as respostas na rodada manual de 50 mensagens — nenhum
+deles apareceria só rodando o corpus.
+
+| Grupo | Casos | Regra protegida | Resultado |
+|---|---:|---|---|
+| Vocabulário do usuário | 4 | Frase repetida ensina; uma ocorrência não | ✅ |
+| Grafia canônica | 4 | Descrição e origem; nada de aproximação | ✅ |
+| Categoria arquivada | 1 | Nunca aplicada, e o lançamento nunca some | ✅ |
+| Recência | 3 | Hábito que mudou, fóssil de 2020, retorno ao antigo | ✅ |
+| Palavra genérica isolada | 2 | "casa" e "mercado" não identificam lugar | ✅ |
+| Clientes simulados | 5 | Mesma frase, históricos diferentes e opostos | ✅ |
+| Histórico contraditório | 1 | Sem maioria, ninguém decide | ✅ |
+| Aprendizado desligado | 2 | Comportamento genérico intacto | ✅ |
+| Histórico importado | 1 | Backup no fim da lista continua sendo lido | ✅ |
+| Aviso de valor | 3 | Por categoria; avisa, nunca bloqueia | ✅ |
+| Explicabilidade | 4 | Bate com o que foi feito; não cancela a proposta | ✅ |
+| Motorista adaptativo | 7 | Amostra à vista; sem base, cala; nada fora do perfil | ✅ |
+| Dinheiro contado duas vezes | 3 | `foi`/`deu`/`saiu` + plataforma | ✅ |
+| Origem com preposição | 1 | "da kitnet do fundo" não vira "kitnet do" | ✅ |
+| Hábito na palavra do usuário | 3 | "suco" = combustível; sem base, diz que não sabe | ✅ |
+| **Total** | **43** | | **43/43** |
+
+Invariantes 63–74 cobrem: isolamento entre estados de clientes diferentes (incluindo consultar
+um não alterar o outro), remoção de evidência removendo o aprendizado, categoria arquivada não
+derrubando o lançamento, aprendizado desligado sem efeito em valor/tipo/data/aviso, os dois
+lados da régua de recência (fóssil não decide, sazonal não é destruído), sugestão sem número e
+sem gênero inventado, explicação que não vira ação nem sai do aparelho, contexto remoto sem
+estabelecimento/cliente/journal, ausência de conhecimento de fábrica no bundle, funcionamento
+100% offline, e valor único que não vira receita e despesa ao mesmo tempo.
+
+**O que 43/43 NÃO prova.** Sete dos defeitos desta rodada só apareceram LENDO a resposta,
+com o corpus 100% verde: a explicação que contradizia o próprio app, a pergunta "por que" que
+cancelava a proposta na tela, o ranking de dia da semana com um dia por dia, "o seu normal"
+calculado sobre dois dias, a despesa gêmea de R$ 430 em "hoje foi 430 na uber", a origem
+truncada e o hábito perguntado com a palavra do usuário. Depois de mexer em qualquer coisa
+aqui, leia as respostas (regra 35).

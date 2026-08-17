@@ -1,7 +1,8 @@
 # AssistFin — Estado do Projeto
 
-**Última atualização**: 2026-07-29 — auditoria reversível, edição validada da proposta,
-"desfaz o último" e correção de lançamento salvo. Ver a última seção.
+**Última atualização**: 2026-08-17 — rodada ADAPTATIVA: modelo pessoal derivado com
+evidência, confiança e recência; explicabilidade; ritmo do motorista; chave para
+desligar. Ver a última seção.
 
 > **Aviso de leitura**: as seções datadas abaixo são um diário — cada uma registra o que era
 > verdade **naquela data** e não é reescrita depois. Para o estado atual verificado, use
@@ -2383,3 +2384,144 @@ No navegador, com dez dias de R$ 260–368 e quatro lançamentos "Zé da esquina
 - "ganhei 3000 hoje" → ⚠️ "Bem acima do seu normal — você costuma lançar perto de
   R$ 314,00. Confere se não sobrou um zero."
 - atalho → "Qual foi o valor?" → "35" → "Despesa de R$ 35,00 (alimentacao) — Zé da esquina"
+
+---
+
+# 2026-08-17 — Rodada ADAPTATIVA: o assistente que conhece o cliente
+
+**Ponto de partida**: `9a882fa`, 486/486 casos, 62/62 invariantes, árvore limpa,
+contrato do assistente v1.
+**Chegada**: 520/520 casos, 74/74 invariantes, oito commits de código, sem push, sem
+deploy, sem APK.
+
+## Fase 1 — auditoria adversarial ANTES de melhorar
+
+O aprendizado de `learning.ts` já existia e funcionava para os casos que tinham sido
+imaginados. Antes de expandir, foi escrita uma sonda descartável só para quebrá-lo — e
+ela quebrou em oito pontos, todos reproduzidos e LIDOS antes de existir qualquer
+correção.
+
+O pior deles não era sutil: **categoria arquivada engolia o lançamento inteiro**. O
+usuário usava "lazer" quatro vezes no Clube e depois arquivava a categoria; o
+aprendizado propunha "lazer", `validateAction` recusava por categoria inexistente nas
+capacidades, e o gasto sumia com "Não tenho certeza do que registrar aqui". Aprender
+destruía um registro que funcionava sem aprender nada. A causa: `buildCapabilities`
+filtrava arquivadas e o aprendizado usava outro filtro ("a categoria existe?"). Virou
+`usableCategories()`, fonte única.
+
+Os outros sete: histórico de janeiro ganhando de julho por contagem crua; quatro
+lançamentos de 2020 decidindo um gasto de 2026; a palavra "casa" de "Conta de luz da
+casa" contaminando "comida na casa da minha mãe" com evidência FORTE; "Mercado livre"
+ensinando o que é "mercado"; origem sem grafia canônica ("casa 1" ao lado de "Casa 1");
+sugestões dizendo "gastei no gasolina" e "Quanto falta pra minha notebook"; e nenhuma
+explicação nem chave para desligar.
+
+## Fases 2–4 — modelo pessoal derivado
+
+`personalModel.ts` constrói, `learning.ts` aplica, `suggestions.ts` sugere,
+`explain.ts` explica, `driverInsights.ts` mede o motorista. Cinco módulos, um trabalho
+cada — a alternativa era um `learning.ts` gigante onde ninguém sabe mais o que decide o
+quê.
+
+Tudo derivado de `state.transactions`, como o journal por diferença de estado. Isso não
+é economia de código, é o que faz a fase 5 (feedback real) existir **sem nenhuma linha
+de código de feedback**: confirmar reforça porque a transação entra no estado; editar
+antes de confirmar ensina a versão corrigida porque é ela que é salva; corrigir
+lançamento salvo atualiza o padrão; desfazer e apagar removem a evidência; cancelar não
+ensina nada porque nada foi salvo. Um armazenamento paralelo precisaria de cinco
+handlers e desincronizaria no primeiro que faltasse.
+
+**Recência com piso** (regra 40): peso cai pela metade a cada 90 dias, nunca abaixo de
+15%. Sem decaimento, o hábito que mudou nunca valia; sem piso, o padrão sazonal seria
+destruído fora da estação. A primeira tentativa não resolveu o caso `ad-11`: três
+lançamentos de julho contra cinco de janeiro davam 63% de confiança — evidência demais
+para ignorar, de menos para discordar do app. A saída foi medir a confiança DUAS vezes,
+no histórico inteiro e na janela de 120 dias, e bastar uma convencer.
+
+**A frase identifica, a palavra genérica não** (regra 41): chaves em três níveis (texto
+inteiro, n-grama de 2 a 3 palavras, palavra própria), e palavra de classe só conta
+dentro de uma frase. O caso `ad-03` (o usuário insiste que "Mercado" é Compras) e o
+`ad-15` ("Mercado livre" não ensina o que é "mercado") parecem contraditórios e não
+são: no primeiro a FRASE INTEIRA coincide, no segundo só a palavra genérica. Foi essa
+distinção que permitiu bloquear o token sem perder o aprendizado legítimo.
+
+Dois candidatos fortes disputando a mesma frase passaram a PERGUNTAR, com as opções
+carregando o lote pronto: "Você lança Quiosque tanto em Compras quanto em Lazer. Qual é
+desta vez?".
+
+## Fase 12 — 50 mensagens, quatro perfis, e o que só aparece lendo
+
+Sete cenários, 54 mensagens: motorista veterano com vocabulário próprio, motorista
+novato sem nada, autônomo de imóveis, CLT que mudou de hábito, perfil `other` com
+entidade ambígua, o mesmo cliente com o aprendizado desligado, e fala transcrita sem
+pontuação. Cada resposta foi lida.
+
+**Sete defeitos que o corpus 100% verde não mostrava:**
+
+1. **A explicação contradizia o app.** "gastei 50 no mercado" saía em Compras por causa
+   do histórico e a explicação dizia "essa veio das palavras da mensagem, não do seu
+   histórico". A decisão estava sendo reavaliada sobre a ação que JÁ tinha a categoria
+   aplicada.
+2. **Perguntar "por que" cancelava a proposta na tela.** Toda resposta sem ação zerava a
+   proposta pendente. `keepPending` marca a exceção.
+3. **Ranking de dia da semana com UM dia por dia da semana.** "Sábado: R$ 328,00 (1 dia
+   nessa amostra)" é ruído com cara de padrão.
+4. **"Seu normal nos 30 dias anteriores" calculado sobre dois dias**, e o resultado saía
+   como "13% acima do seu normal".
+5. **`hoje foi 430 na uber e 380 na 99` propunha receita E despesa de 430.** Defeito
+   ANTIGO do parser, sem relação nenhuma com o aprendizado: `foi` é verbo de despesa e
+   `driverDayResult` só converte a despesa fraca quando ela é a única ação monetária da
+   frase. O dia do motorista zerava. A invariante 74 achou a segunda forma do mesmo
+   defeito — `hoje saiu 250 na 99` produzia a gêmea SEM descrição, e a primeira versão
+   do conserto exigia descrição igual.
+6. **`da kitnet do fundo` virava a origem `kitnet do`** — o identificador parava na
+   preposição. Além do nome truncado, o imóvel passava a existir duas vezes no
+   histórico.
+7. **`quanto eu costumo gastar de suco por dia?` respondia com o resumo do dia inteiro.**
+   O motorista que chama combustível de "suco" é literalmente o cliente simulado que a
+   fase 12 exigia, e a resposta de combustível só conhecia as palavras do dicionário do
+   app.
+
+Dois cenários do corpus passaram a montar datas com `todayISO()`: estas perguntas
+atravessam `resolveLocal`, que usa o RELÓGIO REAL da máquina (regra 35), e com data fixa
+o cenário envelhecia para fora da janela de 30 dias.
+
+## Commits
+
+| Commit | O quê |
+|---|---|
+| `349889d` | test: casos vermelhos da auditoria adversarial do aprendizado |
+| `99bf27c` | feat: modelo pessoal com evidência, confiança e recência |
+| `5542e02` | feat: sugestões contextuais, neutras e honestas sobre o que fazem |
+| `1cf9e2c` | feat: o assistente explica o que aprendeu, e a chave é do usuário |
+| `dcf35ec` | feat: o ritmo do motorista, medido no histórico dele |
+| `3c55437` | feat: contexto remoto agregado, com o pessoal ficando no aparelho |
+| `22e041a` | fix: o dia do motorista contado duas vezes, com sinais opostos |
+| `93ec8b5` | fix: origem truncada e o hábito perguntado com a palavra do usuário |
+| (docs) | CLAUDE.md 39-45, CONTEXT.md, CONTEXTO.md, AI_CURRENT_STATE, AI_REGRESSION_MATRIX |
+
+## Verificação
+
+`npm test` 520/520 + 74/74 · `npm run typecheck` e `typecheck:api` exit 0 ·
+`npm run build` e `npx vercel build --prod` exit 0 · bundle inspecionado (sem chave, sem
+nome de env server-only, sem código server-only, sem dado de teste) · smoke test no
+navegador em desktop e mobile 375x812, sem erro de console: aprendizado ligado e
+desligado, usuário novo, dois clientes isolados com a MESMA frase dando categorias
+opostas, sugestão contextual, explicação, correção depois da explicação, confirmação,
+undo, reload e troca de perfil sem vazar dado de motorista.
+
+## O que ficou de fora, e por quê
+
+- **Fase 13 (eval comparativo de modelos remotos) não foi executada.** Exige chamadas
+  pagas à API da DeepSeek, que não foram autorizadas. Nenhum modelo, preço ou retry foi
+  alterado — o briefing proíbe mexer nisso sem resultados, e não há resultados.
+- **Perguntas frequentes não alimentam as sugestões**: a fileira só aparece com
+  `state.chat` vazio, então não há histórico de perguntas para ler naquele momento.
+  Criar um armazenamento separado contradiria a decisão de tudo ser derivado.
+- **O assistente não liga nem desliga `adaptiveAssistant` por conversa** — ele diz onde
+  fica a chave. Mexer em configuração por conversa é a mesma classe de coisa que
+  registrar sem confirmar.
+- **Categoria dita explicitamente e categoria adivinhada pela lista genérica são
+  indistinguíveis** na saída do parser. Vale a decisão da regra 37.
+- **Erro de digitação no VERBO** (`gsatei 60 no merkado`) continua sem registro local —
+  é o limite conhecido de um parser determinístico.

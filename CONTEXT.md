@@ -5,7 +5,7 @@
 > **[FATO]** verificado no repo · **[INFERÊNCIA]** deduzido · **[PENDÊNCIA]** não feito.
 >
 > Fontes de verdade permanentes, mais detalhadas que este arquivo:
-> `CLAUDE.md` (regras 1–38), `CONTEXTO.md` (produto), `PROGRESS.md` (diário por rodada),
+> `CLAUDE.md` (regras 1–45), `CONTEXTO.md` (produto), `PROGRESS.md` (diário por rodada),
 > `docs/AI_CURRENT_STATE.md` e `docs/AI_REGRESSION_MATRIX.md` (IA). Este `CONTEXT.md`
 > resume e aponta para eles — em caso de divergência, o código vence.
 
@@ -34,14 +34,22 @@ via função serverless na Vercel.
 ## 2. Estado atual
 
 **[FATO] Tudo verde.**
-- Suíte: **486/486 casos + 62/62 invariantes** (rodado em 13/08/2026, `npm test`).
+- Suíte: **520/520 casos + 74/74 invariantes** (rodado em 17/08/2026, `npm test`).
 - `npm run typecheck` e `npm run typecheck:api`: exit 0.
-- `npm run build`: exit 0.
+- `npm run build` e `npx vercel build --prod`: exit 0. Bundle inspecionado: sem chave,
+  sem nome de env server-only, sem código server-only e sem dado de teste.
 - Produção Vercel no ar: `https://assist-fin.vercel.app` (app HTTP 200, endpoint de IA
   respondendo com o contrato v1).
 - APK debug gerado e entregue ao usuário nesta sessão (para o tio).
 
-**Onde o desenvolvimento parou (13/08/2026):** vinte e dois commits em cinco rodadas de
+**Onde o desenvolvimento parou (17/08/2026):** a rodada ADAPTATIVA. O assistente passou a
+ter um modelo pessoal derivado com evidência, confiança e recência
+(`src/assistant/personalModel.ts`), a explicar as próprias decisões
+(`explain.ts`), a medir o ritmo do motorista no histórico dele
+(`driverInsights.ts`), e a oferecer a chave `settings.adaptiveAssistant` para desligar
+tudo isso. Ver as regras 37–45 do `CLAUDE.md` e a seção 7 deste arquivo.
+
+**Antes disso (13/08/2026):** vinte e dois commits em cinco rodadas de
 sondagem. Atacaram o REGISTRO em fala real (os quatro parsers pendentes e mais vinte
 defeitos que o corpus não achava), as perguntas que caíam no texto de ajuda, a correção de
 lançamento salvo, e dois plugins nativos novos (ditado por voz e exportação de arquivo, que
@@ -221,6 +229,54 @@ Duas frentes: 5 bugs de UI mobile + auditoria de qualidade da IA.
 
 ## 7. Pendências
 
+### Rodada ADAPTATIVA (17/08/2026) — o que mudou [FATO]
+
+Arquitetura em cinco módulos separados, cada um com um trabalho só:
+
+| Arquivo | Papel |
+|---|---|
+| `src/assistant/personalModel.ts` | CONSTRÓI o conhecimento: evidência, confiança, recência, chaves por frase |
+| `src/assistant/learning.ts` | APLICA à proposta: categoria, grafia, aviso de valor |
+| `src/assistant/suggestions.ts` | Fileira de sugestões, incluindo a lista educativa por perfil |
+| `src/assistant/explain.ts` | "Por que você fez isso?" e o controle do usuário |
+| `src/assistant/driverInsights.ts` | Ritmo do motorista, medido no histórico dele |
+
+Nada de armazenamento paralelo: tudo é derivado de `state.transactions`, então apagar o
+histórico apaga o aprendizado, corrigir um lançamento corrige o padrão, e desfazer um lote
+remove a evidência — sem uma linha de código de sincronização.
+
+**Defeitos do aprendizado antigo, todos reproduzidos numa sonda adversarial antes de
+existir correção:** categoria arquivada fazia o lançamento inteiro sumir; cinco lançamentos
+de janeiro ganhavam de três de julho; quatro lançamentos de 2020 decidiam um gasto de 2026;
+a palavra "casa" de "Conta de luz da casa" contaminava "comida na casa da minha mãe" com
+evidência forte; "Mercado livre" ensinava o que é "mercado"; origem não tinha grafia
+canônica; sugestões diziam "gastei no gasolina" e "minha notebook"; e não existia nem
+explicação nem chave para desligar.
+
+**Defeitos achados LENDO as respostas, que teste nenhum tinha visto:** a explicação
+contradizia o app ("essa veio das palavras da mensagem" para uma categoria vinda do
+histórico); perguntar "por que" cancelava a proposta na tela; o ranking de dia da semana
+ranqueava sábado com UM sábado; "seu normal nos 30 dias" era calculado sobre dois dias;
+`"hoje foi 430 na uber"` propunha receita E despesa de 430 (defeito antigo do parser, sem
+relação com o aprendizado); `"da kitnet do fundo"` virava a origem `"kitnet do"`; e
+`"quanto eu costumo gastar de suco por dia"` respondia com o resumo do dia inteiro.
+
+**Limitações honestas que ficaram:**
+- "Perguntas frequentes" como fonte de sugestão **não** foi implementado: as sugestões só
+  aparecem quando `state.chat` está vazio, então não há histórico de perguntas para ler
+  naquele momento. Criar um armazenamento separado contradiria a decisão de tudo ser
+  derivado.
+- O assistente **não** liga nem desliga `adaptiveAssistant` por conversa — ele explica onde
+  fica a chave. Mexer em configuração por conversa é a mesma classe de coisa que registrar
+  sem confirmar.
+- Categoria dita explicitamente na mensagem e categoria adivinhada pela lista genérica são
+  indistinguíveis na saída do parser. Vale a decisão da regra 37: histórico consistente e
+  forte ganha do palpite genérico.
+- Erro de digitação no VERBO (`gsatei 60 no merkado`) continua sem registro local — é o
+  limite conhecido de um parser determinístico.
+- O eval comparativo de modelos remotos (fase 13) **não foi executado**: exige chamadas
+  pagas à API, que não foram autorizadas. Nada de modelo, preço ou retry foi alterado.
+
 ### Pendências confirmadas (fora de escopo por decisão, documentadas) [FATO]
 - Editar por conversa a **estrutura** de parcelamento, cartão, meta, veículo e template de
   recorrência (só Transaction simples + ocorrência é suportado).
@@ -323,8 +379,11 @@ em teste manual isolado — não é bug de produção, é o fixture defasado.
 ## 9. Estado do Git
 
 - **Branch atual [FATO]:** `feat/assistant-orchestrator`.
-- **Último commit [FATO]:** `b148661 fix: saldo dito de outro jeito e gíria de guardar dinheiro`
-  (13/08/2026). Vinte e dois commits nesta rodada — ver `PROGRESS.md`.
+- **Último commit [FATO]:** rodada adaptativa de 17/08/2026 — nove commits, do
+  `349889d test: casos vermelhos da auditoria adversarial do aprendizado` em diante.
+  Ver `PROGRESS.md`.
+- **Antes [FATO]:** `b148661 fix: saldo dito de outro jeito e gíria de guardar dinheiro`
+  (13/08/2026), fim das cinco rodadas de sondagem.
 - **`main` [FATO]:** contém tudo mergeado (último merge `a8d9073`), em sincronia com `origin/main`.
 - **Commits locais não enviados [PENDÊNCIA]:** os desta rodada (a partir de `2a65d1e`)
   ainda NÃO foram enviados — o dono não autorizou push, deploy nem APK.

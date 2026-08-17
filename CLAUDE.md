@@ -234,19 +234,21 @@ código consulta essas funções em vez de comparar `profile === 'driver'` inlin
     confirme que ela existe no WebView** — no navegador tudo passa.
 
 37. **O assistente aprende com o usuário, e o aprendizado é DERIVADO.**
-    `src/assistant/learning.ts` lê o histórico que já existe em
-    `state.transactions` — não há campo novo, migração nem armazenamento
-    paralelo. Mesma decisão do journal por diferença de estado: dado derivado
-    não desincroniza, backup antigo carrega sem conversão, e apagar o histórico
-    apaga o aprendizado junto. Três coisas são aprendidas: a **categoria** que
-    ele usa para cada palavra (a lista genérica sempre erra em nome de lugar), a
-    **grafia** que ele já escreveu (senão "Ze" e "Zé" viram dois lugares e o
-    histórico se divide), e a **ordem de grandeza** dos valores dele. Limites
-    que não podem ser afrouxados sem caso novo: aprender exige REPETIÇÃO (2
-    vezes para preencher vazio, 3 e 75% para contrariar a lista genérica);
-    categoria aprendida passa por `validateAction` como qualquer outra e nunca
-    pode ser uma que o usuário não tem; e o aprendizado **só toca em categoria e
-    grafia** — nunca em valor, data ou tipo. Invariantes 61 e 62.
+    `src/assistant/personalModel.ts` constrói o conhecimento a partir do
+    histórico que já existe em `state.transactions`; `learning.ts` decide o que
+    fazer com ele. Não há campo novo, migração nem armazenamento paralelo —
+    mesma decisão do journal por diferença de estado: dado derivado não
+    desincroniza, backup antigo carrega sem conversão, apagar o histórico apaga
+    o aprendizado junto, e o estado de um cliente não tem como influenciar o de
+    outro porque não existe nada fora do estado. Três coisas são aprendidas: a
+    **categoria** que ele usa para cada frase (a lista genérica sempre erra em
+    nome de lugar), a **grafia** que ele já escreveu em descrição E origem
+    (senão "Ze" e "Zé" viram dois lugares e o histórico se divide), e a **ordem
+    de grandeza** dos valores dele. Limites que não podem ser afrouxados sem
+    caso novo: categoria aprendida passa por `validateAction` como qualquer
+    outra e nunca pode ser uma que o usuário não tem ou **arquivou**; e o
+    aprendizado **só toca em categoria e grafia** — nunca em valor, data, tipo
+    ou origem informada. Invariantes 61–67 e 70–74.
 38. **Valor fora do padrão AVISA, nunca bloqueia.** Quem lança R$ 300 por dia há
     dez dias e digita R$ 3.000 quase certamente pôs um zero a mais — mas o dia
     excepcional existe, e barrá-lo seria pior que o erro. O aviso
@@ -254,6 +256,71 @@ código consulta essas funções em vez de comparar `profile === 'driver'` inlin
     a ação segue confirmável. A comparação é sempre com o MESMO tipo e a MESMA
     categoria (o padrão de combustível não diz nada sobre o de aluguel), e sem
     amostra suficiente o app CALA: sem base, alarmar é chutar.
+
+39. **A hierarquia do aprendizado é fixa, e ele ocupa o penúltimo degrau.**
+    (1) regra financeira e segurança; (2) validação determinística; (3) o que o
+    usuário disse NESTA mensagem; (4) preferência confirmada por ele; (5) padrão
+    histórico com evidência; (6) lista genérica do app; (7) IA remota, só para o
+    que sobrou. O aprendizado é o nível 5 e **jamais** ganha de 1–3. Traduzido em
+    código: `EvidenceStrength` tem quatro degraus e só `strong` preenche um campo
+    VAZIO, só `overriding` contraria o palpite da lista genérica, `moderate` só
+    aparece em sugestão e explicação, e `none` não é usado. Aprendizado pode
+    ordenar opções, preencher categoria vazia, restaurar grafia, gerar sugestão,
+    emitir aviso e formular esclarecimento. Não pode registrar, alterar valor,
+    data ou tipo, criar taxa, escolher cartão, pagar fatura, desfazer, apagar,
+    mexer no histórico, nem escolher entre entidades ambíguas sem perguntar.
+40. **Recência tem peso, o passado tem piso.** O peso de uma ocorrência cai pela
+    metade a cada 90 dias e **nunca abaixo de 15%**. Os dois lados importam:
+    sem decaimento, cinco lançamentos de janeiro ganhavam de três de julho e o
+    hábito que mudou nunca valia; sem piso, um padrão sazonal seria destruído
+    fora da estação. A confiança é medida DUAS vezes — no histórico inteiro e na
+    janela de 120 dias — e basta uma das leituras convencer, senão a mudança de
+    hábito ficava eternamente em ~63%: evidência demais para ignorar e de menos
+    para discordar do app. O histórico é ordenado por DATA antes de cortar:
+    `mergeState` anexa backup no fim da lista, e cortar por posição lia "os mais
+    recentemente digitados". Invariante 67.
+41. **A frase identifica, a palavra genérica não.** As chaves de reconhecimento
+    têm três níveis — texto inteiro, n-grama de 2 a 3 palavras, e palavra
+    própria — e o mais específico que tiver evidência decide sozinho. Palavra de
+    CLASSE (`casa`, `mercado`, `posto`, `corrida`, `gasolina`…) só conta dentro
+    de uma frase: sozinha ela fazia "Conta de luz da casa" ensinar o que é
+    "comida na casa da minha mãe". **Nenhuma aproximação fuzzy**: ou o texto é o
+    mesmo ignorando acento e caixa, ou não é o mesmo lugar. Dois candidatos
+    fortes disputando a mesma frase PERGUNTAM, com as opções carregando o lote
+    pronto — nunca sorteiam nem descartam os dois.
+42. **O usuário pode perguntar por quê, e pode desligar.**
+    `src/assistant/explain.ts` responde local e deterministicamente: por que
+    essa categoria, por que esse valor é estranho, o que você aprendeu sobre
+    mim, quantas vezes eu fiz isso, qual período você usa, pare de usar meu
+    histórico. Explicar é sempre `mode: 'answer'` com zero ações, nunca vai à IA
+    remota (explicação inventada sobre o raciocínio do app é pior que nenhuma) e
+    **não consome a proposta na tela** — `keepPending` existe porque perguntar
+    não é cancelar, e a frase seguinte ainda fala do mesmo lançamento.
+    `settings.adaptiveAssistant?: boolean` (ausente = LIGADO) desliga a camada
+    pessoal e mais nada: parser, validação, valor, data e tipo continuam
+    idênticos, e nada já gravado muda. O assistente **não mexe nessa chave
+    sozinho** — ele diz onde ela fica. Invariantes 66 e 70.
+43. **Sem amostra, o app CALA — e diz o que registrar.** Vale para o modelo
+    pessoal e para as métricas do motorista (`driverInsights.ts`): "você faz
+    R$ 0,00 por dia" com zero dias registrados é mentira com número certo. Toda
+    conclusão carrega a amostra: quantos dias, qual período, e se é realizado ou
+    estimado. Um dia da semana só entra no ranking se tiver se REPETIDO, e a
+    comparação com "o seu normal" exige base mínima — senão vira "13% acima do
+    normal" calculado sobre dois dias.
+44. **O pessoal fica no aparelho.** Ao contexto remoto vai, no máximo, um
+    agregado: os IDs das categorias que o usuário mais usa, e só com
+    `adaptiveAssistant` ligado. **Nunca** estabelecimento, cliente, endereço,
+    descrição, grafia, journal ou valor de lançamento. Todo o aprendizado —
+    proposta, grafia, aviso, explicação e sugestão — funciona offline e nunca
+    aciona a IA remota. Invariantes 71–73.
+45. **Sugestão não é previsão, nem palpite sobre quem o usuário é.** O atalho
+    personalizado vem SEM valor: com o valor histórico dentro, um toque
+    distraído viraria um gasto que nunca aconteceu. Nome de meta e de lugar
+    aparecem na forma NEUTRA ("Quanto falta para a meta Notebook?", "gastei em
+    Água") — flexionar é inferir gênero, e o mesmo código que acerta "minha
+    moto" erra em "minha notebook". Linguagem ofensiva do histórico não volta
+    como botão. Máximo de um item por assunto, dois atalhos e seis no total, e
+    o toque avisa se é pergunta ou registro. Invariantes 68 e 69.
 
 ## Arquitetura e tecnologias
 
@@ -336,6 +403,11 @@ editar `api/ai/chat.ts`, sempre redeployar com `npx vercel --prod`, senão a mud
 | Arquivo | Responsabilidade |
 |---|---|
 | `src/services/profile.ts` | Regras de perfil e ritmo das metas (`goalCadenceOf`) — ler antes de mexer em qualquer feature perfil-dependente |
+| `src/assistant/personalModel.ts` | CONSTRÓI o que se sabe do usuário: evidência, confiança, recência, chaves por frase (regras 37, 40, 41) |
+| `src/assistant/learning.ts` | APLICA o modelo à proposta — categoria, grafia, aviso de valor (regras 38, 39) |
+| `src/assistant/suggestions.ts` | Fileira de sugestões do assistente, incluindo a lista educativa por perfil (regra 45) |
+| `src/assistant/explain.ts` | "Por que você fez isso?" e a explicação do controle do usuário (regra 42) |
+| `src/assistant/driverInsights.ts` | Ritmo do motorista medido no histórico dele — só no perfil `driver` (regra 43) |
 | `src/utils/format.ts` | `parseMoney`/`formatMoneyInput` (regra 12), datas de calendário (`dateForDayOfMonth`) e `dueLabel` (regra 15) |
 | `src/utils/text.ts` | `sentenceCase` (regra 13) e `normalizeName`/`sameName` (regra 14) |
 | `src/services/calc.ts` | Todo cálculo financeiro (meta diária, meta mensal, previsão, custo/km, déficits, pendências de recorrentes) |

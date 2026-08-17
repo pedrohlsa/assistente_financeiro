@@ -76,6 +76,11 @@ store.tsx · action única `assistantBatch`
 | `src/assistant/editSaved.ts` | Correção de lançamento salvo: busca local e desambiguação |
 | `src/assistant/proposalEdit.ts` | Campos editáveis da proposta, derivados do catálogo |
 | `src/assistant/orchestrator.ts` | Orquestração e decisão local × remoto |
+| `src/assistant/personalModel.ts` | Constrói o que se sabe do usuário: evidência, confiança, recência, chaves por frase |
+| `src/assistant/learning.ts` | Aplica o modelo à proposta — categoria, grafia, aviso de valor |
+| `src/assistant/suggestions.ts` | Fileira de sugestões, com a lista educativa por perfil |
+| `src/assistant/explain.ts` | Respostas de "por que" e o controle do usuário |
+| `src/assistant/driverInsights.ts` | Ritmo do motorista medido no histórico dele |
 | `api/_lib/assistantPrompt.ts` | **Fonte única** da SYSTEM_PROMPT (gerada do catálogo) e do sanitizador |
 | `api/_lib/assistantHandler.ts` | Pipeline do endpoint, compartilhado pelos dois backends |
 | `src/components/ProposalCard.tsx` | Revisão por item, com edição validada |
@@ -165,7 +170,7 @@ Auditoria opcional em cada lançamento: `source: 'ai'`, `assistantBatchId`, `pro
 | 17 | Contrato remoto pobre | **Resolvido** — envelope versionado com `mode` e `clarification` |
 | 18 | Texto puro engolindo ações | **Resolvido** — `envelope: null` e `contractFallback: true` |
 | 19 | Validação de categoria e perfil | **Resolvido** |
-| 20 | Testes insuficientes | **Resolvido** — 486 casos + 62 invariantes |
+| 20 | Testes insuficientes | **Resolvido** — 520 casos + 74 invariantes |
 
 ---
 
@@ -174,7 +179,7 @@ Auditoria opcional em cada lançamento: `source: 'ai'`, `assistantBatchId`, `pro
 | Comando | O que roda |
 |---|---|
 | `npm test` | núcleo + corpus do assistente (offline, data fixa 2026-07-15) |
-| `npm run test:assistant` | **486 casos + 62 invariantes** |
+| `npm run test:assistant` | **520 casos + 74 invariantes** |
 | `npm run test:assistant:remote` | 8 sondas contra a IA real; última execução: **8/8** |
 | `npm run typecheck` / `typecheck:api` | `src/` e a mesma checagem que a Vercel faz |
 
@@ -268,5 +273,52 @@ conscientemente.
     algo educado e inútil passa nos testes.
 6. **`type: 'saving'` continua fora do saldo**, como a regra 20 manda. A reformulação **não**
     mudou contabilização nenhuma, de propósito.
+
+---
+
+## 7. A camada adaptativa (17/08/2026)
+
+O assistente passou a usar o histórico **confirmado** deste aparelho para decidir melhor.
+Nada disso é armazenado: é tudo derivado de `state.transactions`, recalculado sob demanda e
+cacheado por identidade do objeto de estado — o reducer devolve um estado novo a cada
+mudança, então o cache se invalida sozinho e não existe nada que sobreviva a uma troca de
+estado, a um backup importado ou a um reset.
+
+### O que é aprendido
+
+| Coisa | De onde vem | Para que serve |
+|---|---|---|
+| **Vocabulário** | Categoria que ele deu a cada frase | Preencher categoria vazia; contrariar a lista genérica com evidência forte |
+| **Grafia** | Descrição e origem que ele já escreveu | "Ze" e "Zé" não viram dois lugares; "casa 1" e "Casa 1" não viram dois imóveis |
+| **Ordem de grandeza** | Valores do mesmo tipo e categoria | Avisar sobre o zero a mais — nunca bloquear |
+| **Agregados** | Categorias e lugares mais usados | Sugestões contextuais e explicações |
+
+### A escala de evidência
+
+`none` não é usado; `moderate` só aparece em sugestão e explicação; `strong` preenche um
+campo vazio; `overriding` contraria o palpite da lista genérica. O peso de uma ocorrência cai
+pela metade a cada 90 dias e nunca abaixo de 15%, e a confiança é medida no histórico inteiro
+E na janela de 120 dias — basta uma das leituras convencer.
+
+### O que NUNCA acontece
+
+Registrar sozinho, alterar valor, data ou tipo, criar taxa, escolher cartão, pagar fatura,
+desfazer, apagar, mexer no histórico, propor categoria que o usuário não tem ou arquivou,
+escolher entre duas entidades ambíguas em silêncio, ou mandar nome de estabelecimento,
+cliente, endereço, grafia, journal ou valor para a IA remota.
+
+### Limitações honestas
+
+1. **Perguntas frequentes não alimentam as sugestões.** A fileira só aparece com
+   `state.chat` vazio, então não há histórico de perguntas para ler naquele momento. Criar
+   um armazenamento separado contradiria a decisão de tudo ser derivado.
+2. **O assistente não liga nem desliga o aprendizado por conversa** — ele diz onde fica a
+   chave. Mexer em configuração por conversa é a mesma classe de coisa que registrar sem
+   confirmar.
+3. **Categoria dita e categoria adivinhada são indistinguíveis** na saída do parser: vale a
+   decisão de que histórico consistente e forte ganha do palpite genérico.
+4. **Erro de digitação no verbo** (`gsatei 60 no merkado`) continua sem registro local.
+5. **O eval comparativo de modelos remotos não foi executado** — exige chamadas pagas à API,
+   não autorizadas. Nenhum modelo, preço ou retry foi alterado.
 
 A matriz caso a caso está em [AI_REGRESSION_MATRIX.md](AI_REGRESSION_MATRIX.md).
