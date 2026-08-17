@@ -169,7 +169,9 @@ export async function runCase(c: AssistantCase): Promise<CaseResult> {
     draft = out.draft
     pending = out.correctedPending
       ? out.correctedPending
-      : (out.response.actions.length ? out.response.actions : undefined)
+      : out.response.actions.length
+        ? out.response.actions
+        : out.keepPending ? pending : undefined
     clarification = out.response.mode === 'clarify' ? (out.response as any).clarification : undefined
   }
 

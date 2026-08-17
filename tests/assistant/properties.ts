@@ -1428,6 +1428,56 @@ export async function runProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 70. Explicar nunca vira ação, e nunca sai do aparelho -------------
+  // Perguntar "por que" é o oposto de mandar fazer. Nenhuma dessas frases pode
+  // criar lançamento, alterar configuração ou virar pergunta para a IA remota:
+  // uma explicação inventada sobre o raciocínio do app seria pior que
+  // explicação nenhuma, e mexer na chave do usuário sozinho quebraria a regra 8.
+  await checkAsync(r, 'pergunta de explicação responde local e não registra nada', async () => {
+    const base = buildState({ profile: 'other' })
+    base.transactions = Array.from({ length: 5 }, (_, i) => ({
+      id: `m${i}`, type: 'expense', amount: 120, category: 'compras',
+      description: 'Mercado', date: `2026-07-0${i + 1}`, time: '10:00',
+    })) as any
+
+    const frases = [
+      'por que você colocou essa categoria?',
+      'por que você acha esse valor estranho?',
+      'o que você aprendeu sobre mim?',
+      'quantas vezes eu fiz isso?',
+      'você está usando qual período?',
+      'pare de usar meu histórico para sugerir coisas',
+    ]
+    for (const frase of frases) {
+      const antes = JSON.stringify(base.settings)
+      let remoto = false
+      const out = await orchestrate({
+        state: base, message: frase, history: [], remoteEnabled: true, today: TODAY,
+        askRemote: async () => { remoto = true; return null },
+      })
+      const acoes: AssistantCandidateAction[] = out.response.actions
+      if (acoes.length) return `"${frase}" propôs ${acoes.length} ação(ões)`
+      if (out.response.mode !== 'answer') return `"${frase}" não foi respondida como answer: ${out.response.mode}`
+      if (out.response.engine !== 'local') return `"${frase}" saiu do motor local: ${out.response.engine}`
+      if (remoto) return `"${frase}" foi parar na IA remota`
+      if (JSON.stringify(base.settings) !== antes) return `"${frase}" alterou a configuração sozinha`
+      if (out.response.reply.length < 40) return `"${frase}" caiu numa resposta curta demais para explicar algo`
+      if (/posso te ajudar com coisas como/i.test(out.response.reply)) {
+        return `"${frase}" caiu no texto genérico de ajuda`
+      }
+    }
+
+    // Explicar não consome a proposta: a frase seguinte ainda fala dela.
+    const comProposta = await orchestrate({ state: base, message: 'gastei 50 no mercado', history: [], remoteEnabled: false, today: TODAY })
+    const pend: AssistantCandidateAction[] = comProposta.response.actions
+    if (!pend.length) return 'a proposta base sumiu'
+    const depois = await orchestrate({
+      state: base, message: 'por que essa categoria?', history: [], pending: pend, remoteEnabled: false, today: TODAY,
+    })
+    if (!depois.keepPending) return 'explicar descartou a proposta que estava na tela'
+    return null
+  })
+
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
   // Invariante de FIAÇÃO, não de lógica: o corpus sempre passou
   // `pendingClarification`, então ele nunca poderia ver que `Chat.tsx` não

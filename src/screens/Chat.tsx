@@ -120,7 +120,11 @@ export default function Chat() {
       },
     })
 
-    pendingRef.current = proposal ? { msgId, actions: proposal } : null
+    // `keepPending`: explicar não é cancelar. A proposta continua no card da
+    // mensagem anterior, e a frase seguinte ("quantas vezes eu fiz isso?",
+    // "não, foi 80") ainda se refere a ela.
+    if (proposal) pendingRef.current = { msgId, actions: proposal }
+    else if (!out.keepPending) pendingRef.current = null
     clarificationRef.current = out.response.mode === 'clarify' ? out.response.clarification : null
   }
 

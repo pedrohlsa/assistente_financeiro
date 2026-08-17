@@ -382,6 +382,46 @@ export const ADAPTATIVO: AssistantCase[] = [
     expectActions: [{ kind: 'expense', amount: 55, category: 'compras' }],
   },
 
+  // ----- Explicabilidade: a explicação tem que bater com o que foi feito --
+  {
+    id: 'ad-26', group: 'adaptativo', ...other, state: historicoMercado,
+    // A proposta saiu com "compras" POR CAUSA do histórico. A explicação
+    // dizia o contrário — "essa veio das palavras da mensagem, não do seu
+    // histórico" —, porque ela relia a ação já com a categoria aplicada e
+    // concluía que não tinha mudado nada. Explicação que contradiz o que o
+    // app fez é pior que explicação nenhuma.
+    messages: ['gastei 50 no mercado', 'por que você colocou essa categoria?'],
+    expectNoActions: true,
+    expectReply: [/4 vezes/i, /compras/i],
+    forbidReply: [/não do seu hist[óo]rico/i, /repetição suficiente/i],
+  },
+  {
+    id: 'ad-27', group: 'adaptativo', ...other, state: historicoMercado,
+    // Perguntar "por que" não pode cancelar a proposta que está na tela: a
+    // pergunta seguinte ainda se refere a ela. Antes, qualquer resposta sem
+    // ação zerava a proposta pendente e o "isso" perdia o alvo.
+    messages: ['gastei 50 no mercado', 'por que essa categoria?', 'quantas vezes eu fiz isso?'],
+    expectNoActions: true,
+    expectReply: [/mercado/i, /4 vezes/i],
+  },
+  {
+    id: 'ad-28', group: 'adaptativo', ...other, state: historicoMercado,
+    // A explicação é local e determinística, e desligar é decisão do usuário:
+    // o assistente diz onde fica a chave e não mexe em configuração sozinho.
+    messages: ['pare de usar meu histórico para sugerir coisas'],
+    expectNoActions: true,
+    expectReply: [/configura/i, /assistente adaptativo/i],
+  },
+  {
+    id: 'ad-29', group: 'adaptativo', ...driver,
+    state: { transactions: diasDeCorrida as any },
+    // O aviso de padrão precisa saber se explicar: com quantos lançamentos,
+    // de que período e qual é o valor de referência.
+    messages: ['ganhei 3000 hoje', 'por que você acha esse valor estranho?'],
+    expectNoActions: true,
+    expectReply: [/10 [úu]ltimos/i, /corridas/i],
+  },
+
   // ----- O aviso de padrão é por CATEGORIA, não pelo total ----------------
   {
     id: 'ad-25', group: 'adaptativo', ...other,

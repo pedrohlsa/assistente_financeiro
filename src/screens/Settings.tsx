@@ -288,6 +288,36 @@ export default function SettingsScreen() {
       </div>
 
       <div className="card stack">
+        <h3>Assistente adaptativo</h3>
+        <p className="tiny">
+          O assistente aprende com os lançamentos que <strong>você confirma</strong> neste aparelho.
+          Com isso ele sugere a categoria que você costuma usar, mantém a grafia que você já escreveu
+          (para "Zé da esquina" não virar dois lugares) e avisa quando um valor foge do seu normal.
+        </p>
+        <p className="tiny">
+          Esse aprendizado <strong>fica no seu aparelho</strong> e não é compartilhado com outras pessoas
+          nem com outros clientes do app. Ele é calculado a partir do seu próprio histórico, então
+          apagar ou corrigir uma movimentação muda o aprendizado junto. E ele nunca registra nada
+          sozinho: toda proposta continua precisando do seu Confirmar.
+        </p>
+        <div className="spread">
+          <div>
+            <div className="small" style={{ fontWeight: 650 }}>Aprender com meu histórico</div>
+            <div className="tiny">
+              Desligado, o assistente continua entendendo suas mensagens e fazendo todas as contas —
+              só para de usar o seu passado para sugerir categoria e atalhos. Nada já registrado muda.
+            </div>
+          </div>
+          <button
+            className={`chip ${s.adaptiveAssistant !== false ? 'active' : ''}`}
+            onClick={() => dispatch({ type: 'settings', patch: { adaptiveAssistant: s.adaptiveAssistant === false } })}
+          >
+            {s.adaptiveAssistant !== false ? 'Ativado' : 'Desativado'}
+          </button>
+        </div>
+      </div>
+
+      <div className="card stack">
         <h3>Dados, backup e exportação</h3>
         <p className="tiny">Seus dados ficam armazenados localmente no seu aparelho e funcionam offline.</p>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>

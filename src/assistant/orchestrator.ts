@@ -20,6 +20,7 @@ import type {
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, isValidationFailure, validateAction } from './contracts'
 import { analyzeMessage, looksLikeRetraction, looksRecurring } from './clauses'
 import { categoryDilemma, outOfPatternWarning, withLearnedCategory } from './learning'
+import { explainRequest } from './explain'
 import type { AnalyzedClause, MessageAnalysis, TemporalSignal } from './clauses'
 import { detectIncomplete, isDraftFresh, newDraft, resolveDraftAnswer } from './drafts'
 import type { AssistantDraft } from './drafts'
@@ -85,6 +86,15 @@ export interface OrchestratorOutput {
   draft: AssistantDraft | null
   /** Proposta corrigida, quando a mensagem era uma correção. */
   correctedPending?: AssistantCandidateAction[]
+  /**
+   * A resposta não consome a proposta que está na tela.
+   *
+   * Toda resposta sem ação zerava a proposta pendente. Isso está certo para
+   * uma pergunta qualquer, e errado para "por que você colocou essa
+   * categoria?": perguntar não é cancelar, e a próxima frase ("quantas vezes
+   * eu fiz isso?", "não, foi 80") ainda fala do mesmo lançamento.
+   */
+  keepPending?: boolean
 }
 
 const candidate = (
@@ -774,6 +784,30 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
           version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
           actions: next, unresolved: [],
           reply: `${plan.summary.join(' ')}\n\n${proposalText(next)}\n\nConfirmar?`,
+        },
+      }
+    }
+  }
+
+  // ---- 2a) A mensagem pergunta POR QUE, ou pede para eu parar? ----------
+  // Depois das correções de propósito: "não foi lazer" corrige a proposta;
+  // "por que lazer?" pede explicação. E antes da análise por cláusula, porque
+  // "por que você colocou essa categoria" não é um pedido de registro e não
+  // pode virar cláusula sem intenção, nem sair do aparelho: uma explicação
+  // inventada sobre o raciocínio do app é pior que nenhuma explicação.
+  {
+    const explicacao = explainRequest({
+      state: input.state, message: input.message, pending: input.pending, today,
+    })
+    if (explicacao) {
+      return {
+        // A proposta na tela CONTINUA na tela: perguntar por que não é
+        // cancelar, e a próxima frase ainda fala do mesmo lançamento.
+        draft: null,
+        keepPending: true,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local',
+          actions: [], unresolved: [], reply: explicacao,
         },
       }
     }
