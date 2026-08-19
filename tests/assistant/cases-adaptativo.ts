@@ -174,6 +174,27 @@ const tresDiasDeMotorista = {
   })),
 }
 
+/**
+ * Duas categorias FORTES para a mesma frase. Cada ponta, sozinha, bastaria para
+ * preencher o campo — é exatamente o caso em que o app precisa perguntar em vez
+ * de sortear.
+ */
+const ambiguo = (nome: string, ida: string, catA: string, catB: string) => [
+  ...Array.from({ length: 4 }, (_, i) => ({
+    id: `${ida}a${i}`, type: "expense", amount: 50, category: catA, description: nome, date: `2026-07-0${i + 1}`,
+  })),
+  ...Array.from({ length: 4 }, (_, i) => ({
+    id: `${ida}b${i}`, type: "expense", amount: 50, category: catB, description: nome, date: `2026-07-0${i + 5}`,
+  })),
+]
+
+const quiosqueAmbiguo = {
+  transactions: [
+    ...ambiguo("Quiosque", "q", "lazer", "compras"),
+    ...ambiguo("Banca", "b", "lazer", "assinaturas"),
+  ] as any,
+}
+
 /** Histórico fossilizado: quatro lançamentos de seis anos atrás. */
 const historicoFossil = {
   transactions: Array.from({ length: 4 }, (_, i) => ({
@@ -624,6 +645,40 @@ export const ADAPTATIVO: AssistantCase[] = [
       { kind: 'work', trips: 1 },
       { kind: 'expense', amount: 430, category: 'manutencao' },
     ],
+  },
+
+  // ----- A pergunta de categoria não pode custar o lançamento ------------
+  {
+    id: "ad-44", group: "adaptativo", ...other, state: quiosqueAmbiguo,
+    // O usuário disse que gastou 40, o app perguntou em qual categoria ele
+    // costuma lançar aquilo, e ele respondeu "sei lá". A despesa DESAPARECIA:
+    // a resposta não casava nenhuma opção, caía no texto genérico de ajuda e
+    // levava a proposta junto. A pergunta era um refinamento opcional — perder
+    // o lançamento por causa dela é o pior desfecho possível.
+    messages: ["gastei 40 no quiosque", "sei lá"],
+    expectActions: [{ kind: "expense", amount: 40, category: "outros-out" }],
+    expectReply: [/outros|gen[ée]rica|pode trocar/i],
+  },
+  {
+    id: "ad-45", group: "adaptativo", ...other, state: quiosqueAmbiguo,
+    // Uma pergunta só não cobre dois itens ambíguos: responder resolveria o
+    // Quiosque e deixaria a Banca em Outros sem o usuário perceber por quê.
+    // Com dois, o app propõe os dois genéricos — visíveis e editáveis no card.
+    messages: ["gastei 40 no quiosque e 20 na banca"],
+    expectMode: "propose_actions",
+    expectActions: [
+      { kind: "expense", amount: 40, category: "outros-out" },
+      { kind: "expense", amount: 20, category: "outros-out" },
+    ],
+  },
+  {
+    id: "ad-46", group: "adaptativo", ...other, state: historicoMercado,
+    // "Quantas vezes" nem sempre pergunta pelo histórico: aqui o usuário quer
+    // saber quantas diárias precisa para pagar algo, e receber "me diga o nome
+    // do lugar" é responder outra coisa.
+    messages: ["quantas vezes eu preciso trabalhar pra pagar isso?"],
+    expectNoActions: true,
+    forbidReply: [/me diga o nome do lugar/i],
   },
 
   // ----- O aviso de padrão é por CATEGORIA, não pelo total ----------------

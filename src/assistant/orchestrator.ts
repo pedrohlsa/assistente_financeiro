@@ -411,7 +411,7 @@ function runLocal(input: OrchestratorInput, caps: AssistantCapabilities): LocalP
       // ignorar as duas jogaria fora o que ele já disse. A saída é a mesma do
       // resto do app — perguntar, com as opções carregando a proposta pronta.
       const dilema = categoryDilemma(input.state, res.action, today)
-      if (dilema && !dilemas.length) dilemas.push({ actionId: '', ...dilema })
+      if (dilema) dilemas.push({ actionId: '', ...dilema })
 
       // A proposta mostra a categoria que SERÁ gravada, não um campo vazio que
       // o usuário só descobre depois de confirmar.
@@ -481,6 +481,9 @@ function runLocal(input: OrchestratorInput, caps: AssistantCapabilities): LocalP
   // Última na fila de propósito: cartão inexistente e data ambígua são dúvidas
   // sobre O QUE ACONTECEU; esta é só sobre como ARQUIVAR. Cada opção carrega o
   // lote inteiro já com aquela categoria, então responder não repete nada.
+  // Só com UM item ambíguo: uma pergunta não cobre dois, e responder
+  // resolveria um enquanto o outro ficasse em Outros sem o usuário entender por
+  // quê. Com dois, os dois vão genéricos — visíveis e editáveis no mesmo card.
   if (!clarification && dilemas.length === 1 && candidates.length) {
     const d = dilemas[0]
     const alvo = candidates.find(c => {
@@ -498,6 +501,10 @@ function runLocal(input: OrchestratorInput, caps: AssistantCapabilities): LocalP
           value: id,
           actions: candidates.map(x => (x.id === alvo.id ? { ...(x.action as any), category: id } : x.action)),
         })),
+        // A resposta pode não ser nenhuma das opções ("sei lá"). Guardar as
+        // ações como estão é o que permite propor a versão genérica em vez de
+        // perder o lançamento por causa de uma pergunta opcional.
+        pendingActions: candidates.map(x => x.action),
       }
     }
   }
@@ -704,6 +711,27 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
         version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
         actions: [], unresolved: [], clarification: pc,
         reply: `Ainda não consegui entender uma data válida. ${pc.question}`,
+      },
+    }
+  }
+
+  // ---- 0d) Resposta que não é opção da pergunta de CATEGORIA ------------
+  // A pergunta de categoria é um refinamento opcional: o usuário já disse que
+  // gastou. Se ele responde "sei lá", a resposta certa é registrar com a
+  // categoria genérica — não perder o lançamento porque uma pergunta que o
+  // próprio app fez ficou sem resposta.
+  if (pc?.field === "category" && pc.pendingActions?.length) {
+    const cands = pc.pendingActions.map(a => candidate(a, "local"))
+    return {
+      draft: null,
+      response: {
+        version: ASSISTANT_CONTRACT_VERSION, mode: "propose_actions", engine: "local",
+        actions: cands, unresolved: [],
+        reply: `Sem problema — deixei em Outros, e você pode trocar a categoria no card.
+
+${proposalText(cands)}
+
+Confirmar?`,
       },
     }
   }

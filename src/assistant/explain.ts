@@ -40,7 +40,12 @@ const RE_CATEGORIA = new RegExp(`${PORQUE}[^?]*\\b(?:categoria|classific|catalog
 const RE_CATEGORIA_ALT = new RegExp(`^(?![^?]*\\d)[^?]*${PORQUE}[^?]*\\b(?:colocou|escolheu|botou|poe|pos|marcou)\\b`)
 const RE_VALOR = new RegExp(`${PORQUE}[^?]*\\b(?:estranho|estranha|fora do|acima|abaixo|avisou|aviso|alerta|alertou|suspeit)`)
 const RE_APRENDEU = /\b(?:o que|que)\s+(?:voce|vc|tu)?\s*(?:ja\s+)?(?:aprendeu|sabe|guardou|descobriu)\s+(?:sobre|de)\s+mim\b|\bo que voce aprendeu\b|\bque voce sabe sobre mim\b/
-const RE_QUANTAS = /\bquantas?\s+vezes\b/
+/**
+ * "Quantas vezes eu fiz isso?" pergunta pelo histórico. "Quantas vezes eu
+ * preciso trabalhar pra pagar isso?" pergunta outra coisa — responder "me diga
+ * o nome do lugar" seria responder a pergunta errada.
+ */
+const RE_QUANTAS = /\bquantas?\s+vezes\b(?![^?]*\b(?:preciso|precisa|tenho que|teria que|vou ter|falta|faltam)\b)/
 /**
  * "de quando" e "desde quando" sozinhos são pergunta sobre um lançamento
  * ("de quando é essa conta?"). Só valem aqui junto de uma palavra do próprio

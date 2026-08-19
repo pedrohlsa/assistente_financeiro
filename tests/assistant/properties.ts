@@ -17,6 +17,7 @@ import { isRevertFailure, lastReversibleBatch, revertBatchPure } from '../../src
 import { withLearnedCategory } from '../../src/assistant/learning'
 import { assistantSuggestions } from '../../src/assistant/suggestions'
 import { buildAiContext } from '../../src/services/ai'
+import { buildPersonalModel } from '../../src/assistant/personalModel'
 import { currentBalance, savedThisMonth, monthStats } from '../../src/services/calc'
 import { buildSystemPrompt, normalizeCapabilities, sanitizeRemoteResponse } from '../../api/_lib/assistantPrompt'
 import { callDeepSeekChat, isDeepSeekFailure } from '../../api/_lib/deepseek'
@@ -1618,6 +1619,118 @@ export async function runProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 75. Dado que não dá para ler não entra no modelo ------------------
+  // Nada nunca validou o que JÁ estava gravado: um backup mesclado, uma
+  // versão antiga ou um estado editado à mão podem trazer data ilegível,
+  // valor não numérico ou lançamento datado no futuro. `fromISO('lixo')` vira
+  // Invalid Date, o peso vira NaN, o NaN contamina o total da categoria — e o
+  // usuário recebe "a última em Invalid Date" na explicação.
+  await checkAsync(r, 'histórico ilegível não envenena o aprendizado', async () => {
+    // Passa pelo MESMO caminho de um backup importado: `normalizeState` é a
+    // fronteira, e depois dela o resto do app pode confiar no que recebe. Um
+    // `null` no meio da lista fazia qualquer `t.type` derrubar a tela inteira.
+    const s = hydrateForTest({
+      settings: { profile: 'other', onboarded: true },
+      transactions: [
+      { id: 'x1', type: 'expense', amount: NaN, category: 'compras', description: 'Feira', date: '2026-07-01', time: '10:00' },
+      { id: 'x2', type: 'expense', amount: 30, category: 'compras', description: 'Feira', date: 'lixo', time: '10:00' },
+      { id: 'x3', type: 'expense', amount: 30, category: 'compras', description: 'Feira', date: '2099-01-01', time: '10:00' },
+      { id: 'x4', type: 'expense', amount: 30, category: 'compras', description: 'Feira', date: '2026-07-02', time: '10:00' },
+      { id: 'x5', type: 'expense', amount: 30, category: 'compras', description: 'Feira', date: '2026-07-03', time: '10:00' },
+      { id: 'x6', type: 'expense', amount: 30, category: 'compras', description: 'Feira', date: '2026-07-04', time: '10:00' },
+      null, undefined, 42, 'lixo',
+      ] as any,
+    })
+    if (s.transactions.some(t => !t || typeof t !== 'object')) return 'a fronteira deixou passar item que não é lançamento'
+
+    const m = buildPersonalModel(s, TODAY)
+    const cat = m.categoryFor('Feira', 'expense')
+    if (!cat) return 'o lixo levou junto a evidência boa'
+    for (const [nome, v] of [
+      ['weight', cat.weight], ['confidence', cat.confidence], ['sampleSize', cat.sampleSize],
+    ] as [string, number][]) {
+      if (!Number.isFinite(v)) return `${nome} veio NaN`
+    }
+    // Nada de "Invalid Date" chegando ao usuário, e nada de data futura
+    // fechando o período observado: gasto de 2099 não é hábito de hoje.
+    for (const d of [cat.lastSeenAt, cat.firstSeenAt, m.sample.from, m.sample.to]) {
+      if (!d) continue
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return `data ilegível vazou: ${d}`
+      if (d > TODAY) return `data futura entrou no histórico: ${d}`
+    }
+
+    // E o lançamento continua sendo proposto normalmente.
+    const out = await orchestrate({
+      state: s, message: 'gastei 40 na feira', history: [], remoteEnabled: false, today: TODAY,
+    })
+    const acoes: AssistantCandidateAction[] = out.response.actions
+    if (!acoes.some(a => a.action.kind === 'expense' && (a.action as any).amount === 40)) {
+      return 'o histórico corrompido derrubou o lançamento novo'
+    }
+    return null
+  })
+
+  // --- 76. A pergunta de categoria nunca custa o lançamento -------------
+  // Ela é um refinamento opcional: o usuário já disse que gastou. Uma resposta
+  // que não casa nenhuma opção não pode fazer a despesa desaparecer — e o
+  // texto do app não pode ser control character devolvido do histórico.
+  await checkAsync(r, 'esclarecimento de categoria não apaga o gasto', async () => {
+    const s = buildState()
+    s.transactions = [
+      ...Array.from({ length: 4 }, (_, i) => ({
+        id: `a${i}`, type: 'expense', amount: 50, category: 'lazer',
+        description: 'Quiosque', date: `2026-07-0${i + 1}`, time: '10:00',
+      })),
+      ...Array.from({ length: 4 }, (_, i) => ({
+        id: `b${i}`, type: 'expense', amount: 50, category: 'compras',
+        description: 'Quiosque', date: `2026-07-0${i + 5}`, time: '10:00',
+      })),
+    ] as any
+
+    const primeira = await orchestrate({
+      state: s, message: 'gastei 40 no quiosque', history: [], remoteEnabled: false, today: TODAY,
+    })
+    if (primeira.response.mode !== 'clarify') return `esperava a pergunta, veio ${primeira.response.mode}`
+    const pc = (primeira.response as any).clarification
+    if (pc.field !== 'category') return `pergunta errada: ${pc.field}`
+
+    for (const resposta of ['sei lá', 'tanto faz', 'deixa assim']) {
+      const out = await orchestrate({
+        state: s, message: resposta, history: [], pendingClarification: pc,
+        remoteEnabled: false, today: TODAY,
+      })
+      const acoes: AssistantCandidateAction[] = out.response.actions
+      const gasto = acoes.find(a => a.action.kind === 'expense')
+      if (!gasto) return `"${resposta}" fez a despesa desaparecer`
+      if ((gasto.action as any).amount !== 40) return `"${resposta}" mexeu no valor`
+    }
+    return null
+  })
+
+  // --- 77. Caractere invisível do histórico não volta como botão --------
+  // Marca de direção de texto e espaço de largura zero conseguem, num botão,
+  // inverter visualmente o texto ao redor ou esconder a emenda entre duas
+  // palavras. Pode ter sido colado sem querer no lançamento; devolver na tela
+  // inicial é que não dá.
+  check(r, 'sugestão não devolve caractere invisível nem de controle', () => {
+    const venenos = [
+      '\u202Emercado\u202D', 'zero\u200Bwidth', 'quebra\nlinha', 'tab\there',
+      'bom\u200Ffim', 'nulo\u0000', 'bom\uFEFFdia',
+    ]
+    for (const veneno of venenos) {
+      const s = buildState({ profile: 'other' })
+      s.transactions = Array.from({ length: 5 }, (_, i) => ({
+        id: `v${i}`, type: 'expense', amount: 30, category: 'compras',
+        description: veneno, date: `2026-07-0${i + 1}`, time: '10:00',
+      })) as any
+      for (const sug of assistantSuggestions(s, { today: TODAY })) {
+        if (/[\u0000-\u001F\u007F\u00AD\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/.test(sug.text)) {
+          return `sugestão levou caractere invisível: ${JSON.stringify(sug.text)}`
+        }
+      }
+    }
+    return null
+  })
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
   // Invariante de FIAÇÃO, não de lógica: o corpus sempre passou
   // `pendingClarification`, então ele nunca poderia ver que `Chat.tsx` não

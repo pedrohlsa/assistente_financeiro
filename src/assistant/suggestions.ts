@@ -103,8 +103,21 @@ const usavelComoAtalho = (texto: string): boolean => {
   // digitou no campo errado, e virar atalho de registro daria a ele uma
   // segunda vida que ninguém pediu.
   if (!/[a-zà-ú]{3}/i.test(t)) return false
+  // Caractere invisível ou de controle de direção vindo do histórico: num botão
+  // ele consegue inverter visualmente o texto ao redor ou esconder parte da
+  // palavra. O usuário pode ter colado isso sem querer; devolver na tela
+  // inicial é que não dá.
+  if (INVISIVEIS.test(t)) return false
   return true
 }
+
+/**
+ * Controle, espaco de largura zero e marca de direcao de texto. Num botao, um
+ * U+202E inverte visualmente tudo que vem depois dele e um U+200B esconde a
+ * emenda entre duas palavras. O usuario pode ter colado isso sem perceber ao
+ * criar o lancamento; devolver na tela inicial e que nao da.
+ */
+const INVISIVEIS = /[\u0000-\u001F\u007F\u00AD\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/
 
 export interface SuggestionContext {
   today?: string

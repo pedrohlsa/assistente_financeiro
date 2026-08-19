@@ -250,6 +250,18 @@ const bump = (m: Map<string, Bucket>, k: string, w: number, date: string, recent
   if (date < b.firstSeenAt) b.firstSeenAt = date
 }
 
+/**
+ * Data que dá para situar no tempo.
+ *
+ * O modelo INTEIRO é temporal, e uma data ilegível não é só um dado a menos:
+ * `fromISO('lixo')` devolve Invalid Date, o peso vira NaN, o NaN contamina o
+ * total da categoria — e o usuário recebe "a última em Invalid Date" na
+ * explicação. Backup mesclado e estado antigo podem trazer qualquer coisa aqui,
+ * porque nada nunca validou o que já estava gravado.
+ */
+export const isReadableDate = (d: unknown): d is string =>
+  typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && Number.isFinite(fromISO(d).getTime())
+
 export const ageInDays = (date: string, today: string): number =>
   Math.max(0, Math.round((fromISO(today).getTime() - fromISO(date).getTime()) / 86400000))
 
@@ -368,7 +380,13 @@ function computeModel(state: AppState, today: string): PersonalAssistantModel {
   // Cortar por posição faria o app ler "os 800 mais recentemente digitados",
   // que não é a mesma coisa que "os 800 mais recentes".
   const txs = (state.transactions || [])
-    .filter((t): t is Transaction => !!t && (t.type === 'income' || t.type === 'expense'))
+    // Data ilegível, valor não numérico e lançamento datado no FUTURO ficam de
+    // fora. `validateAction` já barra data futura na criação, então isso só
+    // chega por dado antigo ou backup mesclado — e um gasto de 2099 não é
+    // hábito de hoje: contando como idade zero ele ganhava peso máximo e ainda
+    // aparecia na explicação como o fim do período observado.
+    .filter((t): t is Transaction => !!t && (t.type === 'income' || t.type === 'expense')
+      && isReadableDate(t.date) && t.date <= today && Number.isFinite(t.amount))
     .slice()
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
     .slice(0, MAX_TRANSACOES)

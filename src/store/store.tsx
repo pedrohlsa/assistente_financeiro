@@ -46,33 +46,42 @@ const initialState: AppState = {
  * antigo restaurado — sem isso, `state.cards.map(...)` quebraria o app inteiro.
  */
 function normalizeState(raw: any): AppState {
-  const arr = <T,>(v: any, fallback: T[] = []): T[] => (Array.isArray(v) ? v : fallback)
+  // Não basta "é array": um backup editado à mão, truncado ou vindo de outra
+  // ferramenta pode trazer `null` no meio da lista, e daí em diante qualquer
+  // `t.type` do app quebra a tela inteira em branco. O item que não é objeto é
+  // descartado aqui, na fronteira — depois deste ponto o resto do código pode
+  // confiar no que recebe. `dismissedDeficitDates` é lista de strings e usa o
+  // filtro solto.
+  const arr = <T,>(v: any, fallback: T[] = []): T[] =>
+    (Array.isArray(v) ? v.filter(x => x !== null && x !== undefined) : fallback)
+  const objs = <T,>(v: any): T[] =>
+    (Array.isArray(v) ? v.filter(x => !!x && typeof x === 'object') : [])
   return {
     ...initialState,
     ...raw,
     settings: { ...defaultSettings, ...(raw?.settings || {}) },
-    transactions: arr(raw?.transactions),
+    transactions: objs(raw?.transactions),
     // Fusão, não substituição: quem já usava o app recebe as categorias padrão
     // novas sem perder as personalizadas nem o estado "arquivada".
     categories: mergeDefaultCategories(raw?.categories),
-    workSessions: arr(raw?.workSessions),
-    fuelRecords: arr(raw?.fuelRecords),
-    maintenance: arr(raw?.maintenance),
-    goals: arr(raw?.goals),
-    deficits: arr(raw?.deficits),
-    recurring: arr(raw?.recurring),
-    budgets: arr(raw?.budgets),
-    chat: arr(raw?.chat),
+    workSessions: objs(raw?.workSessions),
+    fuelRecords: objs(raw?.fuelRecords),
+    maintenance: objs(raw?.maintenance),
+    goals: objs(raw?.goals),
+    deficits: objs(raw?.deficits),
+    recurring: objs(raw?.recurring),
+    budgets: objs(raw?.budgets),
+    chat: objs(raw?.chat),
     dismissedDeficitDates: arr(raw?.dismissedDeficitDates),
     // Backup anterior a esta versão não tem journal: o array nasce vazio e os
     // lotes antigos ficam sem entrada — o undo recusa em vez de adivinhar.
-    assistantJournal: arr(raw?.assistantJournal),
+    assistantJournal: objs(raw?.assistantJournal),
     vehicle: raw?.vehicle ?? null,
-    cards: arr(raw?.cards),
-    installmentPlans: arr(raw?.installmentPlans),
-    installments: arr(raw?.installments),
-    cardPayments: arr(raw?.cardPayments),
-    cardCharges: arr(raw?.cardCharges),
+    cards: objs(raw?.cards),
+    installmentPlans: objs(raw?.installmentPlans),
+    installments: objs(raw?.installments),
+    cardPayments: objs(raw?.cardPayments),
+    cardCharges: objs(raw?.cardCharges),
   }
 }
 
