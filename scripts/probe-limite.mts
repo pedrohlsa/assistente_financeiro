@@ -79,7 +79,7 @@ hr('T2. DESFAZER REMOVE A EVIDENCIA')
   const lote = lastReversibleBatch(depois.state)
   if (!lote) { console.log('  SEM LOTE NO JOURNAL — nao da para desfazer') }
   else {
-    const rev = revertBatchPure(depois.state, lote.batchId)
+    const rev = revertBatchPure(depois.state, lote.batchId, TODAY + 'T12:00')
     if (isRevertFailure(rev)) console.log('  reversao falhou:', rev.code)
     else console.log('  depois de desfazer:', catDe(rev.state, 'Boteco do Ivo'), '| transacoes =', rev.state.transactions.length)
   }
