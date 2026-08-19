@@ -25,6 +25,7 @@ import { callDeepSeekChat, isDeepSeekFailure } from '../../api/_lib/deepseek'
 import { handleAssistantRequest } from '../../api/_lib/assistantHandler'
 import { describeAction } from '../../src/services/nlp'
 import { addDays, todayISO } from '../../src/utils/format'
+import { csvCell } from '../../src/utils/text'
 import type { ParsedAction } from '../../src/models/types'
 import type { AssistantCandidateAction, AssistantResponse } from '../../src/assistant/contracts'
 
@@ -1865,6 +1866,47 @@ export async function runProperties(): Promise<PropertyReport> {
       if (cardsOverview(mk(status)).totalDebt > 0) return `plano ${status} continuou contando como dívida`
     }
     if (cardsOverview(s).totalDebt !== 0) return 'sem plano nenhum a dívida não é zero'
+    return null
+  })
+  // --- 83. CSV exportado não carrega fórmula -----------------------------
+  // O usuário exporta as movimentações e manda para o contador, para a
+  // família, para o banco. Uma descrição começando com "=", "+", "-" ou "@"
+  // vira FÓRMULA VIVA ao abrir no Excel, no LibreOffice ou no Sheets — as
+  // aspas do CSV protegem o separador, não a fórmula. `=HYPERLINK(...)` e a
+  // sintaxe DDE do Excel executam na máquina de quem recebeu o arquivo, e o
+  // texto pode ter vindo de um backup que não foi o próprio usuário que fez.
+  check(r, 'célula de CSV nunca começa como fórmula', () => {
+    const venenos = [
+      '=1+1',
+      '=HYPERLINK("http://exemplo.invalido","clique")',
+      '+1+1',
+      '-1+1',
+      '@SUM(A1:A9)',
+      '=cmd|\' /c calc\'!A1',
+      '\t=1+1',
+      '\r=1+1',
+    ]
+    for (const v of venenos) {
+      const cell = csvCell(v)
+      if (!cell.startsWith('"')) return `célula não veio entre aspas: ${JSON.stringify(cell)}`
+      const conteudo = cell.slice(1, -1)
+      if (/^[=+\-@\t\r]/.test(conteudo)) return `célula ainda abre como fórmula: ${JSON.stringify(cell)}`
+      // O texto do usuário continua legível — proteger não é apagar.
+      if (!conteudo.includes(v.replace(/"/g, '""').replace(/^[\t\r]+/, ''))) {
+        return `o conteúdo original se perdeu: ${JSON.stringify(cell)}`
+      }
+    }
+    // Texto e número normais não podem ganhar prefixo nenhum.
+    for (const ok of ['Mercado', 'Zé da esquina', '1234.56', 'Casa 1', '']) {
+      if (csvCell(ok) !== `"${ok}"`) return `mexeu numa célula inofensiva: ${JSON.stringify(csvCell(ok))}`
+    }
+    // Aspas internas continuam dobradas, como o formato exige.
+    if (csvCell('diz "oi"') !== '"diz ""oi"""') return `escape de aspas quebrou: ${csvCell('diz "oi"')}`
+
+    // E a tela de Configurações precisa REALMENTE usar o helper.
+    const tela = readFileSync(new URL('../../src/screens/Settings.tsx', import.meta.url), 'utf8')
+    if (/const esc = \(v: any\) =>/.test(tela)) return 'Settings.tsx ainda tem o escape antigo, sem proteção de fórmula'
+    if (!tela.includes('csvCell')) return 'Settings.tsx não usa csvCell'
     return null
   })
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---

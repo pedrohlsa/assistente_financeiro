@@ -8,6 +8,7 @@ import { monthStats, monthlySavingGoal } from '../services/calc'
 import { ConfirmDialog, useToast } from '../components/ui'
 import { GOAL_CADENCE_LABEL, GoalCadence, goalCadenceOf, isDriver } from '../services/profile'
 import { canShareFile, saveTextFile, shareTextFile } from '../services/exportFile'
+import { csvCell } from '../utils/text'
 
 const WD = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
@@ -56,14 +57,13 @@ export default function SettingsScreen() {
 
   /** CSV de todas as movimentações (14.10). */
   const exportCsv = () => {
-    const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`
     const rows = [
       ['data', 'tipo', 'valor', 'categoria', 'descricao', 'origem', 'pagamento', 'origem_registro'].join(','),
       ...state.transactions
         .slice()
         .sort((a, b) => a.date.localeCompare(b.date))
         .map(t => [t.date, t.type, t.amount.toFixed(2), catById(state.categories, t.category).name,
-          t.description, t.origin, t.paymentMethod, t.source].map(esc).join(',')),
+          t.description, t.origin, t.paymentMethod, t.source].map(csvCell).join(',')),
     ].join('\n')
     download('﻿' + rows, `assistfin-movimentacoes-${todayISO()}.csv`, 'text/csv;charset=utf-8', 'CSV')
   }
@@ -72,7 +72,6 @@ export default function SettingsScreen() {
   const exportMonthlySummary = () => {
     const m = monthStats(state)
     const sg = monthlySavingGoal(state)
-    const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`
     const lines = [
       ['indicador', 'valor'].join(','),
       ...[
@@ -83,8 +82,8 @@ export default function SettingsScreen() {
         ['Guardado de verdade', sg.saved.toFixed(2)],
         ['Ainda disponível', sg.stillAvailable.toFixed(2)],
         ['Meta mensal', sg.target.toFixed(2)],
-      ].map(r => r.map(esc).join(',')),
-      ...(driverMode ? [['KM', String(m.km)], ['Viagens', String(m.trips)]].map(r => r.map(esc).join(',')) : []),
+      ].map(r => r.map(csvCell).join(',')),
+      ...(driverMode ? [['KM', String(m.km)], ['Viagens', String(m.trips)]].map(r => r.map(csvCell).join(',')) : []),
     ].join('\n')
     download('﻿' + lines, `assistfin-resumo-${monthKey(todayISO())}.csv`, 'text/csv;charset=utf-8', 'Resumo mensal')
   }

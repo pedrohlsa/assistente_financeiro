@@ -69,3 +69,28 @@ export function weekdayList(days: number[]): string {
   if (names.length === 1) return names[0]
   return `${names.slice(0, -1).join(', ')} e ${names[names.length - 1]}`
 }
+
+/**
+ * Uma célula de CSV, pronta para ir para dentro do arquivo.
+ *
+ * As aspas do formato protegem o SEPARADOR, não o conteúdo: uma descrição que
+ * começa com `=`, `+`, `-` ou `@` continua sendo interpretada como FÓRMULA ao
+ * abrir no Excel, no LibreOffice ou no Sheets. O usuário exporta as
+ * movimentações e manda para o contador, para a família, para o banco — e
+ * `=HYPERLINK(...)` ou a sintaxe DDE do Excel executam na máquina de quem
+ * recebeu. O texto pode nem ter sido ele que escreveu: um backup mesclado
+ * carrega descrição de outro estado.
+ *
+ * A proteção é a padrão para este formato: um apóstrofo na frente, que as
+ * planilhas consomem como marca de "isto é texto". O conteúdo continua legível
+ * e nada é apagado.
+ */
+export function csvCell(v: unknown): string {
+  const bruto = String(v ?? '')
+  // Tab e retorno de carro no começo também abrem espaço para a fórmula: a
+  // planilha os ignora e passa a ler o `=` seguinte.
+  const limpo = bruto.replace(/^[\t\r\n]+/, '')
+  const perigoso = /^[=+\-@]/.test(limpo)
+  const conteudo = perigoso ? `'${limpo}` : bruto
+  return `"${conteudo.replace(/"/g, '""')}"`
+}
