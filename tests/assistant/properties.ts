@@ -1909,6 +1909,32 @@ export async function runProperties(): Promise<PropertyReport> {
     if (!tela.includes('csvCell')) return 'Settings.tsx não usa csvCell'
     return null
   })
+  // --- 84. Parar de salvar não pode ser silencioso ----------------------
+  // Invariante de FIAÇÃO. O `getItem` sempre teve `try`; o `setItem` não
+  // tinha, e ele roda dentro de um `setTimeout` — a exceção não passa por
+  // nenhum limite de erro do React. Com o armazenamento cheio (cota do
+  // WebView), bloqueado (navegação privada, política do aparelho) ou o disco
+  // acabado, o app seguia respondendo enquanto NADA era gravado, e o usuário
+  // registrava o dia inteiro achando que estava guardado.
+  check(r, 'falha ao gravar é tratada e avisada', () => {
+    const store = readFileSync(new URL('../../src/store/store.tsx', import.meta.url), 'utf8')
+
+    // O `setItem` precisa estar dentro de um `try`.
+    const i = store.indexOf('localStorage.setItem(STORAGE_KEY')
+    if (i < 0) return 'não achei a gravação no store'
+    const antes = store.slice(Math.max(0, i - 400), i)
+    if (!/try\s*\{[^}]*$/.test(antes)) return 'setItem continua fora de um try'
+
+    if (!store.includes('storageError')) return 'a falha não é exposta para a tela'
+    if (!/QuotaExceededError/.test(store)) return 'a falha de cota não é distinguida'
+
+    // E alguém precisa mostrar isso. Um erro guardado numa variável que
+    // ninguém lê é o mesmo silêncio de antes.
+    const app = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+    if (!/storageError/.test(app)) return 'App.tsx não lê storageError'
+    if (!/<StorageWarning\s*\/>/.test(app)) return 'o aviso não é renderizado'
+    return null
+  })
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
   // Invariante de FIAÇÃO, não de lógica: o corpus sempre passou
   // `pendingClarification`, então ele nunca poderia ver que `Chat.tsx` não

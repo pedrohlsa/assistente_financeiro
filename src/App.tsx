@@ -18,6 +18,24 @@ import Cards from './screens/Cards'
 import SettingsScreen from './screens/Settings'
 import Onboarding from './screens/Onboarding'
 
+/**
+ * Aviso de que o aparelho parou de guardar.
+ *
+ * Fica acima de tudo e não some sozinho: enquanto a gravação estiver falhando,
+ * cada registro novo é perdido ao fechar o app. Um app offline-first de
+ * dinheiro que para de salvar em silêncio faz o usuário trabalhar o dia
+ * inteiro registrando no vazio.
+ */
+function StorageWarning() {
+  const { storageError } = useStore()
+  if (!storageError) return null
+  return (
+    <div className="storage-warning" role="alert">
+      <strong>Atenção:</strong> {storageError}
+    </div>
+  )
+}
+
 function Shell() {
   const { state } = useStore()
 
@@ -30,13 +48,14 @@ function Shell() {
     if (state.settings.onboarded) syncNotifications(state)
   }, [state.recurring, state.settings.notifications, state.settings.onboarded])
 
-  if (!state.settings.onboarded) return <Onboarding />
+  if (!state.settings.onboarded) return <><StorageWarning /><Onboarding /></>
 
   // Rotas exclusivas de motorista: acesso direto por outro perfil volta pra Home.
   const driverMode = isDriver(state.settings)
 
   return (
     <>
+      <StorageWarning />
       <div className="app-shell">
         <Routes>
           <Route path="/" element={<Home />} />

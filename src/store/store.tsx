@@ -1,7 +1,7 @@
 // Estado global + persistência local (localStorage) — funciona offline.
 // Preparado para sincronização futura: cada mutação passa por dispatch,
 // bastando acoplar uma fila de sync (INTEGRAÇÃO PENDENTE: backend/Supabase).
-import React, { createContext, useContext, useEffect, useMemo, useReducer } from 'react'
+import React, { createContext, useContext, useEffect, useMemo, useReducer, useState } from 'react'
 import {
   AppState, Transaction, WorkSession, FuelRecord, MaintenanceItem, FinancialGoal,
   Deficit, RecurringExpense, RecurrenceOccurrence, Budget, ChatMessage, ProposedAction, Settings, Vehicle, ParsedAction, Category,
@@ -380,7 +380,18 @@ function reducer(s: AppState, a: Action): AppState {
   }
 }
 
-const StoreCtx = createContext<{ state: AppState; dispatch: React.Dispatch<Action> }>({ state: initialState, dispatch: () => {} })
+interface StoreValue {
+  state: AppState
+  dispatch: React.Dispatch<Action>
+  /**
+   * Mensagem de falha ao GRAVAR no aparelho, ou `null`. Existe para que a tela
+   * possa avisar: um app offline-first que para de salvar em silencio faz o
+   * usuario registrar o dia inteiro achando que esta guardado.
+   */
+  storageError: string | null
+}
+
+const StoreCtx = createContext<StoreValue>({ state: initialState, dispatch: () => {}, storageError: null })
 
 /**
  * Handle da gravação debounced. Precisa ser visível fora do provider porque o
@@ -416,16 +427,35 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return init
   })
 
+  /**
+   * Falha ao GRAVAR. O `getItem` sempre teve `try`; o `setItem` não tinha, e
+   * ele roda dentro de um `setTimeout` — a exceção não passa por nenhum limite
+   * de erro do React. Quando o armazenamento enche (cota do WebView), está
+   * bloqueado (navegação privada, política do aparelho) ou o disco acabou, o
+   * app continuava respondendo normalmente enquanto NADA era salvo. Num app
+   * offline-first de dinheiro esse é o pior desfecho possível: o usuário
+   * registra o dia inteiro achando que está guardado.
+   */
+  const [storageError, setStorageError] = useState<string | null>(null)
+
   useEffect(() => {
     clearTimeout(pendingSave)
     pendingSave = setTimeout(() => {
       pendingSave = null
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+        setStorageError(prev => (prev ? null : prev))
+      } catch (e: any) {
+        const cheio = e?.name === 'QuotaExceededError' || e?.code === 22 || e?.code === 1014
+        setStorageError(cheio
+          ? 'O armazenamento do aparelho está cheio: os últimos registros NÃO foram salvos. Exporte um backup e apague o que não precisar mais.'
+          : 'Não estou conseguindo salvar neste aparelho: os últimos registros podem se perder ao fechar o app. Exporte um backup por segurança.')
+      }
     }, 150)
     return () => clearTimeout(pendingSave)
   }, [state])
 
-  const value = useMemo(() => ({ state, dispatch }), [state])
+  const value = useMemo(() => ({ state, dispatch, storageError }), [state, storageError])
   return <StoreCtx.Provider value={value}>{children}</StoreCtx.Provider>
 }
 
