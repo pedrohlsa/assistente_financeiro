@@ -18,12 +18,13 @@ import { withLearnedCategory } from '../../src/assistant/learning'
 import { assistantSuggestions } from '../../src/assistant/suggestions'
 import { buildAiContext } from '../../src/services/ai'
 import { buildPersonalModel } from '../../src/assistant/personalModel'
-import { currentBalance, savedThisMonth, monthStats } from '../../src/services/calc'
+import { currentBalance, savedThisMonth, monthStats, describeRecurrence } from '../../src/services/calc'
+import { cardsOverview } from '../../src/services/cards'
 import { buildSystemPrompt, normalizeCapabilities, sanitizeRemoteResponse } from '../../api/_lib/assistantPrompt'
 import { callDeepSeekChat, isDeepSeekFailure } from '../../api/_lib/deepseek'
 import { handleAssistantRequest } from '../../api/_lib/assistantHandler'
 import { describeAction } from '../../src/services/nlp'
-import { todayISO } from '../../src/utils/format'
+import { addDays, todayISO } from '../../src/utils/format'
 import type { ParsedAction } from '../../src/models/types'
 import type { AssistantCandidateAction, AssistantResponse } from '../../src/assistant/contracts'
 
@@ -1802,6 +1803,68 @@ export async function runProperties(): Promise<PropertyReport> {
       const v = (gasto.action as any).amount
       if (Math.abs(v - esperado) > 0.001) return `"${frase}" virou ${v}, esperado ${esperado}`
     }
+    return null
+  })
+  // --- 81. O dia da semana sai em português correto ---------------------
+  // Regra 23: dia da semana nunca aparece como número, e a frase pronta vem
+  // de `describeRecurrence`. Faltava a outra metade: sábado e domingo são
+  // MASCULINOS, e a tela de Planejamento — onde o usuário confere o que vai
+  // vencer — dizia "Toda sábado" e "às domingos".
+  check(r, 'describeRecurrence concorda em gênero', () => {
+    const base: any = {
+      id: 'r1', name: 'Conta', amount: 100, dueDay: 10, frequency: 'monthly',
+      category: 'casa', kind: 'expense',
+    }
+    // 2026-01-31 é sábado; 2026-02-01, domingo; 2026-02-02, segunda-feira.
+    const casos: [string, number, RegExp][] = [
+      ['2026-01-31', 1, /^Todo sábado$/],
+      ['2026-02-01', 1, /^Todo domingo$/],
+      ['2026-02-02', 1, /^Toda segunda-feira$/],
+      ['2026-01-31', 2, /^A cada 2 semanas, aos sábados$/],
+      ['2026-02-02', 2, /^A cada 2 semanas, às segundas-feiras$/],
+    ]
+    for (const [startDate, interval, esperado] of casos) {
+      const texto = describeRecurrence({ ...base, startDate, interval, intervalUnit: 'week' })
+      if (!esperado.test(texto)) return `"${texto}" não casa ${esperado}`
+      if (/\d/.test(texto.replace(String(interval), '')) && interval === 1) {
+        return `dia da semana saiu como número: "${texto}"`
+      }
+    }
+    return null
+  })
+
+  // --- 82. Dívida parcelada e parcela do mês não se contradizem ---------
+  // `activePlans` exigia `status === "active"` e `installmentsInMonth` usa o
+  // oposto (`!== "cancelled"`). Um plano sem status — dado antigo, backup
+  // editado — entrava no compromisso do mês e no limite usado, mas somava R$ 0
+  // de dívida. O usuário via os dois números da MESMA coisa se contradizendo.
+  check(r, 'plano sem status não some da dívida', () => {
+    const s = buildState({ profile: 'other', cards: [{ name: 'Nubank' }] })
+    const mk = (status?: string) => {
+      const st = buildState({ profile: 'other', cards: [{ name: 'Nubank' }] })
+      st.installmentPlans = [{
+        id: 'p1', description: 'Compra', totalAmount: 1200, installmentCount: 12,
+        cardId: 'card0', firstDueDate: TODAY, purchaseDate: TODAY,
+        operationType: 'purchase', ...(status ? { status } : {}),
+      }] as any
+      st.installments = Array.from({ length: 12 }, (_, i) => ({
+        id: `i${i}`, planId: 'p1', number: i + 1, total: 12, amount: 100,
+        dueDate: addDays(TODAY, i * 30), status: 'pending',
+      })) as any
+      return st
+    }
+
+    for (const status of [undefined, 'active']) {
+      const o = cardsOverview(mk(status))
+      if (o.installmentsThisMonth > 0 && o.totalDebt <= 0) {
+        return `status ${String(status)}: parcela no mês ${o.installmentsThisMonth} com dívida ${o.totalDebt}`
+      }
+    }
+    // Quitado e cancelado continuam fora da dívida.
+    for (const status of ['settled', 'cancelled']) {
+      if (cardsOverview(mk(status)).totalDebt > 0) return `plano ${status} continuou contando como dívida`
+    }
+    if (cardsOverview(s).totalDebt !== 0) return 'sem plano nenhum a dívida não é zero'
     return null
   })
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---

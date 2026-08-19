@@ -91,8 +91,21 @@ export const planInstallments = (s: AppState, planId: string): Installment[] =>
 export const planById = (s: AppState, id: string) => (s.installmentPlans || []).find(p => p.id === id)
 
 /** Parcelamentos que ainda geram obrigação (não quitados nem cancelados). */
+/**
+ * Planos que ainda representam dívida.
+ *
+ * O teste explícito era `status === 'active'`, e `installmentsInMonth` usa o
+ * oposto (`!== 'cancelled'`). Um plano vindo de dado antigo ou de backup
+ * editado, sem `status`, caía nos dois lados: as parcelas dele entravam no
+ * compromisso do mês e no limite usado, mas a dívida total dava R$ 0. O
+ * usuário via "parcelas deste mês: R$ 277,78" ao lado de "dívida parcelada
+ * restante: R$ 0,00" — dois números da mesma coisa se contradizendo.
+ *
+ * Quitado e cancelado continuam de fora; ausente conta como dívida, que é a
+ * leitura segura de um plano com parcela pendente.
+ */
 export const activePlans = (s: AppState): InstallmentPlan[] =>
-  (s.installmentPlans || []).filter(p => p.status === 'active')
+  (s.installmentPlans || []).filter(p => p.status !== 'settled' && p.status !== 'cancelled')
 
 /** Parcelas que vencem no mês de referência ('YYYY-MM'), ignorando canceladas. */
 export function installmentsInMonth(s: AppState, mk: string): Installment[] {

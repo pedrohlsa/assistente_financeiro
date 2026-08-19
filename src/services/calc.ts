@@ -598,13 +598,19 @@ export function describeRecurrence(r: RecurringExpense): string {
   const anchor = fromISO(recurrenceAnchor(r))
   const day = anchor.getDate()
   const weekday = weekdayName(anchor.getDay()).toLowerCase()
-  const plural = weekday.replace('-feira', 's-feira').replace(/^(domingo|sábado)$/, '$1s')
+  // "segunda-feira" pluraliza NOS DOIS termos: "segundas-feiras". Pluralizar
+  // só o primeiro devolvia "às segundas-feira".
+  const plural = weekday.replace(/^([a-zà-ú]+)-feira$/i, '$1s-feiras').replace(/^(domingo|sábado)$/, '$1s')
 
   if (unit === 'day') return interval === 1 ? 'Todo dia' : `A cada ${interval} dias`
   if (unit === 'week') {
+    // Sábado e domingo são masculinos: "Toda sábado" e "às domingos" é o app
+    // errando português na tela de Planejamento, que é onde o usuário confere
+    // o que vai vencer. Os outros cinco dias são "-feira", femininos.
+    const masculino = /^(domingo|s[áa]bado)/.test(weekday)
     return interval === 1
-      ? `Toda ${weekday}`
-      : `A cada ${interval} semanas, às ${plural}`
+      ? `${masculino ? 'Todo' : 'Toda'} ${weekday}`
+      : `A cada ${interval} semanas, ${masculino ? 'aos' : 'às'} ${plural}`
   }
   if (unit === 'year') {
     const month = anchor.toLocaleDateString('pt-BR', { month: 'long' })
