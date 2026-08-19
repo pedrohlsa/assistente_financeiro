@@ -711,6 +711,37 @@ export const ADAPTATIVO: AssistantCase[] = [
     expectReply: [/moto/i, /9\.000|8\.500|500/],
     forbidReply: [/margem de seguran[çc]a|d[ée]ficits acumulados/i],
   },
+  // ----- Centavo é centavo -----------------------------------------------
+  {
+    id: 'ad-50', group: 'adaptativo', ...other,
+    // "gastei 50 centavos" registrava R$ 50,00. Cem vezes o valor, na
+    // palavra mais explícita que existe para dizer que NÃO são reais.
+    messages: ['gastei 50 centavos no mercado'],
+    expectActions: [{ kind: 'expense', amount: 0.5 }],
+  },
+  {
+    id: 'ad-51', group: 'adaptativo', ...other,
+    // A mesma coisa por extenso.
+    messages: ['gastei cinquenta centavos no mercado'],
+    expectActions: [{ kind: 'expense', amount: 0.5 }],
+  },
+  {
+    id: 'ad-52', group: 'adaptativo', ...other,
+    // "20 reais e 30 centavos" perdia os centavos e virava R$ 20,00.
+    messages: ['gastei 20 reais e 30 centavos no mercado'],
+    expectActions: [{ kind: 'expense', amount: 20.3 }],
+  },
+  {
+    id: 'ad-53', group: 'adaptativo', ...other,
+    messages: ['gastei 1 real e 5 centavos no mercado'],
+    expectActions: [{ kind: 'expense', amount: 1.05 }],
+  },
+  {
+    id: 'ad-54', group: 'adaptativo', ...other,
+    // Tudo por extenso: já funcionava, e o conserto não pode quebrar.
+    messages: ['gastei cento e cinquenta reais e cinquenta centavos'],
+    expectActions: [{ kind: 'expense', amount: 150.5 }],
+  },
   // ----- O aviso de padrão é por CATEGORIA, não pelo total ----------------
   {
     id: 'ad-25', group: 'adaptativo', ...other,
