@@ -184,6 +184,26 @@ const RETRACTION_PATTERNS: RegExp[] = [
 export const looksLikeRetraction = (t: string): boolean => hasAny(t, RETRACTION_PATTERNS)
 
 /**
+ * O usuário está discordando do que ESTÁ NA TELA.
+ *
+ * Deliberadamente mais largo que `looksLikeRetraction`, e por isso só pode ser
+ * usado quando existe proposta pendente: ali o custo de errar se inverte. Sem
+ * proposta, um falso positivo engoliria um registro legítimo — com proposta,
+ * ele apenas faz o app perguntar, e o falso NEGATIVO é que é caro: era ele que
+ * transformava "não cara, tá errado isso aí" num segundo lançamento enquanto o
+ * primeiro continuava confirmável logo acima.
+ */
+const CONTEST_PATTERNS: RegExp[] = [
+  ...RETRACTION_PATTERNS,
+  /^\s*n[ãa]o\b/i,
+  /\b(?:est[áa]|ta|tah)\s+errad[oa]\b/i,
+  /\b(?:errad[oa]|engano|enganado)\b/i,
+  /\bn[ãa]o\s+(?:[ée]|eh)\s+(?:isso|assim|bem\s+assim)\b/i,
+]
+
+export const contestsProposal = (t: string): boolean => hasAny(t, CONTEST_PATTERNS)
+
+/**
  * Conta que SE REPETE — "pago 90 de internet todo mês", "minha luz é 150 por
  * mês". Isso é PREVISÃO, não movimentação realizada (regra 18): registrar como
  * despesa de hoje inflava o mês com dinheiro que ainda não saiu.

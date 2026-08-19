@@ -623,8 +623,15 @@ function resolveLocal(s: AppState, input: string): AiReply {
     }
   }
 
+  // Meta de COMPRA citada pelo NOME ganha da meta diária. O motorista tem as
+  // duas, e a palavra "meta" serve às duas — mas quem batizou a meta de "Moto"
+  // e pergunta por ela espera ouvir sobre ela, não a composição da meta do dia.
+  const metaCitadaPeloNome = s.goals.some(g => !g.done && g.name?.trim()
+    && t.includes(normalizeQuestion(g.name).split(' ')[0]))
+
   // "quanto preciso ganhar amanhã?" / "qual minha meta"
-  if (driverMode && /(preciso ganhar|meta)\s*(de)?\s*(amanh[aã]|hoje)?/.test(t) && /(preciso|meta)/.test(t) && !/como est/.test(t)) {
+  if (driverMode && !metaCitadaPeloNome
+    && /(preciso ganhar|meta)\s*(de)?\s*(amanh[aã]|hoje)?/.test(t) && /(preciso|meta)/.test(t) && !/como est/.test(t)) {
     const g = dailyGoal(s)
     return {
       text: `Sua meta diária atual é ${fmtBRL(g.total)}. Composição:\n\n` +

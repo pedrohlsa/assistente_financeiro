@@ -18,7 +18,7 @@ import type {
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, isValidationFailure, validateAction } from './contracts'
-import { analyzeMessage, looksLikeRetraction, looksRecurring } from './clauses'
+import { analyzeMessage, contestsProposal, looksLikeRetraction, looksRecurring } from './clauses'
 import { categoryDilemma, outOfPatternWarning, withLearnedCategory } from './learning'
 import { explainRequest } from './explain'
 import type { AnalyzedClause, MessageAnalysis, TemporalSignal } from './clauses'
@@ -814,6 +814,27 @@ Confirmar?`,
           reply: `${plan.summary.join(' ')}\n\n${proposalText(next)}\n\nConfirmar?`,
         },
       }
+    }
+  }
+
+  // ---- 2z) Negação COM proposta na tela: fala do que está lá -------------
+  // "não cara, tá errado isso aí" com um card aberto é conserto, não registro
+  // novo. Quando `parseCorrection` não consegue entender O QUE mudar, a saída
+  // é PERGUNTAR — deixar a frase seguir para o parser normal criava um segundo
+  // lançamento enquanto o primeiro continuava confirmável logo acima, e o
+  // usuário ficava com duas propostas para a mesma compra.
+  if (input.pending?.length && contestsProposal(input.message)
+    && !UNDO_REQUEST.test(input.message) && !UNDO_SHORT.test(input.message)) {
+    return {
+      draft: null,
+      keepPending: true,
+      response: {
+        version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local',
+        actions: [], unresolved: [],
+        reply: 'Entendi que tem algo errado aí, mas não peguei o quê. '
+          + 'Me diga o que mudar ("foi 80", "era no Inter", "a categoria é lazer") — '
+          + 'ou toque em Cancelar se preferir descartar.',
+      },
     }
   }
 

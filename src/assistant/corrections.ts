@@ -148,16 +148,20 @@ export function parseCorrection(
   // Valor: "não foi 100, foi 80" · "troca o valor para 80" · "a segunda foi 190"
   // `(?:\s*mil)?` é essencial: "não foi 4 mil, foi 3.800" é como se fala.
   const MIL = String.raw`(?:\s*(mil))?`
+  // Reforço no fim do conserto: "foi 100 MESMO", "era 80 SIM", "foi 90 no
+  // total". Sem isso a frase não casava, caía no parser normal e virava uma
+  // SEGUNDA despesa — com a primeira ainda confirmável logo acima.
+  const REFORCO = String.raw`(?:\s*(?:mesmo|mesma|sim|isso|isso a[ií]|certo|exato|exatamente|redondo|cravado|ao\s+todo|no\s+total|s[oó]|apenas|apenas isso))?`
   const valueRe = new RegExp(
     String.raw`(?:n[ãa]o\s+(?:foi|era|é|e)\s*(?:r\$)?\s*${NUMBER}${MIL}\s*,?\s*(?:e|mas)?\s*(?:foi|era|é|e|sim)?\s*(?:r\$)?\s*${NUMBER}${MIL})` +
     String.raw`|(?:(?:troca|trocar|muda|mudar|altera|alterar|corrige|corrigir|ajusta|ajustar)\s+(?:o\s+)?valor\s+(?:para|pra|por|em)\s*(?:r\$)?\s*${NUMBER}${MIL})` +
-    String.raw`|(?:(?:foi|era|é)\s*(?:r\$)?\s*${NUMBER}${MIL}\s*(?:reais)?\s*$)` +
+    String.raw`|(?:(?:foi|era|é)\s*(?:r\$)?\s*${NUMBER}${MIL}\s*(?:reais)?${REFORCO}\s*$)` +
     // "Na verdade 80", "quer dizer 80 reais" — o conserto mais natural que
     // existe, e o único caminho que faltava reconhecer.
     String.raw`|(?:(?:na\s+verdade|na\s+real|quer\s+dizer|queria\s+dizer|ou\s+melhor|melhor\s+dizendo|corrigindo|errei|me\s+enganei|foi\s+mal)\b[^\d]{0,12}(?:r\$)?\s*${NUMBER}${MIL})` +
     // A mensagem inteira é um número: com a proposta na tela isso só pode ser
     // o valor certo. Sem proposta, `parseCorrection` nem é chamada.
-    String.raw`|(?:^\s*(?:r\$)?\s*${NUMBER}${MIL}\s*(?:reais)?\s*$)`,
+    String.raw`|(?:^\s*(?:r\$)?\s*${NUMBER}${MIL}\s*(?:reais)?${REFORCO}\s*$)`,
     'i',
   )
   const vm = t.match(valueRe)

@@ -681,6 +681,36 @@ export const ADAPTATIVO: AssistantCase[] = [
     forbidReply: [/me diga o nome do lugar/i],
   },
 
+  // ----- Correção nunca vira lançamento novo -----------------------------
+  {
+    id: 'ad-47', group: 'adaptativo', ...driver, state: motoristaDoSuco,
+    // "não, foi 100 mesmo" com a proposta na tela é conserto de valor. A
+    // palavra de reforço no fim ("mesmo") derrubava o casamento, a frase caía
+    // no parser normal e virava uma SEGUNDA despesa chamada "Mesmo" — com a
+    // primeira ainda confirmável logo acima. Duas propostas para a mesma
+    // compra é o pior desfecho possível.
+    messages: ['gastei 3000 de suco', 'não, foi 100 mesmo'],
+    expectActions: [{ kind: 'expense', amount: 100, category: 'combustivel', description: 'Suco' }],
+  },
+  {
+    id: 'ad-48', group: 'adaptativo', ...driver, state: motoristaDoSuco,
+    // Mesmo quando o conserto não é entendido, a frase de negação com uma
+    // proposta na tela NÃO pode virar lançamento: ela fala do que está lá.
+    messages: ['gastei 3000 de suco', 'não cara, tá errado isso aí'],
+    expectNoActions: true,
+    expectReply: [/o que .* (mudar|trocar|corrigir)|qual .* certo|cancelar/i],
+  },
+  {
+    id: 'ad-49', group: 'adaptativo', ...driver,
+    state: { goals: [{ name: 'Moto', target: 9000, saved: 500 }] },
+    // O motorista tem meta diária E metas de compra. Perguntar pela meta
+    // PELO NOME devolvia a composição da meta diária — a resposta certa de
+    // outra pergunta. Quem deu nome à meta espera ouvir sobre ela.
+    messages: ['quanto falta pra meta moto?'],
+    expectNoActions: true,
+    expectReply: [/moto/i, /9\.000|8\.500|500/],
+    forbidReply: [/margem de seguran[çc]a|d[ée]ficits acumulados/i],
+  },
   // ----- O aviso de padrão é por CATEGORIA, não pelo total ----------------
   {
     id: 'ad-25', group: 'adaptativo', ...other,
