@@ -24,7 +24,7 @@ import { buildSystemPrompt, normalizeCapabilities, sanitizeRemoteResponse } from
 import { callDeepSeekChat, isDeepSeekFailure } from '../../api/_lib/deepseek'
 import { handleAssistantRequest } from '../../api/_lib/assistantHandler'
 import { describeAction } from '../../src/services/nlp'
-import { addDays, todayISO } from '../../src/utils/format'
+import { addDays, fmtBRL, fmtNum, todayISO } from '../../src/utils/format'
 import { csvCell } from '../../src/utils/text'
 import type { ParsedAction } from '../../src/models/types'
 import type { AssistantCandidateAction, AssistantResponse } from '../../src/assistant/contracts'
@@ -1933,6 +1933,27 @@ export async function runProperties(): Promise<PropertyReport> {
     const app = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
     if (!/storageError/.test(app)) return 'App.tsx não lê storageError'
     if (!/<StorageWarning\s*\/>/.test(app)) return 'o aviso não é renderizado'
+    return null
+  })
+  // --- 85. Dinheiro nunca sai como NaN nem como menos zero -------------
+  // "R$ NaN" e "R$ ∞" na tela de um app de dinheiro destroem a confiança em
+  // TUDO que está na mesma tela. Trocar por "R$ 0,00" seria pior: um número
+  // errado com cara de certo. E "-R$ 0,00" parece defeito mesmo estando
+  // aritmeticamente correto.
+  check(r, 'formatador de dinheiro falha de forma legível', () => {
+    for (const v of [NaN, Infinity, -Infinity]) {
+      const t = fmtBRL(v)
+      if (/NaN|Infinity|∞/.test(t)) return `fmtBRL(${v}) = ${JSON.stringify(t)}`
+      if (/\d/.test(t)) return `fmtBRL(${v}) inventou um número: ${JSON.stringify(t)}`
+      const n = fmtNum(v)
+      if (/NaN|Infinity|∞/.test(n)) return `fmtNum(${v}) = ${JSON.stringify(n)}`
+    }
+    if (fmtBRL(-0).includes('-')) return `fmtBRL(-0) = ${JSON.stringify(fmtBRL(-0))}`
+    if (fmtNum(-0).includes('-')) return `fmtNum(-0) = ${JSON.stringify(fmtNum(-0))}`
+    // Valor normal continua idêntico — proteger não é mudar o formato.
+    if (fmtBRL(1234.5) !== 'R$\u00a01.234,50') return `formato normal mudou: ${JSON.stringify(fmtBRL(1234.5))}`
+    if (fmtBRL(0) !== 'R$\u00a00,00') return `zero mudou: ${JSON.stringify(fmtBRL(0))}`
+    if (fmtBRL(-5) !== '-R$\u00a05,00') return `negativo mudou: ${JSON.stringify(fmtBRL(-5))}`
     return null
   })
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
