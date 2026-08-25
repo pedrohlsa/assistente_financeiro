@@ -1,7 +1,7 @@
 # AssistFin — Contexto do produto
 
-Visão consolidada e **verificada no código** em 29/07/2026
-(branch `feat/assistant-orchestrator`).
+Visão consolidada e **verificada no código** em 25/08/2026
+(branch `feat/assistant-semantic-copilot`).
 Este arquivo descreve o que o aplicativo é hoje. Regras permanentes de implementação ficam no
 [CLAUDE.md](CLAUDE.md); o histórico de rodadas fica no [PROGRESS.md](PROGRESS.md).
 
@@ -129,6 +129,25 @@ O assistente tem contrato versionado e vive em `src/assistant/`:
 - **`editSaved.ts`** — correção de lançamento já salvo, com busca **local** de candidatos.
 - **`proposalEdit.ts`** — campos editáveis da proposta, derivados do catálogo.
 - **`orchestrator.ts`** — amarra tudo e decide local × remoto por cobertura.
+- **`capabilities.ts`** — o que ESTE usuário pode fazer; mora sozinho para quebrar um ciclo
+  de import entre `services/ai.ts` e o orquestrador.
+
+Desde 25/08/2026 há mais quatro camadas, todas **locais e somente leitura**:
+
+- **`query/`** — consulta financeira arbitrária por uma DSL de vocabulário FECHADO (10 fontes,
+  12 métricas, 13 agrupamentos, campos permitidos por fonte). `validateQueryPlan()` é o
+  `validateAction` das consultas: recusa com código próprio, nunca em silêncio.
+- **`scenario/`** — "e se?" sobre uma CÓPIA projetada do estado, reusando as funções reais de
+  parcela, fatura e projeção, para que simulação e realidade não possam divergir.
+- **`conversation/focus.ts`** — memória de foco em RAM (mesmo TTL dos rascunhos): o follow-up
+  REFINA o plano anterior em vez de recomeçar.
+- **`semantic/`** — blocos do turno, evidência por CAMPO com posto, tolerância conservadora a
+  erro de digitação e o dia telegráfico do motorista.
+
+O modelo remoto ganhou um papel a mais, e é o mais seguro que ele pode ter: **planejar** a
+consulta que o motor local não entendeu. Recebe o vocabulário da DSL, as categorias e os nomes
+de cartão e de meta — nunca um lançamento. O plano volta, é validado com as capacidades reais
+deste aparelho e executado aqui. Nenhum número sai do dispositivo.
 
 `api/_lib/assistantPrompt.ts` é a **fonte única** da SYSTEM_PROMPT, gerada a partir do catálogo e
 das capacidades reais do usuário; `api/_lib/assistantHandler.ts` concentra o pipeline do endpoint.
@@ -327,6 +346,7 @@ Verificado no código nesta auditoria.
 | **Motorista** | Implementado. Meta diária, analisador de corrida "vale a pena?", taxa da 99 como pergunta separada, parser composto ("430 Uber, mais 399 da 99, 163 de gasolina, 24 L e 161 km"). |
 | **IA** | Funcionando. Motor local determinístico + DeepSeek para perguntas abertas, com datas futuras/inválidas tratadas sem criar movimentação realizada e falha remota explícita. Detalhes e limites em [docs/AI_CURRENT_STATE.md](docs/AI_CURRENT_STATE.md). |
 | **IA adaptativa** | Implementado (17/08/2026). O assistente usa o histórico CONFIRMADO deste aparelho para sugerir a categoria que o usuário costuma dar a cada frase, manter a grafia que ele já escreveu (descrição e origem), avisar sobre valor fora do padrão dele, montar sugestões da vida dele e responder o ritmo do motorista. Aprender exige repetição e evidência; o recente pesa mais sem que o antigo desapareça; palavra genérica isolada não identifica lugar; categoria arquivada nunca é aplicada; e nada é registrado sem confirmação. O usuário pode perguntar por que o app decidiu assim e desligar tudo em Configurações → Assistente adaptativo. |
+| **IA copiloto** | Implementado (25/08/2026). Consulta financeira arbitrária por DSL fechada, executada no aparelho ("quanto gastei em obra nos últimos 3 meses?", "qual dia da semana eu faturo mais?", "compare com o mês passado", "tirando cimento"); cenário somente leitura ("se eu comprar um pc de 4000 em 10x, dá ruim?"), que sempre se identifica como simulação; e follow-up de verdade — "e mês passado?" troca o período e MANTÉM o filtro. O modelo remoto pode PLANEJAR a consulta que o local não entendeu, mas nunca calcula: o plano é validado e executado aqui. Empate é dito em vez de desempatado, e pergunta de sim ou não começa por sim ou não. |
 | **Análises** | Implementado, mas **não é sensível a perfil** (ver pendências). Diário/semanal/mensal/anual, comparativo com período anterior, gastos por categoria, exportação CSV e impressão. |
 | **Configurações** | Implementado. Perfil, tema, dias de trabalho, custos do veículo, categorias personalizadas, notificações, IA remota ligada/desligada, **assistente adaptativo ligado/desligado** (com a explicação em português do que é aprendido, de que fica no aparelho e de que apagar o histórico apaga o aprendizado), "Limpar lançamentos e trabalho", reset total. |
 | **Backup** | Implementado. Exportar JSON; restaurar com escolha entre Mesclar e Substituir tudo, usando `<ConfirmDialog>`. |

@@ -1,11 +1,12 @@
 # CONTEXT.md — Handoff do AssistFin
 
-> Documento de passagem de bastão. Escrito em **2026-08-01**, verificado contra o
+> Documento de passagem de bastão. Escrito em **2026-08-01**, revisado em
+> **2026-08-25** (rodada do copiloto semântico), verificado contra o
 > código e o Git (não só contra a conversa). Convenção de confiança:
 > **[FATO]** verificado no repo · **[INFERÊNCIA]** deduzido · **[PENDÊNCIA]** não feito.
 >
 > Fontes de verdade permanentes, mais detalhadas que este arquivo:
-> `CLAUDE.md` (regras 1–50), `CONTEXTO.md` (produto), `PROGRESS.md` (diário por rodada),
+> `CLAUDE.md` (regras 1–59), `CONTEXTO.md` (produto), `PROGRESS.md` (diário por rodada),
 > `docs/AI_CURRENT_STATE.md` e `docs/AI_REGRESSION_MATRIX.md` (IA). Este `CONTEXT.md`
 > resume e aponta para eles — em caso de divergência, o código vence.
 
@@ -34,7 +35,10 @@ via função serverless na Vercel.
 ## 2. Estado atual
 
 **[FATO] Tudo verde.**
-- Suíte: **531/531 casos + 86/86 invariantes** (rodado em 17/08/2026, `npm test`).
+- Suíte: **531/531 casos + 75/75 goldens novos + 4.080/3.800 mutações metamórficas +
+  1.416 mensagens hostis + 106/106 invariantes** (rodado em 25/08/2026, `npm test`).
+- Qualidade das respostas (`npm run rubric`, 90 mensagens em português real):
+  **PERIGOSA 0 · RUIM 0 · ACEITÁVEL 6 · EXCELENTE 84**. PERIGOSA tem meta absoluta de zero.
 - `npm run typecheck` e `npm run typecheck:api`: exit 0.
 - `npm run build` e `npx vercel build --prod`: exit 0. Bundle inspecionado: sem chave,
   sem nome de env server-only, sem código server-only e sem dado de teste.

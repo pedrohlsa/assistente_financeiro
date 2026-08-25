@@ -1,9 +1,9 @@
 # AssistFin — Estado do Projeto
 
-**Última atualização**: 2026-08-17 — rodada ADAPTATIVA (modelo pessoal derivado com
-evidência, confiança e recência; explicabilidade; ritmo do motorista; chave para
-desligar) seguida de seis rodadas de LIMITE, que acharam nove defeitos fora do corpus.
-Ver as duas últimas seções.
+**Última atualização**: 2026-08-25 — rodada do COPILOTO SEMÂNTICO (Query DSL local,
+cenários somente leitura, foco conversacional, evidência por campo, tolerância a typo,
+planejador remoto com grounding) na branch `feat/assistant-semantic-copilot`. Ver a
+última seção.
 
 > **Aviso de leitura**: as seções datadas abaixo são um diário — cada uma registra o que era
 > verdade **naquela data** e não é reescrita depois. Para o estado atual verificado, use
@@ -2627,3 +2627,113 @@ Correções de documentação feitas com base NESTE resultado (nenhuma mudança 
 
 Branch de trabalho: `feat/assistant-semantic-copilot`, criada a partir de `main` (`eb54a4e`,
 que já contém a rodada adaptativa e as seis de limite). Sem push, sem merge, sem deploy.
+
+---
+
+## 🧠 Rodada do COPILOTO SEMÂNTICO — 2026-08-25
+
+Branch `feat/assistant-semantic-copilot`. **Sem push, sem merge, sem deploy, sem APK.**
+
+O objetivo não era "mais regex". Era trocar o **teto**: o assistente respondia bem as
+perguntas que alguém escreveu no código, uma a uma, e não sabia responder mais nada.
+
+### O defeito que definiu a rodada
+
+`periodFromText()` em `ai.ts` conhecia **seis** frases de período e caía em "últimos 7 dias"
+para todo o resto. Consequência real, não hipotética:
+
+```
+"quanto gastei em obra nos últimos 3 meses?"
+  → respondia com o total de UMA SEMANA, apresentado como dado real
+```
+
+O usuário não tinha como perceber: o número era verdadeiro, o período é que era outro. É a
+pior forma de erro num app de dinheiro — errado com cara de certo.
+
+### O que passou a existir
+
+| Camada | Onde | O que garante |
+|---|---|---|
+| Query DSL | `src/assistant/query/` | Vocabulário FECHADO (10 fontes, 12 métricas, 13 agrupamentos), validado como as ações, executado **local** |
+| Cenário | `src/assistant/scenario/` | Somente leitura, sobre CÓPIA projetada; reusa as funções reais de cartão e projeção |
+| Foco | `src/assistant/conversation/` | Follow-up REFINA o plano anterior; "e mês passado?" troca o período e mantém o filtro |
+| Turno e evidência | `src/assistant/semantic/` | Blocos do turno + evidência por CAMPO com posto (usuário > parser > histórico > remoto) |
+| Grounding | `src/assistant/grounding.ts` | Barreira aritmética sobre prosa remota — **com o alcance medido, ver abaixo** |
+
+O modelo remoto ganhou UM papel novo e ele é o mais seguro possível: **planejar** a consulta
+que o local não entendeu. Recebe o vocabulário e a pergunta, nunca um lançamento; devolve um
+plano; o plano é validado com as capacidades reais do aparelho e executado aqui.
+
+### O achado mais importante: a barreira que não barrava
+
+A barreira de grounding foi **medida**, não estimada — 5.000 valores sorteados entre R$ 0 e
+R$ 5.000, tratados como números inventados pelo modelo:
+
+| fatos na lista | inventados que passariam |
+|---|---|
+| 1 | 0,6% |
+| 3 | 3,5% |
+| 6 | 16,0% |
+| 12 | 35,8% |
+| contexto agregado inteiro (38 números) | **89,3%** |
+
+O termo que domina é a soma e a diferença entre pares. Tirar a razão crua move 10,1% para
+10,0% — a única alavanca é o tamanho da lista.
+
+Daí duas decisões, e a segunda é uma decisão de **não fazer**: `MAX_COMPOSE_FACTS = 6`, que
+falha fechado; e a barreira **não** foi ligada à resposta livre da IA remota, onde teria ~11%
+de eficácia. Alegar proteção que não existe é pior que não ter. Fica documentado com o número.
+
+### Defeitos encontrados FORA do corpus (o padrão se repetiu pela terceira vez)
+
+O corpus esteve **100% verde** do início ao fim da rodada. Nenhum destes falhava um teste:
+
+- o dia telegráfico do motorista (`hj deu 430 uber 399 99 163 de gasosa 24l 161km 8h`) perdia
+  metade do turno;
+- `4k` virava R$ 4,00;
+- "se a Casa 1 **n** pagar" virava um gasto simulado de R$ 1,00 — resposta completa, precisa e
+  sobre outra coisa;
+- "meu nubank tá fudendo mt meu mês?" respondia o resumo do mês inteiro;
+- "quanto falta pra viagem" (a meta pelo nome) caía em parcelamento e respondia "você não tem
+  parcelamentos em aberto com viagem";
+- "qual dia da semana eu faturo mais?" coroava o sábado (R$ 2.945,00) sobre a sexta
+  (R$ 2.935,00), com 12 ocorrências cada — cara-ou-coroa apresentado como conclusão;
+- "meu salário cobre minhas contas?" devolvia a lista de contas e nunca dizia se cobre.
+
+Além de um **crash** achado pelo fuzzer: `'__proto__' in UNITS` é `true` em objeto literal, o
+acumulador virava string e o parser morria em `m.value.toFixed is not a function`. Todos os
+dicionários indexados por texto viraram `Map`.
+
+### A rubrica (fase 23)
+
+`npm run rubric` classifica cada resposta do corpus adversarial em PERIGOSA / RUIM /
+ACEITÁVEL / EXCELENTE por **predicado**, não por opinião — opinião não é comparável entre
+rodadas. PERIGOSA tem meta ABSOLUTA de zero e o script sai com código 1 se houver alguma.
+
+A própria rubrica precisou de três correções antes de servir, todas pelo mesmo motivo: ela
+acusava as melhores respostas do corpus (simulação com valor, pergunta com verbo de registro,
+recusa com motivo). Rubrica que grita à toa se aprende a ignorar.
+
+**Resultado**: PERIGOSA 0 · RUIM 0 · ACEITÁVEL 6 · EXCELENTE 84 (93%).
+
+### Gates executados
+
+| Gate | Resultado, 25/08/2026 |
+|---|---|
+| `npm test` | **531/531** casos · **75/75** goldens novos · **4.080 + 3.800** mutações · **1.416** hostis · **106/106** invariantes |
+| `npm run typecheck` | exit 0 |
+| `npm run typecheck:api` | exit 0 |
+| `npm run build` | exit 0 |
+| `grep -rn "sk-" dist/` | nada |
+| `npx vercel build --prod` | `Build completed successfully` (**build local; nenhum deploy**) |
+| `npm run rubric` | PERIGOSA 0 |
+
+### Deixado de fora, conscientemente
+
+1. **Roteamento de modelo (fase 22)** — depende de resultado de avaliação, que depende de
+   chamada paga, que depende de autorização explícita de gasto. A infraestrutura está pronta
+   e **não gasta** sem `--executar`.
+2. **O compositor remoto não está ligado** — implementado, protegido e limitado, mas nenhuma
+   resposta passa por ele hoje. Toda composição é determinística.
+3. **`orchestrate` tem 817 linhas** (eram 526). Lê-se como pipeline e os passos foram
+   renumerados na ordem real de execução, mas é o maior candidato a extração da próxima rodada.

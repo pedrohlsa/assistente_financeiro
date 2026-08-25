@@ -1,8 +1,14 @@
 # Arquitetura do assistente do AssistFin
 
-Estado **depois** da correção temporal e da auditoria da DeepSeek de 29/07/2026
-(branch `feat/assistant-orchestrator`).
-Contrato do assistente: **versão 1**.
+Estado **depois** da rodada do copiloto semântico de 25/08/2026
+(branch `feat/assistant-semantic-copilot`).
+Contrato do assistente: **versão 1** — deliberadamente NÃO incrementado: nada no
+envelope mudou, e a DSL de consulta tem versão própria (`QUERY_DSL_VERSION = 2`).
+
+> A rodada anterior (29/07/2026, `feat/assistant-orchestrator`) trocou o `if` único
+> pela orquestração por cláusula. Esta trocou o **teto**: o assistente respondia
+> perguntas escritas uma a uma no código e agora monta consultas, simula hipóteses e
+> mantém o assunto entre mensagens — sem que nenhum número deixe de nascer local.
 
 > A versão anterior deste documento descrevia o pipeline antigo e os 20 problemas
 > auditados. Todos foram endereçados; a seção 6 registra o que ficou de fora, sem maquiagem.
@@ -83,6 +89,22 @@ store.tsx · action única `assistantBatch`
 | `src/assistant/driverInsights.ts` | Ritmo do motorista medido no histórico dele |
 | `api/_lib/assistantPrompt.ts` | **Fonte única** da SYSTEM_PROMPT (gerada do catálogo) e do sanitizador |
 | `api/_lib/assistantHandler.ts` | Pipeline do endpoint, compartilhado pelos dois backends |
+| `src/assistant/capabilities.ts` | `buildCapabilities` — sozinho para quebrar o ciclo `ai.ts` ↔ `orchestrator.ts` |
+| `src/assistant/query/types.ts` | Vocabulário FECHADO da DSL: 10 fontes, 12 métricas, 13 agrupamentos, campos por fonte |
+| `src/assistant/query/validate.ts` | O `validateAction` das consultas — recusa com código próprio, nunca em silêncio |
+| `src/assistant/query/period.ts` | Períodos em pt-BR de verdade (substituiu as SEIS frases de `periodFromText`) |
+| `src/assistant/query/engine.ts` | Executor somente leitura: filtra, agrupa, aplica métrica, produz fatos com proveniência |
+| `src/assistant/query/parse.ts` | Planejador composicional: cada reconhecedor CONSOME o trecho que usou |
+| `src/assistant/query/answer.ts` | Composição determinística — lidera com a resposta, não com o cálculo |
+| `src/assistant/scenario/` | "E se?" sobre CÓPIA projetada do estado, reusando as funções de cartão e projeção |
+| `src/assistant/conversation/focus.ts` | Foco em memória e refino de plano no follow-up |
+| `src/assistant/semantic/turn.ts` | Blocos do turno (`record`/`query`/`scenario`/…) — a guarda que impede o lançamento de sumir |
+| `src/assistant/semantic/evidence.ts` | Evidência por CAMPO, com posto: o usuário ganha do parser, que ganha do histórico, que ganha do remoto |
+| `src/assistant/semantic/normalize.ts` | Typo conservador (dicionário fechado), muleta de conversa, "4k", teto de tamanho |
+| `src/assistant/semantic/driverDay.ts` | Dia telegráfico do motorista (`hj deu 430 uber 399 99 163 de gasosa 24l 161km 8h`) |
+| `src/assistant/grounding.ts` | Barreira aritmética sobre prosa remota — **leia a medição na seção 6 antes de confiar nela** |
+| `scripts/probe-redteam.mts` | Imprime 90 respostas em português real, para LEITURA humana |
+| `scripts/rubric-assistant.mts` | Classifica cada resposta: PERIGOSA / RUIM / ACEITÁVEL / EXCELENTE |
 | `src/components/ProposalCard.tsx` | Revisão por item, com edição validada |
 
 ---
@@ -170,7 +192,7 @@ Auditoria opcional em cada lançamento: `source: 'ai'`, `assistantBatchId`, `pro
 | 17 | Contrato remoto pobre | **Resolvido** — envelope versionado com `mode` e `clarification` |
 | 18 | Texto puro engolindo ações | **Resolvido** — `envelope: null` e `contractFallback: true` |
 | 19 | Validação de categoria e perfil | **Resolvido** |
-| 20 | Testes insuficientes | **Resolvido** — 531 casos + 86 invariantes |
+| 20 | Testes insuficientes | **Resolvido** — 531 casos + 86 invariantes na época; hoje 531 + 75 goldens + metamórfico + fuzz + 106 invariantes |
 
 ---
 
@@ -178,12 +200,37 @@ Auditoria opcional em cada lançamento: `source: 'ai'`, `assistantBatchId`, `pro
 
 | Comando | O que roda |
 |---|---|
-| `npm test` | núcleo + corpus do assistente (offline, data fixa 2026-07-15) |
-| `npm run test:assistant` | **531 casos + 86 invariantes** |
+| `npm test` | núcleo + as cinco camadas abaixo (offline, data fixa) |
+| `npm run test:assistant` | **531 casos + 75 goldens novos + metamórfico + fuzz + 106 invariantes** |
 | `npm run test:assistant:remote` | 8 sondas contra a IA real; última execução: **8/8** |
+| `npm run probe:redteam` | 90 mensagens em português real, para LEITURA humana |
+| `npm run rubric` | classifica cada resposta; sai com código 1 se houver PERIGOSA |
 | `npm run typecheck` / `typecheck:api` | `src/` e a mesma checagem que a Vercel faz |
 
+As cinco camadas de `test:assistant`, e o que cada uma pega que a anterior não pegava:
+
+1. **Corpus** (531 casos) — regressão frase a frase, com os textos exatos.
+2. **Goldens de consulta, cenário e continuidade** (75) — totais conferidos à mão sobre
+   fixtures determinísticas, 14 recusas de plano malformado e 3 ataques de protótipo.
+3. **Metamórfico** (4.080 mutações que PRESERVAM o sentido + 3.800 que MUDAM a modalidade,
+   semente fixa) — pega o que o corpus não imaginou: "vou gastar 80" registrava, e a muleta
+   de conversa trocava o TIPO do lançamento.
+4. **Fuzz** (1.416 mensagens hostis, teto de tempo relativo à máquina) — achou o `__proto__`
+   que derrubava o parser e o tempo quadrático em mensagem gigante.
+5. **Invariantes** (106) — 86 financeiras e 20 do copiloto.
+
 O corpus roda o orquestrador **real**, não uma reimplementação.
+
+### As invariantes que mais valem, e por quê
+
+- **105 — consulta e `calc.ts` somam igual.** Dois caminhos calculam o mesmo dinheiro;
+  cada um está certo sozinho, e nenhum teste de caso pegaria a divergência. Verificada por
+  mutação: cortar a receita pela metade em `calc.ts` produz 14 divergências nomeadas.
+- **106 — a barreira de grounding tem força MEDIDA** (ver 6.5), não alegada.
+- **87–89 — consulta e cenário não escrevem.** Confirmadas por mutação: o teste acusa em
+  três lugares quando o motor de cenário escreve uma linha no estado.
+- **104 — nenhum caractere de controle no fonte versionado.** O projeto perdeu tempo duas
+  vezes com um backspace no lugar de um `\b` de regex.
 
 Nove arquivos de casos: `cases.ts` (regressão), `cases-critical.ts` (os dez cenários
 obrigatórios do briefing, com as frases literais), `cases-adversarial.ts` (casos vindos da
@@ -277,6 +324,67 @@ conscientemente.
     algo educado e inútil passa nos testes.
 6. **`type: 'saving'` continua fora do saldo**, como a regra 20 manda. A reformulação **não**
     mudou contabilização nenhuma, de propósito.
+
+---
+
+### 6.4 O que a rodada do copiloto (25/08/2026) resolveu
+
+1. **Consulta arbitrária.** `periodFromText()` conhecia SEIS frases e caía em "últimos 7 dias"
+   para todo o resto — "quanto gastei em obra nos últimos 3 meses?" era respondido com o total
+   de uma SEMANA, apresentado como dado real. Substituído por uma DSL fechada, validada e
+   executada localmente. `resolveLocal()` continua dono do que já respondia bem: a DSL só toma
+   a frente quando o plano usa algo que ele comprovadamente não expressa (`beyondLegacy`).
+2. **Hipótese sem gravar.** `clauses.ts` já descartava a ação de "se eu gastar 500" — o que
+   faltava era o outro lado: o usuário ficava com o texto genérico de ajuda apesar de o app
+   saber simular compra parcelada e projeção desde sempre.
+3. **Follow-up de verdade.** "E mês passado?" troca o período e MANTÉM o filtro. Também
+   funcionam "e no Nubank?", "e em 12x?", "qual foi pior", "tirando cimento", "e o outro".
+4. **Evidência por campo.** O que o usuário disse nesta mensagem nunca é sobrescrito pelo
+   parser, que nunca é sobrescrito pelo histórico, que nunca é sobrescrito pelo remoto.
+5. **Typo conservador.** Dicionário FECHADO, nunca perto de dígito, nunca em nome do usuário,
+   empate não corrige. Aceito só quando destrava alguma coisa; falha fechada.
+6. **Dia telegráfico do motorista.** `hj deu 430 uber 399 99 163 de gasosa 24l 161km 8h`
+   perdia metade do turno.
+
+### 6.5 A limitação mais importante desta rodada: o alcance real do grounding
+
+A barreira aritmética de `grounding.ts` foi **medida**, não estimada. Sorteando 5.000 valores
+entre R$ 0 e R$ 5.000 como se fossem números inventados pelo modelo:
+
+| fatos na lista | inventados que passariam |
+|---|---|
+| 1 | 0,6% |
+| 3 | 3,5% |
+| 6 | 16,0% |
+| 12 | 35,8% |
+| contexto agregado inteiro (38 números) | **89,3%** |
+
+O termo que domina é a soma e a diferença entre pares: com números demais, quase todo valor é
+a combinação de dois outros. Nenhuma variação das derivações resolve — tirar a razão crua move
+10,1% para 10,0%. A **única** alavanca é o tamanho da lista.
+
+Duas consequências, e a segunda é uma decisão de NÃO fazer:
+
+- `MAX_COMPOSE_FACTS = 6` é o teto da composição, e ele falha **fechado**: lista maior é
+  recusada inteira, com código próprio.
+- A barreira **não** foi ligada ao passo 16 (resposta livre da IA remota), onde o contexto tem
+  38 números e ela teria ~11% de eficácia. Ligar ali faria o código alegar uma proteção que não
+  existe. Fica registrado aqui, com o número.
+
+### 6.6 O que continua sem cobertura
+
+1. **O compositor remoto existe e não está ligado.** `askRemoteCompose` está implementado,
+   protegido (não envia rótulo vindo de descrição ou origem — regra 44) e limitado pelo teto
+   acima, mas nenhuma resposta hoje passa por ele: toda composição é determinística. É
+   infraestrutura pronta, não caminho vivo.
+2. **Roteamento de modelo (fase 22) não foi feito**, por dependência: exige resultado de
+   avaliação, que exige chamada paga, que exige autorização explícita de gasto. A
+   infraestrutura está pronta (`npm run eval:models`, que **não gasta** sem `--executar`).
+3. **`orchestrate` tem 817 linhas** numa função só (eram 526). Lê-se como pipeline e os passos
+   estão numerados na ordem real de execução, mas é o maior candidato a extração da próxima
+   rodada.
+4. **A qualidade do texto remoto continua sem teste automático** — a rubrica mede as respostas
+   LOCAIS. Um modelo educado e inútil ainda passa.
 
 ---
 

@@ -361,7 +361,16 @@ npm install                 # instalar dependências
 npm run dev                 # http://localhost:5199 (servidor de dev + proxy de IA local)
 npm run build                # tsc -b --noCheck && vite build → dist/
 node node_modules/typescript/bin/tsc --noEmit   # checagem de tipos ESTRITA (o build usa --noCheck e mascara erros)
+npm run typecheck:api        # replica o que a Vercel checa (inclui api/, tests/ e scripts/)
+npm test                     # corpus + goldens + metamórfico + fuzz + invariantes (offline)
+npm run probe:redteam        # imprime 90 respostas em português real, para LEITURA humana
+npm run rubric               # classifica cada resposta: PERIGOSA / RUIM / ACEITÁVEL / EXCELENTE
 ```
+
+`npm run rubric` sai com código 1 se houver qualquer resposta PERIGOSA — essa faixa tem meta
+ABSOLUTA de zero. As outras servem para comparar rodadas. Depois de mexer no roteador de
+perguntas, rode a sonda e **leia as respostas**: passar no corpus só prova que não é o texto
+genérico de ajuda (regra 35).
 
 Gerar o APK (depois de `npm run build`):
 ```bash
@@ -408,6 +417,12 @@ editar `api/ai/chat.ts`, sempre redeployar com `npx vercel --prod`, senão a mud
 | `src/assistant/suggestions.ts` | Fileira de sugestões do assistente, incluindo a lista educativa por perfil (regra 45) |
 | `src/assistant/explain.ts` | "Por que você fez isso?" e a explicação do controle do usuário (regra 42) |
 | `src/assistant/driverInsights.ts` | Ritmo do motorista medido no histórico dele — só no perfil `driver` (regra 43) |
+| `src/assistant/query/` | Query DSL: `types` (vocabulário fechado), `validate` (o `validateAction` das consultas), `period`, `engine` (executor somente leitura), `parse` (planejador composicional), `answer` (composição determinística) — regras 51 e 58 |
+| `src/assistant/scenario/` | "E se?" somente leitura sobre cópia projetada do estado (regra 54) |
+| `src/assistant/conversation/focus.ts` | Memória de foco e refino de plano no follow-up (regra 55) |
+| `src/assistant/semantic/` | `turn` (blocos do turno), `evidence` (evidência por campo), `normalize` (typo conservador, muleta, "4k", teto de tamanho), `driverDay` (dia telegráfico) |
+| `src/assistant/grounding.ts` | Barreira aritmética sobre prosa remota — leia a medição antes de confiar nela (regra 53) |
+| `src/assistant/capabilities.ts` | `buildCapabilities` — mora sozinho para quebrar o ciclo `ai.ts` ↔ `orchestrator.ts` |
 | `src/utils/format.ts` | `parseMoney`/`formatMoneyInput` (regra 12), datas de calendário (`dateForDayOfMonth`) e `dueLabel` (regra 15) |
 | `src/utils/text.ts` | `sentenceCase` (regra 13) e `normalizeName`/`sameName` (regra 14) |
 | `src/services/calc.ts` | Todo cálculo financeiro (meta diária, meta mensal, previsão, custo/km, déficits, pendências de recorrentes) |
@@ -488,3 +503,74 @@ editar `api/ai/chat.ts`, sempre redeployar com `npx vercel --prod`, senão a mud
     número errado com cara de certo. E toda caixa de layout tem que encolher —
     coluna `1fr` tem `min-width: auto` e leva a página inteira a rolar de lado
     num celular de 320px. Invariantes 85 e 86.
+
+51. **Consulta financeira é uma DSL fechada, executada aqui.** Perguntar
+    "quanto gastei em obra nos últimos 3 meses" não é achar um regex: é
+    montar um `AssistantQueryPlan` (`src/assistant/query/`) sobre um
+    vocabulário FECHADO — 10 fontes, 12 métricas, 13 agrupamentos, campos
+    permitidos por fonte. `validateQueryPlan()` é o `validateAction` das
+    consultas e recusa com código próprio (nome de categoria, cartão ou meta
+    que o usuário não tem; fonte proibida pelo perfil; período acima de dez
+    anos; chave perigosa). Não existe SQL, `eval`, nome de campo dinâmico
+    nem acesso a nada fora do estado. O que substituiu isso era pior do que
+    parecia: `periodFromText()` conhecia SEIS frases e caía em "últimos 7
+    dias" para todo o resto, então "nos últimos 3 meses" era respondido com
+    o total de uma SEMANA, apresentado como dado real.
+52. **O modelo remoto PLANEJA, nunca calcula.** Ele recebe o vocabulário da
+    DSL, as categorias, os nomes de cartão e de meta e a pergunta — nunca um
+    lançamento. Devolve um plano, que passa por `validateQueryPlan()` com as
+    capacidades REAIS deste aparelho e é executado localmente. Os números
+    nascem aqui e nunca saem. `engine: 'hybrid'` é o rótulo honesto disso.
+53. **A barreira de grounding só protege com lista CURTA, e isso foi
+    medido.** Com 1 fato, 0,6% dos valores inventados passariam; com 6,
+    16%; com o contexto agregado inteiro (38 números), **89,3%**. O termo
+    que domina é a soma e a diferença entre pares — com números demais,
+    quase todo valor é a combinação de dois outros. Daí `MAX_COMPOSE_FACTS`
+    e daí ele falhar FECHADO. Consequência que é uma decisão de NÃO fazer:
+    a barreira **não** foi ligada à resposta livre da IA remota, onde ela
+    teria ~11% de eficácia — alegar proteção que não existe é pior que não
+    ter. Fica como limitação conhecida, com o número. Invariante 106.
+54. **Cenário é somente leitura, e diz que é.** `runScenario()`
+    (`src/assistant/scenario/`) trabalha sobre uma CÓPIA projetada do estado
+    e reaproveita `splitInstallmentAmounts`, `nextInvoiceDueDate` e
+    `monthlyProjections` — simulação e realidade não podem divergir porque
+    são o mesmo código. Todo fato de cenário nasce `estimated: true` e toda
+    resposta termina em "Simulação — nada foi registrado". Invariantes 87–89,
+    e o teste acusa em três lugares se o motor escrever uma linha no estado.
+55. **Follow-up REFINA o plano anterior; não recomeça.** O foco
+    (`src/assistant/conversation/focus.ts`) é de memória, com o mesmo TTL dos
+    rascunhos, e guarda o último plano de consulta, o de cenário e as
+    entidades. "E mês passado?" troca o período e MANTÉM o filtro; "e o
+    Inter?" troca o cartão; "e em 12x?" troca a parcela. A guarda que não
+    pode cair: **mensagem com fato a registrar não fala pela camada de
+    conversa** — "recebi 1800 da Casa 1, MAIS 1750 da Casa 2" e "meu salário
+    CAIU hoje 3200" viram consulta por acidente de vocabulário, e o
+    lançamento desaparecia. A ÚNICA exceção é o cenário, porque
+    `looksLikeScenario` exige marcador explícito de hipótese: registrar e
+    simular na mesma frase responde às duas metades (regra 27).
+56. **Empate é dito, não desempatado.** "Qual dia da semana eu faturo mais?"
+    respondia "Sábado, com R$ 2.945,00" — e a sexta tinha R$ 2.935,00, com as
+    mesmas 12 ocorrências. Coroar um dos dois é apresentar cara-ou-coroa como
+    conclusão, e um motorista pode reorganizar a semana por causa disso.
+    Diferença abaixo de 2% (RELATIVO: dez reais entre dois mil é empate, dez
+    entre trinta não é) sai escrita, com a distância em reais. Mesma família
+    da regra 43: separação sem significado nunca vira achado.
+57. **Pergunta de sim ou não começa por sim ou não.** "Meu salário cobre
+    minhas contas?" devolvia a lista de contas a vencer, e o usuário é que
+    somava de cabeça. `balanceOutlook()` já sabia a resposta. Vale para a
+    classe: quando a pergunta tem forma de sim/não, a primeira palavra é a
+    resposta e o detalhe vem depois. `scripts/rubric-assistant.mts` mede isso
+    em todo o corpus adversarial, e PERIGOSA tem meta ABSOLUTA de zero.
+58. **Toda leitura de dinheiro tem que bater com `calc.ts`.** Existem dois
+    caminhos que somam o mesmo dinheiro — `periodStats()`, que alimenta a
+    Home, e `runQuery()`, que responde o assistente. Cada um está certo
+    sozinho, e nenhum teste de caso pegaria a divergência: o usuário é que
+    veria dois números diferentes para a mesma pergunta, os dois apresentados
+    como fato. Invariante 105 compara três estados × quatro janelas × entrada,
+    saída e líquido, sem tolerância de centavo.
+59. **Nenhum caractere de controle no código-fonte versionado.** Este projeto
+    já perdeu tempo DUAS vezes com um backspace (0x08) entrando no lugar de um
+    `\b` de regex numa edição por script: o caractere é invisível no editor,
+    quebra a regex em silêncio e só aparece quando um teste falha por um
+    motivo que não faz sentido. Onde um caractere de controle é dado de teste,
+    ele é MONTADO (`String.fromCharCode`). Invariante 104.

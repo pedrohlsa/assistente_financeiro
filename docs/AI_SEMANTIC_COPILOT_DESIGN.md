@@ -321,7 +321,7 @@ Não por opinião. Por medida:
 1. **Perguntas respondidas sem regra frase a frase.** Contagem de perguntas do catálogo da
    Fase 5 que passam a ser respondidas com número REAL — hoje, sem exceção, elas caem no
    texto genérico de ajuda ou (pior) num período errado.
-2. **Zero regressão.** Os 531 casos e as 86 invariantes continuam em 100%.
+2. **Zero regressão.** Os 531 casos continuam em 100%, e as invariantes passaram de 86 para 106.
 3. **Golden cases de consulta e cenário** com resultado EXATO, não "não quebrou".
 4. **Testes metamórficos**: ≥2.000 mutações que preservam sentido e ≥1.000 que o mudam.
    Uma frase que muda de modalidade (negação, futuro, hipótese, pergunta) **não pode**
@@ -347,3 +347,75 @@ Registrado aqui para não virar promessa:
 - Intervalos temporais muito compostos ("entre o dia 10 do mês passado e o dia 5 deste")
   continuam limitados ao que `query/period.ts` reconhece.
 - `Analytics.tsx` por perfil segue como pendência separada, fora desta rodada.
+
+---
+
+## 12. O que a implementação PROVOU (escrito em 25/08/2026, depois de construir)
+
+As seções 1–11 são o desenho. Esta é a correção do desenho pela realidade — as quatro coisas
+que só apareceram construindo, e que mudam o que este documento afirmava.
+
+### 12.1 A barreira de grounding é mais fraca do que a seção 3 assumia
+
+O desenho tratava a barreira aritmética como uma proteção binária: número que não se sustenta
+nos fatos é rejeitado. A medição desmente o binário. Sorteando 5.000 valores entre R$ 0 e
+R$ 5.000 como se fossem números inventados pelo modelo:
+
+| fatos na lista | inventados que passariam |
+|---|---|
+| 1 | 0,6% |
+| 3 | 3,5% |
+| 6 | 16,0% |
+| 12 | 35,8% |
+| contexto agregado inteiro (38 números) | **89,3%** |
+
+O comentário original de `allowedValues` já avisava — "com fatos suficientes, quase todo número
+vira uma combinação de outros dois" — mas ninguém tinha transformado o aviso em número. O termo
+que domina é a soma e a diferença entre pares; nenhuma variação das derivações resolve (tirar a
+razão crua move 10,1% para 10,0%). A **única** alavanca é o tamanho da lista.
+
+Correções no desenho: `MAX_COMPOSE_FACTS = 6`, falhando FECHADO; e a decisão explícita de **não
+ligar** a barreira à resposta livre da IA remota, onde ela teria ~11% de eficácia. A seção 10,
+item 6, dizia "grounding provado" — a prova existe (invariante 106), mas ela prova um alcance
+LIMITADO, e é assim que está escrita.
+
+### 12.2 A guarda que o desenho não previu: fato cala a conversa
+
+A arquitetura proposta punha consulta, cenário e continuação como uma camada nova antes da
+análise por cláusula. Ligada assim, ela comeu **nove casos do corpus**: "meu salário caiu hoje
+3200" contém "caiu", que é palavra de pergunta; "recebi 1800 da Casa 1, **mais** 1750 da Casa
+2" contém "mais". As duas viraram consulta e o lançamento DESAPARECEU.
+
+A guarda — mensagem com bloco `record` não fala pela camada de conversa — não estava no
+desenho e é hoje a linha mais importante do passo 11. A única exceção é o cenário, porque
+`looksLikeScenario` exige marcador explícito de hipótese, que ninguém escreve sem querer;
+graças a ela, "meu salário entrou 1625, paguei 355, guardei 150 e quero saber se consigo
+comprar um celular de 3000 em 10x" responde às duas metades.
+
+### 12.3 A DSL não podia simplesmente substituir o roteador antigo
+
+O desenho falava em migrar `resolveLocal()` para a DSL. Feito de forma direta, treze casos
+adaptativos regrediram: para as perguntas que ele já respondia, o texto dele é MELHOR e o
+corpus assegura essas frases exatas. A solução foi `beyondLegacy` — a DSL só toma a frente
+quando o plano usa algo que o roteador comprovadamente não expressa (período dito fora das
+seis frases dele, comparação, agrupamento, exclusão, mediana, participação, filtro por
+cartão). Convivência, não substituição.
+
+### 12.4 Rubrica e barreira falham do mesmo jeito: alarme demais
+
+A rubrica da fase 23 precisou de três correções antes de servir, todas porque ela acusava as
+MELHORES respostas do corpus: simulação com valor não é "valor sem histórico"; "quanto gastei
+entre 01/07 e 15/07" é pergunta, não lançamento perdido, apesar do verbo igual; recusa com
+motivo é o comportamento certo. É a mesma lição da barreira medida — um mecanismo de segurança
+que dispara sem motivo é desligado pelo leitor, e aí não protege mais nada.
+
+### 12.5 O que o desenho acertou e vale repetir
+
+- **Vocabulário fechado.** Nenhum ataque de protótipo, nenhum campo dinâmico, nenhuma injeção
+  possível: o plano é construído campo a campo e nada do objeto cru é espalhado.
+- **Reuso dos calculadores.** O motor de cenário chama `splitInstallmentAmounts` e
+  `nextInvoiceDueDate`; o de consulta chama `monthlyProjections` e `occurrencesBetween`.
+  Simulação e realidade não podem divergir porque são o mesmo código — e a invariante 105
+  prova que consulta e `calc.ts` também não divergem.
+- **Remoto como planejador.** É o papel mais útil e o mais seguro: ele não vê lançamento, não
+  calcula e não escreve prosa com número. O plano volta, é validado e roda aqui.

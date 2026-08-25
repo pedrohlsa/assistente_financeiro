@@ -18,11 +18,26 @@
 > - `tests/assistant/cases-adaptativo.ts` — **54 casos** do que o app aprende com o próprio
 >   usuário (vocabulário, grafia, recência, clientes isolados, explicabilidade e o ritmo do
 >   motorista);
+> - `tests/assistant/cases-consulta.ts` — **33 goldens de consulta** com totais conferidos à
+>   mão, **14 recusas** de plano malformado e **3 ataques de protótipo**;
+> - `tests/assistant/cases-cenario.ts` — **20 cenários**, cada um com o estado comparado
+>   byte a byte antes e depois;
+> - `tests/assistant/cases-continuidade.ts` — **8 conversas** de 3 a 8 turnos, incluindo os
+>   dois achados adversariais de cartão e de meta;
+> - `tests/assistant/metamorphic.ts` — **4.080 mutações que preservam o sentido** e **3.800
+>   que mudam a modalidade**, com semente fixa;
+> - `tests/assistant/fuzz.ts` — **1.416 mensagens hostis**, com teto de tempo relativo à
+>   máquina em vez de milissegundos absolutos;
 > - `tests/assistant/properties.ts` — **86 invariantes financeiras e de segurança**;
-> - `npm run test:assistant` — roda tudo offline, com data fixa, contra o orquestrador real.
+> - `tests/assistant/properties-copiloto.ts` — **20 invariantes do copiloto** (consulta e
+>   cenário não escrevem, grounding medido, evidência por campo, sem controle no fonte);
+> - `npm run test:assistant` — roda tudo offline, com data fixa, contra o orquestrador real;
+> - `npm run probe:redteam` e `npm run rubric` — as 90 mensagens em português real, impressas
+>   para leitura e classificadas por faixa de qualidade.
 >
-> **Resultado da última execução (17/08/2026, branch `feat/assistant-orchestrator`):
-> 531/531 casos e 86/86 invariantes.**
+> **Resultado da última execução (25/08/2026, branch `feat/assistant-semantic-copilot`):
+> 531/531 casos, 75/75 goldens novos, 4.080 + 3.800 mutações, 1.416 mensagens hostis e
+> 106/106 invariantes. Rubrica: PERIGOSA 0 · RUIM 0 · ACEITÁVEL 6 · EXCELENTE 84.**
 >
 > ⚠️ **100% aqui não significa "a IA está correta".** Na rodada adversarial, 8 dos 17 bugs só
 > apareceram no navegador com mensagem real. Na rodada de 13/08/2026 repetiu-se o padrão por
@@ -35,6 +50,13 @@
 > A coluna "Atual" abaixo descreve o estado **anterior** à reformulação e foi mantida como
 > registro histórico — é o retrato do que motivou cada correção. O que vale hoje está em
 > [AI_CURRENT_STATE.md](AI_CURRENT_STATE.md) §4 e §6.
+>
+> Nesta rodada o padrão se repetiu pela terceira vez, e agora está medido: o corpus estava
+> **100% verde** enquanto o dia telegráfico do motorista perdia metade do turno, "4k" virava
+> R$ 4,00, "se a Casa 1 n pagar" virava um gasto de R$ 1,00, e "meu nubank tá pesando meu
+> mês?" respondia o resumo do mês inteiro. Nenhum desses falhava um teste. Os quatro
+> apareceram ao LER a resposta. Foi por isso que a rubrica virou script: opinião não é
+> comparável entre rodadas, predicado é.
 
 Casos representativos para avaliar o assistente antes e depois da reformulação da arquitetura.
 Montada em 28/07/2026 sobre o commit `7dc1832`.
@@ -72,7 +94,7 @@ Os grupos correspondem assim:
 | 10 motorista | `motorista`, `motorista2`, `perfil` |
 | 11 ambiguidades e correções | `ambiguidade`, `correcoes`, `correcoes2`, `multiturno` |
 | 12 conversacional | `conversa`, `conversa2`, `incompletas` |
-| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 86 invariantes |
+| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 106 invariantes |
 | 14 datas futuras, inválidas e períodos | `temporal` (43 casos) |
 | 15 desfazer o último lote | `undo` (14 casos) |
 | 16 corrigir lançamento já salvo | `edicao` (17 casos) |
@@ -317,7 +339,7 @@ Auditoria da DeepSeek:
 
 O quadro abaixo é o retrato **histórico anterior** à reformulação, mantido para
 explicar de onde o trabalho partiu. O estado executável atual é
-**531/531 casos e 86/86 invariantes**.
+**531/531 casos, 75/75 goldens novos e 106/106 invariantes**.
 
 | Situação | Casos |
 |---|---|

@@ -13,8 +13,10 @@ está em [CONTEXTO.md](CONTEXTO.md). As regras permanentes de implementação es
 npm install
 npm run dev                    # http://localhost:5199
 npm test                       # núcleo + corpus do assistente (offline)
-npm run test:assistant         # só o corpus (234 casos + 26 invariantes)
+npm run test:assistant         # corpus + goldens + metamórfico + fuzz + invariantes
 npm run test:assistant:remote  # opcional: valida o contrato contra a IA real
+npm run probe:redteam          # imprime 90 respostas em português real, para leitura
+npm run rubric                 # classifica cada resposta (PERIGOSA tem meta zero)
 npm run typecheck              # checagem estrita de src/
 npm run typecheck:api          # mesma checagem que a Vercel faz em api/**
 npm run build                  # build de produção em dist/
@@ -72,7 +74,12 @@ O assistente usa dois motores:
 1. **Parser local** (`services/nlp.ts`) — registros de dinheiro ("ganhei 300 e
    coloquei 70 de gasolina") são extraídos deterministicamente, offline, com
    suporte a vários comandos na mesma frase.
-2. **DeepSeek** (modelo padrão `deepseek-v4-flash`, configurável por
+2. **Consulta, cenário e continuidade locais** (`src/assistant/query/`,
+   `scenario/`, `conversation/`) — "quanto gastei em obra nos últimos 3 meses?",
+   "se eu comprar um pc de 4000 em 10x, dá ruim?" e o "e mês passado?" seguinte
+   são resolvidos no aparelho, por uma DSL de vocabulário fechado. Nenhum número
+   sai daqui, e simulação nunca grava.
+3. **DeepSeek** (modelo padrão `deepseek-v4-flash`, configurável por
    `DEEPSEEK_MODEL`) — perguntas e análises livres. A chave fica em `.env`
    (`DEEPSEEK_API_KEY`) e é usada **apenas no servidor**. `POST /api/ai/chat`
    tem duas implementações espelhadas: o middleware em `vite.config.ts` (dev) e
@@ -80,6 +87,11 @@ O assistente usa dois motores:
    `VITE_AI_API_URL`). As duas compartilham `api/_lib/deepseek.ts` e recebem um
    contexto financeiro estruturado (nunca a base bruta). Se estiver offline ou o
    serviço falhar, o motor local de respostas (`services/ai.ts`) assume.
+
+   O uso mais valioso do modelo remoto é **planejar** uma consulta que o motor
+   local não entendeu: ele recebe o vocabulário da DSL e a pergunta — nunca um
+   lançamento —, devolve um plano, e o plano é validado e executado aqui. Os
+   números continuam nascendo no aparelho.
 
 Nota: o modo `response_format: json_object` foi evitado de propósito — em
 modelos anteriores ele devolvia respostas só com espaços em branco em prompts
