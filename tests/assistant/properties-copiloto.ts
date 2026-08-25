@@ -25,6 +25,7 @@ import { clampMessage, repairStructuralTypos, stripInvisible, MAX_MESSAGE_CHARS 
 import { orchestrate } from '../../src/assistant/orchestrator'
 import { ASSISTANT_CONTRACT_VERSION } from '../../src/assistant/contracts'
 import { todayISO } from '../../src/utils/format'
+import { periodStats } from '../../src/services/calc'
 
 export interface PropertyReport { total: number; failures: string[] }
 
@@ -417,6 +418,67 @@ export async function runCopilotProperties(): Promise<PropertyReport> {
       if (n) ruins.push(`${f} (${n})`)
     }
     return ruins.length ? `caractere de controle em ${ruins.join(', ')}` : null
+  })
+
+  // --- 105. O motor de consulta e o `calc.ts` NUNCA discordam ------------
+  // Esta e a invariante mais importante da camada nova, e a que faltava.
+  // Existem agora DOIS caminhos que somam o mesmo dinheiro: `periodStats()`,
+  // que alimenta a Home, e `runQuery()`, que responde o assistente. Se eles
+  // divergirem, o usuario ve dois numeros diferentes para a mesma pergunta,
+  // os dois apresentados como fato — e nenhum teste de caso pegaria isso,
+  // porque cada lado esta certo sozinho.
+  //
+  // A verificacao roda sobre TRES estados e QUATRO janelas, comparando
+  // entrada, saida e resultado. Centavos nao sao tolerados: uma diferenca de
+  // arredondamento aqui e uma divergencia de verdade.
+  check(r, 'consulta e calc.ts somam igual', () => {
+    const estados: [string, AppState][] = [
+      ['autonomo', autonomoRico(TODAY)],
+      ['motorista', motoristaRico(TODAY)],
+      ['novo', buildState()],
+    ]
+    const janelas: [string, string, string][] = [
+      ['mes corrente', `${TODAY.slice(0, 7)}-01`, TODAY],
+      ['mes passado', '2026-07-01', '2026-07-31'],
+      ['ano', '2026-01-01', TODAY],
+      ['dia unico', TODAY, TODAY],
+    ]
+    const ruins: string[] = []
+    for (const [nomeEstado, st] of estados) {
+      for (const [nomeJanela, from, to] of janelas) {
+        const esperado = periodStats(st, from, to)
+        const lados: [string, 'expense' | 'income', number][] = [
+          ['saida', 'expense', esperado.expense],
+          ['entrada', 'income', esperado.income],
+        ]
+        for (const [rotulo, txType, alvo] of lados) {
+          const plano = validateQueryPlan({
+            version: 2, source: 'transactions', field: 'amount', metric: 'sum',
+            group: 'none', period: { from, to, label: nomeJanela, grain: 'range' },
+            filter: { txType: [txType] },
+          }, st, TODAY)
+          if (isQueryFailure(plano)) { ruins.push(`${nomeEstado}/${nomeJanela}/${rotulo}: plano recusado (${plano.code})`); continue }
+          const got = runQuery(st, plano.plan).total
+          if (Math.abs(got - alvo) > 0.001) {
+            ruins.push(`${nomeEstado}/${nomeJanela}/${rotulo}: consulta ${got} vs calc ${alvo}`)
+          }
+        }
+        // O liquido tem que fechar pelos dois caminhos tambem: a metrica `net`
+        // e uma terceira implementacao da mesma conta.
+        const planoNet = validateQueryPlan({
+          version: 2, source: 'transactions', field: 'amount', metric: 'net',
+          group: 'none', period: { from, to, label: nomeJanela, grain: 'range' },
+          filter: {},
+        }, st, TODAY)
+        if (!isQueryFailure(planoNet)) {
+          const got = runQuery(st, planoNet.plan).total
+          if (Math.abs(got - esperado.profit) > 0.001) {
+            ruins.push(`${nomeEstado}/${nomeJanela}/liquido: consulta ${got} vs calc ${esperado.profit}`)
+          }
+        }
+      }
+    }
+    return ruins.length ? ruins.join(' | ') : null
   })
 
   return r

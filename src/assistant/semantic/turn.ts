@@ -16,7 +16,7 @@
 // v1 já entende. Ver docs/AI_SEMANTIC_COPILOT_DESIGN.md §6.
 
 import type { AppState, ParsedAction } from '../../models/types'
-import type { AssistantConfidence, AssistantIntent } from '../contracts'
+import type { AssistantConfidence } from '../contracts'
 import { analyzeMessage } from '../clauses'
 import type { AnalyzedClause, MessageAnalysis } from '../clauses'
 import { looksLikeDataQuestion } from '../query/parse'
@@ -58,22 +58,6 @@ export interface AssistantTurnPlan {
   coverage: number
   /** A análise por cláusula, preservada: nada aqui a substitui. */
   analysis: MessageAnalysis
-}
-
-/**
- * Mapeia o bloco para a intenção do contrato v1. É o ADAPTADOR que mantém o
- * resto do app funcionando sem saber que `query` e `scenario` existem.
- */
-export function toLegacyIntent(type: TurnBlockType): AssistantIntent {
-  switch (type) {
-    case 'record': return 'record'
-    case 'query': return 'question'
-    case 'scenario': return 'question'
-    case 'correction': return 'correction'
-    case 'clarification': return 'clarification'
-    case 'conversation': return 'conversation'
-    default: return 'unknown'
-  }
 }
 
 /**
@@ -126,9 +110,6 @@ export function buildTurnPlan(
   }
 }
 
-/** Atalhos de leitura — o resto do código não deve filtrar por string solta. */
-export const blocksOf = (plan: AssistantTurnPlan, type: TurnBlockType): TurnBlock[] =>
-  plan.blocks.filter(b => b.type === type)
-
+/** Leitura por tipo — o resto do código não deve filtrar por string solta. */
 export const hasBlock = (plan: AssistantTurnPlan, type: TurnBlockType): boolean =>
   plan.blocks.some(b => b.type === type)

@@ -11,7 +11,7 @@
 import { AppState, ParsedAction } from '../models/types'
 import { validateAction, isValidationFailure } from '../assistant/contracts'
 import type { AssistantErrorCode } from '../assistant/contracts'
-import { buildCapabilities } from '../assistant/orchestrator'
+import { buildCapabilities } from '../assistant/capabilities'
 import {
   addDays, dueLabel, fmtBRL, fmtNum, fromISO, todayISO, daysInMonth, parseMoney,
 } from '../utils/format'

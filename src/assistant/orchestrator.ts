@@ -37,6 +37,7 @@ import { applyCorrection, parseCorrection } from './corrections'
 import type { CorrectionPlan } from './corrections'
 import { findGoalByName, planAssistantActions } from './execute'
 import { askAssistant } from '../services/ai'
+import { buildCapabilities } from './capabilities'
 import { describeAction } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
 import { catById, usableCategories } from '../data/categories'
@@ -48,17 +49,6 @@ import { brDate, dateLabel, findDate, previousYearOf, resolveDayInWindow } from 
 // Capacidades reais do usuário
 // ---------------------------------------------------------------------------
 
-export function buildCapabilities(state: AppState): AssistantCapabilities {
-  const driver = isDriver(state.settings)
-  return {
-    profile: state.settings.profile,
-    isDriver: driver,
-    kinds: [],
-    categories: usableCategories(state.categories).map(c => ({ id: c.id, name: c.name, type: c.type })),
-    cardNames: (state.cards || []).filter(c => !c.archived).map(c => c.name),
-    goalNames: state.goals.filter(g => !g.done).map(g => g.name),
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Entrada e saída
@@ -703,7 +693,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     }
   }
 
-  // ---- 0b) A mensagem responde "que dia foi?" dentro de um período? ------
+  // ---- 1) A mensagem responde "que dia foi?" dentro de um período? ------
   // "mês passado" + "dia 10" só pode virar 10 do mês passado. Fora da janela a
   // pergunta continua aberta — nada é aproximado e nada cai em hoje.
   if (pc?.field === 'date' && pc.dateWindow && pc.pendingActions?.length) {
@@ -735,7 +725,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     }
   }
 
-  // ---- 0c) A mensagem corrige uma data inválida? ------------------------
+  // ---- 2) A mensagem corrige uma data inválida? ------------------------
   // A ação original fica guardada, mas só volta a ser proposta quando a nova
   // data for válida e já tiver acontecido. Futuro volta ao esclarecimento de
   // plano; entrada ainda inválida mantém a mesma pergunta aberta.
@@ -777,7 +767,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     }
   }
 
-  // ---- 0d) Resposta que não é opção da pergunta de CATEGORIA ------------
+  // ---- 3) Resposta que não é opção da pergunta de CATEGORIA ------------
   // A pergunta de categoria é um refinamento opcional: o usuário já disse que
   // gastou. Se ele responde "sei lá", a resposta certa é registrar com a
   // categoria genérica — não perder o lançamento porque uma pergunta que o
@@ -798,7 +788,7 @@ Confirmar?`,
     }
   }
 
-  // ---- 1) A mensagem responde a uma pergunta pendente? -------------------
+  // ---- 4) A mensagem responde a uma pergunta pendente? -------------------
   if (isDraftFresh(input.draft)) {
     const res = resolveDraftAnswer(input.draft!, input.message, caps, today)
     if (!res.unmatched) {
@@ -843,7 +833,7 @@ Confirmar?`,
     // de contaminar a próxima mensagem.
   }
 
-  // ---- 2) A mensagem corrige a proposta na tela? -------------------------
+  // ---- 5) A mensagem corrige a proposta na tela? -------------------------
   if (input.pending?.length) {
     const plan: CorrectionPlan | null = parseCorrection(input.message, input.pending, caps, today)
     if (plan) {
@@ -879,7 +869,7 @@ Confirmar?`,
     }
   }
 
-  // ---- 2z) Negação COM proposta na tela: fala do que está lá -------------
+  // ---- 6) Negação COM proposta na tela: fala do que está lá -------------
   // "não cara, tá errado isso aí" com um card aberto é conserto, não registro
   // novo. Quando `parseCorrection` não consegue entender O QUE mudar, a saída
   // é PERGUNTAR — deixar a frase seguir para o parser normal criava um segundo
@@ -900,7 +890,7 @@ Confirmar?`,
     }
   }
 
-  // ---- 2a) A mensagem pergunta POR QUE, ou pede para eu parar? ----------
+  // ---- 7) A mensagem pergunta POR QUE, ou pede para eu parar? ----------
   // Depois das correções de propósito: "não foi lazer" corrige a proposta;
   // "por que lazer?" pede explicação. E antes da análise por cláusula, porque
   // "por que você colocou essa categoria" não é um pedido de registro e não
@@ -924,7 +914,7 @@ Confirmar?`,
     }
   }
 
-  // ---- 2b) A mensagem pede para desfazer o último lote? ------------------
+  // ---- 8) A mensagem pede para desfazer o último lote? ------------------
   // Depois das correções de propósito: com uma proposta na tela, "cancela
   // isso" descarta a proposta, não mexe no que já foi gravado.
   if (UNDO_REQUEST.test(input.message) || UNDO_SHORT.test(input.message)) {
@@ -959,7 +949,7 @@ Confirmar?`,
     }
   }
 
-  // ---- 2c) A mensagem corrige um lançamento JÁ SALVO? -------------------
+  // ---- 9) A mensagem corrige um lançamento JÁ SALVO? -------------------
   // Depois do undo e das correções da proposta: com algo na tela, a frase se
   // refere ao que está na tela, não ao histórico.
   if (!input.pending?.length) {
@@ -1018,7 +1008,7 @@ Confirmar?`,
     }
   }
 
-  // ---- 2d) Consulta, cenário e continuação -------------------------------
+  // ---- 10) Normalizar a mensagem, e só então conversar ------------------
   //
   // Aqui entram as três coisas que a arquitetura antiga não sabia fazer: uma
   // consulta arbitrária ("quanto gastei em obra nos últimos 3 meses"), uma
@@ -1036,12 +1026,12 @@ Confirmar?`,
   // perguntas que já respondia — são elas que o corpus assegura, frase por
   // frase. A consulta só toma a frente quando o plano usa algo que ele
   // COMPROVADAMENTE não expressa (`beyondLegacy`). Fora disso ela fica de
-  // reserva e entra no passo 8, onde hoje sai o texto genérico de ajuda.
+  // reserva e entra no passo 18, onde hoje sai o texto genérico de ajuda.
   let turno = buildTurnPlan(input.state, input.message, { today })
   let mensagem = input.message
   let reparo: RepairedText | null = null
 
-  // ---- 2c2) Erro de digitação no vocabulário ESTRUTURAL ------------------
+  // ---- 10a) Erro de digitação no vocabulário ESTRUTURAL ------------------
   // "gsatei 190 de cimento ontem" não casava verbo nenhum, e o resto da frase —
   // que estava perfeito — se perdia junto. O reparo é conservador (dicionário
   // fechado, nunca nome do usuário, nunca perto de dígito) e só é ACEITO quando
@@ -1103,7 +1093,7 @@ Confirmar?`,
   }
   const entrada: OrchestratorInput = mensagem === input.message ? input : { ...input, message: mensagem }
 
-  // ---- 2c3) O DIA TELEGRÁFICO do motorista ------------------------------
+  // ---- 10b) O DIA TELEGRÁFICO do motorista ------------------------------
   // "hj deu 430 uber 399 99 163 de gasosa 24l 161km 8h" não tem oração
   // nenhuma, e o parser de frases lia só o primeiro valor e as horas: os
   // R$ 399 da 99, os R$ 163 de combustível, os 24 litros e os 161 km sumiam em
@@ -1137,6 +1127,7 @@ Confirmar?`,
     }
   }
 
+  // ---- 11) Consulta, cenário e continuação ------------------------------
   const temFato = hasBlock(turno, 'record')
 
   // Registrar E simular na mesma frase (regra 27). "Meu salário entrou 1625,
@@ -1180,7 +1171,7 @@ Confirmar?`,
     }
   }
 
-  // ---- 3) Análise local por cláusula -------------------------------------
+  // ---- 12) Análise local por cláusula -------------------------------------
   const local = runLocal(entrada, caps, turno.analysis)
   const { analysis } = local
   let candidates = local.candidates.slice(0, MAX_ACTIONS_PER_BATCH)
@@ -1190,7 +1181,7 @@ Confirmar?`,
   let remoteReply = ''
   let remoteRejected: LocalPass['rejected'] = []
 
-  // ---- 4) Intenção incompleta vira rascunho ------------------------------
+  // ---- 13) Intenção incompleta vira rascunho ------------------------------
   if (!candidates.length && !clarification) {
     const incomplete = detectIncomplete(mensagem, caps)
     if (incomplete) {
@@ -1208,13 +1199,13 @@ Confirmar?`,
     }
   }
 
-  // ---- 5) Perguntas respondidas localmente -------------------------------
+  // ---- 14) Perguntas respondidas localmente -------------------------------
   const questions = analysis.clauses.filter(c => c.intent === 'question')
   const local_answers = answerQuestions(input.state, questions, candidates)
   const answeredIds = new Set(local_answers.answered.map(c => c.id))
   unresolved = unresolved.filter(u => !answeredIds.has(u.clauseId))
 
-  // ---- 5b) IA remota PLANEJA a consulta que o local não entendeu ---------
+  // ---- 15) IA remota PLANEJA a consulta que o local não entendeu ---------
   //
   // Este é o uso mais valioso do modelo, e o mais seguro: ele não recebe
   // lançamento nenhum — só o vocabulário da DSL, as categorias e a pergunta.
@@ -1243,7 +1234,7 @@ Confirmar?`,
     }
   }
 
-  // ---- 6) IA remota só para o que sobrou ---------------------------------
+  // ---- 16) IA remota só para o que sobrou ---------------------------------
   const stillOpen = unresolved.length > 0
   if (stillOpen && input.remoteEnabled && input.askRemote && !clarification) {
     const remote = await input.askRemote({ state: input.state, message: input.message, history: input.history })
@@ -1295,7 +1286,7 @@ Confirmar?`,
 
   candidates = candidates.slice(0, MAX_ACTIONS_PER_BATCH)
 
-  // ---- 7) Avisos de duplicidade (contra o estado E dentro do lote) -------
+  // ---- 17) Avisos de duplicidade (contra o estado E dentro do lote) -------
   const batchSeen = new Map<string, number>()
   candidates = candidates.map(c => {
     const a: any = c.action
@@ -1316,7 +1307,7 @@ Confirmar?`,
     return pattern ? { ...next, patternWarning: pattern } : next
   })
 
-  // ---- 8) Texto final ----------------------------------------------------
+  // ---- 18) Texto final ----------------------------------------------------
   const hypo = questions.length && candidates.length && !local_answers.text ? hypotheticalSummary(candidates) : null
   // A intenção futura vira TEXTO, nunca lançamento — e continua aparecendo
   // mesmo quando o resto da mensagem gerou registros.
