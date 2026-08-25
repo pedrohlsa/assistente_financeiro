@@ -47,8 +47,10 @@ const tx = (
 export function autonomoRico(hoje = TODAY): AppState {
   const t: Transaction[] = []
   let n = 0
-  const add = (...args: Parameters<typeof tx> extends [any, ...infer R] ? R : never) =>
-    t.push(tx(`t${++n}`, ...(args as any)))
+  const add = (
+    type: Transaction['type'], amount: number, category: string,
+    date: string, description?: string, origin?: string,
+  ) => t.push(tx(`t${++n}`, type, amount, category, date, description, origin))
 
   // Aluguéis: Casa 1 = 1800/mês, Casa 2 = 1200/mês, nos 6 meses.
   for (let m = 0; m < 6; m++) {
