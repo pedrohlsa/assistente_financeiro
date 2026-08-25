@@ -1,8 +1,25 @@
+/**
+ * Número que não dá para mostrar como dinheiro.
+ *
+ * `NaN` e `Infinity` saíam na tela como "R$ NaN" e "R$ ∞" — num app de dinheiro
+ * isso destrói a confiança em TUDO que está na mesma tela. Trocar por "R$ 0,00"
+ * seria pior: um número errado com cara de certo. O travessão diz o que é
+ * verdade — este valor não pôde ser calculado.
+ *
+ * O zero negativo é o outro caso: `-0` vinha como "-R$ 0,00", que parece defeito
+ * mesmo estando aritmeticamente correto.
+ */
+const SEM_VALOR = '—'
+
 export const fmtBRL = (v: number, digits = 2) =>
-  v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: digits, maximumFractionDigits: digits })
+  (Number.isFinite(v)
+    ? (v === 0 ? 0 : v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: digits, maximumFractionDigits: digits })
+    : SEM_VALOR)
 
 export const fmtNum = (v: number, digits = 1) =>
-  v.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: digits })
+  (Number.isFinite(v)
+    ? (v === 0 ? 0 : v).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: digits })
+    : SEM_VALOR)
 
 export const todayISO = () => {
   const d = new Date()

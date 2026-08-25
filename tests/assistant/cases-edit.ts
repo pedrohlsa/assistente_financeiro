@@ -142,6 +142,44 @@ export const EDIT: AssistantCase[] = [
       return null
     },
   },
+
+  // ===== O lançamento citado pela DESCRIÇÃO, não pela palavra "gasto" =====
+  // Na fala real ninguém diz "corrige o gasto de ontem": diz "muda o mercado
+  // pra 80". O parser exigia um substantivo genérico e devolvia "entendi que
+  // isso não aconteceu" — resposta de outra conversa.
+  {
+    id: 'edt-13', group: 'edicao', ...other, state: gastoOntem,
+    messages: ['muda o mercado de 100 pra 80'],
+    expectActions: [{ kind: 'edit-transaction', transactionId: 'tx-mercado', amount: 80 }],
+  },
+  {
+    id: 'edt-14', group: 'edicao', ...other, state: doisGastosOntem,
+    // A descrição desempata: só o "Uber" combina, então não precisa perguntar.
+    messages: ['corrige o uber pra 55'],
+    expectActions: [{ kind: 'edit-transaction', transactionId: 'tx-b', amount: 55 }],
+  },
+  {
+    id: 'edt-15', group: 'edicao', ...other, state: gastoOntem,
+    messages: ['muda a categoria do mercado para lazer'],
+    expectActions: [{ kind: 'edit-transaction', transactionId: 'tx-mercado', category: 'lazer' }],
+  },
+  {
+    id: 'edt-15b', group: 'edicao', ...other,
+    state: { goals: [{ name: 'iPhone', target: 5000 }], ...gastoOntem },
+    // Meta tem ação PRÓPRIA no catálogo. O caminho solto reconhece pelo verbo,
+    // então quase engoliu "muda a meta do iphone" como correção de lançamento.
+    messages: ['muda a meta do iphone para 8000'],
+    expectActions: [{ kind: 'goal-update', target: 8000 }],
+  },
+  {
+    id: 'edt-16', group: 'edicao', ...other, state: gastoOntem,
+    // Apelido que não existe em lançamento nenhum: nada é alterado, e a
+    // resposta diz QUAL nome não foi achado, em vez do genérico "entendi que
+    // isso não aconteceu" — que é resposta de outra conversa.
+    messages: ['muda o cinema para 80'],
+    expectNoActions: true,
+    expectReply: [/cinema/i],
+  },
 ]
 
 export default EDIT

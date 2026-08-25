@@ -18,7 +18,9 @@ import type {
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, isValidationFailure, validateAction } from './contracts'
-import { analyzeMessage } from './clauses'
+import { analyzeMessage, contestsProposal, looksLikeRetraction, looksRecurring } from './clauses'
+import { categoryDilemma, outOfPatternWarning, withLearnedCategory } from './learning'
+import { explainRequest } from './explain'
 import type { AnalyzedClause, MessageAnalysis, TemporalSignal } from './clauses'
 import { detectIncomplete, isDraftFresh, newDraft, resolveDraftAnswer } from './drafts'
 import type { AssistantDraft } from './drafts'
@@ -28,7 +30,7 @@ import { findGoalByName, planAssistantActions } from './execute'
 import { askAssistant } from '../services/ai'
 import { describeAction } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
-import { catById } from '../data/categories'
+import { catById, usableCategories } from '../data/categories'
 import { fmtBRL, todayISO, uid } from '../utils/format'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { brDate, dateLabel, findDate, previousYearOf, resolveDayInWindow } from './dates'
@@ -43,9 +45,7 @@ export function buildCapabilities(state: AppState): AssistantCapabilities {
     profile: state.settings.profile,
     isDriver: driver,
     kinds: [],
-    categories: state.categories
-      .filter(c => !c.archived || c.id === 'reserva')
-      .map(c => ({ id: c.id, name: c.name, type: c.type })),
+    categories: usableCategories(state.categories).map(c => ({ id: c.id, name: c.name, type: c.type })),
     cardNames: (state.cards || []).filter(c => !c.archived).map(c => c.name),
     goalNames: state.goals.filter(g => !g.done).map(g => g.name),
   }
@@ -86,6 +86,15 @@ export interface OrchestratorOutput {
   draft: AssistantDraft | null
   /** Proposta corrigida, quando a mensagem era uma correção. */
   correctedPending?: AssistantCandidateAction[]
+  /**
+   * A resposta não consome a proposta que está na tela.
+   *
+   * Toda resposta sem ação zerava a proposta pendente. Isso está certo para
+   * uma pergunta qualquer, e errado para "por que você colocou essa
+   * categoria?": perguntar não é cancelar, e a próxima frase ("quantas vezes
+   * eu fiz isso?", "não, foi 80") ainda fala do mesmo lançamento.
+   */
+  keepPending?: boolean
 }
 
 const candidate = (
@@ -112,6 +121,8 @@ interface LocalPass {
   unresolved: AssistantUnresolvedClause[]
   /** Intenção futura declarada: explicar, nunca registrar. */
   temporalPlan?: TemporalSignal
+  /** Conta que se repete: é previsão, e o cadastro dela não é por conversa. */
+  recorrenteDeclarada?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -168,6 +179,11 @@ function describeEdit(state: AppState, t: Transaction, req: { field: EditableTxF
 // então a borda nunca casa — a mesma armadilha que já tinha escondido "amanhã".
 const UNDO_REQUEST =
   /^\s*(?:pode\s+|por\s+favor\s+)?(?:desfaz|desfazer|desfa[çc]a|cancela|cancelar|remove|remover|apaga|apagar|exclui|excluir)(?![a-zà-ú])[^.?!]{0,40}?\s(?:[úu]ltim[oa]|isso|isto)(?![\wà-úÀ-Ú])/i
+
+// Como se pede para desfazer sem usar a palavra "último": "volta atrás",
+// "desfaz aí". Não têm complemento nenhum, então não casam no padrão acima.
+const UNDO_SHORT =
+  /^\s*(?:pode\s+)?(?:volta(?:r)?\s+atr[áa]s|voltar\s+atr[áa]s|desfaz(?:er)?\s*(?:a[íi])?|desfa[çc]a\s*(?:a[íi])?)\s*[.!]?\s*$/i
 
 const dinheiro = (v: number) => fmtBRL(v)
 
@@ -338,7 +354,32 @@ function runLocal(input: OrchestratorInput, caps: AssistantCapabilities): LocalP
   const { actions: reconciled, clarification: goalClar } = reconcileGoalDeposits(input.state, analysis.actions)
   if (goalClar && !clarification) clarification = goalClar
 
+  // Corrigir exige algo para corrigir. Sem proposta na tela, "na verdade foi
+  // 200" é um conserto sem alvo — e como `foi` é verbo de despesa no parser,
+  // deixar passar criava um gasto de R$ 200 que ninguém pediu. A correção COM
+  // proposta na tela é tratada antes daqui, no passo de correções.
+  const semAlvo = !input.pending?.length
+
+  // Conta que se repete é PREVISÃO, não movimentação de hoje (regra 18).
+  // "Pago 90 de internet todo mês" virava despesa avulsa de 90 e inflava o mês
+  // com dinheiro que ainda não saiu. Vale só para movimento de dinheiro: "rodei
+  // todo dia" continua sendo registro de trabalho.
+  const MOVIMENTO = new Set(['income', 'expense', 'saving'])
+  let recorrenteDeclarada = false
+  /** Frase que o usuário classifica de dois jeitos, com evidência dos dois. */
+  const dilemas: { actionId: string; entity: string; options: string[] }[] = []
+
   for (const clause of analysis.clauses) {
+    if (semAlvo && looksLikeRetraction(clause.text)) continue
+    // O valor precisa estar na frase: "todo mês" sozinho não descreve conta
+    // nenhuma. Com valor, tanto faz o parser ter achado a despesa ("pago 90 de
+    // internet todo mês") ou não ("minha internet é 90 por mês") — nos dois
+    // casos a resposta certa é a mesma, e nos dois é errado registrar hoje.
+    if (looksRecurring(clause.text) && /\d/.test(clause.text)
+      && !clause.actions.some(a => !MOVIMENTO.has(a.kind))) {
+      recorrenteDeclarada = true
+      continue
+    }
     for (const raw of clause.actions) {
       const idx = analysis.actions.indexOf(raw)
       let action = idx >= 0 ? reconciled[idx] : raw
@@ -356,11 +397,22 @@ function runLocal(input: OrchestratorInput, caps: AssistantCapabilities): LocalP
         }
       }
 
+      // O vocabulário do usuário entra ANTES da validação: a categoria que ele
+      // mesmo usa precisa passar pelas mesmas regras de qualquer outra.
+      action = withLearnedCategory(input.state, action, today)
+
       const res = validateAction(action, caps, today)
       if (isValidationFailure(res)) {
         rejected.push({ kind: action.kind, code: res.code, detail: res.detail })
         continue
       }
+      // Duas categorias fortes disputando a mesma frase: o usuário lança no
+      // Quiosque tanto em Lazer quanto em Compras. Escolher seria sortear;
+      // ignorar as duas jogaria fora o que ele já disse. A saída é a mesma do
+      // resto do app — perguntar, com as opções carregando a proposta pronta.
+      const dilema = categoryDilemma(input.state, res.action, today)
+      if (dilema) dilemas.push({ actionId: '', ...dilema })
+
       // A proposta mostra a categoria que SERÁ gravada, não um campo vazio que
       // o usuário só descobre depois de confirmar.
       const withDefaults: any = { ...res.action }
@@ -426,12 +478,43 @@ function runLocal(input: OrchestratorInput, caps: AssistantCapabilities): LocalP
     }
   }
 
+  // Última na fila de propósito: cartão inexistente e data ambígua são dúvidas
+  // sobre O QUE ACONTECEU; esta é só sobre como ARQUIVAR. Cada opção carrega o
+  // lote inteiro já com aquela categoria, então responder não repete nada.
+  // Só com UM item ambíguo: uma pergunta não cobre dois, e responder
+  // resolveria um enquanto o outro ficasse em Outros sem o usuário entender por
+  // quê. Com dois, os dois vão genéricos — visíveis e editáveis no mesmo card.
+  if (!clarification && dilemas.length === 1 && candidates.length) {
+    const d = dilemas[0]
+    const alvo = candidates.find(c => {
+      const a: any = c.action
+      return String(a.description || a.origin || '').trim() === d.entity
+    })
+    if (alvo) {
+      const nome = (id: string) => catById(input.state.categories, id).name
+      clarification = {
+        question: `Você lança ${d.entity} tanto em ${nome(d.options[0])} quanto em ${nome(d.options[1])}. Qual é desta vez?`,
+        field: 'category',
+        actionId: alvo.id,
+        options: d.options.map(id => ({
+          label: nome(id),
+          value: id,
+          actions: candidates.map(x => (x.id === alvo.id ? { ...(x.action as any), category: id } : x.action)),
+        })),
+        // A resposta pode não ser nenhuma das opções ("sei lá"). Guardar as
+        // ações como estão é o que permite propor a versão genérica em vez de
+        // perder o lançamento por causa de uma pergunta opcional.
+        pendingActions: candidates.map(x => x.action),
+      }
+    }
+  }
+
   // Regra central: ACHAR AÇÃO NÃO É COMPREENDER A MENSAGEM.
   const needsRemote = analysis.clauses.some(c =>
     !c.handled && c.intent !== 'conversation' && !(c.intent === 'question' && false))
     || analysis.coverage < 0.999
 
-  return { analysis, candidates, rejected, clarification, needsRemote, unresolved, temporalPlan }
+  return { analysis, candidates, rejected, clarification, needsRemote, unresolved, temporalPlan, recorrenteDeclarada }
 }
 
 // ---------------------------------------------------------------------------
@@ -632,12 +715,37 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
     }
   }
 
+  // ---- 0d) Resposta que não é opção da pergunta de CATEGORIA ------------
+  // A pergunta de categoria é um refinamento opcional: o usuário já disse que
+  // gastou. Se ele responde "sei lá", a resposta certa é registrar com a
+  // categoria genérica — não perder o lançamento porque uma pergunta que o
+  // próprio app fez ficou sem resposta.
+  if (pc?.field === "category" && pc.pendingActions?.length) {
+    const cands = pc.pendingActions.map(a => candidate(a, "local"))
+    return {
+      draft: null,
+      response: {
+        version: ASSISTANT_CONTRACT_VERSION, mode: "propose_actions", engine: "local",
+        actions: cands, unresolved: [],
+        reply: `Sem problema — deixei em Outros, e você pode trocar a categoria no card.
+
+${proposalText(cands)}
+
+Confirmar?`,
+      },
+    }
+  }
+
   // ---- 1) A mensagem responde a uma pergunta pendente? -------------------
   if (isDraftFresh(input.draft)) {
     const res = resolveDraftAnswer(input.draft!, input.message, caps, today)
     if (!res.unmatched) {
       if (res.draft.status === 'ready') {
-        const v = validateAction(res.draft.partial, caps, today)
+        // O rascunho também passa pelo vocabulário do usuário: "gastei no zé da
+        // esquina" → "35" tem que sair com a MESMA categoria e a MESMA grafia
+        // que os outros lançamentos daquele lugar, senão o histórico se divide
+        // e o próprio aprendizado enfraquece.
+        const v = validateAction(withLearnedCategory(input.state, res.draft.partial as ParsedAction, today), caps, today)
         if (isValidationFailure(v)) {
           return {
             draft: null,
@@ -709,10 +817,55 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
     }
   }
 
+  // ---- 2z) Negação COM proposta na tela: fala do que está lá -------------
+  // "não cara, tá errado isso aí" com um card aberto é conserto, não registro
+  // novo. Quando `parseCorrection` não consegue entender O QUE mudar, a saída
+  // é PERGUNTAR — deixar a frase seguir para o parser normal criava um segundo
+  // lançamento enquanto o primeiro continuava confirmável logo acima, e o
+  // usuário ficava com duas propostas para a mesma compra.
+  if (input.pending?.length && contestsProposal(input.message)
+    && !UNDO_REQUEST.test(input.message) && !UNDO_SHORT.test(input.message)) {
+    return {
+      draft: null,
+      keepPending: true,
+      response: {
+        version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local',
+        actions: [], unresolved: [],
+        reply: 'Entendi que tem algo errado aí, mas não peguei o quê. '
+          + 'Me diga o que mudar ("foi 80", "era no Inter", "a categoria é lazer") — '
+          + 'ou toque em Cancelar se preferir descartar.',
+      },
+    }
+  }
+
+  // ---- 2a) A mensagem pergunta POR QUE, ou pede para eu parar? ----------
+  // Depois das correções de propósito: "não foi lazer" corrige a proposta;
+  // "por que lazer?" pede explicação. E antes da análise por cláusula, porque
+  // "por que você colocou essa categoria" não é um pedido de registro e não
+  // pode virar cláusula sem intenção, nem sair do aparelho: uma explicação
+  // inventada sobre o raciocínio do app é pior que nenhuma explicação.
+  {
+    const explicacao = explainRequest({
+      state: input.state, message: input.message, pending: input.pending, today,
+    })
+    if (explicacao) {
+      return {
+        // A proposta na tela CONTINUA na tela: perguntar por que não é
+        // cancelar, e a próxima frase ainda fala do mesmo lançamento.
+        draft: null,
+        keepPending: true,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local',
+          actions: [], unresolved: [], reply: explicacao,
+        },
+      }
+    }
+  }
+
   // ---- 2b) A mensagem pede para desfazer o último lote? ------------------
   // Depois das correções de propósito: com uma proposta na tela, "cancela
   // isso" descarta a proposta, não mexe no que já foi gravado.
-  if (UNDO_REQUEST.test(input.message)) {
+  if (UNDO_REQUEST.test(input.message) || UNDO_SHORT.test(input.message)) {
     const alvo = lastReversibleBatch(input.state)
     if (alvo) {
       const itens = describeUndo(input.state, alvo)
@@ -749,8 +902,12 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
   // refere ao que está na tela, não ao histórico.
   if (!input.pending?.length) {
     const pedido = parseEditRequest(input.message, caps, today)
-    if (pedido) {
-      const candidatos = findEditCandidates(input.state, pedido, today)
+    const candidatos = pedido ? findEditCandidates(input.state, pedido, today) : []
+    // Pedido reconhecido só pelo verbo e sem nenhum lançamento que combine:
+    // com um apelido citado ("muda o CINEMA para 80") vale dizer que não achou
+    // aquele lançamento; sem apelido nenhum não dá para afirmar que era
+    // correção, e a frase segue o caminho normal.
+    if (pedido && (candidatos.length || !pedido.loose || pedido.hints.text)) {
       const resposta = (reply: string): OrchestratorOutput => ({
         draft: null,
         response: {
@@ -759,7 +916,9 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
         },
       })
       if (!candidatos.length) {
-        return resposta('Não encontrei nenhum lançamento que combine com isso. Me diga o dia e o valor atual que eu procuro de novo.')
+        return resposta(pedido.hints.text
+          ? `Não achei nenhum lançamento de "${sentenceCase(pedido.hints.text)}" nos últimos meses. Confira o nome, ou me diga o dia e o valor atual.`
+          : 'Não encontrei nenhum lançamento que combine com isso. Me diga o dia e o valor atual que eu procuro de novo.')
       }
       if (candidatos.length === 1) {
         const bloqueio = editBlockReason(input.state, candidatos[0])
@@ -876,7 +1035,12 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
     else if (dupState) {
       warn = `Já existe ${dupState.type === 'income' ? 'uma receita' : 'uma despesa'} parecida de ${fmtBRL(dupState.amount)} registrada recentemente.`
     }
-    return warn ? { ...c, duplicateWarning: warn } : c
+    // Valor muito fora do padrão do próprio usuário — quase sempre um zero a
+    // mais. AVISA, nunca bloqueia: o dia excepcional existe, e barrá-lo seria
+    // pior que o erro que se quer evitar.
+    const pattern = outOfPatternWarning(input.state, c.action, today)
+    const next = warn ? { ...c, duplicateWarning: warn } : c
+    return pattern ? { ...next, patternWarning: pattern } : next
   })
 
   // ---- 8) Texto final ----------------------------------------------------
@@ -914,7 +1078,14 @@ export async function orchestrate(input: OrchestratorInput): Promise<Orchestrato
     mode = 'answer'
     const negadas = analysis.clauses.filter(c => c.intent === 'correction' && !c.actions.length)
     const notUnderstood = unresolved.filter(u => u.reason !== 'question-unanswered')
-    if (negadas.length) {
+    if (local.recorrenteDeclarada) {
+      // Conta que se repete é previsão: registrar como gasto de hoje somaria ao
+      // mês um dinheiro que ainda não saiu (regra 18). O cadastro de recorrência
+      // não é por conversa — a tela certa faz isso com data e frequência.
+      reply = 'Isso se repete todo período, então não registrei como movimentação de hoje — '
+        + 'é uma previsão, não algo que já entrou ou saiu.\n\n'
+        + 'Cadastre em Planejamento para eu acompanhar todo mês e te avisar do vencimento.'
+    } else if (negadas.length) {
       // O usuário disse que NÃO fez o lançamento. Confirmar isso em voz alta é
       // parte da correção — e nada pode sugerir registro.
       reply = 'Entendi que isso não aconteceu — não registrei nada. Se quiser lançar outra coisa, é só me dizer.'

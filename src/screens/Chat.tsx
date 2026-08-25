@@ -20,43 +20,8 @@ import { ProposalCard } from '../components/ProposalCard'
 import { isDriver, shouldAsk99Fee } from '../services/profile'
 import { plainChatText } from '../utils/text'
 import { fmtBRL } from '../utils/format'
-
-const SUGGESTIONS_BY_PROFILE: Record<string, string[]> = {
-  driver: [
-    'Quanto posso gastar hoje?',
-    'Como está minha meta?',
-    'Quanto gastei com gasolina esse mês?',
-    'Quando preciso trocar meu óleo?',
-    'Quanto meu carro custa por km?',
-    'ganhei 250 hoje',
-    'ganhei 430 na Uber e 399 na 99, rodei 161 km',
-  ],
-  autonomo: [
-    'Como está meu mês?',
-    'Quanto recebi de aluguéis este mês?',
-    'Tenho saldo para as próximas contas?',
-    'Quanto posso guardar este mês?',
-    'recebi 1800 de aluguel da Casa 1',
-    'ontem gastei 150 de areia',
-  ],
-  clt: [
-    'Meu salário cobre minhas contas?',
-    'Quanto tenho de parcela no mês que vem?',
-    'Quanto posso guardar este mês?',
-    'Como está minha meta mensal?',
-    'recebi meu salário de 3000 e guardei 150',
-  ],
-  other: [
-    'Como está meu mês?',
-    'Quanto posso guardar este mês?',
-    'Tenho saldo para as próximas contas?',
-    'Qual foi minha maior despesa?',
-    'gastei 80 no mercado',
-  ],
-}
-
-const suggestionsFor = (profile: string) =>
-  SUGGESTIONS_BY_PROFILE[profile] || SUGGESTIONS_BY_PROFILE.other
+import { listenOnce, SPEECH_MESSAGES, SpeechError, speechAvailable, stopListening } from '../services/speech'
+import { assistantSuggestions } from '../assistant/suggestions'
 
 export default function Chat() {
   const { state, dispatch } = useStore()
@@ -64,9 +29,11 @@ export default function Chat() {
   const location = useLocation() as any
   const [input, setInput] = useState('')
   const [recording, setRecording] = useState(false)
+  // Botão de microfone que não faz nada é pior do que botão nenhum: some quando
+  // o aparelho não tem ditado.
+  const [micOk, setMicOk] = useState(true)
   const [thinking, setThinking] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const recRef = useRef<any>(null)
   const askHandled = useRef(false)
   const driverMode = isDriver(state.settings)
 
@@ -138,6 +105,7 @@ export default function Chat() {
       ? out.response.actions.map(a => ({
           id: a.id, action: a.action, engine: a.engine,
           confidence: a.confidence, duplicateWarning: a.duplicateWarning,
+          patternWarning: a.patternWarning,
         }))
       : undefined
 
@@ -152,7 +120,11 @@ export default function Chat() {
       },
     })
 
-    pendingRef.current = proposal ? { msgId, actions: proposal } : null
+    // `keepPending`: explicar não é cancelar. A proposta continua no card da
+    // mensagem anterior, e a frase seguinte ("quantas vezes eu fiz isso?",
+    // "não, foi 80") ainda se refere a ela.
+    if (proposal) pendingRef.current = { msgId, actions: proposal }
+    else if (!out.keepPending) pendingRef.current = null
     clarificationRef.current = out.response.mode === 'clarify' ? out.response.clarification : null
   }
 
@@ -171,6 +143,12 @@ export default function Chat() {
     scrollRef.current?.scrollTo({ top: 999999 })
     window.scrollTo({ top: document.body.scrollHeight })
   }, [state.chat.length])
+
+  useEffect(() => {
+    let vivo = true
+    speechAvailable().then(ok => { if (vivo) setMicOk(ok) })
+    return () => { vivo = false }
+  }, [])
 
   // ---------- Confirmação ----------
 
@@ -260,19 +238,21 @@ export default function Chat() {
 
   // ---------- Voz ----------
 
-  const startVoice = () => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SR) { toast({ text: 'Reconhecimento de voz não disponível neste navegador.' }); return }
-    if (recording) { recRef.current?.stop(); return }
-    const rec = new SR()
-    recRef.current = rec
-    rec.lang = 'pt-BR'
-    rec.interimResults = false
-    rec.onresult = (e: any) => { setRecording(false); send(e.results[0][0].transcript) }
-    rec.onend = () => setRecording(false)
-    rec.onerror = () => { setRecording(false); toast({ text: 'Não consegui te ouvir. Tente de novo.' }) }
+  const startVoice = async () => {
+    // No APK quem ouve é o app de voz do Android; no navegador, a Web Speech
+    // API. `listenOnce` esconde essa diferença — a tela só pede uma fala.
+    if (recording) { stopListening(); setRecording(false); return }
     setRecording(true)
-    rec.start()
+    try {
+      const { text, cancelled } = await listenOnce('Fale o que você quer registrar')
+      setRecording(false)
+      // Desistir de falar não é erro: nada de mensagem de falha.
+      if (!cancelled && text.trim()) send(text)
+    } catch (e) {
+      setRecording(false)
+      const motivo = e instanceof SpeechError ? e.reason : 'error'
+      toast({ text: SPEECH_MESSAGES[motivo] })
+    }
   }
 
   return (
@@ -344,7 +324,19 @@ export default function Chat() {
         )}
         {state.chat.length === 0 && (
           <div className="suggestion-row">
-            {suggestionsFor(state.settings.profile).map(s => <button key={s} className="chip" onClick={() => send(s)}>{s}</button>)}
+            {assistantSuggestions(state, { now: new Date() }).map(sg => (
+              // O usuário precisa saber o que o toque vai fazer antes de tocar:
+              // atalho começa um registro (e termina num Confirmar), pergunta
+              // só consulta e nunca mexe em nada.
+              <button
+                key={sg.text}
+                className={`chip ${sg.kind === 'shortcut' ? 'chip-shortcut' : ''}`}
+                title={sg.kind === 'shortcut' ? 'Atalho de registro — ainda vai pedir confirmação' : 'Pergunta — não registra nada'}
+                onClick={() => send(sg.text)}
+              >
+                {sg.kind === 'shortcut' ? '+ ' : ''}{sg.text}
+              </button>
+            ))}
           </div>
         )}
       </div>
@@ -369,7 +361,10 @@ export default function Chat() {
             }
           }}
         />
-        <button className={`icon-btn secondary ${recording ? 'recording' : ''}`} aria-label="Falar" onClick={startVoice}>{Icon.mic}</button>
+        {micOk && (
+          <button className={`icon-btn secondary ${recording ? 'recording' : ''}`}
+            aria-label={recording ? 'Parar de ouvir' : 'Falar'} onClick={startVoice}>{Icon.mic}</button>
+        )}
         <button className="icon-btn" aria-label="Enviar" onClick={() => send(input)}>{Icon.send}</button>
       </div>
     </div>

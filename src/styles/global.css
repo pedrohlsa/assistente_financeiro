@@ -119,6 +119,9 @@ h3 { font-size: 0.95rem; font-weight: 650; }
   cursor: pointer; white-space: nowrap; transition: all 0.18s ease;
 }
 .chip.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+/* Atalho de registro x pergunta: o toque precisa avisar o que vai fazer.
+   O atalho ainda passa pelo Confirmar — a diferença é só de expectativa. */
+.chip-shortcut { border-style: dashed; color: var(--text); }
 
 /* ---------- Inputs ---------- */
 .field { display: flex; flex-direction: column; gap: 6px; }
@@ -209,7 +212,10 @@ h3 { font-size: 0.95rem; font-weight: 650; }
 
 /* ---------- Listas ---------- */
 .row { display: flex; align-items: center; gap: 12px; }
-.row .grow { flex: 1; min-width: 0; }
+/* `min-width: 0` deixa a CAIXA encolher; sem quebrar a palavra, o TEXTO
+   continuava saindo. Descricao e origem sao escritas pelo usuario e podem vir
+   sem espaco nenhum. */
+.row .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .spread { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .tx-icon {
   width: 42px; height: 42px; border-radius: 14px; flex: 0 0 42px;
@@ -220,12 +226,20 @@ h3 { font-size: 0.95rem; font-weight: 650; }
 .list-item:last-child { border-bottom: none; }
 
 /* ---------- Grids ---------- */
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+/* `minmax(0, 1fr)` e nao `1fr`: a coluna `1fr` tem `min-width: auto`, entao um
+   numero grande ou uma palavra longa faz a trilha crescer alem da divisao e a
+   tela inteira passa a rolar de lado. Em 320px — celular barato, que e o
+   aparelho do usuario-alvo — isso acontecia em Analises e no Veiculo. */
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .mini-card {
   background: var(--surface); border-radius: var(--radius-sm); padding: 13px 14px;
   border: 1px solid var(--border); box-shadow: var(--shadow);
 }
+/* Valor grande em tela estreita: sem quebrar, "R$ 56.116,72" saía do cartão e
+   levava a página inteira junto. Quebrar mostra tudo; cortar esconderia
+   dígito de dinheiro, que é a última coisa que se pode esconder. */
+.mini-card, .mini-card .mini-value, .mini-card .mini-label { min-width: 0; overflow-wrap: anywhere; }
 .mini-card .mini-value { font-size: 1.15rem; font-weight: 750; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .mini-card .mini-label { font-size: 0.72rem; color: var(--text-2); font-weight: 600; margin-top: 2px; }
 
@@ -296,7 +310,19 @@ h3 { font-size: 0.95rem; font-weight: 650; }
 .empty-state .emoji { font-size: 2.6rem; margin-bottom: 10px; }
 .page-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
 .back-btn { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: 38px; height: 38px; cursor: pointer; color: var(--text); font-size: 1.1rem; display: flex; align-items: center; justify-content: center; }
+/* Um chip nunca pode ser mais largo que a tela: o nome de meta e escrito pelo
+   usuario e pode ter qualquer tamanho. `.chip` e `nowrap` de proposito, entao o
+   corte tem que vir daqui. */
 .suggestion-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.suggestion-row .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .celebrate { animation: celebrate 0.7s cubic-bezier(0.2, 0.9, 0.3, 1); }
 @keyframes celebrate { 0% { transform: scale(1); } 30% { transform: scale(1.06) rotate(-1deg); } 60% { transform: scale(0.98); } 100% { transform: scale(1); } }
 .fade-slide { animation: cardIn 0.35s ease; }
+
+/* Gravação falhando. Fica acima de tudo e não some sozinho: enquanto isso,
+   cada registro novo se perde ao fechar o app. */
+.storage-warning {
+  position: sticky; top: 0; z-index: 60;
+  background: var(--danger, #b3261e); color: #fff;
+  padding: 10px 14px; font-size: 0.85rem; line-height: 1.35;
+}

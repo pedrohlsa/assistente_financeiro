@@ -354,6 +354,22 @@ export const CASES: AssistantCase[] = [
   { id: 'cor-02', group: 'correcoes', ...other,
     messages: ['gastei 100 no mercado', 'troca o valor para 80'],
     expectActions: [{ kind: 'expense', amount: 80 }] },
+  // Com a proposta na tela, um número SOZINHO é o valor certo. Caía no texto
+  // genérico de ajuda enquanto a proposta errada seguia lá, esperando o
+  // Confirmar.
+  { id: 'cor-02b', group: 'correcoes', ...other,
+    messages: ['gastei 100 no mercado', '80'],
+    expectActions: [{ kind: 'expense', amount: 80, description: 'Mercado' }] },
+  { id: 'cor-02c', group: 'correcoes', ...other,
+    messages: ['gastei 100 no mercado', 'na verdade 80'],
+    expectActions: [{ kind: 'expense', amount: 80 }] },
+  { id: 'cor-02d', group: 'correcoes', ...other,
+    messages: ['gastei 100 no mercado', 'quer dizer 80 reais'],
+    expectActions: [{ kind: 'expense', amount: 80 }] },
+  // Sem proposta na tela, número solto continua não virando lançamento.
+  { id: 'cor-02e', group: 'correcoes', ...other,
+    messages: ['80'],
+    expectNoActions: true },
   { id: 'cor-03', group: 'correcoes', ...clt,
     messages: ['recebi 1625 de salário e gastei 355', 'remove a primeira'],
     expectActions: [{ kind: 'expense', amount: 355 }] },

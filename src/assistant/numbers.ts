@@ -227,7 +227,9 @@ export function findNumberWords(text: string): NumberWordMatch[] {
  */
 export function normalizeNumberWords(text: string): { text: string; replacements: NumberWordMatch[] } {
   const found = findNumberWords(text)
-  if (!found.length) return { text, replacements: [] }
+  // Sem número por extenso ainda pode haver centavo em dígito ("50 centavos"),
+  // então a saída antecipada também passa pelo mesmo tratamento.
+  if (!found.length) return { text: withCents(text), replacements: [] }
   let out = ''
   let cursor = 0
   for (const m of found) {
@@ -237,5 +239,31 @@ export function normalizeNumberWords(text: string): { text: string; replacements
     cursor = m.end
   }
   out += text.slice(cursor)
-  return { text: out, replacements: found }
+  return { text: withCents(out), replacements: found }
+}
+
+/**
+ * "50 centavos" é meio real, não cinquenta reais.
+ *
+ * Este passo roda DEPOIS da conversão por extenso de propósito: assim uma regra
+ * só atende as três formas em que o usuário fala centavos — "50 centavos",
+ * "cinquenta centavos" (que já virou "50 centavos" acima) e "20 reais e 30
+ * centavos". Antes, nenhuma delas funcionava: a primeira registrava CEM VEZES o
+ * valor, e as outras duas jogavam os centavos fora em silêncio.
+ *
+ * O caso todo por extenso ("cento e cinquenta reais e cinquenta centavos") já
+ * chega aqui somado — o `\d+,\d{2}` na primeira alternativa é justamente para
+ * não somar duas vezes, só limpar o resto da frase.
+ */
+function withCents(t: string): string {
+  const pad = (c: string) => c.padStart(2, '0').slice(0, 2)
+  return t
+    // "20 reais e 30 centavos" → "20,30". Com o valor já em centavos, só limpa.
+    .replace(
+      /(\d+)(,\d{2})?\s*(?:reais|real|conto|contos|pila|mango)\s*(?:e\s*)?(\d{1,2})\s*centavos?\b/gi,
+      (_m, reais: string, jaTemCentavos: string | undefined, cents: string) =>
+        `${reais}${jaTemCentavos || ','}${jaTemCentavos ? '' : pad(cents)} reais`,
+    )
+    // "50 centavos" sozinho — sem reais na frente.
+    .replace(/(?<![\d,.])(\d{1,2})\s*centavos?\b/gi, (_m, cents: string) => `0,${pad(cents)} reais`)
 }

@@ -30,6 +30,19 @@ export const catById = (cats: Category[], id: string): Category =>
   cats.find(c => c.id === id) || { id, name: id, type: 'expense', icon: '📦' }
 
 /**
+ * Categorias que o app pode OFERECER hoje: arquivada some dos seletores, e
+ * `reserva` é a exceção histórica (só `type: 'saving'` a usa, e ela nasce
+ * arquivada justamente para não aparecer como despesa).
+ *
+ * Fonte única de propósito. `buildCapabilities` usava este filtro inline e o
+ * aprendizado usava outro (só "a categoria existe?"): o resultado é que o
+ * aprendizado propunha uma categoria arquivada, a validação recusava por
+ * categoria inexistente e o lançamento inteiro sumia.
+ */
+export const usableCategories = (cats: Category[]): Category[] =>
+  cats.filter(c => !c.archived || c.id === 'reserva')
+
+/**
  * Funde as categorias padrão nas categorias já salvas do usuário.
  * - preserva TODAS as categorias atuais, inclusive personalizadas e arquivadas;
  * - acrescenta apenas as padrão que faltam, comparando por `id`;
@@ -48,9 +61,12 @@ export function mergeDefaultCategories(current?: Category[] | null): Category[] 
 // Por isso "obra" vem antes de "casa" (cimento/reforma não é conta de casa) e
 // "combustivel" vem antes de tudo que possa casar com "gás".
 export const CATEGORY_KEYWORDS: Record<string, string[]> = {
-  combustivel: ['gasolina', 'etanol', 'alcool', 'álcool', 'diesel', 'gnv', 'gás veicular', 'gas veicular', 'gás do carro', 'posto', 'shell', 'ipiranga', 'petrobras', 'br ', 'abasteci', 'combustivel', 'combustível'],
+  // Os termos são RADICAIS de propósito: 'gasolin'/'gazolin' cobrem a grafia
+  // certa e o erro de digitação de sempre ("gazolina"), que antes mandava o
+  // gasto para "outros" e sumia do custo de combustível do motorista.
+  combustivel: ['gasolin', 'gazolin', 'gasolna', 'etanol', 'alcool', 'álcool', 'diesel', 'dizel', 'disel', 'gnv', 'gás veicular', 'gas veicular', 'gás do carro', 'posto', 'shell', 'ipiranga', 'petrobras', 'br ', 'abasteci', 'combustivel', 'combustível'],
   obra: ['cimento', 'areia', 'tijolo', 'bloco', 'brita', 'argamassa', 'rejunte', 'telha', 'madeira', 'vergalhão', 'vergalhao', 'material de construção', 'material de construcao', 'obra', 'construção', 'construcao', 'reforma', 'pedreiro'],
-  alimentacao: ['almoço', 'almoco', 'janta', 'jantar', 'lanche', 'comida', 'ifood', 'restaurante', 'padaria', 'mercado', 'café', 'cafe', 'marmita', 'pizza', 'burger', 'açaí', 'acai'],
+  alimentacao: ['almoço', 'almoco', 'janta', 'jantar', 'lanche', 'comida', 'ifood', 'restaurante', 'padaria', 'mercad', 'mercearia', 'sacolão', 'sacolao', 'quitanda', 'café', 'cafe', 'marmita', 'pizza', 'burger', 'hamb', 'salgado', 'coxinha', 'açaí', 'acai', 'sorvete'],
   manutencao: ['óleo', 'oleo', 'pneu', 'freio', 'pastilha', 'revisão', 'revisao', 'mecânico', 'mecanico', 'oficina', 'peça', 'peca', 'filtro', 'vela', 'correia', 'amortecedor', 'manutenção', 'manutencao', 'lavagem', 'lava'],
   estacionamento: ['estacionamento', 'estacionei', 'zona azul', 'parquímetro', 'parquimetro'],
   pedagio: ['pedágio', 'pedagio', 'sem parar', 'veloe', 'conectcar'],

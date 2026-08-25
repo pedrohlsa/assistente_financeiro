@@ -51,6 +51,9 @@ export const FALA_REAL: AssistantCase[] = [
 
   // ===== Meta pelo NOME, não pela palavra "meta" =====
   q('fr-11', 'quanto falta pra minha moto', { expectReply: [/moto/i] }),
+  // A mesma pergunta pelo outro lado: quem pergunta o progresso tanto faz se
+  // pede o que falta ou o que já tem. A resposta agora diz os dois.
+  q('fr-11b', 'quanto ja juntei da moto', { expectReply: [/moto/i, /2\.000,00/] }),
 
   // ===== A forma do manual continua funcionando =====
   q('fr-12', 'como está meu mês?'),
@@ -74,6 +77,32 @@ export const FALA_REAL: AssistantCase[] = [
     id: 'fr-17', group: 'falareal', ...motorista,
     messages: ['gastei 50 no merkado'],
     expectActions: [{ kind: 'expense', amount: 50 }],
+  },
+
+  // ===== Perguntas que o app SABE responder e mandava para o texto de ajuda =====
+  // Todas caem em `resolveLocal`: são conta feita sobre o próprio estado, e a
+  // regra do projeto é que pergunta factual nunca vai para a IA remota.
+  q('fr-18', 'quanto eu preciso fazer hoje ainda', { expectReply: [/falta/i] }),
+  q('fr-19', 'quanto eu gastei essa semana'),
+  q('fr-20', 'quanto eu gastei ontem'),
+  q('fr-21', 'quanto to gastando de gasolina por dia'),
+  q('fr-22', 'to no lucro esse mes?'),
+  q('fr-23', 'quanto sobrou'),
+  // A pergunta mais direta que existe sobre a saúde do mês, e caía na ajuda.
+  q('fr-25', 'to gastando mais do que ganho?'),
+  q('fr-26', 'gasto mais do que recebo'),
+  // As duas métricas que o motorista mais olha, e as duas caíam na ajuda.
+  q('fr-27', 'quanto to fazendo por hora'),
+  q('fr-28', 'quanto por viagem'),
+  {
+    id: 'fr-24', group: 'falareal', ...motorista,
+    // Pergunta central de motorista. Além do texto de ajuda, caía no "não
+    // tenho certeza do que registrar" — a pergunta virava tentativa de
+    // registro, que é o pior desfecho possível.
+    messages: ['vale a pena corrida de 8 reais'],
+    expectNoActions: true,
+    forbidReply: [AJUDA_GENERICA, /n[ãa]o tenho certeza do que registrar/i],
+    expectReply: [/km/i],
   },
 ]
 

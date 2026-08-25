@@ -131,6 +131,9 @@ export function ProposalCard({
             {p.duplicateWarning && (
               <div className="tiny" style={{ marginTop: 6, color: 'var(--warning)' }}>⚠️ {p.duplicateWarning}</div>
             )}
+            {p.patternWarning && (
+              <div className="tiny" style={{ marginTop: 6, color: 'var(--warning)' }}>⚠️ {p.patternWarning}</div>
+            )}
             {p.outcome && (
               <div className="tiny" style={{ marginTop: 6, color: p.outcome.ok ? 'var(--success)' : 'var(--danger)' }}>
                 {p.outcome.ok ? '✓ Registrado' : `✕ ${p.outcome.message}`}

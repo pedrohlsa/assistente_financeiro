@@ -20,6 +20,8 @@ import {
   monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections, budgetUsage,
 } from './calc'
 import { describeAction, parseNaturalFull } from './nlp'
+import { driverInsight } from '../assistant/driverInsights'
+import { adaptiveEnabled, buildPersonalModel } from '../assistant/personalModel'
 import { catById } from '../data/categories'
 import { isDriver } from './profile'
 import {
@@ -81,6 +83,21 @@ export function buildAiContext(s: AppState) {
     categorias: s.categories
       .filter(c => !c.archived)
       .map(c => ({ id: c.id, name: c.name, type: c.type })),
+  }
+
+  // Preferência aprendida, no MÍNIMO agregado possível: só os IDs de categoria
+  // que ele mais usa, para o modelo remoto propor a categoria certa em vez da
+  // que a lista genérica sugeriria. Nada além disso sai daqui — nem
+  // estabelecimento, nem cliente, nem descrição, nem grafia, nem journal, nem
+  // um único valor de lançamento. E não sai nada se ele desligou o aprendizado.
+  if (adaptiveEnabled(s)) {
+    const model = buildPersonalModel(s, t)
+    if (model.sample.total) {
+      base.categoriasQueMaisUso = {
+        despesas: model.topCategories('expense', 4).map(c => c.id),
+        receitas: model.topCategories('income', 3).map(c => c.id),
+      }
+    }
   }
 
   // Cartões e parcelamentos — só entra no contexto se o usuário usa a área.
@@ -506,6 +523,33 @@ function resolveLocal(s: AppState, input: string): AiReply {
     }
   }
 
+  // "vale a pena corrida de 8 reais" — o VALOR sem a distância.
+  // É assim que a pergunta aparece na rua: o app mostra o valor antes do km.
+  // Sem esta resposta a pergunta caía no parser e virava tentativa de
+  // REGISTRO, que é o pior desfecho: perguntar não é gastar nem ganhar.
+  const rideValorM = driverMode && !rideM && /vale\s*(?:a\s*)?pena|aceito|pego|compensa/.test(t)
+    ? t.match(new RegExp(String.raw`(?:corrida|viagem|chamada|corrid[ao])[^\d]{0,12}(?:r\$)?\s*${NUM}|(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?|pila)`))
+    : null
+  if (rideValorM) {
+    const valor = n(rideValorM[1] || rideValorM[2])
+    const kc = kmCost(s)
+    const custoKm = kc.fuelPerKm + kc.maintenancePerKm + kc.fixedPerKm
+    if (!(valor > 0)) return { text: 'Me diga o valor da corrida que eu comparo com o seu custo por km.' }
+    if (custoKm <= 0) {
+      return {
+        text: `Para dizer se ${fmtBRL(valor)} compensa eu preciso saber quanto seu carro custa por km.\n\n`
+          + 'Registre um abastecimento com o km do hodômetro ("botei 100 de gasolina, hodômetro 220007") que eu calculo com o consumo real do seu carro.',
+      }
+    }
+    const minKm = Math.max(custoKm * 2, custoKm + 0.5)
+    const kmQueCompensa = valor / minKm
+    return {
+      text: `Seu custo é cerca de ${fmtBRL(custoKm)}/km, e o mínimo para lucrar é ${fmtBRL(minKm)}/km.\n\n`
+        + `Então ${fmtBRL(valor)} compensa até cerca de ${fmtNum(kmQueCompensa)} km. Mais que isso e você está pagando para trabalhar.\n\n`
+        + 'Se me disser a distância ("corrida de 8 reais por 3 km") eu faço a conta exata.',
+    }
+  }
+
   // "vale a pena trabalhar mais 3 horas hoje?"
   const hoursM = driverMode ? t.match(new RegExp(String.raw`trabalhar\s*(?:mais)?\s*${NUM}\s*horas?`)) : null
   if (hoursM) {
@@ -579,8 +623,15 @@ function resolveLocal(s: AppState, input: string): AiReply {
     }
   }
 
+  // Meta de COMPRA citada pelo NOME ganha da meta diária. O motorista tem as
+  // duas, e a palavra "meta" serve às duas — mas quem batizou a meta de "Moto"
+  // e pergunta por ela espera ouvir sobre ela, não a composição da meta do dia.
+  const metaCitadaPeloNome = s.goals.some(g => !g.done && g.name?.trim()
+    && t.includes(normalizeQuestion(g.name).split(' ')[0]))
+
   // "quanto preciso ganhar amanhã?" / "qual minha meta"
-  if (driverMode && /(preciso ganhar|meta)\s*(de)?\s*(amanh[aã]|hoje)?/.test(t) && /(preciso|meta)/.test(t) && !/como est/.test(t)) {
+  if (driverMode && !metaCitadaPeloNome
+    && /(preciso ganhar|meta)\s*(de)?\s*(amanh[aã]|hoje)?/.test(t) && /(preciso|meta)/.test(t) && !/como est/.test(t)) {
     const g = dailyGoal(s)
     return {
       text: `Sua meta diária atual é ${fmtBRL(g.total)}. Composição:\n\n` +
@@ -617,18 +668,108 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // "quando vou conseguir comprar meu X" — metas
   // "quanto falta pra minha moto" também cai aqui: o usuário pergunta pelo
   // NOME da meta, não pela palavra "meta".
-  const metaPeloNome = /quanto\s+falta/.test(t)
+  // "Quanto já juntei da moto" é a mesma pergunta pelo outro lado — o usuário
+  // quer o progresso, e tanto faz se pediu o que falta ou o que já tem.
+  const metaPeloNome = /quanto\s+(?:falta|(?:eu\s+)?(?:j[áa]\s+)?(?:juntei|guardei|tenho|consegui|separei))/.test(t)
     && s.goals.some(g => !g.done && t.includes(g.name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(' ')[0]))
   if (metaPeloNome || /quando\s+(vou|consigo|vou conseguir|poderei)\s+(comprar|atingir|juntar)/.test(t) || /quando.*meta/.test(t) || /quanto\s+falta\s+(?:para|pra)\s+(?:a\s+|o\s+|minha\s+|meu\s+)?meta/.test(t)) {
     const goal = s.goals.find(g => !g.done && t.includes(g.name.toLowerCase().split(' ')[0])) || s.goals.filter(g => !g.done)[0]
     if (!goal) return { text: 'Você ainda não tem metas de compra cadastradas. Diga algo como "quero comprar um celular de 5000 em 6 meses" que eu crio para você.' }
     const remaining = goal.target - goal.saved
     const avg = avgDailyProfit(s)
-    if (avg <= 0) return { text: `Para "${goal.name}" faltam ${fmtBRL(remaining)}. Ainda não tenho histórico suficiente para projetar uma data — registre seus ganhos diários.` }
+    if (avg <= 0) {
+      return {
+        text: `Meta "${goal.name}": você já juntou ${fmtBRL(goal.saved)} de ${fmtBRL(goal.target)} — faltam ${fmtBRL(remaining)} (dado real).\n\n`
+          + 'Ainda não tenho histórico de ganhos para projetar uma data. Registre seus dias que eu te digo quando chega lá.',
+      }
+    }
     const savePerDay = avg * 0.3
     const days = Math.ceil(remaining / savePerDay)
     const when = fromISO(addDays(todayISO(), days)).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })
-    return { text: `Meta "${goal.name}": faltam ${fmtBRL(remaining)} de ${fmtBRL(goal.target)}.\n\nProjeção: guardando 30% da sua média diária de lucro (${fmtBRL(savePerDay)}/dia), você chegaria lá por volta de ${when} (~${days} dias). Isso é uma estimativa com base na sua média dos últimos 30 dias.` }
+    return { text: `Meta "${goal.name}": você já juntou ${fmtBRL(goal.saved)} e faltam ${fmtBRL(remaining)} de ${fmtBRL(goal.target)}.\n\nProjeção: guardando 30% da sua média diária de lucro (${fmtBRL(savePerDay)}/dia), você chegaria lá por volta de ${when} (~${days} dias). Isso é uma estimativa com base na sua média dos últimos 30 dias.` }
+  }
+
+  // "quanto eu gastei essa semana / ontem / esse mês" — SEM categoria.
+  // O caminho de categoria existe há tempo, mas exigia "com/de/em <coisa>", e
+  // a pergunta mais comum não tem categoria nenhuma.
+  if (/quanto\s+(?:eu\s+)?(?:j[áa]\s+)?(?:gastei|gastou|torrei|saiu|foi)\b(?!\s*(?:com|de|em)\s+[a-zà-ú])/.test(t)
+    && !/quanto\s+(?:eu\s+)?(?:posso|da\s+para|consigo)/.test(t)) {
+    const p = periodFromText(t)
+    const st = periodStats(s, p.from, p.to)
+    return {
+      text: st.expense > 0
+        ? `Você gastou ${fmtBRL(st.expense)} ${p.label} (dado real). Nesse mesmo período entraram ${fmtBRL(st.income)}.`
+        : `Não tenho nenhuma despesa registrada ${p.label}.`,
+    }
+  }
+
+  // "quanto eu preciso fazer hoje ainda" — o que falta para a meta do dia.
+  if (driverMode && /quanto\s+(?:eu\s+)?(?:ainda\s+)?(?:preciso|falta|falto|tenho\s+que|tenho\s+de)\s*(?:fazer|ganhar|rodar|tirar|faturar|trabalhar)?/.test(t)) {
+    const goal = dailyGoal(s)
+    const ts = todayStats(s)
+    const falta = goal.total - ts.profit
+    const w = weekStats(s)
+    return {
+      text: falta > 0
+        ? `Sua meta de hoje é ${fmtBRL(goal.total)} e você já fez ${fmtBRL(ts.profit)} — faltam ${fmtBRL(falta)} (dado real).`
+          + (w.profitPerHour > 0 ? `\n\nNo seu ritmo de ${fmtBRL(w.profitPerHour)}/hora, isso dá cerca de ${fmtNum(falta / w.profitPerHour)}h de trabalho.` : '')
+        : `Você já bateu a meta de hoje: fez ${fmtBRL(ts.profit)} contra a meta de ${fmtBRL(goal.total)}. O que vier agora é lucro.`,
+    }
+  }
+
+  // "quanto to gastando de gasolina por dia"
+  if (driverMode && /(?:gastando|gasto|gastei|sai)\s*(?:de|com|em)?\s*(?:gasolina|combust[íi]vel|etanol|[áa]lcool|gnv)\s*(?:por|ao|no)\s*(?:dia|m[eê]s|semana)/.test(t)) {
+    const dias = /m[eê]s/.test(t) ? 30 : /semana/.test(t) ? 7 : 1
+    const p = { from: addDays(todayISO(), -29), to: todayISO() }
+    const st = periodStats(s, p.from, p.to)
+    const gasto = s.transactions
+      .filter(x => x.date >= p.from && x.date <= p.to && x.type === 'expense' && x.category === 'combustivel')
+      .reduce((a, x) => a + x.amount, 0)
+    const abastecido = (s.fuelRecords || [])
+      .filter(x => x.date >= p.from && x.date <= p.to)
+      .reduce((a, x) => a + (x.amount || 0), 0)
+    const total = gasto + abastecido
+    if (total <= 0) return { text: 'Ainda não tenho abastecimento registrado nos últimos 30 dias. Registre um ("botei 100 de gasolina") e eu te digo a média.' }
+    const unidade = dias === 1 ? 'por dia' : dias === 7 ? 'por semana' : 'por mês'
+    return {
+      text: `Nos últimos 30 dias você gastou ${fmtBRL(total)} com combustível — cerca de ${fmtBRL(total / 30 * dias)} ${unidade} (dado real).`
+        + (st.income > 0 ? `\n\nIsso é ${fmtNum(total / st.income * 100)}% de tudo que você faturou no período.` : ''),
+    }
+  }
+
+  // "to no lucro esse mes?" / "quanto sobrou"
+  // "Tô gastando mais do que ganho?" é a pergunta mais direta sobre a saúde do
+  // mês, e é a mesma conta do "tô no lucro" com o sinal invertido.
+  if (/(?:t[oô]|estou|to)\s+no\s+lucro|(?:t[oô]|estou)\s+no\s+(?:azul|vermelho)|quanto\s+sobrou\s*\??$|sobrou\s+quanto/.test(t)
+    || /(?:gastando|gasto|gastei)\s+mais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:ganho|ganhei|recebo|recebi|entra|faturo)/.test(t)) {
+    const p = /semana/.test(t) ? periodFromText(t) : { from: todayISO().slice(0, 8) + '01', to: todayISO(), label: 'este mês' }
+    const st = periodStats(s, p.from, p.to)
+    const saldo = st.income - st.expense
+    // Sem movimento nenhum não existe "sim": zero não é lucro, é ausência de
+    // dado. Responder "Sim, sobrando R$ 0,00" seria mentir com número certo.
+    if (st.income === 0 && st.expense === 0) {
+      return { text: `Não tenho nada registrado ${p.label} para dizer se você está no lucro. Me conte o que entrou e o que saiu que eu faço a conta.` }
+    }
+    // Duas coisas diferentes na mesma pergunta:
+    // - "quanto sobrou" pede um VALOR: começar com "Sim" responderia outra coisa.
+    // - "tô no lucro?" e "tô no vermelho?" pedem sim/não com polaridade
+    //   OPOSTA. Um "Sim" fixo respondia "sim, você está no vermelho" para quem
+    //   tinha sobra — a resposta certa com o número certo, e ainda assim errada.
+    const perguntaNegativa = /vermelho|preju|no\s+negativo|gastando\s+mais|gasto\s+mais|gastei\s+mais/.test(t)
+    const perguntaSimNao = perguntaNegativa || /lucro|azul/.test(t)
+    const positivo = saldo > 0
+    const prefixo = !perguntaSimNao || saldo === 0
+      ? ''
+      : (positivo !== perguntaNegativa ? 'Sim — ' : 'Não — ')
+
+    const detalhe = `${p.label} entraram ${fmtBRL(st.income)} e saíram ${fmtBRL(st.expense)}`
+    const corpo = prefixo ? detalhe : detalhe[0].toUpperCase() + detalhe.slice(1)
+    const fecho = positivo
+      ? `, sobrando ${fmtBRL(saldo)} (dado real).`
+      : saldo === 0
+        ? `: não sobrou nada (dado real).`
+        : `, um déficit de ${fmtBRL(-saldo)} (dado real).`
+    return { text: prefixo + corpo + fecho }
   }
 
   // "qual foi meu maior gasto"
@@ -647,6 +788,20 @@ function resolveLocal(s: AppState, input: string): AiReply {
     if (!best) return { text: 'Ainda não há dados suficientes nos últimos 30 dias.' }
     if (/pior/.test(t)) return { text: `Seu pior dia nos últimos 30 dias foi ${fromISO(worst!.date).toLocaleDateString('pt-BR')}, com lucro de ${fmtBRL(worst!.profit)}.` }
     return { text: `Seu melhor dia nos últimos 30 dias foi ${fromISO(best.date).toLocaleDateString('pt-BR')}, com lucro de ${fmtBRL(best.profit)} (${fmtBRL(best.income)} de receitas).` }
+  }
+
+  // "quanto eu COSTUMO gastar de suco por dia?" — a pergunta é sobre o hábito,
+  // não sobre o total do período, e o nome da coisa é o DELE: o motorista que
+  // chama combustível de "suco" não é atendido por uma lista de palavras do
+  // app. Quem sabe o que é "suco" é o histórico dele.
+  const habitualM = t.match(
+    /quanto\s+(?:eu\s+)?(?:costumo|costuma|normalmente|geralmente|em m[ée]dia)\s*(?:gast\w+|pag\w+|torr\w+)?\s*(?:de|com|em|n[oa]s?)\s+([\wçãõáéíóú\s]+?)\s*(?:por\s+(dia|semana|m[eê]s)|\?|$)/,
+  )
+  if (habitualM) {
+    const alvo = habitualM[1].trim()
+    const escala = habitualM[2] || 'mes'
+    const resposta = habitualSpending(s, alvo, escala)
+    if (resposta) return { text: resposta }
   }
 
   // "quanto gastei com gasolina esse mês" / "quanto perco por mês com gasolina"
@@ -687,15 +842,44 @@ function resolveLocal(s: AppState, input: string): AiReply {
     }
   }
 
+  // "quanto tô fazendo por hora" / "quanto por viagem" — as duas métricas que
+  // o motorista mais olha, e as duas caíam no texto genérico de ajuda.
+  if (driverMode && /(?:quanto|qual).*(?:por\s+hora|a\s+hora|hora\b)|ganho\s+por\s+hora|lucro\s+por\s+hora/.test(t)
+    && !/vale a pena|trabalhar/.test(t)) {
+    const w = weekStats(s)
+    if (w.hours <= 0) return { text: 'Ainda não tenho horas registradas. Diga "trabalhei 8 horas" (ou mande junto com o ganho do dia) que eu calculo seu lucro por hora real.' }
+    return {
+      text: `Nos últimos 7 dias você trabalhou ${fmtNum(w.hours)}h e lucrou ${fmtBRL(w.profit)} — ${fmtBRL(w.profitPerHour)}/hora (dado real).`,
+    }
+  }
+  if (driverMode && /(?:quanto|qual).*(?:por\s+viagem|por\s+corrida|a\s+viagem|cada\s+viagem|m[ée]dia\s+(?:por|da)\s+(?:viagem|corrida))/.test(t)) {
+    const w = weekStats(s)
+    if (w.trips <= 0) return { text: 'Ainda não tenho viagens registradas nos últimos 7 dias. Diga "fiz 14 viagens" que eu calculo sua média por viagem.' }
+    return {
+      text: `Nos últimos 7 dias foram ${w.trips} viagens e ${fmtBRL(w.income)} de receita — ${fmtBRL(w.perTrip)} por viagem (dado real).`,
+    }
+  }
+
   // "quando preciso trocar meu óleo"
   if (driverMode && (/trocar.*(óleo|oleo|pneu|pastilha|filtro)/.test(t) || /quando.*troca/.test(t))) {
     if (!s.maintenance.length) return { text: 'Você ainda não registrou manutenções. Diga por exemplo: "troquei o óleo por 280 com 84 mil km".' }
     const odo = s.vehicle?.odometer || 0
-    const lines = s.maintenance.map(mi => {
+    // Sem o intervalo (`lifeKm`), NÃO existe "próxima troca": a conta virava
+    // kmInstalado + 0 e o app anunciava que uma troca recém-feita já estava
+    // vencida. E `lifeKm: 0` é o caso comum — a frase que o próprio app
+    // sugere ("troquei o óleo por 280 com 84 mil km") não pede o intervalo.
+    const semIntervalo = s.maintenance.filter(mi => !(mi.lifeKm > 0))
+    const comIntervalo = s.maintenance.filter(mi => mi.lifeKm > 0)
+
+    const lines = comIntervalo.map(mi => {
       const next = mi.kmInstalled + mi.lifeKm
       const left = next - odo
       return `• ${mi.name}: próxima troca aos ${fmtNum(next, 0)} km ${left > 0 ? `(faltam ${fmtNum(left, 0)} km)` : '— JÁ VENCIDA'}`
     })
+    for (const mi of semIntervalo) {
+      lines.push(`• ${mi.name}: trocado aos ${fmtNum(mi.kmInstalled, 0)} km. Não sei o intervalo dessa peça —`
+        + ' me diga de quantos em quantos km você troca que eu passo a avisar.')
+    }
     return { text: `Com o hodômetro em ${fmtNum(odo, 0)} km:\n\n${lines.join('\n')}` }
   }
 
@@ -778,6 +962,15 @@ function resolveLocal(s: AppState, input: string): AiReply {
     }
   }
 
+  // O ritmo DELE: ganho típico por dia, dias mais fortes, de onde vem o
+  // dinheiro, tendência contra o próprio normal. Fica por último entre as
+  // respostas de motorista porque as perguntas acima são mais específicas —
+  // "quanto gastei com gasolina esse mês" pede um total, não um padrão.
+  if (driverMode) {
+    const insight = driverInsight(s, input)
+    if (insight) return { text: insight }
+  }
+
   // Se o parser achou ações mas parecia pergunta, ofereça registro
   if (actions.length) {
     if (parsed.ambiguity) return { text: parsed.ambiguity.question, choices: parsed.ambiguity.options }
@@ -790,6 +983,59 @@ function resolveLocal(s: AppState, input: string): AiReply {
       : 'Posso te ajudar com coisas como:\n\n• "recebi 1800 de aluguel"\n• "gastei 250 no mercado"\n• "meu saldo é 3200"\n• "como está meu mês?"\n• "quanto posso guardar este mês?"\n• "tenho saldo para as próximas contas?"\n• "qual foi minha maior despesa?"\n\nOu me faça outra pergunta que eu tento responder.',
     handled: false,
   }
+}
+
+/**
+ * "Quanto eu costumo gastar em X?" respondido com o vocabulário do usuário.
+ *
+ * O alvo é resolvido em duas tentativas, nesta ordem: o nome de uma categoria
+ * que ele tem, e depois o que o HISTÓRICO dele diz que aquela palavra é. É a
+ * segunda que atende quem chama combustível de "suco" ou a padaria de "padoca
+ * da Rita" — nenhuma lista de palavras do app conhece esses nomes.
+ *
+ * Devolve `undefined` quando não há base: somar zero e chamar de hábito seria
+ * inventar um número com cara de dado real.
+ */
+function habitualSpending(s: AppState, alvo: string, escala: string): string | undefined {
+  if (alvo.length < 3 || !adaptiveEnabled(s)) return undefined
+  const hoje = todayISO()
+  const from = addDays(hoje, -29)
+  const alvoNorm = normalizeQuestion(alvo)
+
+  const porNome = s.categories.find(c => !c.archived && c.type === 'expense'
+    && normalizeQuestion(c.name) === alvoNorm)
+  const aprendida = buildPersonalModel(s, hoje).categoryFor(alvo, 'expense')
+  // A pergunta é específica demais para cair no texto genérico de ajuda: se
+  // não há base, o certo é dizer isso, não somar zero e chamar de hábito.
+  const semBase = `Ainda não tenho lançamentos com esse nome nos últimos 30 dias, então não sei dizer quanto você costuma gastar com ${sentenceCase(alvo)}.\n\n`
+    + 'Registre algumas vezes ("gastei 40 na padoca da Rita") que eu passo a responder com os seus números.'
+
+  const cat = porNome?.id || aprendida?.value
+  if (!cat) return semBase
+
+  // O recorte por DESCRIÇÃO é mais fiel quando o alvo é um lugar: quem pergunta
+  // pela padoca não quer o total de alimentação. Só cai na categoria inteira
+  // quando o nome citado É o nome de uma categoria.
+  const porDescricao = !porNome
+  const txs = s.transactions.filter(x => x.type === 'expense' && x.date >= from
+    && (porDescricao
+      ? normalizeQuestion(x.description || '').includes(alvoNorm)
+        || normalizeQuestion(alvo).includes(normalizeQuestion(x.description || '')) && !!x.description
+      : x.category === cat))
+  if (!txs.length) return semBase
+
+  const total = txs.reduce((a, x) => a + x.amount, 0)
+  const diasComGasto = new Set(txs.map(x => x.date)).size
+  const nome = catById(s.categories, cat).name
+  const rotulo = porNome ? nome : `${sentenceCase(alvo)} (${nome})`
+  const divisor = escala === 'dia' ? 30 : escala === 'semana' ? 30 / 7 : 1
+  const unidade = escala === 'dia' ? 'por dia' : escala === 'semana' ? 'por semana' : 'por mês'
+
+  return `${rotulo}: você gastou ${fmtBRL(total)} nos últimos 30 dias, em ${txs.length} lançamentos `
+    + `espalhados por ${diasComGasto} ${diasComGasto === 1 ? 'dia' : 'dias'} (dado real).\n\n`
+    + `• Média: ${fmtBRL(total / divisor)} ${unidade}\n`
+    + `• Por vez que você lança: ${fmtBRL(total / txs.length)}\n\n`
+    + 'São os seus lançamentos do período, não uma média genérica.'
 }
 
 /** Motor de resposta local com marcação de confiança (handled). */

@@ -196,6 +196,132 @@ código consulta essas funções em vez de comparar `profile === 'driver'` inlin
     ponta de outra estrutura (entrada financiada, abastecimento, manutenção) é **recusado**
     com o nome da tela que corrige de verdade.
 
+33. **Perguntar não é movimentar dinheiro, e corrigir não é registrar.** Três guardas
+    que valem para a classe inteira, não para a frase que revelou cada uma:
+    (a) pergunta com valor nunca vira lançamento — o verbo da pergunta está no
+    INFINITIVO ("posso GASTAR 50 no mercado?"), então nenhuma lista de verbo
+    conjugado a barra; (b) frase que só existe para consertar algo já dito
+    (`looksLikeRetraction`: "na verdade", "me enganei", "errei", "não foi/era")
+    não cria lançamento quando não há proposta na tela — sem alvo, "na verdade foi
+    200" inventava um gasto de R$ 200; (c) conta que se repete (`looksRecurring`)
+    é PREVISÃO pela regra 18 e nunca é gravada como movimento de hoje — o
+    assistente não cadastra recorrência e aponta o Planejamento. As guardas (b) e
+    (c) são estreitas de propósito: a lista geral de correção contém palavras de
+    registro legítimo ("comprei uma TROCA de óleo"), e "todo mês" sem valor não
+    descreve conta nenhuma. Invariantes 56 e 57.
+34. **O sinal do dinheiro do motorista nunca se inverte.** `foi`, `deu` e `saiu` são
+    verbos de DESPESA no parser, mas para quem roda o dia inteiro "foi 400 hoje" é o
+    FATURAMENTO. `driverDayResult()` (`nlp.ts`) trata a classe, só no perfil
+    motorista, e só quando não há verbo de gasto explícito — este manda sempre.
+    Valor sem nenhum sinal de resultado ("hoje 250") vira PERGUNTA, jamais palpite.
+    Um dia inteiro NÃO inventa "1 viagem": cravar isso destrói o ganho por viagem.
+    Invariantes 54 e 55 travam os dois sentidos.
+35. **O corpus só sabe o que já perguntaram a ele.** Duas rodadas seguidas
+    encontraram a maioria dos defeitos FORA dele: a adversarial no navegador, a de
+    13/08 com uma sonda sobre fala real. Três defeitos daquela rodada não apareciam
+    em teste nenhum, só ao LER a resposta ("tô no vermelho?" respondia "Sim" para
+    quem tinha sobra). Depois de mexer no roteador de perguntas, LEIA as respostas —
+    passar no corpus prova apenas que não é o texto genérico de ajuda. E note que
+    `resolveLocal` usa o RELÓGIO REAL da máquina, não a data injetada nos testes:
+    asserção que depende de mês/semana precisa montar as datas com `todayISO()`.
+36. **`webkitSpeechRecognition` e `<a download>` NÃO funcionam dentro do APK.** O
+    Android System WebView não tem a API de voz, e o WebView do Capacitor não tem
+    DownloadListener — os dois falhavam em silêncio, e a exportação ainda dizia
+    "Backup exportado." para um arquivo que nunca existiu. Ambos passam por plugin
+    nativo (`SpeechPlugin`, `ExportPlugin`), com `src/services/speech.ts` e
+    `src/services/exportFile.ts` como porta única para navegador e APK. Regra geral:
+    **antes de usar API de navegador que toca hardware ou sistema de arquivos,
+    confirme que ela existe no WebView** — no navegador tudo passa.
+
+37. **O assistente aprende com o usuário, e o aprendizado é DERIVADO.**
+    `src/assistant/personalModel.ts` constrói o conhecimento a partir do
+    histórico que já existe em `state.transactions`; `learning.ts` decide o que
+    fazer com ele. Não há campo novo, migração nem armazenamento paralelo —
+    mesma decisão do journal por diferença de estado: dado derivado não
+    desincroniza, backup antigo carrega sem conversão, apagar o histórico apaga
+    o aprendizado junto, e o estado de um cliente não tem como influenciar o de
+    outro porque não existe nada fora do estado. Três coisas são aprendidas: a
+    **categoria** que ele usa para cada frase (a lista genérica sempre erra em
+    nome de lugar), a **grafia** que ele já escreveu em descrição E origem
+    (senão "Ze" e "Zé" viram dois lugares e o histórico se divide), e a **ordem
+    de grandeza** dos valores dele. Limites que não podem ser afrouxados sem
+    caso novo: categoria aprendida passa por `validateAction` como qualquer
+    outra e nunca pode ser uma que o usuário não tem ou **arquivou**; e o
+    aprendizado **só toca em categoria e grafia** — nunca em valor, data, tipo
+    ou origem informada. Invariantes 61–67 e 70–74.
+38. **Valor fora do padrão AVISA, nunca bloqueia.** Quem lança R$ 300 por dia há
+    dez dias e digita R$ 3.000 quase certamente pôs um zero a mais — mas o dia
+    excepcional existe, e barrá-lo seria pior que o erro. O aviso
+    (`patternWarning`) aparece no card da proposta ao lado do de duplicidade, e
+    a ação segue confirmável. A comparação é sempre com o MESMO tipo e a MESMA
+    categoria (o padrão de combustível não diz nada sobre o de aluguel), e sem
+    amostra suficiente o app CALA: sem base, alarmar é chutar.
+
+39. **A hierarquia do aprendizado é fixa, e ele ocupa o penúltimo degrau.**
+    (1) regra financeira e segurança; (2) validação determinística; (3) o que o
+    usuário disse NESTA mensagem; (4) preferência confirmada por ele; (5) padrão
+    histórico com evidência; (6) lista genérica do app; (7) IA remota, só para o
+    que sobrou. O aprendizado é o nível 5 e **jamais** ganha de 1–3. Traduzido em
+    código: `EvidenceStrength` tem quatro degraus e só `strong` preenche um campo
+    VAZIO, só `overriding` contraria o palpite da lista genérica, `moderate` só
+    aparece em sugestão e explicação, e `none` não é usado. Aprendizado pode
+    ordenar opções, preencher categoria vazia, restaurar grafia, gerar sugestão,
+    emitir aviso e formular esclarecimento. Não pode registrar, alterar valor,
+    data ou tipo, criar taxa, escolher cartão, pagar fatura, desfazer, apagar,
+    mexer no histórico, nem escolher entre entidades ambíguas sem perguntar.
+40. **Recência tem peso, o passado tem piso.** O peso de uma ocorrência cai pela
+    metade a cada 90 dias e **nunca abaixo de 15%**. Os dois lados importam:
+    sem decaimento, cinco lançamentos de janeiro ganhavam de três de julho e o
+    hábito que mudou nunca valia; sem piso, um padrão sazonal seria destruído
+    fora da estação. A confiança é medida DUAS vezes — no histórico inteiro e na
+    janela de 120 dias — e basta uma das leituras convencer, senão a mudança de
+    hábito ficava eternamente em ~63%: evidência demais para ignorar e de menos
+    para discordar do app. O histórico é ordenado por DATA antes de cortar:
+    `mergeState` anexa backup no fim da lista, e cortar por posição lia "os mais
+    recentemente digitados". Invariante 67.
+41. **A frase identifica, a palavra genérica não.** As chaves de reconhecimento
+    têm três níveis — texto inteiro, n-grama de 2 a 3 palavras, e palavra
+    própria — e o mais específico que tiver evidência decide sozinho. Palavra de
+    CLASSE (`casa`, `mercado`, `posto`, `corrida`, `gasolina`…) só conta dentro
+    de uma frase: sozinha ela fazia "Conta de luz da casa" ensinar o que é
+    "comida na casa da minha mãe". **Nenhuma aproximação fuzzy**: ou o texto é o
+    mesmo ignorando acento e caixa, ou não é o mesmo lugar. Dois candidatos
+    fortes disputando a mesma frase PERGUNTAM, com as opções carregando o lote
+    pronto — nunca sorteiam nem descartam os dois.
+42. **O usuário pode perguntar por quê, e pode desligar.**
+    `src/assistant/explain.ts` responde local e deterministicamente: por que
+    essa categoria, por que esse valor é estranho, o que você aprendeu sobre
+    mim, quantas vezes eu fiz isso, qual período você usa, pare de usar meu
+    histórico. Explicar é sempre `mode: 'answer'` com zero ações, nunca vai à IA
+    remota (explicação inventada sobre o raciocínio do app é pior que nenhuma) e
+    **não consome a proposta na tela** — `keepPending` existe porque perguntar
+    não é cancelar, e a frase seguinte ainda fala do mesmo lançamento.
+    `settings.adaptiveAssistant?: boolean` (ausente = LIGADO) desliga a camada
+    pessoal e mais nada: parser, validação, valor, data e tipo continuam
+    idênticos, e nada já gravado muda. O assistente **não mexe nessa chave
+    sozinho** — ele diz onde ela fica. Invariantes 66 e 70.
+43. **Sem amostra, o app CALA — e diz o que registrar.** Vale para o modelo
+    pessoal e para as métricas do motorista (`driverInsights.ts`): "você faz
+    R$ 0,00 por dia" com zero dias registrados é mentira com número certo. Toda
+    conclusão carrega a amostra: quantos dias, qual período, e se é realizado ou
+    estimado. Um dia da semana só entra no ranking se tiver se REPETIDO, e a
+    comparação com "o seu normal" exige base mínima — senão vira "13% acima do
+    normal" calculado sobre dois dias.
+44. **O pessoal fica no aparelho.** Ao contexto remoto vai, no máximo, um
+    agregado: os IDs das categorias que o usuário mais usa, e só com
+    `adaptiveAssistant` ligado. **Nunca** estabelecimento, cliente, endereço,
+    descrição, grafia, journal ou valor de lançamento. Todo o aprendizado —
+    proposta, grafia, aviso, explicação e sugestão — funciona offline e nunca
+    aciona a IA remota. Invariantes 71–73.
+45. **Sugestão não é previsão, nem palpite sobre quem o usuário é.** O atalho
+    personalizado vem SEM valor: com o valor histórico dentro, um toque
+    distraído viraria um gasto que nunca aconteceu. Nome de meta e de lugar
+    aparecem na forma NEUTRA ("Quanto falta para a meta Notebook?", "gastei em
+    Água") — flexionar é inferir gênero, e o mesmo código que acerta "minha
+    moto" erra em "minha notebook". Linguagem ofensiva do histórico não volta
+    como botão. Máximo de um item por assunto, dois atalhos e seis no total, e
+    o toque avisa se é pergunta ou registro. Invariantes 68 e 69.
+
 ## Arquitetura e tecnologias
 
 - **Frontend**: React 18 + TypeScript + Vite 5 + React Router (`HashRouter`) — SPA, sem SSR.
@@ -277,6 +403,11 @@ editar `api/ai/chat.ts`, sempre redeployar com `npx vercel --prod`, senão a mud
 | Arquivo | Responsabilidade |
 |---|---|
 | `src/services/profile.ts` | Regras de perfil e ritmo das metas (`goalCadenceOf`) — ler antes de mexer em qualquer feature perfil-dependente |
+| `src/assistant/personalModel.ts` | CONSTRÓI o que se sabe do usuário: evidência, confiança, recência, chaves por frase (regras 37, 40, 41) |
+| `src/assistant/learning.ts` | APLICA o modelo à proposta — categoria, grafia, aviso de valor (regras 38, 39) |
+| `src/assistant/suggestions.ts` | Fileira de sugestões do assistente, incluindo a lista educativa por perfil (regra 45) |
+| `src/assistant/explain.ts` | "Por que você fez isso?" e a explicação do controle do usuário (regra 42) |
+| `src/assistant/driverInsights.ts` | Ritmo do motorista medido no histórico dele — só no perfil `driver` (regra 43) |
 | `src/utils/format.ts` | `parseMoney`/`formatMoneyInput` (regra 12), datas de calendário (`dateForDayOfMonth`) e `dueLabel` (regra 15) |
 | `src/utils/text.ts` | `sentenceCase` (regra 13) e `normalizeName`/`sameName` (regra 14) |
 | `src/services/calc.ts` | Todo cálculo financeiro (meta diária, meta mensal, previsão, custo/km, déficits, pendências de recorrentes) |
@@ -320,3 +451,40 @@ editar `api/ai/chat.ts`, sempre redeployar com `npx vercel --prod`, senão a mud
   foi hardcoded por engano (checar com `grep -rn "sk-" dist/` depois do build).
 - `.gitignore` já protege `node_modules/`, `dist/`, `.env`, `.vercel` — mas note a ressalva sobre
   o escopo do repositório Git na seção de infraestrutura do `PROGRESS.md`.
+
+46. **Dado que chega de fora é filtrado na FRONTEIRA.** `normalizeState()` em
+    `store.tsx` é o único ponto onde backup e `localStorage` viram estado — e
+    ali um item que não é objeto é descartado. Não basta checar "é array":
+    um `null` no meio da lista fazia o primeiro `t.type` quebrar a tela em
+    branco, sem recuperação. Depois dessa fronteira o resto do código pode
+    confiar no que recebe. A mesma ideia vale para o modelo pessoal, que só
+    lê lançamento com data legível, valor finito e data não futura — o modelo
+    inteiro é temporal, e `fromISO('lixo')` envenenava o peso com NaN até
+    chegar ao usuário como "a última em Invalid Date".
+47. **Nome escrito pelo usuário nunca vira instrução nem fórmula.** Categoria,
+    cartão e meta são batizados por ele e viajam para dois lugares perigosos:
+    o prompt de sistema (montado por LINHAS — `nomeSeguro()` colapsa quebra de
+    linha e controle) e o CSV exportado (`csvCell()` em `utils/text.ts`, fonte
+    única). No CSV as aspas protegem o SEPARADOR, não o conteúdo: uma descrição
+    começando com `=`, `+`, `-` ou `@` executa como fórmula na planilha de quem
+    receber o arquivo. Caractere invisível ou de direção (`U+202E`, `U+200B`)
+    também não volta em botão de sugestão.
+48. **Falha de gravação nunca é silenciosa.** `setItem` mora dentro de um
+    `try` e a falha vira `storageError` no contexto do store, que a tela
+    mostra numa faixa fixa até uma gravação dar certo. Sem isso, com o
+    armazenamento cheio ou bloqueado, o app continuava respondendo enquanto
+    NADA era salvo — o pior desfecho possível num app offline-first de
+    dinheiro. Invariante 84.
+49. **Perguntar não pode custar o lançamento.** A pergunta de categoria é um
+    refinamento opcional: o usuário já disse que gastou. Resposta fora das
+    opções propõe a versão genérica, nunca descarta. E com DOIS itens
+    ambíguos o app não pergunta: uma pergunta só privilegiaria um e deixaria
+    o outro em Outros sem o usuário entender por quê. Do mesmo lado: com uma
+    proposta na tela, frase de contestação (`contestsProposal`) nunca vira
+    registro — ou o conserto é entendido, ou o assistente pergunta o que
+    mudar. Invariante 76.
+50. **Número na tela nunca é NaN, ∞ ou menos zero.** `fmtBRL`/`fmtNum`
+    devolvem travessão para valor não finito. Trocar por "R$ 0,00" seria pior:
+    número errado com cara de certo. E toda caixa de layout tem que encolher —
+    coluna `1fr` tem `min-width: auto` e leva a página inteira a rolar de lado
+    num celular de 320px. Invariantes 85 e 86.

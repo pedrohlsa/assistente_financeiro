@@ -337,6 +337,11 @@ export interface AssistantCandidateAction {
   clauseId?: string
   /** Aviso de possível duplicidade (não bloqueia). */
   duplicateWarning?: string
+  /**
+   * Valor muito fora do que o usuário costuma lançar — quase sempre um zero a
+   * mais. AVISA, nunca bloqueia: o dia atípico existe.
+   */
+  patternWarning?: string
 }
 
 export interface AssistantClarificationOption {

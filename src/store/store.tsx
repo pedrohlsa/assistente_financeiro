@@ -1,7 +1,7 @@
 // Estado global + persistência local (localStorage) — funciona offline.
 // Preparado para sincronização futura: cada mutação passa por dispatch,
 // bastando acoplar uma fila de sync (INTEGRAÇÃO PENDENTE: backend/Supabase).
-import React, { createContext, useContext, useEffect, useMemo, useReducer } from 'react'
+import React, { createContext, useContext, useEffect, useMemo, useReducer, useState } from 'react'
 import {
   AppState, Transaction, WorkSession, FuelRecord, MaintenanceItem, FinancialGoal,
   Deficit, RecurringExpense, RecurrenceOccurrence, Budget, ChatMessage, ProposedAction, Settings, Vehicle, ParsedAction, Category,
@@ -46,33 +46,42 @@ const initialState: AppState = {
  * antigo restaurado — sem isso, `state.cards.map(...)` quebraria o app inteiro.
  */
 function normalizeState(raw: any): AppState {
-  const arr = <T,>(v: any, fallback: T[] = []): T[] => (Array.isArray(v) ? v : fallback)
+  // Não basta "é array": um backup editado à mão, truncado ou vindo de outra
+  // ferramenta pode trazer `null` no meio da lista, e daí em diante qualquer
+  // `t.type` do app quebra a tela inteira em branco. O item que não é objeto é
+  // descartado aqui, na fronteira — depois deste ponto o resto do código pode
+  // confiar no que recebe. `dismissedDeficitDates` é lista de strings e usa o
+  // filtro solto.
+  const arr = <T,>(v: any, fallback: T[] = []): T[] =>
+    (Array.isArray(v) ? v.filter(x => x !== null && x !== undefined) : fallback)
+  const objs = <T,>(v: any): T[] =>
+    (Array.isArray(v) ? v.filter(x => !!x && typeof x === 'object') : [])
   return {
     ...initialState,
     ...raw,
     settings: { ...defaultSettings, ...(raw?.settings || {}) },
-    transactions: arr(raw?.transactions),
+    transactions: objs(raw?.transactions),
     // Fusão, não substituição: quem já usava o app recebe as categorias padrão
     // novas sem perder as personalizadas nem o estado "arquivada".
     categories: mergeDefaultCategories(raw?.categories),
-    workSessions: arr(raw?.workSessions),
-    fuelRecords: arr(raw?.fuelRecords),
-    maintenance: arr(raw?.maintenance),
-    goals: arr(raw?.goals),
-    deficits: arr(raw?.deficits),
-    recurring: arr(raw?.recurring),
-    budgets: arr(raw?.budgets),
-    chat: arr(raw?.chat),
+    workSessions: objs(raw?.workSessions),
+    fuelRecords: objs(raw?.fuelRecords),
+    maintenance: objs(raw?.maintenance),
+    goals: objs(raw?.goals),
+    deficits: objs(raw?.deficits),
+    recurring: objs(raw?.recurring),
+    budgets: objs(raw?.budgets),
+    chat: objs(raw?.chat),
     dismissedDeficitDates: arr(raw?.dismissedDeficitDates),
     // Backup anterior a esta versão não tem journal: o array nasce vazio e os
     // lotes antigos ficam sem entrada — o undo recusa em vez de adivinhar.
-    assistantJournal: arr(raw?.assistantJournal),
+    assistantJournal: objs(raw?.assistantJournal),
     vehicle: raw?.vehicle ?? null,
-    cards: arr(raw?.cards),
-    installmentPlans: arr(raw?.installmentPlans),
-    installments: arr(raw?.installments),
-    cardPayments: arr(raw?.cardPayments),
-    cardCharges: arr(raw?.cardCharges),
+    cards: objs(raw?.cards),
+    installmentPlans: objs(raw?.installmentPlans),
+    installments: objs(raw?.installments),
+    cardPayments: objs(raw?.cardPayments),
+    cardCharges: objs(raw?.cardCharges),
   }
 }
 
@@ -371,7 +380,18 @@ function reducer(s: AppState, a: Action): AppState {
   }
 }
 
-const StoreCtx = createContext<{ state: AppState; dispatch: React.Dispatch<Action> }>({ state: initialState, dispatch: () => {} })
+interface StoreValue {
+  state: AppState
+  dispatch: React.Dispatch<Action>
+  /**
+   * Mensagem de falha ao GRAVAR no aparelho, ou `null`. Existe para que a tela
+   * possa avisar: um app offline-first que para de salvar em silencio faz o
+   * usuario registrar o dia inteiro achando que esta guardado.
+   */
+  storageError: string | null
+}
+
+const StoreCtx = createContext<StoreValue>({ state: initialState, dispatch: () => {}, storageError: null })
 
 /**
  * Handle da gravação debounced. Precisa ser visível fora do provider porque o
@@ -407,16 +427,35 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return init
   })
 
+  /**
+   * Falha ao GRAVAR. O `getItem` sempre teve `try`; o `setItem` não tinha, e
+   * ele roda dentro de um `setTimeout` — a exceção não passa por nenhum limite
+   * de erro do React. Quando o armazenamento enche (cota do WebView), está
+   * bloqueado (navegação privada, política do aparelho) ou o disco acabou, o
+   * app continuava respondendo normalmente enquanto NADA era salvo. Num app
+   * offline-first de dinheiro esse é o pior desfecho possível: o usuário
+   * registra o dia inteiro achando que está guardado.
+   */
+  const [storageError, setStorageError] = useState<string | null>(null)
+
   useEffect(() => {
     clearTimeout(pendingSave)
     pendingSave = setTimeout(() => {
       pendingSave = null
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+        setStorageError(prev => (prev ? null : prev))
+      } catch (e: any) {
+        const cheio = e?.name === 'QuotaExceededError' || e?.code === 22 || e?.code === 1014
+        setStorageError(cheio
+          ? 'O armazenamento do aparelho está cheio: os últimos registros NÃO foram salvos. Exporte um backup e apague o que não precisar mais.'
+          : 'Não estou conseguindo salvar neste aparelho: os últimos registros podem se perder ao fechar o app. Exporte um backup por segurança.')
+      }
     }, 150)
     return () => clearTimeout(pendingSave)
   }, [state])
 
-  const value = useMemo(() => ({ state, dispatch }), [state])
+  const value = useMemo(() => ({ state, dispatch, storageError }), [state, storageError])
   return <StoreCtx.Provider value={value}>{children}</StoreCtx.Provider>
 }
 

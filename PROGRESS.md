@@ -1,7 +1,9 @@
 # AssistFin — Estado do Projeto
 
-**Última atualização**: 2026-07-29 — auditoria reversível, edição validada da proposta,
-"desfaz o último" e correção de lançamento salvo. Ver a última seção.
+**Última atualização**: 2026-08-17 — rodada ADAPTATIVA (modelo pessoal derivado com
+evidência, confiança e recência; explicabilidade; ritmo do motorista; chave para
+desligar) seguida de seis rodadas de LIMITE, que acharam nove defeitos fora do corpus.
+Ver as duas últimas seções.
 
 > **Aviso de leitura**: as seções datadas abaixo são um diário — cada uma registra o que era
 > verdade **naquela data** e não é reescrita depois. Para o estado atual verificado, use
@@ -2155,3 +2157,437 @@ Corpus: **385/385 · 53/53 invariantes**, typecheck src+api e build ok.
 4. **`paguei 80 de gazolina`** com typo cai em `outros-out`, não em combustível.
 5. Perguntas abertas de verdade (`vale a pena comprar um carro de 40000?`) continuam
    dependendo da IA remota — é o desenho, não um defeito.
+
+---
+
+## Rodada — fala real de registro, perguntas de motorista e exportação (13/08/2026)
+
+Pedido: "melhorar a IA o máximo possível", mais três defeitos relatados do APK (áudio,
+exportar JSON, algo na tela principal). Método de sempre: sonda → caso vermelho →
+correção → corpus inteiro → commit isolado.
+
+### Como os defeitos foram achados
+
+Uma **sonda** (`orchestrate` sobre frases de fala real) mostrou o que o corpus não
+mostrava, porque o corpus só sabe o que já perguntaram a ele. Foi assim que apareceram
+tanto os quatro parsers já conhecidos quanto sete classes novas — e três bugs que
+**nenhum teste pegaria**, porque só apareciam ao LER a resposta.
+
+Registro honesto de um erro do processo: numa primeira passada eu afirmei que
+`gastei 20 no lanche e 30 na farmácia` perdia a segunda despesa. Era artefato da própria
+sonda (o `grep` cortava a segunda linha). O parser sempre acertou esse caso.
+
+### Registro em fala real (corpus novo `cases-registro-real.ts`, 41 casos)
+
+1. **Resultado do dia do motorista** — `hoje foi fraco so 150 reais 8 horas na rua`,
+   `deu 200 hoje`, `fechei o dia com 280`, `tirei 300 líquido`. Não registrava nada. Pior:
+   `foi 400 hoje` caía no verbo de DESPESA e gravava o faturamento do dia **com o sinal
+   invertido**. Regra nova em `driverDayResult()`, exclusiva do perfil motorista.
+   Valor sem nenhum sinal de resultado (`hoje 250`) vira PERGUNTA, não palpite.
+   Dia inteiro não inventa "1 viagem" — isso destruiria o ganho por viagem.
+2. **`dayHint` de `clauses.ts` → `nlp.ts`** — quem segmenta ARRANCA a expressão de data
+   antes de chamar o parser, e `deu 200 hoje` chegava como `deu 200`. Sem o aviso, o
+   contexto que dá sentido ao número sumia.
+3. **Gíria de dinheiro** — `pila`, `conto`, `mango`, `pau`, `prata` viravam descrição
+   ("Pila no lanche"). Agora há uma constante `MOEDA` única, consumida por todo regex de
+   valor, no lugar de `reais|conto` repetido em nove pontos.
+4. **Erro de digitação** — `gazolina` caía em `outros-out` e sumia do custo de
+   combustível. Os termos de categoria viraram RADICAIS (`gasolin`, `gazolin`, `mercad`).
+5. **Valores enumerados** — `gastei 20 e 30` virava uma despesa de 20 com descrição "30".
+   `cleanDescription` passou a recusar descrição puramente numérica.
+6. **Gasto anotado sem verbo** — `almoço 25`, `25 no almoço`, `lanche 15 e café 5`,
+   `paguei o aluguel 900`. A trava contra invenção é a CATEGORIA: o substantivo precisa
+   ser reconhecido, então `hoje 250` e `8 horas` continuam não virando gasto.
+7. **Nome da meta** — `quero juntar 5000 pra uma moto` criava meta chamada "Objetivo".
+   O nome só era capturado antes do valor. `meta de 10 mil pro carro` não criava nada.
+8. **Parcelamento sem item** — `passei 1200 no nubank em 3x` não registrava nada: o valor
+   só era achado quando o item era descrito.
+
+### O que a sonda pegou e o teste não pegaria
+
+- **`posso gastar 50 no mercado?` virava despesa de 50.** O verbo está no infinitivo,
+  então nenhuma lista de verbo conjugado o barrava. Guarda de pergunta + invariante 56.
+- **`na verdade foi 200`, sem nada na tela, criava um gasto de R$ 200.** A frase de
+  CONSERTO virava lançamento. `looksLikeRetraction` é estreita de propósito: a lista geral
+  de correção tem palavras que aparecem em registro legítimo ("comprei uma TROCA de óleo").
+- **`tô no vermelho?` respondia "Sim" para quem tinha R$ 465 de sobra.** Polaridade
+  oposta com um "Sim" fixo: número certo, resposta errada. Invariante 57.
+- **`ganho 3000 por mês` dizia "não registrei como GASTO de hoje"** — era receita.
+
+### Conta que se repete é previsão (regra 18)
+
+`pago 90 de internet todo mês` virava despesa avulsa e **inflava o mês** com dinheiro que
+ainda não saiu. O assistente não cadastra recorrência, então agora não registra e manda
+para Planejamento. A guarda exige o VALOR na frase e vale só para movimento de dinheiro —
+`rodei 120 km todo dia` continua sendo trabalho.
+
+Sub-achado: a regra do resultado do dia roubava `todo dia 10` (vencimento) porque a data
+já tinha sido arrancada do texto. A checagem de recorrência passou a ser no texto original.
+
+### Perguntas que o app sabia responder e mandava para o texto de ajuda
+
+`vale a pena corrida de 8 reais` (a pior: caía no parser e virava tentativa de REGISTRO),
+`quanto eu preciso fazer hoje ainda`, `quanto eu gastei essa semana/ontem` sem categoria,
+`quanto to gastando de gasolina por dia`, `to no lucro esse mes`, `quanto sobrou`.
+
+### Três defeitos do APK
+
+- **Áudio** — o microfone usava `webkitSpeechRecognition`, que **não existe** no Android
+  System WebView. Dentro do APK a API não estava lá e o botão não fazia nada. Agora usa o
+  ditado do sistema (`ACTION_RECOGNIZE_SPEECH`, plugin nativo no padrão do RideOverlay):
+  quem grava é o app de voz do Android, então o AssistFin não pede `RECORD_AUDIO` nem
+  guarda áudio. Falha passou a ter motivo, e o botão some onde não há ditado.
+- **Exportar** — `<a download>` com Blob não faz nada no WebView do Capacitor (não há
+  DownloadListener). O app dizia "Backup exportado." para um arquivo que nunca existiu.
+  Plugin nativo Export escreve em Downloads via MediaStore, sem permissão de armazenamento.
+  A mensagem só aparece quando o arquivo foi escrito, e diz onde ficou.
+- **Tela principal** — NÃO mexido. Há quatro candidatos plausíveis ao que foi relatado e
+  mudar a Home do motorista no escuro seria chute (regra 2). Aguarda o usuário apontar.
+
+### Segunda rodada de sondagem (mesma sessão)
+
+9. **Dois dias na mesma mensagem paravam de existir.** `ontem fiz 280 e hoje 320`
+   registrava só os 280 — o segmentador só corta antes de VERBO, então "e hoje 320" ficava
+   colado e a data de ontem valia para tudo. Pior ainda: `ontem gastei 50 e hoje gastei 80`
+   gravava as DUAS despesas em ontem. Corte novo antes de "e hoje/ontem" (exigindo um
+   número depois, para "trabalhei ontem e hoje" não ser cortado) mais **verbo herdado**: o
+   "fiz" da primeira metade vale para a segunda, resolvido DENTRO do parser para a viagem
+   implícita continuar valendo nos dois dias.
+10. **Bug pré-existente que o corte expôs:** a fusão de registros de trabalho somava tudo
+    sem olhar a data. `ontem rodei 100 km e hoje rodei 200 km` virava um único dia de
+    300 km, com o km de hoje lançado em ontem — estragando o custo por km dos dois dias.
+    Fusão agora é POR DIA. Invariante 58.
+11. **`rodei 200 km em 10 horas` perdia as 10 horas** — e a jornada é metade do lucro por
+    hora do motorista.
+12. **`quanto já juntei da moto`** caía no texto de ajuda, enquanto `quanto falta pra minha
+    moto` já funcionava. É a mesma pergunta pelo outro lado; a resposta agora dá os dois
+    números.
+
+### Verificação
+
+`npm test` **440/440 casos + 58/58 invariantes**, `typecheck`, `typecheck:api` e `build`
+exit 0. `cap sync` e `compileDebugJavaWithJavac` exit 0 para os dois plugins nativos.
+No navegador (375×812): registro do dia proposto e confirmado, gravando receita de
+R$ 150 em corridas, sessão de 8h **sem viagem inventada**, e o lote no journal.
+
+**Não verificado, e precisa do aparelho:** o caminho NATIVO do ditado e da escrita do
+arquivo. Compilam, mas não foram executados em Android físico.
+
+### Terceira e quarta rodadas de sondagem (perfis CLT, autônomo e veículo)
+
+Os perfis que eu tinha testado menos renderam a leva mais grave.
+
+13. **"Quando tenho que trocar o óleo" dizia JÁ VENCIDA para uma troca feita naquele
+    minuto.** O assistente grava `lifeKm: 0` quando o usuário não diz de quantos em quantos
+    km troca — e é o caso NORMAL, porque a frase que o próprio app sugere ("troquei o óleo
+    por 280 com 84 mil km") nem pede o intervalo. O lembrete fazia `kmInstalado + 0` e
+    concluía que a próxima troca já tinha passado. Sem intervalo não existe próxima troca:
+    agora o app PEDE o intervalo em vez de inventar um alarme, e passou a ouvir "troco a
+    cada 10 mil km". Manutenção realmente atrasada continua sendo avisada.
+14. **"Caiu" não era verbo de receita** — o mais natural para salário e pagamento que chega
+    na conta. "Meu salário caiu hoje 3200" não registrava nada.
+15. **Registro começado sem o valor caía no texto de ajuda.** "Recebi o salário" fazia o app
+    responder como se não tivesse entendido nada. Agora abre rascunho e pergunta quanto foi.
+16. **"Recebi 1800 de aluguel e 900 de um freela" registrava só os 1.800**, porque a
+    enumeração exigia "da/do" e a preposição mais comum é "de". Terceiro bug da mesma
+    família nesta sessão, por isso virou a invariante 60 — que cobre a CLASSE, com seis
+    frases de perfis diferentes.
+17. **A proposta mostrava "R$ 3200,00", sem separador de milhar.** Formatação de dinheiro à
+    mão em treze pontos de `nlp.ts`, justamente na tela onde o usuário confere antes de
+    gravar. Agora tudo passa por `fmtBRL` (invariante 59). Junto, a concordância: dizia
+    "1 viagens".
+18. **A correção de lançamento salvo quase não funcionava com fala real.** Exigia substantivo
+    genérico ("corrige o GASTO de ontem"), mas ninguém fala assim — fala "muda o mercado de
+    100 pra 80". Agora o lançamento pode ser citado pela própria descrição, e o apelido
+    também desempata quando há vários candidatos. Reconhecer pelo verbo é mais frouxo, então
+    o pedido só vira correção se existir mesmo um lançamento que combine.
+19. **"Quanto tô fazendo por hora" e "quanto por viagem"** — as duas métricas que o motorista
+    mais olha — caíam no texto de ajuda.
+
+Verificado: **465/465 casos + 60/60 invariantes**, typecheck (src e api) e build exit 0.
+No navegador: "ganhei 15000 hoje" aparece na proposta como **R$ 15.000,00**.
+
+### Quinta rodada — conversa multiturno e fala corriqueira
+
+20. **"Gastei uns 50" não registrava nada.** O "uns" entre o verbo e o número fazia o parser
+    não achar o valor. É como se fala quando não se lembra o centavo, e valia para todas as
+    formas ("cerca de", "mais ou menos", "quase"). Virou a constante `APROX`, que substituiu
+    o antigo `(?:mais\s+)?` em todos os regex de valor.
+21. **"Comprei uma tv" caía no texto de ajuda.** O rascunho de parcelamento desistia quando
+    faltavam valor E parcelas, e nada assumia depois. Agora pergunta o preço guardando a
+    descrição e a categoria já ditas — quem escreveu "comprei uma TV" não vai repetir "tv"
+    ao responder o valor.
+22. **Com a proposta na tela, "80" e "na verdade 80" não corrigiam o valor.** O primeiro caía
+    na ajuda; o segundo respondia "entendi que isso não aconteceu" enquanto a proposta ERRADA
+    seguia lá esperando o Confirmar. São os dois jeitos mais naturais de consertar um valor.
+23. **"Tô com 3000 na conta" respondia sobre contas a vencer.** A palavra "conta" puxava a
+    pergunta de contas a pagar, e o usuário estava informando o saldo — resposta de outra
+    conversa sobre assunto parecido, o tipo de erro que mais confunde.
+24. `joguei 200 na poupança` não registrava nada.
+
+Verificado: **477/477 casos + 60/60 invariantes**, typecheck (src e api) e build exit 0.
+
+---
+
+## Rodada — assistente adaptativo (13/08/2026)
+
+Pedido: "uma IA autoadaptativa, que se adapte ao meu cliente".
+
+### A decisão de arquitetura
+
+Tudo é **derivado** do histórico que já existe em `state.transactions`. Não há campo novo,
+migração nem armazenamento paralelo — mesma decisão do journal por diferença de estado:
+dado derivado não desincroniza, backup antigo carrega sem conversão, e apagar o histórico
+apaga o aprendizado junto, que é o que o usuário espera.
+
+Alternativa rejeitada: uma tabela de aprendizado em `AppState`. Ela desincronizaria do
+histórico na primeira edição ou remoção de lançamento, e exigiria migração.
+
+### O que é aprendido
+
+1. **Categoria.** A lista de palavras-chave é genérica e sempre vai errar em nome de lugar
+   ("Zé da esquina", "posto do Tião"). Se ele já classificou três vezes, o app tem a
+   resposta. E quando o histórico CONTRADIZ a lista de forma consistente, quem manda é o
+   histórico: corrigiu "mercado" para compras quatro vezes, já disse o que quer.
+2. **Grafia.** Ele escreveu "Zé da esquina" e agora digitou sem acento. Sem normalizar, a
+   lista fica com dois lugares parecidos e o próprio aprendizado enfraquece — o histórico
+   se divide. Só vale quando o texto é O MESMO ignorando acento e caixa.
+3. **Ordem de grandeza.** Dez dias de R$ 300 e um lançamento de R$ 3.000 é quase certamente
+   um zero a mais. O app AVISA e deixa confirmar.
+
+### Os limites (invariantes 61 e 62)
+
+- Aprender exige REPETIÇÃO: 2 vezes para preencher vazio, 3 e 75% para contrariar a lista.
+- Categoria aprendida passa por `validateAction` como qualquer outra, e nunca pode ser uma
+  que o usuário não tem — senão a ação seria recusada e o lançamento sumiria por um palpite.
+- O aprendizado **só toca em categoria e grafia**. Nunca valor, data ou tipo.
+- O aviso de padrão **nunca bloqueia**: o dia excepcional existe, e barrá-lo seria pior que
+  o erro de digitação. Sem amostra (menos de 6 lançamentos do mesmo tipo e categoria), CALA.
+- Nada é gravado sozinho: aprender muda o que é PROPOSTO, e a proposta continua precisando
+  do Confirmar (regra 8).
+
+### Sugestões da tela
+
+A lista fixa por perfil virou ponto de partida. Quem tem meta "Moto" vê "quanto falta pra
+minha moto"; quem lança "Zé da esquina" toda semana ganha um atalho. O atalho vem SEM valor
+de propósito — o assistente pergunta quanto foi, que é a conversa mais curta possível.
+
+### Achado no navegador, não no corpus
+
+Esse atalho leva ao caminho "registro sem valor → pergunta → resposta", que **não passava
+pelo vocabulário**: o lançamento saía sem categoria e com a grafia errada, dividindo
+justamente o histórico de onde o atalho veio. Só apareceu clicando no botão de verdade.
+
+### Verificação
+
+`npm test` **486/486 casos + 62/62 invariantes**, typecheck (src e api) e build exit 0.
+No navegador, com dez dias de R$ 260–368 e quatro lançamentos "Zé da esquina":
+- "ganhei 3000 hoje" → ⚠️ "Bem acima do seu normal — você costuma lançar perto de
+  R$ 314,00. Confere se não sobrou um zero."
+- atalho → "Qual foi o valor?" → "35" → "Despesa de R$ 35,00 (alimentacao) — Zé da esquina"
+
+---
+
+# 2026-08-17 — Rodada ADAPTATIVA: o assistente que conhece o cliente
+
+**Ponto de partida**: `9a882fa`, 486/486 casos, 62/62 invariantes, árvore limpa,
+contrato do assistente v1.
+**Chegada**: 520/520 casos, 74/74 invariantes, oito commits de código, sem push, sem
+deploy, sem APK.
+
+## Fase 1 — auditoria adversarial ANTES de melhorar
+
+O aprendizado de `learning.ts` já existia e funcionava para os casos que tinham sido
+imaginados. Antes de expandir, foi escrita uma sonda descartável só para quebrá-lo — e
+ela quebrou em oito pontos, todos reproduzidos e LIDOS antes de existir qualquer
+correção.
+
+O pior deles não era sutil: **categoria arquivada engolia o lançamento inteiro**. O
+usuário usava "lazer" quatro vezes no Clube e depois arquivava a categoria; o
+aprendizado propunha "lazer", `validateAction` recusava por categoria inexistente nas
+capacidades, e o gasto sumia com "Não tenho certeza do que registrar aqui". Aprender
+destruía um registro que funcionava sem aprender nada. A causa: `buildCapabilities`
+filtrava arquivadas e o aprendizado usava outro filtro ("a categoria existe?"). Virou
+`usableCategories()`, fonte única.
+
+Os outros sete: histórico de janeiro ganhando de julho por contagem crua; quatro
+lançamentos de 2020 decidindo um gasto de 2026; a palavra "casa" de "Conta de luz da
+casa" contaminando "comida na casa da minha mãe" com evidência FORTE; "Mercado livre"
+ensinando o que é "mercado"; origem sem grafia canônica ("casa 1" ao lado de "Casa 1");
+sugestões dizendo "gastei no gasolina" e "Quanto falta pra minha notebook"; e nenhuma
+explicação nem chave para desligar.
+
+## Fases 2–4 — modelo pessoal derivado
+
+`personalModel.ts` constrói, `learning.ts` aplica, `suggestions.ts` sugere,
+`explain.ts` explica, `driverInsights.ts` mede o motorista. Cinco módulos, um trabalho
+cada — a alternativa era um `learning.ts` gigante onde ninguém sabe mais o que decide o
+quê.
+
+Tudo derivado de `state.transactions`, como o journal por diferença de estado. Isso não
+é economia de código, é o que faz a fase 5 (feedback real) existir **sem nenhuma linha
+de código de feedback**: confirmar reforça porque a transação entra no estado; editar
+antes de confirmar ensina a versão corrigida porque é ela que é salva; corrigir
+lançamento salvo atualiza o padrão; desfazer e apagar removem a evidência; cancelar não
+ensina nada porque nada foi salvo. Um armazenamento paralelo precisaria de cinco
+handlers e desincronizaria no primeiro que faltasse.
+
+**Recência com piso** (regra 40): peso cai pela metade a cada 90 dias, nunca abaixo de
+15%. Sem decaimento, o hábito que mudou nunca valia; sem piso, o padrão sazonal seria
+destruído fora da estação. A primeira tentativa não resolveu o caso `ad-11`: três
+lançamentos de julho contra cinco de janeiro davam 63% de confiança — evidência demais
+para ignorar, de menos para discordar do app. A saída foi medir a confiança DUAS vezes,
+no histórico inteiro e na janela de 120 dias, e bastar uma convencer.
+
+**A frase identifica, a palavra genérica não** (regra 41): chaves em três níveis (texto
+inteiro, n-grama de 2 a 3 palavras, palavra própria), e palavra de classe só conta
+dentro de uma frase. O caso `ad-03` (o usuário insiste que "Mercado" é Compras) e o
+`ad-15` ("Mercado livre" não ensina o que é "mercado") parecem contraditórios e não
+são: no primeiro a FRASE INTEIRA coincide, no segundo só a palavra genérica. Foi essa
+distinção que permitiu bloquear o token sem perder o aprendizado legítimo.
+
+Dois candidatos fortes disputando a mesma frase passaram a PERGUNTAR, com as opções
+carregando o lote pronto: "Você lança Quiosque tanto em Compras quanto em Lazer. Qual é
+desta vez?".
+
+## Fase 12 — 50 mensagens, quatro perfis, e o que só aparece lendo
+
+Sete cenários, 54 mensagens: motorista veterano com vocabulário próprio, motorista
+novato sem nada, autônomo de imóveis, CLT que mudou de hábito, perfil `other` com
+entidade ambígua, o mesmo cliente com o aprendizado desligado, e fala transcrita sem
+pontuação. Cada resposta foi lida.
+
+**Sete defeitos que o corpus 100% verde não mostrava:**
+
+1. **A explicação contradizia o app.** "gastei 50 no mercado" saía em Compras por causa
+   do histórico e a explicação dizia "essa veio das palavras da mensagem, não do seu
+   histórico". A decisão estava sendo reavaliada sobre a ação que JÁ tinha a categoria
+   aplicada.
+2. **Perguntar "por que" cancelava a proposta na tela.** Toda resposta sem ação zerava a
+   proposta pendente. `keepPending` marca a exceção.
+3. **Ranking de dia da semana com UM dia por dia da semana.** "Sábado: R$ 328,00 (1 dia
+   nessa amostra)" é ruído com cara de padrão.
+4. **"Seu normal nos 30 dias anteriores" calculado sobre dois dias**, e o resultado saía
+   como "13% acima do seu normal".
+5. **`hoje foi 430 na uber e 380 na 99` propunha receita E despesa de 430.** Defeito
+   ANTIGO do parser, sem relação nenhuma com o aprendizado: `foi` é verbo de despesa e
+   `driverDayResult` só converte a despesa fraca quando ela é a única ação monetária da
+   frase. O dia do motorista zerava. A invariante 74 achou a segunda forma do mesmo
+   defeito — `hoje saiu 250 na 99` produzia a gêmea SEM descrição, e a primeira versão
+   do conserto exigia descrição igual.
+6. **`da kitnet do fundo` virava a origem `kitnet do`** — o identificador parava na
+   preposição. Além do nome truncado, o imóvel passava a existir duas vezes no
+   histórico.
+7. **`quanto eu costumo gastar de suco por dia?` respondia com o resumo do dia inteiro.**
+   O motorista que chama combustível de "suco" é literalmente o cliente simulado que a
+   fase 12 exigia, e a resposta de combustível só conhecia as palavras do dicionário do
+   app.
+
+Dois cenários do corpus passaram a montar datas com `todayISO()`: estas perguntas
+atravessam `resolveLocal`, que usa o RELÓGIO REAL da máquina (regra 35), e com data fixa
+o cenário envelhecia para fora da janela de 30 dias.
+
+## Commits
+
+| Commit | O quê |
+|---|---|
+| `349889d` | test: casos vermelhos da auditoria adversarial do aprendizado |
+| `99bf27c` | feat: modelo pessoal com evidência, confiança e recência |
+| `5542e02` | feat: sugestões contextuais, neutras e honestas sobre o que fazem |
+| `1cf9e2c` | feat: o assistente explica o que aprendeu, e a chave é do usuário |
+| `dcf35ec` | feat: o ritmo do motorista, medido no histórico dele |
+| `3c55437` | feat: contexto remoto agregado, com o pessoal ficando no aparelho |
+| `22e041a` | fix: o dia do motorista contado duas vezes, com sinais opostos |
+| `93ec8b5` | fix: origem truncada e o hábito perguntado com a palavra do usuário |
+| (docs) | CLAUDE.md 39-45, CONTEXT.md, CONTEXTO.md, AI_CURRENT_STATE, AI_REGRESSION_MATRIX |
+
+## Verificação
+
+`npm test` 520/520 + 74/74 · `npm run typecheck` e `typecheck:api` exit 0 ·
+`npm run build` e `npx vercel build --prod` exit 0 · bundle inspecionado (sem chave, sem
+nome de env server-only, sem código server-only, sem dado de teste) · smoke test no
+navegador em desktop e mobile 375x812, sem erro de console: aprendizado ligado e
+desligado, usuário novo, dois clientes isolados com a MESMA frase dando categorias
+opostas, sugestão contextual, explicação, correção depois da explicação, confirmação,
+undo, reload e troca de perfil sem vazar dado de motorista.
+
+## O que ficou de fora, e por quê
+
+- **Fase 13 (eval comparativo de modelos remotos) não foi executada.** Exige chamadas
+  pagas à API da DeepSeek, que não foram autorizadas. Nenhum modelo, preço ou retry foi
+  alterado — o briefing proíbe mexer nisso sem resultados, e não há resultados.
+- **Perguntas frequentes não alimentam as sugestões**: a fileira só aparece com
+  `state.chat` vazio, então não há histórico de perguntas para ler naquele momento.
+  Criar um armazenamento separado contradiria a decisão de tudo ser derivado.
+- **O assistente não liga nem desliga `adaptiveAssistant` por conversa** — ele diz onde
+  fica a chave. Mexer em configuração por conversa é a mesma classe de coisa que
+  registrar sem confirmar.
+- **Categoria dita explicitamente e categoria adivinhada pela lista genérica são
+  indistinguíveis** na saída do parser. Vale a decisão da regra 37.
+- **Erro de digitação no VERBO** (`gsatei 60 no merkado`) continua sem registro local —
+  é o limite conhecido de um parser determinístico.
+
+---
+
+# 2026-08-17 (parte 2) — Rodadas de LIMITE
+
+Depois de a camada adaptativa ficar verde, seis rodadas de sonda descartável foram
+feitas só para QUEBRAR o que já estava passando. Nenhum dos nove defeitos abaixo
+aparecia no corpus: todos vieram de entrada hostil, escala, estado corrompido ou de
+LER a tela.
+
+## O que cedeu
+
+| # | Defeito | Por que importa |
+|---|---|---|
+| 1 | `null` no backup derrubava o app inteiro | `normalizeState` só checava "é array". Tela branca, sem recuperação: o usuário perdia o acesso ao próprio dinheiro |
+| 2 | Data ilegível envenenava o modelo pessoal | `fromISO('lixo')` → peso NaN → "a última em Invalid Date" na explicação |
+| 3 | A pergunta de categoria custava o lançamento | "gastei 40 no quiosque" → o app pergunta → "sei lá" → a despesa **desaparecia** |
+| 4 | Caractere invisível voltava como botão | `U+202E` num atalho inverte visualmente o texto ao redor |
+| 5 | "Gastei 50 centavos" registrava R$ 50,00 | Cem vezes o valor, na palavra mais explícita que existe |
+| 6 | Nome do usuário virava instrução no prompt | Uma meta com `\n` abria uma linha com cara de regra no meio das regras do sistema |
+| 7 | Conserto virava lançamento novo | "não, foi 100 mesmo" criava uma SEGUNDA despesa, com a primeira ainda confirmável acima |
+| 8 | Descrição virava fórmula no CSV | `=HYPERLINK(...)` executa na planilha do contador que recebeu o arquivo |
+| 9 | O app parava de salvar em silêncio | `setItem` sem `try`, dentro de `setTimeout`. O usuário registrava o dia inteiro no vazio |
+
+Mais quatro de menor gravidade, todos visíveis ao usuário: "R$ NaN" e "-R$ 0,00" na
+tela; dívida parcelada de R$ 0,00 ao lado de "parcelas deste mês: R$ 277,78"; "Toda
+sábado" e "às segundas-feira" no Planejamento; e quatro telas rolando de lado em 320px.
+
+## O que aguentou
+
+Registrar isto é tão útil quanto registrar o que quebrou, porque é o que não precisa
+ser reolhado: 6.000 lançamentos processados em 19 ms; as 13 ações remotas hostis todas
+recusadas com código próprio; envelope malformado, versão desconhecida e modo inventado
+recusados; toda data impossível perguntando em vez de chutar; recorrência com intervalo
+0, negativo ou NaN caindo em mensal sem laço infinito; dia 31 virando 28/02 e 31/03 sem
+degradar; backup de ida e volta idêntico byte a byte; e `goal-deposit` sem nome com três
+metas sendo recusado em vez de escolher uma.
+
+## Commits
+
+| Commit | O quê |
+|---|---|
+| `edd0a9d` | fix: o que o app faz quando o dado que chega não presta |
+| `ab59d1e` | fix: conserto que virava lançamento novo, e a meta com nome próprio |
+| `9abcbe9` | fix: centavo virando real, e o nome do usuário virando instrução |
+| `5aea2f4` | fix: português do dia da semana e dívida que se contradizia |
+| `b7178e0` | fix: descrição que virava fórmula na planilha de quem recebe o CSV |
+| `f308db1` | fix: o app parava de salvar em silêncio |
+| `a5df4a0` | fix: "R$ NaN" e "-R$ 0,00" na tela de um app de dinheiro |
+| `2dc604e` | fix: quatro telas rolavam de lado num celular de 320px |
+
+## Verificação
+
+`npm test` 531/531 casos + 86/86 invariantes · `npm run typecheck` e `typecheck:api`
+exit 0 · `npm run build` exit 0 · varredura de layout no navegador em 320 px, 768 px e
+1280 px, nos dois temas, com zero sobra horizontal nas dez rotas e sem erro de console ·
+aviso de falha de gravação verificado no navegador com `QuotaExceededError` forçado.
+
+## Nota de método
+
+Três dos nove defeitos foram achados por uma INVARIANTE que eu tinha acabado de
+escrever para outra coisa — "hoje saiu 250 na 99" (a segunda forma da despesa gêmea),
+"às segundas-feira" (o plural pela metade, achado logo depois de consertar o gênero) e
+o dilema com dois itens ambíguos. Testar a CLASSE, e não a frase, continua sendo o que
+separa consertar um caso de consertar o problema.

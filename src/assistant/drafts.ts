@@ -14,6 +14,7 @@ import { actionSpec } from './contracts'
 import { parseMoney, todayISO, uid } from '../utils/format'
 import { normalizeNumberWords } from './numbers'
 import { findDate } from './dates'
+import { guessCategory } from '../data/categories'
 import { sentenceCase, normalizeName } from '../utils/text'
 
 export type DraftStatus = 'collecting' | 'ready' | 'confirmed' | 'cancelled'
@@ -55,6 +56,47 @@ export interface IncompleteIntent {
 
 const NUMBER = String.raw`(\d+(?:[.,]\d+)*)`
 
+/**
+ * Registro começado sem o valor: "recebi o salário", "comprei uma tv", "gastei
+ * no mercado". Antes caía no texto genérico de ajuda — o usuário tinha
+ * COMEÇADO a registrar e o app respondia como se não tivesse entendido nada.
+ *
+ * As guardas são o que separa isto de uma pergunta: nenhum valor na frase
+ * (número de UM dígito não conta — "casa 1" tem um), nenhuma palavra
+ * interrogativa ("quanto eu gastei essa semana" tem o mesmo verbo) e nenhuma
+ * negação ("não gastei nada" é o contrário de um registro).
+ */
+const SEM_VALOR = /^\s*(?:eu\s+)?(?:j[áa]\s+)?(ganhei|recebi|faturei|lucrei|gastei|paguei|comprei|torrei|abasteci|guardei|separei)\b/i
+
+function semValorDraft(text: string, t: string, caps: AssistantCapabilities): IncompleteIntent | null {
+  const m = text.match(SEM_VALOR)
+  if (!m) return null
+  if (/r\$\s*\d|\b\d{2,}\b|\b\d+[.,]\d/i.test(t)) return null
+  if (/\?|\b(?:quanto|quantos|quantas|qual|quais|quando|como|onde|quem)\b/i.test(t)) return null
+  if (/\bn[ãa]o\b/i.test(t)) return null
+
+  const verbo = m[1].toLowerCase()
+  const kind = /ganhei|recebi|faturei|lucrei/.test(verbo) ? 'income'
+    : /guardei|separei/.test(verbo) ? 'saving'
+      : verbo === 'abasteci' && caps.isDriver ? 'fuel'
+        : 'expense'
+
+  // O que já foi dito não pode se perder enquanto se pergunta o resto: quem
+  // escreveu "comprei uma TV" não vai repetir "tv" ao responder o valor.
+  const objeto = text.slice((m.index || 0) + m[0].length)
+    .replace(/^\s*(?:um|uma|uns|umas|o|a|os|as)\s+/i, '')
+    .replace(/^\s*(?:no|na|nos|nas|em|de|do|da|com|pra|para)\s+/i, '')
+    .replace(/[.!?,;]+$/, '')
+    .trim()
+  const partial: any = { kind }
+  if (objeto && objeto.length <= 40 && kind !== 'fuel') {
+    partial.description = sentenceCase(objeto)
+    const cat = guessCategory(objeto, kind === 'income' ? 'income' : 'expense')
+    if (cat) partial.category = cat
+  }
+  return { partial, missing: ['amount'] }
+}
+
 export function detectIncomplete(text: string, caps: AssistantCapabilities): IncompleteIntent | null {
   const { text: t } = normalizeNumberWords(text.toLowerCase())
 
@@ -69,8 +111,10 @@ export function detectIncomplete(text: string, caps: AssistantCapabilities): Inc
     const missing: string[] = []
     if (!(total > 0)) missing.push('total')
     if (!(installments > 0)) missing.push('installments')
-    // Sem NENHUM dos dois não há intenção suficiente para abrir rascunho.
-    if (missing.length === 2) return null
+    // Sem NENHUM dos dois não dá para tratar como PARCELAMENTO — mas "comprei
+    // uma tv" continua sendo um gasto começado, e o caminho de baixo pergunta
+    // o valor em vez de devolver o texto genérico de ajuda.
+    if (missing.length === 2) return semValorDraft(text, t, caps)
     // Com vários cartões, saber qual é obrigatório — e essa checagem precisa
     // vir ANTES da saída antecipada, senão "comprei X de 4000 em 4 vezes" com
     // dois cartões cadastrados nunca perguntava nada.
@@ -84,6 +128,9 @@ export function detectIncomplete(text: string, caps: AssistantCapabilities): Inc
     if (descM) partial.description = sentenceCase(descM[1].trim())
     return { partial, missing }
   }
+
+  const rascunho = semValorDraft(text, t, caps)
+  if (rascunho) return rascunho
 
   // Pagamento de fatura sem saber o cartão, com mais de um cadastrado.
   if (/\bfatura\b/.test(t) && /\b(paguei|pagar|quitei|quitar)\b/.test(t) && caps.cardNames.length > 1) {
