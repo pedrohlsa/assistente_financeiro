@@ -23,6 +23,8 @@ import { categoryDilemma, outOfPatternWarning, withLearnedCategory } from './lea
 import { explainRequest } from './explain'
 import { answerConversation, isFocusFresh, looksLikeFollowUp } from './conversation'
 import { buildTurnPlan, hasBlock } from './semantic/turn'
+import { describeRepairs, repairStructuralTypos } from './semantic/normalize'
+import type { RepairedText } from './semantic/normalize'
 import type { ConversationFocus } from './conversation'
 import type { AnalyzedClause, MessageAnalysis, TemporalSignal } from './clauses'
 import { detectIncomplete, isDraftFresh, newDraft, resolveDraftAnswer } from './drafts'
@@ -991,9 +993,49 @@ Confirmar?`,
   // frase. A consulta só toma a frente quando o plano usa algo que ele
   // COMPROVADAMENTE não expressa (`beyondLegacy`). Fora disso ela fica de
   // reserva e entra no passo 8, onde hoje sai o texto genérico de ajuda.
-  const turno = buildTurnPlan(input.state, input.message, { today })
+  let turno = buildTurnPlan(input.state, input.message, { today })
+  let mensagem = input.message
+  let reparo: RepairedText | null = null
+
+  // ---- 2c2) Erro de digitação no vocabulário ESTRUTURAL ------------------
+  // "gsatei 190 de cimento ontem" não casava verbo nenhum, e o resto da frase —
+  // que estava perfeito — se perdia junto. O reparo é conservador (dicionário
+  // fechado, nunca nome do usuário, nunca perto de dígito) e só é ACEITO quando
+  // destrava alguma coisa: se a frase reparada continua sem fato e sem
+  // pergunta, ela é descartada e o original segue. Falha fechada.
+  {
+    const tentativa = repairStructuralTypos(input.message, input.state)
+    if (tentativa.changed) {
+      // Duas situações justificam trocar o texto:
+      //   (a) o original não produz fato nenhum — o verbo errado engoliu a
+      //       frase inteira ("gsatei 190 de cimento" não casava verbo);
+      //   (b) o original produz um fato DEGRADADO, com o erro de digitação
+      //       preso na descrição ("Gsatei de cimento", "Pagueu de luz"). O
+      //       lançamento existe, mas nasce com um nome que o usuário nunca
+      //       vai reconhecer no histórico.
+      // Só correção de VERBO ou de TEMPO justifica refazer a leitura de uma
+      // frase que já produziu fato. "Paguei 355 nas CONTAS" tem "contas" a uma
+      // letra de "contos" (gíria de reais): tratar isso como degradação
+      // reescrevia a frase e o lançamento de 150 desaparecia.
+      const degradado = tentativa.corrections.some(c => c.estrutural)
+        && turno.blocks.some(b => b.actions.some(a => {
+          const texto = normalizeName(`${(a as any).description || ''} ${(a as any).origin || ''}`)
+          return tentativa.corrections.some(c => c.estrutural && texto.includes(normalizeName(c.from)))
+        }))
+      if (!hasBlock(turno, 'record') || degradado) {
+        const outro = buildTurnPlan(input.state, tentativa.text, { today })
+        if (hasBlock(outro, 'record') || hasBlock(outro, 'scenario')) {
+          turno = outro
+          mensagem = tentativa.text
+          reparo = tentativa
+        }
+      }
+    }
+  }
+  const entrada: OrchestratorInput = mensagem === input.message ? input : { ...input, message: mensagem }
+
   const temFato = hasBlock(turno, 'record')
-  const conversa = temFato ? null : answerConversation(input.state, input.message, {
+  const conversa = temFato ? null : answerConversation(input.state, mensagem, {
     today, focus: input.focus,
   })
   const assumeAgora = !!conversa && (
@@ -1021,7 +1063,7 @@ Confirmar?`,
   }
 
   // ---- 3) Análise local por cláusula -------------------------------------
-  const local = runLocal(input, caps, turno.analysis)
+  const local = runLocal(entrada, caps, turno.analysis)
   const { analysis } = local
   let candidates = local.candidates.slice(0, MAX_ACTIONS_PER_BATCH)
   let engine: AssistantCandidateAction['engine'] = 'local'
@@ -1032,7 +1074,7 @@ Confirmar?`,
 
   // ---- 4) Intenção incompleta vira rascunho ------------------------------
   if (!candidates.length && !clarification) {
-    const incomplete = detectIncomplete(input.message, caps)
+    const incomplete = detectIncomplete(mensagem, caps)
     if (incomplete) {
       const d = newDraft(incomplete, input.message, caps)
       const q = d.missingFields[0]
@@ -1162,7 +1204,7 @@ Confirmar?`,
       // Confirmar?" a partir dele. Se o orquestrador decidiu que NÃO há ação
       // (negação, hipótese, perfil), esse texto seria uma promessa falsa: a tela
       // mostraria a proposta sem nenhum botão. Só aproveitamos a RESPOSTA.
-      const local = askAssistant(input.state, input.message)
+      const local = askAssistant(input.state, mensagem)
       // AQUI a consulta entra: este é exatamente o ponto onde antes saía o texto
       // genérico de ajuda. Só quando o roteador antigo não soube responder
       // (`handled: false`) — quando ele soube, a resposta dele manda, e é ela que
@@ -1176,6 +1218,15 @@ Confirmar?`,
           : local.text
       }
     }
+  }
+  // O usuário precisa saber que a frase foi lida de outro jeito: sem isso, ele
+  // vê o valor certo com uma palavra que não escreveu e não sabe se o app
+  // entendeu ou adivinhou.
+  const notaReparo = reparo ? describeRepairs(reparo) : null
+  if (notaReparo && (mode === 'propose_actions' || mode === 'answer_and_actions')) {
+    reply = `${notaReparo}
+
+${reply}`
   }
   reply += rejectionNote(rejectedAll)
 
