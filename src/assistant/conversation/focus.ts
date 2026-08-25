@@ -155,7 +155,10 @@ const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLo
 const CONTINUACAO = [
   /^e\b/, /^agora\b/, /^entao\b/, /^tirando\b/, /^sem\b/, /^so\b/, /^somente\b/,
   /^apenas\b/, /^qual\s+(?:a\s+)?diferenca/, /^compara/, /^por\s*que/, /^pq\b/,
-  /^como\s+(?:voce\s+)?(?:chegou|calculou|fez)/, /^de\s+onde/, /^quais\s+dados/,
+  /^como\s+(?:voce\s+)?(?:chegou|calculou|fez)/, /^quais\s+dados/,
+  // "De onde SAIU isso" pergunta pela conta anterior; "de onde VEM meu
+  // dinheiro" e uma pergunta nova. So a primeira e continuacao.
+  /^de\s+onde\s+(?:voce\s+)?(?:tirou|saiu|veio\s+(?:esse|essa|isso))/,
   /^volta\b/, /^e\s+se\b/, /^mesma\s+coisa\b/,
   // "qual mês fica pior?" logo depois de uma simulação fala DA SIMULAÇÃO, não
   // do histórico. Mandar essa frase para o planner comum respondia com o pior

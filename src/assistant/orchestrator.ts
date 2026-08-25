@@ -21,6 +21,9 @@ import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, isValida
 import { analyzeMessage, contestsProposal, looksLikeRetraction, looksRecurring } from './clauses'
 import { categoryDilemma, outOfPatternWarning, withLearnedCategory } from './learning'
 import { explainRequest } from './explain'
+import { answerConversation, isFocusFresh, looksLikeFollowUp } from './conversation'
+import { buildTurnPlan, hasBlock } from './semantic/turn'
+import type { ConversationFocus } from './conversation'
 import type { AnalyzedClause, MessageAnalysis, TemporalSignal } from './clauses'
 import { detectIncomplete, isDraftFresh, newDraft, resolveDraftAnswer } from './drafts'
 import type { AssistantDraft } from './drafts'
@@ -78,6 +81,12 @@ export interface OrchestratorInput {
   askRemote?: (args: { state: AppState; message: string; history: { role: string; text: string }[] }) => Promise<RemoteResult | null>
   today?: string
   devDiagnostics?: boolean
+  /**
+   * Foco conversacional. Em memoria, como o rascunho: e o que faz
+   * "e mes passado?" refinar a consulta anterior em vez de virar uma pergunta
+   * solta sem contexto.
+   */
+  focus?: ConversationFocus
 }
 
 export interface OrchestratorOutput {
@@ -95,6 +104,8 @@ export interface OrchestratorOutput {
    * eu fiz isso?", "não, foi 80") ainda fala do mesmo lançamento.
    */
   keepPending?: boolean
+  /** Foco atualizado. O chamador guarda; nada e persistido em disco. */
+  focus?: ConversationFocus
 }
 
 const candidate = (
@@ -332,9 +343,14 @@ function reconcileGoalDeposits(
   return { actions: out, clarification }
 }
 
-function runLocal(input: OrchestratorInput, caps: AssistantCapabilities): LocalPass {
+function runLocal(
+  input: OrchestratorInput,
+  caps: AssistantCapabilities,
+  /** Análise já feita pelo plano de turno — evita segmentar a mesma frase duas vezes. */
+  precomputada?: MessageAnalysis,
+): LocalPass {
   const today = input.today || todayISO()
-  const analysis = analyzeMessage(input.message, { driver: caps.isDriver, today })
+  const analysis = precomputada || analyzeMessage(input.message, { driver: caps.isDriver, today })
 
   const rejected: LocalPass['rejected'] = []
   const candidates: AssistantCandidateAction[] = []
@@ -956,8 +972,56 @@ Confirmar?`,
     }
   }
 
+  // ---- 2d) Consulta, cenário e continuação -------------------------------
+  //
+  // Aqui entram as três coisas que a arquitetura antiga não sabia fazer: uma
+  // consulta arbitrária ("quanto gastei em obra nos últimos 3 meses"), uma
+  // hipótese ("se eu comprar um pc de 4000 em 10x") e uma continuação
+  // ("e mês passado?").
+  //
+  // A PRIMEIRA GUARDA É A MAIS IMPORTANTE: se a mensagem tem um FATO a
+  // registrar, nada aqui fala. "Meu salário caiu hoje 3200" contém "caiu", que
+  // é palavra de pergunta ("caiu quanto?"), e "recebi 1800 da Casa 1, mais 1750
+  // da Casa 2" contém "mais" — as duas viravam consulta e o LANÇAMENTO
+  // DESAPARECIA. Perder dinheiro do usuário para responder uma pergunta que ele
+  // não fez é o pior desfecho possível desta camada.
+  //
+  // QUEM RESPONDE O QUÊ, quando não há fato: `resolveLocal()` continua dono das
+  // perguntas que já respondia — são elas que o corpus assegura, frase por
+  // frase. A consulta só toma a frente quando o plano usa algo que ele
+  // COMPROVADAMENTE não expressa (`beyondLegacy`). Fora disso ela fica de
+  // reserva e entra no passo 8, onde hoje sai o texto genérico de ajuda.
+  const turno = buildTurnPlan(input.state, input.message, { today })
+  const temFato = hasBlock(turno, 'record')
+  const conversa = temFato ? null : answerConversation(input.state, input.message, {
+    today, focus: input.focus,
+  })
+  const assumeAgora = !!conversa && (
+    conversa.kind === 'scenario' || conversa.kind === 'explain' || conversa.kind === 'clarify'
+    // Continuacao SO existe com foco fresco. Sem esta guarda, "de onde vem mais
+    // dinheiro, uber ou 99?" era tratada como follow-up (comeca com "de onde")
+    // numa conversa que nem tinha comecado.
+    || (isFocusFresh(input.focus) && looksLikeFollowUp(input.message))
+    || conversa.beyondLegacy === true
+  )
+  if (conversa && assumeAgora) {
+    const base = {
+      version: ASSISTANT_CONTRACT_VERSION, engine: 'local' as const,
+      unresolved: [], reply: conversa.reply,
+    }
+    return {
+      draft: null,
+      // Perguntar não é cancelar: a proposta na tela continua confirmável.
+      keepPending: true,
+      focus: conversa.focus,
+      response: conversa.kind === 'clarify' && conversa.clarification
+        ? { ...base, mode: 'clarify', actions: [], clarification: conversa.clarification }
+        : { ...base, mode: 'answer', actions: [] },
+    }
+  }
+
   // ---- 3) Análise local por cláusula -------------------------------------
-  const local = runLocal(input, caps)
+  const local = runLocal(input, caps, turno.analysis)
   const { analysis } = local
   let candidates = local.candidates.slice(0, MAX_ACTIONS_PER_BATCH)
   let engine: AssistantCandidateAction['engine'] = 'local'
@@ -1059,6 +1123,8 @@ Confirmar?`,
 
   let reply: string
   let mode: AssistantResponse['mode']
+  /** Foco devolvido ao chamador. So muda quando a consulta de fato respondeu. */
+  let focoFinal: ConversationFocus | undefined = input.focus
 
   if (clarification) {
     mode = 'clarify'
@@ -1097,9 +1163,18 @@ Confirmar?`,
       // (negação, hipótese, perfil), esse texto seria uma promessa falsa: a tela
       // mostraria a proposta sem nenhum botão. Só aproveitamos a RESPOSTA.
       const local = askAssistant(input.state, input.message)
-      reply = local.actions?.length
-        ? 'Não tenho certeza do que registrar aqui. Pode escrever de outro jeito?'
-        : local.text
+      // AQUI a consulta entra: este é exatamente o ponto onde antes saía o texto
+      // genérico de ajuda. Só quando o roteador antigo não soube responder
+      // (`handled: false`) — quando ele soube, a resposta dele manda, e é ela que
+      // o corpus assegura.
+      if (local.handled === false && conversa && conversa.kind === 'query') {
+        reply = conversa.reply
+        focoFinal = conversa.focus
+      } else {
+        reply = local.actions?.length
+          ? 'Não tenho certeza do que registrar aqui. Pode escrever de outro jeito?'
+          : local.text
+      }
     }
   }
   reply += rejectionNote(rejectedAll)
@@ -1123,7 +1198,7 @@ Confirmar?`,
         ? { ...base, mode, actions: [] }
         : { ...base, mode, actions: candidates }
 
-  return { draft: null, response }
+  return { draft: null, response, focus: focoFinal }
 }
 
 /**

@@ -22,6 +22,7 @@ import { plainChatText } from '../utils/text'
 import { fmtBRL } from '../utils/format'
 import { listenOnce, SPEECH_MESSAGES, SpeechError, speechAvailable, stopListening } from '../services/speech'
 import { assistantSuggestions } from '../assistant/suggestions'
+import type { ConversationFocus } from '../assistant/conversation'
 
 export default function Chat() {
   const { state, dispatch } = useStore()
@@ -51,6 +52,13 @@ export default function Chat() {
    * solto e o usuário recebia a mensagem genérica de ajuda.
    */
   const clarificationRef = useRef<AssistantClarification | null>(null)
+  /**
+   * Foco conversacional. Fica em memoria pelo mesmo motivo do rascunho: "e mes
+   * passado?" so faz sentido enquanto a conversa esta acontecendo, e uma
+   * referencia que ressuscita depois do reload aponta para algo que o usuario
+   * ja esqueceu.
+   */
+  const focusRef = useRef<ConversationFocus | undefined>(undefined)
 
   const caps = buildCapabilities(state)
 
@@ -70,6 +78,7 @@ export default function Chat() {
         id: p.id, action: p.action, engine: p.engine || 'local', confidence: p.confidence || 'high',
       })),
       pendingClarification: clarificationRef.current || undefined,
+      focus: focusRef.current,
       remoteEnabled: state.settings.remoteAi !== false,
       askRemote: async ({ state: s, message, history }) => {
         const r = await askAssistantRemote(s, message, history)
@@ -93,6 +102,7 @@ export default function Chat() {
     }
 
     draftRef.current = out.draft
+    if (out.focus) focusRef.current = out.focus
     // Correção aplicada: a proposta antiga some da mensagem anterior.
     if (out.correctedPending) {
       const old = pendingRef.current
@@ -261,7 +271,7 @@ export default function Chat() {
         <h1>Assistente</h1>
         <div className="row" style={{ gap: 12 }}>
           <button className="link" onClick={() => window.location.reload()} title="Recarregar dados">↻ Atualizar</button>
-          {state.chat.length > 0 && <button className="link" onClick={() => { pendingRef.current = null; draftRef.current = null; clarificationRef.current = null; dispatch({ type: 'chatClear' }) }}>Limpar</button>}
+          {state.chat.length > 0 && <button className="link" onClick={() => { pendingRef.current = null; draftRef.current = null; clarificationRef.current = null; focusRef.current = undefined; dispatch({ type: 'chatClear' }) }}>Limpar</button>}
         </div>
       </div>
 

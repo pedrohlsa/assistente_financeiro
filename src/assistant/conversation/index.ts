@@ -34,6 +34,12 @@ export interface ConversationAnswer {
   clarification?: { question: string; options: { label: string; value: string }[] }
   /** Confiança do plano — decide se a consulta assume a pergunta (ver orchestrator). */
   confidence?: 'high' | 'medium'
+  /**
+   * O plano usa algo que `resolveLocal()` nao expressa. E o unico caso em que
+   * uma CONSULTA toma a frente do roteador antigo — ver `alemDoAntigo` em
+   * query/parse.ts e o passo 2d do orquestrador.
+   */
+  beyondLegacy?: boolean
 }
 
 export interface ConversationOptions {
@@ -104,6 +110,7 @@ const daConsulta = (
   kind: 'query',
   focus: rememberQuery(focus, q.plan, q.result, q.explain, agora),
   confidence: q.confidence,
+  beyondLegacy: q.beyondLegacy,
 })
 
 const doCenario = (

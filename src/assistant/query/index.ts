@@ -27,6 +27,8 @@ export interface QueryAnswer {
   result: AssistantQueryResult
   confidence: 'high' | 'medium'
   recognized: string[]
+  /** O plano usa algo que `resolveLocal()` nao expressa (ver `alemDoAntigo`). */
+  beyondLegacy?: boolean
   /** Metodologia real, para "como você chegou nisso?". */
   explain: string
 }
@@ -83,6 +85,7 @@ export function runPlannedQuery(
     plan, result,
     confidence: planned.confidence,
     recognized: planned.recognized,
+    beyondLegacy: planned.beyondLegacy,
     explain: explainQueryResult(result),
   }
 }

@@ -55,6 +55,11 @@ export interface PlannedQuery {
    * a busca literal não acha nada — ver o comentário em `resolverCategoria`.
    */
   fallbackCategory?: string
+  /**
+   * O plano usa algo que o roteador antigo (`resolveLocal`) nao expressa. E o
+   * unico caso em que a consulta toma a frente dele — ver `alemDoAntigo`.
+   */
+  beyondLegacy?: boolean
 }
 
 const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -215,11 +220,14 @@ interface FonteLida { source: QuerySource; field?: QueryField }
 function lerFonte(t: string, driver: boolean): { valor: FonteLida; matched: string } | null {
   const tabela: [RegExp, FonteLida][] = [
     [/\bquantas?\s+parcelas\s+(?:faltam?|restam?|ainda)\b/, { source: 'installments' }],
+    // A META vem ANTES de "quanto falta". "Quanto falta pra meta Moto?" caía em
+    // parcelamento, e o app respondia "você não tem parcelamentos em aberto"
+    // para quem perguntou por uma meta de compra que existe.
+    [/\bmetas?\b(?!\s+(?:diaria|mensal|do\s+dia|do\s+mes))/, { source: 'goals', field: 'remaining' }],
     [/\bfalta\s+(?:pagar|quitar)\b|\bquanto\s+(?:ainda\s+)?falta\b/, { source: 'plans', field: 'remaining' }],
     [/\bparcelamentos?\b/, { source: 'plans', field: 'remaining' }],
     [/\bparcelas?\b/, { source: 'installments' }],
     [/\bfaturas?\b/, { source: 'invoices' }],
-    [/\bmetas?\b(?!\s+(?:diaria|mensal|do\s+dia|do\s+mes))/, { source: 'goals', field: 'remaining' }],
     [/\bprojecao\b|\bprevisao\b|\bproxim[oa]s?\s+meses\b|\bvai\s+(?:ficar|sobrar|pesar|apertar)\b|\bmes\s+mais\s+(?:pesado|apertado)\b/,
       { source: 'projections' }],
     [/\bcontas?\s+(?:fixas?|a\s+vencer|recorrentes?)\b|\bvencendo\b|\bvence\b/, { source: 'recurring' }],
@@ -350,7 +358,15 @@ function extrairAlvo(t: string): { valor: string; literal: string; matched: stri
   const m = t.match(new RegExp(String.raw`\b(?:com|de|em|no|na|nos|nas|para|pra)\s+([a-z0-9çãõáéíóúâêô][a-z0-9\s\-çãõáéíóúâêô]{1,40}?)${PARADA}`))
   if (!m) return undefined
   const valor = soUteis(m[1])
-  return valor ? { valor, literal: m[1].trim(), matched: m[0] } : undefined
+  if (!valor) return undefined
+  // O trecho tem que ser MAJORITARIAMENTE conteúdo. "De onde vem mais dinheiro"
+  // deixa uma palavra útil em quatro — e virava o filtro de texto
+  // `"onde vem mais dinheiro"`, que não existe em lançamento nenhum e fazia o
+  // app responder "não tenho nada com esse nome" a quem tem centenas.
+  const total = m[1].trim().split(/\s+/).length
+  const uteis = valor.split(/\s+/).length
+  if (uteis * 2 < total) return undefined
+  return { valor, literal: m[1].trim(), matched: m[0] }
 }
 
 /**
@@ -775,7 +791,60 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
       || !!filter.weekdays || !!filter.monthHalf || !!filter.origin)
       ? 'high' : 'medium'
 
-  return { plan, confidence, recognized, fallbackCategory }
+  return {
+    plan, confidence, recognized, fallbackCategory,
+    beyondLegacy: alemDoAntigo(plan, !!lido),
+  }
+}
+
+/**
+ * Períodos que `periodFromText()` (o roteador antigo, em `src/services/ai.ts`)
+ * sabe produzir. São SEIS, e qualquer outra coisa caía no default dele —
+ * "últimos 7 dias" — respondendo a pergunta errada com cara de certa.
+ */
+const PERIODOS_ANTIGOS = new Set([
+  'hoje', 'ontem', 'este mês', 'no mês passado', 'nos últimos 7 dias', 'na semana passada',
+])
+
+/**
+ * Agrupamentos que `resolveLocal()` não sabe montar de jeito nenhum.
+ *
+ * `description`, `card`, `platform` e `day` ficam de FORA de propósito: para
+ * essas perguntas ele tem resposta própria e boa ("de onde vem mais dinheiro,
+ * Uber ou 99?" é respondida pelo ritmo do motorista, medido no histórico dele).
+ * Tomar a frente ali trocaria uma resposta melhor por uma pior.
+ */
+const GRUPOS_NOVOS = new Set(['category', 'month', 'week', 'weekday', 'month-half', 'origin', 'goal', 'plan'])
+
+/**
+ * O plano usa algo que o roteador antigo COMPROVADAMENTE não expressa?
+ *
+ * Este é o gate que decide quem responde, e ele é ESTREITO de propósito.
+ * `resolveLocal()` continua dono das perguntas que já respondia — são elas que
+ * o corpus assegura, frase por frase, e várias delas (o ritmo do motorista, o
+ * hábito medido no vocabulário do usuário) são MELHORES que uma consulta
+ * genérica. Alargar este gate sem rodar o corpus é a maneira mais rápida de
+ * trocar uma resposta boa por uma pior.
+ *
+ * `periodoDito` é a distinção que faltava: só conta o período que o USUÁRIO
+ * disse. As janelas que o planner deriva sozinho (90 dias para hábito, 6 meses
+ * para agrupar por mês) não provam nada sobre o roteador antigo — foi assim que
+ * "quanto eu costumo gastar de suco por dia?" deixou de ser respondida pelo
+ * histórico dele e virou uma média genérica.
+ */
+function alemDoAntigo(plan: AssistantQueryPlan, periodoDito: boolean): boolean {
+  // (A) Período dito e fora das seis frases do roteador antigo. Este é o caso
+  // em que ele responde a pergunta errada com cara de certa.
+  if (periodoDito && !PERIODOS_ANTIGOS.has(plan.period.label)) return true
+  // (B) Estruturas que ele não tem como expressar.
+  if (plan.comparePeriod) return true
+  if (GRUPOS_NOVOS.has(plan.group)) return true
+  const f = plan.filter
+  if (f.excludeCategories?.length || f.excludeText || f.excludeCardNames?.length) return true
+  if (f.weekdays?.length || f.monthHalf || f.origin) return true
+  if (plan.metric === 'share' || plan.metric === 'median') return true
+  if (plan.source === 'plans' || plan.source === 'projections') return true
+  return false
 }
 
 function projField(t: string): QueryField {

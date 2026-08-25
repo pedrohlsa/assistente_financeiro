@@ -10,6 +10,7 @@ import { orchestrate } from '../../src/assistant/orchestrator'
 import type { AssistantCandidateAction, AssistantResponse } from '../../src/assistant/contracts'
 import type { AssistantDraft } from '../../src/assistant/drafts'
 import { applyBatchPure } from '../../src/assistant/execute'
+import type { ConversationFocus } from '../../src/assistant/conversation'
 
 export const TODAY = '2026-07-15' // quarta-feira
 
@@ -158,14 +159,20 @@ export async function runCase(c: AssistantCase): Promise<CaseResult> {
   let pending: AssistantCandidateAction[] | undefined
   let clarification: any
   let last: AssistantResponse | null = null
+  // Foco conversacional entre as mensagens do MESMO caso — e o que faz
+  // "e mes passado?" refinar a consulta anterior no corpus, exatamente como na
+  // tela. Sem isso o multiturno de continuidade nao teria como ser testado.
+  let focus: ConversationFocus | undefined
 
   for (const msg of c.messages) {
     const out = await orchestrate({
       state, message: msg, history: [],
       draft: draft || undefined, pending, pendingClarification: clarification,
+      focus,
       remoteEnabled: false, today: TODAY,
     })
     last = out.response
+    if (out.focus) focus = out.focus
     draft = out.draft
     pending = out.correctedPending
       ? out.correctedPending
