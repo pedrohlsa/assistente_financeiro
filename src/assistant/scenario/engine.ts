@@ -1,0 +1,309 @@
+// MOTOR DE CENÁRIOS — puro, somente leitura, sobre estado PROJETADO.
+//
+// Não existe uma única escrita neste arquivo. O estado chega como valor, uma
+// CÓPIA é montada com a hipótese dentro, e as funções de cálculo do app rodam
+// sobre a cópia. Terminado o cálculo, a cópia é descartada.
+//
+// A simulação de compra usa `splitInstallmentAmounts` e `nextInvoiceDueDate` —
+// as MESMAS funções da compra real. Reescrever a matemática aqui criaria duas
+// versões da verdade, e a divergência só apareceria depois que o usuário
+// tivesse comprado.
+
+import type { AppState, Installment, InstallmentPlan, Transaction } from '../../models/types'
+import { addDays, fromISO, monthKey, todayISO, toISO } from '../../utils/format'
+import { normalizeName, sentenceCase } from '../../utils/text'
+import {
+  balanceOutlook, currentBalance, monthlyProjections, monthlySavingGoal, periodStats,
+} from '../../services/calc'
+import {
+  activeCards, cardById, currentInvoice, nextInvoiceDueDate, splitInstallmentAmounts,
+} from '../../services/cards'
+import { isDriver } from '../../services/profile'
+import type { AssistantFact } from '../query/types'
+import type { AssistantScenarioPlan, AssistantScenarioResult, ScenarioMonth } from './types'
+
+const r2 = (v: number) => Math.round(v * 100) / 100
+
+let seq = 0
+const fid = () => `s${++seq}`
+
+const fato = (
+  label: string, value: number, unit: AssistantFact['unit'], detalhe: string, linhas = 1,
+): AssistantFact => ({
+  id: fid(), label, value: r2(value), unit,
+  provenance: { source: 'simulação', rows: linhas, detail: detalhe },
+  // TODO fato de cenário é SEMPRE estimativa. Nunca remover esta marca.
+  estimated: true,
+})
+
+/** Cópia do estado com uma despesa hipotética de hoje. Nada é gravado. */
+function comDespesa(state: AppState, amount: number, category: string, hoje: string): AppState {
+  const t: Transaction = {
+    id: `sim-${fid()}`, type: 'expense', amount, category,
+    description: 'Simulação', date: hoje, time: '12:00', source: 'manual',
+  }
+  return { ...state, transactions: [...(state.transactions || []), t] }
+}
+
+/**
+ * Cópia do estado com uma compra parcelada hipotética.
+ *
+ * Reaproveita a construção real das parcelas. A entrada, quando existe, sai do
+ * caixa HOJE (vira despesa simulada) e reduz o valor financiado — que é
+ * exatamente o que acontece na vida.
+ */
+function comCompra(
+  state: AppState, plan: AssistantScenarioPlan, hoje: string,
+): { state: AppState; parcela: number; financiado: number; cardNome?: string } {
+  const total = plan.amount || 0
+  const entrada = Math.min(plan.downPayment || 0, total)
+  const financiado = r2(total - entrada)
+  const n = Math.max(1, Math.round(plan.installments || 1))
+
+  const card = plan.cardName
+    ? activeCards(state).find(c => normalizeName(c.name).includes(normalizeName(plan.cardName!)))
+    : (activeCards(state).length === 1 ? activeCards(state)[0] : undefined)
+
+  const primeiro = card ? nextInvoiceDueDate(card, hoje) : addDays(hoje, 30)
+  const valores = splitInstallmentAmounts(financiado, n)
+
+  const planoSim: InstallmentPlan = {
+    id: `sim-plan-${fid()}`, description: plan.description || 'Compra simulada',
+    cardId: card?.id, totalAmount: financiado, installmentCount: n,
+    firstDueDate: primeiro, purchaseDate: hoje, status: 'active',
+    operationType: 'card-purchase', createdAt: hoje,
+  }
+  const d = fromISO(primeiro)
+  const parcelasSim: Installment[] = valores.map((valor, i) => ({
+    id: `sim-inst-${planoSim.id}-${i}`, planId: planoSim.id, number: i + 1,
+    total: n, amount: valor,
+    dueDate: toISO(new Date(d.getFullYear(), d.getMonth() + i, Math.min(d.getDate(), 28))),
+    status: 'pending',
+  }))
+
+  let projetado: AppState = {
+    ...state,
+    installmentPlans: [...(state.installmentPlans || []), planoSim],
+    installments: [...(state.installments || []), ...parcelasSim],
+  }
+  if (entrada > 0) projetado = comDespesa(projetado, entrada, plan.category || 'outros-out', hoje)
+
+  return { state: projetado, parcela: valores[0], financiado, cardNome: card?.name }
+}
+
+/** Projeção mês a mês antes e depois, com o mês mais apertado. */
+function compara(state: AppState, projetado: AppState, meses: number, extraPorMes: (mk: string) => number): ScenarioMonth[] {
+  const antes = monthlyProjections(state, meses)
+  const depois = monthlyProjections(projetado, meses)
+  const porMes = new Map(antes.map(m => [m.monthKey, m]))
+  return depois.map(m => {
+    const a = porMes.get(m.monthKey)
+    return {
+      monthKey: m.monthKey, label: m.label,
+      before: r2(a?.runningBalance ?? m.runningBalance),
+      after: r2(m.runningBalance),
+      delta: r2(m.runningBalance - (a?.runningBalance ?? m.runningBalance)),
+      added: r2(extraPorMes(m.monthKey)),
+    }
+  })
+}
+
+/**
+ * Executa o cenário. Nunca lança e nunca escreve: entrada estranha vira
+ * resultado vazio com ressalva, porque um erro no meio de uma pergunta é pior
+ * para o usuário do que um "não consigo simular isso".
+ */
+export function runScenario(
+  state: AppState,
+  plan: AssistantScenarioPlan,
+  hoje = todayISO(),
+): AssistantScenarioResult {
+  // Um marcador só. Duas frases dizendo a mesma coisa na mesma resposta é
+  // ruído, e o compositor já garante que a marca de simulação aparece.
+  const caveats: string[] = []
+  const facts: AssistantFact[] = []
+  const meses = Math.min(Math.max(plan.months || 6, 1), 12)
+
+  switch (plan.kind) {
+    // ------------------------------------------------------------------ gasto
+    case 'spend': {
+      const valor = plan.amount || 0
+      if (!(valor > 0)) return vazio(plan, caveats, 'Me diga o valor que você está pensando em gastar.')
+      const projetado = comDespesa(state, valor, plan.category || 'outros-out', hoje)
+      const saldoAntes = currentBalance(state)
+      const saldoDepois = currentBalance(projetado)
+      const mgDepois = monthlySavingGoal(projetado)
+      const bo = balanceOutlook(projetado, 7)
+
+      facts.push(fato('Saldo hoje', saldoAntes, 'BRL', 'saldo atual'))
+      facts.push(fato('Saldo depois do gasto', saldoDepois, 'BRL', 'saldo projetado'))
+      facts.push(fato('Sobra do mês depois do gasto', mgDepois.net, 'BRL', 'resultado do mês projetado'))
+      if (bo.bills.length) {
+        facts.push(fato('Contas nos próximos 7 dias', bo.billsSoon, 'BRL', 'recorrentes previstas', bo.bills.length))
+      }
+      if (saldoAntes === 0) caveats.push('Você ainda não informou seu saldo em conta, então o número olha só o resultado do mês.')
+      return {
+        plan, facts, months: [],
+        feasible: bo.bills.length ? bo.ok : saldoDepois >= 0,
+        caveats, empty: false,
+      }
+    }
+
+    // ----------------------------------------------------------------- compra
+    case 'purchase': {
+      const total = plan.amount || 0
+      const n = Math.round(plan.installments || 0)
+      if (!(total > 0) || !(n > 0)) {
+        return vazio(plan, caveats, 'Me diga o valor total e em quantas vezes que eu simulo.')
+      }
+      const { state: projetado, parcela, financiado, cardNome } = comCompra(state, plan, hoje)
+      const linhas = compara(state, projetado, meses, () => parcela)
+      const apertado = [...linhas].sort((a, b) => a.after - b.after)[0]
+
+      facts.push(fato('Valor da compra', total, 'BRL', 'informado na pergunta'))
+      if (plan.downPayment) {
+        facts.push(fato('Entrada', plan.downPayment, 'BRL', 'informada na pergunta'))
+        facts.push(fato('Valor financiado', financiado, 'BRL', 'total menos a entrada'))
+      }
+      facts.push(fato(`Parcela em ${n}x`, parcela, 'BRL', 'divisão do financiado'))
+      // Valor que não divide exato: a última parcela absorve a diferença. Dizer
+      // só a primeira e calar sobre a última é a metade da verdade.
+      const ultima = valoresDaCompra(financiado, n)
+      if (ultima !== parcela) {
+        caveats.push(`As parcelas não são todas iguais: ${n - 1} de ${fmtSimples(parcela)} e a última de ${fmtSimples(ultima)}.`)
+      }
+      facts.push(fato('Compromisso mensal depois da compra', parcela, 'BRL', 'parcela nova'))
+      if (apertado) facts.push(fato(`Saldo estimado no mês mais apertado (${apertado.label})`, apertado.after, 'BRL', 'projeção'))
+
+      if (!cardNome && plan.cardName) caveats.push(`Não encontrei o cartão "${plan.cardName}" — simulei sem vincular a nenhum.`)
+      if (!activeCards(state).length) caveats.push('Você não tem cartão cadastrado; usei o primeiro vencimento em 30 dias.')
+      if (!linhas.some(m => m.before !== 0)) {
+        caveats.push('Sem contas fixas nem saldo informado, a projeção mostra só o peso da parcela.')
+      }
+      return { plan, facts, months: linhas, tightest: apertado, feasible: apertado ? apertado.after >= 0 : undefined, caveats, empty: false }
+    }
+
+    // --------------------------------------------------------------- guardar
+    case 'save': {
+      const porMes = plan.amount || 0
+      if (!(porMes > 0)) return vazio(plan, caveats, 'Me diga quanto você quer guardar por mês.')
+      const metas = (state.goals || []).filter(g => !g.done)
+      const alvo = plan.goalName
+        ? metas.find(g => normalizeName(g.name).includes(normalizeName(plan.goalName!)))
+        : metas[0]
+      if (!alvo) {
+        facts.push(fato('Guardando por mês', porMes, 'BRL', 'informado na pergunta'))
+        facts.push(fato('Em 12 meses', porMes * 12, 'BRL', 'multiplicação simples'))
+        caveats.push('Você não tem meta de compra cadastrada, então não dá para dizer quando ela seria batida.')
+        return { plan, facts, months: [], caveats, empty: false }
+      }
+      const falta = Math.max(alvo.target - alvo.saved, 0)
+      const mesesNecessarios = Math.ceil(falta / porMes)
+      const quando = new Date(fromISO(hoje).getFullYear(), fromISO(hoje).getMonth() + mesesNecessarios, 1)
+      facts.push(fato(`Falta para a meta ${alvo.name}`, falta, 'BRL', 'meta menos o já guardado'))
+      facts.push(fato('Guardando por mês', porMes, 'BRL', 'informado na pergunta'))
+      facts.push(fato('Meses até bater a meta', mesesNecessarios, 'count', 'divisão'))
+      caveats.push(`Nesse ritmo, por volta de ${quando.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}.`)
+      return { plan, facts, months: [], feasible: true, caveats, empty: false }
+    }
+
+    // ------------------------------------------------------ pagar a fatura
+    case 'pay-invoice': {
+      const cards = activeCards(state)
+      if (!cards.length) return vazio(plan, caveats, 'Você não tem cartão cadastrado.')
+      const alvo = plan.cardName
+        ? cards.find(c => normalizeName(c.name).includes(normalizeName(plan.cardName!)))
+        : (cards.length === 1 ? cards[0] : undefined)
+      if (!alvo) {
+        caveats.push(`Você tem ${cards.length} cartões — me diga qual (${cards.map(c => c.name).join(', ')}).`)
+        return { plan, facts, months: [], caveats, empty: true }
+      }
+      const inv = currentInvoice(state, alvo)
+      const saldo = currentBalance(state)
+      facts.push(fato(`Fatura pendente do ${alvo.name}`, inv.pending, 'BRL', 'fatura atual'))
+      facts.push(fato('Saldo hoje', saldo, 'BRL', 'saldo atual'))
+      facts.push(fato('Saldo depois de pagar', saldo - inv.pending, 'BRL', 'subtração'))
+      // Regra 10: pagar fatura quita dívida, não cria despesa nova.
+      caveats.push('Pagar a fatura quita a dívida e reduz o saldo — não entra como despesa nova no mês.')
+      if (inv.pending <= 0) caveats.push('Essa fatura não tem valor pendente agora.')
+      return { plan, facts, months: [], feasible: saldo - inv.pending >= 0, caveats, empty: false }
+    }
+
+    // -------------------------------------------------- entrada que não vem
+    case 'income-missing': {
+      const bo = balanceOutlook(state, 30)
+      const nome = plan.origin || plan.description
+      // Quanto essa fonte costuma trazer por mês, medido no histórico DELE.
+      const from = addDays(hoje, -89)
+      const doOrigem = (state.transactions || []).filter(t =>
+        t && t.type === 'income' && t.date >= from
+        && (nome ? normalizeName(t.origin || t.description || '').includes(normalizeName(nome)) : true))
+      const valor = plan.amount
+        || (doOrigem.length ? r2(doOrigem.reduce((a, t) => a + t.amount, 0) / Math.max(mesesEntre(doOrigem), 1)) : 0)
+      if (!(valor > 0)) {
+        return vazio(plan, caveats, nome
+          ? `Não tenho entradas de "${nome}" registradas nos últimos 90 dias, então não sei quanto deixaria de entrar.`
+          : 'Me diga quanto deixaria de entrar que eu faço a conta.')
+      }
+      const saldo = currentBalance(state)
+      const contas = bo.billsSoon
+      facts.push(fato(nome ? `Entrada média de ${sentenceCase(nome)}` : 'Entrada que faltaria', valor, 'BRL', 'média dos últimos 90 dias', doOrigem.length))
+      facts.push(fato('Saldo hoje', saldo, 'BRL', 'saldo atual'))
+      facts.push(fato('Contas previstas nos próximos 30 dias', contas, 'BRL', 'recorrentes cadastradas', bo.bills.length))
+      facts.push(fato('Sobra estimada sem essa entrada', saldo - contas, 'BRL', 'saldo menos contas'))
+      if (!bo.bills.length) caveats.push('Você não tem contas fixas cadastradas, então a conta olha só o saldo.')
+      return { plan, facts, months: [], feasible: saldo - contas >= 0, caveats, empty: false }
+    }
+
+    // ------------------------------------------------- horas/km a mais
+    case 'extra-work': {
+      if (!isDriver(state.settings)) return vazio(plan, caveats, 'Essa simulação só existe no perfil de motorista.')
+      const st = periodStats(state, addDays(hoje, -29), hoje)
+      if (plan.hoursPerDay) {
+        if (st.hours <= 0) {
+          return vazio(plan, caveats, 'Ainda não tenho horas registradas para calcular seu ritmo. Diga "trabalhei 8 horas" que eu passo a estimar.')
+        }
+        const dias = Math.max(1, Math.round(plan.days || 30))
+        const porHora = st.profitPerHour
+        facts.push(fato('Seu lucro por hora (últimos 30 dias)', porHora, 'per-hour', 'histórico real', st.days))
+        facts.push(fato('Horas a mais por dia', plan.hoursPerDay, 'hours', 'informado na pergunta'))
+        facts.push(fato(dias === 1 ? 'Estimativa para um dia' : `Estimativa em ${dias} dias`,
+          porHora * plan.hoursPerDay * dias, 'BRL', 'ritmo × horas × dias'))
+        caveats.push(`Estimativa no SEU ritmo dos últimos 30 dias (${st.days} dias com registro). Dia bom e dia ruim mudam isso.`)
+        return { plan, facts, months: [], caveats, empty: false }
+      }
+      if (plan.extraKm) {
+        if (st.km <= 0) return vazio(plan, caveats, 'Ainda não tenho km registrados para calcular seu ganho por km.')
+        facts.push(fato('Seu lucro por km (últimos 30 dias)', st.netPerKm, 'per-km', 'histórico real', st.days))
+        facts.push(fato('Km a mais', plan.extraKm, 'km', 'informado na pergunta'))
+        facts.push(fato('Estimativa', st.netPerKm * plan.extraKm, 'BRL', 'ritmo × km'))
+        caveats.push(`Estimativa no SEU ritmo dos últimos 30 dias (${st.days} dias com registro).`)
+        return { plan, facts, months: [], caveats, empty: false }
+      }
+      return vazio(plan, caveats, 'Me diga quantas horas ou quantos km a mais que eu estimo.')
+    }
+  }
+  return vazio(plan, caveats, 'Não consigo simular isso ainda.')
+}
+
+/** Última parcela da divisão real — é ela que absorve o centavo que sobra. */
+const valoresDaCompra = (financiado: number, n: number): number => {
+  const v = splitInstallmentAmounts(financiado, n)
+  return v[v.length - 1]
+}
+
+const fmtSimples = (v: number) =>
+  v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+const mesesEntre = (txs: Transaction[]): number => {
+  const meses = new Set(txs.map(t => monthKey(t.date)))
+  return meses.size
+}
+
+function vazio(
+  plan: AssistantScenarioPlan, caveats: string[], motivo: string,
+): AssistantScenarioResult {
+  return { plan, facts: [], months: [], caveats: [motivo, ...caveats], empty: true }
+}
+
+export { cardById }
