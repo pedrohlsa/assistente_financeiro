@@ -42,19 +42,23 @@ via função serverless na Vercel.
   respondendo com o contrato v1).
 - APK debug gerado e entregue ao usuário nesta sessão (para o tio).
 
-**Onde o desenvolvimento parou (17/08/2026):** a rodada ADAPTATIVA. O assistente passou a
-ter um modelo pessoal derivado com evidência, confiança e recência
-(`src/assistant/personalModel.ts`), a explicar as próprias decisões
-(`explain.ts`), a medir o ritmo do motorista no histórico dele
-(`driverInsights.ts`), e a oferecer a chave `settings.adaptiveAssistant` para desligar
-tudo isso. Ver as regras 37–50 do `CLAUDE.md` e a seção 7 deste arquivo.
+**Onde o desenvolvimento parou (17/08/2026):** a rodada ADAPTATIVA seguida de seis rodadas
+de LIMITE. A adaptativa deu ao assistente um modelo pessoal derivado com evidência,
+confiança e recência (`src/assistant/personalModel.ts`), a explicação das próprias decisões
+(`explain.ts`), o ritmo do motorista medido no histórico dele (`driverInsights.ts`), e a
+chave `settings.adaptiveAssistant` para desligar tudo. As de limite quebraram o que já
+estava verde — entrada hostil, escala, estado corrompido, injeção pelo próprio dado,
+cálculo extremo, persistência e layout — e acharam nove defeitos que o corpus não pegava
+(centavo virando real, app parando de salvar em silêncio, CSV virando fórmula, e mais). Ver
+as regras 37–50 do `CLAUDE.md` e as seções 17 e 18 do `docs/AI_REGRESSION_MATRIX.md`.
+**Tudo mergeado na `main` e enviado ao remoto** (§9).
 
 **Antes disso (13/08/2026):** vinte e dois commits em cinco rodadas de
 sondagem. Atacaram o REGISTRO em fala real (os quatro parsers pendentes e mais vinte
 defeitos que o corpus não achava), as perguntas que caíam no texto de ajuda, a correção de
 lançamento salvo, e dois plugins nativos novos (ditado por voz e exportação de arquivo, que
-simplesmente não funcionavam dentro do APK). **Nada pela metade**, mas os commits estão SÓ
-NESTA MÁQUINA — sem push, sem deploy, sem APK, por não ter autorização.
+simplesmente não funcionavam dentro do APK). Esse era o estado do deploy em produção até
+hoje — as rodadas de 17/08 ainda não foram para o `.vercel`.
 
 **O método que achou quase tudo:** rodar frases de fala real pelo orquestrador numa sonda
 descartável e LER as respostas. Vários defeitos não apareciam em teste nenhum — só na
@@ -384,16 +388,29 @@ em teste manual isolado — não é bug de produção, é o fixture defasado.
   Ver `PROGRESS.md`.
 - **Antes [FATO]:** `b148661 fix: saldo dito de outro jeito e gíria de guardar dinheiro`
   (13/08/2026), fim das cinco rodadas de sondagem.
-- **`main` [FATO]:** contém tudo mergeado (último merge `a8d9073`), em sincronia com `origin/main`.
-- **Commits locais não enviados [PENDÊNCIA]:** os desta rodada (a partir de `2a65d1e`)
-  ainda NÃO foram enviados — o dono não autorizou push, deploy nem APK.
-  `origin/feat/assistant-orchestrator` está em `389e2a1`; `origin/main` em `a8d9073`.
-- **Arquivos modificados / não rastreados [FATO]:** nenhum (working tree limpo — este
-  `CONTEXT.md` novo será a única alteração até você commitar, se pedir).
+- **`feat/assistant-orchestrator` [FATO]:** `9d76061`, **já no remoto**
+  (`origin/feat/assistant-orchestrator` em sincronia). É a branch de trabalho.
+- **`main` [FATO]:** `eb54a4e`, **já no remoto** (`origin/main` em sincronia). A rodada
+  adaptativa + as seis de limite foram mescladas na main em 17/08/2026 (merge `--no-ff`,
+  seguindo o padrão dos três merges anteriores). Tudo que está na branch está na main.
+- **Push feito em 17/08/2026 com autorização explícita do dono.** Deploy e APK NÃO foram
+  refeitos nesta rodada — o `.vercel` em produção ainda serve o código de 13/08. Republicar
+  exige `npm run build` + `npx vercel --prod` (ver §5) e continua dependendo de autorização.
+- **Repositório continua PRIVADO** (`gh repo view` → `isPrivate: true`). O dono cogitou
+  torná-lo público para revisão externa; a decisão foi NÃO — em vez disso, o código-fonte
+  foi empacotado com `git archive` (só arquivo versionado, sem `.env`/`node_modules`/`dist`)
+  para revisão fora do GitHub.
+- **`.claude/launch.json` [FATO]:** tem uma entrada apontando para outro projeto
+  (`D:/Claude/sopa`) e fica FORA de todos os commits de propósito — é config local de
+  máquina, não do AssistFin. Working tree limpo exceto por esse arquivo.
+- **Segurança do histórico [FATO]:** varredura em TODO o histórico antes do push — nenhum
+  `.env` jamais versionado; zero ocorrências de `sk-*` real, `ghp_`, `AKIA`, chave privada
+  ou JWT; keystore, `google-services` e `.vercel` não rastreados. Os `sk-` que aparecem no
+  `PROGRESS.md` são texto de documentação ("bundle sem `sk-`").
 - **Remoto:** `https://github.com/pedrohlsa/assistente_financeiro`. Sem PRs nem issues abertos.
-- **Produção Vercel:** projeto `assist-fin`, alias `https://assist-fin.vercel.app`, deployado
-  com o código atual nesta sessão. Env `DEEPSEEK_API_KEY` e `DEEPSEEK_MODEL` já configuradas
-  (nunca exibir valores).
+- **Produção Vercel:** projeto `assist-fin`, alias `https://assist-fin.vercel.app`. Env
+  `DEEPSEEK_API_KEY` e `DEEPSEEK_MODEL` já configuradas (nunca exibir valores). O deploy no ar
+  é o de 13/08 — as rodadas adaptativa e de limite ainda não foram para produção.
 
 ---
 

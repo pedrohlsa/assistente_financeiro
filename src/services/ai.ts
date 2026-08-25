@@ -2,10 +2,11 @@
 // Este módulo responde perguntas usando SOMENTE dados reais do estado — nunca inventa valores.
 // Ele diferencia dados reais de estimativas/projeções no texto das respostas.
 //
-// INTEGRAÇÃO PENDENTE: para linguagem 100% livre, conectar um backend seguro
-// (ex.: POST /api/ai/chat) que recebe contexto estruturado (nunca a base bruta)
-// e as API keys ficam apenas no servidor. A interface abaixo está pronta:
-// `askAssistant` pode ser trocado por uma chamada remota mantendo o mesmo contrato.
+// A integração remota NÃO é pendente: `POST /api/ai/chat` existe nos dois
+// backends (dev e Vercel), recebe SÓ contexto agregado (`buildAiContext`, nunca
+// a base bruta) e a chave vive apenas no servidor. O que este módulo faz é o
+// outro lado: responder localmente tudo que o app sabe com certeza, para que a
+// pergunta factual nunca dependa de rede nem de modelo.
 
 import { AppState, ParsedAction } from '../models/types'
 import { validateAction, isValidationFailure } from '../assistant/contracts'

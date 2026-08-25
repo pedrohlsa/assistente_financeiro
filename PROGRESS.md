@@ -2591,3 +2591,39 @@ escrever para outra coisa — "hoje saiu 250 na 99" (a segunda forma da despesa 
 "às segundas-feira" (o plural pela metade, achado logo depois de consertar o gênero) e
 o dilema com dois itens ambíguos. Testar a CLASSE, e não a frase, continua sendo o que
 separa consertar um caso de consertar o problema.
+
+---
+
+# 2026-08-24 — Rodada COPILOTO SEMÂNTICO (fase 0: baseline real)
+
+Antes de escrever uma linha, o baseline foi EXECUTADO, não lido da documentação. É o que
+resolve a inconsistência histórica que estava nos docs (`520/520 + 74/74` num arquivo,
+`531/531 + 86/86` em outro).
+
+| Gate | Resultado real, executado em 24/08/2026 |
+|---|---|
+| `git status` | limpo, exceto `.claude/launch.json` (config local de outro projeto, fora de todos os commits) |
+| `npm test` | **531/531 casos (100%)** e **86/86 invariantes** |
+| `npm run typecheck` | exit 0 |
+| `npm run typecheck:api` | exit 0 |
+| `npm run build` | exit 0 — `index-*.js` **571,02 kB** (gzip 173,85 kB), CSS 11,88 kB, `dist/` 586 KB |
+| `npx vercel build --prod` | `status: ok` (build local; **nenhum deploy**) |
+
+Números por grupo do corpus: `registroreal` 68, `adaptativo` 54, `temporal` 43, `falareal` 29,
+`undo` 14, `perguntas` 12, `receitas` 12, `correcoes` 12, `valores` 10, `categorias` 10,
+`negacao` 10, `multi` 9, `cartoes` 9, `motorista2` 8, `coloquial` 8, `saving` 7, `falados` 7,
+`seguranca2` 7, e mais 17 grupos menores.
+
+Correções de documentação feitas com base NESTE resultado (nenhuma mudança de comportamento):
+
+- `docs/AI_CURRENT_STATE.md`: `520 casos + 74 invariantes` → `531 casos + 86 invariantes`
+  (duas ocorrências); a ressalva "o que 368/368 NÃO prova" passou a citar o número real e as
+  seis rodadas de limite; a lista de arquivos de caso passou de quatro para os nove que existem.
+- `src/services/ai.ts`: o cabeçalho ainda dizia "INTEGRAÇÃO PENDENTE: conectar um backend
+  seguro (ex.: POST /api/ai/chat)". Esse backend existe desde julho, nos dois ambientes. O
+  comentário foi corrigido para descrever o que o módulo realmente é — o lado LOCAL, que
+  responde sem rede. (O `INTEGRAÇÃO PENDENTE` de `store.tsx` continua verdadeiro: sync em
+  nuvem não existe.)
+
+Branch de trabalho: `feat/assistant-semantic-copilot`, criada a partir de `main` (`eb54a4e`,
+que já contém a rodada adaptativa e as seis de limite). Sem push, sem merge, sem deploy.

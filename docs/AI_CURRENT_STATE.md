@@ -170,7 +170,7 @@ Auditoria opcional em cada lançamento: `source: 'ai'`, `assistantBatchId`, `pro
 | 17 | Contrato remoto pobre | **Resolvido** — envelope versionado com `mode` e `clarification` |
 | 18 | Texto puro engolindo ações | **Resolvido** — `envelope: null` e `contractFallback: true` |
 | 19 | Validação de categoria e perfil | **Resolvido** |
-| 20 | Testes insuficientes | **Resolvido** — 520 casos + 74 invariantes |
+| 20 | Testes insuficientes | **Resolvido** — 531 casos + 86 invariantes |
 
 ---
 
@@ -179,21 +179,25 @@ Auditoria opcional em cada lançamento: `source: 'ai'`, `assistantBatchId`, `pro
 | Comando | O que roda |
 |---|---|
 | `npm test` | núcleo + corpus do assistente (offline, data fixa 2026-07-15) |
-| `npm run test:assistant` | **520 casos + 74 invariantes** |
+| `npm run test:assistant` | **531 casos + 86 invariantes** |
 | `npm run test:assistant:remote` | 8 sondas contra a IA real; última execução: **8/8** |
 | `npm run typecheck` / `typecheck:api` | `src/` e a mesma checagem que a Vercel faz |
 
 O corpus roda o orquestrador **real**, não uma reimplementação.
 
-Quatro arquivos de casos: `cases.ts` (regressão), `cases-critical.ts` (os dez cenários
-obrigatórios do briefing, com as frases literais) e `cases-adversarial.ts` (68 casos vindos da
-rodada de QA de 28/07 — cada um escrito ANTES da correção do bug que o originou), mais
-`cases-temporal.ts` (43 casos de data futura, inválida, período, correção e frase mista).
+Nove arquivos de casos: `cases.ts` (regressão), `cases-critical.ts` (os dez cenários
+obrigatórios do briefing, com as frases literais), `cases-adversarial.ts` (casos vindos da
+rodada de QA de 28/07 — cada um escrito ANTES da correção do bug que o originou),
+`cases-temporal.ts` (data futura, inválida, período, correção e frase mista),
+`cases-undo.ts`, `cases-edit.ts`, `cases-fala-real.ts`, `cases-registro-real.ts` e
+`cases-adaptativo.ts`.
 
-> **O que 368/368 NÃO prova.** Na rodada adversarial, **8 dos 17 bugs só apareceram no
+> **O que 531/531 NÃO prova.** Na rodada adversarial, **8 dos 17 bugs só apareceram no
 > navegador com mensagem real** — o corpus passava 100% enquanto "não gastei 100" ainda
-> propunha registrar a despesa. O corpus cobre bem o que foi imaginado; teste manual com
-> linguagem torta continua sendo necessário antes de cada entrega.
+> propunha registrar a despesa. Nas seis rodadas de limite a proporção se repetiu: nove
+> defeitos encontrados FORA do corpus, três deles só ao LER a resposta. O corpus cobre bem o
+> que foi imaginado; teste manual com linguagem torta continua sendo necessário antes de cada
+> entrega (regra 35 do CLAUDE.md).
 
 ---
 
