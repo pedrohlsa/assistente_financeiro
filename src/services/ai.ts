@@ -15,7 +15,8 @@ import { buildCapabilities } from '../assistant/capabilities'
 import {
   addDays, dueLabel, fmtBRL, fmtNum, fromISO, todayISO, daysInMonth, parseMoney,
 } from '../utils/format'
-import { sentenceCase } from '../utils/text'
+import { promptSafe, sentenceCase } from '../utils/text'
+import { MAX_COMPOSE_FACTS } from '../assistant/grounding'
 import {
   analyzeRide, avgDailyProfit, balanceOutlook, bestWorstDay, currentBalance, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
   monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections, budgetUsage,
@@ -306,12 +307,38 @@ export async function askRemoteQueryPlan(s: AppState, input: string): Promise<an
   return plano && typeof plano === 'object' ? plano : null
 }
 
-/** Redacao sobre fatos. O chamador AINDA precisa passar pelo grounding. */
+/**
+ * Agrupamentos cujo rotulo E TEXTO ESCRITO PELO USUARIO.
+ *
+ * "Ze da esquina", "Casa 1", "Cliente Joao" sao estabelecimento, imovel e
+ * cliente — exatamente o que a regra 44 diz que nunca sai do aparelho. Nome de
+ * categoria, cartao e meta ja viajam no contexto de planejamento e continuam
+ * podendo viajar; descricao e origem, nao.
+ */
+const GRUPO_PESSOAL = new Set(['description', 'origin'])
+
+/**
+ * Redacao sobre fatos JA CALCULADOS. O chamador ainda precisa passar pelo
+ * grounding — esta funcao cuida do outro lado, o que SAI do aparelho.
+ *
+ * A filtragem mora aqui, e nao no chamador, de proposito: um caminho futuro
+ * que esqueca de filtrar nao pode virar um vazamento. Sem fato que sobreviva,
+ * a funcao NAO chama o modelo — mandar so a pergunta convidaria a inventar o
+ * numero, que e a unica coisa que esta camada existe para impedir.
+ */
 export async function askRemoteCompose(
   input: string,
   facts: { label: string; value: number; unit: string; estimated?: boolean }[],
+  group?: string,
 ): Promise<string | null> {
-  const data = await postAi({ task: 'compose', message: input, facts })
+  if (group && GRUPO_PESSOAL.has(group)) return null
+  const seguros = facts.map(f => ({
+    label: promptSafe(f.label), value: f.value, unit: f.unit, estimated: f.estimated,
+  }))
+  // O teto NAO e de tamanho de prompt: e o ponto onde a barreira de grounding
+  // deixa de proteger. Ver `MAX_COMPOSE_FACTS`, onde a medicao esta escrita.
+  if (!seguros.length || seguros.length > MAX_COMPOSE_FACTS) return null
+  const data = await postAi({ task: 'compose', message: input, facts: seguros })
   const reply = typeof data?.reply === 'string' ? data.reply.trim() : ''
   return reply || null
 }

@@ -85,6 +85,25 @@ export function weekdayList(days: number[]): string {
  * planilhas consomem como marca de "isto é texto". O conteúdo continua legível
  * e nada é apagado.
  */
+/**
+ * Texto do usuario indo para um PROMPT. Terceiro destino perigoso da regra 47,
+ * ao lado do prompt de sistema (que o servidor ja protege) e do CSV.
+ *
+ * Colapsa quebra de linha, tabulacao e caractere de controle em espaco simples
+ * e corta no limite: o prompt e montado por LINHAS, e uma quebra no meio de um
+ * nome escrito pelo usuario da a ele a forma de uma instrucao nova.
+ *
+ * O servidor tem a sua propria copia disto, de proposito. Protecao que so
+ * existe no cliente e protecao que some quando alguem chama a API direto.
+ */
+export function promptSafe(v: unknown, max = 60): string {
+  return String(v ?? '')
+    .replace(/[\u0000-\u001F\u007F\u2028\u2029]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+    .slice(0, max)
+}
+
 export function csvCell(v: unknown): string {
   const bruto = String(v ?? '')
   // Tab e retorno de carro no começo também abrem espaço para a fórmula: a

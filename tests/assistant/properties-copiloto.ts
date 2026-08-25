@@ -18,7 +18,7 @@ import { QUERY_METRICS, QUERY_SOURCES, DRIVER_ONLY_SOURCES, FIELDS_BY_SOURCE } f
 import { planScenario } from '../../src/assistant/scenario/parse'
 import { runScenario } from '../../src/assistant/scenario/engine'
 import { answerConversation } from '../../src/assistant/conversation'
-import { acceptComposition, checkGrounding } from '../../src/assistant/grounding'
+import { acceptComposition, checkGrounding, MAX_COMPOSE_FACTS } from '../../src/assistant/grounding'
 import { evidenceFor, mergeByField, EVIDENCE_RANK } from '../../src/assistant/semantic/evidence'
 import { buildTurnPlan } from '../../src/assistant/semantic/turn'
 import { clampMessage, repairStructuralTypos, stripInvisible, MAX_MESSAGE_CHARS } from '../../src/assistant/semantic/normalize'
@@ -479,6 +479,46 @@ export async function runCopilotProperties(): Promise<PropertyReport> {
       }
     }
     return ruins.length ? ruins.join(' | ') : null
+  })
+
+  // --- 106. A barreira de grounding tem forca MEDIDA, nao alegada -------
+  // A barreira so protege com lista CURTA de fatos: com o contexto inteiro
+  // (38 numeros) ela aceitava 89% dos valores inventados, porque quase todo
+  // numero e a soma ou a diferenca de dois outros. O `MAX_COMPOSE_FACTS`
+  // existe por causa dessa medicao, e esta invariante e a medicao virando
+  // teste: se alguem afrouxar o teto ou acrescentar uma derivacao nova, o
+  // numero se move e o teste conta o quanto.
+  //
+  // O sorteio e deterministico (LCG com semente fixa): a mesma execucao da
+  // sempre o mesmo percentual, entao o limite pode ser apertado.
+  check(r, 'barreira de grounding rejeita valor inventado', () => {
+    const facts = Array.from({ length: MAX_COMPOSE_FACTS }, (_, i) => ({
+      id: `f${i}`, label: `fato ${i}`, value: 100 * (i + 1) + 37, unit: 'BRL' as const,
+      provenance: { source: 'transactions', rows: i + 1 },
+    }))
+    let semente = 42
+    const sorteia = () => { semente = (semente * 1664525 + 1013904223) >>> 0; return semente / 4294967296 }
+    let passou = 0
+    const N = 3000
+    for (let i = 0; i < N; i++) {
+      const v = Math.round(sorteia() * 500000) / 100
+      const txt = `Voce gastou R$ ${v.toFixed(2).replace('.', ',')} nisso.`
+      if (checkGrounding(txt, facts).ok) passou++
+    }
+    const pct = (100 * passou) / N
+    if (pct > 20) return `no teto de ${MAX_COMPOSE_FACTS} fatos, ${pct.toFixed(1)}% dos valores inventados passam (limite 20%)`
+
+    // E o teto tem que FALHAR FECHADO: um fato a mais recusa a composicao
+    // inteira, em vez de rodar uma checagem que ja nao protege.
+    const demais = [...facts, {
+      id: 'x', label: 'fato x', value: 999, unit: 'BRL' as const,
+      provenance: { source: 'transactions', rows: 1 },
+    }]
+    const out = acceptComposition('Deu R$ 999,00.', demais)
+    if (!('rejected' in out) || out.rejected !== 'too-many-facts') {
+      return 'lista acima do teto foi ACEITA — a barreira deveria falhar fechada'
+    }
+    return null
   })
 
   return r
