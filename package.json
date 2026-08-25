@@ -13,7 +13,8 @@
     "test:assistant:remote": "tsx scripts/test-assistant-remote.mts",
     "test:money": "node --experimental-strip-types scripts/test-money.mjs",
     "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
-    "typecheck:api": "node node_modules/typescript/bin/tsc --noEmit -p tsconfig.api.json"
+    "typecheck:api": "node node_modules/typescript/bin/tsc --noEmit -p tsconfig.api.json",
+    "eval:models": "tsx scripts/eval-assistant-models.mts"
   },
   "dependencies": {
     "@capacitor/local-notifications": "^8.2.1",
