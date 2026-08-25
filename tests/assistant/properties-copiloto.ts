@@ -7,6 +7,7 @@
 // e número na prosa tem que existir nos fatos.
 
 import { readFileSync } from 'node:fs'
+import { execSync } from 'node:child_process'
 import type { AppState } from '../../src/models/types'
 import { buildState, TODAY } from './harness'
 import { autonomoRico, motoristaRico } from '../fixtures/richState'
@@ -398,6 +399,24 @@ export async function runCopilotProperties(): Promise<PropertyReport> {
       return 'o foco entrou no modelo de dados persistido'
     }
     return null
+  })
+
+  // --- 104. Nenhum caractere de controle no CODIGO-FONTE ---------------
+  // Este projeto ja perdeu tempo DUAS vezes com um backspace (0x08) entrando
+  // no lugar de um `\b` de regex numa edicao por script. O caractere e
+  // invisivel no editor, quebra a regex em silencio e so aparece quando um
+  // teste falha por um motivo que nao faz sentido nenhum. Onde um caractere
+  // de controle e dado de teste, ele e MONTADO (`String.fromCharCode`).
+  check(r, 'nenhum caractere de controle no codigo-fonte', () => {
+    const arquivos = execSync('git ls-files src tests scripts api', { encoding: 'utf8' })
+      .trim().split(/\r?\n/).filter(f => /\.(ts|tsx|mts)$/.test(f))
+    const ruins: string[] = []
+    for (const f of arquivos) {
+      const src = readFileSync(new URL(`../../${f}`, import.meta.url), 'utf8')
+      const n = (src.match(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g) || []).length
+      if (n) ruins.push(`${f} (${n})`)
+    }
+    return ruins.length ? `caractere de controle em ${ruins.join(', ')}` : null
   })
 
   return r

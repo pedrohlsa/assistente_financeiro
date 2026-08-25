@@ -365,11 +365,24 @@ export function stripInvisible(message: string): string {
   return message.replace(INVISIVEIS, '')
 }
 
+/**
+ * "4k" = 4.000. E o jeito mais curto de dizer mil, e o parser lia so o 4:
+ * "se eu meter um pc de 4K em 10x" virava uma simulacao de gasto de R$ 4,00.
+ *
+ * Estreito de proposito: so ate tres digitos (999k), so com o `k` colado ou a
+ * um espaco, e nunca depois de "tv" — "tv 4k" e resolucao de tela, nao dinheiro.
+ */
+const RE_MIL_ABREVIADO = /(?<!\btv\s)(?<![a-zà-ú\d])(\d{1,3})\s?k\b(?![a-zà-ú])/gi
+
+export function expandMilAbreviado(message: string): string {
+  return message.replace(RE_MIL_ABREVIADO, (_m, n) => `${n}000`)
+}
+
 export interface ClampedMessage { text: string; truncated: boolean }
 
 /** Limpa e limita. É a única porta de entrada da mensagem no orquestrador. */
 export function clampMessage(message: string): ClampedMessage {
-  const limpa = stripInvisible(String(message ?? ''))
+  const limpa = expandMilAbreviado(stripInvisible(String(message ?? '')))
   return limpa.length > MAX_MESSAGE_CHARS
     ? { text: limpa.slice(0, MAX_MESSAGE_CHARS), truncated: true }
     : { text: limpa, truncated: false }

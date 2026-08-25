@@ -110,4 +110,28 @@ export const CONVERSA_CASES: ConversaCase[] = [
       { msg: 'e mês passado', expectKind: 'query' },
     ],
   },
+
+  // ===== achados da rodada adversarial (fase 24) ==========================
+  // Todos vieram de LER a resposta, nao de um teste que falhou. O corpus estava
+  // 100% verde nos quatro.
+  {
+    id: 'k-12', group: 'red-team', state: autonomo, today: TODAY_C,
+    turnos: [
+      // A pergunta e sobre UM cartao. O roteador antigo respondia o resumo do
+      // mes inteiro: numero certo, pergunta outra.
+      { msg: 'meu nubank ta fudendo mt meu mes?', expectKind: 'query', expectReply: [/Nubank/] },
+      // A elipse troca o cartao, e o cabecalho tem que dizer QUAL — dois
+      // numeros iguais por coincidencia nao se distinguiam.
+      { msg: 'e o inter', expectKind: 'query', expectReply: [/Inter/], forbidReply: [/Nubank/] },
+    ],
+  },
+  {
+    id: 'k-13', group: 'red-team', state: autonomo, today: TODAY_C,
+    turnos: [
+      { msg: 'qual meta esta mais perto', expectKind: 'query', expectReply: [/Viagem/] },
+      // A meta e chamada pelo NOME, sem a palavra "meta". Isto caia em
+      // parcelamento e respondia "voce nao tem parcelamentos em aberto".
+      { msg: 'quanto falta pra viagem', expectKind: 'query', expectReply: [/Viagem/, /1\.200,00/], forbidReply: [/parcelamento/i] },
+    ],
+  },
 ]

@@ -91,6 +91,13 @@ const PEDE_DADO = [
   /\bsubiu\b/, /\bdesceu\b/, /\bcresceu\b/, /\bdiminuiu\b/, /\bpiorou\b/,
   /\bmelhorou\b/, /\bfrequen/, /\btotal\b/, /\bsoma\b/, /\bproporcao\b/,
   /\bporcentagem\b/, /\brepresent/, /\btirando\b/, /\bexceto\b/,
+  // "Meu nubank tá pesando muito meu mês?" — a pergunta sobre PESO, que é como
+  // se pergunta de verdade se uma dívida está atrapalhando. Nenhuma palavra de
+  // medida aparece na frase, então ela caía em `resolveLocal`, que respondia o
+  // resumo do mês inteiro: número certo, pergunta outra. E como nada do cartão
+  // ficava no foco, o "e o inter" seguinte não tinha em que se apoiar.
+  /\b(?:ta|esta|anda|vem)\s+(?:me\s+)?(?:pesando|apertando|matando|fudendo|acabando|estourando|quebrando|sufocando|comendo)\b/,
+  /\bpesa(?:ndo)?\b/, /\bcomprometid/,
 ]
 
 const NAO_E_CONSULTA = [
@@ -217,7 +224,20 @@ function lerMetrica(t: string): { valor: MetricaLida; matched: string } {
 
 interface FonteLida { source: QuerySource; field?: QueryField }
 
-function lerFonte(t: string, driver: boolean): { valor: FonteLida; matched: string } | null {
+/** Nome escrito pelo usuário virando padrão de busca — regra 47. */
+const escapaRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+function lerFonte(t: string, driver: boolean, metas: string[] = []): { valor: FonteLida; matched: string } | null {
+  // "Quanto falta pra viagem?" — sem a palavra "meta". O usuário chama a meta
+  // pelo NOME que ele mesmo deu, e é exatamente assim que se fala logo depois
+  // de o app responder "Viagem — 80%". Sem esta leitura, "falta" caía em
+  // parcelamento e a resposta era "você não tem parcelamentos em aberto com
+  // viagem": específica, educada e sobre outra coisa.
+  const meta = metas.find(n => new RegExp(`\\b${escapaRegex(n)}\\b`).test(t))
+  if (meta && /\bfalta\b|\bfaltam\b|\bquanto\b|\bcomo\s+(?:ta|esta|vai)\b|\bperto\b/.test(t)) {
+    return { valor: { source: 'goals', field: 'remaining' }, matched: meta }
+  }
+
   const tabela: [RegExp, FonteLida][] = [
     [/\bquantas?\s+parcelas\s+(?:faltam?|restam?|ainda)\b/, { source: 'installments' }],
     // A META vem ANTES de "quanto falta". "Quanto falta pra meta Moto?" caía em
@@ -270,6 +290,11 @@ function lerGrupo(t: string, driver: boolean): { valor: QueryGroup; matched: str
     // agrupamento ficava em `none`, a ordenação por diferença não tinha o que
     // ordenar e a resposta virava um total solto — que não responde "o quê".
     [/\bo\s+que\s+mais\s+(?:aumentou|subiu|cresceu|pesou|caiu|diminuiu|desceu)\b/, 'category'],
+    // "Tem alguma coisa que eu tô gastando muito mais que antes?" é a mesma
+    // pergunta dita do jeito que a pessoa fala. Sem agrupar, a resposta era o
+    // total do mês — verdadeira e sem relação com o que foi perguntado.
+    [/\btem\s+(?:alguma\s+coisa|algo|alguma)\b[^?]*\bmais\b/, 'category'],
+    [/\bqual\s+despesa\b|\bqual\s+gasto\s+(?:esta|ta)\b/, 'category'],
     [/\bqual\s+(?:foi\s+)?(?:o\s+)?(?:meu\s+)?(?:maior|menor)\s+(?:gasto|despesa|compra|receita|entrada)\b|\bo\s+que\s+(?:eu\s+)?mais\s+(?:gasto|gastei)\b|\bqual\s+gasto\b/, 'description'],
   ]
   const achou = primeira(t, tabela)
@@ -288,7 +313,7 @@ function lerGrupo(t: string, driver: boolean): { valor: QueryGroup; matched: str
 // ---------------------------------------------------------------------------
 
 const MARCADOR_CMP = /\b(?:comparad[oa]\s+(?:com|ao|a)|comparando\s+com|compar[ao]\s+com|em\s+relacao\s+a[o]?|versus|vs|do\s+que|que)\s+(?:o\s+|a\s+|os\s+|as\s+)?([^?,.!]{2,40})/
-const CMP_IMPLICITA = /\baument(?:ou|aram|o)\b|\bcai(?:u|ram)\b|\bsubiu\b|\bdesceu\b|\bcresceu\b|\bdiminuiu\b|\bpiorou\b|\bmelhorou\b|\bdiferenca\b|\bmudou\b/
+const CMP_IMPLICITA = /\baument(?:ou|aram|o)\b|\bcai(?:u|ram)\b|\bsubiu\b|\bdesceu\b|\bcresceu\b|\bdiminuiu\b|\bpiorou\b|\bmelhorou\b|\bdiferenca\b|\bmudou\b|\bque\s+antes\b|\bdo\s+que\s+antes\b|\bmais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:gastava|ganhava|fazia)\b/
 
 /** "3 meses atrás" dentro de uma comparação = a MESMA janela, deslocada. */
 function deslocaPeriodo(p: QueryPeriod, n: number, unidade: string): QueryPeriod {
@@ -548,7 +573,10 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   // solto, sem dizer QUAL foi o gasto.
   const base = rest.texto
   const metrica = lerMetrica(base)
-  const fonteLida = lerFonte(base, driver)
+  const fonteLida = lerFonte(base, driver, (state.goals || [])
+    .filter(g => !g.done)
+    .map(g => normalizeName(g.name))
+    .filter(n => n.length >= 3))
   const grupoLido = lerGrupo(base, driver)
 
   rest.consome(metrica.matched)
@@ -681,6 +709,21 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     rest.consome(origem.matched)
     filter.origin = origem.valor
     recognized.push(`origem ${origem.valor}`)
+  }
+
+  // Meta citada pelo nome. Sem isto, "quanto falta pra viagem" devolvia a soma
+  // de TODAS as metas ("Metas até agora: R$ 4.000,00"), que é uma resposta que
+  // ninguém pediu e some com a meta perguntada no meio das outras.
+  if (source === 'goals') {
+    const alvo = (state.goals || []).find(g => !g.done && normalizeName(g.name).length >= 3
+      // `t0`, não `rest.texto`: quem detectou a fonte já consumiu o nome da
+      // meta, e procurar no que sobrou nunca acharia nada.
+      && new RegExp(`\\b${escapaRegex(normalizeName(g.name))}\\b`).test(t0))
+    if (alvo) {
+      filter.goalName = alvo.name
+      recognized.push(`meta ${alvo.name}`)
+      rest.consome(normalizeName(alvo.name))
+    }
   }
 
   const semExcluidos = cartoes.filter(c => !filter.excludeCardNames?.includes(c))
@@ -867,6 +910,9 @@ function alemDoAntigo(plan: AssistantQueryPlan, periodoDito: boolean): boolean {
   if (f.weekdays?.length || f.monthHalf || f.origin) return true
   if (plan.metric === 'share' || plan.metric === 'median') return true
   if (plan.source === 'plans' || plan.source === 'projections') return true
+  // (C) Pergunta sobre UM cartão. O roteador antigo responde o mês inteiro —
+  // certo como número, errado como resposta, e sem deixar o cartão no foco.
+  if (f.cardNames?.length) return true
   return false
 }
 

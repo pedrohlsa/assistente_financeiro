@@ -164,6 +164,13 @@ const CONTINUACAO = [
   // do histórico. Mandar essa frase para o planner comum respondia com o pior
   // mês REAL do passado — um número correto sobre a pergunta errada.
   /^qual\s+mes\s+(?:fica|seria|vai\s+ficar|e)\s+(?:o\s+)?(?:pior|mais\s+apertado)/,
+  // "Qual foi pior?" logo depois de ver dois períodos compara OS DOIS. Sem
+  // isto a frase virava pergunta nova e o filtro do assunto se perdia — quem
+  // acabou de falar de obra recebia o total do mês inteiro.
+  /^qual\s+(?:foi\s+)?(?:o\s+)?(?:pior|melhor)\s*\??$/,
+  /^qual\s+d[oa]s\s+(?:duas|dois)\b/,
+  // "Dá ruim?" depois de uma simulação pergunta pela simulação.
+  /^(?:d[áa]\s+ruim|ficou\s+ruim|t[áa]\s+ruim|[ée]\s+ruim|vale\s+a\s+pena)\s*\??$/,
 ]
 
 /** Frase curta o bastante para ser continuação, e não uma pergunta nova. */
@@ -247,9 +254,16 @@ function refinaCenario(focus: ConversationFocus, t: string): AssistantScenarioPl
     return { ...base }
   }
 
+  // "Dá ruim?" e "vale a pena?" perguntam pela MESMA simulação — o motor já
+  // calcula a viabilidade e a resposta a destaca.
+  if (/^(?:d[áa]\s+ruim|ficou\s+ruim|t[áa]\s+ruim|[ée]\s+ruim|vale\s+a\s+pena)\s*\??$/.test(t)) {
+    return { ...base }
+  }
+
   if (/^volta\b/.test(t)) {
-    const anterior = focus.scenarioHistory?.[0]
-    return anterior ? { ...anterior } : null
+    // Sem cenário anterior, devolver o ATUAL é melhor que o texto genérico de
+    // ajuda: o usuário continua vendo aquilo de que estava falando.
+    return { ...(focus.scenarioHistory?.[0] || base) }
   }
 
   // "e em 12?" / "agora em 6x" / "e em 10 vezes"
@@ -307,6 +321,23 @@ function refinaConsulta(
 ): FollowUp | null {
   const planned = (plan: AssistantQueryPlan, motivo: string): FollowUp =>
     ({ kind: 'query', planned: { plan, confidence: 'high', recognized: [motivo] } })
+
+  // ---- "qual foi pior?" — os DOIS períodos que ele acabou de ver -------
+  if (/^qual\s+(?:foi\s+)?(?:o\s+)?(?:pior|melhor)\s*\??$/.test(t)) {
+    const cmp = focus.previousQueryPlan?.period || base.comparePeriod || previousPeriod(base.period)
+    return planned({ ...base, comparePeriod: cmp }, `comparação com ${cmp.label}`)
+  }
+
+  // ---- "qual das duas rende mais?" — agrupa pela entidade em foco ------
+  if (/^qual\s+d[oa]s\s+(?:duas|dois)\b/.test(t)) {
+    const porOrigem = !!base.filter.origin || !!focus.entities?.origins?.length
+    const grupo = porOrigem ? 'origin' : base.filter.cardNames?.length ? 'card' : 'category'
+    // A origem que estava filtrando SAI: comparar duas exige ver as duas.
+    const filtro = { ...base.filter }
+    delete filtro.origin
+    delete filtro.cardNames
+    return planned({ ...base, group: grupo, filter: filtro, order: 'value-desc', limit: 6 }, `por ${grupo}`)
+  }
 
   // ---- "qual a diferença?" / "compara os dois" --------------------------
   if (/^(?:qual\s+(?:a\s+)?diferenca|compara)/.test(t)) {
@@ -372,7 +403,10 @@ function refinaConsulta(
   // ---- exclusão: "e tirando obra?", "e sem cimento?" --------------------
   const excluir = t.match(/\b(?:tirando|sem|fora|exceto|desconsiderando)\s+(?:o\s+|a\s+|os\s+|as\s+)?([a-z0-9çãõáéíóúâê][a-z0-9\s\-çãõáéíóúâê]{1,30}?)\s*\??$/)
   if (excluir) {
-    const alvo = excluir[1].trim()
+    // "tirando cimento da conta" tem uma cauda que não faz parte do nome:
+    // procurar por "cimento da conta" não acha nada e a exclusão vira letra
+    // morta — a resposta sai idêntica e parece que o app ignorou o pedido.
+    const alvo = excluir[1].trim().replace(/\s+d[aeo]s?\s+\S+$/, '').trim()
     const cartao = achaCartao(state, alvo)
     const cat = cartao ? undefined : achaCategoria(state, alvo)
     const filtro = { ...base.filter }
@@ -395,7 +429,12 @@ function refinaConsulta(
     const filtro = { ...base.filter }
     if (cartao) { filtro.cardNames = [cartao]; delete filtro.excludeCardNames }
     else if (cat) { filtro.categories = [cat]; delete filtro.excludeCategories }
-    else filtro.text = alvo
+    else if (base.filter.origin && ehNomeDeOrigem(alvo)) {
+      // "quanto a Casa 1 rendeu?" → "e a Casa 2": o usuário TROCOU de imóvel.
+      // Somar um filtro de texto por cima da origem antiga procurava as duas
+      // ao mesmo tempo e não achava nada.
+      filtro.origin = alvo
+    } else filtro.text = alvo
     return planned({ ...base, filter: filtro, group: cartao || cat ? 'none' : base.group }, `só ${alvo}`)
   }
 
@@ -461,6 +500,10 @@ const janelaSeisMeses = (hoje: string): QueryPeriod => {
     to: hoje, label: 'nos últimos 6 meses', grain: 'month',
   }
 }
+
+/** "casa 2", "cliente joão": substantivo de fonte seguido de identificador. */
+const ehNomeDeOrigem = (s: string): boolean =>
+  /^(?:casa|cliente|empresa|loja|apart\w*|kitnet|sala|ponto|unidade|inquilin\w+|contrato)\s+\S+/i.test(s.trim())
 
 const achaCartao = (state: AppState, nome: string): string | undefined =>
   activeCards(state).find(c => normalizeName(c.name) === normalizeName(nome)

@@ -32,7 +32,13 @@ const HIPOTESE = [
   // "se a Casa 1 não pagar": entre o artigo e o verbo cabe um nome com número
   // ("casa 1", "cliente joão silva"), e exigir uma palavra só deixava a frase
   // mais comum do dono de imóvel de fora.
-  /\bse\s+(?:a|o|as|os)\s+[\w\s]{2,24}?\s(?:nao|atrasar|atrasarem|falhar|sumir)\b/,
+  /\bse\s+(?:a|o|as|os)\s+[\w\s]{2,24}?\s(?:nao|n|atrasar|atrasarem|falhar|sumir)\b/,
+  // "só quero saber se 500 de obra cabe esse mês" — hipótese sem "eu", dita do
+  // jeito mais direto possível. Sem estas formas ela caía no texto genérico de
+  // ajuda, e é justamente a frase de quem NÃO quer registrar nada.
+  /\bse\s+(?:r\$\s*)?\d/,
+  /\bcabe\b/, /\bd[áa]\s+pra\b[^?]*\d/, /\bdaria\s+pra\b/,
+  /\bconsigo\s+(?:comprar|pagar|bancar)\b/, /\bs[óo]\s+quero\s+saber\s+se\b/,
 ]
 
 export const looksLikeScenario = (input: string): boolean => {
@@ -139,7 +145,10 @@ export function planScenario(
   }
 
   // ---- entrada que não vem ------------------------------------------------
-  if (/\bnao\s+(?:me\s+)?(?:pagar|pagarem|vier|entrar|cair|depositar)\b|\batrasar\b|\bfalhar\b|\bnao\s+receber\b/.test(t)) {
+  // "n pagar" é como se escreve no celular. Sem aceitar o "n" abreviado, a
+  // frase caía no ramo de GASTO e o "1" de "Casa 1" virava um gasto simulado
+  // de R$ 1,00 — resposta completa, precisa e sobre outra coisa.
+  if (/\b(?:nao|n)\s+(?:me\s+)?(?:pagar|pagarem|vier|entrar|cair|depositar|receber)\b|\batrasar\b|\bfalhar\b/.test(t)) {
     const origem = origemDe(t)
     // O número de "Casa 1" é parte do NOME, não um valor: sem tirar a origem do
     // texto antes de ler o dinheiro, "se a Casa 1 não pagar" virava uma entrada
@@ -177,9 +186,16 @@ export function planScenario(
   }
 
   // ---- gasto avulso -------------------------------------------------------
-  if (/\bgastar\b|\bgastasse\b|\bpagar\b|\bcomprar\b|\bmeter\b|\btorrar\b/.test(t)) {
-    const valor = lerValor(t)
-    if (Number.isFinite(valor) && valor > 0) {
+  // "cabe" e "dá pra" são a forma mais curta de perguntar se um gasto entra no
+  // mês: "só quero saber se 500 de obra CABE esse mês". Sem elas a frase caía
+  // no texto genérico de ajuda — logo a frase de quem DIZ que não quer
+  // registrar nada, e que é justamente quem mais precisa da simulação.
+  if (/\bgastar\b|\bgastasse\b|\bpagar\b|\bcomprar\b|\bmeter\b|\btorrar\b|\bcabe\b|\bcaberia\b|\bd[áa]\s+pra\b|\bdaria\s+pra\b/.test(t)) {
+    // O valor tem que ser DINHEIRO: um "1" solto quase sempre e identificador
+    // ("Casa 1", "unidade 2"), e simular um gasto de R$ 1,00 e pior que nao
+    // simular nada.
+    const valor = valorDeDinheiro(t, lerValor(t))
+    if (valor !== undefined) {
       return base('spend', { amount: valor, category: categoriaDe(state, t) }, `gastar ${valor}`)
     }
   }

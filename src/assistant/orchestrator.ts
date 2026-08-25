@@ -23,6 +23,7 @@ import { categoryDilemma, outOfPatternWarning, withLearnedCategory } from './lea
 import { explainRequest } from './explain'
 import { answerConversation, isFocusFresh, looksLikeFollowUp } from './conversation'
 import { buildTurnPlan, hasBlock } from './semantic/turn'
+import { parseDriverDay } from './semantic/driverDay'
 import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } from './semantic/normalize'
 import { conflictQuestion, evidenceFor, mergeByField, sameFact } from './semantic/evidence'
 import { composeAnswer, explainQueryResult, isQueryFailure, runQuery, validateQueryPlan } from './query'
@@ -622,6 +623,27 @@ function proposalText(candidates: AssistantCandidateAction[]): string {
 // Orquestração
 // ---------------------------------------------------------------------------
 
+/**
+ * Pedido para o assistente quebrar as proprias regras: ignorar instrucoes,
+ * registrar sem confirmar, mostrar o prompt ou entregar uma chave.
+ *
+ * Isto NAO substitui nenhuma barreira — o que impede o registro sem confirmacao
+ * e a arquitetura, nao um regex. Serve para o app DIZER nao em vez de responder
+ * com a lista de exemplos, que funcionava como recusa por acidente.
+ */
+const QUEBRAR_REGRA = [
+  /\bignor[ae]\s+(?:suas?|as|todas?)\s+(?:regras?|instru)/i,
+  /\bsem\s+(?:pedir\s+)?confirma/i,
+  /\bregistr[ae]\s+.{0,30}\bsem\s+confirm/i,
+  /\b(?:mostr[ae]|revel[ae]|me\s+d[êe]|qual\s+[ée])\b[^?]{0,40}\b(?:prompt|instru[çc][õo]es\s+internas|system\s+prompt)\b/i,
+  /\b(?:chave|token|api\s*key|senha)\b[^?]{0,30}\b(?:api|deepseek|sistema|voc[êe]\s+usa)\b/i,
+  /\bqual\s+[ée]\s+a\s+(?:chave|senha|api)/i,
+  /\bfa[çc]a\s+de\s+conta\s+que\s+voc[êe]\b/i,
+  /\besque[çc]a\s+(?:tudo|suas?\s+regras?)/i,
+]
+
+const pedeParaQuebrarRegra = (t: string): boolean => QUEBRAR_REGRA.some(re => re.test(t))
+
 const rejectionNote = (rejected: LocalPass['rejected']): string => {
   if (!rejected.length) return ''
   const first = rejected[0]
@@ -1081,7 +1103,56 @@ Confirmar?`,
   }
   const entrada: OrchestratorInput = mensagem === input.message ? input : { ...input, message: mensagem }
 
+  // ---- 2c3) O DIA TELEGRÁFICO do motorista ------------------------------
+  // "hj deu 430 uber 399 99 163 de gasosa 24l 161km 8h" não tem oração
+  // nenhuma, e o parser de frases lia só o primeiro valor e as horas: os
+  // R$ 399 da 99, os R$ 163 de combustível, os 24 litros e os 161 km sumiam em
+  // silêncio. Perder metade do dia de trabalho de alguém é o pior tipo de
+  // defeito — ele confirma o que vê e nunca descobre o que faltou.
+  //
+  // Só assume quando reconhece MAIS coisas que o parser normal já tinha achado.
+  const diaTelegrafico = parseDriverDay(mensagem, { driver: caps.isDriver })
+  if (diaTelegrafico) {
+    const jaAchou = turno.blocks.reduce((n, b) => n + b.actions.length, 0)
+    if (diaTelegrafico.actions.length > jaAchou) {
+      const dataDoDia = turno.blocks.find(b => b.clause.date)?.clause.date
+      const cands: AssistantCandidateAction[] = []
+      for (const bruta of diaTelegrafico.actions) {
+        const comData: any = { ...bruta }
+        if (dataDoDia && actionSpec(bruta.kind)?.fields.some(f => f.name === 'date')) comData.date = dataDoDia
+        const v = validateAction(withLearnedCategory(input.state, comData, today), caps, today)
+        if (!isValidationFailure(v)) cands.push(candidate(v.action, 'local'))
+      }
+      if (cands.length) {
+        return {
+          draft: null,
+          focus: input.focus,
+          response: {
+            version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
+            actions: cands, unresolved: [],
+            reply: `${proposalText(cands)}\n\nConfirmar?`,
+          },
+        }
+      }
+    }
+  }
+
   const temFato = hasBlock(turno, 'record')
+
+  // Registrar E simular na mesma frase (regra 27). "Meu salário entrou 1625,
+  // paguei 355, guardei 150 e quero saber se consigo comprar um celular de 3000
+  // em 10x" tem as duas metades, e a guarda de fato calava a segunda inteira:
+  // a simulação sumia E o cenário nunca entrava no foco, então o "e em 12x"
+  // seguinte não tinha em que se apoiar.
+  //
+  // Só o CENÁRIO ganha esta exceção. A consulta não ganha, e por um motivo
+  // medido: "recebi 1800 da Casa 1, MAIS 1750 da Casa 2" e "meu salário CAIU
+  // hoje 3200" viram consulta por acidente de vocabulário, e o lançamento
+  // desaparecia. `looksLikeScenario` exige marcador explícito de hipótese, que
+  // ninguém escreve sem querer.
+  const cenarioJunto = temFato && hasBlock(turno, 'scenario')
+    ? answerConversation(input.state, mensagem, { today, focus: input.focus })
+    : null
   const conversa = temFato ? null : answerConversation(input.state, mensagem, {
     today, focus: input.focus,
   })
@@ -1256,13 +1327,14 @@ Confirmar?`,
   const remoteNote = !remoteReply && unresolved.some(u => u.reason === 'remote-unavailable')
     ? 'Não consegui falar com o assistente por IA agora, então essa pergunta ficou sem resposta. Tente de novo em instantes — registrar e consultar seus números continua funcionando normalmente.'
     : null
-  const answerPart = [local_answers.text, remoteReply, hypo, planNote, remoteNote].filter(Boolean).join('\n\n')
+  const answerPart = [local_answers.text, remoteReply, cenarioJunto?.reply, hypo, planNote, remoteNote]
+    .filter(Boolean).join('\n\n')
   const rejectedAll = [...local.rejected, ...remoteRejected]
 
   let reply: string
   let mode: AssistantResponse['mode']
   /** Foco devolvido ao chamador. So muda quando a consulta de fato respondeu. */
-  let focoFinal: ConversationFocus | undefined = input.focus
+  let focoFinal: ConversationFocus | undefined = cenarioJunto?.focus || input.focus
 
   if (clarification) {
     mode = 'clarify'
@@ -1278,6 +1350,36 @@ Confirmar?`,
   } else if (answerPart) {
     mode = 'answer'
     reply = answerPart
+  } else if (pedeParaQuebrarRegra(mensagem)) {
+    // O texto genérico de ajuda funcionava como recusa por acidente: ele não
+    // registrava nada, mas também não dizia NÃO. Quem tenta isso merece uma
+    // resposta clara, e quem lê o log do app também.
+    mode = 'answer'
+    reply = 'Isso eu não faço. Só registro o que você me pedir, e sempre com você '
+      + 'confirmando na tela antes de qualquer coisa entrar. Também não mostro '
+      + 'instruções internas nem chave de acesso.\n\n'
+      + 'Se quiser registrar alguma coisa de verdade, é só me contar o que aconteceu.'
+  } else if (/^\s*-\s*\d/.test(mensagem) || /\b(?:gastei|paguei|recebi|ganhei)\s+-\s*\d/.test(mensagem)) {
+    mode = 'answer'
+    reply = 'Valor negativo eu não sei registrar. Me diga o que aconteceu — '
+      + '"gastei 50 no mercado" ou "recebi 50 de volta" — que eu lanço no lado certo.'
+  } else if (/^\s*e\s+(?:um|uma|o|a)\s+([a-zà-ú]{3,20})\s*\??\s*$/i.test(mensagem)) {
+    // "E uma geladeira?" logo depois de uma compra parcelada. A elipse é clara
+    // no assunto e muda a COISA, mas não traz valor nenhum — e sem valor não há
+    // simulação possível. Perguntar o preço mantém a conversa; a lista de
+    // exemplos a encerrava.
+    // O artigo sai da frase do usuário, nunca de palpite: "esse geladeira" e
+    // "essa notebook" são o mesmo erro de inferir gênero que a regra 45 proíbe.
+    const coisa = (mensagem.match(/^\s*e\s+((?:um|uma|o|a)\s+[a-zà-ú]{3,20})/i) || [])[1] || 'isso'
+    mode = 'answer'
+    reply = `${sentenceCase(coisa)} de quanto? Me diga o valor e em quantas vezes `
+      + `que eu simulo — por exemplo "2000 em 10x".`
+  } else if (/^\s*(?:r\$\s*)?[\d.,]+\s*$/.test(mensagem)) {
+    // Um número solto: o usuário começou e parou. Perguntar é mais útil que a
+    // lista de exemplos.
+    mode = 'answer'
+    reply = `Só o valor eu não consigo lançar. Foi entrada ou saída, e com o quê? `
+      + `Por exemplo: "gastei ${mensagem.trim()} no mercado".`
   } else {
     mode = 'answer'
     const negadas = analysis.clauses.filter(c => c.intent === 'correction' && !c.actions.length)
@@ -1318,6 +1420,11 @@ Confirmar?`,
         reply = conversa.reply
         focoFinal = conversa.focus
       } else {
+        // Mesmo quando o roteador antigo responde, o PLANO fica guardado no
+        // foco. Sem isso, "meu nubank ta pesando?" era respondida por ele e a
+        // frase seguinte ("e o inter") nao tinha a que se referir — caia no
+        // texto generico de ajuda no meio da conversa.
+        if (conversa && conversa.kind === 'query') focoFinal = conversa.focus
         reply = local.actions?.length
           ? 'Não tenho certeza do que registrar aqui. Pode escrever de outro jeito?'
           : local.text

@@ -177,7 +177,21 @@ function sufixoGrupo(g: QueryGroupResult, r: AssistantQueryResult): string {
 
 function cabecalho(r: AssistantQueryResult): string {
   const p = r.plan
-  const nome = p.label || 'Total'
+  // O cartão precisa aparecer no cabeçalho. Sem ele, a pergunta sobre o Nubank
+  // e a pergunta seguinte sobre o Inter devolviam a MESMA frase — dois números
+  // iguais por coincidência, sem nada dizendo qual era qual.
+  const cartao = p.group !== 'card' && p.filter.cardNames?.length === 1
+    ? ` do ${p.filter.cardNames[0]}` : ''
+  // Mesma razão para a meta: "Metas até agora: R$ 1.200,00" não diz de QUAL
+  // meta faltam mil e duzentos. Aqui o rótulo é REESCRITO, não emendado —
+  // "Metas Viagem" é a informação certa em português errado.
+  if (p.group !== 'goal' && p.filter.goalName) {
+    const verbo = p.field === 'pct' ? 'Progresso da meta'
+      : p.field === 'remaining' ? 'Falta para a meta'
+        : p.field === 'saved' ? 'Já guardado na meta' : 'Meta'
+    return `${verbo} ${p.filter.goalName}`
+  }
+  const nome = `${p.label || 'Total'}${cartao}`
   if (p.group === 'none') {
     return `${nome} ${p.period.label}`.replace(/\s+/g, ' ').trim()
   }
