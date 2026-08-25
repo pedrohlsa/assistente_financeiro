@@ -1956,6 +1956,33 @@ export async function runProperties(): Promise<PropertyReport> {
     if (fmtBRL(-5) !== '-R$\u00a05,00') return `negativo mudou: ${JSON.stringify(fmtBRL(-5))}`
     return null
   })
+
+  // --- 86. A tela cabe em 320px ------------------------------------------
+  // Invariante de FIAÇÃO, medida antes no navegador: em 320px — celular
+  // barato, que é o aparelho do usuário-alvo — quatro telas rolavam de lado.
+  // A causa era sempre a mesma classe de erro: caixa que se recusa a encolher.
+  // Coluna `1fr` tem `min-width: auto`, então um valor grande faz a trilha
+  // crescer além da divisão e leva a página inteira junto.
+  check(r, 'layout não pode ter caixa que se recusa a encolher', () => {
+    const css = readFileSync(new URL('../../src/styles/global.css', import.meta.url), 'utf8')
+    const regra = (nome: string) =>
+      css.split('\n').find(l => l.trimStart().startsWith(`${nome} `)) || ''
+    for (const g of ['.grid-2', '.grid-3']) {
+      const linha = regra(g)
+      if (!linha) return `${g} sumiu do CSS`
+      if (!linha.includes('minmax(0,')) return `${g} usa coluna que não encolhe: ${linha.trim()}`
+    }
+    // Chip de sugestão carrega nome escrito pelo usuário: nunca pode passar da tela.
+    if (!/\.suggestion-row \.chip \{[^}]*max-width: 100%/.test(css)) {
+      return 'chip de sugestão sem teto de largura'
+    }
+    // Texto do usuário pode vir sem espaço nenhum.
+    if (!/\.row \.grow \{[^}]*overflow-wrap: anywhere/.test(css)) {
+      return 'linha de lista sem quebra de palavra longa'
+    }
+    return null
+  })
+
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
   // Invariante de FIAÇÃO, não de lógica: o corpus sempre passou
   // `pendingClarification`, então ele nunca poderia ver que `Chat.tsx` não

@@ -119,6 +119,10 @@ const usavelComoAtalho = (texto: string): boolean => {
  */
 const INVISIVEIS = /[\u0000-\u001F\u007F\u00AD\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/
 
+/** Nome que cabe num botao, com reticencias em vez de estouro. */
+const curto = (t: string, max = 26): string =>
+  (t.length <= max ? t : `${t.slice(0, max - 1).trimEnd()}…`)
+
 export interface SuggestionContext {
   today?: string
   /** Injetável: sugestão por horário não pode depender do relógio nos testes. */
@@ -152,7 +156,10 @@ export function assistantSuggestions(state: AppState, ctx: SuggestionContext = {
     // 2. Meta ativa, na forma NEUTRA: flexionar "minha moto"/"minha notebook"
     //    é inventar gênero, e o nome da meta é escrito pelo usuário.
     const meta = (state.goals || []).find(g => !g.done && g.name?.trim())
-    if (meta) minhas.push(q(`Quanto falta para a meta ${sentenceCase(meta.name.trim())}?`, 'meta-compra'))
+    // O nome da meta e escrito pelo usuario e pode ter qualquer tamanho. Num
+    // chip, "Moto que eu quero comprar esse ano ainda" vira um botao mais
+    // largo que a tela inteira.
+    if (meta) minhas.push(q(`Quanto falta para a meta ${curto(sentenceCase(meta.name.trim()))}?`, 'meta-compra'))
 
     // 3. O lugar que ele mais repete, na grafia dele e SEM valor.
     for (const lugar of model.frequentPlaces('expense', 3)) {
