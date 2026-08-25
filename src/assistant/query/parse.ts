@@ -258,6 +258,10 @@ function lerGrupo(t: string, driver: boolean): { valor: QueryGroup; matched: str
     [/\bqual\s+cartao\b|\bpor\s+cartao\b|\bcartao\s+(?:esta|mais)\b|\bqual\s+(?:dos\s+)?(?:meus\s+)?cartoes\b/, 'card'],
     [/\bqual\s+(?:casa|imovel|cliente|origem|fonte)\b|\bpor\s+(?:origem|imovel|cliente)\b/, 'origin'],
     [/\bqual\s+meta\b|\bpor\s+meta\b|\bmeta\s+(?:esta\s+)?mais\s+per/, 'goal'],
+    // "O que mais aumentou?" pede um RANKING por categoria. Sem esta regra o
+    // agrupamento ficava em `none`, a ordenação por diferença não tinha o que
+    // ordenar e a resposta virava um total solto — que não responde "o quê".
+    [/\bo\s+que\s+mais\s+(?:aumentou|subiu|cresceu|pesou|caiu|diminuiu|desceu)\b/, 'category'],
     [/\bqual\s+(?:foi\s+)?(?:o\s+)?(?:meu\s+)?(?:maior|menor)\s+(?:gasto|despesa|compra|receita|entrada)\b|\bo\s+que\s+(?:eu\s+)?mais\s+(?:gasto|gastei)\b|\bqual\s+gasto\b/, 'description'],
   ]
   const achou = primeira(t, tabela)
