@@ -1,8 +1,9 @@
 # AssistFin — Estado do Projeto
 
-**Última atualização**: 2026-08-17 — rodada ADAPTATIVA: modelo pessoal derivado com
+**Última atualização**: 2026-08-17 — rodada ADAPTATIVA (modelo pessoal derivado com
 evidência, confiança e recência; explicabilidade; ritmo do motorista; chave para
-desligar. Ver a última seção.
+desligar) seguida de seis rodadas de LIMITE, que acharam nove defeitos fora do corpus.
+Ver as duas últimas seções.
 
 > **Aviso de leitura**: as seções datadas abaixo são um diário — cada uma registra o que era
 > verdade **naquela data** e não é reescrita depois. Para o estado atual verificado, use
@@ -2525,3 +2526,68 @@ undo, reload e troca de perfil sem vazar dado de motorista.
   indistinguíveis** na saída do parser. Vale a decisão da regra 37.
 - **Erro de digitação no VERBO** (`gsatei 60 no merkado`) continua sem registro local —
   é o limite conhecido de um parser determinístico.
+
+---
+
+# 2026-08-17 (parte 2) — Rodadas de LIMITE
+
+Depois de a camada adaptativa ficar verde, seis rodadas de sonda descartável foram
+feitas só para QUEBRAR o que já estava passando. Nenhum dos nove defeitos abaixo
+aparecia no corpus: todos vieram de entrada hostil, escala, estado corrompido ou de
+LER a tela.
+
+## O que cedeu
+
+| # | Defeito | Por que importa |
+|---|---|---|
+| 1 | `null` no backup derrubava o app inteiro | `normalizeState` só checava "é array". Tela branca, sem recuperação: o usuário perdia o acesso ao próprio dinheiro |
+| 2 | Data ilegível envenenava o modelo pessoal | `fromISO('lixo')` → peso NaN → "a última em Invalid Date" na explicação |
+| 3 | A pergunta de categoria custava o lançamento | "gastei 40 no quiosque" → o app pergunta → "sei lá" → a despesa **desaparecia** |
+| 4 | Caractere invisível voltava como botão | `U+202E` num atalho inverte visualmente o texto ao redor |
+| 5 | "Gastei 50 centavos" registrava R$ 50,00 | Cem vezes o valor, na palavra mais explícita que existe |
+| 6 | Nome do usuário virava instrução no prompt | Uma meta com `\n` abria uma linha com cara de regra no meio das regras do sistema |
+| 7 | Conserto virava lançamento novo | "não, foi 100 mesmo" criava uma SEGUNDA despesa, com a primeira ainda confirmável acima |
+| 8 | Descrição virava fórmula no CSV | `=HYPERLINK(...)` executa na planilha do contador que recebeu o arquivo |
+| 9 | O app parava de salvar em silêncio | `setItem` sem `try`, dentro de `setTimeout`. O usuário registrava o dia inteiro no vazio |
+
+Mais quatro de menor gravidade, todos visíveis ao usuário: "R$ NaN" e "-R$ 0,00" na
+tela; dívida parcelada de R$ 0,00 ao lado de "parcelas deste mês: R$ 277,78"; "Toda
+sábado" e "às segundas-feira" no Planejamento; e quatro telas rolando de lado em 320px.
+
+## O que aguentou
+
+Registrar isto é tão útil quanto registrar o que quebrou, porque é o que não precisa
+ser reolhado: 6.000 lançamentos processados em 19 ms; as 13 ações remotas hostis todas
+recusadas com código próprio; envelope malformado, versão desconhecida e modo inventado
+recusados; toda data impossível perguntando em vez de chutar; recorrência com intervalo
+0, negativo ou NaN caindo em mensal sem laço infinito; dia 31 virando 28/02 e 31/03 sem
+degradar; backup de ida e volta idêntico byte a byte; e `goal-deposit` sem nome com três
+metas sendo recusado em vez de escolher uma.
+
+## Commits
+
+| Commit | O quê |
+|---|---|
+| `edd0a9d` | fix: o que o app faz quando o dado que chega não presta |
+| `ab59d1e` | fix: conserto que virava lançamento novo, e a meta com nome próprio |
+| `9abcbe9` | fix: centavo virando real, e o nome do usuário virando instrução |
+| `5aea2f4` | fix: português do dia da semana e dívida que se contradizia |
+| `b7178e0` | fix: descrição que virava fórmula na planilha de quem recebe o CSV |
+| `f308db1` | fix: o app parava de salvar em silêncio |
+| `a5df4a0` | fix: "R$ NaN" e "-R$ 0,00" na tela de um app de dinheiro |
+| `2dc604e` | fix: quatro telas rolavam de lado num celular de 320px |
+
+## Verificação
+
+`npm test` 531/531 casos + 86/86 invariantes · `npm run typecheck` e `typecheck:api`
+exit 0 · `npm run build` exit 0 · varredura de layout no navegador em 320 px, 768 px e
+1280 px, nos dois temas, com zero sobra horizontal nas dez rotas e sem erro de console ·
+aviso de falha de gravação verificado no navegador com `QuotaExceededError` forçado.
+
+## Nota de método
+
+Três dos nove defeitos foram achados por uma INVARIANTE que eu tinha acabado de
+escrever para outra coisa — "hoje saiu 250 na 99" (a segunda forma da despesa gêmea),
+"às segundas-feira" (o plural pela metade, achado logo depois de consertar o gênero) e
+o dilema com dois itens ambíguos. Testar a CLASSE, e não a frase, continua sendo o que
+separa consertar um caso de consertar o problema.

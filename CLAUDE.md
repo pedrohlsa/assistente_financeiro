@@ -451,3 +451,40 @@ editar `api/ai/chat.ts`, sempre redeployar com `npx vercel --prod`, senão a mud
   foi hardcoded por engano (checar com `grep -rn "sk-" dist/` depois do build).
 - `.gitignore` já protege `node_modules/`, `dist/`, `.env`, `.vercel` — mas note a ressalva sobre
   o escopo do repositório Git na seção de infraestrutura do `PROGRESS.md`.
+
+46. **Dado que chega de fora é filtrado na FRONTEIRA.** `normalizeState()` em
+    `store.tsx` é o único ponto onde backup e `localStorage` viram estado — e
+    ali um item que não é objeto é descartado. Não basta checar "é array":
+    um `null` no meio da lista fazia o primeiro `t.type` quebrar a tela em
+    branco, sem recuperação. Depois dessa fronteira o resto do código pode
+    confiar no que recebe. A mesma ideia vale para o modelo pessoal, que só
+    lê lançamento com data legível, valor finito e data não futura — o modelo
+    inteiro é temporal, e `fromISO('lixo')` envenenava o peso com NaN até
+    chegar ao usuário como "a última em Invalid Date".
+47. **Nome escrito pelo usuário nunca vira instrução nem fórmula.** Categoria,
+    cartão e meta são batizados por ele e viajam para dois lugares perigosos:
+    o prompt de sistema (montado por LINHAS — `nomeSeguro()` colapsa quebra de
+    linha e controle) e o CSV exportado (`csvCell()` em `utils/text.ts`, fonte
+    única). No CSV as aspas protegem o SEPARADOR, não o conteúdo: uma descrição
+    começando com `=`, `+`, `-` ou `@` executa como fórmula na planilha de quem
+    receber o arquivo. Caractere invisível ou de direção (`U+202E`, `U+200B`)
+    também não volta em botão de sugestão.
+48. **Falha de gravação nunca é silenciosa.** `setItem` mora dentro de um
+    `try` e a falha vira `storageError` no contexto do store, que a tela
+    mostra numa faixa fixa até uma gravação dar certo. Sem isso, com o
+    armazenamento cheio ou bloqueado, o app continuava respondendo enquanto
+    NADA era salvo — o pior desfecho possível num app offline-first de
+    dinheiro. Invariante 84.
+49. **Perguntar não pode custar o lançamento.** A pergunta de categoria é um
+    refinamento opcional: o usuário já disse que gastou. Resposta fora das
+    opções propõe a versão genérica, nunca descarta. E com DOIS itens
+    ambíguos o app não pergunta: uma pergunta só privilegiaria um e deixaria
+    o outro em Outros sem o usuário entender por quê. Do mesmo lado: com uma
+    proposta na tela, frase de contestação (`contestsProposal`) nunca vira
+    registro — ou o conserto é entendido, ou o assistente pergunta o que
+    mudar. Invariante 76.
+50. **Número na tela nunca é NaN, ∞ ou menos zero.** `fmtBRL`/`fmtNum`
+    devolvem travessão para valor não finito. Trocar por "R$ 0,00" seria pior:
+    número errado com cara de certo. E toda caixa de layout tem que encolher —
+    coluna `1fr` tem `min-width: auto` e leva a página inteira a rolar de lado
+    num celular de 320px. Invariantes 85 e 86.

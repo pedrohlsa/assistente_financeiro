@@ -15,14 +15,14 @@
 > - `tests/assistant/cases-registro-real.ts` — **68 casos** de REGISTRO em fala real
 >   (resultado do dia do motorista, gíria de dinheiro, typo, valor sem verbo, dois dias
 >   na mesma mensagem);
-> - `tests/assistant/cases-adaptativo.ts` — **43 casos** do que o app aprende com o próprio
+> - `tests/assistant/cases-adaptativo.ts` — **54 casos** do que o app aprende com o próprio
 >   usuário (vocabulário, grafia, recência, clientes isolados, explicabilidade e o ritmo do
 >   motorista);
-> - `tests/assistant/properties.ts` — **74 invariantes financeiras e de segurança**;
+> - `tests/assistant/properties.ts` — **86 invariantes financeiras e de segurança**;
 > - `npm run test:assistant` — roda tudo offline, com data fixa, contra o orquestrador real.
 >
 > **Resultado da última execução (17/08/2026, branch `feat/assistant-orchestrator`):
-> 520/520 casos e 74/74 invariantes.**
+> 531/531 casos e 86/86 invariantes.**
 >
 > ⚠️ **100% aqui não significa "a IA está correta".** Na rodada adversarial, 8 dos 17 bugs só
 > apareceram no navegador com mensagem real. Na rodada de 13/08/2026 repetiu-se o padrão por
@@ -72,7 +72,7 @@ Os grupos correspondem assim:
 | 10 motorista | `motorista`, `motorista2`, `perfil` |
 | 11 ambiguidades e correções | `ambiguidade`, `correcoes`, `correcoes2`, `multiturno` |
 | 12 conversacional | `conversa`, `conversa2`, `incompletas` |
-| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 74 invariantes |
+| 13 erros remotos e contrato | `seguranca`, `seguranca2` + as 86 invariantes |
 | 14 datas futuras, inválidas e períodos | `temporal` (43 casos) |
 | 15 desfazer o último lote | `undo` (14 casos) |
 | 16 corrigir lançamento já salvo | `edicao` (17 casos) |
@@ -317,7 +317,7 @@ Auditoria da DeepSeek:
 
 O quadro abaixo é o retrato **histórico anterior** à reformulação, mantido para
 explicar de onde o trabalho partiu. O estado executável atual é
-**520/520 casos e 74/74 invariantes**.
+**531/531 casos e 86/86 invariantes**.
 
 | Situação | Casos |
 |---|---|
@@ -365,7 +365,7 @@ correção auditável e reversível, template de recorrente intocado e bloqueio 
 
 ## 17. Camada adaptativa (17/08/2026)
 
-Fonte de verdade: `tests/assistant/cases-adaptativo.ts` (43 casos) e as invariantes 63–74.
+Fonte de verdade: `tests/assistant/cases-adaptativo.ts` (54 casos) e as invariantes 63–86.
 
 Cada caso `ad-10` em diante nasceu de um defeito REAL, reproduzido numa sonda descartável
 antes de existir correção. Os oito primeiros vieram da auditoria adversarial do mecanismo
@@ -389,9 +389,13 @@ deles apareceria só rodando o corpus.
 | Dinheiro contado duas vezes | 3 | `foi`/`deu`/`saiu` + plataforma | ✅ |
 | Origem com preposição | 1 | "da kitnet do fundo" não vira "kitnet do" | ✅ |
 | Hábito na palavra do usuário | 3 | "suco" = combustível; sem base, diz que não sabe | ✅ |
-| **Total** | **43** | | **43/43** |
+| Conserto que virava lançamento | 3 | Reforço no fim; contestação nunca registra | ✅ |
+| Meta com nome próprio | 1 | Nome da meta ganha da meta diária do motorista | ✅ |
+| Pergunta de categoria | 2 | "sei lá" não apaga o gasto; dois ambíguos não perguntam | ✅ |
+| Centavo é centavo | 5 | "50 centavos" nunca vira R$ 50,00 | ✅ |
+| **Total** | **54** | | **54/54** |
 
-Invariantes 63–74 cobrem: isolamento entre estados de clientes diferentes (incluindo consultar
+Invariantes 63–86 cobrem: isolamento entre estados de clientes diferentes (incluindo consultar
 um não alterar o outro), remoção de evidência removendo o aprendizado, categoria arquivada não
 derrubando o lançamento, aprendizado desligado sem efeito em valor/tipo/data/aviso, os dois
 lados da régua de recência (fóssil não decide, sazonal não é destruído), sugestão sem número e
@@ -399,9 +403,40 @@ sem gênero inventado, explicação que não vira ação nem sai do aparelho, co
 estabelecimento/cliente/journal, ausência de conhecimento de fábrica no bundle, funcionamento
 100% offline, e valor único que não vira receita e despesa ao mesmo tempo.
 
-**O que 43/43 NÃO prova.** Sete dos defeitos desta rodada só apareceram LENDO a resposta,
+**O que 54/54 NÃO prova.** Sete dos defeitos desta rodada só apareceram LENDO a resposta,
 com o corpus 100% verde: a explicação que contradizia o próprio app, a pergunta "por que" que
 cancelava a proposta na tela, o ranking de dia da semana com um dia por dia, "o seu normal"
 calculado sobre dois dias, a despesa gêmea de R$ 430 em "hoje foi 430 na uber", a origem
 truncada e o hábito perguntado com a palavra do usuário. Depois de mexer em qualquer coisa
 aqui, leia as respostas (regra 35).
+
+
+---
+
+## 18. Rodadas de LIMITE (17/08/2026)
+
+Depois da camada adaptativa, seis rodadas de sonda descartável foram feitas só para
+QUEBRAR o que já estava verde: entrada hostil, escala, estado corrompido, injeção pelo
+próprio dado do usuário, cálculo em condição extrema, persistência e layout. As sondas
+foram apagadas; o que ficou foram os casos e as invariantes.
+
+**O que aguentou sem defeito** (vale registrar, porque é o que não precisa ser reolhado):
+
+| Superfície | Testado com | Resultado |
+|---|---|---|
+| Escala do modelo pessoal | 6.000 lançamentos | 19 ms para construir + 1ª consulta; 2 ms para 200 consultas; 28 ms por mensagem |
+| Resposta remota hostil | 13 ações malformadas | Todas recusadas com código próprio |
+| Envelope remoto | nulo, texto puro, versão 99, modo inventado | Todos recusados |
+| Datas impossíveis | 29/02, 31/04, 15/13, dia 32, 00/01 | Todas perguntam, nenhuma chuta |
+| Recorrência | intervalo 0, −3, NaN, unidade inválida, 1e9 | Cai em mensal, sem laço infinito |
+| Dia 31 em mês curto | 12 meses seguidos | 28/02, 31/03, 30/04 — o dia original é preservado |
+| Parcelamento | 360×, 1× de R$ 0,01, 3× de R$ 0 | Sem estouro, sem NaN |
+| Backup ida e volta | estado completo com journal | Idêntico byte a byte |
+| Insights e notificações | estado vazio, categoria fantasma, valores de trilhão | Nenhuma exceção |
+| `goal-deposit` sem nome | três metas cadastradas | Recusado, em vez de escolher uma |
+
+**O que cedeu** virou commit próprio e está no `PROGRESS.md`. Em resumo: centavo virando
+real, nome de usuário virando instrução no prompt, conserto virando lançamento novo,
+descrição virando fórmula no CSV exportado, o app parando de salvar em silêncio,
+"R$ NaN" na tela, dívida contradizendo a parcela do mês, português errado no dia da
+semana, e quatro telas rolando de lado em 320px.

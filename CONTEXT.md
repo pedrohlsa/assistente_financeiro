@@ -5,7 +5,7 @@
 > **[FATO]** verificado no repo · **[INFERÊNCIA]** deduzido · **[PENDÊNCIA]** não feito.
 >
 > Fontes de verdade permanentes, mais detalhadas que este arquivo:
-> `CLAUDE.md` (regras 1–45), `CONTEXTO.md` (produto), `PROGRESS.md` (diário por rodada),
+> `CLAUDE.md` (regras 1–50), `CONTEXTO.md` (produto), `PROGRESS.md` (diário por rodada),
 > `docs/AI_CURRENT_STATE.md` e `docs/AI_REGRESSION_MATRIX.md` (IA). Este `CONTEXT.md`
 > resume e aponta para eles — em caso de divergência, o código vence.
 
@@ -34,7 +34,7 @@ via função serverless na Vercel.
 ## 2. Estado atual
 
 **[FATO] Tudo verde.**
-- Suíte: **520/520 casos + 74/74 invariantes** (rodado em 17/08/2026, `npm test`).
+- Suíte: **531/531 casos + 86/86 invariantes** (rodado em 17/08/2026, `npm test`).
 - `npm run typecheck` e `npm run typecheck:api`: exit 0.
 - `npm run build` e `npx vercel build --prod`: exit 0. Bundle inspecionado: sem chave,
   sem nome de env server-only, sem código server-only e sem dado de teste.
@@ -47,7 +47,7 @@ ter um modelo pessoal derivado com evidência, confiança e recência
 (`src/assistant/personalModel.ts`), a explicar as próprias decisões
 (`explain.ts`), a medir o ritmo do motorista no histórico dele
 (`driverInsights.ts`), e a oferecer a chave `settings.adaptiveAssistant` para desligar
-tudo isso. Ver as regras 37–45 do `CLAUDE.md` e a seção 7 deste arquivo.
+tudo isso. Ver as regras 37–50 do `CLAUDE.md` e a seção 7 deste arquivo.
 
 **Antes disso (13/08/2026):** vinte e dois commits em cinco rodadas de
 sondagem. Atacaram o REGISTRO em fala real (os quatro parsers pendentes e mais vinte
