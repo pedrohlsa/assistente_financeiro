@@ -1,0 +1,813 @@
+// PLANNER LOCAL — pergunta em pt-BR → `AssistantQueryPlan`.
+//
+// A diferença estrutural em relação a `resolveLocal()` não é o tamanho: é a
+// COMPOSIÇÃO. Lá, cada pergunta era uma regex que reconhecia a frase inteira, e
+// período × categoria × agrupamento × comparação × exclusão é um produto
+// cartesiano que nenhuma cadeia de `if` cobre.
+//
+// Aqui cada DIMENSÃO é reconhecida sozinha:
+//
+//     comparação   ← "comparado com", "em relação a", "aumentou", "caiu"
+//     período      ← query/period.ts
+//     métrica      ← o verbo e o substantivo da pergunta
+//     fonte        ← o assunto (parcela, fatura, meta, km, projeção…)
+//     agrupamento  ← "por categoria", "qual mês", "qual cartão"
+//     filtros      ← categoria, texto livre, origem, cartão, exclusão, dia
+//
+// CADA RECONHECEDOR CONSOME O TRECHO QUE USOU. Sem isso os reconhecedores se
+// atropelam: "qual gasto eu faço com mais FREQUÊNCIA" saía com o filtro de
+// texto `"frequencia"` (o extrator de alvo lia o "com ..." que a métrica já
+// tinha usado) e devolvia "não tenho nenhum lançamento" para quem tinha
+// centenas. É a mesma ideia da segmentação por cláusula: posição preservada,
+// nada lido duas vezes.
+//
+// O que este módulo NÃO faz: responder. Ele devolve um PLANO, que ainda passa
+// por `validateQueryPlan()` e só então é executado por `query/engine.ts`.
+
+import type { AppState } from '../../models/types'
+import { CATEGORY_KEYWORDS, usableCategories } from '../../data/categories'
+import { addDays, fromISO, todayISO, toISO } from '../../utils/format'
+import { normalizeName, sentenceCase } from '../../utils/text'
+import { isDriver } from '../../services/profile'
+import { buildPersonalModel, adaptiveEnabled } from '../personalModel'
+import {
+  currentMonthToDate, monthPeriod, nextMonths, parseFutureMonth, parsePeriod, previousPeriod,
+} from './period'
+import type {
+  AssistantQueryPlan, QueryField, QueryFilter, QueryGroup, QueryMetric,
+  QueryOrder, QueryPeriod, QuerySource,
+} from './types'
+import { QUERY_DSL_VERSION } from './types'
+
+export interface PlannedQuery {
+  plan: AssistantQueryPlan
+  /**
+   * `high` = a frase traz algo que o roteador antigo comprovadamente não faz
+   * (período fora das seis frases dele, agrupamento, comparação ou exclusão).
+   * É o que autoriza a consulta a assumir a pergunta; com `medium` ela só entra
+   * onde hoje sai o texto genérico de ajuda.
+   */
+  confidence: 'high' | 'medium'
+  /** Trechos reconhecidos — entram na explicação "como você chegou nisso?". */
+  recognized: string[]
+  /**
+   * Categoria que o HISTÓRICO dele associa ao nome procurado. Só é usada quando
+   * a busca literal não acha nada — ver o comentário em `resolverCategoria`.
+   */
+  fallbackCategory?: string
+}
+
+const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+
+/** Abreviações que o usuário REAL digita. */
+const ABREV: [RegExp, string][] = [
+  [/\bqnt[oa]?\b/g, 'quanto'], [/\bqto\b/g, 'quanto'], [/\bqnd\b/g, 'quando'],
+  [/\bq\b/g, 'que'], [/\bpq\b/g, 'porque'], [/\bvc\b/g, 'voce'],
+  [/\bhj\b/g, 'hoje'], [/\bontm\b/g, 'ontem'], [/\bmsm\b/g, 'mesmo'],
+  [/\bmt\b/g, 'muito'], [/\btbm?\b/g, 'tambem'], [/\bta[h]?\b/g, 'esta'],
+  [/\bto[u]?\b/g, 'estou'], [/\bpra\b/g, 'para'], [/\bpro\b/g, 'para'],
+  [/\bnd\b/g, 'nada'], [/\bmes?es\b/g, 'meses'],
+]
+
+export function normalizeQuery(input: string): string {
+  let t = semAcento(input).trim()
+  for (const [re, sub] of ABREV) t = t.replace(re, sub)
+  return t.replace(/\s{2,}/g, ' ')
+}
+
+// ---------------------------------------------------------------------------
+// A frase é uma CONSULTA de dados?
+// ---------------------------------------------------------------------------
+
+const PEDE_DADO = [
+  /\bquant[oa]s?\b/, /\bqual\b/, /\bquais\b/, /\bmedia\b/, /\bmediana\b/,
+  /\bmaior\b/, /\bmenor\b/, /\bmelhor\b/, /\bpior\b/, /\bmais\b/, /\bmenos\b/,
+  /\bcompar[ao]/, /\bdiferenca\b/, /\baument(?:ou|aram|o)\b/, /\bcai(?:u|ram)\b/,
+  /\bsubiu\b/, /\bdesceu\b/, /\bcresceu\b/, /\bdiminuiu\b/, /\bpiorou\b/,
+  /\bmelhorou\b/, /\bfrequen/, /\btotal\b/, /\bsoma\b/, /\bproporcao\b/,
+  /\bporcentagem\b/, /\brepresent/, /\btirando\b/, /\bexceto\b/,
+]
+
+const NAO_E_CONSULTA = [
+  // Cenário tem motor próprio: chegar aqui daria número REAL para hipótese.
+  /\bse\s+eu\b/, /\bse\s+a\s+gente\b/, /\bsupondo\b/, /\be\s+se\b/,
+  /\bestou\s+pensando\b/, /\bpretendo\b/, /\bvou\s+comprar\b/, /\bse\s+for\b/,
+  // Explicação é local, determinística e tem módulo próprio.
+  /\bpor\s*que\s+voce\b/, /\bo\s+que\s+voce\s+aprendeu\b/, /\bquantas\s+vezes\s+eu\s+fiz\s+isso\b/,
+]
+
+export function looksLikeDataQuestion(input: string): boolean {
+  const t = normalizeQuery(input)
+  if (NAO_E_CONSULTA.some(re => re.test(t))) return false
+  return PEDE_DADO.some(re => re.test(t))
+}
+
+// ---------------------------------------------------------------------------
+// Consumo de trechos
+// ---------------------------------------------------------------------------
+
+/** Texto que ainda não foi usado por nenhum reconhecedor. */
+class Restante {
+  constructor(public texto: string) {}
+  /** Marca o trecho como usado. Substitui por espaço para não colar palavras. */
+  consome(frag?: string) {
+    if (!frag) return
+    const i = this.texto.indexOf(frag)
+    if (i < 0) return
+    this.texto = `${this.texto.slice(0, i)} ${this.texto.slice(i + frag.length)}`.replace(/\s{2,}/g, ' ')
+  }
+}
+
+/** Primeira regra da tabela que casa, com o trecho literal casado junto. */
+function primeira<T>(t: string, tabela: [RegExp, T][]): { valor: T; matched: string } | null {
+  for (const [re, valor] of tabela) {
+    const m = t.match(re)
+    if (m) return { valor, matched: m[0] }
+  }
+  return null
+}
+
+// ---------------------------------------------------------------------------
+// Métrica
+// ---------------------------------------------------------------------------
+
+interface MetricaLida {
+  metric: QueryMetric
+  txType?: ('income' | 'expense' | 'saving')[]
+  order?: QueryOrder
+  limit?: number
+  group?: QueryGroup
+  label: string
+}
+
+const GASTO = /\bgast(?:ei|o|ou|ando|os?|ar)\b|\bpag(?:uei|o|ou|amento)\b|\btorr(?:ei|o)\b|\bdespesas?\b|\bsai(?:u|ram|da)\b|\bcustos?\b|\bcomprometid|\b(?:indo|vai|foi|vao)\s+(?:para|pra)\b/
+/**
+ * Verbos de GANHAR na boca de quem trabalha por conta. "Quanto estou fazendo
+ * por hora", "quanto eu faço no sábado", "qual me dá mais" e "quanto tirei
+ * hoje" são todas perguntas de RECEITA — sem elas, a pergunta do motorista
+ * sobre o próprio ganho era respondida com o total de DESPESA, e o número
+ * saía com cara de certo.
+ */
+const ENTRADA = /\bganh(?:ei|o|ou)\b|\brecebi\b|\brecebo\b|\bentr(?:ou|ada|adas|aram)\b|\bfatur(?:ei|o|amento|ou)\b|\breceitas?\b|\brenda\b|\bvend(?:i|as?)\b|\brend(?:e|eu|imento)\b|\bfa(?:co|z(?:endo|er))\b|\bfiz\b|\btir(?:ei|o)\b|\bd[aá]\s+mais\b|\bme\s+d[aá]\b/
+const GUARDADO = /\bguard(?:ei|o|ado|ar)\b|\bseparei\b|\breservei\b|\bpoupei\b/
+const RESULTADO = /\blucr(?:ei|o|ou)\b|\bsobr(?:ou|a|as|ando)\b|\bliquido\b|\bresultado\b|\bmelhor\s+mes\b|\bpior\s+mes\b|\bmelhor\s+semana\b|\bpior\s+semana\b|\bmelhor\s+dia\b|\bpior\s+dia\b/
+
+function tipoBaseDe(t: string): ('income' | 'expense' | 'saving')[] {
+  if (GUARDADO.test(t) && !GASTO.test(t)) return ['saving']
+  if (ENTRADA.test(t) && !GASTO.test(t)) return ['income']
+  return ['expense']
+}
+
+function lerMetrica(t: string): { valor: MetricaLida; matched: string } {
+  // "Lucro por km" é (entrou − saiu) / km. Sem isto, `tipoBaseDe` não achava
+  // verbo de receita em "lucro" e a conta virava DESPESA por km — um número
+  // seis vezes menor, com a mesma cara de resposta certa.
+  const tipo: ('income' | 'expense' | 'saving')[] =
+    RESULTADO.test(t) && !GASTO.test(t) ? ['income', 'expense'] : tipoBaseDe(t)
+  const rotuloBase = tipo.length > 1 ? 'Resultado'
+    : tipo[0] === 'income' ? 'Total recebido' : tipo[0] === 'saving' ? 'Total guardado' : 'Total gasto'
+
+  const tabela: [RegExp, MetricaLida][] = [
+    [/\b(?:com\s+)?(?:mais|maior)\s+frequencia\b|\bmais\s+frequente\b|\bque\s+(?:eu\s+)?mais\s+(?:faco|repito)\b/,
+      { metric: 'count', txType: tipo, group: 'description', order: 'count-desc', limit: 5, label: 'Mais frequente' }],
+    [/\bquantas?\s+vezes\b|\bquantos?\s+(?:lancamentos|registros)\b/,
+      { metric: 'count', txType: tipo, label: 'Quantidade' }],
+    [/\bquantas?\s+parcelas\b/, { metric: 'count', txType: tipo, label: 'Parcelas' }],
+    [/\brepresent\w*\b|\bporcentagem\b|\bproporcao\b|\bpercentual\b|\bquantos?\s*%/,
+      { metric: 'share', txType: tipo, label: 'Participação' }],
+    [/\bquanto\s+d[aeo]s?\s+(?:minhas?\s+|meus?\s+)?(?:receitas?|entradas?|renda|faturamento|ganhos)\b/,
+      { metric: 'share', txType: tipo, label: 'Participação' }],
+    [/\bmediana\b/, { metric: 'median', txType: tipo, label: 'Mediana' }],
+    [/\b(?:em|na|por)\s+media\b|\bmedia\b|\bnormalmente\b|\bcostum[oa]\b|\bgeralmente\b/,
+      { metric: 'avg', txType: tipo, label: 'Média por lançamento' }],
+    [/\bpor\s+km\b|\bpor\s+quilometro\b|\bo\s+km\b|\bkm\s+sai\b/, { metric: 'per-km', txType: tipo, label: 'Por km' }],
+    [/\bpor\s+hora\b|\ba\s+hora\b|\bhora\s+trabalhada\b/, { metric: 'per-hour', txType: tipo, label: 'Por hora' }],
+    [/\bpor\s+(?:viagem|corrida)\b|\bcada\s+(?:viagem|corrida)\b/, { metric: 'per-trip', txType: tipo, label: 'Por viagem' }],
+    [/\bpor\s+dia\b|\bao\s+dia\b|\bdiari[oa]\b/, { metric: 'per-day', txType: tipo, label: 'Por dia' }],
+  ]
+
+  const achou = primeira(t, tabela)
+  if (achou) return achou
+
+  if (RESULTADO.test(t) && !GASTO.test(t)) {
+    return {
+      valor: { metric: 'net', txType: ['income', 'expense'], label: 'Resultado' },
+      matched: (t.match(RESULTADO) || [''])[0],
+    }
+  }
+  const maior = t.match(/\bmaior\b|\bmais\s+car[oa]\b|\bmais\s+alt[oa]\b|\bpesou\s+mais\b/)
+  if (maior) {
+    return { valor: { metric: 'max', txType: tipo, order: 'value-desc', limit: 3, label: 'Maior valor' }, matched: maior[0] }
+  }
+  const menor = t.match(/\bmenor\b|\bmais\s+barat[oa]\b|\bmais\s+baix[oa]\b/)
+  if (menor) {
+    return { valor: { metric: 'min', txType: tipo, order: 'value-asc', limit: 3, label: 'Menor valor' }, matched: menor[0] }
+  }
+  return { valor: { metric: 'sum', txType: tipo, label: rotuloBase }, matched: '' }
+}
+
+// ---------------------------------------------------------------------------
+// Fonte
+// ---------------------------------------------------------------------------
+
+interface FonteLida { source: QuerySource; field?: QueryField }
+
+function lerFonte(t: string, driver: boolean): { valor: FonteLida; matched: string } | null {
+  const tabela: [RegExp, FonteLida][] = [
+    [/\bquantas?\s+parcelas\s+(?:faltam?|restam?|ainda)\b/, { source: 'installments' }],
+    [/\bfalta\s+(?:pagar|quitar)\b|\bquanto\s+(?:ainda\s+)?falta\b/, { source: 'plans', field: 'remaining' }],
+    [/\bparcelamentos?\b/, { source: 'plans', field: 'remaining' }],
+    [/\bparcelas?\b/, { source: 'installments' }],
+    [/\bfaturas?\b/, { source: 'invoices' }],
+    [/\bmetas?\b(?!\s+(?:diaria|mensal|do\s+dia|do\s+mes))/, { source: 'goals', field: 'remaining' }],
+    [/\bprojecao\b|\bprevisao\b|\bproxim[oa]s?\s+meses\b|\bvai\s+(?:ficar|sobrar|pesar|apertar)\b|\bmes\s+mais\s+(?:pesado|apertado)\b/,
+      { source: 'projections' }],
+    [/\bcontas?\s+(?:fixas?|a\s+vencer|recorrentes?)\b|\bvencendo\b|\bvence\b/, { source: 'recurring' }],
+  ]
+  const achou = primeira(t, tabela)
+  if (achou) return achou
+
+  if (driver) {
+    const dr: [RegExp, FonteLida][] = [
+      [/\bquantos?\s+km\b|\bkm\s+(?:eu\s+)?rode[iu]\b|\bkm\s+(?:rodad|percorr)/, { source: 'work', field: 'km' }],
+      [/\bquantas?\s+horas\b|\bhoras\s+(?:trabalhad|na\s+rua)/, { source: 'work', field: 'hours' }],
+      [/\bquantas?\s+(?:viagens|corridas)\b/, { source: 'work', field: 'trips' }],
+      [/\bsemana\s+(?:que\s+)?(?:eu\s+)?(?:mais\s+)?rode[iu]\b|\brode[iu]\s+mais\b/, { source: 'work', field: 'km' }],
+      [/\blitros?\b|\bconsumo\b|\bkm\s*\/\s*l\b/, { source: 'fuel', field: 'liters' }],
+    ]
+    return primeira(t, dr)
+  }
+  return null
+}
+
+// ---------------------------------------------------------------------------
+// Agrupamento
+// ---------------------------------------------------------------------------
+
+function lerGrupo(t: string, driver: boolean): { valor: QueryGroup; matched: string } | null {
+  const tabela: [RegExp, QueryGroup][] = [
+    [/\bdia\s+da\s+semana\b/, 'weekday'],
+    // O "do mês" faz parte da expressão e precisa ser CONSUMIDO junto: sobrando
+    // no texto, ele era lido como o período "este mês", e a pergunta comparava
+    // as duas metades dentro de uma quinzena só.
+    [/\bcomeco\s+ou\s+(?:no\s+)?(?:fim|final)(?:\s+d[oa]\s+mes)?\b|\b(?:fim|final)\s+ou\s+(?:no\s+)?comeco(?:\s+d[oa]\s+mes)?\b/, 'month-half'],
+    [/\bpor\s+categoria\b|\bqual\s+categoria\b|\bque\s+categoria\b|\bem\s+que\s+categoria\b|\bcategorias?\b/, 'category'],
+    [/\bqual\s+mes\b|\bque\s+mes\b|\bpor\s+mes\b|\bmes\s+a\s+mes\b|\bmes\s+mais\b|\bmelhor\s+mes\b|\bpior\s+mes\b|\bmeses\s+(?:eu\s+)?(?:tenho|vou)\b/, 'month'],
+    [/\bqual\s+semana\b|\bpor\s+semana\b|\bmelhor\s+semana\b|\bpior\s+semana\b|\bsemana\s+(?:que\s+)?(?:eu\s+)?mais\b/, 'week'],
+    [/\bqual\s+dia\b|\bmelhor\s+dia\b|\bpior\s+dia\b|\bdia\s+que\s+(?:eu\s+)?mais\b/, 'day'],
+    [/\bqual\s+cartao\b|\bpor\s+cartao\b|\bcartao\s+(?:esta|mais)\b|\bqual\s+(?:dos\s+)?(?:meus\s+)?cartoes\b/, 'card'],
+    [/\bqual\s+(?:casa|imovel|cliente|origem|fonte)\b|\bpor\s+(?:origem|imovel|cliente)\b/, 'origin'],
+    [/\bqual\s+meta\b|\bpor\s+meta\b|\bmeta\s+(?:esta\s+)?mais\s+per/, 'goal'],
+    [/\bqual\s+(?:foi\s+)?(?:o\s+)?(?:meu\s+)?(?:maior|menor)\s+(?:gasto|despesa|compra|receita|entrada)\b|\bo\s+que\s+(?:eu\s+)?mais\s+(?:gasto|gastei)\b|\bqual\s+gasto\b/, 'description'],
+  ]
+  const achou = primeira(t, tabela)
+  if (achou) return achou
+  if (driver) {
+    const dr: [RegExp, QueryGroup][] = [
+      [/\bqual\s+plataforma\b|\bpor\s+plataforma\b|\buber\s+ou\s+(?:a\s+)?99\b|\b99\s+ou\s+(?:a\s+)?uber\b/, 'platform'],
+    ]
+    return primeira(t, dr)
+  }
+  return null
+}
+
+// ---------------------------------------------------------------------------
+// Comparação
+// ---------------------------------------------------------------------------
+
+const MARCADOR_CMP = /\b(?:comparad[oa]\s+(?:com|ao|a)|comparando\s+com|compar[ao]\s+com|em\s+relacao\s+a[o]?|versus|vs|do\s+que|que)\s+(?:o\s+|a\s+|os\s+|as\s+)?([^?,.!]{2,40})/
+const CMP_IMPLICITA = /\baument(?:ou|aram|o)\b|\bcai(?:u|ram)\b|\bsubiu\b|\bdesceu\b|\bcresceu\b|\bdiminuiu\b|\bpiorou\b|\bmelhorou\b|\bdiferenca\b|\bmudou\b/
+
+/** "3 meses atrás" dentro de uma comparação = a MESMA janela, deslocada. */
+function deslocaPeriodo(p: QueryPeriod, n: number, unidade: string): QueryPeriod {
+  if (/^mes/.test(unidade)) {
+    const a = fromISO(p.from), b = fromISO(p.to)
+    const from = toISO(new Date(a.getFullYear(), a.getMonth() - n, a.getDate()))
+    const to = toISO(new Date(b.getFullYear(), b.getMonth() - n, b.getDate()))
+    return { from, to, label: `${n} ${n === 1 ? 'mês' : 'meses'} atrás`, grain: p.grain }
+  }
+  if (/^ano/.test(unidade)) {
+    const a = fromISO(p.from), b = fromISO(p.to)
+    return {
+      from: toISO(new Date(a.getFullYear() - n, a.getMonth(), a.getDate())),
+      to: toISO(new Date(b.getFullYear() - n, b.getMonth(), b.getDate())),
+      label: `${n} ${n === 1 ? 'ano' : 'anos'} atrás`, grain: p.grain,
+    }
+  }
+  const dias = /^semana/.test(unidade) ? n * 7 : n
+  return {
+    from: addDays(p.from, -dias), to: addDays(p.to, -dias),
+    label: `${n} ${unidade} atrás`, grain: p.grain,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Alvo e exclusão
+// ---------------------------------------------------------------------------
+
+/** Palavras que nunca são o alvo — são estrutura da pergunta. */
+const ESTRUTURAIS = new Set([
+  'quanto', 'quantos', 'quantas', 'qual', 'quais', 'quando', 'onde', 'como',
+  'eu', 'meu', 'minha', 'meus', 'minhas', 'o', 'a', 'os', 'as', 'um', 'uma',
+  'de', 'do', 'da', 'dos', 'das', 'no', 'na', 'nos', 'nas', 'em', 'com', 'por',
+  'para', 'que', 'e', 'ou', 'mais', 'menos', 'muito', 'total', 'media', 'mediana',
+  'mes', 'meses', 'semana', 'semanas', 'dia', 'dias', 'ano', 'anos', 'hoje',
+  'ontem', 'passado', 'passada', 'este', 'esta', 'esse', 'essa', 'neste', 'nesse',
+  'ultimos', 'ultimas', 'ultimo', 'ultima', 'proximo', 'proximos', 'atras',
+  'gastei', 'gasto', 'gastos', 'gasta', 'paguei', 'recebi', 'ganhei', 'ganho',
+  'faturei', 'lucrei', 'sobrou', 'sobra', 'guardei', 'guardado', 'foi', 'sao',
+  'estou', 'tenho', 'tem', 'vou', 'ainda', 'ja', 'nao', 'sim', 'reais', 'valor',
+  'dinheiro', 'realmente', 'mesmo', 'entao', 'agora', 'frequencia', 'frequente',
+  'vezes', 'maior', 'menor', 'melhor', 'pior', 'comeco', 'inicio', 'fim', 'final',
+  'consegui', 'costumo', 'normalmente', 'geralmente', 'representa', 'comprometido',
+  'pesado', 'terminar', 'perto', 'faltam', 'falta', 'parcelas', 'parcela',
+  'compras', 'comprei', 'categoria', 'categorias', 'aumentaram', 'aumentou',
+  'caiu', 'cairam', 'despesas', 'despesa', 'receitas', 'receita', 'entradas',
+  'renda', 'me', 'minhas', 'meus', 'cada', 'todos', 'toda', 'todas', 'algum',
+])
+
+const soUteis = (frase: string): string | undefined => {
+  const palavras = frase.trim().split(/\s+/).filter(w => w.length > 1 && !ESTRUTURAIS.has(w))
+  return palavras.length ? palavras.join(' ') : undefined
+}
+
+const PARADA = String.raw`(?=\s*(?:\?|$|,|\.|!|\be\b|\bou\b|\bnos?\b|\bnas?\b|\bneste\b|\bnesse\b|\bem\b|\bcomparad|\bcompar|\bultim|\bpassad|\bmes\b|\bmeses\b|\bsemana\b|\bdia\b|\bano\b|\bhoje\b|\bontem\b|\bpor\b|\btirando\b|\bsem\b|\bexceto\b|\bquanto\b|\bqual\b))`
+
+/**
+ * O QUÊ da pergunta.
+ *
+ * Devolve DUAS leituras do mesmo trecho: `valor` sem as palavras de estrutura
+ * (é ela que casa com nome de categoria) e `literal`, como o usuário escreveu
+ * (é ela que procura no histórico). Guardar só a primeira quebrava a busca por
+ * lugar: "no Zé DA esquina" virava "ze esquina", que não é substring de "Zé da
+ * esquina" — e o lugar com três lançamentos aparecia como inexistente.
+ */
+function extrairAlvo(t: string): { valor: string; literal: string; matched: string } | undefined {
+  const m = t.match(new RegExp(String.raw`\b(?:com|de|em|no|na|nos|nas|para|pra)\s+([a-z0-9çãõáéíóúâêô][a-z0-9\s\-çãõáéíóúâêô]{1,40}?)${PARADA}`))
+  if (!m) return undefined
+  const valor = soUteis(m[1])
+  return valor ? { valor, literal: m[1].trim(), matched: m[0] } : undefined
+}
+
+/**
+ * Nome de categoria dito SOLTO, sem preposição: "meu combustível aumentou?",
+ * "alimentação subiu?". Só entra quando nenhum alvo foi encontrado antes.
+ */
+function categoriaSolta(state: AppState, t: string, tipo: 'income' | 'expense'): { id: string; nome: string } | undefined {
+  for (const c of usableCategories(state.categories || [])) {
+    if (c.type !== tipo) continue
+    const n = normalizeName(c.name)
+    if (n.length < 4) continue
+    if (new RegExp(`(^|\\s)${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`).test(t)) return { id: c.id, nome: c.name }
+  }
+  return undefined
+}
+
+function extrairExclusao(t: string): { valor: string; matched: string } | undefined {
+  const m = t.match(new RegExp(String.raw`\b(?:tirando|sem|fora|exceto|desconsiderando|descontando)\s+(?:o\s+|a\s+|os\s+|as\s+)?([a-z0-9çãõáéíóúâêô][a-z0-9\s\-çãõáéíóúâêô]{1,30}?)${PARADA}`))
+  if (!m) return undefined
+  const valor = soUteis(m[1])
+  return valor ? { valor, matched: m[0] } : undefined
+}
+
+/** Substantivos de FONTE — os mesmos de `clauses.ts`, menos os que são categoria. */
+const ORIGEM_NOUNS = 'casa|cliente|empresa|loja|apart(?:amento)?|kitnet|kitinete|sala|ponto|unidade|inquilin[oa]|contrato'
+
+function extrairOrigem(t: string): { valor: string; matched: string } | undefined {
+  const re = new RegExp(String.raw`\b(?:d?[ao]s?\s+)?((?:${ORIGEM_NOUNS})\s+([\w\d]+))`, 'i')
+  const m = t.match(re)
+  if (!m) return undefined
+  // O identificador precisa identificar: número, ou palavra própria. Sem isso,
+  // "quanto gastei em casa este mês" viraria a origem "casa este".
+  const id = m[2]
+  if (!/\d/.test(id) && (ESTRUTURAIS.has(id) || id.length < 3)) return undefined
+  return { valor: m[1], matched: m[0] }
+}
+
+// ---------------------------------------------------------------------------
+// Resolução de nomes contra os dados REAIS do usuário
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve um nome para uma categoria REAL do usuário: o nome da categoria ou a
+ * lista genérica de palavras-chave.
+ *
+ * O histórico pessoal fica FORA daqui de propósito. Registrar e consultar
+ * puxam para lados opostos: no registro, saber que "Zé da esquina" é
+ * Alimentação é exatamente o que se quer; na consulta, "quanto gastei no Zé da
+ * esquina?" vira o total de Alimentação inteira — R$ 283,00 no lugar dos
+ * R$ 83,00 que ele gastou lá. Quem pergunta por um LUGAR quer o lugar. O
+ * aprendizado volta como SEGUNDA tentativa (`fallbackCategory`), só quando a
+ * busca literal não achou nada — que é o caso do motorista que fala "suco" e
+ * tem "Combustível" gravado na descrição.
+ */
+function resolverCategoria(
+  state: AppState, nome: string, tipo: 'income' | 'expense',
+): string | undefined {
+  const alvo = normalizeName(nome)
+  if (!alvo) return undefined
+  const cats = usableCategories(state.categories || []).filter(c => c.type === tipo)
+
+  const exata = cats.find(c => normalizeName(c.name) === alvo)
+  if (exata) return exata.id
+  const parcial = cats.find(c => alvo.length >= 4
+    && (normalizeName(c.name).includes(alvo) || alvo.includes(normalizeName(c.name))))
+  if (parcial) return parcial.id
+
+  for (const [id, palavras] of Object.entries(CATEGORY_KEYWORDS)) {
+    if (!cats.some(c => c.id === id)) continue
+    if (palavras.some(p => alvo === normalizeName(p) || alvo.includes(` ${normalizeName(p)}`) || alvo.startsWith(`${normalizeName(p)} `))) return id
+  }
+  return undefined
+}
+
+/** Categoria que o HISTÓRICO dele associa a este nome. Só como segunda tentativa. */
+function categoriaAprendida(
+  state: AppState, nome: string, tipo: 'income' | 'expense', hoje: string,
+): string | undefined {
+  if (!adaptiveEnabled(state)) return undefined
+  const p = buildPersonalModel(state, hoje).categoryFor(nome, tipo)
+  return p && (p.strength === 'strong' || p.strength === 'overriding') ? p.value : undefined
+}
+
+/** Cartões citados pelo nome, entre os que o usuário tem. */
+function cartoesCitados(state: AppState, t: string): string[] {
+  const out: string[] = []
+  for (const c of state.cards || []) {
+    if (c.archived) continue
+    const n = normalizeName(c.name)
+    if (n.length >= 3 && new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(t)) out.push(c.name)
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// Montagem
+// ---------------------------------------------------------------------------
+
+export interface PlanContext { today?: string }
+
+/** Janela padrão quando o agrupamento pede várias fatias e ninguém disse quando. */
+function janelaParaGrupo(group: QueryGroup, hoje: string): QueryPeriod | null {
+  const d = fromISO(hoje)
+  switch (group) {
+    case 'month':
+      return { from: toISO(new Date(d.getFullYear(), d.getMonth() - 5, 1)), to: hoje, label: 'nos últimos 6 meses', grain: 'month' }
+    case 'week':
+      return { from: addDays(hoje, -83), to: hoje, label: 'nas últimas 12 semanas', grain: 'week' }
+    case 'day':
+      return { from: addDays(hoje, -29), to: hoje, label: 'nos últimos 30 dias', grain: 'day' }
+    case 'weekday':
+      return { from: addDays(hoje, -59), to: hoje, label: 'nos últimos 60 dias', grain: 'day' }
+    case 'month-half':
+      return { from: toISO(new Date(d.getFullYear(), d.getMonth() - 2, 1)), to: hoje, label: 'nos últimos 3 meses', grain: 'month' }
+    default:
+      return null
+  }
+}
+
+/**
+ * Estado ATUAL (meta, parcelamento): não é recorte de tempo, é "tudo que vale".
+ * Ainda assim precisa caber no teto de `validateQueryPlan` — um intervalo de
+ * vinte anos era recusado por `period-too-long` e a pergunta morria com um erro
+ * técnico que não dizia nada ao usuário.
+ */
+const janelaAberta = (hoje: string): QueryPeriod =>
+  ({ from: addDays(hoje, -1800), to: addDays(hoje, 1800), label: 'até agora', grain: 'range' })
+
+export function planQuery(state: AppState, input: string, ctx: PlanContext = {}): PlannedQuery | null {
+  const hoje = ctx.today || todayISO()
+  const t0 = normalizeQuery(input)
+  if (!looksLikeDataQuestion(input)) return null
+
+  const driver = isDriver(state.settings)
+  const recognized: string[] = []
+  const rest = new Restante(t0)
+
+  // ---- 1) comparação: consumida ANTES do período ------------------------
+  // "comparando com mês passado" tem um período dentro dela. Sem consumir esse
+  // trecho primeiro, ele era lido como o período PRINCIPAL — e a pergunta
+  // comparava o mês passado com ele mesmo.
+  let textoComparacao: string | undefined
+  const marcador = t0.match(MARCADOR_CMP)
+  if (marcador && parsePeriod(marcador[1], hoje)) {
+    textoComparacao = marcador[1]
+    rest.consome(marcador[0])
+  }
+  const pedeComparacao = !!textoComparacao || CMP_IMPLICITA.test(t0)
+
+  // ---- 1b) denominador da proporção, consumido ANTES do verbo ------------
+  // "quanto DAS MINHAS RECEITAS está indo para combustível" tem dois lados: o
+  // denominador ("receitas") e o numerador ("combustível"). Deixar o
+  // denominador no texto fazia o leitor de verbo classificar a pergunta inteira
+  // como receita — e a resposta era 100%, aritmeticamente impecável e inútil.
+  const baseProporcao = t0.match(/\bd[aeo]s?\s+(?:minhas?\s+|meus?\s+)?(?:receitas?|entradas?|renda|faturamento|ganhos)\b/)
+  if (baseProporcao) rest.consome(baseProporcao[0])
+
+  // ---- 2/3/4) métrica, fonte e agrupamento -------------------------------
+  // Os três LEEM o mesmo texto (sem a comparação, que já saiu) e cada um
+  // consome o trecho que usou. Detectar em cadeia estragava o vizinho: a
+  // métrica consumia "maior" e o agrupamento não reconhecia mais "qual foi meu
+  // maior gasto" — a pergunta perdia o "por lançamento" e devolvia só um número
+  // solto, sem dizer QUAL foi o gasto.
+  const base = rest.texto
+  const metrica = lerMetrica(base)
+  const fonteLida = lerFonte(base, driver)
+  const grupoLido = lerGrupo(base, driver)
+
+  rest.consome(metrica.matched)
+  if (metrica.matched) recognized.push(metrica.matched.trim())
+  if (fonteLida) { rest.consome(fonteLida.matched); recognized.push(fonteLida.matched.trim()) }
+  if (grupoLido) { rest.consome(grupoLido.matched); recognized.push(grupoLido.matched.trim()) }
+
+  let source: QuerySource = fonteLida?.valor.source || 'transactions'
+  let group: QueryGroup = grupoLido?.valor || metrica.valor.group || 'none'
+  let metric: QueryMetric = metrica.valor.metric
+
+  // O denominador foi consumido lá em cima, então a frase deixou de conter o
+  // "das minhas receitas" que sinalizava proporção. O sinal veio junto — é ele
+  // que manda, e não o texto que já não existe mais.
+  if (baseProporcao) {
+    if (metric === 'sum') { metric = 'share'; metrica.valor.label = 'Participação' }
+    // O NUMERADOR é o que sobrou da frase. "Quanto das minhas receitas está
+    // INDO PARA combustível" mede uma saída; "quanto a Casa 1 representa da
+    // minha renda" mede uma entrada. Sem separar os dois, consumir "da minha
+    // renda" deixava a segunda sem verbo nenhum e ela virava despesa — a Casa 1
+    // aparecia como "sem lançamento" para quem recebe dela todo mês.
+    if (metric === 'share' && !GUARDADO.test(base)) {
+      metrica.valor.txType = GASTO.test(base) ? ['expense'] : ['income']
+    }
+  }
+
+  // "qual mês foi o pior?" sem verbo de dinheiro pergunta pelo RESULTADO do
+  // mês, não pelo total gasto. Com verbo explícito ("qual mês gastei mais") o
+  // que ele disse manda — o usuário sempre ganha do palpite.
+  const semVerbo = !GASTO.test(base) && !ENTRADA.test(base) && !GUARDADO.test(base)
+  if (semVerbo && metric === 'sum' && /\b(?:melhor|pior)\b/.test(base)
+    && (group === 'month' || group === 'week' || group === 'day')) {
+    metric = 'net'
+    metrica.valor.txType = ['income', 'expense']
+    metrica.valor.label = 'Resultado'
+  }
+
+  // Dois cartões citados numa pergunta é comparação entre eles, não filtro por
+  // um: "nubank ou inter, qual tá mais pesado?".
+  const cartoes = cartoesCitados(state, rest.texto)
+  if (cartoes.length > 1) group = 'card'
+
+  // Agrupar por cartão em `transactions` não devolve nada: lançamento não tem
+  // cartão (regra 10 — compra parcelada não vira Transaction). A fonte certa é
+  // a dívida ou a fatura, e qual delas depende do que se perguntou.
+  if (group === 'card' && source === 'transactions') {
+    source = /\bcomprometid|\bpesad|\bdivida|\bdevo\b|\bfalta\b/.test(t0) ? 'plans' : 'invoices'
+  }
+  // Plataforma (Uber, 99, inDrive) é de onde o dinheiro VEM. Sem verbo de gasto
+  // explícito, "uber ou 99, qual me dá mais?" é pergunta de receita — comparar
+  // as duas pelo que se GASTA nelas não responde nada.
+  if (group === 'platform') {
+    source = 'transactions'
+    if (!GASTO.test(t0)) metrica.valor.txType = ['income']
+  }
+
+  // ---- 5) período --------------------------------------------------------
+  const lido = parsePeriod(rest.texto, hoje)
+  let period: QueryPeriod
+  let periodoExplicito = false
+
+  if (source === 'projections') {
+    const futuro = parseFutureMonth(rest.texto, hoje)
+    const nMeses = rest.texto.match(/\bproxim[oa]s?\s+(\d{1,2})\s+meses\b/)
+    period = futuro || nextMonths(nMeses ? Math.min(Number(nMeses[1]), 12) : 6, hoje)
+    periodoExplicito = !!futuro || !!nMeses
+    if (group === 'none') group = 'month'
+  } else if (source === 'goals' || source === 'plans') {
+    period = janelaAberta(hoje)
+  } else if (lido) {
+    period = lido.period
+    periodoExplicito = true
+    rest.consome(lido.matched)
+    recognized.push(lido.matched)
+  } else {
+    // "qual dos próximos meses eu tenho mais parcelas": parcela REAL, janela
+    // futura. Sem isto a resposta olhava só o mês corrente e dizia "1 parcela".
+    const futuroPedido = /\bproxim[oa]s?\s+meses\b|\bqual\s+(?:dos\s+)?(?:proximos\s+)?meses\b|\bmeses\s+(?:eu\s+)?(?:tenho|vou)\b|\bmes\s+mais\s+(?:pesado|apertado)\b/.test(t0)
+    if (futuroPedido) {
+      period = nextMonths(6, hoje)
+      group = group === 'none' ? 'month' : group
+      periodoExplicito = true
+    } else {
+      // "quanto eu gasto EM MÉDIA com mercado" é pergunta sobre hábito, não
+      // sobre o mês corrente: três lançamentos não descrevem costume nenhum.
+      const habito = (metric === 'avg' || metric === 'median') && group === 'none'
+      period = janelaParaGrupo(group, hoje)
+        || (habito ? { from: addDays(hoje, -89), to: hoje, label: 'nos últimos 90 dias', grain: 'day' as const } : currentMonthToDate(hoje))
+      if (habito) periodoExplicito = true
+      if (group === 'month' || group === 'week' || group === 'day' || group === 'weekday' || group === 'month-half') {
+        // Janela ampliada por causa do agrupamento: perguntar "qual mês foi o
+        // pior" olhando só o mês atual devolveria um ranking de um item só.
+        periodoExplicito = true
+      }
+    }
+  }
+
+  // ---- 6) período de comparação ------------------------------------------
+  let comparePeriod: QueryPeriod | undefined
+  if (pedeComparacao) {
+    if (textoComparacao) {
+      const atras = textoComparacao.match(/(\d{1,3})\s+(dias?|semanas?|mes(?:es)?|anos?)\s+atras/)
+      if (atras) comparePeriod = deslocaPeriodo(period, Number(atras[1]), atras[2])
+      else comparePeriod = parsePeriod(textoComparacao, hoje)?.period
+    }
+    if (!comparePeriod) comparePeriod = previousPeriod(period)
+    if (comparePeriod) recognized.push(`comparação com ${comparePeriod.label}`)
+  }
+
+  // ---- 7) filtros --------------------------------------------------------
+  const filter: QueryFilter = {}
+  if (source === 'transactions' || source === 'recurring') {
+    filter.txType = metric === 'net' ? ['income', 'expense'] : metrica.valor.txType
+  }
+  const tipoAlvo: 'income' | 'expense' = filter.txType?.[0] === 'income' ? 'income' : 'expense'
+
+  const excluir = extrairExclusao(rest.texto)
+  if (excluir) {
+    rest.consome(excluir.matched)
+    const cartao = cartoesCitados(state, excluir.valor)[0]
+    const cat = cartao ? undefined : resolverCategoria(state, excluir.valor, tipoAlvo)
+    if (cartao) filter.excludeCardNames = [cartao]
+    else if (cat) filter.excludeCategories = [cat]
+    else filter.excludeText = excluir.valor
+    recognized.push(`sem ${excluir.valor}`)
+  }
+
+  const origem = extrairOrigem(rest.texto)
+  if (origem) {
+    rest.consome(origem.matched)
+    filter.origin = origem.valor
+    recognized.push(`origem ${origem.valor}`)
+  }
+
+  const semExcluidos = cartoes.filter(c => !filter.excludeCardNames?.includes(c))
+  if (semExcluidos.length === 1 && group !== 'card') {
+    filter.cardNames = semExcluidos
+    recognized.push(`cartão ${semExcluidos[0]}`)
+    rest.consome(normalizeName(semExcluidos[0]))
+  }
+
+  if (/\bfim\s+de\s+semana\b|\bfinal\s+de\s+semana\b|\bsabado\s+e\s+domingo\b/.test(rest.texto)) {
+    filter.weekdays = [0, 6]
+    rest.consome((rest.texto.match(/\bfim\s+de\s+semana\b|\bfinal\s+de\s+semana\b|\bsabado\s+e\s+domingo\b/) || [''])[0])
+    recognized.push('fim de semana')
+  } else if (/\bdias?\s+uteis\b|\bdurante\s+a\s+semana\b/.test(rest.texto)) {
+    filter.weekdays = [1, 2, 3, 4, 5]
+    recognized.push('dias úteis')
+  }
+
+  if (group !== 'month-half') {
+    const meia = rest.texto.match(/\b(?:comeco|inicio|primeira\s+(?:metade|quinzena))\s+(?:d[oa]\s+)?mes\b/)
+      || rest.texto.match(/\b(?:segunda\s+(?:metade|quinzena))\s+(?:d[oa]\s+)?mes\b/)
+    if (meia) {
+      filter.monthHalf = /comeco|inicio|primeira/.test(meia[0]) ? 'first' : 'second'
+      rest.consome(meia[0])
+      recognized.push(filter.monthHalf === 'first' ? 'começo do mês' : 'fim do mês')
+    }
+  }
+
+  if (driver && group !== 'platform') {
+    const plat = rest.texto.match(/\b(uber|99|indrive|in\s*drive)\b/)
+    if (plat) {
+      filter.platform = /in\s*drive/.test(plat[1]) ? 'inDrive' : plat[1]
+      rest.consome(plat[0])
+      recognized.push(`plataforma ${filter.platform}`)
+    }
+  }
+
+  // O alvo é o ÚLTIMO: ele lê o que sobrou depois de todo o resto ter tirado
+  // a sua parte.
+  const alvo = extrairAlvo(rest.texto)
+  let fallbackCategory: string | undefined
+  if (alvo) {
+    rest.consome(alvo.matched)
+    const cat = resolverCategoria(state, alvo.valor, tipoAlvo)
+    if (cat) {
+      filter.categories = [cat]
+      recognized.push(`categoria ${alvo.valor}`)
+    } else {
+      // A busca vai pelo LITERAL que o usuário escreveu, não pela versão
+      // podada — ver o comentário em `extrairAlvo`.
+      filter.text = alvo.literal
+      // Segunda tentativa, só se a busca literal não achar nada: o motorista
+      // que fala "suco" tem "Combustível" gravado na descrição.
+      fallbackCategory = categoriaAprendida(state, alvo.valor, tipoAlvo, hoje)
+      recognized.push(`texto "${alvo.literal}"`)
+    }
+  } else if (source === 'transactions' && !filter.origin) {
+    const solta = categoriaSolta(state, rest.texto, tipoAlvo)
+    if (solta) {
+      filter.categories = [solta.id]
+      rest.consome(normalizeName(solta.nome))
+      recognized.push(`categoria ${solta.nome}`)
+    }
+  }
+
+  if (source === 'installments' && /\bfaltam?\b|\brestam?\b|\bpendentes?\b|\bem\s+aberto\b/.test(t0)) {
+    filter.status = ['pending']
+    // Parcela que FALTA é toda a que ainda vai vencer, não a deste mês. Sem
+    // ampliar a janela, "quantas parcelas faltam?" respondia "1".
+    if (!periodoExplicito) {
+      period = { from: hoje, to: addDays(hoje, 1095), label: 'daqui para a frente', grain: 'range', future: false }
+    }
+  }
+  // Cartão citado (incluído ou excluído) em `transactions` não filtra nada:
+  // lançamento não carrega cartão. A pergunta é sobre dívida ou fatura.
+  if (source === 'transactions' && (filter.cardNames?.length || filter.excludeCardNames?.length)) {
+    source = /\bcomprometid|\bpesad|\bdivida|\bdevo\b|\bfalta\b|\bparcelad/.test(t0) ? 'plans' : 'invoices'
+    delete filter.txType
+    if (source === 'plans') period = janelaAberta(hoje)
+  }
+  if (source === 'goals' && !/\bconclui|\bterminad|\btodas\b/.test(t0)) filter.status = ['open']
+
+  // ---- 8) campo e ordem --------------------------------------------------
+  let field: QueryField = fonteLida?.valor.field
+    || (source === 'goals' ? 'remaining' : source === 'plans' ? 'remaining'
+      : source === 'projections' ? projField(t0) : 'amount')
+  if (source === 'goals' && /\bmais\s+per|\bperto\s+de\s+terminar|\bfalta\s+menos\b|\bquase\b/.test(t0)) field = 'pct'
+  if (source === 'plans' && /\bquantas\s+parcelas\b/.test(t0)) field = 'remainingCount'
+
+  let order: QueryOrder | undefined = metrica.valor.order
+  if (comparePeriod && group !== 'none') {
+    if (/\baument(?:ou|aram|o)\b|\bsubiu\b|\bcresceu\b|\bpiorou\b|\bpesou\s+mais\b/.test(t0)) order = 'delta-desc'
+    else if (/\bcai(?:u|ram)\b|\bdiminuiu\b|\bdesceu\b|\bmelhorou\b|\bbaixou\b/.test(t0)) order = 'delta-asc'
+  }
+  if (!order && group !== 'none') {
+    // "Pior" e "melhor" invertem de sentido conforme o que se está medindo: o
+    // pior mês de RESULTADO é o menor, o pior mês de GASTO é o maior. Tratar os
+    // dois igual respondia "o maior foi junho" para "qual mês foi o pior?".
+    const olhaParaCima = metric === 'net' || filter.txType?.[0] === 'income' || filter.txType?.[0] === 'saving'
+    if (/\bpior\b/.test(t0)) order = olhaParaCima ? 'value-asc' : 'value-desc'
+    else if (/\bmelhor\b/.test(t0)) order = olhaParaCima ? 'value-desc' : 'value-asc'
+    else if (source === 'goals' && field === 'pct') order = 'value-desc'
+    else if (source === 'goals' && field === 'remaining') order = 'value-asc'
+    else if (/\bmaior\b|\bmais\b/.test(t0)) order = 'value-desc'
+    else if (/\bmenor\b|\bmenos\b/.test(t0)) order = 'value-asc'
+  }
+
+  const shareBase: AssistantQueryPlan['shareBase'] = baseProporcao ? 'income' : 'same'
+
+  const plan: AssistantQueryPlan = {
+    version: QUERY_DSL_VERSION,
+    source, field, period, comparePeriod, filter,
+    metric,
+    group, order,
+    limit: metrica.valor.limit || (group === 'none' ? 1 : 8),
+    shareBase,
+    label: rotulo(metrica.valor, alvo?.valor, filter, state, source, field),
+  }
+
+  const confidence: PlannedQuery['confidence'] =
+    (periodoExplicito || !!comparePeriod || group !== 'none' || !!excluir
+      || metric === 'share' || metric === 'median'
+      || source === 'plans' || source === 'projections' || source === 'goals'
+      || !!filter.weekdays || !!filter.monthHalf || !!filter.origin)
+      ? 'high' : 'medium'
+
+  return { plan, confidence, recognized, fallbackCategory }
+}
+
+function projField(t: string): QueryField {
+  if (/\bentradas?\b|\breceitas?\b|\brenda\b/.test(t)) return 'incomes'
+  if (/\bsaldo\b|\bsobrar\b|\bvai\s+sobrar\b/.test(t)) return 'balance'
+  if (/\bcontas?\b/.test(t)) return 'bills'
+  if (/\bliquido\b|\bresultado\b/.test(t)) return 'net'
+  return 'installments'
+}
+
+/** Rótulos por fonte: "Total gasto" não descreve uma fatura nem uma meta. */
+const ROTULO_FONTE: Partial<Record<QuerySource, string>> = {
+  installments: 'Parcelas',
+  invoices: 'Faturas',
+  plans: 'Falta pagar',
+  goals: 'Metas',
+  recurring: 'Contas previstas',
+  projections: 'Projecao',
+  work: 'Trabalho',
+  fuel: 'Combustivel',
+  maintenance: 'Manutencao',
+}
+
+function rotulo(
+  m: MetricaLida, alvo: string | undefined, filter: QueryFilter,
+  state: AppState, source: QuerySource, field: QueryField,
+): string {
+  const base = source === 'transactions'
+    ? m.label
+    : (field === 'pct' ? 'Progresso das metas' : ROTULO_FONTE[source] || m.label)
+  const cat = filter.categories?.length
+    ? (state.categories || []).find(c => c.id === filter.categories![0])?.name
+    : undefined
+  const nome = cat || (filter.origin ? sentenceCase(filter.origin) : undefined)
+    || (filter.text ? sentenceCase(filter.text) : undefined) || alvo
+  return nome ? `${base} - ${nome}` : base
+}
+
+export { previousPeriod, parsePeriod, monthPeriod }
