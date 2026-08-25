@@ -14,7 +14,9 @@
     "test:money": "node --experimental-strip-types scripts/test-money.mjs",
     "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
     "typecheck:api": "node node_modules/typescript/bin/tsc --noEmit -p tsconfig.api.json",
-    "eval:models": "tsx scripts/eval-assistant-models.mts"
+    "eval:models": "tsx scripts/eval-assistant-models.mts",
+    "probe:redteam": "tsx scripts/probe-redteam.mts",
+    "rubric": "tsx scripts/rubric-assistant.mts"
   },
   "dependencies": {
     "@capacitor/local-notifications": "^8.2.1",

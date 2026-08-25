@@ -102,6 +102,8 @@ export function composeAnswer(r: AssistantQueryResult): string {
   if (rankeado && top) {
     // A resposta é o PRIMEIRO colocado, dito por extenso.
     linhas.push(`${respostaDeRanking(r, top)}${selo}.`)
+    const empate = empateNoTopo(r)
+    if (empate) linhas.push(empate)
     const resto = r.groups.slice(1, p.group === 'weekday' ? 7 : 5)
     if (resto.length) {
       linhas.push(['Depois:', ...resto.map(g => `• ${g.label}: ${formatValue(g.value, r.unit)}${sufixoGrupo(g, r)}`)].join('\n'))
@@ -137,6 +139,35 @@ export function composeAnswer(r: AssistantQueryResult): string {
 }
 
 /** A frase que responde direto quem ficou em primeiro. */
+/**
+ * O primeiro colocado ganhou de verdade, ou empatou?
+ *
+ * "Qual dia da semana eu faturo mais?" respondia "Sábado, com R$ 2.945,00" —
+ * e a sexta tinha R$ 2.935,00, dez reais atrás, com as mesmas 12 ocorrências.
+ * Coroar o sábado ali é apresentar cara-ou-coroa como conclusão, e um
+ * motorista pode reorganizar a semana por causa disso. É a mesma classe de
+ * defeito que a regra 43 nomeia: separação sem significado dita como achado.
+ *
+ * O limiar é RELATIVO (2%) porque a distância que importa depende da escala:
+ * dez reais entre dois mil é empate, dez reais entre trinta não é.
+ */
+const MARGEM_EMPATE = 0.02
+
+function empateNoTopo(r: AssistantQueryResult): string | null {
+  const [a, b] = r.groups
+  if (!a || !b) return null
+  // Só vale para ranking por VALOR. Em delta e contagem a leitura é outra.
+  if (r.plan.order !== 'value-desc' && r.plan.order !== 'value-asc') return null
+  const escala = Math.max(Math.abs(a.value), Math.abs(b.value))
+  if (!escala) return null
+  if (Math.abs(a.value - b.value) / escala > MARGEM_EMPATE) return null
+  const juntos = r.groups.filter(g => Math.abs(g.value - a.value) / escala <= MARGEM_EMPATE)
+  const nomes = juntos.map(g => g.label).join(', ')
+  return juntos.length > 2
+    ? `Mas é praticamente empate: ${nomes} ficam a menos de ${Math.round(MARGEM_EMPATE * 100)}% um do outro.`
+    : `Mas é praticamente empate com ${b.label} (${formatValue(b.value, r.unit)}) — a diferença é de ${formatValue(Math.abs(a.value - b.value), r.unit)}.`
+}
+
 function respostaDeRanking(r: AssistantQueryResult, top: QueryGroupResult): string {
   const p = r.plan
   const valor = formatValue(top.value, r.unit)

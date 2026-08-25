@@ -705,7 +705,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
       text: `Seu saldo em conta é ${fmtBRL(bo.balance)}.` +
         (bo.bills.length
           ? bo.ok
-            ? ` Cobre as ${bo.bills.length} conta(s) dos próximos ${bo.horizon} dias (${fmtBRL(bo.billsSoon)}) e ainda sobram ${fmtBRL(bo.leftover)}.`
+            ? ` Cobre ${bo.bills.length === 1 ? 'a' : 'as'} ${bo.bills.length} ${bo.bills.length === 1 ? 'conta' : 'contas'} dos próximos ${bo.horizon} dias (${fmtBRL(bo.billsSoon)}) e ainda sobram ${fmtBRL(bo.leftover)}.`
             : ` Mas ${fmtBRL(bo.billsSoon)} em contas vencem nos próximos ${bo.horizon} dias — faltam ${fmtBRL(bo.shortfall)} (${fmtBRL(bo.needPerDay)}/dia até quitar).`
           : ' Nenhuma conta fixa cadastrada para os próximos dias.'),
     }
@@ -981,6 +981,24 @@ function resolveLocal(s: AppState, input: string): AiReply {
     return {
       text: `Este mês: ${fmtBRL(cur.expense)} em despesas.\nNo mesmo ponto do mês passado: ~${fmtBRL(prevPace)} (estimativa proporcional).\n\n` +
         (diff > 0 ? `Você está gastando ${fmtBRL(diff)} a mais que o ritmo do mês passado. Vale olhar as categorias na aba Análises.` : `Está ${fmtBRL(-diff)} abaixo do ritmo do mês passado. 👏`),
+    }
+  }
+
+  // "meu salário cobre minhas contas?" — pergunta de SIM OU NÃO, e a resposta
+  // era a lista de contas. O app sabia responder (`balanceOutlook` calcula
+  // exatamente isso) e devolvia dado em vez de resposta; quem lê no celular
+  // ainda tinha que somar de cabeça. Vem ANTES da lista porque a frase contém
+  // "contas" e a lista a capturava primeiro.
+  if (/\b(?:cobre|cobrem|cobrir|d[áa]\s+(?:pra|para)\s+pagar|consigo\s+pagar|vou\s+conseguir\s+pagar|tenho\s+(?:saldo|dinheiro)\s+(?:pra|para))\b/.test(t)
+    && /\bcontas?\b|\bvencer\b|\bvencimento\b|\bfatura\b/.test(t)) {
+    const bo = balanceOutlook(s, 15)
+    if (!bo.bills.length) return { text: 'Você não tem conta fixa cadastrada vencendo nos próximos 15 dias, então não há o que cobrir.' }
+    const lista = bo.bills.map(b => `• ${sentenceCase(b.name)}: ${fmtBRL(b.amount)} — ${dueLabel(b.inDays).toLowerCase()}`).join('\n')
+    return {
+      text: (bo.ok
+        ? `Sim. Seu saldo de ${fmtBRL(bo.balance)} cobre ${bo.bills.length === 1 ? 'a' : 'as'} ${bo.bills.length} ${bo.bills.length === 1 ? 'conta' : 'contas'} dos próximos ${bo.horizon} dias (${fmtBRL(bo.billsSoon)}) e ainda sobram ${fmtBRL(bo.leftover)}.`
+        : `Não. As contas dos próximos ${bo.horizon} dias somam ${fmtBRL(bo.billsSoon)} e seu saldo é ${fmtBRL(bo.balance)} — faltam ${fmtBRL(bo.shortfall)}.`)
+        + `\n\n${lista}`,
     }
   }
 

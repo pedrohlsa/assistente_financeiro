@@ -264,6 +264,10 @@ export const QUERY_CASES: QueryCase[] = [
     message: 'qual dia da semana eu faço mais?',
     expectPlan: { group: 'weekday', filter: { txType: ['income'] } },
     expectBeyondLegacy: true,
+    // Sabado R$ 2.945,00 e sexta R$ 2.935,00, com 12 ocorrencias cada.
+    // Coroar o sabado sozinho e apresentar cara-ou-coroa como conclusao, e um
+    // motorista pode reorganizar a semana por causa disso.
+    expectReply: [/praticamente empate/i, /Sexta-feira/],
   },
   {
     id: 'q-62', group: 'motorista', state: motorista,
