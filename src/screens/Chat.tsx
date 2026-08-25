@@ -8,7 +8,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { applyAssistantBatch, useStore } from '../store/store'
-import { askAssistantRemote } from '../services/ai'
+import { askAssistantRemote, askRemoteQueryPlan } from '../services/ai'
 import { orchestrate, buildCapabilities } from '../assistant/orchestrator'
 import type { AssistantDraft } from '../assistant/drafts'
 import { isActionFailure } from '../assistant/contracts'
@@ -84,6 +84,9 @@ export default function Chat() {
         const r = await askAssistantRemote(s, message, history)
         return r ? { ...r, rejected: r.rejected || [] } : null
       },
+      // O modelo remoto PLANEJA a consulta que o local nao entendeu — e nao ve
+      // lancamento nenhum para isso. Quem executa o plano e o app, aqui.
+      planRemoteQuery: async ({ state: s, message }) => askRemoteQueryPlan(s, message),
       devDiagnostics: import.meta.env?.DEV === true,
     })
     setThinking(false)

@@ -24,6 +24,9 @@ import { explainRequest } from './explain'
 import { answerConversation, isFocusFresh, looksLikeFollowUp } from './conversation'
 import { buildTurnPlan, hasBlock } from './semantic/turn'
 import { describeRepairs, repairStructuralTypos } from './semantic/normalize'
+import { conflictQuestion, evidenceFor, mergeByField, sameFact } from './semantic/evidence'
+import { composeAnswer, explainQueryResult, isQueryFailure, runQuery, validateQueryPlan } from './query'
+import { rememberQuery } from './conversation'
 import type { RepairedText } from './semantic/normalize'
 import type { ConversationFocus } from './conversation'
 import type { AnalyzedClause, MessageAnalysis, TemporalSignal } from './clauses'
@@ -81,6 +84,12 @@ export interface OrchestratorInput {
   remoteEnabled: boolean
   /** Injetável: os testes rodam sem rede. */
   askRemote?: (args: { state: AppState; message: string; history: { role: string; text: string }[] }) => Promise<RemoteResult | null>
+  /**
+   * Pede um PLANO de consulta ao modelo remoto. Injetavel e opcional: os testes
+   * rodam sem rede, e um servidor que nao conhece a Query DSL simplesmente nao
+   * devolve plano — o app cai na resposta local, que ja esta pronta.
+   */
+  planRemoteQuery?: (args: { state: AppState; message: string }) => Promise<any | null>
   today?: string
   devDiagnostics?: boolean
   /**
@@ -1096,6 +1105,35 @@ Confirmar?`,
   const answeredIds = new Set(local_answers.answered.map(c => c.id))
   unresolved = unresolved.filter(u => !answeredIds.has(u.clauseId))
 
+  // ---- 5b) IA remota PLANEJA a consulta que o local não entendeu ---------
+  //
+  // Este é o uso mais valioso do modelo, e o mais seguro: ele não recebe
+  // lançamento nenhum — só o vocabulário da DSL, as categorias e a pergunta.
+  // O plano volta, passa por `validateQueryPlan()` com as capacidades REAIS
+  // deste aparelho, e é executado AQUI. Os números nunca saem do dispositivo.
+  //
+  // Só entra quando a pergunta sobrou de tudo: sem ação, sem resposta local e
+  // sem esclarecimento pendente.
+  if (!candidates.length && !clarification && !local_answers.text
+    && unresolved.length && input.remoteEnabled && input.planRemoteQuery) {
+    const bruto = await input.planRemoteQuery({ state: input.state, message: mensagem })
+    if (bruto) {
+      const v = validateQueryPlan(bruto, input.state, today)
+      if (!isQueryFailure(v)) {
+        const r = runQuery(input.state, v.plan)
+        return {
+          draft: null,
+          keepPending: true,
+          focus: rememberQuery(input.focus, v.plan, r, explainQueryResult(r)),
+          response: {
+            version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'hybrid',
+            actions: [], unresolved: [], reply: composeAnswer(r),
+          },
+        }
+      }
+    }
+  }
+
   // ---- 6) IA remota só para o que sobrou ---------------------------------
   const stillOpen = unresolved.length > 0
   if (stillOpen && input.remoteEnabled && input.askRemote && !clarification) {
@@ -1105,18 +1143,38 @@ Confirmar?`,
       remoteRejected = remote.rejected || []
       engine = candidates.length ? 'hybrid' : 'remote'
       if (!remote.contractFallback) {
-        // Reconciliação: o remoto não repete o que o local já entendeu.
-        const seen = new Set(candidates.map(c => JSON.stringify(c.action)))
+        // ---- Reconciliação POR CAMPO (fase 13) ----------------------------
+        //
+        // Antes: dedupe por `JSON.stringify` ou por `(kind, amount)`. Sem saber
+        // a PROCEDÊNCIA de cada campo, a reconciliação só sabia fazer duas
+        // coisas — descartar a ação remota inteira (perdendo a descrição boa) ou
+        // aceitá-la inteira (arriscando trocar 1800 por 180).
+        //
+        // Agora cada ação carrega a evidência de campo a campo, e a fusão segue
+        // a hierarquia fixa: o valor que o usuário escreveu NUNCA é sobrescrito
+        // pelo modelo, e o que só o modelo trouxe entra onde estava vazio.
         for (const a of remote.actions) {
-          const key = JSON.stringify(a)
-          if (seen.has(key)) continue
-          const dup = candidates.some(c =>
-            c.action.kind === a.kind &&
-            (c.action as any).amount === (a as any).amount &&
-            (c.action as any).total === (a as any).total)
-          if (dup) continue
-          seen.add(key)
-          candidates.push(candidate(a, 'remote'))
+          const alvo = candidates.find(c => sameFact(c.action, a))
+          if (!alvo) {
+            candidates.push(candidate(a, 'remote', undefined, 'medium'))
+            continue
+          }
+          const base = evidenceFor(alvo.action, { text: mensagem, clauseId: alvo.clauseId })
+          const extra = evidenceFor(a, { text: mensagem, remote: true })
+          const out = mergeByField(base, extra)
+          if (out.conflicts.length && !clarification) {
+            // Duas evidências FORTES discordando não se resolvem por votação.
+            clarification = { question: conflictQuestion(out.conflicts[0]), field: out.conflicts[0].field }
+          }
+          if (out.filled.length) {
+            const i = candidates.indexOf(alvo)
+            const v = validateAction(out.merged.action, caps, today)
+            // A fusão passa pela MESMA validação de sempre: campo vindo do
+            // modelo não tem passe livre por ter entrado por outra porta.
+            if (!isValidationFailure(v)) {
+              candidates[i] = { ...alvo, action: v.action, engine: 'hybrid' }
+            }
+          }
         }
         if (remote.clarification && !clarification) clarification = remote.clarification
       }

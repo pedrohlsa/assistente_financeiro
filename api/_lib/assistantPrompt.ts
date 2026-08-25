@@ -23,6 +23,10 @@ import type {
   AssistantErrorCode,
 } from '../../src/assistant/contracts.js'
 import type { ParsedAction } from '../../src/models/types.js'
+import {
+  DRIVER_ONLY_SOURCES, FIELDS_BY_SOURCE, QUERY_DSL_VERSION, QUERY_GROUPS,
+  QUERY_METRICS, QUERY_ORDERS, QUERY_SOURCES,
+} from '../../src/assistant/query/types.js'
 
 /** Teto do texto da resposta remota — ver o comentário em `sanitizeRemoteResponse`. */
 const MAX_REPLY_CHARS = 4000
@@ -178,4 +182,92 @@ export function sanitizeRemoteResponse(
     ? `${env.reply.slice(0, MAX_REPLY_CHARS).trimEnd()}…`
     : env.reply
   return { reply, mode: env.mode, actions, clarification: env.clarification, rejected }
+}
+
+// ---------------------------------------------------------------------------
+// PLANEJADOR DE CONSULTA — o modelo interpreta, o app executa
+// ---------------------------------------------------------------------------
+//
+// Este é o segundo trabalho que o modelo remoto pode fazer, e é o mais valioso:
+// traduzir uma pergunta que o planner local não entendeu num PLANO da Query
+// DSL. O plano volta, é validado por `validateQueryPlan()` no cliente com as
+// capacidades REAIS do aparelho, e só então executado — localmente, sobre dados
+// que nunca saíram dali.
+//
+// PRIVACIDADE POR CONSTRUÇÃO: para planejar uma consulta o modelo não precisa
+// de nenhum lançamento. Ele recebe o vocabulário da DSL, as categorias e os
+// nomes de cartão e meta (que já iam no contexto), e a PERGUNTA. Um nome
+// próprio como "Zé da esquina" chega até ele porque o usuário acabou de
+// escrevê-lo — quem procura esse nome no histórico é o executor local.
+
+/** Vocabulário da DSL, gerado das constantes — nunca escrito à mão. */
+export function buildQuerySchemaDoc(caps: AssistantCapabilities): string {
+  const fontes = QUERY_SOURCES.filter(s => caps.isDriver || !DRIVER_ONLY_SOURCES.includes(s))
+  const campos = fontes.map(s => `${s}: ${FIELDS_BY_SOURCE[s].join('|')}`).join('  ·  ')
+  const grupos = QUERY_GROUPS.filter(g => caps.isDriver || g !== 'platform')
+  return [
+    `FONTES: ${fontes.join(', ')}`,
+    `CAMPO por fonte — ${campos}`,
+    `MÉTRICAS: ${QUERY_METRICS.join(', ')}`,
+    `AGRUPAMENTOS: ${grupos.join(', ')}`,
+    `ORDENAÇÃO: ${QUERY_ORDERS.join(', ')}`,
+  ].join('\n')
+}
+
+export function buildQueryPlannerPrompt(caps: AssistantCapabilities, todayIso: string): string {
+  const cats = (tipo: 'income' | 'expense') =>
+    caps.categories.filter(c => c.type === tipo).map(c => `${c.id} (${c.name})`).join(', ') || 'nenhuma'
+
+  return `Você traduz perguntas financeiras em pt-BR para um PLANO DE CONSULTA em JSON. Hoje é ${todayIso}.
+
+Você NÃO responde a pergunta e NÃO tem acesso aos dados. Quem executa o plano e calcula os números é o aplicativo, no aparelho do usuário.
+
+Responda SEMPRE com um único objeto JSON válido, nada fora dele:
+{"version":${QUERY_DSL_VERSION},"source":"...","field":"...","period":{"from":"YYYY-MM-DD","to":"YYYY-MM-DD","label":"...","grain":"day|week|month|quarter|year|range"},"comparePeriod":{...}|null,"filter":{...},"metric":"...","group":"...","order":"..."|null,"limit":1-24,"label":"texto curto do que está sendo medido"}
+
+VOCABULÁRIO — use SOMENTE estes valores:
+${buildQuerySchemaDoc(caps)}
+
+FILTRO — campos aceitos, todos opcionais:
+txType (income|expense|saving|financed-cash-inflow), categories, excludeCategories, text, excludeText, origin, cardNames, excludeCardNames, goalName, platform, status, realizedOnly, plannedOnly, weekdays (0=domingo..6=sábado), monthHalf (first|second), minAmount, maxAmount
+
+CATEGORIAS VÁLIDAS — use SOMENTE estes ids.
+Entradas: ${cats('income')}
+Saídas: ${cats('expense')}
+${caps.cardNames.length ? `CARTÕES: ${caps.cardNames.join(', ')}\n` : ''}${caps.goalNames.length ? `METAS: ${caps.goalNames.join(', ')}\n` : ''}
+REGRAS:
+1. "period" é obrigatório e tem que ser um intervalo real de datas. Sem período dito na pergunta, use o mês corrente.
+2. "comparePeriod" só quando a pergunta compara ("comparado com", "aumentou", "caiu", "qual a diferença").
+3. Nome próprio que aparece na pergunta e não é categoria vira "filter.text" — o app procura no histórico dele.
+4. NUNCA invente id de categoria, nome de cartão ou nome de meta fora das listas acima.
+5. NUNCA responda a pergunta, nunca cite valores, nunca escreva texto fora do JSON.
+6. Se a pergunta não for sobre dados financeiros, responda {"version":${QUERY_DSL_VERSION},"source":"none"} e nada mais.`
+}
+
+// ---------------------------------------------------------------------------
+// COMPOSITOR — o modelo escreve SOBRE fatos já calculados
+// ---------------------------------------------------------------------------
+
+/**
+ * Prompt de redação. O modelo recebe FATOS prontos e escreve a frase.
+ *
+ * A barreira que torna isto seguro não está no prompt — está no código:
+ * `checkGrounding()` confere, número a número, se a prosa se sustenta nos
+ * fatos, e uma composição com valor inventado é DESCARTADA em silêncio (o
+ * usuário recebe o texto determinístico, que está certo). Prompt é pedido;
+ * grounding é garantia.
+ */
+export function buildComposerPrompt(todayIso: string): string {
+  return `Você escreve, em pt-BR, uma resposta curta sobre FATOS financeiros já calculados. Hoje é ${todayIso}.
+
+Responda SEMPRE com um único objeto JSON válido: {"reply":"texto"}
+
+REGRAS:
+1. Use SOMENTE os números que estão nos fatos. É PROIBIDO inventar, arredondar para um número "redondo" ou estimar qualquer valor.
+2. Não some nem calcule nada que não esteja nos fatos, exceto a diferença entre dois fatos que já estejam listados.
+3. Valor em reais escrito como R$ 1.234,56.
+4. Máximo de 4 linhas. Direto, sem markdown, sem repetir a pergunta, sem saudação.
+5. Fato marcado como estimativa/previsão precisa ser apresentado como previsão, nunca como realizado.
+6. Não dê conselho financeiro como certeza e não julgue o usuário.
+7. Se os fatos não responderem à pergunta, diga isso — não preencha o vazio com suposição.`
 }

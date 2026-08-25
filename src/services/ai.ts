@@ -256,6 +256,66 @@ export async function askAssistantRemote(
   }
 }
 
+// ---------- IA remota como PLANEJADORA e REDATORA ----------
+//
+// Dois usos do modelo que NAO envolvem dado nenhum do historico:
+//
+//   plan-query  ele traduz a pergunta num plano da Query DSL. Nao ve
+//               lancamento; ve o vocabulario da DSL, as categorias e a
+//               PERGUNTA. Quem procura "Ze da esquina" no historico e o
+//               executor local.
+//   compose     ele redige sobre FATOS ja calculados aqui. A garantia nao e o
+//               prompt: e `checkGrounding()`, que confere numero a numero e
+//               descarta a composicao inteira quando algo nao se sustenta.
+//
+// Os dois devolvem `null` em qualquer falha — a resposta local ja esta pronta e
+// e ela que vai para a tela.
+
+/** Contexto MINIMO para planejar: nada de agregado, nada de historico. */
+function planningContext(s: AppState) {
+  return {
+    perfil: s.settings.profile,
+    categorias: s.categories.filter(c => !c.archived).map(c => ({ id: c.id, name: c.name, type: c.type })),
+    cartoes: (s.cards || []).filter(c => !c.archived).map(c => ({ nome: c.name })),
+    metasDeCompra: (s.goals || []).filter(g => !g.done).map(g => ({ nome: g.name })),
+  }
+}
+
+async function postAi(body: unknown, timeoutMs = 20000): Promise<any | null> {
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    const res = await fetch(AI_API_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+    clearTimeout(timer)
+    if (!res.ok) return null
+    return await res.json()
+  } catch {
+    return null
+  }
+}
+
+/** Plano de consulta CRU vindo do modelo. Quem valida e `validateQueryPlan`. */
+export async function askRemoteQueryPlan(s: AppState, input: string): Promise<any | null> {
+  const data = await postAi({ task: 'plan-query', message: input, context: planningContext(s) })
+  const plano = data?.queryPlan
+  return plano && typeof plano === 'object' ? plano : null
+}
+
+/** Redacao sobre fatos. O chamador AINDA precisa passar pelo grounding. */
+export async function askRemoteCompose(
+  input: string,
+  facts: { label: string; value: number; unit: string; estimated?: boolean }[],
+): Promise<string | null> {
+  const data = await postAi({ task: 'compose', message: input, facts })
+  const reply = typeof data?.reply === 'string' ? data.reply.trim() : ''
+  return reply || null
+}
+
 const NUM = String.raw`(\d+(?:[.,]\d+)*)`
 const n = (s: string) => parseMoney(s)
 
