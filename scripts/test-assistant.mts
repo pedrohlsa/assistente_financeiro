@@ -1,7 +1,16 @@
-// Executa o corpus de regressão do assistente.
-// Rodar: npm run test:assistant
+// Executa TODA a bateria do assistente.
+// Rodar: npm run test:assistant   ·   npm run test:assistant -- --only=temporal
 //
-// 100% offline e determinístico: nenhuma chamada de rede, data fixa.
+// 100% offline e determinístico: nenhuma chamada de rede, semente fixa, e a
+// data injetada onde o caminho aceita data injetada.
+//
+// Cinco camadas, e cada uma prova uma coisa diferente:
+//
+//   1. CORPUS de frases       — aquelas frases não regrediram
+//   2. CONSULTA e CENÁRIO     — a aritmética está certa, com resultado EXATO
+//   3. CONTINUIDADE           — a conversa mantém o assunto por 4 a 12 turnos
+//   4. METAMÓRFICOS           — a CLASSE de frases, não a frase
+//   5. FUZZ e INVARIANTES     — nada trava, nada age sozinho, nada some
 
 import { CASES } from '../tests/assistant/cases'
 import { CRITICAL } from '../tests/assistant/cases-critical'
@@ -15,9 +24,20 @@ import { REGISTRO_REAL } from '../tests/assistant/cases-registro-real'
 import { runProperties } from '../tests/assistant/properties'
 import { runCase } from '../tests/assistant/harness'
 import type { CaseResult } from '../tests/assistant/harness'
+import { QUERY_CASES, PLAN_REJECTIONS, PROTOTYPE_ATTACKS, TODAY_Q } from '../tests/assistant/cases-consulta'
+import { runPlanRejection, runQueryCase } from '../tests/assistant/queryHarness'
+import { SCENARIO_CASES } from '../tests/assistant/cases-cenario'
+import { CONVERSA_CASES } from '../tests/assistant/cases-continuidade'
+import { runConversaCase, runScenarioCase } from '../tests/assistant/scenarioHarness'
+import { runMetamorphic } from '../tests/assistant/metamorphic'
+import { runFuzz } from '../tests/assistant/fuzz'
+import { isQueryFailure, validateQueryPlan } from '../src/assistant/query/validate'
+import { autonomoRico } from '../tests/fixtures/richState'
 
 const only = process.argv.find(a => a.startsWith('--only='))?.slice(7)
 const verbose = process.argv.includes('--verbose')
+
+let extrasFalharam = false
 
 const ALL = [...CASES, ...CRITICAL, ...ADVERSARIAL, ...TEMPORAL, ...UNDO, ...EDIT, ...FALA_REAL, ...REGISTRO_REAL, ...ADAPTATIVO]
 const selected = only
@@ -63,6 +83,80 @@ if (verbose) {
   for (const r of results.filter(r => r.ok)) console.log(`ok   ${r.id}`)
 }
 
+// ---------------------------------------------------------------------------
+// Consulta, cenário e continuidade — resultado EXATO, não "não quebrou"
+// ---------------------------------------------------------------------------
+
+if (!only) {
+  const novos = [
+    ...QUERY_CASES.map(runQueryCase),
+    ...PLAN_REJECTIONS.map(runPlanRejection),
+    ...SCENARIO_CASES.map(runScenarioCase),
+    ...CONVERSA_CASES.map(runConversaCase),
+  ]
+  const porGrupo = new Map<string, { total: number; ok: number }>()
+  for (const r of novos) {
+    const g = porGrupo.get(r.group) || { total: 0, ok: 0 }
+    g.total++
+    if (r.ok) g.ok++
+    porGrupo.set(r.group, g)
+  }
+  console.log('\n=== Consulta, cenário e continuidade ===')
+  for (const [grupo, g] of [...porGrupo.entries()].sort()) {
+    console.log(`${g.ok === g.total ? 'ok  ' : 'FAIL'} ${grupo.padEnd(14)} ${g.ok}/${g.total}`)
+  }
+  const ruins = novos.filter(r => !r.ok)
+  if (ruins.length) {
+    console.log(`\n--- ${ruins.length} falha(s) ---`)
+    for (const f of ruins) {
+      console.log(`\n[${f.id}] ${f.group}`)
+      for (const e of f.errors) console.log(`   · ${e}`)
+    }
+    extrasFalharam = true
+  }
+  console.log(`\n${novos.length - ruins.length}/${novos.length} casos novos passaram`)
+
+  // Poluição de protótipo precisa do JSON PARSEADO: um literal de objeto no
+  // TypeScript define o protótipo em vez de criar a chave.
+  const estadoProto = autonomoRico(TODAY_Q)
+  let protoOk = true
+  for (const json of PROTOTYPE_ATTACKS) {
+    const v = validateQueryPlan(JSON.parse(json), estadoProto, TODAY_Q)
+    if (!isQueryFailure(v)) protoOk = false
+    if (({} as any).polluted !== undefined) protoOk = false
+  }
+  console.log(protoOk
+    ? `ok   ${PROTOTYPE_ATTACKS.length} tentativas de poluir o protótipo recusadas`
+    : 'FAIL poluição de protótipo NÃO foi barrada')
+  if (!protoOk) extrasFalharam = true
+}
+
+// ---------------------------------------------------------------------------
+// Metamórficos e fuzz — a CLASSE de frases, não a frase
+// ---------------------------------------------------------------------------
+
+if (!only) {
+  const meta = await runMetamorphic()
+  console.log('\n=== Metamórficos ===')
+  if (meta.falhas.length) {
+    console.log(`FAIL ${meta.falhas.length} de ${meta.preservadas + meta.mudadas} mutações`)
+    for (const f of meta.falhas.slice(0, 20)) console.log(`   · ${f}`)
+    extrasFalharam = true
+  } else {
+    console.log(`ok   ${meta.preservadas} mutações preservam o sentido · ${meta.mudadas} mudam a modalidade`)
+  }
+
+  const fz = await runFuzz()
+  console.log('\n=== Fuzz ===')
+  if (fz.falhas.length) {
+    console.log(`FAIL ${fz.falhas.length} de ${fz.total}`)
+    for (const f of fz.falhas.slice(0, 15)) console.log(`   · ${f}`)
+    extrasFalharam = true
+  } else {
+    console.log(`ok   ${fz.total} mensagens hostis · baseline ${fz.baselineMs.toFixed(2)}ms · pior ${fz.piorMs.toFixed(0)}ms`)
+  }
+}
+
 // Invariantes financeiras: valem para QUALQUER entrada, não para uma frase.
 const props = only ? { total: 0, failures: [] as string[] } : await runProperties()
 if (props.total) {
@@ -72,4 +166,4 @@ if (props.total) {
     : `ok   ${props.total}/${props.total} invariantes preservadas`)
 }
 
-process.exit(failed.length || props.failures.length ? 1 : 0)
+process.exit(failed.length || props.failures.length || extrasFalharam ? 1 : 0)

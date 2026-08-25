@@ -246,6 +246,147 @@ const VERBOS = new Set(ESTRUTURAL.filter(w => PASSADO.has(w)
 
 export const ehVerboOuTempo = (alvo: string): boolean => VERBOS.has(alvo) || TEMPO.has(alvo)
 
+/**
+ * Muletas de conversa: "gastei TIPO 190 de cimento", "gastei CARA 80 no
+ * mercado", "ganhei SEI LÁ 250 hoje".
+ *
+ * Elas não querem dizer nada e ficam exatamente onde mais atrapalham — entre o
+ * verbo e o valor. O corpus metamórfico mostrou 67 frases perdidas por causa
+ * disso: com a muleta no meio, o parser não achava lançamento NENHUM.
+ *
+ * A remoção é estreita: a palavra só sai quando está grudada num número ou num
+ * conector de valor. "Comprei uma cara de cavalo" não perde nada, e "gastei 50
+ * numa cara" também não — ali a palavra não está entre verbo e valor.
+ */
+/**
+ * Muletas que NUNCA são conteúdo. Estas saem de QUALQUER posição entre duas
+ * palavras: "troquei o SEI LÁ óleo por 280" perdia a manutenção inteira, e o
+ * lugar onde a muleta cai é imprevisível — depende de como a pessoa fala.
+ */
+const MULETAS_SEMPRE = 'sei\\s+l[aá]|a[íi]|p[oô]|pow|n[ée]|hum|mano'
+
+/**
+ * Muletas que PODEM ser conteúdo: "cara" é apelido, "olha" é verbo, "tipo de
+ * conta" é substantivo. Estas só saem quando estão coladas num valor — a
+ * POSIÇÃO é o que prova que ali elas não significam nada.
+ */
+const MULETAS = `tipo|cara|velho|olha|olhe|ent[ãa]o|assim|ah|eh|${MULETAS_SEMPRE}`
+
+/** Muleta ANTES do valor: "gastei tipo 190 de cimento". */
+const RE_MULETA_ANTES = new RegExp(
+  String.raw`\s+(?:${MULETAS})\s+(?=(?:r\$\s*)?\d|de\s+\d|uns?\s+\d)`,
+  'gi',
+)
+
+/**
+ * Muleta DEPOIS do valor: "guardei 200 sei lá na reserva".
+ *
+ * Este é o lado que mais estraga: com a muleta entre o valor e o complemento,
+ * "na reserva" deixa de ser lido como reserva e o lançamento vira depósito em
+ * meta; "de gasolina" deixa de ser abastecimento e vira despesa comum. O
+ * dinheiro fica certo e o TIPO fica errado, que é pior de perceber.
+ */
+const RE_MULETA_DEPOIS = new RegExp(
+  String.raw`(?<=\d)\s+(?:${MULETAS})\s+(?=(?:de|da|do|na|no|em|para|pra|nas|nos)\b)`,
+  'gi',
+)
+
+/**
+ * Muleta entre o substantivo e o verbo de ligação: "meu saldo SEI LÁ é 1500".
+ * Sem esta variante o valor não chegava a lugar nenhum — a frase inteira ficava
+ * sem lançamento.
+ */
+const RE_MULETA_LIGACAO = new RegExp(
+  String.raw`\s+(?:${MULETAS})\s+(?=(?:[ée]|eh|foi|ficou|deu|de|da|do|na|no|em)\s+(?:r\$\s*)?\d)`,
+  'gi',
+)
+
+/** As inequívocas, em qualquer posição depois da primeira palavra. */
+const RE_MULETA_LIVRE = new RegExp(
+  String.raw`(?<=\S)\s+(?:${MULETAS_SEMPRE})(?=\s|[.,!?]|$)`,
+  'gi',
+)
+
+/**
+ * Muleta logo depois do VERBO: "troquei TIPO o óleo por 280".
+ *
+ * Nessa posição nenhuma delas é conteúdo — o que vem depois de um verbo de
+ * dinheiro conjugado é o objeto, não um "tipo" nem um "olha". Sem esta regra a
+ * manutenção inteira se perdia.
+ */
+const RE_MULETA_POS_VERBO = new RegExp(
+  String.raw`(?<=\b(?:${[...PASSADO].join('|')})\s)(?:${MULETAS})\s+`,
+  'gi',
+)
+
+/**
+ * Muleta logo depois do ARTIGO: "troquei o TIPO óleo por 280".
+ *
+ * Aqui a lista é a restrita de propósito: "o cara", "a olha" e "o velho" podem
+ * ser substantivo de verdade, e trocar um substantivo por nada é pior do que
+ * não entender a frase com ruído. "O tipo óleo" não é português nenhum.
+ */
+const RE_MULETA_POS_ARTIGO = new RegExp(
+  String.raw`(?<=\b(?:o|a|os|as|um|uma|meu|minha)\s)(?:tipo|ent[ãa]o|assim|${MULETAS_SEMPRE})\s+`,
+  'gi',
+)
+
+/**
+ * Caracteres que nunca são conteúdo: controle C0/C1, largura zero e marcas de
+ * direção de texto.
+ *
+ * A limpeza acontece na FRONTEIRA (regra 46): a mensagem entra por aqui e nada
+ * depois precisa se preocupar com isso. Sem ela, o `\b` que o usuário colou sem
+ * perceber sobrevivia até a DESCRIÇÃO do lançamento, voltava na resposta do
+ * assistente e ia parar no histórico — e um `U+202E` no meio de um nome inverte
+ * visualmente tudo que vem depois dele na tela.
+ *
+ * `\n` e `\t` ficam: eles separam ideias numa mensagem longa, e a segmentação
+ * por cláusula usa isso.
+ */
+const INVISIVEIS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g
+
+/**
+ * Teto de tamanho da mensagem.
+ *
+ * O parser tem trechos QUADRÁTICOS no comprimento — não por descuido, mas
+ * porque reconhecer valor, data e origem exige varrer o texto mais de uma vez.
+ * Com 5.000 caracteres isso vira meio segundo; o fuzzer mediu 500 ms para uma
+ * sequência de 5.000 dígitos, mil vezes o custo de uma mensagem normal.
+ *
+ * Perseguir cada regex quadrática seria caro e frágil. O teto é a resposta
+ * honesta: ninguém digita um número de 5.000 algarismos, e 2.000 caracteres já
+ * é uma mensagem longuíssima para um chat — a chamada remota, aliás, já cortava
+ * em 1.500. O que é cortado é DITO ao usuário, nunca sumido em silêncio.
+ */
+export const MAX_MESSAGE_CHARS = 2000
+
+export function stripInvisible(message: string): string {
+  return message.replace(INVISIVEIS, '')
+}
+
+export interface ClampedMessage { text: string; truncated: boolean }
+
+/** Limpa e limita. É a única porta de entrada da mensagem no orquestrador. */
+export function clampMessage(message: string): ClampedMessage {
+  const limpa = stripInvisible(String(message ?? ''))
+  return limpa.length > MAX_MESSAGE_CHARS
+    ? { text: limpa.slice(0, MAX_MESSAGE_CHARS), truncated: true }
+    : { text: limpa, truncated: false }
+}
+
+export function stripFillers(message: string): { text: string; changed: boolean } {
+  const text = message
+    .replace(RE_MULETA_LIVRE, '')
+    .replace(RE_MULETA_POS_VERBO, '')
+    .replace(RE_MULETA_POS_ARTIGO, '')
+    .replace(RE_MULETA_ANTES, ' ')
+    .replace(RE_MULETA_DEPOIS, ' ')
+    .replace(RE_MULETA_LIGACAO, ' ')
+    .replace(/\s{2,}/g, ' ')
+  return { text, changed: text !== message }
+}
+
 /** Frase curta que conta ao usuário o que foi lido de outro jeito. */
 export function describeRepairs(r: RepairedText): string | null {
   if (!r.changed) return null

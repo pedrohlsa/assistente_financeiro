@@ -83,18 +83,20 @@ interface Rule {
 }
 
 /** Quantidades escritas por extenso que aparecem em prazo falado. */
-const SMALL_WORDS: Record<string, number> = {
+// MAPA, nao objeto: a leitura por colchete anda pela cadeia de prototipo, e
+// uma palavra como "constructor" devolveria uma FUNCAO no lugar de um numero.
+const SMALL_WORDS = new Map<string, number>(Object.entries({
   um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6,
   sete: 7, oito: 8, nove: 9, dez: 10, onze: 11, doze: 12, quinze: 15,
   vinte: 20, trinta: 30,
-}
-const COUNT_RE = `\\d{1,3}|tr[êe]s|${Object.keys(SMALL_WORDS).join('|')}`
+}))
+const COUNT_RE = `\\d{1,3}|tr[êe]s|${[...SMALL_WORDS.keys()].join('|')}`
 const UNIT_RE = String.raw`dias?|semanas?|m[eê]s(?:es)?|anos?`
 
 const countOf = (raw: string): number => {
   const n = Number(raw)
   if (Number.isFinite(n)) return n
-  return SMALL_WORDS[raw.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()] ?? NaN
+  return SMALL_WORDS.get(raw.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()) ?? NaN
 }
 
 /** Soma `n` unidades a partir de `today`, preservando o dia em meses curtos. */

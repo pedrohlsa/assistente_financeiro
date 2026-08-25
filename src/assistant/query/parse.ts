@@ -436,10 +436,26 @@ function resolverCategoria(
 
   for (const [id, palavras] of Object.entries(CATEGORY_KEYWORDS)) {
     if (!cats.some(c => c.id === id)) continue
-    if (palavras.some(p => alvo === normalizeName(p) || alvo.includes(` ${normalizeName(p)}`) || alvo.startsWith(`${normalizeName(p)} `))) return id
+    for (const p of palavras) {
+      const chave = normalizeName(p)
+      if (alvo !== chave && !alvo.includes(` ${chave}`) && !alvo.startsWith(`${chave} `)) continue
+      // A palavra-chave só define a categoria quando ela é PRATICAMENTE todo o
+      // alvo. "Restaurante do Amarelo" começa com "restaurante", mas o usuário
+      // nomeou um lugar — responder com o total de Alimentação inteira é o
+      // mesmo defeito de "Zé da esquina". Sobrando nome próprio, o filtro é de
+      // TEXTO, e a categoria vira só a segunda tentativa.
+      const resto = alvo.replace(chave, ' ').split(/\s+/).filter(w => w.length > 2 && !FUNCIONAIS_ALVO.has(w))
+      if (!resto.length) return id
+    }
   }
   return undefined
 }
+
+/** Palavras que não acrescentam identidade a um alvo ("mercado DO bairro"). */
+const FUNCIONAIS_ALVO = new Set([
+  'do', 'da', 'dos', 'das', 'de', 'no', 'na', 'nos', 'nas', 'em', 'com',
+  'meu', 'minha', 'seu', 'sua', 'esse', 'essa', 'este', 'esta', 'todo', 'toda',
+])
 
 /** Categoria que o HISTÓRICO dele associa a este nome. Só como segunda tentativa. */
 function categoriaAprendida(
@@ -716,8 +732,15 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
       // A busca vai pelo LITERAL que o usuário escreveu, não pela versão
       // podada — ver o comentário em `extrairAlvo`.
       filter.text = alvo.literal
-      // Segunda tentativa, só se a busca literal não achar nada: o motorista
-      // que fala "suco" tem "Combustível" gravado na descrição.
+      // Segunda tentativa, só se a busca literal não achar nada, e SÓ com
+      // evidência no histórico dele: o motorista que fala "suco" tem
+      // "Combustível" gravado na descrição.
+      //
+      // A lista genérica de palavras-chave NÃO entra aqui. Ela transformaria
+      // "quanto gastei no Restaurante do Amarelo?" — um lugar que não existe no
+      // histórico — no total de Alimentação inteira, que é o mesmo defeito do
+      // "Zé da esquina" pelo outro lado. Sem o lugar, a resposta certa é dizer
+      // que não há lançamento com esse nome.
       fallbackCategory = categoriaAprendida(state, alvo.valor, tipoAlvo, hoje)
       recognized.push(`texto "${alvo.literal}"`)
     }

@@ -4,24 +4,34 @@
 // própria. Ele traduz PALAVRAS em número; qualquer coisa escrita com algarismo
 // continua indo para `parseMoney()`. Nunca existe um segundo parser monetário.
 
-const UNITS: Record<string, number> = {
+/**
+ * MAPAS, nao objetos literais. O operador `in` e o acesso por colchete andam
+ * pela CADEIA DE PROTOTIPO: com um objeto comum, `'__proto__' in UNITS` e
+ * `'constructor' in UNITS` sao `true`, e a leitura devolve `Object.prototype` /
+ * a funcao construtora. O fuzzer achou isso como um CRASH real — a mensagem
+ * "__proto__" derrubava o assistente com "m.value.toFixed is not a function",
+ * porque o acumulador virava uma string.
+ *
+ * `Map` nao tem esse problema: a chave e a chave, e nada mais existe ali.
+ */
+const UNITS = new Map<string, number>(Object.entries({
   zero: 0, um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5,
   seis: 6, sete: 7, oito: 8, nove: 9, dez: 10, onze: 11, doze: 12, treze: 13,
   catorze: 14, quatorze: 14, quinze: 15, dezesseis: 16, dezasseis: 16,
   dezessete: 17, dezassete: 17, dezoito: 18, dezenove: 19, dezanove: 19,
-}
+}))
 
-const TENS: Record<string, number> = {
+const TENS = new Map<string, number>(Object.entries({
   vinte: 20, trinta: 30, quarenta: 40, cinquenta: 50, sessenta: 60,
   setenta: 70, oitenta: 80, noventa: 90,
-}
+}))
 
-const HUNDREDS: Record<string, number> = {
+const HUNDREDS = new Map<string, number>(Object.entries({
   cem: 100, cento: 100, duzentos: 200, duzentas: 200, trezentos: 300, trezentas: 300,
   quatrocentos: 400, quatrocentas: 400, quinhentos: 500, quinhentas: 500,
   seiscentos: 600, seiscentas: 600, setecentos: 700, setecentas: 700,
   oitocentos: 800, oitocentas: 800, novecentos: 900, novecentas: 900,
-}
+}))
 
 /** Multiplicadores de escala, do maior para o menor. */
 const SCALES: { word: RegExp; value: number }[] = [
@@ -39,7 +49,7 @@ const strip = (w: string) =>
 
 const isNumberWord = (w: string): boolean => {
   const s = strip(w)
-  return s in UNITS || s in TENS || s in HUNDREDS || SCALES.some(sc => sc.word.test(s))
+  return UNITS.has(s) || TENS.has(s) || HUNDREDS.has(s) || SCALES.some(sc => sc.word.test(s))
 }
 
 /**
@@ -70,16 +80,16 @@ export function wordsToNumberParts(words: string[]): { value: number; cents?: nu
     const w = strip(raw)
     if (FILLER.has(w)) continue
 
-    if (w in TENS && tensUsed && total === 0) {
+    if (TENS.has(w) && tensUsed && total === 0) {
       // Segunda dezena sem escala no meio: o resto são os centavos.
       const rest = wordsToNumberParts(words.slice(i))
       if (rest && rest.value > 0 && rest.value < 100) cents = rest.value
       break
     }
 
-    if (w in UNITS) { current += UNITS[w]; sawDigit = true; continue }
-    if (w in TENS) { current += TENS[w]; sawDigit = true; tensUsed = true; continue }
-    if (w in HUNDREDS) { current += HUNDREDS[w]; sawDigit = true; continue }
+    if (UNITS.has(w)) { current += UNITS.get(w)!; sawDigit = true; continue }
+    if (TENS.has(w)) { current += TENS.get(w)!; sawDigit = true; tensUsed = true; continue }
+    if (HUNDREDS.has(w)) { current += HUNDREDS.get(w)!; sawDigit = true; continue }
 
     const scale = SCALES.find(s => s.word.test(w))
     if (scale) {

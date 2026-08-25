@@ -447,8 +447,8 @@ function resolveLocal(s: AppState, input: string): AiReply {
     // "quanto vou pagar de cartão nos próximos três meses?"
     const nextM = t.match(/pr[oó]ximos?\s*(\d+|tr[eê]s|dois|quatro|cinco|seis)\s*(?:meses|m[eê]s)/)
     if (nextM && /cart[ãa]o|parcela|fatura/.test(t)) {
-      const word: Record<string, number> = { dois: 2, 'três': 3, tres: 3, quatro: 4, cinco: 5, seis: 6 }
-      const n = Math.min(parseInt(nextM[1], 10) || word[nextM[1]] || 3, 12)
+      const word = new Map<string, number>(Object.entries({ dois: 2, 'três': 3, tres: 3, quatro: 4, cinco: 5, seis: 6 }))
+      const n = Math.min(parseInt(nextM[1], 10) || word.get(nextM[1]) || 3, 12)
       const proj = monthlyProjections(s, n)
       const total = proj.reduce((a, m) => a + m.installments, 0)
       return {

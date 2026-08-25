@@ -18,10 +18,12 @@ const MESES = [
 ]
 const MES_RE = 'janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro'
 
-const MES_CURTO: Record<string, number> = {
+// MAPA, nao objeto: leitura por colchete anda pela cadeia de prototipo, e
+// `MES_CURTO['con']` de "constructor" ja foi um crash real em outro modulo.
+const MES_CURTO = new Map<string, number>(Object.entries({
   jan: 0, fev: 1, mar: 2, abr: 3, mai: 4, jun: 5,
   jul: 6, ago: 7, set: 8, out: 9, nov: 10, dez: 11,
-}
+}))
 
 const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
@@ -29,7 +31,7 @@ const mesIndex = (nome: string): number => {
   const s = semAcento(nome)
   const i = MESES.findIndex(m => semAcento(m) === s)
   if (i >= 0) return i
-  return MES_CURTO[s.slice(0, 3)] ?? -1
+  return MES_CURTO.get(s.slice(0, 3)) ?? -1
 }
 
 const primeiroDia = (ano: number, mes: number) => toISO(new Date(ano, mes, 1))
@@ -76,16 +78,16 @@ export function previousPeriod(p: QueryPeriod): QueryPeriod {
   return { from: addDays(to, -(dias - 1)), to, label: 'no período anterior', grain: p.grain }
 }
 
-const NUM_PALAVRA: Record<string, number> = {
+const NUM_PALAVRA = new Map<string, number>(Object.entries({
   um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6,
   sete: 7, oito: 8, nove: 9, dez: 10, onze: 11, doze: 12, quinze: 15,
   vinte: 20, trinta: 30, sessenta: 60, noventa: 90,
-}
+}))
 
 const lerNumero = (s: string): number => {
   const n = parseInt(s, 10)
   if (Number.isFinite(n)) return n
-  return NUM_PALAVRA[semAcento(s)] ?? NaN
+  return NUM_PALAVRA.get(semAcento(s)) ?? NaN
 }
 
 /**

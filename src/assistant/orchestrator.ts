@@ -23,7 +23,7 @@ import { categoryDilemma, outOfPatternWarning, withLearnedCategory } from './lea
 import { explainRequest } from './explain'
 import { answerConversation, isFocusFresh, looksLikeFollowUp } from './conversation'
 import { buildTurnPlan, hasBlock } from './semantic/turn'
-import { describeRepairs, repairStructuralTypos } from './semantic/normalize'
+import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } from './semantic/normalize'
 import { conflictQuestion, evidenceFor, mergeByField, sameFact } from './semantic/evidence'
 import { composeAnswer, explainQueryResult, isQueryFailure, runQuery, validateQueryPlan } from './query'
 import { rememberQuery } from './conversation'
@@ -145,6 +145,8 @@ interface LocalPass {
   temporalPlan?: TemporalSignal
   /** Conta que se repete: é previsão, e o cadastro dela não é por conversa. */
   recorrenteDeclarada?: boolean
+  /** Intencao declarada ("vou gastar 80 no mercado"): explicar, nunca registrar. */
+  intencaoDeclarada?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -393,10 +395,12 @@ function runLocal(
   // todo dia" continua sendo registro de trabalho.
   const MOVIMENTO = new Set(['income', 'expense', 'saving'])
   let recorrenteDeclarada = false
+  let intencaoDeclarada = false
   /** Frase que o usuário classifica de dois jeitos, com evidência dos dois. */
   const dilemas: { actionId: string; entity: string; options: string[] }[] = []
 
   for (const clause of analysis.clauses) {
+    if (clause.intention) intencaoDeclarada = true
     if (semAlvo && looksLikeRetraction(clause.text)) continue
     // O valor precisa estar na frase: "todo mês" sozinho não descreve conta
     // nenhuma. Com valor, tanto faz o parser ter achado a despesa ("pago 90 de
@@ -541,7 +545,7 @@ function runLocal(
     !c.handled && c.intent !== 'conversation' && !(c.intent === 'question' && false))
     || analysis.coverage < 0.999
 
-  return { analysis, candidates, rejected, clarification, needsRemote, unresolved, temporalPlan, recorrenteDeclarada }
+  return { analysis, candidates, rejected, clarification, needsRemote, unresolved, temporalPlan, recorrenteDeclarada, intencaoDeclarada }
 }
 
 // ---------------------------------------------------------------------------
@@ -625,8 +629,17 @@ const rejectionNote = (rejected: LocalPass['rejected']): string => {
   return `\n\nUma parte não pôde ser registrada — ${what}. Se quiser, reformule só esse pedaço.`
 }
 
-export async function orchestrate(input: OrchestratorInput): Promise<OrchestratorOutput> {
+export async function orchestrate(entradaBruta: OrchestratorInput): Promise<OrchestratorOutput> {
   const started = Date.now()
+  // FRONTEIRA (regra 46): caractere invisível e de controle saem AQUI, antes de
+  // qualquer interpretação. Sem isso o `\b` que o usuário colou sem perceber
+  // sobrevivia até a DESCRIÇÃO do lançamento, voltava na resposta e ia parar no
+  // histórico; e um `U+202E` no meio de um nome inverte visualmente a linha
+  // inteira na tela. Depois desta linha, o resto do código pode confiar.
+  const limpa = clampMessage(entradaBruta.message)
+  const input: OrchestratorInput = limpa.text === entradaBruta.message
+    ? entradaBruta
+    : { ...entradaBruta, message: limpa.text }
   const caps = buildCapabilities(input.state)
   const today = input.today || todayISO()
 
@@ -1013,7 +1026,23 @@ Confirmar?`,
   // destrava alguma coisa: se a frase reparada continua sem fato e sem
   // pergunta, ela é descartada e o original segue. Falha fechada.
   {
-    const tentativa = repairStructuralTypos(input.message, input.state)
+    // Muleta de conversa ("gastei TIPO 190 de cimento", "guardei 200 SEI LÁ na
+    // reserva") não quer dizer nada e fica exatamente onde mais atrapalha.
+    // Antes: o parser não achava lançamento NENHUM com a muleta antes do valor,
+    // e trocava o TIPO do lançamento com ela depois — "guardei 200 sei lá na
+    // reserva" virava depósito em meta, com o valor certo e a natureza errada.
+    //
+    // A remoção é INCONDICIONAL porque a regex já é estreita (a muleta precisa
+    // estar colada num número ou entre o número e um conector) e porque uma
+    // muleta nunca é parte do sentido: tirá-la não pode piorar a leitura.
+    const semMuleta = stripFillers(input.message)
+    if (semMuleta.changed) {
+      const outro = buildTurnPlan(input.state, semMuleta.text, { today })
+      turno = outro
+      mensagem = semMuleta.text
+    }
+
+    const tentativa = repairStructuralTypos(mensagem, input.state)
     if (tentativa.changed) {
       // Duas situações justificam trocar o texto:
       //   (a) o original não produz fato nenhum — o verbo errado engoliu a
@@ -1031,9 +1060,18 @@ Confirmar?`,
           const texto = normalizeName(`${(a as any).description || ''} ${(a as any).origin || ''}`)
           return tentativa.corrections.some(c => c.estrutural && texto.includes(normalizeName(c.from)))
         }))
-      if (!hasBlock(turno, 'record') || degradado) {
+      // (c) a mensagem tem MAIS DE UMA parte e uma delas ficou de fora:
+      // "rceebi 1800 e gastei 150 de areia" registrava só a despesa e a receita
+      // sumia em silêncio. Coberta parcial é sinal de que o reparo tem o que
+      // destravar, mesmo com um fato já reconhecido.
+      const parcial = tentativa.corrections.some(c => c.estrutural) && turno.coverage < 0.999
+      if (!hasBlock(turno, 'record') || degradado || parcial) {
         const outro = buildTurnPlan(input.state, tentativa.text, { today })
-        if (hasBlock(outro, 'record') || hasBlock(outro, 'scenario')) {
+        const melhorou = outro.coverage > turno.coverage + 1e-6
+          || outro.blocks.reduce((n, b) => n + b.actions.length, 0)
+            > turno.blocks.reduce((n, b) => n + b.actions.length, 0)
+        if ((hasBlock(outro, 'record') || hasBlock(outro, 'scenario'))
+          && (!hasBlock(turno, 'record') || degradado || melhorou)) {
           turno = outro
           mensagem = tentativa.text
           reparo = tentativa
@@ -1244,7 +1282,16 @@ Confirmar?`,
     mode = 'answer'
     const negadas = analysis.clauses.filter(c => c.intent === 'correction' && !c.actions.length)
     const notUnderstood = unresolved.filter(u => u.reason !== 'question-unanswered')
-    if (local.recorrenteDeclarada) {
+    if (local.intencaoDeclarada && !candidates.length) {
+      // Intencao declarada nao e fato: "vou gastar 80 no mercado" e "posso
+      // guardar 200?" viravam lancamento, porque o verbo esta no INFINITIVO e
+      // nenhuma lista de verbo conjugado os barrava. O app diz o que fez e o
+      // que fara — nunca inventa a movimentacao.
+      reply = ['Isso ainda não aconteceu, então não registrei nada. '
+        + 'Quando acontecer de verdade, me avise que eu lanço na hora.',
+      'Se quiser saber como isso ficaria antes de decidir, pergunte com "e se" — '
+        + 'por exemplo, "e se eu gastar 200 esse mês?".'].join('\n\n')
+    } else if (local.recorrenteDeclarada) {
       // Conta que se repete é previsão: registrar como gasto de hoje somaria ao
       // mês um dinheiro que ainda não saiu (regra 18). O cadastro de recorrência
       // não é por conversa — a tela certa faz isso com data e frequência.
@@ -1285,6 +1332,12 @@ Confirmar?`,
     reply = `${notaReparo}
 
 ${reply}`
+  }
+  // Mensagem cortada: o usuario precisa saber. Ler so o comeco e responder como
+  // se tivesse lido tudo e pior do que dizer que cortou.
+  if (limpa.truncated) {
+    reply += ['', '', 'Sua mensagem era muito longa e eu li só o começo. '
+      + 'Se faltou alguma coisa, me mande em partes.'].join('\n')
   }
   reply += rejectionNote(rejectedAll)
 

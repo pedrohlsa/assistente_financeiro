@@ -36,6 +36,12 @@ export interface AnalyzedClause {
    * perguntar ou explicar, jamais gravar com a data de hoje.
    */
   temporal?: TemporalSignal
+  /**
+   * Intencao declarada: o verbo de dinheiro esta no INFINITIVO, governado por
+   * modal ("vou gastar", "posso guardar", "pretendo colocar"). O movimento foi
+   * removido; quem recebe isto EXPLICA em vez de registrar.
+   */
+  intention?: boolean
 }
 
 export interface TemporalSignal {
@@ -138,9 +144,19 @@ const CORRECTION_PATTERNS: RegExp[] = [
  */
 const NEGATED_VERBS =
   'gastei|gastou|paguei|pagou|recebi|recebeu|ganhei|ganhou|comprei|comprou|guardar|guardei|separei|abasteci|coloquei|botei|rodei|trabalhei|fiz|foi|era|quero|vou|registra|registre|salva|salve'
+  // Qualquer verbo de dinheiro no passado pode ser NEGADO. A lista acima
+  // esquecia troquei, instalei, vendi, depositei e outros — e "nao troquei o
+  // oleo por 280" registrava a manutencao mesmo assim.
+  + '|troquei|instalei|vendi|depositei|investi|apliquei|parcelei|passei|tirei|retirei|faturei|lucrei|andei|dirigi|percorri|entrou|caiu|sobrou|custou'
 
+/**
+ * A vírgula depois do "não" é o jeito mais comum de negar em fala real: "não,
+ * eu não gastei 190". Exigir espaço logo depois do "não" fazia a frase inteira
+ * escapar da guarda e o gasto negado virava lançamento. "Nem" é a outra forma
+ * ("nem gastei isso").
+ */
 const NEGATED_STATEMENT = new RegExp(
-  String.raw`^\s*(?:mas\s+|e\s+|ah\s+|olha\s+)?n[ãa]o\s+(?:\S+\s+){0,3}?(?:${NEGATED_VERBS})(?![a-zà-ú])`,
+  String.raw`^\s*(?:mas\s*,?\s*|e\s*,?\s*|ah\s*,?\s*|olha\s*,?\s*)?(?:n[ãa]o|nem)\b[\s,;!]*(?:\S+[\s,]+){0,3}?(?:${NEGATED_VERBS})(?![a-zà-ú])`,
   'i',
 )
 
@@ -219,6 +235,31 @@ export const contestsProposal = (t: string): boolean => hasAny(t, CONTEST_PATTER
 export { looksRecurring }
 
 export const looksLikeConversation = (t: string): boolean => hasAny(t, CONVERSATION_PATTERNS)
+
+/**
+ * Verbo de dinheiro no INFINITIVO, governado por modal ou intenção.
+ *
+ * "Vou gastar 80 no mercado", "posso guardar 200?", "pretendo colocar 100 de
+ * gasolina" — nenhuma delas afirma um fato consumado, e as três viravam
+ * lançamento. As regras temporais só pegavam a variante COM data ("vou gastar
+ * 50 daqui a 3 dias"); sem data não havia sinal nenhum e o dinheiro entrava.
+ *
+ * É a mesma família da regra 33: perguntar não é movimentar dinheiro, e
+ * pretender não é ter feito. O verbo no infinitivo é o que identifica a classe
+ * inteira — nenhuma lista de verbo conjugado a barra.
+ *
+ * NÃO zera meta: "quero comprar um celular de 5000 em 6 meses" é justamente
+ * como se cria um objetivo de compra, e ali a intenção é o ponto.
+ */
+const MODAIS = 'posso|poderia|devo|deveria|quero|queria|pretendo|penso\\s+em|planejo|vou|vamos|irei|iria|preciso|precisava|tenho\\s+que|tenho\\s+de|d[áa]\\s+pra|d[áa]\\s+para|consigo|gostaria\\s+de|to\\s+querendo|estou\\s+querendo'
+const INFINITIVOS_DINHEIRO = 'gastar|pagar|receber|ganhar|comprar|guardar|separar|colocar|botar|abastecer|investir|depositar|tirar|vender|parcelar|juntar|poupar|torrar|meter|trocar|instalar|rodar|trabalhar|faturar|lucrar|aplicar|quitar'
+
+const INTENCAO = new RegExp(
+  String.raw`\b(?:${MODAIS})\s+(?:\S+\s+){0,2}?(?:${INFINITIVOS_DINHEIRO})\b`,
+  'i',
+)
+
+export const declaresIntention = (t: string): boolean => INTENCAO.test(t)
 
 // ---------------------------------------------------------------------------
 // Segmentação com offsets
@@ -610,8 +651,26 @@ export function analyzeMessage(
     if (negated) actions = []
 
     // Hipótese descreve um cenário, não um fato consumado.
-    if (/\bse\s+(?:eu|voc[êe]|a\s+gente)\b|\bt[ôo]\s+pensando\b|\bestou\s+pensando\b|\bacho\s+que\b/i.test(part.text)) {
+    // "Supondo que eu ganhar 250 na uber" registrava os 250: a lista só
+    // conhecia "se eu", e as outras formas de abrir uma hipótese passavam
+    // direto. Uma hipótese que vira fato é dinheiro inventado.
+    if (/\bse\s+(?:eu|voc[êe]|a\s+gente)\b|\bt[ôo]\s+pensando\b|\bestou\s+pensando\b|\bacho\s+que\b|\bsupondo\b|\bimagina(?:ndo)?\s+que\b|\bvamos\s+supor\b|\bpartindo\s+do\s+principio\b/i.test(part.text)) {
       actions = []
+    }
+
+    // Intenção declarada ("vou gastar 80 no mercado", "posso guardar 200?"):
+    // nenhum MOVIMENTO de dinheiro nasce dela. Meta continua passando, porque
+    // "quero comprar um celular de 5000 em 6 meses" é como se cria um objetivo.
+    let intencao = false
+    // Com verbo no PASSADO na mesma cláusula o fato existe e a intenção é só a
+    // outra metade da frase — "gastei 40 hoje e amanhã vou pagar 120" tem um
+    // lançamento legítimo, e quem cuida do plano é a regra temporal. Sem esta
+    // condição a guarda de intenção engolia o gasto de hoje junto.
+    if (!looksPast(part.text) && declaresIntention(part.text)) {
+      const MOVIMENTO_INTENCAO = new Set(['income', 'expense', 'saving', 'fuel', 'work', 'maintenance', 'card-purchase', 'balance'])
+      const antes = actions.length
+      actions = actions.filter(a => !MOVIMENTO_INTENCAO.has(a.kind))
+      intencao = actions.length < antes
     }
 
     // NENHUMA EXPRESSÃO TEMPORAL É DESCARTADA. Uma data que ainda não chegou,
@@ -683,6 +742,7 @@ export function analyzeMessage(
       ambiguity,
       dateAmbiguity,
       temporal,
+      intention: intencao || undefined,
     })
 
     if (actions.length && isQuestion) {
