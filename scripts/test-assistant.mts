@@ -22,6 +22,7 @@ import { FALA_REAL } from '../tests/assistant/cases-fala-real'
 import { ADAPTATIVO } from '../tests/assistant/cases-adaptativo'
 import { REGISTRO_REAL } from '../tests/assistant/cases-registro-real'
 import { runProperties } from '../tests/assistant/properties'
+import { runCopilotProperties } from '../tests/assistant/properties-copiloto'
 import { runCase } from '../tests/assistant/harness'
 import type { CaseResult } from '../tests/assistant/harness'
 import { QUERY_CASES, PLAN_REJECTIONS, PROTOTYPE_ATTACKS, TODAY_Q } from '../tests/assistant/cases-consulta'
@@ -157,13 +158,22 @@ if (!only) {
   }
 }
 
-// Invariantes financeiras: valem para QUALQUER entrada, não para uma frase.
+// Invariantes: valem para QUALQUER entrada, não para uma frase. As antigas
+// protegem a CONTABILIDADE (saving não é receita, cartão não conta duas vezes);
+// as novas protegem as fronteiras do copiloto — consulta só lê, cenário não
+// grava, e número na prosa tem que existir nos fatos.
 const props = only ? { total: 0, failures: [] as string[] } : await runProperties()
-if (props.total) {
+const copiloto = only ? { total: 0, failures: [] as string[] } : await runCopilotProperties()
+const todas = {
+  total: props.total + copiloto.total,
+  failures: [...props.failures, ...copiloto.failures],
+}
+if (todas.total) {
   console.log('\n=== Invariantes ===')
-  console.log(props.failures.length
-    ? `FAIL ${props.total - props.failures.length}/${props.total}\n` + props.failures.map(f => '   · ' + f).join('\n')
-    : `ok   ${props.total}/${props.total} invariantes preservadas`)
+  console.log(todas.failures.length
+    ? `FAIL ${todas.total - todas.failures.length}/${todas.total}\n` + todas.failures.map(f => '   · ' + f).join('\n')
+    : `ok   ${todas.total}/${todas.total} invariantes preservadas `
+      + `(${props.total} financeiras + ${copiloto.total} do copiloto)`)
 }
 
-process.exit(failed.length || props.failures.length || extrasFalharam ? 1 : 0)
+process.exit(failed.length || todas.failures.length || extrasFalharam ? 1 : 0)
