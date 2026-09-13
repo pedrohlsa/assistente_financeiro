@@ -23,6 +23,7 @@ import { ADAPTATIVO } from '../tests/assistant/cases-adaptativo'
 import { REGISTRO_REAL } from '../tests/assistant/cases-registro-real'
 import { runProperties } from '../tests/assistant/properties'
 import { runCopilotProperties } from '../tests/assistant/properties-copiloto'
+import { runEvalSelfTest } from '../tests/assistant/eval/selftest'
 import { runCase } from '../tests/assistant/harness'
 import type { CaseResult } from '../tests/assistant/harness'
 import { QUERY_CASES, PLAN_REJECTIONS, PROTOTYPE_ATTACKS, TODAY_Q } from '../tests/assistant/cases-consulta'
@@ -174,6 +175,22 @@ if (todas.total) {
     ? `FAIL ${todas.total - todas.failures.length}/${todas.total}\n` + todas.failures.map(f => '   · ' + f).join('\n')
     : `ok   ${todas.total}/${todas.total} invariantes preservadas `
       + `(${props.total} financeiras + ${copiloto.total} do copiloto)`)
+}
+
+// A avaliação PAGA dos modelos remotos não roda aqui — o avaliador dela, sim.
+// Gabarito que não passa no validador real, pontuação que acusa a resposta
+// certa ou deixa passar um defeito plantado, e rota declarada que não bate com
+// o orquestrador são defeitos que só apareceriam depois de gastar.
+if (!only) {
+  const avaliacao = await runEvalSelfTest()
+  console.log('\n=== Avaliação remota (autoteste, sem rede) ===')
+  if (avaliacao.falhas.length) {
+    console.log(`FAIL ${avaliacao.falhas.length} de ${avaliacao.total}`)
+    for (const f of avaliacao.falhas.slice(0, 20)) console.log(`   · ${f}`)
+    extrasFalharam = true
+  } else {
+    console.log(`ok   ${avaliacao.total} verificações · ${avaliacao.resumo.join(' · ')}`)
+  }
 }
 
 process.exit(failed.length || todas.failures.length || extrasFalharam ? 1 : 0)

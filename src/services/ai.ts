@@ -273,7 +273,7 @@ export async function askAssistantRemote(
 // e ela que vai para a tela.
 
 /** Contexto MINIMO para planejar: nada de agregado, nada de historico. */
-function planningContext(s: AppState) {
+export function planningContext(s: AppState) {
   return {
     perfil: s.settings.profile,
     categorias: s.categories.filter(c => !c.archived).map(c => ({ id: c.id, name: c.name, type: c.type })),

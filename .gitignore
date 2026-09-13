@@ -5,3 +5,6 @@ dist/
 .vercel
 
 *.tsbuildinfo
+
+# Resultados da avaliação paga de modelos remotos (dados sintéticos, mas volumosos)
+eval-results/
