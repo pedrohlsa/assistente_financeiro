@@ -574,3 +574,14 @@ editar `api/ai/chat.ts`, sempre redeployar com `npx vercel --prod`, senão a mud
     quebra a regex em silêncio e só aparece quando um teste falha por um
     motivo que não faz sentido. Onde um caractere de controle é dado de teste,
     ele é MONTADO (`String.fromCharCode`). Invariante 104.
+60. **Modelo remoto só se troca com medição, e medir custa dinheiro.**
+    `scripts/eval-assistant-models.mts` compara configurações da API sobre
+    120 casos com gabarito executável (`tests/assistant/eval/`). O padrão é o
+    ORÇAMENTO, sem chamada paga; executar exige `--executar --teto-usd` e
+    autorização explícita de quem paga — o saldo é o mesmo que atende o app
+    publicado. O avaliador é testado SEM rede em `npm test` (oráculo pontua
+    certo, defeito plantado gera a penalidade dele, rota declarada bate com
+    o orquestrador), porque avaliador não testado mede os próprios defeitos e
+    cobra por isso. Entre modelos a ordem é lexicográfica: perigo primeiro,
+    qualidade só desempata. Só estado sintético, com canário, sai da máquina.
+    Ver `docs/AI_REMOTE_EVAL.md`.

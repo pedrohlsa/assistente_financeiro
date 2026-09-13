@@ -388,6 +388,15 @@ Duas consequências, e a segunda é uma decisão de NÃO fazer:
 
 ---
 
+### 6.7 Avaliação dos modelos remotos (13/09/2026)
+
+Infraestrutura pronta e testada sem rede; **nenhuma chamada paga feita**. Antes de medir, corrigiu-se o
+planejador remoto de consulta, que nunca tinha funcionado (commit `7080edb`, invariante 107). Achados,
+configurações, corpus, métricas, privacidade, custo e a lista de defeitos do motor LOCAL encontrados
+no caminho estão em [AI_REMOTE_EVAL.md](AI_REMOTE_EVAL.md).
+
+---
+
 ## 7. A camada adaptativa (17/08/2026)
 
 O assistente passou a usar o histórico **confirmado** deste aparelho para decidir melhor.

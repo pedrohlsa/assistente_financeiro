@@ -2737,3 +2737,29 @@ recusa com motivo). Rubrica que grita à toa se aprende a ignorar.
    resposta passa por ele hoje. Toda composição é determinística.
 3. **`orchestrate` tem 817 linhas** (eram 526). Lê-se como pipeline e os passos foram
    renumerados na ordem real de execução, mas é o maior candidato a extração da próxima rodada.
+
+---
+
+## 🧪 Avaliação dos modelos remotos — PREPARADA, não executada — 2026-09-13
+
+Nenhuma chamada paga. Detalhes em [docs/AI_REMOTE_EVAL.md](docs/AI_REMOTE_EVAL.md).
+
+- `GET /models`: `deepseek-flash` (V4.1-Flash) e `deepseek-v4-pro`. O código de produção usa o nome
+  LEGADO `deepseek-v4-flash`, roteado "temporariamente" desde 10/09/2026, e não manda o parâmetro de
+  pensamento — que por padrão vem LIGADO. Saldo: US$ 1,96, a mesma conta do app publicado.
+- **Corrigido antes de medir** (`7080edb`): o planejador remoto de consulta nunca funcionou — duas
+  chamadas pagas por pergunta e plano recusado. Invariante 107.
+- **Não corrigido, precisa de decisão**: o histórico mandado ao chat remoto inclui respostas locais,
+  que podem conter descrição e valor de lançamento (regra 44).
+- Corpus de 120 casos com gabarito executável; avaliador testado sem rede em `npm test` (416
+  verificações); orçamento com prompts exatos: A+B+C em 3 repetições custa US$ 0,79 no cenário
+  central e US$ 1,91 no pessimista.
+- **Achado colateral**: a pré-checagem de rotas encontrou dezenas de frases que o motor LOCAL responde
+  errado sem nunca consultar o modelo, várias com proposta de registro perigosa ("qnto q foi d obra msm
+  nos ultimo 3 mes" vira despesa de R$ 3,00). Lista completa no documento, seção 10.
+
+| Gate | Resultado |
+|---|---|
+| `npm test` | 531/531 · 75/75 · 4.080 + 3.800 mutações · 1.416 hostis · 107/107 invariantes · 416/416 do avaliador |
+| `typecheck` / `typecheck:api` | exit 0 |
+| `npm run build` + varredura de chave | exit 0, bundle sem chave |
