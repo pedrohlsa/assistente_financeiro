@@ -19,6 +19,7 @@ import { planScenario } from '../../src/assistant/scenario/parse'
 import { runScenario } from '../../src/assistant/scenario/engine'
 import { answerConversation } from '../../src/assistant/conversation'
 import { acceptComposition, checkGrounding, MAX_COMPOSE_FACTS } from '../../src/assistant/grounding'
+import { handleAssistantRequest } from '../../api/_lib/assistantHandler'
 import { evidenceFor, mergeByField, EVIDENCE_RANK } from '../../src/assistant/semantic/evidence'
 import { buildTurnPlan } from '../../src/assistant/semantic/turn'
 import { clampMessage, repairStructuralTypos, stripInvisible, MAX_MESSAGE_CHARS } from '../../src/assistant/semantic/normalize'
@@ -519,6 +520,56 @@ export async function runCopilotProperties(): Promise<PropertyReport> {
       return 'lista acima do teto foi ACEITA — a barreira deveria falhar fechada'
     }
     return null
+  })
+
+  // --- 107. O planejador remoto aceita PLANO sem `reply` --------------------
+  // `callDeepSeekChat` tratava todo JSON sem `reply` como resposta vazia e
+  // reenviava pedindo o envelope do CHAT. O plano da Query DSL nunca tem
+  // `reply`: cada pergunta custava DUAS chamadas pagas e terminava num objeto
+  // que `validateQueryPlan` recusava (`bad-version`) ou num 502 `empty-reply`.
+  // O planejador remoto nunca funcionou em produção por causa disso, e nenhum
+  // teste via — todos rodam sem rede. Aqui a rede é falsa e CONTA as chamadas.
+  await checkAsync(r, 'planejador remoto faz UMA chamada e o plano é aceito', async () => {
+    const original = globalThis.fetch
+    const hojeP = todayISO()
+    const cfgFalsa = { apiKey: 'falsa', model: 'qualquer', baseUrl: 'https://exemplo.invalid', timeoutMs: 5000 }
+    const resposta = (content: string) => new Response(
+      JSON.stringify({ choices: [{ message: { content } }] }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    )
+    const plano = {
+      version: 2, source: 'transactions', field: 'amount',
+      period: { from: `${hojeP.slice(0, 7)}-01`, to: hojeP, label: 'este mês', grain: 'month' },
+      filter: { txType: ['expense'], categories: ['obra'] }, metric: 'sum', group: 'none',
+    }
+    try {
+      let n = 0
+      ;(globalThis as any).fetch = async () => { n++; return resposta(JSON.stringify(plano)) }
+      const out = await handleAssistantRequest({
+        task: 'plan-query', message: 'quanto gastei com obra esse mes',
+        context: { perfil: 'autonomo', categorias: [{ id: 'obra', name: 'Obra e construção', type: 'expense' }] },
+      }, cfgFalsa)
+      if (n !== 1) return `${n} chamadas pagas para UM plano (esperava 1)`
+      if (out.status !== 200) return `planejador devolveu HTTP ${out.status}`
+      const v = validateQueryPlan(out.body.queryPlan, autonomoRico(hojeP), hojeP)
+      if (isQueryFailure(v)) return `plano recusado no cliente: ${v.code}`
+
+      // O envelope do CHAT continua exigindo `reply`: sem ele, uma segunda
+      // tentativa — e só uma.
+      let m = 0
+      ;(globalThis as any).fetch = async () => {
+        m++
+        return resposta(JSON.stringify(m === 1
+          ? { version: 1, mode: 'answer', actions: [] }
+          : { version: 1, mode: 'answer', reply: 'ok', actions: [] }))
+      }
+      const chat = await handleAssistantRequest({ message: 'oi', context: { perfil: 'other' }, history: [] }, cfgFalsa)
+      if (m !== 2) return `chat sem reply fez ${m} chamada(s) (esperava 2)`
+      if (chat.status !== 200) return `chat devolveu HTTP ${chat.status}`
+      return null
+    } finally {
+      ;(globalThis as any).fetch = original
+    }
   })
 
   return r

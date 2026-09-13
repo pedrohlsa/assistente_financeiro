@@ -122,6 +122,23 @@ export function isDeepSeekFailure(out: DeepSeekSuccess | DeepSeekFailure): out i
 }
 
 /**
+ * O que conta como resposta aproveitável.
+ *
+ * `envelope` (padrão) é o contrato do CHAT: objeto com `reply`. `object` é
+ * qualquer objeto JSON — o que o PLANEJADOR devolve, e um plano nunca tem
+ * `reply`. Sem esta distinção o planejador remoto nunca funcionou: o plano
+ * contava como resposta vazia, o reenvio pedia o envelope do chat, e cada
+ * pergunta custava duas chamadas para terminar num objeto que
+ * `validateQueryPlan` recusava (`bad-version`) ou num 502 `empty-reply`.
+ */
+export interface DeepSeekCallOptions {
+  expect?: 'envelope' | 'object'
+}
+
+const NUDGE_ENVELOPE = 'ATENÇÃO: responda APENAS com o objeto JSON do contrato {"version":1,"mode":"...","reply":"...","actions":[...]}, sem texto fora dele e nunca vazio.'
+const NUDGE_OBJETO = 'ATENÇÃO: responda APENAS com um único objeto JSON válido, no formato pedido acima, sem texto fora dele e nunca vazio.'
+
+/**
  * Chama a API de chat da DeepSeek com timeout (AbortController) e uma segunda
  * tentativa ("nudge") só quando a resposta vem vazia/sem JSON válido — erros
  * definitivos (auth, modelo, rate limit, saldo, 5xx) não tentam de novo.
@@ -131,6 +148,7 @@ export function isDeepSeekFailure(out: DeepSeekSuccess | DeepSeekFailure): out i
 export async function callDeepSeekChat(
   config: DeepSeekConfig,
   messages: DeepSeekMessage[],
+  opts: DeepSeekCallOptions = {},
 ): Promise<DeepSeekSuccess | DeepSeekFailure> {
   if (!config.apiKey) return { ok: false, code: 'no-key' }
 
@@ -144,7 +162,7 @@ export async function callDeepSeekChat(
         body: JSON.stringify({
           model: config.model,
           messages: extraNudge
-            ? [...messages, { role: 'system', content: 'ATENÇÃO: responda APENAS com o objeto JSON do contrato {"version":1,"mode":"...","reply":"...","actions":[...]}, sem texto fora dele e nunca vazio.' }]
+            ? [...messages, { role: 'system', content: opts.expect === 'object' ? NUDGE_OBJETO : NUDGE_ENVELOPE }]
             : messages,
           temperature: extraNudge ? 0 : 0.2,
           max_tokens: 900,
@@ -164,10 +182,16 @@ export async function callDeepSeekChat(
         if (m2) { try { parsed = JSON.parse(m2[0]) } catch { parsed = null } }
       }
       if (parsed && typeof parsed === 'object') {
+        // Planejador: o objeto É a resposta.
+        if (opts.expect === 'object') {
+          return { ok: true, reply: typeof parsed.reply === 'string' ? parsed.reply : '', actions: [], envelope: parsed }
+        }
         const reply = String(parsed.reply || '').trim()
         if (!reply) return null
         return { ok: true, reply, actions: Array.isArray(parsed.actions) ? parsed.actions : [], envelope: parsed }
       }
+      // Planejador sem JSON nenhum: não há o que aproveitar, vale o reenvio.
+      if (opts.expect === 'object') return null
       // Texto puro: `envelope: null` avisa o chamador de que NÃO houve contrato.
       // Nenhuma ação pode ser inferida daqui — é isso que impede a perda silenciosa.
       return { ok: true, reply: content.replace(/```(json)?/g, '').trim(), actions: [], envelope: null }

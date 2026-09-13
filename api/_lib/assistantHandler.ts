@@ -115,7 +115,7 @@ async function planQuery(
   const out = await callDeepSeekChat(config, [
     { role: 'system', content: buildQueryPlannerPrompt(caps, today) },
     { role: 'user', content: String(body.message).slice(0, 500) },
-  ])
+  ], { expect: 'object' })
   if (isDeepSeekFailure(out)) return fail(out.code)
   const bruto = out.envelope ?? safeJson(out.reply)
   return {
