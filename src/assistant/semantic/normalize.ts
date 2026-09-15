@@ -372,10 +372,13 @@ export function stripInvisible(message: string): string {
  * Estreito de proposito: so ate tres digitos (999k), so com o `k` colado ou a
  * um espaco, e nunca depois de "tv" — "tv 4k" e resolucao de tela, nao dinheiro.
  */
-const RE_MIL_ABREVIADO = /(?<!\btv\s)(?<![a-zà-ú\d])(\d{1,3})\s?k\b(?![a-zà-ú])/gi
+const RE_MIL_ABREVIADO = /(?<!\btv\s)(?<![a-zà-ú\d]|\d[.,])(\d{1,3})(?:[.,](\d{1,2}))?\s?k\b(?![a-zà-ú])/gi
 
 export function expandMilAbreviado(message: string): string {
-  return message.replace(RE_MIL_ABREVIADO, (_m, n) => `${n}000`)
+  // "2,5k" e "2.5k" são 2500. O decimal só vale com até dois dígitos: o
+  // separador de milhar não aparece antes de um "k".
+  return message.replace(RE_MIL_ABREVIADO, (_m, n: string, dec?: string) =>
+    String(Math.round((Number(n) + (dec ? Number(`0.${dec}`) : 0)) * 1000)))
 }
 
 export interface ClampedMessage { text: string; truncated: boolean }

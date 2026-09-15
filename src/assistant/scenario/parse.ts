@@ -50,8 +50,10 @@ const NUM = String.raw`(\d+(?:[.,]\d+)*)`
 
 /** "4000 em 10x", "4 mil em 10 vezes", "3600 em 12 parcelas". */
 function lerCompra(t: string): { total: number; installments: number } | null {
-  const m = t.match(new RegExp(String.raw`(?:r\$\s*)?${NUM}\s*(?:reais\s*)?(?:em|x|de)?\s*(?:em\s*)?(\d{1,3})\s*(?:x|vezes|parcelas|prestacoes)\b`))
-    || t.match(new RegExp(String.raw`(\d{1,3})\s*(?:x|vezes|parcelas)\b[^\d]{0,20}(?:r\$\s*)?${NUM}`))
+  // As bordas de dígito são obrigatórias: sem elas "24 vezes" era partido em
+  // "2" (o valor) e "4" (as parcelas), e a moto de 12 mil virava R$ 4,00 em 2x.
+  const m = t.match(new RegExp(String.raw`(?:r\$\s*)?${NUM}(?!\d|[.,]\d)\s*(?:reais\s*)?(?:em|x|de)?\s*(?:em\s*)?(?<!\d|\d[.,])(\d{1,3})\s*(?:x|vezes|parcelas|prestacoes)\b`))
+    || t.match(new RegExp(String.raw`(?<!\d|\d[.,])(\d{1,3})\s*(?:x|vezes|parcelas)\b[^\d]{0,20}(?:r\$\s*)?${NUM}`))
   if (!m) return null
   const a = parseMoney(m[1])
   const b = Number(m[2])
@@ -59,6 +61,10 @@ function lerCompra(t: string): { total: number; installments: number } | null {
   const total = Math.max(a, b)
   const parcelas = Math.min(a, b)
   if (!(total > 0) || !(parcelas >= 1) || parcelas > 120) return null
+  // O preço tem que ser DINHEIRO. "e se em vez de 10x eu fizer 12" fala de
+  // parcelas, não de uma compra de R$ 12,00 — e sem esta trava a hipótese sem
+  // base virava uma simulação com valor inventado.
+  if (valorDeDinheiro(t, total) === undefined) return null
   return { total, installments: Math.round(parcelas) }
 }
 
@@ -175,6 +181,9 @@ export function planScenario(
   if (compra) {
     const entrada = t.match(new RegExp(String.raw`\b(?:dando|com|de)\s+${NUM}\s*(?:reais\s*)?de\s+entrada\b`))
       || t.match(new RegExp(String.raw`\bentrada\s+de\s+(?:r\$\s*)?${NUM}`))
+    // Entrada do tamanho do preço, ou maior, não descreve compra parcelada
+    // nenhuma: a leitura está errada, e simular seria inventar.
+    if (entrada && parseMoney(entrada[1]) >= compra.total) return null
     return base('purchase', {
       amount: compra.total,
       installments: compra.installments,

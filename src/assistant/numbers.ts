@@ -235,7 +235,12 @@ export function findNumberWords(text: string): NumberWordMatch[] {
  * entrada aproveita esse parser inteiro em vez de duplicá-lo — e o texto
  * ORIGINAL continua preservado para exibição e diagnóstico.
  */
-export function normalizeNumberWords(text: string): { text: string; replacements: NumberWordMatch[] } {
+export function normalizeNumberWords(entrada: string): { text: string; replacements: NumberWordMatch[] } {
+  // O multiplicador colado a um DÍGITO vem antes das palavras: "2 mil e
+  // quinhentos" precisa virar 2500 inteiro, e não "2 mil e 500" — que o parser
+  // lia como R$ 2,00 e mais uma despesa de R$ 500. As posições em
+  // `replacements` são relativas a este texto já expandido.
+  const text = expandMilComDigito(entrada)
   const found = findNumberWords(text)
   // Sem número por extenso ainda pode haver centavo em dígito ("50 centavos"),
   // então a saída antecipada também passa pelo mesmo tratamento.
@@ -250,6 +255,59 @@ export function normalizeNumberWords(text: string): { text: string; replacements
   }
   out += text.slice(cursor)
   return { text: withCents(out), replacements: found }
+}
+
+/**
+ * "3 mil", "2,5 mil", "4 mil e quinhentos", "2 mil e 500" → 3000, 2500, 4500, 2500.
+ *
+ * O parser inteiro lê dígitos, e "mil" depois de um dígito ficava de fora:
+ * "tv de 3 mil" era simulada como R$ 3,00 e "moto de 12 mil em 24 vezes" como
+ * R$ 4,00 em 2x. A magnitude se perdia sem aviso — o pior tipo de erro, porque o
+ * número parece certo.
+ *
+ * Três travas:
+ *   1. o número tem até TRÊS dígitos e no máximo dois decimais, sem outro dígito
+ *      ou separador colado antes: "220.800 mil km" é como se fala o hodômetro e
+ *      já vale 220800 (quem cuida disso é `parseKmValue`);
+ *   2. o resto depois de "e" só entra quando é MENOR que mil e não carrega
+ *      unidade de outra coisa ("3 mil e 2 parcelas" continua sendo duas coisas);
+ *   3. nada aqui interpreta dinheiro com separador — isso é `parseMoney` (regra 12).
+ */
+const RE_MIL_COM_DIGITO = /(?<!\d|\d[.,])(\d{1,3})(?:[.,](\d{1,2}))?\s*mil\b/gi
+const UNIDADE_DE_OUTRA_COISA = /^\s*(?:mil\b|%|km\b|quil[oô]metros?|x\b|vezes\b|parcelas?\b|meses\b|m[eê]s\b|dias?\b|anos?\b|semanas?\b|horas?\b|h\b|litros?\b|viagens?\b|corridas?\b)/i
+
+export function expandMilComDigito(text: string): string {
+  let out = ''
+  let cursor = 0
+  for (const m of text.matchAll(RE_MIL_COM_DIGITO)) {
+    const start = m.index ?? 0
+    if (start < cursor) continue
+    let valor = Math.round((Number(m[1]) + (m[2] ? Number(`0.${m[2]}`) : 0)) * 1000)
+    let fim = start + m[0].length
+
+    const conector = m[2] ? null : text.slice(fim).match(/^\s+e\s+/)
+    if (conector) {
+      const depois = text.slice(fim + conector[0].length)
+      const digitos = depois.match(/^(\d{1,3})(?!\d|[.,]\d)/)
+      if (digitos && !UNIDADE_DE_OUTRA_COISA.test(depois.slice(digitos[0].length))) {
+        valor += Number(digitos[1])
+        fim += conector[0].length + digitos[0].length
+      } else if (!digitos) {
+        const palavras = findNumberWords(depois)[0]
+        if (palavras && palavras.start === 0 && Number.isInteger(palavras.value)
+          && palavras.value > 0 && palavras.value < 1000 && !palavras.unit) {
+          // "reais" depois do número é da frase, não do número: fica no texto.
+          const literal = depois.slice(0, palavras.end)
+          const semMoeda = literal.match(/^(.*?)\s*(?:reais|real|contos?)\b.*$/i)
+          valor += palavras.value
+          fim += conector[0].length + (semMoeda ? semMoeda[1].length : literal.length)
+        }
+      }
+    }
+    out += text.slice(cursor, start) + String(valor)
+    cursor = fim
+  }
+  return cursor ? out + text.slice(cursor) : text
 }
 
 /**
