@@ -46,7 +46,7 @@ for (const p of PROBES) {
     const res = await fetch(URL, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ message: p.message, context: contextoFicticio(p.perfil), history: [] }),
+      body: JSON.stringify({ message: p.message, context: contextoFicticio(p.perfil) }),
     })
     if (!res.ok) {
       const body: any = await res.json().catch(() => ({}))

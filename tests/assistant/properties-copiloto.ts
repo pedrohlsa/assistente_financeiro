@@ -131,7 +131,7 @@ export async function runCopilotProperties(): Promise<PropertyReport> {
   await checkAsync(r, 'hipótese nunca vira lançamento', async () => {
     const state = buildState({ profile: 'other', cards: [{ name: 'Nubank' }] })
     for (const h of [...HIPOTESES, 'e se eu gastar 300 em obra?', 'supondo que eu ganhar 250 hoje']) {
-      const out = await orchestrate({ state, message: h, history: [], remoteEnabled: false, today: TODAY })
+      const out = await orchestrate({ state, message: h, remoteEnabled: false, today: TODAY })
       if (out.response.actions.length) {
         return `"${h}" produziu ${out.response.actions.map(a => a.action.kind).join(', ')}`
       }
@@ -292,7 +292,7 @@ export async function runCopilotProperties(): Promise<PropertyReport> {
       if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u00AD\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/.test(stripInvisible(m))) {
         return `stripInvisible deixou passar em ${JSON.stringify(m)}`
       }
-      const out = await orchestrate({ state, message: m, history: [], remoteEnabled: false, today: TODAY })
+      const out = await orchestrate({ state, message: m, remoteEnabled: false, today: TODAY })
       if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u00AD\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/.test(out.response.reply)) {
         return `resposta com caractere invisível para ${JSON.stringify(m)}`
       }
@@ -563,7 +563,7 @@ export async function runCopilotProperties(): Promise<PropertyReport> {
           ? { version: 1, mode: 'answer', actions: [] }
           : { version: 1, mode: 'answer', reply: 'ok', actions: [] }))
       }
-      const chat = await handleAssistantRequest({ message: 'oi', context: { perfil: 'other' }, history: [] }, cfgFalsa)
+      const chat = await handleAssistantRequest({ message: 'oi', context: { perfil: 'other' } }, cfgFalsa)
       if (m !== 2) return `chat sem reply fez ${m} chamada(s) (esperava 2)`
       if (chat.status !== 200) return `chat devolveu HTTP ${chat.status}`
       return null

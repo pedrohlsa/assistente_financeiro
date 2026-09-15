@@ -165,7 +165,7 @@ for (const grupo of SESSOES) {
     let pending: any
     for (const m of s.mensagens) {
       const r = await orchestrate({
-        state: s.state, message: m, history: [], remoteEnabled: false,
+        state: s.state, message: m, remoteEnabled: false,
         today: HOJE, focus, pending,
       })
       focus = r.focus || focus

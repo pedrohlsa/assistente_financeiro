@@ -124,7 +124,7 @@ const AMOSTRA: Record<string, any> = {
 }
 
 const rodar = (message: string) =>
-  orchestrate({ state: buildState({ profile: 'other' }), message, history: [], remoteEnabled: false, today: TODAY })
+  orchestrate({ state: buildState({ profile: 'other' }), message, remoteEnabled: false, today: TODAY })
 
 /**
  * No modo `answer` o contrato tipa `actions` como tupla vazia, então percorrer
@@ -575,7 +575,7 @@ export async function runProperties(): Promise<PropertyReport> {
   await checkAsync(r, 'falha remota é segura e sem ação', async () => {
     for (const responder of [respostaVazia, resposta502]) {
       const res = await comFetchFalso(responder, () =>
-        handleAssistantRequest({ message: 'vale a pena trocar de plano?', context: {}, history: [] }, CFG_FALSA))
+        handleAssistantRequest({ message: 'vale a pena trocar de plano?', context: {} }, CFG_FALSA))
       const corpo = JSON.stringify(res.body)
       if (res.status !== 502) return `status ${res.status}`
       if (res.body.actions?.length) return 'criou ação a partir de uma falha'
@@ -596,8 +596,7 @@ export async function runProperties(): Promise<PropertyReport> {
     ]
     for (const msg of msgs) {
       const out = await orchestrate({
-        state: buildState({ profile: 'other' }), message: msg,
-        history: [], remoteEnabled: true, askRemote: async () => null, today: TODAY,
+        state: buildState({ profile: 'other' }), message: msg, remoteEnabled: true, askRemote: async () => null, today: TODAY,
       })
       const gasto = acoesDe(out.response).find(c => c.action.kind === 'expense')
       if (!gasto) return `"${msg}": a despesa sumiu (${out.response.actions.length} ações, modo ${out.response.mode})`
@@ -613,8 +612,7 @@ export async function runProperties(): Promise<PropertyReport> {
   await checkAsync(r, 'queda do remoto é explicada ao usuário', async () => {
     for (const msg of ['vale a pena eu trocar de plano de celular?', 'o que você acha de eu mudar de banco?']) {
       const out = await orchestrate({
-        state: buildState({ profile: 'other' }), message: msg,
-        history: [], remoteEnabled: true, askRemote: async () => null, today: TODAY,
+        state: buildState({ profile: 'other' }), message: msg, remoteEnabled: true, askRemote: async () => null, today: TODAY,
       })
       const reply = out.response.reply
       if (/n[ãa]o aconteceu|n[ãa]o registrei nada/i.test(reply)) return `"${msg}" respondeu com a frase de negação`
@@ -638,7 +636,7 @@ export async function runProperties(): Promise<PropertyReport> {
     for (const remoto of [true, false]) {
       for (const msg of msgs) {
         const out = await orchestrate({
-          state: buildState({ profile: 'other' }), message: msg, history: [],
+          state: buildState({ profile: 'other' }), message: msg,
           remoteEnabled: remoto, askRemote: remoto ? async () => null : undefined, today: TODAY,
         })
         const prometeu = /entendi isso|confirmar\?/i.test(out.response.reply)
@@ -1001,7 +999,7 @@ export async function runProperties(): Promise<PropertyReport> {
     ]
     const s = buildState({ profile: 'driver' })
     for (const message of frases) {
-      const out = await orchestrate({ state: s, message, history: [], remoteEnabled: false, today: TODAY })
+      const out = await orchestrate({ state: s, message, remoteEnabled: false, today: TODAY })
       const acoes: AssistantCandidateAction[] = out.response.actions
       const gasto = acoes.find(a => a.action.kind === 'expense')
       if (gasto) return `"${message}" virou despesa de ${(gasto.action as any).amount}`
@@ -1019,7 +1017,7 @@ export async function runProperties(): Promise<PropertyReport> {
     ]
     const s = buildState({ profile: 'driver' })
     for (const message of frases) {
-      const out = await orchestrate({ state: s, message, history: [], remoteEnabled: false, today: TODAY })
+      const out = await orchestrate({ state: s, message, remoteEnabled: false, today: TODAY })
       const acoes: AssistantCandidateAction[] = out.response.actions
       const receita = acoes.find(a => a.action.kind === 'income')
       if (receita) return `"${message}" virou receita de ${(receita.action as any).amount}`
@@ -1040,7 +1038,7 @@ export async function runProperties(): Promise<PropertyReport> {
     for (const p of ['driver', 'other'] as const) {
       const s = buildState({ profile: p })
       for (const message of frases) {
-        const out = await orchestrate({ state: s, message, history: [], remoteEnabled: false, today: TODAY })
+        const out = await orchestrate({ state: s, message, remoteEnabled: false, today: TODAY })
         const acoes: AssistantCandidateAction[] = out.response.actions
         const registro = acoes.find(a => ['expense', 'income', 'fuel', 'saving'].includes(a.action.kind))
         if (registro) return `[${p}] "${message}" virou ${registro.action.kind}`
@@ -1065,7 +1063,7 @@ export async function runProperties(): Promise<PropertyReport> {
       return s
     }
     const perguntar = async (s: any, message: string) =>
-      (await orchestrate({ state: s, message, history: [], remoteEnabled: false, today: TODAY })).response.reply
+      (await orchestrate({ state: s, message, remoteEnabled: false, today: TODAY })).response.reply
 
     const sobra = cenario(600, 135)
     const deficit = cenario(100, 400)
@@ -1087,8 +1085,7 @@ export async function runProperties(): Promise<PropertyReport> {
   await checkAsync(r, 'km e viagens não atravessam dias', async () => {
     const s = buildState({ profile: 'driver' })
     const out = await orchestrate({
-      state: s, message: 'ontem rodei 100 km e hoje rodei 200 km',
-      history: [], remoteEnabled: false, today: TODAY,
+      state: s, message: 'ontem rodei 100 km e hoje rodei 200 km', remoteEnabled: false, today: TODAY,
     })
     const acoes: AssistantCandidateAction[] = out.response.actions
     const works = acoes.map(a => a.action).filter(a => a.kind === 'work') as any[]
@@ -1130,8 +1127,7 @@ export async function runProperties(): Promise<PropertyReport> {
     ]
     for (const c of casos) {
       const out = await orchestrate({
-        state: buildState({ profile: c.p }), message: c.msg,
-        history: [], remoteEnabled: false, today: TODAY,
+        state: buildState({ profile: c.p }), message: c.msg, remoteEnabled: false, today: TODAY,
       })
       const acoes: AssistantCandidateAction[] = out.response.actions
       const vistos = acoes.map(a => (a.action as any).amount).filter(v => typeof v === 'number')
@@ -1190,7 +1186,7 @@ export async function runProperties(): Promise<PropertyReport> {
     s.transactions = Array.from({ length: 8 }, (_, i) => ({
       id: `d${i}`, type: 'income', amount: 300, category: 'corridas', date: TODAY, time: '10:00',
     })) as any
-    const out = await orchestrate({ state: s, message: 'ganhei 3000 hoje', history: [], remoteEnabled: false, today: TODAY })
+    const out = await orchestrate({ state: s, message: 'ganhei 3000 hoje', remoteEnabled: false, today: TODAY })
     const acoes: AssistantCandidateAction[] = out.response.actions
     const receita = acoes.find(a => a.action.kind === 'income')
     if (!receita) return 'o aviso bloqueou o lançamento'
@@ -1272,7 +1268,7 @@ export async function runProperties(): Promise<PropertyReport> {
     if (direto.category === 'lazer') return 'propôs categoria arquivada'
 
     const out = await orchestrate({
-      state: s, message: 'gastei 25 no clube do bairro', history: [], remoteEnabled: false, today: TODAY,
+      state: s, message: 'gastei 25 no clube do bairro', remoteEnabled: false, today: TODAY,
     })
     const acoes: AssistantCandidateAction[] = out.response.actions
     const gasto = acoes.find(a => a.action.kind === 'expense')
@@ -1300,8 +1296,8 @@ export async function runProperties(): Promise<PropertyReport> {
     desligado.settings = { ...desligado.settings, adaptiveAssistant: false }
 
     const msg = 'gastei 50 no mercado'
-    const a = await orchestrate({ state: ligado, message: msg, history: [], remoteEnabled: false, today: TODAY })
-    const b = await orchestrate({ state: desligado, message: msg, history: [], remoteEnabled: false, today: TODAY })
+    const a = await orchestrate({ state: ligado, message: msg, remoteEnabled: false, today: TODAY })
+    const b = await orchestrate({ state: desligado, message: msg, remoteEnabled: false, today: TODAY })
     const aAcoes: AssistantCandidateAction[] = a.response.actions
     const bAcoes: AssistantCandidateAction[] = b.response.actions
     const ax: any = aAcoes[0]?.action
@@ -1318,7 +1314,7 @@ export async function runProperties(): Promise<PropertyReport> {
     s.transactions = Array.from({ length: 8 }, (_, i) => ({
       id: `p${i}`, type: 'income', amount: 300, category: 'corridas', date: TODAY, time: '10:00',
     })) as any
-    const out = await orchestrate({ state: s, message: 'ganhei 3000 hoje', history: [], remoteEnabled: false, today: TODAY })
+    const out = await orchestrate({ state: s, message: 'ganhei 3000 hoje', remoteEnabled: false, today: TODAY })
     const avisos: AssistantCandidateAction[] = out.response.actions
     if (avisos.some(x => x.patternWarning)) return 'desligado continuou avisando sobre padrão'
     return null
@@ -1372,7 +1368,7 @@ export async function runProperties(): Promise<PropertyReport> {
     // nunca propor um lançamento pronto.
     const atalho = sugestoes.find(x => x.kind === 'shortcut' && /esquina/i.test(x.text))
     if (!atalho) return 'o lugar mais repetido não virou atalho'
-    const out = await orchestrate({ state: s, message: atalho.text, history: [], remoteEnabled: false, today: TODAY })
+    const out = await orchestrate({ state: s, message: atalho.text, remoteEnabled: false, today: TODAY })
     if (out.response.actions.length) return `o atalho propôs ${out.response.actions.length} ação(ões) sem o usuário dizer o valor`
     if (out.response.mode !== 'clarify') return `o atalho não perguntou o valor: ${out.response.mode}`
     return null
@@ -1457,7 +1453,7 @@ export async function runProperties(): Promise<PropertyReport> {
       const antes = JSON.stringify(base.settings)
       let remoto = false
       const out = await orchestrate({
-        state: base, message: frase, history: [], remoteEnabled: true, today: TODAY,
+        state: base, message: frase, remoteEnabled: true, today: TODAY,
         askRemote: async () => { remoto = true; return null },
       })
       const acoes: AssistantCandidateAction[] = out.response.actions
@@ -1473,11 +1469,11 @@ export async function runProperties(): Promise<PropertyReport> {
     }
 
     // Explicar não consome a proposta: a frase seguinte ainda fala dela.
-    const comProposta = await orchestrate({ state: base, message: 'gastei 50 no mercado', history: [], remoteEnabled: false, today: TODAY })
+    const comProposta = await orchestrate({ state: base, message: 'gastei 50 no mercado', remoteEnabled: false, today: TODAY })
     const pend: AssistantCandidateAction[] = comProposta.response.actions
     if (!pend.length) return 'a proposta base sumiu'
     const depois = await orchestrate({
-      state: base, message: 'por que essa categoria?', history: [], pending: pend, remoteEnabled: false, today: TODAY,
+      state: base, message: 'por que essa categoria?', pending: pend, remoteEnabled: false, today: TODAY,
     })
     if (!depois.keepPending) return 'explicar descartou a proposta que estava na tela'
     return null
@@ -1574,7 +1570,7 @@ export async function runProperties(): Promise<PropertyReport> {
 
     for (const msg of ['gastei 50 no mercado', 'o que você aprendeu sobre mim?', 'por que essa categoria?']) {
       const out = await orchestrate({
-        state: s, message: msg, history: [], remoteEnabled: true, today: TODAY, askRemote,
+        state: s, message: msg, remoteEnabled: true, today: TODAY, askRemote,
       })
       if (chamouRemoto) return `"${msg}" precisou da IA remota`
       if (out.response.engine !== 'local') return `"${msg}" não foi resolvida localmente`
@@ -1597,7 +1593,7 @@ export async function runProperties(): Promise<PropertyReport> {
     ]
     for (const frase of frases) {
       const s = buildState({ profile: 'driver' })
-      const out = await orchestrate({ state: s, message: frase, history: [], remoteEnabled: false, today: TODAY })
+      const out = await orchestrate({ state: s, message: frase, remoteEnabled: false, today: TODAY })
       const acoes: AssistantCandidateAction[] = out.response.actions
       const receitas = acoes.filter(a => a.action.kind === 'income').map(a => (a.action as any).amount)
       const despesas = acoes.filter(a => a.action.kind === 'expense').map(a => (a.action as any).amount)
@@ -1609,8 +1605,7 @@ export async function runProperties(): Promise<PropertyReport> {
     // O corte não pode engolir despesa de verdade com valor coincidente.
     const s2 = buildState({ profile: 'driver' })
     const misto = await orchestrate({
-      state: s2, message: 'hoje foi 430 na uber e paguei 430 de manutenção',
-      history: [], remoteEnabled: false, today: TODAY,
+      state: s2, message: 'hoje foi 430 na uber e paguei 430 de manutenção', remoteEnabled: false, today: TODAY,
     })
     const mistas: AssistantCandidateAction[] = misto.response.actions
     if (!mistas.some(a => a.action.kind === 'expense' && (a.action as any).amount === 430)) {
@@ -1664,7 +1659,7 @@ export async function runProperties(): Promise<PropertyReport> {
 
     // E o lançamento continua sendo proposto normalmente.
     const out = await orchestrate({
-      state: s, message: 'gastei 40 na feira', history: [], remoteEnabled: false, today: TODAY,
+      state: s, message: 'gastei 40 na feira', remoteEnabled: false, today: TODAY,
     })
     const acoes: AssistantCandidateAction[] = out.response.actions
     if (!acoes.some(a => a.action.kind === 'expense' && (a.action as any).amount === 40)) {
@@ -1691,7 +1686,7 @@ export async function runProperties(): Promise<PropertyReport> {
     ] as any
 
     const primeira = await orchestrate({
-      state: s, message: 'gastei 40 no quiosque', history: [], remoteEnabled: false, today: TODAY,
+      state: s, message: 'gastei 40 no quiosque', remoteEnabled: false, today: TODAY,
     })
     if (primeira.response.mode !== 'clarify') return `esperava a pergunta, veio ${primeira.response.mode}`
     const pc = (primeira.response as any).clarification
@@ -1699,7 +1694,7 @@ export async function runProperties(): Promise<PropertyReport> {
 
     for (const resposta of ['sei lá', 'tanto faz', 'deixa assim']) {
       const out = await orchestrate({
-        state: s, message: resposta, history: [], pendingClarification: pc,
+        state: s, message: resposta, pendingClarification: pc,
         remoteEnabled: false, today: TODAY,
       })
       const acoes: AssistantCandidateAction[] = out.response.actions
@@ -1797,7 +1792,7 @@ export async function runProperties(): Promise<PropertyReport> {
     ]
     for (const [frase, esperado] of casos) {
       const s = buildState({ profile: 'other' })
-      const out = await orchestrate({ state: s, message: frase, history: [], remoteEnabled: false, today: TODAY })
+      const out = await orchestrate({ state: s, message: frase, remoteEnabled: false, today: TODAY })
       const acoes: AssistantCandidateAction[] = out.response.actions
       const gasto = acoes.find(a => a.action.kind === 'expense')
       if (!gasto) return `"${frase}" não virou despesa nenhuma`

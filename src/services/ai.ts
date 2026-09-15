@@ -12,6 +12,8 @@ import { AppState, ParsedAction } from '../models/types'
 import { validateAction, isValidationFailure } from '../assistant/contracts'
 import type { AssistantErrorCode } from '../assistant/contracts'
 import { buildCapabilities } from '../assistant/capabilities'
+import type { OrchestratorInput } from '../assistant/orchestrator'
+import type { RemoteConversationContext } from '../assistant/conversation/remoteContext'
 import {
   addDays, dueLabel, fmtBRL, fmtNum, fromISO, todayISO, daysInMonth, parseMoney,
 } from '../utils/format'
@@ -40,51 +42,40 @@ export interface AiReply {
   handled?: boolean // true = o motor local respondeu com certeza (não precisa da IA remota)
 }
 
-// ---------- Contexto estruturado enviado à IA (seção 37) ----------
-// Nunca envia a base bruta: apenas agregados e itens relevantes.
-export function buildAiContext(s: AppState) {
+// ---------- Contexto enviado ao chat remoto ----------
+//
+// O MÍNIMO para o trabalho que sobrou para o modelo, e nada do histórico. Duas
+// camadas:
+//
+//   · SEMPRE: perfil, categorias (é delas que o servidor monta o prompt e valida
+//     a categoria devolvida), nomes de cartão e de meta (para a ação proposta
+//     ser válida) e, com o aprendizado ligado, os IDs das categorias mais usadas
+//     (regra 44);
+//   · SÓ QUANDO O TRECHO É PERGUNTA OU PEDIDO ABERTO (`aggregates`): somas do
+//     dia, da semana e dos meses, metas, orçamentos, faturas, parcelas e
+//     projeção — tudo AGREGADO.
+//
+// Fora, sempre: nome do usuário, saldo em conta e o que deriva dele, lista de
+// parcelamentos com a descrição de cada compra, nome e valor de cada conta ou
+// entrada prevista, veículo e manutenções. Pergunta sobre saldo ou sobre um
+// lançamento é respondida no aparelho. O servidor aplica a MESMA lista
+// (`sanitizeChatContext`), então um APK antigo que ainda mande o formato velho
+// não vaza por lá.
+export function buildAiContext(s: AppState, opts: { aggregates?: boolean } = {}) {
   const t = todayISO()
-  const hoje = todayStats(s)
-  const semana = weekStats(s)
-  const mes = monthStats(s)
-  const mesAnterior = prevMonthStats(s)
-  const meta = dailyGoal(s)
-  const custoKm = kmCost(s)
   const r2 = (v: number) => Math.round(v * 100) / 100
-  const stats = (x: ReturnType<typeof todayStats>) => ({
-    receitas: r2(x.income), despesas: r2(x.expense), lucro: r2(x.profit),
-    km: r2(x.km), viagens: x.trips, horas: r2(x.hours),
-    lucroPorKm: r2(x.netPerKm), lucroPorHora: r2(x.profitPerHour), mediaPorViagem: r2(x.perTrip),
-  })
-  const banco = balanceOutlook(s, 7)
   const driverMode = isDriver(s.settings)
-  const mensal = monthlySavingGoal(s)
 
-  // Base comum a todos os perfis (financeiro puro).
   const base: Record<string, any> = {
     perfil: s.settings.profile,
-    nome: s.settings.name || undefined,
-    saldoEmConta: r2(currentBalance(s)),
-    saldoVsContas7dias: {
-      contasAVencer: r2(banco.billsSoon),
-      cobreAsContas: banco.ok,
-      faltaParaContas: r2(banco.shortfall),
-      sobra: r2(banco.leftover),
-    },
-    hoje: stats(hoje),
-    ultimos7dias: stats(semana),
-    esteMes: stats(mes),
-    mesAnterior: stats(mesAnterior),
-    metasDeCompra: s.goals.filter(g => !g.done).map(g => ({ nome: g.name, alvo: g.target, guardado: g.saved, prazo: g.deadline || null })),
-    proximasContas: upcomingBills(s, 15).map(b => ({ nome: b.name, valor: b.amount, emDias: b.inDays })),
-    proximasEntradas: upcomingIncomes(s, 31).map(b => ({ nome: b.name, valor: b.amount, emDias: b.inDays })),
-    orcamentos: s.budgets.map(b => ({ categoria: b.category, limiteMensal: b.limit })),
     // Categorias REAIS deste usuário (inclusive personalizadas). É a partir
     // desta lista que o prompt remoto é montado e que a categoria devolvida pelo
     // modelo é validada — nunca de uma lista escrita à mão no prompt.
     categorias: s.categories
       .filter(c => !c.archived)
       .map(c => ({ id: c.id, name: c.name, type: c.type })),
+    cartoes: activeCards(s).map(c => ({ nome: c.name })),
+    metasDeCompra: s.goals.filter(g => !g.done).map(g => ({ nome: g.name })),
   }
 
   // Preferência aprendida, no MÍNIMO agregado possível: só os IDs de categoria
@@ -102,6 +93,32 @@ export function buildAiContext(s: AppState) {
     }
   }
 
+  if (!opts.aggregates) return base
+
+  const stats = (x: ReturnType<typeof todayStats>) => (driverMode
+    ? {
+        receitas: r2(x.income), despesas: r2(x.expense), lucro: r2(x.profit),
+        km: r2(x.km), viagens: x.trips, horas: r2(x.hours),
+        lucroPorKm: r2(x.netPerKm), lucroPorHora: r2(x.profitPerHour), mediaPorViagem: r2(x.perTrip),
+      }
+    : { receitas: r2(x.income), despesas: r2(x.expense), lucro: r2(x.profit) })
+  const soma = (xs: { amount: number }[]) => r2(xs.reduce((a, b) => a + b.amount, 0))
+  const contas = upcomingBills(s, 15)
+  const entradas = upcomingIncomes(s, 31)
+
+  Object.assign(base, {
+    hoje: stats(todayStats(s)),
+    ultimos7dias: stats(weekStats(s)),
+    esteMes: stats(monthStats(s)),
+    mesAnterior: stats(prevMonthStats(s)),
+    metasDeCompra: s.goals.filter(g => !g.done).map(g => ({ nome: g.name, alvo: g.target, guardado: g.saved, prazo: g.deadline || undefined })),
+    orcamentos: s.budgets.map(b => ({ categoria: b.category, limiteMensal: b.limit })),
+    // Quantas e quanto, nunca QUAIS: o nome de cada conta ("Aluguel Casa 1") é
+    // texto do usuário, e o valor de cada uma é um lançamento previsto.
+    contasPrevistas: { quantidade: contas.length, total: soma(contas), emDias: 15 },
+    entradasPrevistas: { quantidade: entradas.length, total: soma(entradas), emDias: 31 },
+  })
+
   // Cartões e parcelamentos — só entra no contexto se o usuário usa a área.
   const ov = cardsOverview(s)
   if (ov.hasData) {
@@ -114,6 +131,7 @@ export function buildAiContext(s: AppState) {
         proximasFaturas: upcomingInvoices(s, c, 4).slice(1).map(f => ({ mes: f.monthKey, total: r2(f.total) })),
       }
     })
+    // Sem a lista: a descrição de cada compra parcelada é texto do usuário.
     base.parcelamentos = {
       ativos: ov.activePlanCount,
       dividaRestante: r2(ov.totalDebt),
@@ -121,33 +139,21 @@ export function buildAiContext(s: AppState) {
       parcelasProximoMes: r2(ov.installmentsNextMonth),
       atrasadas: { quantidade: ov.overdueCount, valor: r2(ov.overdueAmount) },
       limiteDisponivel: r2(ov.availableLimit),
-      lista: activePlans(s).slice(0, 12).map(p => {
-        const pp = planProgress(s, p)
-        return {
-          descricao: p.description,
-          valorTotal: r2(p.totalAmount),
-          parcelaAtual: r2(pp.currentAmount),
-          pagas: pp.paidCount,
-          restantes: pp.remainingCount,
-          saldoRestante: r2(pp.remainingAmount),
-          proximoVencimento: pp.nextDueDate || null,
-          cartao: pp.card?.name || null,
-          tipo: p.operationType,
-        }
-      }),
     }
+    // Sem `saldoEstimado`: é o saldo em conta projetado, e saldo não sai.
     base.projecaoProximosMeses = monthlyProjections(s, 6).map(m => ({
       mes: m.monthKey,
       entradasPrevistas: r2(m.incomes),
       contasPrevistas: r2(m.bills),
       parcelasPrevistas: r2(m.installments),
-      saldoEstimado: r2(m.runningBalance),
       comprometimentoPct: m.commitmentPct,
     }))
   }
 
   if (driverMode) {
-    // Só motorista recebe km, veículo, combustível, meta diária e taxa da 99.
+    // Só motorista recebe km, combustível, meta diária e taxa da 99.
+    const meta = dailyGoal(s)
+    const custoKm = kmCost(s)
     return {
       ...base,
       taxaSaque99: s.settings.ask99Fee ? r2(s.settings.platform99Fee) : 0,
@@ -162,16 +168,12 @@ export function buildAiContext(s: AppState) {
         minimoRecomendado: r2(custoKm.minRecommended), confortavel: r2(custoKm.comfort),
       },
       consumoKmPorLitro: fuelEfficiency(s) ? r2(fuelEfficiency(s)!) : null,
-      veiculo: s.vehicle ? { modelo: `${s.vehicle.brand} ${s.vehicle.model}`.trim(), hodometro: s.vehicle.odometer, mediaKmDia: s.vehicle.averageDailyKm || null } : null,
-      manutencoes: s.maintenance.map(m => ({
-        item: m.name, instaladoKm: m.kmInstalled, vidaUtilKm: m.lifeKm || null,
-        proximaTrocaKm: m.lifeKm > 0 ? m.kmInstalled + m.lifeKm : null,
-      })),
+      mediaKmDia: s.vehicle?.averageDailyKm || null,
     }
   }
 
-  // Autônomo / CLT / outro: foco no mês, entradas fixas e meta de guardar.
-  // Sem NENHUM dado de veículo, km ou taxa da 99.
+  // Autônomo / CLT / outro: foco no mês e na meta de guardar.
+  const mensal = monthlySavingGoal(s)
   return {
     ...base,
     metaMensalParaGuardar: {
@@ -214,7 +216,7 @@ export interface RemoteAssistantResult {
  */
 export async function askAssistantRemote(
   s: AppState, input: string,
-  history: { role: string; text: string }[],
+  opts: { conversation?: RemoteConversationContext; aggregates?: boolean } = {},
 ): Promise<RemoteAssistantResult | null> {
   try {
     const controller = new AbortController()
@@ -222,7 +224,14 @@ export async function askAssistantRemote(
     const res = await fetch(AI_API_URL, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ message: input, context: buildAiContext(s), history }),
+      // Sem `history`: a conversa vai como ESTRUTURA (`conversation`), nunca como
+      // transcrição — as respostas locais anteriores carregam descrição, valor e
+      // saldo de lançamento (regra 44).
+      body: JSON.stringify({
+        message: input,
+        context: buildAiContext(s, { aggregates: opts.aggregates }),
+        conversation: opts.conversation,
+      }),
       signal: controller.signal,
     })
     clearTimeout(timer)
@@ -254,6 +263,24 @@ export async function askAssistantRemote(
     }
   } catch {
     return null
+  }
+}
+
+/**
+ * A ligação do orquestrador com os dois caminhos remotos, num lugar só.
+ *
+ * A tela usa isto, e as invariantes de privacidade também: o que elas medem é o
+ * corpo que sai DE VERDADE do aparelho, não uma reimplementação para o teste.
+ */
+export function remoteBridge(): Required<Pick<OrchestratorInput, 'askRemote' | 'planRemoteQuery'>> {
+  return {
+    askRemote: async ({ state, message, conversation, aggregates }) => {
+      const r = await askAssistantRemote(state, message, { conversation, aggregates })
+      return r ? { ...r, rejected: r.rejected || [] } : null
+    },
+    // O modelo remoto PLANEJA a consulta que o local não entendeu — e não vê
+    // lançamento nenhum para isso. Quem executa o plano é o app.
+    planRemoteQuery: async ({ state, message }) => askRemoteQueryPlan(state, message),
   }
 }
 

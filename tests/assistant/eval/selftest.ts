@@ -20,7 +20,7 @@ import type { AppState } from '../../../src/models/types'
 import { handleAssistantRequest } from '../../../api/_lib/assistantHandler'
 import { buildCapabilities } from '../../../src/assistant/capabilities'
 import { isValidationFailure, validateAction } from '../../../src/assistant/contracts'
-import { orchestrate } from '../../../src/assistant/orchestrator'
+import { orchestrate, remoteNeedsAggregates } from '../../../src/assistant/orchestrator'
 import { isQueryFailure, validateQueryPlan } from '../../../src/assistant/query/validate'
 import { runScenario } from '../../../src/assistant/scenario/engine'
 import { buildAiContext, planningContext } from '../../../src/services/ai'
@@ -86,7 +86,7 @@ export function corpoOraculo(c: CasoChat, hoje: string): any {
 export async function medeRota(state: AppState, mensagem: string, hoje: string): Promise<{ plano: boolean; chat: boolean }> {
   const m = { plano: false, chat: false }
   await orchestrate({
-    state, message: mensagem, history: [], remoteEnabled: true, today: hoje,
+    state, message: mensagem, remoteEnabled: true, today: hoje,
     askRemote: async () => { m.chat = true; return null },
     planRemoteQuery: async () => { m.plano = true; return null },
   })
@@ -175,7 +175,7 @@ export async function runEvalSelfTest(opts: { rotas?: boolean } = {}): Promise<R
         confere(`gabarito ${c.id} ${g.kind}`, isValidationFailure(v) ? `validador recusa: ${v.code} ${v.detail || ''}` : null)
       }
     }
-    const r = pontuaChat({ caso: c, config: 'oraculo', rep: 1, state: st, hoje, contexto: buildAiContext(st), http: { status: 200, body: corpoOraculo(c, hoje) }, registros: [] })
+    const r = pontuaChat({ caso: c, config: 'oraculo', rep: 1, state: st, hoje, contexto: buildAiContext(st, { aggregates: remoteNeedsAggregates(c.mensagem) }), http: { status: 200, body: corpoOraculo(c, hoje) }, registros: [] })
     confere(`oráculo ${c.id}`, r.perigos.length || !r.intencaoCorreta || r.acoesCasadas !== r.acoesEsperadas || r.acoesAceitas !== r.acoesEsperadas
       ? `perigos ${JSON.stringify(r.perigos)} · intenção ${r.intencaoObtida} · casadas ${r.acoesCasadas}/${r.acoesEsperadas}`
       : null)
@@ -187,7 +187,7 @@ export async function runEvalSelfTest(opts: { rotas?: boolean } = {}): Promise<R
     const c = chat(id)
     const st = est(c.perfil)
     return pontuaChat({
-      caso: c, config: 't', rep: 1, state: st, hoje, contexto: buildAiContext(st),
+      caso: c, config: 't', rep: 1, state: st, hoje, contexto: buildAiContext(st, { aggregates: remoteNeedsAggregates(c.mensagem) }),
       http: { status: 200, body: { version: 1, mode: 'answer', reply: 'Certo.', actions: [], rejected: [], ...body } }, registros: [],
     })
   }
@@ -259,9 +259,10 @@ export async function runEvalSelfTest(opts: { rotas?: boolean } = {}): Promise<R
   }
 
   // ---- 5. Privacidade --------------------------------------------------------
-  confere('privacidade: CPF', verificaCorpo(`{"x":"123.456.789-09 ${CANARIO}"}`, { exigeCanario: true }).ok ? 'CPF passou' : null)
-  confere('privacidade: chave', verificaCorpo(`{"x":"sk-abcdefghijklmnopqrst ${CANARIO}"}`, { exigeCanario: true }).ok ? 'chave passou' : null)
-  confere('privacidade: contexto sem canário', verificaCorpo('{"contexto":"Maria"}', { exigeCanario: true }).ok ? 'passou' : null)
+  confere('privacidade: CPF', verificaCorpo('{"x":"123.456.789-09"}', {}).ok ? 'CPF passou' : null)
+  confere('privacidade: chave', verificaCorpo('{"x":"sk-abcdefghijklmnopqrst"}', {}).ok ? 'chave passou' : null)
+  confere('privacidade: nome do usuário no corpo', verificaCorpo(`{"contexto":"${CANARIO}"}`, {}).ok ? 'o canário passou no corpo' : null)
+  confere('privacidade: corpo limpo passa', verificaCorpo('{"contexto":{"esteMes":{"receitas":3000}}}', {}).ok ? null : 'barrou um corpo sem dado pessoal')
   confere('privacidade: estado fora do corpus', verificaEstado(buildState()).ok ? 'estado sem canário passou' : null)
   const voc = vocabularioSintetico(hoje)
   confere('privacidade: cartão desconhecido', verificaVocabulario({ cartoes: [{ nome: 'Itaú Personnalité' }] }, voc).ok ? 'passou' : null)
@@ -283,17 +284,18 @@ export async function runEvalSelfTest(opts: { rotas?: boolean } = {}): Promise<R
     })
     try {
       const config = { id: 'T', rotulo: 'teste', modelo: 'deepseek-flash', pensamento: 'desligado' as const }
-      const ctxPlano: ContextoAvaliacao = { config, caso: 'p-09', rep: 1, tarefa: 'plano', registros: [] }
+      const ctxPlano: ContextoAvaliacao = { config, caso: 'p-09', rep: 1, tarefa: 'plano', registros: [], origemVerificada: true }
       const http = await contextoAvaliacao.run(ctxPlano, () => handleAssistantRequest(
         { task: 'plan-query', message: p09.mensagem, context: planningContext(est('autonomo')) }, cfg))
       const rp = pontuaPlano({ caso: p09, config: 'T', rep: 1, state: est('autonomo'), hoje, http, registros: ctxPlano.registros })
       confere('transporte falso: planejador de ponta a ponta', rp.planoSemantico && ctxPlano.registros.length === 1 ? null : `semântico=${rp.planoSemantico} chamadas=${ctxPlano.registros.length}`)
 
       const stOther = est('other')
-      const ctxChat: ContextoAvaliacao = { config, caso: 'c-35', rep: 1, tarefa: 'chat', registros: [] }
+      const ctxChat: ContextoAvaliacao = { config, caso: 'c-35', rep: 1, tarefa: 'chat', registros: [], origemVerificada: true }
+      const contextoC35 = buildAiContext(stOther, { aggregates: remoteNeedsAggregates(c35.mensagem) })
       const httpChat = await contextoAvaliacao.run(ctxChat, () => handleAssistantRequest(
-        { message: c35.mensagem, context: buildAiContext(stOther), history: [] }, cfg))
-      const rc = pontuaChat({ caso: c35, config: 'T', rep: 1, state: stOther, hoje, contexto: buildAiContext(stOther), http: httpChat, registros: ctxChat.registros })
+        { message: c35.mensagem, context: contextoC35 }, cfg))
+      const rc = pontuaChat({ caso: c35, config: 'T', rep: 1, state: stOther, hoje, contexto: contextoC35, http: httpChat, registros: ctxChat.registros })
       confere('transporte falso: chat de ponta a ponta, com o prompt real passando no guarda', !livro.bloqueio && rc.acoesCasadas === 1 && !rc.perigos.length
         ? null : `bloqueio=${livro.bloqueio} casadas=${rc.acoesCasadas} perigos=${JSON.stringify(rc.perigos)}`)
 
@@ -303,6 +305,12 @@ export async function runEvalSelfTest(opts: { rotas?: boolean } = {}): Promise<R
       let semCaso = false
       try { await fetch('https://api.deepseek.com/chat/completions', { method: 'POST', body: '{}' }) } catch (e) { semCaso = e instanceof BloqueioPrivacidade }
       confere('transporte: requisição fora de um caso', semCaso ? null : 'não bloqueou')
+      let semOrigem = false
+      try {
+        await contextoAvaliacao.run({ ...ctxPlano, origemVerificada: false, registros: [] },
+          () => fetch('https://api.deepseek.com/chat/completions', { method: 'POST', body: '{}' }))
+      } catch (e) { semOrigem = e instanceof BloqueioPrivacidade }
+      confere('transporte: caso sem origem verificada', semOrigem ? null : 'não bloqueou')
     } finally {
       desinstala()
     }
@@ -313,7 +321,7 @@ export async function runEvalSelfTest(opts: { rotas?: boolean } = {}): Promise<R
     const apertado = { tetoUSD: 0.000001, gastoUSD: 0, reservadoUSD: 0, chamadasReais: 0 } as ReturnType<typeof livroSemGasto>
     const desinstala2 = instalaTransporte({ modo: 'real', hostPermitido: 'api.deepseek.com', livro: apertado })
     try {
-      const ctx: ContextoAvaliacao = { config: { id: 'T', rotulo: 't', modelo: 'deepseek-flash', pensamento: 'desligado' }, caso: 'p-09', rep: 1, tarefa: 'plano', registros: [] }
+      const ctx: ContextoAvaliacao = { config: { id: 'T', rotulo: 't', modelo: 'deepseek-flash', pensamento: 'desligado' }, caso: 'p-09', rep: 1, tarefa: 'plano', registros: [], origemVerificada: true }
       await contextoAvaliacao.run(ctx, () => handleAssistantRequest(
         { task: 'plan-query', message: p09.mensagem, context: planningContext(est('autonomo')) }, cfg))
       confere('teto: nenhuma chamada sai acima do teto', redeTocada === 0 && /teto/.test(apertado.bloqueio || '')

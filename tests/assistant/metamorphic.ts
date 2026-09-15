@@ -246,7 +246,7 @@ export async function runMetamorphic(repeticoes = 20, seed = 20260824): Promise<
   for (const c of CANONICAS) {
     const state = estadoDe(c.profile)
     const base = await orchestrate({
-      state, message: c.text, history: [], remoteEnabled: false, today: TODAY,
+      state, message: c.text, remoteEnabled: false, today: TODAY,
     })
     const esperado = acoesDe(base.response).map(assinatura).sort().join('|')
     if (!esperado) {
@@ -262,7 +262,7 @@ export async function runMetamorphic(repeticoes = 20, seed = 20260824): Promise<
         if (texto === c.text) continue
         preservadas++
         const out = await orchestrate({
-          state, message: texto, history: [], remoteEnabled: false, today: TODAY,
+          state, message: texto, remoteEnabled: false, today: TODAY,
         })
         const got = acoesDe(out.response).map(assinatura).sort().join('|')
         if (got !== esperado) {
@@ -278,7 +278,7 @@ export async function runMetamorphic(repeticoes = 20, seed = 20260824): Promise<
       const texto = m.aplica(c.text, r)
       mudadas++
       const out = await orchestrate({
-        state, message: texto, history: [], remoteEnabled: false, today: TODAY,
+        state, message: texto, remoteEnabled: false, today: TODAY,
       })
       const acoes = acoesDe(out.response)
       const igual = acoes.map(assinatura).sort().join('|') === esperado

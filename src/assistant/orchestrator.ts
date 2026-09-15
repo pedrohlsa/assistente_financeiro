@@ -18,10 +18,12 @@ import type {
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, isValidationFailure, validateAction } from './contracts'
-import { analyzeMessage, contestsProposal, looksLikeRetraction, looksRecurring } from './clauses'
+import { analyzeMessage, contestsProposal, looksLikeQuestion, looksLikeRetraction, looksPast, looksRecurring } from './clauses'
 import { categoryDilemma, outOfPatternWarning, withLearnedCategory } from './learning'
 import { explainRequest } from './explain'
 import { answerConversation, isFocusFresh, looksLikeFollowUp } from './conversation'
+import { buildRemoteConversation } from './conversation/remoteContext'
+import type { RemoteConversationContext, RemoteTurnRelation } from './conversation/remoteContext'
 import { buildTurnPlan, hasBlock } from './semantic/turn'
 import { parseDriverDay } from './semantic/driverDay'
 import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } from './semantic/normalize'
@@ -67,15 +69,24 @@ export interface RemoteResult {
 export interface OrchestratorInput {
   state: AppState
   message: string
-  history: { role: string; text: string }[]
   draft?: AssistantDraft
   /** Proposta ainda na tela — alvo de correções. */
   pending?: AssistantCandidateAction[]
   /** Pergunta de esclarecimento aberta, para casar a resposta do usuário. */
   pendingClarification?: AssistantClarification
   remoteEnabled: boolean
-  /** Injetável: os testes rodam sem rede. */
-  askRemote?: (args: { state: AppState; message: string; history: { role: string; text: string }[] }) => Promise<RemoteResult | null>
+  /**
+   * Injetável: os testes rodam sem rede. NÃO recebe transcrição: a conversa vai
+   * como estrutura (`conversation`), e os números do aparelho só vão quando o
+   * trecho em aberto é pergunta ou pedido (`aggregates`). Ver
+   * conversation/remoteContext.ts e `remoteNeedsAggregates`.
+   */
+  askRemote?: (args: {
+    state: AppState
+    message: string
+    conversation?: RemoteConversationContext
+    aggregates: boolean
+  }) => Promise<RemoteResult | null>
   /**
    * Pede um PLANO de consulta ao modelo remoto. Injetavel e opcional: os testes
    * rodam sem rede, e um servidor que nao conhece a Query DSL simplesmente nao
@@ -690,6 +701,19 @@ const rejectionNote = (rejected: LocalPass['rejected']): string => {
   return `\n\nUma parte não pôde ser registrada — ${what}. Se quiser, reformule só esse pedaço.`
 }
 
+/**
+ * O chat remoto precisa dos AGREGADOS do aparelho?
+ *
+ * Só quando o trecho em aberto é pergunta ou pedido ("tô guardando o suficiente?",
+ * "me ajuda a organizar"). Quando é um REGISTRO que o parser não entendeu ("caiu
+ * o vale alimentação 800"), o trabalho do modelo é interpretar a frase: somas do
+ * mês não ajudam em nada, e o que não ajuda não sai do aparelho.
+ */
+export function remoteNeedsAggregates(texto: string): boolean {
+  const registro = /\d/.test(texto) && looksPast(texto) && !looksLikeQuestion(texto)
+  return !registro
+}
+
 export async function orchestrate(entradaBruta: OrchestratorInput): Promise<OrchestratorOutput> {
   const started = Date.now()
   // FRONTEIRA (regra 46): caractere invisível e de controle saem AQUI, antes de
@@ -1291,7 +1315,24 @@ Confirmar?`,
     // já está na tela — a reconciliação por campo segurava a duplicata, mas o
     // modelo nem precisa ver o trecho resolvido.
     const textoRemoto = candidates.length ? unresolved.map(u => u.text).join('\n') : input.message
-    const remote = await input.askRemote({ state: input.state, message: textoRemoto, history: input.history })
+    // A conversa vai como ESTRUTURA: o que estava em foco, o que está na tela e o
+    // que já foi resolvido neste turno — nunca as mensagens anteriores.
+    const relacao: RemoteTurnRelation | undefined =
+      input.pending?.length && contestsProposal(input.message) ? 'correction'
+        : isFocusFresh(input.focus) && looksLikeFollowUp(input.message)
+          ? (/^\s*(?:e\s+)?(?:qual\s+(?:foi\s+)?(?:o\s+)?(?:pior|melhor)|compar|qual\s+(?:a\s+)?diferen)/i.test(input.message) ? 'comparison' : 'continuation')
+          : undefined
+    const conversation = buildRemoteConversation({
+      focus: input.focus,
+      focusFresh: isFocusFresh(input.focus),
+      pendingKinds: input.pending?.map(p => p.action.kind),
+      clarificationField: input.pendingClarification?.field,
+      turnRelation: relacao,
+      resolvedKinds: candidates.map(c => c.action.kind),
+    })
+    const remote = await input.askRemote({
+      state: input.state, message: textoRemoto, conversation, aggregates: remoteNeedsAggregates(textoRemoto),
+    })
     if (remote) {
       remoteReply = remote.reply
       remoteRejected = remote.rejected || []

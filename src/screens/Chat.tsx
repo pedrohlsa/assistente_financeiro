@@ -8,7 +8,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { applyAssistantBatch, useStore } from '../store/store'
-import { askAssistantRemote, askRemoteQueryPlan } from '../services/ai'
+import { remoteBridge } from '../services/ai'
 import { orchestrate } from '../assistant/orchestrator'
 import { buildCapabilities } from '../assistant/capabilities'
 import type { AssistantDraft } from '../assistant/drafts'
@@ -73,7 +73,10 @@ export default function Chat() {
     const out = await orchestrate({
       state,
       message: t,
-      history: state.chat.slice(-8).map(m => ({ role: m.role, text: m.text })),
+      // Sem histórico da conversa: as respostas LOCAIS anteriores carregam
+      // descrição, valor e saldo de lançamento, e iam para a IA remota junto com
+      // as perguntas. O que o remoto precisa saber da conversa sai do foco, do
+      // rascunho e da proposta na tela, como estrutura — ver remoteContext.ts.
       draft: draftRef.current || undefined,
       pending: pendingRef.current?.actions.map(p => ({
         id: p.id, action: p.action, engine: p.engine || 'local', confidence: p.confidence || 'high',
@@ -81,13 +84,7 @@ export default function Chat() {
       pendingClarification: clarificationRef.current || undefined,
       focus: focusRef.current,
       remoteEnabled: state.settings.remoteAi !== false,
-      askRemote: async ({ state: s, message, history }) => {
-        const r = await askAssistantRemote(s, message, history)
-        return r ? { ...r, rejected: r.rejected || [] } : null
-      },
-      // O modelo remoto PLANEJA a consulta que o local nao entendeu — e nao ve
-      // lancamento nenhum para isso. Quem executa o plano e o app, aqui.
-      planRemoteQuery: async ({ state: s, message }) => askRemoteQueryPlan(s, message),
+      ...remoteBridge(),
       devDiagnostics: import.meta.env?.DEV === true,
     })
     setThinking(false)

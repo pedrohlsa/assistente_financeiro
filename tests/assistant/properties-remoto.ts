@@ -15,9 +15,13 @@ import type { AppState, ParsedAction } from '../../src/models/types'
 import { buildState, TODAY } from './harness'
 import { orchestrate } from '../../src/assistant/orchestrator'
 import type { OrchestratorInput } from '../../src/assistant/orchestrator'
+import { remoteNeedsAggregates } from '../../src/assistant/orchestrator'
 import { analyzeMessage } from '../../src/assistant/clauses'
 import { classifyLocalDecision, suspicionReasons } from '../../src/assistant/semantic/confidence'
 import type { SuspicionInput, SuspicionReason } from '../../src/assistant/semantic/confidence'
+import { normalizeRemoteConversation } from '../../src/assistant/conversation/remoteContext'
+import { remoteBridge } from '../../src/services/ai'
+import { handleAssistantRequest } from '../../api/_lib/assistantHandler'
 import { fmtBRL } from '../../src/utils/format'
 
 export interface PropertyReport { total: number; failures: string[] }
@@ -50,7 +54,7 @@ interface Gravado { plano: number; chat: number; mensagens: string[] }
 async function roda(state: AppState, message: string, extra: Partial<OrchestratorInput> = {}) {
   const remoto: Gravado = { plano: 0, chat: 0, mensagens: [] }
   const out = await orchestrate({
-    state, message, history: [], remoteEnabled: true, today: TODAY,
+    state, message, remoteEnabled: true, today: TODAY,
     askRemote: async args => { remoto.chat++; remoto.mensagens.push(args.message); return null },
     planRemoteQuery: async () => { remoto.plano++; return null },
     ...extra,
@@ -194,6 +198,207 @@ export async function runRemoteProperties(): Promise<PropertyReport> {
     if (/gastei|mercado|\b50\b/i.test(enviado)) return `o trecho já resolvido foi reenviado: "${enviado}"`
     if (!/cdi/i.test(enviado)) return `o trecho em aberto não foi: "${enviado}"`
     if (out.response.actions.length !== 1) return `esperava a despesa local, veio ${out.response.actions.length} ação(ões)`
+    return null
+  })
+
+  // =========================================================================
+  // PRIVACIDADE — o que sai do aparelho (regra 44)
+  // =========================================================================
+  //
+  // O estado carrega CANÁRIOS: descrição, origem, reserva, pagamento de fatura,
+  // saldo e nome com valores e textos que não existem em lugar nenhum além dele.
+  // A conversa passa pela MESMA ponte que a tela usa (`remoteBridge`) e pelo
+  // MESMO servidor (`handleAssistantRequest`), com a rede trocada por um gravador
+  // nas duas pontas: o que o aparelho manda ao servidor e o que o servidor manda à
+  // DeepSeek.
+
+  const segredos = [
+    'Canário Restaurante', 'Canario Restaurante', 'Canário Kitnet', 'Rua Oculta', 'Canário Cofrinho', 'Fulana',
+    '731.17', '731,17', '4412.39', '4.412,39', '777.77', '777,77', '8765.43', '8.765,43', '13579.24', '13.579,24',
+  ]
+
+  const estadoCanario = (): AppState => {
+    const s = buildState({ profile: 'autonomo', goals: [{ name: 'Moto', target: 10000, saved: 2000 }], cards: [{ name: 'Nubank' }] })
+    s.settings = { ...s.settings, name: 'Fulana Canário da Silva', balance: 13579.24, balanceAsOf: `${TODAY}T23:59` }
+    s.transactions = [
+      { id: 'x1', type: 'expense', amount: 731.17, category: 'alimentacao', description: 'Canário Restaurante Sigiloso', date: TODAY, time: '10:00' },
+      { id: 'x2', type: 'income', amount: 4412.39, category: 'aluguel', description: 'Aluguel', origin: 'Canário Kitnet Rua Oculta 99', date: TODAY, time: '09:00' },
+      { id: 'x3', type: 'saving', amount: 777.77, category: 'reserva', description: 'Canário Cofrinho Secreto', date: '2026-06-02', time: '09:00' },
+    ] as any
+    s.cardPayments = [{ id: 'cp1', cardId: 'card0', amount: 8765.43, date: '2026-05-10', fromBalance: false }] as any
+    return s
+  }
+
+  /** Corpo serializado e, para a DeepSeek, o conteúdo de cada mensagem já sem escape. */
+  const legivel = (corpo: string): string => {
+    try {
+      const j = JSON.parse(corpo)
+      return [corpo, ...(Array.isArray(j?.messages) ? j.messages.map((m: any) => String(m?.content ?? '')) : [])].join('\n')
+    } catch { return corpo }
+  }
+
+  const CFG_FALSA = { apiKey: 'falsa', model: 'x', baseUrl: 'https://deepseek.invalid', timeoutMs: 5000 }
+
+  async function comRedeFalsa<T>(fn: () => Promise<T>): Promise<{ resultado: T; cliente: any[]; deepseek: string[] }> {
+    const guardado = globalThis.fetch
+    const cliente: any[] = []
+    const deepseek: string[] = []
+    ;(globalThis as any).fetch = async (url: any, init?: any) => {
+      const corpo = String(init?.body ?? '{}')
+      if (String(url).includes('/chat/completions')) {
+        deepseek.push(corpo)
+        const content = JSON.stringify({ version: 1, mode: 'answer', reply: 'Certo.', actions: [] })
+        return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+      const body = JSON.parse(corpo)
+      cliente.push(body)
+      const out = await handleAssistantRequest(body, CFG_FALSA)
+      return new Response(JSON.stringify(out.body), { status: out.status, headers: { 'content-type': 'application/json' } })
+    }
+    try {
+      const resultado = await fn()
+      return { resultado, cliente, deepseek }
+    } finally {
+      globalThis.fetch = guardado
+    }
+  }
+
+  /** Várias mensagens encadeadas exatamente como `Chat.tsx` encadeia. */
+  async function conversa(state: AppState, mensagens: string[]): Promise<string[]> {
+    let focus: OrchestratorInput['focus']
+    let pending: OrchestratorInput['pending']
+    let clarification: OrchestratorInput['pendingClarification']
+    let draft: OrchestratorInput['draft'] | null = null
+    const respostas: string[] = []
+    for (const m of mensagens) {
+      const out = await orchestrate({
+        state, message: m, draft: draft || undefined, pending, pendingClarification: clarification, focus,
+        remoteEnabled: true, today: TODAY, ...remoteBridge(),
+      })
+      if (out.focus) focus = out.focus
+      draft = out.draft
+      pending = out.correctedPending ? out.correctedPending : out.response.actions.length ? out.response.actions : out.keepPending ? pending : undefined
+      clarification = out.response.mode === 'clarify' ? (out.response as any).clarification : undefined
+      respostas.push(out.response.reply)
+    }
+    return respostas
+  }
+
+  // --- 114. Nada do histórico sai, por nenhum caminho remoto ---------------
+  await checkAsync(r, 'nada do histórico sai por nenhum caminho remoto, nas duas pontas', async () => {
+    const { resultado: respostas, cliente, deepseek } = await comRedeFalsa(() => conversa(estadoCanario(), [
+      'qual foi meu maior gasto em julho?',
+      'qual meu saldo?',
+      'me dá uma dica pra organizar isso',
+      'quanto a kitnet rendeu esse ano e o que eu faço com esse dinheiro?',
+    ]))
+    // A invariante só mede alguma coisa se a conversa tiver PRODUZIDO resposta
+    // local com dado sigiloso e depois chegado ao remoto.
+    if (!respostas[0].includes('Canário Restaurante')) return `a 1ª resposta local não citou o lançamento — nada a proteger: "${respostas[0].slice(0, 80)}"`
+    if (!respostas[1].includes('13.579,24')) return `a 2ª resposta local não citou o saldo — nada a proteger: "${respostas[1].slice(0, 80)}"`
+    if (!cliente.some(c => !c.task) || !deepseek.length) return `a conversa não chegou ao chat remoto (cliente ${cliente.length}, deepseek ${deepseek.length})`
+    const pontas: [string, string[]][] = [
+      ['aparelho → servidor', cliente.map(c => JSON.stringify(c))],
+      ['servidor → DeepSeek', deepseek.map(legivel)],
+    ]
+    for (const [onde, corpos] of pontas) {
+      for (const corpo of corpos) {
+        for (const s of segredos) if (corpo.includes(s)) return `${onde}: vazou "${s}"`
+        if (/"history"\s*:/.test(corpo)) return `${onde}: levou o campo history`
+        for (const anterior of respostas.slice(0, 2)) {
+          if (corpo.includes(anterior.slice(0, 40))) return `${onde}: levou uma resposta local anterior`
+        }
+      }
+    }
+    return null
+  })
+
+  // --- 115. O que foi escrito NESTA mensagem pode sair ---------------------
+  await checkAsync(r, 'o que o usuário escreveu nesta mensagem vai junto — sem isso o modelo não entende a pergunta', async () => {
+    const { cliente } = await comRedeFalsa(() => conversa(estadoCanario(), ['me explica o que é CDI e se vale pra grana da Canário Kitnet']))
+    const chat = cliente.find(c => !c.task)
+    if (!chat) return 'a frase não chegou ao chat remoto'
+    if (!String(chat.message).includes('Canário Kitnet')) return 'o nome dito na própria mensagem não foi junto'
+    return null
+  })
+
+  // --- 116. O servidor fecha o vazamento de cliente antigo -----------------
+  await checkAsync(r, 'o servidor descarta histórico e campos pessoais mandados por um app antigo', async () => {
+    const corpoAntigo = {
+      message: 'me ajuda a organizar minhas finanças',
+      history: [{ role: 'assistant', text: 'Seu maior gasto foi R$ 731,17 no Canário Restaurante Sigiloso' }],
+      context: {
+        perfil: 'autonomo', nome: 'Fulana Canário da Silva', saldoEmConta: 13579.24,
+        saldoVsContas7dias: { contasAVencer: 8765.43, cobreAsContas: true },
+        proximasContas: [{ nome: 'Canário Kitnet Rua Oculta 99', valor: 4412.39, emDias: 3 }],
+        parcelamentos: { ativos: 1, dividaRestante: 900, lista: [{ descricao: 'Canário Cofrinho Secreto', valorTotal: 777.77 }] },
+        projecaoProximosMeses: [{ mes: '2026-08', entradasPrevistas: 100, saldoEstimado: 13579.24 }],
+        veiculo: { modelo: 'Canário Restaurante', hodometro: 731.17 },
+        esteMes: { receitas: 3000, despesas: 1200, lucro: 1800 },
+        categorias: [{ id: 'alimentacao', name: 'Alimentação', type: 'expense' }],
+      },
+      conversation: {
+        version: 1, topic: 'query', activePeriod: { label: 'R$ 731,17 no Canário' },
+        activeFilters: { categories: ['alimentacao', 'Canário Restaurante'], freeTextFilter: 'Canário Restaurante' },
+        extra: 'Fulana',
+      },
+    }
+    const { deepseek } = await comRedeFalsa(() => handleAssistantRequest(corpoAntigo, CFG_FALSA))
+    if (!deepseek.length) return 'o servidor não chamou o modelo'
+    const texto = legivel(deepseek[0])
+    for (const s of segredos) if (texto.includes(s)) return `o servidor repassou "${s}"`
+    if (!texto.includes('"receitas":3000')) return 'o agregado permitido não passou — a lista de campos apagou demais'
+    return null
+  })
+
+  // --- 117. A conversa remota só leva estrutura ---------------------------
+  check(r, 'a conversa remota só leva estrutura do vocabulário do usuário, nunca texto nem valor', () => {
+    const out = normalizeRemoteConversation({
+      version: 1, topic: 'query', previousIntent: 'query-answered',
+      activePeriod: { label: 'Seu saldo é R$ 13.579,24', grain: 'month' },
+      activeQuery: { source: 'transactions', metric: 'sum; DROP', group: 'category' },
+      activeFilters: {
+        categories: ['obra', 'Canário Restaurante'], cardNames: ['nubank', 'Itaú Canário'], goalName: 'Moto',
+        freeTextFilter: 'Canário Restaurante', originFilter: true,
+      },
+      pendingKinds: ['expense', 'R$ 731,17'], missingFields: ['amount', 'valor 731'], resolvedLocally: ['income'],
+      history: ['x'], saldo: 13579.24,
+    }, { categoryIds: ['alimentacao', 'obra'], cardNames: ['Nubank'], goalNames: ['Moto'] })
+    const json = JSON.stringify(out)
+    for (const s of ['13.579', '13579', 'Canário', 'Itaú', 'DROP', '731', 'history', 'saldo']) {
+      if (json.includes(s)) return `deixou passar "${s}": ${json}`
+    }
+    if (out?.activeFilters?.cardNames?.[0] !== 'Nubank' || out?.activeFilters?.categories?.join() !== 'obra') {
+      return `apagou o que era do vocabulário: ${json}`
+    }
+    if (out?.activeFilters?.freeTextFilter !== undefined) return 'freeTextFilter aceitou texto no lugar de verdadeiro'
+    return null
+  })
+
+  // --- 118. Agregados só quando a frase precisa deles ----------------------
+  await checkAsync(r, 'agregados do aparelho só vão quando o trecho é pergunta ou pedido', async () => {
+    const { cliente: doRegistro } = await comRedeFalsa(() => conversa(buildState({ profile: 'clt' }), ['tirei 500 do cofrinho pra pagar a escola']))
+    const chatRegistro = doRegistro.find(c => !c.task)
+    if (!chatRegistro) return 'o registro não entendido não chegou ao chat remoto'
+    if ('esteMes' in (chatRegistro.context || {})) return 'registro não entendido levou os agregados do mês'
+    const { cliente: doPedido } = await comRedeFalsa(() => conversa(estadoCanario(), ['me ajuda a organizar minhas finanças']))
+    const chatPedido = doPedido.find(c => !c.task)
+    if (!chatPedido) return 'o pedido aberto não chegou ao chat remoto'
+    if (!('esteMes' in (chatPedido.context || {}))) return 'o pedido aberto ficou sem os agregados que tornam a resposta útil'
+    if (!remoteNeedsAggregates('tô conseguindo guardar o suficiente?')) return 'pergunta classificada como registro'
+    if (remoteNeedsAggregates('paguei 320 de luz 180 de agua e a internet eu nao lembro')) return 'registro classificado como pergunta'
+    return null
+  })
+
+  // --- 119. O planejador recebe só a pergunta e o vocabulário --------------
+  await checkAsync(r, 'o planejador remoto recebe só a pergunta e o vocabulário', async () => {
+    const { cliente } = await comRedeFalsa(() => conversa(estadoCanario(), ['quanto do que entrou esse mês veio de freelance']))
+    const plano = cliente.find(c => c.task === 'plan-query')
+    if (!plano) return 'a pergunta não chegou ao planejador remoto'
+    const chaves = Object.keys(plano.context || {}).sort().join(',')
+    if (chaves !== 'cartoes,categorias,metasDeCompra,perfil') return `contexto de planejamento com campos a mais: ${chaves}`
+    if (/\d{3,}/.test(JSON.stringify(plano.context))) return 'o contexto de planejamento levou número'
+    if (Object.keys(plano).some(k => !['task', 'message', 'context'].includes(k))) return `corpo com campo a mais: ${Object.keys(plano).join(',')}`
     return null
   })
 

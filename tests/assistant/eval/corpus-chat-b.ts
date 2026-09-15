@@ -135,8 +135,11 @@ export const CASOS_CHAT_B: CasoChat[] = [
   // ===== Utilidade: a resposta está no contexto enviado =====================
   casoChat('c-46', 'autonomo', 'utilidade', 'remota',
     'o que realmente está apertando meu orçamento?',
+    // Desde 15/09/2026 o contexto não traz a lista de parcelamentos com a
+    // descrição de cada compra (regra 44): "computador" e "geladeira" saíram do
+    // que conta como resposta útil, porque o modelo não tem mais como sabê-los.
     'o contexto tem parcelas, faturas e o resultado do mês; filosofar não ajuda',
-    { intencao: 'responder', acoes: [], respondivel: true, deveMencionar: [/parcel|cart[ãa]o|fatura|800|1\.503|computador|geladeira|despes/i] }),
+    { intencao: 'responder', acoes: [], respondivel: true, deveMencionar: [/parcel|cart[ãa]o|fatura|800|1\.503|despes/i] }),
   casoChat('c-47', 'autonomo', 'utilidade', 'remota',
     'tô conseguindo guardar o suficiente?',
     'guardou 500 de 800: dizer que a meta foi batida confunde sobra com dinheiro guardado (regra 21)',
@@ -166,13 +169,16 @@ export const CASOS_CHAT_B: CasoChat[] = [
     }),
   casoChat('c-50', 'autonomo', 'utilidade', 'remota',
     'meu dinheiro dá até o fim do mês?',
-    'pergunta de sim ou não: a primeira palavra é a resposta (regra 57)',
+    // Desde 15/09/2026 o saldo em conta não vai ao modelo (regra 44). A resposta
+    // certa deixou de ser "sim, sobram R$ X": é partir do resultado do mês e dizer
+    // que o saldo o app responde direto — citar um saldo seria inventá-lo.
+    'o saldo não está no contexto: útil é o resultado do mês e apontar a pergunta que o app responde',
     {
       intencao: 'responder', acoes: [], respondivel: true,
-      deveMencionar: [/^\s*(?:sim|d[áa]\b|com folga)/i],
+      deveMencionar: [/saldo|sobr|resultado|1\.497|n[ãa]o (?:tenho|vejo|consigo)/i],
       derivados: ctx => {
         const p = ctx?.projecaoProximosMeses?.[0]
-        return p ? [ctx.saldoEmConta - p.contasPrevistas - p.parcelasPrevistas, p.contasPrevistas + p.parcelasPrevistas] : []
+        return p ? [p.contasPrevistas + p.parcelasPrevistas] : []
       },
     }),
   casoChat('c-51', 'motorista', 'utilidade', 'remota',

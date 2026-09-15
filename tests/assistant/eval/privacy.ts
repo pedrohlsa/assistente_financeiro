@@ -3,12 +3,16 @@
 //
 // Três barreiras independentes, porque cada uma cobre uma falha diferente:
 //
-//   1. o ESTADO precisa carregar o canário sintético — prova de origem;
+//   1. o ESTADO precisa carregar o canário sintético — prova de origem, marcada
+//      no contexto do caso (`origemVerificada`) e exigida pelo transporte;
 //   2. o CORPO não pode conter padrão de dado pessoal nem a chave da API —
 //      pega o que a primeira não pega (um texto colado num caso, por exemplo);
-//   3. todo NOME de categoria, cartão ou meta enviado ao planejador precisa
-//      existir no vocabulário sintético — o planejador não recebe o nome do
-//      usuário, então o canário sozinho não bastaria ali.
+//   3. todo NOME de categoria, cartão ou meta enviado precisa existir no
+//      vocabulário sintético.
+//
+// Até 15/09/2026 o canário também era exigido NO CORPO do chat, porque o nome do
+// usuário ia no contexto. Ele deixou de ir (regra 44), e a prova de origem
+// passou a morar no caso.
 //
 // Qualquer falha BLOQUEIA a chamada. Não existe "enviar mesmo assim".
 
@@ -47,16 +51,16 @@ const PADROES: { nome: string; teste: (t: string) => boolean }[] = [
   { nome: 'CEP', teste: t => /\b\d{5}-\d{3}\b/.test(t) },
 ]
 
-export function verificaCorpo(corpo: string, opts: { chave?: string | null; exigeCanario: boolean }): Verificacao {
+export function verificaCorpo(corpo: string, opts: { chave?: string | null }): Verificacao {
   if (opts.chave && opts.chave.length >= 8 && corpo.includes(opts.chave)) {
     return { ok: false, motivo: 'a chave da API apareceu no corpo da requisição' }
   }
   for (const p of PADROES) {
     if (p.teste(corpo)) return { ok: false, motivo: `padrão de dado pessoal no corpo: ${p.nome}` }
   }
-  if (opts.exigeCanario && !corpo.includes(CANARIO)) {
-    return { ok: false, motivo: 'contexto de chat sem o canário sintético — estado de origem desconhecida' }
-  }
+  // O nome do usuário não vai mais ao modelo: se o canário aparecer no corpo, é
+  // o nome que voltou a vazar.
+  if (corpo.includes(CANARIO)) return { ok: false, motivo: 'o nome do usuário (canário) apareceu no corpo da requisição' }
   return { ok: true }
 }
 

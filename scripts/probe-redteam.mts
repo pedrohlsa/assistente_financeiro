@@ -30,7 +30,7 @@ for (const grupo of SESSOES) {
     for (const m of s.mensagens) {
       total++
       const out = await orchestrate({
-        state: s.state, message: m, history: [], remoteEnabled: false,
+        state: s.state, message: m, remoteEnabled: false,
         today: HOJE, focus, pending,
       })
       focus = out.focus || focus

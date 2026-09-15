@@ -166,7 +166,7 @@ export async function runCase(c: AssistantCase): Promise<CaseResult> {
 
   for (const msg of c.messages) {
     const out = await orchestrate({
-      state, message: msg, history: [],
+      state, message: msg,
       draft: draft || undefined, pending, pendingClarification: clarification,
       focus,
       remoteEnabled: false, today: TODAY,

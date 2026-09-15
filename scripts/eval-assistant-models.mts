@@ -28,8 +28,9 @@ import type { DeepSeekConfig } from '../api/_lib/deepseek'
 import { handleAssistantRequest } from '../api/_lib/assistantHandler'
 import { buildCapabilities } from '../src/assistant/capabilities'
 import { isValidationFailure, validateAction } from '../src/assistant/contracts'
-import { orchestrate } from '../src/assistant/orchestrator'
+import { orchestrate, remoteNeedsAggregates } from '../src/assistant/orchestrator'
 import type { ConversationFocus } from '../src/assistant/conversation'
+import type { RemoteConversationContext } from '../src/assistant/conversation/remoteContext'
 import { buildAiContext, planningContext } from '../src/services/ai'
 import { todayISO } from '../src/utils/format'
 import type { AppState, ParsedAction } from '../src/models/types'
@@ -49,7 +50,7 @@ import { CASOS_CHAT, corpoOraculo, materializa, runEvalSelfTest } from '../tests
 import { ESTADOS, vocabularioSintetico } from '../tests/assistant/eval/states'
 import { contextoAvaliacao, instalaTransporte } from '../tests/assistant/eval/transport'
 import type { ConfigModelo, ContextoAvaliacao, Livro, RegistroHttp } from '../tests/assistant/eval/transport'
-import type { CasoCenario, CasoChat, CasoContinuidade, CasoPlano, ResultadoCaso, Suite } from '../tests/assistant/eval/types'
+import type { CasoCenario, CasoChat, CasoContinuidade, CasoPlano, Dimensao, ResultadoCaso, RotaProducao, Suite } from '../tests/assistant/eval/types'
 
 // ---------------------------------------------------------------------------
 // Configurações comparadas
@@ -73,6 +74,17 @@ const configs = CONFIGS.filter(c => (valor('configs') || 'A,B,C').toUpperCase().
 const suites = (valor('suites') || 'chat,plano,cenario,continuidade').split(',').map(s => s.trim()) as Suite[]
 const repeticoes = Math.max(1, Math.round(Number(valor('repeticoes') || 3)))
 const concorrencia = Math.max(1, Math.round(Number(valor('concorrencia') || 3)))
+const corpus = valor('corpus') === 'completo' ? 'completo' : 'pago'
+
+/**
+ * O corpus PAGO não gasta com frase que o modelo nunca vai ver. Rota `local` é
+ * resposta certa do aparelho: medir o modelo ali é pagar por uma decisão que
+ * ninguém vai tomar. Fica tudo que chega ao remoto, tudo que o local ainda erra
+ * (fronteira: é onde o roteamento pode mudar) e a segurança inteira, que é barata
+ * e é onde um modelo pior machuca. O corpus COMPLETO continua no autoteste.
+ */
+const noCorpusPago = (c: { rota: RotaProducao; dimensao: Dimensao }): boolean =>
+  corpus === 'completo' || c.rota !== 'local' || c.dimensao === 'seguranca'
 const vocabulario = vocabularioSintetico(hoje)
 const usd = (v: number) => `US$ ${v.toFixed(v < 0.1 ? 4 : 2)}`
 const pct = (v: number | null) => (v === null ? '—' : `${(v * 100).toFixed(1)}%`)
@@ -93,17 +105,23 @@ const chaveTarefa = (t: Tarefa) => `${t.config.id}|${t.caso.id}|${t.rep}`
 function montaTarefas(cs: ConfigModelo[], reps: number): Tarefa[] {
   const out: Tarefa[] = []
   for (let rep = 1; rep <= reps; rep++) {
-    if (suites.includes('chat')) for (const caso of CASOS_CHAT) for (const config of cs) out.push({ tipo: 'chat', caso, config, rep })
-    if (suites.includes('plano')) for (const caso of CASOS_PLANO) for (const config of cs) out.push({ tipo: 'plano', caso, config, rep })
-    if (suites.includes('cenario')) for (const caso of CASOS_CENARIO) for (const config of cs) out.push({ tipo: 'cenario', caso, config, rep })
+    if (suites.includes('chat')) for (const caso of CASOS_CHAT.filter(noCorpusPago)) for (const config of cs) out.push({ tipo: 'chat', caso, config, rep })
+    if (suites.includes('plano')) for (const caso of CASOS_PLANO.filter(noCorpusPago)) for (const config of cs) out.push({ tipo: 'plano', caso, config, rep })
+    if (suites.includes('cenario')) for (const caso of CASOS_CENARIO.filter(noCorpusPago)) for (const config of cs) out.push({ tipo: 'cenario', caso, config, rep })
     if (suites.includes('continuidade')) for (const caso of CASOS_CONTINUIDADE) for (const config of cs) out.push({ tipo: 'continuidade', caso, config, rep })
   }
   return out
 }
 
 /** Espelho de `askAssistantRemote`: mesmo corpo, mesma revalidação no cliente. */
-async function chatComoCliente(state: AppState, message: string, history: { role: string; text: string }[], cfg: DeepSeekConfig) {
-  const http = await handleAssistantRequest({ message, context: buildAiContext(state), history }, cfg)
+async function chatComoCliente(
+  state: AppState, message: string,
+  opts: { conversation?: RemoteConversationContext; aggregates: boolean },
+  cfg: DeepSeekConfig, enviado?: { contexto?: any },
+) {
+  const contexto = buildAiContext(state, { aggregates: opts.aggregates })
+  if (enviado) enviado.contexto = contexto
+  const http = await handleAssistantRequest({ message, context: contexto, conversation: opts.conversation }, cfg)
   if (http.status !== 200) return null
   const data = http.body
   const reply = String(data?.reply || '').trim()
@@ -127,13 +145,16 @@ async function executa(t: Tarefa, cfg: DeepSeekConfig, livro: Livro): Promise<Re
   const origem = verificaEstado(state)
   const nomes = verificaVocabulario(planningContext(state), vocabulario)
   for (const v of [origem, nomes]) if (falhou(v)) { livro.bloqueio = livro.bloqueio || v.motivo; return [] }
+  // Só chega aqui o estado que passou pelo canário e pelo vocabulário sintético:
+  // é essa verificação que o transporte exige antes de deixar a requisição sair.
   const ctx = (tarefa: ContextoAvaliacao['tarefa'], registros: RegistroHttp[] = [], turno?: number): ContextoAvaliacao =>
-    ({ config: t.config, caso: t.caso.id, rep: t.rep, turno, tarefa, registros })
+    ({ config: t.config, caso: t.caso.id, rep: t.rep, turno, tarefa, registros, origemVerificada: true })
 
   if (t.tipo === 'chat') {
     const c = ctx('chat')
-    const contexto = buildAiContext(state)
-    const http = await contextoAvaliacao.run(c, () => handleAssistantRequest({ message: t.caso.mensagem, context: contexto, history: t.caso.historico || [] }, cfg))
+    // A mesma decisão de produção: agregados só quando a frase é pergunta ou pedido.
+    const contexto = buildAiContext(state, { aggregates: remoteNeedsAggregates(t.caso.mensagem) })
+    const http = await contextoAvaliacao.run(c, () => handleAssistantRequest({ message: t.caso.mensagem, context: contexto }, cfg))
     return [pontuaChat({ caso: t.caso, config: t.config.id, rep: t.rep, state, hoje, contexto, http, registros: c.registros })]
   }
   if (t.tipo === 'plano') {
@@ -156,15 +177,15 @@ async function executa(t: Tarefa, cfg: DeepSeekConfig, livro: Livro): Promise<Re
   let pending: any
   let draft: any = null
   let clarification: any
-  let historico: { role: string; text: string }[] = []
-  const anteriores: string[] = []
   for (let i = 0; i < t.caso.turnos.length; i++) {
     const turno = t.caso.turnos[i]
     const registros: RegistroHttp[] = []
+    const enviado: { contexto?: any } = {}
     const r = await orchestrate({
-      state, message: turno.mensagem, history: historico.slice(-8), draft: draft || undefined, pending,
+      state, message: turno.mensagem, draft: draft || undefined, pending,
       pendingClarification: clarification, focus, remoteEnabled: true, today: hoje,
-      askRemote: ({ state: s, message, history }) => contextoAvaliacao.run(ctx('chat', registros, i + 1), () => chatComoCliente(s, message, history, cfg)),
+      askRemote: ({ state: s, message, conversation, aggregates }) => contextoAvaliacao.run(ctx('chat', registros, i + 1),
+        () => chatComoCliente(s, message, { conversation, aggregates }, cfg, enviado)),
       planRemoteQuery: ({ state: s, message }) => contextoAvaliacao.run(ctx('plano', registros, i + 1), async () => {
         const http = await handleAssistantRequest({ task: 'plan-query', message, context: planningContext(s) }, cfg)
         const plano = http.status === 200 ? http.body?.queryPlan : null
@@ -176,14 +197,15 @@ async function executa(t: Tarefa, cfg: DeepSeekConfig, livro: Livro): Promise<Re
     pending = r.correctedPending ? r.correctedPending : r.response.actions.length ? r.response.actions : r.keepPending ? pending : undefined
     clarification = r.response.mode === 'clarify' ? (r.response as any).clarification : undefined
     if (registros.length) {
+      // Número permitido é o que o modelo PODE conhecer: o contexto que foi de
+      // fato, e a frase deste turno. As mensagens anteriores não vão mais ao
+      // modelo — citar um valor delas seria coincidência, não lastro.
       out.push(pontuaTurno({
         id: t.caso.id, config: t.config.id, rep: t.rep, turno: i + 1, perfil: t.caso.perfil, gabarito: turno, state, hoje,
         resposta: { reply: r.response.reply, mode: r.response.mode, actions: r.response.actions },
-        contexto: buildAiContext(state), mensagensAnteriores: [...anteriores], registros,
+        contexto: enviado.contexto ?? planningContext(state), mensagensAnteriores: [], registros,
       }))
     }
-    historico = [...historico, { role: 'user', text: turno.mensagem }, { role: 'assistant', text: r.response.reply }]
-    anteriores.push(turno.mensagem, r.response.reply)
   }
   return out
 }
@@ -207,18 +229,16 @@ async function medeTrafego(): Promise<Trafego> {
     for (const s of grupo) {
       let focus: ConversationFocus | undefined
       let pending: any
-      let hist: { role: string; text: string }[] = []
       for (const m of s.mensagens) {
         total++
         let p = false
         let c = false
         const out = await orchestrate({
-          state: s.state, message: m, history: hist.slice(-8), remoteEnabled: true, today: hoje, focus, pending,
+          state: s.state, message: m, remoteEnabled: true, today: hoje, focus, pending,
           askRemote: async () => { c = true; return null }, planRemoteQuery: async () => { p = true; return null },
         })
         focus = out.focus || focus
         pending = out.response.actions.length ? out.response.actions : out.keepPending ? pending : undefined
-        hist = [...hist, { role: 'user', text: m }, { role: 'assistant', text: out.response.reply }]
         if (p) plano++
         if (c) chat++
       }
@@ -318,6 +338,7 @@ async function modoOrcamento(cfg: DeepSeekConfig) {
   console.log('\n══════════ ORÇAMENTO — nenhuma chamada paga foi feita ══════════\n')
   console.log(`Data: ${hoje} · preços de ${FONTE_PRECOS} (consultados em ${PRECOS_CONSULTADOS_EM})`)
   console.log(`Casos: ${CASOS_CHAT.length} chat · ${CASOS_PLANO.length} planejador · ${CASOS_CENARIO.length} cenário (candidato) · ${CASOS_CONTINUIDADE.length} conversas`)
+  console.log(`Corpus ${corpus}: ${CASOS_CHAT.filter(noCorpusPago).length} chat · ${CASOS_PLANO.filter(noCorpusPago).length} planejador · ${CASOS_CENARIO.filter(noCorpusPago).length} cenário · ${CASOS_CONTINUIDADE.length} conversas (fora do pago: rota local que não é segurança)`)
   console.log(`Suítes: ${suites.join(', ')} · repetições: ${repeticoes} · concorrência: ${concorrencia}`)
   console.log(`Chamadas lógicas por repetição, por configuração: ${chamadas.length} (chat ${porSuite('chat').length} · planejador ${chamadas.filter(r => r.tarefa === 'plano').length} · cenário ${porSuite('cenario').length} · turnos remotos de conversa ${porSuite('continuidade').length})`)
   console.log(`Caracteres médios de entrada: chat ${Math.round(avg(chamadas.filter(r => r.tarefa === 'chat').map(r => r.caracteresEntrada)))} · planejador ${Math.round(avg(chamadas.filter(r => r.tarefa === 'plano').map(r => r.caracteresEntrada)))} · cenário ${Math.round(avg(chamadas.filter(r => r.tarefa === 'cenario').map(r => r.caracteresEntrada)))}`)
@@ -334,8 +355,9 @@ async function modoOrcamento(cfg: DeepSeekConfig) {
     }
     console.log(`   TOTAL ${Math.round(proj.chamadasHttp)} chamadas HTTP · ${Math.round(proj.tokensEntrada).toLocaleString('pt-BR')} tokens de entrada · ${Math.round(proj.tokensSaida).toLocaleString('pt-BR')} de saída · ${usd(proj.usd)}`)
   }
-  const saldo = await saldoUSD(cfg)
-  console.log(`\nSaldo da conta agora: ${saldo === null ? 'indisponível' : usd(saldo)} — é a MESMA conta que atende o app publicado.`)
+  // `--sem-saldo`: nenhuma requisição à conta. O orçamento inteiro roda sem rede.
+  const saldo = flag('sem-saldo') ? null : await saldoUSD(cfg)
+  console.log(`\nSaldo da conta agora: ${flag('sem-saldo') ? 'não consultado (--sem-saldo)' : saldo === null ? 'indisponível' : usd(saldo)} — é a MESMA conta que atende o app publicado.`)
   console.log(`\nPesos da qualidade: ${Object.entries(PESOS).map(([k, v]) => `${k} ${v}`).join(' · ')}`)
   console.log(`Perigos (nunca compensados): ${TIPOS_PERIGO.join(', ')}`)
   console.log(`\nPara executar: npx tsx scripts/eval-assistant-models.mts --executar --teto-usd=<valor> --configs=${cs.map(c => c.id).join(',')}`)

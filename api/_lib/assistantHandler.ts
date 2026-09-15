@@ -8,9 +8,10 @@ import { callDeepSeekChat, isDeepSeekFailure, safeErrorMessage, httpStatusForErr
 import type { DeepSeekConfig, DeepSeekErrorCode } from './deepseek.js'
 import {
   buildComposerPrompt, buildQueryPlannerPrompt, buildSystemPrompt,
-  normalizeCapabilities, sanitizeRemoteResponse,
+  normalizeCapabilities, sanitizeChatContext, sanitizeRemoteResponse,
 } from './assistantPrompt.js'
 import { ASSISTANT_CONTRACT_VERSION } from '../../src/assistant/contracts.js'
+import { normalizeRemoteConversation } from '../../src/assistant/conversation/remoteContext.js'
 
 export interface AssistantHttpResult {
   status: number
@@ -39,7 +40,11 @@ export async function handleAssistantRequest(
   body: any,
   config: DeepSeekConfig,
 ): Promise<AssistantHttpResult> {
-  const { message, context, history, task } = body || {}
+  // `history` NÃO é lido, nem de cliente antigo. Até 15/09/2026 o app mandava as
+  // últimas 8 mensagens, e as respostas LOCAIS entre elas carregavam descrição,
+  // valor e saldo de lançamento. O APK instalado continua mandando o campo até
+  // ser atualizado — ignorá-lo aqui é o que fecha o vazamento para ele também.
+  const { message, context, conversation, task } = body || {}
   if (!message || typeof message !== 'string' || !message.trim()) return fail('no-message')
 
   const today = todayIso()
@@ -52,15 +57,18 @@ export async function handleAssistantRequest(
   if (task === 'compose') return compose(body, config, today)
 
   const systemPrompt = buildSystemPrompt(caps, today)
+  // As categorias já estão no prompt de sistema; repeti-las no contexto custava
+  // cerca de 1.500 caracteres por chamada sem acrescentar nada.
+  const agregados = sanitizeChatContext(context)
+  const conversa = normalizeRemoteConversation(conversation, {
+    categoryIds: caps.categories.map(c => c.id), cardNames: caps.cardNames, goalNames: caps.goalNames,
+  })
 
   const messages = [
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: `CONTEXTO (dados reais do usuário):\n${JSON.stringify(context || {})}` },
-    ...(Array.isArray(history)
-      ? history.slice(-8).map((h: any) => ({
-          role: h?.role === 'user' ? 'user' : 'assistant',
-          content: String(h?.text ?? '').slice(0, 600),
-        }))
+    { role: 'user', content: `CONTEXTO (agregados do aparelho; nenhum lançamento):\n${JSON.stringify(agregados)}` },
+    ...(conversa
+      ? [{ role: 'user', content: `CONVERSA (estrutura do assunto anterior; sem valores nem mensagens):\n${JSON.stringify(conversa)}` }]
       : []),
     { role: 'user', content: String(message).slice(0, 1500) },
   ]

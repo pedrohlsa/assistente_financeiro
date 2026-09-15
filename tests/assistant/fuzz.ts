@@ -144,7 +144,7 @@ async function medeBaseline(state: AppState): Promise<number> {
   const amostras: number[] = []
   for (let i = 0; i < 20; i++) {
     const t0 = performance.now()
-    await orchestrate({ state, message: 'gastei 190 de cimento ontem', history: [], remoteEnabled: false, today: TODAY })
+    await orchestrate({ state, message: 'gastei 190 de cimento ontem', remoteEnabled: false, today: TODAY })
     amostras.push(performance.now() - t0)
   }
   amostras.sort((a, b) => a - b)
@@ -172,7 +172,7 @@ export async function runFuzz(aleatorias = 400, fator = 400): Promise<FuzzReport
       const t0 = performance.now()
       let out: Awaited<ReturnType<typeof orchestrate>>
       try {
-        out = await orchestrate({ state, message: msg, history: [], remoteEnabled: false, today: TODAY })
+        out = await orchestrate({ state, message: msg, remoteEnabled: false, today: TODAY })
       } catch (e: any) {
         falhas.push(`EXCEÇÃO em ${JSON.stringify(msg.slice(0, 60))}: ${e?.message || e}`)
         continue

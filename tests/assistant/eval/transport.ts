@@ -62,6 +62,13 @@ export interface ContextoAvaliacao {
   turno?: number
   tarefa: Tarefa
   registros: RegistroHttp[]
+  /**
+   * O estado do caso passou pelo canário e pelo vocabulário sintético. Sem esta
+   * marca a requisição não sai. Ela substitui o canário NO CORPO: o nome do
+   * usuário deixou de ir ao modelo (regra 44), então o corpo não tem mais como
+   * provar a origem sozinho.
+   */
+  origemVerificada?: boolean
 }
 
 export const contextoAvaliacao = new AsyncLocalStorage<ContextoAvaliacao>()
@@ -117,6 +124,9 @@ export function instalaTransporte(o: OpcoesTransporte): () => void {
 
     const url = new URL(typeof entrada === 'string' ? entrada : String(entrada?.url ?? entrada))
     if (url.hostname !== o.hostPermitido) throw barra(new BloqueioPrivacidade(`host fora da lista permitida: ${url.hostname}`))
+    if (!ctx.origemVerificada) {
+      throw barra(new BloqueioPrivacidade('caso sem origem verificada: o estado não passou pelo canário e pelo vocabulário sintético'))
+    }
 
     const corpo = JSON.parse(String(init?.body ?? '{}'))
     corpo.model = ctx.config.modelo
@@ -126,7 +136,7 @@ export function instalaTransporte(o: OpcoesTransporte): () => void {
     } else delete corpo.thinking
     const serial = JSON.stringify(corpo)
 
-    const priv = verificaCorpo(serial, { chave: o.chave, exigeCanario: ctx.tarefa === 'chat' })
+    const priv = verificaCorpo(serial, { chave: o.chave })
     if (falhou(priv)) throw barra(new BloqueioPrivacidade(priv.motivo))
 
     const quando = new Date()
