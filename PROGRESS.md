@@ -3,7 +3,8 @@
 **Última atualização**: 2026-09-15 — CANAL REMOTO E ROTEAMENTO LOCAL (o histórico da
 conversa deixou de ir para a IA remota; leitura local de baixa confiança deixou de bloquear o
 remoto) na branch `feat/assistant-semantic-copilot`, depois da rodada do COPILOTO SEMÂNTICO
-(25/08) e da preparação da avaliação dos modelos remotos (13/09). Ver a última seção.
+(25/08) e da preparação da avaliação dos modelos remotos (13/09). Ver a última seção e o
+CHECKPOINT no fim dela (o que está corrigido, o que não está e o que continua não autorizado).
 
 > **Aviso de leitura**: as seções datadas abaixo são um diário — cada uma registra o que era
 > verdade **naquela data** e não é reescrita depois. Para o estado atual verificado, use
@@ -2825,11 +2826,11 @@ Dois tropeços pegos antes do commit, e ficam registrados porque são a mesma li
 
 | Gate | Resultado |
 |---|---|
-| `npm test` | 562/562 · 75/75 · 4.080 + 3.800 mutações · 1.416 hostis · 119/119 invariantes (86 + 21 + 12) · 418/418 do avaliador |
+| `npm test` | 562/562 · 75/75 · 4.080 + 3.800 mutações · 1.416 hostis · 418/418 do avaliador · invariantes: **118/119 no gate rodado depois de `de2782d`** (a 104 acusou caractere de controle em `remoteContext.ts`), **119/119 depois da correção** — ver o CHECKPOINT abaixo |
 | `typecheck` / `typecheck:api` | exit 0 |
 | `npm run build` + varredura | exit 0; bundle sem `sk-` e sem código de servidor |
 | `npx vercel build --prod` | `status: ok` (build local, nada publicado) |
-| `npm run rubric` | PERIGOSA 0 · RUIM 0 · ACEITÁVEL 6 · EXCELENTE 84 |
+| `npm run rubric` | PERIGOSA 0 · RUIM 0 · ACEITÁVEL 6 · EXCELENTE 84 (rodada antes do checkpoint; não foi repetida nele) |
 
 ### Continua em aberto
 
@@ -2840,3 +2841,108 @@ Dois tropeços pegos antes do commit, e ficam registrados porque são a mesma li
 - O planejador remoto continua sem estado.
 - As mudanças de `api/**` só chegam ao app publicado com redeploy, que depende de autorização.
 - Nome legado `deepseek-v4-flash` e pensamento no padrão da API, sem mudança: só com medição.
+
+### CHECKPOINT — 15/09/2026 (implementação funcional PARADA aqui)
+
+Branch `feat/assistant-semantic-copilot`, a partir de `e635d59`. **Zero chamada paga, zero requisição
+à conta DeepSeek (nem `/models`, nem saldo), zero push, merge, deploy ou APK.** Modelo de produção e
+parâmetro de pensamento intocados. `.claude/launch.json` segue modificado e fora dos commits
+(configuração local).
+
+**Commits desta rodada:** `713970d` (magnitude "mil"/"k") → `d7b846c` (período, "qnto", meta,
+"mandei") → `98d23f3` (confiança local, `semantic/confidence.ts`) → `bfd8f83` (privacidade do canal
+remoto) → `7c7bef5` (seis rotas do corpus de avaliação) → `de2782d` (docs) → commit de checkpoint
+(escape do caractere de controle + esta seção).
+
+**Gate final, na ordem em que rodou (05:28–05:28:44, depois da correção do escape):**
+
+1. `npm test` — núcleo ok (9 de navegação) · 562/562 casos · 75/75 goldens · 4.080 mutações que
+   preservam + 3.800 que mudam a modalidade · 1.416 hostis (pior 124 ms) · **119/119 invariantes**
+   (86 financeiras + 21 do copiloto + 12 do canal remoto) · **418/418** verificações do avaliador
+   (120 casos, 51 leituras aceitas no planejador, **66 frases chegam ao remoto**) — exit 0;
+2. `npm run typecheck` — exit 0;
+3. `npm run typecheck:api` — exit 0;
+4. `npm run build` — exit 0; varredura `sk-` no `dist/` sem ocorrência; nenhum código de servidor
+   (`DEEPSEEK_API_KEY`, `api.deepseek.com`, `sanitizeChatContext`, `normalizeRemoteConversation`) no
+   bundle;
+5. `npx vercel build --prod` — `status: ok`, exit 0 (local; nada publicado).
+
+Alcance remoto: 66/120 (planejador 19 · chat 44 · cenário 3); eram 64. Turnos de conversa que chegam
+ao remoto: chat 10→9 e planejador 10→9 — só os turnos 4 e 5 de k-06 mudaram.
+
+#### Privacidade do canal remoto — antes e depois
+
+- **Antes** (reproduzido em `98d23f3` com estado-canário): o corpo cliente→servidor e o
+  servidor→DeepSeek levavam "Canário Restaurante", 731,17, 13.579,24 e o nome "Fulana" — por
+  `history` (respostas locais) e por `nome`/`saldoEmConta`/listas no contexto.
+- **Depois** (`bfd8f83`, invariantes 114–119, com caso positivo): `history` não é enviado e o
+  servidor o ignora; o contexto passa por lista de campos permitidos; a conversa vai como estrutura
+  normalizada contra o vocabulário do usuário.
+- **O que AINDA sai, e só isto** — não é "privado 100%":
+  - chat: o texto do turno atual (ou só o trecho em aberto quando parte foi resolvida no aparelho),
+    com o que o usuário tiver escrito nele; perfil; categorias; nomes de cartão e de meta; IDs das
+    categorias mais usadas (com o modo adaptativo ligado); a conversa como estrutura (tipo do último
+    pedido, rótulo de período gerado pelo app, fonte/métrica/agrupamento, filtros por categoria,
+    cartão e meta, "havia filtro de texto/origem" sem o texto, campos que faltam);
+  - chat, só quando o trecho em aberto é pergunta ou pedido: agregados numéricos (totais do mês,
+    valores de metas, orçamentos, quantidade/total/dias das contas e entradas previstas, faturas,
+    agregados de parcelamento sem lista, projeção sem saldo estimado, campos de motorista ou meta
+    mensal);
+  - planejador: perfil, categorias, nomes de cartão e meta e a pergunta.
+- Nunca saem: nome do usuário, saldo e o que deriva dele, lançamentos, descrições, origens, listas,
+  veículo, journal. Limite: o app publicado roda o código anterior até um redeploy (não autorizado).
+
+#### Rota `local-errada` no corpus de avaliação
+
+Linha de base de 13/09: 35. **Saíram 8:** p-14 e p-19 → remota; p-20, p-29, c-16, s-03, s-05, s-11 →
+local correta. **Continuam 27:** planejador p-01, 03, 06, 09, 11, 12, 13, 16, 17, 18, 21, 22, 23, 24,
+25, 26, 27, 30, 32, 33, 34; chat c-20; cenário s-01, 02, 04, 07, 13. *Correção de uma contagem dita
+durante a rodada: não eram "34" com "cinco corrigidas".*
+
+#### Defeitos colaterais que NÃO foram corrigidos (relidos no código atual em 15/09)
+
+| Frase | Hoje | Esperado |
+|---|---|---|
+| `salario caiu 3200 e ja paguei o aluguel de 1100` (CLT) | receita 3.200 + receita 1.100 + despesa 1.100 | receita 3.200 + despesa 1.100 |
+| `o 150 que eu te falei era de farmácia não de mercado` | nova despesa 150 | corrigir o existente ou perguntar |
+| `aquele gasto de ontem foi 90 e não 80` | nova despesa 90, descrição "Não 80" | corrigir o existente ou perguntar |
+| `aquele do mercado foi 230 na verdade` | nova despesa 230 | corrigir o existente ou perguntar |
+| `hoje uber deu 210 e a 99 uns 130 abasteci 80` (motorista) | só abastecimento 80 | receitas 210 e 130 + abastecimento 80 |
+| `recebi 1800 da casa 1 e 1200 da casa 2 mas a 2 ainda vai cair na conta amanhã` | as duas como realizadas + aviso de nada agendado | só 1.800; 1.200 explicado como futuro |
+| `caiu o vale alimentação 800` (CLT) | consulta de gastos com alimentação | receita 800 ou pergunta |
+| `paguei 320 de luz 180 de agua e a internet eu nao lembro` | uma despesa 320, descrição "Luz 180 de agua" | despesas 320 e 180 + pergunta da internet |
+| `guardei 300 na meta da viagem e 200 na outra` (c-20) | depósito 300 na Viagem; **os 200 somem em silêncio** | 300 Viagem + 200 na outra meta, ou pergunta |
+| `gastei sessenta vírgula cinquenta de farmácia ponto` | R$ 60,00 | R$ 60,50 |
+| `e se eu parar a obra agora quanto sobra até dezembro` | projeção factual | simulação sem a obra |
+| `onde meu dinheiro mais vazou nos últimos 90 dias?` | o total do período | a categoria ou mudança que mais pesou |
+
+Também em aberto (lista em `docs/AI_REMOTE_EVAL.md` §10): "obra e lazer" soma só obra, "acima de
+200/500" vira texto, "tirando a casa 1", "desde março/junho", "fins de semana", "qual cliente me pagou
+mais", "líquido por corrida", "trocar de carro dando 20 mil" ignora a entrada, "parar de guardar por 3
+meses" vira R$ 3/mês, "2 horas por dia" vira 30 dias, hipóteses compostas.
+
+#### Bugs novos encontrados nesta rodada
+
+| Bug | Status |
+|---|---|
+| "mandei 200 pra meta do carro" casava "andei" → 200 km | CORRIGIDO E TESTADO (rt-17, invariante 112) |
+| "e se em vez de 10x eu fizer 12 dando mil de entrada?" simulava compra de R$ 12 (regressão da borda de dígito, pega antes do commit `713970d`) | CORRIGIDO E TESTADO só indiretamente (rotas p-36/c-23/s-12 do autoteste); **caso dedicado AINDA PENDENTE** |
+| Critério de suspeita apagava lançamento datado ("paguei 100 mês passado", "gastei 40 dia 5") | CORRIGIDO E TESTADO (`98d23f3`, invariante 109 + corpus temporal) |
+| "que" solto lido como comparação (p-14/p-19) | CORRIGIDO E TESTADO |
+| `periodFromText` respondia 7 dias para "em 90 dias" | CORRIGIDO E TESTADO (rt-07) |
+| Depósito em meta sem meta correspondente ficava confirmável | CORRIGIDO E TESTADO (rt-19) |
+| Lookahead novo rejeitava "gastei 355." (mix-01) | CORRIGIDO E TESTADO |
+| Caracteres de controle literais (U+0000, U+001F) no regex de `rotuloDePeriodo`, `remoteContext.ts` — entraram em `bfd8f83`; esse commit sozinho falha a invariante 104 | CORRIGIDO E TESTADO (escape em texto; gate final acima, 119/119) |
+| Invariante 104 só varre arquivos versionados — arquivo novo não commitado escapa do gate | AINDA PENDENTE (limitação registrada, sem mudança) |
+| `PROGRESS.md` linhas ~1460–1461 com U+0008 (diário antigo, fora da varredura) | AINDA PENDENTE (fora do escopo) |
+| `remoteContext.ts` linha 140: faixa de acentos combinantes escrita literal no regex (funciona; não é controle) | AINDA PENDENTE (cosmético) |
+
+#### Benchmark A+B+C — AINDA NÃO AUTORIZADO
+
+Nada foi executado. Orçamento offline (`--sem-saldo`): A+B+C × 3 = US$ 0,63 central / 1,50 pessimista
+/ 7,44 pior caso; A+B+C+D = 1,38 / 2,85 / 12,29. Último saldo conhecido US$ 1,96 (13/09), compartilhado
+com o app publicado. Recomendação registrada em `docs/AI_REMOTE_EVAL.md` §12 (≈ US$ 5 de crédito;
+primeira rodada com `--repeticoes=1 --teto-usd=1.00`). Depende de autorização explícita de gasto.
+Honestidade sobre o que ele mediria hoje: 27 casos ainda são `local-errada` e ficam fora do corpus
+pago, então a bateria mede diferenças entre modelos nas 66 frases que chegam ao remoto — não os
+defeitos locais acima.

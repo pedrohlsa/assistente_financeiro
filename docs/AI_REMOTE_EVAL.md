@@ -253,6 +253,12 @@ enquanto a bateria roda. Ver a seção 12.
 A pré-checagem de rotas passou por mais de 150 frases difíceis. Em 15/09/2026 as respostas foram
 relidas; nenhuma escolha de modelo corrige as que continuam erradas, porque o modelo não é consultado.
 
+**Rota `local-errada` no corpus (checkpoint de 15/09/2026):** eram 35 na linha de base de 13/09.
+Oito saíram — p-14 e p-19 passaram a chegar ao remoto; p-20, p-29, c-16, s-03, s-05 e s-11 passaram a
+ser respondidas certo no aparelho. **Continuam 27:** planejador p-01, 03, 06, 09, 11, 12, 13, 16, 17,
+18, 21, 22, 23, 24, 25, 26, 27, 30, 32, 33, 34; chat c-20; cenário s-01, 02, 04, 07, 13. (Uma contagem
+anterior desta rodada falou em "34" e "cinco corrigidas"; os números certos são estes.)
+
 **Corrigidas em 15/09/2026:**
 
 | Frase | Antes | Agora |
@@ -268,18 +274,18 @@ relidas; nenhuma escolha de modelo corrige as que continuam erradas, porque o mo
 
 **Registro perigoso que CONTINUA (relido em 15/09/2026):**
 
-| Frase | O que o app propõe hoje |
-|---|---|
-| `salario caiu 3200 e ja paguei o aluguel de 1100` (CLT) | **receita** de R$ 1.100 + despesa |
-| `o 150 que eu te falei era de farmácia não de mercado` | nova despesa de R$ 150 (duplicata) |
-| `aquele gasto de ontem foi 90 e não 80` | nova despesa de R$ 90 (duplicata) |
-| `aquele do mercado foi 230 na verdade` | nova despesa de R$ 230 |
-| `hoje uber deu 210 e a 99 uns 130 abasteci 80` (motorista) | só o abastecimento; as duas receitas somem |
-| `recebi 1800 da casa 1 e 1200 da casa 2 mas a 2 ainda vai cair na conta amanhã` | a entrada FUTURA como realizada, ao lado do aviso de que nada foi agendado |
-| `caiu o vale alimentação 800` (CLT) | a entrada some; responde uma consulta de gastos |
-| `paguei 320 de luz 180 de agua e a internet eu nao lembro` | uma despesa só; os R$ 180 somem |
-| `guardei 300 na meta da viagem e 200 na outra` | o depósito de 300 na Viagem; os 200 somem em silêncio |
-| `gastei sessenta vírgula cinquenta de farmácia ponto` | R$ 60,00 em vez de R$ 60,50 |
+| Frase | O que o app propõe hoje | Esperado |
+|---|---|---|
+| `salario caiu 3200 e ja paguei o aluguel de 1100` (CLT) | receita 3.200 + **receita** 1.100 + despesa 1.100 | receita 3.200 + despesa 1.100 |
+| `o 150 que eu te falei era de farmácia não de mercado` | nova despesa de R$ 150 (duplicata) | corrigir o lançamento existente ou perguntar qual |
+| `aquele gasto de ontem foi 90 e não 80` | nova despesa de R$ 90, descrição "Não 80" | corrigir o lançamento de 80 ou perguntar qual |
+| `aquele do mercado foi 230 na verdade` | nova despesa de R$ 230 | corrigir o lançamento ou perguntar qual |
+| `hoje uber deu 210 e a 99 uns 130 abasteci 80` (motorista) | só o abastecimento de 80; as duas receitas somem | receitas 210 e 130 + abastecimento 80 |
+| `recebi 1800 da casa 1 e 1200 da casa 2 mas a 2 ainda vai cair na conta amanhã` | as duas como realizadas, ao lado do aviso de que nada foi agendado | só 1.800 realizado; 1.200 explicado como futuro |
+| `caiu o vale alimentação 800` (CLT) | a entrada some; responde uma consulta de gastos com alimentação | receita de 800 ou pergunta |
+| `paguei 320 de luz 180 de agua e a internet eu nao lembro` | uma despesa de 320, descrição "Luz 180 de agua"; os R$ 180 somem | despesas 320 e 180 + pergunta sobre a internet |
+| `guardei 300 na meta da viagem e 200 na outra` (c-20) | depósito de 300 na Viagem; os 200 somem em silêncio | 300 na Viagem + 200 na outra meta, ou pergunta |
+| `gastei sessenta vírgula cinquenta de farmácia ponto` | R$ 60,00 | R$ 60,50 |
 
 **Número real para a pergunta errada, que CONTINUA:** "obra e lazer" soma só obra; "gasosa por km"
 responde R$ 0,00 como dado real; "onde vazou" devolve o total; "maior mudança" devolve o maior valor;

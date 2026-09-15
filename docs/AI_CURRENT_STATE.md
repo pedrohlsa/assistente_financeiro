@@ -423,9 +423,23 @@ a ação local suspeita por quatro critérios determinísticos e dá nome à dec
 `remote-needed`).
 
 **O que continua em aberto.** Várias frases de registro em fala real ainda são lidas errado no
-aparelho (a lista está em `docs/AI_REMOTE_EVAL.md` §10); o planejador remoto continua sem
+aparelho (a lista, com o esperado de cada uma, está em `docs/AI_REMOTE_EVAL.md` §10); 27 casos
+do corpus de avaliação continuam com rota `local-errada`; o planejador remoto continua sem
 estado (não recebe o plano anterior); e as mudanças de `api/**` só chegam ao app publicado com
 um redeploy, que não foi feito.
+
+**O que ainda sai do aparelho, e só isto.** No chat: o texto do turno atual (ou só o trecho em
+aberto), perfil, IDs e nomes de categoria, nomes de cartão e de meta, os IDs das categorias mais
+usadas e a conversa como estrutura; agregados numéricos (totais do mês, metas, orçamentos,
+contagem e total de contas previstas, faturas, projeção sem saldo) só quando o trecho em aberto é
+pergunta ou pedido. No planejador: perfil, categorias, nomes de cartão e meta e a pergunta. Não é
+"privado 100%": o próprio texto que o usuário digita vai, com o que houver nele.
+
+**Checkpoint de 15/09/2026.** O commit `bfd8f83` entrou com dois caracteres de controle literais
+num regex de `conversation/remoteContext.ts` (escape convertido na edição), e a invariante 104
+falhou no gate seguinte (118/119). Corrigido no commit de checkpoint, com o escape em texto; a
+invariante só varre arquivos versionados, e o arquivo ainda não era versionado no gate anterior ao
+commit — por isso passou lá.
 
 ---
 
