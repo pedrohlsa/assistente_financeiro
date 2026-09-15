@@ -96,6 +96,9 @@ export interface MessageAnalysis {
 const QUESTION_PATTERNS: RegExp[] = [
   /\?/,
   /\b(?:quanto|quantos|quantas|qual|quais|quando|onde)\b/i,
+  // Como se digita no celular. Sem estas, "qnto q foi d obra" não era pergunta,
+  // e o número do período da frase podia virar lançamento.
+  /\b(?:qnto|qnta|qntos|qntas|qnt|qto|qta|qts|qnd|qndo)\b/i,
   /\bcomo\s+(?:est[aáo]|foi|fica|t[aá]|anda|vai)\b/i,
   /\b(?:sobra|sobrou|sobrar[áa]?|resta|restou|restar[áa]?)\b/i,
   /\bd[áa]\s+(?:pra|para)\b/i,

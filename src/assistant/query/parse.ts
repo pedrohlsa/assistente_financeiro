@@ -72,6 +72,9 @@ const ABREV: [RegExp, string][] = [
   [/\bmt\b/g, 'muito'], [/\btbm?\b/g, 'tambem'], [/\bta[h]?\b/g, 'esta'],
   [/\bto[u]?\b/g, 'estou'], [/\bpra\b/g, 'para'], [/\bpro\b/g, 'para'],
   [/\bnd\b/g, 'nada'], [/\bmes?es\b/g, 'meses'],
+  // "d obra" é "de obra": sem a preposição, o extrator de alvo não achava o
+  // assunto da pergunta e a resposta vinha com o total de tudo.
+  [/\bd\b/g, 'de'],
 ]
 
 export function normalizeQuery(input: string): string {
@@ -312,7 +315,10 @@ function lerGrupo(t: string, driver: boolean): { valor: QueryGroup; matched: str
 // Comparação
 // ---------------------------------------------------------------------------
 
-const MARCADOR_CMP = /\b(?:comparad[oa]\s+(?:com|ao|a)|comparando\s+com|compar[ao]\s+com|em\s+relacao\s+a[o]?|versus|vs|do\s+que|que)\s+(?:o\s+|a\s+|os\s+|as\s+)?([^?,.!]{2,40})/
+// O "que" só compara depois de um comparativo ("mais QUE o mês passado"). Solto,
+// ele abre qualquer oração: "qnto q foi d obra nos ultimo 3 mes" tinha o período
+// inteiro lido como o termo de COMPARAÇÃO, e a resposta vinha sobre este mês.
+const MARCADOR_CMP = /\b(?:comparad[oa]\s+(?:com|ao|a)|comparando\s+com|compar[ao]\s+com|em\s+relacao\s+a[o]?|versus|vs|(?:mais|menos|maior|menor|melhor|pior)\s+(?:do\s+)?que)\s+(?:o\s+|a\s+|os\s+|as\s+)?([^?,.!]{2,40})/
 const CMP_IMPLICITA = /\baument(?:ou|aram|o)\b|\bcai(?:u|ram)\b|\bsubiu\b|\bdesceu\b|\bcresceu\b|\bdiminuiu\b|\bpiorou\b|\bmelhorou\b|\bdiferenca\b|\bmudou\b|\bque\s+antes\b|\bdo\s+que\s+antes\b|\bmais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:gastava|ganhava|fazia)\b/
 
 /** "3 meses atrás" dentro de uma comparação = a MESMA janela, deslocada. */
@@ -404,6 +410,18 @@ function categoriaSolta(state: AppState, t: string, tipo: 'income' | 'expense'):
     const n = normalizeName(c.name)
     if (n.length < 4) continue
     if (new RegExp(`(^|\\s)${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`).test(t)) return { id: c.id, nome: c.name }
+  }
+  // A palavra-chave da categoria dita solta: "obra 3 meses quanto". Só palavra
+  // INTEIRA com quatro letras ou mais — termo curto ("bar", "app") casa em frase
+  // demais — e só termo simples: radical como "gasolin" não é palavra dita.
+  for (const [id, palavras] of Object.entries(CATEGORY_KEYWORDS)) {
+    const c = usableCategories(state.categories || []).find(x => x.id === id && x.type === tipo)
+    if (!c) continue
+    for (const p of palavras) {
+      const chave = normalizeName(p)
+      if (chave.length < 4 || /\s/.test(chave)) continue
+      if (new RegExp(`(^|\\s)${escapaRegex(chave)}(\\s|$)`).test(t)) return { id: c.id, nome: chave }
+    }
   }
   return undefined
 }

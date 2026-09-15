@@ -346,7 +346,12 @@ export async function askRemoteCompose(
 const NUM = String.raw`(\d+(?:[.,]\d+)*)`
 const n = (s: string) => parseMoney(s)
 
-function periodFromText(t: string): { from: string; to: string; label: string } {
+function periodFromText(t: string): { from: string; to: string; label: string } | null {
+  // Este leitor conhece SEIS frases e caía em "últimos 7 dias" para o resto.
+  // Período dito que ele não expressa devolve null, e quem chama NÃO responde:
+  // "maior gasto em 90 dias" saía com os últimos 7 dias, com cara de dado real,
+  // e a pergunta nunca chegava a quem sabe lê-la.
+  if (/\b\d{1,4}\s*(?:dias|semanas|meses|mes|anos)\b|\bdesde\b|\bquinzena\b/.test(t)) return null
   const today = todayISO()
   if (/semana passada/.test(t)) return { from: addDays(today, -13), to: addDays(today, -7), label: 'na semana passada' }
   if (/(essa|esta|nesta|nessa)\s+semana|semana/.test(t)) return { from: addDays(today, -6), to: today, label: 'nos últimos 7 dias' }
@@ -591,6 +596,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
       }
       const catId = map[fonteM[1]] || 'aluguel'
       const p = periodFromText(t)
+      if (!p) return ajudaGenerica(driverMode)
       const txs = s.transactions.filter(x => x.type === 'income' && x.category === catId && x.date >= p.from && x.date <= p.to)
       const total = txs.reduce((a, x) => a + x.amount, 0)
       const cat = catById(s.categories, catId)
@@ -783,6 +789,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   if (/quanto\s+(?:eu\s+)?(?:j[áa]\s+)?(?:gastei|gastou|torrei|saiu|foi)\b(?!\s*(?:com|de|em)\s+[a-zà-ú])/.test(t)
     && !/quanto\s+(?:eu\s+)?(?:posso|da\s+para|consigo)/.test(t)) {
     const p = periodFromText(t)
+    if (!p) return ajudaGenerica(driverMode)
     const st = periodStats(s, p.from, p.to)
     return {
       text: st.expense > 0
@@ -831,6 +838,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   if (/(?:t[oô]|estou|to)\s+no\s+lucro|(?:t[oô]|estou)\s+no\s+(?:azul|vermelho)|quanto\s+sobrou\s*\??$|sobrou\s+quanto/.test(t)
     || /(?:gastando|gasto|gastei)\s+mais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:ganho|ganhei|recebo|recebi|entra|faturo)/.test(t)) {
     const p = /semana/.test(t) ? periodFromText(t) : { from: todayISO().slice(0, 8) + '01', to: todayISO(), label: 'este mês' }
+    if (!p) return ajudaGenerica(driverMode)
     const st = periodStats(s, p.from, p.to)
     const saldo = st.income - st.expense
     // Sem movimento nenhum não existe "sim": zero não é lucro, é ausência de
@@ -863,6 +871,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // "qual foi meu maior gasto"
   if (/maior gasto|maior despesa/.test(t)) {
     const p = periodFromText(t)
+    if (!p) return ajudaGenerica(driverMode)
     const txs = s.transactions.filter(x => x.type === 'expense' && x.date >= p.from && x.date <= p.to)
     if (!txs.length) return { text: `Não encontrei despesas ${p.label}.` }
     const top = [...txs].sort((a, b) => b.amount - a.amount)[0]
@@ -897,6 +906,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   if (spentM) {
     const what = spentM[1].trim()
     const p = periodFromText(t)
+    if (!p) return ajudaGenerica(driverMode)
     const catGuess = s.categories.find(c => c.name.toLowerCase().includes(what)) ||
       (/(gasolina|combust|etanol|alcool)/.test(what) ? catById(s.categories, 'combustivel') : undefined)
     const txs = s.transactions.filter(x => x.type === 'expense' && x.date >= p.from && x.date <= p.to &&
@@ -908,6 +918,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // "quanto ganhei" / "quanto lucrei" / "quanto faturei"
   if (/quanto\s+(?:eu\s+)?(ganhei|faturei|lucrei|recebi|fiz)/.test(t)) {
     const p = periodFromText(t)
+    if (!p) return ajudaGenerica(driverMode)
     const st = periodStats(s, p.from, p.to)
     const isLucro = /lucrei/.test(t)
     return {
@@ -1083,6 +1094,14 @@ function resolveLocal(s: AppState, input: string): AiReply {
     return { text: 'Entendi isso:\n\n' + actions.map(a => '• ' + describeAction(a)).join('\n') + '\n\nConfirmar?', actions }
   }
 
+  return ajudaGenerica(driverMode)
+}
+
+/**
+ * O texto de ajuda, com `handled: false`: é essa marca que deixa a pergunta
+ * seguir para a consulta local ou para o remoto em vez de morrer aqui.
+ */
+function ajudaGenerica(driverMode: boolean): AiReply {
   return {
     text: driverMode
       ? 'Posso te ajudar com coisas como:\n\n• "ganhei 250 hoje"\n• "gastei 40 de gasolina"\n• "rodei 120 km e fiz 14 viagens"\n• "quanto posso gastar hoje?"\n• "qual o valor mínimo de corrida que vale a pena?"\n• "quanto gastei com gasolina esse mês?"\n• "quando preciso trocar meu óleo?"\n\nOu me faça outra pergunta que eu tento responder.'

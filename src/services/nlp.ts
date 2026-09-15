@@ -192,7 +192,16 @@ const RECORRENCIA = new RegExp([
 export const looksRecurring = (t: string): boolean => RECORRENCIA.test(t)
 
 // Número que carrega unidade não é dinheiro: "8 horas", "120 km", "14 viagens".
-const UNIT_AFTER = String.raw`\s*(?:h\b|horas?\b|hrs?\b|km\b|quil[oô]metros?\b|viagens?\b|corridas?\b|litros?\b|l\b|%|minutos?\b|min\b|vezes\b|x\b)`
+// Unidade de TEMPO também: "nos ultimo 3 mes" virava uma despesa de R$ 3,00,
+// porque o 3 é o tamanho do período e a frase inteira era uma pergunta.
+const UNIT_AFTER = String.raw`\s*(?:h\b|horas?\b|hrs?\b|km\b|quil[oô]metros?\b|viagens?\b|corridas?\b|litros?\b|l\b|%|minutos?\b|min\b|vezes\b|x\b|dias?\b|semanas?\b|m[eê]s(?:es)?\b|anos?\b)`
+
+/**
+ * Pergunta, em qualquer posição da frase, inclusive abreviada. "qnto q foi d
+ * obra" não começa por "quanto" e "obra 3 meses quanto" termina por ele: as
+ * duas passavam pela guarda que só olhava o começo da frase.
+ */
+const PERGUNTA_EM_QUALQUER_LUGAR = /\?|\b(?:quanto|quantos|quantas|qual|quais|quando|onde|qnto|qnta|qntos|qntas|qnt|qto|qta|qts|qnd|qndo)\b/i
 const HOURS_ANY = new RegExp(String.raw`${NUM}\s*(?:horas?|hrs?|h)\b`, 'i')
 
 /** Valores monetários de um texto, já descartando o que é unidade. */
@@ -525,6 +534,22 @@ function parseClause(input: string): ParsedAction[] {
     })
   }
 
+  // ----- depósito numa META: "coloquei 200 na meta", "botei 200 pra meta da viagem".
+  // Estes verbos também servem a gasto ("coloquei 100 de gasolina") e a reserva,
+  // então só a palavra META decide — e decide antes deles. Sem isto, "coloquei
+  // 200 na meta" virava uma DESPESA de R$ 200 com a descrição "Meta". Qual meta
+  // é, quem decide é o orquestrador, que tem o estado: uma só, ela; várias ou
+  // nenhuma, pergunta.
+  const metaRe = new RegExp(String.raw`\b(?:coloquei|botei|joguei|mandei|transferi|depositei|guardei|separei|pus)\s*${APROX}(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:na|no|pra|pro|para|em|a)\s+(?:a\s+|o\s+|minha\s+|meu\s+)?metas?\b(?:\s+(?:d[aoe]s?\s+)?(?:minha\s+|meu\s+)?([a-zà-úçãõ][\wçãõáéíóúâêô]*(?:\s+[a-zà-úçãõ][\wçãõáéíóúâêô]*){0,2}))?`, 'i')
+  const metaM = text.match(metaRe)
+  if (metaM) {
+    const bruto = (metaM[2] || '').split(/\s+(?:e|mas|que|hoje|ontem|agora)\b/)[0]
+    const nome = cleanDescription(bruto)
+    const semNome = !nome || DESC_STOPWORDS.has(nome.toLowerCase())
+    actions.push({ kind: 'goal-deposit', amount: parseNum(metaM[1]), ...(semNome ? {} : { name: nome }) } as ParsedAction)
+    return actions
+  }
+
   // ----- guardar na RESERVA (não é meta): "guardei 150", "coloquei 300 na reserva",
   // "separei 500 para investir". Vira `type:'saving'` — nem receita nem despesa.
   const savingRe = new RegExp(
@@ -754,7 +779,10 @@ function parseClause(input: string): ParsedAction[] {
   const expVerbs = INCOME_NOUN.test(text)
     ? 'gastei|paguei|comprei|torrei|coloquei|botei'
     : 'gastei|paguei|comprei|torrei|coloquei|botei|saiu|foi'
-  const expRe = new RegExp(String.raw`(?:${expVerbs})\s*${APROX}(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:(?:de|com|no|na|em|para|pra)\s+)?([\wçãõáéíóúâê\s]*)`, 'i')
+  // O valor não pode ser a DURAÇÃO de alguma coisa: "paguei 3 meses de aluguel"
+  // não é uma despesa de R$ 3,00. A borda de dígito impede o recuo que leria
+  // "30 meses" como 3 — e aceita o ponto final: "gastei 355." é um valor.
+  const expRe = new RegExp(String.raw`(?:${expVerbs})\s*${APROX}(?:r\$)?\s*${NUM}(?!\d|[.,]\d|\s*(?:dias|semanas|meses|anos)\b)\s*${MOEDA}?\s*(?:(?:de|com|no|na|em|para|pra)\s+)?([\wçãõáéíóúâê\s]*)`, 'i')
   const e = text.match(expRe)
   if (e && !m && !f) {
     const rawDesc = (e[2] || '').trim().split(/\s+e\s+|,/)[0].trim()
@@ -845,9 +873,11 @@ function parseClause(input: string): ParsedAction[] {
   // ----- trabalho: "rodei 120 km", "fiz 14 viagens", "trabalhei 8 horas"
   // (não confundir "faz 8 km/litro" — consumo — com distância rodada)
   const kmConsumo = /km\s*(?:\/\s*l\b|\/\s*litro|\s+l\b|\s+litro|\s+por\s+litro)/.test(text)
-  const kmM = kmConsumo ? null : text.match(new RegExp(String.raw`(?:rodei|andei|dirigi|percorri|consegui\s+rodar)\s*${NUM}\s*(?:km|quil[oô]metros?)?`, 'i'))
+  // A borda de palavra é obrigatória: "mANDEI 200 pra meta" casava "andei 200" e,
+  // no perfil motorista, virava 200 km rodados.
+  const kmM = kmConsumo ? null : text.match(new RegExp(String.raw`\b(?:rodei|andei|dirigi|percorri|consegui\s+rodar)\s*${NUM}\s*(?:km|quil[oô]metros?)?`, 'i'))
   const tripsM = text.match(new RegExp(String.raw`(?:fiz|realizei|completei)?\s*${NUM}\s*(?:viagens|corridas)`, 'i'))
-  const hoursM = text.match(new RegExp(String.raw`(?:trabalhei|fiquei|rodei por)\s*${NUM}\s*(?:horas?|h)\b`, 'i'))
+  const hoursM = text.match(new RegExp(String.raw`\b(?:trabalhei|fiquei|rodei por)\s*${NUM}\s*(?:horas?|h)\b`, 'i'))
     || text.match(new RegExp(String.raw`${NUM}\s*horas?\s*(?:online|trabalhad)`, 'i'))
     // Jornada como o motorista fala: "8 horas na rua", "10 horas rodando".
     || text.match(new RegExp(String.raw`${NUM}\s*(?:horas?|hrs?)\s+(?:na\s+rua|de\s+rua|rodando|na\s+ativa|no\s+corre|na\s+labuta|no\s+trampo|trabalhando|de\s+trabalho)`, 'i'))
@@ -888,7 +918,8 @@ function parseSemVerbo(text: string): ParsedAction[] {
   // Perguntar quanto PODE gastar não é dizer que gastou. Sem esta guarda,
   // "posso gastar 50 no mercado?" virava uma despesa de 50 — o verbo está no
   // infinitivo, então nenhuma das listas de comando o barrava.
-  if (/\?|^\s*(?:quanto|quantos|quantas|qual|quais|quando|como|onde|posso|poderia|devo|preciso|vale|d[áa]\s+pra|d[áa]\s+para|ser[áa]|tem\s+como)\b/i.test(text)) return []
+  if (PERGUNTA_EM_QUALQUER_LUGAR.test(text)
+    || /^\s*(?:como|posso|poderia|devo|preciso|vale|d[áa]\s+pra|d[áa]\s+para|ser[áa]|tem\s+como)\b/i.test(text)) return []
 
   const out: ParsedAction[] = []
   // `,(?!\d)` preserva a vírgula decimal: "1.234,56" é um valor, não dois itens.

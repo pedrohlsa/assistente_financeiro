@@ -320,31 +320,76 @@ function temporalClarification(t: TemporalSignal): AssistantClarification {
   }
 }
 
+interface DepositoSemMeta { amount: number; name?: string }
+
 /**
- * `goal-deposit` sem meta correspondente não pode virar meta nova nem sumir:
- * o dinheiro provavelmente foi para a reserva. Perguntamos.
+ * `goal-deposit` precisa de UMA meta real antes de virar proposta.
+ *
+ * Uma só meta ativa, ou o nome que casa com uma delas: a ação sai com o nome DE
+ * VERDADE ("moto" vira "Moto"). Sem meta que case — nome desconhecido, várias
+ * metas e nenhum nome, ou nenhuma meta — a ação NÃO fica na tela: antes ela
+ * ficava confirmável ao lado da pergunta e só falhava depois do Confirmar. Ela
+ * é segurada (`null` na mesma posição) e vira pergunta com as saídas prontas.
  */
 function reconcileGoalDeposits(
   state: AppState,
   actions: ParsedAction[],
-): { actions: ParsedAction[]; clarification?: AssistantClarification } {
-  let clarification: AssistantClarification | undefined
+): { actions: (ParsedAction | null)[]; semMeta: DepositoSemMeta[] } {
+  const semMeta: DepositoSemMeta[] = []
   const out = actions.map(a => {
     if (a.kind !== 'goal-deposit') return a
     const g = findGoalByName(state, a.name)
-    if (g) return a
-    if (!clarification) {
-      clarification = {
-        question: `Não encontrei uma meta chamada "${a.name}". Você quer guardar esse valor na reserva?`,
-        options: [
-          { label: 'Guardar na reserva', value: 'saving' },
-          { label: 'Escolher outra meta', value: 'pick-goal' },
-        ],
-      }
-    }
-    return a
+    if (g) return { ...a, name: g.name } as ParsedAction
+    semMeta.push({ amount: a.amount, name: a.name || undefined })
+    return null
   })
-  return { actions: out, clarification }
+  return { actions: out, semMeta }
+}
+
+/**
+ * A pergunta do depósito sem meta. Cada opção carrega o lote INTEIRO — o que já
+ * foi entendido na mensagem mais o depósito naquela meta —, e a reserva é sempre
+ * uma saída: o dinheiro foi guardado de verdade, só não se sabe onde.
+ */
+function goalDepositClarification(
+  state: AppState,
+  semMeta: DepositoSemMeta[],
+  candidates: AssistantCandidateAction[],
+): AssistantClarification {
+  const ativas = (state.goals || []).filter(g => !g.done)
+  const resto = candidates.map(c => c.action)
+  if (semMeta.length > 1) {
+    // Uma pergunta não cobre dois depósitos, e escolher por um deles jogaria o
+    // outro fora em silêncio (mesma lógica da regra 49).
+    return {
+      question: `Não consegui ligar ${semMeta.length} valores às suas metas. Me diga um de cada vez — por exemplo, "coloquei ${fmtBRL(semMeta[0].amount)} na meta ${ativas[0]?.name || 'Viagem'}".`,
+      field: 'goalName',
+    }
+  }
+  const { amount, name } = semMeta[0]
+  const valor = fmtBRL(amount)
+  const reserva = { label: 'Guardar na reserva', value: 'reserva', actions: [...resto, { kind: 'saving', amount } as ParsedAction] }
+  if (!ativas.length) {
+    return {
+      question: `${name ? `Você não tem uma meta chamada "${sentenceCase(name)}" — nem outra meta cadastrada.` : 'Você ainda não tem meta cadastrada.'} `
+        + `Quer guardar ${valor} na reserva? Para criar uma meta, diga algo como "quero juntar 5000 pra uma moto".`,
+      field: 'goalName',
+      options: [reserva],
+    }
+  }
+  return {
+    question: name
+      ? `Não encontrei a meta "${sentenceCase(name)}". Em qual meta você guardou ${valor}?`
+      : `Em qual meta você guardou ${valor}?`,
+    field: 'goalName',
+    options: [
+      ...ativas.map(g => ({
+        label: g.name, value: g.name,
+        actions: [...resto, { kind: 'goal-deposit', amount, name: g.name } as ParsedAction],
+      })),
+      reserva,
+    ],
+  }
 }
 
 function runLocal(
@@ -371,8 +416,7 @@ function runLocal(
   const temporalPlan = analysis.clauses.find(c => c.temporal?.plan)?.temporal
   if (temporalAsk) clarification = temporalClarification(temporalAsk)
 
-  const { actions: reconciled, clarification: goalClar } = reconcileGoalDeposits(input.state, analysis.actions)
-  if (goalClar && !clarification) clarification = goalClar
+  const { actions: reconciled, semMeta } = reconcileGoalDeposits(input.state, analysis.actions)
 
   // Corrigir exige algo para corrigir. Sem proposta na tela, "na verdade foi
   // 200" é um conserto sem alvo — e como `foi` é verbo de despesa no parser,
@@ -405,6 +449,8 @@ function runLocal(
     for (const raw of clause.actions) {
       const idx = analysis.actions.indexOf(raw)
       let action = idx >= 0 ? reconciled[idx] : raw
+      // Depósito segurado até o usuário dizer em qual meta — ver abaixo.
+      if (!action) continue
 
       // Quem não é motorista também abastece e faz manutenção — só não tem a
       // estrutura de veículo do app. Em vez de descartar o lançamento (o
@@ -447,6 +493,8 @@ function runLocal(
   const unresolved = analysis.unresolvedClauses
     .filter(c => c.intent !== 'conversation')
     .map(c => unresolvedOf(c, c.intent === 'question' ? 'question-unanswered' : 'not-understood'))
+
+  if (semMeta.length && !clarification) clarification = goalDepositClarification(input.state, semMeta, candidates)
 
   if (!clarification && ambiguous?.ambiguity) {
     // Cada opção carrega a lista COMPLETA de ações já resolvidas: escolher

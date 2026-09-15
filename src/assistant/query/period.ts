@@ -84,6 +84,13 @@ const NUM_PALAVRA = new Map<string, number>(Object.entries({
   vinte: 20, trinta: 30, sessenta: 60, noventa: 90,
 }))
 
+const FUTURO_NA_FRASE = /\b(?:vou|vai|vamos|irei|ira|proxim[oa]s?|daqui|que\s+vem|faltam?|restam?|vence|vencem|parcelas?|prestac)/
+const PASSADO_NA_FRASE = /\b(?:foi|foram|gastei|gastou|recebi|recebeu|ganhei|ganhou|paguei|pagou|fiz|fez|faturei|lucrei|guardei|entrou|entraram|saiu|sairam|tive|teve|rendeu|veio|vieram|torrei)\b/
+/** Preposições que marcam JANELA ("em 90 dias", "nos 3 meses"): exigem verbo no passado. */
+const PREPOSICAO_DE_JANELA = new Set(['em', 'no', 'nos', 'do', 'dos', 'durante'])
+/** Preposições que marcam DURAÇÃO ou ponto no tempo, nunca janela até hoje. */
+const PREPOSICAO_DE_DURACAO = new Set(['por', 'a', 'cada', 'de', 'pra', 'para', 'ha', 'faz', 'ate', 'com', 'x', 'daqui', 'dentro', 'mais', 'menos'])
+
 const lerNumero = (s: string): number => {
   const n = parseInt(s, 10)
   if (Number.isFinite(n)) return n
@@ -123,6 +130,23 @@ export function parsePeriod(input: string, hoje = todayISO()): { period: QueryPe
     if (Number.isFinite(n) && n > 0) {
       const { from, label, grain } = janelaRelativa(n, unidade, hoje)
       return { period: P(from, hoje, label, grain, hoje), matched: ultimos[0] }
+    }
+  }
+
+  // --- a mesma janela dita sem "últimos": "obra 3 meses quanto" -------------
+  // e "qual foi meu maior gasto em 90 dias". Lida como PASSADO só quando nada na
+  // frase aponta para o futuro. Depois de preposição, só com verbo no passado:
+  // "quanto vou gastar em 3 meses" é projeção, e "por 3 meses" é duração.
+  const solto = t.match(/(?:^|\s)(?:([a-z]+)\s+)?(\d{1,3})\s+(dias|semanas|meses|anos)\b(?!\s+(?:atras|pra\s+ca|para\s+ca|que\s+vem))/)
+  if (solto && !FUTURO_NA_FRASE.test(t)) {
+    const antes = solto[1] || ''
+    const n = Number(solto[2])
+    const aceita = PREPOSICAO_DE_JANELA.has(antes) ? PASSADO_NA_FRASE.test(t) : !PREPOSICAO_DE_DURACAO.has(antes)
+    if (aceita && n > 0) {
+      const { from, label, grain } = janelaRelativa(n, solto[3], hoje)
+      // Só o número e a unidade são o período: a palavra de antes ("obra") é o
+      // assunto da pergunta e não pode ser consumida junto.
+      return { period: P(from, hoje, label, grain, hoje), matched: `${solto[2]} ${solto[3]}` }
     }
   }
 
