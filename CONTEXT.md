@@ -1,12 +1,13 @@
 # CONTEXT.md — Handoff do AssistFin
 
 > Documento de passagem de bastão. Escrito em **2026-08-01**, revisado em
-> **2026-08-25** (rodada do copiloto semântico), verificado contra o
-> código e o Git (não só contra a conversa). Convenção de confiança:
+> **2026-08-25** (rodada do copiloto semântico) e em **2026-09-15** (canal remoto e
+> roteamento local), verificado contra o código e o Git (não só contra a conversa).
+> Convenção de confiança:
 > **[FATO]** verificado no repo · **[INFERÊNCIA]** deduzido · **[PENDÊNCIA]** não feito.
 >
 > Fontes de verdade permanentes, mais detalhadas que este arquivo:
-> `CLAUDE.md` (regras 1–59), `CONTEXTO.md` (produto), `PROGRESS.md` (diário por rodada),
+> `CLAUDE.md` (regras 1–62), `CONTEXTO.md` (produto), `PROGRESS.md` (diário por rodada),
 > `docs/AI_CURRENT_STATE.md` e `docs/AI_REGRESSION_MATRIX.md` (IA). Este `CONTEXT.md`
 > resume e aponta para eles — em caso de divergência, o código vence.
 
@@ -27,16 +28,20 @@ UI mobile. O foco declarado do dono é o perfil **motorista** (o "tio" que vai u
 **Stack [FATO]:** React 18 + TypeScript 5.5 + Vite 5 + React Router 6 (`HashRouter`, SPA sem
 SSR). Estado em `useReducer` + Context (`src/store/store.tsx`), persistido em `localStorage`
 na chave **`assistfin-state-v1`** (debounce 150 ms), offline-first, sem backend de dados.
-Capacitor 8 empacota como APK Android. IA remota: DeepSeek (`deepseek-v4-flash`), server-only,
-via função serverless na Vercel.
+Capacitor 8 empacota como APK Android. IA remota: DeepSeek (`deepseek-v4-flash`, nome LEGADO
+roteado para V4.1-Flash desde 10/09/2026 — ver `docs/AI_REMOTE_EVAL.md`), server-only, via função
+serverless na Vercel.
 
 ---
 
 ## 2. Estado atual
 
 **[FATO] Tudo verde.**
-- Suíte: **531/531 casos + 75/75 goldens novos + 4.080/3.800 mutações metamórficas +
-  1.416 mensagens hostis + 106/106 invariantes** (rodado em 25/08/2026, `npm test`).
+- Suíte: **562/562 casos + 75/75 goldens + 4.080/3.800 mutações metamórficas +
+  1.416 mensagens hostis + 119/119 invariantes + 418/418 verificações do avaliador**
+  (rodado em 15/09/2026, `npm test`).
+- **Canal remoto (15/09/2026):** o histórico da conversa deixou de ir para a IA remota, e
+  leitura local de baixa confiança deixou de bloquear o remoto — regras 61 e 62.
 - Qualidade das respostas (`npm run rubric`, 90 mensagens em português real):
   **PERIGOSA 0 · RUIM 0 · ACEITÁVEL 6 · EXCELENTE 84**. PERIGOSA tem meta absoluta de zero.
 - `npm run typecheck` e `npm run typecheck:api`: exit 0.
@@ -386,10 +391,14 @@ em teste manual isolado — não é bug de produção, é o fixture defasado.
 
 ## 9. Estado do Git
 
-- **Branch atual [FATO]:** `feat/assistant-orchestrator`.
-- **Último commit [FATO]:** rodada adaptativa de 17/08/2026 — nove commits, do
-  `349889d test: casos vermelhos da auditoria adversarial do aprendizado` em diante.
-  Ver `PROGRESS.md`.
+- **Branch atual [FATO]:** `feat/assistant-semantic-copilot`, criada da `main` (`eb54a4e`).
+  **Nada dela foi enviado ao remoto, mesclado, publicado ou empacotado em APK.**
+- **Últimos commits [FATO]:** rodada do copiloto semântico (25/08/2026), preparação da
+  avaliação dos modelos remotos (13/09/2026: `7080edb`, `b0804d0`, `e635d59`) e rodada do canal
+  remoto e do roteamento local (15/09/2026: `713970d`, `d7b846c`, `98d23f3`, `bfd8f83`,
+  `7c7bef5` e a documentação). Nenhuma chamada paga à DeepSeek foi feita. Ver `PROGRESS.md`.
+- **Antes, na `feat/assistant-orchestrator` [FATO]:** rodada adaptativa de 17/08/2026 — nove
+  commits, do `349889d test: casos vermelhos da auditoria adversarial do aprendizado` em diante.
 - **Antes [FATO]:** `b148661 fix: saldo dito de outro jeito e gíria de guardar dinheiro`
   (13/08/2026), fim das cinco rodadas de sondagem.
 - **`feat/assistant-orchestrator` [FATO]:** `9d76061`, **já no remoto**
@@ -420,6 +429,9 @@ em teste manual isolado — não é bug de produção, é o fixture defasado.
 
 ## 10. Próximos passos (priorizado)
 
+0. **Decidir sobre a avaliação PAGA dos modelos remotos** — pronta, testada sem rede e não
+   autorizada; estratégia de saldo e comando em `docs/AI_REMOTE_EVAL.md` §12. As mudanças de
+   `api/**` desta branch só chegam à produção com redeploy, que também depende de autorização.
 1. **Gerar APK e validar no aparelho do tio** — os dois plugins nativos (ditado e
    exportação) NUNCA rodaram em Android físico. É a maior incerteza aberta.
 2. **Perguntar ao dono qual é "aquela coisa da tela principal"** (§7) antes de mexer na Home.

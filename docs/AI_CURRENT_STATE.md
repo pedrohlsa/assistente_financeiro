@@ -1,7 +1,7 @@
 # Arquitetura do assistente do AssistFin
 
-Estado **depois** da rodada do copiloto semântico de 25/08/2026
-(branch `feat/assistant-semantic-copilot`).
+Estado **depois** da rodada do copiloto semântico de 25/08/2026 e da revisão do canal remoto
+de 15/09/2026 (branch `feat/assistant-semantic-copilot`).
 Contrato do assistente: **versão 1** — deliberadamente NÃO incrementado: nada no
 envelope mudou, e a DSL de consulta tem versão própria (`QUERY_DSL_VERSION = 2`).
 
@@ -54,6 +54,7 @@ orchestrator.ts
    ├─ 4. intenção incompleta                               → abre rascunho e pergunta
    ├─ 5. perguntas respondidas no estado PROJETADO         → ai.ts
    ├─ 6. sobrou cláusula? → IA remota, que RECONCILIA      → /api/ai/chat
+   │        (só o trecho em aberto; a conversa vai como estrutura, nunca como transcrição)
    ├─ 7. avisos de duplicidade (estado + dentro do lote)
    └─ 8. AssistantResponse versionada
    │
@@ -181,7 +182,7 @@ Auditoria opcional em cada lançamento: `source: 'ai'`, `assistantBatchId`, `pro
 | 6 | Sem cobertura por trecho | **Resolvido** — `clauses.ts` |
 | 7 | "Registro + pergunta" só no orçamento | **Resolvido** — genérico, com estado projetado |
 | 8 | Sem rascunho estruturado | **Resolvido** — `drafts.ts` |
-| 9 | Histórico remoto sem proposta pendente | **Parcial** — histórico foi a 8 mensagens; a proposta continua fora do payload remoto |
+| 9 | Histórico remoto sem proposta pendente | **Resolvido de outro jeito (15/09/2026)** — a transcrição deixou de ir; a conversa vai como estrutura, com os tipos da proposta na tela e sem valor nenhum (regra 61) |
 | 10 | Sem datas | **Resolvido** — `date?` opcional + `dates.ts` |
 | 11 | Sem números por extenso | **Resolvido** — `numbers.ts` |
 | 12 | Correções e referências | **Resolvido para a proposta pendente**; editar lançamento já salvo continua fora |
@@ -192,7 +193,7 @@ Auditoria opcional em cada lançamento: `source: 'ai'`, `assistantBatchId`, `pro
 | 17 | Contrato remoto pobre | **Resolvido** — envelope versionado com `mode` e `clarification` |
 | 18 | Texto puro engolindo ações | **Resolvido** — `envelope: null` e `contractFallback: true` |
 | 19 | Validação de categoria e perfil | **Resolvido** |
-| 20 | Testes insuficientes | **Resolvido** — 531 casos + 86 invariantes na época; hoje 531 + 75 goldens + metamórfico + fuzz + 106 invariantes |
+| 20 | Testes insuficientes | **Resolvido** — 531 casos + 86 invariantes na época; hoje 562 casos + 75 goldens + metamórfico + fuzz + 119 invariantes + 418 verificações do avaliador |
 
 ---
 
@@ -201,7 +202,7 @@ Auditoria opcional em cada lançamento: `source: 'ai'`, `assistantBatchId`, `pro
 | Comando | O que roda |
 |---|---|
 | `npm test` | núcleo + as cinco camadas abaixo (offline, data fixa) |
-| `npm run test:assistant` | **531 casos + 75 goldens novos + metamórfico + fuzz + 106 invariantes** |
+| `npm run test:assistant` | **562 casos + 75 goldens novos + metamórfico + fuzz + 119 invariantes + autoteste do avaliador (418)** |
 | `npm run test:assistant:remote` | 8 sondas contra a IA real; última execução: **8/8** |
 | `npm run probe:redteam` | 90 mensagens em português real, para LEITURA humana |
 | `npm run rubric` | classifica cada resposta; sai com código 1 se houver PERIGOSA |
@@ -209,7 +210,7 @@ Auditoria opcional em cada lançamento: `source: 'ai'`, `assistantBatchId`, `pro
 
 As cinco camadas de `test:assistant`, e o que cada uma pega que a anterior não pegava:
 
-1. **Corpus** (531 casos) — regressão frase a frase, com os textos exatos.
+1. **Corpus** (562 casos) — regressão frase a frase, com os textos exatos.
 2. **Goldens de consulta, cenário e continuidade** (75) — totais conferidos à mão sobre
    fixtures determinísticas, 14 recusas de plano malformado e 3 ataques de protótipo.
 3. **Metamórfico** (4.080 mutações que PRESERVAM o sentido + 3.800 que MUDAM a modalidade,
@@ -217,7 +218,8 @@ As cinco camadas de `test:assistant`, e o que cada uma pega que a anterior não 
    de conversa trocava o TIPO do lançamento.
 4. **Fuzz** (1.416 mensagens hostis, teto de tempo relativo à máquina) — achou o `__proto__`
    que derrubava o parser e o tempo quadrático em mensagem gigante.
-5. **Invariantes** (106) — 86 financeiras e 20 do copiloto.
+5. **Invariantes** (119) — 86 financeiras, 21 do copiloto e 12 do canal remoto
+   (roteamento local × remoto e privacidade do que sai do aparelho).
 
 O corpus roda o orquestrador **real**, não uma reimplementação.
 
@@ -232,14 +234,15 @@ O corpus roda o orquestrador **real**, não uma reimplementação.
 - **104 — nenhum caractere de controle no fonte versionado.** O projeto perdeu tempo duas
   vezes com um backspace no lugar de um `\b` de regex.
 
-Nove arquivos de casos: `cases.ts` (regressão), `cases-critical.ts` (os dez cenários
+Dez arquivos de casos: `cases.ts` (regressão), `cases-critical.ts` (os dez cenários
 obrigatórios do briefing, com as frases literais), `cases-adversarial.ts` (casos vindos da
 rodada de QA de 28/07 — cada um escrito ANTES da correção do bug que o originou),
 `cases-temporal.ts` (data futura, inválida, período, correção e frase mista),
-`cases-undo.ts`, `cases-edit.ts`, `cases-fala-real.ts`, `cases-registro-real.ts` e
-`cases-adaptativo.ts`.
+`cases-undo.ts`, `cases-edit.ts`, `cases-fala-real.ts`, `cases-registro-real.ts`,
+`cases-adaptativo.ts` e `cases-roteamento.ts` (período, meta e magnitude que o motor local
+lia errado e, por isso, nunca deixava o remoto ler).
 
-> **O que 531/531 NÃO prova.** Na rodada adversarial, **8 dos 17 bugs só apareceram no
+> **O que 562/562 NÃO prova.** Na rodada adversarial, **8 dos 17 bugs só apareceram no
 > navegador com mensagem real** — o corpus passava 100% enquanto "não gastei 100" ainda
 > propunha registrar a despesa. Nas seis rodadas de limite a proporção se repetiu: nove
 > defeitos encontrados FORA do corpus, três deles só ao LER a resposta. O corpus cobre bem o
@@ -394,6 +397,35 @@ Infraestrutura pronta e testada sem rede; **nenhuma chamada paga feita**. Antes 
 planejador remoto de consulta, que nunca tinha funcionado (commit `7080edb`, invariante 107). Achados,
 configurações, corpus, métricas, privacidade, custo e a lista de defeitos do motor LOCAL encontrados
 no caminho estão em [AI_REMOTE_EVAL.md](AI_REMOTE_EVAL.md).
+
+### 6.8 O canal remoto e o roteamento local (15/09/2026)
+
+**O que saía do aparelho, medido antes da correção.** Numa conversa encadeada como a tela
+fazia, com estado-canário, o corpo do chat remoto levava o nome do usuário, a descrição e o
+valor de um lançamento e o saldo em conta — pelas respostas LOCAIS anteriores em `history` e
+por `nome`/`saldoEmConta` no contexto —, e o servidor repassava tudo à DeepSeek.
+
+| Caminho | Antes | Depois |
+|---|---|---|
+| Chat — conversa | últimas 8 mensagens, com as respostas locais (até 600 caracteres cada) | estrutura: tipo do último pedido, rótulo de período gerado pelo app, filtros por categoria, cartão e meta, campos que faltam; filtro de texto ou origem só como "existia" |
+| Chat — contexto | nome, saldo, contas e entradas previstas com nome e valor, parcelamentos com descrição, projeção com saldo estimado, veículo, manutenções, agregados e categorias | perfil, categorias, nomes de cartão e meta, IDs das categorias mais usadas; agregados só quando o trecho é pergunta ou pedido |
+| Chat — mensagem | a frase inteira, mesmo com parte resolvida no aparelho | só o trecho em aberto quando parte foi resolvida |
+| Servidor | repassava contexto e histórico como vieram | ignora `history`, aplica lista de campos permitidos ao contexto e só aceita estrutura do vocabulário do usuário na conversa |
+| Planejador | perfil, categorias, nomes de cartão e meta, pergunta | igual |
+| Compositor | implementado, não ligado | igual |
+| Cenário remoto | não existe em produção | igual |
+
+**Roteamento.** Três classes de leitura local errada fechavam a frase e impediam a consulta
+local e o remoto de a lerem: número de período lido como valor, "N mil" lido como N, e depósito
+em meta lido como despesa. Além das correções de classe, `semantic/confidence.ts` descarta
+a ação local suspeita por quatro critérios determinísticos e dá nome à decisão
+(`local-high-confidence`, `local-partial`, `local-ambiguous`, `local-suspicious`,
+`remote-needed`).
+
+**O que continua em aberto.** Várias frases de registro em fala real ainda são lidas errado no
+aparelho (a lista está em `docs/AI_REMOTE_EVAL.md` §10); o planejador remoto continua sem
+estado (não recebe o plano anterior); e as mudanças de `api/**` só chegam ao app publicado com
+um redeploy, que não foi feito.
 
 ---
 

@@ -312,7 +312,8 @@ código consulta essas funções em vez de comparar `profile === 'driver'` inlin
     `adaptiveAssistant` ligado. **Nunca** estabelecimento, cliente, endereço,
     descrição, grafia, journal ou valor de lançamento. Todo o aprendizado —
     proposta, grafia, aviso, explicação e sugestão — funciona offline e nunca
-    aciona a IA remota. Invariantes 71–73.
+    aciona a IA remota. Invariantes 71–73. A CONVERSA também não sai como
+    transcrição: ver regra 61.
 45. **Sugestão não é previsão, nem palpite sobre quem o usuário é.** O atalho
     personalizado vem SEM valor: com o valor histórico dentro, um toque
     distraído viraria um gasto que nunca aconteceu. Nome de meta e de lugar
@@ -343,12 +344,12 @@ código consulta essas funções em vez de comparar `profile === 'driver'` inlin
     - `vite.config.ts` (middleware do dev server, plugin `aiProxy()`) — usado em `npm run dev`.
     - `api/ai/chat.ts` (Vercel Serverless Function) — usado em produção/APK, chamado via
       `VITE_AI_API_URL` (`.env.production`, hoje `https://assist-fin.vercel.app/api/ai/chat`).
-    - O que **continua** duplicado manualmente entre os dois arquivos (fora do módulo
-      compartilhado): a `SYSTEM_PROMPT` — regras de perfil/categorias. Editar uma sem editar a
-      outra cria divergência dev×produção (ver `PROGRESS.md`, já há uma divergência conhecida de
-      `saving`/`origin`).
-    - A chave nunca chega ao cliente: o frontend só faz `POST` para `/api/ai/chat` com um
-      **contexto agregado** (nunca a lista bruta de transações) — ver `buildAiContext()`.
+    - Nada é duplicado entre os dois: ambos são cascas sobre `handleAssistantRequest`
+      (`api/_lib/assistantHandler.ts`), e a `SYSTEM_PROMPT` tem fonte única em
+      `api/_lib/assistantPrompt.ts` (regra 25).
+    - A chave nunca chega ao cliente: o frontend só faz `POST` para `/api/ai/chat` com o
+      contexto MÍNIMO de `buildAiContext()` e a conversa como estrutura — nunca lançamento,
+      transcrição, saldo ou nome do usuário (regras 44 e 61).
     - Variáveis de ambiente (server-only, sem prefixo `VITE_`, nunca em `src/**`):
       `DEEPSEEK_API_KEY` (obrigatória), `DEEPSEEK_MODEL` (opcional, default `deepseek-v4-flash`),
       `DEEPSEEK_BASE_URL` (opcional, default `https://api.deepseek.com`). Ver `.env.example`.
@@ -382,13 +383,13 @@ cd android && JAVA_HOME="/c/Program Files/Android/Android Studio/jbr" ./gradlew.
 Nesta máquina o `cmd.exe` não existe em `System32` — alternativa direta ao `npm run dev`:
 `node node_modules/vite/bin/vite.js`.
 
-Redeploy do backend de IA em produção (depois de editar `api/ai/chat.ts`):
+Redeploy do backend de IA em produção (depois de editar qualquer arquivo de `api/**`):
 ```bash
 npx vercel --prod
 ```
-**Importante**: `vite.config.ts` (dev) e `api/ai/chat.ts` (produção) têm prompts de sistema
-independentes — editar um sem editar o outro cria divergência entre dev e produção. Depois de
-editar `api/ai/chat.ts`, sempre redeployar com `npx vercel --prod`, senão a mudança fica só local.
+O prompt e o pipeline vivem em `api/_lib/` e são os mesmos no dev e na produção (regra 25).
+Mudança em `api/**` só chega ao app publicado depois do redeploy — e o redeploy depende de
+autorização explícita.
 
 ## Padrões de código e decisões arquiteturais
 
@@ -420,7 +421,8 @@ editar `api/ai/chat.ts`, sempre redeployar com `npx vercel --prod`, senão a mud
 | `src/assistant/query/` | Query DSL: `types` (vocabulário fechado), `validate` (o `validateAction` das consultas), `period`, `engine` (executor somente leitura), `parse` (planejador composicional), `answer` (composição determinística) — regras 51 e 58 |
 | `src/assistant/scenario/` | "E se?" somente leitura sobre cópia projetada do estado (regra 54) |
 | `src/assistant/conversation/focus.ts` | Memória de foco e refino de plano no follow-up (regra 55) |
-| `src/assistant/semantic/` | `turn` (blocos do turno), `evidence` (evidência por campo), `normalize` (typo conservador, muleta, "4k", teto de tamanho), `driverDay` (dia telegráfico) |
+| `src/assistant/semantic/` | `turn` (blocos do turno), `evidence` (evidência por campo), `normalize` (typo conservador, muleta, "4k", teto de tamanho), `driverDay` (dia telegráfico), `confidence` (quando a leitura local cede a vez — regra 62) |
+| `src/assistant/conversation/remoteContext.ts` | A conversa como ESTRUTURA para o remoto, e o normalizador que o servidor aplica (regra 61) |
 | `src/assistant/grounding.ts` | Barreira aritmética sobre prosa remota — leia a medição antes de confiar nela (regra 53) |
 | `src/assistant/capabilities.ts` | `buildCapabilities` — mora sozinho para quebrar o ciclo `ai.ts` ↔ `orchestrator.ts` |
 | `src/utils/format.ts` | `parseMoney`/`formatMoneyInput` (regra 12), datas de calendário (`dateForDayOfMonth`) e `dueLabel` (regra 15) |
@@ -436,7 +438,7 @@ editar `api/ai/chat.ts`, sempre redeployar com `npx vercel --prod`, senão a mud
 | `src/services/cards.ts` | Cartões, faturas, parcelas e limites — ler antes de mexer em qualquer coisa de crédito (regras 10 e 11) |
 | `src/screens/Cards.tsx` | Área "Cartões e parcelamentos" (visão geral, cartões, parcelamentos, projeções) |
 | `api/_lib/deepseek.ts` | Config e chamada centralizadas da DeepSeek (modelo/baseURL/timeout/chave) — server-only, nunca importar em `src/**` |
-| `vite.config.ts` / `api/ai/chat.ts` | Os dois backends de IA (dev e produção) — usam `api/_lib/deepseek.ts` para a chamada; a `SYSTEM_PROMPT` ainda precisa ser sincronizada manualmente entre os dois |
+| `vite.config.ts` / `api/ai/chat.ts` | Cascas finas dos dois backends de IA (dev e produção) sobre `api/_lib/assistantHandler.ts`; prompt único em `api/_lib/assistantPrompt.ts` |
 
 ## localStorage, migração e compatibilidade
 
@@ -583,5 +585,42 @@ editar `api/ai/chat.ts`, sempre redeployar com `npx vercel --prod`, senão a mud
     certo, defeito plantado gera a penalidade dele, rota declarada bate com
     o orquestrador), porque avaliador não testado mede os próprios defeitos e
     cobra por isso. Entre modelos a ordem é lexicográfica: perigo primeiro,
-    qualidade só desempata. Só estado sintético, com canário, sai da máquina.
-    Ver `docs/AI_REMOTE_EVAL.md`.
+    qualidade só desempata. Só estado sintético sai da máquina: a origem é
+    verificada no CASO (`origemVerificada`) antes de o transporte deixar a
+    requisição sair, e o canário aparecendo no corpo BLOQUEIA — o nome do
+    usuário não vai mais ao modelo (regra 61). A bateria paga usa o corpus PAGO
+    (rota local que não é segurança fica fora), e `--sem-saldo` roda o orçamento
+    sem nenhuma requisição à conta. Ver `docs/AI_REMOTE_EVAL.md`.
+61. **O remoto recebe a SEMÂNTICA da conversa, nunca a transcrição.** Até
+    15/09/2026 `Chat.tsx` mandava as últimas 8 mensagens, e as respostas LOCAIS
+    entre elas carregavam descrição, valor e saldo de lançamento — junto com o
+    nome e o saldo que iam no contexto, e o servidor repassava tudo. Agora a
+    conversa vai como estrutura (`conversation/remoteContext.ts`: tipo do último
+    pedido, rótulo de período gerado pelo app, filtros por categoria, cartão e
+    meta, campos que faltam; filtro por texto ou origem vai só como "existia") e
+    o contexto é o MÍNIMO (`buildAiContext`): perfil, categorias, nomes de cartão
+    e meta, e AGREGADOS só quando o trecho em aberto é pergunta ou pedido
+    (`remoteNeedsAggregates`). Nome do usuário, saldo e o que deriva dele, lista
+    de parcelamentos com descrição e nome de conta prevista NUNCA saem. O
+    servidor não confia no cliente: `history` é ignorado, `sanitizeChatContext`
+    aplica a lista de campos PERMITIDOS e `normalizeRemoteConversation` só
+    aceita vocabulário do usuário — é isso que fecha o vazamento também para o
+    APK antigo, depois do redeploy. O que o usuário escreveu NESTA mensagem pode
+    ir: sem isso o modelo não entende a pergunta. Com parte da mensagem
+    resolvida no aparelho, vai só o trecho em aberto. Invariantes 114–119, com
+    estado-canário nas duas pontas (aparelho → servidor e servidor → DeepSeek).
+62. **Leitura local de baixa confiança não fecha a frase.** Achar uma ação não
+    prova que a frase era um registro: "qnto q foi d obra msm nos ultimo 3 mes"
+    virava uma despesa de R$ 3,00, "coloquei 200 na meta" uma despesa, e "tv de
+    3 mil" uma simulação de R$ 3,00 — e, por existir ação, nem a consulta local
+    nem o remoto olhavam a frase. Três travas de classe: número seguido de
+    unidade de tempo não é valor; "N mil", "N,5 mil", "N mil e M" e "Nk" viram
+    algarismo no normalizador numérico (nunca num regex solto); verbo de guardar
+    + "meta" é depósito, e sem UMA meta que case o app PERGUNTA, com as metas e a
+    reserva como opção. E uma defesa geral (`semantic/confidence.ts`): quatro
+    critérios determinísticos descartam a ação suspeita e deixam a cláusula em
+    aberto; os critérios avaliados e recusados estão escritos lá, com o motivo.
+    O critério de período lê o texto SEM as datas: "paguei 100 mês passado" é
+    valor seguido de data, e a primeira versão apagava nove lançamentos
+    legítimos do corpus temporal. Invariantes 108–113 e o corpus
+    `tests/assistant/cases-roteamento.ts`.

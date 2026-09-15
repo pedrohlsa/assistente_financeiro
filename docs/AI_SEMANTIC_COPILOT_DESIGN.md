@@ -409,6 +409,17 @@ entre 01/07 e 15/07" é pergunta, não lançamento perdido, apesar do verbo igua
 motivo é o comportamento certo. É a mesma lição da barreira medida — um mecanismo de segurança
 que dispara sem motivo é desligado pelo leitor, e aí não protege mais nada.
 
+### 12.5b Um canal que o desenho não olhou: o histórico (15/09/2026)
+
+A seção 4 dizia que o modelo nunca recebe descrição histórica nem valor individual — e para a
+consulta, o cenário e o planejador isso era verdade. O chat remoto, porém, recebia as últimas 8
+mensagens da conversa, e as respostas LOCAIS entre elas carregavam exatamente isso ("Foi Areia,
+de R$ 460,00"; "Seu saldo em conta é R$ 3.100,00"). A tabela da seção 5 também estava otimista:
+o contexto do chat levava o nome do usuário e o saldo. A preparação da avaliação dos modelos
+remotos achou o canal; ele foi reproduzido com estado-canário e fechado nas duas pontas (regra
+61 do `CLAUDE.md`). A lição é a da seção 12.4 pelo outro lado: a garantia estava escrita sobre
+os caminhos que alguém desenhou, e o vazamento morava no caminho que ninguém redesenhou.
+
 ### 12.5 O que o desenho acertou e vale repetir
 
 - **Vocabulário fechado.** Nenhum ataque de protótipo, nenhum campo dinâmico, nenhuma injeção

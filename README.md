@@ -69,7 +69,7 @@ src/
 
 ### IA (DeepSeek)
 
-O assistente usa dois motores:
+O assistente usa três motores:
 
 1. **Parser local** (`services/nlp.ts`) — registros de dinheiro ("ganhei 300 e
    coloquei 70 de gasolina") são extraídos deterministicamente, offline, com
@@ -84,9 +84,11 @@ O assistente usa dois motores:
    (`DEEPSEEK_API_KEY`) e é usada **apenas no servidor**. `POST /api/ai/chat`
    tem duas implementações espelhadas: o middleware em `vite.config.ts` (dev) e
    a função serverless `api/ai/chat.ts` (produção/APK, endereçada por
-   `VITE_AI_API_URL`). As duas compartilham `api/_lib/deepseek.ts` e recebem um
-   contexto financeiro estruturado (nunca a base bruta). Se estiver offline ou o
-   serviço falhar, o motor local de respostas (`services/ai.ts`) assume.
+   `VITE_AI_API_URL`). As duas são cascas sobre `api/_lib/assistantHandler.ts` e
+   recebem só um contexto mínimo e agregado — nunca lançamento, saldo, nome do
+   usuário ou a transcrição da conversa (regras 44 e 61 do `CLAUDE.md`). Se
+   estiver offline ou o serviço falhar, o motor local de respostas
+   (`services/ai.ts`) assume.
 
    O uso mais valioso do modelo remoto é **planejar** uma consulta que o motor
    local não entendeu: ele recebe o vocabulário da DSL e a pergunta — nunca um

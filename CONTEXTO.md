@@ -1,7 +1,7 @@
 # AssistFin — Contexto do produto
 
-Visão consolidada e **verificada no código** em 25/08/2026
-(branch `feat/assistant-semantic-copilot`).
+Visão consolidada e **verificada no código** em 25/08/2026, com o canal da IA remota revisto
+em 15/09/2026 (branch `feat/assistant-semantic-copilot`).
 Este arquivo descreve o que o aplicativo é hoje. Regras permanentes de implementação ficam no
 [CLAUDE.md](CLAUDE.md); o histórico de rodadas fica no [PROGRESS.md](PROGRESS.md).
 
@@ -149,6 +149,12 @@ consulta que o motor local não entendeu. Recebe o vocabulário da DSL, as categ
 de cartão e de meta — nunca um lançamento. O plano volta, é validado com as capacidades reais
 deste aparelho e executado aqui. Nenhum número sai do dispositivo.
 
+Desde 15/09/2026 o chat remoto também não recebe a transcrição da conversa: recebe a estrutura do
+assunto anterior e, só para pergunta ou pedido, agregados do aparelho (regra 61). E uma leitura
+local de baixa confiança — número de período lido como valor, "3 mil" lido como 3, meta lida como
+despesa — não fecha mais a frase: a ação é descartada e a pergunta segue para a consulta local ou
+para o remoto (regra 62).
+
 `api/_lib/assistantPrompt.ts` é a **fonte única** da SYSTEM_PROMPT, gerada a partir do catálogo e
 das capacidades reais do usuário; `api/_lib/assistantHandler.ts` concentra o pipeline do endpoint.
 `vite.config.ts` e `api/ai/chat.ts` são cascas finas sobre ele — divergência dev × produção deixou
@@ -160,8 +166,13 @@ Detalhes e limitações honestas em [docs/AI_CURRENT_STATE.md](docs/AI_CURRENT_S
 
 Só existe um: **`POST /api/ai/chat`**.
 
-- Corpo: `{ message, context, history }`. O `context` é um **agregado** montado por
-  `buildAiContext()` — nunca a lista bruta de transações.
+- Corpo do chat: `{ message, context, conversation }`. O `context` é o **mínimo** montado por
+  `buildAiContext()` — perfil, categorias, nomes de cartão e meta e, só quando o trecho é
+  pergunta ou pedido, agregados; nunca lançamento, descrição, saldo ou nome do usuário.
+  `conversation` é a ESTRUTURA do assunto anterior, nunca as mensagens (regra 61). O servidor
+  ignora `history` (de um app antigo) e aplica a própria lista de campos permitidos.
+- Corpo do planejador: `{ task: 'plan-query', message, context }`, com perfil, categorias e
+  nomes de cartão e meta — nada além.
 - Resposta: `{ reply, actions }` em caso de sucesso, ou `{ error, message }` com uma mensagem
   segura em caso de falha.
 - Duas implementações espelhadas: o middleware `aiProxy()` em `vite.config.ts` (dev) e
@@ -176,6 +187,11 @@ resposta vem vazia, e mensagens de erro seguras. A chave nunca chega ao cliente.
 `response_format: json_object` é evitado de propósito: em modelos anteriores ele devolvia respostas
 em branco com prompts longos. O JSON é pedido no prompt e extraído da resposta; texto puro vira
 `reply` sem ações.
+
+O nome padrão `deepseek-v4-flash` é LEGADO: desde 10/09/2026 a DeepSeek o roteia
+"temporariamente" para o V4.1-Flash, e `/models` lista `deepseek-flash` e `deepseek-v4-pro`. A
+chamada não manda o parâmetro de pensamento, que a API liga por padrão. Trocar modelo ou modo de
+pensamento só com medição (regra 60, `docs/AI_REMOTE_EVAL.md`).
 
 Variáveis de ambiente (server-only, sem prefixo `VITE_`): `DEEPSEEK_API_KEY` (obrigatória),
 `DEEPSEEK_MODEL`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_TIMEOUT_MS`. Ver `.env.example`.

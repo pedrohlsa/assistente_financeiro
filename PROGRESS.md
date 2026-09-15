@@ -1,9 +1,9 @@
 # AssistFin — Estado do Projeto
 
-**Última atualização**: 2026-08-25 — rodada do COPILOTO SEMÂNTICO (Query DSL local,
-cenários somente leitura, foco conversacional, evidência por campo, tolerância a typo,
-planejador remoto com grounding) na branch `feat/assistant-semantic-copilot`. Ver a
-última seção.
+**Última atualização**: 2026-09-15 — CANAL REMOTO E ROTEAMENTO LOCAL (o histórico da
+conversa deixou de ir para a IA remota; leitura local de baixa confiança deixou de bloquear o
+remoto) na branch `feat/assistant-semantic-copilot`, depois da rodada do COPILOTO SEMÂNTICO
+(25/08) e da preparação da avaliação dos modelos remotos (13/09). Ver a última seção.
 
 > **Aviso de leitura**: as seções datadas abaixo são um diário — cada uma registra o que era
 > verdade **naquela data** e não é reescrita depois. Para o estado atual verificado, use
@@ -2763,3 +2763,80 @@ Nenhuma chamada paga. Detalhes em [docs/AI_REMOTE_EVAL.md](docs/AI_REMOTE_EVAL.m
 | `npm test` | 531/531 · 75/75 · 4.080 + 3.800 mutações · 1.416 hostis · 107/107 invariantes · 416/416 do avaliador |
 | `typecheck` / `typecheck:api` | exit 0 |
 | `npm run build` + varredura de chave | exit 0, bundle sem chave |
+
+---
+
+## 🔐 Canal remoto e roteamento local — 15/09/2026
+
+Branch `feat/assistant-semantic-copilot`. **Nenhuma chamada paga, nenhuma requisição à conta, sem
+push, sem merge, sem deploy, sem APK.** O modelo de produção e o parâmetro de pensamento não foram
+tocados.
+
+### O que saía do aparelho
+
+Reproduzido ANTES da correção, com estado-canário e a conversa encadeada como a tela fazia: o corpo
+do chat remoto levava o nome do usuário, a descrição e o valor de um lançamento e o saldo em conta —
+pelas respostas LOCAIS anteriores em `history` e por `nome`/`saldoEmConta` no contexto —, e o
+servidor repassava tudo à DeepSeek. A regra 44 prometia o contrário.
+
+Correção (`bfd8f83`, regra 61):
+
+- a conversa vai como ESTRUTURA (`conversation/remoteContext.ts`), nunca como transcrição;
+- o contexto é o mínimo, e agregados só vão quando o trecho em aberto é pergunta ou pedido;
+- nome, saldo e o que deriva dele, lista de parcelamentos com descrição e nome de conta prevista
+  nunca saem;
+- com parte da mensagem resolvida no aparelho, vai só o trecho em aberto;
+- o servidor ignora `history`, aplica lista de campos PERMITIDOS e só aceita estrutura do
+  vocabulário do usuário — o que fecha o vazamento também para o APK antigo, depois do redeploy;
+- invariantes 114–119 nas duas pontas, com o caso positivo: o que foi escrito nesta mensagem vai.
+
+### O motor local que calava o remoto
+
+Três classes, cada uma vista vermelha antes (22 dos 31 casos de `cases-roteamento.ts`):
+
+- `713970d` — "3 mil", "2 mil e quinhentos", "2,5k" viram algarismo no normalizador numérico; o
+  regex de compra deixou de partir "24 vezes" em 2 e 4;
+- `d7b846c` — número de período não é valor, abreviação de "quanto" é pergunta, "que" solto não é
+  comparação, "3 meses" e "em 90 dias" são janelas; depósito em meta com meta única propõe e sem
+  meta única pergunta; "mandei" deixou de casar "andei";
+- `98d23f3` — `semantic/confidence.ts`: quatro critérios determinísticos descartam a leitura local
+  suspeita e deixam a cláusula em aberto (regra 62).
+
+Dois tropeços pegos antes do commit, e ficam registrados porque são a mesma lição de sempre:
+
+- a primeira versão do critério de período apagava nove lançamentos do corpus temporal ("paguei 100
+  mês passado") — ela passou a ler o texto sem as datas;
+- ao LER as respostas, a hipótese sem base "e se em vez de 10x eu fizer 12 dando mil de entrada?"
+  apareceu simulada como uma compra de R$ 12,00. A causa foi a borda de dígito nova, que tirou o
+  acidente que antes derrubava a frase. Foi fechada com a trava de preço.
+
+### Avaliação dos modelos remotos
+
+- Frases que chegam ao modelo: **66 de 120** (planejador 19, chat 44, cenário 3); eram 64. Turnos de
+  conversa: 9 no chat e 9 no planejador (eram 10 e 10).
+- p-14 e p-19 passaram a chegar ao remoto; p-20, p-29, c-16, s-03, s-05 e s-11 passaram a ser
+  respondidas certo no aparelho (`7c7bef5`).
+- Corpus PAGO: 46 chat · 40 planejador · 8 cenário · 6 conversas.
+- Orçamento sem rede (`--sem-saldo`), A+B+C em 3 repetições: **US$ 0,63 central, US$ 1,50
+  pessimista, US$ 7,44 no pior caso**, cerca de 36 min. Eram US$ 0,79 / 1,91 / 9,37.
+- A prova de origem sintética passou para o caso (`origemVerificada`), e o canário no corpo bloqueia.
+
+### Gates
+
+| Gate | Resultado |
+|---|---|
+| `npm test` | 562/562 · 75/75 · 4.080 + 3.800 mutações · 1.416 hostis · 119/119 invariantes (86 + 21 + 12) · 418/418 do avaliador |
+| `typecheck` / `typecheck:api` | exit 0 |
+| `npm run build` + varredura | exit 0; bundle sem `sk-` e sem código de servidor |
+| `npx vercel build --prod` | `status: ok` (build local, nada publicado) |
+| `npm run rubric` | PERIGOSA 0 · RUIM 0 · ACEITÁVEL 6 · EXCELENTE 84 |
+
+### Continua em aberto
+
+- Registros de fala real que o aparelho ainda lê errado ("salario caiu 3200 e ja paguei o aluguel de
+  1100", as correções faladas de lançamento, o dia telegráfico com "uber deu", a entrada de amanhã
+  junto de uma de hoje, "vale alimentação", "180 de agua", "vírgula cinquenta") e perguntas com o
+  número certo para a pergunta errada — lista relida em `docs/AI_REMOTE_EVAL.md` §10.
+- O planejador remoto continua sem estado.
+- As mudanças de `api/**` só chegam ao app publicado com redeploy, que depende de autorização.
+- Nome legado `deepseek-v4-flash` e pensamento no padrão da API, sem mudança: só com medição.
