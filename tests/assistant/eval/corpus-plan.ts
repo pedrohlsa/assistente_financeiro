@@ -184,9 +184,9 @@ export const CASOS_PLANO: CasoPlano[] = [
     'qual foi o dia que eu mais gastei no mês passado',
     'agrupar por dia exige pedir a ordem por VALOR — o padrão do executor para dia é cronológico; até 15/09/2026 o "que" solto virava comparação e o local respondia sem consultar o modelo',
     [{ source: 'transactions', filtro: { txType: GASTO }, group: 'day', order: 'value-desc', limit: QUALQUER, periodo: exatos(h => mesInteiro(h, 1)) }]),
-  caso('p-20', 'autonomo', 'plano-complexo', 'local-errada',
+  caso('p-20', 'autonomo', 'plano-complexo', 'local',
     'meu gasto com obra de agosto foi quantos por cento maior que o de julho',
-    'dois meses pelo nome, um contra o outro; o local comparou a categoria ERRADA (+674%)',
+    'dois meses pelo nome, um contra o outro; até 15/09/2026 o local comparava a categoria ERRADA (+674%), hoje compara obra com obra',
     [{ source: 'transactions', filtro: { txType: umDe(GASTO, null), categories: ['obra'] }, periodo: exatos(h => mesPorNome(h, AGO)), comparacao: exatos(h => mesPorNome(h, JUL)) }]),
   caso('p-21', 'autonomo', 'plano-complexo', 'local-errada',
     'soma tudo que eu paguei de parcela nos ultimos 3 meses',
@@ -225,9 +225,9 @@ export const CASOS_PLANO: CasoPlano[] = [
     ]),
 
   // ===== Linguagem de verdade ==============================================
-  caso('p-29', 'autonomo', 'linguagem', 'local-errada',
+  caso('p-29', 'autonomo', 'linguagem', 'local',
     'qnto q foi d obra msm nos ultimo 3 mes',
-    'abreviação pesada; o motor local transformou esta PERGUNTA numa despesa de R$ 3,00',
+    'abreviação pesada; até 15/09/2026 o motor local transformava esta PERGUNTA numa despesa de R$ 3,00, hoje responde obra nos últimos 3 meses',
     [{ source: 'transactions', filtro: { txType: umDe(GASTO, null), categories: ['obra'] }, group: umDe('none', 'month'), periodo: exatos(h => ultimosMeses(h, 3)) }]),
   caso('p-30', 'autonomo', 'linguagem', 'local-errada',
     'gastei qnt no cartao nubank mes passado hein',
