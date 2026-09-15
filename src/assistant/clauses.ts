@@ -12,6 +12,8 @@ import { findAllDates, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
 import { parseMoney, todayISO } from '../utils/format'
+import { suspicionReasons } from './semantic/confidence'
+import type { SuspicionReason } from './semantic/confidence'
 
 export interface AnalyzedClause {
   id: string
@@ -42,6 +44,12 @@ export interface AnalyzedClause {
    * removido; quem recebe isto EXPLICA em vez de registrar.
    */
   intention?: boolean
+  /**
+   * Leituras locais DESCARTADAS por baixa confiança (ver semantic/confidence.ts).
+   * A cláusula que as tinha fica em aberto — é isso que deixa a consulta local e
+   * o modelo remoto participarem em vez de a ação errada fechar a frase.
+   */
+  suspicious?: SuspicionReason[]
 }
 
 export interface TemporalSignal {
@@ -676,6 +684,21 @@ export function analyzeMessage(
       intencao = actions.length < antes
     }
 
+    // Leitura local de BAIXA confiança não fecha a cláusula. O número do período
+    // lido como valor, a magnitude perdida, a meta lida como despesa e o
+    // movimento de dinheiro dentro de uma pergunta sem fato: a ação sai, e a
+    // cláusula volta a ficar em aberto para quem sabe lê-la.
+    const suspeitas = new Set<SuspicionReason>()
+    const passado = looksPast(part.text)
+    // O texto é o MESMO que o parser leu, com as datas já retiradas: "paguei 100
+    // mês passado" tem o "mês" do período, não a duração do 100.
+    const lidoPeloParser = semData || forParser
+    actions = actions.filter(a => {
+      const motivos = suspicionReasons(a, { text: part.text, normalized: lidoPeloParser, isQuestion, hasPastMoneyVerb: passado })
+      for (const m of motivos) suspeitas.add(m)
+      return !motivos.length
+    })
+
     // NENHUMA EXPRESSÃO TEMPORAL É DESCARTADA. Uma data que ainda não chegou,
     // ou um período sem dia certo, não pode virar um lançamento de hoje: as
     // ações ficam guardadas no sinal e quem decide é o usuário.
@@ -746,6 +769,7 @@ export function analyzeMessage(
       dateAmbiguity,
       temporal,
       intention: intencao || undefined,
+      suspicious: suspeitas.size ? [...suspeitas] : undefined,
     })
 
     if (actions.length && isQuestion) {

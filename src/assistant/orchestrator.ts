@@ -26,6 +26,7 @@ import { buildTurnPlan, hasBlock } from './semantic/turn'
 import { parseDriverDay } from './semantic/driverDay'
 import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } from './semantic/normalize'
 import { conflictQuestion, evidenceFor, mergeByField, sameFact } from './semantic/evidence'
+import { classifyLocalDecision } from './semantic/confidence'
 import { composeAnswer, explainQueryResult, isQueryFailure, runQuery, validateQueryPlan } from './query'
 import { rememberQuery } from './conversation'
 import type { RepairedText } from './semantic/normalize'
@@ -1285,7 +1286,12 @@ Confirmar?`,
   // ---- 16) IA remota só para o que sobrou ---------------------------------
   const stillOpen = unresolved.length > 0
   if (stillOpen && input.remoteEnabled && input.askRemote && !clarification) {
-    const remote = await input.askRemote({ state: input.state, message: input.message, history: input.history })
+    // Com parte da mensagem já resolvida no aparelho, vai só o que ficou em
+    // aberto. Reenviar a frase inteira convidava o modelo a propor de novo o que
+    // já está na tela — a reconciliação por campo segurava a duplicata, mas o
+    // modelo nem precisa ver o trecho resolvido.
+    const textoRemoto = candidates.length ? unresolved.map(u => u.text).join('\n') : input.message
+    const remote = await input.askRemote({ state: input.state, message: textoRemoto, history: input.history })
     if (remote) {
       remoteReply = remote.reply
       remoteRejected = remote.rejected || []
@@ -1495,6 +1501,8 @@ ${reply}`
         remoteActions: candidates.length - local.candidates.length,
         rejected: rejectedAll,
         elapsedMs: Date.now() - started,
+        decision: classifyLocalDecision(analysis),
+        suspicious: analysis.clauses.flatMap(c => c.suspicious || []),
       }
     : undefined
 

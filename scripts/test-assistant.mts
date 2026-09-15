@@ -24,6 +24,7 @@ import { REGISTRO_REAL } from '../tests/assistant/cases-registro-real'
 import { ROTEAMENTO } from '../tests/assistant/cases-roteamento'
 import { runProperties } from '../tests/assistant/properties'
 import { runCopilotProperties } from '../tests/assistant/properties-copiloto'
+import { runRemoteProperties } from '../tests/assistant/properties-remoto'
 import { runEvalSelfTest } from '../tests/assistant/eval/selftest'
 import { runCase } from '../tests/assistant/harness'
 import type { CaseResult } from '../tests/assistant/harness'
@@ -166,16 +167,17 @@ if (!only) {
 // grava, e número na prosa tem que existir nos fatos.
 const props = only ? { total: 0, failures: [] as string[] } : await runProperties()
 const copiloto = only ? { total: 0, failures: [] as string[] } : await runCopilotProperties()
+const remoto = only ? { total: 0, failures: [] as string[] } : await runRemoteProperties()
 const todas = {
-  total: props.total + copiloto.total,
-  failures: [...props.failures, ...copiloto.failures],
+  total: props.total + copiloto.total + remoto.total,
+  failures: [...props.failures, ...copiloto.failures, ...remoto.failures],
 }
 if (todas.total) {
   console.log('\n=== Invariantes ===')
   console.log(todas.failures.length
     ? `FAIL ${todas.total - todas.failures.length}/${todas.total}\n` + todas.failures.map(f => '   · ' + f).join('\n')
     : `ok   ${todas.total}/${todas.total} invariantes preservadas `
-      + `(${props.total} financeiras + ${copiloto.total} do copiloto)`)
+      + `(${props.total} financeiras + ${copiloto.total} do copiloto + ${remoto.total} do canal remoto)`)
 }
 
 // A avaliação PAGA dos modelos remotos não roda aqui — o avaliador dela, sim.

@@ -412,6 +412,10 @@ export interface AssistantDiagnostics {
   remoteActions: number
   rejected: { kind: string; code: AssistantErrorCode; detail?: string }[]
   elapsedMs?: number
+  /** Como a decisão local foi classificada — ver semantic/confidence.ts. */
+  decision?: string
+  /** Leituras locais descartadas por suspeita, com o motivo. */
+  suspicious?: string[]
 }
 
 // ---------------------------------------------------------------------------
