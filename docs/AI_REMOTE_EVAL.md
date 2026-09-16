@@ -81,14 +81,18 @@ conversas, **9 turnos chamam o chat e 9 chamam o planejador** (eram 10 e 10).
 
 | Suíte | Casos | Contrato | Chegam ao remoto | Corpus pago |
 |---|---|---|---|---|
-| Planejador de consulta | 44 | produção | 19 | 40 |
-| Chat remoto | 55 | produção | 44 | 46 |
-| Cenário | 15 | **candidato** | 3 | 8 |
+| Planejador de consulta | 44 | produção | 19 | 19 |
+| Chat remoto | 55 | produção | 44 | 44 |
+| Cenário | 15 | **candidato** | 3 | 3 |
 | Continuidade | 6 conversas, 38 turnos | produção, pelo orquestrador | 9 chat + 9 planejador | 6 |
 
-Cada caso declara a **rota de produção**: `remota`, `local` ou `local-errada`. O autoteste confere
-que "chega ou não chega ao remoto" bate com o orquestrador. A distinção entre `local` (certa) e
-`local-errada` é leitura humana das respostas, registrada no motivo de cada caso com a data.
+**A elegibilidade é MEDIDA, não declarada** (15/09/2026). Antes de qualquer gasto, o orquestrador de
+produção roda com os dois caminhos remotos substituídos por gravadores, e um caso só entra na bateria
+paga — e na NOTA de um modelo — se ali saiu requisição. Cada caso continua declarando a **rota de
+produção** (`remota`, `local`, `local-errada`), mas agora como DIAGNÓSTICO: o autoteste confere que o
+rótulo não divergiu da medição e, se divergir, quem manda é a medição. A distinção entre `local`
+(certa) e `local-errada` é leitura humana das respostas, registrada no motivo de cada caso com a data,
+e serve para o relatório do app — nunca para decidir quem paga a conta do modelo.
 
 **O que mudou em 15/09/2026, e por quê:**
 
@@ -109,10 +113,21 @@ a hipótese sem base "e se em vez de 10x eu fizer 12 dando mil de entrada?" (p-3
 chegou a ser simulada localmente como uma compra de R$ 12,00; a regressão foi lida na resposta e
 fechada com a trava de preço antes do commit.
 
-**Corpus PAGO** (padrão de `--executar`): fica fora a rota `local` que não é segurança — resposta
-certa do aparelho, onde o modelo nunca é consultado. Ficam tudo que chega ao remoto, tudo que o local
-ainda erra (fronteira: é onde o roteamento pode mudar) e a segurança inteira. `--corpus=completo`
-mede os 120.
+**Corpus PAGO** (`--corpus=pago`, padrão de `--executar`): **só as 66 frases em que a medição viu
+requisição sair**, mais as 6 conversas. Nada mais. Frase que o aparelho fecha sozinho — acertando ou
+errando — não é paga e não pontua modelo nenhum, porque em produção o modelo não é consultado ali.
+
+**Corpus FRONTEIRA** (`--corpus=fronteira`): acrescenta as 27 frases que o aparelho resolve ERRADO.
+Isso é pago e responde outra pergunta — *valeria mandar isto ao modelo?* —, que é decisão de
+ROTEAMENTO. O relatório mostra essas execuções em bloco separado e elas **nunca** entram na nota de
+configuração nenhuma.
+
+**Corpus COMPLETO** (`--corpus=completo`): os 120, sem gasto, para o autoteste.
+
+Até 15/09/2026 o filtro era `rota !== 'local'`, por rótulo. Como `local-errada` não é `local`, as 27
+frases que o aparelho erra entravam na bateria paga e na nota dos modelos — 28 casos com c-36, quase
+um terço do que seria pago —, e o `PROGRESS.md` descrevia o contrário do que o código fazia. Corrigido
+com teste RED: com a regra antiga o autoteste lista os 28 nominalmente e falha.
 
 A suíte de cenário mede um contrato que **não existe**: não há tarefa de cenário no servidor, e a
 DSL é de passo único. Ela responde se vale construir o planejador de cenário.
@@ -163,9 +178,24 @@ Pesos da qualidade (somam 100): plano 20 · cenário 10 · ações 15 · esclare
 frase e os derivados declarados caso a caso. Soma e diferença de todos os pares não são liberadas,
 porque com o contexto inteiro isso aceitaria 89% dos valores inventados (regra 53).
 
-**Como ler o relatório para decidir produção:** a ordem principal inclui a fronteira (`local-errada`),
-que o app de hoje não manda ao modelo. A decisão de qual modelo usar em produção deve olhar a tabela
-"só as frases que chegam ao modelo HOJE"; a fronteira informa uma decisão de roteamento.
+**Como ler o relatório para decidir produção:** ele tem três blocos que não se misturam.
+
+1. **App / roteamento** — quantas frases o aparelho resolve certo, quantas ele resolve errado antes de
+   o modelo existir, e quantas sobram para o remoto. É diagnóstico do APARELHO. Nada daqui vira nota
+   de modelo, e nada daqui some do relatório.
+2. **Qualidade do modelo** — só os casos elegíveis. É esta a ordem que decide produção.
+3. **Transporte** — casos lógicos, chamadas lógicas, tentativas HTTP, retries, falhas, latência,
+   tokens e dólares. Uma mensagem para um caminho remoto é **uma** chamada lógica por mais que o
+   cliente tenha repetido a requisição: retry infla a conta e a latência, nunca o denominador da
+   qualidade. Se um bloco de fronteira aparecer, ele é opt-in e fica claramente fora da nota.
+
+**Falha remota que o fallback local salvou conta contra o modelo.** O app pode ter sobrevivido — a
+resposta que o usuário vê talvez esteja certa —, mas a saída do modelo não pôde ser usada. A métrica
+`remote failure rate` registra isso, separada de `transport failure rate`, e é ela que entra na nota.
+
+**A regra permanente:** *um modelo só é avaliado por um caso se o caminho remoto foi realmente
+alcançado e a saída dele teve oportunidade de influenciar o resultado.* E o contrapeso, que vale
+igual: *falhas locais continuam aparecendo, em bloco próprio, e nunca são escondidas.*
 
 ## 7. Privacidade — como dado real é impedido de sair
 
@@ -298,8 +328,11 @@ mais" soma gastos por origem; "líquido por corrida esse mês" devolve a receita
 mês"; "2 horas por dia a semana toda" é estimado em 30 dias; hipóteses compostas simulam só a primeira
 metade; e "e se eu parar a obra agora" responde a projeção factual.
 
-Todas estão no corpus desta avaliação com a rota `local-errada` (fronteira) ou fora dele, e
-corrigi-las é outra rodada.
+Todas estão no corpus desta avaliação com a rota `local-errada` ou fora dele, e corrigi-las é outra
+rodada. Desde 15/09/2026 elas **não entram mais na bateria paga padrão** nem na nota de modelo algum:
+o modelo não é consultado nessas frases, então cobrar dele o desfecho seria medir o parser local com
+o nome do modelo na tabela. Quem quiser a pergunta de roteamento pede `--corpus=fronteira`, paga por
+ela de propósito, e lê o resultado no bloco separado.
 
 ## 11. O que esta avaliação NÃO mede
 
@@ -334,9 +367,10 @@ Nada disto foi executado: não houve requisição à conta, criação de chave n
 
 1. Colocar cerca de **US$ 5** de saldo antes (o último saldo conhecido, US$ 1,96 em 13/09/2026, fica
    abaixo do pessimista de A+B+C em 3 repetições somado à reserva do app).
-2. **Primeira rodada: A+B+C, 1 repetição, corpus pago, teto de US$ 1,00.** Custo esperado de US$ 0,21 a
-   US$ 0,50; mede de verdade o que hoje é suposição — tokens de raciocínio de C, se `max_tokens` corta
-   resposta, latência real e a taxa de perigo por configuração.
+2. **Primeira rodada: A+B+C, 1 repetição, corpus pago, teto de US$ 1,00.** Custo esperado de US$ 0,17
+   (central) a US$ 0,41 (pessimista), pior caso US$ 2,01 — 84 chamadas lógicas por configuração, contra
+   112 antes de a elegibilidade ser medida. Mede de verdade o que hoje é suposição: tokens de raciocínio
+   de C, se `max_tokens` corta resposta, latência real e a taxa de perigo por configuração.
 3. Se duas configurações empatarem em segurança dentro do ruído, **retomar a mesma pasta** com
    `--repeticoes=3` (paga só as repetições que faltam). Só então decidir D.
 

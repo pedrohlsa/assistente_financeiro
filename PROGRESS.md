@@ -2939,10 +2939,65 @@ meses" vira R$ 3/mês, "2 horas por dia" vira 30 dias, hipóteses compostas.
 
 #### Benchmark A+B+C — AINDA NÃO AUTORIZADO
 
-Nada foi executado. Orçamento offline (`--sem-saldo`): A+B+C × 3 = US$ 0,63 central / 1,50 pessimista
-/ 7,44 pior caso; A+B+C+D = 1,38 / 2,85 / 12,29. Último saldo conhecido US$ 1,96 (13/09), compartilhado
-com o app publicado. Recomendação registrada em `docs/AI_REMOTE_EVAL.md` §12 (≈ US$ 5 de crédito;
-primeira rodada com `--repeticoes=1 --teto-usd=1.00`). Depende de autorização explícita de gasto.
-Honestidade sobre o que ele mediria hoje: 27 casos ainda são `local-errada` e ficam fora do corpus
-pago, então a bateria mede diferenças entre modelos nas 66 frases que chegam ao remoto — não os
-defeitos locais acima.
+Nada foi executado. Orçamento offline (`--sem-saldo`), **já sobre o conjunto elegível**: A+B+C × 1 =
+US$ 0,17 central / 0,41 pessimista / 2,01 pior caso; A+B+C × 3 = 0,51 / 1,24 / 6,02. Último saldo
+conhecido US$ 1,96 (13/09), compartilhado com o app publicado e **não reconferido**. Recomendação em
+`docs/AI_REMOTE_EVAL.md` §12 (≈ US$ 5 de crédito; primeira rodada com `--repeticoes=1 --teto-usd=1.00`).
+Depende de autorização explícita de gasto.
+
+*Correção de uma afirmação errada desta seção:* dizia-se aqui que os 27 casos `local-errada` "ficam
+fora do corpus pago". **Não ficavam.** O filtro era `rota !== 'local'`, e `local-errada` não é `local`:
+os 27 entravam na bateria paga e na nota dos modelos, com c-36 dando 28. Corrigido em 15/09/2026 — ver
+a seção seguinte.
+
+#### Elegibilidade do benchmark remoto — corrigida em 15/09/2026
+
+**A causa.** O corpus pago era filtrado por RÓTULO humano (`rota !== 'local' || dimensao ===
+'seguranca'`), não por comportamento. Rótulo envelhece e rótulo mente: `local-errada` passava pelo
+filtro, e o avaliador chamava o modelo em 28 frases que o aparelho fecha sozinho em produção. O modelo
+era pontuado — e pago — por decisões que ele nunca toma no app.
+
+**A regra agora.** A elegibilidade é DERIVADA da execução: antes de qualquer gasto, o orquestrador de
+produção roda com os dois caminhos remotos substituídos por gravadores (`tests/assistant/eval/routing.ts`),
+e um caso só entra se ali saiu requisição. Três classes, e nenhuma some do relatório:
+
+| Classe | O que é | Entra na nota do modelo? |
+|---|---|---|
+| `local-correto` | o aparelho responde, e responde certo | não |
+| `local-falha` | o aparelho responde, e responde errado, antes de o modelo existir | não — continua listada como bug |
+| `remoto-elegivel` | saiu requisição; a saída do modelo podia mudar o resultado | **sim** |
+
+O rótulo `rota` continua no corpus como diagnóstico. O autoteste confere que ele não divergiu da
+medição e, se divergir, **quem manda é a medição** (foi o caso de p-14 e p-19).
+
+**Recontagem sem rede (zero chamadas):** 114 frases + 6 conversas. Resolvidas no aparelho 48 (21
+certas, 27 erradas); **66 elegíveis ao remoto (57,9%)** — chat 44/55, planejador 19/44, cenário 3/15 —
+mais 9 turnos de chat e 9 de planejador nas 6 conversas. O número 66 não mudou: o que mudou foi
+quantas frases são PAGAS. Os 27 `local-errada` continuam sendo exatamente os 27 que não chegam ao
+remoto (p-01, 03, 06, 09, 11, 12, 13, 16, 17, 18, 21, 22, 23, 24, 25, 26, 27, 30, 32, 33, 34; c-20;
+s-01, 02, 04, 07, 13) — **nenhum deles chega**.
+
+**Efeito no custo.** Chamadas lógicas por repetição, por configuração: **112 → 84** (−25%). A+B+C × 3
+cai de US$ 0,63/1,50/7,43 para 0,51/1,24/6,02; A+B+C × 1 fica em 0,17/0,41/2,01.
+
+**Fallback e retry.** Remoto chamado + saída inútil + fallback local salvando a UX agora conta como
+falha DO MODELO (`remote failure rate`, separada de `transport failure rate`), mesmo quando o usuário
+vê uma resposta certa. E uma mensagem para um caminho remoto é UMA chamada lógica por mais que o
+cliente repita a requisição: retry entra em custo, latência e tentativas HTTP, nunca no denominador da
+qualidade.
+
+**Relatório em três blocos que não se misturam:** APP/ROTEAMENTO (diagnóstico do aparelho),
+QUALIDADE DO MODELO (só elegíveis) e TRANSPORTE (casos lógicos, chamadas lógicas, tentativas HTTP,
+retries, falhas, latência, tokens, custo). Há também uma trava de justiça: se duas configurações forem
+medidas sobre conjuntos elegíveis diferentes, o relatório avisa em vez de comparar.
+
+**Fora de escopo nesta rodada, de propósito:** os quatro bugs financeiros perigosos (receita falsa de
+R$ 1.100; correção falada virando lançamento novo; Uber/99 perdendo as duas receitas; entrada futura
+proposta como recebida), vale alimentação, água, c-20, decimal e o cenário "parar a obra". Nada de
+parser, Query DSL, Scenario Engine, modelo, thinking ou retry de produção foi tocado.
+
+**Testes:** 434/434 no avaliador (eram 418; 16 novos). RED demonstrado antes da correção — com o filtro
+antigo o autoteste falha em 3 verificações e lista os 28 casos nominalmente. Cobertura: frase local não
+é elegível; frase que chama o transporte é elegível; fallback não perdoa o remoto; retry é 1 caso
+lógico e N tentativas; rótulo `local-errada` não derruba quem chega ao remoto; rótulo `remota` não
+promove quem morre no aparelho; denominadores idênticos entre configurações (e divergência detectada).

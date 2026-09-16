@@ -424,7 +424,9 @@ a ação local suspeita por quatro critérios determinísticos e dá nome à dec
 
 **O que continua em aberto.** Várias frases de registro em fala real ainda são lidas errado no
 aparelho (a lista, com o esperado de cada uma, está em `docs/AI_REMOTE_EVAL.md` §10); 27 casos
-do corpus de avaliação continuam com rota `local-errada`; o planejador remoto continua sem
+do corpus de avaliação continuam com rota `local-errada` — desde 15/09/2026 eles ficam de fato fora
+da bateria paga e da nota dos modelos, porque a elegibilidade passou a ser medida no orquestrador em
+vez de lida do rótulo; o planejador remoto continua sem
 estado (não recebe o plano anterior); e as mudanças de `api/**` só chegam ao app publicado com
 um redeploy, que não foi feito.
 

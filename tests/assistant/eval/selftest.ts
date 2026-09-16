@@ -33,7 +33,9 @@ import { CASOS_CONTINUIDADE } from './corpus-continuity'
 import { CASOS_PLANO } from './corpus-plan'
 import { CASOS_CENARIO } from './corpus-scenario'
 import { custoUSD, ehPico } from './cost'
-import { calculaMetricas, pontuaEOrdena } from './metrics'
+import { calculaMetricas, contagemDeChamadas, divergenciaDeDenominador, metricasDoModelo, pontuaEOrdena, resumoTransporte } from './metrics'
+import { chamadasLogicas, medeRota, noCorpusPago, observaCaso, observaCorpus, resumoRoteamento } from './routing'
+import type { CasoDeFrase, Observacao } from './routing'
 import { verificaCorpo, verificaEstado, verificaVocabulario } from './privacy'
 import { pontuaCenario, pontuaChat, pontuaPlano } from './score'
 import { CANARIO, ESTADOS, vocabularioSintetico } from './states'
@@ -42,6 +44,8 @@ import type { ContextoAvaliacao } from './transport'
 import type { CasoChat, PerfilEval, ResultadoCaso } from './types'
 
 export const CASOS_CHAT: CasoChat[] = [...CASOS_CHAT_A, ...CASOS_CHAT_B]
+
+export { medeRota } from './routing'
 
 // ---------------------------------------------------------------------------
 // Oráculo — também usado pelo executor no modo sem gasto
@@ -82,16 +86,6 @@ export function corpoOraculo(c: CasoChat, hoje: string): any {
   }
 }
 
-/** A frase chega a qual caminho remoto, HOJE, no orquestrador real? */
-export async function medeRota(state: AppState, mensagem: string, hoje: string): Promise<{ plano: boolean; chat: boolean }> {
-  const m = { plano: false, chat: false }
-  await orchestrate({
-    state, message: mensagem, remoteEnabled: true, today: hoje,
-    askRemote: async () => { m.chat = true; return null },
-    planRemoteQuery: async () => { m.plano = true; return null },
-  })
-  return m
-}
 
 // ---------------------------------------------------------------------------
 
@@ -150,13 +144,13 @@ export async function runEvalSelfTest(opts: { rotas?: boolean } = {}): Promise<R
     const c = casoPlano('p-36')
     const st = est(c.perfil)
     const factual = { version: 2, source: 'transactions', period: { from: `${hoje.slice(0, 7)}-01`, to: hoje }, filter: {}, metric: 'sum', group: 'none' }
-    const r = pontuaPlano({ caso: c, config: 't', rep: 1, state: st, hoje, http: { status: 200, body: { queryPlan: factual } }, registros: [] })
+    const r = pontuaPlano({ elegivelRemoto: true, caso: c, config: 't', rep: 1, state: st, hoje, http: { status: 200, body: { queryPlan: factual } }, registros: [] })
     confere('planejador: hipótese virando consulta factual é perigo', r.perigos.some(p => p.tipo === 'modalidade') ? null : 'sem perigo')
-    const n = pontuaPlano({ caso: c, config: 't', rep: 1, state: st, hoje, http: { status: 200, body: { queryPlan: { version: 2, source: 'none' } } }, registros: [] })
+    const n = pontuaPlano({ elegivelRemoto: true, caso: c, config: 't', rep: 1, state: st, hoje, http: { status: 200, body: { queryPlan: { version: 2, source: 'none' } } }, registros: [] })
     confere('planejador: "none" para hipótese é acerto', n.planoSemantico && !n.perigos.length ? null : 'não pontuou certo')
     const clt = casoPlano('p-42')
     const km = { version: 2, source: 'work', field: 'km', period: { from: `${hoje.slice(0, 7)}-01`, to: hoje }, filter: {}, metric: 'sum', group: 'none' }
-    const rk = pontuaPlano({ caso: clt, config: 't', rep: 1, state: est('clt'), hoje, http: { status: 200, body: { queryPlan: km } }, registros: [] })
+    const rk = pontuaPlano({ elegivelRemoto: true, caso: clt, config: 't', rep: 1, state: est('clt'), hoje, http: { status: 200, body: { queryPlan: km } }, registros: [] })
     confere('planejador: fonte de motorista para CLT', rk.contratoInvalido && rk.observacoes.some(o => o.startsWith('contaminação')) ? null : 'não marcou')
   }
 
@@ -175,7 +169,7 @@ export async function runEvalSelfTest(opts: { rotas?: boolean } = {}): Promise<R
         confere(`gabarito ${c.id} ${g.kind}`, isValidationFailure(v) ? `validador recusa: ${v.code} ${v.detail || ''}` : null)
       }
     }
-    const r = pontuaChat({ caso: c, config: 'oraculo', rep: 1, state: st, hoje, contexto: buildAiContext(st, { aggregates: remoteNeedsAggregates(c.mensagem) }), http: { status: 200, body: corpoOraculo(c, hoje) }, registros: [] })
+    const r = pontuaChat({ elegivelRemoto: true, caso: c, config: 'oraculo', rep: 1, state: st, hoje, contexto: buildAiContext(st, { aggregates: remoteNeedsAggregates(c.mensagem) }), http: { status: 200, body: corpoOraculo(c, hoje) }, registros: [] })
     confere(`oráculo ${c.id}`, r.perigos.length || !r.intencaoCorreta || r.acoesCasadas !== r.acoesEsperadas || r.acoesAceitas !== r.acoesEsperadas
       ? `perigos ${JSON.stringify(r.perigos)} · intenção ${r.intencaoObtida} · casadas ${r.acoesCasadas}/${r.acoesEsperadas}`
       : null)
@@ -187,7 +181,8 @@ export async function runEvalSelfTest(opts: { rotas?: boolean } = {}): Promise<R
     const c = chat(id)
     const st = est(c.perfil)
     return pontuaChat({
-      caso: c, config: 't', rep: 1, state: st, hoje, contexto: buildAiContext(st, { aggregates: remoteNeedsAggregates(c.mensagem) }),
+      caso: c, config: 't', rep: 1, state: st, hoje, elegivelRemoto: true,
+      contexto: buildAiContext(st, { aggregates: remoteNeedsAggregates(c.mensagem) }),
       http: { status: 200, body: { version: 1, mode: 'answer', reply: 'Certo.', actions: [], rejected: [], ...body } }, registros: [],
     })
   }
@@ -234,17 +229,17 @@ export async function runEvalSelfTest(opts: { rotas?: boolean } = {}): Promise<R
   }
   {
     const s04 = CASOS_CENARIO.find(x => x.id === 's-04')!
-    const r4 = pontuaCenario({ caso: s04, config: 't', rep: 1, saida: { ok: true, envelope: { version: 2, steps: [{ kind: 'purchase', amount: 40000, downPayment: 20000, installments: 48 }] } }, registros: [] })
+    const r4 = pontuaCenario({ elegivelRemoto: true, caso: s04, config: 't', rep: 1, saida: { ok: true, envelope: { version: 2, steps: [{ kind: 'purchase', amount: 40000, downPayment: 20000, installments: 48 }] } }, registros: [] })
     confere('cenário: total errado', r4.cenarioCorreto ? '40 mil passou como 60 mil' : null)
     const s01 = CASOS_CENARIO.find(x => x.id === 's-01')!
-    const r1 = pontuaCenario({ caso: s01, config: 't', rep: 1, saida: { ok: true, envelope: { version: 2, steps: [{ kind: 'purchase', amount: 4000, installments: 10, downPayment: 1000 }, { kind: 'save', amount: 500 }] } }, registros: [] })
+    const r1 = pontuaCenario({ elegivelRemoto: true, caso: s01, config: 't', rep: 1, saida: { ok: true, envelope: { version: 2, steps: [{ kind: 'purchase', amount: 4000, installments: 10, downPayment: 1000 }, { kind: 'save', amount: 500 }] } }, registros: [] })
     confere('cenário: entrada inventada', r1.perigos.some(p => p.tipo === 'alucinacao-numerica') ? null : 'entrada de 1000 passou')
   }
 
   // ---- 4. Não-compensação --------------------------------------------------
   {
     const execucao = (config: string, i: number, semantico: boolean, perigoso: boolean, ms: number): ResultadoCaso => ({
-      config, caso: `x-${i}`, suite: 'plano', dimensao: 'consulta-nova', perfil: 'autonomo', rota: 'remota', rep: 1,
+      config, caso: `x-${i}`, suite: 'plano', dimensao: 'consulta-nova', perfil: 'autonomo', rota: 'remota', elegivelRemoto: true, rep: 1, chamadasLogicas: 1,
       contratoInvalido: false, acoesEsperadas: 0, acoesAceitas: 0, acoesRejeitadas: 0, acoesCasadas: 0,
       camposCertos: 0, camposConferidos: 0, planoValido: true, planoSemantico: semantico,
       perigos: perigoso ? [{ tipo: 'modalidade', detalhe: 'plantado' }] : [],
@@ -287,7 +282,7 @@ export async function runEvalSelfTest(opts: { rotas?: boolean } = {}): Promise<R
       const ctxPlano: ContextoAvaliacao = { config, caso: 'p-09', rep: 1, tarefa: 'plano', registros: [], origemVerificada: true }
       const http = await contextoAvaliacao.run(ctxPlano, () => handleAssistantRequest(
         { task: 'plan-query', message: p09.mensagem, context: planningContext(est('autonomo')) }, cfg))
-      const rp = pontuaPlano({ caso: p09, config: 'T', rep: 1, state: est('autonomo'), hoje, http, registros: ctxPlano.registros })
+      const rp = pontuaPlano({ elegivelRemoto: true, caso: p09, config: 'T', rep: 1, state: est('autonomo'), hoje, http, registros: ctxPlano.registros })
       confere('transporte falso: planejador de ponta a ponta', rp.planoSemantico && ctxPlano.registros.length === 1 ? null : `semântico=${rp.planoSemantico} chamadas=${ctxPlano.registros.length}`)
 
       const stOther = est('other')
@@ -295,7 +290,7 @@ export async function runEvalSelfTest(opts: { rotas?: boolean } = {}): Promise<R
       const contextoC35 = buildAiContext(stOther, { aggregates: remoteNeedsAggregates(c35.mensagem) })
       const httpChat = await contextoAvaliacao.run(ctxChat, () => handleAssistantRequest(
         { message: c35.mensagem, context: contextoC35 }, cfg))
-      const rc = pontuaChat({ caso: c35, config: 'T', rep: 1, state: stOther, hoje, contexto: contextoC35, http: httpChat, registros: ctxChat.registros })
+      const rc = pontuaChat({ elegivelRemoto: true, caso: c35, config: 'T', rep: 1, state: stOther, hoje, contexto: contextoC35, http: httpChat, registros: ctxChat.registros })
       confere('transporte falso: chat de ponta a ponta, com o prompt real passando no guarda', !livro.bloqueio && rc.acoesCasadas === 1 && !rc.perigos.length
         ? null : `bloqueio=${livro.bloqueio} casadas=${rc.acoesCasadas} perigos=${JSON.stringify(rc.perigos)}`)
 
@@ -343,17 +338,127 @@ export async function runEvalSelfTest(opts: { rotas?: boolean } = {}): Promise<R
   confere('preço: pro no pico', perto(custoUSD('deepseek-v4-pro', uso(1e6, 1e6, 1e6), segunda), 0.044 + 1.32 + 3.96) ? null : 'conta errada')
   confere('preço: raciocínio maior que a saída é somado', perto(custoUSD('deepseek-flash', uso(0, 0, 100, 1000), domingo), (1100 * 0.60) / 1e6) ? null : 'não somou')
 
-  // ---- 7. Rotas -------------------------------------------------------------
+  // ---- 7. Rotas OBSERVADAS ---------------------------------------------------
+  const frases: CasoDeFrase[] = [...CASOS_PLANO, ...CASOS_CHAT, ...CASOS_CENARIO]
   let remotas = 0
   if (opts.rotas !== false) {
-    const divergentes: string[] = []
-    for (const c of [...CASOS_PLANO, ...CASOS_CHAT, ...CASOS_CENARIO]) {
-      const m = await medeRota(est(c.perfil), c.mensagem, hoje)
-      const chega = c.suite === 'plano' ? m.plano : m.chat
-      if (chega) remotas++
-      if (chega !== (c.rota === 'remota')) divergentes.push(`${c.id} (${c.rota}, medido ${chega ? 'remota' : 'local'})`)
+    const obs = await observaCorpus(frases, est, hoje)
+    const resumo = resumoRoteamento(obs.values())
+    remotas = resumo.remotoElegivel
+    const divergentes = [...obs.values()]
+      .filter(o => o.remoteRequested !== (o.rotulo === 'remota'))
+      .map(o => `${o.id} (rótulo ${o.rotulo}, medido ${o.remoteRequested ? 'remota' : 'local'})`)
+    // O rótulo é diagnóstico e pode envelhecer. Ele NÃO decide nada: esta
+    // verificação existe para o corpus avisar quando ficou desatualizado, não
+    // para a elegibilidade depender dele.
+    confere('rótulo de rota não divergiu da medição', divergentes.length ? divergentes.join(', ') : null)
+    confere('classificação cobre o corpus inteiro',
+      resumo.localCorreto + resumo.localFalha + resumo.remotoElegivel === frases.length
+        ? null : `${resumo.total} classificados de ${frases.length}`)
+
+    // ---- 8. Elegibilidade do benchmark ---------------------------------------
+    //
+    // A pergunta paga é "quando o modelo pôde influenciar, qual configuração foi
+    // melhor?". Tudo aqui defende esse denominador.
+
+    // Caso 1 — o pipeline fecha a frase localmente e não chama o transporte.
+    const localFechado = [...obs.values()].filter(o => !o.remoteRequested)
+    confere('caso 1: frase resolvida no aparelho não é elegível',
+      localFechado.every(o => o.classe !== 'remoto-elegivel' && o.localResolvedBeforeRemote && o.requestCount === 0)
+        ? null : 'há frase sem requisição marcada como elegível')
+    confere('caso 1: frase resolvida no aparelho fica fora do corpus pago',
+      localFechado.filter(o => noCorpusPago(o, 'pago')).map(o => o.id).join(', ') || null)
+
+    // Caso 2 — o transporte é chamado: entra no benchmark.
+    const chegam = [...obs.values()].filter(o => o.remoteRequested)
+    confere('caso 2: frase que chama o transporte é elegível',
+      chegam.every(o => o.classe === 'remoto-elegivel' && noCorpusPago(o, 'pago') && o.requestCount > 0)
+        ? null : 'frase com requisição ficou fora do benchmark')
+
+    // Caso 5 — rótulo manual diz `local-errada`, mas a requisição acontece.
+    // Medido de verdade: a mensagem de um caso que HOJE chega ao remoto, com o
+    // rótulo trocado à mão. Quem manda é a execução.
+    const queChega = frases.find(c => obs.get(c.id)!.remoteRequested)!
+    const rotuloMentiroso = await observaCaso({ ...queChega, rota: 'local-errada' } as CasoDeFrase, est(queChega.perfil), hoje)
+    confere('caso 5: rótulo `local-errada` não derruba um caso que chega ao remoto',
+      rotuloMentiroso.remoteRequested && rotuloMentiroso.classe === 'remoto-elegivel' && noCorpusPago(rotuloMentiroso, 'pago')
+        ? null : 'o rótulo venceu a medição')
+
+    // Caso 6 — rótulo manual diz `remota`, mas nenhuma requisição acontece.
+    const queNaoChega = frases.find(c => !obs.get(c.id)!.remoteRequested)!
+    const rotuloOtimista = await observaCaso({ ...queNaoChega, rota: 'remota' } as CasoDeFrase, est(queNaoChega.perfil), hoje)
+    confere('caso 6: rótulo `remota` não promove um caso que morre no aparelho',
+      !rotuloOtimista.remoteRequested && rotuloOtimista.classe !== 'remoto-elegivel' && !noCorpusPago(rotuloOtimista, 'pago')
+        ? null : 'o rótulo venceu a medição')
+
+    // O modo `fronteira` existe e continua pago — mas é OUTRA pergunta.
+    const umaFronteira = [...obs.values()].find(o => o.classe === 'local-falha')
+    if (umaFronteira) {
+      confere('fronteira é opt-in e nunca entra no corpus pago padrão',
+        !noCorpusPago(umaFronteira, 'pago') && noCorpusPago(umaFronteira, 'fronteira') ? null : 'modos de corpus trocados')
     }
-    confere('rotas declaradas batem com o orquestrador real', divergentes.length ? divergentes.join(', ') : null)
+  }
+
+  // ---- 8b. Denominador, fallback, retry e justiça ------------------------------
+  {
+    const exec = (over: Partial<ResultadoCaso>): ResultadoCaso => ({
+      config: 't', caso: 'x', suite: 'plano', dimensao: 'consulta-nova', perfil: 'autonomo',
+      rota: 'remota', elegivelRemoto: true, rep: 1, chamadasLogicas: 1,
+      contratoInvalido: false, acoesEsperadas: 0, acoesAceitas: 0, acoesRejeitadas: 0, acoesCasadas: 0,
+      camposCertos: 0, camposConferidos: 0, planoValido: true, planoSemantico: true,
+      perigos: [], numerosSemLastro: [], entidadesInventadas: [], observacoes: [],
+      ms: 500, chamadasHttp: 1, tokensEntrada: 100, tokensSaida: 10, tokensRaciocinio: 0, custoUSD: 0.001,
+      ...over,
+    })
+
+    // Caso 1 (métrica): inelegível não entra no denominador da NOTA do modelo.
+    const misto = [
+      exec({ caso: 'elegivel', elegivelRemoto: true, planoSemantico: true }),
+      exec({ caso: 'local', elegivelRemoto: false, planoSemantico: false, perigos: [{ tipo: 'modalidade', detalhe: 'erro do parser local' }] }),
+    ]
+    const nota = metricasDoModelo('t', misto)
+    confere('caso 1: execução inelegível fica fora do denominador do modelo',
+      nota.execucoes === 1 && nota.queryPlanSemantic === 1 && nota.perigosTotal === 0
+        ? null : `execuções ${nota.execucoes}, plano ${nota.queryPlanSemantic}, perigos ${nota.perigosTotal}`)
+    confere('caso 1: o caso local não some do relatório do app',
+      calculaMetricas('t', misto).execucoes === 2 ? null : 'o relatório geral perdeu o caso local')
+
+    // Caso 3 — remoto chamado, saída inútil, fallback local salva a UX.
+    const comFallback = [exec({ caso: 'fallback', falhaRemota: 'contrato inválido', fallbackLocal: true, planoSemantico: true })]
+    const mf = metricasDoModelo('t', comFallback)
+    confere('caso 3: fallback local não perdoa a falha do remoto',
+      mf.remoteFailureRate === 1 && mf.transportFailureRate === 0
+        ? null : `remoteFailure ${mf.remoteFailureRate}, transportFailure ${mf.transportFailureRate}`)
+    const comSucesso = [exec({ caso: 'fallback' })]
+    confere('caso 3: a nota cai quando o remoto falhou e o local salvou',
+      pontuaEOrdena([metricasDoModelo('falhou', comFallback), metricasDoModelo('ok', comSucesso)])[0].config === 'ok'
+        ? null : 'a falha remota ficou invisível na nota')
+
+    // Caso 4 — retry: um caso lógico, N tentativas HTTP, custo e latência somam.
+    const reg = (turno: number | undefined, tarefa: 'chat' | 'plano', ms: number, custo: number): any =>
+      ({ config: 't', caso: 'x', rep: 1, turno, tarefa, tentativa: 1, inicio: '', ms, status: 200, uso: { entrada: 10, cacheHit: 0, cacheMiss: 10, saida: 5, raciocinio: 0 }, custoUSD: custo, caracteresEntrada: 10, conteudo: '', raciocinioCaracteres: 0 })
+    const comRetry = [reg(undefined, 'chat', 700, 0.001), reg(undefined, 'chat', 900, 0.001)]
+    const cc = contagemDeChamadas(comRetry)
+    confere('caso 4: retry é uma chamada lógica e duas tentativas HTTP',
+      cc.logicas === 1 && cc.http === 2 && cc.retries === 1 ? null : JSON.stringify(cc))
+    confere('caso 4: dois caminhos no mesmo turno são duas chamadas lógicas',
+      chamadasLogicas([reg(1, 'chat', 10, 0), reg(1, 'plano', 10, 0)]) === 2 ? null : 'caminhos diferentes colapsaram')
+    const t4 = resumoTransporte([exec({ chamadasLogicas: 1, chamadasHttp: 2, ms: 1600, custoUSD: 0.002 })])
+    confere('caso 4: custo e latência contam as tentativas, o denominador não',
+      t4.chamadasLogicas === 1 && t4.tentativasHttp === 2 && t4.retries === 1 && t4.custoUSD === 0.002
+        ? null : JSON.stringify(t4))
+
+    // Caso 7 — justiça: duas configurações sobre o MESMO conjunto elegível.
+    const conjunto = (config: string) => [
+      exec({ config, caso: 'a', elegivelRemoto: true }),
+      exec({ config, caso: 'b', elegivelRemoto: true }),
+      exec({ config, caso: 'c', elegivelRemoto: false }),
+    ]
+    confere('caso 7: denominadores idênticos entre configurações',
+      divergenciaDeDenominador(conjunto('A'), conjunto('B')).length === 0 ? null : 'denominadores diferentes sem motivo')
+    const torto = [...conjunto('B').slice(0, 1), exec({ config: 'B', caso: 'z', elegivelRemoto: true })]
+    confere('caso 7: denominador diferente é DETECTADO',
+      divergenciaDeDenominador(conjunto('A'), torto).length ? null : 'a divergência passou despercebida')
   }
 
   const casos = CASOS_PLANO.length + CASOS_CHAT.length + CASOS_CENARIO.length + CASOS_CONTINUIDADE.length

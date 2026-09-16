@@ -230,11 +230,28 @@ export interface ResultadoCaso {
   suite: Suite
   dimensao: Dimensao
   perfil: PerfilEval
+  /** Leitura humana do que o LOCAL faz com a frase. Diagnóstico — NÃO decide elegibilidade. */
   rota: RotaProducao
+  /**
+   * OBSERVADO: o modelo remoto foi de fato requisitado nesta execução. É o
+   * único critério para o caso contar na NOTA do modelo. Um caso que o
+   * aparelho fecha sozinho continua no relatório do app e fora desta conta.
+   */
+  elegivelRemoto: boolean
+  remoteKind?: 'chat' | 'plano' | 'cenario'
   rep: number
   turno?: number
+  /** Uma mensagem para um caminho remoto = uma chamada lógica. Retry não multiplica. */
+  chamadasLogicas: number
   /** Timeout, HTTP de erro, resposta vazia. */
   falhaTransporte?: string
+  /**
+   * O remoto foi chamado e a saída dele não pôde ser usada. Continua sendo
+   * falha DO MODELO mesmo quando o fallback local salvou a resposta ao usuário.
+   */
+  falhaRemota?: string
+  /** O app respondeu pelo caminho local depois de o remoto falhar. */
+  fallbackLocal?: boolean
   contratoInvalido: boolean
   intencaoCorreta?: boolean
   intencaoObtida?: string

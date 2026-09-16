@@ -13,6 +13,12 @@
 //   npx tsx scripts/eval-assistant-models.mts --executar --teto-usd=1.20
 //       [--configs=A,B,C] [--repeticoes=3] [--suites=chat,plano,cenario,continuidade]
 //       [--concorrencia=3] [--reserva-usd=0.50] [--retomar=eval-results/<pasta>]
+//       [--corpus=pago|fronteira|completo]
+//
+// Elegibilidade: só entra na NOTA de um modelo o caso em que o caminho remoto
+// foi de fato alcançado — medido no orquestrador real, sem rede, antes de
+// qualquer gasto. Falha local continua no relatório, em bloco separado, e
+// nunca vira nota de modelo.
 //
 // Privacidade: só estados de tests/assistant/eval/states.ts. O transporte
 // recusa host fora da lista, contexto de chat sem o canário sintético, nome
@@ -41,8 +47,10 @@ import { CASOS_PLANO } from '../tests/assistant/eval/corpus-plan'
 import { CASOS_CENARIO } from '../tests/assistant/eval/corpus-scenario'
 import { FONTE_PRECOS, PRECOS_CONSULTADOS_EM, PREMISSAS, projeta } from '../tests/assistant/eval/cost'
 import type { ChamadaPrevista } from '../tests/assistant/eval/cost'
-import { calculaMetricas, empateEmSeguranca, PESOS, pontuaEOrdena, TIPOS_PERIGO } from '../tests/assistant/eval/metrics'
-import type { MetricasConfig, Trafego } from '../tests/assistant/eval/metrics'
+import { calculaMetricas, divergenciaDeDenominador, empateEmSeguranca, metricasDoModelo, PESOS, pontuaEOrdena, resumoTransporte, soElegiveis, TIPOS_PERIGO } from '../tests/assistant/eval/metrics'
+import type { MetricasConfig, ResumoTransporte, Trafego } from '../tests/assistant/eval/metrics'
+import { elegivel, noCorpusPago, observaCorpus, resumoRoteamento } from '../tests/assistant/eval/routing'
+import type { CasoDeFrase, ModoCorpus, Observacao, ResumoRoteamento } from '../tests/assistant/eval/routing'
 import { falhou, verificaEstado, verificaVocabulario } from '../tests/assistant/eval/privacy'
 import { buildScenarioPlannerPrompt } from '../tests/assistant/eval/scenarioPrompt'
 import { pontuaCenario, pontuaChat, pontuaPlano, pontuaTurno } from '../tests/assistant/eval/score'
@@ -50,7 +58,7 @@ import { CASOS_CHAT, corpoOraculo, materializa, runEvalSelfTest } from '../tests
 import { ESTADOS, vocabularioSintetico } from '../tests/assistant/eval/states'
 import { contextoAvaliacao, instalaTransporte } from '../tests/assistant/eval/transport'
 import type { ConfigModelo, ContextoAvaliacao, Livro, RegistroHttp } from '../tests/assistant/eval/transport'
-import type { CasoCenario, CasoChat, CasoContinuidade, CasoPlano, Dimensao, ResultadoCaso, RotaProducao, Suite } from '../tests/assistant/eval/types'
+import type { CasoCenario, CasoChat, CasoContinuidade, CasoPlano, PerfilEval, ResultadoCaso, Suite } from '../tests/assistant/eval/types'
 
 // ---------------------------------------------------------------------------
 // Configurações comparadas
@@ -74,17 +82,33 @@ const configs = CONFIGS.filter(c => (valor('configs') || 'A,B,C').toUpperCase().
 const suites = (valor('suites') || 'chat,plano,cenario,continuidade').split(',').map(s => s.trim()) as Suite[]
 const repeticoes = Math.max(1, Math.round(Number(valor('repeticoes') || 3)))
 const concorrencia = Math.max(1, Math.round(Number(valor('concorrencia') || 3)))
-const corpus = valor('corpus') === 'completo' ? 'completo' : 'pago'
+const corpus: ModoCorpus = valor('corpus') === 'completo' ? 'completo'
+  : valor('corpus') === 'fronteira' ? 'fronteira' : 'pago'
 
 /**
- * O corpus PAGO não gasta com frase que o modelo nunca vai ver. Rota `local` é
- * resposta certa do aparelho: medir o modelo ali é pagar por uma decisão que
- * ninguém vai tomar. Fica tudo que chega ao remoto, tudo que o local ainda erra
- * (fronteira: é onde o roteamento pode mudar) e a segurança inteira, que é barata
- * e é onde um modelo pior machuca. O corpus COMPLETO continua no autoteste.
+ * ELEGIBILIDADE. A bateria paga responde uma pergunta estreita: quando o modelo
+ * remoto REALMENTE teve oportunidade de influenciar o resultado, qual
+ * configuração foi melhor? Quem responde isso é a execução, não rótulo: o
+ * orquestrador de produção roda com os dois caminhos remotos substituídos por
+ * gravadores, e só a frase que faz sair requisição entra.
+ *
+ * O rótulo `rota` do corpus continua no relatório como DIAGNÓSTICO — ele
+ * envelhece (p-14 e p-19 já eram `local-errada` e hoje chegam ao remoto) e por
+ * isso não decide nada. `--corpus=fronteira` acrescenta de propósito o que o
+ * aparelho resolve errado, para a decisão de ROTEAMENTO; esses casos são pagos
+ * e nunca entram na nota do modelo.
  */
-const noCorpusPago = (c: { rota: RotaProducao; dimensao: Dimensao }): boolean =>
-  corpus === 'completo' || c.rota !== 'local' || c.dimensao === 'seguranca'
+const FRASES: CasoDeFrase[] = [...CASOS_CHAT, ...CASOS_PLANO, ...CASOS_CENARIO]
+const estados = new Map<PerfilEval, AppState>()
+const estadoDe = (perfil: PerfilEval): AppState => {
+  if (!estados.has(perfil)) estados.set(perfil, ESTADOS[perfil](hoje))
+  return estados.get(perfil)!
+}
+let OBS = new Map<string, Observacao>()
+const observaRoteamento = async () => { OBS = await observaCorpus(FRASES, estadoDe, hoje) }
+const entraNoCorpus = (c: { id: string }): boolean => noCorpusPago(OBS.get(c.id), corpus)
+/** O modelo pôde influenciar ESTE caso em produção? É o que a nota dele usa. */
+const elegivelRemoto = (id: string): boolean => elegivel(OBS.get(id))
 const vocabulario = vocabularioSintetico(hoje)
 const usd = (v: number) => `US$ ${v.toFixed(v < 0.1 ? 4 : 2)}`
 const pct = (v: number | null) => (v === null ? '—' : `${(v * 100).toFixed(1)}%`)
@@ -105,9 +129,9 @@ const chaveTarefa = (t: Tarefa) => `${t.config.id}|${t.caso.id}|${t.rep}`
 function montaTarefas(cs: ConfigModelo[], reps: number): Tarefa[] {
   const out: Tarefa[] = []
   for (let rep = 1; rep <= reps; rep++) {
-    if (suites.includes('chat')) for (const caso of CASOS_CHAT.filter(noCorpusPago)) for (const config of cs) out.push({ tipo: 'chat', caso, config, rep })
-    if (suites.includes('plano')) for (const caso of CASOS_PLANO.filter(noCorpusPago)) for (const config of cs) out.push({ tipo: 'plano', caso, config, rep })
-    if (suites.includes('cenario')) for (const caso of CASOS_CENARIO.filter(noCorpusPago)) for (const config of cs) out.push({ tipo: 'cenario', caso, config, rep })
+    if (suites.includes('chat')) for (const caso of CASOS_CHAT.filter(entraNoCorpus)) for (const config of cs) out.push({ tipo: 'chat', caso, config, rep })
+    if (suites.includes('plano')) for (const caso of CASOS_PLANO.filter(entraNoCorpus)) for (const config of cs) out.push({ tipo: 'plano', caso, config, rep })
+    if (suites.includes('cenario')) for (const caso of CASOS_CENARIO.filter(entraNoCorpus)) for (const config of cs) out.push({ tipo: 'cenario', caso, config, rep })
     if (suites.includes('continuidade')) for (const caso of CASOS_CONTINUIDADE) for (const config of cs) out.push({ tipo: 'continuidade', caso, config, rep })
   }
   return out
@@ -141,7 +165,7 @@ async function chatComoCliente(
 }
 
 async function executa(t: Tarefa, cfg: DeepSeekConfig, livro: Livro): Promise<ResultadoCaso[]> {
-  const state = ESTADOS[t.caso.perfil](hoje)
+  const state = estadoDe(t.caso.perfil)
   const origem = verificaEstado(state)
   const nomes = verificaVocabulario(planningContext(state), vocabulario)
   for (const v of [origem, nomes]) if (falhou(v)) { livro.bloqueio = livro.bloqueio || v.motivo; return [] }
@@ -155,12 +179,12 @@ async function executa(t: Tarefa, cfg: DeepSeekConfig, livro: Livro): Promise<Re
     // A mesma decisão de produção: agregados só quando a frase é pergunta ou pedido.
     const contexto = buildAiContext(state, { aggregates: remoteNeedsAggregates(t.caso.mensagem) })
     const http = await contextoAvaliacao.run(c, () => handleAssistantRequest({ message: t.caso.mensagem, context: contexto }, cfg))
-    return [pontuaChat({ caso: t.caso, config: t.config.id, rep: t.rep, state, hoje, contexto, http, registros: c.registros })]
+    return [pontuaChat({ caso: t.caso, config: t.config.id, rep: t.rep, state, hoje, contexto, http, registros: c.registros, elegivelRemoto: elegivelRemoto(t.caso.id) })]
   }
   if (t.tipo === 'plano') {
     const c = ctx('plano')
     const http = await contextoAvaliacao.run(c, () => handleAssistantRequest({ task: 'plan-query', message: t.caso.mensagem, context: planningContext(state) }, cfg))
-    return [pontuaPlano({ caso: t.caso, config: t.config.id, rep: t.rep, state, hoje, http, registros: c.registros })]
+    return [pontuaPlano({ caso: t.caso, config: t.config.id, rep: t.rep, state, hoje, http, registros: c.registros, elegivelRemoto: elegivelRemoto(t.caso.id) })]
   }
   if (t.tipo === 'cenario') {
     const c = ctx('cenario')
@@ -169,7 +193,7 @@ async function executa(t: Tarefa, cfg: DeepSeekConfig, livro: Livro): Promise<Re
       { role: 'user', content: t.caso.mensagem.slice(0, 500) },
     ], { expect: 'object' }))
     const s = isDeepSeekFailure(saida) ? { ok: false, code: saida.code } : { ok: true, envelope: saida.envelope }
-    return [pontuaCenario({ caso: t.caso, config: t.config.id, rep: t.rep, saida: s, registros: c.registros })]
+    return [pontuaCenario({ caso: t.caso, config: t.config.id, rep: t.rep, saida: s, registros: c.registros, elegivelRemoto: elegivelRemoto(t.caso.id) })]
   }
 
   const out: ResultadoCaso[] = []
@@ -181,15 +205,27 @@ async function executa(t: Tarefa, cfg: DeepSeekConfig, livro: Livro): Promise<Re
     const turno = t.caso.turnos[i]
     const registros: RegistroHttp[] = []
     const enviado: { contexto?: any } = {}
+    // O orquestrador CAI para o caminho local quando o remoto não devolve nada
+    // usável. O usuário pode até ver uma resposta certa; para a nota do MODELO
+    // isso é falha, e é aqui que ela é registrada — depois o fallback apaga o
+    // rastro.
+    let falhaRemota: string | undefined
+    let contratoInvalido = false
     const r = await orchestrate({
       state, message: turno.mensagem, draft: draft || undefined, pending,
       pendingClarification: clarification, focus, remoteEnabled: true, today: hoje,
-      askRemote: ({ state: s, message, conversation, aggregates }) => contextoAvaliacao.run(ctx('chat', registros, i + 1),
-        () => chatComoCliente(s, message, { conversation, aggregates }, cfg, enviado)),
+      askRemote: ({ state: s, message, conversation, aggregates }) => contextoAvaliacao.run(ctx('chat', registros, i + 1), async () => {
+        const out = await chatComoCliente(s, message, { conversation, aggregates }, cfg, enviado)
+        if (!out) falhaRemota = falhaRemota || 'chat remoto sem resposta utilizável'
+        else if (out.contractFallback || out.rejected.length) contratoInvalido = true
+        return out
+      }),
       planRemoteQuery: ({ state: s, message }) => contextoAvaliacao.run(ctx('plano', registros, i + 1), async () => {
         const http = await handleAssistantRequest({ task: 'plan-query', message, context: planningContext(s) }, cfg)
         const plano = http.status === 200 ? http.body?.queryPlan : null
-        return plano && typeof plano === 'object' ? plano : null
+        const valido = plano && typeof plano === 'object' ? plano : null
+        if (!valido) falhaRemota = falhaRemota || 'planejador remoto sem plano utilizável'
+        return valido
       }),
     })
     if (r.focus) focus = r.focus
@@ -204,6 +240,7 @@ async function executa(t: Tarefa, cfg: DeepSeekConfig, livro: Livro): Promise<Re
         id: t.caso.id, config: t.config.id, rep: t.rep, turno: i + 1, perfil: t.caso.perfil, gabarito: turno, state, hoje,
         resposta: { reply: r.response.reply, mode: r.response.mode, actions: r.response.actions },
         contexto: enviado.contexto ?? planningContext(state), mensagensAnteriores: [], registros,
+        falhaRemota, contratoInvalido,
       }))
     }
   }
@@ -328,6 +365,8 @@ async function modoModelos(cfg: DeepSeekConfig) {
 
 async function modoOrcamento(cfg: DeepSeekConfig) {
   const t0 = Date.now()
+  await observaRoteamento()
+  const roteamento = resumoRoteamento(OBS.values())
   const { porTarefa, resultados } = await capturaPrompts(cfg)
   const trafego = await medeTrafego()
   const cs = configs.length ? configs : CONFIGS
@@ -338,7 +377,8 @@ async function modoOrcamento(cfg: DeepSeekConfig) {
   console.log('\n══════════ ORÇAMENTO — nenhuma chamada paga foi feita ══════════\n')
   console.log(`Data: ${hoje} · preços de ${FONTE_PRECOS} (consultados em ${PRECOS_CONSULTADOS_EM})`)
   console.log(`Casos: ${CASOS_CHAT.length} chat · ${CASOS_PLANO.length} planejador · ${CASOS_CENARIO.length} cenário (candidato) · ${CASOS_CONTINUIDADE.length} conversas`)
-  console.log(`Corpus ${corpus}: ${CASOS_CHAT.filter(noCorpusPago).length} chat · ${CASOS_PLANO.filter(noCorpusPago).length} planejador · ${CASOS_CENARIO.filter(noCorpusPago).length} cenário · ${CASOS_CONTINUIDADE.length} conversas (fora do pago: rota local que não é segurança)`)
+  console.log(`Corpus ${corpus}: ${CASOS_CHAT.filter(entraNoCorpus).length} chat · ${CASOS_PLANO.filter(entraNoCorpus).length} planejador · ${CASOS_CENARIO.filter(entraNoCorpus).length} cenário · ${CASOS_CONTINUIDADE.length} conversas`)
+  console.log(linhasDeRoteamento(roteamento).join('\n'))
   console.log(`Suítes: ${suites.join(', ')} · repetições: ${repeticoes} · concorrência: ${concorrencia}`)
   console.log(`Chamadas lógicas por repetição, por configuração: ${chamadas.length} (chat ${porSuite('chat').length} · planejador ${chamadas.filter(r => r.tarefa === 'plano').length} · cenário ${porSuite('cenario').length} · turnos remotos de conversa ${porSuite('continuidade').length})`)
   console.log(`Caracteres médios de entrada: chat ${Math.round(avg(chamadas.filter(r => r.tarefa === 'chat').map(r => r.caracteresEntrada)))} · planejador ${Math.round(avg(chamadas.filter(r => r.tarefa === 'plano').map(r => r.caracteresEntrada)))} · cenário ${Math.round(avg(chamadas.filter(r => r.tarefa === 'cenario').map(r => r.caracteresEntrada)))}`)
@@ -396,6 +436,8 @@ async function modoExecutar(cfg: DeepSeekConfig) {
     return
   }
 
+  await observaRoteamento()
+  const roteamento = resumoRoteamento(OBS.values())
   const { porTarefa } = await capturaPrompts(cfg)
   const trafego = await medeTrafego()
   const pasta = valor('retomar') || path.join('eval-results', new Date().toISOString().replace(/[:.]/g, '-'))
@@ -455,22 +497,84 @@ async function modoExecutar(cfg: DeepSeekConfig) {
   }
 
   const resultados: ResultadoCaso[] = lerJsonl(arqResultados)
-  const ordem = pontuaEOrdena(configs.map(c => calculaMetricas(c.id, resultados.filter(r => r.config === c.id), trafego)))
-  const soRemota = configs.map(c => calculaMetricas(c.id, resultados.filter(r => r.config === c.id && r.rota === 'remota'), trafego))
-  const relatorio = montaRelatorio(ordem, soRemota, resultados, livro, parada || livro.bloqueio || '', Date.now() - t0, commit)
+  const doConfig = (id: string) => resultados.filter(r => r.config === id)
+  // A NOTA sai só do que o modelo pôde influenciar. `calculaMetricas` cru fica
+  // para o bloco do app, onde a falha local continua visível.
+  const ordem = pontuaEOrdena(configs.map(c => metricasDoModelo(c.id, doConfig(c.id), trafego)))
+  const fronteira = configs
+    .map(c => calculaMetricas(c.id, doConfig(c.id).filter(r => !r.elegivelRemoto), trafego))
+    .filter(m => m.execucoes > 0)
+  const transportes = new Map(configs.map(c => [c.id, resumoTransporte(doConfig(c.id))] as const))
+  // Justiça: A, B e C têm que ter sido medidos sobre o MESMO conjunto elegível.
+  const desequilibrio: string[] = []
+  for (let i = 1; i < configs.length; i++) {
+    const d = divergenciaDeDenominador(doConfig(configs[0].id), doConfig(configs[i].id))
+    if (d.length) desequilibrio.push(`${configs[0].id} × ${configs[i].id}: ${d.slice(0, 8).join(', ')}${d.length > 8 ? ` (+${d.length - 8})` : ''}`)
+  }
+  const relatorio = montaRelatorio({
+    ordem, fronteira, roteamento, transportes, desequilibrio,
+    rs: resultados, livro, parada: parada || livro.bloqueio || '', ms: Date.now() - t0, commit,
+  })
   fs.writeFileSync(path.join(pasta, 'relatorio.md'), relatorio, 'utf8')
-  fs.writeFileSync(path.join(pasta, 'relatorio.json'), JSON.stringify({ ordem, soRemota, gastoUSD: livro.gastoUSD, parada: parada || livro.bloqueio || null }, null, 2))
+  fs.writeFileSync(path.join(pasta, 'relatorio.json'), JSON.stringify({
+    ordem, fronteira, roteamento, transporte: Object.fromEntries(transportes), desequilibrio,
+    gastoUSD: livro.gastoUSD, parada: parada || livro.bloqueio || null,
+  }, null, 2))
   varreSegredos(pasta, cfg.apiKey)
   console.log(`\n${relatorio}\n\nArquivos em ${pasta}`)
 }
 
-function montaRelatorio(ordem: MetricasConfig[], soRemota: MetricasConfig[], rs: ResultadoCaso[], livro: Livro, parada: string, ms: number, commit: string): string {
+/** Bloco APP/ROTEAMENTO: o que o aparelho resolve, o que ele erra, o que sobra para o modelo. */
+function linhasDeRoteamento(r: ResumoRoteamento): string[] {
+  const suites = Object.entries(r.porSuite).map(([s, v]) => `${s} ${v.elegiveis}/${v.total}`).join(' · ')
+  return [
+    `Roteamento medido (orquestrador real, sem rede): ${r.total} frases · resolvidas no aparelho ${r.localCorreto + r.localFalha}`
+    + ` (certas ${r.localCorreto} · ERRADAS ${r.localFalha}) · elegíveis ao remoto ${r.remotoElegivel} (${pct(r.taxaAlcance)})`,
+    `  por suíte: ${suites}`,
+    r.rotuloVencido.length
+      ? `  rótulo desatualizado (dizia local-errada, hoje chega ao remoto): ${r.rotuloVencido.join(', ')}`
+      : '  nenhum rótulo desatualizado',
+  ]
+}
+
+interface DadosRelatorio {
+  ordem: MetricasConfig[]
+  fronteira: MetricasConfig[]
+  roteamento: ResumoRoteamento
+  transportes: Map<string, ResumoTransporte>
+  desequilibrio: string[]
+  rs: ResultadoCaso[]
+  livro: Livro
+  parada: string
+  ms: number
+  commit: string
+}
+
+function montaRelatorio(d: DadosRelatorio): string {
+  const { ordem, fronteira, roteamento, transportes, desequilibrio, rs, livro, parada, ms, commit } = d
   const rotulo = (id: string) => CONFIGS.find(c => c.id === id)?.rotulo || id
   const l: string[] = []
   l.push(`# Avaliação dos modelos remotos — ${hoje}`, '')
   l.push(`Commit ${commit} · gasto real ${usd(livro.gastoUSD)} de teto ${usd(livro.tetoUSD)} · ${livro.chamadasReais} chamadas · ${Math.round(ms / 60000)} min`)
   if (parada) l.push('', `**Execução interrompida:** ${parada}`)
-  l.push('', '## Ordem (menos perigo primeiro; qualidade só desempata)', '')
+  l.push('', '## App / roteamento', '',
+    'Este bloco é do APARELHO, não dos modelos. Nada dele entra na nota de nenhuma configuração.', '')
+  l.push(`- corpus de frases: **${roteamento.total}**`)
+  l.push(`- resolvidas CERTO no aparelho: **${roteamento.localCorreto}**`)
+  l.push(`- resolvidas ERRADO no aparelho, antes de o modelo ser chamado: **${roteamento.localFalha}**`)
+  l.push(`- elegíveis ao remoto (o modelo foi de fato requisitado): **${roteamento.remotoElegivel}** (${pct(roteamento.taxaAlcance)})`)
+  for (const [suite, v] of Object.entries(roteamento.porSuite)) l.push(`  - ${suite}: ${v.elegiveis} de ${v.total}`)
+  if (roteamento.localFalha) {
+    l.push('', `Falha local continua sendo bug e continua aqui — ${roteamento.fronteira.join(', ')}. `
+      + 'Nenhuma escolha de modelo conserta isso, porque o modelo não é consultado.')
+  }
+  if (desequilibrio.length) {
+    l.push('', '⚠️ **Denominadores diferentes entre configurações** — a comparação abaixo não é justa até isto ser explicado:',
+      ...desequilibrio.map(x => `- ${x}`))
+  }
+  l.push('', '## Qualidade do modelo — SÓ os casos elegíveis', '',
+    `Denominador: ${ordem[0]?.execucoes ?? 0} execuções por configuração, todas com chamada remota real.`, '')
+  l.push('### Ordem (menos perigo primeiro; qualidade só desempata)', '')
   l.push('| # | Configuração | Perigos/100 (IC 95%) | Qualidade | Custo / 1.000 msgs | p50 | p95 | Estabilidade |', '|---|---|---|---|---|---|---|---|')
   ordem.forEach((m, i) => l.push(`| ${i + 1} | ${m.config} — ${rotulo(m.config)} | ${m.perigosPor100} (${m.perigosIntervalo[0]}–${m.perigosIntervalo[1]}) | ${m.qualidade} | ${m.custoPor1000MensagensUSD === null ? '—' : usd(m.custoPor1000MensagensUSD)} | ${(m.latenciaP50 / 1000).toFixed(1)}s | ${(m.latenciaP95 / 1000).toFixed(1)}s | ${pct(m.estabilidade)} |`))
   if (ordem.length > 1 && empateEmSeguranca(ordem[0], ordem[1])) {
@@ -494,16 +598,31 @@ function montaRelatorio(ordem: MetricasConfig[], soRemota: MetricasConfig[], rs:
   linha('generic response rate', m => pct(m.genericRate))
   linha('privacy violation rate', m => pct(m.privacyViolationRate))
   linha('transport failure rate', m => pct(m.transportFailureRate))
+  linha('remote failure rate (fallback local não perdoa)', m => pct(m.remoteFailureRate))
   linha('tokens de entrada / chamada', m => String(Math.round(m.tokensEntradaMedio)))
   linha('tokens de saída / chamada', m => String(Math.round(m.tokensSaidaMedio)))
   linha('tokens de raciocínio / chamada', m => String(Math.round(m.tokensRaciocinioMedio)))
   linha('custo total', m => usd(m.custoTotalUSD))
   l.push('', '## Perigos por tipo', '', `| Tipo | ${ordem.map(m => m.config).join(' | ')} |`, `|---|${ordem.map(() => '---').join('|')}|`)
   for (const t of TIPOS_PERIGO) l.push(`| ${t} | ${ordem.map(m => m.perigos[t]).join(' | ')} |`)
-  l.push('', '## Só as frases que chegam ao modelo HOJE (rota remota)', '', `| Configuração | Plano semântico | Intenção | Perigos/100 |`, '|---|---|---|---|')
-  for (const m of soRemota) l.push(`| ${m.config} | ${pct(m.queryPlanSemantic)} | ${pct(m.intentAccuracy)} | ${m.perigosPor100} |`)
-  l.push('', '## Cada perigo, para auditoria manual', '')
-  for (const r of rs.filter(x => x.perigos.length)) {
+  l.push('', '## Transporte', '',
+    '`casos` e `chamadas lógicas` são o denominador; `tentativas HTTP` inclui retry, e é ela que a conta e a latência seguem.', '',
+    '| Configuração | Casos | Chamadas lógicas | Tentativas HTTP | Retries | Falhas de transporte | Falhas remotas | p50 | p95 | Tokens in | Tokens out | Custo |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|')
+  for (const [id, t] of transportes) {
+    l.push(`| ${id} | ${t.casosLogicos} | ${t.chamadasLogicas} | ${t.tentativasHttp} | ${t.retries} | ${t.falhasTransporte} | ${t.falhasRemotas} | `
+      + `${(t.latenciaP50 / 1000).toFixed(1)}s | ${(t.latenciaP95 / 1000).toFixed(1)}s | ${t.tokensEntrada} | ${t.tokensSaida} | ${usd(t.custoUSD)} |`)
+  }
+  if (fronteira.length) {
+    l.push('', '## Fronteira de ROTEAMENTO (`--corpus=fronteira`) — fora da nota do modelo', '',
+      'Frases que o aparelho resolve ERRADO hoje. O modelo foi consultado aqui só para responder "valeria mandar isto a ele?".',
+      'A resposta não muda a nota de ninguém: em produção esta chamada não acontece.', '',
+      '| Configuração | Execuções | Plano semântico | Intenção | Perigos/100 |', '|---|---|---|---|---|')
+    for (const m of fronteira) l.push(`| ${m.config} | ${m.execucoes} | ${pct(m.queryPlanSemantic)} | ${pct(m.intentAccuracy)} | ${m.perigosPor100} |`)
+  }
+  l.push('', '## Cada perigo, para auditoria manual', '',
+    'Só os elegíveis: perigo de execução que o modelo não influenciou não é dele.', '')
+  for (const r of soElegiveis(rs).filter(x => x.perigos.length)) {
     l.push(`- **${r.config}** ${r.caso}${r.turno ? `#${r.turno}` : ''} (rep ${r.rep}): ${r.perigos.map(p => `${p.tipo} — ${p.detalhe}`).join('; ')}${r.resposta ? ` · resposta: "${r.resposta.replace(/\s+/g, ' ').slice(0, 160)}"` : ''}`)
   }
   return l.join('\n')

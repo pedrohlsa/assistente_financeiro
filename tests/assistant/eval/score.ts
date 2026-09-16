@@ -18,6 +18,7 @@ import { DRIVER_ONLY_SOURCES } from '../../../src/assistant/query/types'
 import { isDriver } from '../../../src/services/profile'
 import { normalizeName } from '../../../src/utils/text'
 import { comparaAcoes, comparaCenario, comparaPlano } from './canonical'
+import { chamadasLogicas } from './routing'
 import type {
   AcaoOuro, CasoCenario, CasoChat, CasoPlano, IntencaoChat, Perigo, ResultadoCaso, RotaProducao,
   Suite, TurnoOuro, Violacao, Dimensao, PerfilEval,
@@ -31,11 +32,20 @@ import type { RegistroHttp } from './transport'
 interface Identidade {
   config: string; caso: string; suite: Suite; dimensao: Dimensao; perfil: PerfilEval
   rota: RotaProducao; rep: number; turno?: number
+  /**
+   * OBSERVADO no orquestrador real, não deduzido de `rota`. Para chat, plano e
+   * cenário o avaliador chama o modelo DIRETO — a chamada dele não prova nada
+   * sobre produção, então quem decide é a medição de roteamento que vem junto.
+   * Para continuidade é o próprio orquestrador que decide, turno a turno.
+   */
+  elegivelRemoto: boolean
+  remoteKind?: 'chat' | 'plano' | 'cenario'
 }
 
 export function resultadoBase(id: Identidade, registros: RegistroHttp[]): ResultadoCaso {
   return {
     ...id,
+    chamadasLogicas: chamadasLogicas(registros),
     contratoInvalido: false,
     acoesEsperadas: 0, acoesAceitas: 0, acoesRejeitadas: 0, acoesCasadas: 0,
     camposCertos: 0, camposConferidos: 0,
@@ -217,11 +227,13 @@ const temIntencao = (esperada: IntencaoChat | { umDe: IntencaoChat[] }, obtida: 
 export interface EntradaChat {
   caso: CasoChat; config: string; rep: number; state: AppState; hoje: string
   contexto: any; http: { status: number; body: any }; registros: RegistroHttp[]
+  /** Medido no orquestrador real: esta frase chega ao chat remoto em produção? */
+  elegivelRemoto: boolean
 }
 
 export function pontuaChat(e: EntradaChat): ResultadoCaso {
   const { caso, http, state, hoje } = e
-  const r = resultadoBase({ config: e.config, caso: caso.id, suite: 'chat', dimensao: caso.dimensao, perfil: caso.perfil, rota: caso.rota, rep: e.rep }, e.registros)
+  const r = resultadoBase({ config: e.config, caso: caso.id, suite: 'chat', dimensao: caso.dimensao, perfil: caso.perfil, rota: caso.rota, elegivelRemoto: e.elegivelRemoto, remoteKind: 'chat', rep: e.rep }, e.registros)
   const ouro = caso.ouro
   if (http.status !== 200) {
     r.falhaTransporte = String(http.body?.error || `HTTP ${http.status}`)
@@ -287,11 +299,12 @@ export function pontuaChat(e: EntradaChat): ResultadoCaso {
 export interface EntradaPlano {
   caso: CasoPlano; config: string; rep: number; state: AppState; hoje: string
   http: { status: number; body: any }; registros: RegistroHttp[]
+  elegivelRemoto: boolean
 }
 
 export function pontuaPlano(e: EntradaPlano): ResultadoCaso {
   const { caso, http, state, hoje } = e
-  const r = resultadoBase({ config: e.config, caso: caso.id, suite: 'plano', dimensao: caso.dimensao, perfil: caso.perfil, rota: caso.rota, rep: e.rep }, e.registros)
+  const r = resultadoBase({ config: e.config, caso: caso.id, suite: 'plano', dimensao: caso.dimensao, perfil: caso.perfil, rota: caso.rota, elegivelRemoto: e.elegivelRemoto, remoteKind: 'plano', rep: e.rep }, e.registros)
   if (http.status !== 200) {
     r.falhaTransporte = String(http.body?.error || `HTTP ${http.status}`)
     return r
@@ -321,11 +334,12 @@ export function pontuaPlano(e: EntradaPlano): ResultadoCaso {
 export interface EntradaCenario {
   caso: CasoCenario; config: string; rep: number
   saida: { ok: boolean; code?: string; envelope?: any }; registros: RegistroHttp[]
+  elegivelRemoto: boolean
 }
 
 export function pontuaCenario(e: EntradaCenario): ResultadoCaso {
   const { caso, saida } = e
-  const r = resultadoBase({ config: e.config, caso: caso.id, suite: 'cenario', dimensao: caso.dimensao, perfil: caso.perfil, rota: caso.rota, rep: e.rep }, e.registros)
+  const r = resultadoBase({ config: e.config, caso: caso.id, suite: 'cenario', dimensao: caso.dimensao, perfil: caso.perfil, rota: caso.rota, elegivelRemoto: e.elegivelRemoto, remoteKind: 'cenario', rep: e.rep }, e.registros)
   if (!saida.ok) {
     r.falhaTransporte = String(saida.code || 'falha')
     return r
@@ -351,11 +365,27 @@ export interface EntradaTurno {
   gabarito: TurnoOuro; state: AppState; hoje: string
   resposta: { reply: string; mode: string; actions: { action: ParsedAction }[] }
   contexto: any; mensagensAnteriores: string[]; registros: RegistroHttp[]
+  /**
+   * O remoto foi chamado e a saída dele não pôde ser usada — o orquestrador caiu
+   * para o caminho local. A resposta que o usuário vê pode até estar certa; a do
+   * MODELO falhou, e é isso que a nota dele registra.
+   */
+  falhaRemota?: string
+  contratoInvalido?: boolean
 }
 
 /** Turno de continuidade: só entra na conta quando o modelo remoto foi de fato chamado. */
 export function pontuaTurno(e: EntradaTurno): ResultadoCaso {
-  const r = resultadoBase({ config: e.config, caso: e.id, suite: 'continuidade', dimensao: 'continuidade', perfil: e.perfil, rota: 'remota', rep: e.rep, turno: e.turno }, e.registros)
+  const kind = e.registros.some(x => x.tarefa === 'plano') && !e.registros.some(x => x.tarefa === 'chat') ? 'plano' : 'chat'
+  const r = resultadoBase({
+    config: e.config, caso: e.id, suite: 'continuidade', dimensao: 'continuidade', perfil: e.perfil,
+    rota: 'remota', elegivelRemoto: e.registros.length > 0, remoteKind: kind, rep: e.rep, turno: e.turno,
+  }, e.registros)
+  if (e.falhaRemota) {
+    r.falhaRemota = e.falhaRemota
+    r.fallbackLocal = true
+  }
+  if (e.contratoInvalido) r.contratoInvalido = true
   const g = e.gabarito
   const texto = String(e.resposta.reply || '')
   r.resposta = texto
