@@ -2047,6 +2047,42 @@ export async function runProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 89. Pares telegráficos preservam a cardinalidade ------------------
+  // "uber 210 99 130" são DUAS receitas. Duas plataformas com dois valores, em
+  // qualquer ordem e com ou sem verbo, não podem virar zero nem uma. E o
+  // contrário: número que não tem par não vira dinheiro.
+  await checkAsync(r, 'duas plataformas com dois valores são dois lançamentos', async () => {
+    const pares: [string, string][] = [['uber', 'Uber'], ['99', '99'], ['indrive', 'inDrive']]
+    const formas = [
+      (p1: string, a: number, p2: string, b: number) => `${p1} ${a} ${p2} ${b}`,
+      (p1: string, a: number, p2: string, b: number) => `${a} ${p1} ${b} ${p2}`,
+      (p1: string, a: number, p2: string, b: number) => `${p1} deu ${a} e a ${p2} uns ${b}`,
+      (p1: string, a: number, p2: string, b: number) => `${p1} fez ${a} e ${p2} fez ${b}`,
+      (p1: string, a: number, p2: string, b: number) => `deu ${a} ${p1} e ${b} na ${p2}`,
+      (p1: string, a: number, p2: string, b: number) => `hoje ${p1} ${a} e ${p2} ${b}`,
+    ]
+    for (const perfil of ['driver', 'other'] as const) {
+      for (let i = 0; i < pares.length; i++) {
+        for (let j = 0; j < pares.length; j++) {
+          if (i === j) continue
+          for (const forma of formas) {
+            const frase = forma(pares[i][0], 317, pares[j][0], 186)
+            const out = await orchestrate({ state: buildState({ profile: perfil }), message: frase, remoteEnabled: false, today: TODAY })
+            const receitas = acoesDe(out.response).filter(a => a.action.kind === 'income')
+            const valores = receitas.map(a => (a.action as any).amount).sort((x, y) => x - y)
+            if (valores.join(',') !== '186,317') return `"${frase}" (${perfil}) rendeu receitas [${valores.join(', ')}]`
+            if (receitas.some(a => (a.action as any).is99)) return `"${frase}" marcou taxa da 99 sozinho`
+          }
+        }
+      }
+      for (const impar of ['uber 317 99', '317 uber 99', 'uber 99']) {
+        const out = await orchestrate({ state: buildState({ profile: perfil }), message: impar, remoteEnabled: false, today: TODAY })
+        if (acoesDe(out.response).some(a => (a.action as any).amount === 99)) return `"${impar}" (${perfil}) transformou 99 em dinheiro`
+      }
+    }
+    return null
+  })
+
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
   // Invariante de FIAÇÃO, não de lógica: o corpus sempre passou
   // `pendingClarification`, então ele nunca poderia ver que `Chat.tsx` não

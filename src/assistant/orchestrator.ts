@@ -26,6 +26,7 @@ import { buildRemoteConversation } from './conversation/remoteContext'
 import type { RemoteConversationContext, RemoteTurnRelation } from './conversation/remoteContext'
 import { buildTurnPlan, hasBlock } from './semantic/turn'
 import { parseDriverDay } from './semantic/driverDay'
+import { parseTypedPairs } from './semantic/pairs'
 import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } from './semantic/normalize'
 import { conflictQuestion, evidenceFor, mergeByField, sameFact } from './semantic/evidence'
 import { classifyLocalDecision } from './semantic/confidence'
@@ -1198,6 +1199,48 @@ Confirmar?`,
             version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
             actions: cands, unresolved: [],
             reply: `${proposalText(cands)}\n\nConfirmar?`,
+          },
+        }
+      }
+    }
+  }
+
+  // ---- 10c) PARES TELEGRÁFICOS, em qualquer perfil ------------------------
+  // "uber deu 210 e a 99 uns 130", "uber 210 99 130", "salario 3200 aluguel
+  // pago 1100": cada valor colado a quem diz o que ele é. Nenhuma oração, e
+  // nem a forma do dia do motorista (valor antes, três partes, só motorista).
+  // As duas receitas sumiam. O leitor tem vocabulário fechado e desiste diante
+  // de qualquer palavra que não conhece — data, negação, pergunta, hipótese
+  // passam direto para quem sabe delas. Mesma regra do dia telegráfico: só
+  // assume quando reconhece MAIS que o parser de frases.
+  const pares = parseTypedPairs(mensagem, { driver: caps.isDriver })
+  if (pares) {
+    // Conta só DINHEIRO: a "1 viagem" que o parser deduz de uma receita de
+    // corrida não é um valor que o usuário disse, e contá-la fazia uma receita
+    // perdida empatar com a viagem inventada.
+    const DINHEIRO = new Set(['income', 'expense', 'fuel', 'saving'])
+    const jaAchou = turno.blocks.reduce((n, b) => n + b.actions.filter(a => DINHEIRO.has(a.kind)).length, 0)
+    if (pares.length > jaAchou) {
+      const dataDoDia = turno.blocks.find(b => b.clause.date)?.clause.date
+      const cands: AssistantCandidateAction[] = []
+      for (const bruta of pares) {
+        const comData: any = { ...bruta }
+        if (dataDoDia && actionSpec(bruta.kind)?.fields.some(f => f.name === 'date')) comData.date = dataDoDia
+        const v = validateAction(withLearnedCategory(input.state, comData, today), caps, today)
+        if (!isValidationFailure(v)) cands.push(candidate(v.action, 'local'))
+      }
+      // Tudo ou nada: um par recusado na validação não pode sumir em silêncio
+      // enquanto o outro é confirmado.
+      if (cands.length === pares.length) {
+        return {
+          draft: null,
+          focus: input.focus,
+          response: {
+            version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
+            actions: cands, unresolved: [],
+            reply: `${proposalText(cands)}
+
+Confirmar?`,
           },
         }
       }

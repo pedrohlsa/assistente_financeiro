@@ -50,6 +50,11 @@ export const CLASSE_FINANCEIRA: AssistantCase[] = [
     expectActions: [{ kind: 'income', amount: 3200, category: /^(?!aluguel$)/ }, { kind: 'expense', amount: 1100 }],
   },
   {
+    id: 'tc-04', group: 'tipo-clausula', ...clt,
+    messages: ['salario 3200 aluguel pago 1100'],
+    expectActions: [{ kind: 'income', amount: 3200, category: 'salario' }, { kind: 'expense', amount: 1100 }],
+  },
+  {
     id: 'tc-05', group: 'tipo-clausula', ...clt,
     messages: ['entrou 3200 do salario e 1100 saiu de aluguel'],
     expectActions: [{ kind: 'income', amount: 3200, category: 'salario' }, { kind: 'expense', amount: 1100 }],
@@ -177,6 +182,100 @@ export const CLASSE_FINANCEIRA: AssistantCase[] = [
     // Controle: registro comum com "foi" continua sendo registro.
     messages: ['foi 90 no mercado'],
     expectActions: [{ kind: 'expense', amount: 90 }],
+  },
+
+  // ===== 3. PARES TELEGRÁFICOS ===========================================
+  {
+    id: 'tp-01', group: 'pares-telegraf', ...driver,
+    messages: ['uber deu 210 e a 99 uns 130'],
+    expectActions: [
+      { kind: 'income', amount: 210, category: 'corridas', description: 'Uber', is99: null },
+      { kind: 'income', amount: 130, category: 'corridas', description: '99', is99: null },
+    ],
+  },
+  {
+    id: 'tp-02', group: 'pares-telegraf', ...driver,
+    messages: ['uber 210 99 130'],
+    expectActions: [
+      { kind: 'income', amount: 210, description: 'Uber' },
+      { kind: 'income', amount: 130, description: '99' },
+    ],
+  },
+  {
+    id: 'tp-03', group: 'pares-telegraf', ...driver,
+    messages: ['deu 210 uber e 130 na 99'],
+    expectActions: [
+      { kind: 'income', amount: 210, description: 'Uber' },
+      { kind: 'income', amount: 130, description: '99' },
+    ],
+  },
+  {
+    id: 'tp-04', group: 'pares-telegraf', ...driver,
+    messages: ['uber fez 210 e 99 fez 130'],
+    expectActions: [
+      { kind: 'income', amount: 210, description: 'Uber' },
+      { kind: 'income', amount: 130, description: '99' },
+    ],
+  },
+  {
+    id: 'tp-05', group: 'pares-telegraf', ...driver,
+    messages: ['210 uber 130 99'],
+    expectActions: [
+      { kind: 'income', amount: 210, description: 'Uber' },
+      { kind: 'income', amount: 130, description: '99' },
+    ],
+  },
+  {
+    id: 'tp-06', group: 'pares-telegraf', ...driver,
+    messages: ['hoje uber 210 e 99 130'],
+    expectActions: [
+      { kind: 'income', amount: 210, description: 'Uber', date: HOJE },
+      { kind: 'income', amount: 130, description: '99', date: HOJE },
+    ],
+  },
+  {
+    id: 'tp-07', group: 'pares-telegraf', ...driver,
+    // Controle: o segundo valor tem verbo de gasto — não são duas receitas.
+    messages: ['uber deu 210 e gastei 130 de gasolina'],
+    expectActions: [{ kind: 'income', amount: 210, description: 'Uber' }, { kind: 'fuel', amount: 130 }],
+  },
+  {
+    id: 'tp-08', group: 'pares-telegraf', ...other,
+    // Renda de Uber ocasional para quem não é motorista: registra, e o perfil
+    // continua o mesmo.
+    messages: ['uber deu 210 e a 99 uns 130'],
+    expectActions: [
+      { kind: 'income', amount: 210, description: 'Uber' },
+      { kind: 'income', amount: 130, description: '99' },
+    ],
+    thenConfirm: s => (s.settings.profile === 'other' ? null : `perfil virou ${s.settings.profile}`),
+  },
+  {
+    id: 'tp-09', group: 'pares-telegraf', ...driver,
+    messages: ['hoje uber deu 210 e a 99 uns 130 abasteci 80'],
+    expectActions: [
+      { kind: 'income', amount: 210, description: 'Uber' },
+      { kind: 'income', amount: 130, description: '99' },
+      { kind: 'fuel', amount: 80 },
+    ],
+  },
+  {
+    id: 'tp-10', group: 'pares-telegraf', ...driver,
+    // Número sem par não vira dinheiro: "99" aqui não tem valor nenhum.
+    messages: ['uber 210 99'],
+    forbidAmounts: [99],
+  },
+  {
+    id: 'tp-11', group: 'pares-telegraf', ...driver,
+    // O par telegráfico não fura a regra temporal.
+    messages: ['uber 210 99 130 amanhã'],
+    expectNoActions: true,
+  },
+  {
+    id: 'tp-12', group: 'pares-telegraf', ...other,
+    // Nome solto sem tipo não vira par: continua como o bloquinho sempre leu.
+    messages: ['lanche 15 e café 5'],
+    expectActions: [{ kind: 'expense', amount: 15 }, { kind: 'expense', amount: 5 }],
   },
 
 ]
