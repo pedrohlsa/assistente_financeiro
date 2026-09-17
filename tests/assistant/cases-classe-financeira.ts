@@ -278,4 +278,60 @@ export const CLASSE_FINANCEIRA: AssistantCase[] = [
     expectActions: [{ kind: 'expense', amount: 15 }, { kind: 'expense', amount: 5 }],
   },
 
+  // ===== 4. FUTURO NÃO É REALIZADO =======================================
+  {
+    id: 'fu-01', group: 'futuro', ...autonomo,
+    // A reprodução documentada: a casa 2 ainda VAI cair. Só a casa 1 é fato.
+    messages: ['recebi 1800 da casa 1 e 1200 da casa 2 mas a 2 ainda vai cair na conta amanhã'],
+    expectActions: [{ kind: 'income', amount: 1800, origin: 'casa 1' }],
+    forbidAmounts: [1200],
+  },
+  { id: 'fu-02', group: 'futuro', ...autonomo, messages: ['amanhã cai 1800 do aluguel'], expectNoActions: true },
+  { id: 'fu-03', group: 'futuro', ...autonomo, messages: ['vou receber 1800 amanhã'], expectNoActions: true },
+  { id: 'fu-04', group: 'futuro', ...autonomo, messages: ['semana que vem pago 500'], expectNoActions: true },
+  { id: 'fu-05', group: 'futuro', ...autonomo, messages: ['vou gastar 300 mês que vem'], expectNoActions: true },
+  { id: 'fu-06', group: 'futuro', ...autonomo, messages: ['depois de amanhã cai 1800'], expectNoActions: true },
+  { id: 'fu-07', group: 'futuro', ...autonomo, messages: ['próximo mês recebo 2000'], expectNoActions: true },
+  { id: 'fu-08', group: 'futuro', ...autonomo, messages: ['daqui a 3 dias cai 500'], expectNoActions: true },
+  { id: 'fu-09', group: 'futuro', ...autonomo, messages: ['daqui a 2 semanas pago 400 de luz'], expectNoActions: true },
+  { id: 'fu-10', group: 'futuro', ...autonomo, messages: ['em 5 dias cai 700'], expectNoActions: true },
+  { id: 'fu-11', group: 'futuro', ...autonomo, messages: ['dia 20 cai 1500 do cliente'], expectNoActions: true },
+  {
+    id: 'fu-12', group: 'futuro', ...autonomo,
+    // Virava DESPESA realizada de 1800: "vai cair" não era lido como futuro.
+    messages: ['vai cair 1800 do aluguel'],
+    expectNoActions: true,
+  },
+  { id: 'fu-13', group: 'futuro', ...autonomo, messages: ['recebo 1800 amanhã'], expectNoActions: true },
+  { id: 'fu-14', group: 'futuro', ...autonomo, messages: ['deve entrar 900 amanhã'], expectNoActions: true },
+  {
+    id: 'fu-15', group: 'futuro', ...autonomo,
+    messages: ['ontem caiu 1800'],
+    expectActions: [{ kind: 'income', amount: 1800, date: ONTEM }],
+  },
+  {
+    id: 'fu-16', group: 'futuro', ...autonomo,
+    messages: ['hoje caiu 1800'],
+    expectActions: [{ kind: 'income', amount: 1800, date: HOJE }],
+  },
+  { id: 'fu-17', group: 'futuro', ...autonomo, messages: ['vai entrar 500 do cliente'], expectNoActions: true },
+  {
+    id: 'fu-18', group: 'futuro', ...autonomo,
+    // Mesma classe do lado da DESPESA: a água ainda vai ser paga.
+    messages: ['paguei 200 de luz e 150 de água mas a água só vou pagar amanhã'],
+    expectActions: [{ kind: 'expense', amount: 200 }],
+    forbidAmounts: [150],
+  },
+  {
+    id: 'fu-19', group: 'futuro', ...autonomo,
+    // Controle: as duas casas pagas, nenhuma no futuro.
+    messages: ['recebi 1800 da casa 1 e 1200 da casa 2'],
+    expectActions: [{ kind: 'income', amount: 1800, origin: 'casa 1' }, { kind: 'income', amount: 1200, origin: 'casa 2' }],
+  },
+  {
+    id: 'fu-20', group: 'futuro', ...autonomo,
+    // Controle: fato de hoje com plano de amanhã continua registrando o fato.
+    messages: ['gastei 40 hoje e amanhã vou pagar 120'],
+    expectActions: [{ kind: 'expense', amount: 40, date: HOJE }],
+  },
 ]

@@ -47,6 +47,9 @@ const ESTRUTURAL: string[] = [
   // estava a uma letra de "saiu" e era "corrigido" para ele: a RECEITA virava
   // despesa ("depois caiu meu salario 3200" → "saiu meu salario").
   'caiu', 'cair', 'pingou',
+  // Mesmo defeito no FUTURO: "vai sair 430 de luz" virava "vai saiu 430" e o
+  // plano passava a ser uma despesa realizada.
+  'sair', 'pingar', 'vencer',
   'registrar', 'registra', 'apagar', 'desfazer', 'cancelar', 'corrigir',
   // tempo
   'hoje', 'ontem', 'anteontem', 'amanha', 'semana', 'semanas', 'meses',

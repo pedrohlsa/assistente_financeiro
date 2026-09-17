@@ -12,6 +12,7 @@ import { findAllDates, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
 import { parseMoney, todayISO } from '../utils/format'
+import { normalizeName } from '../utils/text'
 import { suspicionReasons } from './semantic/confidence'
 import type { SuspicionReason } from './semantic/confidence'
 
@@ -262,8 +263,13 @@ export const looksLikeConversation = (t: string): boolean => hasAny(t, CONVERSAT
  * NÃO zera meta: "quero comprar um celular de 5000 em 6 meses" é justamente
  * como se cria um objetivo de compra, e ali a intenção é o ponto.
  */
-const MODAIS = 'posso|poderia|devo|deveria|quero|queria|pretendo|penso\\s+em|planejo|vou|vamos|irei|iria|preciso|precisava|tenho\\s+que|tenho\\s+de|d[áa]\\s+pra|d[áa]\\s+para|consigo|gostaria\\s+de|to\\s+querendo|estou\\s+querendo'
+// "Vai cair", "vai entrar", "deve entrar" são o FUTURO de quem espera dinheiro:
+// o sujeito é o dinheiro, não a pessoa, e por isso não estavam aqui. "Vai cair
+// 1800 do aluguel" virava uma DESPESA realizada de 1800 — o leitor sem verbo
+// achava o valor e o substantivo, e nada dizia que aquilo ainda não aconteceu.
+const MODAIS = 'posso|poderia|devo|deveria|quero|queria|pretendo|penso\\s+em|planejo|vou|vamos|vai|v[ãa]o|irei|iria|ir[áa]|ir[ãa]o|deve|devem|preciso|precisava|tenho\\s+que|tenho\\s+de|d[áa]\\s+pra|d[áa]\\s+para|consigo|gostaria\\s+de|to\\s+querendo|estou\\s+querendo'
 const INFINITIVOS_DINHEIRO = 'gastar|pagar|receber|ganhar|comprar|guardar|separar|colocar|botar|abastecer|investir|depositar|tirar|vender|parcelar|juntar|poupar|torrar|meter|trocar|instalar|rodar|trabalhar|faturar|lucrar|aplicar|quitar'
+  + '|cair|entrar|pingar|sair|vencer|debitar|descontar|cobrar'
 
 const INTENCAO = new RegExp(
   String.raw`\b(?:${MODAIS})\s+(?:\S+\s+){0,2}?(?:${INFINITIVOS_DINHEIRO})\b`,
@@ -409,6 +415,71 @@ export function extractOrigins(originalClause: string): { value: string; at: num
 
 /** Compatibilidade: a primeira origem do trecho. */
 export const extractOrigin = (t: string): string | undefined => extractOrigins(t)[0]?.value
+
+// ---------------------------------------------------------------------------
+// Futuro referido por outra cláusula
+// ---------------------------------------------------------------------------
+
+const MOVIMENTO_REFERIVEL = new Set(['income', 'expense', 'saving'])
+const ARTIGO_REF = '(?:a|o|as|os|da|do|na|no|pela|pelo)'
+const escapa = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** Como a cláusula futura pode chamar este lançamento: origem inteira, o identificador dela, ou a descrição. */
+function nomesDe(a: ParsedAction): RegExp[] {
+  const out: RegExp[] = []
+  const origem = normalizeName(String((a as any).origin || ''))
+  if (origem) {
+    out.push(new RegExp(String.raw`\b${escapa(origem)}\b`))
+    const ultimo = origem.split(' ').pop()!
+    if (ultimo && ultimo !== origem) out.push(new RegExp(String.raw`\b${ARTIGO_REF}\s+${escapa(ultimo)}\b`))
+  }
+  const desc = normalizeName(String((a as any).description || ''))
+  if (desc && desc.split(' ').length <= 2) out.push(new RegExp(String.raw`\b${ARTIGO_REF}\s+${escapa(desc)}\b`))
+  return out
+}
+
+function moveFuturoReferido(clauses: AnalyzedClause[], today: string): void {
+  for (let i = 1; i < clauses.length; i++) {
+    const c = clauses[i]
+    if (c.actions.length || c.temporal?.actions?.length) continue
+    if (c.intent === 'question' || c.intent === 'conversation' || looksNegated(c.text)) continue
+    const futura = findAllDates(c.text, today).find(isFutureDate)
+    const intencao = !looksPast(c.text) ? c.text.match(INTENCAO) : null
+    if (!futura && !intencao) continue
+
+    const texto = normalizeName(c.text)
+    const movidas: ParsedAction[] = []
+    for (let j = 0; j < i; j++) {
+      const e = clauses[j]
+      const ficam: ParsedAction[] = []
+      for (const a of e.actions) {
+        if (MOVIMENTO_REFERIVEL.has(a.kind) && nomesDe(a).some(re => re.test(texto))) movidas.push(a)
+        else ficam.push(a)
+      }
+      if (ficam.length !== e.actions.length) e.actions = ficam
+    }
+    if (!movidas.length) continue
+
+    const sinal: TemporalSignal = c.temporal?.kind === 'future'
+      ? c.temporal
+      : futura
+        ? { kind: 'future', text: futura.text, label: futura.label, date: futura.date, relative: futura.relative, imprecise: futura.imprecise, actions: [] }
+        : { kind: 'future', text: intencao![0], label: intencao![0], imprecise: true, actions: [] }
+    sinal.actions = [...sinal.actions, ...movidas]
+    // Sem verbo no passado na cláusula futura, é o plano declarado.
+    if (looksPast(c.text)) sinal.conflict = true
+    else sinal.plan = true
+    c.temporal = sinal
+    c.intent = 'record'
+    c.handled = true
+    // A cláusula de onde o lançamento saiu não ficou "não entendida": o que ela
+    // dizia foi lido, só que é futuro.
+    for (let j = 0; j < i; j++) {
+      const e = clauses[j]
+      if (!e.actions.length && e.intent === 'record' && !e.temporal) { e.temporal = sinal; e.handled = true }
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Análise
@@ -844,6 +915,13 @@ export function analyzeMessage(
     c.intent = 'correction'
     c.handled = true
   }
+
+  // FUTURO QUE APONTA PARA A OUTRA METADE: "recebi 1800 da casa 1 e 1200 da
+  // casa 2 MAS A 2 AINDA VAI CAIR amanhã". A cláusula futura não tem valor
+  // próprio — ela fala do lançamento da cláusula anterior pelo nome ("a 2", "a
+  // água", "o da ana"). Sem ligar as duas, os 1200 saíam como recebidos hoje,
+  // ao lado de um aviso de que algo ainda não tinha acontecido.
+  moveFuturoReferido(clauses, today)
 
   const actions = clauses.flatMap(c => c.actions)
   const unansweredQuestions = clauses.filter(c => c.intent === 'question' && !c.handled)

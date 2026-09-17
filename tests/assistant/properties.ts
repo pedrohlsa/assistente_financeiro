@@ -2083,6 +2083,39 @@ export async function runProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 90. Futuro explícito nunca vira lançamento realizado --------------
+  // Complementa a 13 com as duas formas que escapavam: o futuro dito numa
+  // cláusula que só REFERE o lançamento da outra ("recebi 1200 da casa 2 mas a
+  // 2 ainda vai cair amanhã") e o futuro perifrástico sem data ("vai cair
+  // 1800"). Vale para receita e para despesa.
+  await checkAsync(r, 'futuro explícito nunca vira realizado', async () => {
+    const frases: [string, number][] = [
+      ['recebi 1800 da casa 1 e 1200 da casa 2 mas a 2 ainda vai cair na conta amanhã', 1200],
+      ['recebi 1800 da casa 1 e 1200 da casa 2 mas a casa 2 só cai semana que vem', 1200],
+      ['recebi 900 do cliente joão e 700 do cliente ana mas o da ana só entra amanhã', 700],
+      ['paguei 200 de luz e 150 de água mas a água só vou pagar amanhã', 150],
+      ['vai cair 1800 do aluguel', 1800],
+      ['vai entrar 500 do cliente', 500],
+      ['ainda vai cair 650', 650],
+      ['vai sair 430 de luz', 430],
+      ['o aluguel vai cair 1800', 1800],
+    ]
+    for (const perfil of ['autonomo', 'other', 'clt'] as const) {
+      for (const [frase, futuro] of frases) {
+        const out = await orchestrate({ state: buildState({ profile: perfil }), message: frase, remoteEnabled: false, today: TODAY })
+        const vazou = acoesDe(out.response).find(a => (a.action as any).amount === futuro)
+        if (vazou) return `"${frase}" (${perfil}) propôs ${vazou.action.kind} de ${futuro} como realizado`
+      }
+    }
+    // Contraste: passado e hoje continuam registrando.
+    for (const [frase, data] of [['ontem caiu 1800', addDays(TODAY, -1)], ['hoje caiu 1800', TODAY]] as const) {
+      const out = await orchestrate({ state: buildState({ profile: 'autonomo' }), message: frase, remoteEnabled: false, today: TODAY })
+      const a = acoesDe(out.response)[0]?.action as any
+      if (!a || a.kind !== 'income' || a.amount !== 1800 || (a.date || TODAY) !== data) return `"${frase}" não registrou 1800 em ${data}`
+    }
+    return null
+  })
+
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
   // Invariante de FIAÇÃO, não de lógica: o corpus sempre passou
   // `pendingClarification`, então ele nunca poderia ver que `Chat.tsx` não

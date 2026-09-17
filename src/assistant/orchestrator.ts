@@ -282,6 +282,17 @@ export function describeUndo(state: AppState, entry: AssistantJournalEntry): str
  */
 function futurePlanReply(t: TemporalSignal): string {
   const quando = t.date && !t.imprecise ? ` (${brDate(t.date)})` : ''
+  // Com outra parte da frase virando proposta, "isso" não diz O QUÊ ficou de
+  // fora. O valor segurado precisa aparecer: é ele que o usuário confere.
+  const valores = t.actions
+    .map(a => (a as any).amount)
+    .filter((v: any) => typeof v === 'number' && v > 0)
+    .map((v: number) => fmtBRL(v))
+  if (valores.length) {
+    return `${valores.join(' e ')} ainda não ${valores.length > 1 ? 'aconteceram' : 'aconteceu'} — você falou de "${t.text}"${quando}. `
+      + 'Eu ainda não sei agendar lançamentos futuros, então essa parte ficou de fora. '
+      + 'Quando acontecer, é só me avisar que eu registro na hora.'
+  }
   return `Isso ainda não aconteceu — você falou de "${t.text}"${quando}. `
     + 'Eu ainda não sei agendar lançamentos futuros, então não registrei nada. '
     + 'Quando acontecer, é só me avisar que eu registro na hora.'
