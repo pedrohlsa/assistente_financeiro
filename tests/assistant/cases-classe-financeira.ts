@@ -90,4 +90,93 @@ export const CLASSE_FINANCEIRA: AssistantCase[] = [
     expectActions: [{ kind: 'income', amount: 1625, category: 'salario' }],
   },
 
+  // ===== 2. CORREÇÃO FALADA ==============================================
+  // Sem proposta na tela, "aquele foi 90 e não 80" fala de um lançamento que
+  // JÁ EXISTE. Nunca é lançamento novo, nunca são dois.
+  {
+    id: 'cf-01', group: 'correcao-falada', ...other, state: doisGastos,
+    messages: ['aquele gasto de ontem foi 90 e não 80'],
+    expectActions: [{ kind: 'edit-transaction', transactionId: 'tx-80', amount: 90 }],
+    thenConfirm: s => {
+      if (s.transactions.length !== 2) return `${s.transactions.length} lançamentos (esperava os mesmos 2)`
+      const t = s.transactions.find(x => x.id === 'tx-80')
+      return t?.amount === 90 && t.type === 'expense' ? null : `tx-80 ficou ${t?.type} ${t?.amount}`
+    },
+  },
+  {
+    id: 'cf-02', group: 'correcao-falada', ...other, state: doisGastos,
+    messages: ['aquele do mercado foi 230 na verdade'],
+    expectActions: [{ kind: 'edit-transaction', transactionId: 'tx-150', amount: 230 }],
+  },
+  {
+    id: 'cf-03', group: 'correcao-falada', ...other, state: doisGastos,
+    messages: ['o 150 que eu te falei era de farmácia não de mercado'],
+    expectActions: [{ kind: 'edit-transaction', transactionId: 'tx-150', category: 'compras' }],
+  },
+  {
+    id: 'cf-04', group: 'correcao-falada', ...other, state: doisGastos,
+    messages: ['aquele foi 90 e não 80'],
+    expectActions: [{ kind: 'edit-transaction', transactionId: 'tx-80', amount: 90 }],
+  },
+  {
+    id: 'cf-05', group: 'correcao-falada', ...other, state: doisGastos,
+    messages: ['não foi 80 foi 90'],
+    expectActions: [{ kind: 'edit-transaction', transactionId: 'tx-80', amount: 90 }],
+  },
+  {
+    id: 'cf-06', group: 'correcao-falada', ...other, state: doisGastos,
+    messages: ['aquele de ontem foi 90 na verdade'],
+    expectActions: [{ kind: 'edit-transaction', transactionId: 'tx-80', amount: 90 }],
+  },
+  {
+    id: 'cf-07', group: 'correcao-falada', ...other, state: doisGastos,
+    // Dois candidatos e nenhuma pista: perguntar.
+    messages: ['corrige aquele pra 90'],
+    expectMode: 'clarify', expectNoActions: true,
+  },
+  {
+    id: 'cf-08', group: 'correcao-falada', ...other, state: doisGastos,
+    messages: ['era 90 e não 80'],
+    expectActions: [{ kind: 'edit-transaction', transactionId: 'tx-80', amount: 90 }],
+  },
+  {
+    id: 'cf-09', group: 'correcao-falada', ...other, state: doisGastos,
+    // Contesta algo sem dizer o quê: pergunta qual, não inventa nem nega.
+    messages: ['não, foi 100 mesmo'],
+    expectMode: 'clarify', expectNoActions: true,
+    forbidReply: [/isso não aconteceu/i],
+  },
+  {
+    id: 'cf-10', group: 'correcao-falada', ...other, state: doisGastos,
+    // Negação continua negação: não é correção de lançamento anterior.
+    messages: ['não gastei 80'],
+    expectNoActions: true,
+    expectReply: [/não aconteceu/i],
+  },
+  {
+    id: 'cf-11', group: 'correcao-falada', ...other,
+    // Nada salvo para corrigir: explica, não cria.
+    messages: ['aquele gasto de ontem foi 90 e não 80'],
+    expectNoActions: true,
+    expectReply: [/não encontrei|nenhum lançamento/i],
+  },
+  {
+    id: 'cf-12', group: 'correcao-falada', ...other,
+    state: {
+      transactions: [
+        { id: 'tx-a', type: 'expense', amount: 80, category: 'alimentacao', description: 'Lanche', date: ONTEM },
+        { id: 'tx-b', type: 'expense', amount: 80, category: 'lazer', description: 'Cinema', date: ONTEM },
+      ],
+    },
+    // Dois de 80 ontem: a pista não desempata, e escolher seria adivinhar.
+    messages: ['aquele foi 90 e não 80'],
+    expectMode: 'clarify', expectNoActions: true,
+  },
+  {
+    id: 'cf-13', group: 'correcao-falada', ...other,
+    // Controle: registro comum com "foi" continua sendo registro.
+    messages: ['foi 90 no mercado'],
+    expectActions: [{ kind: 'expense', amount: 90 }],
+  },
+
 ]

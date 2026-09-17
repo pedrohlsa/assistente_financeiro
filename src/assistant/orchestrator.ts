@@ -10,7 +10,7 @@
 
 import type { AppState, AssistantJournalEntry, ParsedAction, Transaction } from '../models/types'
 import { lastReversibleBatch } from './journal'
-import { editActionFor, findEditCandidates, parseEditRequest } from './editSaved'
+import { editActionFor, findEditCandidates, parseEditRequest, parseSpokenCorrection } from './editSaved'
 import type { EditableTxField } from './editSaved'
 import { editBlockReason } from './execute'
 import type {
@@ -1026,7 +1026,11 @@ Confirmar?`,
   // Depois do undo e das correções da proposta: com algo na tela, a frase se
   // refere ao que está na tela, não ao histórico.
   if (!input.pending?.length) {
+    // A forma declarativa ("aquele foi 90 e não 80") é a mesma correção dita do
+    // jeito que se fala. Sem ela a frase caía no parser de registro e virava um
+    // lançamento NOVO ao lado do errado.
     const pedido = parseEditRequest(input.message, caps, today)
+      ?? parseSpokenCorrection(input.message, caps, today)
     const candidatos = pedido ? findEditCandidates(input.state, pedido, today) : []
     // Pedido reconhecido só pelo verbo e sem nenhum lançamento que combine:
     // com um apelido citado ("muda o CINEMA para 80") vale dizer que não achou
@@ -1045,7 +1049,7 @@ Confirmar?`,
           ? `Não achei nenhum lançamento de "${sentenceCase(pedido.hints.text)}" nos últimos meses. Confira o nome, ou me diga o dia e o valor atual.`
           : 'Não encontrei nenhum lançamento que combine com isso. Me diga o dia e o valor atual que eu procuro de novo.')
       }
-      if (candidatos.length === 1) {
+      if (candidatos.length === 1 && !pedido.ask) {
         const bloqueio = editBlockReason(input.state, candidatos[0])
         if (bloqueio) return resposta(`Esse lançamento não dá para corrigir por aqui: ${bloqueio}`)
         const cand = [candidate(editActionFor(candidatos[0], pedido) as ParsedAction, 'local')]

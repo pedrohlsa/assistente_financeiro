@@ -16,6 +16,7 @@ import type { AppState, Transaction } from '../models/types'
 import type { AssistantCapabilities } from './contracts'
 import { findDate } from './dates'
 import { parseMoney, addDays } from '../utils/format'
+import { guessCategory } from '../data/categories'
 import { normalizeName } from '../utils/text'
 
 /** Campos que podem ser corrigidos. O TIPO do lançamento não está aqui. */
@@ -28,6 +29,13 @@ export interface EditRequest {
   hints: { date?: string; from?: string; to?: string; amount?: number; text?: string }
   /** Reconhecido sem substantivo genérico: só vale se achar o lançamento. */
   loose?: boolean
+  /**
+   * A frase contesta um valor sem dizer de qual lançamento ("não, foi 100
+   * mesmo"). Mesmo com um candidato só, a resposta é PERGUNTAR: ali "foi 100
+   * mesmo" também pode ser confirmação, e corrigir histórico por dedução não
+   * é aceitável.
+   */
+  ask?: boolean
 }
 
 const VERBO = 'corrig[ei]|corrigir|corrija|ajust[ae]|ajustar|mud[ae]|mudar|troc[ae]|trocar|alter[ae]|alterar|arrum[ae]|arrumar'
@@ -126,6 +134,130 @@ export function parseEditRequest(
 
   const novo = primeiroValor(direita)
   return novo === undefined ? null : { field: 'amount', value: novo, hints, loose }
+}
+
+// ---------------------------------------------------------------------------
+// Correção FALADA — a forma declarativa
+// ---------------------------------------------------------------------------
+//
+// Na fala real a correção quase nunca vem no imperativo ("corrige o gasto de
+// ontem para 90"). Vem assim:
+//
+//     aquele gasto de ontem foi 90 e não 80
+//     aquele do mercado foi 230 na verdade
+//     o 150 que eu te falei era de farmácia não de mercado
+//     não foi 80, foi 90
+//
+// Nenhuma tem verbo de edição nem "para", então `parseEditRequest` não as
+// reconhecia — e a frase seguia para o parser de registro, onde `foi` é verbo
+// de despesa: nascia um lançamento NOVO de 90, com a descrição "Não 80", ao
+// lado do de 80 que continuava errado.
+//
+// O reconhecimento aqui é estreito de propósito. Precisa da MARCA de correção
+// (o par "X e não Y", "não foi Y, foi X", "na verdade" junto de uma referência
+// a algo já dito) e não aceita verbo de registro: "não gastei 80" é negação,
+// "gastei 150 na verdade 130" é correção dentro da própria frase, e as duas
+// têm dono em outro lugar.
+
+const VALOR = String.raw`(?:r\$\s*)?(\d+(?:[.,]\d+)*)`
+const COPULA = String.raw`(?:foi|era|[ée]|deu|custou)`
+const NAO = String.raw`n[ãa]o`
+
+/** Verbo de REGISTRO: com ele a frase é relato (ou negação de relato), não correção de algo salvo. */
+const VERBO_DE_REGISTRO = /\b(?:gastei|gastou|paguei|pagou|recebi|recebeu|ganhei|ganhou|comprei|comprou|caiu|entrou|saiu|abasteci|coloquei|botei|guardei|separei|depositei|rodei|fiz|parcelei|passei)\b/i
+
+/** A frase aponta para algo já dito ou salvo. */
+const REFERENCIA = /\b(?:aquel[ea]|ess[ea]|est[ea])\b|\b[oa]\s+(?:de|do|da)\s+\S+|\b[oa]\s+\d+(?:[.,]\d+)*\s+que\s+eu\s+(?:te\s+)?(?:falei|disse|passei|mandei)|\bque\s+eu\s+(?:te\s+)?(?:falei|disse|passei|mandei)\b/i
+
+const NOVO_E_NAO_ANTIGO = new RegExp(String.raw`\b${COPULA}\s+${VALOR}\s*,?\s*(?:e\s+)?${NAO}\s+(?:${COPULA}\s+)?${VALOR}(?![\d.,]*\d)`, 'i')
+const NAO_ANTIGO_NOVO = new RegExp(String.raw`\b${NAO}\s+(?:${COPULA})\s+${VALOR}\s*,?\s*(?:e\s+sim\s+|mas\s+|foi\s+|era\s+|[ée]\s+)+${VALOR}`, 'i')
+const NA_VERDADE_NOVO = new RegExp(String.raw`\b${COPULA}\s+${VALOR}\s+na\s+(?:verdade|real)\b|\bna\s+(?:verdade|real)\s*,?\s*(?:\S+\s+){0,3}?${COPULA}\s+${VALOR}`, 'i')
+const DISSE_ANTIGO_ERA_NOVO = new RegExp(String.raw`\b[oa]\s+${VALOR}\s+que\s+eu\s+(?:te\s+)?(?:falei|disse|passei|mandei)\s+${COPULA}\s+${VALOR}`, 'i')
+const CATEGORIA_TROCADA = new RegExp(String.raw`\b${COPULA}\s+(?:de|d[oa])\s+([a-zà-úçãõ][\wçãõáéíóúâê]*)\s*,?\s*(?:e\s+)?${NAO}\s+(?:de|d[oa])\s+([a-zà-úçãõ][\wçãõáéíóúâê]*)`, 'i')
+const CONTESTA_SEM_ALVO = new RegExp(String.raw`^\s*${NAO}\s*[,!.]?\s+${COPULA}\s+${VALOR}(?:\s+mesmo)?\s*[.!]?\s*$`, 'i')
+
+/** O apelido depois de "aquele do ...": "mercado", "lanche". Datas e palavras de tempo não contam. */
+function apelidoCitado(t: string): string | undefined {
+  const m = t.match(/\b(?:aquel[ea]|ess[ea]|est[ea]|[oa])\s+(?:gasto\s+|despesa\s+|receita\s+|lan[çc]amento\s+|compra\s+)?(?:d[oae])\s+([a-zà-úçãõ][\wçãõáéíóúâê]*)/i)
+  const nome = m?.[1]?.toLowerCase()
+  if (!nome || /^(?:ontem|hoje|anteontem|semana|m[eê]s|dia|manh[ãa]|tarde|noite)$/.test(nome)) return undefined
+  return nome
+}
+
+function valorDe(raw?: string): number | undefined {
+  if (!raw) return undefined
+  const v = parseMoney(raw)
+  return Number.isFinite(v) && v > 0 ? v : undefined
+}
+
+/**
+ * Lê a correção dita na forma declarativa. `null` quando a frase não é
+ * claramente isso — e aí ela segue o caminho de sempre.
+ */
+export function parseSpokenCorrection(
+  message: string,
+  caps: AssistantCapabilities,
+  today: string,
+): EditRequest | null {
+  const t = message.toLowerCase()
+  if (VERBO_DE_REGISTRO.test(t)) return null
+
+  const hints: EditRequest['hints'] = {}
+  const quando = findDate(t, today)
+  if (quando?.kind === 'date') hints.date = quando.date
+  else if (quando?.kind === 'period') { hints.from = quando.from; hints.to = quando.to }
+  const apelido = apelidoCitado(t)
+  if (apelido) hints.text = apelido
+
+  const cat = t.match(CATEGORIA_TROCADA)
+  if (cat) {
+    const alvo = normalizeName(cat[1])
+    const categoria = caps.categories.find(c => normalizeName(c.id) === alvo || normalizeName(c.name) === alvo)
+      || caps.categories.find(c => c.id === guessCategory(cat[1], 'expense'))
+      || caps.categories.find(c => c.id === guessCategory(cat[1], 'income'))
+    if (!categoria) return null
+    const dito = t.match(/\b[oa]\s+(\d+(?:[.,]\d+)*)\s+que\s+eu/i)
+    const antigo = valorDe(dito?.[1])
+    if (antigo !== undefined) hints.amount = antigo
+    // O nome antigo ("não de MERCADO") identifica o lançamento tanto quanto o apelido.
+    if (!hints.text) hints.text = cat[2].toLowerCase()
+    return { field: 'category', value: categoria.id, hints }
+  }
+
+  const novoNao = t.match(NOVO_E_NAO_ANTIGO)
+  if (novoNao) {
+    const novo = valorDe(novoNao[1])
+    const antigo = valorDe(novoNao[2])
+    if (novo === undefined || antigo === undefined || novo === antigo) return null
+    return { field: 'amount', value: novo, hints: { ...hints, amount: antigo } }
+  }
+  const naoNovo = t.match(NAO_ANTIGO_NOVO)
+  if (naoNovo) {
+    const antigo = valorDe(naoNovo[1])
+    const novo = valorDe(naoNovo[2])
+    if (novo === undefined || antigo === undefined || novo === antigo) return null
+    return { field: 'amount', value: novo, hints: { ...hints, amount: antigo } }
+  }
+  const disse = t.match(DISSE_ANTIGO_ERA_NOVO)
+  if (disse) {
+    const antigo = valorDe(disse[1])
+    const novo = valorDe(disse[2])
+    if (novo === undefined || antigo === undefined || novo === antigo) return null
+    return { field: 'amount', value: novo, hints: { ...hints, amount: antigo } }
+  }
+  // "na verdade" sozinho corrige o que está na TELA; para mexer no histórico
+  // precisa apontar para algo já dito ("aquele", "o de ontem", "o do mercado").
+  const naVerdade = t.match(NA_VERDADE_NOVO)
+  if (naVerdade && REFERENCIA.test(t)) {
+    const novo = valorDe(naVerdade[1] ?? naVerdade[2])
+    return novo === undefined ? null : { field: 'amount', value: novo, hints }
+  }
+  const contesta = t.match(CONTESTA_SEM_ALVO)
+  if (contesta) {
+    const novo = valorDe(contesta[1])
+    return novo === undefined ? null : { field: 'amount', value: novo, hints, ask: true }
+  }
+  return null
 }
 
 /** Janela local da busca: recente e curta, nunca o histórico inteiro. */

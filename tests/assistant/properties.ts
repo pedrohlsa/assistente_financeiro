@@ -2011,6 +2011,42 @@ export async function runProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 88. Correção falada não cria fato ---------------------------------
+  // "Aquele foi 90 e não 80" fala de um lançamento que já existe. Achando o
+  // alvo, corrige; não achando, pergunta ou explica. Em nenhum caminho a frase
+  // pode aumentar o número de lançamentos — e "não gastei 80", que é negação,
+  // não pode virar correção de coisa nenhuma.
+  await checkAsync(r, 'correção falada nunca cria lançamento', async () => {
+    const CRIA = new Set(['income', 'expense', 'saving', 'fuel', 'work', 'maintenance', 'card-purchase', 'card-charge', 'goal-deposit'])
+    const estados = [
+      buildState({ profile: 'other' }),
+      buildState({ profile: 'other', transactions: [{ id: 't1', type: 'expense', amount: 80, category: 'alimentacao', description: 'Lanche', date: addDays(TODAY, -1) }] }),
+      buildState({ profile: 'other', transactions: [
+        { id: 't1', type: 'expense', amount: 80, category: 'alimentacao', description: 'Lanche', date: addDays(TODAY, -1) },
+        { id: 't2', type: 'expense', amount: 80, category: 'lazer', description: 'Cinema', date: addDays(TODAY, -1) },
+      ] }),
+      buildState({ profile: 'driver', transactions: [{ id: 't1', type: 'income', amount: 80, category: 'corridas', description: 'Uber', date: TODAY }] }),
+    ]
+    const frases = [
+      'aquele foi 90 e não 80', 'aquele gasto de ontem foi 90 e não 80', 'era 90 e não 80',
+      'não foi 80 foi 90', 'não foi 80, foi 90', 'aquele de ontem foi 90 na verdade',
+      'aquele do lanche foi 90 na verdade', 'o 80 que eu te falei era 90', 'na verdade aquele foi 90',
+      'aquela receita foi 90 e não 80', 'o de ontem foi 90 e nao 80',
+    ]
+    for (const st of estados) {
+      for (const frase of frases) {
+        const out = await orchestrate({ state: st, message: frase, remoteEnabled: false, today: TODAY })
+        const criou = acoesDe(out.response).find(a => CRIA.has(a.action.kind))
+        if (criou) return `"${frase}" criou ${criou.action.kind} de ${(criou.action as any).amount}`
+      }
+      for (const neg of ['não gastei 80', 'nao recebi 80', 'não paguei 80 de lanche']) {
+        const out = await orchestrate({ state: st, message: neg, remoteEnabled: false, today: TODAY })
+        if (acoesDe(out.response).length) return `negação "${neg}" propôs ${acoesDe(out.response)[0].action.kind}`
+      }
+    }
+    return null
+  })
+
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
   // Invariante de FIAÇÃO, não de lógica: o corpus sempre passou
   // `pendingClarification`, então ele nunca poderia ver que `Chat.tsx` não
