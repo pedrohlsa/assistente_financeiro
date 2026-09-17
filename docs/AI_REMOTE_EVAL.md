@@ -304,6 +304,11 @@ anterior desta rodada falou em "34" e "cinco corrigidas"; os números certos sã
 
 **Registro perigoso que CONTINUA (relido em 15/09/2026):**
 
+> **Atualização de 17/09/2026:** as seis primeiras linhas desta tabela (receita fantasma de 1.100,
+> as três correções faladas, Uber/99 e a casa 2 futura) foram **corrigidas** — commits `5ba621f`,
+> `b8754c7`, `baebb2d` e `5b015a9`, detalhe em `PROGRESS.md`. Continuam abertas: vale alimentação,
+> água de 180, c-20 e "sessenta vírgula cinquenta".
+
 | Frase | O que o app propõe hoje | Esperado |
 |---|---|---|
 | `salario caiu 3200 e ja paguei o aluguel de 1100` (CLT) | receita 3.200 + **receita** 1.100 + despesa 1.100 | receita 3.200 + despesa 1.100 |

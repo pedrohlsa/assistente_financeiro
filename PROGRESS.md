@@ -2901,6 +2901,9 @@ durante a rodada: não eram "34" com "cinco corrigidas".*
 
 #### Defeitos colaterais que NÃO foram corrigidos (relidos no código atual em 15/09)
 
+*Em 17/09/2026 as seis primeiras linhas e a da "casa 2" foram corrigidas — ver a seção "Quatro bugs
+financeiros críticos" abaixo. As demais continuam abertas.*
+
 | Frase | Hoje | Esperado |
 |---|---|---|
 | `salario caiu 3200 e ja paguei o aluguel de 1100` (CLT) | receita 3.200 + receita 1.100 + despesa 1.100 | receita 3.200 + despesa 1.100 |
@@ -3001,3 +3004,35 @@ antigo o autoteste falha em 3 verificações e lista os 28 casos nominalmente. C
 é elegível; frase que chama o transporte é elegível; fallback não perdoa o remoto; retry é 1 caso
 lógico e N tentativas; rótulo `local-errada` não derruba quem chega ao remoto; rótulo `remota` não
 promove quem morre no aparelho; denominadores idênticos entre configurações (e divergência detectada).
+
+#### Quatro bugs financeiros críticos — corrigidos em 17/09/2026
+
+Nenhuma chamada paga, nenhum push, nenhum deploy. Benchmark continua NÃO AUTORIZADO.
+
+| Bug | Componente | Causa real | Commit |
+|---|---|---|---|
+| Receita fantasma de R$ 1.100 | associação verbo/valor/entidade | não era herança entre cláusulas: "ja paguei o aluguel de 1100" SOZINHA já gerava receita + despesa. A regra "fonte de renda como sujeito" ignorava o verbo de pagar da própria cláusula — e "paguei a comissão de 200" virava só receita | `5ba621f` |
+| Correção falada cria lançamento | correção/referência | o caminho de edição de lançamento salvo só reconhecia o imperativo com "para"; "aquele foi 90 e não 80" caía no parser de registro, onde "foi" é verbo de despesa | `b8754c7` |
+| Uber/99 perde as receitas | associação entidade↔valor↔tipo | o parser de frases exige verbo de receita e valor antes da plataforma; o dia telegráfico só lê valor→plataforma, com 3+ partes e só para motorista. "salario 3200 aluguel pago 1100" era o mesmo buraco | `baebb2d` |
+| Futuro proposto como recebido | modalidade temporal | o "amanhã" era lido, mas na cláusula "a 2 ainda vai cair" — sem valor próprio, referindo a casa 2 da cláusula anterior. E "vai cair 1800" não era futuro: virava despesa realizada | `5b015a9` |
+
+Compartilhamento real de causa: só o da variante "salario 3200 aluguel pago 1100" (bug 1) com o bug
+3 — ambos são pareamento telegráfico, resolvido pelo mesmo leitor. Os demais são mecanismos
+diferentes e foram corrigidos separadamente. Dois efeitos colaterais da MESMA família apareceram no
+reparo de digitação: "caiu" virava "saiu" (receita → despesa) e "vai sair" virava "vai saiu"
+(futuro → passado); os dois verbos entraram no vocabulário estrutural.
+
+**Testes:** corpus `cases-classe-financeira.ts` com 56 casos (tipo-clausula 11, correcao-falada 13,
+pares-telegraf 12, futuro 20), RED antes: 2/11, 3/13, 3/12, 17/20. Invariantes 87–90 (tipo isolado
+por verbo; correção não cria; pares preservam cardinalidade; futuro não vira realizado), as quatro
+RED antes. Final: 618/618 casos, 75/75, 4.080 + 3.800 metamórficos, 1.416 fuzz, 123/123 invariantes
+(90 financeiras), avaliador 434/434.
+
+**Roteamento sem rede:** inalterado — 21 local-correto, 27 local-falha, 66 elegíveis ao remoto
+(chat 44/55, planejador 19/44, cenário 3/15), 84 chamadas lógicas por repetição.
+
+**Continuam abertos:** vale alimentação 800; água de 180; c-20; "sessenta vírgula cinquenta";
+"onde vazou"; "e se parar a obra" (e o rótulo "Projeção para /z. de 2026" na resposta dela — achado
+novo, já existia em `7777c17`); "o aluguel foi 1800" propõe receita E despesa do mesmo valor (achado
+nesta rodada, mesma família do bug 1 mas sem verbo que desempate — não corrigido); caso dedicado para
+"12x" não virar R$ 12; invariante 104 só varre arquivos versionados; os demais 27 local-falha.
