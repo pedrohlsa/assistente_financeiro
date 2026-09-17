@@ -90,6 +90,32 @@ export function cleanDescription(raw?: string): string | undefined {
   return sentenceCase(out)
 }
 
+/**
+ * Verbo EXPLÍCITO de dinheiro saindo. "Aluguel", "salário", "comissão" e
+ * "freela" são renda para quem recebe e gasto para quem paga — o substantivo
+ * sozinho não decide o tipo. Quando a cláusula diz que PAGOU, nenhuma regra
+ * guiada pelo substantivo pode criar receita ali.
+ */
+const VERBO_DE_PAGAR = /\b(?:paguei|pagou|pagamos|pago|paga|gastei|gastou|comprei|comprou|torrei|quitei|quitou|saiu)\b/i
+
+/**
+ * O trecho da frase que pertence a UMA receita: do separador anterior ao
+ * seguinte. Numa frase com dinheiro entrando e saindo, a categoria da receita
+ * não pode vir de uma palavra da outra metade — "recebi 3200 e ja saiu 1100 do
+ * aluguel" punha a receita em Aluguéis.
+ */
+function janelaLocal(text: string, inicio: number, fim: number): string {
+  const SEP = /\s+e\s+|,(?!\d)|;/gi
+  let de = 0
+  let ate = text.length
+  for (const m of text.matchAll(SEP)) {
+    const at = m.index || 0
+    if (at + m[0].length <= inicio) de = at + m[0].length
+    else if (at >= fim) { ate = at; break }
+  }
+  return text.slice(de, ate)
+}
+
 function splitClauses(input: string): string[] {
   const marked = input
     .toLowerCase()
@@ -691,7 +717,7 @@ function parseClause(input: string): ParsedAction[] {
           : platform === 'indriver' ? 'inDrive'
             : platform.includes('privada') ? 'Corrida privada'
               : undefined
-      const context = platform || text
+      const context = platform || (VERBO_DE_PAGAR.test(text) ? janelaLocal(text, at, at + inc[0].trimEnd().length) : text)
       actions.push({
         kind: 'income',
         amount: parseNum(inc[1]),
@@ -731,9 +757,25 @@ function parseClause(input: string): ParsedAction[] {
       }
     }
 
+    // O substantivo entre o verbo e o valor: "caiu MEU SALÁRIO 3200", "entrou o
+    // pagamento de 900". O verbo de receber já disse o tipo; sem aceitar o
+    // substantivo no meio, a receita inteira se perdia.
+    const verboNomeValorRe = new RegExp(
+      String.raw`\b(?:caiu|entrou|pingou|recebi|ganhei)\s+(?:o\s+|a\s+|meu\s+|minha\s+)?(sal[áa]rio|pagamento|freela|freelance|comiss[ãa]o|alugu[eé]l|pix)\s+(?:de\s+|do\s+m[eê]s\s+)?(?:r\$)?\s*${NUM}`,
+      'gi',
+    )
+    for (const vn of text.matchAll(verboNomeValorRe)) {
+      const amount = parseNum(vn[2])
+      if (!(amount > 0) || actions.some(a => a.kind === 'income' && (a as any).amount === amount)) continue
+      const cat = guessCategory(vn[1], 'income')
+      actions.push({ kind: 'income', amount, ...(cat ? { category: cat } : {}) })
+    }
+
     // Fonte de renda como sujeito: "meu salário foi 1625", "o aluguel foi 1800".
     // Sem isso o "foi" caía no regex de despesa e o salário virava gasto.
-    if (!actions.some(a => a.kind === 'income')) {
+    // Com verbo de PAGAR na cláusula a fonte é de outra pessoa: "paguei o
+    // aluguel de 1100" e "paguei a comissão de 200" viravam RECEITA.
+    if (!actions.some(a => a.kind === 'income') && !VERBO_DE_PAGAR.test(text)) {
       const nounIncomeRe = new RegExp(
         String.raw`\b(sal[áa]rio|alugu[eé]l|freela|freelance|comiss[ãa]o|venda)\b[^\d]{0,20}?(?:foi|de|d[eo]\s+)\s*(?:r\$)?\s*${NUM}`,
         'i',
@@ -788,6 +830,18 @@ function parseClause(input: string): ParsedAction[] {
     const rawDesc = (e[2] || '').trim().split(/\s+e\s+|,/)[0].trim()
     const desc = cleanDescription(rawDesc)
     actions.push({ kind: 'expense', amount: parseNum(e[1]), category: guessCategory(rawDesc || text, 'expense'), description: desc })
+  }
+
+  // ----- valor ANTES do verbo de saída: "entrou 3200 do salario e 1100 SAIU de
+  // aluguel". A ordem é a da fala; sem esta leitura a despesa sumia, e o
+  // substantivo de renda da outra metade ainda tirava o "saiu" da lista acima.
+  if (!m && !f) {
+    const valorVerboRe = new RegExp(String.raw`(?:^|\se\s|,(?!\d)|;)\s*(?:r\$)?\s*${NUM}\s*${MOEDA}?\s+saiu\s+(?:de|do|da|com|no|na|em|pr[ao])\s+([a-zà-úçãõ][\wçãõáéíóúâê]*)`, 'gi')
+    for (const vv of text.matchAll(valorVerboRe)) {
+      const amount = parseNum(vv[1])
+      if (!(amount > 0) || actions.some(a => (a as any).amount === amount)) continue
+      actions.push({ kind: 'expense', amount, category: guessCategory(vv[2], 'expense'), description: cleanDescription(vv[2]) })
+    }
   }
 
   // ----- despesa na ordem inversa: "comprei cimento por 190", "paguei a internet a 120"

@@ -43,6 +43,10 @@ const ESTRUTURAL: string[] = [
   'tirei', 'tirar', 'depositei', 'depositar', 'investi', 'investir',
   'parcelei', 'parcelar', 'passei', 'troquei', 'trocar', 'instalei',
   'sobrou', 'sobrar', 'entrou', 'entrar', 'saiu', 'custou', 'custar',
+  // "Caiu" é o verbo do salário que chega na conta. Fora do dicionário ele
+  // estava a uma letra de "saiu" e era "corrigido" para ele: a RECEITA virava
+  // despesa ("depois caiu meu salario 3200" → "saiu meu salario").
+  'caiu', 'cair', 'pingou',
   'registrar', 'registra', 'apagar', 'desfazer', 'cancelar', 'corrigir',
   // tempo
   'hoje', 'ontem', 'anteontem', 'amanha', 'semana', 'semanas', 'meses',

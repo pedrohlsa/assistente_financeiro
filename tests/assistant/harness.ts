@@ -118,6 +118,14 @@ export interface AssistantCase {
   expectWarning?: string | RegExp
   /** Nenhum item da proposta pode trazer aviso. */
   expectNoWarning?: boolean
+  /**
+   * Tipos que NÃO podem aparecer na proposta, qualquer que seja o resto. É a
+   * asserção de classe: "paguei a comissão de 200" pode render uma despesa ou
+   * nada — nunca uma receita.
+   */
+  forbidKinds?: ParsedAction['kind'][]
+  /** Valores que nenhuma ação proposta pode carregar ("uber 210 99" não tem receita de 99). */
+  forbidAmounts?: number[]
   /** A pergunta de esclarecimento precisa casar. */
   expectClarification?: string | RegExp
   /** Confirmar o lote e conferir o estado resultante. */
@@ -205,6 +213,15 @@ export async function runCase(c: AssistantCase): Promise<CaseResult> {
   }
   for (const m of c.forbidReply || []) {
     if (matches(last.reply, m)) errors.push(`resposta contém proibido ${m}`)
+  }
+  const propostas = last.actions as AssistantCandidateAction[]
+  for (const k of c.forbidKinds || []) {
+    if (propostas.some(a => a.action.kind === k)) errors.push(`tipo proibido na proposta: ${k}`)
+  }
+  for (const v of c.forbidAmounts || []) {
+    if (propostas.some(a => Math.abs(Number((a.action as any).amount ?? (a.action as any).total) - v) < 0.005)) {
+      errors.push(`valor proibido na proposta: ${v}`)
+    }
   }
   const avisos = last.actions.map(a => a.patternWarning || a.duplicateWarning || '').filter(Boolean)
   if (c.expectWarning && !avisos.some(a => matches(a, c.expectWarning!))) {

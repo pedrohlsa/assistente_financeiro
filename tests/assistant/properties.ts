@@ -1979,6 +1979,38 @@ export async function runProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 87. O tipo de um lançamento vem da evidência DELE ----------------
+  // "Aluguel", "salário", "comissão", "freela" e "venda" são renda para quem
+  // recebe e gasto para quem paga. Com verbo de PAGAR na cláusula, o
+  // substantivo não pode criar receita — nem sozinho ("paguei a comissão de
+  // 200" virava receita de 200), nem ao lado de uma receita de verdade dita em
+  // outra cláusula ("salario caiu 3200 e ja paguei o aluguel de 1100" rendia
+  // uma receita fantasma de 1100). E o contrário continua valendo: com verbo de
+  // RECEBER, o mesmo substantivo é receita.
+  await checkAsync(r, 'verbo de pagar isola o tipo da cláusula', async () => {
+    const nomes = ['aluguel', 'salario', 'comissão', 'freela', 'venda']
+    const perfis = ['clt', 'autonomo', 'other'] as const
+    for (const perfil of perfis) {
+      for (const nome of nomes) {
+        const pagar = [
+          `paguei o ${nome} de 740`,
+          `ja paguei o ${nome} de 740`,
+          `recebi 2310 e paguei o ${nome} de 740`,
+          `caiu 2310 e ja paguei o ${nome} de 740`,
+        ]
+        for (const frase of pagar) {
+          const out = await orchestrate({ state: buildState({ profile: perfil }), message: frase, remoteEnabled: false, today: TODAY })
+          const fantasma = acoesDe(out.response).find(a => a.action.kind === 'income' && (a.action as any).amount === 740)
+          if (fantasma) return `"${frase}" (${perfil}) propôs RECEITA de 740`
+        }
+        const receber = `recebi o ${nome} de 740`
+        const out = await orchestrate({ state: buildState({ profile: perfil }), message: receber, remoteEnabled: false, today: TODAY })
+        if (acoesDe(out.response).some(a => a.action.kind === 'expense')) return `"${receber}" (${perfil}) virou DESPESA`
+      }
+    }
+    return null
+  })
+
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
   // Invariante de FIAÇÃO, não de lógica: o corpus sempre passou
   // `pendingClarification`, então ele nunca poderia ver que `Chat.tsx` não
