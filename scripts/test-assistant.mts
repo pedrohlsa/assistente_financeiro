@@ -23,6 +23,7 @@ import { ADAPTATIVO } from '../tests/assistant/cases-adaptativo'
 import { REGISTRO_REAL } from '../tests/assistant/cases-registro-real'
 import { ROTEAMENTO } from '../tests/assistant/cases-roteamento'
 import { CLASSE_FINANCEIRA } from '../tests/assistant/cases-classe-financeira'
+import { VALOR_CARDINALIDADE } from '../tests/assistant/cases-valor-cardinalidade'
 import { runProperties } from '../tests/assistant/properties'
 import { runCopilotProperties } from '../tests/assistant/properties-copiloto'
 import { runRemoteProperties } from '../tests/assistant/properties-remoto'
@@ -44,7 +45,7 @@ const verbose = process.argv.includes('--verbose')
 
 let extrasFalharam = false
 
-const ALL = [...CASES, ...CRITICAL, ...ADVERSARIAL, ...TEMPORAL, ...UNDO, ...EDIT, ...FALA_REAL, ...REGISTRO_REAL, ...ADAPTATIVO, ...ROTEAMENTO, ...CLASSE_FINANCEIRA]
+const ALL = [...CASES, ...CRITICAL, ...ADVERSARIAL, ...TEMPORAL, ...UNDO, ...EDIT, ...FALA_REAL, ...REGISTRO_REAL, ...ADAPTATIVO, ...ROTEAMENTO, ...CLASSE_FINANCEIRA, ...VALOR_CARDINALIDADE]
 const selected = only
   ? ALL.filter(c => c.id.includes(only) || c.group.includes(only))
   : ALL

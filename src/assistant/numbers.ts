@@ -244,7 +244,7 @@ export function normalizeNumberWords(entrada: string): { text: string; replaceme
   const found = findNumberWords(text)
   // Sem número por extenso ainda pode haver centavo em dígito ("50 centavos"),
   // então a saída antecipada também passa pelo mesmo tratamento.
-  if (!found.length) return { text: withCents(text), replacements: [] }
+  if (!found.length) return { text: withCents(withSpokenDecimal(text)), replacements: [] }
   let out = ''
   let cursor = 0
   for (const m of found) {
@@ -254,7 +254,7 @@ export function normalizeNumberWords(entrada: string): { text: string; replaceme
     cursor = m.end
   }
   out += text.slice(cursor)
-  return { text: withCents(out), replacements: found }
+  return { text: withCents(withSpokenDecimal(out)), replacements: found }
 }
 
 /**
@@ -323,6 +323,27 @@ export function expandMilComDigito(text: string): string {
  * chega aqui somado — o `\d+,\d{2}` na primeira alternativa é justamente para
  * não somar duas vezes, só limpar o resto da frase.
  */
+/**
+ * DECIMAL FALADO: "sessenta vírgula cinquenta" → "60,50".
+ *
+ * A conversão por extenso resolve cada metade sozinha e devolvia "60 vírgula
+ * 50": o parser lia o 60, e os cinquenta centavos iam para a DESCRIÇÃO do
+ * lançamento ("Vírgula 50 de farmácia"). Perder centavo é perder dinheiro.
+ *
+ * A REGRA, escrita: o que vem depois da vírgula é a parte decimal como foi
+ * dita, dígito a dígito do número falado — "dez vírgula cinco" é 10,5, que em
+ * dinheiro é R$ 10,50, e "sessenta vírgula cinquenta" é 60,50. Não há
+ * padding para dois dígitos: isso transformaria 10,5 em 10,05 e mudaria o
+ * valor. Quem quer cinco centavos diz "dez e cinco centavos", que tem regra
+ * própria logo abaixo.
+ *
+ * Só "vírgula" — "ponto" é ditado de pontuação na fala transcrita ("de
+ * farmácia PONTO") e nunca separador decimal aqui.
+ */
+function withSpokenDecimal(t: string): string {
+  return t.replace(/(?<![\d,.])(\d+)\s+v[íi]rgula\s+(\d{1,2})(?![\d.,])/gi, '$1,$2')
+}
+
 function withCents(t: string): string {
   const pad = (c: string) => c.padStart(2, '0').slice(0, 2)
   return t

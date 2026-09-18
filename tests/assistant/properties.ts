@@ -2116,6 +2116,36 @@ export async function runProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 93. Decimal falado preserva os centavos ---------------------------
+  // "Sessenta vírgula cinquenta" virava R$ 60,00 e os cinquenta centavos iam
+  // para a descrição ("Vírgula 50 de farmácia"). A conversão de número por
+  // extenso resolvia cada metade e não juntava as duas.
+  await checkAsync(r, 'decimal falado preserva centavos', async () => {
+    const casos: [string, number][] = [
+      ['sessenta vírgula cinquenta', 60.5],
+      ['cento e vinte vírgula noventa', 120.9],
+      ['dez vírgula cinco', 10.5],
+      ['quarenta e dois vírgula setenta e cinco', 42.75],
+      ['cinco vírgula vinte', 5.2],
+    ]
+    for (const [falado, valor] of casos) {
+      for (const [verbo, kind] of [['gastei', 'expense'], ['recebi', 'income']] as const) {
+        const frase = `${verbo} ${falado}`
+        const out = await orchestrate({ state: buildState({ profile: 'autonomo' }), message: frase, remoteEnabled: false, today: TODAY })
+        const a: any = acoesDe(out.response)[0]?.action
+        if (!a || a.kind !== kind) return `"${frase}" não rendeu ${kind}`
+        if (Math.abs(a.amount - valor) > 0.005) return `"${frase}" virou ${a.amount}, esperava ${valor}`
+      }
+    }
+    // Contraste: escrito continua igual, e a magnitude de "mil" não muda.
+    for (const [frase, valor] of [['gastei 60,50 na farmácia', 60.5], ['gastei 2,5 mil no mercado', 2500], ['recebi 3 mil', 3000]] as const) {
+      const out = await orchestrate({ state: buildState({ profile: 'autonomo' }), message: frase, remoteEnabled: false, today: TODAY })
+      const a: any = acoesDe(out.response)[0]?.action
+      if (!a || Math.abs(a.amount - valor) > 0.005) return `"${frase}" virou ${a?.amount}, esperava ${valor}`
+    }
+    return null
+  })
+
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
   // Invariante de FIAÇÃO, não de lógica: o corpus sempre passou
   // `pendingClarification`, então ele nunca poderia ver que `Chat.tsx` não
