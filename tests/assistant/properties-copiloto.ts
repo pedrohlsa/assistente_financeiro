@@ -12,6 +12,7 @@ import type { AppState } from '../../src/models/types'
 import { buildState, TODAY } from './harness'
 import { autonomoRico, motoristaRico } from '../fixtures/richState'
 import { planQuery } from '../../src/assistant/query/parse'
+import { normalizeName } from '../../src/utils/text'
 import { isQueryFailure, validateQueryPlan } from '../../src/assistant/query/validate'
 import { runQuery } from '../../src/assistant/query/engine'
 import { QUERY_METRICS, QUERY_SOURCES, DRIVER_ONLY_SOURCES, FIELDS_BY_SOURCE } from '../../src/assistant/query/types'
@@ -25,8 +26,8 @@ import { buildTurnPlan } from '../../src/assistant/semantic/turn'
 import { clampMessage, repairStructuralTypos, stripInvisible, MAX_MESSAGE_CHARS } from '../../src/assistant/semantic/normalize'
 import { orchestrate } from '../../src/assistant/orchestrator'
 import { ASSISTANT_CONTRACT_VERSION } from '../../src/assistant/contracts'
-import { todayISO } from '../../src/utils/format'
-import { periodStats } from '../../src/services/calc'
+import { monthShortLabel, todayISO } from '../../src/utils/format'
+import { monthlyProjections, periodStats } from '../../src/services/calc'
 
 export interface PropertyReport { total: number; failures: string[] }
 
@@ -570,6 +571,23 @@ export async function runCopilotProperties(): Promise<PropertyReport> {
     } finally {
       ;(globalThis as any).fetch = original
     }
+  })
+
+  // --- 120. Rótulo de mês é o mês, nos doze meses ----------------------
+  // "Projeção para /z. de 2026": o rótulo saía de `toLocaleDateString` com um
+  // replace sem limite de palavra, e a primeira "de" de "dez. de 2026" estava
+  // dentro de "dez". Só dezembro quebrava — um teste de um mês qualquer passava.
+  check(r, 'rótulo curto de mês correto nos 12 meses', () => {
+    const esperado = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+    for (let i = 0; i < 12; i++) {
+      const l = monthShortLabel(new Date(2026, i, 1))
+      if (l !== `${esperado[i]}/2026`) return `mês ${i + 1} virou "${l}"`
+    }
+    // A projeção de 14 meses passa por todos os meses do ano, qualquer que seja hoje.
+    for (const m of monthlyProjections(autonomoRico(todayISO()), 14)) {
+      if (!/^(?:jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\/\d{4}$/.test(m.label)) return `projeção com rótulo "${m.label}"`
+    }
+    return null
   })
 
   return r

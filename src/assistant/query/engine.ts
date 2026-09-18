@@ -11,7 +11,7 @@
 
 import type { AppState, TxType } from '../../models/types'
 import { catById } from '../../data/categories'
-import { fromISO, monthKey, toISO } from '../../utils/format'
+import { fromISO, monthKey, monthShortLabel, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase, weekdayName } from '../../utils/text'
 import {
   activeCards, cardById, cardInvoice, planProgress,
@@ -332,7 +332,7 @@ function chaveDe(row: QueryRow, plan: AssistantQueryPlan, state: AppState): { ke
       return { key: row.cardName, label: row.cardName }
     case 'month': {
       const mk = monthKey(row.date)
-      return { key: mk, label: fromISO(`${mk}-01`).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }).replace(/\.?\s*de\s*/, '/') }
+      return { key: mk, label: monthShortLabel(fromISO(`${mk}-01`)) }
     }
     case 'week': {
       const ini = semanaDe(row.date)

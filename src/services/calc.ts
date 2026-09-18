@@ -1,6 +1,6 @@
 // Motor de cálculos financeiros — todos os números do app saem daqui.
 import { AppState, Insight, IntervalUnit, RecurrenceOccurrence, RecurringExpense, Transaction } from '../models/types'
-import { addDays, dateForDayOfMonth, daysInMonth, dueLabel, fmtBRL, fmtNum, fromISO, monthKey, stampOf, todayISO, toISO } from '../utils/format'
+import { addDays, dateForDayOfMonth, daysInMonth, dueLabel, fmtBRL, fmtNum, fromISO, monthKey, monthShortLabel, stampOf, todayISO, toISO } from '../utils/format'
 import { sentenceCase, weekdayName } from '../utils/text'
 import { installmentsThisMonth, monthlyCommitments, installmentsInMonth } from './cards'
 
@@ -327,7 +327,7 @@ export function monthlyProjections(s: AppState, months = 12): MonthProjection[] 
     const target = Math.max(s.settings.monthlyProfitTarget || 0, 0)
     out.push({
       monthKey: mk,
-      label: d.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }).replace(/\.?\s*de\s*/, '/'),
+      label: monthShortLabel(d),
       isCurrent: i === 0,
       incomes, bills, installments, outflow, net,
       runningBalance: running,

@@ -51,6 +51,21 @@ export const nowStamp = () => `${todayISO()}T${nowTime()}`
 /** Mesmo formato de `nowStamp`, montado a partir de uma transação. */
 export const stampOf = (date: string, time?: string) => `${date}T${time || '00:00'}`
 
+/**
+ * Rótulo curto de mês: "set/2026", "dez/2026".
+ *
+ * Montado a partir do ÍNDICE do mês, não da string do ICU. O jeito antigo era
+ * `toLocaleDateString(..., { month: 'short' })` seguido de um replace que
+ * trocava a primeira ocorrência de "de" por barra — sem limite de palavra, e a
+ * primeira "de" de "dez. de 2026" está DENTRO de "dez": dezembro saía como
+ * "/z. de 2026". Os outros onze meses passavam por acaso. Além disso, a forma
+ * da string muda com a versão do ICU (Node com small-icu, WebView do Android),
+ * então depender dela é depender do aparelho.
+ */
+const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+
+export const monthShortLabel = (d: Date): string => `${MESES_CURTOS[d.getMonth()]}/${d.getFullYear()}`
+
 export const fmtDateShort = (iso: string) => {
   const d = fromISO(iso)
   return d.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })
