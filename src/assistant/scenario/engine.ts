@@ -207,6 +207,31 @@ export function runScenario(
       return { plan, facts, months: [], feasible: true, caveats, empty: false }
     }
 
+    // ------------------------------------------------- parar um tipo de gasto
+    // A base é o que o usuário REALMENTE gastou naquela categoria nos últimos
+    // três meses COMPLETOS — nunca o mês corrente, que ainda está pela metade.
+    // A projeção de saldo do app não usa gasto variável (só contas fixas e
+    // parcelas), então este cenário não finge mexer nela: diz quanto deixaria
+    // de sair, por mês e no horizonte pedido.
+    case 'cut': {
+      const nome = plan.description || plan.category || 'esse gasto'
+      if (!plan.category) return vazio(plan, caveats, 'Me diga qual gasto você pararia — por exemplo, "e se eu parar a obra".')
+      const d = fromISO(hoje)
+      const ini = toISO(new Date(d.getFullYear(), d.getMonth() - 3, 1))
+      const fim = toISO(new Date(d.getFullYear(), d.getMonth(), 0))
+      const txs = (state.transactions || []).filter(t => t.type === 'expense' && t.category === plan.category && t.date >= ini && t.date <= fim)
+      if (!txs.length) {
+        return vazio(plan, caveats, `Não achei gasto com ${nome} nos últimos três meses — sem isso não dá para estimar quanto deixaria de sair.`)
+      }
+      const total = txs.reduce((a, t) => a + t.amount, 0)
+      const media = total / 3
+      const n = Math.min(Math.max(plan.months || 6, 1), 12)
+      facts.push(fato(`Gasto médio por mês com ${nome}`, media, 'BRL', `média de ${txs.length} lançamento(s) entre ${ini} e ${fim}`, txs.length))
+      facts.push(fato(`A menos em ${n} ${n === 1 ? 'mês' : 'meses'}`, media * n, 'BRL', 'média mensal vezes o horizonte'))
+      caveats.push('É uma estimativa pela média dos últimos três meses — gasto variável muda de um mês para o outro.')
+      return { plan, facts, months: [], caveats, empty: false }
+    }
+
     // ------------------------------------------------------ pagar a fatura
     case 'pay-invoice': {
       const cards = activeCards(state)

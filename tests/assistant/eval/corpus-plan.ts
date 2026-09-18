@@ -272,9 +272,13 @@ export const CASOS_PLANO: CasoPlano[] = [
     [{ source: 'transactions', filtro: { txType: umDe(GASTO, null), text: 'uber' }, periodo: exatos(esteMes) }]),
 
   // ===== Chega ao planejador em produção e NÃO é consulta ===================
-  naoConsulta('p-36', 'autonomo', 'modalidade',
+  // 18/09/2026: remota → local. Hipótese não vai mais ao planejador de CONSULTA
+  // (passo 15 do orquestrador): o plano factual perigoso deixou de ser possível.
+  // Em produção a frase continua indo ao CHAT remoto — só não é mais pergunta
+  // de planejador, e por isso sai desta bateria.
+  { ...naoConsulta('p-36', 'autonomo', 'modalidade',
     'e se em vez de 10x eu fizer 12 dando mil de entrada?',
-    'hipótese sem base: um plano factual responderia outra pergunta com número real'),
+    'hipótese sem base: um plano factual responderia outra pergunta com número real'), rota: 'local' as const },
   naoConsulta('p-37', 'autonomo', 'modalidade',
     'vou receber 1800 da casa 1 dia 5',
     'futuro: não há o que consultar, e o chat remoto recebe a frase depois'),

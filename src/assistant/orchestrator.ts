@@ -1320,13 +1320,24 @@ Confirmar?`,
 
   // ---- 11b) O local SABE que não sabe --------------------------------------
   //
-  // Consulta INCOMPLETA: o planejador reconheceu a pergunta mas não entendeu um
-  // pedaço dela ("acima de 200 reais", "desde abril"). O roteador antigo
-  // respondia mesmo assim, com número real. A frase segue para quem sabe lê-la
-  // (o remoto) e, sem remoto, o app DIZ que não sabe. Resposta local errada com
-  // cara de certa é pior que chamar o modelo.
+  // Dois casos em que a resposta certa do aparelho é NENHUMA, e em que o
+  // roteador antigo respondia mesmo assim, com número real:
+  //
+  //   · HIPÓTESE sem plano: "e se eu parar a obra, quanto sobra até dezembro"
+  //     não tem simulação local, e a metade "quanto sobra até dezembro" era
+  //     respondida como PROJEÇÃO FACTUAL — a hipótese inteira desaparecia;
+  //   · consulta INCOMPLETA: o planejador reconheceu a pergunta mas não
+  //     entendeu um pedaço dela ("acima de 200 reais", "desde abril").
+  //
+  // Nos dois, a frase segue para quem sabe lê-la (o remoto) e, sem remoto, o
+  // app DIZ que não sabe. Resposta local errada com cara de certa é pior que
+  // chamar o modelo.
+  const hipoteseSemPlano = hasBlock(turno, 'scenario') && conversa?.kind !== 'scenario' && !cenarioJunto
   const consultaIncompleta = conversa?.kind === 'incomplete'
-  const semRespostaLocal = (_q: AnalyzedClause): boolean => consultaIncompleta
+  /** A pergunta pertence à hipótese: vem depois dela, na MESMA frase. */
+  const semRespostaLocal = (q: AnalyzedClause): boolean => consultaIncompleta
+    || (hipoteseSemPlano && turno.blocks.some(b => b.type === 'scenario' && b.start <= q.start
+      && !/[?.!]/.test(mensagem.slice(b.start, q.start))))
 
   // ---- 12) Análise local por cláusula -------------------------------------
   const local = runLocal(entrada, caps, turno.analysis)
@@ -1371,7 +1382,9 @@ Confirmar?`,
   //
   // Só entra quando a pergunta sobrou de tudo: sem ação, sem resposta local e
   // sem esclarecimento pendente.
-  if (!candidates.length && !clarification && !local_answers.text
+  // Hipótese não é consulta: mandá-la ao planejador de CONSULTA pediria um
+  // plano factual para um mundo que não existe. Ela vai ao chat, no passo 16.
+  if (!candidates.length && !clarification && !local_answers.text && !hipoteseSemPlano
     && unresolved.length && input.remoteEnabled && input.planRemoteQuery) {
     const bruto = await input.planRemoteQuery({ state: input.state, message: mensagem })
     if (bruto) {
@@ -1560,7 +1573,12 @@ Confirmar?`,
     mode = 'answer'
     const negadas = analysis.clauses.filter(c => c.intent === 'correction' && !c.actions.length)
     const notUnderstood = unresolved.filter(u => u.reason !== 'question-unanswered')
-    if (consultaIncompleta) {
+    if (hipoteseSemPlano) {
+      reply = 'Isso é uma hipótese, e esse tipo de cenário eu ainda não sei simular aqui — '
+        + 'por isso não vou te dar um número como se fosse o resultado. Nada foi registrado.\n\n'
+        + 'Consigo simular, por exemplo: uma compra parcelada ("e se eu comprar um pc de 4000 em 10x"), '
+        + 'guardar um valor por mês, uma entrada que não vem, ou parar um tipo de gasto ("e se eu parar a obra").'
+    } else if (consultaIncompleta) {
       reply = `Entendi que é uma pergunta sobre os seus lançamentos, mas não consegui ler esta parte: "${conversa?.residuo}". `
         + 'Sem ela o número sairia errado, então prefiro não responder. Pode dizer de outro jeito?'
     } else if (local.intencaoDeclarada && !candidates.length) {

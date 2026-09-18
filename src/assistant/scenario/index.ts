@@ -19,10 +19,10 @@ export interface ScenarioAnswer {
 }
 
 export function answerScenario(
-  state: AppState, message: string, opts: { today?: string } = {},
+  state: AppState, message: string, opts: { today?: string; focusCategory?: string } = {},
 ): ScenarioAnswer | null {
   const hoje = opts.today || todayISO()
-  const plan = planScenario(state, message, { today: hoje })
+  const plan = planScenario(state, message, { today: hoje, focusCategory: opts.focusCategory })
   if (!plan) return null
   const result = runScenario(state, plan, hoje)
   return { reply: composeScenario(result), plan, result, explain: explainScenario(result) }

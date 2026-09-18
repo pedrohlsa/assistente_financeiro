@@ -590,6 +590,46 @@ export async function runCopilotProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 121. Hipótese nunca é respondida como fato ----------------------
+  // "E se eu parar a obra, quanto sobra até dezembro" recebia uma PROJEÇÃO
+  // FACTUAL: a hipótese sumia e a metade "quanto sobra" era respondida pelo
+  // roteador antigo. Vale sem foco e depois de uma consulta (quando o "e se"
+  // era lido como refino dela), com e sem remoto.
+  await checkAsync(r, 'hipótese nunca vira resposta factual', async () => {
+    const hoje = todayISO()
+    const FATO = /dado real|Projeção para|Não tenho nenhum lançamento|Total gasto|Total recebido/i
+    const semSimulacao = [
+      'e se eu mudar de cidade quanto sobra até dezembro',
+      'e se eu trocar de emprego quanto sobra',
+      'supondo que eu venda o carro quanto fica meu saldo',
+      'se eu for demitido quanto sobra até dezembro',
+    ]
+    const simulaveis = ['e se eu parar a obra agora quanto sobra até dezembro', 'e se parar a obra', 'se eu não gastar mais com obra', 'supondo que eu pare a obra']
+    for (const remoto of [false, true]) {
+      for (const comFoco of [false, true]) {
+        for (const frase of [...semSimulacao, ...simulaveis]) {
+          const st = autonomoRico(hoje)
+          const antes = JSON.stringify(st)
+          let focus: any
+          if (comFoco) {
+            const q = await orchestrate({ state: st, message: 'onde meu dinheiro mais vazou nos últimos 90 dias?', today: hoje, remoteEnabled: false })
+            focus = q.focus
+          }
+          const out = await orchestrate({
+            state: st, message: frase, focus, today: hoje, remoteEnabled: remoto,
+            askRemote: async () => null, planRemoteQuery: async () => null,
+          })
+          const tag = `"${frase}" (${comFoco ? 'depois de consulta' : 'sem foco'}, remoto ${remoto ? 'ligado' : 'desligado'})`
+          if ((out.response as any).actions?.length) return `${tag} propôs ação`
+          if (FATO.test(out.response.reply)) return `${tag} respondeu como fato: "${out.response.reply.slice(0, 120)}"`
+          if (simulaveis.includes(frase) && !/Simulação/.test(out.response.reply)) return `${tag} não simulou`
+          if (JSON.stringify(st) !== antes) return `${tag} mudou o estado`
+        }
+      }
+    }
+    return null
+  })
+
   // --- 122. Sobra da pergunta nunca vira filtro de texto ---------------
   // "Acima de 200 reais" virava a busca "200 reais"; "fins de semana", a busca
   // "fins de"; "desde abril", "500 eu fiz desde". O resultado vazio era dito

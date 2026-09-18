@@ -92,6 +92,17 @@ export function composeScenario(r: AssistantScenarioResult): string {
       break
     }
 
+    case 'cut': {
+      const media = r.facts.find(f => f.label.startsWith('Gasto médio por mês'))
+      const soma = r.facts.find(f => f.label.startsWith('A menos em'))
+      linhas.push(`Se você parar os gastos com ${p.description || 'esse gasto'}:`)
+      const itens: string[] = []
+      if (media) itens.push(`• Em média, ${fmtBRL(media.value)} por mês a menos saindo`)
+      if (soma) itens.push(`• ${soma.label.replace('A menos em', 'Em')}, cerca de ${fmtBRL(soma.value)}`)
+      linhas.push(itens.join('\n'))
+      break
+    }
+
     case 'extra-work': {
       const estimativa = r.facts.find(f => f.label.startsWith('Estimativa'))
       const ritmo = r.facts.find(f => f.label.startsWith('Seu lucro por'))

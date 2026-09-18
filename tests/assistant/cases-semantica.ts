@@ -126,6 +126,54 @@ export const SEMANTICA_CASES: SemanticaCase[] = [
   // Controles: nome de verdade continua sendo filtro de verdade.
   { id: 'sr-06', group: 'residuo', state: autonomo, today: HOJE, turnos: [{ msg: 'quanto gastei no Zé da esquina', expectPlan: { filter: { text: /z[eé] da esquina/i } } }] },
 
+  // ===== 3. HIPÓTESE NUNCA VIRA FATO =======================================
+  {
+    id: 'sh-01', group: 'hipotese', state: autonomoAgora, today: HOJE,
+    // A reprodução documentada: uma projeção FACTUAL, com "/z. de 2026".
+    turnos: [{ msg: 'e se eu parar a obra agora quanto sobra até dezembro', expectScenario: true, expectReply: [/obra/i, /simula/i], forbidReply: [/Projeção para/, /\/z\./] }],
+  },
+  { id: 'sh-02', group: 'hipotese', state: autonomoAgora, today: HOJE, turnos: [{ msg: 'e se parar a obra', expectScenario: true, expectReply: [/obra/i, /simula/i] }] },
+  { id: 'sh-03', group: 'hipotese', state: autonomoAgora, today: HOJE, turnos: [{ msg: 'e se eu parar a obra', expectScenario: true, expectReply: [/obra/i, /simula/i] }] },
+  { id: 'sh-04', group: 'hipotese', state: autonomoAgora, today: HOJE, turnos: [{ msg: 'se eu não gastar mais com obra', expectScenario: true, expectReply: [/obra/i, /simula/i] }] },
+  { id: 'sh-05', group: 'hipotese', state: autonomoAgora, today: HOJE, turnos: [{ msg: 'supondo que eu pare a obra', expectScenario: true, expectReply: [/obra/i, /simula/i] }] },
+  {
+    id: 'sh-06', group: 'hipotese', state: autonomoAgora, today: HOJE,
+    // O cenário herda a entidade da conversa: "parar" é parar a OBRA.
+    turnos: [
+      { msg: 'quanto eu gasto com obra por mês?' },
+      { msg: 'e se parar?', expectScenario: true, expectReply: [/obra/i, /simula/i] },
+    ],
+  },
+  {
+    id: 'sh-07', group: 'hipotese', state: autonomoAgora, today: HOJE,
+    // Hipótese que o app NÃO sabe simular: nunca uma resposta factual no lugar.
+    turnos: [{ msg: 'e se eu mudar de cidade quanto sobra até dezembro', forbidReply: [/Projeção para/, /dado real/i, /saldo estimado/i] }],
+  },
+  {
+    id: 'sh-09', group: 'hipotese', state: autonomoAgora, today: HOJE,
+    // A conversa da Fase 4: pergunta, destino, outro período, e a hipótese que
+    // SAI do modo consulta levando a entidade junto.
+    turnos: [
+      { msg: 'quanto gastei em obra esse mês?', expectPlan: { filter: { categories: ['obra'] } } },
+      { msg: 'onde?', expectPlan: { group: 'description', filter: { categories: ['obra'] } } },
+      { msg: 'e mês passado?', expectPlan: { filter: { categories: ['obra'] }, periodFrom: inicioDoMes(1) } },
+      { msg: 'e se parar a obra?', expectScenario: true, expectReply: [/obra/i, /simula/i] },
+    ],
+  },
+  {
+    id: 'sh-10', group: 'hipotese', state: autonomoAgora, today: HOJE,
+    // Depois de uma consulta, a hipótese NÃO vira refino da consulta.
+    turnos: [
+      { msg: 'onde meu dinheiro mais vazou nos últimos 90 dias?' },
+      { msg: 'e se eu parar a obra agora quanto sobra até dezembro', expectScenario: true, expectReply: [/obra/i, /simula/i], forbidReply: [/em dezembro\. Assim que/, /\/z\./] },
+      { msg: 'e se eu mudar de cidade quanto sobra até dezembro', forbidReply: [/Não tenho nenhum lançamento/, /dado real/i, /Projeção para/] },
+    ],
+  },
+  {
+    id: 'sh-08', group: 'hipotese', state: autonomoAgora, today: HOJE,
+    // Controle: a MESMA pergunta sem "e se" é projeção legítima.
+    turnos: [{ msg: 'quanto vai sobrar em dezembro', expectReply: [/dez\/\d{4}/], forbidReply: [/\/z\./] }],
+  },
 ]
 
 // ---------------------------------------------------------------------------

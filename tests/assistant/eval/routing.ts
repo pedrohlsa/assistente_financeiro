@@ -19,16 +19,23 @@ import type { CasoCenario, CasoChat, CasoPlano, Dimensao, PerfilEval, RotaProduc
 
 /** A frase chega a qual caminho remoto, HOJE, no orquestrador real? */
 export async function medeRota(state: AppState, mensagem: string, hoje: string): Promise<RotaMedida> {
-  const m: RotaMedida = { plano: false, chat: false, chamadas: 0 }
+  const m: RotaMedida = { plano: false, chat: false, chamadas: 0, chamadasPlano: 0, chamadasChat: 0 }
   await orchestrate({
     state, message: mensagem, remoteEnabled: true, today: hoje,
-    askRemote: async () => { m.chat = true; m.chamadas++; return null },
-    planRemoteQuery: async () => { m.plano = true; m.chamadas++; return null },
+    askRemote: async () => { m.chat = true; m.chamadas++; m.chamadasChat++; return null },
+    planRemoteQuery: async () => { m.plano = true; m.chamadas++; m.chamadasPlano++; return null },
   })
   return m
 }
 
-export interface RotaMedida { plano: boolean; chat: boolean; chamadas: number }
+export interface RotaMedida {
+  plano: boolean
+  chat: boolean
+  chamadas: number
+  /** Por caminho: uma frase do planejador pode ir ao CHAT (hipótese) e isso não a torna elegível ao planejador. */
+  chamadasPlano: number
+  chamadasChat: number
+}
 
 /**
  * `local-correto` e `local-falha` são o MESMO fato para a bateria paga: o modelo
@@ -77,7 +84,10 @@ export async function observaCaso(
     rotulo: caso.rota,
     remoteRequested,
     remoteKind: remoteRequested ? caminho : null,
-    requestCount: m.chamadas,
+    // Requisições no caminho que DECIDE a elegibilidade desta suíte. Uma
+    // hipótese do corpus do planejador vai ao chat, não ao planejador — contar
+    // as duas juntas fazia o caso parecer elegível e não elegível ao mesmo tempo.
+    requestCount: caminho === 'plano' ? m.chamadasPlano : m.chamadasChat,
     localResolvedBeforeRemote: !remoteRequested,
     classe: remoteRequested ? 'remoto-elegivel' : caso.rota === 'local-errada' ? 'local-falha' : 'local-correto',
   }

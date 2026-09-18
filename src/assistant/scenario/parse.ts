@@ -117,15 +117,31 @@ function origemDe(t: string): string | undefined {
  * Interpreta a hipótese. `null` quando a frase não é um cenário — nunca um
  * plano "por garantia".
  */
+/**
+ * Quantos meses a hipótese cobre: "até dezembro" conta do mês atual até ele,
+ * inclusive; sem mês dito, seis.
+ */
+const MESES_NOME = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+function horizonte(t: string, hoje: string): number {
+  const m = t.match(new RegExp(String.raw`\bate\s+(${MESES_NOME.join('|')})\b`))
+  if (!m) return 6
+  const alvo = MESES_NOME.indexOf(m[1])
+  const atual = Number(hoje.slice(5, 7)) - 1
+  const n = (alvo >= atual ? alvo - atual : alvo + 12 - atual) + 1
+  return Math.min(Math.max(n, 1), 12)
+}
+
+/** Parar um tipo de gasto: "parar a obra", "cortar o lazer", "não gastar mais com mercado". */
+const PARAR_GASTO = /\b(?:parar|pare|parasse|parando|cortar|corte|cortasse|tirar|tirasse|deixar\s+de\s+gastar|nao\s+gastar\s+mais|parar\s+de\s+gastar)\b/
+
 export function planScenario(
-  state: AppState, input: string, opts: { today?: string } = {},
+  state: AppState, input: string, opts: { today?: string; focusCategory?: string } = {},
 ): AssistantScenarioPlan | null {
   if (!looksLikeScenario(input)) return null
   // Números por extenso viram algarismos antes dos regex, igual ao parser de
   // registro — "quatro mil em dez vezes" é a mesma frase.
   const t = semAcento(normalizeNumberWords(input).text)
   const driver = isDriver(state.settings)
-  void opts
 
   const base = (kind: ScenarioKind, extra: Partial<AssistantScenarioPlan>, label: string): AssistantScenarioPlan =>
     ({ version: SCENARIO_DSL_VERSION, kind, label, ...extra })
@@ -143,6 +159,22 @@ export function planScenario(
     const km = t.match(new RegExp(String.raw`\bmais\s+${NUM}\s*km\b`))
       || t.match(new RegExp(String.raw`\brodar\s+(?:mais\s+)?${NUM}\s*km\b`))
     if (km) return base('extra-work', { extraKm: parseMoney(km[1]) }, `mais ${km[1]} km`)
+  }
+
+  // ---- parar um tipo de gasto --------------------------------------------
+  // "E se eu parar a obra, quanto sobra até dezembro?" não tinha tipo nenhum
+  // no motor: a hipótese sumia e a metade "quanto sobra" era respondida como
+  // PROJEÇÃO FACTUAL. Guardar/poupar ficam de fora — "parar de guardar" é
+  // outra conta, e sem representação ainda.
+  if (PARAR_GASTO.test(t) && !/\bguard|\bpoup|\bjunt|\bsepar/.test(t)) {
+    // A entidade pode ter ficado na conversa: "quanto gasto com obra?" → "e se
+    // parar?". Sem categoria nem no texto nem no foco, não há o que simular.
+    const categoria = categoriaDe(state, t) || opts.focusCategory
+    if (categoria) {
+      const nome = usableCategories(state.categories || []).find(c => c.id === categoria)?.name || categoria
+      return base('cut', { category: categoria, description: nome, months: horizonte(t, opts.today || todayISO()) },
+        `parar os gastos com ${nome}`)
+    }
   }
 
   // ---- pagar a fatura -----------------------------------------------------

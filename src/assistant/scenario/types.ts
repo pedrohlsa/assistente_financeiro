@@ -21,6 +21,7 @@ export type ScenarioKind =
   | 'pay-invoice'     // "se eu pagar a fatura inteira hoje"
   | 'income-missing'  // "se a Casa 1 não pagar este mês"
   | 'extra-work'      // motorista: "se eu fizer mais 3 horas por dia"
+  | 'cut'             // "e se eu parar a obra", "se eu não gastar mais com lazer"
 
 export interface AssistantScenarioPlan {
   version: typeof SCENARIO_DSL_VERSION

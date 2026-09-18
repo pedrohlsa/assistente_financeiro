@@ -67,12 +67,19 @@ export function answerConversation(
   // ---- 1) continuação ----------------------------------------------------
   if (isFocusFresh(focus, agora) && looksLikeFollowUp(message)) {
     const fu = resolveFollowUp(state, focus, message, hoje)
-    if (fu) return aplicaFollowUp(state, focus!, fu, hoje, agora)
+    // Hipótese nunca é refino de CONSULTA. Depois de "onde vazou meu dinheiro",
+    // "e se eu parar a obra, quanto sobra até dezembro" era lida como a consulta
+    // anterior com outro período — número real para um mundo que não existe. O
+    // "e se" sai do modo consulta e entra no de cenário, logo abaixo.
+    if (fu && !(fu.kind === 'query' && looksLikeScenario(message))) return aplicaFollowUp(state, focus!, fu, hoje, agora)
   }
 
   // ---- 2) cenário --------------------------------------------------------
   if (looksLikeScenario(message)) {
-    const cen = answerScenario(state, message, { today: hoje })
+    // A categoria da conversa em curso é o assunto de "e se parar?" — só com
+    // foco fresco, e só quando a frase não traz a própria.
+    const focusCategory = isFocusFresh(focus, agora) ? focus?.lastQueryPlan?.filter?.categories?.[0] : undefined
+    const cen = answerScenario(state, message, { today: hoje, focusCategory })
     if (cen) return doCenario(focus, cen, agora)
     // Hipótese reconhecida mas sem plano: NÃO cair na consulta. Responder com
     // número real a uma frase começada por "se eu" é transformar hipótese em

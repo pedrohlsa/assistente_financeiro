@@ -50,6 +50,9 @@ const ESTRUTURAL: string[] = [
   // Mesmo defeito no FUTURO: "vai sair 430 de luz" virava "vai saiu 430" e o
   // plano passava a ser uma despesa realizada.
   'sair', 'pingar', 'vencer',
+  // Verbos de CENÁRIO: "e se eu parar a obra" virava "e se eu pagar a obra" —
+  // a uma letra de distância — e a hipótese perdia o sentido inteiro.
+  'parar', 'pare', 'parasse', 'cortar', 'corte',
   'registrar', 'registra', 'apagar', 'desfazer', 'cancelar', 'corrigir',
   // tempo
   'hoje', 'ontem', 'anteontem', 'amanha', 'semana', 'semanas', 'meses',
