@@ -42,7 +42,7 @@ import type { CorrectionPlan } from './corrections'
 import { findGoalByName, planAssistantActions } from './execute'
 import { askAssistant } from '../services/ai'
 import { buildCapabilities } from './capabilities'
-import { describeAction } from '../services/nlp'
+import { describeAction, META_OUTRA } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
 import { catById, usableCategories } from '../data/categories'
 import { fmtBRL, todayISO, uid } from '../utils/format'
@@ -360,8 +360,22 @@ function reconcileGoalDeposits(
   actions: ParsedAction[],
 ): { actions: (ParsedAction | null)[]; semMeta: DepositoSemMeta[] } {
   const semMeta: DepositoSemMeta[] = []
+  // "A outra" só quer dizer alguma coisa em relação às metas já citadas na
+  // mesma frase. Com exatamente uma sobrando, é ela; com mais de uma, quem
+  // pergunta é o fluxo de sempre — e o valor vai junto na pergunta.
+  const citadas = new Set(
+    actions.filter(a => a.kind === 'goal-deposit' && a.name && a.name !== META_OUTRA)
+      .map(a => findGoalByName(state, (a as any).name)?.name)
+      .filter(Boolean) as string[],
+  )
   const out = actions.map(a => {
     if (a.kind !== 'goal-deposit') return a
+    if (a.name === META_OUTRA && !findGoalByName(state, META_OUTRA)) {
+      const sobrando = (state.goals || []).filter(g => !g.done && !citadas.has(g.name))
+      if (sobrando.length === 1) return { ...a, name: sobrando[0].name } as ParsedAction
+      semMeta.push({ amount: a.amount })
+      return null
+    }
     const g = findGoalByName(state, a.name)
     if (g) return { ...a, name: g.name } as ParsedAction
     semMeta.push({ amount: a.amount, name: a.name || undefined })

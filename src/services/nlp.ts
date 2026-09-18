@@ -98,6 +98,37 @@ export function cleanDescription(raw?: string): string | undefined {
  */
 const VERBO_DE_PAGAR = /\b(?:paguei|pagou|pagamos|pago|paga|gastei|gastou|comprei|comprou|torrei|quitei|quitou|saiu)\b/i
 
+/** Verbo EXPLÍCITO de dinheiro entrando. O par de `VERBO_DE_PAGAR`. */
+const VERBO_DE_RECEBER = /\b(?:recebi|recebeu|recebemos|ganhei|ganhou|caiu|cairam|ca[íi]ram|entrou|entraram|pingou|faturei|lucrei)\b/i
+
+/**
+ * SUBSTANTIVO FINANCEIRO AMBÍGUO: sozinho, não diz direção nenhuma.
+ *
+ * "Aluguel" é renda de quem aluga e despesa de quem mora; "vale alimentação" é
+ * benefício que entra e dinheiro que sai quando se gasta dele. Sem verbo,
+ * "o aluguel foi 1800" propunha receita de 1800 E despesa de 1800 — o mesmo
+ * dinheiro somado e subtraído, com os dois botões na tela.
+ *
+ * A lista é curta e fechada porque é uma decisão de TIPO: um substantivo a mais
+ * aqui transforma um registro que funciona numa pergunta desnecessária.
+ */
+const SUBSTANTIVO_AMBIGUO = /\b(alugu[eé]l|alugu[eé]is|vale(?:\s+(?:alimenta[çc][ãa]o|refei[çc][ãa]o|transporte))?)\b/i
+
+/**
+ * O que pode existir ENTRE o substantivo ambíguo e o valor dele: preposição,
+ * artigo, cópula e o próprio verbo de dinheiro. Qualquer outro substantivo no
+ * meio quer dizer que o número é de outra coisa.
+ */
+const FUNCIONAL_ENTRE = /^(?:\s|de|do|da|dos|das|em|no|na|por|pra|para|r\$|:|-|que|o|a|os|as|meu|minha|este|esse|deste|desse|m[eê]s|foi|era|[ée]|eh|ficou|deu|saiu|recebi|recebeu|paguei|pagou|ganhei|entrou|caiu|gastei|total|valor)*$/i
+
+/** Direção dita pelo verbo da frase. `null` = a frase não decidiu (ou disse as duas). */
+function polaridadeDita(text: string): 'income' | 'expense' | null {
+  const paga = VERBO_DE_PAGAR.test(text)
+  const recebe = VERBO_DE_RECEBER.test(text)
+  if (paga === recebe) return null
+  return paga ? 'expense' : 'income'
+}
+
 /**
  * O trecho da frase que pertence a UMA receita: do separador anterior ao
  * seguinte. Numa frase com dinheiro entrando e saindo, a categoria da receita
@@ -379,6 +410,9 @@ export function parseNaturalFull(
 
   if (dayAsk) return { actions, ambiguity: dayAsk }
 
+  const polaridade = resolvePolaridade(input, actions)
+  if (polaridade) return polaridade
+
   if (!isAmbiguousGas(input)) return { actions }
 
   // Qual ação veio do "gás"? A despesa cuja descrição/categoria bate com gás.
@@ -410,6 +444,70 @@ export function parseNaturalFull(
             ? { kind: 'fuel', amount }
             : { kind: 'expense', amount, category: 'combustivel', description: 'GNV' }),
         },
+      ],
+    },
+  }
+}
+
+/**
+ * Substantivo ambíguo + UM valor: quem decide a direção é o verbo, e sem verbo
+ * a resposta é perguntar.
+ *
+ * Três travas, para não transformar registro que funciona em pergunta:
+ *   1. o substantivo ambíguo precisa estar na frase;
+ *   2. a frase precisa ter UM único valor monetário, dito uma única vez — com
+ *      dois valores ("recebi 1800 de aluguel e paguei 1800 de luz") cada um tem
+ *      a sua própria evidência e nada aqui se aplica;
+ *   3. só mexe em receita e despesa. Meta, cartão, abastecimento e trabalho têm
+ *      estrutura própria e não são ambíguos.
+ */
+function resolvePolaridade(input: string, actions: ParsedAction[]): ParseResult | null {
+  const text = input.toLowerCase()
+  const noun = text.match(SUBSTANTIVO_AMBIGUO)
+  if (!noun) return null
+  const outras = actions.filter(a => a.kind !== 'income' && a.kind !== 'expense')
+  if (outras.length) return null
+
+  const valores = moneyValuesIn(text)
+  if (valores.length !== 1) return null
+  const valor = valores[0]
+  const dinheiro = actions.filter(a => a.kind === 'income' || a.kind === 'expense') as any[]
+  if (dinheiro.some(a => Math.abs(a.amount - valor) > 0.005)) return null
+  // Sem ação nenhuma, o valor precisa mesmo PERTENCER ao substantivo: entre os
+  // dois só podem existir palavras funcionais. "Recebi o aluguel da casa 1" tem
+  // um "1" que é o apelido do imóvel — ali o valor nem foi dito, e a resposta
+  // certa continua sendo perguntar quanto foi. Unidade depois do número
+  // ("800 km", "12 parcelas") também não é preço.
+  if (!dinheiro.length) {
+    const pos = text.search(new RegExp(String.raw`(?<![\d.,])${valor}(?![\d.,])`))
+    if (pos < 0) return null
+    if (new RegExp(`^${UNIT_AFTER}`, 'i').test(text.slice(pos + String(valor).length))) return null
+    const fimNoun = (noun.index || 0) + noun[0].length
+    const meio = pos > fimNoun ? text.slice(fimNoun, pos) : text.slice(pos + String(valor).length, noun.index || 0)
+    if (!FUNCIONAL_ENTRE.test(meio)) return null
+  }
+
+  const termo = noun[1]
+  const comoReceita = (): ParsedAction => {
+    const cat = guessCategory(termo, 'income')
+    return { kind: 'income', amount: valor, ...(cat ? { category: cat } : {}) } as ParsedAction
+  }
+  const comoDespesa = (): ParsedAction => {
+    const cat = guessCategory(termo, 'expense')
+    return { kind: 'expense', amount: valor, ...(cat ? { category: cat } : {}), description: cleanDescription(termo) } as ParsedAction
+  }
+
+  const dita = polaridadeDita(text)
+  if (dita === 'income') return { actions: [comoReceita()] }
+  if (dita === 'expense') return { actions: [comoDespesa()] }
+  // Sem verbo que decida: PERGUNTAR. Cada opção carrega o efeito completo.
+  return {
+    actions: [],
+    ambiguity: {
+      question: `Você recebeu ${fmtBRL(valor)} de ${termo} ou pagou ${fmtBRL(valor)} de ${termo}?`,
+      options: [
+        { label: 'Recebi', actions: [comoReceita()] },
+        { label: 'Paguei', actions: [comoDespesa()] },
       ],
     },
   }
@@ -573,6 +671,7 @@ function parseClause(input: string): ParsedAction[] {
     const nome = cleanDescription(bruto)
     const semNome = !nome || DESC_STOPWORDS.has(nome.toLowerCase())
     actions.push({ kind: 'goal-deposit', amount: parseNum(metaM[1]), ...(semNome ? {} : { name: nome }) } as ParsedAction)
+    outrosDepositos(text, actions)
     return actions
   }
 
@@ -612,6 +711,7 @@ function parseClause(input: string): ParsedAction[] {
     } else {
       actions.push({ kind: 'goal-deposit', amount: parseNum(dep[1]), name })
     }
+    outrosDepositos(text, actions)
     return actions
   }
 
@@ -670,7 +770,17 @@ function parseClause(input: string): ParsedAction[] {
   const f = text.match(fuelRe) || text.match(fuelRe2) || (fuelRe3 && text.match(fuelRe3))
   const litersM = text.match(new RegExp(String.raw`${NUM}\s*litros?`, 'i'))
   if (f || (litersM && /(coloquei|botei|abasteci|posto)/.test(text))) {
-    const amount = f ? parseNum(f[1]) : undefined
+    // "Abasteci 24 litros POR 180": com os litros ditos, o preço vinha depois e
+    // era descartado — o abastecimento entrava sem valor nenhum.
+    // O número logo depois de "abasteci" pode ser a QUANTIDADE, não o preço:
+    // "abasteci 24 litros por 180" lia 24 como valor e jogava os 180 fora.
+    const fSaoLitros = !!(f && litersM && parseNum(f[1]) === parseNum(litersM[1])
+      && /^\s*(?:l|litros?)\b/i.test(text.slice((f.index || 0) + f[0].length)))
+    const depoisDosLitros = litersM ? text.slice((litersM.index || 0) + litersM[0].length) : ''
+    const porValor = (!f || fSaoLitros) && litersM
+      ? depoisDosLitros.match(new RegExp(String.raw`^\s*(?:por|a|custou|saiu\s+por)\s*(?:r\$)?\s*${NUM}`, 'i'))
+      : null
+    const amount = f && !fSaoLitros ? parseNum(f[1]) : porValor ? parseNum(porValor[1]) : undefined
     actions.push({ kind: 'fuel', amount, liters: litersM ? parseNum(litersM[1]) : undefined })
   }
 
@@ -824,7 +934,10 @@ function parseClause(input: string): ParsedAction[] {
   // O valor não pode ser a DURAÇÃO de alguma coisa: "paguei 3 meses de aluguel"
   // não é uma despesa de R$ 3,00. A borda de dígito impede o recuo que leria
   // "30 meses" como 3 — e aceita o ponto final: "gastei 355." é um valor.
-  const expRe = new RegExp(String.raw`(?:${expVerbs})\s*${APROX}(?:r\$)?\s*${NUM}(?!\d|[.,]\d|\s*(?:dias|semanas|meses|anos)\b)\s*${MOEDA}?\s*(?:(?:de|com|no|na|em|para|pra)\s+)?([\wçãõáéíóúâê\s]*)`, 'i')
+  // A descrição PARA no próximo valor. Sem o limite ela engolia o item
+  // seguinte: "paguei 320 de luz 180 de agua" virava uma despesa de 320 com a
+  // descrição "Luz 180 de agua", e os R$ 180 sumiam dentro do texto.
+  const expRe = new RegExp(String.raw`(?:${expVerbs})\s*${APROX}(?:r\$)?\s*${NUM}(?!\d|[.,]\d|\s*(?:dias|semanas|meses|anos)\b)\s*${MOEDA}?\s*(?:(?:de|com|no|na|em|para|pra)\s+)?([\wçãõáéíóúâê\s]*?)(?=\s*\d+(?:[.,]\d+)*\s*(?:${MOEDA})?\s*(?:de|com|no|na|em)\s+[a-zà-úçãõ]|[^\wçãõáéíóúâê\s]|$)`, 'i')
   const e = text.match(expRe)
   if (e && !m && !f) {
     const rawDesc = (e[2] || '').trim().split(/\s+e\s+|,/)[0].trim()
@@ -882,6 +995,27 @@ function parseClause(input: string): ParsedAction[] {
         actions.push({ kind: 'expense', amount, category: guessCategory(rawDesc, 'expense'), description: cleanDescription(rawDesc) })
       }
     }
+    // Itens JUSTAPOSTOS, sem conector nenhum: "paguei 320 de luz 180 de agua".
+    // É como se lê a conta de casa em voz alta, e o separador simplesmente não
+    // existe. A trava é a mesma dos itens enumerados — o valor precisa vir
+    // seguido de preposição e substantivo —, e a varredura começa depois do
+    // primeiro gasto, que já foi lido acima.
+    if (e) {
+      const desde = (e.index || 0) + e[0].length
+      const juxRe = new RegExp(String.raw`(?:^|\s)(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:de|com|no|na|em)\s+([a-zà-úçãõ]+(?:\s+[a-zà-úçãõ]+)?)`, 'gi')
+      for (const jx of text.slice(desde).matchAll(juxRe)) {
+        const rawDesc = jx[2].trim()
+        const amount = parseNum(jx[1])
+        if (!(amount > 0) || DESC_STOPWORDS.has(rawDesc)) continue
+        const isFuel = /gasolina|etanol|alcool|álcool|diesel|combust/.test(rawDesc)
+        if (isFuel) {
+          if (!f) actions.push({ kind: 'fuel', amount })
+        } else {
+          actions.push({ kind: 'expense', amount, category: guessCategory(rawDesc, 'expense'), description: cleanDescription(rawDesc) })
+        }
+      }
+    }
+
     // Valor enumerado SEM descrição própria: "gastei 20 e 30" são dois gastos.
     // O segundo valor virava a descrição do primeiro e o dinheiro sumia. O
     // lookahead é a trava: o valor precisa terminar a frase ou ser seguido de
@@ -967,6 +1101,35 @@ function parseClause(input: string): ParsedAction[] {
  * por `guessCategory`. "Hoje 250" e "8 horas" não viram gasto porque "hoje" e
  * "horas" não são categoria de nada.
  */
+/**
+ * DEPÓSITOS ALÉM DO PRIMEIRO: "guardei 300 na meta da viagem E 200 NA OUTRA".
+ *
+ * O caminho da meta devolvia a primeira leitura e encerrava a cláusula ali: os
+ * R$ 200 nunca eram procurados e sumiam em silêncio — o usuário confirmava 300
+ * e achava que tinha guardado 500.
+ *
+ * Só roda quando um depósito JÁ foi reconhecido (senão "paguei 200 na padaria"
+ * viraria meta), e só aceita valor seguido de destino. "A outra" não é nome de
+ * meta nenhuma: vai com essa marca e quem resolve é o orquestrador, que tem o
+ * estado — uma meta sobrando, é ela; mais de uma, pergunta.
+ */
+export const META_OUTRA = 'outra'
+
+function outrosDepositos(text: string, actions: ParsedAction[]): void {
+  const re = new RegExp(
+    String.raw`(?:\se\s|,(?!\d)|;)\s*(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:na|no|pra|pro|para|em)\s+(?:a\s+|o\s+|minha\s+|meu\s+)?(?:met[ao]\s+(?:d[aoe]\s+)?)?([a-zà-úçãõ][\wçãõáéíóúâê]*)`,
+    'gi',
+  )
+  for (const m of text.matchAll(re)) {
+    const amount = parseNum(m[1])
+    if (!(amount > 0)) continue
+    if (actions.some(a => Math.abs(((a as any).amount ?? 0) - amount) < 0.005)) continue
+    const nome = m[2].toLowerCase()
+    if (/^(?:outra|outro)$/.test(nome)) actions.push({ kind: 'goal-deposit', amount, name: META_OUTRA } as ParsedAction)
+    else if (!DESC_STOPWORDS.has(nome)) actions.push({ kind: 'goal-deposit', amount, name: nome } as ParsedAction)
+  }
+}
+
 function parseSemVerbo(text: string): ParsedAction[] {
   if (new RegExp(String.raw`\b(?:${COMMAND_VERBS.join('|')})\b`, 'i').test(text)) return []
   // Perguntar quanto PODE gastar não é dizer que gastou. Sem esta guarda,

@@ -18,6 +18,123 @@ const duasMetas = { goals: [{ name: 'Viagem', target: 5000 }, { name: 'Carro', t
 const tresMetas = { goals: [{ name: 'Viagem', target: 5000 }, { name: 'Carro', target: 20000 }, { name: 'Curso', target: 3000 }] }
 
 export const VALOR_CARDINALIDADE: AssistantCase[] = [
+  // ===== 1. POLARIDADE =====================================================
+  // "Aluguel" é renda para quem recebe e gasto para quem paga. Sem verbo que
+  // desempate, propor as DUAS coisas é somar e subtrair o mesmo dinheiro.
+  {
+    id: 'pa-01', group: 'polaridade', ...autonomo,
+    messages: ['o aluguel foi 1800'],
+    expectMode: 'clarify', expectNoActions: true,
+    expectReply: [/1\.800,00/, /recebeu|entrou|pagou|saiu/i],
+  },
+  {
+    id: 'pa-02', group: 'polaridade', ...autonomo,
+    messages: ['aluguel 1800'],
+    expectMode: 'clarify', expectNoActions: true,
+  },
+  {
+    id: 'pa-03', group: 'polaridade', ...autonomo,
+    messages: ['recebi 1800 de aluguel'],
+    expectActions: [{ kind: 'income', amount: 1800, category: 'aluguel' }],
+  },
+  {
+    id: 'pa-04', group: 'polaridade', ...autonomo,
+    messages: ['entrou 1800 de aluguel'],
+    expectActions: [{ kind: 'income', amount: 1800, category: 'aluguel' }],
+  },
+  {
+    id: 'pa-05', group: 'polaridade', ...autonomo,
+    messages: ['paguei 1800 de aluguel'],
+    expectActions: [{ kind: 'expense', amount: 1800 }],
+  },
+  {
+    id: 'pa-06', group: 'polaridade', ...autonomo,
+    messages: ['gastei 1800 de aluguel'],
+    expectActions: [{ kind: 'expense', amount: 1800 }],
+  },
+  {
+    id: 'pa-07', group: 'polaridade', ...autonomo,
+    messages: ['o aluguel que recebi foi 1800'],
+    expectActions: [{ kind: 'income', amount: 1800, category: 'aluguel' }],
+  },
+  {
+    id: 'pa-08', group: 'polaridade', ...autonomo,
+    messages: ['o aluguel que paguei foi 1800'],
+    expectActions: [{ kind: 'expense', amount: 1800 }],
+  },
+  {
+    id: 'pa-09', group: 'polaridade', ...clt,
+    // Sem verbo, "vale alimentação 800" também não escolhe — mas os R$ 800 não
+    // podem sumir.
+    messages: ['vale alimentação 800'],
+    expectMode: 'clarify', expectNoActions: true,
+    expectReply: [/800,00/],
+  },
+  {
+    id: 'pa-10', group: 'polaridade', ...autonomo,
+    // A resposta à pergunta resolve a direção sem repetir o valor.
+    messages: ['o aluguel foi 1800', 'recebi'],
+    expectActions: [{ kind: 'income', amount: 1800, category: 'aluguel' }],
+  },
+
+  // ===== 2. VALOR QUE SOME ==================================================
+  {
+    id: 'vs-01', group: 'valor-sumido', ...autonomo,
+    // Os R$ 180 viravam DESCRIÇÃO do gasto de luz ("Luz 180 de agua").
+    messages: ['paguei 320 de luz 180 de agua e a internet eu nao lembro'],
+    expectActions: [{ kind: 'expense', amount: 320 }, { kind: 'expense', amount: 180 }],
+  },
+  {
+    id: 'vs-02', group: 'valor-sumido', ...autonomo,
+    messages: ['gastei 180 de água e 200 de luz'],
+    expectActions: [{ kind: 'expense', amount: 180 }, { kind: 'expense', amount: 200 }],
+  },
+  {
+    id: 'vs-03', group: 'valor-sumido', ...other, state: duasMetas,
+    // c-20: os 200 sumiam em silêncio. Com duas metas, "a outra" é a que sobra.
+    messages: ['guardei 300 na meta da viagem e 200 na outra'],
+    expectActions: [
+      { kind: 'goal-deposit', name: 'Viagem', amount: 300 },
+      { kind: 'goal-deposit', name: 'Carro', amount: 200 },
+    ],
+  },
+  {
+    id: 'vs-04', group: 'valor-sumido', ...other, state: tresMetas,
+    // Com três metas "a outra" não identifica nada: pergunta, e os 200 continuam
+    // na pergunta.
+    messages: ['guardei 300 na meta da viagem e 200 na outra'],
+    expectMode: 'clarify',
+    expectReply: [/200,00/],
+  },
+  {
+    id: 'vs-05', group: 'valor-sumido', ...clt,
+    // A entrada sumia e o app respondia uma CONSULTA de gastos com alimentação.
+    messages: ['caiu o vale alimentação 800'],
+    expectActions: [{ kind: 'income', amount: 800 }],
+  },
+  {
+    id: 'vs-06', group: 'valor-sumido', ...clt,
+    messages: ['recebi 800 de vale alimentação'],
+    expectActions: [{ kind: 'income', amount: 800 }],
+  },
+  {
+    id: 'vs-07', group: 'valor-sumido', ...clt,
+    messages: ['entrou 800 de vale'],
+    expectActions: [{ kind: 'income', amount: 800 }],
+  },
+  {
+    id: 'vs-08', group: 'valor-sumido', ...clt,
+    messages: ['gastei 80 do vale alimentação'],
+    expectActions: [{ kind: 'expense', amount: 80 }],
+  },
+  {
+    id: 'vs-09', group: 'valor-sumido', ...autonomo,
+    // Controle de cardinalidade: dois fatos, dois lançamentos — nunca um de 380.
+    messages: ['paguei 180 de água e 200 de luz'],
+    expectActions: [{ kind: 'expense', amount: 180 }, { kind: 'expense', amount: 200 }],
+    forbidAmounts: [380],
+  },
+
   // ===== 3. DECIMAL FALADO ==================================================
   {
     id: 'df-01', group: 'decimal-falado', ...autonomo,

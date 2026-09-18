@@ -2116,6 +2116,98 @@ export async function runProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 91. Substantivo financeiro ambíguo não cria ações concorrentes ----
+  // "Aluguel" e "vale" são renda para quem recebe e gasto para quem paga. Sem
+  // verbo que desempate, "o aluguel foi 1800" propunha receita DE 1800 E
+  // despesa de 1800 — somar e subtrair o mesmo dinheiro, com os dois botões na
+  // tela. A resposta certa é perguntar; e com verbo, é obedecer ao verbo.
+  await checkAsync(r, 'substantivo financeiro ambíguo pergunta em vez de escolher', async () => {
+    const nomes = ['aluguel', 'vale alimentação', 'vale']
+    const semVerbo = (n: string) => [`o ${n} foi 1800`, `${n} 1800`, `${n} de 1800`]
+    for (const perfil of ['autonomo', 'clt', 'other'] as const) {
+      for (const n of nomes) {
+        for (const frase of semVerbo(n)) {
+          const out = await orchestrate({ state: buildState({ profile: perfil }), message: frase, remoteEnabled: false, today: TODAY })
+          const dinheiro = acoesDe(out.response).filter(a => a.action.kind === 'income' || a.action.kind === 'expense')
+          if (dinheiro.length) {
+            return `"${frase}" (${perfil}) propôs ${dinheiro.map(a => a.action.kind).join(' + ')} sem verbo que desempate`
+          }
+          // O valor não pode sumir junto com a decisão.
+          if (!/1\.800,00/.test(out.response.reply)) return `"${frase}" (${perfil}) perdeu os R$ 1.800 da resposta`
+        }
+        for (const [verbo, tipo] of [['recebi', 'income'], ['entrou', 'income'], ['paguei', 'expense'], ['gastei', 'expense']] as const) {
+          const frase = `${verbo} 1800 de ${n}`
+          const out = await orchestrate({ state: buildState({ profile: perfil }), message: frase, remoteEnabled: false, today: TODAY })
+          const dinheiro = acoesDe(out.response).filter(a => a.action.kind === 'income' || a.action.kind === 'expense')
+          if (dinheiro.length !== 1 || dinheiro[0].action.kind !== tipo) {
+            return `"${frase}" (${perfil}) rendeu [${dinheiro.map(a => a.action.kind).join(', ')}], esperava ${tipo}`
+          }
+        }
+      }
+    }
+    return null
+  })
+
+  // --- 92. Valor monetário explícito não some em silêncio ----------------
+  // A cobertura é o contrato: todo valor que o usuário DISSE em dinheiro tem
+  // que terminar numa proposta, dentro da pergunta que o app fez, ou citado na
+  // resposta. O que ele nunca pode fazer é desaparecer — foi assim que os R$
+  // 180 de água viraram descrição, os R$ 200 da segunda meta sumiram e o vale
+  // de 800 virou uma consulta sobre alimentação.
+  //
+  // A lista é curada de propósito: um detector genérico de "número que é
+  // dinheiro" erraria justamente nos casos que as invariantes de quantidade
+  // protegem (km, litros, horas, parcelas, dias).
+  await checkAsync(r, 'valor monetário explícito nunca desaparece', async () => {
+    const corpus: { frase: string; perfil: 'autonomo' | 'clt' | 'driver' | 'other'; dinheiro: number[]; naoDinheiro?: number[]; estado?: Parameters<typeof buildState>[0] }[] = [
+      { frase: 'paguei 320 de luz 180 de agua e a internet eu nao lembro', perfil: 'autonomo', dinheiro: [320, 180] },
+      { frase: 'gastei 180 de água e 200 de luz', perfil: 'autonomo', dinheiro: [180, 200] },
+      { frase: 'paguei 180 de água e 200 de luz', perfil: 'autonomo', dinheiro: [180, 200] },
+      { frase: 'recebi 1800 da casa 1 e 1200 da casa 2', perfil: 'autonomo', dinheiro: [1800, 1200] },
+      { frase: 'caiu o vale alimentação 800', perfil: 'clt', dinheiro: [800] },
+      { frase: 'recebi 800 de vale alimentação', perfil: 'clt', dinheiro: [800] },
+      { frase: 'o aluguel foi 1800', perfil: 'autonomo', dinheiro: [1800] },
+      { frase: 'gastei sessenta vírgula cinquenta de farmácia', perfil: 'autonomo', dinheiro: [60.5] },
+      { frase: 'uber deu 210 e a 99 uns 130', perfil: 'driver', dinheiro: [210, 130] },
+      { frase: 'salario caiu 3200 e ja paguei o aluguel de 1100', perfil: 'clt', dinheiro: [3200, 1100] },
+      { frase: 'comprei um pc de 4000 em 10x', perfil: 'autonomo', dinheiro: [4000], naoDinheiro: [10] },
+      {
+        frase: 'guardei 300 na meta da viagem e 200 na outra', perfil: 'other', dinheiro: [300, 200],
+        estado: { goals: [{ name: 'Viagem', target: 5000 }, { name: 'Carro', target: 20000 }] },
+      },
+      // Quantidade não é dinheiro, e o dinheiro do lado dela continua coberto.
+      { frase: 'rodei 180 km e gastei 200 de gasolina', perfil: 'driver', dinheiro: [200], naoDinheiro: [180] },
+      { frase: 'trabalhei 8 horas e ganhei 240', perfil: 'driver', dinheiro: [240], naoDinheiro: [8] },
+      { frase: 'abasteci 24 litros por 180', perfil: 'driver', dinheiro: [180], naoDinheiro: [24] },
+    ]
+    const perto = (a: number, b: number) => Math.abs(a - b) < 0.005
+    for (const c of corpus) {
+      const out = await orchestrate({
+        state: buildState({ profile: c.perfil, ...(c.estado || {}) }),
+        message: c.frase, remoteEnabled: false, today: TODAY,
+      })
+      const res: any = out.response
+      const valoresDe = (as: any[]) => as.flatMap(a => [a?.amount, a?.total, a?.netReceived]).filter((v: any) => typeof v === 'number')
+      const propostos = valoresDe(acoesDe(res).map(a => a.action))
+      const naPergunta = valoresDe([
+        ...(res.clarification?.pendingActions || []),
+        ...((res.clarification?.options || []).flatMap((o: any) => o.actions || [])),
+      ])
+      for (const v of c.dinheiro) {
+        const emAcao = propostos.some(x => perto(x, v))
+        const emPergunta = naPergunta.some(x => perto(x, v))
+        const noTexto = res.reply.includes(fmtBRL(v)) || res.reply.includes(String(v).replace('.', ','))
+        if (!emAcao && !emPergunta && !noTexto) {
+          return `"${c.frase}": R$ ${v} sumiu — nem proposta, nem pergunta, nem resposta`
+        }
+      }
+      for (const v of c.naoDinheiro || []) {
+        if (propostos.some(x => perto(x, v))) return `"${c.frase}": ${v} virou dinheiro`
+      }
+    }
+    return null
+  })
+
   // --- 93. Decimal falado preserva os centavos ---------------------------
   // "Sessenta vírgula cinquenta" virava R$ 60,00 e os cinquenta centavos iam
   // para a descrição ("Vírgula 50 de farmácia"). A conversão de número por
