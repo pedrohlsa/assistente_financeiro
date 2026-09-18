@@ -95,7 +95,8 @@ export const CASOS_PLANO: CasoPlano[] = [
       { source: 'transactions', filtro: { txType: GASTO }, group: 'category', order: umDe('value-desc', null), periodo: exatos(esteMes) },
       { source: 'installments', filtro: { txType: umDe(GASTO, null), status: QUALQUER }, group: 'plan', order: umDe('value-desc', null), periodo: exatos(esteMes) },
     ]),
-  caso('p-03', 'autonomo', 'plano-complexo', 'local-errada',
+  // 18/09/2026: "maior mudança" passou a ser comparação por categoria (causa C2)
+  caso('p-03', 'autonomo', 'plano-complexo', 'local',
     'tirando obra qual foi a maior mudança?',
     'exclusão + comparação + ranking por diferença; o local respondeu o MAIOR VALOR do mês',
     [{ source: 'transactions', filtro: { txType: GASTO, excludeCategories: ['obra'] }, group: 'category', order: umDe('delta-desc', 'delta-asc'), periodo: RECENTE, comparacao: RECENTE }]),
@@ -111,7 +112,8 @@ export const CASOS_PLANO: CasoPlano[] = [
     'tem alguma categoria que saiu muito do meu padrão?',
     'padrão = comparação com o período anterior, por categoria',
     [{ source: 'transactions', filtro: { txType: GASTO }, group: 'category', order: umDe('delta-desc', 'delta-asc'), periodo: RECENTE, comparacao: RECENTE }]),
-  caso('p-06', 'autonomo', 'consulta-nova', 'local-errada',
+  // 18/09/2026: "onde vazou" passou a ser distribuição por categoria (causa C2)
+  caso('p-06', 'autonomo', 'consulta-nova', 'local',
     'onde meu dinheiro mais vazou nos últimos 90 dias?',
     '"onde" pede agrupamento; o local devolveu o TOTAL dos 90 dias',
     [{ source: 'transactions', filtro: { txType: GASTO }, group: umDe('category', 'description'), order: umDe('value-desc', null), periodo: exatos(h => ultimosDias(h, 90)) }]),
@@ -246,7 +248,8 @@ export const CASOS_PLANO: CasoPlano[] = [
     'me fala ai quanto q entrou da casa um e da casa dois',
     'número por extenso em nome de origem; sem período dito, o mês corrente',
     [{ source: 'transactions', filtro: { txType: umDe(RECEITA, null), categories: umDe(['aluguel'], null) }, group: 'origin', order: umDe('value-desc', null), periodo: exatos(esteMes) }]),
-  caso('p-32', 'autonomo', 'linguagem', 'local-errada',
+  // 18/09/2026: "oq mais pesou" passou a ser ranking por categoria (causa C2)
+  caso('p-32', 'autonomo', 'linguagem', 'local',
     'oq mais pesou agosto tirando a obra',
     'exclusão com artigo + mês solto; o local ignorou as duas coisas',
     [{ source: 'transactions', filtro: { txType: GASTO, excludeCategories: ['obra'] }, group: umDe('category', 'description'), order: umDe('value-desc', null), periodo: exatos(h => mesPorNome(h, AGO)) }]),

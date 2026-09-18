@@ -1504,7 +1504,13 @@ Confirmar?`,
   let reply: string
   let mode: AssistantResponse['mode']
   /** Foco devolvido ao chamador. So muda quando a consulta de fato respondeu. */
-  let focoFinal: ConversationFocus | undefined = cenarioJunto?.focus || input.focus
+  // Pergunta respondida pelo roteador antigo no passo 14: o PLANO fica no foco
+  // mesmo assim — a mesma regra do fallback lá embaixo. Sem isto, depois de
+  // "quanto gastei com obra" o "onde?" seguinte não tinha assunto nenhum e
+  // devolvia o total do mês inteiro.
+  let focoFinal: ConversationFocus | undefined = cenarioJunto?.focus
+    || (local_answers.text && conversa?.kind === 'query' ? conversa.focus : undefined)
+    || input.focus
 
   if (clarification) {
     mode = 'clarify'

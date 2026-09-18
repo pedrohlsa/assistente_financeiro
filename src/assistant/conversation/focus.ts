@@ -160,6 +160,10 @@ const CONTINUACAO = [
   // dinheiro" e uma pergunta nova. So a primeira e continuacao.
   /^de\s+onde\s+(?:voce\s+)?(?:tirou|saiu|veio\s+(?:esse|essa|isso))/,
   /^volta\b/, /^e\s+se\b/, /^mesma\s+coisa\b/,
+  // "Onde?" SOZINHO, logo depois de um total: onde foi parar aquele dinheiro.
+  // Só a forma curta — "onde gastei esse mês" é pergunta nova e segue o
+  // caminho normal, com o próprio período.
+  /^(?:e\s+)?(?:pra\s+|para\s+)?a?onde\s*\??$/,
   // "qual mês fica pior?" logo depois de uma simulação fala DA SIMULAÇÃO, não
   // do histórico. Mandar essa frase para o planner comum respondia com o pior
   // mês REAL do passado — um número correto sobre a pergunta errada.
@@ -387,6 +391,16 @@ function refinaConsulta(
   // "E por dia da semana?" contém "da semana", que o leitor de período casa
   // como "esta semana": a pergunta sobre AGRUPAMENTO virava uma troca de
   // período e a resposta vinha sem nenhum agrupamento.
+  // ---- "onde?" — o destino, dentro do assunto que está na tela ----------
+  // Depois de "quanto gastei com obra", "onde?" pergunta EM QUE dentro da obra
+  // (cimento, pedreiro, loja); sem assunto filtrado, em que categoria. Somar de
+  // novo o mesmo total respondia "quanto" a quem perguntou "onde".
+  if (/^(?:e\s+)?(?:pra\s+|para\s+)?a?onde\s*\??$/.test(t)) {
+    const dentroDoAssunto = !!base.filter.categories?.length
+    return planned({ ...base, group: dentroDoAssunto ? 'description' : 'category', order: 'value-desc', limit: 6 },
+      dentroDoAssunto ? 'onde, dentro do assunto' : 'por categoria')
+  }
+
   const agrupamento = grupoPedido(t)
   if (agrupamento) {
     const cmp = agrupamento.exigeComparacao ? (base.comparePeriod || previousPeriod(base.period)) : base.comparePeriod

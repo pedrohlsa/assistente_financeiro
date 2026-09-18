@@ -74,6 +74,9 @@ const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLo
 /** Abreviações que o usuário REAL digita. */
 const ABREV: [RegExp, string][] = [
   [/\bqnt[oa]?\b/g, 'quanto'], [/\bqto\b/g, 'quanto'], [/\bqnd\b/g, 'quando'],
+  // "oq mais pesou" — sem esta troca o "oq" ficava de fora de todo padrão de
+  // ranking e a pergunta virava o total do mês.
+  [/\boq\b/g, 'o que'],
   [/\bq\b/g, 'que'], [/\bpq\b/g, 'porque'], [/\bvc\b/g, 'voce'],
   [/\bhj\b/g, 'hoje'], [/\bontm\b/g, 'ontem'], [/\bmsm\b/g, 'mesmo'],
   [/\bmt\b/g, 'muito'], [/\btbm?\b/g, 'tambem'], [/\bta[h]?\b/g, 'esta'],
@@ -108,6 +111,10 @@ const PEDE_DADO = [
   // ficava no foco, o "e o inter" seguinte não tinha em que se apoiar.
   /\b(?:ta|esta|anda|vem)\s+(?:me\s+)?(?:pesando|apertando|matando|fudendo|acabando|estourando|quebrando|sufocando|comendo)\b/,
   /\bpesa(?:ndo)?\b/, /\bcomprometid/,
+  // "Onde vazou meu dinheiro", "pra onde foi", "onde gastei": DESTINO do
+  // dinheiro. Nenhuma palavra de medida aparece, e a frase nem chegava ao
+  // planejador — o roteador antigo respondia o total, que diz QUANTO e não ONDE.
+  /\b(?:para\s+)?a?onde\b/,
 ]
 
 const NAO_E_CONSULTA = [
@@ -300,6 +307,18 @@ function lerGrupo(t: string, driver: boolean): { valor: QueryGroup; matched: str
     // agrupamento ficava em `none`, a ordenação por diferença não tinha o que
     // ordenar e a resposta virava um total solto — que não responde "o quê".
     [/\bo\s+que\s+mais\s+(?:aumentou|subiu|cresceu|pesou|caiu|diminuiu|desceu)\b/, 'category'],
+    // DISTRIBUIÇÃO: "onde vazou", "pra onde foi meu dinheiro", "onde gastei
+    // mais". "Onde" pergunta pelo destino, e a resposta é um ranking por
+    // categoria — não o total, que responde "quanto". "De onde" é a pergunta
+    // contrária (de onde VEM o dinheiro) e fica de fora.
+    [/(?<!\bde\s)\b(?:para\s+)?a?onde\b(?=[^?]*\b(?:gast\w*|vaz\w*|foi|foram|vai|sai\w*|pes\w*|escorr\w*|torr\w*|dinheiro|grana)\b)/, 'category'],
+    // MUDANÇA: "maior mudança", "o que mais mudou". É comparação entre dois
+    // períodos, ranqueada pela diferença — não o maior valor do mês.
+    [/\bmaior(?:es)?\s+mudancas?\b|\bo\s+que\s+(?:mais\s+)?mudou\b|\bmudou\s+mais\b/, 'category'],
+    // "Tem alguma coisa que eu tô gastando muito mais que antes?" é a mesma
+    // pergunta dita do jeito que a pessoa fala. Sem agrupar, a resposta era o
+    // total do mês — verdadeira e sem relação com o que foi perguntado.
+    [/\btem\s+(?:alguma\s+coisa|algo|alguma)\b[^?]*\bmais\b/, 'category'],
     [/\bqual\s+despesa\b|\bqual\s+gasto\s+(?:esta|ta)\b/, 'category'],
     [/\bqual\s+(?:foi\s+)?(?:o\s+)?(?:meu\s+)?(?:maior|menor)\s+(?:gasto|despesa|compra|receita|entrada)\b|\bo\s+que\s+(?:eu\s+)?mais\s+(?:gasto|gastei)\b|\bqual\s+gasto\b/, 'description'],
   ]
@@ -322,7 +341,7 @@ function lerGrupo(t: string, driver: boolean): { valor: QueryGroup; matched: str
 // ele abre qualquer oração: "qnto q foi d obra nos ultimo 3 mes" tinha o período
 // inteiro lido como o termo de COMPARAÇÃO, e a resposta vinha sobre este mês.
 const MARCADOR_CMP = /\b(?:comparad[oa]\s+(?:com|ao|a)|comparando\s+com|compar[ao]\s+com|em\s+relacao\s+a[o]?|versus|vs|(?:mais|menos|maior|menor|melhor|pior)\s+(?:do\s+)?que)\s+(?:o\s+|a\s+|os\s+|as\s+)?([^?,.!]{2,40})/
-const CMP_IMPLICITA = /\baument(?:ou|aram|o)\b|\bcai(?:u|ram)\b|\bsubiu\b|\bdesceu\b|\bcresceu\b|\bdiminuiu\b|\bpiorou\b|\bmelhorou\b|\bdiferenca\b|\bmudou\b|\bque\s+antes\b|\bdo\s+que\s+antes\b|\bmais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:gastava|ganhava|fazia)\b/
+const CMP_IMPLICITA = /\baument(?:ou|aram|o)\b|\bcai(?:u|ram)\b|\bsubiu\b|\bdesceu\b|\bcresceu\b|\bdiminuiu\b|\bpiorou\b|\bmelhorou\b|\bdiferenca\b|\bmudou\b|\bmudancas?\b|\bque\s+antes\b|\bdo\s+que\s+antes\b|\bmais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:gastava|ganhava|fazia)\b/
 
 /** "3 meses atrás" dentro de uma comparação = a MESMA janela, deslocada. */
 function deslocaPeriodo(p: QueryPeriod, n: number, unidade: string): QueryPeriod {
@@ -884,7 +903,13 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
 
   let order: QueryOrder | undefined = metrica.valor.order
   if (comparePeriod && group !== 'none') {
-    if (/\baument(?:ou|aram|o)\b|\bsubiu\b|\bcresceu\b|\bpiorou\b|\bpesou\s+mais\b/.test(t0)) order = 'delta-desc'
+    if (/\baument(?:ou|aram|o)\b|\bsubiu\b|\bcresceu\b|\bpiorou\b|\bpesou\s+mais\b|\bmudancas?\b|\bmudou\b/.test(t0)) {
+      order = 'delta-desc'
+      // "Qual foi a MAIOR mudança": o "maior" é da diferença, não do
+      // lançamento. Sem isto a métrica virava `max` e a resposta era o maior
+      // valor do mês — número real, pergunta outra.
+      if (metric === 'max') metric = 'sum'
+    }
     else if (/\bcai(?:u|ram)\b|\bdiminuiu\b|\bdesceu\b|\bmelhorou\b|\bbaixou\b/.test(t0)) order = 'delta-asc'
   }
   if (!order && group !== 'none') {

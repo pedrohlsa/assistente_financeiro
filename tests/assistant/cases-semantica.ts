@@ -63,6 +63,40 @@ const AGOSTO = (() => {
 const SO_TOTAL = /^Total gasto(?![\s\S]*•)/
 
 export const SEMANTICA_CASES: SemanticaCase[] = [
+  // ===== 1. DISTRIBUIÇÃO ===================================================
+  {
+    id: 'sd-01', group: 'distribuicao', state: autonomo, today: HOJE,
+    // A frase do corpus p-06. Devolvia "Total gasto nos últimos 90 dias".
+    turnos: [{ msg: 'onde meu dinheiro mais vazou nos últimos 90 dias?', expectPlan: { group: 'category' }, forbidReply: [SO_TOTAL], expectReply: [/obra/i] }],
+  },
+  { id: 'sd-02', group: 'distribuicao', state: autonomo, today: HOJE, turnos: [{ msg: 'onde vazou meu dinheiro', expectPlan: { group: 'category' }, forbidReply: [SO_TOTAL] }] },
+  { id: 'sd-03', group: 'distribuicao', state: autonomo, today: HOJE, turnos: [{ msg: 'pra onde foi meu dinheiro esse mês', expectPlan: { group: 'category' }, forbidReply: [SO_TOTAL] }] },
+  { id: 'sd-04', group: 'distribuicao', state: autonomo, today: HOJE, turnos: [{ msg: 'onde eu mais gastei esse mês', expectPlan: { group: 'category' }, forbidReply: [SO_TOTAL] }] },
+  { id: 'sd-05', group: 'distribuicao', state: autonomo, today: HOJE, turnos: [{ msg: 'onde gastei esse mês', expectPlan: { group: 'category' }, forbidReply: [SO_TOTAL] }] },
+  {
+    id: 'sd-06', group: 'distribuicao', state: autonomo, today: HOJE,
+    // p-32: "oq" é "o que", e o que mais pesou é um RANKING.
+    turnos: [{ msg: 'oq mais pesou agosto tirando a obra', expectPlan: { group: 'category', filter: { excludeCategories: ['obra'] }, periodFrom: AGOSTO }, forbidReply: [SO_TOTAL, /obra e constru/i] }],
+  },
+  {
+    id: 'sd-07', group: 'distribuicao', state: autonomo, today: HOJE,
+    // p-03: mudança é COMPARAÇÃO — não o maior valor do mês.
+    turnos: [{ msg: 'tirando obra qual foi a maior mudança?', expectPlan: { group: 'category', order: /^delta/, compare: true, filter: { excludeCategories: ['obra'] } }, forbidReply: [/^Maior valor/] }],
+  },
+  // Contrastes: as intenções vizinhas NÃO podem colapsar na distribuição.
+  { id: 'sd-08', group: 'distribuicao', state: autonomo, today: HOJE, turnos: [{ msg: 'quanto gastei esse mês', expectPlan: { group: 'none' } }] },
+  { id: 'sd-09', group: 'distribuicao', state: autonomo, today: HOJE, turnos: [{ msg: 'qual foi meu maior gasto esse mês', expectPlan: { group: 'description' } }] },
+  { id: 'sd-10', group: 'distribuicao', state: autonomo, today: HOJE, turnos: [{ msg: 'o que mais aumentou esse mês', expectPlan: { group: 'category', order: /^delta/, compare: true } }] },
+  {
+    id: 'sd-11', group: 'distribuicao', state: autonomo, today: HOJE,
+    // "Onde" dentro de uma conversa sobre obra: destino DENTRO da obra.
+    turnos: [
+      { msg: 'quanto gastei com obra esse mês', expectPlan: { group: 'none', filter: { categories: ['obra'] } } },
+      { msg: 'onde?', expectPlan: { group: 'description', filter: { categories: ['obra'] } }, forbidReply: [SO_TOTAL] },
+      { msg: 'e mês passado?', expectPlan: { filter: { categories: ['obra'] }, periodFrom: inicioDoMes(1) } },
+    ],
+  },
+
   // ===== 2. RESÍDUO NÃO VIRA FILTRO =======================================
   {
     id: 'sr-01', group: 'residuo', state: autonomo, today: HOJE,
