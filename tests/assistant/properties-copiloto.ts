@@ -640,7 +640,7 @@ export async function runCopilotProperties(): Promise<PropertyReport> {
   await checkAsync(r, 'nome de lugar nunca é descartado', async () => {
     const hoje = todayISO()
     const st = autonomoRico(hoje)
-    const lugares = ['restaurante do amarelo', 'Restaurante do Amarelo', 'bar do joão', 'Zé da esquina', 'padaria da esquina', 'mercado']
+    const lugares = ['restaurante do amarelo', 'Restaurante do Amarelo', 'bar do joão', 'Zé da esquina', 'padaria da esquina', 'mercado', 'bar']
     const periodos = ['', ' esse mês', ' este mês', ' essa semana', ' mês passado', ' hoje', ' ontem', ' nos últimos 3 meses', ' esse mês hein', ' hein']
     for (const lugar of lugares) {
       for (const per of periodos) {

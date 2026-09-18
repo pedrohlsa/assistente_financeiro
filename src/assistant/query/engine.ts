@@ -144,7 +144,8 @@ function rowsOf(state: AppState, plan: AssistantQueryPlan): QueryRow[] {
           id: p.id, date: p.purchaseDate, value: r2(pp.remainingAmount),
           label: p.description || 'Parcelamento',
           category: p.categoryId, cardId: p.cardId, cardName: card?.name,
-          planId: p.id, status: p.status, txType: 'expense', estimated: true,
+          // O que já foi pago aconteceu; o que falta e o total incluem o futuro.
+          planId: p.id, status: p.status, txType: 'expense', estimated: plan.field !== 'paid',
           extra: {
             remaining: r2(pp.remainingAmount), total: r2(p.totalAmount), paid: r2(pp.paidAmount),
             remainingCount: pp.remainingCount, paidCount: pp.paidCount,
@@ -606,6 +607,12 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan): AssistantQu
   const limitados = groups.slice(0, plan.limit || 8)
 
   // ---- Ressalvas honestas ------------------------------------------------
+  // "Qual cliente me pagou mais" sem cliente registrado em NENHUM lançamento:
+  // sem esta frase a resposta era só o total, e parecia que ninguém tinha
+  // entendido a pergunta. O app não adivinha origem (regra do CLAUDE.md).
+  if (plan.group === 'origin' && rows.length > 0 && !groups.length) {
+    caveats.push('Nenhum desses lançamentos tem origem registrada (cliente, imóvel, empresa), então não dá para dizer de quem veio mais.')
+  }
   if (plan.period.future || rows.every(row => row.estimated) && rows.length > 0) {
     caveats.push('São valores previstos, não realizados.')
   }
@@ -644,7 +651,7 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan): AssistantQu
     // recorte. Sem esta flag a resposta dizia "(dado real)" para o que o
     // usuário ainda vai pagar.
     estimated: plan.period.future || plan.source === 'projections' || plan.source === 'recurring'
-      || plan.source === 'plans' || (rows.length > 0 && rows.every(row => !!row.estimated)),
+      || (plan.source === 'plans' && plan.field !== 'paid') || (rows.length > 0 && rows.every(row => !!row.estimated)),
     sample: { rows: rows.length, from: datas[0] || plan.period.from, to: datas[datas.length - 1] || plan.period.to },
     empty: rows.length === 0,
     caveats,

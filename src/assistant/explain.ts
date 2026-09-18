@@ -47,6 +47,13 @@ const RE_APRENDEU = /\b(?:o que|que)\s+(?:voce|vc|tu)?\s*(?:ja\s+)?(?:aprendeu|s
  */
 const RE_QUANTAS = /\bquantas?\s+vezes\b(?![^?]*\b(?:preciso|precisa|tenho que|teria que|vou ter|falta|faltam)\b)/
 /**
+ * "Quantas vezes eu fui NO BAR": o nome já está na pergunta, e contar no
+ * histórico é CONSULTA. Pedir "me diga o nome do lugar" a quem acabou de dizer
+ * o lugar é responder sem ter lido a frase. Só "isso", "esse", o período e a
+ * proposta na tela ficam aqui.
+ */
+const NOMEIA_ALVO = /\b(?:no|na|nos|nas|em|com|pro|pra)\s+(?!(?:isso|isto|esse|essa|este|esta|aquilo|aquele|aquela|mes|semana|ano|dia|hoje|ontem)\b)[a-z0-9]{2,}/
+/**
  * "de quando" e "desde quando" sozinhos são pergunta sobre um lançamento
  * ("de quando é essa conta?"). Só valem aqui junto de uma palavra do próprio
  * aprendizado.
@@ -76,7 +83,7 @@ export function explainRequest(input: ExplainInput): string | undefined {
   if (RE_APRENDEU.test(t)) return respostaAprendeu(state, today)
   if (RE_PERIODO.test(t)) return respostaPeriodo(state, today)
   if (RE_VALOR.test(t)) return respostaValor(input)
-  if (RE_QUANTAS.test(t)) return respostaQuantas(input)
+  if (RE_QUANTAS.test(t) && !NOMEIA_ALVO.test(t)) return respostaQuantas(input)
   if (RE_CATEGORIA.test(t) || RE_CATEGORIA_ALT.test(t)) return respostaCategoria(input)
   return undefined
 }

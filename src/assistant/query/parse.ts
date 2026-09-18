@@ -181,7 +181,15 @@ const ENTRADA = /\bganh(?:ei|o|ou)\b|\brecebi\b|\brecebo\b|\bentr(?:ou|ada|adas|
 const GUARDADO = /\bguard(?:ei|o|ado|ar)\b|\bseparei\b|\breservei\b|\bpoupei\b/
 const RESULTADO = /\blucr(?:ei|o|ou)\b|\bsobr(?:ou|a|as|ando)\b|\bliquido\b|\bresultado\b|\bmelhor\s+mes\b|\bpior\s+mes\b|\bmelhor\s+semana\b|\bpior\s+semana\b|\bmelhor\s+dia\b|\bpior\s+dia\b/
 
+/**
+ * "Qual cliente ME PAGOU mais", "quem me paga melhor": o dinheiro veio para o
+ * usuário. `pagou` está em GASTO (e está certo lá: "quanto eu paguei"), então
+ * sem esta leitura a pergunta virava um ranking de DESPESAS por origem.
+ */
+const ME_PAGOU = /\bme\s+pag(?:ou|aram|a|am|ava|avam)\b|\bpag(?:ou|aram)\s+(?:pra|para)\s+mim\b/
+
 function tipoBaseDe(t: string): ('income' | 'expense' | 'saving')[] {
+  if (ME_PAGOU.test(t)) return ['income']
   if (GUARDADO.test(t) && !GASTO.test(t)) return ['saving']
   if (ENTRADA.test(t) && !GASTO.test(t)) return ['income']
   return ['expense']
@@ -193,12 +201,20 @@ function lerMetrica(t: string): { valor: MetricaLida; matched: string } {
   // seis vezes menor, com a mesma cara de resposta certa.
   const tipo: ('income' | 'expense' | 'saving')[] =
     RESULTADO.test(t) && !GASTO.test(t) ? ['income', 'expense'] : tipoBaseDe(t)
+  // Entrada menos saída dividida pela unidade: o rótulo diz que é LÍQUIDO,
+  // senão "R$ 24,57 por viagem" se lê como o que a corrida paga.
+  const porUnidade = tipo.length > 1 ? 'Líquido por ' : 'Por '
   const rotuloBase = tipo.length > 1 ? 'Resultado'
     : tipo[0] === 'income' ? 'Total recebido' : tipo[0] === 'saving' ? 'Total guardado' : 'Total gasto'
 
   const tabela: [RegExp, MetricaLida][] = [
     [/\b(?:com\s+)?(?:mais|maior)\s+frequencia\b|\bmais\s+frequente\b|\bque\s+(?:eu\s+)?mais\s+(?:faco|repito)\b/,
       { metric: 'count', txType: tipo, group: 'description', order: 'count-desc', limit: 5, label: 'Mais frequente' }],
+    // "Quantas vezes eu fui no bar E QUANTO DEU": duas medidas. A soma
+    // responde as duas — a resposta traz a contagem na linha da base —, e a
+    // contagem sozinha deixava o "quanto deu" sem resposta.
+    [/\bquantas?\s+vezes\b(?=.*\be\s+quanto\s+(?:deu|foi|gastei|saiu|custou|paguei)\b)/,
+      { metric: 'sum', txType: tipo, label: rotuloBase }],
     [/\bquantas?\s+vezes\b|\bquantos?\s+(?:lancamentos|registros)\b/,
       { metric: 'count', txType: tipo, label: 'Quantidade' }],
     [/\bquantas?\s+parcelas\b/, { metric: 'count', txType: tipo, label: 'Parcelas' }],
@@ -207,11 +223,14 @@ function lerMetrica(t: string): { valor: MetricaLida; matched: string } {
     [/\bquanto\s+d[aeo]s?\s+(?:minhas?\s+|meus?\s+)?(?:receitas?|entradas?|renda|faturamento|ganhos)\b/,
       { metric: 'share', txType: tipo, label: 'Participação' }],
     [/\bmediana\b/, { metric: 'median', txType: tipo, label: 'Mediana' }],
+    // A UNIDADE vem antes da média: "por corrida EM MÉDIA" é o valor por
+    // corrida — o "em média" só reforça. Lido como média por LANÇAMENTO, o
+    // "líquido por corrida" virava a média das receitas de corrida.
+    [/\bpor\s+km\b|\bpor\s+quilometro\b|\bo\s+km\b|\bkm\s+sai\b/, { metric: 'per-km', txType: tipo, label: `${porUnidade}km` }],
+    [/\bpor\s+hora\b|\ba\s+hora\b|\bhora\s+trabalhada\b/, { metric: 'per-hour', txType: tipo, label: `${porUnidade}hora` }],
+    [/\bpor\s+(?:viagem|corrida)\b|\bcada\s+(?:viagem|corrida)\b/, { metric: 'per-trip', txType: tipo, label: `${porUnidade}viagem` }],
     [/\b(?:em|na|por)\s+media\b|\bmedia\b|\bnormalmente\b|\bcostum[oa]\b|\bgeralmente\b/,
       { metric: 'avg', txType: tipo, label: 'Média por lançamento' }],
-    [/\bpor\s+km\b|\bpor\s+quilometro\b|\bo\s+km\b|\bkm\s+sai\b/, { metric: 'per-km', txType: tipo, label: 'Por km' }],
-    [/\bpor\s+hora\b|\ba\s+hora\b|\bhora\s+trabalhada\b/, { metric: 'per-hour', txType: tipo, label: 'Por hora' }],
-    [/\bpor\s+(?:viagem|corrida)\b|\bcada\s+(?:viagem|corrida)\b/, { metric: 'per-trip', txType: tipo, label: 'Por viagem' }],
     [/\bpor\s+dia\b|\bao\s+dia\b|\bdiari[oa]\b/, { metric: 'per-day', txType: tipo, label: 'Por dia' }],
   ]
 
@@ -244,6 +263,12 @@ interface FonteLida { source: QuerySource; field?: QueryField }
 /** Nome escrito pelo usuário virando padrão de busca — regra 47. */
 const escapaRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
+/**
+ * "Parcelas da geladeira", "parcelamento do celular": o nome da compra depois
+ * da parcela. Período ("do mês"), cartão ("do nubank") e fatura não são compra.
+ */
+const ITEM_PARCELADO = /\b(?:parcelas?|parcelamentos?|prestac(?:ao|oes)|pagar|quitar)\s+d[oa]s?\s+(?!(?:mes|meses|ano|semana|cartao|cartoes|fatura|faturas|proxim[oa]s?|ultim[oa]s?|nubank|inter|itau|bradesco|santander|caixa|c6|next|pan|picpay|mercado\s+pago)\b)([a-z][a-z0-9\-]*(?:\s+(?!(?:e|ou|que|quanto|esse|este|nesse|neste|ja)\b)[a-z0-9][a-z0-9\-]*){0,2})/
+
 function lerFonte(t: string, driver: boolean, metas: string[] = []): { valor: FonteLida; matched: string } | null {
   // "Quanto falta pra viagem?" — sem a palavra "meta". O usuário chama a meta
   // pelo NOME que ele mesmo deu, e é exatamente assim que se fala logo depois
@@ -263,6 +288,11 @@ function lerFonte(t: string, driver: boolean, metas: string[] = []): { valor: Fo
     [/\bmetas?\b(?!\s+(?:diaria|mensal|do\s+dia|do\s+mes))/, { source: 'goals', field: 'remaining' }],
     [/\bfalta\s+(?:pagar|quitar)\b|\bquanto\s+(?:ainda\s+)?falta\b/, { source: 'plans', field: 'remaining' }],
     [/\bparcelamentos?\b/, { source: 'plans', field: 'remaining' }],
+    // "As parcelas DA GELADEIRA": a compra tem nome, e a pergunta é sobre o
+    // parcelamento dela inteiro. Lido como "parcelas" soltas, a pergunta caía
+    // no resumo dos cartões — o item sumia da resposta.
+    [/\b(?:parcelas?|prestac(?:ao|oes))\s+d[oa]s?\s+(?!(?:mes|meses|ano|semana|cartao|cartoes|fatura|faturas|proxim[oa]s?|ultim[oa]s?)\b)[a-z]/,
+      { source: 'plans', field: 'remaining' }],
     [/\bparcelas?\b/, { source: 'installments' }],
     [/\bfaturas?\b/, { source: 'invoices' }],
     [/\bprojecao\b|\bprevisao\b|\bproxim[oa]s?\s+meses\b|\bvai\s+(?:ficar|sobrar|pesar|apertar)\b|\bmes\s+mais\s+(?:pesado|apertado)\b/,
@@ -508,7 +538,7 @@ function extrairOrigem(t: string): { valor: string; matched: string } | undefine
  * tem "Combustível" gravado na descrição.
  */
 function resolverCategoria(
-  state: AppState, nome: string, tipo: 'income' | 'expense',
+  state: AppState, nome: string, tipo: 'income' | 'expense', lugar = false,
 ): string | undefined {
   const alvo = normalizeName(nome)
   if (!alvo) return undefined
@@ -519,6 +549,12 @@ function resolverCategoria(
   const parcial = cats.find(c => alvo.length >= 4
     && (normalizeName(c.name).includes(alvo) || alvo.includes(normalizeName(c.name))))
   if (parcial) return parcial.id
+  // "Fui NO bar", "gastei NA padaria": com a preposição de lugar o usuário
+  // nomeou um ESTABELECIMENTO, e a palavra da lista genérica não o transforma
+  // na categoria inteira — "no bar" contando cinema, show e festa responde
+  // outra pergunta. O nome da categoria dito por extenso continua valendo
+  // (acima), e o histórico dele é a segunda tentativa (`categoriaAprendida`).
+  if (lugar) return undefined
 
   for (const [id, palavras] of Object.entries(CATEGORY_KEYWORDS)) {
     if (!cats.some(c => c.id === id)) continue
@@ -852,7 +888,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     incompleto = alvo.literal
   } else if (alvo) {
     rest.consome(alvo.matched)
-    const cat = resolverCategoria(state, alvo.valor, tipoAlvo)
+    const cat = resolverCategoria(state, alvo.valor, tipoAlvo, /^(?:no|na|nos|nas)\s/.test(alvo.matched.trim()))
     if (cat) {
       filter.categories = [cat]
       recognized.push(`categoria ${alvo.valor}`)
@@ -898,12 +934,30 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   }
   if (source === 'goals' && !/\bconclui|\bterminad|\btodas\b/.test(t0)) filter.status = ['open']
 
+  // A compra citada pelo nome ("parcelas da geladeira") é o filtro do
+  // parcelamento. Cartão com esse nome já foi lido acima e não é compra.
+  const itemParcelado = source === 'plans' && !filter.text ? t0.match(ITEM_PARCELADO) : null
+  if (itemParcelado && cartoesCitados(state, itemParcelado[1]).length) {
+    // "As parcelas do <cartão que ele batizou>": é o cartão, lido acima — a
+    // pergunta continua sendo sobre as parcelas dele, como sempre foi.
+    if (fonteLida && /^(?:parcelas?|prestac)/.test(fonteLida.matched.trim())) {
+      source = 'installments'
+      fonteLida.valor = { source: 'installments' }
+    }
+  } else if (itemParcelado) {
+    filter.text = itemParcelado[1].trim()
+    rest.consome(itemParcelado[0])
+    recognized.push(`parcelamento "${filter.text}"`)
+  }
+
   // ---- 8) campo e ordem --------------------------------------------------
   let field: QueryField = fonteLida?.valor.field
     || (source === 'goals' ? 'remaining' : source === 'plans' ? 'remaining'
       : source === 'projections' ? projField(t0) : 'amount')
   if (source === 'goals' && /\bmais\s+per|\bperto\s+de\s+terminar|\bfalta\s+menos\b|\bquase\b/.test(t0)) field = 'pct'
   if (source === 'plans' && /\bquantas\s+parcelas\b/.test(t0)) field = 'remainingCount'
+  // "Quanto eu JÁ PAGUEI da geladeira": o que saiu, não o que falta.
+  if (source === 'plans' && /\b(?:ja\s+)?(?:paguei|pagamos|quitei)\b/.test(t0) && !/\bfalta\b|\bfaltam\b/.test(t0)) field = 'paid'
 
   let order: QueryOrder | undefined = metrica.valor.order
   if (comparePeriod && group !== 'none') {
@@ -1053,9 +1107,14 @@ function rotulo(
   m: MetricaLida, alvo: string | undefined, filter: QueryFilter,
   state: AppState, source: QuerySource, field: QueryField,
 ): string {
+  // "Falta pagar" em cima do que JÁ FOI pago é o número certo com o nome do
+  // outro: o parcelamento tem três campos, e o rótulo diz qual deles é.
   const base = source === 'transactions'
     ? m.label
-    : (field === 'pct' ? 'Progresso das metas' : ROTULO_FONTE[source] || m.label)
+    : field === 'pct' ? 'Progresso das metas'
+      : source === 'plans' && field === 'paid' ? 'Já pago'
+        : source === 'plans' && field === 'total' ? 'Valor total'
+          : ROTULO_FONTE[source] || m.label
   const cat = filter.categories?.length
     ? (state.categories || []).find(c => c.id === filter.categories![0])?.name
     : undefined

@@ -174,8 +174,39 @@ export const SEMANTICA_CASES: SemanticaCase[] = [
   },
   // Controle: a pergunta que o atalho antigo SABE responder continua com ele.
   { id: 'sc-06', group: 'capacidade', state: autonomo, today: HOJE, turnos: [{ msg: 'quanto gastei essa semana', expectQueryAnswer: false, expectRemote: false, expectReply: [/últimos 7 dias/] }] },
+  {
+    id: 'sc-07', group: 'capacidade', state: autonomo, today: HOJE,
+    // p-16. A explicação "quantas vezes eu fiz ISSO" respondia "me diga o nome
+    // do lugar" a quem tinha dito o lugar; e "bar" virava a categoria Lazer
+    // inteira (cinema, show, festa…). Somar mostra o valor E a contagem.
+    turnos: [{ msg: 'quantas vezes eu fui no bar esse mês e quanto deu', expectQueryAnswer: true, expectRemote: false,
+      expectPlan: { metric: 'sum', filter: { text: /bar/i }, semFiltro: ['categories'] },
+      forbidReply: [/me diga o nome do lugar/i] }],
+  },
   // Controle: sem proposta e sem nome, a explicação continua pedindo o nome.
   { id: 'sc-08', group: 'capacidade', state: autonomo, today: HOJE, turnos: [{ msg: 'quantas vezes eu fiz isso?', expectRemote: false, expectReply: [/me diga o nome do lugar/i] }] },
+  {
+    id: 'sc-09', group: 'capacidade', state: autonomo, today: HOJE,
+    // p-23. O resumo dos cartões respondia no lugar da geladeira.
+    turnos: [{ msg: 'quanto eu ja paguei do total das parcelas da geladeira', expectQueryAnswer: true, expectRemote: false,
+      expectPlan: { source: 'plans', field: 'paid', filter: { text: /geladeira/i } },
+      expectReply: [/geladeira/i], forbidReply: [/Situação dos seus cartões/] }],
+  },
+  {
+    id: 'sc-10', group: 'capacidade', state: autonomo, today: HOJE,
+    // p-25. "Me pagou" é dinheiro que ENTROU; o local somava GASTOS por origem.
+    turnos: [{ msg: 'qual cliente me pagou mais freela esse ano', expectQueryAnswer: true, expectRemote: false,
+      expectPlan: { group: 'origin', filter: { txType: ['income'], categories: ['freelance'] } },
+      forbidReply: [/Total gasto/] }],
+  },
+  {
+    id: 'sc-11', group: 'capacidade', state: motorista, today: HOJE,
+    // p-27. O atalho antigo dava a receita BRUTA dos últimos 7 dias para quem
+    // perguntou o LÍQUIDO deste mês.
+    turnos: [{ msg: 'quanto eu tiro liquido por corrida em media esse mes', expectQueryAnswer: true, expectRemote: false,
+      expectPlan: { metric: 'per-trip', filter: { txType: ['income', 'expense'] }, semFiltro: ['categories'] },
+      forbidReply: [/últimos 7 dias/] }],
+  },
   // Controle: por viagem na semana é exatamente o que o atalho antigo calcula.
   { id: 'sc-12', group: 'capacidade', state: motorista, today: HOJE, turnos: [{ msg: 'quanto eu faço por viagem essa semana', expectRemote: false, expectReply: [/por viagem/] }] },
   // Controle: o que o local não representa vai ao remoto — sem R$ 0,00 no caminho.
