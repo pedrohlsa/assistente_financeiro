@@ -630,6 +630,46 @@ export async function runCopilotProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 123. Nome de lugar nunca é descartado ---------------------------
+  // "Quanto gastei no Restaurante do Amarelo" era respondido pelo atalho
+  // antigo com o total da SEMANA inteira — o lugar sumia e a resposta dizia
+  // "(dado real)". E "no Zé ESSE MÊS" virava a busca "ze esse": o período
+  // devolvia o rótulo "este mês", que não casava com o texto, e nada era
+  // consumido. Vale para qualquer lugar e período, com e sem remoto; e o
+  // contraste: categoria dita por extenso continua categoria.
+  await checkAsync(r, 'nome de lugar nunca é descartado', async () => {
+    const hoje = todayISO()
+    const st = autonomoRico(hoje)
+    const lugares = ['restaurante do amarelo', 'Restaurante do Amarelo', 'bar do joão', 'Zé da esquina', 'padaria da esquina', 'mercado']
+    const periodos = ['', ' esse mês', ' este mês', ' essa semana', ' mês passado', ' hoje', ' ontem', ' nos últimos 3 meses', ' esse mês hein', ' hein']
+    for (const lugar of lugares) {
+      for (const per of periodos) {
+        for (const pre of ['quanto gastei no', 'quanto eu gastei no']) {
+          const frase = `${pre} ${lugar}${per}`
+          const pl = planQuery(st, frase, { today: hoje })
+          const texto = normalizeName(String(pl?.plan.filter?.text || ''))
+          if (!pl || texto !== normalizeName(lugar)) return `"${frase}" virou a busca "${pl?.plan.filter?.text}"`
+          if (pl.plan.filter.categories?.length) return `"${frase}" virou a categoria ${pl.plan.filter.categories}`
+          for (const remoto of [false, true]) {
+            const out = await orchestrate({
+              state: st, message: frase, today: hoje, remoteEnabled: remoto,
+              askRemote: async () => null, planRemoteQuery: async () => null,
+            })
+            const reply = normalizeName(out.response.reply)
+            if (/^voce gastou/.test(reply) || !reply.includes(normalizeName(lugar))) {
+              return `"${frase}" (remoto ${remoto ? 'ligado' : 'desligado'}) respondeu sem o lugar: "${out.response.reply.slice(0, 120)}"`
+            }
+          }
+        }
+      }
+    }
+    for (const [frase, cat] of [['quanto gastei em alimentação', 'alimentacao'], ['quanto gastei com lazer esse mês', 'lazer']] as const) {
+      const pl = planQuery(st, frase, { today: hoje })
+      if (pl?.plan.filter?.categories?.[0] !== cat || pl.plan.filter.text) return `"${frase}" deixou de ser a categoria ${cat}`
+    }
+    return null
+  })
+
   // --- 122. Sobra da pergunta nunca vira filtro de texto ---------------
   // "Acima de 200 reais" virava a busca "200 reais"; "fins de semana", a busca
   // "fins de"; "desde abril", "500 eu fiz desde". O resultado vazio era dito

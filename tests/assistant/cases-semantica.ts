@@ -9,11 +9,15 @@
 //                  comparação; "maior gasto" pede um lançamento. Não colapsam;
 //   residuo      — pedaço não entendido da pergunta não vira filtro de texto
 //                  que "prova" que não há lançamento;
-//   hipotese     — "e se…" nunca é respondido como fato.
+//   hipotese     — "e se…" nunca é respondido como fato;
+//   capacidade   — o atalho antigo só responde o que ele sabe expressar: nome
+//                  de lugar, "líquido", período e parcela de um item não são
+//                  ignorados para caber numa resposta pronta.
 
 import type { AppState } from '../../src/models/types'
 import { orchestrate } from '../../src/assistant/orchestrator'
 import { planQuery } from '../../src/assistant/query/parse'
+import { answerConversation } from '../../src/assistant/conversation'
 import type { ConversationFocus } from '../../src/assistant/conversation'
 import { autonomoRico, motoristaRico } from '../fixtures/richState'
 import { todayISO } from '../../src/utils/format'
@@ -26,7 +30,16 @@ export interface SemanticaTurno {
   expectReply?: (string | RegExp)[]
   forbidReply?: (string | RegExp)[]
   /** Campos do plano de consulta que ficou no foco. */
-  expectPlan?: { group?: string; order?: RegExp; compare?: boolean; filter?: Record<string, unknown>; periodFrom?: string }
+  expectPlan?: {
+    group?: string; order?: RegExp; compare?: boolean; filter?: Record<string, unknown>; periodFrom?: string
+    source?: string; field?: string; metric?: string
+    /** Filtros que têm que vir AUSENTES ("bar" não é a categoria Lazer inteira). */
+    semFiltro?: string[]
+  }
+  /** Quem respondeu foi a CONSULTA local (o plano ficou no foco), não o atalho antigo. */
+  expectQueryAnswer?: boolean
+  /** Saiu requisição para algum caminho remoto (planejador ou chat). */
+  expectRemote?: boolean
   /** A resposta tem que vir de um cenário (foco `last: 'scenario'`). */
   expectScenario?: boolean
   /** O pedido chegou ao planejador remoto. */
@@ -116,7 +129,9 @@ export const SEMANTICA_CASES: SemanticaCase[] = [
   {
     id: 'sr-04', group: 'residuo', state: autonomo, today: HOJE,
     // p-30: "cartão" repete o que o Nubank já disse — não é filtro.
-    turnos: [{ msg: 'gastei qnt no cartao nubank mes passado hein', expectPlan: { filter: { cardNames: ['Nubank'] } }, forbidReply: [/"cartao"/, /cadastre um cart/i] }],
+    // 18/09/2026 (C5): com "mês passado" consumido de verdade, o "hein" do fim
+    // grudava em "cartao" e a pergunta virava rascunho de gasto ("Qual foi o valor?").
+    turnos: [{ msg: 'gastei qnt no cartao nubank mes passado hein', expectPlan: { filter: { cardNames: ['Nubank'] } }, expectReply: [/Nubank/], forbidReply: [/"cartao"/, /cadastre um cart/i, /qual foi o valor/i] }],
   },
   {
     id: 'sr-05', group: 'residuo', state: motorista, today: HOJE,
@@ -125,6 +140,49 @@ export const SEMANTICA_CASES: SemanticaCase[] = [
   },
   // Controles: nome de verdade continua sendo filtro de verdade.
   { id: 'sr-06', group: 'residuo', state: autonomo, today: HOJE, turnos: [{ msg: 'quanto gastei no Zé da esquina', expectPlan: { filter: { text: /z[eé] da esquina/i } } }] },
+
+  // ===== 2b. CAPACIDADE: o atalho antigo não responde o que não expressa ====
+  // O total antigo de "quanto gastei" ignorava o lugar e respondia o total da
+  // semana inteira. "Restaurante do Amarelo" não existe no histórico: a resposta
+  // certa é dizer que não há lançamento com esse nome, nunca o total geral.
+  {
+    id: 'sc-01', group: 'capacidade', state: autonomo, today: HOJE,
+    turnos: [{ msg: 'quanto gastei no restaurante do amarelo', expectQueryAnswer: true, expectRemote: false,
+      expectPlan: { filter: { text: /restaurante do amarelo/i }, semFiltro: ['categories'] },
+      expectReply: [/restaurante do amarelo/i], forbidReply: [/^Você gastou/, /nos últimos 7 dias/] }],
+  },
+  {
+    id: 'sc-02', group: 'capacidade', state: autonomo, today: HOJE,
+    turnos: [{ msg: 'quanto gastei no Restaurante do Amarelo', expectQueryAnswer: true, expectRemote: false,
+      expectPlan: { filter: { text: /restaurante do amarelo/i }, semFiltro: ['categories'] }, forbidReply: [/^Você gastou/] }],
+  },
+  {
+    id: 'sc-03', group: 'capacidade', state: autonomo, today: HOJE,
+    turnos: [{ msg: 'quanto gastei no mercado', expectQueryAnswer: true, expectRemote: false,
+      expectPlan: { filter: { text: /mercado/i }, semFiltro: ['categories'] }, forbidReply: [/^Você gastou/] }],
+  },
+  {
+    id: 'sc-04', group: 'capacidade', state: autonomo, today: HOJE,
+    turnos: [{ msg: 'quanto gastei no Zé', expectQueryAnswer: true, expectRemote: false,
+      expectPlan: { filter: { text: /z[eé]/i } }, forbidReply: [/^Você gastou/] }],
+  },
+  // Controle: categoria conhecida continua categoria, e continua local.
+  {
+    id: 'sc-05', group: 'capacidade', state: autonomo, today: HOJE,
+    turnos: [{ msg: 'quanto gastei em alimentação', expectRemote: false,
+      expectPlan: { filter: { categories: ['alimentacao'] }, semFiltro: ['text'] } }],
+  },
+  // Controle: a pergunta que o atalho antigo SABE responder continua com ele.
+  { id: 'sc-06', group: 'capacidade', state: autonomo, today: HOJE, turnos: [{ msg: 'quanto gastei essa semana', expectQueryAnswer: false, expectRemote: false, expectReply: [/últimos 7 dias/] }] },
+  // Controle: sem proposta e sem nome, a explicação continua pedindo o nome.
+  { id: 'sc-08', group: 'capacidade', state: autonomo, today: HOJE, turnos: [{ msg: 'quantas vezes eu fiz isso?', expectRemote: false, expectReply: [/me diga o nome do lugar/i] }] },
+  // Controle: por viagem na semana é exatamente o que o atalho antigo calcula.
+  { id: 'sc-12', group: 'capacidade', state: motorista, today: HOJE, turnos: [{ msg: 'quanto eu faço por viagem essa semana', expectRemote: false, expectReply: [/por viagem/] }] },
+  // Controle: o que o local não representa vai ao remoto — sem R$ 0,00 no caminho.
+  {
+    id: 'sc-13', group: 'capacidade', state: motorista, today: HOJE,
+    turnos: [{ msg: 'qual plataforma me paga melhor por hora na última quinzena', expectRemotePlan: true, forbidReply: [/R\$\s*0,00/, /últimos 7 dias/] }],
+  },
 
   // ===== 3. HIPÓTESE NUNCA VIRA FATO =======================================
   {
@@ -196,11 +254,12 @@ export async function runSemanticaCase(c: SemanticaCase): Promise<SemanticaResul
   for (let i = 0; i < c.turnos.length; i++) {
     const t = c.turnos[i]
     let pediuPlano = false
+    let pediuChat = false
     const out = await orchestrate({
       state, message: t.msg, focus, today: c.today,
       // Rede FALSA: grava se o pedido chegaria ao remoto, sem nunca responder.
       remoteEnabled: true,
-      askRemote: async () => null,
+      askRemote: async () => { pediuChat = true; return null },
       planRemoteQuery: async () => { pediuPlano = true; return null },
     })
     const r = out.response
@@ -221,10 +280,29 @@ export async function runSemanticaCase(c: SemanticaCase): Promise<SemanticaResul
         if (t.expectPlan.order && !t.expectPlan.order.test(String(p.order ?? ''))) errors.push(`${tag} order ${p.order} não casa ${t.expectPlan.order}`)
         if (t.expectPlan.compare !== undefined && !!p.comparePeriod !== t.expectPlan.compare) errors.push(`${tag} compare ${!!p.comparePeriod} ≠ ${t.expectPlan.compare}`)
         if (t.expectPlan.periodFrom && p.period?.from !== t.expectPlan.periodFrom) errors.push(`${tag} período ${p.period?.from} ≠ ${t.expectPlan.periodFrom}`)
+        if (t.expectPlan.source && p.source !== t.expectPlan.source) errors.push(`${tag} source ${p.source} ≠ ${t.expectPlan.source}`)
+        if (t.expectPlan.field && p.field !== t.expectPlan.field) errors.push(`${tag} field ${p.field} ≠ ${t.expectPlan.field}`)
+        if (t.expectPlan.metric && p.metric !== t.expectPlan.metric) errors.push(`${tag} metric ${p.metric} ≠ ${t.expectPlan.metric}`)
+        for (const k of t.expectPlan.semFiltro || []) {
+          if (p.filter?.[k] !== undefined) errors.push(`${tag} filter.${k} = ${JSON.stringify(p.filter[k])} deveria estar ausente`)
+        }
         for (const [k, v] of Object.entries(t.expectPlan.filter || {})) {
           if (!confere(v, p.filter?.[k])) errors.push(`${tag} filter.${k} = ${JSON.stringify(p.filter?.[k])} ≠ ${v instanceof RegExp ? v : JSON.stringify(v)}`)
         }
       }
+    }
+    if (t.expectQueryAnswer !== undefined) {
+      // O foco não serve de prova: ele guarda o plano também quando o atalho
+      // antigo responde (é o que deixa "onde?" funcionar depois). Prova é o
+      // TEXTO ser o da consulta local.
+      const consulta = answerConversation(state, t.msg, { today: c.today, focus: anterior })
+      const respondeuConsulta = consulta?.kind === 'query' && consulta.reply === r.reply
+      if (respondeuConsulta !== t.expectQueryAnswer) {
+        errors.push(`${tag} ${t.expectQueryAnswer ? 'não foi' : 'foi'} respondido pela consulta local: "${r.reply.replace(/\n/g, ' | ').slice(0, 160)}"`)
+      }
+    }
+    if (t.expectRemote !== undefined && (pediuPlano || pediuChat) !== t.expectRemote) {
+      errors.push(`${tag} ${t.expectRemote ? 'não chegou' : 'chegou'} ao remoto (plano ${pediuPlano}, chat ${pediuChat}): "${r.reply.replace(/\n/g, ' | ').slice(0, 160)}"`)
     }
     if (t.expectScenario && out.focus?.last !== 'scenario') errors.push(`${tag} não foi respondido como cenário: "${r.reply.replace(/\n/g, ' | ').slice(0, 160)}"`)
     if (t.expectRemotePlan !== undefined && pediuPlano !== t.expectRemotePlan) {

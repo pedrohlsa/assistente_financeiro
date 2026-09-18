@@ -375,6 +375,8 @@ const ESTRUTURAIS = new Set([
   'quanto', 'quantos', 'quantas', 'qual', 'quais', 'quando', 'onde', 'como',
   'eu', 'meu', 'minha', 'meus', 'minhas', 'o', 'a', 'os', 'as', 'um', 'uma',
   'de', 'do', 'da', 'dos', 'das', 'no', 'na', 'nos', 'nas', 'em', 'com', 'por',
+  // Interjeição de fala ("…mês passado HEIN") nunca é nome de nada.
+  'hein', 'ne', 'viu', 'uai',
   'para', 'que', 'e', 'ou', 'mais', 'menos', 'muito', 'total', 'media', 'mediana',
   'mes', 'meses', 'semana', 'semanas', 'dia', 'dias', 'ano', 'anos', 'hoje',
   'ontem', 'passado', 'passada', 'este', 'esta', 'esse', 'essa', 'neste', 'nesse',
@@ -433,7 +435,9 @@ function extrairAlvo(t: string): { valor: string; literal: string; matched: stri
   const total = m[1].trim().split(/\s+/).length
   const uteis = valor.split(/\s+/).length
   if (uteis * 2 < total) return undefined
-  return { valor, literal: m[1].trim(), matched: m[0] }
+  // A busca usa o LITERAL: a interjeição do fim da fala sai dele, senão "no bar
+  // hein" procurava o texto "bar hein" e não achava nada.
+  return { valor, literal: m[1].trim().replace(/(?:\s+(?:hein|ne|viu|uai))+$/, ''), matched: m[0] }
 }
 
 /**
@@ -712,7 +716,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   } else if (lido) {
     period = lido.period
     periodoExplicito = true
-    rest.consome(lido.matched)
+    rest.consome(lido.span ?? lido.matched)
     recognized.push(lido.matched)
   } else {
     // "qual dos próximos meses eu tenho mais parcelas": parcela REAL, janela
@@ -962,6 +966,9 @@ const PERIODOS_ANTIGOS = new Set([
   'hoje', 'ontem', 'este mês', 'no mês passado', 'nos últimos 7 dias', 'na semana passada',
 ])
 
+/** O assunto é o app, não um lugar: cartão, fatura, parcela, conta, meta, saldo. */
+const VOCABULARIO_DO_APP = /^(?:(?:meu|minha|meus|minhas|o|a|os|as)\s+)?(?:cart(?:ao|oes)|faturas?|parcel(?:a|as|amentos?)|contas?|metas?|saldo|limite|reserva)$/
+
 /**
  * Agrupamentos que `resolveLocal()` não sabe montar de jeito nenhum.
  *
@@ -1003,6 +1010,21 @@ function alemDoAntigo(plan: AssistantQueryPlan, periodoDito: boolean): boolean {
   // (C) Pergunta sobre UM cartão. O roteador antigo responde o mês inteiro —
   // certo como número, errado como resposta, e sem deixar o cartão no foco.
   if (f.cardNames?.length) return true
+  // (D) Nome dito NESTA pergunta. O total antigo de "quanto gastei" não tem
+  // filtro nenhum: "no Restaurante do Amarelo" era ignorado e a resposta era o
+  // total da semana inteira, com "(dado real)". Filtro que ele não aplica é
+  // pergunta que ele não sabe responder. O hábito fica com ele: "quanto eu
+  // costumo gastar de suco" é lido no vocabulário do usuário, e é melhor lá.
+  // Palavra do PRÓPRIO app ("de cartão", "da fatura") não é nome dito pelo
+  // usuário: para ela o roteador antigo tem resposta dedicada.
+  if (f.text && plan.metric !== 'avg' && !VOCABULARIO_DO_APP.test(normalizeName(f.text))) return true
+  // (E) As contas "por viagem" e "por hora" do roteador antigo são FIXAS: os
+  // últimos 7 dias, e por viagem é a receita BRUTA. "Líquido por corrida esse
+  // mês" recebia a receita bruta da semana — outra conta, com cara de certa.
+  if (plan.metric === 'per-trip' || plan.metric === 'per-hour') {
+    if (periodoDito && plan.period.label !== 'nos últimos 7 dias') return true
+    if (plan.metric === 'per-trip' && (f.txType?.length || 0) > 1) return true
+  }
   return false
 }
 

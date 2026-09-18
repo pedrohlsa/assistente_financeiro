@@ -103,8 +103,12 @@ const lerNumero = (s: string): number => {
  * Devolve `null` quando não há expressão de período reconhecível — nunca um
  * palpite. `matched` traz o trecho literal, para a resposta poder citar de volta
  * exatamente o que o usuário disse.
+ *
+ * `span` existe quando `matched` é um RÓTULO ("este mês") e não o trecho: o
+ * texto normalizado diz "esse mes", e quem consumia o rótulo não tirava nada da
+ * frase — "no Zé esse mês" virava a busca pelo texto "ze esse".
  */
-export function parsePeriod(input: string, hoje = todayISO()): { period: QueryPeriod; matched: string } | null {
+export function parsePeriod(input: string, hoje = todayISO()): { period: QueryPeriod; matched: string; span?: string } | null {
   const t = semAcento(input)
   const ano = fromISO(hoje).getFullYear()
   const mesAtual = fromISO(hoje).getMonth()
@@ -151,44 +155,55 @@ export function parsePeriod(input: string, hoje = todayISO()): { period: QueryPe
   }
 
   // --- "este/esse mês", "mês passado", "mês retrasado" ---------------------
-  if (/\bmes\s+retrasado\b|\bretrasado\b.*\bmes\b/.test(t)) {
-    return { period: monthPeriod(hoje, 2, hoje), matched: 'mês retrasado' }
+  {
+    const m = t.match(/\bmes\s+retrasado\b|\bretrasado\b.*\bmes\b/)
+    if (m) return { period: monthPeriod(hoje, 2, hoje), matched: 'mês retrasado', span: m[0] }
   }
-  if (/\bmes\s+(?:passado|anterior)\b/.test(t)) {
-    return { period: monthPeriod(hoje, 1, hoje), matched: 'mês passado' }
+  {
+    const m = t.match(/\bmes\s+(?:passado|anterior)\b/)
+    if (m) return { period: monthPeriod(hoje, 1, hoje), matched: 'mês passado', span: m[0] }
   }
-  if (/\b(?:mes\s+que\s+vem|proximo\s+mes)\b/.test(t)) {
+  const queVem = t.match(/\b(?:mes\s+que\s+vem|proximo\s+mes)\b/)
+  if (queVem) {
     const d = new Date(fromISO(hoje).getFullYear(), fromISO(hoje).getMonth() + 1, 1)
     return {
       period: P(primeiroDia(d.getFullYear(), d.getMonth()), ultimoDia(d.getFullYear(), d.getMonth()),
         'no mês que vem', 'month', hoje),
       matched: 'mês que vem',
+      span: queVem[0],
     }
   }
-  if (/\b(?:est[ea]|ess[ea]|ness?[ea]|nest[ea])\s+mes\b|\bdo\s+mes\b|\bno\s+mes\b(?!\s+de)|\bmes\s+atual\b/.test(t)) {
-    return { period: currentMonthToDate(hoje), matched: 'este mês' }
+  {
+    const m = t.match(/\b(?:est[ea]|ess[ea]|ness?[ea]|nest[ea])\s+mes\b|\bdo\s+mes\b|\bno\s+mes\b(?!\s+de)|\bmes\s+atual\b/)
+    if (m) return { period: currentMonthToDate(hoje), matched: 'este mês', span: m[0] }
   }
 
   // --- semana --------------------------------------------------------------
-  if (/\bsemana\s+retrasada\b/.test(t)) {
-    return { period: P(addDays(hoje, -20), addDays(hoje, -14), 'na semana retrasada', 'week', hoje), matched: 'semana retrasada' }
+  {
+    const m = t.match(/\bsemana\s+retrasada\b/)
+    if (m) return { period: P(addDays(hoje, -20), addDays(hoje, -14), 'na semana retrasada', 'week', hoje), matched: 'semana retrasada', span: m[0] }
   }
-  if (/\bsemana\s+(?:passada|anterior)\b/.test(t)) {
-    return { period: P(addDays(hoje, -13), addDays(hoje, -7), 'na semana passada', 'week', hoje), matched: 'semana passada' }
+  {
+    const m = t.match(/\bsemana\s+(?:passada|anterior)\b/)
+    if (m) return { period: P(addDays(hoje, -13), addDays(hoje, -7), 'na semana passada', 'week', hoje), matched: 'semana passada', span: m[0] }
   }
-  if (/\bsemana\s+que\s+vem\b|\bproxima\s+semana\b/.test(t)) {
-    return { period: P(addDays(hoje, 1), addDays(hoje, 7), 'na semana que vem', 'week', hoje), matched: 'semana que vem' }
+  {
+    const m = t.match(/\bsemana\s+que\s+vem\b|\bproxima\s+semana\b/)
+    if (m) return { period: P(addDays(hoje, 1), addDays(hoje, 7), 'na semana que vem', 'week', hoje), matched: 'semana que vem', span: m[0] }
   }
-  if (/\b(?:est[ea]|ess[ea]|ness?[ea]|nest[ea])\s+semana\b|\bda\s+semana\b|\bna\s+semana\b/.test(t)) {
-    return { period: P(addDays(hoje, -6), hoje, 'nos últimos 7 dias', 'week', hoje), matched: 'esta semana' }
+  {
+    const m = t.match(/\b(?:est[ea]|ess[ea]|ness?[ea]|nest[ea])\s+semana\b|\bda\s+semana\b|\bna\s+semana\b/)
+    if (m) return { period: P(addDays(hoje, -6), hoje, 'nos últimos 7 dias', 'week', hoje), matched: 'esta semana', span: m[0] }
   }
 
   // --- ano -----------------------------------------------------------------
-  if (/\bano\s+passado\b/.test(t)) {
-    return { period: P(`${ano - 1}-01-01`, `${ano - 1}-12-31`, `em ${ano - 1}`, 'year', hoje), matched: 'ano passado' }
+  {
+    const m = t.match(/\bano\s+passado\b/)
+    if (m) return { period: P(`${ano - 1}-01-01`, `${ano - 1}-12-31`, `em ${ano - 1}`, 'year', hoje), matched: 'ano passado', span: m[0] }
   }
-  if (/\b(?:est[ea]|ess[ea]|ness?[ea]|nest[ea])\s+ano\b|\bano\s+atual\b|\bno\s+ano\b/.test(t)) {
-    return { period: P(`${ano}-01-01`, hoje, 'neste ano', 'year', hoje), matched: 'este ano' }
+  {
+    const m = t.match(/\b(?:est[ea]|ess[ea]|ness?[ea]|nest[ea])\s+ano\b|\bano\s+atual\b|\bno\s+ano\b/)
+    if (m) return { period: P(`${ano}-01-01`, hoje, 'neste ano', 'year', hoje), matched: 'este ano', span: m[0] }
   }
   const anoExplicito = t.match(/\bem\s+(20\d{2})\b/)
   if (anoExplicito) {
