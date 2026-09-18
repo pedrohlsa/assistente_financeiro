@@ -306,8 +306,12 @@ anterior desta rodada falou em "34" e "cinco corrigidas"; os números certos sã
 
 > **Atualização de 17/09/2026:** as seis primeiras linhas desta tabela (receita fantasma de 1.100,
 > as três correções faladas, Uber/99 e a casa 2 futura) foram **corrigidas** — commits `5ba621f`,
-> `b8754c7`, `baebb2d` e `5b015a9`, detalhe em `PROGRESS.md`. Continuam abertas: vale alimentação,
-> água de 180, c-20 e "sessenta vírgula cinquenta".
+> `b8754c7`, `baebb2d` e `5b015a9`, detalhe em `PROGRESS.md`.
+>
+> **Atualização da rodada de integridade de valor:** vale alimentação 800, os R$ 180 de água, os R$
+> 200 de c-20 e "sessenta vírgula cinquenta" também foram corrigidos — commits `c66e52c`, `83e6a94` e
+> `51911d2`. Desta tabela, **nenhuma linha continua aberta**. O que sobra do §10 é a lista de "número
+> real para a pergunta errada" e as simulações, que são outra rodada.
 
 | Frase | O que o app propõe hoje | Esperado |
 |---|---|---|

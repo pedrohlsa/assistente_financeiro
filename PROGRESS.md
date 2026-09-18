@@ -3036,3 +3036,50 @@ RED antes. Final: 618/618 casos, 75/75, 4.080 + 3.800 metamórficos, 1.416 fuzz,
 novo, já existia em `7777c17`); "o aluguel foi 1800" propõe receita E despesa do mesmo valor (achado
 nesta rodada, mesma família do bug 1 mas sem verbo que desempate — não corrigido); caso dedicado para
 "12x" não virar R$ 12; invariante 104 só varre arquivos versionados; os demais 27 local-falha.
+
+#### Integridade de valor e cardinalidade — corrigida em 17/09/2026
+
+Nenhuma chamada paga, nenhum push, nenhum deploy. Benchmark continua NÃO AUTORIZADO.
+
+| Bug | Estágio | Causa real | Commit |
+|---|---|---|---|
+| "o aluguel foi 1800" propunha receita E despesa | ambiguidade / reconciliação | duas regras liam o MESMO valor com tipos opostos e nada reconciliava. "Aluguel" e "vale" não têm direção própria | `83e6a94` |
+| "vale alimentação 800" sumia | mesma acima | sem verbo o valor não virava nada, e a frase era respondida como consulta de gastos com alimentação | `83e6a94` |
+| R$ 180 de água sumiam | extração de candidatos | a DESCRIÇÃO da despesa engolia o item seguinte ("Luz 180 de agua"), e itens justapostos sem conector não eram lidos | `83e6a94` |
+| c-20 perdia R$ 200 | extração de candidatos | o primeiro depósito em meta encerrava a cláusula e o resto nunca era procurado | `83e6a94` |
+| "sessenta vírgula cinquenta" virava R$ 60 | normalização de números | a conversão por extenso resolvia cada metade e devolvia "60 vírgula 50"; os centavos iam para a descrição | `c66e52c` |
+| "e em 12x?" não fazia nada | correção sobre a proposta | não havia correção do campo de parcelas; a frase caía no texto genérico com a compra pendente na tela | `51911d2` |
+
+Causa compartilhada real: "o aluguel foi 1800" e "vale alimentação 800" são o mesmo mecanismo
+(substantivo financeiro sem polaridade verbal) e foram resolvidos juntos. Água e c-20 são os dois do
+mesmo estágio, mas por regras diferentes. O decimal falado e o follow-up de parcelas são isolados.
+
+**Regra do decimal falado, escrita:** o que vem depois de "vírgula" é a parte decimal como foi dita —
+"dez vírgula cinco" é 10,5 (R$ 10,50) e "sessenta vírgula cinquenta" é 60,50. Sem completar para dois
+dígitos, o que transformaria 10,5 em 10,05. "Ponto" não é separador decimal: na fala transcrita é
+ditado de pontuação ("de farmácia PONTO").
+
+**Comportamento da ambiguidade:** zero ação confirmável. O app pergunta ("Você recebeu R$ 1.800,00 de
+aluguel ou pagou R$ 1.800,00 de aluguel?") e cada opção carrega o lançamento inteiro, então responder
+"recebi" resolve sem repetir o valor. Com verbo — recebi, entrou, paguei, gastei, "o aluguel que
+recebi foi 1800" — não há pergunta nenhuma.
+
+**Cobertura de valores (invariante 92):** todo valor monetário explícito termina numa proposta, dentro
+da pergunta que o app fez, ou citado na resposta. A lista é curada de propósito e carrega os
+contra-exemplos — km, litros, horas, parcelas e dias não são dinheiro.
+
+**Correção incidental:** "abasteci 24 litros por 180" lia 24 como valor e descartava os 180; achado
+pela própria invariante de cobertura e corrigido junto.
+
+**Testes:** corpus `cases-valor-cardinalidade.ts` com 42 casos (polaridade 10, valor-sumido 9,
+decimal-falado 7, parcela-nao-preco 7, nao-e-dinheiro 9). RED antes: 5/10, 5/9, 3/7, 6/7, 9/9.
+Invariantes 91–94. Final: 660/660 casos, 75/75, 4.080 + 3.800 metamórficos, 1.416 fuzz, 127/127
+invariantes (94 financeiras), avaliador 434/434.
+
+**Roteamento sem rede:** inalterado — 21 local-correto, 27 local-falha, 66 elegíveis ao remoto.
+Durante a rodada c-38 ("recebi o aluguel da kitnet 900") chegou a ser resolvido localmente por uma
+versão intermediária da regra de polaridade; a trava de adjacência (o valor precisa pertencer ao
+substantivo) devolveu o caso ao remoto, e o rótulo do corpus não precisou mudar.
+
+**Continuam abertos:** "onde vazou"; "e se parar a obra" (e o rótulo "Projeção para /z. de 2026" na
+resposta dela); os 27 local-falha do corpus; invariante 104 só varre arquivos versionados.
