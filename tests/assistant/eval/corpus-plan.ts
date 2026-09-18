@@ -140,7 +140,8 @@ export const CASOS_PLANO: CasoPlano[] = [
       { source: 'transactions', filtro: { txType: GASTO }, periodo: exatos(h => quinzena(h, 1)), comparacao: exatos(h => quinzena(h, 2)) },
       { source: 'transactions', filtro: { txType: GASTO }, periodo: exatos(h => quinzena(h, 2)), comparacao: exatos(h => quinzena(h, 1)) },
     ]),
-  caso('p-11', 'autonomo', 'plano-complexo', 'local-errada',
+  // 18/09/2026: "acima de 200 reais" não entendido → plano incompleto → remoto (causa C1)
+  caso('p-11', 'autonomo', 'plano-complexo', 'remota',
     'quais foram os 3 maiores gastos acima de 200 reais em agosto tirando obra',
     'valor mínimo + exclusão + mês pelo nome + limite; o local virou "200 reais" em texto de busca',
     [{ source: 'transactions', filtro: { txType: GASTO, minAmount: umDe(200, 200.01), excludeCategories: ['obra'] }, group: 'description', metric: umDe('sum', 'max'), order: umDe('value-desc', null), limit: 3, periodo: exatos(h => mesPorNome(h, AGO)) }]),
@@ -148,7 +149,8 @@ export const CASOS_PLANO: CasoPlano[] = [
     'quanto a casa 2 rendeu esse ano comparado com a casa 1',
     'comparação entre ORIGENS, não entre períodos; o local mostrou só a Casa 2',
     [{ source: 'transactions', filtro: { txType: umDe(RECEITA, null), categories: umDe(['aluguel'], null) }, group: 'origin', order: umDe('value-desc', null), periodo: exatos(h => [anoAteHoje(h), anoInteiro(h)]) }]),
-  caso('p-13', 'autonomo', 'plano-complexo', 'local-errada',
+  // 18/09/2026: "fins de semana" (plural) virou o filtro de dia da semana (causa C1)
+  caso('p-13', 'autonomo', 'plano-complexo', 'local',
     'quanto eu gastei nos fins de semana dos últimos 60 dias',
     'dia da semana como filtro + janela em dias; o local procurou o TEXTO "fins de" e disse que não havia lançamento',
     [{ source: 'transactions', filtro: { txType: GASTO, weekdays: [0, 6] }, periodo: exatos(h => ultimosDias(h, 60)) }]),
@@ -167,11 +169,13 @@ export const CASOS_PLANO: CasoPlano[] = [
     'quantas vezes eu fui no bar esse mês e quanto deu',
     'duas medidas numa pergunta; agrupar por descrição mostra contagem e valor juntos',
     [{ source: 'transactions', filtro: { txType: umDe(GASTO, null), text: 'bar' }, metric: umDe('count', 'sum'), group: umDe('none', 'description'), periodo: exatos(esteMes) }]),
-  caso('p-17', 'motorista', 'plano-complexo', 'local-errada',
+  // 18/09/2026: "última quinzena" não entendida → plano incompleto → remoto; o atalho antigo de 7 dias não responde mais (causa C1)
+  caso('p-17', 'motorista', 'plano-complexo', 'remota',
     'qual plataforma me paga melhor por hora na última quinzena',
     'por plataforma + por hora + quinzena; o local respondeu os últimos 7 dias, sem plataforma',
     [{ source: 'transactions', filtro: { txType: RECEITA }, group: 'platform', metric: 'per-hour', order: umDe('value-desc', null), periodo: exatos(h => [ultimosDias(h, 15), ultimosDias(h, 14)]) }]),
-  caso('p-18', 'motorista', 'plano-complexo', 'local-errada',
+  // 18/09/2026: "gasosa por km rodado" não entendido → plano incompleto → remoto (causa C1)
+  caso('p-18', 'motorista', 'plano-complexo', 'remota',
     'quanto eu gastei de gasosa por km rodado mês passado comparado com esse',
     'gíria de combustível + por km + comparação; o local disse R$ 0,00 como dado real',
     [
@@ -200,7 +204,8 @@ export const CASOS_PLANO: CasoPlano[] = [
     'quanto eu ja paguei do total das parcelas da geladeira',
     'visão do plano inteiro, campo PAGO; o local mostrou o resumo dos cartões',
     [{ source: 'plans', filtro: { text: 'geladeira', status: QUALQUER }, field: 'paid', periodo: QUALQUER }]),
-  caso('p-24', 'autonomo', 'plano-complexo', 'local-errada',
+  // 18/09/2026: "acima de 500 … desde abril" não entendido → plano incompleto → remoto (causa C1)
+  caso('p-24', 'autonomo', 'plano-complexo', 'remota',
     'quais gastos acima de 500 eu fiz desde abril',
     'valor mínimo + "desde" até hoje; o local virou "500 eu fiz desde" em texto de busca',
     [{ source: 'transactions', filtro: { txType: GASTO, minAmount: umDe(500, 500.01) }, group: 'description', order: umDe('value-desc', 'date-desc', 'date-asc', null), limit: QUALQUER, periodo: exatos(h => desde(h, ABR)) }]),
@@ -229,7 +234,8 @@ export const CASOS_PLANO: CasoPlano[] = [
     'qnto q foi d obra msm nos ultimo 3 mes',
     'abreviação pesada; até 15/09/2026 o motor local transformava esta PERGUNTA numa despesa de R$ 3,00, hoje responde obra nos últimos 3 meses',
     [{ source: 'transactions', filtro: { txType: umDe(GASTO, null), categories: ['obra'] }, group: umDe('none', 'month'), periodo: exatos(h => ultimosMeses(h, 3)) }]),
-  caso('p-30', 'autonomo', 'linguagem', 'local-errada',
+  // 18/09/2026: "cartão" repetido deixou de virar texto de busca (causa C1)
+  caso('p-30', 'autonomo', 'linguagem', 'local',
     'gastei qnt no cartao nubank mes passado hein',
     'o local procurou "cartao" como texto e mandou cadastrar um cartão que existe',
     [
@@ -252,7 +258,8 @@ export const CASOS_PLANO: CasoPlano[] = [
       { source: 'transactions', filtro: { txType: umDe(GASTO, null), categories: ['alimentacao'] }, periodo: exatos(esteMes), comparacao: exatos(h => mesPorNome(h, JUN)) },
       { source: 'transactions', filtro: { txType: umDe(GASTO, null), categories: ['alimentacao'] }, periodo: exatos(h => mesPorNome(h, JUN)), comparacao: exatos(esteMes) },
     ]),
-  caso('p-34', 'autonomo', 'linguagem', 'local-errada',
+  // 18/09/2026: "desde março" não entendido → plano incompleto → remoto (causa C1)
+  caso('p-34', 'autonomo', 'linguagem', 'remota',
     'quanto eu gasto por mês em média com alimentação desde março',
     '"desde" é até hoje; o local olhou só março e disse que não havia nada',
     [{ source: 'transactions', filtro: { txType: umDe(GASTO, null), categories: ['alimentacao'] }, group: 'month', periodo: exatos(h => desde(h, MAR)) }]),

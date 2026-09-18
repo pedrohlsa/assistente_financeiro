@@ -1292,7 +1292,9 @@ Confirmar?`,
   const conversa = temFato ? null : answerConversation(input.state, mensagem, {
     today, focus: input.focus,
   })
-  const assumeAgora = !!conversa && (
+  // Consulta INCOMPLETA nunca é assumida aqui, nem como continuação: não há
+  // resposta local para ela (ver 11b).
+  const assumeAgora = !!conversa && conversa.kind !== 'incomplete' && (
     conversa.kind === 'scenario' || conversa.kind === 'explain' || conversa.kind === 'clarify'
     // Continuacao SO existe com foco fresco. Sem esta guarda, "de onde vem mais
     // dinheiro, uber ou 99?" era tratada como follow-up (comeca com "de onde")
@@ -1315,6 +1317,16 @@ Confirmar?`,
         : { ...base, mode: 'answer', actions: [] },
     }
   }
+
+  // ---- 11b) O local SABE que não sabe --------------------------------------
+  //
+  // Consulta INCOMPLETA: o planejador reconheceu a pergunta mas não entendeu um
+  // pedaço dela ("acima de 200 reais", "desde abril"). O roteador antigo
+  // respondia mesmo assim, com número real. A frase segue para quem sabe lê-la
+  // (o remoto) e, sem remoto, o app DIZ que não sabe. Resposta local errada com
+  // cara de certa é pior que chamar o modelo.
+  const consultaIncompleta = conversa?.kind === 'incomplete'
+  const semRespostaLocal = (_q: AnalyzedClause): boolean => consultaIncompleta
 
   // ---- 12) Análise local por cláusula -------------------------------------
   const local = runLocal(entrada, caps, turno.analysis)
@@ -1345,7 +1357,7 @@ Confirmar?`,
   }
 
   // ---- 14) Perguntas respondidas localmente -------------------------------
-  const questions = analysis.clauses.filter(c => c.intent === 'question')
+  const questions = analysis.clauses.filter(c => c.intent === 'question' && !semRespostaLocal(c))
   const local_answers = answerQuestions(input.state, questions, candidates)
   const answeredIds = new Set(local_answers.answered.map(c => c.id))
   unresolved = unresolved.filter(u => !answeredIds.has(u.clauseId))
@@ -1542,7 +1554,10 @@ Confirmar?`,
     mode = 'answer'
     const negadas = analysis.clauses.filter(c => c.intent === 'correction' && !c.actions.length)
     const notUnderstood = unresolved.filter(u => u.reason !== 'question-unanswered')
-    if (local.intencaoDeclarada && !candidates.length) {
+    if (consultaIncompleta) {
+      reply = `Entendi que é uma pergunta sobre os seus lançamentos, mas não consegui ler esta parte: "${conversa?.residuo}". `
+        + 'Sem ela o número sairia errado, então prefiro não responder. Pode dizer de outro jeito?'
+    } else if (local.intencaoDeclarada && !candidates.length) {
       // Intencao declarada nao e fato: "vou gastar 80 no mercado" e "posso
       // guardar 200?" viravam lancamento, porque o verbo esta no INFINITIVO e
       // nenhuma lista de verbo conjugado os barrava. O app diz o que fez e o

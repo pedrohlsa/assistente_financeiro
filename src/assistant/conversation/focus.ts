@@ -23,7 +23,7 @@ import { activeCards } from '../../services/cards'
 import { usableCategories } from '../../data/categories'
 import { normalizeNumberWords } from '../numbers'
 import { parsePeriod, previousPeriod } from '../query/period'
-import { planQuery } from '../query/parse'
+import { ehResiduo, planQuery } from '../query/parse'
 import type { PlannedQuery } from '../query/parse'
 import type { AssistantQueryPlan, AssistantQueryResult, FactUnit, QueryPeriod } from '../query/types'
 import type { AssistantScenarioPlan, AssistantScenarioResult } from '../scenario/types'
@@ -191,6 +191,8 @@ export type FollowUp =
   | { kind: 'scenario'; plan: AssistantScenarioPlan }
   | { kind: 'explain'; text: string }
   | { kind: 'ambiguous'; question: string; options: { label: string; value: string }[] }
+  /** O refino acrescentaria um filtro feito de pedaço de pergunta não entendido. */
+  | { kind: 'incomplete'; residuo: string }
 
 const PEDE_EXPLICACAO = /^(?:por\s*que|pq|como\s+(?:voce\s+)?(?:chegou|calculou|fez)|de\s+onde|quais\s+dados)/
 
@@ -227,7 +229,7 @@ export function resolveFollowUp(
   // ---- consulta ---------------------------------------------------------
   if (focus.lastQueryPlan) {
     const r = refinaConsulta(state, focus, focus.lastQueryPlan, t, today)
-    if (r) return r
+    if (r) return r.kind === 'query' ? semSobra(r, focus.lastQueryPlan) : r
   }
 
   // Cenário como segunda tentativa: o usuário pode ter feito uma consulta no
@@ -237,6 +239,21 @@ export function resolveFollowUp(
     if (refinado) return { kind: 'scenario', plan: refinado }
   }
   return null
+}
+
+/**
+ * A mesma trava do planejador, no refino: "e na 99" depois de "quanto fiz na
+ * uber" mantinha a Uber E buscava o texto "99" — e o app afirmava que não havia
+ * lançamento. Um filtro de texto NOVO feito de pedaço de pergunta deixa o
+ * refino incompleto, e a frase vai para quem sabe lê-la.
+ */
+function semSobra(r: Extract<FollowUp, { kind: 'query' }>, base: AssistantQueryPlan): FollowUp {
+  const f = r.planned.plan.filter
+  for (const campo of ['text', 'excludeText'] as const) {
+    const novo = f[campo]
+    if (novo && novo !== base.filter[campo] && ehResiduo(novo)) return { kind: 'incomplete', residuo: novo }
+  }
+  return r
 }
 
 // ---------------------------------------------------------------------------
@@ -401,7 +418,7 @@ function refinaConsulta(
   }
 
   // ---- exclusão: "e tirando obra?", "e sem cimento?" --------------------
-  const excluir = t.match(/\b(?:tirando|sem|fora|exceto|desconsiderando)\s+(?:o\s+|a\s+|os\s+|as\s+)?([a-z0-9çãõáéíóúâê][a-z0-9\s\-çãõáéíóúâê]{1,30}?)\s*\??$/)
+  const excluir = t.match(/\b(?:tirando|sem|fora|exceto|desconsiderando)\s+(?:contar\s+|considerar\s+|incluir\s+)?(?:o\s+|a\s+|os\s+|as\s+)?([a-z0-9çãõáéíóúâê][a-z0-9\s\-çãõáéíóúâê]{1,30}?)\s*\??$/)
   if (excluir) {
     // "tirando cimento da conta" tem uma cauda que não faz parte do nome:
     // procurar por "cimento da conta" não acha nada e a exclusão vira letra

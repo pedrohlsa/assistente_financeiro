@@ -14,7 +14,7 @@
 
 import type { AppState } from '../../models/types'
 import { todayISO } from '../../utils/format'
-import { answerQuery, runPlannedQuery } from '../query'
+import { planQuery, runPlannedQuery } from '../query'
 import type { QueryAnswer } from '../query'
 import { answerScenario, rerunScenario } from '../scenario'
 import type { ScenarioAnswer } from '../scenario'
@@ -27,7 +27,14 @@ import type { ConversationFocus, FollowUp } from './focus'
 export interface ConversationAnswer {
   reply: string
   /** Como a mensagem foi tratada — auditoria e diagnóstico, não decoração. */
-  kind: 'query' | 'scenario' | 'explain' | 'clarify'
+  /**
+   * `incomplete`: consulta reconhecida, mas com um pedaço que o planejador não
+   * entendeu (`residuo`). Não há resposta local — nem desta camada, nem do
+   * roteador antigo. Ver o portão no orquestrador.
+   */
+  kind: 'query' | 'scenario' | 'explain' | 'clarify' | 'incomplete'
+  /** O pedaço não entendido, quando `kind` é `incomplete`. */
+  residuo?: string
   /** Foco atualizado. O chamador guarda; nada é persistido em disco. */
   focus: ConversationFocus
   /** Pergunta de desambiguação, quando a referência tem dois candidatos. */
@@ -74,7 +81,13 @@ export function answerConversation(
   }
 
   // ---- 3) consulta -------------------------------------------------------
-  const q = answerQuery(state, message, { today: hoje })
+  const planned = planQuery(state, message, { today: hoje })
+  // Plano INCOMPLETO não é executado: o número que sairia dele responderia uma
+  // pergunta que o usuário não fez. O foco não muda.
+  if (planned?.incompleto) {
+    return { reply: '', kind: 'incomplete', residuo: planned.incompleto, focus: focus || { updatedAt: agora } }
+  }
+  const q = planned ? runPlannedQuery(state, planned, { today: hoje }) : null
   if (q) return daConsulta(focus, q, agora)
 
   return null
@@ -99,6 +112,9 @@ function aplicaFollowUp(
       const out = rerunScenario(state, fu.plan, { today: hoje })
       return doCenario(focus, out, agora)
     }
+    case 'incomplete':
+      // O foco NÃO muda: o próximo refino continua sobre o que o usuário viu.
+      return { reply: '', kind: 'incomplete', residuo: fu.residuo, focus }
   }
   return null
 }

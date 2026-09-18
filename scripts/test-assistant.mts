@@ -34,6 +34,7 @@ import { QUERY_CASES, PLAN_REJECTIONS, PROTOTYPE_ATTACKS, TODAY_Q } from '../tes
 import { runPlanRejection, runQueryCase } from '../tests/assistant/queryHarness'
 import { SCENARIO_CASES } from '../tests/assistant/cases-cenario'
 import { CONVERSA_CASES } from '../tests/assistant/cases-continuidade'
+import { SEMANTICA_CASES, runSemanticaCase } from '../tests/assistant/cases-semantica'
 import { runConversaCase, runScenarioCase } from '../tests/assistant/scenarioHarness'
 import { runMetamorphic } from '../tests/assistant/metamorphic'
 import { runFuzz } from '../tests/assistant/fuzz'
@@ -121,6 +122,29 @@ if (!only) {
     extrasFalharam = true
   }
   console.log(`\n${novos.length - ruins.length}/${novos.length} casos novos passaram`)
+
+  // Semântica pelo ORQUESTRADOR: é lá que o roteador antigo respondia depois de
+  // a consulta e o cenário desistirem — testar a camada de baixo passaria verde.
+  const semantica = []
+  for (const c of SEMANTICA_CASES) semantica.push(await runSemanticaCase(c))
+  const semGrupo = new Map<string, { total: number; ok: number }>()
+  for (const r of semantica) {
+    const g = semGrupo.get(r.group) || { total: 0, ok: 0 }
+    g.total++
+    if (r.ok) g.ok++
+    semGrupo.set(r.group, g)
+  }
+  console.log('\n=== Semântica pelo orquestrador ===')
+  for (const [grupo, g] of [...semGrupo.entries()].sort()) {
+    console.log(`${g.ok === g.total ? 'ok  ' : 'FAIL'} ${grupo.padEnd(14)} ${g.ok}/${g.total}`)
+  }
+  const semRuins = semantica.filter(r => !r.ok)
+  for (const f of semRuins) {
+    console.log(`\n[${f.id}] ${f.group}`)
+    for (const e of f.errors) console.log(`   · ${e}`)
+  }
+  if (semRuins.length) extrasFalharam = true
+  console.log(`${semantica.length - semRuins.length}/${semantica.length} casos semânticos passaram`)
 
   // Poluição de protótipo precisa do JSON PARSEADO: um literal de objeto no
   // TypeScript define o protótipo em vez de criar a chave.

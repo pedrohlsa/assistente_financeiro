@@ -51,6 +51,13 @@ export interface PlannedQuery {
   /** Trechos reconhecidos — entram na explicação "como você chegou nisso?". */
   recognized: string[]
   /**
+   * Pedaço da pergunta que o planejador NÃO entendeu e que não é nome de nada
+   * ("acima de 200 reais", "desde abril", "gasosa por km"). Com ele o plano
+   * está INCOMPLETO: executá-lo responderia outra pergunta com número real. Quem
+   * recebe isto não responde localmente — manda para quem sabe ler a frase.
+   */
+  incompleto?: string
+  /**
    * Categoria que o HISTÓRICO dele associa ao nome procurado. Só é usada quando
    * a busca literal não acha nada — ver o comentário em `resolverCategoria`.
    */
@@ -293,10 +300,6 @@ function lerGrupo(t: string, driver: boolean): { valor: QueryGroup; matched: str
     // agrupamento ficava em `none`, a ordenação por diferença não tinha o que
     // ordenar e a resposta virava um total solto — que não responde "o quê".
     [/\bo\s+que\s+mais\s+(?:aumentou|subiu|cresceu|pesou|caiu|diminuiu|desceu)\b/, 'category'],
-    // "Tem alguma coisa que eu tô gastando muito mais que antes?" é a mesma
-    // pergunta dita do jeito que a pessoa fala. Sem agrupar, a resposta era o
-    // total do mês — verdadeira e sem relação com o que foi perguntado.
-    [/\btem\s+(?:alguma\s+coisa|algo|alguma)\b[^?]*\bmais\b/, 'category'],
     [/\bqual\s+despesa\b|\bqual\s+gasto\s+(?:esta|ta)\b/, 'category'],
     [/\bqual\s+(?:foi\s+)?(?:o\s+)?(?:meu\s+)?(?:maior|menor)\s+(?:gasto|despesa|compra|receita|entrada)\b|\bo\s+que\s+(?:eu\s+)?mais\s+(?:gasto|gastei)\b|\bqual\s+gasto\b/, 'description'],
   ]
@@ -385,6 +388,20 @@ const PARADA = String.raw`(?=\s*(?:\?|$|,|\.|!|\be\b|\bou\b|\bnos?\b|\bnas?\b|\b
  * lugar: "no Zé DA esquina" virava "ze esquina", que não é substring de "Zé da
  * esquina" — e o lugar com três lançamentos aparecia como inexistente.
  */
+/**
+ * Vocabulário da PERGUNTA, não de lançamento. Um nome de lugar ("Zé da
+ * esquina", "restaurante do Amarelo") nunca é feito disto; a sobra de uma
+ * pergunta mal lida ("200 reais", "500 eu fiz desde", "ultima quinzena",
+ * "gasosa rodado", "dezembro") sempre tem.
+ */
+const VOCABULARIO_DA_PERGUNTA = /\b(?:reais?|conto|contos|pila|desde|ate|ultim[ao]s?|quinzenas?|semanas?|fins?|mes|meses|dias?|anos?|rodad[oa]s?|acima|abaixo|maior(?:es)?|menor(?:es)?|eu|fiz|gastei|paguei|recebi|ganhei|mais|menos|hein|vezes|km|horas?|janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/
+
+/** A sobra do planejador é pedaço de pergunta que ele não entendeu? */
+export function ehResiduo(literal: string): boolean {
+  const t = normalizeName(literal)
+  return /\d/.test(t) || VOCABULARIO_DA_PERGUNTA.test(t) || /(?:^|\s)(?:de|do|da|e|em|no|na)$/.test(t)
+}
+
 function extrairAlvo(t: string): { valor: string; literal: string; matched: string } | undefined {
   const m = t.match(new RegExp(String.raw`\b(?:com|de|em|no|na|nos|nas|para|pra)\s+([a-z0-9çãõáéíóúâêô][a-z0-9\s\-çãõáéíóúâêô]{1,40}?)${PARADA}`))
   if (!m) return undefined
@@ -427,7 +444,10 @@ function categoriaSolta(state: AppState, t: string, tipo: 'income' | 'expense'):
 }
 
 function extrairExclusao(t: string): { valor: string; matched: string } | undefined {
-  const m = t.match(new RegExp(String.raw`\b(?:tirando|sem|fora|exceto|desconsiderando|descontando)\s+(?:o\s+|a\s+|os\s+|as\s+)?([a-z0-9çãõáéíóúâêô][a-z0-9\s\-çãõáéíóúâêô]{1,30}?)${PARADA}`))
+  // "Sem CONTAR o cimento", "sem considerar a obra": o verbo não é o que se
+  // exclui. Sem pular o verbo, o texto excluído era "contar o cimento", que não
+  // casa com nada — e o total saía igual, com cara de total sem o cimento.
+  const m = t.match(new RegExp(String.raw`\b(?:tirando|sem|fora|exceto|desconsiderando|descontando)\s+(?:contar\s+|considerar\s+|incluir\s+|botar\s+|por\s+)?(?:o\s+|a\s+|os\s+|as\s+)?([a-z0-9çãõáéíóúâêô][a-z0-9\s\-çãõáéíóúâêô]{1,30}?)${PARADA}`))
   if (!m) return undefined
   const valor = soUteis(m[1])
   return valor ? { valor, matched: m[0] } : undefined
@@ -658,6 +678,12 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
 
   if (source === 'projections') {
     const futuro = parseFutureMonth(rest.texto, hoje)
+    // O mês lido é CONSUMIDO: sobrando no texto, "dezembro" virava o alvo da
+    // busca e a projeção procurava lançamentos chamados "dezembro".
+    if (futuro) {
+      const mesDito = rest.texto.match(/\b(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b(?:\s+de\s+20\d{2})?/)
+      if (mesDito) rest.consome(mesDito[0])
+    }
     const nMeses = rest.texto.match(/\bproxim[oa]s?\s+(\d{1,2})\s+meses\b/)
     period = futuro || nextMonths(nMeses ? Math.min(Number(nMeses[1]), 12) : 6, hoje)
     periodoExplicito = !!futuro || !!nMeses
@@ -751,9 +777,13 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     rest.consome(normalizeName(semExcluidos[0]))
   }
 
-  if (/\bfim\s+de\s+semana\b|\bfinal\s+de\s+semana\b|\bsabado\s+e\s+domingo\b/.test(rest.texto)) {
+  // O plural é como se pergunta de um período inteiro: "nos FINS de semana dos
+  // últimos 60 dias". Sem ele, "fins de" sobrava e virava texto de busca, e o
+  // app afirmava que não havia lançamento nenhum.
+  const FIM_DE_SEMANA = /\bf(?:im|ins)\s+de\s+semana\b|\bfina(?:l|is)\s+de\s+semana\b|\bsabado\s+e\s+domingo\b/
+  if (FIM_DE_SEMANA.test(rest.texto)) {
     filter.weekdays = [0, 6]
-    rest.consome((rest.texto.match(/\bfim\s+de\s+semana\b|\bfinal\s+de\s+semana\b|\bsabado\s+e\s+domingo\b/) || [''])[0])
+    rest.consome((rest.texto.match(FIM_DE_SEMANA) || [''])[0])
     recognized.push('fim de semana')
   } else if (/\bdias?\s+uteis\b|\bdurante\s+a\s+semana\b/.test(rest.texto)) {
     filter.weekdays = [1, 2, 3, 4, 5]
@@ -783,7 +813,21 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   // a sua parte.
   const alvo = extrairAlvo(rest.texto)
   let fallbackCategory: string | undefined
-  if (alvo) {
+  let incompleto: string | undefined
+  // "No CARTÃO nubank": com o cartão já reconhecido, a palavra repete o que foi
+  // lido e não filtra nada. Virava texto de busca "cartao", e o app mandava
+  // cadastrar um cartão que existe.
+  const repeteCartao = !!alvo && (filter.cardNames?.length || filter.excludeCardNames?.length)
+    && /^cart(?:ao|oes)$/.test(normalizeName(alvo.valor))
+  if (alvo && repeteCartao) {
+    rest.consome(alvo.matched)
+  } else if (alvo && ehResiduo(alvo.literal)) {
+    // Sobra que é pedaço da PERGUNTA, não nome de lugar: o plano ficou
+    // incompleto. Filtrar por esse texto afirmava "não tenho lançamento" ou
+    // "R$ 0,00 (dado real)" sobre uma pergunta que ninguém entendeu.
+    rest.consome(alvo.matched)
+    incompleto = alvo.literal
+  } else if (alvo) {
     rest.consome(alvo.matched)
     const cat = resolverCategoria(state, alvo.valor, tipoAlvo)
     if (cat) {
@@ -865,7 +909,9 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     group, order,
     limit: metrica.valor.limit || (group === 'none' ? 1 : 8),
     shareBase,
-    label: rotulo(metrica.valor, alvo?.valor, filter, state, source, field),
+    // Sobra repetida ou não entendida não é assunto: "Faturas - cartao do
+    // Nubank" repetia no rótulo a palavra que o filtro já tinha descartado.
+    label: rotulo(metrica.valor, repeteCartao || incompleto ? undefined : alvo?.valor, filter, state, source, field),
   }
 
   const confidence: PlannedQuery['confidence'] =
@@ -878,6 +924,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   return {
     plan, confidence, recognized, fallbackCategory,
     beyondLegacy: alemDoAntigo(plan, !!lido),
+    ...(incompleto ? { incompleto } : {}),
   }
 }
 
@@ -967,7 +1014,16 @@ function rotulo(
     : undefined
   const nome = cat || (filter.origin ? sentenceCase(filter.origin) : undefined)
     || (filter.text ? sentenceCase(filter.text) : undefined) || alvo
-  return nome ? `${base} - ${nome}` : base
+  // Filtro que MUDA o número tem que aparecer no texto. "Total recebido na
+  // semana passada: R$ 1.433" somava só a Uber, e "Total gasto nos últimos 60
+  // dias: R$ 3.340" só os fins de semana — número certo, lido como outro.
+  const extras: string[] = []
+  if (filter.platform) extras.push(`na ${/^uber$/i.test(filter.platform) ? 'Uber' : filter.platform}`)
+  const dias = (filter.weekdays || []).join(',')
+  if (dias === '0,6') extras.push('nos fins de semana')
+  else if (dias === '1,2,3,4,5') extras.push('nos dias úteis')
+  const cabeca = nome ? `${base} - ${nome}` : base
+  return extras.length ? `${cabeca} ${extras.join(' ')}` : cabeca
 }
 
 export { previousPeriod, parsePeriod, monthPeriod }

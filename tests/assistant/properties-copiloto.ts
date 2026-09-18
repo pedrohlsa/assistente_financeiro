@@ -590,6 +590,37 @@ export async function runCopilotProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 122. Sobra da pergunta nunca vira filtro de texto ---------------
+  // "Acima de 200 reais" virava a busca "200 reais"; "fins de semana", a busca
+  // "fins de"; "desde abril", "500 eu fiz desde". O resultado vazio era dito
+  // como FATO: "não tenho nenhum lançamento", "R$ 0,00 (dado real)". Nome de
+  // lugar de verdade continua sendo busca — é o contraste.
+  check(r, 'sobra da pergunta nunca vira filtro de texto', () => {
+    const hoje = todayISO()
+    const st = autonomoRico(hoje)
+    const PERGUNTA = /\d|\b(?:reais?|desde|ate|ultim|quinzena|semana|fins?|mes|dias?|acima|abaixo|eu|fiz|rodad|janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/
+    const frases = [
+      'quais foram os 3 maiores gastos acima de 200 reais em agosto tirando obra',
+      'quais gastos acima de 500 eu fiz desde abril',
+      'quanto eu gastei nos fins de semana dos últimos 60 dias',
+      'quanto gastei acima de 150 reais esse mês',
+      'quanto vai sobrar em dezembro',
+      'quanto eu gastei desde março no mercado',
+      'gastei qnt no cartao nubank mes passado hein',
+    ]
+    for (const f of frases) {
+      const pl = planQuery(st, f, { today: hoje })
+      const texto = String(pl?.plan.filter?.text || '')
+      if (texto && PERGUNTA.test(normalizeName(texto))) return `"${f}" virou busca pelo texto "${texto}"`
+    }
+    for (const lugar of ['quanto gastei no Zé da esquina', 'quanto gastei no bar do joão']) {
+      const pl = planQuery(st, lugar, { today: hoje })
+      if (!pl || !pl.plan.filter?.text) return `"${lugar}" perdeu a busca pelo nome`
+      if (pl.incompleto) return `"${lugar}" foi marcado como incompleto`
+    }
+    return null
+  })
+
   return r
 }
 
