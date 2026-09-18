@@ -423,8 +423,8 @@ a ação local suspeita por quatro critérios determinísticos e dá nome à dec
 `remote-needed`).
 
 **O que continua em aberto.** Várias frases de registro em fala real ainda são lidas errado no
-aparelho (a lista, com o esperado de cada uma, está em `docs/AI_REMOTE_EVAL.md` §10); 27 casos
-do corpus de avaliação continuam com rota `local-errada` — desde 15/09/2026 eles ficam de fato fora
+aparelho (a lista, com o esperado de cada uma, está em `docs/AI_REMOTE_EVAL.md` §10); 15 casos
+do corpus de avaliação continuam com rota `local-errada` (eram 27; ver §10 de lá) — desde 15/09/2026 eles ficam de fato fora
 da bateria paga e da nota dos modelos, porque a elegibilidade passou a ser medida no orquestrador em
 vez de lida do rótulo; o planejador remoto continua sem
 estado (não recebe o plano anterior); e as mudanças de `api/**` só chegam ao app publicado com
@@ -491,3 +491,20 @@ cliente, endereço, grafia, journal ou valor para a IA remota.
    não autorizadas. Nenhum modelo, preço ou retry foi alterado.
 
 A matriz caso a caso está em [AI_REGRESSION_MATRIX.md](AI_REGRESSION_MATRIX.md).
+
+**O local sabe que não sabe (18/09/2026).** Dois casos em que o aparelho não responde, e em que o
+roteador antigo respondia com número real mesmo assim:
+
+- **consulta incompleta** — o planejador reconheceu a pergunta mas não entendeu um pedaço dela. O
+  plano sai com `incompleto` (a sobra), não é executado, e a frase vai ao planejador remoto. Sobra
+  feita de vocabulário de pergunta nunca vira filtro de texto; nome de lugar continua sendo busca;
+- **hipótese sem simulação** — a pergunta que vem depois de um "e se…", na mesma frase, não é
+  respondida localmente; a hipótese não vai ao planejador de CONSULTA remoto, só ao chat; e sem
+  remoto o app diz que não sabe simular aquilo.
+
+O motor de cenário ganhou o tipo `cut` ("e se eu parar a obra"): média real dos três meses completos
+anteriores daquela categoria, por mês e no horizonte pedido. A hipótese herda a entidade da conversa
+("quanto gasto com obra?" → "e se parar?") e "e se…" depois de uma consulta sai do modo consulta.
+"Onde vazou", "pra onde foi meu dinheiro" e "o que mais pesou" são ranking por categoria; "maior
+mudança" é comparação. O rótulo de mês ("dez/2026") é montado pelo índice do mês, sem depender da
+string do ICU.

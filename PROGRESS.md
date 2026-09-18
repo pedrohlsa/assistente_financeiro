@@ -3083,3 +3083,61 @@ substantivo) devolveu o caso ao remoto, e o rótulo do corpus não precisou muda
 
 **Continuam abertos:** "onde vazou"; "e se parar a obra" (e o rótulo "Projeção para /z. de 2026" na
 resposta dela); os 27 local-falha do corpus; invariante 104 só varre arquivos versionados.
+
+#### Autópsia dos 27 local-falha e três causas corrigidas — 18/09/2026
+
+Nenhuma chamada paga, nenhum push, nenhum deploy. Benchmark continua NÃO AUTORIZADO. A integridade
+monetária ficou congelada: todos os grupos das duas rodadas anteriores continuam verdes.
+
+**Os 27, por causa principal** (antes de mexer em código):
+
+| Causa | Casos | Estágio |
+|---|---|---|
+| C1 sobra não entendida vira filtro de texto → "não tenho lançamento" / "R$ 0,00 (dado real)" | p-11, p-13, p-24, p-30, p-18 | query parse + confiança |
+| C2 distribuição/mudança vira total ("onde", "oq mais pesou", "maior mudança") | p-06, p-32, p-03 | query parse |
+| C3 duas entidades coordenadas, só a primeira vale | p-09, p-26, p-12 | query parse |
+| C4 "desde X" / "últimos meses" lido como um mês só | p-33, p-34, p-01 | período |
+| C5 métrica/fonte especializada ausente, ou atalho antigo responde antes | p-16, p-17, p-21, p-23, p-25, p-27 | query/fonte + legado |
+| C6 origem com número truncada na exclusão | p-22 | query parse |
+| C7 hipótese composta: só a primeira é simulada | s-01, s-02 | scenario parse |
+| C8 quantidade do cenário (entrada + financiado, semana = 30 dias, "3 meses" → R$ 3) | s-04, s-07, s-13 | scenario parse |
+| C9 rótulo velho — já correto | c-20 | — |
+
+**Escolhidas:** C1 (maior cluster que afirma coisa FALSA sobre os dados), C2 (contém "onde vazou") e o
+bug "e se parar a obra" — que é uma classe: hipótese sem plano local respondida como fato. O "/z." de
+dezembro era um defeito de saída à parte, pedido explicitamente, e foi corrigido junto.
+
+| Commit | Causa real |
+|---|---|
+| `0461dde` | "/z. de 2026": `toLocaleDateString` + replace de "de" sem limite de palavra; a primeira "de" de "dez. de 2026" está dentro de "dez". Em dois lugares (projeção e consulta por mês) |
+| `7bc71c0` | C1: a sobra da pergunta virava filtro de texto e o vazio era dito como fato. Plano INCOMPLETO não é executado; vai ao remoto |
+| `f8045fe` | C2: "onde" nem era sinal de consulta; "oq" não virava "o que"; "maior mudança" virava `max` |
+| `8c467d4` | hipótese: o roteador antigo respondia a metade "quanto sobra até dezembro" como fato; e não havia tipo de cenário para parar um gasto |
+
+**Regressão introduzida e corrigida DENTRO da rodada:** gravar o plano no foco também quando o
+roteador antigo responde (necessário para "quanto gastei com obra" → "onde?") fazia follow-ups que
+iam ao remoto serem respondidos errado no aparelho — "sem contar o cimento" não excluía nada, "e na
+99" buscava o texto "99". A trava de sobra passou a valer no refino, e "sem CONTAR o X" exclui X. Por
+isso C1 foi commitado ANTES de C2. Outra: "parar" estava a uma letra de "pagar" no reparo de
+digitação (mesma família do "caiu"/"sair").
+
+**Roteamento:** antes 21 local-correto · 27 local-falha · 66 remoto; depois **29 · 15 · 70**. Caso a
+caso em `docs/AI_REMOTE_EVAL.md` §10. Conversas: 7 turnos chegam ao chat e 7 ao planejador (eram 9 e
+9) — saíram "e no mês retrasado", "sem contar o cimento" e "e semana passada" (agora certos no
+aparelho, conferidos à mão) e entrou "e o que eu faço com isso", que antes respondia "não tenho
+faturas com 'que eu faco com isso'… cadastre um cartão". Chamadas lógicas por repetição e
+configuração: 84 (igual). A+B+C × 1 = US$ 0,17 / 0,41 / 1,98; × 3 = 0,51 / 1,22 / 5,95.
+
+**Testes:** corpus `cases-semantica.ts` pelo ORQUESTRADOR (27 casos: distribuição 11, resíduo 6,
+hipótese 10), RED antes 0/11, 1/7, 0/8. Invariantes 120 (rótulo de mês nos 12 meses), 121 (hipótese
+nunca vira fato, com e sem foco, com e sem remoto) e 122 (sobra nunca vira filtro, com o contraste do
+nome de lugar). Final: 660/660, 75/75, 27/27 semânticos, 4.080 + 3.800 metamórficos, 1.416 fuzz,
+130/130 invariantes, avaliador 434/434.
+
+**Achados novos, NÃO corrigidos:** "quanto gastei no restaurante do amarelo" — lugar que não existe —
+é respondido pelo atalho antigo com "R$ 750,00 nos últimos 7 dias", ignorando o nome (já era assim
+antes; é da causa C5). O roteador antigo lê o relógio e não a data injetada (regra 35), o que obriga
+os testes de conversa a usar a data real.
+
+**Continuam abertos:** C3, C4, C5, C6, C7 e C8 (15 casos); invariante 104 só varre arquivos
+versionados.

@@ -141,7 +141,8 @@ export const CASOS_CHAT_A: CasoChat[] = [
     'comprei uma geladeira',
     'sem valor e sem forma de pagamento: perguntar só o que falta',
     { intencao: 'perguntar', acoes: [], perguntaSobre: /valor|quanto|pre[çc]o|pag/i }),
-  casoChat('c-20', 'autonomo', 'ambiguidade', 'local-errada',
+  // 18/09/2026: rótulo velho — resolvido certo no aparelho desde a rodada de integridade de valor
+  casoChat('c-20', 'autonomo', 'ambiguidade', 'local',
     'guardei 300 na meta da viagem e 200 na outra',
     '"a outra" tem UM referente possível (Notebook); o local criou uma meta chamada "Viagem e 200 na outra"',
     {

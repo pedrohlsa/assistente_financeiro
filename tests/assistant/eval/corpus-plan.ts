@@ -194,7 +194,8 @@ export const CASOS_PLANO: CasoPlano[] = [
     'meu gasto com obra de agosto foi quantos por cento maior que o de julho',
     'dois meses pelo nome, um contra o outro; até 15/09/2026 o local comparava a categoria ERRADA (+674%), hoje compara obra com obra',
     [{ source: 'transactions', filtro: { txType: umDe(GASTO, null), categories: ['obra'] }, periodo: exatos(h => mesPorNome(h, AGO)), comparacao: exatos(h => mesPorNome(h, JUL)) }]),
-  caso('p-21', 'autonomo', 'plano-complexo', 'local-errada',
+  // 18/09/2026: rótulo velho — o plano de parcelas já conferia com o gabarito antes desta rodada
+  caso('p-21', 'autonomo', 'plano-complexo', 'local',
     'soma tudo que eu paguei de parcela nos ultimos 3 meses',
     'fonte de parcelas, não de lançamentos; o local comparou gastos totais',
     [{ source: 'installments', filtro: { txType: umDe(GASTO, null), status: umDe(['paid'], null) }, periodo: exatos(h => ultimosMeses(h, 3)) }]),

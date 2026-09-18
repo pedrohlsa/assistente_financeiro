@@ -75,16 +75,17 @@ pensamento, dentro do `fetch` que sai para a DeepSeek.
 
 ## 4. Corpus
 
-**120 casos.** Em 15/09/2026, **66 frases chegam ao modelo remoto** (eram 64 em 13/09), medido sem
-rede no orquestrador real: **19 do planejador** (eram 17), **44 do chat** e **3 de cenário**. Nas 6
-conversas, **9 turnos chamam o chat e 9 chamam o planejador** (eram 10 e 10).
+**120 casos.** Em 18/09/2026, **70 frases chegam ao modelo remoto** (eram 66 em 15/09 e 64 em
+13/09), medido sem rede no orquestrador real: **23 do planejador** (eram 19), **44 do chat** e **3 de
+cenário**. Nas 6 conversas, **7 turnos chamam o chat e 7 chamam o planejador** (eram 9 e 9).
+Detalhe da mudança em §10.
 
 | Suíte | Casos | Contrato | Chegam ao remoto | Corpus pago |
 |---|---|---|---|---|
-| Planejador de consulta | 44 | produção | 19 | 19 |
+| Planejador de consulta | 44 | produção | 23 | 23 |
 | Chat remoto | 55 | produção | 44 | 44 |
 | Cenário | 15 | **candidato** | 3 | 3 |
-| Continuidade | 6 conversas, 38 turnos | produção, pelo orquestrador | 9 chat + 9 planejador | 6 |
+| Continuidade | 6 conversas, 38 turnos | produção, pelo orquestrador | 7 chat + 7 planejador | 6 |
 
 **A elegibilidade é MEDIDA, não declarada** (15/09/2026). Antes de qualquer gasto, o orquestrador de
 produção roda com os dois caminhos remotos substituídos por gravadores, e um caso só entra na bateria
@@ -113,11 +114,11 @@ a hipótese sem base "e se em vez de 10x eu fizer 12 dando mil de entrada?" (p-3
 chegou a ser simulada localmente como uma compra de R$ 12,00; a regressão foi lida na resposta e
 fechada com a trava de preço antes do commit.
 
-**Corpus PAGO** (`--corpus=pago`, padrão de `--executar`): **só as 66 frases em que a medição viu
+**Corpus PAGO** (`--corpus=pago`, padrão de `--executar`): **só as 70 frases em que a medição viu
 requisição sair**, mais as 6 conversas. Nada mais. Frase que o aparelho fecha sozinho — acertando ou
 errando — não é paga e não pontua modelo nenhum, porque em produção o modelo não é consultado ali.
 
-**Corpus FRONTEIRA** (`--corpus=fronteira`): acrescenta as 27 frases que o aparelho resolve ERRADO.
+**Corpus FRONTEIRA** (`--corpus=fronteira`): acrescenta as 15 frases que o aparelho resolve ERRADO.
 Isso é pago e responde outra pergunta — *valeria mandar isto ao modelo?* —, que é decisão de
 ROTEAMENTO. O relatório mostra essas execuções em bloco separado e elas **nunca** entram na nota de
 configuração nenhuma.
@@ -288,6 +289,27 @@ Oito saíram — p-14 e p-19 passaram a chegar ao remoto; p-20, p-29, c-16, s-03
 ser respondidas certo no aparelho. **Continuam 27:** planejador p-01, 03, 06, 09, 11, 12, 13, 16, 17,
 18, 21, 22, 23, 24, 25, 26, 27, 30, 32, 33, 34; chat c-20; cenário s-01, 02, 04, 07, 13. (Uma contagem
 anterior desta rodada falou em "34" e "cinco corrigidas"; os números certos são estes.)
+
+**Checkpoint de 18/09/2026 — continuam 15.** Das 27, as respostas foram relidas e cada plano local
+foi conferido com o COMPARADOR do próprio avaliador (`comparaPlano`), não por impressão:
+
+| Mudou para | Casos | Por quê |
+|---|---|---|
+| local correto | p-03, p-06, p-32 | pergunta de destino e de mudança agora é ranking por categoria (`f8045fe`) |
+| local correto | p-13, p-30 | "fins de semana" (plural) e "cartão" repetido deixaram de virar texto de busca (`7bc71c0`) |
+| local correto | p-21, c-20 | rótulo velho: já estavam certos antes desta rodada |
+| remoto | p-11, p-17, p-18, p-24, p-34 | o planejador local sabe que não entendeu "acima de 200 reais", "quinzena", "gasosa por km", "desde" — o plano sai incompleto e a frase vai ao planejador remoto (`7bc71c0`) |
+
+E um no sentido contrário: **p-36** ("e se em vez de 10x eu fizer 12…", hipótese sem base) deixou
+de ir ao planejador de CONSULTA (`8c467d4`) — o plano factual perigoso ficou impossível por
+construção. Em produção a frase continua indo ao chat remoto; ela só não é mais pergunta de
+planejador. Com isso o avaliador passou a contar requisições **por caminho**.
+
+**Continuam 15:** planejador p-01, 09, 12, 16, 22, 23, 25, 26, 27, 33; cenário s-01, 02, 04, 07, 13.
+Agrupadas por causa: duas entidades coordenadas viram uma (p-09, p-12, p-26); "desde"/"últimos
+meses" (p-01, p-33); métrica ou fonte especializada que o local não representa, ou atalho antigo
+que responde antes (p-16, p-23, p-25, p-27); origem com número truncada na exclusão (p-22);
+hipótese composta simulada pela metade (s-01, s-02); quantidade do cenário (s-04, s-07, s-13).
 
 **Corrigidas em 15/09/2026:**
 
