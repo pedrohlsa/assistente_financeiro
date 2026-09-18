@@ -423,8 +423,8 @@ a ação local suspeita por quatro critérios determinísticos e dá nome à dec
 `remote-needed`).
 
 **O que continua em aberto.** Várias frases de registro em fala real ainda são lidas errado no
-aparelho (a lista, com o esperado de cada uma, está em `docs/AI_REMOTE_EVAL.md` §10); 15 casos
-do corpus de avaliação continuam com rota `local-errada` (eram 27; ver §10 de lá) — desde 15/09/2026 eles ficam de fato fora
+aparelho (a lista, com o esperado de cada uma, está em `docs/AI_REMOTE_EVAL.md` §10); 11 casos
+do corpus de avaliação continuam com rota `local-errada` (eram 27, depois 15; ver §10 de lá) — desde 15/09/2026 eles ficam de fato fora
 da bateria paga e da nota dos modelos, porque a elegibilidade passou a ser medida no orquestrador em
 vez de lida do rótulo; o planejador remoto continua sem
 estado (não recebe o plano anterior); e as mudanças de `api/**` só chegam ao app publicado com
@@ -508,3 +508,15 @@ anteriores daquela categoria, por mês e no horizonte pedido. A hipótese herda 
 "Onde vazou", "pra onde foi meu dinheiro" e "o que mais pesou" são ranking por categoria; "maior
 mudança" é comparação. O rótulo de mês ("dez/2026") é montado pelo índice do mês, sem depender da
 string do ICU.
+
+**O atalho antigo só responde o que ele expressa (18/09/2026, C5).** `alemDoAntigo`
+(`query/parse.ts`) é a checagem de capacidade entre o roteador antigo e a consulta. Além de
+período, comparação, agrupamento, exclusão e cartão, ela agora cobre: **nome dito na pergunta**
+("no Restaurante do Amarelo" — o total antigo não filtra nada e respondia a semana inteira; o hábito
+"quanto eu costumo gastar de suco" e as palavras do próprio app, "de cartão", continuam com ele) e as
+**contas por unidade** ("por viagem" e "por hora" antigas são fixas em 7 dias, e por viagem é bruto).
+A explicação "quantas vezes eu fiz isso" não consome mais a pergunta que já nomeia o lugar. Na
+leitura: "no bar" é lugar, não a categoria Lazer; "me pagou" é receita; "parcelas da geladeira" é o
+parcelamento daquela compra; "por corrida em média" é por corrida. O período passou a devolver o
+trecho que casou (`span`) — antes o rótulo "este mês" não era achado no texto "esse mes", e "no Zé
+esse mês" virava a busca "ze esse".

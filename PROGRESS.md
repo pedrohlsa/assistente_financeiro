@@ -3141,3 +3141,46 @@ os testes de conversa a usar a data real.
 
 **Continuam abertos:** C3, C4, C5, C6, C7 e C8 (15 casos); invariante 104 só varre arquivos
 versionados.
+
+#### C5: o atalho antigo só responde o que expressa — 18/09/2026
+
+Nenhuma chamada paga, nenhum push, nenhum deploy. Benchmark continua NÃO AUTORIZADO. Só C5; C3, C4,
+C6, C7 e C8 não foram tocados.
+
+**Reexecução no HEAD antes de mudar** (sonda descartável pelo orquestrador real, sem rede, e cada
+plano conferido com `comparaPlano`): p-17 já ia ao remoto (C1) e p-21 já estava certo (rótulo velho).
+Quebrados de verdade, todos com capacidade local REAL:
+
+| Caso | Quem respondia antes | Estágio |
+|---|---|---|
+| p-16 "quantas vezes eu fui no bar esse mês e quanto deu" | `explain.ts` pedia "me diga o nome do lugar"; e "no bar" virava Lazer inteiro | explicação (passo 2a) + planejador |
+| p-23 "quanto já paguei das parcelas da geladeira" | resumo antigo dos cartões (`resolveLocal`) | roteador antigo + planejador |
+| p-25 "qual cliente me pagou mais freela esse ano" | consulta com GASTOS por origem | planejador (direção) |
+| p-27 "quanto eu tiro líquido por corrida em média esse mês" | atalho antigo: bruto, últimos 7 dias | roteador antigo + planejador (ordem da métrica) |
+| "quanto gastei no restaurante do amarelo" (e "no mercado", "no Zé") | total antigo de "quanto gastei": R$ 750 da semana, sem o lugar | roteador antigo |
+
+| Commit | Causa |
+|---|---|
+| `2fffd9f` | a checagem de capacidade (`alemDoAntigo`) não conhecia filtro de texto nem as contas por unidade fixas do roteador antigo. Exposto e corrigido junto: `parsePeriod` devolvia o RÓTULO como trecho e nada era consumido ("no Zé esse mês" → busca "ze esse"); e "hein" no fim da fala grudava no alvo |
+| `888ef69` | o planejador lia outra métrica/direção/fonte: "por corrida em média" virava média por lançamento; "me pagou" virava gasto; "parcelas da X" perdia o X; "no bar" virava categoria; "quantas vezes… e quanto" só contava. E a explicação de "quantas vezes" consumia pergunta que nomeia o lugar |
+
+**Regressões achadas DENTRO da rodada, antes do commit:** "quanto devo de cartão?" passou a ser
+respondido pela consulta com a busca "cartao" (palavra do app não é nome — a trava a exclui); e p-30
+("…mes passado hein") virou rascunho de gasto quando o período passou a ser consumido de verdade (o
+"hein" grudou em "cartao"). As duas estão no corpus agora. A diferença das respostas locais do corpus
+de avaliação inteiro (114 frases + 38 turnos) antes/depois mostra só p-16, p-23, p-25, p-27 e p-43
+(elegível; sem remoto a resposta passou de gasto a receita, e ainda não filtra a 99). Sonda red-team
+idêntica byte a byte; rubrica igual (0 · 0 · 6 · 84).
+
+**Roteamento:** 29 · 15 · 70 → **33 · 11 · 70**. Conjunto elegível e turnos de conversa comparados
+nominalmente: idênticos. 84 chamadas lógicas por configuração (chat 44 · planejador 30 · cenário 3 ·
+conversa 7). A+B+C × 1 = US$ 0,17 / 0,41 / 1,98; × 3 = 0,51 / 1,22 / 5,95 (inalterado).
+
+**Testes:** 13 casos no grupo `capacidade` do corpus semântico (RED 5/13 — só os controles passavam),
+sr-04 reforçado, invariante 123 (lugar × 10 períodos × remoto ligado/desligado, com o contraste de
+categoria; RED nas duas metades). Final: 660/660, 75/75, 40/40 semânticos, 4.080 + 3.800, 1.416 fuzz,
+131/131 invariantes, avaliador 434/434.
+
+**Continuam abertos:** C3, C4, C6, C7, C8 (11 casos). "Quanto paguei do mercado" (preposição "do")
+ainda perde o alvo; "quanto faço por hora" do atalho antigo é lucro/hora, não faturamento/hora —
+anotados, não corrigidos (fora de C5 e sem caso no corpus pago).

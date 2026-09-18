@@ -167,7 +167,8 @@ export const CASOS_PLANO: CasoPlano[] = [
     'gastos no zé da esquina desde julho',
     'nome próprio vira texto de busca + "desde" é ATÉ HOJE, não só julho',
     [{ source: 'transactions', filtro: { txType: umDe(GASTO, null), text: 'Zé da esquina' }, group: umDe('none', 'description'), periodo: exatos(h => desde(h, JUL)) }]),
-  caso('p-16', 'autonomo', 'plano-complexo', 'local-errada',
+  // 18/09/2026 (C5): a explicação "quantas vezes eu fiz isso" não consome mais a pergunta que NOMEIA o lugar, e "no bar" é lugar, não a categoria Lazer — soma com a contagem na base
+  caso('p-16', 'autonomo', 'plano-complexo', 'local',
     'quantas vezes eu fui no bar esse mês e quanto deu',
     'duas medidas numa pergunta; agrupar por descrição mostra contagem e valor juntos',
     [{ source: 'transactions', filtro: { txType: umDe(GASTO, null), text: 'bar' }, metric: umDe('count', 'sum'), group: umDe('none', 'description'), periodo: exatos(esteMes) }]),
@@ -203,7 +204,8 @@ export const CASOS_PLANO: CasoPlano[] = [
     'tirando a casa 1 quanto entrou de aluguel esse ano',
     'exclusão de ORIGEM; o local respondeu que não havia lançamento nenhum',
     [{ source: 'transactions', filtro: { txType: umDe(RECEITA, null), categories: ['aluguel'], excludeText: 'casa 1' }, periodo: exatos(h => [anoAteHoje(h), anoInteiro(h)]) }]),
-  caso('p-23', 'autonomo', 'plano-complexo', 'local-errada',
+  // 18/09/2026 (C5): "parcelas da geladeira" é o parcelamento daquela compra, campo PAGO; o resumo dos cartões não responde mais antes
+  caso('p-23', 'autonomo', 'plano-complexo', 'local',
     'quanto eu ja paguei do total das parcelas da geladeira',
     'visão do plano inteiro, campo PAGO; o local mostrou o resumo dos cartões',
     [{ source: 'plans', filtro: { text: 'geladeira', status: QUALQUER }, field: 'paid', periodo: QUALQUER }]),
@@ -212,7 +214,8 @@ export const CASOS_PLANO: CasoPlano[] = [
     'quais gastos acima de 500 eu fiz desde abril',
     'valor mínimo + "desde" até hoje; o local virou "500 eu fiz desde" em texto de busca',
     [{ source: 'transactions', filtro: { txType: GASTO, minAmount: umDe(500, 500.01) }, group: 'description', order: umDe('value-desc', 'date-desc', 'date-asc', null), limit: QUALQUER, periodo: exatos(h => desde(h, ABR)) }]),
-  caso('p-25', 'autonomo', 'plano-complexo', 'local-errada',
+  // 18/09/2026 (C5): "me pagou" é receita; freela é a categoria — sem origem registrada, a resposta diz que não dá para apontar o cliente
+  caso('p-25', 'autonomo', 'plano-complexo', 'local',
     'qual cliente me pagou mais freela esse ano',
     'receita de uma categoria, ranqueada por quem pagou; o local somou GASTOS por origem',
     [{ source: 'transactions', filtro: { txType: umDe(RECEITA, null), categories: ['freelance'] }, group: umDe('origin', 'description'), order: umDe('value-desc', null), periodo: exatos(h => [anoAteHoje(h), anoInteiro(h)]) }]),
@@ -220,7 +223,8 @@ export const CASOS_PLANO: CasoPlano[] = [
     'gastei mais em lazer ou em alimentação nos ultimos 30 dias',
     'as duas categorias lado a lado; o local só olhou lazer',
     [{ source: 'transactions', filtro: { txType: umDe(GASTO, null), categories: ['lazer', 'alimentacao'] }, group: 'category', order: umDe('value-desc', null), periodo: exatos(h => ultimosDias(h, 30)) }]),
-  caso('p-27', 'motorista', 'plano-complexo', 'local-errada',
+  // 18/09/2026 (C5): "por corrida em média" é por corrida, "líquido" é entrada − saída, e o atalho antigo (bruto, 7 dias) não responde mais "esse mês"
+  caso('p-27', 'motorista', 'plano-complexo', 'local',
     'quanto eu tiro liquido por corrida em media esse mes',
     'LÍQUIDO por viagem (entrada − saída); o local deu a receita bruta dos últimos 7 dias',
     [{ source: 'transactions', filtro: { txType: ['income', 'expense'] }, metric: 'per-trip', periodo: exatos(esteMes) }]),

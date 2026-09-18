@@ -78,7 +78,8 @@ pensamento, dentro do `fetch` que sai para a DeepSeek.
 **120 casos.** Em 18/09/2026, **70 frases chegam ao modelo remoto** (eram 66 em 15/09 e 64 em
 13/09), medido sem rede no orquestrador real: **23 do planejador** (eram 19), **44 do chat** e **3 de
 cenário**. Nas 6 conversas, **7 turnos chamam o chat e 7 chamam o planejador** (eram 9 e 9).
-Detalhe da mudança em §10.
+Detalhe da mudança em §10. A rodada de C5 (18/09/2026) não moveu nenhuma frase entre aparelho e
+remoto: o conjunto de 70 e os turnos de conversa foram comparados NOMINALMENTE antes e depois.
 
 | Suíte | Casos | Contrato | Chegam ao remoto | Corpus pago |
 |---|---|---|---|---|
@@ -118,7 +119,7 @@ fechada com a trava de preço antes do commit.
 requisição sair**, mais as 6 conversas. Nada mais. Frase que o aparelho fecha sozinho — acertando ou
 errando — não é paga e não pontua modelo nenhum, porque em produção o modelo não é consultado ali.
 
-**Corpus FRONTEIRA** (`--corpus=fronteira`): acrescenta as 15 frases que o aparelho resolve ERRADO.
+**Corpus FRONTEIRA** (`--corpus=fronteira`): acrescenta as 11 frases que o aparelho resolve ERRADO.
 Isso é pago e responde outra pergunta — *valeria mandar isto ao modelo?* —, que é decisão de
 ROTEAMENTO. O relatório mostra essas execuções em bloco separado e elas **nunca** entram na nota de
 configuração nenhuma.
@@ -311,6 +312,30 @@ meses" (p-01, p-33); métrica ou fonte especializada que o local não representa
 que responde antes (p-16, p-23, p-25, p-27); origem com número truncada na exclusão (p-22);
 hipótese composta simulada pela metade (s-01, s-02); quantidade do cenário (s-04, s-07, s-13).
 
+**Checkpoint de 18/09/2026, rodada C5 — continuam 11.** C5 era "métrica ou fonte que o local não
+representa, ou atalho antigo que responde antes". Reexecutados no HEAD antes de qualquer mudança:
+p-17 já ia ao remoto e p-21 já estava certo (rodada anterior). Os outros quatro **tinham capacidade
+local real** — a DSL representa cada um —, e eram respondidos com outra conta:
+
+| Caso | Quem respondia | Agora (conferido com `comparaPlano`) |
+|---|---|---|
+| p-16 "quantas vezes eu fui no bar esse mês e quanto deu" | a explicação "quantas vezes eu fiz ISSO", pedindo o nome do lugar | soma com texto "bar" (a base traz a contagem) — local |
+| p-23 "quanto já paguei das parcelas da geladeira" | o resumo antigo dos cartões | parcelamento da geladeira, campo pago — local |
+| p-25 "qual cliente me pagou mais freela esse ano" | a consulta, com GASTOS por origem | receita de freelance por origem — local |
+| p-27 "quanto eu tiro líquido por corrida em média esse mês" | o atalho antigo: receita BRUTA dos últimos 7 dias | líquido por viagem, este mês — local |
+
+Nenhum passou ao remoto e nenhum saiu dele: **29 → 33 local-correto, 15 → 11 local-falha, 70 → 70
+remoto-elegível** (chat 44, planejador 23, cenário 3; conversas 7 + 7). O p-43 ("quanto a 99 me
+pagou", elegível) continua indo ao planejador; só a resposta local SEM remoto mudou, de gasto para
+receita (ela ainda não filtra a 99).
+
+**Continuam 11:** planejador p-01, 09, 12, 22, 26, 33; cenário s-01, 02, 04, 07, 13 — causas C3
+(duas entidades), C4 ("desde"/"últimos meses"), C6 (exclusão de origem com número), C7 (hipótese
+composta) e C8 (quantidade do cenário). Para todas elas a DSL ou o motor de cenário tem a
+representação; a correção esperada as mantém NO APARELHO, e o conjunto remoto não muda. No pior
+caso — cada uma sendo marcada como incompleta em vez de lida — o planejador iria de 23 a 29 frases e
+o cenário de 3 a 8; o chat (44, 63% do conjunto) não é tocado por nenhuma delas.
+
 **Corrigidas em 15/09/2026:**
 
 | Frase | Antes | Agora |
@@ -348,11 +373,10 @@ hipótese composta simulada pela metade (s-01, s-02); quantidade do cenário (s-
 | `guardei 300 na meta da viagem e 200 na outra` (c-20) | depósito de 300 na Viagem; os 200 somem em silêncio | 300 na Viagem + 200 na outra meta, ou pergunta |
 | `gastei sessenta vírgula cinquenta de farmácia ponto` | R$ 60,00 | R$ 60,50 |
 
-**Número real para a pergunta errada, que CONTINUA:** "obra e lazer" soma só obra; "gasosa por km"
-responde R$ 0,00 como dado real; "onde vazou" devolve o total; "maior mudança" devolve o maior valor;
-"acima de 200/500 reais" vira texto de busca; "tirando a casa 1" responde que não há lançamento;
-"desde março/junho" olha um mês só; "fins de semana" procura o texto "fins de"; "qual cliente me pagou
-mais" soma gastos por origem; "líquido por corrida esse mês" devolve a receita bruta de 7 dias.
+**Número real para a pergunta errada, que CONTINUA:** "obra e lazer" soma só obra; "tirando a casa
+1" responde que não há lançamento; "desde março/junho" olha um mês só. (Corrigidas em 18/09/2026:
+"gasosa por km", "acima de 200/500 reais" e "fins de semana" — C1; "onde vazou" e "maior mudança" —
+C2; "qual cliente me pagou mais" e "líquido por corrida esse mês" — C5.)
 
 **Simulação errada que CONTINUA:** "trocar de carro dando 20 mil de entrada e financiando 40 mil em
 48x" simula 40 mil em 48x sem a entrada; "parar de guardar por 3 meses" vira "guardar R$ 3,00 por
