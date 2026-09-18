@@ -177,4 +177,65 @@ export const VALOR_CARDINALIDADE: AssistantCase[] = [
     forbidKinds: ['expense', 'income'],
   },
 
+  // ===== 4. PARCELA NÃO É PREÇO =============================================
+  {
+    id: 'pp-01', group: 'parcela-nao-preco', ...autonomo,
+    messages: ['comprei um pc de 4000 em 10x'],
+    expectActions: [{ kind: 'card-purchase', total: 4000, installments: 10 }],
+    forbidAmounts: [10],
+  },
+  {
+    id: 'pp-02', group: 'parcela-nao-preco', ...autonomo,
+    // O follow-up muda as PARCELAS, não o preço.
+    messages: ['comprei um pc de 4000 em 10x', 'e em 12x?'],
+    expectActions: [{ kind: 'card-purchase', total: 4000, installments: 12 }],
+    forbidAmounts: [12],
+  },
+  {
+    id: 'pp-03', group: 'parcela-nao-preco', ...autonomo,
+    messages: ['comprei em 12x por 2400'],
+    expectActions: [{ kind: 'card-purchase', total: 2400, installments: 12 }],
+    forbidAmounts: [12],
+  },
+  {
+    id: 'pp-04', group: 'parcela-nao-preco', ...autonomo,
+    messages: ['10x de 400'],
+    forbidAmounts: [10],
+  },
+  {
+    id: 'pp-05', group: 'parcela-nao-preco', ...autonomo,
+    messages: ['e se em vez de 10x eu fizer 12 dando mil de entrada?'],
+    forbidAmounts: [10, 12],
+  },
+  {
+    id: 'pp-06', group: 'parcela-nao-preco', ...autonomo,
+    messages: ['celular de 3000 em 12'],
+    forbidAmounts: [12],
+  },
+  {
+    id: 'pp-07', group: 'parcela-nao-preco', ...autonomo,
+    messages: ['12 parcelas'],
+    expectNoActions: true,
+  },
+
+  // ===== 5. NÚMERO QUE NÃO É DINHEIRO =======================================
+  { id: 'nd-01', group: 'nao-e-dinheiro', ...driver, messages: ['faltam 200 km'], forbidAmounts: [200] },
+  { id: 'nd-02', group: 'nao-e-dinheiro', ...autonomo, messages: ['daqui a 180 dias'], forbidAmounts: [180] },
+  { id: 'nd-03', group: 'nao-e-dinheiro', ...autonomo, messages: ['12 parcelas'], forbidAmounts: [12] },
+  { id: 'nd-04', group: 'nao-e-dinheiro', ...autonomo, messages: ['casa 2'], forbidAmounts: [2] },
+  {
+    id: 'nd-05', group: 'nao-e-dinheiro', ...driver,
+    messages: ['trabalhei 8 horas'],
+    expectActions: [{ kind: 'work', hours: 8 }],
+    forbidAmounts: [8],
+  },
+  { id: 'nd-06', group: 'nao-e-dinheiro', ...driver, messages: ['24 litros'], forbidAmounts: [24] },
+  { id: 'nd-07', group: 'nao-e-dinheiro', ...autonomo, messages: ['90%'], forbidAmounts: [90] },
+  { id: 'nd-08', group: 'nao-e-dinheiro', ...autonomo, messages: ['dia 10'], forbidAmounts: [10] },
+  {
+    id: 'nd-09', group: 'nao-e-dinheiro', ...driver,
+    messages: ['rodei 180 km e gastei 200 de gasolina'],
+    expectActions: [{ kind: 'work', km: 180 }, { kind: 'fuel', amount: 200 }],
+    forbidAmounts: [180],
+  },
 ]

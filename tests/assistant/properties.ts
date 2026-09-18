@@ -2238,6 +2238,36 @@ export async function runProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 94. Número de parcelas nunca é valor ------------------------------
+  // "12x" virando R$ 12 é o defeito de magnitude mais caro do app: some com o
+  // preço e inventa um gasto. A proteção existia sem teste de classe próprio.
+  await checkAsync(r, 'contagem de parcelas nunca vira dinheiro', async () => {
+    const parcelas = [3, 6, 10, 12, 18, 24]
+    for (const n of parcelas) {
+      const frases = [
+        `comprei um pc de 4000 em ${n}x`,
+        `comprei em ${n}x por 4000`,
+        `parcelei 4000 em ${n} vezes`,
+        `pc de 4000 em ${n} parcelas`,
+      ]
+      for (const frase of frases) {
+        const out = await orchestrate({ state: buildState({ profile: 'autonomo' }), message: frase, remoteEnabled: false, today: TODAY })
+        const acoes = acoesDe(out.response).map(a => a.action as any)
+        if (acoes.some(a => Math.abs((a.amount ?? a.total ?? 0) - n) < 0.005)) return `"${frase}" propôs R$ ${n}`
+        const compra = acoes.find(a => a.kind === 'card-purchase')
+        if (compra && Math.abs(compra.total - 4000) > 0.005) return `"${frase}" perdeu o preço (total ${compra.total})`
+      }
+      // Sem preço nenhum, a contagem continua não sendo dinheiro.
+      for (const frase of [`${n}x de 400`, `${n} parcelas`]) {
+        const out = await orchestrate({ state: buildState({ profile: 'autonomo' }), message: frase, remoteEnabled: false, today: TODAY })
+        if (acoesDe(out.response).some(a => Math.abs(((a.action as any).amount ?? (a.action as any).total ?? 0) - n) < 0.005)) {
+          return `"${frase}" propôs R$ ${n}`
+        }
+      }
+    }
+    return null
+  })
+
   // --- 36. A tela devolve ao orquestrador a pergunta que ficou aberta ---
   // Invariante de FIAÇÃO, não de lógica: o corpus sempre passou
   // `pendingClarification`, então ele nunca poderia ver que `Chat.tsx` não

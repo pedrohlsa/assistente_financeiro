@@ -195,6 +195,32 @@ export function parseCorrection(
     }
   }
 
+  // PARCELAS: "e em 12x?", "muda pra 10 vezes". O follow-up mais comum depois
+  // de uma compra parcelada — e o número de parcelas nunca é preço (invariante
+  // 94): antes, a frase não casava com nada, caía no parser normal e voltava
+  // como texto genérico de ajuda, com a compra ainda pendente na tela.
+  //
+  // Três travas: só com compra parcelada na proposta, só quando a mensagem NÃO
+  // relata uma compra nova, e só quando o único número dito é a contagem.
+  {
+    const parcelaRe = /(?:^|\s)(?:e\s+)?(?:em|pra|para|por|de)?\s*(\d{1,2})\s*(?:x|vezes|parcelas)\b/i
+    const pm = t.match(parcelaRe)
+    const outroNumero = (t.match(/\d+(?:[.,]\d+)*/g) || []).length > 1
+    const relataCompra = /\b(?:comprei|comprou|parcelei|passei|gastei|paguei|recebi)\b/i.test(t)
+    if (pm && !outroNumero && !relataCompra) {
+      const n = Number(pm[1])
+      const alvo = remaining.find(p => 'installments' in (p.action as any))
+      if (alvo && n >= 1 && n <= 60) {
+        const was = (alvo.action as any).installments
+        if (was !== n) {
+          plan.edits.push({ id: alvo.id, field: 'installments', value: n, was })
+          plan.summary.push(`Troquei para ${n}x.`)
+          touched = true
+        }
+      }
+    }
+  }
+
   // Cartão: "era no Inter, não no Nubank" · "foi no Inter"
   if (caps.cardNames.length) {
     const cardHit = caps.cardNames.find(c => {
