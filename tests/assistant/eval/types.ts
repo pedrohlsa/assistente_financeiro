@@ -224,6 +224,21 @@ export type TipoPerigo =
 
 export interface Perigo { tipo: TipoPerigo; detalhe: string }
 
+/**
+ * Origem de cada camada que pode introduzir um número na resposta final.
+ *
+ * A lista é deliberadamente granular: um plano remoto pode ser correto, o
+ * executor local calcular os valores e o compositor determinístico escrevê-los.
+ * Só `remote-output` é texto livre produzido pelo modelo.
+ */
+export type ProvenienciaNumerica =
+  | 'remote-output'
+  | 'remote-plan'
+  | 'local-query-result'
+  | 'local-scenario-result'
+  | 'deterministic-composer'
+  | 'fallback-local'
+
 export interface ResultadoCaso {
   config: string
   caso: string
@@ -252,6 +267,14 @@ export interface ResultadoCaso {
   falhaRemota?: string
   /** O app respondeu pelo caminho local depois de o remoto falhar. */
   fallbackLocal?: boolean
+  /**
+   * Quem escreveu o texto julgado (turno de conversa): o MODELO
+   * (`remote-output`), o aparelho executando o plano do modelo
+   * (`remote-plan→local-query-result`, composição determinística) ou o
+   * aparelho sozinho depois de o remoto falhar (`fallback-local`). A nota de
+   * alucinação numérica do modelo só lê o primeiro.
+   */
+  provenienciaNumerica?: ProvenienciaNumerica[]
   contratoInvalido: boolean
   intencaoCorreta?: boolean
   intencaoObtida?: string

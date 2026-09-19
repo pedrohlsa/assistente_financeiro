@@ -211,13 +211,18 @@ async function executa(t: Tarefa, cfg: DeepSeekConfig, livro: Livro): Promise<Re
     // rastro.
     let falhaRemota: string | undefined
     let contratoInvalido = false
+    // O que o MODELO escreveu, separado do que o aparelho compôs em volta.
+    const escritoPeloModelo: string[] = []
     const r = await orchestrate({
       state, message: turno.mensagem, draft: draft || undefined, pending,
       pendingClarification: clarification, focus, remoteEnabled: true, today: hoje,
       askRemote: ({ state: s, message, conversation, aggregates }) => contextoAvaliacao.run(ctx('chat', registros, i + 1), async () => {
         const out = await chatComoCliente(s, message, { conversation, aggregates }, cfg, enviado)
         if (!out) falhaRemota = falhaRemota || 'chat remoto sem resposta utilizável'
-        else if (out.contractFallback || out.rejected.length) contratoInvalido = true
+        else {
+          escritoPeloModelo.push(String(out.reply || ''))
+          if (out.contractFallback || out.rejected.length) contratoInvalido = true
+        }
         return out
       }),
       planRemoteQuery: ({ state: s, message }) => contextoAvaliacao.run(ctx('plano', registros, i + 1), async () => {
@@ -240,7 +245,7 @@ async function executa(t: Tarefa, cfg: DeepSeekConfig, livro: Livro): Promise<Re
         id: t.caso.id, config: t.config.id, rep: t.rep, turno: i + 1, perfil: t.caso.perfil, gabarito: turno, state, hoje,
         resposta: { reply: r.response.reply, mode: r.response.mode, actions: r.response.actions },
         contexto: enviado.contexto ?? planningContext(state), mensagensAnteriores: [], registros,
-        falhaRemota, contratoInvalido,
+        falhaRemota, contratoInvalido, textoRemoto: escritoPeloModelo.join('\n'),
       }))
     }
   }

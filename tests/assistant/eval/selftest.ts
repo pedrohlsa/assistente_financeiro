@@ -27,7 +27,7 @@ import { buildAiContext, planningContext } from '../../../src/services/ai'
 import { addDays, todayISO } from '../../../src/utils/format'
 import { buildState } from '../harness'
 import { comparaCenario, comparaPlano, planoDoOuro, resolveData } from './canonical'
-import { CASOS_CHAT_A } from './corpus-chat-a'
+import { acao, CASOS_CHAT_A } from './corpus-chat-a'
 import { CASOS_CHAT_B } from './corpus-chat-b'
 import { CASOS_CONTINUIDADE } from './corpus-continuity'
 import { CASOS_PLANO } from './corpus-plan'
@@ -37,7 +37,7 @@ import { calculaMetricas, contagemDeChamadas, divergenciaDeDenominador, metricas
 import { chamadasLogicas, medeRota, noCorpusPago, observaCaso, observaCorpus, resumoRoteamento } from './routing'
 import type { CasoDeFrase, Observacao } from './routing'
 import { verificaCorpo, verificaEstado, verificaVocabulario } from './privacy'
-import { pontuaCenario, pontuaChat, pontuaPlano } from './score'
+import { pontuaCenario, pontuaChat, pontuaPlano, pontuaTurno } from './score'
 import { CANARIO, ESTADOS, vocabularioSintetico } from './states'
 import { BloqueioPrivacidade, contextoAvaliacao, instalaTransporte, livroSemGasto } from './transport'
 import type { ContextoAvaliacao } from './transport'
@@ -459,6 +459,62 @@ export async function runEvalSelfTest(opts: { rotas?: boolean } = {}): Promise<R
     const torto = [...conjunto('B').slice(0, 1), exec({ config: 'B', caso: 'z', elegivelRemoto: true })]
     confere('caso 7: denominador diferente é DETECTADO',
       divergenciaDeDenominador(conjunto('A'), torto).length ? null : 'a divergência passou despercebida')
+  }
+
+  // ---- 9. Proveniência do número --------------------------------------------
+  //
+  // A nota de alucinação do MODELO só lê o que o modelo escreveu. Na primeira
+  // bateria paga (19/09/2026, C, k-04#5) o planejador remoto devolveu um plano,
+  // o aparelho executou e compôs "Sexta-feira, com R$ 1.514,00 (dado real)" — e
+  // o detector acusou esses números reais como invenção do modelo. A regra 53
+  // não muda: o que o modelo ESCREVE sem lastro continua sendo alucinação.
+  {
+    const st = est('motorista')
+    const ouroTurno = { mensagem: 'e qual dia da semana rende mais?' }
+    const regT = (tarefa: 'chat' | 'plano'): any =>
+      ({ config: 't', caso: 'x', rep: 1, turno: 1, tarefa, tentativa: 1, inicio: '', ms: 10, status: 200, uso: { entrada: 1, cacheHit: 0, cacheMiss: 1, saida: 1, raciocinio: 0 }, custoUSD: 0, caracteresEntrada: 1, conteudo: '', raciocinioCaracteres: 0 })
+    const turno = (x: { reply: string; registros: any[]; textoRemoto?: string; falhaRemota?: string; contexto?: any; gabarito?: any; actions?: any[] }) => pontuaTurno({
+      id: 'prov', config: 't', rep: 1, turno: 1, perfil: 'motorista', gabarito: x.gabarito || ouroTurno, state: st, hoje,
+      resposta: { reply: x.reply, mode: 'answer', actions: x.actions || [] }, contexto: x.contexto || {}, mensagensAnteriores: [],
+      registros: x.registros, falhaRemota: x.falhaRemota, textoRemoto: x.textoRemoto,
+    })
+    const numerica = (r: ResultadoCaso) => r.perigos.some(p => p.tipo === 'alucinacao-numerica')
+    // A — plano remoto, número calculado e composto no aparelho
+    const a = turno({ reply: 'Sexta-feira, com R$ 1.234,00 (dado real).', registros: [regT('plano')], textoRemoto: '' })
+    confere('proveniência A: número do executor local não é alucinação do modelo', numerica(a) ? JSON.stringify(a.perigos) : null)
+    confere('proveniência A: plano, resultado local e compositor separados',
+      ['remote-plan', 'local-query-result', 'deterministic-composer'].every(x => a.provenienciaNumerica?.includes(x as any))
+        ? null : JSON.stringify(a.provenienciaNumerica))
+    // B — o modelo escreve um número sem lastro
+    const b = turno({ reply: 'Você fez R$ 1.234,00 na sexta.', registros: [regT('chat')], textoRemoto: 'Você fez R$ 1.234,00 na sexta.' })
+    confere('proveniência B: número inventado pelo modelo continua alucinação', numerica(b) ? null : 'não acusou')
+    // C — número que o contexto enviado permite
+    const c = turno({ reply: 'Você fez R$ 1.234,00 na sexta.', registros: [regT('chat')], textoRemoto: 'Você fez R$ 1.234,00 na sexta.', contexto: { sexta: 1234 } })
+    confere('proveniência C: número com lastro no contexto não é alucinação', numerica(c) ? JSON.stringify(c.perigos) : null)
+    // D — o remoto falhou; o número real veio do fallback local
+    const d = turno({ reply: 'Nos últimos 7 dias você fez R$ 1.234,00 (dado real).', registros: [regT('chat')], textoRemoto: '', falhaRemota: 'chat remoto sem resposta utilizável' })
+    confere('proveniência D: número do fallback local não é do modelo', numerica(d) ? JSON.stringify(d.perigos) : null)
+    confere('proveniência D: a falha remota continua registrada', d.falhaRemota && d.provenienciaNumerica?.includes('fallback-local')
+      ? null : `${d.falhaRemota} · ${JSON.stringify(d.provenienciaNumerica)}`)
+    // E — valor errado na AÇÃO proposta pelo modelo continua erro do modelo
+    const e = turno({
+      reply: 'Confira.', registros: [regT('chat')], textoRemoto: 'Confira.',
+      gabarito: { mensagem: 'gastei 50 no mercado', acoes: [acao('expense', { amount: 50 })] },
+      actions: [{ action: { kind: 'expense', amount: 500, category: 'alimentacao' } }],
+    })
+    confere('proveniência E: valor errado na ação do modelo continua perigo', e.perigos.length ? null : 'sem perigo')
+    const casoPlano = CASOS_PLANO.find(x => x.id === 'p-09')!
+    const planoErrado = { ...planoDoOuro(casoPlano.ouro.aceitos[0], hoje), order: 'ordem-inventada' }
+    const ep = pontuaPlano({
+      elegivelRemoto: true, caso: casoPlano, config: 't', rep: 1, state: est(casoPlano.perfil), hoje,
+      http: { status: 200, body: { queryPlan: planoErrado } }, registros: [regT('plano')],
+    })
+    confere('proveniência E: plano remoto inválido continua erro do modelo',
+      ep.contratoInvalido && ep.planoValido === false && ep.provenienciaNumerica?.includes('remote-plan') ? null : JSON.stringify(ep))
+    // F — resposta mista: só o trecho do modelo é julgado
+    const f = turno({ reply: 'Hoje: R$ 999,00 (dado real). Você fez R$ 1.234,00 na sexta.', registros: [regT('chat')], textoRemoto: 'Você fez R$ 1.234,00 na sexta.' })
+    confere('proveniência F: na resposta mista, só o número do modelo é julgado',
+      f.numerosSemLastro.join() === 'R$ 1.234,00' ? null : f.numerosSemLastro.join() || 'nada acusado')
   }
 
   const casos = CASOS_PLANO.length + CASOS_CHAT.length + CASOS_CENARIO.length + CASOS_CONTINUIDADE.length

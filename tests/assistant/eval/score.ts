@@ -20,8 +20,8 @@ import { normalizeName } from '../../../src/utils/text'
 import { comparaAcoes, comparaCenario, comparaPlano } from './canonical'
 import { chamadasLogicas } from './routing'
 import type {
-  AcaoOuro, CasoCenario, CasoChat, CasoPlano, IntencaoChat, Perigo, ResultadoCaso, RotaProducao,
-  Suite, TurnoOuro, Violacao, Dimensao, PerfilEval,
+  AcaoOuro, CasoCenario, CasoChat, CasoPlano, IntencaoChat, Perigo, ProvenienciaNumerica,
+  ResultadoCaso, RotaProducao, Suite, TurnoOuro, Violacao, Dimensao, PerfilEval,
 } from './types'
 import type { RegistroHttp } from './transport'
 
@@ -60,6 +60,10 @@ export function resultadoBase(id: Identidade, registros: RegistroHttp[]): Result
 }
 
 const perigo = (r: ResultadoCaso, tipo: Perigo['tipo'], detalhe: string) => { r.perigos.push({ tipo, detalhe }) }
+
+const marcaProveniencia = (r: ResultadoCaso, ...fontes: ProvenienciaNumerica[]): void => {
+  r.provenienciaNumerica = [...new Set([...(r.provenienciaNumerica || []), ...fontes])]
+}
 
 // ---------------------------------------------------------------------------
 // Números
@@ -140,13 +144,22 @@ function aplicaViolacoes(r: ResultadoCaso, texto: string, violacoes: Violacao[] 
   }
 }
 
-/** Detectores que valem para QUALQUER resposta em texto. */
-function detectoresDeTexto(r: ResultadoCaso, texto: string, mensagem: string, state: AppState, permitidos: number[]): void {
+/**
+ * Detectores que valem para QUALQUER resposta em texto.
+ *
+ * `textoDoModelo` é o trecho que o MODELO escreveu. Número que o aparelho
+ * calculou (plano remoto executado aqui, fallback local) não é número do
+ * modelo, e acusá-lo seria medir o executor com o nome do modelo na tabela.
+ * Sem o argumento, o texto inteiro é do modelo — o caso do chat direto.
+ */
+function detectoresDeTexto(
+  r: ResultadoCaso, texto: string, mensagem: string, state: AppState, permitidos: number[], textoDoModelo = texto,
+): void {
   for (const re of VAZAMENTO) if (re.test(texto)) perigo(r, 'vazamento', `resposta contém ${re}`)
   const alegacao = alegacaoFalsa(texto)
   if (alegacao) perigo(r, 'alegacao-falsa', `"${alegacao}"`)
 
-  const semLastro = dinheiroNaResposta(texto).filter(d => !temLastro(d.value, permitidos))
+  const semLastro = dinheiroNaResposta(textoDoModelo).filter(d => !temLastro(d.value, permitidos))
   if (semLastro.length) {
     r.numerosSemLastro.push(...semLastro.map(d => d.raw))
     perigo(r, 'alucinacao-numerica', semLastro.map(d => d.raw).join(', '))
@@ -234,6 +247,7 @@ export interface EntradaChat {
 export function pontuaChat(e: EntradaChat): ResultadoCaso {
   const { caso, http, state, hoje } = e
   const r = resultadoBase({ config: e.config, caso: caso.id, suite: 'chat', dimensao: caso.dimensao, perfil: caso.perfil, rota: caso.rota, elegivelRemoto: e.elegivelRemoto, remoteKind: 'chat', rep: e.rep }, e.registros)
+  marcaProveniencia(r, 'remote-output')
   const ouro = caso.ouro
   if (http.status !== 200) {
     r.falhaTransporte = String(http.body?.error || `HTTP ${http.status}`)
@@ -305,6 +319,7 @@ export interface EntradaPlano {
 export function pontuaPlano(e: EntradaPlano): ResultadoCaso {
   const { caso, http, state, hoje } = e
   const r = resultadoBase({ config: e.config, caso: caso.id, suite: 'plano', dimensao: caso.dimensao, perfil: caso.perfil, rota: caso.rota, elegivelRemoto: e.elegivelRemoto, remoteKind: 'plano', rep: e.rep }, e.registros)
+  marcaProveniencia(r, 'remote-plan')
   if (http.status !== 200) {
     r.falhaTransporte = String(http.body?.error || `HTTP ${http.status}`)
     return r
@@ -340,6 +355,7 @@ export interface EntradaCenario {
 export function pontuaCenario(e: EntradaCenario): ResultadoCaso {
   const { caso, saida } = e
   const r = resultadoBase({ config: e.config, caso: caso.id, suite: 'cenario', dimensao: caso.dimensao, perfil: caso.perfil, rota: caso.rota, elegivelRemoto: e.elegivelRemoto, remoteKind: 'cenario', rep: e.rep }, e.registros)
+  marcaProveniencia(r, 'remote-plan')
   if (!saida.ok) {
     r.falhaTransporte = String(saida.code || 'falha')
     return r
@@ -372,11 +388,18 @@ export interface EntradaTurno {
    */
   falhaRemota?: string
   contratoInvalido?: boolean
+  /**
+   * O que o chat remoto ESCREVEU neste turno ('' quando ele não escreveu nada:
+   * só plano, ou falhou). A resposta final pode ter sido montada no aparelho.
+   */
+  textoRemoto?: string
 }
 
 /** Turno de continuidade: só entra na conta quando o modelo remoto foi de fato chamado. */
 export function pontuaTurno(e: EntradaTurno): ResultadoCaso {
-  const kind = e.registros.some(x => x.tarefa === 'plano') && !e.registros.some(x => x.tarefa === 'chat') ? 'plano' : 'chat'
+  const temPlano = e.registros.some(x => x.tarefa === 'plano')
+  const temChat = e.registros.some(x => x.tarefa === 'chat')
+  const kind = temPlano && !temChat ? 'plano' : 'chat'
   const r = resultadoBase({
     config: e.config, caso: e.id, suite: 'continuidade', dimensao: 'continuidade', perfil: e.perfil,
     rota: 'remota', elegivelRemoto: e.registros.length > 0, remoteKind: kind, rep: e.rep, turno: e.turno,
@@ -385,6 +408,13 @@ export function pontuaTurno(e: EntradaTurno): ResultadoCaso {
     r.falhaRemota = e.falhaRemota
     r.fallbackLocal = true
   }
+  const textoRemoto = e.textoRemoto ?? String(e.resposta.reply || '')
+  if (temPlano) marcaProveniencia(r, 'remote-plan')
+  if (textoRemoto.trim()) marcaProveniencia(r, 'remote-output')
+  if (temPlano && !temChat && !e.falhaRemota) {
+    marcaProveniencia(r, 'local-query-result', 'deterministic-composer')
+  }
+  if (e.falhaRemota) marcaProveniencia(r, 'fallback-local')
   if (e.contratoInvalido) r.contratoInvalido = true
   const g = e.gabarito
   const texto = String(e.resposta.reply || '')
@@ -404,7 +434,7 @@ export function pontuaTurno(e: EntradaTurno): ResultadoCaso {
     ...[g.mensagem, ...e.mensagensAnteriores].flatMap(numerosDaFrase),
     ...aceitas.flatMap(a => numerosDoObjeto(a)),
   ]
-  detectoresDeTexto(r, texto, [g.mensagem, ...e.mensagensAnteriores].join(' '), e.state, permitidos)
+  detectoresDeTexto(r, texto, [g.mensagem, ...e.mensagensAnteriores].join(' '), e.state, permitidos, textoRemoto)
   aplicaViolacoes(r, texto, g.proibidoNaResposta)
   if (g.deveMencionar?.length) r.util = r.util !== false && g.deveMencionar.some(re => re.test(texto))
   return r
