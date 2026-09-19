@@ -31,6 +31,7 @@ import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } fr
 import { conflictQuestion, evidenceFor, mergeByField, sameFact } from './semantic/evidence'
 import { classifyLocalDecision } from './semantic/confidence'
 import { modalidadeExplicita, planoContradizModalidade } from './semantic/modality'
+import { semAlegacaoDeExecucao } from './claims'
 import { composeAnswer, explainQueryResult, isQueryFailure, runQuery, validateQueryPlan } from './query'
 import { rememberQuery } from './conversation'
 import type { RepairedText } from './semantic/normalize'
@@ -1517,7 +1518,10 @@ Confirmar?`,
   const remoteNote = !remoteReply && unresolved.some(u => u.reason === 'remote-unavailable')
     ? 'Não consegui falar com o assistente por IA agora, então essa pergunta ficou sem resposta. Tente de novo em instantes — registrar e consultar seus números continua funcionando normalmente.'
     : null
-  const answerPart = [local_answers.text, remoteReply, cenarioJunto?.reply, hypo, planNote, remoteNote]
+  // Neste turno NADA foi executado: a execução só acontece no Confirmar. O texto
+  // do modelo não pode dizer "anotei/registrei" com a ação ainda na tela.
+  const remotoSemAlegacao = remoteReply ? semAlegacaoDeExecucao(remoteReply, candidates.length ? 'pendente' : 'nada-proposto') : ''
+  const answerPart = [local_answers.text, remotoSemAlegacao, cenarioJunto?.reply, hypo, planNote, remoteNote]
     .filter(Boolean).join('\n\n')
   const rejectedAll = [...local.rejected, ...remoteRejected]
 

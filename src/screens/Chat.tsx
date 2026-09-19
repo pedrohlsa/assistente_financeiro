@@ -13,6 +13,7 @@ import { orchestrate } from '../assistant/orchestrator'
 import { buildCapabilities } from '../assistant/capabilities'
 import type { AssistantDraft } from '../assistant/drafts'
 import { isActionFailure } from '../assistant/contracts'
+import { mensagemDaExecucao } from '../assistant/claims'
 import type { ActionFailure, AssistantClarification } from '../assistant/contracts'
 import { ChatMessage, ProposedAction } from '../models/types'
 import { nowTime, uid } from '../utils/format'
@@ -200,15 +201,8 @@ export default function Chat() {
     const failures: ActionFailure[] = []
     for (const r of results) if (isActionFailure(r)) failures.push(r)
 
-    let text: string
-    if (applied) {
-      text = okCount > 1 ? `Registrado! ✅ ${okCount} lançamentos salvos.` : 'Registrado! ✅'
-    } else {
-      // Atômico: nada foi salvo. A mensagem diz exatamente o que travou.
-      text = `Não registrei nada ainda — o lote inteiro depende de todos os itens.\n\n` +
-        failures.map(f => `• ${f.message}`).join('\n') +
-        `\n\nCorrija ou remova esse item e confirme de novo.`
-    }
+    // "Registrado" só depois de o lote atômico ser gravado (assistant/claims.ts).
+    const text = mensagemDaExecucao(applied, okCount, failures)
     dispatch({ type: 'chat', msg: { id: uid(), role: 'assistant', text, time: nowTime(), batchId: undefined } })
     if (applied) toast({ text: okCount > 1 ? `${okCount} registros salvos.` : 'Registro salvo.' })
     if (pendingRef.current?.msgId === msgId && applied) pendingRef.current = null

@@ -25,6 +25,8 @@ import { handleAssistantRequest } from '../../api/_lib/assistantHandler'
 import { fmtBRL } from '../../src/utils/format'
 import { isQueryFailure, validateQueryPlan } from '../../src/assistant/query/validate'
 import { isEnvelopeFailure, validateRemoteEnvelope } from '../../src/assistant/contracts'
+import { alegacaoFalsa } from './eval/score'
+import { mensagemDaExecucao } from '../../src/assistant/claims'
 
 export interface PropertyReport { total: number; failures: string[] }
 
@@ -522,6 +524,63 @@ export async function runRemoteProperties(): Promise<PropertyReport> {
     }
     const { out } = await roda(st, 'quanto vou pagar de fatura até o fim do ano', { today: hoje, planRemoteQuery: async () => (pediu++, previsto) })
     if (pediu && (out.response as any).engine !== 'hybrid') return `consulta de previsão legítima foi descartada: "${out.response.reply.slice(0, 100)}"`
+    return null
+  })
+
+  // --- 127. Proposta na tela não é descrita como executada ----------------
+  // Nas 3 repetições B disse "Anotei os R$ 900,00…", "Registrei o abastecimento
+  // de R$ 120,00", "Já anotei…" — com a ação ainda PENDENTE de confirmação.
+  // No turno da resposta remota nada foi executado (a execução só acontece no
+  // Confirmar), então a resposta final não pode afirmar que aconteceu. O
+  // oráculo é o detector do avaliador, independente da barreira; e a frase que
+  // fala do USUÁRIO ou que nega continua intacta.
+  await checkAsync(r, 'proposta pendente nunca é descrita como executada', async () => {
+    const st = buildState({ profile: 'other' })
+    const acao = { kind: 'expense', amount: 120, category: 'outros-out', description: 'Abastecimento' } as ParsedAction
+    const alegacoes = [
+      'Anotei os R$ 900,00 do projeto elétrico como recebido hoje. Sobre os R$ 650,00 do reparo, preciso da data.',
+      'Beleza! Registrei o abastecimento de R$ 120,00. Sobre o dia de hoje, você lembra quantas horas trabalhou?',
+      'Beleza! Já anotei o abastecimento de R$ 120,00.',
+      'Anotei: R$ 1.800,00 da Casa 1 e R$ 320,00 de luz.',
+      'Pronto, lancei a despesa de R$ 120,00.',
+      'A despesa de R$ 120,00 foi registrada.',
+      'Os dois gastos já estão lançados no app.',
+      'Salvei o abastecimento, confirma aí.',
+      'Já apaguei a despesa duplicada de R$ 120,00.',
+    ]
+    for (const acoes of [[acao], [] as ParsedAction[]]) {
+      for (const texto of alegacoes) {
+        const { out } = await roda(st, 'faz aquilo que eu te falei do posto', {
+          askRemote: async () => ({ reply: texto, mode: acoes.length ? 'propose_actions' : 'answer', actions: acoes, rejected: [] }),
+        })
+        const reply = out.response.reply
+        const achou = alegacaoFalsa(reply)
+        if (achou) return `(${acoes.length} ação pendente) "${texto}" chegou ao usuário alegando "${achou}": "${reply.replace(/\n/g, ' | ').slice(0, 140)}"`
+        const valores = texto.match(/R\$\s*[\d.,]+/g) || []
+        if (valores.some(v => !reply.includes(v))) return `"${texto}" perdeu um valor na barreira: "${reply.slice(0, 140)}"`
+      }
+    }
+    for (const intacta of ['Você disse que já registrou isso ontem, então não lancei de novo.', 'Não registrei nada ainda: toda ação precisa da sua confirmação.']) {
+      const { out } = await roda(st, 'faz aquilo que eu te falei do posto', {
+        askRemote: async () => ({ reply: intacta, mode: 'propose_actions', actions: [acao], rejected: [] }),
+      })
+      if (!out.response.reply.includes(intacta)) return `frase legítima foi reescrita: "${intacta}" → "${out.response.reply.slice(0, 140)}"`
+    }
+    return null
+  })
+
+  // --- 128. Só o que foi GRAVADO é dito como feito ------------------------
+  // Depois do Confirmar: lote atômico gravado → "Registrado"; falhou → nada foi
+  // gravado, e o texto não pode sugerir o contrário. Mesma função da tela.
+  check(r, 'mensagem de execução só alega o que foi gravado', () => {
+    const falhas = [{ message: 'Categoria "obra" arquivada.' }]
+    for (const n of [1, 3]) {
+      const ok = mensagemDaExecucao(true, n, [])
+      if (!/registrad/i.test(ok)) return `execução gravada (${n}) não foi dita: "${ok}"`
+    }
+    const falhou = mensagemDaExecucao(false, 0, falhas)
+    if (alegacaoFalsa(falhou) || /registrado/i.test(falhou)) return `falha descrita como sucesso: "${falhou}"`
+    if (!falhou.includes(falhas[0].message)) return 'a falha não diz o que travou'
     return null
   })
 
