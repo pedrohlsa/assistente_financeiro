@@ -310,6 +310,35 @@ export async function runEvalSelfTest(opts: { rotas?: boolean } = {}): Promise<R
       desinstala()
     }
 
+    // REPLAY de bateria gravada: a gravação volta como foi — inclusive a falha.
+    // Um corpo cortado no meio ("terminated") tem status 200 E erro: tratá-lo
+    // como resposta vazia inventava um retry que a bateria nunca fez.
+    {
+      const config = { id: 'T', rotulo: 'teste', modelo: 'deepseek-flash', pensamento: 'desligado' as const }
+      const grav = (x: Partial<import('./transport').RegistroHttp>): any => ({
+        config: 'T', caso: 'p-09', rep: 1, tarefa: 'plano', tentativa: 1, inicio: '', ms: 1234, status: 200,
+        uso: { entrada: 7, cacheHit: 0, cacheMiss: 7, saida: 3, raciocinio: 0 }, custoUSD: 0.5,
+        caracteresEntrada: 1, conteudo: '{"version":2,"source":"none"}', raciocinioCaracteres: 0, ...x,
+      })
+      const chama = async (g: any) => {
+        const livroR = livroSemGasto()
+        const des = instalaTransporte({ modo: 'falso', hostPermitido: 'api.deepseek.com', livro: livroR, gravado: () => g })
+        const ctx: ContextoAvaliacao = { config, caso: 'p-09', rep: 1, tarefa: 'plano', registros: [], origemVerificada: true }
+        let falhou = false
+        try {
+          await contextoAvaliacao.run(ctx, () => fetch('https://api.deepseek.com/chat/completions', { method: 'POST', body: '{"messages":[]}' }))
+        } catch { falhou = true } finally { des() }
+        return { falhou, reg: ctx.registros[0] }
+      }
+      const ok = await chama(grav({}))
+      confere('replay: devolve o conteúdo, a latência e o custo gravados',
+        !ok.falhou && ok.reg?.conteudo === '{"version":2,"source":"none"}' && ok.reg.ms === 1234 && ok.reg.custoUSD === 0.5
+          ? null : JSON.stringify(ok))
+      confere('replay: falha de rede gravada falha de novo', (await chama(grav({ status: 0, erro: 'fetch failed', conteudo: '' }))).falhou ? null : 'virou resposta')
+      confere('replay: corpo cortado (200 + erro) falha, não vira vazio', (await chama(grav({ erro: 'terminated', conteudo: '' }))).falhou ? null : 'virou resposta vazia')
+      confere('replay: chamada sem gravação falha, nunca é inventada', (await chama(undefined)).falhou ? null : 'inventou resposta')
+    }
+
     let redeTocada = 0
     const guardado = globalThis.fetch
     ;(globalThis as any).fetch = async () => { redeTocada++; return new Response('{}', { status: 200 }) }

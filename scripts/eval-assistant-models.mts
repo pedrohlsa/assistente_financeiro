@@ -56,7 +56,7 @@ import { buildScenarioPlannerPrompt } from '../tests/assistant/eval/scenarioProm
 import { pontuaCenario, pontuaChat, pontuaPlano, pontuaTurno } from '../tests/assistant/eval/score'
 import { CASOS_CHAT, corpoOraculo, materializa, runEvalSelfTest } from '../tests/assistant/eval/selftest'
 import { ESTADOS, vocabularioSintetico } from '../tests/assistant/eval/states'
-import { contextoAvaliacao, instalaTransporte } from '../tests/assistant/eval/transport'
+import { contextoAvaliacao, instalaTransporte, livroSemGasto } from '../tests/assistant/eval/transport'
 import type { ConfigModelo, ContextoAvaliacao, Livro, RegistroHttp } from '../tests/assistant/eval/transport'
 import type { CasoCenario, CasoChat, CasoContinuidade, CasoPlano, PerfilEval, ResultadoCaso, Suite } from '../tests/assistant/eval/types'
 
@@ -529,6 +529,88 @@ async function modoExecutar(cfg: DeepSeekConfig) {
   console.log(`\n${relatorio}\n\nArquivos em ${pasta}`)
 }
 
+// ---------------------------------------------------------------------------
+// Replay sem rede de uma bateria já paga
+// ---------------------------------------------------------------------------
+
+/**
+ * Repassa a bateria GRAVADA pelo pipeline de HOJE — orquestrador, validador e
+ * pontuação — sem uma requisição sequer: cada chamada recebe o status, o
+ * conteúdo e o `finish_reason` que o modelo devolveu naquele dia. Serve para
+ * medir o impacto de uma correção do app ou do avaliador sobre as MESMAS
+ * saídas. Não substitui bateria nova: com o app corrigido, o modelo pode ser
+ * chamado em lugares diferentes, e essas chamadas não existem na gravação —
+ * elas aparecem contadas, nunca inventadas. A pasta original não é tocada.
+ */
+async function modoReplay(cfg: DeepSeekConfig) {
+  const origem = valor('replay')!
+  const manifesto = JSON.parse(fs.readFileSync(path.join(origem, 'manifesto.json'), 'utf8'))
+  if (manifesto.hoje !== hoje) {
+    console.log(`Recusado: a bateria é de ${manifesto.hoje} e hoje é ${hoje}; estados e períodos mudariam.`)
+    process.exitCode = 1
+    return
+  }
+  const gravadas: RegistroHttp[] = lerJsonl(path.join(origem, 'chamadas.jsonl'))
+  const chave = (config: string, caso: string, turno: number | undefined, tarefa: string, tentativa: number) =>
+    `${config}|${caso}|${turno ?? '-'}|${tarefa}|${tentativa}`
+  const porChave = new Map(gravadas.map(g => [chave(g.config, g.caso, g.turno, g.tarefa, g.tentativa), g]))
+  const usadas = new Set<string>()
+  const semGravacao: string[] = []
+
+  await observaRoteamento()
+  const roteamento = resumoRoteamento(OBS.values())
+  const trafego = await medeTrafego()
+  const cs: ConfigModelo[] = (manifesto.configs || []).map((c: any) => CONFIGS.find(x => x.id === c.id)!).filter(Boolean)
+  const livro = livroSemGasto()
+  const desinstala = instalaTransporte({
+    modo: 'falso', hostPermitido: 'api.deepseek.com', livro,
+    gravado: (ctx, tentativa) => {
+      const k = chave(ctx.config.id, ctx.caso, ctx.turno, ctx.tarefa, tentativa)
+      const g = porChave.get(k)
+      if (g) usadas.add(k)
+      else semGravacao.push(k)
+      return g
+    },
+  })
+  const resultados: ResultadoCaso[] = []
+  const t0 = Date.now()
+  try {
+    // Sem chave de verdade: o replay não fala com ninguém.
+    const semChave = { ...cfg, apiKey: 'replay-sem-chave' }
+    for (const t of montaTarefas(cs, Number(manifesto.repeticoes) || 1)) resultados.push(...await executa(t, semChave, livro))
+  } finally {
+    desinstala()
+  }
+
+  const doConfig = (id: string) => resultados.filter(r => r.config === id)
+  const ordem = pontuaEOrdena(cs.map(c => metricasDoModelo(c.id, doConfig(c.id), trafego)))
+  const transportes = new Map(cs.map(c => [c.id, resumoTransporte(doConfig(c.id))] as const))
+  const desequilibrio: string[] = []
+  for (let i = 1; i < cs.length; i++) {
+    const d = divergenciaDeDenominador(doConfig(cs[0].id), doConfig(cs[i].id))
+    if (d.length) desequilibrio.push(`${cs[0].id} × ${cs[i].id}: ${d.slice(0, 8).join(', ')}`)
+  }
+  let commit = ''
+  try { commit = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim() } catch { commit = '?' }
+  const naoUsadas = gravadas.filter(g => !usadas.has(chave(g.config, g.caso, g.turno, g.tarefa, g.tentativa)))
+  const relatorio = montaRelatorio({
+    ordem, fronteira: [], roteamento, transportes, desequilibrio, rs: resultados, livro,
+    parada: '', ms: Date.now() - t0, commit: `${commit} (REPLAY de ${path.basename(origem)}, sem rede)`,
+  })
+  const pasta = path.join('eval-results', `replay-${new Date().toISOString().replace(/[:.]/g, '-')}`)
+  fs.mkdirSync(pasta, { recursive: true })
+  fs.writeFileSync(path.join(pasta, 'resultados.jsonl'), resultados.map(r => JSON.stringify(r)).join('\n') + '\n')
+  fs.writeFileSync(path.join(pasta, 'relatorio.md'), relatorio, 'utf8')
+  fs.writeFileSync(path.join(pasta, 'relatorio.json'), JSON.stringify({
+    origem, ordem, roteamento, transporte: Object.fromEntries(transportes), desequilibrio,
+    chamadasSemGravacao: semGravacao, gravacoesNaoUsadas: naoUsadas.map(g => chave(g.config, g.caso, g.turno, g.tarefa, g.tentativa)),
+  }, null, 2))
+  varreSegredos(pasta, cfg.apiKey)
+  console.log(`\n${relatorio}\n\nReplay: ${usadas.size} de ${gravadas.length} chamadas gravadas usadas · `
+    + `${naoUsadas.length} não pedidas pelo pipeline de hoje · ${semGravacao.length} pedidas sem gravação`
+    + `${semGravacao.length ? ` (${semGravacao.slice(0, 10).join(', ')})` : ''}\nArquivos em ${pasta}`)
+}
+
 /** Bloco APP/ROTEAMENTO: o que o aparelho resolve, o que ele erra, o que sobra para o modelo. */
 function linhasDeRoteamento(r: ResumoRoteamento): string[] {
   const suites = Object.entries(r.porSuite).map(([s, v]) => `${s} ${v.elegiveis}/${v.total}`).join(' · ')
@@ -654,4 +736,5 @@ else if (flag('autoteste')) {
   for (const f of r.falhas) console.log(`  FALHA · ${f}`)
   if (r.falhas.length) process.exitCode = 1
 } else if (flag('executar')) await modoExecutar(cfg)
+else if (valor('replay')) await modoReplay(cfg)
 else await modoOrcamento(cfg)

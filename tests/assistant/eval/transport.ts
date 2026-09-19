@@ -100,6 +100,15 @@ export interface OpcoesTransporte {
   livro: Livro
   /** Conteúdo que o "modelo" devolve no modo falso. */
   respostaFalsa?: (ctx: ContextoAvaliacao, corpo: any) => string
+  /**
+   * REPLAY de uma bateria já paga, no modo falso: devolve a chamada GRAVADA
+   * (status, conteúdo, `finish_reason`, uso) para esta configuração, caso,
+   * turno, tarefa e tentativa. Falha de rede gravada vira falha de novo;
+   * chamada que não existiu na bateria vira erro — nunca uma resposta inventada.
+   * A latência também é a gravada: com latência zero, o desempate por qualidade
+   * favoreceria a configuração mais lenta.
+   */
+  gravado?: (ctx: ContextoAvaliacao, tentativa: number) => RegistroHttp | undefined
   aoRegistrar?: (r: RegistroHttp) => void
 }
 
@@ -155,8 +164,24 @@ export function instalaTransporte(o: OpcoesTransporte): () => void {
     let status = 0
     let texto = ''
     let erro: string | undefined
+    let doGravado: RegistroHttp | undefined
     try {
-      if (o.modo === 'real') {
+      if (o.modo === 'falso' && o.gravado) {
+        doGravado = o.gravado(ctx, tentativa)
+        if (!doGravado) throw new Error('replay: chamada que não existiu na bateria gravada')
+        // Conexão que caiu no meio do corpo ("terminated") tem status 200 E
+        // erro: na bateria ela foi falha de rede, sem retry, e aqui também.
+        if (!doGravado.status || doGravado.erro) throw new Error(doGravado.erro || 'replay: falha de rede gravada')
+        status = doGravado.status
+        const u = doGravado.uso
+        texto = JSON.stringify({
+          choices: [{ message: { content: doGravado.conteudo }, finish_reason: doGravado.finishReason }],
+          usage: {
+            prompt_tokens: u.entrada, prompt_cache_hit_tokens: u.cacheHit, prompt_cache_miss_tokens: u.cacheMiss,
+            completion_tokens: u.saida, completion_tokens_details: { reasoning_tokens: u.raciocinio },
+          },
+        })
+      } else if (o.modo === 'real') {
         const res = await real(entrada, { ...init, body: serial })
         status = res.status
         texto = await res.text()
@@ -179,7 +204,7 @@ export function instalaTransporte(o: OpcoesTransporte): () => void {
       const medido = !!json?.usage
       // Sem `usage` (abortada, erro de rede): conta a reserva inteira. A API
       // pode ter cobrado a geração mesmo com o cliente desistindo.
-      const custo = o.modo !== 'real' ? 0 : medido ? custoUSD(ctx.config.modelo, uso, quando) : reserva
+      const custo = doGravado ? doGravado.custoUSD : o.modo !== 'real' ? 0 : medido ? custoUSD(ctx.config.modelo, uso, quando) : reserva
       if (o.modo === 'real') {
         o.livro.gastoUSD += custo
         o.livro.chamadasReais++
@@ -187,7 +212,7 @@ export function instalaTransporte(o: OpcoesTransporte): () => void {
       const msg = json?.choices?.[0]?.message
       const registro: RegistroHttp = {
         config: ctx.config.id, caso: ctx.caso, rep: ctx.rep, turno: ctx.turno, tarefa: ctx.tarefa,
-        tentativa, inicio: quando.toISOString(), ms: Date.now() - t0, status, erro,
+        tentativa, inicio: quando.toISOString(), ms: doGravado ? doGravado.ms : Date.now() - t0, status, erro,
         finishReason: json?.choices?.[0]?.finish_reason, uso, custoUSD: custo,
         custoEstimado: o.modo === 'real' && !medido, caracteresEntrada: caracteres,
         maxTokens: corpo.max_tokens, conteudo: String(msg?.content ?? '').slice(0, 8000),
