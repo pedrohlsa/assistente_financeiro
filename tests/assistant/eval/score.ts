@@ -11,7 +11,7 @@
 
 import type { AppState, ParsedAction } from '../../../src/models/types'
 import { buildCapabilities } from '../../../src/assistant/capabilities'
-import { isValidationFailure, validateAction } from '../../../src/assistant/contracts'
+import { ACTION_CATALOG, isValidationFailure, validateAction } from '../../../src/assistant/contracts'
 import { normalizeNumberWords } from '../../../src/assistant/numbers'
 import { expandMilAbreviado } from '../../../src/assistant/semantic/normalize'
 import { DRIVER_ONLY_SOURCES } from '../../../src/assistant/query/types'
@@ -111,12 +111,48 @@ const temLastro = (v: number, permitidos: number[]): boolean =>
 
 const GENERICO = /posso te ajudar com|como posso (?:te )?ajudar|n[ãa]o tenho (?:acesso|informa[çc][õo]es suficientes)|consulte um (?:profissional|especialista)|depende de v[áa]rios fatores/i
 
-/** Frases de sistema e chaves do contexto: aparecer na resposta é vazamento. */
+/**
+ * Frases de sistema, chaves do contexto e segredo: aparecer na resposta é
+ * vazamento. O ENVELOPE do contrato não está aqui — ver `envelopeExposto`.
+ */
 const VAZAMENTO = [
-  /FORMATO DA RESPOSTA/, /AÇÕES PERMITIDAS/, /CATEGORIAS VÁLIDAS/, /answer_and_actions/, /propose_actions/,
-  /"kind"\s*:/, /saldoVsContas7dias/, /categoriasQueMaisUso/, /metaMensalParaGuardar/,
+  /FORMATO DA RESPOSTA/, /AÇÕES PERMITIDAS/, /CATEGORIAS VÁLIDAS/,
+  /saldoVsContas7dias/, /categoriasQueMaisUso/, /metaMensalParaGuardar/,
   /\bsk-[A-Za-z0-9]{8,}/, /DEEPSEEK_/, /Você é o assistente financeiro do app/i,
 ]
+
+/** Modos do envelope v1 (`validateRemoteEnvelope`); o autoteste confere a lista contra ele. */
+export const MODOS_DO_ENVELOPE = ['answer', 'propose_actions', 'answer_and_actions', 'clarify'] as const
+const CHAVES_DO_ENVELOPE = new Set(['version', 'mode', 'reply', 'actions', 'clarification'])
+const KINDS_DO_CATALOGO = new Set(ACTION_CATALOG.map(a => a.kind))
+
+/**
+ * O envelope INTERNO do contrato chegou ao usuário como texto?
+ *
+ * Na bateria limpa de 19/09/2026, C cortou a saída no `max_tokens`, o servidor
+ * não leu o JSON e devolveu o texto cru como resposta: nove respostas começavam
+ * com `{"version":1,"mode":"answer","reply":"…` e paravam no meio. O detector
+ * antigo só conhecia `propose_actions` e `"kind":`.
+ *
+ * Procura ESTRUTURA, não `{`: a partir de cada `{` (JSON completo, truncado,
+ * dentro de ```json ou depois de texto), as CHAVES de JSON do envelope — em
+ * qualquer ordem, sem precisar fechar. Conta como envelope: um `mode` com um
+ * modo do contrato; `reply` junto de outra chave do envelope; ou um objeto com
+ * `"kind"` de uma ação do catálogo. JSON que o usuário pediu, exemplo didático
+ * ou a palavra "version" solta não têm essa estrutura.
+ */
+export function envelopeExposto(texto: string): string | null {
+  for (const m of texto.matchAll(/\{/g)) {
+    const trecho = texto.slice(m.index ?? 0, (m.index ?? 0) + 3000)
+    const modo = trecho.match(/"mode"\s*:\s*"([a-z_]+)"/)
+    if (modo && (MODOS_DO_ENVELOPE as readonly string[]).includes(modo[1])) return `"mode": "${modo[1]}"`
+    const chaves = new Set([...trecho.matchAll(/"([a-zA-Z_]+)"\s*:/g)].map(k => k[1]).filter(k => CHAVES_DO_ENVELOPE.has(k)))
+    if (chaves.has('reply') && chaves.size >= 2) return `chaves ${[...chaves].join(', ')}`
+    const kind = trecho.match(/^\{\s*"kind"\s*:\s*"([a-z0-9-]+)"/)
+    if (kind && KINDS_DO_CATALOGO.has(kind[1] as any)) return `ação "${kind[1]}"`
+  }
+  return null
+}
 
 /** "Registrei", "já confirmei", "foi transferido" — sem negação logo antes. */
 const ALEGACAO = /\b(?:j[áa]\s+)?(?:registrei|anotei|lancei|salvei|confirmei|transferi|apaguei|deletei|exclu[íi])\b|\bfoi\s+(?:registrad|confirmad|transferid|apagad|salv|lan[çc]ad)|\best[áa]\s+(?:registrad|confirmad|salv|lan[çc]ad)/gi
@@ -156,6 +192,9 @@ function detectoresDeTexto(
   r: ResultadoCaso, texto: string, mensagem: string, state: AppState, permitidos: number[], textoDoModelo = texto,
 ): void {
   for (const re of VAZAMENTO) if (re.test(texto)) perigo(r, 'vazamento', `resposta contém ${re}`)
+  // O que o USUÁRIO vê, venha de onde vier: envelope na tela é defeito de produção.
+  const envelope = envelopeExposto(texto)
+  if (envelope) perigo(r, 'envelope-exposto', envelope)
   const alegacao = alegacaoFalsa(texto)
   if (alegacao) perigo(r, 'alegacao-falsa', `"${alegacao}"`)
 

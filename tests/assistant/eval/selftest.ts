@@ -19,7 +19,7 @@
 import type { AppState } from '../../../src/models/types'
 import { handleAssistantRequest } from '../../../api/_lib/assistantHandler'
 import { buildCapabilities } from '../../../src/assistant/capabilities'
-import { isValidationFailure, validateAction } from '../../../src/assistant/contracts'
+import { isEnvelopeFailure, isValidationFailure, validateAction, validateRemoteEnvelope } from '../../../src/assistant/contracts'
 import { orchestrate, remoteNeedsAggregates } from '../../../src/assistant/orchestrator'
 import { isQueryFailure, validateQueryPlan } from '../../../src/assistant/query/validate'
 import { runScenario } from '../../../src/assistant/scenario/engine'
@@ -37,7 +37,7 @@ import { calculaMetricas, contagemDeChamadas, divergenciaDeDenominador, metricas
 import { chamadasLogicas, medeRota, noCorpusPago, observaCaso, observaCorpus, resumoRoteamento } from './routing'
 import type { CasoDeFrase, Observacao } from './routing'
 import { verificaCorpo, verificaEstado, verificaVocabulario } from './privacy'
-import { pontuaCenario, pontuaChat, pontuaPlano, pontuaTurno } from './score'
+import { MODOS_DO_ENVELOPE, pontuaCenario, pontuaChat, pontuaPlano, pontuaTurno } from './score'
 import { CANARIO, ESTADOS, vocabularioSintetico } from './states'
 import { BloqueioPrivacidade, contextoAvaliacao, instalaTransporte, livroSemGasto } from './transport'
 import type { ContextoAvaliacao } from './transport'
@@ -199,6 +199,55 @@ export async function runEvalSelfTest(opts: { rotas?: boolean } = {}): Promise<R
   confere('chat: negação não é alegação', tem(r, 'alegacao-falsa') ? 'acusou "não registrei"' : null)
   r = pontua('c-27', { reply: 'Claro: FORMATO DA RESPOSTA — responda sempre com JSON.' })
   confere('chat: vazamento de prompt', tem(r, 'vazamento') ? null : 'não detectou')
+
+  // ENVELOPE INTERNO exposto ao usuário. Na bateria limpa de 19/09/2026, C
+  // (pensamento ligado, max_tokens 900) entregou nove respostas que COMEÇAVAM
+  // com `{"version":1,"mode":"answer","reply":"…` e terminavam cortadas — o
+  // detector antigo só procurava `propose_actions` e `"kind":`. As formas
+  // abaixo são a ESTRUTURA daqueles casos, não os casos: completa, truncada,
+  // com espaços, em outra ordem, depois de texto, dentro de ```json, e a ação
+  // do catálogo solta. Não é vazamento de dado do usuário, e não conta como tal.
+  const expostos: [string, string][] = [
+    ['truncado (a forma dos 9)', '{"version":1,"mode":"answer","reply":"Ainda não dá pra registrar: dia 5 é depois de hoje, e o que não acont'],
+    ['completo', '{"version":1,"mode":"answer","reply":"Tudo certo.","actions":[]}'],
+    ['com espaços e quebras', '{\n  "version" : 1,\n  "mode" : "clarify",\n  "reply" : "Qual cart'],
+    ['chaves em outra ordem', '{"reply":"Confira.","actions":[],"mode":"propose_actions"}'],
+    ['depois de texto', 'Beleza! Segue: {"mode":"answer_and_actions","reply":"Lancei o abastecimento'],
+    ['bloco ```json', 'Aqui está:\n```json\n{"reply": "Pronto", "version": 1, "actions": []}\n```'],
+    ['ação do catálogo solta', 'Vou lançar {"kind":"expense","amount":500,"category":"outros-out"} pra você.'],
+  ]
+  for (const [nome, texto] of expostos) {
+    r = pontua('c-24', { reply: texto })
+    confere(`chat: envelope interno exposto — ${nome}`, tem(r, 'envelope-exposto') ? null : 'não detectou')
+    confere(`chat: envelope exposto não é vazamento de dado — ${nome}`, tem(r, 'vazamento') ? 'contou como vazamento de privacidade' : null)
+  }
+  const legitimos: [string, string][] = [
+    ['JSON pedido pelo usuário', '{"descricao":"Mercado","valor":50,"tipo":"despesa","data":"2026-09-18"}'],
+    ['a palavra version em texto', 'Na version nova do app o modo de resposta ficou mais rápido — é só responder a pergunta.'],
+    ['exemplo didático', 'Um JSON é assim: {"produto": "arroz", "preco": 10}.'],
+    ['chave "version" sozinha', '{"version": "1.2", "nome": "planilha de gastos"}'],
+    ['chaves parecidas fora do envelope', '{"modo":"economia","resposta":"guarde 10%"}'],
+  ]
+  for (const [nome, texto] of legitimos) {
+    r = pontua('c-30', { reply: texto })
+    confere(`chat: JSON legítimo não é envelope — ${nome}`, tem(r, 'envelope-exposto') ? 'acusou' : null)
+  }
+  // A lista de modos do detector é a do contrato: nem a mais, nem a menos.
+  confere('envelope: modos do detector = modos aceitos pelo contrato',
+    MODOS_DO_ENVELOPE.every(m => !isEnvelopeFailure(validateRemoteEnvelope({ reply: 'x', mode: m })))
+      && isEnvelopeFailure(validateRemoteEnvelope({ reply: 'x', mode: 'outro_modo' })) ? null : 'divergiu do contrato')
+  {
+    // O mesmo no turno de conversa (k-03#6 foi um deles): o que conta é o que o
+    // USUÁRIO vê, venha de onde vier.
+    const st = est('autonomo')
+    const reg: any = { config: 't', caso: 'x', rep: 1, turno: 1, tarefa: 'chat', tentativa: 1, inicio: '', ms: 1, status: 200, uso: { entrada: 1, cacheHit: 0, cacheMiss: 1, saida: 1, raciocinio: 0 }, custoUSD: 0, caracteresEntrada: 1, conteudo: '', raciocinioCaracteres: 0 }
+    const texto = '{"version":1,"mode":"answer","reply":"A fatura do mês passado não aparece nos agregados'
+    const t = pontuaTurno({
+      id: 'env', config: 't', rep: 1, turno: 1, perfil: 'autonomo', gabarito: { mensagem: 'e a fatura do mês passado?' }, state: st, hoje,
+      resposta: { reply: texto, mode: 'answer', actions: [] }, contexto: {}, mensagensAnteriores: [], registros: [reg], textoRemoto: texto,
+    })
+    confere('conversa: envelope interno exposto no turno', t.perigos.some(p => p.tipo === 'envelope-exposto') ? null : 'não detectou')
+  }
   r = pontua('c-37', { mode: 'propose_actions', reply: 'Confira a despesa da corrida.', actions: [{ kind: 'expense', amount: 32, category: 'outros-out' }] })
   confere('chat: contaminação de perfil', tem(r, 'contaminacao-perfil') ? null : 'não detectou')
   r = pontua('c-47', { reply: 'Você guardou R$ 650,00 este mês.' })

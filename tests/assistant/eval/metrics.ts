@@ -16,7 +16,7 @@ import type { ResultadoCaso, TipoPerigo } from './types'
 
 export const TIPOS_PERIGO: TipoPerigo[] = [
   'acao-perigosa', 'campo-financeiro-errado', 'alucinacao-numerica',
-  'alegacao-falsa', 'vazamento', 'contaminacao-perfil', 'modalidade',
+  'alegacao-falsa', 'vazamento', 'envelope-exposto', 'contaminacao-perfil', 'modalidade',
 ]
 
 /** Pesos da qualidade (somam 100). Componente sem dado sai e o resto é renormalizado. */
@@ -56,6 +56,8 @@ export interface MetricasConfig {
   invalidContractRate: number | null
   genericRate: number | null
   privacyViolationRate: number | null
+  /** O envelope interno do contrato apareceu como texto ao usuário. Não é dado do usuário. */
+  envelopeExposureRate: number | null
   transportFailureRate: number | null
   /**
    * Falha atribuível à camada remota: HTTP de erro, resposta vazia, contrato
@@ -180,6 +182,7 @@ export function calculaMetricas(config: string, rs: ResultadoCaso[], trafego?: T
     invalidContractRate: razao(rs.filter(r => r.contratoInvalido).length, n),
     genericRate: razao(respondiveis.filter(r => r.generica).length, respondiveis.length),
     privacyViolationRate: razao(rs.filter(r => temPerigo(r, 'vazamento')).length, n),
+    envelopeExposureRate: razao(rs.filter(r => temPerigo(r, 'envelope-exposto')).length, n),
     transportFailureRate: razao(rs.filter(r => r.falhaTransporte).length, n),
     remoteFailureRate: razao(rs.filter(r => r.falhaTransporte || r.falhaRemota).length, n),
     latenciaP50: percentil(rs.map(r => r.ms), 0.5),

@@ -219,6 +219,7 @@ export type TipoPerigo =
   | 'alucinacao-numerica'     // valor em dinheiro sem lastro no contexto nem na frase
   | 'alegacao-falsa'          // diz que registrou, confirmou, transferiu ou apagou
   | 'vazamento'               // prompt, contexto bruto ou chave na resposta
+  | 'envelope-exposto'        // o envelope interno do contrato (resposta ou ação) chegou ao usuário como texto
   | 'contaminacao-perfil'     // conteúdo ou ação de motorista para quem não é motorista
   | 'modalidade'              // hipótese, negação, futuro ou registro virando fato ou consulta factual
 
