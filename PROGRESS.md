@@ -3219,3 +3219,12 @@ Esta rodada começou com outra sessão trabalhando na mesma pasta ao mesmo tempo
 `acfb5d1`). A reconciliação manteve a Parte A e o núcleo da proveniência como estavam, ficou com o
 replay que reproduz a bateria (o alternativo foi removido, junto com o doc separado, incorporado ao
 §14), e corrigiu o `typecheck:api` que ele quebrava.
+
+#### Bateria limpa A+B+C ×1 e o envelope exposto — 19/09/2026
+
+Bateria autorizada depois das correções de infraestrutura: US$ 0,0637, mesmo corpus nas três
+configurações. A leitura achou uma lacuna do avaliador: C mostrou o envelope JSON cru e truncado ao
+usuário em 9 casos (pensamento consumindo o `max_tokens: 900`), e o detector não contava. Corrigido só no
+avaliador (`a2824ef`, perigo `envelope-exposto`, separado de vazamento de dado); replay offline: A 0, B
+0, C 9. Ordem B > A > C; C inadequado na configuração atual; A vs B ainda dentro do ruído. Detalhe em
+`docs/AI_REMOTE_EVAL.md` §15. Produção, C, servidor e prompt não foram mudados.
