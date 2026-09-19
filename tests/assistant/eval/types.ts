@@ -235,7 +235,6 @@ export type ProvenienciaNumerica =
   | 'remote-output'
   | 'remote-plan'
   | 'local-query-result'
-  | 'local-scenario-result'
   | 'deterministic-composer'
   | 'fallback-local'
 
@@ -268,11 +267,8 @@ export interface ResultadoCaso {
   /** O app respondeu pelo caminho local depois de o remoto falhar. */
   fallbackLocal?: boolean
   /**
-   * Quem escreveu o texto julgado (turno de conversa): o MODELO
-   * (`remote-output`), o aparelho executando o plano do modelo
-   * (`remote-plan→local-query-result`, composição determinística) ou o
-   * aparelho sozinho depois de o remoto falhar (`fallback-local`). A nota de
-   * alucinação numérica do modelo só lê o primeiro.
+   * Quem pôs número no texto julgado. A nota de alucinação numérica do
+   * modelo só lê o que veio de `remote-output`; o resto é o aparelho.
    */
   provenienciaNumerica?: ProvenienciaNumerica[]
   contratoInvalido: boolean
