@@ -23,6 +23,8 @@ import { normalizeRemoteConversation } from '../../src/assistant/conversation/re
 import { remoteBridge } from '../../src/services/ai'
 import { handleAssistantRequest } from '../../api/_lib/assistantHandler'
 import { fmtBRL } from '../../src/utils/format'
+import { isQueryFailure, validateQueryPlan } from '../../src/assistant/query/validate'
+import { isEnvelopeFailure, validateRemoteEnvelope } from '../../src/assistant/contracts'
 
 export interface PropertyReport { total: number; failures: string[] }
 
@@ -399,6 +401,90 @@ export async function runRemoteProperties(): Promise<PropertyReport> {
     if (chaves !== 'cartoes,categorias,metasDeCompra,perfil') return `contexto de planejamento com campos a mais: ${chaves}`
     if (/\d{3,}/.test(JSON.stringify(plano.context))) return 'o contexto de planejamento levou número'
     if (Object.keys(plano).some(k => !['task', 'message', 'context'].includes(k))) return `corpo com campo a mais: ${Object.keys(plano).join(',')}`
+    return null
+  })
+
+  // --- 124. `null` em campo OPCIONAL do contrato remoto é "não especificado" -
+  // A primeira bateria paga (19/09/2026) mostrou os três modelos mandando
+  // `"order": null` num plano válido; o validador lia `null` como valor
+  // desconhecido e recusava 27 de 29 planos — a frase caía no chat. A regra é
+  // do CONTRATO, não do campo: todo opcional em que `null` só quer dizer "não
+  // especificado" equivale a ausente; obrigatório `null` continua recusado;
+  // nada perigoso, desconhecido ou de tipo errado passa por causa disso.
+  check(r, 'null em campo opcional do contrato remoto equivale a ausente', () => {
+    const st = buildState({ profile: 'other', cards: [{ name: 'Nubank' }] })
+    const periodo = { from: '2026-07-01', to: '2026-07-15', label: 'julho', grain: 'range' }
+    const base = { version: 2, source: 'transactions', period: periodo, filter: { txType: ['expense'] }, metric: 'sum', group: 'category' }
+    const valida = (p: any) => validateQueryPlan(p, st, TODAY)
+    const plano = (v: any) => (isQueryFailure(v) ? `recusado: ${v.code}${v.detail ? ` (${v.detail})` : ''}` : JSON.stringify(v.plan))
+    const ausente = plano(valida(base))
+    if (ausente.startsWith('recusado')) return `plano-base ${ausente}`
+    // 1–3: ausente, null e válido
+    if (plano(valida({ ...base, order: null })) !== ausente) return `order null ≠ ausente: ${plano(valida({ ...base, order: null }))}`
+    const comOrdem = valida({ ...base, order: 'value-desc' })
+    if (isQueryFailure(comOrdem) || comOrdem.plan.order !== 'value-desc') return 'order válido não foi preservado'
+    // 8: a mesma classe nos outros opcionais — cada um sozinho, e todos juntos
+    const opcionais = ['version', 'field', 'metric', 'group', 'order', 'comparePeriod', 'filter', 'limit', 'shareBase', 'label']
+    const semEles = { source: 'transactions', period: periodo }
+    for (const k of opcionais) {
+      const got = plano(valida({ ...semEles, [k]: null }))
+      if (got !== plano(valida(semEles))) return `${k}: null ≠ ausente (${got})`
+    }
+    const filtros = ['categories', 'excludeCategories', 'txType', 'cardNames', 'excludeCardNames', 'goalName', 'text', 'excludeText',
+      'origin', 'platform', 'profileAtCreation', 'status', 'realizedOnly', 'plannedOnly', 'weekdays', 'monthHalf', 'minAmount', 'maxAmount']
+    for (const k of filtros) {
+      const got = plano(valida({ ...semEles, filter: { [k]: null } }))
+      if (got !== plano(valida(semEles))) return `filter.${k}: null ≠ ausente (${got})`
+    }
+    // `weekdays: null` virava Number(null) = 0: um filtro de DOMINGO.
+    const dom = valida({ ...semEles, filter: { weekdays: [null] } })
+    if (!isQueryFailure(dom) && dom.plan.filter.weekdays?.includes(0)) return 'weekdays [null] virou domingo'
+    // 4: enum desconhecido continua recusado (e string vazia não é "não especificado")
+    for (const [k, v] of [['order', 'aleatorio'], ['order', ''], ['metric', 'exec'], ['group', 'senha'], ['field', 7]] as const) {
+      if (!isQueryFailure(valida({ ...base, [k]: v }))) return `${k}=${JSON.stringify(v)} foi ACEITO`
+    }
+    // 5 e 9: obrigatório null continua recusado
+    for (const k of ['source', 'period']) {
+      if (!isQueryFailure(valida({ ...base, [k]: null }))) return `${k} null foi ACEITO`
+    }
+    if (!isQueryFailure(valida({ ...base, period: { ...periodo, from: null } }))) return 'period.from null foi ACEITO'
+    if (!isQueryFailure(valida(null))) return 'plano null foi ACEITO'
+    // 6: chave perigosa continua barrada, com ou sem null por perto
+    for (const json of ['{"source":"transactions","order":null,"__proto__":{"x":1}}', '{"source":"transactions","filter":{"constructor":null}}']) {
+      const v = valida(JSON.parse(json))
+      if (!isQueryFailure(v) || v.code !== 'dangerous-key') return `chave perigosa não barrada: ${json}`
+    }
+    // 7: campo desconhecido continua sem entrar no plano
+    const extra = valida({ ...base, order: null, sql: 'drop', filter: { txType: ['expense'], campoNovo: null } })
+    if (isQueryFailure(extra) || 'sql' in extra.plan || 'campoNovo' in extra.plan.filter) return 'campo desconhecido entrou no plano'
+    // Envelope do chat: mesma regra
+    const env = (d: any) => validateRemoteEnvelope(d)
+    const okEnv = env({ reply: 'oi', version: null, actions: null, mode: null, clarification: null })
+    if (isEnvelopeFailure(okEnv)) return `envelope com opcionais null recusado: ${okEnv.reason}`
+    if (okEnv.rawActions.length || okEnv.mode !== 'answer') return 'envelope com null mudou de sentido'
+    if (!isEnvelopeFailure(env({ reply: null, actions: [] }))) return 'reply null foi ACEITO'
+    if (!isEnvelopeFailure(env({ reply: 'oi', actions: 'x' }))) return 'actions de tipo errado foi ACEITO'
+    return null
+  })
+
+  // --- 125. Plano remoto com `order: null` é EXECUTADO, não descartado ----
+  // O efeito em produção: o plano era recusado, e a pergunta ia ao chat — que
+  // não calcula nada. De ponta a ponta, pelo orquestrador.
+  await checkAsync(r, 'plano remoto com order null é executado no aparelho', async () => {
+    const st = buildState({ profile: 'other' })
+    const hoje = TODAY
+    let pedidos = 0
+    const { out, remoto } = await roda(st, 'compara o que eu gastei na primeira quinzena com a segunda quinzena desse mês', {
+      today: hoje,
+      planRemoteQuery: async () => (pedidos++, {
+        version: 2, source: 'transactions', field: 'amount', metric: 'sum', group: 'category', order: null,
+        comparePeriod: null, limit: 5, period: { from: `${hoje.slice(0, 8)}01`, to: hoje, label: 'este mês', grain: 'range' },
+        filter: { txType: ['expense'] },
+      }),
+    })
+    if (!pedidos) return 'a pergunta nem chegou ao planejador remoto'
+    if (remoto.chat) return `o plano foi descartado e a pergunta foi ao chat: "${out.response.reply.slice(0, 100)}"`
+    if ((out.response as any).engine !== 'hybrid') return `resposta não veio do plano remoto (engine ${(out.response as any).engine})`
     return null
   })
 

@@ -12,6 +12,7 @@ import type { AppState, TxType } from '../../models/types'
 import { usableCategories } from '../../data/categories'
 import { isDriver } from '../../services/profile'
 import { normalizeName } from '../../utils/text'
+import { semNulosOpcionais } from '../contracts'
 import {
   DRIVER_ONLY_SOURCES, FIELDS_BY_SOURCE, QUERY_DSL_VERSION, QUERY_GROUPS,
   QUERY_METRICS, QUERY_ORDERS, QUERY_SOURCES,
@@ -124,10 +125,25 @@ function validatePeriod(raw: any, todayIso: string): QueryPeriod | QueryErrorCod
   }
 }
 
-function validateFilter(raw: any, state: AppState): QueryFilter | QueryErrorCode {
+/**
+ * Campos OPCIONAIS do plano em que `null` só quer dizer "não especificado"
+ * (ver `semNulosOpcionais`). `source` e `period` são obrigatórios e ficam de
+ * fora: `null` neles continua recusado. Nenhum campo deste contrato dá a `null`
+ * um sentido próprio — "não há plano" é `source: 'none'`, uma string.
+ */
+const PLANO_OPCIONAIS = ['version', 'field', 'metric', 'group', 'order', 'comparePeriod', 'filter', 'limit', 'shareBase', 'label'] as const
+/** Todo filtro é opcional: `null` é "sem essa restrição". */
+const FILTRO_OPCIONAIS = [
+  'categories', 'excludeCategories', 'txType', 'cardNames', 'excludeCardNames', 'goalName', 'text', 'excludeText',
+  'origin', 'platform', 'profileAtCreation', 'status', 'realizedOnly', 'plannedOnly', 'weekdays', 'monthHalf',
+  'minAmount', 'maxAmount',
+] as const
+
+function validateFilter(bruto: any, state: AppState): QueryFilter | QueryErrorCode {
   const out: QueryFilter = {}
-  if (raw === undefined || raw === null) return out
-  if (typeof raw !== 'object' || Array.isArray(raw)) return 'bad-filter'
+  if (bruto === undefined || bruto === null) return out
+  if (typeof bruto !== 'object' || Array.isArray(bruto)) return 'bad-filter'
+  const raw = semNulosOpcionais(bruto, FILTRO_OPCIONAIS)
 
   const cats = new Map(usableCategories(state.categories || []).map(c => [c.id, c]))
   // O histórico pode usar categoria ARQUIVADA — e consultar o passado tem que
@@ -215,7 +231,10 @@ function validateFilter(raw: any, state: AppState): QueryFilter | QueryErrorCode
   if (out.realizedOnly && out.plannedOnly) return 'bad-filter'
 
   if (raw.weekdays !== undefined) {
+    // Só número (ou algarismo escrito): `Number(null)`, `Number('')` e
+    // `Number(false)` são 0 — um filtro de DOMINGO que ninguém pediu.
     const arr = (Array.isArray(raw.weekdays) ? raw.weekdays : [raw.weekdays])
+      .filter((d: any) => typeof d === 'number' || (typeof d === 'string' && /^\s*\d+\s*$/.test(d)))
       .map((d: any) => Math.round(Number(d)))
       .filter((d: number) => Number.isFinite(d) && d >= 0 && d <= 6)
     if (!arr.length) return 'bad-filter'
@@ -246,12 +265,13 @@ const METRIC_RESTRICTIONS: Partial<Record<QueryMetric, QuerySource[]>> = {
  * Devolve um objeto NOVO, montado campo a campo — nada do bruto é repassado.
  */
 export function validateQueryPlan(
-  raw: any,
+  bruto: any,
   state: AppState,
   todayIso: string,
 ): QueryValidation {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, code: 'not-object' }
-  if (temChavePerigosa(raw)) return { ok: false, code: 'dangerous-key' }
+  if (!bruto || typeof bruto !== 'object' || Array.isArray(bruto)) return { ok: false, code: 'not-object' }
+  if (temChavePerigosa(bruto)) return { ok: false, code: 'dangerous-key' }
+  const raw = semNulosOpcionais(bruto, PLANO_OPCIONAIS)
   if (raw.version !== undefined && raw.version !== QUERY_DSL_VERSION) {
     return { ok: false, code: 'bad-version', detail: String(raw.version).slice(0, 20) }
   }

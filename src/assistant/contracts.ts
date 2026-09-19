@@ -607,8 +607,36 @@ export function isEnvelopeFailure(o: EnvelopeOutcome): o is EnvelopeFailure {
 
 const VALID_MODES = ['answer', 'propose_actions', 'answer_and_actions', 'clarify']
 
-export function validateRemoteEnvelope(data: any): EnvelopeOutcome {
-  if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok: false, reason: 'not-object' }
+/**
+ * `null` num campo OPCIONAL de contrato remoto quer dizer "não especificado" —
+ * é assim que modelo nenhum distingue de omitir. Na primeira bateria paga
+ * (19/09/2026) os três modelos mandaram `"order": null` em planos válidos, e o
+ * validador leu `null` como valor desconhecido: 27 de 29 planos recusados.
+ *
+ * Borda pequena e EXPLÍCITA, antes da validação estrita: só as chaves listadas
+ * pelo contrato, e só quando o valor é exatamente `null`. Obrigatório `null`
+ * continua `null` (e é recusado); string vazia, tipo errado e campo
+ * desconhecido seguem para o validador como sempre; chave perigosa é barrada
+ * ANTES de chegar aqui. Devolve um objeto novo — o bruto não é tocado.
+ */
+export function semNulosOpcionais(raw: any, opcionais: readonly string[]): any {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw
+  let copia: any
+  for (const k of opcionais) {
+    if (Object.prototype.hasOwnProperty.call(raw, k) && raw[k] === null) {
+      copia = copia || { ...raw }
+      delete copia[k]
+    }
+  }
+  return copia || raw
+}
+
+/** Opcionais do envelope do chat. `reply` é obrigatório e fica de fora. */
+const ENVELOPE_OPCIONAIS = ['version', 'mode', 'actions', 'clarification'] as const
+
+export function validateRemoteEnvelope(bruto: any): EnvelopeOutcome {
+  if (!bruto || typeof bruto !== 'object' || Array.isArray(bruto)) return { ok: false, reason: 'not-object' }
+  const data = semNulosOpcionais(bruto, ENVELOPE_OPCIONAIS)
   if (data.version !== undefined && data.version !== ASSISTANT_CONTRACT_VERSION) {
     return { ok: false, reason: 'bad-version' }
   }
