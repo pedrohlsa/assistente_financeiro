@@ -488,5 +488,42 @@ export async function runRemoteProperties(): Promise<PropertyReport> {
     return null
   })
 
+  // --- 126. Plano remoto não rebaixa a modalidade explícita do turno --------
+  // "Vou receber 1800 da casa 1 dia 5": A e B devolveram, nas 3 repetições, um
+  // plano de consulta sobre lançamentos REALIZADOS, e o app respondia "Total
+  // setembro: R$ 1.800,00 (dado real)" — o futuro virava fato. Mesma classe:
+  // negação ("não foi 500 na obra"), retratação e conta que se repete. O que o
+  // usuário disse ganha do que o modelo leu. Contraste: consulta sobre o que
+  // VAI vencer continua respondida, porque a fonte é de previsão.
+  await checkAsync(r, 'plano remoto factual não atropela futuro, negação ou recorrência explícitos', async () => {
+    const st = buildState({ profile: 'other', cards: [{ name: 'Nubank' }] })
+    const hoje = TODAY
+    const realizado = {
+      version: 2, source: 'transactions', field: 'amount', metric: 'sum', group: 'none', order: null,
+      period: { from: `${hoje.slice(0, 8)}01`, to: hoje, label: 'este mês', grain: 'range' }, filter: { txType: ['income'] },
+    }
+    const frases = [
+      'vou receber 1800 da casa 1 dia 5', 'vai cair 1200 do aluguel semana que vem', 'amanhã vou pagar 300 de luz',
+      'o salário vai entrar dia 30', 'semana que vem vou receber 900 do cliente', 'daqui a 3 dias vou pagar 450 do cartão',
+      'nao foi 500 na obra nao, nem gastei nada hoje', 'não gastei 200 no mercado', 'nem paguei a luz ainda',
+      'recebo todo dia 5', 'pago 1200 de aluguel todo mês', 'na verdade não foi nada disso',
+    ]
+    for (const frase of frases) {
+      const { out } = await roda(st, frase, { today: hoje, planRemoteQuery: async () => realizado })
+      if ((out.response as any).engine === 'hybrid' || /dado real/.test(out.response.reply)) {
+        return `"${frase}" virou fato: "${out.response.reply.replace(/\n/g, ' | ').slice(0, 100)}"`
+      }
+    }
+    // Contraste: pergunta sobre o que ainda vai vencer, com fonte de previsão.
+    let pediu = 0
+    const previsto = {
+      version: 2, source: 'invoices', field: 'amount', metric: 'sum', group: 'none',
+      period: { from: `${hoje.slice(0, 8)}01`, to: `${hoje.slice(0, 5)}12-31`, label: 'até o fim do ano', grain: 'range' }, filter: {},
+    }
+    const { out } = await roda(st, 'quanto vou pagar de fatura até o fim do ano', { today: hoje, planRemoteQuery: async () => (pediu++, previsto) })
+    if (pediu && (out.response as any).engine !== 'hybrid') return `consulta de previsão legítima foi descartada: "${out.response.reply.slice(0, 100)}"`
+    return null
+  })
+
   return r
 }

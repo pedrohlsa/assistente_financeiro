@@ -30,6 +30,7 @@ import { parseTypedPairs } from './semantic/pairs'
 import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } from './semantic/normalize'
 import { conflictQuestion, evidenceFor, mergeByField, sameFact } from './semantic/evidence'
 import { classifyLocalDecision } from './semantic/confidence'
+import { modalidadeExplicita, planoContradizModalidade } from './semantic/modality'
 import { composeAnswer, explainQueryResult, isQueryFailure, runQuery, validateQueryPlan } from './query'
 import { rememberQuery } from './conversation'
 import type { RepairedText } from './semantic/normalize'
@@ -1389,7 +1390,13 @@ Confirmar?`,
     const bruto = await input.planRemoteQuery({ state: input.state, message: mensagem })
     if (bruto) {
       const v = validateQueryPlan(bruto, input.state, today)
-      if (!isQueryFailure(v)) {
+      // O plano válido ainda tem que respeitar o que a FRASE declarou. "Vou
+      // receber 1800 da casa 1 dia 5" virava "Total setembro: R$ 1.800,00 (dado
+      // real)": o modelo leu uma consulta, o usuário disse um futuro. Plano que
+      // contradiz a modalidade explícita não é executado — a frase segue para o
+      // chat, como qualquer plano recusado.
+      const modalidade = modalidadeExplicita(mensagem, today)
+      if (!isQueryFailure(v) && !(modalidade && planoContradizModalidade(v.plan, modalidade))) {
         const r = runQuery(input.state, v.plan)
         return {
           draft: null,
