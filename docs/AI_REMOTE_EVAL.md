@@ -438,3 +438,54 @@ npx tsx scripts/eval-assistant-models.mts --executar --teto-usd=1.00 --configs=A
 Com o saldo de hoje (sem o crédito extra), o mesmo comando só passa na trava se o saldo ainda for de
 pelo menos US$ 1,50 (teto + reserva de US$ 0,50) — e o app publicado continuaria consumindo do mesmo
 saldo durante a bateria.
+
+## 13. Primeira bateria paga: A+B+C, 1 repetição (19/09/2026)
+
+**Autorização:** uma repetição, teto US$ 0,60, reserva mínima de US$ 1,00 para o app publicado. Sem D.
+Commit `5510bdf`, corpus PAGO (70 frases + 6 conversas = 77 execuções por configuração), lista nominal
+salva antes da primeira chamada (sha256 `73daec65…`); os três usaram exatamente o mesmo conjunto (o
+relatório não acusou desequilíbrio de denominador). Sábado, fora do pico.
+
+**Pré-voo:** autoteste 434/434; `/models` (07:56 UTC) = `deepseek-flash`, `deepseek-v4-pro` — o nome
+legado `deepseek-v4-flash` continua fora da lista, como em 13/09, e foi ACEITO pela API (HTTP 200).
+Saldo antes US$ 1,96; depois US$ 1,90 (08:02 UTC). Calibração (9 chamadas) US$ 0,0065 e projeção
+medida US$ 0,22. Gasto registrado US$ 0,0921 (inclui US$ 0,0078 de pior caso ESTIMADO para 3
+chamadas que falharam na rede e provavelmente não foram cobradas). 263 tentativas HTTP, 4 min.
+
+| | A flash, sem pensamento | B v4-pro, sem pensamento | C produção (legado, pensamento padrão) |
+|---|---|---|---|
+| execuções com perigo | 11 / 77 | **6 / 77** | 13 / 77 (12 sem o artefato abaixo) |
+| eventos perigosos por 100 (IC 95%) | 16,9 (7,7–26,1) | **9,1 (2,4–15,8)** | 19,5 (9,6–29,3) |
+| ação perigosa | 2 | 0 | 0 |
+| alucinação numérica (eventos) | 2 | 4 | 6 |
+| alegação "anotei/registrei" antes do Confirmar | 6 | 2 | 4 |
+| JSON do envelope exibido como texto | 0 | 0 | 3 (2 casos) |
+| intenção | 78,5% | 81,8% | 84,4% |
+| ação precisão / recall | 86,4% / 95,0% | 94,4% / 89,5% | 94,7% / 90,0% |
+| plano semântico / exato | 34,8% / 17,4% | 34,8% / 21,7% | 43,5% / 21,7% |
+| esclarecimento precisão / recall | 12,5% / 66,7% | 12,5% / 33,3% | 18,2% / 100% |
+| resposta genérica | 9,1% | 0% | 9,1% |
+| falha remota | 2,6% | 1,3% | 6,5% |
+| p50 / p95 | 1,4 s / 2,8 s | 2,3 s / 4,4 s | 3,1 s / 10,6 s |
+| tokens saída / raciocínio por chamada | 100 / 0 | 101 / 0 | 526 / 439 |
+| retries | 0 | 0 | 13 |
+| custo desta rodada | US$ 0,012 | US$ 0,043 | US$ 0,037 |
+| custo por 1.000 mensagens reais | US$ 0,075 | US$ 0,27 | US$ 0,21 |
+
+**Achados que valem mais que o ranking:**
+
+1. **A produção (C) corta o raciocínio no `max_tokens: 900`:** 21 chamadas terminaram por limite e 16
+   vieram VAZIAS, gerando 13 retries, latência p95 de 10,6 s e duas respostas em que o envelope JSON
+   bruto foi mostrado como texto. É a hipótese da §1 confirmada.
+2. **`order: null` recusa planos remotos em TODOS os modelos:** 27 dos 29 planos recusados no
+   planejador são `unknown-order` com `null`. O validador de produção desta branch trata `null` como
+   valor desconhecido e a frase cai no chat. Deprime a métrica de plano das três configurações por igual.
+3. **Artefato do avaliador:** no caminho do planejador o texto final é composto no APARELHO com números
+   reais, e o detector de alucinação numérica o compara com o contexto enviado ao modelo. Aconteceu uma
+   vez (C, k-04#5). Não altera a ordem.
+4. Boa parte das "alucinações numéricas" é aritmética correta sobre números da frase (600+180, 2500/10,
+   45+12, 2511/52); o avaliador não as libera por decisão (regra 53).
+
+**Leitura:** B é primeira na ordem lexicográfica (nenhuma ação perigosa; menos eventos), mas o
+intervalo de B e A se sobrepõe e o próprio relatório pede repetição. Nenhuma configuração foi alterada
+em produção. Artefatos completos em `eval-results/2026-09-19T07-57-40-544Z/` (fora do git).

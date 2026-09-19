@@ -3184,3 +3184,15 @@ categoria; RED nas duas metades). Final: 660/660, 75/75, 40/40 semânticos, 4.08
 **Continuam abertos:** C3, C4, C6, C7, C8 (11 casos). "Quanto paguei do mercado" (preposição "do")
 ainda perde o alvo; "quanto faço por hora" do atalho antigo é lucro/hora, não faturamento/hora —
 anotados, não corrigidos (fora de C5 e sem caso no corpus pago).
+
+#### Primeira bateria paga A+B+C ×1 — 19/09/2026
+
+Autorizada pelo dono: 1 repetição, teto US$ 0,60, reserva US$ 1,00. Nenhuma alteração de código,
+prompt, modelo, pensamento, retry ou produção durante ou depois. Saldo US$ 1,96 → US$ 1,90; gasto
+registrado US$ 0,092. Mesmos 77 casos para as três (lista com hash salva antes). Resultado e
+metodologia em `docs/AI_REMOTE_EVAL.md` §13: B (v4-pro sem pensamento) lidera em segurança (6/77
+execuções com perigo, zero ação perigosa) contra A 11/77 e C 13/77, com IC sobrepostos a A. Achados:
+produção (C) trunca o raciocínio em `max_tokens: 900` (21 cortes, 16 vazias, 13 retries);
+`order: null` faz o validador recusar ~40% dos planos remotos em todos os modelos; o detector de
+alucinação numérica acusa número calculado no aparelho no caminho do planejador (1 caso). Nada
+corrigido — aguarda decisão.
