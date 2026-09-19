@@ -3228,3 +3228,15 @@ usuário em 9 casos (pensamento consumindo o `max_tokens: 900`), e o detector n�
 avaliador (`a2824ef`, perigo `envelope-exposto`, separado de vazamento de dado); replay offline: A 0, B
 0, C 9. Ordem B > A > C; C inadequado na configuração atual; A vs B ainda dentro do ruído. Detalhe em
 `docs/AI_REMOTE_EVAL.md` §15. Produção, C, servidor e prompt não foram mudados.
+
+#### Seleção final do modelo e hardening determinístico — 19/09/2026
+
+Escolhido para a futura produção: **B — `deepseek-v4-pro`, pensamento desligado**. Três repetições de A+B,
+231 execuções por modelo: A 42 execuções com perigo e 5 ações perigosas; B 19 e 0. Custo de B ~US$ 0,154
+por 1.000 mensagens (~3× A) e latência maior, aceitos pela segurança. C (produção atual) rejeitado por
+truncamento estrutural. A configuração de produção NÃO foi alterada.
+
+Hardening sem chamada paga, para defeitos que os dois modelos tinham: plano remoto não rebaixa futuro,
+negação, retratação ou recorrência explícitos (`08b8d2a`, invariante 126); a resposta nunca afirma
+execução de ação pendente, e "Registrado!" só depois do lote gravado (`e4a247d`, invariantes 127–128).
+Detalhe em `docs/AI_REMOTE_EVAL.md` §16.

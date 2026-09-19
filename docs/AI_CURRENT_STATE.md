@@ -526,3 +526,16 @@ paga mostrou os modelos mandando `"order": null` em planos válidos; o validador
 caía no chat. `semNulosOpcionais` (`contracts.ts`) normaliza só os opcionais listados do plano, do
 filtro e do envelope do chat antes da validação estrita — obrigatório `null` continua recusado, e
 `filter.weekdays: null` não vira mais domingo. Detalhe e auditoria em `docs/AI_REMOTE_EVAL.md` §14.
+
+**O que o usuário disse ganha do que o modelo leu (19/09/2026).** Dois guardas determinísticos que não
+dependem do modelo remoto:
+
+- **Modalidade explícita** (`semantic/modality.ts`): plano de consulta remoto que trata como FATO uma
+  frase que declara futuro ("vou receber", "vai cair", "amanhã"), negação, retratação ou recorrência não
+  é executado — segue para o chat. Consulta sobre o que vai vencer (fatura, projeção) continua respondida.
+- **Alegação de execução** (`claims.ts`): no turno da proposta nada foi gravado, então o texto remoto não
+  pode dizer "anotei/registrei"; vira "preparei … confirme". Depois do Confirmar, "Registrado!" só com o
+  lote gravado.
+
+**Modelo remoto escolhido para a próxima troca de produção: `deepseek-v4-pro` com pensamento desligado**
+(`docs/AI_REMOTE_EVAL.md` §16). Até a troca, a produção continua com o nome legado.
