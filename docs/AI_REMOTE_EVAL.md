@@ -260,6 +260,7 @@ npx tsx scripts/eval-assistant-models.mts --sem-saldo      # orçamento — sem 
 npx tsx scripts/eval-assistant-models.mts --modelos        # /models e saldo — grátis, faz requisição à conta
 npx tsx scripts/eval-assistant-models.mts --autoteste      # autoteste — grátis
 npx tsx scripts/eval-assistant-models.mts --executar --teto-usd=<valor> --configs=A,B,C [--repeticoes=N] [--corpus=pago|completo]
+npx tsx scripts/eval-assistant-models.mts --replay=eval-results/<pasta>   # repassa uma bateria GRAVADA — sem rede (§14)
 ```
 
 A execução paga:
@@ -441,6 +442,10 @@ saldo durante a bateria.
 
 ## 13. Primeira bateria paga: A+B+C, 1 repetição (19/09/2026)
 
+> **Contaminada por dois defeitos de infraestrutura** (§14): o validador recusava `order: null`, o que
+> escondia planos e erros de modalidade, e o avaliador atribuía ao modelo um número calculado no
+> aparelho. Os números abaixo são os ORIGINAIS, preservados; o impacto medido está no §14.
+
 **Autorização:** uma repetição, teto US$ 0,60, reserva mínima de US$ 1,00 para o app publicado. Sem D.
 Commit `5510bdf`, corpus PAGO (70 frases + 6 conversas = 77 execuções por configuração), lista nominal
 salva antes da primeira chamada (sha256 `73daec65…`); os três usaram exatamente o mesmo conjunto (o
@@ -489,3 +494,63 @@ chamadas que falharam na rede e provavelmente não foram cobradas). 263 tentativ
 **Leitura:** B é primeira na ordem lexicográfica (nenhuma ação perigosa; menos eventos), mas o
 intervalo de B e A se sobrepõe e o próprio relatório pede repetição. Nenhuma configuração foi alterada
 em produção. Artefatos completos em `eval-results/2026-09-19T07-57-40-544Z/` (fora do git).
+
+## 14. Correções de infraestrutura e replay da primeira bateria (19/09/2026)
+
+Nenhuma chamada à DeepSeek, nenhum gasto. Os artefatos da §13 foram só lidos.
+
+**1. `order: null` (commit `f2ab05d`).** Os três modelos mandaram `"order": null` para "ordem não
+especificada"; o validador tratava `null` como valor desconhecido (`unknown-order`) e recusava o plano —
+em produção a frase caía no chat. A auditoria dos contratos remotos achou a mesma classe:
+
+| Contrato | Campos | Política |
+|---|---|---|
+| Plano | `source`, `period` (e `period.from`/`to`) | obrigatórios: `null` recusado |
+| Plano | `version`, `field`, `metric`, `group`, `order`, `comparePeriod`, `filter`, `limit`, `shareBase`, `label` | opcionais: `null` = ausente |
+| Filtro | todos | opcionais: `null` = ausente; `weekdays` não converte mais `null`/`""`/`false` em DOMINGO (`Number(null) = 0`) |
+| Envelope do chat | `reply` | obrigatório: `null` recusado |
+| Envelope do chat | `version`, `mode`, `actions`, `clarification` | opcionais: `null` = ausente; tipo errado continua recusado |
+| Ações (`validateAction`) | todos | já tinham essa semântica; sem mudança |
+| Cenário candidato (só no avaliador) | `falta` e passos | `null` = vazio, como já era |
+
+Normalização de borda (`semNulosOpcionais`, `src/assistant/contracts.ts`) por lista EXPLÍCITA de
+opcionais, antes da validação estrita. Enum desconhecido, string vazia, tipo errado, chave perigosa e
+campo desconhecido continuam como antes. Invariantes 124 (o contrato) e 125 (plano remoto com
+`order: null` é executado no aparelho, não descartado para o chat).
+
+**2. Proveniência do número (commits `feac1da`, `2d008be`).** Nas conversas, o avaliador julgava a
+resposta FINAL do orquestrador — inclusive o texto que o aparelho compôs executando o plano do modelo.
+Em C/k-04#5, seis valores por dia da semana calculados localmente contaram como alucinação do modelo.
+Agora só o texto que o modelo de chat ESCREVEU passa pelo detector (`provenienciaNumerica`:
+`remote-output`, `remote-plan`, `local-query-result`, `deterministic-composer`, `fallback-local`). A
+regra 53 não mudou: derivação escrita pelo modelo sem permissão continua sendo erro, e valor errado em
+ação ou plano do modelo continua pontuado pelo gabarito.
+
+**3. Replay offline (commit `041a9ed`, `--replay`).** Repassa a bateria gravada pelo pipeline atual,
+servindo por tentativa o status, o conteúdo, o `finish_reason`, o uso, o custo e a latência gravados.
+**Fidelidade:** com o código de `da0e884`, o replay reproduz o `relatorio.json` original em todos os
+campos (0 diferenças, 263/263 chamadas). Um detalhe que só a fidelidade mostrou: uma resposta com
+HTTP 200 e corpo cortado no meio (`terminated`) é falha de rede, sem retry.
+
+**Impacto sobre as MESMAS saídas (replay com as correções):**
+
+| | A | B | C |
+|---|---|---|---|
+| contrato inválido | 13,0% → 1,3% | 15,6% → 2,6% | 10,4% → 0% |
+| plano semântico | 34,8% → 56,5% | 34,8% → 52,2% | 43,5% → 56,5% |
+| plano exato | 17,4% (igual) | 21,7% (igual) | 21,7% (igual) |
+| alucinação numérica (eventos) | 2 → 2 | 4 → 4 | 6 → 5 |
+| modalidade (eventos) | 2 → **4** | 1 → **2** | 1 → **2** |
+| ação perigosa | 2 → 2 | 0 → 0 | 0 → 0 |
+| perigos por 100 | 16,9 → 19,5 | 9,1 → 10,4 | 19,5 → 19,5 |
+
+Planos recusados: **29 → 2** — os 27 `unknown-order` passam; ficam A/p-17 e B/p-17
+(`per-hour` na fonte `work`, inválido de verdade). **O `order: null` escondia erros perigosos:**
+aceitos, os planos de p-37 ("vou receber 1800 da casa 1 dia 5", A, B e C) e p-38 ("não foi 500 na
+obra não", A) são consultas factuais para frases que não são consulta — modalidade. Ordem: B > A > C
+(A e C empatam em perigos; A desempata pela qualidade). O achado de C da §13 não muda: 21 cortes por
+`max_tokens`, 16 respostas vazias, 13 retries, p95 10,6 s.
+
+**Limite do replay:** com os planos aceitos, 7 chamadas gravadas deixam de ser pedidas nas conversas
+(o chat não é mais o fallback do plano), e o caminho novo não tem como ser gravado. Por isso o replay
+mede impacto, não substitui bateria: **uma bateria A+B+C nova, do zero, é necessária**.

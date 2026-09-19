@@ -3196,3 +3196,26 @@ produção (C) trunca o raciocínio em `max_tokens: 900` (21 cortes, 16 vazias, 
 `order: null` faz o validador recusar ~40% dos planos remotos em todos os modelos; o detector de
 alucinação numérica acusa número calculado no aparelho no caminho do planejador (1 caso). Nada
 corrigido — aguarda decisão.
+
+#### Infraestrutura da avaliação: `order: null`, proveniência e replay — 19/09/2026
+
+Sem chamada DeepSeek, sem gasto. A primeira bateria paga (§13 de `docs/AI_REMOTE_EVAL.md`) foi
+contaminada por dois defeitos, ambos corrigidos e medidos por replay sobre as MESMAS saídas gravadas:
+
+- **`order: null`** (`f2ab05d`): o validador recusava 27 de 29 planos remotos em todas as
+  configurações; a auditoria achou a mesma classe em outros opcionais do plano, do filtro e do
+  envelope, e `filter.weekdays: null` virava domingo. Normalização de borda por lista explícita;
+  invariantes 124 e 125.
+- **Proveniência** (`feac1da`, `2d008be`): número calculado no aparelho a partir do plano do modelo
+  contava como alucinação do modelo (C/k-04#5). Só o texto do modelo é julgado; regra 53 intacta.
+- **Replay** (`041a9ed`): `--replay` repassa a bateria gravada, tentativa por tentativa, sem rede;
+  com o código antigo reproduz o relatório original em todos os campos.
+
+Resultado: planos recusados 29 → 2; e o `order: null` ESCONDIA erros de modalidade (p-37 em A/B/C,
+p-38 em A), agora visíveis. Ordem B > A > C mantida. Resultados originais preservados em
+`eval-results/`. **Nova bateria A+B+C do zero é necessária** antes de qualquer decisão de modelo.
+
+Esta rodada começou com outra sessão trabalhando na mesma pasta ao mesmo tempo (`f2ab05d`, `feac1da`,
+`acfb5d1`). A reconciliação manteve a Parte A e o núcleo da proveniência como estavam, ficou com o
+replay que reproduz a bateria (o alternativo foi removido, junto com o doc separado, incorporado ao
+§14), e corrigiu o `typecheck:api` que ele quebrava.

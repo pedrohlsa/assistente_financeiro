@@ -520,3 +520,9 @@ leitura: "no bar" é lugar, não a categoria Lazer; "me pagou" é receita; "parc
 parcelamento daquela compra; "por corrida em média" é por corrida. O período passou a devolver o
 trecho que casou (`span`) — antes o rótulo "este mês" não era achado no texto "esse mes", e "no Zé
 esse mês" virava a busca "ze esse".
+
+**`null` em campo opcional do contrato remoto é "não especificado" (19/09/2026).** A primeira bateria
+paga mostrou os modelos mandando `"order": null` em planos válidos; o validador recusava, e a pergunta
+caía no chat. `semNulosOpcionais` (`contracts.ts`) normaliza só os opcionais listados do plano, do
+filtro e do envelope do chat antes da validação estrita — obrigatório `null` continua recusado, e
+`filter.weekdays: null` não vira mais domingo. Detalhe e auditoria em `docs/AI_REMOTE_EVAL.md` §14.
