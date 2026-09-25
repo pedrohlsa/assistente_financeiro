@@ -134,13 +134,15 @@ function horizonte(t: string, hoje: string): number {
 /** Parar um tipo de gasto: "parar a obra", "cortar o lazer", "não gastar mais com mercado". */
 const PARAR_GASTO = /\b(?:parar|pare|parasse|parando|cortar|corte|cortasse|tirar|tirasse|deixar\s+de\s+gastar|nao\s+gastar\s+mais|parar\s+de\s+gastar)\b/
 
-export function planScenario(
+function planSingleScenario(
   state: AppState, input: string, opts: { today?: string; focusCategory?: string } = {},
+  fragment = false,
 ): AssistantScenarioPlan | null {
-  if (!looksLikeScenario(input)) return null
+  if (!fragment && !looksLikeScenario(input)) return null
   // Números por extenso viram algarismos antes dos regex, igual ao parser de
   // registro — "quatro mil em dez vezes" é a mesma frase.
   const t = semAcento(normalizeNumberWords(input).text)
+    .replace(/\b(\d+(?:[.,]\d+)?)\s*k\b/g, (_, n: string) => String(parseMoney(n) * 1000))
   const driver = isDriver(state.settings)
 
   const base = (kind: ScenarioKind, extra: Partial<AssistantScenarioPlan>, label: string): AssistantScenarioPlan =>
@@ -152,7 +154,10 @@ export function planScenario(
       || t.match(new RegExp(String.raw`\b(?:trabalhar|ficar|rodar|fazer)\s+(?:mais\s+)?${NUM}\s*(?:h|horas?)\b`))
     if (horas) {
       const porDia = /\bpor\s+dia\b|\bdiari|\bcada\s+dia\b|\btodo\s+dia\b/.test(t)
-      const dias = porDia ? 30 : 1
+      const dias = porDia
+        ? (/\bsemana\s+toda\b|\btoda\s+a\s+semana\b/.test(t) ? 7
+          : /\bdias?\s+uteis\b/.test(t) ? 5 : 30)
+        : 1
       return base('extra-work', { hoursPerDay: parseMoney(horas[1]), days: dias },
         `mais ${horas[1]}h ${porDia ? 'por dia' : 'hoje'}`)
     }
@@ -177,8 +182,13 @@ export function planScenario(
     }
   }
 
+  // Parar de guardar e antecipar uma dívida ainda não são transformações
+  // representadas. O “3” é duração, nunca R$ 3 por mês.
+  if (/\bparar\s+de\s+(?:guardar|poupar|juntar|separar)\b/.test(t)) return null
+
   // ---- pagar a fatura -----------------------------------------------------
-  if (/\bpagar\s+(?:a\s+)?fatura\b|\bquitar\s+(?:a\s+)?fatura\b/.test(t)) {
+  if (/\bpagar\s+(?:a\s+)?fatura\b|\bquitar\s+(?:a\s+)?fatura\b/.test(t)
+    || (!!cartaoDe(state, t) && /\b(?:pagar|quitar)\b[^?]*\binteir[oa]\b/.test(t))) {
     return base('pay-invoice', { cardName: cartaoDe(state, t) }, 'pagar a fatura')
   }
 
@@ -199,7 +209,24 @@ export function planScenario(
   }
 
   // ---- guardar por mês ----------------------------------------------------
-  if (/\bguardar?\b|\bguardasse\b|\bpoupar\b|\bseparar\b|\bjuntar\b/.test(t)) {
+  if (/\b(?:guardar|guardando|poupar|separar|juntar)\s+(?:a\s+)?metade\s+do\s+que\s+sobrar\b/.test(t)) {
+    return base('save-share', { ratio: 0.5, months: horizonte(t, opts.today || todayISO()) },
+      'guardar metade do que sobrar')
+  }
+
+  // Redução por valor mantém a categoria explícita e não finge que o gasto
+  // desapareceu por completo.
+  if (/\b(?:reduzir|diminuir|baixar)\b/.test(t)) {
+    const valor = valorDeDinheiro(t, lerValor(t))
+    const categoria = categoriaDe(state, t)
+    if (valor !== undefined && categoria) {
+      const nome = usableCategories(state.categories || []).find(c => c.id === categoria)?.name || categoria
+      return base('reduce', { amount: valor, category: categoria, description: nome, months: horizonte(t, opts.today || todayISO()) },
+        `reduzir ${nome} em ${valor} por mês`)
+    }
+  }
+
+  if (/\bguardar?\b|\bguardando\b|\bguardasse\b|\bpoupar\b|\bseparar\b|\bjuntar\b/.test(t)) {
     const valor = lerValor(t)
     if (Number.isFinite(valor) && valor > 0) {
       const meta = (state.goals || []).find(g => !g.done && normalizeName(g.name).length > 2
@@ -209,9 +236,12 @@ export function planScenario(
   }
 
   // ---- compra parcelada ---------------------------------------------------
-  const compra = lerCompra(t)
+  const financiada = t.match(new RegExp(String.raw`\b(?:der|dar|dando|dou)\s+(?:r\$\s*)?${NUM}\s*(?:reais\s*)?de\s+entrada\b[^?]{0,50}?\bfinanciar\s+(?:r\$\s*)?${NUM}\s*(?:reais\s*)?(?:em\s+)?(\d{1,3})\s*(?:x|vezes|parcelas)\b`))
+  const compra = financiada
+    ? { total: parseMoney(financiada[1]) + parseMoney(financiada[2]), installments: Number(financiada[3]), financed: parseMoney(financiada[2]), entry: parseMoney(financiada[1]) }
+    : lerCompra(t)
   if (compra) {
-    const entrada = t.match(new RegExp(String.raw`\b(?:dando|com|de)\s+${NUM}\s*(?:reais\s*)?de\s+entrada\b`))
+    const entrada = financiada || t.match(new RegExp(String.raw`\b(?:der|dar|dando|com|de)\s+${NUM}\s*(?:reais\s*)?de\s+entrada\b`))
       || t.match(new RegExp(String.raw`\bentrada\s+de\s+(?:r\$\s*)?${NUM}`))
     // Entrada do tamanho do preço, ou maior, não descreve compra parcelada
     // nenhuma: a leitura está errada, e simular seria inventar.
@@ -242,6 +272,30 @@ export function planScenario(
   }
 
   return null
+}
+
+/**
+ * Interpreta todos os passos suportados da mesma hipótese, preservando ordem.
+ * Conjunções internas de financiamento não são separadas: “entrada e
+ * financiar” continua sendo uma única compra.
+ */
+export function planScenario(
+  state: AppState, input: string, opts: { today?: string; focusCategory?: string } = {},
+): AssistantScenarioPlan | null {
+  if (!looksLikeScenario(input)) return null
+  const partes = input.split(/\s*,\s*|\s+e\s+(?=(?:eu\s+)?(?:ainda\s+|tamb[eé]m\s+)?(?:continuar\s+guardando|pagar|quitar|guardar|poupar|reduzir|diminuir|baixar|parar|cortar)\b)/i)
+    .map(p => p.trim()).filter(Boolean)
+  const steps = partes.map(p => planSingleScenario(state, p, opts, true)).filter((p): p is AssistantScenarioPlan => !!p)
+  if (steps.length > 1) {
+    return {
+      version: SCENARIO_DSL_VERSION,
+      kind: 'compound',
+      steps,
+      months: Math.max(...steps.map(s => s.months || 6)),
+      label: `cenário com ${steps.length} mudanças`,
+    }
+  }
+  return steps[0] || planSingleScenario(state, input, opts)
 }
 
 /** O objeto da compra, quando a frase o nomeia ("um pc de 4000 em 10x"). */

@@ -53,6 +53,20 @@ export function runScenarioCase(c: ScenarioCase): HarnessResult {
       : String(got ?? '').toLowerCase() === String(v).toLowerCase()
     if (!ok) errors.push(`plano.${k}=${JSON.stringify(got)} ≠ ${JSON.stringify(v)}`)
   }
+  if (c.expectSteps) {
+    const steps: any[] = plan?.steps || []
+    if (steps.length !== c.expectSteps.length) errors.push(`passos ${steps.length} ≠ ${c.expectSteps.length}`)
+    c.expectSteps.forEach((esperado, i) => {
+      const got = steps[i]
+      if (got?.kind !== esperado.kind) errors.push(`passo ${i + 1} ${got?.kind} ≠ ${esperado.kind}`)
+      for (const [k, v] of Object.entries(esperado.fields || {})) {
+        const atual = got?.[k]
+        const ok = typeof v === 'number' ? typeof atual === 'number' && perto(atual, v)
+          : String(atual ?? '').toLowerCase() === String(v).toLowerCase()
+        if (!ok) errors.push(`passo ${i + 1}.${k}=${JSON.stringify(atual)} ≠ ${JSON.stringify(v)}`)
+      }
+    })
+  }
 
   const fatos = focus?.lastScenario?.facts || []
   for (const esperado of c.expectFacts || []) {

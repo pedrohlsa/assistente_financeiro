@@ -125,6 +125,44 @@ export function runScenario(
   const meses = Math.min(Math.max(plan.months || 6, 1), 12)
 
   switch (plan.kind) {
+    // ----------------------------------------------------------- composto
+    case 'compound': {
+      const steps = plan.steps || []
+      if (!steps.length) return vazio(plan, caveats, 'Não encontrei nenhuma mudança que eu saiba simular.')
+      let efeitoMensal = 0
+      let algumVazio = false
+      for (const step of steps) {
+        if (step.kind === 'save-share') {
+          const proporcao = Math.min(Math.max(step.ratio || 0, 0), 1)
+          const sobra = Math.max(monthlySavingGoal(state).net + efeitoMensal, 0)
+          const guardar = r2(sobra * proporcao)
+          facts.push(fato('Sobra mensal antes de guardar a fração', sobra, 'BRL', 'resultado mensal mais efeitos anteriores'))
+          facts.push(fato('Guardar metade do que sobrar por mês', guardar, 'BRL', 'metade da sobra combinada'))
+          efeitoMensal -= guardar
+          continue
+        }
+        const parcial = runScenario(state, step, hoje)
+        algumVazio ||= parcial.empty
+        facts.push(...parcial.facts)
+        caveats.push(...parcial.caveats)
+        if (step.kind === 'cut') {
+          efeitoMensal += parcial.facts.find(f => f.label.startsWith('Gasto médio por mês'))?.value || 0
+        } else if (step.kind === 'reduce') efeitoMensal += step.amount || 0
+        else if (step.kind === 'purchase') {
+          efeitoMensal -= parcial.facts.find(f => f.label.startsWith('Parcela em'))?.value || 0
+        } else if (step.kind === 'save') efeitoMensal -= step.amount || 0
+        else if (step.kind === 'income-missing') {
+          efeitoMensal -= parcial.facts.find(f => f.label.includes('Entrada média'))?.value || step.amount || 0
+        }
+      }
+      facts.push(fato('Efeito mensal combinado depois de todos os passos', efeitoMensal, 'BRL', 'soma ordenada dos efeitos mensais'))
+      return {
+        plan, facts, months: [],
+        feasible: algumVazio ? undefined : monthlySavingGoal(state).net + efeitoMensal >= 0,
+        caveats: [...new Set(caveats)], empty: facts.length === 1,
+      }
+    }
+
     // ------------------------------------------------------------------ gasto
     case 'spend': {
       const valor = plan.amount || 0
@@ -205,6 +243,28 @@ export function runScenario(
       facts.push(fato('Meses até bater a meta', mesesNecessarios, 'count', 'divisão'))
       caveats.push(`Nesse ritmo, por volta de ${quando.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}.`)
       return { plan, facts, months: [], feasible: true, caveats, empty: false }
+    }
+
+    // ----------------------------------------------- reduzir por valor fixo
+    case 'reduce': {
+      const valor = plan.amount || 0
+      if (!(valor > 0) || !plan.category) {
+        return vazio(plan, caveats, 'Me diga a categoria e quanto você reduziria por mês.')
+      }
+      const nome = plan.description || plan.category
+      facts.push(fato(`Redução mensal em ${nome}`, valor, 'BRL', 'valor informado na pergunta'))
+      facts.push(fato(`A menos em ${meses} ${meses === 1 ? 'mês' : 'meses'}`, valor * meses, 'BRL', 'redução mensal vezes o horizonte'))
+      caveats.push('Considerei essa redução em todos os meses do horizonte.')
+      return { plan, facts, months: [], caveats, empty: false }
+    }
+
+    case 'save-share': {
+      const proporcao = Math.min(Math.max(plan.ratio || 0, 0), 1)
+      if (!(proporcao > 0)) return vazio(plan, caveats, 'Me diga qual parte da sobra você quer guardar.')
+      const sobra = Math.max(monthlySavingGoal(state).net, 0)
+      facts.push(fato('Sobra mensal estimada', sobra, 'BRL', 'resultado mensal atual'))
+      facts.push(fato('Guardar metade do que sobrar por mês', sobra * proporcao, 'BRL', 'fração da sobra mensal'))
+      return { plan, facts, months: [], caveats, empty: false }
     }
 
     // ------------------------------------------------- parar um tipo de gasto

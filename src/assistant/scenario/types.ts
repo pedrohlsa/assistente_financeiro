@@ -15,6 +15,7 @@ import type { AssistantFact } from '../query/types'
 export const SCENARIO_DSL_VERSION = 2 as const
 
 export type ScenarioKind =
+  | 'compound'        // várias transformações na mesma hipótese
   | 'spend'           // "se eu gastar 500 agora, quanto sobra?"
   | 'purchase'        // "se eu comprar um pc de 4000 em 10x no nubank"
   | 'save'            // "se eu guardar 500 por mês, quando bato a meta?"
@@ -22,6 +23,8 @@ export type ScenarioKind =
   | 'income-missing'  // "se a Casa 1 não pagar este mês"
   | 'extra-work'      // motorista: "se eu fizer mais 3 horas por dia"
   | 'cut'             // "e se eu parar a obra", "se eu não gastar mais com lazer"
+  | 'reduce'          // "reduzir alimentação em 300 por mês"
+  | 'save-share'      // "guardar metade do que sobrar"
 
 export interface AssistantScenarioPlan {
   version: typeof SCENARIO_DSL_VERSION
@@ -43,6 +46,10 @@ export interface AssistantScenarioPlan {
   extraKm?: number
   /** Quantos dias a mais de trabalho a hipótese cobre. */
   days?: number
+  /** Fração de um resultado anterior: 0,5 = metade. */
+  ratio?: number
+  /** Passos ordenados de uma hipótese composta. */
+  steps?: AssistantScenarioPlan[]
   label: string
 }
 

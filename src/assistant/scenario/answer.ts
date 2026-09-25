@@ -21,6 +21,15 @@ export function composeScenario(r: AssistantScenarioResult): string {
   const valor = (label: string) => r.facts.find(f => f.label === label)?.value
 
   switch (p.kind) {
+    case 'compound': {
+      linhas.push(`Cenário combinado com ${p.steps?.length || 0} mudanças:`)
+      for (const step of p.steps || []) linhas.push(`• ${descricaoPasso(step)}`)
+      const efeito = r.facts.find(f => f.label.startsWith('Efeito mensal combinado'))
+      if (efeito) linhas.push(`Efeito mensal combinado: ${fmtBRL(efeito.value)}.`)
+      if (r.feasible === false) linhas.push('Depois de combinar tudo, o resultado mensal estimado fica negativo.')
+      break
+    }
+
     case 'spend': {
       const depois = valor('Saldo depois do gasto')
       const sobra = valor('Sobra do mês depois do gasto')
@@ -71,6 +80,17 @@ export function composeScenario(r: AssistantScenarioResult): string {
       break
     }
 
+    case 'reduce': {
+      linhas.push(`Reduzindo ${p.description || p.category || 'esse gasto'} em ${fmtBRL(p.amount || 0)} por mês.`)
+      break
+    }
+
+    case 'save-share': {
+      const guardar = r.facts.find(f => f.label.startsWith('Guardar metade'))
+      linhas.push(`Guardando metade do que sobrar: ${fmtBRL(guardar?.value || 0)} por mês.`)
+      break
+    }
+
     case 'pay-invoice': {
       const pendente = r.facts.find(f => f.label.startsWith('Fatura pendente'))
       const depois = valor('Saldo depois de pagar')
@@ -117,6 +137,21 @@ export function composeScenario(r: AssistantScenarioResult): string {
   // um número de cenário de ser guardado na cabeça como fato.
   linhas.push(SELO)
   return linhas.filter(Boolean).join('\n\n')
+}
+
+function descricaoPasso(p: NonNullable<AssistantScenarioResult['plan']['steps']>[number]): string {
+  switch (p.kind) {
+    case 'purchase': return `compra de ${fmtBRL(p.amount || 0)} em ${p.installments || 1}x`
+    case 'save': return `guardar ${fmtBRL(p.amount || 0)} por mês`
+    case 'income-missing': return `${p.origin || 'uma entrada'} não entra`
+    case 'pay-invoice': return `pagar a fatura${p.cardName ? ` do ${p.cardName}` : ''}`
+    case 'cut': return `parar os gastos com ${p.description || p.category || 'a categoria'}`
+    case 'reduce': return `reduzir ${p.description || p.category || 'o gasto'} em ${fmtBRL(p.amount || 0)} por mês`
+    case 'save-share': return 'guardar metade do que sobrar depois das mudanças anteriores'
+    case 'spend': return `gastar ${fmtBRL(p.amount || 0)}`
+    case 'extra-work': return p.hoursPerDay ? `trabalhar mais ${p.hoursPerDay}h por dia` : `rodar mais ${p.extraKm || 0} km`
+    case 'compound': return p.label
+  }
 }
 
 /** "Como você chegou nisso?" para um cenário — a metodologia REAL. */

@@ -26,6 +26,8 @@ export interface ScenarioCase {
   messages: string[]
   expectKind?: string
   expectPlan?: Record<string, unknown>
+  /** Passos de um cenário composto, na ordem. */
+  expectSteps?: { kind: string; fields?: Record<string, unknown> }[]
   /** Fatos que precisam existir, com valor exato. */
   expectFacts?: { label: string | RegExp; value?: number }[]
   expectReply?: (string | RegExp)[]
@@ -162,6 +164,55 @@ export const SCENARIO_CASES: ScenarioCase[] = [
     // km, hora na rua nem nada de veículo (regra 3 do CLAUDE.md).
     messages: ['se eu trabalhar mais 3 horas por dia quanto faria?'],
     expectNoPlan: true,
+  },
+
+  // ----- inteligência v2: mais de uma transformação na mesma hipótese -----
+  {
+    id: 'c-70', group: 'composto', state: autonomo,
+    messages: ['se eu comprar um pc de 4k em 10x e continuar guardando 500 por mês qual mês fica mais apertado?'],
+    expectKind: 'compound',
+    expectSteps: [
+      { kind: 'purchase', fields: { amount: 4000, installments: 10 } },
+      { kind: 'save', fields: { amount: 500 } },
+    ],
+    expectReply: [/compra/i, /guardar/i, /nada foi registrado/i],
+  },
+  {
+    id: 'c-71', group: 'composto', state: autonomo,
+    messages: ['se a Casa 1 atrasar e eu pagar o Nubank inteiro ainda sobra alguma coisa?'],
+    expectKind: 'compound',
+    expectSteps: [
+      { kind: 'income-missing', fields: { origin: 'casa 1' } },
+      { kind: 'pay-invoice', fields: { cardName: 'Nubank' } },
+    ],
+    expectReply: [/casa 1/i, /fatura/i, /nada foi registrado/i],
+  },
+  {
+    id: 'c-72', group: 'compra', state: autonomo,
+    messages: ['to pensando em trocar de carro se eu der 20 mil de entrada e financiar 40 mil em 48x da?'],
+    expectKind: 'purchase', expectPlan: { amount: 60000, downPayment: 20000, installments: 48 },
+    expectFacts: [{ label: 'Valor financiado', value: 40000 }],
+  },
+  {
+    id: 'c-73', group: 'motorista', state: motorista,
+    messages: ['se eu rodar mais 2 horas por dia a semana toda quanto a mais eu tiro'],
+    expectKind: 'extra-work', expectPlan: { hoursPerDay: 2, days: 7 },
+  },
+  {
+    id: 'c-74', group: 'naocenario', state: autonomo,
+    messages: ['se eu parar de guardar por 3 meses consigo quitar a geladeira antes?'],
+    expectNoPlan: true,
+  },
+  {
+    id: 'c-75', group: 'composto', state: autonomo,
+    messages: ['se eu parar a obra, reduzir alimentação em 300 e guardar metade do que sobrar até dezembro'],
+    expectKind: 'compound',
+    expectSteps: [
+      { kind: 'cut', fields: { category: 'obra' } },
+      { kind: 'reduce', fields: { category: 'alimentacao', amount: 300 } },
+      { kind: 'save-share', fields: { ratio: 0.5 } },
+    ],
+    expectReply: [/obra/i, /alimenta/i, /metade/i, /nada foi registrado/i],
   },
 
   // ----- não é cenário -----------------------------------------------------
