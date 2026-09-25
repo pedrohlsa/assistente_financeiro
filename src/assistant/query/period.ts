@@ -113,6 +113,40 @@ export function parsePeriod(input: string, hoje = todayISO()): { period: QueryPe
   const ano = fromISO(hoje).getFullYear()
   const mesAtual = fromISO(hoje).getMonth()
 
+  // --- intervalo por mês: "desde março", "de março até junho" -----------
+  // Precisa vir antes do mês isolado. Caso contrário, "desde março" virava
+  // somente março e "de março até junho" ignorava silenciosamente a metade
+  // final da janela.
+  const mesesFechados = t.match(new RegExp(String.raw`\bde\s+(${MES_RE})(?:\s+de\s+(20\d{2}))?\s+(?:a|ate)\s+(${MES_RE})(?:\s+de\s+(20\d{2}))?\b`))
+  if (mesesFechados) {
+    const mi1 = mesIndex(mesesFechados[1])
+    const mi2 = mesIndex(mesesFechados[3])
+    if (mi1 >= 0 && mi2 >= 0) {
+      let y2 = mesesFechados[4] ? Number(mesesFechados[4]) : ano
+      // Um fim ainda futuro, sem ano dito, descreve o intervalo passado mais
+      // recente; já um intervalo que cruza dezembro recebe anos consecutivos.
+      if (!mesesFechados[4] && mi2 > mesAtual) y2--
+      const y1 = mesesFechados[2] ? Number(mesesFechados[2]) : (mi1 <= mi2 ? y2 : y2 - 1)
+      const from = primeiroDia(y1, mi1)
+      const to = ultimoDia(y2, mi2)
+      if (from <= to) return {
+        period: P(from, to, `de ${MESES[mi1]} a ${MESES[mi2]}`, 'range', hoje),
+        matched: mesesFechados[0],
+      }
+    }
+  }
+  const desdeMes = t.match(new RegExp(String.raw`\bdesde\s+(${MES_RE})(?:\s+de\s+(20\d{2}))?\b`))
+  if (desdeMes) {
+    const mi = mesIndex(desdeMes[1])
+    if (mi >= 0) {
+      const y = desdeMes[2] ? Number(desdeMes[2]) : (mi <= mesAtual ? ano : ano - 1)
+      return {
+        period: P(primeiroDia(y, mi), hoje, `desde ${MESES[mi]}`, 'range', hoje),
+        matched: desdeMes[0],
+      }
+    }
+  }
+
   // --- intervalo explícito: "de 01/07 a 15/07", "entre 1/8 e 20/8" ----------
   const intervalo = t.match(/\b(?:de|entre)\s+(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?\s+(?:a|ate|e)\s+(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?/)
   if (intervalo) {

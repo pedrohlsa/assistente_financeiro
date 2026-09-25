@@ -76,6 +76,13 @@ const AGOSTO = (() => {
 const SO_TOTAL = /^Total gasto(?![\s\S]*•)/
 
 export const SEMANTICA_CASES: SemanticaCase[] = [
+  {
+    id: 'si2-01', group: 'clareza', state: autonomo, today: HOJE,
+    turnos: [{
+      msg: 'qual gasto meu mais cresceu considerando os últimos meses?',
+      expectReply: [/quantos meses/i], expectRemote: false,
+    }],
+  },
   // ===== 1. DISTRIBUIÇÃO ===================================================
   {
     id: 'sd-01', group: 'distribuicao', state: autonomo, today: HOJE,

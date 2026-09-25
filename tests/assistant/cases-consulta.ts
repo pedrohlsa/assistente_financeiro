@@ -46,6 +46,8 @@ export interface QueryCase {
   forbidReply?: (string | RegExp)[]
   /** A consulta deve ser assumida pela DSL em vez do roteador antigo. */
   expectBeyondLegacy?: boolean
+  /** A pergunta foi reconhecida, mas exige uma desambiguação antes de calcular. */
+  expectIncomplete?: string | RegExp
   /** A frase NÃO é consulta: o planner tem que devolver `null`. */
   expectNoPlan?: boolean
 }
@@ -310,6 +312,63 @@ export const QUERY_CASES: QueryCase[] = [
   // -------------------------------------------------------------------------
   // NÃO é consulta
   // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // Inteligência v2 — cardinalidade, intervalos e identificadores compostos
+  // -------------------------------------------------------------------------
+  {
+    id: 'q-84', group: 'multientidade', state: autonomo,
+    message: 'quanto gastei com obra e lazer juntos nos últimos 2 meses',
+    expectPlan: { group: 'none', filter: { categories: ['obra', 'lazer'] }, periodFrom: '2026-07-01' },
+    expectBeyondLegacy: true,
+  },
+  {
+    id: 'q-85', group: 'multientidade', state: autonomo,
+    message: 'gastei mais em lazer ou em alimentação nos últimos 30 dias',
+    expectPlan: { group: 'category', order: 'value-desc', filter: { categories: ['lazer', 'alimentacao'] } },
+    expectBeyondLegacy: true,
+  },
+  {
+    id: 'q-86', group: 'multientidade', state: autonomo,
+    message: 'quanto a casa 2 rendeu esse ano comparado com a casa 1',
+    expectPlan: { group: 'origin', filter: {} },
+    expectBeyondLegacy: true,
+  },
+  {
+    id: 'q-87', group: 'exclusao', state: autonomo,
+    message: 'tirando a casa 1 quanto entrou de aluguel esse ano',
+    expectPlan: { filter: { excludeText: 'casa 1' } },
+    expectBeyondLegacy: true,
+  },
+  {
+    id: 'q-88', group: 'periodo', state: autonomo,
+    message: 'quanto eu gasto por mês em média com alimentação desde março',
+    expectPlan: { group: 'month', periodFrom: '2026-03-01', periodTo: TODAY_Q, filter: { categories: ['alimentacao'] } },
+    expectBeyondLegacy: true,
+  },
+  {
+    id: 'q-89', group: 'periodo', state: autonomo,
+    message: 'quanto gastei com obra de março até junho',
+    expectPlan: { periodFrom: '2026-03-01', periodTo: '2026-06-30', filter: { categories: ['obra'] } },
+    expectBeyondLegacy: true,
+  },
+  {
+    id: 'q-90', group: 'clareza', state: autonomo,
+    message: 'qual gasto cresceu mais nos últimos meses',
+    expectIncomplete: /quantos meses/i,
+  },
+  {
+    id: 'q-91', group: 'periodo', state: autonomo,
+    message: 'o gasto com comida caiu ou subiu desde junho',
+    expectPlan: { group: 'month', periodFrom: '2026-06-01', periodTo: TODAY_Q, filter: { categories: ['alimentacao'] } },
+    expectBeyondLegacy: true,
+  },
+  {
+    id: 'q-92', group: 'exclusao', state: motorista,
+    message: 'tirando Uber e 99 quanto entrou este mês',
+    expectPlan: { filter: { excludeTexts: ['uber', '99'] } },
+    expectBeyondLegacy: true,
+  },
+
   { id: 'q-80', group: 'naoconsulta', state: autonomo, message: 'gastei 50 no mercado', expectNoPlan: true },
   { id: 'q-81', group: 'naoconsulta', state: autonomo, message: 'se eu gastar 500 quanto sobra?', expectNoPlan: true },
   { id: 'q-82', group: 'naoconsulta', state: autonomo, message: 'oi, tudo bem?', expectNoPlan: true },

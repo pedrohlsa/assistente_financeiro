@@ -134,7 +134,7 @@ function validatePeriod(raw: any, todayIso: string): QueryPeriod | QueryErrorCod
 const PLANO_OPCIONAIS = ['version', 'field', 'metric', 'group', 'order', 'comparePeriod', 'filter', 'limit', 'shareBase', 'label'] as const
 /** Todo filtro é opcional: `null` é "sem essa restrição". */
 const FILTRO_OPCIONAIS = [
-  'categories', 'excludeCategories', 'txType', 'cardNames', 'excludeCardNames', 'goalName', 'text', 'excludeText',
+  'categories', 'excludeCategories', 'txType', 'cardNames', 'excludeCardNames', 'goalName', 'text', 'excludeText', 'excludeTexts',
   'origin', 'platform', 'profileAtCreation', 'status', 'realizedOnly', 'plannedOnly', 'weekdays', 'monthHalf',
   'minAmount', 'maxAmount',
 ] as const
@@ -212,6 +212,15 @@ function validateFilter(bruto: any, state: AppState): QueryFilter | QueryErrorCo
   if (texto) out.text = texto
   const excText = strOf(raw.excludeText, 60)
   if (excText) out.excludeText = excText
+  if (raw.excludeTexts !== undefined) {
+    const lista: string[] = []
+    for (const v of (Array.isArray(raw.excludeTexts) ? raw.excludeTexts : [raw.excludeTexts]).slice(0, 10)) {
+      const texto = strOf(v, 60)
+      if (texto) lista.push(texto)
+    }
+    if (!lista.length) return 'bad-filter'
+    out.excludeTexts = [...new Set<string>(lista)]
+  }
   const origin = strOf(raw.origin, 60)
   if (origin) out.origin = origin
   const platform = strOf(raw.platform, 30)

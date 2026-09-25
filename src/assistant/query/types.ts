@@ -111,6 +111,8 @@ export interface QueryFilter {
   /** Literal da mensagem, casado por conteúdo em descrição + origem. */
   text?: string
   excludeText?: string
+  /** Vários nomes/lugares excluídos na mesma pergunta. */
+  excludeTexts?: string[]
   origin?: string
   cardNames?: string[]
   excludeCardNames?: string[]

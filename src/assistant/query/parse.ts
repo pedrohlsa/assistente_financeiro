@@ -57,6 +57,8 @@ export interface PlannedQuery {
    * recebe isto não responde localmente — manda para quem sabe ler a frase.
    */
   incompleto?: string
+  /** Pergunta específica que resolve uma ambiguidade sem chutar um número. */
+  clarification?: { question: string; options: { label: string; value: string }[] }
   /**
    * Categoria que o HISTÓRICO dele associa ao nome procurado. Só é usada quando
    * a busca literal não acha nada — ver o comentário em `resolverCategoria`.
@@ -424,7 +426,9 @@ const ESTRUTURAIS = new Set([
 ])
 
 const soUteis = (frase: string): string | undefined => {
-  const palavras = frase.trim().split(/\s+/).filter(w => w.length > 1 && !ESTRUTURAIS.has(w))
+  // Dígito único pode ser a parte que distingue uma entidade real: Casa 1 e
+  // Casa 2. Removê-lo fazia "tirando a Casa 1" excluir todas as casas.
+  const palavras = frase.trim().split(/\s+/).filter(w => (/^\d+$/.test(w) || w.length > 1) && !ESTRUTURAIS.has(w))
   return palavras.length ? palavras.join(' ') : undefined
 }
 
@@ -496,6 +500,26 @@ function categoriaSolta(state: AppState, t: string, tipo: 'income' | 'expense'):
   return undefined
 }
 
+/** Todas as categorias explicitamente ditas, na ordem da frase. */
+function categoriasCitadas(
+  state: AppState, t: string, tipo: 'income' | 'expense',
+): { id: string; matched: string; at: number }[] {
+  const achadas: { id: string; matched: string; at: number }[] = []
+  const cats = usableCategories(state.categories || []).filter(c => c.type === tipo)
+  for (const c of cats) {
+    const candidatos = [c.name, ...(CATEGORY_KEYWORDS[c.id] || [])]
+    let melhor: { matched: string; at: number } | undefined
+    for (const nome of candidatos) {
+      const n = normalizeName(nome)
+      if (n.length < 4 || /\s/.test(n) && n.length < 6) continue
+      const m = new RegExp(`(^|\\s)(${escapaRegex(n)})(?=\\s|$)`).exec(t)
+      if (m && (!melhor || m.index < melhor.at)) melhor = { matched: m[2], at: m.index + m[1].length }
+    }
+    if (melhor) achadas.push({ id: c.id, ...melhor })
+  }
+  return achadas.sort((a, b) => a.at - b.at).filter((v, i, a) => a.findIndex(x => x.id === v.id) === i)
+}
+
 function extrairExclusao(t: string): { valor: string; matched: string } | undefined {
   // "Sem CONTAR o cimento", "sem considerar a obra": o verbo não é o que se
   // exclui. Sem pular o verbo, o texto excluído era "contar o cimento", que não
@@ -504,6 +528,14 @@ function extrairExclusao(t: string): { valor: string; matched: string } | undefi
   if (!m) return undefined
   const valor = soUteis(m[1])
   return valor ? { valor, matched: m[0] } : undefined
+}
+
+/** Lista explícita depois de “tirando/sem/exceto”: “Uber e 99”. */
+function extrairExclusoes(t: string): { valores: string[]; matched: string } | undefined {
+  const m = t.match(/\b(?:tirando|sem|fora|exceto|desconsiderando|descontando)\s+(?:contar\s+|considerar\s+|incluir\s+|botar\s+|por\s+)?(?:o\s+|a\s+|os\s+|as\s+)?(.+?)(?=\s+(?:quanto|qual|quais|o\s+que|esse|essa|este|esta|neste|nesta|nos\s+ultimos|nas\s+ultimas)\b|[?,.!]|$)/)
+  if (!m || !/\s+(?:e|ou)\s+/.test(m[1])) return undefined
+  const valores = m[1].split(/\s+(?:e|ou)\s+/).map(soUteis).filter((v): v is string => !!v)
+  return valores.length > 1 ? { valores, matched: m[0] } : undefined
 }
 
 /** Substantivos de FONTE — os mesmos de `clauses.ts`, menos os que são categoria. */
@@ -641,6 +673,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   const driver = isDriver(state.settings)
   const recognized: string[] = []
   const rest = new Restante(t0)
+  const periodoVago = /\b(?:nos?\s+)?ultimos\s+meses\b/.test(t0)
 
   // ---- 1) comparação: consumida ANTES do período ------------------------
   // "comparando com mês passado" tem um período dentro dela. Sem consumir esse
@@ -754,6 +787,9 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     periodoExplicito = true
     rest.consome(lido.span ?? lido.matched)
     recognized.push(lido.matched)
+    // “Caiu ou subiu desde junho?” pede a série desde o marco dito, não uma
+    // janela anterior inventada com a mesma duração.
+    if (/^desde\s/.test(period.label) && pedeComparacao && group === 'none') group = 'month'
   } else {
     // "qual dos próximos meses eu tenho mais parcelas": parcela REAL, janela
     // futura. Sem isto a resposta olhava só o mês corrente e dizia "1 parcela".
@@ -796,8 +832,19 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   }
   const tipoAlvo: 'income' | 'expense' = filter.txType?.[0] === 'income' ? 'income' : 'expense'
 
-  const excluir = extrairExclusao(rest.texto)
-  if (excluir) {
+  const excluirLista = extrairExclusoes(rest.texto)
+  const excluir = excluirLista ? undefined : extrairExclusao(rest.texto)
+  if (excluirLista) {
+    rest.consome(excluirLista.matched)
+    const cats = excluirLista.valores.map(v => resolverCategoria(state, v, tipoAlvo))
+    const cards = excluirLista.valores.map(v => cartoesCitados(state, v)[0])
+    const plataformas = driver && excluirLista.valores.every(v => /^(?:uber|99|indrive|in\s*drive)$/.test(normalizeName(v)))
+    if (plataformas) filter.excludeTexts = excluirLista.valores
+    else if (cats.every((v): v is string => !!v)) filter.excludeCategories = [...new Set(cats)]
+    else if (cards.every((v): v is string => !!v)) filter.excludeCardNames = [...new Set(cards)]
+    else filter.excludeTexts = excluirLista.valores
+    recognized.push(`sem ${excluirLista.valores.join(', ')}`)
+  } else if (excluir) {
     rest.consome(excluir.matched)
     const cartao = cartoesCitados(state, excluir.valor)[0]
     const cat = cartao ? undefined : resolverCategoria(state, excluir.valor, tipoAlvo)
@@ -808,7 +855,14 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   }
 
   const origem = extrairOrigem(rest.texto)
-  if (origem) {
+  const origens = [...rest.texto.matchAll(new RegExp(String.raw`\b(?:d?[ao]s?\s+)?((?:${ORIGEM_NOUNS})\s+[\w\d]+)`, 'gi'))]
+    .map(m => ({ valor: m[1], matched: m[0] }))
+    .filter((v, i, a) => a.findIndex(x => normalizeName(x.valor) === normalizeName(v.valor)) === i)
+  if (origens.length > 1) {
+    for (const o of origens) rest.consome(o.matched)
+    group = 'origin'
+    recognized.push(`origens ${origens.map(o => o.valor).join(', ')}`)
+  } else if (origem) {
     rest.consome(origem.matched)
     filter.origin = origem.valor
     recognized.push(`origem ${origem.valor}`)
@@ -870,9 +924,20 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
 
   // O alvo é o ÚLTIMO: ele lê o que sobrou depois de todo o resto ter tirado
   // a sua parte.
+  const categorias = categoriasCitadas(state, rest.texto, tipoAlvo)
+  if (categorias.length > 1) {
+    filter.categories = categorias.map(c => c.id)
+    for (const c of categorias) rest.consome(c.matched)
+    const separadas = /\bou\b|\bseparad[oa]s?\b|\bqual\b[^?]*\b(?:mais|menos|maior|menor)\b/.test(t0)
+    if (separadas) {
+      group = 'category'
+      if (!metrica.valor.order) metrica.valor.order = 'value-desc'
+    }
+    recognized.push(`categorias ${categorias.map(c => c.id).join(', ')}`)
+  }
   const alvo = extrairAlvo(rest.texto)
   let fallbackCategory: string | undefined
-  let incompleto: string | undefined
+  let incompleto: string | undefined = periodoVago ? 'últimos meses — quantos meses?' : undefined
   // "No CARTÃO nubank": com o cartão já reconhecido, a palavra repete o que foi
   // lido e não filtra nada. Virava texto de busca "cartao", e o app mandava
   // cadastrar um cartão que existe.
@@ -998,7 +1063,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   }
 
   const confidence: PlannedQuery['confidence'] =
-    (periodoExplicito || !!comparePeriod || group !== 'none' || !!excluir
+    (periodoExplicito || !!comparePeriod || group !== 'none' || !!excluir || !!excluirLista
       || metric === 'share' || metric === 'median'
       || source === 'plans' || source === 'projections' || source === 'goals'
       || !!filter.weekdays || !!filter.monthHalf || !!filter.origin)
@@ -1007,6 +1072,16 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   return {
     plan, confidence, recognized, fallbackCategory,
     beyondLegacy: alemDoAntigo(plan, !!lido),
+    ...(periodoVago ? {
+      clarification: {
+        question: 'Quando você diz “últimos meses”, quer olhar quantos meses?',
+        options: [
+          { label: '3 meses', value: '3 meses' },
+          { label: '6 meses', value: '6 meses' },
+          { label: '12 meses', value: '12 meses' },
+        ],
+      },
+    } : {}),
     ...(incompleto ? { incompleto } : {}),
   }
 }
@@ -1057,7 +1132,7 @@ function alemDoAntigo(plan: AssistantQueryPlan, periodoDito: boolean): boolean {
   if (plan.comparePeriod) return true
   if (GRUPOS_NOVOS.has(plan.group)) return true
   const f = plan.filter
-  if (f.excludeCategories?.length || f.excludeText || f.excludeCardNames?.length) return true
+  if (f.excludeCategories?.length || f.excludeText || f.excludeTexts?.length || f.excludeCardNames?.length) return true
   if (f.weekdays?.length || f.monthHalf || f.origin) return true
   if (plan.metric === 'share' || plan.metric === 'median') return true
   if (plan.source === 'plans' || plan.source === 'projections') return true

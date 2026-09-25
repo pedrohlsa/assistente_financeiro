@@ -267,6 +267,8 @@ function passa(row: QueryRow, plan: AssistantQueryPlan, state: AppState): boolea
     if (!(contem(row.label, f.text) || contem(row.origin, f.text) || contem(row.cardName, f.text))) return false
   }
   if (f.excludeText && (contem(row.label, f.excludeText) || contem(row.origin, f.excludeText))) return false
+  if (f.excludeTexts?.some(x => contem(row.label, x) || contem(row.origin, x)
+    || contem(row.cardName, x) || contem(row.platform, x))) return false
   if (f.origin && !contem(row.origin, f.origin)) return false
   if (f.platform && normalizeName(row.platform || '') !== normalizeName(f.platform)
     && !contem(row.label, f.platform)) return false

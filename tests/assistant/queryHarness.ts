@@ -30,6 +30,14 @@ export function runQueryCase(c: QueryCase): QueryResult {
   if (!planned) {
     return { id: c.id, group: c.group, ok: false, errors: ['nenhum plano foi montado'] }
   }
+  if (c.expectIncomplete) {
+    const got = planned.incompleto || ''
+    if (!casa(got, c.expectIncomplete)) errors.push(`incompleto "${got}" não contém ${c.expectIncomplete}`)
+    return { id: c.id, group: c.group, ok: !errors.length, errors }
+  }
+  if (planned.incompleto) {
+    return { id: c.id, group: c.group, ok: false, errors: [`plano incompleto: ${planned.incompleto}`] }
+  }
   if (c.expectBeyondLegacy !== undefined && !!planned.beyondLegacy !== c.expectBeyondLegacy) {
     errors.push(`beyondLegacy ${!!planned.beyondLegacy} ≠ ${c.expectBeyondLegacy}`)
   }

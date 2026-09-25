@@ -89,6 +89,15 @@ export function answerConversation(
 
   // ---- 3) consulta -------------------------------------------------------
   const planned = planQuery(state, message, { today: hoje })
+  if (planned?.clarification) {
+    return {
+      reply: planned.clarification.question,
+      kind: 'clarify',
+      clarification: planned.clarification,
+      focus: focus || { updatedAt: agora },
+      confidence: 'high',
+    }
+  }
   // Plano INCOMPLETO não é executado: o número que sairia dele responderia uma
   // pergunta que o usuário não fez. O foco não muda.
   if (planned?.incompleto) {
