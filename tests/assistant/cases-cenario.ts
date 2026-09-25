@@ -214,6 +214,20 @@ export const SCENARIO_CASES: ScenarioCase[] = [
     ],
     expectReply: [/obra/i, /alimenta/i, /metade/i, /nada foi registrado/i],
   },
+  { id: 'c-76', group: 'tempo-cenario', state: autonomo, messages: ['por 3 meses'], expectNoPlan: true },
+  { id: 'c-77', group: 'tempo-cenario', state: autonomo, messages: ['por 3 semanas'], expectNoPlan: true },
+  { id: 'c-78', group: 'tempo-cenario', state: autonomo, messages: ['daqui a 3 meses'], expectNoPlan: true },
+  { id: 'c-79', group: 'tempo-cenario', state: autonomo, messages: ['durante 12 semanas'], expectNoPlan: true },
+  {
+    id: 'c-80', group: 'tempo-cenario', state: autonomo,
+    messages: ['se eu guardar R$ 300 por mês durante 3 meses'],
+    expectKind: 'save', expectPlan: { amount: 300, months: 3 },
+  },
+  {
+    id: 'c-81', group: 'tempo-cenario', state: motorista,
+    messages: ['se eu trabalhar mais 2 horas por dia por 3 semanas quanto faria'],
+    expectKind: 'extra-work', expectPlan: { hoursPerDay: 2, days: 21 },
+  },
 
   // ----- não é cenário -----------------------------------------------------
   { id: 'c-60', group: 'naocenario', state: autonomo, messages: ['gastei 50 no mercado'], expectNoPlan: true },

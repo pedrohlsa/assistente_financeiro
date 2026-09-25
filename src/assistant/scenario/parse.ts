@@ -123,6 +123,11 @@ function origemDe(t: string): string | undefined {
  */
 const MESES_NOME = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
 function horizonte(t: string, hoje: string): number {
+  const duracao = t.match(/\b(?:durante|por)\s+(\d{1,2})\s+(mes(?:es)?|semanas?)\b/)
+  if (duracao) {
+    const n = Number(duracao[1])
+    return /^semana/.test(duracao[2]) ? Math.max(1, Math.ceil(n * 7 / 30)) : Math.min(Math.max(n, 1), 12)
+  }
   const m = t.match(new RegExp(String.raw`\bate\s+(${MESES_NOME.join('|')})\b`))
   if (!m) return 6
   const alvo = MESES_NOME.indexOf(m[1])
@@ -154,8 +159,10 @@ function planSingleScenario(
       || t.match(new RegExp(String.raw`\b(?:trabalhar|ficar|rodar|fazer)\s+(?:mais\s+)?${NUM}\s*(?:h|horas?)\b`))
     if (horas) {
       const porDia = /\bpor\s+dia\b|\bdiari|\bcada\s+dia\b|\btodo\s+dia\b/.test(t)
+      const duracao = t.match(/\b(?:durante|por)\s+(\d{1,2})\s+(dias?|semanas?|mes(?:es)?)\b/)
       const dias = porDia
-        ? (/\bsemana\s+toda\b|\btoda\s+a\s+semana\b/.test(t) ? 7
+        ? (duracao ? Number(duracao[1]) * (/^semana/.test(duracao[2]) ? 7 : /^mes/.test(duracao[2]) ? 30 : 1)
+          : /\bsemana\s+toda\b|\btoda\s+a\s+semana\b/.test(t) ? 7
           : /\bdias?\s+uteis\b/.test(t) ? 5 : 30)
         : 1
       return base('extra-work', { hoursPerDay: parseMoney(horas[1]), days: dias },
@@ -231,7 +238,7 @@ function planSingleScenario(
     if (Number.isFinite(valor) && valor > 0) {
       const meta = (state.goals || []).find(g => !g.done && normalizeName(g.name).length > 2
         && t.includes(normalizeName(g.name).split(' ')[0]))
-      return base('save', { amount: valor, goalName: meta?.name }, `guardar ${valor} por mês`)
+      return base('save', { amount: valor, goalName: meta?.name, months: horizonte(t, opts.today || todayISO()) }, `guardar ${valor} por mês`)
     }
   }
 
