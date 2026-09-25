@@ -7,8 +7,8 @@ const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLo
 
 export const looksLikeChangeQuestion = (message: string): boolean => {
   const t = semAcento(message)
-  return /\bpor\s*que\b[^?]*(?:sobrou|sobra|gastei|gasto|saldo|resultado)/.test(t)
-    || /\bo\s+que\s+mudou\b|\bonde\s+aumentou\b|\bo\s+que\s+mais\s+pesou\b[^?]*\borcamento\b/.test(t)
+  return /\b(?:por\s*que|pq)\b[^?]*(?:sobrou|sobra|gastei|gasto|saldo|resultado)/.test(t)
+    || /\b(?:o\s+que|oq)\s+mudou\b|\bonde\s+aumentou\b|\bo\s+que\s+(?:mais\s+)?pesou\b[^?]*\borcamento\b/.test(t)
     || /\b(?:saldo|resultado)\s+(?:caiu|diminuiu|piorou)\b/.test(t)
 }
 

@@ -17,6 +17,7 @@
 import type { AppState, ParsedAction } from '../../src/models/types'
 import { orchestrate } from '../../src/assistant/orchestrator'
 import { buildState, TODAY } from './harness'
+import { looksLikeChangeQuestion } from '../../src/assistant/drivers'
 
 /** PRNG determinístico (mulberry32). Mesma semente, mesma série. */
 export function rng(seed: number): () => number {
@@ -287,6 +288,20 @@ export async function runMetamorphic(repeticoes = 20, seed = 20260824): Promise<
       }
       }
     }
+  }
+
+  // As variações analíticas não são todas sinônimas. As seis primeiras pedem
+  // causa/comparação; “pra onde foi” é distribuição; “qual foi o motivo?” só
+  // ganha sentido como follow-up de uma análise anterior.
+  const analiticas: [string, boolean][] = [
+    ['por que gastei mais?', true], ['pq gastei mais?', true],
+    ['onde aumentou?', true], ['oq mudou?', true], ['o que pesou no meu orçamento?', true],
+    ['por que sobrou menos?', true], ['pra onde foi a grana?', false], ['qual foi o motivo?', false],
+  ]
+  for (const [frase, esperado] of analiticas) {
+    preservadas++
+    const got = looksLikeChangeQuestion(frase)
+    if (got !== esperado) falhas.push(`[drivers] classificação de "${frase}" = ${got} ≠ ${esperado}`)
   }
 
   return { preservadas, mudadas, falhas }

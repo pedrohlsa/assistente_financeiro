@@ -134,4 +134,16 @@ export const CONVERSA_CASES: ConversaCase[] = [
       { msg: 'quanto falta pra viagem', expectKind: 'query', expectReply: [/Viagem/, /1\.200,00/], forbidReply: [/parcelamento/i] },
     ],
   },
+  {
+    id: 'k-14', group: 'continuidade', state: autonomoAgora,
+    turnos: [
+      { msg: 'quanto gastei em obra esse mês?', expectKind: 'query' },
+      { msg: 'e mês passado?', expectKind: 'query' },
+      { msg: 'onde?', expectKind: 'query', expectReply: [/cimento|areia|tijolo|ferro|telha/i] },
+      { msg: 'sem a casa 1?', expectKind: 'query', forbidReply: [/n[ãa]o tenho nenhum lan[çc]amento/i] },
+      { msg: 'e se eu parar a obra?', expectKind: 'scenario', expectReply: [/simula[çc][ãa]o/i, /obra/i] },
+      { msg: 'e guardar metade disso?', expectKind: 'scenario', expectReply: [/metade/i, /2 mudan[çc]as/i, /nada foi registrado/i] },
+      { msg: 'isso ainda cabe no mês?', expectKind: 'scenario', expectReply: [/metade/i] },
+    ],
+  },
 ]

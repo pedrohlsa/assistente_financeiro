@@ -279,6 +279,7 @@ function semSobra(r: Extract<FollowUp, { kind: 'query' }>, base: AssistantQueryP
   const f = r.planned.plan.filter
   for (const campo of ['text', 'excludeText'] as const) {
     const novo = f[campo]
+    if (campo === 'excludeText' && novo && ehNomeDeOrigem(novo)) continue
     if (novo && novo !== base.filter[campo] && ehResiduo(novo)) return { kind: 'incomplete', residuo: novo }
   }
   return r
@@ -305,6 +306,16 @@ function refinaCenario(focus: ConversationFocus, t: string): AssistantScenarioPl
     return { ...base }
   }
   if (/^isso\s+(?:ainda\s+)?cabe\s+(?:n[oa]\s+)?mes/.test(t)) return { ...base }
+
+  if (/^e\s+(?:se\s+)?(?:eu\s+)?guardar\s+(?:a\s+)?metade\s+(?:disso|do\s+que\s+sobrar)/.test(t)) {
+    const share: AssistantScenarioPlan = {
+      version: base.version, kind: 'save-share', ratio: 0.5,
+      months: base.months, label: 'guardar metade do que sobrar',
+    }
+    return base.kind === 'compound'
+      ? { ...base, steps: [...(base.steps || []), share], label: `cenário com ${(base.steps?.length || 0) + 1} mudanças` }
+      : { version: base.version, kind: 'compound', steps: [base, share], months: base.months, label: 'cenário com 2 mudanças' }
+  }
 
   if (/^volta\b/.test(t)) {
     // Sem cenário anterior, devolver o ATUAL é melhor que o texto genérico de
@@ -464,9 +475,11 @@ function refinaConsulta(
     // morta — a resposta sai idêntica e parece que o app ignorou o pedido.
     const alvo = excluir[1].trim().replace(/\s+d[aeo]s?\s+\S+$/, '').trim()
     const cartao = achaCartao(state, alvo)
-    const cat = cartao ? undefined : achaCategoria(state, alvo)
+    const origem = ehNomeDeOrigem(alvo)
+    const cat = cartao || origem ? undefined : achaCategoria(state, alvo)
     const filtro = { ...base.filter }
     if (cartao) filtro.excludeCardNames = [...(filtro.excludeCardNames || []), cartao]
+    else if (origem) filtro.excludeText = alvo
     else if (cat) filtro.excludeCategories = [...(filtro.excludeCategories || []), cat]
     else filtro.excludeText = alvo
     // Excluir o que estava incluído seria pedir um conjunto vazio: o usuário
