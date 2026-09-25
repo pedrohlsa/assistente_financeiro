@@ -8,6 +8,7 @@ import type { AppState, Transaction } from '../../models/types'
 import { currentMonthToDate, previousPeriod } from '../query/period'
 import type { AssistantFact } from '../query/types'
 import type { ChangeAnalysis, ChangeDriver, StructuralChange } from './types'
+import { median } from '../statistics'
 
 const r2 = (v: number) => Math.round(v * 100) / 100
 let seq = 0
@@ -79,8 +80,8 @@ export function analyzeChanges(state: AppState, today: string): ChangeAnalysis {
       structural.push({ kind: 'installment-end', label: plan.description, amount: ultima.amount, date: ultima.dueDate })
     }
   }
-  const despesas = now.filter(t => t.type === 'expense').map(t => t.amount).sort((a, b) => a - b)
-  const mediana = despesas.length ? despesas[Math.floor(despesas.length / 2)] : 0
+  const despesas = now.filter(t => t.type === 'expense').map(t => t.amount)
+  const mediana = median(despesas)
   for (const t of now.filter(t => t.type === 'expense' && t.amount >= Math.max(500, mediana * 2.5)).sort((a, b) => b.amount - a.amount).slice(0, 3)) {
     structural.push({ kind: 'extraordinary', label: t.description || nomes.get(t.category) || 'Gasto extraordinário', amount: t.amount, date: t.date })
   }

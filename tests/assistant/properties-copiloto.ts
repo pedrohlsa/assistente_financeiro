@@ -29,6 +29,10 @@ import { ASSISTANT_CONTRACT_VERSION } from '../../src/assistant/contracts'
 import { monthShortLabel, todayISO } from '../../src/utils/format'
 import { monthlyProjections, periodStats } from '../../src/services/calc'
 import { analyzeChanges } from '../../src/assistant/drivers'
+import { applyPreferenceAliases, parsePreferenceCommand, removePreference, updatePreference, upsertPreference } from '../../src/assistant/preferences'
+import { hydrateForTest } from '../../src/store/store'
+import { outOfPatternWarning, withLearnedCategory } from '../../src/assistant/learning'
+import { buildAiContext } from '../../src/services/ai'
 
 export interface PropertyReport { total: number; failures: string[] }
 
@@ -713,6 +717,191 @@ export async function runCopilotProperties(): Promise<PropertyReport> {
         return `${st.settings.profile}: despesa com sinal invertido errado`
       }
     }
+    return null
+  })
+
+  // --- 139. Reserva mensal fecha, não pula mês e nunca fica negativa -----
+  check(r, 'reserva mensal acumula exatamente uma vez por mês', () => {
+    const today = todayISO()
+    const base = autonomoRico(today)
+    const st = { ...base, recurring: [
+      ...base.recurring,
+      { id: 'ord-in', kind: 'income' as const, category: 'salario', name: 'Renda teste', amount: 2000, frequency: 'monthly' as const, dueDay: 5, active: true },
+      { id: 'ord-out', kind: 'expense' as const, category: 'outros-out', name: 'Conta teste', amount: 1000, frequency: 'monthly' as const, dueDay: 10, active: true },
+    ] }
+    const out = runScenario(st, {
+      version: 2, kind: 'compound', months: 4, label: 'teste', steps: [
+        { version: 2, kind: 'cut', category: 'obra', description: 'Obra', months: 4, label: 'cortar obra' },
+        { version: 2, kind: 'save-share', ratio: 0.5, months: 4, label: 'guardar metade' },
+      ],
+    }, today)
+    if (out.months.length !== 4) return `vieram ${out.months.length} meses`
+    const keys = new Set(out.months.map(m => m.monthKey))
+    if (keys.size !== out.months.length) return 'há mês duplicado'
+    if (out.months.some(m => (m.saved || 0) < 0)) return 'reserva negativa'
+    const sum = out.months.reduce((n, m) => n + (m.saved || 0), 0)
+    const accumulated = out.months[out.months.length - 1]?.accumulated || 0
+    if (Math.abs(sum - accumulated) > 0.01) return `${sum} != ${accumulated}`
+    return null
+  })
+
+  check(r, 'reserva segue início e fim das recorrências no calendário', () => {
+    const today = todayISO()
+    const d = new Date(`${today}T12:00:00`)
+    const thisMonthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0)
+    const endDate = `${thisMonthEnd.getFullYear()}-${String(thisMonthEnd.getMonth() + 1).padStart(2, '0')}-${String(thisMonthEnd.getDate()).padStart(2, '0')}`
+    const st = { ...autonomoRico(today), installments: [], installmentPlans: [], cardCharges: [], recurring: [
+      { id: 'calendar-in', kind: 'income' as const, category: 'salario', name: 'Renda', amount: 1000, frequency: 'monthly' as const, dueDay: 5, active: true },
+      { id: 'calendar-out', kind: 'expense' as const, category: 'outros-out', name: 'Conta que termina', amount: 200, frequency: 'monthly' as const, dueDay: 10, endDate, active: true },
+    ] }
+    const out = runScenario(st, { version: 2, kind: 'save-share', ratio: 0.5, months: 3, label: 'guardar metade' }, today)
+    const got = out.months.map(m => m.saved)
+    return JSON.stringify(got) === JSON.stringify([400, 500, 500])
+      && out.months[2].accumulated === 1400 ? null : `meses=${JSON.stringify(got)}, total=${out.months[2]?.accumulated}`
+  })
+
+  check(r, 'déficit previsto nunca gera depósito negativo', () => {
+    const today = todayISO()
+    const st = { ...autonomoRico(today), installments: [], installmentPlans: [], cardCharges: [], recurring: [
+      { id: 'negative-out', kind: 'expense' as const, category: 'outros-out', name: 'Conta', amount: 200, frequency: 'monthly' as const, dueDay: 10, active: true },
+    ] }
+    const out = runScenario(st, { version: 2, kind: 'save-share', ratio: 1, months: 2, label: 'guardar tudo' }, today)
+    return out.months.every(m => m.saved === 0 && m.accumulated === 0) ? null : 'criou depósito em mês deficitário'
+  })
+
+  check(r, 'corte de recorrente entra uma vez e respeita fim cadastrado', () => {
+    const today = todayISO()
+    const d = new Date(`${today}T12:00:00`)
+    const endDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-28`
+    const st = { ...autonomoRico(today), transactions: [], installments: [], installmentPlans: [], cardCharges: [], recurring: [
+      { id: 'salary', kind: 'income' as const, category: 'salario', name: 'Renda', amount: 1000, frequency: 'monthly' as const, dueDay: 5, active: true },
+      { id: 'bill', kind: 'expense' as const, category: 'obra', name: 'Obra', amount: 200, frequency: 'monthly' as const, dueDay: 10, endDate, active: true },
+    ] }
+    const out = runScenario(st, { version: 2, kind: 'compound', months: 2, label: 'teste', steps: [
+      { version: 2, kind: 'cut', category: 'obra', label: 'parar obra' },
+      { version: 2, kind: 'save-share', ratio: 0.5, label: 'guardar metade' },
+    ] }, today)
+    return JSON.stringify(out.months.map(m => m.saved)) === JSON.stringify([500, 500])
+      ? null : `corte duplicou/ignorou: ${JSON.stringify(out.months.map(m => m.saved))}`
+  })
+
+  // --- 140. A ordem oficial é a ordem declarada -------------------------
+  check(r, 'cenário composto respeita ordem não comutativa', () => {
+    const today = todayISO()
+    const base = autonomoRico(today)
+    const st = { ...base, recurring: [
+      { id: 'ord-in', kind: 'income' as const, category: 'salario', name: 'Renda teste', amount: 2000, frequency: 'monthly' as const, dueDay: 5, active: true },
+      { id: 'ord-out', kind: 'expense' as const, category: 'outros-out', name: 'Conta teste', amount: 1000, frequency: 'monthly' as const, dueDay: 10, active: true },
+    ] }
+    const cut = { version: 2 as const, kind: 'cut' as const, category: 'obra', description: 'Obra', months: 2, label: 'cortar' }
+    const share = { version: 2 as const, kind: 'save-share' as const, ratio: 0.5, months: 2, label: 'guardar' }
+    const a = runScenario(st, { version: 2, kind: 'compound', label: 'a', months: 2, steps: [cut, share] }, today)
+    const b = runScenario(st, { version: 2, kind: 'compound', label: 'b', months: 2, steps: [share, cut] }, today)
+    const sa = a.months.reduce((n, m) => n + (m.saved || 0), 0)
+    const sb = b.months.reduce((n, m) => n + (m.saved || 0), 0)
+    return sa > sb ? null : `ordem não alterou a base da reserva (${sa} vs ${sb})`
+  })
+
+  // --- 141. Preferência explícita é estruturada, local e reversível ------
+  check(r, 'preferência explícita tem CRUD e não reescreve histórico', () => {
+    const st = autonomoRico(HOJE_Q)
+    const before = JSON.stringify(st.transactions)
+    const cmd = parsePreferenceCommand(st, 'quando eu falar gasosa é gasolina', '2026-08-15T12:00:00.000Z')
+    if (cmd?.mutation?.type !== 'upsert') return 'comando não gerou preferência estruturada'
+    const prefs = upsertPreference([], cmd.mutation.preference, cmd.mutation.preference.updatedAt, cmd.mutation.preference.id)
+    const learned = { ...st, assistantPreferences: prefs }
+    if (applyPreferenceAliases(learned, 'gastei 200 de gasosa') !== 'gastei 200 de gasolina') return 'alias não foi aplicado'
+    if (JSON.stringify(st.transactions) !== before) return 'histórico foi reinterpretado'
+    if (removePreference(prefs, prefs[0].id).length) return 'remoção falhou'
+    return null
+  })
+
+  // --- 142. Backup antigo migra vazio e regra monetária é recusada -------
+  check(r, 'preferência migra backup antigo e não pode trocar dinheiro', () => {
+    const old = hydrateForTest({ settings: { profile: 'other' }, transactions: [] })
+    if (old.assistantPreferences?.length) return 'backup antigo não nasceu vazio'
+    const bad = parsePreferenceCommand(old, 'quando eu falar 100 é 1000')
+    if (bad?.mutation) return 'regra monetária virou preferência'
+    if (parsePreferenceCommand(old, 'quando eu falar amanhã é ontem')?.mutation) return 'regra de modalidade virou preferência'
+    if (parsePreferenceCommand(old, 'quando eu falar gastei é recebi')?.mutation) return 'regra de tipo virou preferência'
+    return null
+  })
+
+  check(r, 'preferência editável respeita categoria explícita e backup', () => {
+    const st = autonomoRico(HOJE_Q)
+    const cmd = parsePreferenceCommand(st, 'Mercadinho do João coloca em alimentação')
+    if (cmd?.mutation?.type !== 'upsert') return 'mapeamento de categoria não foi reconhecido'
+    const original = cmd.mutation.preference
+    const edited = updatePreference([original], original.id, { value: 'lazer' }, '2026-08-16T00:00:00.000Z')
+    if (edited[0]?.id !== original.id || edited[0]?.value !== 'lazer' || edited[0]?.createdAt !== original.createdAt) return 'edição perdeu identidade ou data de criação'
+    const restored = hydrateForTest({ ...st, assistantPreferences: [original] })
+    const action = { kind: 'expense' as const, amount: 200, category: 'lazer', description: 'Mercadinho do João' }
+    if ((withLearnedCategory(restored, action, HOJE_Q) as any).category !== 'alimentacao') return 'preferência não ganhou do palpite genérico'
+    if ((withLearnedCategory(restored, action, HOJE_Q, 'gastei 200 no Mercadinho do João em lazer') as any).category !== 'lazer') return 'preferência atropelou escolha explícita no turno'
+    const two = { ...restored, assistantPreferences: [...restored.assistantPreferences!, ...upsertPreference([], { kind: 'alias', trigger: 'gasosa', value: 'gasolina' })] }
+    if (parsePreferenceCommand(two, 'esquece essa preferência')?.mutation) return 'remoção ambígua escolheu uma por conta própria'
+    return null
+  })
+
+  await checkAsync(r, 'preferência exige confirmação e só muda entendimento futuro', async () => {
+    const st = autonomoRico(HOJE_Q)
+    const before = JSON.stringify(st.transactions)
+    const teach = await orchestrate({ state: st, message: 'quando eu falar gasosa é gasolina', today: HOJE_Q, remoteEnabled: false })
+    if (teach.response.actions.length || teach.preferenceMutation?.type !== 'upsert' || st.assistantPreferences?.length) return 'ensino gravou sem confirmação'
+    const saved = { ...st, assistantPreferences: [teach.preferenceMutation.preference] }
+    const spent = await orchestrate({ state: saved, message: 'gastei 200 de gasosa', today: HOJE_Q, remoteEnabled: false })
+    const money = (spent.response.actions as any[]).find(a => a.action.kind === 'expense')?.action
+    if (money?.amount !== 200 || money?.category !== 'combustivel') return `alias não classificou gasolina: ${JSON.stringify(money)}`
+    if (JSON.stringify(saved.transactions) !== before) return 'preferência reescreveu o histórico'
+    const forget = await orchestrate({ state: saved, message: 'esquece essa preferência', today: HOJE_Q, remoteEnabled: false })
+    if (forget.preferenceMutation?.type !== 'remove') return 'remoção não foi proposta'
+    const after = { ...saved, assistantPreferences: [] }
+    const spentAgain = await orchestrate({ state: after, message: 'gastei 200 de gasosa', today: HOJE_Q, remoteEnabled: false })
+    const without = (spentAgain.response.actions as any[]).find(a => a.action.kind === 'expense')?.action
+    if (without?.category === 'combustivel') return 'alias continuou após remoção'
+    return null
+  })
+
+  check(r, 'proposta de preferência antiga não sobrevive ao reload', () => {
+    const st = autonomoRico(HOJE_Q)
+    const cmd = parsePreferenceCommand(st, 'quando eu falar gasosa é gasolina')
+    const saved = hydrateForTest({ ...st, chat: [{ id: 'pref-msg', role: 'assistant', text: 'Confirma?', time: '12:00', preferenceProposal: cmd?.mutation }] })
+    return saved.chat[0]?.preferenceProposal ? 'proposta antiga permaneceu confirmável' : null
+  })
+
+  check(r, 'preferências locais não entram no contexto remoto', () => {
+    const st = autonomoRico(HOJE_Q)
+    st.assistantPreferences = upsertPreference([], { kind: 'alias', trigger: 'canario-local-secreto', value: 'gasolina' })
+    return JSON.stringify(buildAiContext(st, { aggregates: true })).includes('canario-local-secreto')
+      ? 'preferência inteira saiu no contexto remoto' : null
+  })
+
+  // --- 143. Anomalia usa identidade exata, amostra e dispersão ----------
+  check(r, 'anomalia por estabelecimento é conservadora', () => {
+    const today = '2026-08-15'
+    const mk = (amounts: number[], description = 'Posto X') => {
+      const st = autonomoRico(today)
+      st.transactions = amounts.map((amount, i) => ({
+        id: `a-${i}`, type: 'expense' as const, amount, category: 'combustivel',
+        description, date: `2026-08-${String(i + 1).padStart(2, '0')}`, time: '10:00', source: 'manual' as const,
+      }))
+      return st
+    }
+    const stable = mk([85, 90, 92, 88, 95, 91])
+    const warning = outOfPatternWarning(stable, { kind: 'expense', amount: 450, category: 'combustivel', description: 'Posto X' }, today)
+    if (!warning || !/Posto X/i.test(warning)) return `não avisou por estabelecimento: ${warning}`
+    if (outOfPatternWarning(stable, { kind: 'expense', amount: 450, category: 'combustivel', description: 'Shell Shopping' }, today)) return 'agrupou estabelecimento parecido/diferente'
+    if (outOfPatternWarning(mk([85, 90]), { kind: 'expense', amount: 450, category: 'combustivel', description: 'Posto X' }, today)) return 'avisou com duas amostras'
+    if (outOfPatternWarning(mk([20, 50, 100, 180, 350, 700]), { kind: 'expense', amount: 900, category: 'combustivel', description: 'Posto X' }, today)) return 'avisou em série muito dispersa'
+    if (outOfPatternWarning(mk([85, 105, 130, 160, 205, 260]), { kind: 'expense', amount: 450, category: 'combustivel', description: 'Posto X' }, today)) return 'avisou em mudança gradual'
+    const old = mk([85, 90, 92, 88, 95, 91])
+    old.transactions = old.transactions.map(t => ({ ...t, date: '2025-01-01' }))
+    if (outOfPatternWarning(old, { kind: 'expense', amount: 450, category: 'combustivel', description: 'Posto X' }, today)) return 'usou preços antigos como padrão recente'
+    if (outOfPatternWarning(stable, { kind: 'expense', amount: 40, category: 'combustivel', description: 'Posto X' }, today)) return 'acusou valor baixo moderado'
+    const sources = mk([85, 90, 92, 88, 95, 91])
+    sources.transactions = sources.transactions.map(t => ({ ...t, type: 'income', category: 'aluguel', description: 'Aluguel', origin: 'Casa 1' }))
+    const originWarning = outOfPatternWarning(sources, { kind: 'income', amount: 450, category: 'aluguel', description: 'Aluguel', origin: 'Casa 1' }, today)
+    if (!originWarning || !/Casa 1/.test(originWarning)) return `origem foi perdida: ${originWarning}`
     return null
   })
 

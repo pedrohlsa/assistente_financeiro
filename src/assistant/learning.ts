@@ -27,8 +27,9 @@ import type { AppState, ParsedAction } from '../models/types'
 import { preferenceCategoryFor } from './preferences'
 import { usableCategories } from '../data/categories'
 import { fmtBRL, todayISO } from '../utils/format'
-import { adaptiveEnabled, buildPersonalModel } from './personalModel'
+import { adaptiveEnabled, ageInDays, buildPersonalModel } from './personalModel'
 import type { LearnedPattern, MoneyType, PersonalAssistantModel } from './personalModel'
+import { median, medianAbsoluteDeviation } from './statistics'
 import { normalizeName } from '../utils/text'
 
 export { adaptiveEnabled, buildPersonalModel } from './personalModel'
@@ -236,6 +237,29 @@ export { personalSuggestions } from './suggestions'
 /** Quantas vezes acima da mediana já é quase certamente um zero a mais. */
 const FATOR = 6
 
+export function merchantAmountProfile(
+  state: AppState, action: ParsedAction, today = todayISO(),
+): { median: number; sampleSize: number; from: string; to: string; name: string } | undefined {
+  if (!isMoney(action.kind)) return undefined
+  const a: any = action
+  const field = a.origin ? 'origin' : a.description ? 'description' : undefined
+  const name = field ? String(a[field] || '').trim() : ''
+  if (!field || normalizeName(name).length < 2 || !a.category) return undefined
+  const rows = (state.transactions || [])
+    .filter(t => t?.type === action.kind && t.category === a.category
+      && t.date <= today && ageInDays(t.date, today) >= 0 && ageInDays(t.date, today) <= 120
+      && Number.isFinite(t.amount) && t.amount > 0
+      && normalizeName(String((t as any)[field] || '')) === normalizeName(name))
+    .sort((x, y) => y.date.localeCompare(x.date))
+    .slice(0, 60)
+  if (rows.length < 6) return undefined
+  const values = rows.map(t => t.amount)
+  const center = median(values)
+  const mad = medianAbsoluteDeviation(values, center)
+  if (!(center > 0) || mad > center * 0.25) return undefined
+  return { median: center, sampleSize: rows.length, from: rows[rows.length - 1].date, to: rows[0].date, name }
+}
+
 /**
  * Aviso quando o valor está muito fora do que o usuário costuma lançar.
  *
@@ -256,6 +280,17 @@ export function outOfPatternWarning(
   const a: any = action
   const valor = Number(a.amount)
   if (!(valor > 0) || !a.category) return undefined
+
+  // Identidade exata, no mesmo tipo e categoria. Sem seis ocorrências recentes
+  // e estáveis, um lugar novo ou de preço variável não gera alerta.
+  const name = String(a.description || a.origin || '').trim()
+  if (name) {
+    const p = merchantAmountProfile(state, action, today)
+    if (p && valor >= p.median * 4) {
+      return `Esse valor está bem acima do seu padrão recente em ${p.name}. Confirma ${fmtBRL(valor)}?`
+    }
+    return undefined
+  }
 
   const p = buildPersonalModel(state, today).amountProfile(action.kind, a.category)
   if (!p) return undefined

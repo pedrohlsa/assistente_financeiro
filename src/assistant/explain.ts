@@ -22,7 +22,7 @@ import { fmtBRL } from '../utils/format'
 import { brDate } from './dates'
 import { sentenceCase } from '../utils/text'
 import { adaptiveEnabled, buildPersonalModel } from './personalModel'
-import { categoryDecision } from './learning'
+import { categoryDecision, merchantAmountProfile } from './learning'
 
 /** Minúsculas e sem acento — o usuário digita "por quê", "porque" e "pq". */
 const norm = (s: string) =>
@@ -141,6 +141,16 @@ function respostaCategoria(input: ExplainInput): string {
 function respostaValor(input: ExplainInput): string {
   const { state, today } = input
   const a: any = alvo(input)
+  const merchant = a && adaptiveEnabled(state) ? merchantAmountProfile(state, a, today) : undefined
+  if (merchant) {
+    return `Comparei com ${merchant.sampleSize} lançamentos recentes em ${sentenceCase(merchant.name)} `
+      + `(de ${brDate(merchant.from)} a ${brDate(merchant.to)}). O valor habitual fica perto de ${fmtBRL(merchant.median)}. `
+      + 'É só um aviso: se o valor estiver certo, confirme normalmente.'
+  }
+  if (a?.description || a?.origin) {
+    return `Ainda não tenho seis lançamentos recentes e consistentes em ${sentenceCase(a.description || a.origin)} `
+      + 'para comparar esse lugar com segurança. Por isso não aviso só com base no nome.'
+  }
   if (!a?.category) {
     return 'Eu comparo cada lançamento com os seus últimos lançamentos do MESMO tipo e da MESMA categoria — '
       + 'o normal do combustível não diz nada sobre o normal do aluguel. Quando o valor fica muito longe dessa faixa, eu aviso. '
