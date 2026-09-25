@@ -3269,3 +3269,25 @@ O smoke pós-deploy confirmou HTTP 200 no app e o mesmo bundle produzido nos gat
 públicas — chat, proposta, esclarecimento, planner e composição — deram HTTP 200, sem resposta vazia,
 envelope interno no `reply` ou padrão de segredo. Produção agora usa o padrão do código:
 `deepseek-v4-pro` com pensamento desligado. Nenhum APK foi gerado.
+
+#### Intelligence v2 local — 25/09/2026
+
+Branch `feat/assistant-intelligence-v2`, criada de `main`/`origin/main` em `e6f6229`. Auditoria
+prévia reexecutou os onze casos históricos C3/C4/C6/C7/C8: todos ainda tinham falha semântica
+completa; p-34 só havia ganhado roteamento seguro. Implementados: consultas multi-entidade,
+intervalos `desde`/fechados, exclusões com identidade inteira e listas, clarificações específicas,
+cenários compostos, separação de duração e dinheiro, Conversation Focus entre modalidades e o
+motor local `drivers/`, cuja soma de contribuições reconcilia com a variação do resultado.
+
+Personalização e anomalia existentes foram auditadas e preservadas: modelo derivado de histórico
+confirmado e aviso por mediana/amostra, nunca bloqueio. Não foi criada memória livre.
+
+Gates finais offline: 660/660 corpus, 97/97 consulta/cenário/continuidade, 50/50 semânticos,
+4.088 + 3.800 metamórficos, 1.416 fuzz, 138/138 invariantes, 468/468 evaluator, `typecheck`,
+`typecheck:api` e build verdes. Aviso conhecido: chunk principal acima de 500 kB.
+
+Commits de código: `d57d288`, `1e6e384`, `1d65c41`, `7aecb8a`, `3b1797a`, `7729a5c`.
+Documento detalhado: `docs/AI_INTELLIGENCE_V2.md`.
+
+Zero DeepSeek, zero gasto, zero push, zero merge, zero deploy e zero APK. `.claude/launch.json`
+permaneceu como a única modificação local fora dos commits.

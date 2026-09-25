@@ -1,7 +1,8 @@
 # Arquitetura do assistente do AssistFin
 
-Estado **depois** da rodada do copiloto semântico de 25/08/2026 e da revisão do canal remoto
-de 15/09/2026 (branch `feat/assistant-semantic-copilot`).
+Estado **depois** da rodada Intelligence v2 de 25/09/2026
+(branch `feat/assistant-intelligence-v2`). A auditoria e o checkpoint completos estão em
+[AI_INTELLIGENCE_V2.md](AI_INTELLIGENCE_V2.md).
 Contrato do assistente: **versão 1** — deliberadamente NÃO incrementado: nada no
 envelope mudou, e a DSL de consulta tem versão própria (`QUERY_DSL_VERSION = 2`).
 
@@ -99,6 +100,7 @@ store.tsx · action única `assistantBatch`
 | `src/assistant/query/answer.ts` | Composição determinística — lidera com a resposta, não com o cálculo |
 | `src/assistant/scenario/` | "E se?" sobre CÓPIA projetada do estado, reusando as funções de cartão e projeção |
 | `src/assistant/conversation/focus.ts` | Foco em memória e refino de plano no follow-up |
+| `src/assistant/drivers/` | Explica mudanças financeiras por fatores reconciliados, local e read-only |
 | `src/assistant/semantic/turn.ts` | Blocos do turno (`record`/`query`/`scenario`/…) — a guarda que impede o lançamento de sumir |
 | `src/assistant/semantic/evidence.ts` | Evidência por CAMPO, com posto: o usuário ganha do parser, que ganha do histórico, que ganha do remoto |
 | `src/assistant/semantic/normalize.ts` | Typo conservador (dicionário fechado), muleta de conversa, "4k", teto de tamanho |

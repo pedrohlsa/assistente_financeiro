@@ -337,6 +337,11 @@ representação; a correção esperada as mantém NO APARELHO, e o conjunto remo
 caso — cada uma sendo marcada como incompleta em vez de lida — o planejador iria de 23 a 29 frases e
 o cenário de 3 a 8; o chat (44, 63% do conjunto) não é tocado por nenhuma delas.
 
+> **Atualização de 25/09/2026:** esta lista é histórica. A rodada
+> [Intelligence v2](AI_INTELLIGENCE_V2.md) reexecutou os onze casos e fechou localmente
+> C3/C4/C6/C7/C8. O s-13 agora recusa a leitura errada em vez de transformar duração em dinheiro;
+> suas duas transformações continuam não representadas e são dívida explícita.
+
 **Corrigidas em 15/09/2026:**
 
 | Frase | Antes | Agora |
