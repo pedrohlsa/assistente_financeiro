@@ -81,8 +81,8 @@ export function parsePreferenceCommand(state: AppState, text: string, now = new 
   let kind: AssistantPreference['kind'] = 'alias'
   let trigger = ''
   let value = ''
-  let m = raw.match(/^quando eu falar\s+(.+?)\s+(?:quero dizer|significa|[ée])\s+(.+?)\s*[.!?]?$/i)
-  if (m) { trigger = m[1]; value = m[2] }
+  let m = raw.match(/^quando eu falar\s+(.+?)\s+(quero dizer|significa|considera|considere|[ée])\s+(.+?)\s*[.!?]?$/i)
+  if (m) { kind = /^(?:considera|considere)$/i.test(m[2]) ? 'terminology' : 'alias'; trigger = m[1]; value = m[3] }
   if (!m) {
     m = raw.match(/^(.+?)\s+[ée]\s+minha\s+(casa\s+\d+)\s*[.!?]?$/i)
     if (m) { kind = 'entity-alias'; trigger = m[1]; value = m[2] }

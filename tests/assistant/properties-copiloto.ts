@@ -824,6 +824,8 @@ export async function runCopilotProperties(): Promise<PropertyReport> {
     if (bad?.mutation) return 'regra monetária virou preferência'
     if (parsePreferenceCommand(old, 'quando eu falar amanhã é ontem')?.mutation) return 'regra de modalidade virou preferência'
     if (parsePreferenceCommand(old, 'quando eu falar gastei é recebi')?.mutation) return 'regra de tipo virou preferência'
+    const terminology = parsePreferenceCommand(old, 'quando eu falar trabalho considera freelance')
+    if (terminology?.mutation?.type !== 'upsert' || terminology.mutation.preference.kind !== 'terminology') return 'terminologia explícita não foi reconhecida'
     return null
   })
 
