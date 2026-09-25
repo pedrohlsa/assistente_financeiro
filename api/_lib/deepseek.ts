@@ -9,7 +9,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-export const DEEPSEEK_DEFAULT_MODEL = 'deepseek-v4-flash'
+export const DEEPSEEK_DEFAULT_MODEL = 'deepseek-v4-pro'
 export const DEEPSEEK_DEFAULT_BASE_URL = 'https://api.deepseek.com'
 export const DEEPSEEK_DEFAULT_TIMEOUT_MS = 20000
 
@@ -166,6 +166,7 @@ export async function callDeepSeekChat(
             : messages,
           temperature: extraNudge ? 0 : 0.2,
           max_tokens: 900,
+          thinking: { type: 'disabled' },
         }),
         signal: controller.signal,
       })

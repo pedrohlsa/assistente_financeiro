@@ -3240,3 +3240,27 @@ Hardening sem chamada paga, para defeitos que os dois modelos tinham: plano remo
 negação, retratação ou recorrência explícitos (`08b8d2a`, invariante 126); a resposta nunca afirma
 execução de ação pendente, e "Registrado!" só depois do lote gravado (`e4a247d`, invariantes 127–128).
 Detalhe em `docs/AI_REMOTE_EVAL.md` §16.
+
+#### Troca mínima preparada e smoke pré-deploy — 25/09/2026
+
+Produção candidata alterada para a configuração escolhida no §16: padrão `deepseek-v4-pro` e
+`thinking: { type: 'disabled' }` em todas as tentativas, inclusive no reenvio. Prompt, retry,
+`max_tokens: 900`, temperaturas 0,2/0, timeout, parsers, Query DSL, Scenario Engine e evaluator não
+mudaram. `.env.example` e `CLAUDE.md` agora documentam o mesmo padrão.
+
+A invariante 129 usa `fetch` falso, força o reenvio e prova: modelo v4-pro, pensamento desligado nas
+duas tentativas, temperaturas preservadas, `max_tokens` preservado e chave somente no header
+server-side. Baseline local: 660/660 casos, 75/75 goldens, 40/40 semânticos, 4.080 + 3.800
+metamórficos, 1.416 fuzz, **137/137 invariantes**, 468/468 evaluator, `typecheck`, `typecheck:api`,
+build e `vercel build --prod` verdes. Varredura de 31 artefatos em `dist/` e `.vercel/output`: zero
+padrão de chave e zero ocorrência da chave real do `.env`.
+
+Pré-voo remoto: `/models` confirmou `deepseek-v4-pro`; saldo antes e depois apareceu como US$ 1,75.
+Smoke limitado a cinco chamadas sintéticas pela pipeline compartilhada: chat, proposta,
+esclarecimento, planner e composição deram HTTP 200, sem resposta vazia, envelope interno no `reply`
+ou padrão de segredo. Nenhum benchmark foi reaberto.
+
+**Pendente para o deploy:** a Vercel possui, segundo o registro anterior deste arquivo, um override
+Production `DEEPSEEK_MODEL=deepseek-v4-flash`. Ele deve ser removido imediatamente antes do deploy,
+para o código testado ser a fonte única do modelo. A produção pública continua antiga até merge,
+push e deploy. APK continua proibido nesta etapa.

@@ -27,6 +27,7 @@ import { isQueryFailure, validateQueryPlan } from '../../src/assistant/query/val
 import { isEnvelopeFailure, validateRemoteEnvelope } from '../../src/assistant/contracts'
 import { alegacaoFalsa } from './eval/score'
 import { mensagemDaExecucao } from '../../src/assistant/claims'
+import { callDeepSeekChat, DEEPSEEK_DEFAULT_MODEL, getDeepSeekConfig, isDeepSeekFailure } from '../../api/_lib/deepseek'
 
 export interface PropertyReport { total: number; failures: string[] }
 
@@ -582,6 +583,61 @@ export async function runRemoteProperties(): Promise<PropertyReport> {
     if (alegacaoFalsa(falhou) || /registrado/i.test(falhou)) return `falha descrita como sucesso: "${falhou}"`
     if (!falhou.includes(falhas[0].message)) return 'a falha não diz o que travou'
     return null
+  })
+
+  // --- 129. Produção usa exatamente a configuração B medida ---------------
+  // O benchmark escolheu v4-pro sem pensamento. O teste usa fetch falso e
+  // força o reenvio para provar que as duas tentativas mantêm essa configuração
+  // sem alterar temperatura, limite de saída ou o contrato de autenticação.
+  await checkAsync(r, 'configuração padrão usa v4-pro sem pensamento nas duas tentativas', async () => {
+    const modeloAnterior = process.env.DEEPSEEK_MODEL
+    const fetchAnterior = globalThis.fetch
+    const chaveFalsa = 'CHAVE_FALSA_SOMENTE_TESTE'
+    const corpos: any[] = []
+    const autorizacoes: string[] = []
+    try {
+      delete process.env.DEEPSEEK_MODEL
+      const padrao = getDeepSeekConfig()
+      if (DEEPSEEK_DEFAULT_MODEL !== 'deepseek-v4-pro' || padrao.model !== 'deepseek-v4-pro') {
+        return `modelo padrão inesperado: constante=${DEEPSEEK_DEFAULT_MODEL}, config=${padrao.model}`
+      }
+
+      globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+        corpos.push(JSON.parse(String(init?.body || '{}')))
+        autorizacoes.push(String((init?.headers as Record<string, string> | undefined)?.authorization || ''))
+        const content = corpos.length === 1
+          ? ''
+          : JSON.stringify({ version: 1, mode: 'answer', reply: 'Tudo certo.', actions: [] })
+        return {
+          ok: true,
+          json: async () => ({ choices: [{ message: { content } }] }),
+        } as Response
+      }) as typeof fetch
+
+      const out = await callDeepSeekChat({
+        apiKey: chaveFalsa,
+        model: padrao.model,
+        baseUrl: 'https://example.invalid',
+        timeoutMs: 1000,
+      }, [{ role: 'user', content: 'teste determinístico' }])
+
+      if (isDeepSeekFailure(out)) return `chamada falsa falhou: ${out.code}`
+      if (corpos.length !== 2) return `reenvio não exercitado: ${corpos.length} tentativa(s)`
+      for (const [i, corpo] of corpos.entries()) {
+        if (corpo.model !== 'deepseek-v4-pro') return `tentativa ${i + 1} usou ${corpo.model}`
+        if (corpo.thinking?.type !== 'disabled') return `tentativa ${i + 1} não desligou thinking`
+        if (corpo.max_tokens !== 900) return `tentativa ${i + 1} mudou max_tokens para ${corpo.max_tokens}`
+        const temperaturaEsperada = i === 0 ? 0.2 : 0
+        if (corpo.temperature !== temperaturaEsperada) return `tentativa ${i + 1} mudou temperature para ${corpo.temperature}`
+        if (JSON.stringify(corpo).includes(chaveFalsa)) return `tentativa ${i + 1} colocou a chave no corpo`
+        if (autorizacoes[i] !== `Bearer ${chaveFalsa}`) return `tentativa ${i + 1} perdeu autenticação server-only`
+      }
+      return null
+    } finally {
+      globalThis.fetch = fetchAnterior
+      if (modeloAnterior === undefined) delete process.env.DEEPSEEK_MODEL
+      else process.env.DEEPSEEK_MODEL = modeloAnterior
+    }
   })
 
   return r

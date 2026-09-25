@@ -340,7 +340,7 @@ código consulta essas funções em vez de comparar `profile === 'driver'` inlin
     e só se `settings.remoteAi !== false`. Dois endpoints expõem a mesma lógica, ambos rodando em
     Node e importando o mesmo módulo server-only `api/_lib/deepseek.ts` (config + chamada HTTP
     centralizadas — modelo, base URL, timeout e chave só existem ali, com fallback seguro pra
-    `deepseek-v4-flash`):
+    `deepseek-v4-pro` e pensamento explicitamente desligado):
     - `vite.config.ts` (middleware do dev server, plugin `aiProxy()`) — usado em `npm run dev`.
     - `api/ai/chat.ts` (Vercel Serverless Function) — usado em produção/APK, chamado via
       `VITE_AI_API_URL` (`.env.production`, hoje `https://assist-fin.vercel.app/api/ai/chat`).
@@ -351,7 +351,7 @@ código consulta essas funções em vez de comparar `profile === 'driver'` inlin
       contexto MÍNIMO de `buildAiContext()` e a conversa como estrutura — nunca lançamento,
       transcrição, saldo ou nome do usuário (regras 44 e 61).
     - Variáveis de ambiente (server-only, sem prefixo `VITE_`, nunca em `src/**`):
-      `DEEPSEEK_API_KEY` (obrigatória), `DEEPSEEK_MODEL` (opcional, default `deepseek-v4-flash`),
+      `DEEPSEEK_API_KEY` (obrigatória), `DEEPSEEK_MODEL` (opcional, default `deepseek-v4-pro`),
       `DEEPSEEK_BASE_URL` (opcional, default `https://api.deepseek.com`). Ver `.env.example`.
 - **Backend de dados**: nenhum. Sincronização em nuvem é integração pendente.
 
