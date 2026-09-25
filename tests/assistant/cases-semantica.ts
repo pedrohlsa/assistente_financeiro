@@ -83,6 +83,29 @@ export const SEMANTICA_CASES: SemanticaCase[] = [
       expectReply: [/quantos meses/i], expectRemote: false,
     }],
   },
+  ...[
+    'por que sobrou tão pouco esse mês?',
+    'por que gastei mais?',
+    'onde aumentou?',
+    'o que mudou do mês passado pra cá?',
+    'por que meu saldo caiu?',
+    'o que mais pesou no meu orçamento?',
+  ].map((msg, i): SemanticaCase => ({
+    id: `si2-driver-${i + 1}`, group: 'drivers', state: autonomo, today: HOJE,
+    turnos: [{ msg, expectReply: [/receitas:/i, /gastos:/i, /resultado:/i, /a conta fecha/i], expectRemote: false }],
+  })),
+  {
+    id: 'si2-driver-followup', group: 'drivers', state: autonomo, today: HOJE,
+    turnos: [
+      { msg: 'o que mudou do mês passado pra cá?', expectReply: [/a conta fecha/i], expectRemote: false },
+      { msg: 'e o segundo maior?', expectReply: [/segundo maior fator/i], expectRemote: false },
+      { msg: 'como você chegou nisso?', expectReply: [/a conta fecha/i], expectRemote: false },
+    ],
+  },
+  {
+    id: 'si2-multi-clarify', group: 'clareza', state: autonomo, today: HOJE,
+    turnos: [{ msg: 'quanto gastei com alimentação e lazer este mês?', expectReply: [/juntas ou cada uma separada/i], expectRemote: false }],
+  },
   // ===== 1. DISTRIBUIÇÃO ===================================================
   {
     id: 'sd-01', group: 'distribuicao', state: autonomo, today: HOJE,

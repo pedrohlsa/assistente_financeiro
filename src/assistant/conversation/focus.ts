@@ -17,7 +17,7 @@
 //    resolvida por probabilidade — a saída é a mesma do resto do app.
 
 import type { AppState } from '../../models/types'
-import { addDays, fromISO, todayISO, toISO } from '../../utils/format'
+import { addDays, fmtBRL, fromISO, todayISO, toISO } from '../../utils/format'
 import { normalizeName } from '../../utils/text'
 import { activeCards } from '../../services/cards'
 import { usableCategories } from '../../data/categories'
@@ -27,6 +27,7 @@ import { ehResiduo, planQuery } from '../query/parse'
 import type { PlannedQuery } from '../query/parse'
 import type { AssistantQueryPlan, AssistantQueryResult, FactUnit, QueryPeriod } from '../query/types'
 import type { AssistantScenarioPlan, AssistantScenarioResult } from '../scenario/types'
+import type { ChangeAnalysis } from '../drivers'
 
 /** Mesmo tempo do rascunho: uma conversa parada 20 minutos acabou. */
 export const FOCUS_TTL_MINUTES = 20
@@ -48,6 +49,11 @@ export interface ScenarioSummary {
   explain: string
 }
 
+export interface DriverSummary {
+  analysis: ChangeAnalysis
+  explain: string
+}
+
 export interface ConversationFocus {
   lastQueryPlan?: AssistantQueryPlan
   lastQuery?: QuerySummary
@@ -63,11 +69,18 @@ export interface ConversationFocus {
   lastScenario?: ScenarioSummary
   /** Pilha curta para "volta pro cenário anterior". */
   scenarioHistory?: AssistantScenarioPlan[]
+  lastDriver?: DriverSummary
   /** O último assunto foi consulta ou cenário? Decide quem o follow-up refina. */
-  last?: 'query' | 'scenario'
+  last?: 'query' | 'scenario' | 'driver'
   /** Entidades citadas — matéria-prima da elipse ("e o outro?"). */
   entities?: { cards?: string[]; categories?: string[]; goals?: string[]; origins?: string[] }
   updatedAt: number
+}
+
+export function rememberDriver(
+  prev: ConversationFocus | undefined, analysis: ChangeAnalysis, explain: string, now = Date.now(),
+): ConversationFocus {
+  return { ...prev, lastDriver: { analysis, explain }, last: 'driver', updatedAt: now }
 }
 
 export const isFocusFresh = (f?: ConversationFocus, now = Date.now()): boolean =>
@@ -160,6 +173,7 @@ const CONTINUACAO = [
   // dinheiro" e uma pergunta nova. So a primeira e continuacao.
   /^de\s+onde\s+(?:voce\s+)?(?:tirou|saiu|veio\s+(?:esse|essa|isso))/,
   /^volta\b/, /^e\s+se\b/, /^mesma\s+coisa\b/,
+  /^e\s+(?:qual\s+foi\s+)?o\s+segundo\b/, /^isso\b/,
   // "Onde?" SOZINHO, logo depois de um total: onde foi parar aquele dinheiro.
   // Só a forma curta — "onde gastei esse mês" é pergunta nova e segue o
   // caminho normal, com o próprio período.
@@ -218,9 +232,19 @@ export function resolveFollowUp(
   // valor nenhum e a continuação caía como pergunta nova.
   const t = semAcento(normalizeNumberWords(message).text)
 
+  if (focus.last === 'driver' && /^e\s+(?:qual\s+foi\s+)?o\s+segundo\b/.test(t)) {
+    const d = focus.lastDriver?.analysis.drivers[1]
+    if (d) {
+      const movimento = d.delta >= 0 ? 'subiu' : 'caiu'
+      return { kind: 'explain', text: `O segundo maior fator foi ${d.label}: ${movimento} ${fmtBRL(Math.abs(d.delta))} e teve efeito de ${d.contribution >= 0 ? '+' : '−'}${fmtBRL(Math.abs(d.contribution))} no resultado.` }
+    }
+  }
+
   // ---- "por quê?" / "como chegou nisso?" --------------------------------
   if (PEDE_EXPLICACAO.test(t)) {
-    const texto = focus.last === 'scenario' ? focus.lastScenario?.explain : focus.lastQuery?.explain
+    const texto = focus.last === 'scenario' ? focus.lastScenario?.explain
+      : focus.last === 'driver' ? focus.lastDriver?.explain
+        : focus.lastQuery?.explain
     return texto ? { kind: 'explain', text: texto } : null
   }
 
@@ -280,6 +304,7 @@ function refinaCenario(focus: ConversationFocus, t: string): AssistantScenarioPl
   if (/^(?:d[áa]\s+ruim|ficou\s+ruim|t[áa]\s+ruim|[ée]\s+ruim|vale\s+a\s+pena)\s*\??$/.test(t)) {
     return { ...base }
   }
+  if (/^isso\s+(?:ainda\s+)?cabe\s+(?:n[oa]\s+)?mes/.test(t)) return { ...base }
 
   if (/^volta\b/.test(t)) {
     // Sem cenário anterior, devolver o ATUAL é melhor que o texto genérico de

@@ -28,6 +28,7 @@ import { orchestrate } from '../../src/assistant/orchestrator'
 import { ASSISTANT_CONTRACT_VERSION } from '../../src/assistant/contracts'
 import { monthShortLabel, todayISO } from '../../src/utils/format'
 import { monthlyProjections, periodStats } from '../../src/services/calc'
+import { analyzeChanges } from '../../src/assistant/drivers'
 
 export interface PropertyReport { total: number; failures: string[] }
 
@@ -697,6 +698,20 @@ export async function runCopilotProperties(): Promise<PropertyReport> {
       const pl = planQuery(st, lugar, { today: hoje })
       if (!pl || !pl.plan.filter?.text) return `"${lugar}" perdeu a busca pelo nome`
       if (pl.incompleto) return `"${lugar}" foi marcado como incompleto`
+    }
+    return null
+  })
+
+  // --- 138. Drivers reconciliam exatamente com a mudança do resultado ---
+  check(r, 'drivers reconciliam receita menos despesa', () => {
+    for (const st of [autonomoRico(HOJE_Q), motoristaRico(HOJE_Q)]) {
+      const a = analyzeChanges(st, HOJE_Q)
+      if (!a.reconciled) return `${st.settings.profile}: ${a.reconciledDelta} != ${a.totals.netDelta}`
+      const esperado = Math.round((a.totals.incomeDelta - a.totals.expenseDelta) * 100) / 100
+      if (Math.abs(esperado - a.totals.netDelta) > 0.005) return `${st.settings.profile}: identidade contábil não fecha`
+      if (a.drivers.some(d => d.kind === 'expense-category' && Math.abs(d.contribution + d.delta) > 0.005)) {
+        return `${st.settings.profile}: despesa com sinal invertido errado`
+      }
     }
     return null
   })

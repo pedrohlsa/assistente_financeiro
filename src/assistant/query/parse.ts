@@ -674,6 +674,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   const recognized: string[] = []
   const rest = new Restante(t0)
   const periodoVago = /\b(?:nos?\s+)?ultimos\s+meses\b/.test(t0)
+  let entidadesAmbiguas = false
 
   // ---- 1) comparação: consumida ANTES do período ------------------------
   // "comparando com mês passado" tem um período dentro dela. Sem consumir esse
@@ -933,6 +934,8 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
       group = 'category'
       if (!metrica.valor.order) metrica.valor.order = 'value-desc'
     }
+    const juntas = /\bjunt[oa]s?\b|\bsomad[oa]s?\b|\bao\s+todo\b|\btotal\b/.test(t0)
+    entidadesAmbiguas = !separadas && !juntas
     recognized.push(`categorias ${categorias.map(c => c.id).join(', ')}`)
   }
   const alvo = extrairAlvo(rest.texto)
@@ -1079,6 +1082,14 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
           { label: '3 meses', value: '3 meses' },
           { label: '6 meses', value: '6 meses' },
           { label: '12 meses', value: '12 meses' },
+        ],
+      },
+    } : entidadesAmbiguas ? {
+      clarification: {
+        question: 'Você quer o total dessas categorias juntas ou cada uma separada?',
+        options: [
+          { label: 'Total juntas', value: 'juntas' },
+          { label: 'Separadas', value: 'separadas' },
         ],
       },
     } : {}),

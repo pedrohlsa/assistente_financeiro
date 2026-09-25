@@ -19,8 +19,9 @@ import type { QueryAnswer } from '../query'
 import { answerScenario, rerunScenario } from '../scenario'
 import type { ScenarioAnswer } from '../scenario'
 import { looksLikeScenario } from '../scenario/parse'
+import { answerChangeQuestion } from '../drivers'
 import {
-  isFocusFresh, rememberQuery, rememberScenario, resolveFollowUp, looksLikeFollowUp,
+  isFocusFresh, rememberDriver, rememberQuery, rememberScenario, resolveFollowUp, looksLikeFollowUp,
 } from './focus'
 import type { ConversationFocus, FollowUp } from './focus'
 
@@ -98,6 +99,18 @@ export function answerConversation(
       confidence: 'high',
     }
   }
+
+  // ---- 2b) explicação causal --------------------------------------------
+  // Não é uma soma/ranking comum: a resposta precisa decompor a mudança e
+  // reconciliar todas as contribuições com o resultado observado.
+  const drivers = answerChangeQuestion(state, message, hoje)
+  if (drivers) {
+    return {
+      reply: drivers.reply, kind: 'explain',
+      focus: rememberDriver(focus, drivers.analysis, drivers.explain, agora),
+      confidence: 'high',
+    }
+  }
   // Plano INCOMPLETO não é executado: o número que sairia dele responderia uma
   // pergunta que o usuário não fez. O foco não muda.
   if (planned?.incompleto) {
@@ -154,5 +167,5 @@ const doCenario = (
   confidence: 'high',
 })
 
-export { isFocusFresh, looksLikeFollowUp, resolveFollowUp, rememberQuery, rememberScenario }
+export { isFocusFresh, looksLikeFollowUp, resolveFollowUp, rememberDriver, rememberQuery, rememberScenario }
 export type { ConversationFocus, FollowUp }
