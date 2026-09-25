@@ -6,7 +6,7 @@ import {
   AppState, Transaction, WorkSession, FuelRecord, MaintenanceItem, FinancialGoal,
   Deficit, RecurringExpense, RecurrenceOccurrence, Budget, ChatMessage, ProposedAction, Settings, Vehicle, ParsedAction, Category,
   CreditCard, InstallmentPlan, Installment, CardPayment, RecurringCardCharge,
-  AssistantJournalEntry,
+  AssistantJournalEntry, AssistantPreference,
 } from '../models/types'
 import { DEFAULT_CATEGORIES, mergeDefaultCategories } from '../data/categories'
 import { buildDemoData } from '../data/demo'
@@ -17,6 +17,7 @@ import { currentInvoice } from '../services/cards'
 import { applyBatchPure } from '../assistant/execute'
 import type { BatchItem } from '../assistant/execute'
 import type { ActionExecutionResult } from '../assistant/contracts'
+import { isSafePreference } from '../assistant/preferences'
 
 const STORAGE_KEY = 'assistfin-state-v1'
 
@@ -38,6 +39,7 @@ const initialState: AppState = {
   goals: [], deficits: [], recurring: [], budgets: [], chat: [],
   dismissedDeficitDates: [],
   cards: [], installmentPlans: [], installments: [], cardPayments: [], cardCharges: [],
+  assistantPreferences: [],
 }
 
 /**
@@ -76,6 +78,9 @@ function normalizeState(raw: any): AppState {
     // Backup anterior a esta versão não tem journal: o array nasce vazio e os
     // lotes antigos ficam sem entrada — o undo recusa em vez de adivinhar.
     assistantJournal: objs(raw?.assistantJournal),
+    assistantPreferences: objs<AssistantPreference>(raw?.assistantPreferences).filter(p =>
+      typeof p.id === 'string' && typeof p.trigger === 'string' && typeof p.value === 'string'
+      && isSafePreference(p)),
     vehicle: raw?.vehicle ?? null,
     cards: objs(raw?.cards),
     installmentPlans: objs(raw?.installmentPlans),
@@ -99,8 +104,8 @@ function normalizeState(raw: any): AppState {
 export function hydrateForTest(parsed: any): AppState {
   const chat = Array.isArray(parsed?.chat)
     ? parsed.chat.map((m: ChatMessage) =>
-        (m.pending || m.choices || m.proposal || m.clarification)
-          ? { ...m, pending: undefined, choices: undefined, proposal: undefined, clarification: undefined }
+        (m.pending || m.choices || m.proposal || m.clarification || m.preferenceProposal)
+          ? { ...m, pending: undefined, choices: undefined, proposal: undefined, clarification: undefined, preferenceProposal: undefined }
           : m)
     : []
   return normalizeState({ ...parsed, chat })
@@ -131,6 +136,8 @@ type Action =
   | { type: 'updateRecurring'; id: string; patch: Partial<RecurringExpense> }
   | { type: 'resolveOccurrence'; recurringId: string; occurrence: RecurrenceOccurrence }
   | { type: 'mergeState'; state: Partial<AppState> }
+  | { type: 'assistantPreferenceUpsert'; preference: AssistantPreference }
+  | { type: 'assistantPreferenceRemove'; id: string }
   // --- cartões e parcelamentos ---
   | { type: 'addCard'; card: CreditCard }
   | { type: 'updateCard'; id: string; patch: Partial<CreditCard> }
@@ -167,6 +174,15 @@ function reducer(s: AppState, a: Action): AppState {
     // Backup antigo (sem cartões/parcelas) precisa ser normalizado, senão o app quebra.
     case 'hydrate': return normalizeState(a.state)
     case 'settings': return { ...s, settings: { ...s.settings, ...a.patch } }
+    case 'assistantPreferenceUpsert': {
+      if (!isSafePreference(a.preference)) return s
+      const current = s.assistantPreferences || []
+      const exists = current.some(p => p.id === a.preference.id)
+      return { ...s, assistantPreferences: exists
+        ? current.map(p => p.id === a.preference.id ? a.preference : p)
+        : [...current, a.preference] }
+    }
+    case 'assistantPreferenceRemove': return { ...s, assistantPreferences: (s.assistantPreferences || []).filter(p => p.id !== a.id) }
     case 'addTx': return { ...s, transactions: [a.tx, ...s.transactions] }
     case 'removeTx': return { ...s, transactions: s.transactions.filter(t => t.id !== a.id) }
     case 'addWork': {
@@ -254,6 +270,8 @@ function reducer(s: AppState, a: Action): AppState {
         installments: byId(s.installments, a.state.installments),
         cardPayments: byId(s.cardPayments, a.state.cardPayments),
         cardCharges: byId(s.cardCharges, a.state.cardCharges),
+        assistantPreferences: byId(s.assistantPreferences || [],
+          (a.state.assistantPreferences || []).filter(p => p && typeof p === 'object' && isSafePreference(p))),
         // O journal do backup NÃO é mesclado de propósito: as operações dele
         // descrevem um estado que não é este. Desfazer um lote apoiado em
         // retratos de outra base seria exatamente o chute que o journal existe
@@ -358,7 +376,7 @@ function reducer(s: AppState, a: Action): AppState {
     case 'chatUpdateProposal':
       return { ...s, chat: s.chat.map(m => (m.id === a.id ? { ...m, proposal: a.proposal } : m)) }
     case 'chatResolve':
-      return { ...s, chat: s.chat.map(m => m.id === a.id ? { ...m, pending: undefined, choices: undefined, proposal: undefined, clarification: undefined } : m) }
+      return { ...s, chat: s.chat.map(m => m.id === a.id ? { ...m, pending: undefined, choices: undefined, proposal: undefined, clarification: undefined, preferenceProposal: undefined } : m) }
     case 'chatClear': return { ...s, chat: [] }
     case 'clearActivity':
       return {

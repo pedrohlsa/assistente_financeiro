@@ -90,6 +90,7 @@ export default function Chat() {
     })
     setThinking(false)
 
+
     if (out.response.diagnostics) {
       // Só em desenvolvimento; nunca aparece para o usuário final e nunca
       // registra valores financeiros completos.
@@ -126,6 +127,7 @@ export default function Chat() {
       msg: {
         id: msgId, role: 'assistant', text: out.response.reply, time: nowTime(),
         proposal,
+        preferenceProposal: out.preferenceMutation,
         clarification: out.response.mode === 'clarify' ? (out.response as any).clarification : undefined,
         engine: out.response.engine,
         contractVersion: out.response.version,
@@ -236,6 +238,17 @@ export default function Chat() {
     dispatch({ type: 'chat', msg: { id: uid(), role: 'assistant', text: 'Ok, descartei. Pode reformular se quiser.', time: nowTime() } })
   }
 
+  const confirmPreference = (msgId: string) => {
+    const mutation = state.chat.find(m => m.id === msgId)?.preferenceProposal
+    if (!mutation) return
+    if (mutation.type === 'upsert') dispatch({ type: 'assistantPreferenceUpsert', preference: mutation.preference })
+    else dispatch({ type: 'assistantPreferenceRemove', id: mutation.id })
+    dispatch({ type: 'chatResolve', id: msgId })
+    dispatch({ type: 'chat', msg: { id: uid(), role: 'assistant', text: mutation.type === 'upsert'
+      ? 'Preferência salva. Vou usá-la nas próximas mensagens.'
+      : 'Preferência removida. Os lançamentos antigos continuam iguais.', time: nowTime() } })
+  }
+
   const chooseClarification = (msgId: string, value: string, label: string) => {
     dispatch({ type: 'chatResolve', id: msgId })
     send(label || value)
@@ -318,6 +331,13 @@ export default function Chat() {
                 }}
                 onCancel={() => cancel(m.id)}
               />
+            )}
+
+            {m.preferenceProposal && (
+              <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button className="btn btn-soft btn-sm" onClick={() => confirmPreference(m.id)}>Confirmar</button>
+                <button className="btn btn-danger-soft btn-sm" onClick={() => cancel(m.id)}>Cancelar</button>
+              </div>
             )}
           </div>
         ))}

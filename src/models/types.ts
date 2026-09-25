@@ -301,6 +301,10 @@ export interface ChatMessage {
    * conversa salva antes desta versão carregue sem erro.
    */
   proposal?: ProposedAction[]
+  /** Ensino de vocabulário ainda sem confirmação; some na reidratação. */
+  preferenceProposal?:
+    | { type: 'upsert'; preference: AssistantPreference }
+    | { type: 'remove'; id: string }
   /** Pergunta de esclarecimento (um campo por vez). */
   clarification?: { question: string; field?: string; options?: { label: string; value: string }[] }
   /** Motor que produziu a resposta — auditoria, não decoração. */
@@ -479,6 +483,16 @@ export interface AssistantJournalEntry {
   undoneAt?: string
 }
 
+export interface AssistantPreference {
+  id: string
+  kind: 'alias' | 'category-mapping' | 'entity-alias' | 'terminology'
+  trigger: string
+  value: string
+  createdAt: string
+  updatedAt: string
+  source: 'user-explicit'
+}
+
 export interface AppState {
   settings: Settings
   transactions: Transaction[]
@@ -507,4 +521,6 @@ export interface AppState {
    * sem entrada aqui **nunca** é revertido por adivinhação.
    */
   assistantJournal?: AssistantJournalEntry[]
+  /** Vocabulário ensinado explicitamente; afeta apenas mensagens futuras. */
+  assistantPreferences?: AssistantPreference[]
 }

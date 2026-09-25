@@ -24,10 +24,12 @@
 // escolher entre duas entidades ambíguas sem perguntar.
 
 import type { AppState, ParsedAction } from '../models/types'
+import { preferenceCategoryFor } from './preferences'
 import { usableCategories } from '../data/categories'
 import { fmtBRL, todayISO } from '../utils/format'
 import { adaptiveEnabled, buildPersonalModel } from './personalModel'
 import type { LearnedPattern, MoneyType, PersonalAssistantModel } from './personalModel'
+import { normalizeName } from '../utils/text'
 
 export { adaptiveEnabled, buildPersonalModel } from './personalModel'
 export type { LearnedPattern, PersonalAssistantModel } from './personalModel'
@@ -132,12 +134,28 @@ export function withLearnedCategory(
   state: AppState,
   action: ParsedAction,
   today = todayISO(),
+  message = '',
 ): ParsedAction {
   if (!isMoney(action.kind)) return action
-  if (!adaptiveEnabled(state)) return action
-  const model = buildPersonalModel(state, today)
   const a: any = action
   if (!entityText(a)) return action
+
+  // Uma categoria nomeada neste turno ganha da preferência guardada. O
+  // classificador genérico pode ter preenchido `category` sem o usuário citá-la,
+  // por isso só usamos o texto atual como prova de escolha explícita.
+  const said = normalizeName(message)
+  const explicit = (state.categories || []).some(c => c.id === a.category &&
+    ['em', 'na', 'no', 'categoria', 'como'].some(prefix => said.includes(`${prefix} ${normalizeName(c.name)}`)))
+  if (explicit) return action
+
+  // Preferência ensinada explicitamente é evidência estruturada e vem antes do
+  // histórico inferido. Continua limitada à categoria/grafia: nunca toca em
+  // valor, tipo, data ou confirmação.
+  const preferred = preferenceCategoryFor(state, entityText(a)!, action.kind)
+  if (preferred) return { ...action, category: preferred } as ParsedAction
+
+  if (!adaptiveEnabled(state)) return action
+  const model = buildPersonalModel(state, today)
 
   let out: any = action
 

@@ -50,6 +50,8 @@ import { catById, usableCategories } from '../data/categories'
 import { fmtBRL, todayISO, uid } from '../utils/format'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { brDate, dateLabel, findDate, previousYearOf, resolveDayInWindow } from './dates'
+import { applyPreferenceAliases, parsePreferenceCommand } from './preferences'
+import type { PreferenceMutation } from './preferences'
 
 // ---------------------------------------------------------------------------
 // Capacidades reais do usuário
@@ -112,6 +114,8 @@ export interface OrchestratorOutput {
   draft: AssistantDraft | null
   /** Proposta corrigida, quando a mensagem era uma correção. */
   correctedPending?: AssistantCandidateAction[]
+  /** Escrita local de vocabulário, separada das ações financeiras. */
+  preferenceMutation?: PreferenceMutation
   /**
    * A resposta não consome a proposta que está na tela.
    *
@@ -507,7 +511,7 @@ function runLocal(
 
       // O vocabulário do usuário entra ANTES da validação: a categoria que ele
       // mesmo usa precisa passar pelas mesmas regras de qualquer outra.
-      action = withLearnedCategory(input.state, action, today)
+      action = withLearnedCategory(input.state, action, today, input.message)
 
       const res = validateAction(action, caps, today)
       if (isValidationFailure(res)) {
@@ -750,9 +754,21 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   // histórico; e um `U+202E` no meio de um nome inverte visualmente a linha
   // inteira na tela. Depois desta linha, o resto do código pode confiar.
   const limpa = clampMessage(entradaBruta.message)
-  const input: OrchestratorInput = limpa.text === entradaBruta.message
+  let input: OrchestratorInput = limpa.text === entradaBruta.message
     ? entradaBruta
     : { ...entradaBruta, message: limpa.text }
+  const preferenceCommand = parsePreferenceCommand(input.state, input.message)
+  if (preferenceCommand) {
+    return {
+      draft: null, focus: input.focus, preferenceMutation: preferenceCommand.mutation,
+      response: {
+        version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local',
+        actions: [], unresolved: [], reply: preferenceCommand.reply,
+      },
+    }
+  }
+  const preferredMessage = applyPreferenceAliases(input.state, input.message)
+  if (preferredMessage !== input.message) input = { ...input, message: preferredMessage }
   const caps = buildCapabilities(input.state)
   const today = input.today || todayISO()
 
@@ -1215,7 +1231,7 @@ Confirmar?`,
       for (const bruta of diaTelegrafico.actions) {
         const comData: any = { ...bruta }
         if (dataDoDia && actionSpec(bruta.kind)?.fields.some(f => f.name === 'date')) comData.date = dataDoDia
-        const v = validateAction(withLearnedCategory(input.state, comData, today), caps, today)
+        const v = validateAction(withLearnedCategory(input.state, comData, today, mensagem), caps, today)
         if (!isValidationFailure(v)) cands.push(candidate(v.action, 'local'))
       }
       if (cands.length) {
@@ -1253,7 +1269,7 @@ Confirmar?`,
       for (const bruta of pares) {
         const comData: any = { ...bruta }
         if (dataDoDia && actionSpec(bruta.kind)?.fields.some(f => f.name === 'date')) comData.date = dataDoDia
-        const v = validateAction(withLearnedCategory(input.state, comData, today), caps, today)
+        const v = validateAction(withLearnedCategory(input.state, comData, today, mensagem), caps, today)
         if (!isValidationFailure(v)) cands.push(candidate(v.action, 'local'))
       }
       // Tudo ou nada: um par recusado na validação não pode sumir em silêncio
@@ -1456,7 +1472,8 @@ Confirmar?`,
         for (const a of remote.actions) {
           const alvo = candidates.find(c => sameFact(c.action, a))
           if (!alvo) {
-            candidates.push(candidate(a, 'remote', undefined, 'medium'))
+            const preferred = withLearnedCategory(input.state, a, today, mensagem)
+            candidates.push(candidate(preferred, 'remote', undefined, 'medium'))
             continue
           }
           const base = evidenceFor(alvo.action, { text: mensagem, clauseId: alvo.clauseId })
