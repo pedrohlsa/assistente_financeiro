@@ -3260,7 +3260,12 @@ Smoke limitado a cinco chamadas sintéticas pela pipeline compartilhada: chat, p
 esclarecimento, planner e composição deram HTTP 200, sem resposta vazia, envelope interno no `reply`
 ou padrão de segredo. Nenhum benchmark foi reaberto.
 
-**Pendente para o deploy:** a Vercel possui, segundo o registro anterior deste arquivo, um override
-Production `DEEPSEEK_MODEL=deepseek-v4-flash`. Ele deve ser removido imediatamente antes do deploy,
-para o código testado ser a fonte única do modelo. A produção pública continua antiga até merge,
-push e deploy. APK continua proibido nesta etapa.
+**Deploy concluído:** o override Production `DEEPSEEK_MODEL=deepseek-v4-flash` foi removido da
+Vercel; `DEEPSEEK_API_KEY` permaneceu intacta. A feature entrou em `main` por fast-forward, o commit
+de runtime `0b5e8b9` foi enviado ao GitHub e publicado como deployment
+`dpl_9T7v31TwTRBWk4Qzxf4y6MWvTBu6`, Ready e aliasado para `https://assist-fin.vercel.app`.
+
+O smoke pós-deploy confirmou HTTP 200 no app e o mesmo bundle produzido nos gates. As cinco rotas
+públicas — chat, proposta, esclarecimento, planner e composição — deram HTTP 200, sem resposta vazia,
+envelope interno no `reply` ou padrão de segredo. Produção agora usa o padrão do código:
+`deepseek-v4-pro` com pensamento desligado. Nenhum APK foi gerado.

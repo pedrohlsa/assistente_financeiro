@@ -537,7 +537,8 @@ dependem do modelo remoto:
   pode dizer "anotei/registrei"; vira "preparei … confirme". Depois do Confirmar, "Registrado!" só com o
   lote gravado.
 
-**Modelo remoto escolhido e preparado na branch: `deepseek-v4-pro` com pensamento desligado**
-(`docs/AI_REMOTE_EVAL.md` §16). O padrão de `api/_lib/deepseek.ts` e o exemplo de ambiente já usam
-essa configuração, protegida pela invariante 129 inclusive no reenvio. A produção pública continua
-com o nome legado até remover o override `DEEPSEEK_MODEL` da Vercel e concluir merge, push e deploy.
+**Modelo remoto em produção: `deepseek-v4-pro` com pensamento desligado**
+(`docs/AI_REMOTE_EVAL.md` §16). O padrão de `api/_lib/deepseek.ts` e o exemplo de ambiente usam essa
+configuração, protegida pela invariante 129 inclusive no reenvio. O override legado
+`DEEPSEEK_MODEL` foi removido da Vercel, e o deployment `dpl_9T7v31TwTRBWk4Qzxf4y6MWvTBu6` passou
+no smoke público de chat, proposta, esclarecimento, planner e composição em 25/09/2026.
