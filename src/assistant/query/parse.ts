@@ -674,6 +674,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   const recognized: string[] = []
   const rest = new Restante(t0)
   const periodoVago = /\b(?:nos?\s+)?ultimos\s+meses\b/.test(t0)
+  const inicioSemData = /\bdesde\s+que\s+(?:eu\s+)?(?:comecei|iniciei|abri|entrei)\b/.test(t0)
   let entidadesAmbiguas = false
 
   // ---- 1) comparação: consumida ANTES do período ------------------------
@@ -1083,6 +1084,11 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
           { label: '6 meses', value: '6 meses' },
           { label: '12 meses', value: '12 meses' },
         ],
+      },
+    } : inicioSemData ? {
+      clarification: {
+        question: 'Não tenho uma data confiável para esse começo. A partir de qual mês ou data você quer calcular?',
+        options: [],
       },
     } : entidadesAmbiguas ? {
       clarification: {

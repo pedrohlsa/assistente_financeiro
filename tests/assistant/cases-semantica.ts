@@ -106,6 +106,14 @@ export const SEMANTICA_CASES: SemanticaCase[] = [
     id: 'si2-multi-clarify', group: 'clareza', state: autonomo, today: HOJE,
     turnos: [{ msg: 'quanto gastei com alimentação e lazer este mês?', expectReply: [/juntas ou cada uma separada/i], expectRemote: false }],
   },
+  {
+    id: 'si2-event-date', group: 'clareza', state: autonomo, today: HOJE,
+    turnos: [{
+      msg: 'quanto gastei com obra desde que comecei a obra?',
+      expectReply: [/n[ãa]o tenho uma data confi[áa]vel/i, /qual m[êe]s ou data/i], expectRemote: false,
+      forbidReply: [/dado real/i],
+    }],
+  },
   // ===== 1. DISTRIBUIÇÃO ===================================================
   {
     id: 'sd-01', group: 'distribuicao', state: autonomo, today: HOJE,
