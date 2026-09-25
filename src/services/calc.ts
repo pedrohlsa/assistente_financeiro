@@ -309,8 +309,8 @@ function recurringMonthAmount(r: RecurringExpense, mk: string): number {
  * se fosse compromisso real. As parcelas entram pelo valor que vence no mês;
  * o valor total da compra nunca é somado junto (ver services/cards.ts).
  */
-export function monthlyProjections(s: AppState, months = 12): MonthProjection[] {
-  const t = todayISO()
+export function monthlyProjections(s: AppState, months = 12, today = todayISO()): MonthProjection[] {
+  const t = today
   const start = fromISO(t)
   const out: MonthProjection[] = []
   let running = currentBalance(s)

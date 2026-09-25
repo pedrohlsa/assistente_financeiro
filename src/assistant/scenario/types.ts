@@ -63,6 +63,12 @@ export interface ScenarioMonth {
   delta: number
   /** Parcela/valor que a hipótese acrescenta neste mês. */
   added: number
+  /** Excedente deste mês depois das transformações e antes da reserva. */
+  surplus?: number
+  /** Valor reservado somente neste mês. Nunca negativo. */
+  saved?: number
+  /** Reserva simulada acumulada até este mês. */
+  accumulated?: number
 }
 
 export interface AssistantScenarioResult {

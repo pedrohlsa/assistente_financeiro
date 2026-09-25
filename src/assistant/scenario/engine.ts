@@ -92,9 +92,9 @@ function comCompra(
 }
 
 /** Projeção mês a mês antes e depois, com o mês mais apertado. */
-function compara(state: AppState, projetado: AppState, meses: number, extraPorMes: (mk: string) => number): ScenarioMonth[] {
-  const antes = monthlyProjections(state, meses)
-  const depois = monthlyProjections(projetado, meses)
+function compara(state: AppState, projetado: AppState, meses: number, extraPorMes: (mk: string) => number, hoje = todayISO()): ScenarioMonth[] {
+  const antes = monthlyProjections(state, meses, hoje)
+  const depois = monthlyProjections(projetado, meses, hoje)
   const porMes = new Map(antes.map(m => [m.monthKey, m]))
   return depois.map(m => {
     const a = porMes.get(m.monthKey)
@@ -106,6 +106,137 @@ function compara(state: AppState, projetado: AppState, meses: number, extraPorMe
       added: r2(extraPorMes(m.monthKey)),
     }
   })
+}
+
+/** Média mensal usada por `cut`, isolada para composto e cenário simples usarem a mesma conta. */
+function cutPerMonth(state: AppState, category: string, hoje: string): { value: number; rows: number; from: string; to: string } | undefined {
+  const d = fromISO(hoje)
+  const from = toISO(new Date(d.getFullYear(), d.getMonth() - 3, 1))
+  const to = toISO(new Date(d.getFullYear(), d.getMonth(), 0))
+  const txs = (state.transactions || []).filter(t => t.type === 'expense' && !t.recurringId
+    && t.category === category && t.date >= from && t.date <= to)
+  if (!txs.length) return undefined
+  return { value: r2(txs.reduce((sum, t) => sum + t.amount, 0) / 3), rows: txs.length, from, to }
+}
+
+/**
+ * Estado intermediário mínimo do cenário composto. Não replica o reducer: as
+ * obrigações continuam vindo de `monthlyProjections`; aqui guardamos apenas o
+ * efeito incremental de cada passo e a reserva, na ordem em que foram pedidos.
+ */
+function runCompoundMonths(
+  state: AppState, steps: AssistantScenarioPlan[], meses: number, hoje: string,
+): { months: ScenarioMonth[]; facts: AssistantFact[]; caveats: string[]; incomplete: boolean } {
+  const baseline = monthlyProjections(state, meses, hoje)
+  const effects = baseline.map(() => 0)
+  const saved = baseline.map(() => 0)
+  const facts: AssistantFact[] = []
+  const caveats: string[] = []
+  let projectedState = state
+  let incomplete = false
+  let hasSaving = false
+  const cutCategories = new Set<string>()
+  const priorReductions = new Map<string, number>()
+
+  for (const step of steps) {
+    if (step.kind === 'cut') {
+      if (step.category && cutCategories.has(step.category)) {
+        caveats.push(`O corte em ${step.description || step.category} apareceu mais de uma vez; apliquei uma vez só.`)
+        continue
+      }
+      const cut = step.category ? cutPerMonth(state, step.category, hoje) : undefined
+      const recurring = (projectedState.recurring || []).filter(r => r.kind !== 'income' && r.category === step.category && r.active !== false)
+      if (!cut && !recurring.length) { incomplete = true; caveats.push(`Não achei base para estimar o corte em ${step.description || step.category || 'esse gasto'}.`); continue }
+      cutCategories.add(step.category!)
+      const before = monthlyProjections(projectedState, meses, hoje)
+      if (recurring.length) projectedState = { ...projectedState, recurring: projectedState.recurring.filter(r => !recurring.includes(r)) }
+      const after = monthlyProjections(projectedState, meses, hoje)
+      const alreadyReduced = priorReductions.get(step.category!) || 0
+      effects.forEach((_, i) => { effects[i] += (after[i]?.net || 0) - (before[i]?.net || 0) + (cut?.value || 0) - alreadyReduced })
+      if (cut) {
+        facts.push(fato(`Gasto médio por mês com ${step.description || step.category}`, cut.value, 'BRL', `média de ${cut.rows} lançamento(s) entre ${cut.from} e ${cut.to}`, cut.rows))
+        caveats.push('O corte de gasto variável usa a média dos últimos três meses completos.')
+      }
+      if (recurring.length) caveats.push(`Também retirei da simulação ${recurring.length} conta(s) recorrente(s) dessa categoria, respeitando início e fim cadastrados.`)
+      continue
+    }
+    if (step.kind === 'reduce') {
+      const value = Math.max(step.amount || 0, 0)
+      if (step.category && cutCategories.has(step.category)) {
+        caveats.push(`O corte já eliminou o gasto em ${step.description || step.category}; não somei outra redução.`)
+        continue
+      }
+      if (step.category) priorReductions.set(step.category, (priorReductions.get(step.category) || 0) + value)
+      effects.forEach((_, i) => { effects[i] += value })
+      facts.push(fato(`Redução mensal em ${step.description || step.category || 'gasto'}`, value, 'BRL', 'valor informado na pergunta'))
+      continue
+    }
+    if (step.kind === 'purchase') {
+      const before = monthlyProjections(projectedState, meses, hoje)
+      const purchase = comCompra(projectedState, step, hoje)
+      projectedState = purchase.state
+      const after = monthlyProjections(projectedState, meses, hoje)
+      after.forEach((m, i) => { effects[i] += m.net - (before[i]?.net || 0) })
+      if (effects.length) effects[0] -= Math.max(step.downPayment || 0, 0)
+      facts.push(fato(`Parcela em ${step.installments || 1}x`, purchase.parcela, 'BRL', 'parcelas reais no calendário projetado'))
+      continue
+    }
+    if (step.kind === 'income-missing') {
+      const partial = runScenario(state, step, hoje)
+      const value = partial.facts.find(f => f.label.includes('Entrada média'))?.value || step.amount || 0
+      if (!(value > 0)) { incomplete = true; caveats.push(...partial.caveats); continue }
+      // Uma fonte que atrasa neste mês não desaparece automaticamente em todo
+      // o horizonte; sem declaração explícita de recorrência seria invenção.
+      if (effects.length) effects[0] -= value
+      facts.push(...partial.facts)
+      caveats.push('A entrada ausente foi considerada somente no primeiro mês do cenário.')
+      continue
+    }
+    if (step.kind === 'save') {
+      hasSaving = true
+      const value = Math.max(step.amount || 0, 0)
+      saved.forEach((_, i) => { saved[i] += value; effects[i] -= value })
+      facts.push(fato('Guardar valor fixo por mês', value, 'BRL', 'valor informado na pergunta'))
+      continue
+    }
+    if (step.kind === 'save-share') {
+      hasSaving = true
+      const ratio = Math.min(Math.max(step.ratio || 0, 0), 1)
+      baseline.forEach((m, i) => {
+        const surplus = Math.max(m.net + effects[i], 0)
+        const deposit = r2(surplus * ratio)
+        saved[i] += deposit
+        effects[i] -= deposit
+      })
+      facts.push(fato(`Reservar ${Math.round(ratio * 100)}% da sobra`, ratio * 100, 'count', 'percentual aplicado separadamente a cada mês'))
+      continue
+    }
+    // Pagar fatura não cria nova despesa; gasto avulso e trabalho extra não
+    // têm hoje uma regra mensal segura. O resultado parcial continua visível,
+    // mas não fingimos materializar aquilo que o calendário não representa.
+    const partial = runScenario(state, step, hoje)
+    facts.push(...partial.facts)
+    caveats.push(...partial.caveats)
+    incomplete = true
+    caveats.push(`Ainda não combino ${step.label} com a projeção mensal; os números dos outros passos são parciais.`)
+  }
+
+  let accumulated = 0
+  let cumulativeEffect = 0
+  const months = baseline.map((m, i) => {
+    accumulated = r2(accumulated + Math.max(saved[i], 0))
+    cumulativeEffect = r2(cumulativeEffect + effects[i])
+    return {
+      monthKey: m.monthKey, label: m.label,
+      before: r2(m.runningBalance), after: r2(m.runningBalance + cumulativeEffect),
+      delta: cumulativeEffect, added: r2(-effects[i]),
+      surplus: hasSaving ? r2(Math.max(m.net + effects[i] + saved[i], 0)) : undefined,
+      saved: hasSaving ? r2(Math.max(saved[i], 0)) : undefined,
+      accumulated: hasSaving ? accumulated : undefined,
+    }
+  })
+  if (hasSaving) caveats.push('A sobra usa só entradas, contas e parcelas cadastradas; outros gastos variáveis futuros não entram na projeção.')
+  return { months, facts, caveats, incomplete }
 }
 
 /**
@@ -129,37 +260,16 @@ export function runScenario(
     case 'compound': {
       const steps = plan.steps || []
       if (!steps.length) return vazio(plan, caveats, 'Não encontrei nenhuma mudança que eu saiba simular.')
-      let efeitoMensal = 0
-      let algumVazio = false
-      for (const step of steps) {
-        if (step.kind === 'save-share') {
-          const proporcao = Math.min(Math.max(step.ratio || 0, 0), 1)
-          const sobra = Math.max(monthlySavingGoal(state).net + efeitoMensal, 0)
-          const guardar = r2(sobra * proporcao)
-          facts.push(fato('Sobra mensal antes de guardar a fração', sobra, 'BRL', 'resultado mensal mais efeitos anteriores'))
-          facts.push(fato('Guardar metade do que sobrar por mês', guardar, 'BRL', 'metade da sobra combinada'))
-          efeitoMensal -= guardar
-          continue
-        }
-        const parcial = runScenario(state, step, hoje)
-        algumVazio ||= parcial.empty
-        facts.push(...parcial.facts)
-        caveats.push(...parcial.caveats)
-        if (step.kind === 'cut') {
-          efeitoMensal += parcial.facts.find(f => f.label.startsWith('Gasto médio por mês'))?.value || 0
-        } else if (step.kind === 'reduce') efeitoMensal += step.amount || 0
-        else if (step.kind === 'purchase') {
-          efeitoMensal -= parcial.facts.find(f => f.label.startsWith('Parcela em'))?.value || 0
-        } else if (step.kind === 'save') efeitoMensal -= step.amount || 0
-        else if (step.kind === 'income-missing') {
-          efeitoMensal -= parcial.facts.find(f => f.label.includes('Entrada média'))?.value || step.amount || 0
-        }
-      }
-      facts.push(fato('Efeito mensal combinado depois de todos os passos', efeitoMensal, 'BRL', 'soma ordenada dos efeitos mensais'))
+      const combined = runCompoundMonths(state, steps, meses, hoje)
+      facts.push(...combined.facts)
+      caveats.push(...combined.caveats)
+      const final = combined.months[combined.months.length - 1]
+      if (final?.accumulated !== undefined) facts.push(fato('Reserva acumulada no horizonte', final.accumulated, 'BRL', 'soma dos depósitos simulados de cada mês'))
+      const tightest = [...combined.months].sort((a, b) => a.after - b.after)[0]
       return {
-        plan, facts, months: [],
-        feasible: algumVazio ? undefined : monthlySavingGoal(state).net + efeitoMensal >= 0,
-        caveats: [...new Set(caveats)], empty: facts.length === 1,
+        plan, facts, months: combined.months, tightest,
+        feasible: combined.incomplete ? undefined : combined.months.every(m => m.after >= 0),
+        caveats: [...new Set(caveats)], empty: !facts.length,
       }
     }
 
@@ -195,7 +305,7 @@ export function runScenario(
         return vazio(plan, caveats, 'Me diga o valor total e em quantas vezes que eu simulo.')
       }
       const { state: projetado, parcela, financiado, cardNome } = comCompra(state, plan, hoje)
-      const linhas = compara(state, projetado, meses, () => parcela)
+      const linhas = compara(state, projetado, meses, () => parcela, hoje)
       const apertado = [...linhas].sort((a, b) => a.after - b.after)[0]
 
       facts.push(fato('Valor da compra', total, 'BRL', 'informado na pergunta'))
@@ -261,10 +371,11 @@ export function runScenario(
     case 'save-share': {
       const proporcao = Math.min(Math.max(plan.ratio || 0, 0), 1)
       if (!(proporcao > 0)) return vazio(plan, caveats, 'Me diga qual parte da sobra você quer guardar.')
-      const sobra = Math.max(monthlySavingGoal(state).net, 0)
-      facts.push(fato('Sobra mensal estimada', sobra, 'BRL', 'resultado mensal atual'))
-      facts.push(fato('Guardar metade do que sobrar por mês', sobra * proporcao, 'BRL', 'fração da sobra mensal'))
-      return { plan, facts, months: [], caveats, empty: false }
+      const combined = runCompoundMonths(state, [plan], meses, hoje)
+      facts.push(...combined.facts)
+      const final = combined.months[combined.months.length - 1]
+      if (final?.accumulated !== undefined) facts.push(fato('Reserva acumulada no horizonte', final.accumulated, 'BRL', 'soma dos depósitos simulados de cada mês'))
+      return { plan, facts, months: combined.months, caveats: combined.caveats, empty: false }
     }
 
     // ------------------------------------------------- parar um tipo de gasto
@@ -276,17 +387,13 @@ export function runScenario(
     case 'cut': {
       const nome = plan.description || plan.category || 'esse gasto'
       if (!plan.category) return vazio(plan, caveats, 'Me diga qual gasto você pararia — por exemplo, "e se eu parar a obra".')
-      const d = fromISO(hoje)
-      const ini = toISO(new Date(d.getFullYear(), d.getMonth() - 3, 1))
-      const fim = toISO(new Date(d.getFullYear(), d.getMonth(), 0))
-      const txs = (state.transactions || []).filter(t => t.type === 'expense' && t.category === plan.category && t.date >= ini && t.date <= fim)
-      if (!txs.length) {
+      const cut = cutPerMonth(state, plan.category, hoje)
+      if (!cut) {
         return vazio(plan, caveats, `Não achei gasto com ${nome} nos últimos três meses — sem isso não dá para estimar quanto deixaria de sair.`)
       }
-      const total = txs.reduce((a, t) => a + t.amount, 0)
-      const media = total / 3
+      const media = cut.value
       const n = Math.min(Math.max(plan.months || 6, 1), 12)
-      facts.push(fato(`Gasto médio por mês com ${nome}`, media, 'BRL', `média de ${txs.length} lançamento(s) entre ${ini} e ${fim}`, txs.length))
+      facts.push(fato(`Gasto médio por mês com ${nome}`, media, 'BRL', `média de ${cut.rows} lançamento(s) entre ${cut.from} e ${cut.to}`, cut.rows))
       facts.push(fato(`A menos em ${n} ${n === 1 ? 'mês' : 'meses'}`, media * n, 'BRL', 'média mensal vezes o horizonte'))
       caveats.push('É uma estimativa pela média dos últimos três meses — gasto variável muda de um mês para o outro.')
       return { plan, facts, months: [], caveats, empty: false }

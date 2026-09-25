@@ -46,6 +46,7 @@ export interface QuerySummary {
 export interface ScenarioSummary {
   label: string
   facts: { label: string; value: number; unit: FactUnit }[]
+  months: AssistantScenarioResult['months']
   explain: string
 }
 
@@ -140,6 +141,7 @@ export function rememberScenario(
     lastScenario: {
       label: plan.label,
       facts: result.facts.map(f => ({ label: f.label, value: f.value, unit: f.unit })),
+      months: result.months,
       explain,
     },
     scenarioHistory: pilha.slice(0, 5),
@@ -173,6 +175,7 @@ const CONTINUACAO = [
   // dinheiro" e uma pergunta nova. So a primeira e continuacao.
   /^de\s+onde\s+(?:voce\s+)?(?:tirou|saiu|veio\s+(?:esse|essa|isso))/,
   /^volta\b/, /^e\s+se\b/, /^mesma\s+coisa\b/,
+  /^ate\b/,
   /^e\s+(?:qual\s+foi\s+)?o\s+segundo\b/, /^isso\b/,
   // "Onde?" SOZINHO, logo depois de um total: onde foi parar aquele dinheiro.
   // Só a forma curta — "onde gastei esse mês" é pergunta nova e segue o
@@ -250,7 +253,7 @@ export function resolveFollowUp(
 
   // ---- cenário ----------------------------------------------------------
   if (focus.last === 'scenario' && focus.lastScenarioPlan) {
-    const refinado = refinaCenario(focus, t)
+    const refinado = refinaCenario(focus, t, today)
     if (refinado) return { kind: 'scenario', plan: refinado }
   }
 
@@ -263,7 +266,7 @@ export function resolveFollowUp(
   // Cenário como segunda tentativa: o usuário pode ter feito uma consulta no
   // meio e voltado à hipótese.
   if (focus.lastScenarioPlan) {
-    const refinado = refinaCenario(focus, t)
+    const refinado = refinaCenario(focus, t, today)
     if (refinado) return { kind: 'scenario', plan: refinado }
   }
   return null
@@ -291,8 +294,19 @@ function semSobra(r: Extract<FollowUp, { kind: 'query' }>, base: AssistantQueryP
 
 const NUM = String.raw`(\d+(?:[.,]\d+)*)`
 
-function refinaCenario(focus: ConversationFocus, t: string): AssistantScenarioPlan | null {
+function refinaCenario(focus: ConversationFocus, t: string, today: string): AssistantScenarioPlan | null {
   const base = focus.lastScenarioPlan!
+
+  // Horizonte é um refinamento do cenário já calculado. Propaga para todos os
+  // passos para não deixar um subcenário preso no padrão de seis meses.
+  const ateMes = t.match(/^(?:e\s+)?ate\s+(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\s*\??$/)
+  if (ateMes) {
+    const nomes = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+    const alvo = nomes.indexOf(ateMes[1])
+    const atual = Number(today.slice(5, 7)) - 1
+    const months = Math.min((alvo >= atual ? alvo - atual : alvo + 12 - atual) + 1, 12)
+    return { ...base, months, steps: base.steps?.map(step => ({ ...step, months })) }
+  }
 
   // "Qual mês fica pior?" é a MESMA simulação, relida pelo mês mais apertado —
   // o motor já calcula isso e a resposta o destaca.
@@ -307,10 +321,12 @@ function refinaCenario(focus: ConversationFocus, t: string): AssistantScenarioPl
   }
   if (/^isso\s+(?:ainda\s+)?cabe\s+(?:n[oa]\s+)?mes/.test(t)) return { ...base }
 
-  if (/^e\s+(?:se\s+)?(?:eu\s+)?guardar\s+(?:a\s+)?metade\s+(?:disso|do\s+que\s+sobrar)/.test(t)) {
+  const shareFollowup = t.match(/^e\s+(?:se\s+)?(?:eu\s+)?guardar\s+(?:(?:a\s+)?metade\s+(?:disso|do\s+que\s+sobrar)|tudo\s+(?:o\s+)?que\s+sobrar|(\d{1,3})\s*%\s+d(?:a|o)\s+sobra)/)
+  if (shareFollowup) {
+    const ratio = /\btudo\b/.test(t) ? 1 : shareFollowup[1] ? Math.min(Number(shareFollowup[1]) / 100, 1) : 0.5
     const share: AssistantScenarioPlan = {
-      version: base.version, kind: 'save-share', ratio: 0.5,
-      months: base.months, label: 'guardar metade do que sobrar',
+      version: base.version, kind: 'save-share', ratio,
+      months: base.months, label: `guardar ${Math.round(ratio * 100)}% do que sobrar`,
     }
     return base.kind === 'compound'
       ? { ...base, steps: [...(base.steps || []), share], label: `cenário com ${(base.steps?.length || 0) + 1} mudanças` }

@@ -26,6 +26,15 @@ export function composeScenario(r: AssistantScenarioResult): string {
       for (const step of p.steps || []) linhas.push(`• ${descricaoPasso(step)}`)
       const efeito = r.facts.find(f => f.label.startsWith('Efeito mensal combinado'))
       if (efeito) linhas.push(`Efeito mensal combinado: ${fmtBRL(efeito.value)}.`)
+      if (r.months.some(m => m.saved !== undefined)) {
+        const final = r.months[r.months.length - 1]
+        if (r.months.every(m => !m.saved)) {
+          linhas.push(`Não apareceu sobra para reservar em nenhum dos ${r.months.length} meses; acumulado até ${final.label}: ${fmtBRL(0)}.`)
+        } else {
+          linhas.push(r.months.slice(0, 4).map(m => `• ${m.label}: sobra ${fmtBRL(m.surplus || 0)}, reservado ${fmtBRL(m.saved || 0)}, acumulado ${fmtBRL(m.accumulated || 0)}`).join('\n'))
+          if (r.months.length > 4) linhas.push(`Até ${final.label}: acumulado ${fmtBRL(final.accumulated || 0)} (${r.months.length} meses no total).`)
+        }
+      }
       if (r.feasible === false) linhas.push('Depois de combinar tudo, o resultado mensal estimado fica negativo.')
       break
     }
@@ -86,8 +95,13 @@ export function composeScenario(r: AssistantScenarioResult): string {
     }
 
     case 'save-share': {
-      const guardar = r.facts.find(f => f.label.startsWith('Guardar metade'))
-      linhas.push(`Guardando metade do que sobrar: ${fmtBRL(guardar?.value || 0)} por mês.`)
+      const ratio = Math.round((p.ratio || 0) * 100)
+      linhas.push(`Guardando ${ratio}% do que sobrar em cada mês:`)
+      linhas.push(r.months.slice(0, 4).map(m => `• ${m.label}: reservado ${fmtBRL(m.saved || 0)}, acumulado ${fmtBRL(m.accumulated || 0)}`).join('\n'))
+      if (r.months.length > 4) {
+        const final = r.months[r.months.length - 1]
+        linhas.push(`Até ${final.label}: acumulado ${fmtBRL(final.accumulated || 0)} (${r.months.length} meses no total).`)
+      }
       break
     }
 
@@ -147,7 +161,12 @@ function descricaoPasso(p: NonNullable<AssistantScenarioResult['plan']['steps']>
     case 'pay-invoice': return `pagar a fatura${p.cardName ? ` do ${p.cardName}` : ''}`
     case 'cut': return `parar os gastos com ${p.description || p.category || 'a categoria'}`
     case 'reduce': return `reduzir ${p.description || p.category || 'o gasto'} em ${fmtBRL(p.amount || 0)} por mês`
-    case 'save-share': return 'guardar metade do que sobrar depois das mudanças anteriores'
+    case 'save-share': {
+      const pct = Math.round((p.ratio || 0) * 100)
+      return pct === 50
+        ? 'guardar metade (50%) do que sobrar depois das mudanças anteriores'
+        : `guardar ${pct}% do que sobrar depois das mudanças anteriores`
+    }
     case 'spend': return `gastar ${fmtBRL(p.amount || 0)}`
     case 'extra-work': return p.hoursPerDay ? `trabalhar mais ${p.hoursPerDay}h por dia` : `rodar mais ${p.extraKm || 0} km`
     case 'compound': return p.label

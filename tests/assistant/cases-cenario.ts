@@ -30,6 +30,8 @@ export interface ScenarioCase {
   expectSteps?: { kind: string; fields?: Record<string, unknown> }[]
   /** Fatos que precisam existir, com valor exato. */
   expectFacts?: { label: string | RegExp; value?: number }[]
+  /** Linhas mensais da reserva simulada. */
+  expectMonths?: { saved?: number; accumulated?: number; nonNegativeSaved?: boolean }[]
   expectReply?: (string | RegExp)[]
   forbidReply?: (string | RegExp)[]
   expectEmpty?: boolean
@@ -213,6 +215,31 @@ export const SCENARIO_CASES: ScenarioCase[] = [
       { kind: 'save-share', fields: { ratio: 0.5 } },
     ],
     expectReply: [/obra/i, /alimenta/i, /metade/i, /nada foi registrado/i],
+  },
+  {
+    id: 'c-82', group: 'acumulacao', state: autonomo,
+    messages: ['se eu parar a obra e guardar 30% da sobra por 3 meses'],
+    expectKind: 'compound',
+    expectSteps: [
+      { kind: 'cut', fields: { category: 'obra' } },
+      { kind: 'save-share', fields: { ratio: 0.3 } },
+    ],
+    expectMonths: [
+      { nonNegativeSaved: true },
+      { nonNegativeSaved: true },
+      { nonNegativeSaved: true },
+    ],
+    expectReply: [/30%/, /acumulado/i, /nada foi registrado/i],
+  },
+  {
+    id: 'c-83', group: 'acumulacao', state: autonomo,
+    messages: ['se eu parar a obra', 'e guardar tudo que sobrar', 'até dezembro?'],
+    expectKind: 'compound',
+    expectSteps: [
+      { kind: 'cut', fields: { category: 'obra' } },
+      { kind: 'save-share', fields: { ratio: 1 } },
+    ],
+    expectReply: [/100%/, /acumulado/i],
   },
   { id: 'c-76', group: 'tempo-cenario', state: autonomo, messages: ['por 3 meses'], expectNoPlan: true },
   { id: 'c-77', group: 'tempo-cenario', state: autonomo, messages: ['por 3 semanas'], expectNoPlan: true },

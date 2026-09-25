@@ -78,6 +78,18 @@ export function runScenarioCase(c: ScenarioCase): HarnessResult {
   }
   if (c.expectEmpty && fatos.length) errors.push(`esperava resultado sem base, veio ${fatos.length} fatos`)
 
+  const meses = (focus as any)?.lastScenario?.months || []
+  if (c.expectMonths) {
+    if (meses.length !== c.expectMonths.length) errors.push(`meses ${meses.length} ≠ ${c.expectMonths.length}`)
+    c.expectMonths.forEach((esperado, i) => {
+      const atual = meses[i]
+      if (!atual) return
+      if (esperado.saved !== undefined && !perto(atual.saved, esperado.saved)) errors.push(`mês ${i + 1}.saved=${atual.saved} ≠ ${esperado.saved}`)
+      if (esperado.accumulated !== undefined && !perto(atual.accumulated, esperado.accumulated)) errors.push(`mês ${i + 1}.accumulated=${atual.accumulated} ≠ ${esperado.accumulated}`)
+      if (esperado.nonNegativeSaved && atual.saved < 0) errors.push(`mês ${i + 1} guardou valor negativo: ${atual.saved}`)
+    })
+  }
+
   for (const m of c.expectReply || []) if (!casa(ultima.reply, m)) errors.push(`resposta não contém ${m}\n     "${ultima.reply.replace(/\n/g, ' | ')}"`)
   for (const m of c.forbidReply || []) if (casa(ultima.reply, m)) errors.push(`resposta contém proibido ${m}`)
 

@@ -216,9 +216,13 @@ function planSingleScenario(
   }
 
   // ---- guardar por mês ----------------------------------------------------
-  if (/\b(?:guardar|guardando|poupar|separar|juntar)\s+(?:a\s+)?metade\s+do\s+que\s+sobrar\b/.test(t)) {
-    return base('save-share', { ratio: 0.5, months: horizonte(t, opts.today || todayISO()) },
-      'guardar metade do que sobrar')
+  const sharePercent = t.match(/\b(?:guardar|guardando|poupar|separar|juntar)\s+(\d{1,3})\s*%\s+d(?:a|o)\s+sobra\b/)
+  const shareHalf = /\b(?:guardar|guardando|poupar|separar|juntar)\s+(?:a\s+)?metade\s+do\s+que\s+sobrar\b/.test(t)
+  const shareAll = /\b(?:guardar|guardando|poupar|separar|juntar)\s+(?:tudo|100\s*%)\s+(?:o\s+)?que\s+sobrar\b/.test(t)
+  if (sharePercent || shareHalf || shareAll) {
+    const ratio = shareAll ? 1 : shareHalf ? 0.5 : Math.min(Number(sharePercent![1]) / 100, 1)
+    return base('save-share', { ratio, months: horizonte(t, opts.today || todayISO()) },
+      `guardar ${Math.round(ratio * 100)}% do que sobrar`)
   }
 
   // Redução por valor mantém a categoria explícita e não finge que o gasto
@@ -294,11 +298,12 @@ export function planScenario(
     .map(p => p.trim()).filter(Boolean)
   const steps = partes.map(p => planSingleScenario(state, p, opts, true)).filter((p): p is AssistantScenarioPlan => !!p)
   if (steps.length > 1) {
+    const months = horizonte(semAcento(normalizeNumberWords(input).text), opts.today || todayISO())
     return {
       version: SCENARIO_DSL_VERSION,
       kind: 'compound',
-      steps,
-      months: Math.max(...steps.map(s => s.months || 6)),
+      steps: steps.map(step => ({ ...step, months })),
+      months,
       label: `cenário com ${steps.length} mudanças`,
     }
   }
