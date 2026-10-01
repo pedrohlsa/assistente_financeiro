@@ -4,6 +4,8 @@ import type { AppState } from '../../src/models/types'
 import { orchestrate } from '../../src/assistant/orchestrator'
 import { monthlyProjections } from '../../src/services/calc'
 import { applyBatchPure } from '../../src/assistant/execute'
+import { applyPreferenceAliases } from '../../src/assistant/preferences'
+import { hydrateForTest, reducer } from '../../src/store/store'
 import { autonomoRico } from '../fixtures/richState'
 import { buildState } from './harness'
 
@@ -157,6 +159,58 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     !c3Teach.preferenceMutation && c3Spent.actions.every(a => !('amount' in a) || a.amount !== 1000)))
   const c3Week = await turn(baseline(), 'quando eu falar sexta é segunda')
   out.push(result('C3-data', c3Week, 'recusar alias de dia da semana', !c3Week.preferenceMutation))
+  const c3Protected = await Promise.all([
+    'quando eu falar amanhã é hoje',
+    'quando eu falar gasto é renda',
+    'quando eu falar confirmado é pendente',
+    'quando eu falar 10x é 12x',
+    'quando eu falar não é sim',
+    'quando eu falar trinta é quarenta',
+  ].map(message => turn(baseline(), message)))
+  out.push(result('C3-classes', c3Protected.map(x => x.preferenceMutation),
+    'data, polaridade, confirmação, parcela e número não podem ser ensinados',
+    c3Protected.every(x => !x.preferenceMutation)))
+
+  const m2State = baseline()
+  const m2First = await turn(m2State, 'quando eu falar gasosa é gasolina')
+  const m2Second = await turn(m2State, 'quando eu falar gasosa é etanol')
+  let m2Applied = m2State
+  for (const proposal of [m2First, m2Second]) {
+    if (proposal.preferenceMutation?.type === 'upsert') {
+      m2Applied = reducer(m2Applied, { type: 'assistantPreferenceUpsert', preference: proposal.preferenceMutation.preference })
+    }
+  }
+  const m2Removal = await turn(m2Applied, 'esquece preferência gasosa')
+  const m2Removed = m2Removal.preferenceMutation?.type === 'remove'
+    ? reducer(m2Applied, { type: 'assistantPreferenceRemove', id: m2Removal.preferenceMutation.id }) : m2Applied
+  out.push(result('M2-concorrencia', {
+    proposals: [m2First.preferenceMutation, m2Second.preferenceMutation],
+    applied: m2Applied.assistantPreferences, removed: m2Removed.assistantPreferences,
+  }, 'um trigger, valor da última confirmação, remoção efetiva',
+  m2Applied.assistantPreferences?.length === 1 && m2Applied.assistantPreferences[0].value === 'etanol'
+    && m2Removed.assistantPreferences?.length === 0))
+
+  const m3Teach = await turn(baseline(), 'quando eu falar café é cafeteria')
+  const m3State = baseline()
+  if (m3Teach.preferenceMutation?.type === 'upsert') {
+    m3State.assistantPreferences = [m3Teach.preferenceMutation.preference]
+  }
+  const m3Forms = ['café', 'CAFÉ', 'cafe', 'decafeinado'].map(x => applyPreferenceAliases(m3State, x))
+  out.push(result('M3-acentos', m3Forms, 'três grafias equivalentes; não substituir palavra parcial',
+    JSON.stringify(m3Forms) === '["cafeteria","cafeteria","cafeteria","decafeinado"]'))
+
+  const malformed = { id: 'bad', kind: 'alias', trigger: { nested: true }, value: 'gasolina', source: 'user-explicit' }
+  const m4Hydrated = hydrateForTest({ assistantPreferences: [malformed] })
+  const m4MergedObject = reducer(m4Hydrated, { type: 'mergeState', state: { assistantPreferences: {} as never } })
+  const m4MergedArray = reducer(m4MergedObject, { type: 'mergeState', state: {
+    assistantPreferences: [malformed, ...(m2Applied.assistantPreferences || [])] as never,
+  } })
+  out.push(result('M4-backup', {
+    hydrated: m4Hydrated.assistantPreferences, mergedObject: m4MergedObject.assistantPreferences,
+    mergedArray: m4MergedArray.assistantPreferences,
+  }, 'malformados ignorados sem quebrar merge',
+  m4Hydrated.assistantPreferences?.length === 0 && m4MergedObject.assistantPreferences?.length === 0
+    && m4MergedArray.assistantPreferences?.length === 1))
 
   const h3State = buildState({ profile: 'autonomo', transactions: [
     { id: 'casa1', type: 'income', amount: 100, category: 'aluguel', origin: 'Casa 1', date: '2026-09-05' },
@@ -166,16 +220,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   ] })
   const h3Together = await turn(h3State, 'Quanto recebi da Casa 1 e Casa 2 juntas?')
   const h3Compare = await turn(h3State, 'Casa 1 ou Casa 2, qual rendeu mais?')
+  const h3Three = await turn(h3State, 'Quanto recebi da Casa 1, Casa 2 e Empresa A juntas?')
+  const h3Separate = await turn(h3State, 'Casa 1 ou Casa 2 separadas, quanto recebi?')
   out.push(result('H3-juntas', h3Together, 'total R$ 300; filtros Casa 1 e Casa 2',
     /300,00/.test(h3Together.reply) && !/9\.800,00|9\.000,00/.test(h3Together.reply)))
   out.push(result('H3-compara', h3Compare, 'maior Casa 2; nunca Casa 3',
     /Casa 2/.test(h3Compare.reply) && !/Casa 3/.test(h3Compare.reply)))
+  out.push(result('H3-tres', h3Three, 'somente Casa 1, Casa 2 e Empresa A = R$ 800',
+    h3Three.focus?.lastQuery?.total === 800 && h3Three.focus?.lastQueryPlan?.filter.origins?.length === 3))
+  out.push(result('H3-separadas', h3Separate, 'Casa 1 e Casa 2 separadas; não Casa 3',
+    h3Separate.focus?.lastQuery?.total === 300
+      && h3Separate.focus?.lastQuery?.groups?.length === 2
+      && !/Casa 3/.test(h3Separate.reply)))
 
   const h5 = await turn(autonomoRico(TODAY), 'Por que gastei mais em alimentação desde junho?')
   out.push(result('H5-drivers', h5, 'escopo alimentação desde junho ou uma clarificação objetiva',
     h5.mode === 'clarify' || (!!h5.focus?.lastDriver
       && h5.focus.lastDriver.analysis.current.from === '2026-06-01'
       && h5.focus.lastDriver.analysis.drivers.every(d => d.key === 'alimentacao'))))
+  const h5Category = await turn(autonomoRico(TODAY), 'Por que gastei mais em alimentação?')
+  out.push(result('H5-categoria', h5Category, 'comparação padrão limitada à categoria alimentação',
+    h5Category.focus?.lastDriver?.analysis.drivers.every(d => d.key === 'alimentacao') === true
+      && h5Category.focus?.lastDriver?.analysis.totals.incomeAfter === 0))
 
   const h6State = autonomoRico(TODAY)
   const h6a = await turn(h6State, 'Quanto gastei com obra esse mês?')
@@ -184,6 +250,17 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   out.push(result('H6-followup', { first: h6a, second: h6b, third: h6c },
     'terceiro turno permanece cenário ou esclarece; não consulta obra histórica',
     h6c.focus?.last !== 'query' && !/Total gasto.*obra/i.test(h6c.reply)))
+
+  const m6State = baseline()
+  m6State.recurring.push({ id: 'obra-futura', name: 'Obra', amount: 200, frequency: 'monthly',
+    dueDay: 25, startDate: '2026-09-25', category: 'obra', kind: 'expense', active: true })
+  const m6Simple = await scenario(m6State, 'Se eu parar a obra')
+  const m6Compound = await scenario(m6State, 'Se eu parar a obra e guardar metade do que sobrar até dezembro')
+  out.push(result('M6-corte', { simple: m6Simple, compound: m6Compound },
+    'ambos removem os mesmos R$ 200 futuros; sobra R$ 1.000',
+    m6Simple.months?.[0]?.after === 1000 && m6Simple.months?.[0]?.before === 800
+      && m6Compound.months?.[0]?.surplus === 1000
+      && m6Compound.months?.[0]?.saved === 500))
 
   const h7Mixed = await turn(buildState({ profile: 'driver' }), 'Paguei 30 no pneu e vou gastar 40 no combustível')
   const h7Applied = applyBatchPure(buildState({ profile: 'driver' }),

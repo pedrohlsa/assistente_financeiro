@@ -116,7 +116,7 @@ export function rememberQuery(
       ...prev?.entities,
       cards: plan.filter.cardNames || prev?.entities?.cards,
       categories: plan.filter.categories || prev?.entities?.categories,
-      origins: plan.filter.origin ? [plan.filter.origin] : prev?.entities?.origins,
+      origins: plan.filter.origins || (plan.filter.origin ? [plan.filter.origin] : prev?.entities?.origins),
     },
     updatedAt: now,
   }
@@ -255,6 +255,16 @@ export function resolveFollowUp(
   if (focus.last === 'scenario' && focus.lastScenarioPlan) {
     const refinado = refinaCenario(focus, t, today)
     if (refinado) return { kind: 'scenario', plan: refinado }
+    // Uma continuação não compreendida pertence ao cenário ativo. Não se
+    // pode ressuscitar uma consulta antiga só porque ela ainda está no foco.
+    return {
+      kind: 'ambiguous',
+      question: 'Você quer mudar a simulação atual? Diga qual gasto futuro cadastrado devo tirar ou reduzir.',
+      options: [
+        { label: 'Mudar simulação', value: 'scenario' },
+        { label: 'Nova consulta real', value: 'query' },
+      ],
+    }
   }
 
   // ---- consulta ---------------------------------------------------------

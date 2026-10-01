@@ -114,6 +114,8 @@ export interface QueryFilter {
   /** Vários nomes/lugares excluídos na mesma pergunta. */
   excludeTexts?: string[]
   origin?: string
+  /** Conjunto fechado de origens nomeadas pelo usuário; nunca agrupa fontes não citadas. */
+  origins?: string[]
   cardNames?: string[]
   excludeCardNames?: string[]
   goalName?: string

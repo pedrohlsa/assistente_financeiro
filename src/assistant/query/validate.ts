@@ -135,7 +135,7 @@ const PLANO_OPCIONAIS = ['version', 'field', 'metric', 'group', 'order', 'compar
 /** Todo filtro é opcional: `null` é "sem essa restrição". */
 const FILTRO_OPCIONAIS = [
   'categories', 'excludeCategories', 'txType', 'cardNames', 'excludeCardNames', 'goalName', 'text', 'excludeText', 'excludeTexts',
-  'origin', 'platform', 'profileAtCreation', 'status', 'realizedOnly', 'plannedOnly', 'weekdays', 'monthHalf',
+  'origin', 'origins', 'platform', 'profileAtCreation', 'status', 'realizedOnly', 'plannedOnly', 'weekdays', 'monthHalf',
   'minAmount', 'maxAmount',
 ] as const
 
@@ -223,6 +223,14 @@ function validateFilter(bruto: any, state: AppState): QueryFilter | QueryErrorCo
   }
   const origin = strOf(raw.origin, 60)
   if (origin) out.origin = origin
+  if (raw.origins !== undefined) {
+    if (!Array.isArray(raw.origins) || raw.origins.length < 2 || raw.origins.length > 10) return 'bad-filter'
+    const origins = raw.origins.map((x: unknown) => strOf(x, 60))
+    if (origins.some((x: string | undefined) => !x)) return 'bad-filter'
+    out.origins = [...new Set<string>(origins as string[])]
+    if (out.origins.length < 2) return 'bad-filter'
+  }
+  if (out.origin && out.origins) return 'bad-filter'
   const platform = strOf(raw.platform, 30)
   if (platform) out.platform = platform
   const perfil = strOf(raw.profileAtCreation, 20)

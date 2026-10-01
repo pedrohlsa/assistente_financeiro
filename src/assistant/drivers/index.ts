@@ -1,5 +1,7 @@
 import type { AppState } from '../../models/types'
 import { fmtBRL } from '../../utils/format'
+import { normalizeName } from '../../utils/text'
+import { currentMonthToDate, previousPeriod } from '../query/period'
 import { analyzeChanges } from './engine'
 import type { ChangeAnalysis, ChangeDriver } from './types'
 
@@ -45,9 +47,25 @@ const sinal = (v: number) => `${v >= 0 ? '+' : '−'}${fmtBRL(Math.abs(v))}`
 
 export function answerChangeQuestion(state: AppState, message: string, today: string) {
   if (!looksLikeChangeQuestion(message)) return null
-  const analysis = analyzeChanges(state, today)
+  const normalized = normalizeName(message)
+  const category = (state.categories || []).find(c => c.type === 'expense'
+    && normalizeName(c.name).length >= 4
+    && new RegExp(`(?<![a-z])${normalizeName(c.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![a-z])`).test(normalized))
+  const current = currentMonthToDate(today)
+  const scope = { current, previous: previousPeriod(current), expenseCategory: category?.id }
+  const analysis = analyzeChanges(state, today, scope)
   const reply = composeChangeExplanation(analysis, message)
   return { analysis, reply, explain: reply }
+}
+
+/** "Desde junho" não define uma base de comparação causal por si só. */
+export function changeScopeClarification(message: string): string | undefined {
+  if (!looksLikeChangeQuestion(message)) return undefined
+  const t = semAcento(message)
+  if (/\bdesde\s+(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/.test(t)) {
+    return 'Você quer comparar desde esse mês com o período anterior equivalente ou ver a evolução mês a mês?'
+  }
+  return undefined
 }
 
 export { analyzeChanges }

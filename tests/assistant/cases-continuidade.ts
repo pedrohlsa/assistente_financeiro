@@ -105,9 +105,9 @@ export const CONVERSA_CASES: ConversaCase[] = [
     id: 'k-11', group: 'continuidade', state: autonomoAgora,
     turnos: [
       { msg: 'quanto gastei com obra esse mês', expectKind: 'query' },
-      // Trocar de consulta para hipótese e voltar: os dois focos coexistem.
+      // Depois de uma hipótese, uma elipse temporal não ressuscita consulta antiga.
       { msg: 'se eu gastar mais 500 em obra quanto sobra', expectKind: 'scenario', expectReply: [/nada foi registrado/i] },
-      { msg: 'e mês passado', expectKind: 'query' },
+      { msg: 'e mês passado', expectKind: 'clarify', expectReply: [/simulação/i] },
     ],
   },
 

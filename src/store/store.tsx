@@ -17,7 +17,7 @@ import { currentInvoice } from '../services/cards'
 import { applyBatchPure } from '../assistant/execute'
 import type { BatchItem } from '../assistant/execute'
 import type { ActionExecutionResult } from '../assistant/contracts'
-import { isSafePreference } from '../assistant/preferences'
+import { isSafePreference, mergePreferenceLists } from '../assistant/preferences'
 
 const STORAGE_KEY = 'assistfin-state-v1'
 
@@ -78,9 +78,7 @@ function normalizeState(raw: any): AppState {
     // Backup anterior a esta versão não tem journal: o array nasce vazio e os
     // lotes antigos ficam sem entrada — o undo recusa em vez de adivinhar.
     assistantJournal: objs(raw?.assistantJournal),
-    assistantPreferences: objs<AssistantPreference>(raw?.assistantPreferences).filter(p =>
-      typeof p.id === 'string' && typeof p.trigger === 'string' && typeof p.value === 'string'
-      && isSafePreference(p)),
+    assistantPreferences: mergePreferenceLists([], raw?.assistantPreferences),
     vehicle: raw?.vehicle ?? null,
     cards: objs(raw?.cards),
     installmentPlans: objs(raw?.installmentPlans),
@@ -169,18 +167,14 @@ type Action =
   | { type: 'loadDemo' }
   | { type: 'reset' }
 
-function reducer(s: AppState, a: Action): AppState {
+export function reducer(s: AppState, a: Action): AppState {
   switch (a.type) {
     // Backup antigo (sem cartões/parcelas) precisa ser normalizado, senão o app quebra.
     case 'hydrate': return normalizeState(a.state)
     case 'settings': return { ...s, settings: { ...s.settings, ...a.patch } }
     case 'assistantPreferenceUpsert': {
       if (!isSafePreference(a.preference)) return s
-      const current = s.assistantPreferences || []
-      const exists = current.some(p => p.id === a.preference.id)
-      return { ...s, assistantPreferences: exists
-        ? current.map(p => p.id === a.preference.id ? a.preference : p)
-        : [...current, a.preference] }
+      return { ...s, assistantPreferences: mergePreferenceLists(s.assistantPreferences || [], [a.preference]) }
     }
     case 'assistantPreferenceRemove': return { ...s, assistantPreferences: (s.assistantPreferences || []).filter(p => p.id !== a.id) }
     case 'addTx': return { ...s, transactions: [a.tx, ...s.transactions] }
@@ -270,8 +264,7 @@ function reducer(s: AppState, a: Action): AppState {
         installments: byId(s.installments, a.state.installments),
         cardPayments: byId(s.cardPayments, a.state.cardPayments),
         cardCharges: byId(s.cardCharges, a.state.cardCharges),
-        assistantPreferences: byId(s.assistantPreferences || [],
-          (a.state.assistantPreferences || []).filter(p => p && typeof p === 'object' && isSafePreference(p))),
+        assistantPreferences: mergePreferenceLists(s.assistantPreferences || [], a.state.assistantPreferences),
         // O journal do backup NÃO é mesclado de propósito: as operações dele
         // descrevem um estado que não é este. Desfazer um lote apoiado em
         // retratos de outra base seria exatamente o chute que o journal existe

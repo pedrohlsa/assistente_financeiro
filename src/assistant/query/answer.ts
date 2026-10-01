@@ -274,6 +274,7 @@ export function explainQueryResult(r: AssistantQueryResult): string {
   if (p.filter.text) filtros.push(`só o que menciona "${p.filter.text}"`)
   if (p.filter.excludeText) filtros.push(`tirando "${p.filter.excludeText}"`)
   if (p.filter.origin) filtros.push(`só a origem "${p.filter.origin}"`)
+  if (p.filter.origins?.length) filtros.push(`só as origens ${p.filter.origins.join(', ')}`)
   if (p.filter.cardNames?.length) filtros.push(`só ${p.filter.cardNames.join(', ')}`)
   if (p.filter.excludeCardNames?.length) filtros.push(`sem ${p.filter.excludeCardNames.join(', ')}`)
   if (p.filter.weekdays?.length === 2) filtros.push('só fim de semana')

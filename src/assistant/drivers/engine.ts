@@ -6,7 +6,7 @@
 
 import type { AppState, Transaction } from '../../models/types'
 import { currentMonthToDate, previousPeriod } from '../query/period'
-import type { AssistantFact } from '../query/types'
+import type { AssistantFact, QueryPeriod } from '../query/types'
 import type { ChangeAnalysis, ChangeDriver, StructuralChange } from './types'
 import { median } from '../statistics'
 
@@ -30,11 +30,21 @@ const fact = (label: string, value: number, detail: string, rowsCount: number): 
   provenance: { source: 'transactions', rows: rowsCount, detail },
 })
 
-export function analyzeChanges(state: AppState, today: string): ChangeAnalysis {
+export interface ChangeScope {
+  current: QueryPeriod
+  previous: QueryPeriod
+  expenseCategory?: string
+}
+
+export function analyzeChanges(state: AppState, today: string, scope: ChangeScope = (() => {
   const current = currentMonthToDate(today)
-  const previous = previousPeriod(current)
-  const now = rows(state, current.from, current.to)
-  const before = rows(state, previous.from, previous.to)
+  return { current, previous: previousPeriod(current) }
+})()): ChangeAnalysis {
+  const { current, previous } = scope
+  const withinScope = (t: Transaction) => !scope.expenseCategory
+    || (t.type === 'expense' && t.category === scope.expenseCategory)
+  const now = rows(state, current.from, current.to).filter(withinScope)
+  const before = rows(state, previous.from, previous.to).filter(withinScope)
   const incomeAfter = soma(now, 'income'), incomeBefore = soma(before, 'income')
   const expenseAfter = soma(now, 'expense'), expenseBefore = soma(before, 'expense')
   const totals = {
@@ -63,6 +73,7 @@ export function analyzeChanges(state: AppState, today: string): ChangeAnalysis {
 
   const structural: StructuralChange[] = []
   for (const rec of state.recurring || []) {
+    if (scope.expenseCategory && (rec.kind === 'income' || rec.category !== scope.expenseCategory)) continue
     if (rec.startDate && rec.startDate >= current.from && rec.startDate <= current.to) {
       structural.push({ kind: 'recurring-start', label: rec.name, amount: rec.amount, date: rec.startDate })
     }
@@ -70,7 +81,7 @@ export function analyzeChanges(state: AppState, today: string): ChangeAnalysis {
       structural.push({ kind: 'recurring-end', label: rec.name, amount: rec.amount, date: rec.endDate })
     }
   }
-  for (const plan of state.installmentPlans || []) {
+  for (const plan of scope.expenseCategory ? [] : state.installmentPlans || []) {
     if (plan.firstDueDate >= current.from && plan.firstDueDate <= current.to) {
       structural.push({ kind: 'installment-start', label: plan.description, amount: plan.totalAmount / Math.max(plan.installmentCount, 1), date: plan.firstDueDate })
     }

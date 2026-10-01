@@ -862,6 +862,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     .filter((v, i, a) => a.findIndex(x => normalizeName(x.valor) === normalizeName(v.valor)) === i)
   if (origens.length > 1) {
     for (const o of origens) rest.consome(o.matched)
+    filter.origins = origens.map(o => o.valor)
     group = 'origin'
     recognized.push(`origens ${origens.map(o => o.valor).join(', ')}`)
   } else if (origem) {
@@ -977,7 +978,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
       fallbackCategory = categoriaAprendida(state, alvo.valor, tipoAlvo, hoje)
       recognized.push(`texto "${alvo.literal}"`)
     }
-  } else if (source === 'transactions' && !filter.origin) {
+  } else if (source === 'transactions' && !filter.origin && !filter.origins) {
     const solta = categoriaSolta(state, rest.texto, tipoAlvo)
     if (solta) {
       filter.categories = [solta.id]
@@ -1070,7 +1071,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     (periodoExplicito || !!comparePeriod || group !== 'none' || !!excluir || !!excluirLista
       || metric === 'share' || metric === 'median'
       || source === 'plans' || source === 'projections' || source === 'goals'
-      || !!filter.weekdays || !!filter.monthHalf || !!filter.origin)
+      || !!filter.weekdays || !!filter.monthHalf || !!filter.origin || !!filter.origins?.length)
       ? 'high' : 'medium'
 
   return {
@@ -1150,7 +1151,7 @@ function alemDoAntigo(plan: AssistantQueryPlan, periodoDito: boolean): boolean {
   if (GRUPOS_NOVOS.has(plan.group)) return true
   const f = plan.filter
   if (f.excludeCategories?.length || f.excludeText || f.excludeTexts?.length || f.excludeCardNames?.length) return true
-  if (f.weekdays?.length || f.monthHalf || f.origin) return true
+  if (f.weekdays?.length || f.monthHalf || f.origin || f.origins?.length) return true
   if (plan.metric === 'share' || plan.metric === 'median') return true
   if (plan.source === 'plans' || plan.source === 'projections') return true
   // (C) Pergunta sobre UM cartão. O roteador antigo responde o mês inteiro —

@@ -167,10 +167,10 @@ if (!only) {
 // ---------------------------------------------------------------------------
 
 if (!only) {
-  const adversarialA = (await runAdversarialReal()).filter(r => /^(?:C1|C2|H1|H2|H4)/.test(r.id))
-  const failures = adversarialA.filter(r => !r.ok)
-  console.log('\n=== Auditoria adversarial: matemática pelo orquestrador ===')
-  console.log(`${adversarialA.length - failures.length}/${adversarialA.length} regressões reais`)
+  const adversarialAB = (await runAdversarialReal()).filter(r => /^(?:C1|C2|C3|H1|H2|H3|H4|H5|H6|M2|M3|M4|M6)/.test(r.id))
+  const failures = adversarialAB.filter(r => !r.ok)
+  console.log('\n=== Auditoria adversarial: matemática, preferências e consultas ===')
+  console.log(`${adversarialAB.length - failures.length}/${adversarialAB.length} regressões reais`)
   for (const failure of failures) {
     console.log(`FAIL ${failure.id}: esperado ${JSON.stringify(failure.expected)}; recebido ${JSON.stringify(failure.actual)}`)
   }

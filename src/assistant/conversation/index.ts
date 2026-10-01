@@ -19,7 +19,7 @@ import type { QueryAnswer } from '../query'
 import { answerScenario, rerunScenario } from '../scenario'
 import type { ScenarioAnswer } from '../scenario'
 import { looksLikeScenario } from '../scenario/parse'
-import { answerChangeQuestion } from '../drivers'
+import { answerChangeQuestion, changeScopeClarification } from '../drivers'
 import {
   isFocusFresh, rememberDriver, rememberQuery, rememberScenario, resolveFollowUp, looksLikeFollowUp,
 } from './focus'
@@ -103,6 +103,15 @@ export function answerConversation(
   // ---- 2b) explicação causal --------------------------------------------
   // Não é uma soma/ranking comum: a resposta precisa decompor a mudança e
   // reconciliar todas as contribuições com o resultado observado.
+  const scopeQuestion = changeScopeClarification(message)
+  if (scopeQuestion) return {
+    reply: scopeQuestion, kind: 'clarify',
+    clarification: { question: scopeQuestion, options: [
+      { label: 'Comparar períodos', value: 'compare' },
+      { label: 'Evolução mês a mês', value: 'trend' },
+    ] },
+    focus: focus || { updatedAt: agora }, confidence: 'high',
+  }
   const drivers = answerChangeQuestion(state, message, hoje)
   if (drivers) {
     return {
