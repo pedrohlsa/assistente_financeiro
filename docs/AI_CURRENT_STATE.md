@@ -544,3 +544,14 @@ dependem do modelo remoto:
 configuração, protegida pela invariante 129 inclusive no reenvio. O override legado
 `DEEPSEEK_MODEL` foi removido da Vercel, e o deployment `dpl_9T7v31TwTRBWk4Qzxf4y6MWvTBu6` passou
 no smoke público de chat, proposta, esclarecimento, planner e composição em 25/09/2026.
+
+**Intelligence V2 após auditoria adversarial (01/10/2026).** A branch
+`feat/assistant-intelligence-v2` corrigiu C1–C3 e H1–H9 reproduzidos na
+primeira auditoria, além de M1–M4 e M6. Os REDs atravessam o orquestrador real;
+os gates locais estão verdes, mas **não há veredito READY** até uma segunda
+auditoria Astra. Ver
+[`AI_INTELLIGENCE_V2_ADVERSARIAL_FIXES.md`](AI_INTELLIGENCE_V2_ADVERSARIAL_FIXES.md)
+para provas, totais e dívida restante. A frase acima sobre “nunca mandar nome”
+se refere ao contexto/histórico estruturado: um **alias aplicado à mensagem
+atual** pode levar seu valor substituto ao planejador/chat remoto quando esse
+turno usa IA. A lista de preferências não sai como contexto.

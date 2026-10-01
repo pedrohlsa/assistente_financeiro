@@ -3291,3 +3291,23 @@ Documento detalhado: `docs/AI_INTELLIGENCE_V2.md`.
 
 Zero DeepSeek, zero gasto, zero push, zero merge, zero deploy e zero APK. `.claude/launch.json`
 permaneceu como a única modificação local fora dos commits.
+
+#### Resposta à auditoria adversarial da Intelligence V2 — 01/10/2026
+
+A auditoria independente em `36d0135` declarou **NOT READY** e reproduziu
+C1–C3/H1–H9. Checkpoint RED anterior à mudança em
+`docs/AI_INTELLIGENCE_V2_ADVERSARIAL_RED.md`; correções, provas por classe,
+privacidade e dívida em `docs/AI_INTELLIGENCE_V2_ADVERSARIAL_FIXES.md`.
+
+Commits locais: `dbe0bca` (baseline matemática), `66685df` (preferências e
+consultas), `a733a1f` (modalidade por cláusula e dinheiro), `a8cbc53`
+(clarificações de consulta) e `95f613d` (recorte causal). A suíte agora inclui
+**46/46 REDs** pelo orquestrador real, com oráculos literais e aplicação de
+lotes em memória quando relevante. Baseline: 660/660 corpus, 99/99 consulta,
+50/50 semânticos, 4.088 + 3.800 metamórficos, 1.416 fuzz, 150/150
+invariantes, 468/468 evaluator; typechecks e build verdes. O aviso antigo do
+chunk maior que 500 kB permanece.
+
+**Não declarar READY** até a segunda auditoria Astra do diff. M5 (anomalia)
+permanece fora desta rodada. Zero DeepSeek/gasto, push, merge, deploy ou APK;
+`.claude/launch.json` fica fora dos commits.

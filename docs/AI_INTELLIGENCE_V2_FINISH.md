@@ -162,6 +162,12 @@ que sobrar?” → “até dezembro?”, preservando o cenário e acrescentando
 preferência” desliga o alias depois de confirmada a remoção. A frase de
 terminologia com “considera freelance” tem teste específico.
 
+> **Atualização de 01/10/2026:** a auditoria adversarial posterior a este
+> relatório encontrou bloqueios Critical/High. Eles foram corrigidos na branch,
+> com regressões pelo orquestrador real, mas a branch **não está declarada
+> READY** até a segunda auditoria independente do Astra. Ver
+> [AI_INTELLIGENCE_V2_ADVERSARIAL_FIXES.md](AI_INTELLIGENCE_V2_ADVERSARIAL_FIXES.md).
+
 ## 17. Auditoria de UX
 
 As respostas reais do compositor e propostas foram lidas. A projeção mostra
@@ -251,9 +257,8 @@ antes de merge ou qualquer publicação. Nenhum merge foi feito nesta rodada.
 
 ## 27. Prontidão e limite desta tarefa
 
-A Intelligence V2 está **pronta para revisão de merge/deploy** pelos gates
-locais, com as limitações explícitas acima. Isto **não** é autorização nem
-prova de smoke em produção. A revisão do usuário e os procedimentos de
-publicação continuam etapas separadas. Nesta rodada: **zero DeepSeek, zero
-gasto com modelo, zero push, zero merge, zero deploy e zero APK**. Aguardar
-revisão.
+A afirmação original de prontidão foi **revogada** pela auditoria adversarial.
+O estado vigente está no relatório de correções ligado acima. Há gates locais
+verdes, mas a segunda auditoria Astra ainda é obrigatória antes de qualquer
+decisão de merge/deploy. Nesta rodada: **zero DeepSeek, zero gasto com modelo,
+zero push, zero merge, zero deploy e zero APK**.

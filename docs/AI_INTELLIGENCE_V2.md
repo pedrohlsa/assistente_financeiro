@@ -1,8 +1,10 @@
 # Assistente Intelligence v2 — auditoria, implementação e checkpoint
 
 > Este é o checkpoint da rodada anterior (`9c9c72b`). As dívidas descritas nas
-> seções 7 e 10 foram revisitadas na rodada final. Para o estado atual, veja
-> [AI_INTELLIGENCE_V2_FINISH.md](AI_INTELLIGENCE_V2_FINISH.md).
+> seções 7 e 10 foram revisitadas na rodada final. Depois disso, uma auditoria
+> adversarial encontrou bloqueios e foi respondida na branch. Para o estado
+> vigente (ainda aguardando segunda auditoria Astra), veja
+> [AI_INTELLIGENCE_V2_ADVERSARIAL_FIXES.md](AI_INTELLIGENCE_V2_ADVERSARIAL_FIXES.md).
 
 Data: 25/09/2026  
 Branch: `feat/assistant-intelligence-v2`  
