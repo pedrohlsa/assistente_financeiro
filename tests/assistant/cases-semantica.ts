@@ -19,7 +19,7 @@ import { orchestrate } from '../../src/assistant/orchestrator'
 import { planQuery } from '../../src/assistant/query/parse'
 import { answerConversation } from '../../src/assistant/conversation'
 import type { ConversationFocus } from '../../src/assistant/conversation'
-import { autonomoRico, motoristaRico } from '../fixtures/richState'
+import { autonomoRico, motoristaRico, monthStart } from '../fixtures/richState'
 import { todayISO } from '../../src/utils/format'
 
 /** Projeção e saldo leem o relógio (regra 35): cenário usa a data real. */
@@ -95,7 +95,19 @@ export const SEMANTICA_CASES: SemanticaCase[] = [
     turnos: [{ msg, expectReply: [/receitas:/i, /gastos:/i, /resultado:/i, /a conta fecha/i], expectRemote: false }],
   })),
   {
-    id: 'si2-driver-followup', group: 'drivers', state: autonomo, today: HOJE,
+    id: 'si2-driver-followup', group: 'drivers', state: () => {
+      const s = autonomo()
+      const previousDay = monthStart(HOJE, 1)
+      // No dia 1, a fixture rica só tem fatos dos dias 4 em diante. Dois
+      // fatores no próprio dia mantêm o follow-up testável em qualquer data.
+      s.transactions.push(
+        { id: 'follow-now-obra', type: 'expense', amount: 300, category: 'obra', date: HOJE, time: '08:00' },
+        { id: 'follow-now-food', type: 'expense', amount: 200, category: 'alimentacao', date: HOJE, time: '08:00' },
+        { id: 'follow-prev-obra', type: 'expense', amount: 100, category: 'obra', date: previousDay, time: '08:00' },
+        { id: 'follow-prev-food', type: 'expense', amount: 50, category: 'alimentacao', date: previousDay, time: '08:00' },
+      )
+      return s
+    }, today: HOJE,
     turnos: [
       { msg: 'o que mudou do mês passado pra cá?', expectReply: [/a conta fecha/i], expectRemote: false },
       { msg: 'e o segundo maior?', expectReply: [/segundo maior fator/i], expectRemote: false },

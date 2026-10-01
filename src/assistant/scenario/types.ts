@@ -37,6 +37,12 @@ export interface AssistantScenarioPlan {
   cardName?: string
   /** Horizonte em meses para projetar. */
   months?: number
+  /** Primeiro mês em que uma reserva começa (inclusive). */
+  startMonth?: string
+  /** Impede resultado numérico quando a data pedida está fora do limite. */
+  planningIssue?: string
+  /** Partes materiais que não entraram na conta, nunca descartadas em silêncio. */
+  unsupportedFragments?: string[]
   goalName?: string
   /** Fonte que deixaria de pagar ("Casa 1"). */
   origin?: string

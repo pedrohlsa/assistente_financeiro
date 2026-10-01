@@ -420,7 +420,12 @@ export async function runEvalSelfTest(opts: { rotas?: boolean } = {}): Promise<R
   const frases: CasoDeFrase[] = [...CASOS_PLANO, ...CASOS_CHAT, ...CASOS_CENARIO]
   let remotas = 0
   if (opts.rotas !== false) {
-    const obs = await observaCorpus(frases, est, hoje)
+    // O rótulo humano do corpus é uma foto de meio de mês. No dia 1, “dia 5”
+    // pode ser resolvido localmente sem mudar o contrato do modelo; o teste de
+    // alinhamento da foto usa sempre o mesmo calendário, enquanto o restante
+    // do oráculo continua exercitando o dia real.
+    const routeDay = '2026-09-15'
+    const obs = await observaCorpus(frases, p => ESTADOS[p](routeDay), routeDay)
     const resumo = resumoRoteamento(obs.values())
     remotas = resumo.remotoElegivel
     const divergentes = [...obs.values()]

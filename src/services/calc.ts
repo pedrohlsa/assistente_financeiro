@@ -2,7 +2,7 @@
 import { AppState, Insight, IntervalUnit, RecurrenceOccurrence, RecurringExpense, Transaction } from '../models/types'
 import { addDays, dateForDayOfMonth, daysInMonth, dueLabel, fmtBRL, fmtNum, fromISO, monthKey, monthShortLabel, stampOf, todayISO, toISO } from '../utils/format'
 import { sentenceCase, weekdayName } from '../utils/text'
-import { installmentsThisMonth, monthlyCommitments, installmentsInMonth } from './cards'
+import { installmentsThisMonth, monthlyCommitments, installmentsInMonth, chargesInMonth } from './cards'
 
 export interface PeriodStats {
   income: number
@@ -291,16 +291,38 @@ export interface MonthProjection {
   tight: boolean          // mês apertado (comprometimento alto ou saldo negativo)
 }
 
-/** Soma mensal de um recorrente, respeitando início/fim e frequência. */
-function recurringMonthAmount(r: RecurringExpense, mk: string): number {
-  if (r.active === false) return 0
-  if (r.startDate && monthKey(r.startDate) > mk) return 0
-  if (r.endDate && monthKey(r.endDate) < mk) return 0
-  if (r.frequency === 'monthly') return r.amount
-  if (r.frequency === 'weekly') return r.amount * 4.33
-  // anual: só no mês certo
-  if (r.dueMonth) return Number(mk.slice(5, 7)) === r.dueMonth ? r.amount : 0
-  return r.amount / 12
+/** Só ocorrências ainda futuras e não resolvidas entram no saldo projetado. */
+function projectedRecurringAmount(s: AppState, r: RecurringExpense, from: string, to: string, today: string): number {
+  return occurrencesBetween(r, from, to, today)
+    .filter(date => !isOccurrenceResolved(r, date)
+      && !s.transactions.some(t => t.recurringId === r.id && t.occurrenceDate === date))
+    .reduce(sum => sum + r.amount, 0)
+}
+
+/** Despesa da categoria que a própria projeção representaria em cada mês. */
+export function representedRecurringExpenseMonths(
+  s: AppState, category: string, months: number, today = todayISO(),
+): number[] {
+  const start = fromISO(today)
+  return Array.from({ length: months }, (_, i) => {
+    const first = toISO(new Date(start.getFullYear(), start.getMonth() + i, 1))
+    const last = toISO(new Date(start.getFullYear(), start.getMonth() + i + 1, 0))
+    const from = i === 0 ? today : first
+    return s.recurring.filter(r => r.kind !== 'income' && r.category === category)
+      .reduce((sum, r) => sum + projectedRecurringAmount(s, r, from, last, today), 0)
+  })
+}
+
+function projectedInstallments(s: AppState, mk: string, from: string): number {
+  const pending = installmentsInMonth(s, mk)
+    .filter(i => i.status === 'pending' && i.dueDate >= from)
+    .reduce((sum, i) => sum + Math.max(i.amount - (i.paidAmount || 0), 0), 0)
+  const charges = chargesInMonth(s, mk).reduce((sum, c) => {
+    const due = c.nextDate.slice(0, 7) === mk ? c.nextDate
+      : toISO(dateForDayOfMonth(Number(mk.slice(0, 4)), Number(mk.slice(5, 7)) - 1, Number(c.nextDate.slice(8, 10))))
+    return due >= from && (!c.endDate || due <= c.endDate) ? sum + c.amount : sum
+  }, 0)
+  return Math.round((pending + charges) * 100) / 100
 }
 
 /**
@@ -318,9 +340,14 @@ export function monthlyProjections(s: AppState, months = 12, today = todayISO())
   for (let i = 0; i < months; i++) {
     const d = new Date(start.getFullYear(), start.getMonth() + i, 1)
     const mk = monthKey(toISO(d))
-    const incomes = s.recurring.filter(r => r.kind === 'income').reduce((a, r) => a + recurringMonthAmount(r, mk), 0)
-    const bills = s.recurring.filter(r => r.kind !== 'income').reduce((a, r) => a + recurringMonthAmount(r, mk), 0)
-    const installments = monthlyCommitments(s, mk)
+    const first = toISO(d)
+    const last = toISO(new Date(start.getFullYear(), start.getMonth() + i + 1, 0))
+    const from = i === 0 ? today : first
+    const incomes = s.recurring.filter(r => r.kind === 'income')
+      .reduce((a, r) => a + projectedRecurringAmount(s, r, from, last, today), 0)
+    const bills = s.recurring.filter(r => r.kind !== 'income')
+      .reduce((a, r) => a + projectedRecurringAmount(s, r, from, last, today), 0)
+    const installments = projectedInstallments(s, mk, from)
     const outflow = bills + installments
     const net = incomes - outflow
     running += net
@@ -532,9 +559,9 @@ export function recurrenceStep(r: RecurringExpense): { interval: number; unit: I
  * - semanal: o próximo dia da semana `dueDay % 7` a partir de hoje.
  * O fallback nunca inventa passado: a sequência é reconstruída a partir dele.
  */
-export function recurrenceAnchor(r: RecurringExpense): string {
+export function recurrenceAnchor(r: RecurringExpense, asOf = todayISO()): string {
   if (r.startDate) return r.startDate
-  const t = fromISO(todayISO())
+  const t = fromISO(asOf)
   const { unit } = recurrenceStep(r)
   if (unit === 'week' || unit === 'day') {
     const target = ((r.dueDay % 7) + 7) % 7
@@ -575,9 +602,9 @@ const MAX_OCCURRENCES = 400
  * FONTE ÚNICA de datas: Home, Planejamento, alertas e o card de confirmação
  * consomem daqui, senão cada tela mostra um dia diferente para a mesma conta.
  */
-export function occurrencesBetween(r: RecurringExpense, from: string, to: string): string[] {
+export function occurrencesBetween(r: RecurringExpense, from: string, to: string, asOf = todayISO()): string[] {
   if (r.active === false) return []
-  const anchor = recurrenceAnchor(r)
+  const anchor = recurrenceAnchor(r, asOf)
   const out: string[] = []
   for (let n = 0; n < MAX_OCCURRENCES; n++) {
     const d = occurrenceAt(r, anchor, n)

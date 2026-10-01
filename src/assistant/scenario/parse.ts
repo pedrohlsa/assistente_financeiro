@@ -128,12 +128,34 @@ function horizonte(t: string, hoje: string): number {
     const n = Number(duracao[1])
     return /^semana/.test(duracao[2]) ? Math.max(1, Math.ceil(n * 7 / 30)) : Math.min(Math.max(n, 1), 12)
   }
-  const m = t.match(new RegExp(String.raw`\bate\s+(${MESES_NOME.join('|')})\b`))
+  const m = t.match(new RegExp(String.raw`\bate\s+(${MESES_NOME.join('|')})(?:\s+de\s+(\d{4}))?\b`))
   if (!m) return 6
   const alvo = MESES_NOME.indexOf(m[1])
   const atual = Number(hoje.slice(5, 7)) - 1
-  const n = (alvo >= atual ? alvo - atual : alvo + 12 - atual) + 1
+  const ano = m[2] ? Number(m[2]) : Number(hoje.slice(0, 4)) + (alvo < atual ? 1 : 0)
+  const n = (ano - Number(hoje.slice(0, 4))) * 12 + alvo - atual + 1
   return Math.min(Math.max(n, 1), 12)
+}
+
+function horizonProblem(t: string, hoje: string): string | undefined {
+  const named = t.match(new RegExp(String.raw`\bate\s+(${MESES_NOME.join('|')})(?:\s+de\s+(\d{4}))?\b`))
+  if (named?.[2]) {
+    const months = (Number(named[2]) - Number(hoje.slice(0, 4))) * 12
+      + MESES_NOME.indexOf(named[1]) - (Number(hoje.slice(5, 7)) - 1) + 1
+    if (months < 1) return `A data ${named[1]} de ${named[2]} já passou; me diga um horizonte futuro.`
+    if (months > 12) return `Só consigo projetar até 12 meses; ${named[1]} de ${named[2]} fica fora desse limite.`
+  }
+  const duration = t.match(/\b(?:durante|por)\s+(\d{1,3})\s+mes(?:es)?\b/)
+  if (duration && Number(duration[1]) > 12) return 'Só consigo projetar até 12 meses; me diga um horizonte menor.'
+  return undefined
+}
+
+function firstSavingMonth(t: string, hoje: string): string | undefined {
+  const m = t.match(new RegExp(String.raw`\ba\s+partir\s+de\s+(${MESES_NOME.join('|')})(?:\s+de\s+(\d{4}))?\b`))
+  if (!m) return undefined
+  const month = MESES_NOME.indexOf(m[1]) + 1
+  const year = m[2] ? Number(m[2]) : Number(hoje.slice(0, 4)) + (month < Number(hoje.slice(5, 7)) ? 1 : 0)
+  return `${year}-${String(month).padStart(2, '0')}`
 }
 
 /** Parar um tipo de gasto: "parar a obra", "cortar o lazer", "não gastar mais com mercado". */
@@ -216,14 +238,16 @@ function planSingleScenario(
   }
 
   // ---- guardar por mês ----------------------------------------------------
-  const sharePercent = t.match(/\b(?:guardar|guardando|poupar|separar|juntar)\s+(\d{1,3})\s*%\s+d(?:a|o)\s+sobra\b/)
-  const shareHalf = /\b(?:guardar|guardando|poupar|separar|juntar)\s+(?:a\s+)?metade\s+do\s+que\s+sobrar\b/.test(t)
-  const shareAll = /\b(?:guardar|guardando|poupar|separar|juntar)\s+(?:tudo|100\s*%)\s+(?:o\s+)?que\s+sobrar\b/.test(t)
+  const sharePercent = t.match(/\b(?:guardar|guardando|poupar|separar|juntar)\s+(\d{1,3})\s*(?:%|por\s+(?:cento|100))\s+(?:da\s+sobra|do\s+que\s+sobrar)\b/)
+  const shareHalf = /\b(?:guardar|guardando|poupar|separar|juntar)\s+(?:a\s+)?metade(?:\s+(?:da\s+sobra|do\s+que\s+sobrar)\b|(?=\s+(?:so\s+)?a\s+partir\b|\s+ate\b|$))/.test(t)
+  const shareAll = /\b(?:guardar|guardando|poupar|separar|juntar)\s+(?:tudo|100\s*%)\s+(?:da\s+sobra|(?:o\s+)?que\s+sobrar)\b/.test(t)
   if (sharePercent || shareHalf || shareAll) {
     const ratio = shareAll ? 1 : shareHalf ? 0.5 : Math.min(Number(sharePercent![1]) / 100, 1)
-    return base('save-share', { ratio, months: horizonte(t, opts.today || todayISO()) },
+    return base('save-share', { ratio, months: horizonte(t, opts.today || todayISO()), startMonth: firstSavingMonth(t, opts.today || todayISO()) },
       `guardar ${Math.round(ratio * 100)}% do que sobrar`)
   }
+  // Uma porcentagem da sobra nunca pode cair no ramo de valor fixo.
+  if (/\b(?:guardar|guardando|poupar|separar|juntar)\b[^,]{0,35}(?:%|por\s+(?:cento|100))/.test(t)) return null
 
   // Redução por valor mantém a categoria explícita e não finge que o gasto
   // desapareceu por completo.
@@ -294,20 +318,36 @@ export function planScenario(
   state: AppState, input: string, opts: { today?: string; focusCategory?: string } = {},
 ): AssistantScenarioPlan | null {
   if (!looksLikeScenario(input)) return null
-  const partes = input.split(/\s*,\s*|\s+e\s+(?=(?:eu\s+)?(?:ainda\s+|tamb[eé]m\s+)?(?:continuar\s+guardando|pagar|quitar|guardar|poupar|reduzir|diminuir|baixar|parar|cortar)\b)/i)
+  const partes = input.split(/,(?=\s*[a-zA-ZÀ-ÿ])|\s+e\s+(?=(?:eu\s+)?(?:ainda\s+|tamb[eé]m\s+)?(?:continuar\s+guardando|pagar|quitar|guardar|poupar|reduzir|diminuir|baixar|parar|cortar|investir|aplicar|comprar|gastar)\b)/i)
     .map(p => p.trim()).filter(Boolean)
-  const steps = partes.map(p => planSingleScenario(state, p, opts, true)).filter((p): p is AssistantScenarioPlan => !!p)
+  const planned = partes.map(p => ({ fragment: p, plan: planSingleScenario(state, p, opts, true) }))
+  const steps = planned.map(p => p.plan).filter((p): p is AssistantScenarioPlan => !!p)
+  const unsupportedFragments = planned.filter(p => !p.plan && /\d|\binvestir\b|\baplicar\b/i.test(p.fragment))
+    .map(p => p.fragment)
+  const normalized = semAcento(normalizeNumberWords(input).text)
+  const planningIssue = horizonProblem(normalized, opts.today || todayISO())
+  const startMonth = firstSavingMonth(normalized, opts.today || todayISO())
+  const endMonth = (() => {
+    const d = new Date(`${opts.today || todayISO()}T12:00:00`)
+    d.setMonth(d.getMonth() + horizonte(normalized, opts.today || todayISO()) - 1)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  })()
+  const issue = planningIssue || (startMonth && startMonth > endMonth
+    ? 'O início da reserva fica depois do horizonte final; me diga outras datas.' : undefined)
   if (steps.length > 1) {
-    const months = horizonte(semAcento(normalizeNumberWords(input).text), opts.today || todayISO())
+    const months = horizonte(normalized, opts.today || todayISO())
     return {
       version: SCENARIO_DSL_VERSION,
       kind: 'compound',
       steps: steps.map(step => ({ ...step, months })),
       months,
+      planningIssue: issue,
+      unsupportedFragments,
       label: `cenário com ${steps.length} mudanças`,
     }
   }
-  return steps[0] || planSingleScenario(state, input, opts)
+  const plan = steps[0] || planSingleScenario(state, input, opts)
+  return plan ? { ...plan, planningIssue: issue, unsupportedFragments } : null
 }
 
 /** O objeto da compra, quando a frase o nomeia ("um pc de 4000 em 10x"). */

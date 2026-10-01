@@ -40,6 +40,7 @@ import { runMetamorphic } from '../tests/assistant/metamorphic'
 import { runFuzz } from '../tests/assistant/fuzz'
 import { isQueryFailure, validateQueryPlan } from '../src/assistant/query/validate'
 import { autonomoRico } from '../tests/fixtures/richState'
+import { runAdversarialReal } from '../tests/assistant/adversarial-real'
 
 const only = process.argv.find(a => a.startsWith('--only='))?.slice(7)
 const verbose = process.argv.includes('--verbose')
@@ -164,6 +165,17 @@ if (!only) {
 // ---------------------------------------------------------------------------
 // Metamórficos e fuzz — a CLASSE de frases, não a frase
 // ---------------------------------------------------------------------------
+
+if (!only) {
+  const adversarialA = (await runAdversarialReal()).filter(r => /^(?:C1|C2|H1|H2|H4)/.test(r.id))
+  const failures = adversarialA.filter(r => !r.ok)
+  console.log('\n=== Auditoria adversarial: matemática pelo orquestrador ===')
+  console.log(`${adversarialA.length - failures.length}/${adversarialA.length} regressões reais`)
+  for (const failure of failures) {
+    console.log(`FAIL ${failure.id}: esperado ${JSON.stringify(failure.expected)}; recebido ${JSON.stringify(failure.actual)}`)
+  }
+  if (failures.length) extrasFalharam = true
+}
 
 if (!only) {
   const meta = await runMetamorphic()

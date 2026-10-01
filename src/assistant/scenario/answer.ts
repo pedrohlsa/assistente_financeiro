@@ -90,7 +90,9 @@ export function composeScenario(r: AssistantScenarioResult): string {
     }
 
     case 'reduce': {
-      linhas.push(`Reduzindo ${p.description || p.category || 'esse gasto'} em ${fmtBRL(p.amount || 0)} por mês.`)
+      const applied = valor('Despesa futura efetivamente evitada') || 0
+      linhas.push(`Você propôs reduzir ${p.description || p.category || 'esse gasto'} em ${fmtBRL(p.amount || 0)} por mês.`)
+      linhas.push(`Na projeção cadastrada, isso evitaria ${fmtBRL(applied)} no horizonte.`)
       break
     }
 
@@ -128,11 +130,11 @@ export function composeScenario(r: AssistantScenarioResult): string {
 
     case 'cut': {
       const media = r.facts.find(f => f.label.startsWith('Gasto médio por mês'))
-      const soma = r.facts.find(f => f.label.startsWith('A menos em'))
+      const soma = r.facts.find(f => f.label === 'Despesa futura efetivamente evitada')
       linhas.push(`Se você parar os gastos com ${p.description || 'esse gasto'}:`)
       const itens: string[] = []
-      if (media) itens.push(`• Em média, ${fmtBRL(media.value)} por mês a menos saindo`)
-      if (soma) itens.push(`• ${soma.label.replace('A menos em', 'Em')}, cerca de ${fmtBRL(soma.value)}`)
+      if (media) itens.push(`• No histórico, foram em média ${fmtBRL(media.value)} por mês`)
+      if (soma) itens.push(`• Na projeção cadastrada, ${fmtBRL(soma.value)} de despesa futura seria evitada no horizonte`)
       linhas.push(itens.join('\n'))
       break
     }

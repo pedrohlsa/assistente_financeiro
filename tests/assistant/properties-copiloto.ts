@@ -792,6 +792,8 @@ export async function runCopilotProperties(): Promise<PropertyReport> {
     const st = { ...base, recurring: [
       { id: 'ord-in', kind: 'income' as const, category: 'salario', name: 'Renda teste', amount: 2000, frequency: 'monthly' as const, dueDay: 5, active: true },
       { id: 'ord-out', kind: 'expense' as const, category: 'outros-out', name: 'Conta teste', amount: 1000, frequency: 'monthly' as const, dueDay: 10, active: true },
+      { id: 'ord-obra', kind: 'expense' as const, category: 'obra', name: 'Obra futura', amount: 500, frequency: 'monthly' as const,
+        dueDay: 20, startDate: `${today.slice(0, 8)}20`, active: true },
     ] }
     const cut = { version: 2 as const, kind: 'cut' as const, category: 'obra', description: 'Obra', months: 2, label: 'cortar' }
     const share = { version: 2 as const, kind: 'save-share' as const, ratio: 0.5, months: 2, label: 'guardar' }
