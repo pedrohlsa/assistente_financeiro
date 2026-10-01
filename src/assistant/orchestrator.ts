@@ -450,7 +450,8 @@ function runLocal(
   let clarification: AssistantClarification | undefined
 
   // Ambiguidade real (gás) interrompe: pergunta primeiro, registra depois.
-  const ambiguous = analysis.clauses.find(c => c.ambiguity)
+  const ambiguities = analysis.clauses.filter(c => c.ambiguity)
+  const ambiguous = ambiguities[0]
   const dateAmbiguous = analysis.clauses.find(c => c.dateAmbiguity)
 
   // A informação temporal tem PRIORIDADE sobre as outras perguntas: ela decide
@@ -544,7 +545,9 @@ function runLocal(
     // Cada opção carrega a lista COMPLETA de ações já resolvidas: escolher
     // "GNV" não obriga o usuário a repetir o valor nem a descrição.
     clarification = {
-      question: ambiguous.ambiguity.question,
+      question: ambiguities.length > 1 && ambiguities.every(c => !c.ambiguity?.options.length)
+        ? ambiguities.map(c => c.ambiguity!.question).join('\n\n')
+        : ambiguous.ambiguity.question,
       options: ambiguous.ambiguity.options.map(o => ({ label: o.label, value: o.label, actions: o.actions })),
       field: 'ambiguity',
     }
@@ -1529,6 +1532,11 @@ Confirmar?`,
   // A intenção futura vira TEXTO, nunca lançamento — e continua aparecendo
   // mesmo quando o resto da mensagem gerou registros.
   const planNote = local.temporalPlan ? futurePlanReply(local.temporalPlan) : null
+  const intentionNote = candidates.length
+    ? analysis.clauses.filter(c => c.intention && /\d/.test(c.text))
+      .map(c => `“${c.text.replace(/[.,;]\s*$/, '')}” descreve intenção futura; não registrei essa parte como realizada.`)
+      .join('\n')
+    : ''
   // A IA remota caiu (vazia, 502, timeout, rede). O usuário precisa saber que a
   // pergunta ficou sem resposta POR ISSO — antes ele recebia o texto genérico
   // de ajuda e não tinha como distinguir "não entendi" de "estou fora do ar".
@@ -1538,7 +1546,7 @@ Confirmar?`,
   // Neste turno NADA foi executado: a execução só acontece no Confirmar. O texto
   // do modelo não pode dizer "anotei/registrei" com a ação ainda na tela.
   const remotoSemAlegacao = remoteReply ? semAlegacaoDeExecucao(remoteReply, candidates.length ? 'pendente' : 'nada-proposto') : ''
-  const answerPart = [local_answers.text, remotoSemAlegacao, cenarioJunto?.reply, hypo, planNote, remoteNote]
+  const answerPart = [local_answers.text, remotoSemAlegacao, cenarioJunto?.reply, hypo, planNote, intentionNote, remoteNote]
     .filter(Boolean).join('\n\n')
   const rejectedAll = [...local.rejected, ...remoteRejected]
 

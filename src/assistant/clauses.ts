@@ -283,7 +283,7 @@ export const declaresIntention = (t: string): boolean => INTENCAO.test(t)
 // ---------------------------------------------------------------------------
 
 const COMMAND_VERBS =
-  'ganhei|ganhou|recebi|recebeu|faturei|lucrei|entrou|caiu|gastei|gastou|paguei|pagou|comprei|comprou|parcelei|passei|troquei|instalei|abasteci|coloquei|botei|rodei|andei|dirigi|percorri|trabalhei|quero|queria|fiz|guardei|guarda|guardar|separei|separa|separar|depositei|investi|tirei|retirei|sobrou|sobra|vendi|apliquei'
+  'ganhei|ganhou|recebi|recebeu|faturei|lucrei|entrou|caiu|gastei|gastou|paguei|pagou|comprei|comprou|parcelei|passei|troquei|instalei|abasteci|coloquei|botei|rodei|andei|dirigi|percorri|trabalhei|quero|queria|vou|vamos|vai|pretendo|fiz|guardei|guarda|guardar|separei|separa|separar|depositei|investi|tirei|retirei|sobrou|sobra|vendi|apliquei'
 
 const CONNECTORS = '(?:e\\s+)?(?:logo\\s+)?(?:depois|em\\s+seguida|mais\\s+tarde|tamb[ée]m|ent[ãa]o|a[íi])\\s+'
 
@@ -333,6 +333,18 @@ export function segment(text: string): { text: string; start: number; end: numbe
   }
   for (const m of text.matchAll(new RegExp(String.raw`\s+e\s+(?=(?:${COMMAND_VERBS})\b)`, 'gi'))) {
     push((m.index || 0) + m[0].length)
+  }
+  // Pedido, corrida oferecida e gasto avulso após vírgula são proposições
+  // próprias. A modalidade de uma não pode contaminar a outra.
+  for (const m of text.matchAll(/[,;]\s*(?=(?:(?:minha|meu|a|o)\s+\w+\s+)?(?:pediu|pediram|tocou|furando|furou|furei)\b)/gi)) {
+    push((m.index || 0) + m[0].length)
+  }
+  // Depois de "quer dizer 45", "e 30 no pneu" é um segundo gasto — não
+  // parte do valor corrigido. Não mexe em enumerações sem correção.
+  for (const m of text.matchAll(/[,;]\s*e\s+(?=\d+(?:[.,]\d+)*\s+(?:no|na|de|em)\b)/gi)) {
+    if (new RegExp(INTRA_CORRECTION, 'i').test(text.slice(Math.max(0, (m.index || 0) - 70), m.index))) {
+      push((m.index || 0) + m[0].length)
+    }
   }
   // Dois DIAS na mesma mensagem: "ontem fiz 280 e hoje 320". Sem este corte a
   // frase virava uma cláusula só, a data do primeiro dia valia para tudo, e o
@@ -524,6 +536,36 @@ function parseFirstAmount(text: string): number {
   return m ? parseMoney(m[1]) : NaN
 }
 
+/** Números monetários ainda não representados, sem confundir data, medida e fonte. */
+function unaccountedMoney(clause: AnalyzedClause): number[] {
+  if (clause.ambiguity || clause.temporal || clause.intention || clause.intent === 'question'
+    || clause.intent === 'conversation' || clause.intent === 'correction'
+    || /\bse\s+eu\b|\b(?:supondo|imagina)\b|%/.test(clause.text)) return []
+  if (clause.actions.some(a => !['income', 'expense', 'fuel', 'maintenance', 'saving', 'work'].includes(a.kind))) return []
+  const normalized = normalizeNumberWords(clause.text).text
+  // Sem leitura local, a frase segue para o planejador remoto. A guarda só
+  // impede que uma ação PARCIAL feche a cláusula e esconda outro valor.
+  if (!clause.actions.length) return []
+  const represented = clause.actions.map(a => {
+    const v: any = a
+    return v.amount ?? v.cost
+  }).filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+  const missing: number[] = []
+  for (const m of normalized.matchAll(/(?<![\d.,])(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?![\d.,])/g)) {
+    const at = m.index || 0
+    const before = normalized.slice(Math.max(0, at - 24), at)
+    const after = normalized.slice(at + m[0].length, at + m[0].length + 24)
+    if (/[\-/]$/.test(before) || /^[\-/]/.test(after)
+      || /\b(?:dia|casa|apto|apartamento|numero|número|aro|tamanho|placa|modelo)\s*$/i.test(before)
+      || /^\s*(?:x|vezes|parcelas?|km|quil[oô]metros?|litros?|horas?|viagens?|corridas?|dias?|semanas?|meses?|anos?|%|k\b)/i.test(after)) continue
+    const amount = parseMoney(m[0])
+    const representedAt = represented.findIndex(v => Math.abs(v - amount) < 0.005)
+    if (representedAt >= 0) represented.splice(representedAt, 1)
+    else missing.push(amount)
+  }
+  return missing
+}
+
 /**
  * Analisa a mensagem inteira, cláusula por cláusula.
  *
@@ -632,8 +674,14 @@ export function analyzeMessage(
     const dayHint = !looksRecurring(part.text)
       && [...datesOriginal, ...datesParser].some(d => d.kind === 'date')
     const parsed = parseNaturalFull(semData || forParser, { driver: opts?.driver, dayHint, inheritedKind })
-    const actions0 = parsed.actions
-    const ambiguity = parsed.ambiguity
+    // "Furou o pneu, foi mais 30" descreve um custo, não outra corrida
+    // concluída. O verbo "foi" isolado é ambíguo no perfil motorista.
+    const tireIncident = /\b(?:furando|furou|furei)\s+(?:o\s+)?pneu\b/i.test(part.text)
+    const tireCost = tireIncident ? parseFirstAmount(part.text) : NaN
+    const actions0: ParsedAction[] = tireIncident && tireCost > 0
+      ? [{ kind: 'expense', amount: tireCost, category: 'manutencao', description: 'Pneu' }]
+      : parsed.actions
+    let ambiguity = parsed.ambiguity
 
     // O verbo herdado só vale para a PRÓXIMA metade se esta metade disse uma
     // coisa só: "ganhei 200 e gastei 50" não deixa contexto, deixa confusão.
@@ -755,6 +803,19 @@ export function analyzeMessage(
       intencao = actions.length < antes
     }
 
+    const requestedPix = /\b(?:pediu|pediram|solicitou|solicitaram)\b[^.;!?]*\bpix\b|\bpix\b[^.;!?]*\b(?:pediu|pediram|solicitou)\b/i.test(part.text)
+    const offeredRide = /\b(?:tocou|chamou|apareceu)\s+(?:uma?\s+)?corrida\b/i.test(part.text)
+    const refund = /\b(?:devolvi|devolveu|estornei|estornou)\b/i.test(part.text)
+    if (requestedPix || offeredRide || refund) {
+      actions = []
+      const value = parseFirstAmount(part.text)
+      const amount = Number.isFinite(value) ? `R$ ${value.toFixed(2).replace('.', ',')}` : ''
+      ambiguity = { question: requestedPix
+        ? `Você chegou a enviar o Pix${amount ? ` de ${amount}` : ''}? Pedido não é transferência realizada.`
+        : offeredRide ? `Essa corrida${amount ? ` de ${amount}` : ''} foi concluída e paga? Uma chamada não é receita recebida.`
+          : `Você devolveu${amount ? ` ${amount}` : ''} ao pagador? Posso registrar essa devolução como saída após você confirmar.`, options: [] }
+    }
+
     // Leitura local de BAIXA confiança não fecha a cláusula. O número do período
     // lido como valor, a magnitude perdida, a meta lida como despesa e o
     // movimento de dinheiro dentro de uma pergunta sem fato: a ação sai, e a
@@ -828,7 +889,7 @@ export function analyzeMessage(
 
     // Uma cláusula com ação E pergunta juntas ("gastei 40, ainda bato a meta?")
     // rende DUAS entradas: a pergunta não pode sumir porque a ação foi entendida.
-    const handled = intent === 'conversation' || (intent === 'record' && actions.length > 0) || !!temporal
+    const handled = intent === 'conversation' || (intent === 'record' && actions.length > 0) || !!temporal || !!ambiguity
 
     clauses.push({
       id, text: part.text, start: part.start, end: part.end,
@@ -849,6 +910,20 @@ export function analyzeMessage(
         intent: 'question', handled: false, confidence: 'low', actions: [],
       })
     }
+  }
+
+  // "Fiz a corrida, mas ainda não pagou": a viagem pode ter acontecido,
+  // porém o dinheiro não entrou. A negação está na cláusula seguinte.
+  for (let i = 0; i < clauses.length; i++) {
+    const clause = clauses[i]
+    if (!/\b(?:ainda\s+)?n[ãa]o\s+(?:me\s+)?pagou\b|\bsem\s+pagamento\b/i.test(clause.text)) continue
+    const previous = [...clauses.slice(0, i)].reverse().find(c => /\bcorrida\b/i.test(c.text)
+      && c.actions.some(a => a.kind === 'income'))
+    if (!previous) continue
+    const income = previous.actions.find(a => a.kind === 'income') as Extract<ParsedAction, { kind: 'income' }> | undefined
+    previous.actions = previous.actions.filter(a => a !== income)
+    clause.ambiguity = { question: `O passageiro ainda não pagou os R$ ${income?.amount.toFixed(2).replace('.', ',')}? Não vou registrar essa receita antes do pagamento.`, options: [] }
+    clause.handled = true
   }
 
   // Registros de trabalho de cláusulas diferentes são o MESMO dia: "rodei 120 km
@@ -901,8 +976,9 @@ export function analyzeMessage(
   for (let i = 1; i < clauses.length; i++) {
     const c = clauses[i]
     if (!startsWithCorrection.test(c.text)) continue
-    const novo = c.actions.map(a => (a as any).amount ?? (a as any).total ?? (a as any).cost).find(v => v > 0)
-      ?? parseFirstAmount(c.text)
+    // O alvo da correção é o PRIMEIRO valor após o marcador. Uma ação posterior
+    // ("e 30 no pneu") nunca pode virar o valor corrigido do combustível.
+    const novo = parseFirstAmount(c.text)
     // Última cláusula anterior que tem ação com valor.
     let alvo: AnalyzedClause | undefined
     for (let j = i - 1; j >= 0; j--) if (clauses[j].actions.length) { alvo = clauses[j]; break }
@@ -922,6 +998,19 @@ export function analyzeMessage(
   // água", "o da ana"). Sem ligar as duas, os 1200 saíam como recebidos hoje,
   // ao lado de um aviso de que algo ainda não tinha acontecido.
   moveFuturoReferido(clauses, today)
+
+  // Nenhum valor explícito pode ficar escondido na descrição de outra ação.
+  // O oráculo é independente do parser: lê os numerais da própria cláusula e
+  // compara com os valores das ações. Correção, intenção e dúvida já têm classe.
+  for (let i = 0; i < clauses.length; i++) {
+    const c = clauses[i]
+    if (clauses[i + 1] && /^\s*(?:quer\s+dizer|na\s+verdade|corrigindo)\b/i.test(clauses[i + 1].text)) continue
+    const missing = unaccountedMoney(c)
+    if (!missing.length) continue
+    const values = missing.map(v => `R$ ${v.toFixed(2).replace('.', ',')}`).join(', ')
+    c.ambiguity = { question: `Você mencionou ${values} nesta parte, mas não consegui ligar esse valor a uma ação. O que aconteceu com ele?`, options: [] }
+    c.handled = true
+  }
 
   const actions = clauses.flatMap(c => c.actions)
   const unansweredQuestions = clauses.filter(c => c.intent === 'question' && !c.handled)

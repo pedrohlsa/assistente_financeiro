@@ -64,7 +64,7 @@ export const CATEGORY_KEYWORDS: Record<string, string[]> = {
   // Os termos são RADICAIS de propósito: 'gasolin'/'gazolin' cobrem a grafia
   // certa e o erro de digitação de sempre ("gazolina"), que antes mandava o
   // gasto para "outros" e sumia do custo de combustível do motorista.
-  combustivel: ['gasolin', 'gazolin', 'gasolna', 'etanol', 'alcool', 'álcool', 'diesel', 'dizel', 'disel', 'gnv', 'gás veicular', 'gas veicular', 'gás do carro', 'posto', 'shell', 'ipiranga', 'petrobras', 'br ', 'abasteci', 'combustivel', 'combustível'],
+  combustivel: ['gasolin', 'gazolin', 'gasolna', 'etanol', 'alcool', 'álcool', 'diesel', 'dizel', 'disel', 'gnv', 'gás veicular', 'gas veicular', 'gás do carro', 'posto', 'shell', 'ipiranga', 'petrobras', 'br ', 'abasteci', 'combustivel', 'combustível', 'combustievl'],
   obra: ['cimento', 'areia', 'tijolo', 'bloco', 'brita', 'argamassa', 'rejunte', 'telha', 'madeira', 'vergalhão', 'vergalhao', 'material de construção', 'material de construcao', 'obra', 'construção', 'construcao', 'reforma', 'pedreiro'],
   alimentacao: ['almoço', 'almoco', 'janta', 'jantar', 'lanche', 'comida', 'ifood', 'restaurante', 'padaria', 'mercad', 'mercearia', 'sacolão', 'sacolao', 'quitanda', 'café', 'cafe', 'marmita', 'pizza', 'burger', 'hamb', 'salgado', 'coxinha', 'açaí', 'acai', 'sorvete'],
   manutencao: ['óleo', 'oleo', 'pneu', 'freio', 'pastilha', 'revisão', 'revisao', 'mecânico', 'mecanico', 'oficina', 'peça', 'peca', 'filtro', 'vela', 'correia', 'amortecedor', 'manutenção', 'manutencao', 'lavagem', 'lava'],

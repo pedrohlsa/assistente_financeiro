@@ -269,6 +269,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     'pneu R$ 30 realizado; combustível R$ 40 não aplicado',
     h7Mixed.actions.some(a => a.kind === 'expense' && a.amount === 30)
       && !h7Mixed.actions.some(a => 'amount' in a && a.amount === 40)
+      && /40/.test(h7Mixed.reply) && /n[ãa]o registrei/i.test(h7Mixed.reply)
       && !h7Applied.state.transactions.some(t => t.amount === 40)))
   const h7Pix = await turn(buildState(), 'Minha filha pediu um Pix de 15')
   out.push(result('H7-pix-pedido', h7Pix, 'perguntar se Pix foi enviado; nenhuma despesa',
@@ -278,30 +279,52 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     !h7Ride.actions.some(a => a.kind === 'income' && a.amount === 70)))
   const h7Unpaid = await turn(buildState({ profile: 'driver' }), 'Fiz uma corrida de 70, mas o passageiro ainda não pagou')
   out.push(result('H7-corrida-nao-paga', h7Unpaid, 'corrida não paga não é receita recebida',
-    !h7Unpaid.actions.some(a => a.kind === 'income' && a.amount === 70)))
+    !h7Unpaid.actions.some(a => a.kind === 'income' && a.amount === 70)
+      && /70/.test(h7Unpaid.reply) && /n[ãa]o.*pagou/i.test(h7Unpaid.reply)))
 
   const h8 = await turn(buildState({ profile: 'driver' }), 'Mandei 15 de pix para minha filha comprar sorvete')
   const h8Applied = applyBatchPure(buildState({ profile: 'driver' }),
     h8.actions.map((action, i) => ({ id: `h8-${i}`, action })), { source: 'ai' })
   out.push(result('H8-pix-km', { answer: h8, applied: h8Applied.state.workSessions },
     'não criar trabalho de 15 km por Pix',
-    !h8.actions.some(a => a.kind === 'work' && a.km === 15) && h8Applied.state.workSessions.length === 0))
+    h8.actions.some(a => a.kind === 'expense' && a.amount === 15)
+      && !h8.actions.some(a => a.kind === 'work' && a.km === 15)
+      && h8Applied.state.workSessions.length === 0
+      && h8Applied.state.transactions.some(t => t.type === 'expense' && t.amount === 15)))
 
   const h9Correction = await turn(buildState({ profile: 'driver' }), 'Gastei 40 no combustível, quer dizer 45, e 30 no pneu')
+  const h9CorrectedState = applyBatchPure(buildState({ profile: 'driver' }),
+    h9Correction.actions.map((action, i) => ({ id: `h9-correction-${i}`, action })), { source: 'ai' }).state
   out.push(result('H9-correcao', h9Correction, 'combustível R$ 45 e pneu R$ 30, ambos representados',
-    h9Correction.actions.some(a => 'amount' in a && a.amount === 45)
-      && h9Correction.actions.some(a => 'amount' in a && a.amount === 30)))
+    h9Correction.actions.some(a => a.kind === 'fuel' && a.amount === 45)
+      && h9Correction.actions.some(a => a.kind === 'expense' && a.amount === 30 && a.category === 'manutencao')
+      && !h9Correction.actions.some(a => 'amount' in a && a.amount === 40)
+      && h9CorrectedState.transactions.some(t => t.amount === 45 && t.category === 'combustivel')
+      && h9CorrectedState.transactions.some(t => t.amount === 30 && t.category === 'manutencao')))
+  const h9Residue = await turn(buildState({ profile: 'driver' }), 'gastei 40 no combustível e 30 adicionais no pneu')
+  out.push(result('H9-residuo', h9Residue, 'R$ 30 não pode ficar só na descrição do gasto de R$ 40',
+    h9Residue.actions.some(a => a.kind === 'fuel' && a.amount === 40)
+      && (h9Residue.actions.some(a => 'amount' in a && a.amount === 30)
+        || (h9Residue.mode === 'clarify' && /30/.test(h9Residue.reply)))))
   const h9Refund = await turn(buildState(), 'Recebi 70, mas devolvi 20')
   out.push(result('H9-devolucao', h9Refund, 'R$ 20 como ação ou clarificação; nunca sumir',
     h9Refund.actions.some(a => 'amount' in a && a.amount === 20)
-      || /20/.test(h9Refund.reply) || h9Refund.mode === 'clarify'))
+      || (h9Refund.mode === 'clarify' && /20/.test(h9Refund.reply))))
   const h9Whole = await turn(buildState({ profile: 'driver' }),
     'fiz 20 reais, gastei 40 em combustievl, furando o pneu foi mais 30, minha filha pediu um pix de 15, tocou uma corrida de 70 reais')
+  const h9Applied = applyBatchPure(buildState({ profile: 'driver' }),
+    h9Whole.actions.map((action, i) => ({ id: `h9-${i}`, action })), { source: 'ai' })
   out.push(result('H9-frase-completa', h9Whole,
-    'todos os valores 20/40/30/15/70 classificados ou esclarecidos, sem inventar recebimento da corrida',
-    [20, 40, 30, 15, 70].every(value => h9Whole.actions.some(a => 'amount' in a && a.amount === value)
-      || h9Whole.reply.includes(String(value)) || h9Whole.mode === 'clarify')
-      && !h9Whole.actions.some(a => a.kind === 'income' && a.amount === 70)))
+    '20 recebido; 40 combustível; 30 pneu; 15 Pix pedido e 70 corrida oferecida esclarecidos, sem registrar os dois últimos',
+    h9Whole.actions.filter(a => a.kind === 'income' && a.amount === 20).length === 1
+      && h9Whole.actions.filter(a => a.kind === 'expense' && a.amount === 40 && a.category === 'combustivel').length === 1
+      && h9Whole.actions.filter(a => a.kind === 'expense' && a.amount === 30 && a.category === 'manutencao').length === 1
+      && !h9Whole.actions.some(a => 'amount' in a && (a.amount === 15 || a.amount === 70))
+      && /Pix[^\n]*15/.test(h9Whole.reply) && /corrida[^\n]*70/.test(h9Whole.reply)
+      && h9Applied.state.transactions.some(t => t.type === 'income' && t.amount === 20)
+      && h9Applied.state.transactions.some(t => t.type === 'expense' && t.amount === 40 && t.category === 'combustivel')
+      && h9Applied.state.transactions.some(t => t.type === 'expense' && t.amount === 30 && t.category === 'manutencao')
+      && !h9Applied.state.transactions.some(t => t.amount === 15 || t.amount === 70)))
   return out
 }
 

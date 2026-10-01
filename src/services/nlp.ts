@@ -922,6 +922,13 @@ function parseClause(input: string): ParsedAction[] {
     }
   }
 
+  // Transferência afirmada é saída; pedido de Pix não casa com este verbo.
+  const sentPix = text.match(new RegExp(String.raw`\b(?:mandei|enviei|transferi)\s+(?:um\s+)?(?:pix\s+de\s+)?(?:r\$\s*)?${NUM}\s*(?:reais?\s*)?(?:de\s+)?pix\b`, 'i'))
+    || text.match(new RegExp(String.raw`\b(?:mandei|enviei|transferi|fiz)\s+(?:um\s+)?pix\s+(?:de\s+)?(?:r\$\s*)?${NUM}\b`, 'i'))
+  if (sentPix && !actions.some(a => a.kind === 'expense' && a.amount === parseNum(sentPix[1]))) {
+    actions.push({ kind: 'expense', amount: parseNum(sentPix[1]), category: 'outros-out', description: 'Pix enviado' })
+  }
+
   // ----- despesa: "gastei 40 de gasolina", "gastei MAIS 79 de gás", "paguei 120 de internet"
   // A preposição precisa de espaço depois: sem isso "com" casava dentro de
   // "COMprando" e a descrição virava "prando cimento".
