@@ -28,6 +28,7 @@ import type { PlannedQuery } from '../query/parse'
 import type { AssistantQueryPlan, AssistantQueryResult, FactUnit, QueryPeriod } from '../query/types'
 import type { AssistantScenarioPlan, AssistantScenarioResult } from '../scenario/types'
 import type { ChangeAnalysis } from '../drivers'
+import type { ChangeScope } from '../drivers/engine'
 
 /** Mesmo tempo do rascunho: uma conversa parada 20 minutos acabou. */
 export const FOCUS_TTL_MINUTES = 20
@@ -58,6 +59,7 @@ export interface DriverSummary {
 export interface ConversationFocus {
   /** Plano local aguardando resposta curta à pergunta de desambiguação. */
   pendingQueryClarification?: { kind: 'categories' | 'period'; plan: AssistantQueryPlan; question: string }
+  pendingDriverClarification?: ChangeScope
   lastQueryPlan?: AssistantQueryPlan
   lastQuery?: QuerySummary
   /**
@@ -83,7 +85,8 @@ export interface ConversationFocus {
 export function rememberDriver(
   prev: ConversationFocus | undefined, analysis: ChangeAnalysis, explain: string, now = Date.now(),
 ): ConversationFocus {
-  return { ...prev, pendingQueryClarification: undefined, lastDriver: { analysis, explain }, last: 'driver', updatedAt: now }
+  return { ...prev, pendingQueryClarification: undefined, pendingDriverClarification: undefined,
+    lastDriver: { analysis, explain }, last: 'driver', updatedAt: now }
 }
 
 export const isFocusFresh = (f?: ConversationFocus, now = Date.now()): boolean =>
@@ -99,6 +102,7 @@ export function rememberQuery(
   return {
     ...prev,
     pendingQueryClarification: undefined,
+    pendingDriverClarification: undefined,
     lastQueryPlan: plan,
     // Só guarda como "anterior" quando o período mudou de verdade: refinar um
     // filtro sobre o mesmo mês não cria um segundo período para comparar.
@@ -141,6 +145,7 @@ export function rememberScenario(
   return {
     ...prev,
     pendingQueryClarification: undefined,
+    pendingDriverClarification: undefined,
     lastScenarioPlan: plan,
     lastScenario: {
       label: plan.label,

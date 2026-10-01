@@ -263,6 +263,15 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     h5.mode === 'clarify' || (!!h5.focus?.lastDriver
       && h5.focus.lastDriver.analysis.current.from === '2026-06-01'
       && h5.focus.lastDriver.analysis.drivers.every(d => d.key === 'alimentacao'))))
+  const h5Compared = await turn(autonomoRico(TODAY), 'sim', h5.focus)
+  out.push(result('H5-continuacao', h5Compared,
+    'junho–setembro contra período anterior equivalente, só alimentação: R$ 940 → R$ 2.125',
+    h5Compared.focus?.lastDriver?.analysis.current.from === '2026-06-01'
+      && h5Compared.focus?.lastDriver?.analysis.previous.to === '2026-05-31'
+      && h5Compared.focus?.lastDriver?.analysis.totals.expenseBefore === 940
+      && h5Compared.focus?.lastDriver?.analysis.totals.expenseAfter === 2125
+      && h5Compared.focus?.lastDriver?.analysis.drivers.every(d => d.key === 'alimentacao') === true
+      && h5Compared.focus?.lastDriver?.analysis.reconciled === true))
   const h5Category = await turn(autonomoRico(TODAY), 'Por que gastei mais em alimentação?')
   out.push(result('H5-categoria', h5Category, 'comparação padrão limitada à categoria alimentação',
     h5Category.focus?.lastDriver?.analysis.drivers.every(d => d.key === 'alimentacao') === true

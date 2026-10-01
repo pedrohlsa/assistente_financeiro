@@ -16,12 +16,12 @@ import type { AppState } from '../../models/types'
 import { todayISO } from '../../utils/format'
 import { normalizeName } from '../../utils/text'
 import { planQuery, runPlannedQuery } from '../query'
-import { parsePeriod } from '../query/period'
+import { parsePeriod, previousPeriod } from '../query/period'
 import type { QueryAnswer } from '../query'
 import { answerScenario, rerunScenario } from '../scenario'
 import type { ScenarioAnswer } from '../scenario'
 import { looksLikeScenario } from '../scenario/parse'
-import { answerChangeQuestion, changeScopeClarification } from '../drivers'
+import { analyzeChanges, answerChangeQuestion, changeScopeClarification, composeChangeExplanation, expenseCategoryInQuestion } from '../drivers'
 import {
   isFocusFresh, rememberDriver, rememberQuery, rememberScenario, resolveFollowUp, looksLikeFollowUp,
 } from './focus'
@@ -66,6 +66,23 @@ export function answerConversation(
   const hoje = opts.today || todayISO()
   const agora = opts.now ?? Date.now()
   const focus = opts.focus
+
+  const driverPending = isFocusFresh(focus, agora) ? focus?.pendingDriverClarification : undefined
+  if (driverPending) {
+    const choice = normalizeName(message).replace(/[.!?]+$/, '').trim()
+    if (/^(?:sim|comparar|compare|periodo anterior|com o anterior)$/.test(choice)) {
+      const analysis = analyzeChanges(state, hoje, driverPending)
+      const category = (state.categories || []).find(c => c.id === driverPending.expenseCategory)?.name
+      const explanation = composeChangeExplanation(analysis, 'gastei mais')
+      const reply = category ? `Para ${category}:\n\n${explanation}` : explanation
+      return { reply, kind: 'explain', focus: rememberDriver(focus, analysis, reply, agora), confidence: 'high' }
+    }
+    if (/^(?:nao|não)$/.test(choice)) {
+      const question = 'Quais dois períodos você quer comparar para essa categoria?'
+      return { reply: question, kind: 'clarify', clarification: { question, options: [] },
+        focus: { ...focus, pendingDriverClarification: undefined, updatedAt: agora }, confidence: 'high' }
+    }
+  }
 
   // A resposta curta completa o plano já montado, sem reabrir o texto bruto
   // nem trocar o assunto por uma consulta nova.
@@ -132,14 +149,21 @@ export function answerConversation(
   // ---- 2b) explicação causal --------------------------------------------
   // Não é uma soma/ranking comum: a resposta precisa decompor a mudança e
   // reconciliar todas as contribuições com o resultado observado.
-  const scopeQuestion = changeScopeClarification(message)
+  const scopeQuestion = changeScopeClarification(message, hoje)
   if (scopeQuestion) return {
     reply: scopeQuestion, kind: 'clarify',
     clarification: { question: scopeQuestion, options: [
-      { label: 'Comparar períodos', value: 'compare' },
-      { label: 'Evolução mês a mês', value: 'trend' },
+      { label: 'Sim, comparar', value: 'sim' },
+      { label: 'Não', value: 'não' },
     ] },
-    focus: focus || { updatedAt: agora }, confidence: 'high',
+    focus: {
+      ...focus, updatedAt: agora,
+      pendingDriverClarification: (() => {
+        const current = parsePeriod(message, hoje)?.period
+        return current ? { current, previous: previousPeriod(current),
+          expenseCategory: expenseCategoryInQuestion(state, message) } : undefined
+      })(),
+    }, confidence: 'high',
   }
   const drivers = answerChangeQuestion(state, message, hoje)
   if (drivers) {

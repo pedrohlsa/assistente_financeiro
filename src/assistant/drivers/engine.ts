@@ -107,7 +107,9 @@ export function analyzeChanges(state: AppState, today: string, scope: ChangeScop
   return {
     current, previous, totals, drivers, structural, facts,
     reconciledDelta, reconciled: Math.abs(reconciledDelta - totals.netDelta) < 0.005,
-    caveats: ['A comparação usa o mesmo número de dias dos dois meses e só lançamentos realizados.',
+    caveats: [current.grain === 'month'
+      ? 'A comparação usa o mesmo número de dias dos dois meses e só lançamentos realizados.'
+      : 'A comparação usa períodos de mesma duração e só lançamentos realizados.',
       '“Saldo” aqui significa o efeito dos lançamentos no período, não um extrato bancário externo.'],
   }
 }

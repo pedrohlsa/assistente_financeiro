@@ -2,6 +2,7 @@ import type { AppState } from '../../models/types'
 import { fmtBRL } from '../../utils/format'
 import { normalizeName } from '../../utils/text'
 import { currentMonthToDate, previousPeriod } from '../query/period'
+import { parsePeriod } from '../query/period'
 import { analyzeChanges } from './engine'
 import type { ChangeAnalysis, ChangeDriver } from './types'
 
@@ -28,7 +29,7 @@ export function composeChangeExplanation(a: ChangeAnalysis, message = ''): strin
     : a.drivers
   const top = (candidatos.length ? candidatos : a.drivers).slice(0, 4)
   const linhas = [
-    `Comparando ${a.current.label} com ${a.previous.label}, no mesmo número de dias:`,
+    `Comparação — ${a.current.label} × ${a.previous.label}:`,
     `• Receitas: ${fmtBRL(a.totals.incomeBefore)} → ${fmtBRL(a.totals.incomeAfter)} (${sinal(a.totals.incomeDelta)})`,
     `• Gastos: ${fmtBRL(a.totals.expenseBefore)} → ${fmtBRL(a.totals.expenseAfter)} (${sinal(a.totals.expenseDelta)})`,
     `• Resultado: ${fmtBRL(a.totals.netBefore)} → ${fmtBRL(a.totals.netAfter)} (${sinal(a.totals.netDelta)})`,
@@ -47,23 +48,28 @@ const sinal = (v: number) => `${v >= 0 ? '+' : '−'}${fmtBRL(Math.abs(v))}`
 
 export function answerChangeQuestion(state: AppState, message: string, today: string) {
   if (!looksLikeChangeQuestion(message)) return null
-  const normalized = normalizeName(message)
-  const category = (state.categories || []).find(c => c.type === 'expense'
-    && normalizeName(c.name).length >= 4
-    && new RegExp(`(?<![a-z])${normalizeName(c.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![a-z])`).test(normalized))
+  const category = expenseCategoryInQuestion(state, message)
   const current = currentMonthToDate(today)
-  const scope = { current, previous: previousPeriod(current), expenseCategory: category?.id }
+  const scope = { current, previous: previousPeriod(current), expenseCategory: category }
   const analysis = analyzeChanges(state, today, scope)
   const reply = composeChangeExplanation(analysis, message)
   return { analysis, reply, explain: reply }
 }
 
+export function expenseCategoryInQuestion(state: AppState, message: string): string | undefined {
+  const normalized = normalizeName(message)
+  return (state.categories || []).find(c => c.type === 'expense'
+    && normalizeName(c.name).length >= 4
+    && new RegExp(`(?<![a-z])${normalizeName(c.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![a-z])`).test(normalized))?.id
+}
+
 /** "Desde junho" não define uma base de comparação causal por si só. */
-export function changeScopeClarification(message: string): string | undefined {
+export function changeScopeClarification(message: string, today: string): string | undefined {
   if (!looksLikeChangeQuestion(message)) return undefined
   const t = semAcento(message)
   if (/\bdesde\s+(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/.test(t)) {
-    return 'Você quer comparar desde esse mês com o período anterior equivalente ou ver a evolução mês a mês?'
+    const period = parsePeriod(message, today)?.period
+    return `Você quer comparar ${period?.label || 'esse período'} até hoje com o período anterior de mesma duração?`
   }
   return undefined
 }
