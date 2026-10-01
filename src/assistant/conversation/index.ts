@@ -14,7 +14,9 @@
 
 import type { AppState } from '../../models/types'
 import { todayISO } from '../../utils/format'
+import { normalizeName } from '../../utils/text'
 import { planQuery, runPlannedQuery } from '../query'
+import { parsePeriod } from '../query/period'
 import type { QueryAnswer } from '../query'
 import { answerScenario, rerunScenario } from '../scenario'
 import type { ScenarioAnswer } from '../scenario'
@@ -65,6 +67,27 @@ export function answerConversation(
   const agora = opts.now ?? Date.now()
   const focus = opts.focus
 
+  // A resposta curta completa o plano já montado, sem reabrir o texto bruto
+  // nem trocar o assunto por uma consulta nova.
+  const pending = isFocusFresh(focus, agora) ? focus?.pendingQueryClarification : undefined
+  if (pending) {
+    const reply = normalizeName(message).replace(/[.!?]+$/, '').trim()
+    let plan = pending.plan
+    if (pending.kind === 'categories' && /^(?:juntas?|somadas?|total|separadas?|cada\s+uma)$/.test(reply)) {
+      const separate = /^(?:separadas?|cada\s+uma)$/.test(reply)
+      plan = { ...plan, group: separate ? 'category' : 'none',
+        limit: separate ? Math.max(plan.filter.categories?.length || 0, 8) : 1,
+        label: pending.plan.label?.replace(/ - .+$/, '') }
+    } else if (pending.kind === 'period' && /^(?:\d{1,2}\s+meses?|desde\s+\w+|ultimos\s+\d{1,2}\s+meses?)$/.test(reply)) {
+      const period = parsePeriod(reply, hoje)?.period || parsePeriod(`últimos ${reply}`, hoje)?.period
+      if (period) plan = { ...plan, period }
+    }
+    if (plan !== pending.plan) {
+      const answered = runPlannedQuery(state, { plan, confidence: 'high', recognized: ['resposta ao esclarecimento'] }, { today: hoje })
+      if (answered) return daConsulta({ ...focus, pendingQueryClarification: undefined }, answered, agora)
+    }
+  }
+
   // ---- 1) continuação ----------------------------------------------------
   if (isFocusFresh(focus, agora) && looksLikeFollowUp(message)) {
     const fu = resolveFollowUp(state, focus, message, hoje)
@@ -95,7 +118,13 @@ export function answerConversation(
       reply: planned.clarification.question,
       kind: 'clarify',
       clarification: planned.clarification,
-      focus: focus || { updatedAt: agora },
+      focus: {
+        ...focus, updatedAt: agora,
+        pendingQueryClarification: {
+          kind: /categorias/i.test(planned.clarification.question) ? 'categories' : 'period',
+          plan: planned.plan, question: planned.clarification.question,
+        },
+      },
       confidence: 'high',
     }
   }

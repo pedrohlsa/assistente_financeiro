@@ -212,6 +212,31 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   m4Hydrated.assistantPreferences?.length === 0 && m4MergedObject.assistantPreferences?.length === 0
     && m4MergedArray.assistantPreferences?.length === 1))
 
+  const m1State = buildState({ profile: 'driver', transactions: [
+    { id: 'food-june', type: 'expense', amount: 60, category: 'alimentacao', date: '2026-06-05' },
+    { id: 'food-aug', type: 'expense', amount: 30, category: 'alimentacao', date: '2026-08-05' },
+    { id: 'food-sep', type: 'expense', amount: 100, category: 'alimentacao', date: '2026-09-05' },
+    { id: 'leisure-sep', type: 'expense', amount: 50, category: 'lazer', date: '2026-09-05' },
+    { id: 'fuel-sep', type: 'expense', amount: 900, category: 'combustivel', date: '2026-09-05' },
+  ] })
+  const m1Categories = await turn(m1State, 'quanto gastei com alimentação e lazer este mês?')
+  const m1Separate = await turn(m1State, 'separadas', m1Categories.focus)
+  out.push(result('M1-separadas', { question: m1Categories, answer: m1Separate },
+    'segundo turno retoma duas categorias, total R$ 150 em dois grupos',
+    m1Categories.mode === 'clarify' && m1Separate.focus?.lastQuery?.total === 150
+      && m1Separate.focus?.lastQuery?.groups.length === 2
+      && /Alimentação/.test(m1Separate.reply) && /Lazer/.test(m1Separate.reply)))
+  const m1Period = await turn(m1State, 'quanto gastei com alimentação nos últimos meses?')
+  const m1Three = await turn(m1State, '3 meses', m1Period.focus)
+  const m1Since = await turn(m1State, 'desde junho', m1Period.focus)
+  out.push(result('M1-tres-meses', { question: m1Period, answer: m1Three },
+    'julho–setembro alimentação = R$ 130',
+    m1Period.mode === 'clarify' && m1Three.focus?.lastQueryPlan?.period.from === '2026-07-01'
+      && m1Three.focus?.lastQuery?.total === 130))
+  out.push(result('M1-desde-junho', m1Since, 'junho–setembro alimentação = R$ 190',
+    m1Since.focus?.lastQueryPlan?.period.from === '2026-06-01'
+      && m1Since.focus?.lastQuery?.total === 190))
+
   const h3State = buildState({ profile: 'autonomo', transactions: [
     { id: 'casa1', type: 'income', amount: 100, category: 'aluguel', origin: 'Casa 1', date: '2026-09-05' },
     { id: 'casa2', type: 'income', amount: 200, category: 'aluguel', origin: 'Casa 2', date: '2026-09-05' },

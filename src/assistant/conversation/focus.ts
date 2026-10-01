@@ -56,6 +56,8 @@ export interface DriverSummary {
 }
 
 export interface ConversationFocus {
+  /** Plano local aguardando resposta curta à pergunta de desambiguação. */
+  pendingQueryClarification?: { kind: 'categories' | 'period'; plan: AssistantQueryPlan; question: string }
   lastQueryPlan?: AssistantQueryPlan
   lastQuery?: QuerySummary
   /**
@@ -81,7 +83,7 @@ export interface ConversationFocus {
 export function rememberDriver(
   prev: ConversationFocus | undefined, analysis: ChangeAnalysis, explain: string, now = Date.now(),
 ): ConversationFocus {
-  return { ...prev, lastDriver: { analysis, explain }, last: 'driver', updatedAt: now }
+  return { ...prev, pendingQueryClarification: undefined, lastDriver: { analysis, explain }, last: 'driver', updatedAt: now }
 }
 
 export const isFocusFresh = (f?: ConversationFocus, now = Date.now()): boolean =>
@@ -96,6 +98,7 @@ export function rememberQuery(
 ): ConversationFocus {
   return {
     ...prev,
+    pendingQueryClarification: undefined,
     lastQueryPlan: plan,
     // Só guarda como "anterior" quando o período mudou de verdade: refinar um
     // filtro sobre o mesmo mês não cria um segundo período para comparar.
@@ -137,6 +140,7 @@ export function rememberScenario(
   if (anterior && JSON.stringify(anterior) !== JSON.stringify(plan)) pilha.unshift(anterior)
   return {
     ...prev,
+    pendingQueryClarification: undefined,
     lastScenarioPlan: plan,
     lastScenario: {
       label: plan.label,

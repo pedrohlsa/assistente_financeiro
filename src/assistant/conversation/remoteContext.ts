@@ -107,7 +107,7 @@ export function buildRemoteConversation(i: RemoteConversationInput): RemoteConve
       cardNames: unicos(p.filter.cardNames, 4),
       goalName: p.filter.goalName || undefined,
       freeTextFilter: p.filter.text || p.filter.excludeText ? true : undefined,
-      originFilter: p.filter.origin ? true : undefined,
+      originFilter: p.filter.origin || p.filter.origins?.length ? true : undefined,
     }
     if (Object.values(filtros).some(v => v !== undefined)) out.activeFilters = filtros
   }
