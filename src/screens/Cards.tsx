@@ -492,7 +492,10 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
     dispatch({ type: 'payInstallment', id: i.id, paidAt: todayISO() })
     const left = pp.remainingCount - 1
     if (left <= 0) dispatch({ type: 'updatePlan', id: plan.id, patch: { status: 'settled' } })
-    toast({ text: `Parcela ${i.number} marcada como paga.`, undo: () => dispatch({ type: 'unpayInstallment', id: i.id }) })
+    toast({ text: `Parcela ${i.number} marcada como paga.`, undo: () => {
+      dispatch({ type: 'unpayInstallment', id: i.id })
+      if (left <= 0) dispatch({ type: 'updatePlan', id: plan.id, patch: { status: 'active' } })
+    } })
   }
 
   /** Antecipar = marcar as próximas N parcelas pendentes como pagas hoje. */

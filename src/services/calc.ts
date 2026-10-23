@@ -2,7 +2,7 @@
 import { AppState, Insight, IntervalUnit, RecurrenceOccurrence, RecurringExpense, Transaction } from '../models/types'
 import { addDays, dateForDayOfMonth, daysInMonth, dueLabel, fmtBRL, fmtNum, fromISO, monthKey, monthShortLabel, stampOf, todayISO, toISO } from '../utils/format'
 import { sentenceCase, weekdayName } from '../utils/text'
-import { installmentsThisMonth, monthlyCommitments, installmentsInMonth, chargesInMonth, activeCards, cardInvoice } from './cards'
+import { installmentsThisMonth, monthlyCommitments, installmentsInMonth, chargesInMonth, activeCards, cardInvoice, directInstallmentPaidAmount } from './cards'
 
 export interface PeriodStats {
   income: number
@@ -87,6 +87,12 @@ export function currentBalance(s: AppState): number {
     if (!p.fromBalance) continue
     if (stampOf(p.paymentDate) <= since) continue
     total -= p.amount
+  }
+  // O botão "marcar parcela como paga" não cria CardPayment. Sem este evento
+  // no caixa, saldo e projeção afirmavam que os R$ 200 ainda estavam na conta.
+  for (const i of s.installments || []) {
+    if (!i.paidAt || stampOf(i.paidAt) <= since) continue
+    total -= directInstallmentPaidAmount(s, i)
   }
   return Math.round(total * 100) / 100
 }
@@ -322,15 +328,7 @@ function projectedInstallments(s: AppState, mk: string, from: string): number {
   const invoiced = cards.reduce((sum, card) => {
     const invoice = cardInvoice(s, card, mk)
     if (invoice.dueDate < from) return sum
-    // O botão de pagar UMA parcela marca o item diretamente, sem CardPayment.
-    // A fatura bruta ainda o lista, mas o saldo projetado não pode cobrá-lo
-    // de novo. Pagamento da fatura marca as parcelas com a mesma data dele.
-    const payments = (s.cardPayments || []).filter(p => p.cardId === card.id && p.referenceMonth === mk)
-    const paidDirectly = installmentsInMonth(s, mk)
-      .filter(i => plans.get(i.planId)?.cardId === card.id && i.status === 'paid'
-        && !payments.some(p => p.paymentDate === i.paidAt))
-      .reduce((n, i) => n + (i.paidAmount || i.amount), 0)
-    return sum + Math.max(invoice.pending - paidDirectly, 0)
+    return sum + invoice.pending
   }, 0)
   // Dados legados podem conter parcela sem plano/cartão; mantemos a projeção
   // desses itens, que não aparecem em nenhuma fatura.

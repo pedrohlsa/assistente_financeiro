@@ -353,7 +353,8 @@ export function applyActionPure(
           ...state,
           cardPayments: [payment, ...state.cardPayments],
           installments: settle.size
-            ? state.installments.map(i => (settle.has(i.id) ? { ...i, status: 'paid' as const, paidAt: date, paidAmount: i.amount } : i))
+            ? state.installments.map(i => (settle.has(i.id) ? { ...i, status: 'paid' as const,
+              paidAt: date, paidAmount: i.amount, paidVia: 'invoice' as const } : i))
             : state.installments,
         },
         result: { ok: true, actionId, entityId: payment.id },

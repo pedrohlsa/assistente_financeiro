@@ -58,10 +58,14 @@ lançamento” para não regredir a média diária própria do perfil motorista.
   reproduziu isso; agora o app pergunta se a geladeira também foi comprada,
   pede valor/forma de pagamento e preserva a TV pendente. Não cria segunda
   compra automaticamente.
-- Marcar parcela como paga diretamente na tela de cartões não cria um
-  `CardPayment` nem um lançamento de caixa. A projeção deixa de cobrá-la de
-  novo, mas a consistência do saldo e da fatura da UI nesse fluxo merece uma
-  auditoria separada, principalmente com pagamentos parciais ou mistos.
+- Um RED adicional confirmou que marcar uma parcela de R$ 200 como paga
+  diretamente deixava saldo em R$ 1.000, fatura pendente em R$ 200 e projeção
+  em R$ 1.000. Agora o pagamento direto tem origem explícita opcional no
+  estado, reduz saldo e pendência uma vez, e o pagamento da fatura não duplica
+  a dedução. Desfazer reabre a parcela e, na UI, o plano se ela era a última.
+  Backups antigos usam data/cartão como fallback. **Pagamentos parciais ou
+  mistos e âncora de saldo no mesmo dia** ainda precisam de modelo de eventos
+  mais preciso; não são declarados resolvidos por este teste.
 - O conteúdo substituto de alias pode sair como parte da mensagem atual para o
   remoto. Histórico bruto, saldo e lista de preferências não foram enviados
   nas capturas locais do parecer; isso não é prova de uma implantação real.
@@ -71,7 +75,7 @@ lançamento” para não regredir a média diária própria do perfil motorista.
 
 Gates finais desta rodada: `npm test`, `npm run typecheck`,
 `npm run typecheck:api`, `npm run build` e `git diff --check` passaram.
-Foram 660/660 corpus, 99/99 novos, 50/50 semânticos, 72/72 adversariais,
+Foram 660/660 corpus, 99/99 novos, 50/50 semânticos, 75/75 adversariais,
 4.088 + 3.800 metamórficos, 1.416 fuzz, 150/150 invariantes e 468/468
 avaliação remota offline. Repetir os gates após qualquer edição posterior.
 

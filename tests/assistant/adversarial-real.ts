@@ -3,6 +3,7 @@
 import type { AppState } from '../../src/models/types'
 import { orchestrate } from '../../src/assistant/orchestrator'
 import { currentBalance, monthlyProjections, occurrencesBetween } from '../../src/services/calc'
+import { cardInvoice } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
 import { applyPreferenceAliases } from '../../src/assistant/preferences'
 import { hydrateForTest, reducer } from '../../src/store/store'
@@ -414,6 +415,34 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   out.push(result('C2-parcela-cartao-paga-avulsa', monthlyProjections(manuallyPaidCard, 1, TODAY),
     'parcela do cartão já marcada paga não volta à projeção',
     monthlyProjections(manuallyPaidCard, 1, TODAY)[0]?.installments === 0))
+  const directStart = buildState({ profile: 'autonomo', balance: 1000,
+    cards: [{ name: 'Inter', dueDay: 20, closingDay: 5 }] })
+  directStart.settings.balanceAsOf = '2026-09-09T00:00'
+  directStart.installmentPlans = manuallyPaidCard.installmentPlans
+  directStart.installments = [{ ...manuallyPaidCard.installments[0], status: 'pending', paidAt: undefined, paidAmount: undefined }]
+  const directPaid = reducer(directStart, { type: 'payInstallment', id: 'manual-inst', paidAt: '2026-09-10' })
+  const directInvoice = cardInvoice(directPaid, directPaid.cards[0], '2026-09')
+  out.push(result('C2-parcela-marcada-paga-caixa',
+    { balance: currentBalance(directPaid), invoice: directInvoice.pending,
+      projection: monthlyProjections(directPaid, 1, TODAY)[0]?.runningBalance },
+    'pagar R$ 200 diretamente: saldo R$ 800, fatura pendente R$ 0, projeção R$ 800',
+    currentBalance(directPaid) === 800 && directInvoice.pending === 0
+      && monthlyProjections(directPaid, 1, TODAY)[0]?.runningBalance === 800))
+  const directUndone = reducer(directPaid, { type: 'unpayInstallment', id: 'manual-inst' })
+  out.push(result('C2-desfazer-pagamento-direto',
+    { balance: currentBalance(directUndone), invoice: cardInvoice(directUndone, directUndone.cards[0], '2026-09').pending },
+    'desmarcar pagamento devolve saldo R$ 1.000 e fatura R$ 200',
+    currentBalance(directUndone) === 1000
+      && cardInvoice(directUndone, directUndone.cards[0], '2026-09').pending === 200))
+  const viaInvoice = applyBatchPure(directStart,
+    [{ id: 'invoice-pay', action: { kind: 'card-payment', cardName: 'Inter', amount: 200 } }],
+    { source: 'ai', now: { date: '2026-09-10', time: '10:00' } })
+  out.push(result('C2-parcela-paga-pela-fatura',
+    { balance: currentBalance(viaInvoice.state), invoice: cardInvoice(viaInvoice.state, viaInvoice.state.cards[0], '2026-09').pending },
+    'pagamento de fatura quita parcela sem desconto duplo no saldo',
+    viaInvoice.applied && viaInvoice.state.installments[0]?.paidVia === 'invoice'
+      && currentBalance(viaInvoice.state) === 800
+      && cardInvoice(viaInvoice.state, viaInvoice.state.cards[0], '2026-09').pending === 0))
 
   for (const [id, phrase, ratio, monthly, total] of [
     ['H1-percentual-decimal', 'Se eu guardar 30,5% da sobra até dezembro', 0.305, 305, 1220],

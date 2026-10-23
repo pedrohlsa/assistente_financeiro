@@ -257,6 +257,8 @@ export interface Installment {
   paidAt?: string
   /** Pagamento parcial desta parcela (quando aplicável). */
   paidAmount?: number
+  /** Origem do pagamento: evita descontar fatura e parcela duas vezes. Opcional para backups antigos. */
+  paidVia?: 'direct' | 'invoice'
   status: InstallmentStatus
 }
 

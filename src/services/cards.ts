@@ -115,6 +115,19 @@ export function installmentsInMonth(s: AppState, mk: string): Installment[] {
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
 }
 
+/** Parte paga diretamente na parcela, fora de um pagamento de fatura.
+ * `paidVia` distingue os registros novos; backups antigos usam data/cartão
+ * apenas como fallback para não deduzir duas vezes uma quitação de fatura.
+ */
+export function directInstallmentPaidAmount(s: AppState, i: Installment): number {
+  if (i.status === 'cancelled' || !i.paidAt || i.paidVia === 'invoice') return 0
+  const plan = planById(s, i.planId)
+  if (i.paidVia !== 'direct' && plan?.cardId && (s.cardPayments || []).some(p =>
+    p.cardId === plan.cardId && p.referenceMonth === monthKey(i.dueDate) && p.paymentDate === i.paidAt)) return 0
+  const amount = i.status === 'paid' ? (i.paidAmount ?? i.amount) : (i.paidAmount ?? 0)
+  return round2(Math.min(Math.max(amount, 0), i.amount))
+}
+
 /** Assinaturas ativas que caem no mês de referência. */
 export function chargesInMonth(s: AppState, mk: string): RecurringCardCharge[] {
   return (s.cardCharges || []).filter(c => {
@@ -183,9 +196,11 @@ export function cardInvoice(s: AppState, card: CreditCard, mk: string): CardInvo
     : clampDay(y, m - 2, card.closingDay)
 
   const items: InvoiceItem[] = []
+  let directPaid = 0
   for (const i of installmentsInMonth(s, mk)) {
     const plan = planById(s, i.planId)
     if (!plan || plan.cardId !== card.id) continue
+    directPaid += directInstallmentPaidAmount(s, i)
     items.push({
       label: plan.description, amount: i.amount, kind: 'installment',
       planId: plan.id, installmentNumber: i.number, installmentTotal: i.total, dueDate: i.dueDate,
@@ -205,7 +220,7 @@ export function cardInvoice(s: AppState, card: CreditCard, mk: string): CardInvo
   }
 
   const total = round2(items.reduce((a, i) => a + i.amount, 0))
-  const paid = round2((s.cardPayments || [])
+  const paid = round2(directPaid + (s.cardPayments || [])
     .filter(p => p.cardId === card.id && p.referenceMonth === mk)
     .reduce((a, p) => a + p.amount, 0))
   const pending = round2(Math.max(total - paid, 0))

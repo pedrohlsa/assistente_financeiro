@@ -307,13 +307,15 @@ export function reducer(s: AppState, a: Action): AppState {
       return {
         ...s,
         installments: s.installments.map(i =>
-          i.id === a.id ? { ...i, status: 'paid' as const, paidAt: a.paidAt, paidAmount: a.paidAmount ?? i.amount } : i),
+          i.id === a.id ? { ...i, status: 'paid' as const, paidAt: a.paidAt,
+            paidAmount: a.paidAmount ?? i.amount, paidVia: 'direct' as const } : i),
       }
     case 'unpayInstallment':
       return {
         ...s,
         installments: s.installments.map(i =>
-          i.id === a.id ? { ...i, status: 'pending' as const, paidAt: undefined, paidAmount: undefined } : i),
+          i.id === a.id ? { ...i, status: 'pending' as const, paidAt: undefined, paidAmount: undefined,
+            paidVia: undefined } : i),
       }
     case 'updateInstallment':
       return { ...s, installments: s.installments.map(i => i.id === a.id ? { ...i, ...a.patch } : i) }
@@ -325,7 +327,8 @@ export function reducer(s: AppState, a: Action): AppState {
         ...s,
         cardPayments: [a.payment, ...s.cardPayments],
         installments: settle.size
-          ? s.installments.map(i => settle.has(i.id) ? { ...i, status: 'paid' as const, paidAt: a.payment.paymentDate, paidAmount: i.amount } : i)
+          ? s.installments.map(i => settle.has(i.id) ? { ...i, status: 'paid' as const,
+            paidAt: a.payment.paymentDate, paidAmount: i.amount, paidVia: 'invoice' as const } : i)
           : s.installments,
         // O saldo NÃO é alterado aqui: ele é derivado em currentBalance(), que já
         // desconta os pagamentos com `fromBalance`. Mexer nos dois lugares contaria duas vezes.
