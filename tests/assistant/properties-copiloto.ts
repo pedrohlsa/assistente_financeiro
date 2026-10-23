@@ -910,6 +910,24 @@ export async function runCopilotProperties(): Promise<PropertyReport> {
     return null
   })
 
+  check(r, 'anomalia exige IDs únicos e amostra contemporânea ao lançamento', () => {
+    const today = '2026-09-15'
+    const st = autonomoRico(today)
+    const sample = Array.from({ length: 6 }, (_, i) => ({
+      id: `amostra-${i}`, type: 'expense' as const, amount: 100,
+      category: 'combustivel', description: 'Posto X',
+      date: `2026-09-${String(i + 1).padStart(2, '0')}`, time: '10:00', source: 'manual' as const,
+    }))
+    const action = { kind: 'expense' as const, amount: 500, category: 'combustivel', description: 'Posto X' }
+    st.transactions = sample.map(t => ({ ...t, id: 'mesmo-id' }))
+    if (outOfPatternWarning(st, action, today)) return 'seis cópias do mesmo ID viraram seis amostras'
+    st.transactions = sample
+    if (outOfPatternWarning(st, { ...action, date: '2026-01-10' }, today)) return 'lançamento de janeiro comparado com preços de setembro'
+    st.transactions = sample.map(t => ({ ...t, date: '2025-01-10' }))
+    if (outOfPatternWarning(st, { kind: 'expense', amount: 500, category: 'combustivel' }, today)) return 'categoria antiga virou padrão recente'
+    return null
+  })
+
   return r
 }
 

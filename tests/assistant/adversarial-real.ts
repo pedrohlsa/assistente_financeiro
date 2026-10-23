@@ -600,6 +600,21 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && otherPurchase.keepPending === true && otherPurchase.response.actions.length === 0
       && /geladeira/i.test(otherPurchase.response.reply) && /TV/i.test(otherPurchase.response.reply)
       && !/simula[çc][ãa]o/i.test(otherPurchase.response.reply)))
+  const patternState = autonomoRico(TODAY)
+  patternState.transactions = Array.from({ length: 6 }, (_, i) => ({
+    id: `p-${i}`, type: 'expense' as const, amount: 100, category: 'combustivel',
+    description: 'Posto X', date: `2026-09-${String(i + 1).padStart(2, '0')}`, time: '10:00',
+  }))
+  const warned = await orchestrate({ state: patternState, message: 'Gastei 500 no Posto X', today: TODAY, remoteEnabled: false })
+  const acknowledged = await orchestrate({ state: patternState, message: 'está correto', today: TODAY,
+    remoteEnabled: false, pending: warned.response.actions })
+  out.push(result('M5-aviso-reconhecido', { warned: warned.response, acknowledged: acknowledged.response },
+    'reconhecer alerta preserva proposta e orienta confirmar, sem repetir aviso',
+    warned.response.mode === 'propose_actions'
+      && warned.response.actions.some(a => !!a.patternWarning)
+      && acknowledged.keepPending === true && acknowledged.response.actions.length === 0
+      && /confirmar/i.test(acknowledged.response.reply)
+      && !/acima do seu padr[ãa]o|zero a mais/i.test(acknowledged.response.reply)))
   return out
 }
 

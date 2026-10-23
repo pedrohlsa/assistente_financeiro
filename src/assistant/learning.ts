@@ -245,12 +245,19 @@ export function merchantAmountProfile(
   const field = a.origin ? 'origin' : a.description ? 'description' : undefined
   const name = field ? String(a[field] || '').trim() : ''
   if (!field || normalizeName(name).length < 2 || !a.category) return undefined
+  const seenIds = new Set<string>()
   const rows = (state.transactions || [])
     .filter(t => t?.type === action.kind && t.category === a.category
       && t.date <= today && ageInDays(t.date, today) >= 0 && ageInDays(t.date, today) <= 120
       && Number.isFinite(t.amount) && t.amount > 0
       && normalizeName(String((t as any)[field] || '')) === normalizeName(name))
     .sort((x, y) => y.date.localeCompare(x.date))
+    .filter(t => {
+      if (!t.id) return true
+      if (seenIds.has(t.id)) return false
+      seenIds.add(t.id)
+      return true
+    })
     .slice(0, 60)
   if (rows.length < 6) return undefined
   const values = rows.map(t => t.amount)
@@ -280,6 +287,10 @@ export function outOfPatternWarning(
   const a: any = action
   const valor = Number(a.amount)
   if (!(valor > 0) || !a.category) return undefined
+  // Um lançamento retroativo não deve ser comparado com o preço de hoje.
+  // Sem data explícita, a proposta é de hoje; datas futuras também não têm base.
+  const age = a.date ? ageInDays(a.date, today) : 0
+  if (age < 0 || age > 120) return undefined
 
   // Identidade exata, no mesmo tipo e categoria. Sem seis ocorrências recentes
   // e estáveis, um lugar novo ou de preço variável não gera alerta.

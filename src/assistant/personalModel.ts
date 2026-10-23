@@ -379,6 +379,7 @@ function computeModel(state: AppState, today: string): PersonalAssistantModel {
   // fim da lista (`mergeState`) e um lançamento retroativo entra no começo.
   // Cortar por posição faria o app ler "os 800 mais recentemente digitados",
   // que não é a mesma coisa que "os 800 mais recentes".
+  const seenTxIds = new Set<string>()
   const txs = (state.transactions || [])
     // Data ilegível, valor não numérico e lançamento datado no FUTURO ficam de
     // fora. `validateAction` já barra data futura na criação, então isso só
@@ -389,6 +390,13 @@ function computeModel(state: AppState, today: string): PersonalAssistantModel {
       && isReadableDate(t.date) && t.date <= today && Number.isFinite(t.amount))
     .slice()
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+    // Backup/merge pode repetir o mesmo ID: seis cópias não são seis hábitos.
+    .filter(t => {
+      if (!t.id) return true
+      if (seenTxIds.has(t.id)) return false
+      seenTxIds.add(t.id)
+      return true
+    })
     .slice(0, MAX_TRANSACOES)
 
   // type → chave → categoria → bucket
@@ -436,7 +444,7 @@ function computeModel(state: AppState, today: string): PersonalAssistantModel {
       if (campo === 'description') bump(nested(places, type), texto.trim(), w, t.date, recente)
     }
 
-    if (cat && t.amount > 0) {
+    if (cat && t.amount > 0 && recente) {
       const k = `${type}:${cat}`
       const a = amounts.get(k)
       if (!a) amounts.set(k, { values: [t.amount], from: t.date, to: t.date })

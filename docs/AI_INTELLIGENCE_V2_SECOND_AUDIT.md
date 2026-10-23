@@ -51,8 +51,11 @@ lançamento” para não regredir a média diária própria do perfil motorista.
 - Os testes automatizados são **offline** e verificam código local. Ainda falta
   nova revisão adversarial independente antes de declarar READY para merge ou
   deploy; a rubrica automática sozinha não prova segurança financeira.
-- M5 (alerta estatístico com IDs repetidos, recência e repetição após “está
-  correto”) continua aberto, como no parecer.
+- Uma rodada adicional de M5 corrigiu três reproduções: cópias do mesmo ID
+  contam como uma amostra; valores antigos não viram padrão *recente* nem são
+  comparados a um lançamento retroativo; “está correto” preserva a proposta e
+  aponta para o botão Confirmar sem repetir o alerta nem registrar sozinho.
+  Isso cobre essas reproduções, não valida toda a estatística de anomalias.
 - Após a primeira revisão, a sonda mostrou “e uma geladeira” após proposta
   de TV recebendo esclarecimento de *simulação* genérico. Um RED adicional
   reproduziu isso; agora o app pergunta se a geladeira também foi comprada,
@@ -75,8 +78,8 @@ lançamento” para não regredir a média diária própria do perfil motorista.
 
 Gates finais desta rodada: `npm test`, `npm run typecheck`,
 `npm run typecheck:api`, `npm run build` e `git diff --check` passaram.
-Foram 660/660 corpus, 99/99 novos, 50/50 semânticos, 75/75 adversariais,
-4.088 + 3.800 metamórficos, 1.416 fuzz, 150/150 invariantes e 468/468
+Foram 660/660 corpus, 99/99 novos, 50/50 semânticos, 76/76 adversariais,
+4.088 + 3.800 metamórficos, 1.416 fuzz, 151/151 invariantes e 468/468
 avaliação remota offline. Repetir os gates após qualquer edição posterior.
 
 Se todos os gates passarem, fazer somente commit **local** dos arquivos desta

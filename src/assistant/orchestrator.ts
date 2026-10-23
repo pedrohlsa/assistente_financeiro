@@ -1029,6 +1029,21 @@ Confirmar?`,
     }
   }
 
+  // Reconhecer o valor/aviso não é tocar em Confirmar. Preserva o card aberto
+  // e explica o passo final, sem repetir a advertência nem alegar registro.
+  if (input.pending?.length
+    && /^(?:(?:esta|ta|isso esta|isso ta)\s+)?(?:correto|certo)$/.test(normalizeName(input.message).replace(/[.!?]+$/, ''))) {
+    return {
+      draft: null,
+      keepPending: true,
+      response: {
+        version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local',
+        actions: [], unresolved: [],
+        reply: 'Entendi. A proposta continua pendente e nada foi registrado ainda. Se os dados estão certos, toque em Confirmar no card acima.',
+      },
+    }
+  }
+
   // Uma compra em aberto vence um foco antigo de simulação. A frase elíptica
   // "e uma geladeira" não informa valor nem se a compra aconteceu; perguntar
   // sem criar ação e sem cancelar a TV que ainda aguarda confirmação.
