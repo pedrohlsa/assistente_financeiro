@@ -1029,6 +1029,25 @@ Confirmar?`,
     }
   }
 
+  // Uma compra em aberto vence um foco antigo de simulação. A frase elíptica
+  // "e uma geladeira" não informa valor nem se a compra aconteceu; perguntar
+  // sem criar ação e sem cancelar a TV que ainda aguarda confirmação.
+  const outroItem = normalizeName(input.message).match(/^e\s+(um|uma)\s+([a-z][a-z\s-]{1,40})\??$/)
+  const compraPendente = input.pending?.find(p => p.action.kind === 'card-purchase')
+  if (outroItem && compraPendente) {
+    const nomePendente = 'description' in compraPendente.action
+      ? compraPendente.action.description || 'compra anterior' : 'compra anterior'
+    return {
+      draft: null,
+      keepPending: true,
+      response: {
+        version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local',
+        actions: [], unresolved: [],
+        reply: `Você também comprou ${outroItem[1]} ${outroItem[2]}? Se sim, diga quanto custou e se foi à vista ou em parcelas. ${sentenceCase(nomePendente)} continua aguardando confirmação.`,
+      },
+    }
+  }
+
   // ---- 7) A mensagem pergunta POR QUE, ou pede para eu parar? ----------
   // Depois das correções de propósito: "não foi lazer" corrige a proposta;
   // "por que lazer?" pede explicação. E antes da análise por cláusula, porque

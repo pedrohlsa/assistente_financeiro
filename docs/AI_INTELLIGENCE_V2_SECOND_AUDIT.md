@@ -53,9 +53,11 @@ lançamento” para não regredir a média diária própria do perfil motorista.
   deploy; a rubrica automática sozinha não prova segurança financeira.
 - M5 (alerta estatístico com IDs repetidos, recência e repetição após “está
   correto”) continua aberto, como no parecer.
-- A sonda ainda mostra “e uma geladeira” após proposta de TV recebendo um
-  esclarecimento de *simulação* genérico. Não registrar nem simular nada sem
-  esclarecer; o fluxo de continuação dessa compra precisa de revisão própria.
+- Após a primeira revisão, a sonda mostrou “e uma geladeira” após proposta
+  de TV recebendo esclarecimento de *simulação* genérico. Um RED adicional
+  reproduziu isso; agora o app pergunta se a geladeira também foi comprada,
+  pede valor/forma de pagamento e preserva a TV pendente. Não cria segunda
+  compra automaticamente.
 - Marcar parcela como paga diretamente na tela de cartões não cria um
   `CardPayment` nem um lançamento de caixa. A projeção deixa de cobrá-la de
   novo, mas a consistência do saldo e da fatura da UI nesse fluxo merece uma
@@ -69,7 +71,7 @@ lançamento” para não regredir a média diária própria do perfil motorista.
 
 Gates finais desta rodada: `npm test`, `npm run typecheck`,
 `npm run typecheck:api`, `npm run build` e `git diff --check` passaram.
-Foram 660/660 corpus, 99/99 novos, 50/50 semânticos, 71/71 adversariais,
+Foram 660/660 corpus, 99/99 novos, 50/50 semânticos, 72/72 adversariais,
 4.088 + 3.800 metamórficos, 1.416 fuzz, 150/150 invariantes e 468/468
 avaliação remota offline. Repetir os gates após qualquer edição posterior.
 

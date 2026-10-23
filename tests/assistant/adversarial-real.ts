@@ -558,6 +558,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     /agosto/i.test(qWorse.reply) && /500,00/.test(qWorse.reply)
       && /100,00/.test(qWorse.reply) && /pior/i.test(qWorse.reply)
       && !/500,00[^\n]*a menos/i.test(qWorse.reply)))
+  const cardContext = buildState({ cards: [{ name: 'Nubank' }] })
+  const oldScenario = await orchestrate({ state: cardContext, message: 'Se eu comprar algo de 100 em 10x',
+    today: TODAY, remoteEnabled: false })
+  const tvPending = await orchestrate({ state: cardContext, message: 'Comprei uma TV de 2500 em 6x no Nubank',
+    today: TODAY, remoteEnabled: false, focus: oldScenario.focus })
+  const otherPurchase = await orchestrate({ state: cardContext, message: 'E uma geladeira',
+    today: TODAY, remoteEnabled: false, focus: oldScenario.focus, pending: tvPending.response.actions })
+  out.push(result('Q-compra-eliptica', otherPurchase.response, 'pedir detalhes da geladeira; preservar TV pendente',
+    tvPending.response.mode === 'propose_actions'
+      && tvPending.response.actions.some(a => a.action.kind === 'card-purchase')
+      && otherPurchase.keepPending === true && otherPurchase.response.actions.length === 0
+      && /geladeira/i.test(otherPurchase.response.reply) && /TV/i.test(otherPurchase.response.reply)
+      && !/simula[çc][ãa]o/i.test(otherPurchase.response.reply)))
   return out
 }
 
