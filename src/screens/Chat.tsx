@@ -250,7 +250,8 @@ export default function Chat() {
   }
 
   const chooseClarification = (msgId: string, value: string, label: string) => {
-    dispatch({ type: 'chatResolve', id: msgId })
+    const hasProposal = state.chat.some(m => m.id === msgId && !!m.proposal?.length)
+    dispatch({ type: hasProposal ? 'chatClearClarification' : 'chatResolve', id: msgId })
     send(label || value)
   }
 

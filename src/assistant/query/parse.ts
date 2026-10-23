@@ -682,8 +682,15 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   // trecho primeiro, ele era lido como o período PRINCIPAL — e a pergunta
   // comparava o mês passado com ele mesmo.
   let textoComparacao: string | undefined
-  const marcador = t0.match(MARCADOR_CMP)
-  if (marcador && parsePeriod(marcador[1], hoje)) {
+  // "Compara julho com junho" traz os dois períodos na mesma construção;
+  // o marcador genérico só entende "comparado com junho".
+  const doisMeses = t0.match(/\bcompar[ao]\s+((?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)(?:\s+de\s+20\d{2})?)\s+com\s+((?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)(?:\s+de\s+20\d{2})?)\b/)
+  const periodoComparadoDireto = doisMeses ? parsePeriod(doisMeses[1], hoje)?.period : undefined
+  const marcador = doisMeses ? null : t0.match(MARCADOR_CMP)
+  if (doisMeses && periodoComparadoDireto && parsePeriod(doisMeses[2], hoje)) {
+    textoComparacao = doisMeses[2]
+    rest.consome(doisMeses[0])
+  } else if (marcador && parsePeriod(marcador[1], hoje)) {
     textoComparacao = marcador[1]
     rest.consome(marcador[0])
   }
@@ -784,11 +791,10 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     if (group === 'none') group = 'month'
   } else if (source === 'goals' || source === 'plans') {
     period = janelaAberta(hoje)
-  } else if (lido) {
-    period = lido.period
+  } else if (lido || periodoComparadoDireto) {
+    period = lido?.period || periodoComparadoDireto!
     periodoExplicito = true
-    rest.consome(lido.span ?? lido.matched)
-    recognized.push(lido.matched)
+    if (lido) { rest.consome(lido.span ?? lido.matched); recognized.push(lido.matched) }
     // “Caiu ou subiu desde junho?” pede a série desde o marco dito, não uma
     // janela anterior inventada com a mesma duração.
     if (/^desde\s/.test(period.label) && pedeComparacao && group === 'none') group = 'month'
@@ -1076,7 +1082,8 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
 
   return {
     plan, confidence, recognized, fallbackCategory,
-    beyondLegacy: alemDoAntigo(plan, !!lido),
+    beyondLegacy: alemDoAntigo(plan, !!lido || !!periodoComparadoDireto,
+      /\bpor\s+lancamentos?\b/.test(t0)),
     ...(periodoVago ? {
       clarification: {
         question: 'Quando você diz “últimos meses”, quer olhar quantos meses?',
@@ -1142,7 +1149,7 @@ const GRUPOS_NOVOS = new Set(['category', 'month', 'week', 'weekday', 'month-hal
  * "quanto eu costumo gastar de suco por dia?" deixou de ser respondida pelo
  * histórico dele e virou uma média genérica.
  */
-function alemDoAntigo(plan: AssistantQueryPlan, periodoDito: boolean): boolean {
+function alemDoAntigo(plan: AssistantQueryPlan, periodoDito: boolean, porLancamento: boolean): boolean {
   // (A) Período dito e fora das seis frases do roteador antigo. Este é o caso
   // em que ele responde a pergunta errada com cara de certa.
   if (periodoDito && !PERIODOS_ANTIGOS.has(plan.period.label)) return true
@@ -1153,6 +1160,9 @@ function alemDoAntigo(plan: AssistantQueryPlan, periodoDito: boolean): boolean {
   if (f.excludeCategories?.length || f.excludeText || f.excludeTexts?.length || f.excludeCardNames?.length) return true
   if (f.weekdays?.length || f.monthHalf || f.origin || f.origins?.length) return true
   if (plan.metric === 'share' || plan.metric === 'median') return true
+  // O roteador antigo trata "média por lançamento" como nome de despesa.
+  // Hábito de um item nomeado continua com ele (ex.: suco por dia).
+  if (plan.metric === 'avg' && porLancamento && !f.text) return true
   if (plan.source === 'plans' || plan.source === 'projections') return true
   // (C) Pergunta sobre UM cartão. O roteador antigo responde o mês inteiro —
   // certo como número, errado como resposta, e sem deixar o cartão no foco.

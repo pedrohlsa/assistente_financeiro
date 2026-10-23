@@ -161,6 +161,7 @@ type Action =
   | { type: 'assistantBatch'; items: BatchItem[]; source: Transaction['source']; batchId: string; engine?: AssistantJournalEntry['engine']; messageId?: string }
   | { type: 'chat'; msg: ChatMessage }
   | { type: 'chatUpdateProposal'; id: string; proposal: ProposedAction[] }
+  | { type: 'chatClearClarification'; id: string }
   | { type: 'chatResolve'; id: string }
   | { type: 'chatClear' }
   | { type: 'clearActivity' }
@@ -368,6 +369,8 @@ export function reducer(s: AppState, a: Action): AppState {
     case 'chat': return { ...s, chat: [...s.chat, a.msg].slice(-200) }
     case 'chatUpdateProposal':
       return { ...s, chat: s.chat.map(m => (m.id === a.id ? { ...m, proposal: a.proposal } : m)) }
+    case 'chatClearClarification':
+      return { ...s, chat: s.chat.map(m => (m.id === a.id ? { ...m, clarification: undefined } : m)) }
     case 'chatResolve':
       return { ...s, chat: s.chat.map(m => m.id === a.id ? { ...m, pending: undefined, choices: undefined, proposal: undefined, clarification: undefined, preferenceProposal: undefined } : m) }
     case 'chatClear': return { ...s, chat: [] }

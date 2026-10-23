@@ -30,7 +30,7 @@ export interface AnalyzedClause {
   date?: string
   dateLabel?: string
   /** Pergunta de desambiguação levantada pelo parser (ex.: gás). */
-  ambiguity?: { question: string; options: { label: string; actions: ParsedAction[] }[] }
+  ambiguity?: { question: string; field?: string; options: { label: string; actions: ParsedAction[]; reply?: string }[] }
   /** Data ambígua: precisa de escolha antes de virar lançamento. */
   dateAmbiguity?: { question: string; options: { label: string; value: string }[] }
   /**
@@ -334,14 +334,32 @@ export function segment(text: string): { text: string; start: number; end: numbe
   for (const m of text.matchAll(new RegExp(String.raw`\s+e\s+(?=(?:${COMMAND_VERBS})\b)`, 'gi'))) {
     push((m.index || 0) + m[0].length)
   }
+  // Ditado sem pontuação: "fiz 20 reais gastei 40 ... furando o pneu foi
+  // mais 30" contém fatos separados mesmo sem "e". Sem estes cortes o parser
+  // escolhia um único valor e os demais desapareciam dentro da descrição.
+  for (const m of text.matchAll(/\s+(?=(?:ganhei|recebi|gastei|paguei|fiz|furando|furou|furei|tocou)\b)/gi)) {
+    const prefix = text.slice(0, m.index || 0)
+    if (/\d/.test(prefix) && !/\b(?:e|dps)\s*$/i.test(prefix)) push((m.index || 0) + m[0].length)
+  }
   // Pedido, corrida oferecida e gasto avulso após vírgula são proposições
   // próprias. A modalidade de uma não pode contaminar a outra.
   for (const m of text.matchAll(/[,;]\s*(?=(?:(?:minha|meu|a|o)\s+\w+\s+)?(?:pediu|pediram|tocou|furando|furou|furei)\b)/gi)) {
     push((m.index || 0) + m[0].length)
   }
+  for (const m of text.matchAll(/\s+e\s+(?=(?:(?:minha|meu|a|o)\s+\w+\s+)?(?:pediu|pediram|tocou|furando|furou|furei)\b)/gi)) {
+    push((m.index || 0) + m[0].length)
+  }
+  for (const m of text.matchAll(/\s+(?=(?:minha|meu|a|o)\s+\w+\s+(?:pediu|pediram|tocou)\b)/gi)) {
+    push((m.index || 0) + m[0].length)
+  }
   // Depois de "quer dizer 45", "e 30 no pneu" é um segundo gasto — não
   // parte do valor corrigido. Não mexe em enumerações sem correção.
   for (const m of text.matchAll(/[,;]\s*e\s+(?=\d+(?:[.,]\d+)*\s+(?:no|na|de|em)\b)/gi)) {
+    if (new RegExp(INTRA_CORRECTION, 'i').test(text.slice(Math.max(0, (m.index || 0) - 70), m.index))) {
+      push((m.index || 0) + m[0].length)
+    }
+  }
+  for (const m of text.matchAll(/\s+e\s+(?=\d+(?:[.,]\d+)*\s+(?:no|na|de|em)\b)/gi)) {
     if (new RegExp(INTRA_CORRECTION, 'i').test(text.slice(Math.max(0, (m.index || 0) - 70), m.index))) {
       push((m.index || 0) + m[0].length)
     }
@@ -681,7 +699,7 @@ export function analyzeMessage(
     const actions0: ParsedAction[] = tireIncident && tireCost > 0
       ? [{ kind: 'expense', amount: tireCost, category: 'manutencao', description: 'Pneu' }]
       : parsed.actions
-    let ambiguity = parsed.ambiguity
+    let ambiguity: AnalyzedClause['ambiguity'] = parsed.ambiguity
 
     // O verbo herdado só vale para a PRÓXIMA metade se esta metade disse uma
     // coisa só: "ganhei 200 e gastei 50" não deixa contexto, deixa confusão.
@@ -808,12 +826,26 @@ export function analyzeMessage(
     const refund = /\b(?:devolvi|devolveu|estornei|estornou)\b/i.test(part.text)
     if (requestedPix || offeredRide || refund) {
       actions = []
-      const value = parseFirstAmount(part.text)
+      const value = requestedPix
+        ? parseFirstAmount(part.text.match(/\bpix\b[^.;!?]*?\b(?:de|no\s+valor\s+de)\s*(?:r\$\s*)?\d+(?:[.,]\d+)*/i)?.[0] || part.text)
+        : refund ? parseFirstAmount(part.text.match(/\b(?:devolvi|devolveu|estornei|estornou)\b[^.;!?]*?\d+(?:[.,]\d+)*/i)?.[0] || part.text)
+          : parseFirstAmount(part.text)
       const amount = Number.isFinite(value) ? `R$ ${value.toFixed(2).replace('.', ',')}` : ''
-      ambiguity = { question: requestedPix
+      const yesActions: ParsedAction[] = value > 0
+        ? requestedPix ? [{ kind: 'expense', amount: value, category: 'outros-out', description: 'Pix enviado' }]
+          : offeredRide ? [
+            { kind: 'income', amount: value, category: opts?.driver ? 'corridas' : undefined, description: 'Corrida' },
+            ...(opts?.driver ? [{ kind: 'work' as const, trips: 1 }] : []),
+          ] : [{ kind: 'expense', amount: value, category: 'outros-out', description: 'Devolução' }]
+        : []
+      ambiguity = { field: 'financial-event', question: requestedPix
         ? `Você chegou a enviar o Pix${amount ? ` de ${amount}` : ''}? Pedido não é transferência realizada.`
         : offeredRide ? `Essa corrida${amount ? ` de ${amount}` : ''} foi concluída e paga? Uma chamada não é receita recebida.`
-          : `Você devolveu${amount ? ` ${amount}` : ''} ao pagador? Posso registrar essa devolução como saída após você confirmar.`, options: [] }
+          : `Você devolveu${amount ? ` ${amount}` : ''} ao pagador? Posso registrar essa devolução como saída após você confirmar.`,
+        options: yesActions.length ? [
+          { label: 'Sim', actions: yesActions },
+          { label: 'Não', actions: [], reply: 'Certo, não vou registrar esse valor como realizado.' },
+        ] : [] }
     }
 
     // Leitura local de BAIXA confiança não fecha a cláusula. O número do período
@@ -917,7 +949,7 @@ export function analyzeMessage(
   for (let i = 0; i < clauses.length; i++) {
     const clause = clauses[i]
     if (!/\b(?:ainda\s+)?n[ãa]o\s+(?:me\s+)?pagou\b|\bsem\s+pagamento\b/i.test(clause.text)) continue
-    const previous = [...clauses.slice(0, i)].reverse().find(c => /\bcorrida\b/i.test(c.text)
+    const previous = [...clauses.slice(0, i + 1)].reverse().find(c => /\bcorrida\b/i.test(c.text)
       && c.actions.some(a => a.kind === 'income'))
     if (!previous) continue
     const income = previous.actions.find(a => a.kind === 'income') as Extract<ParsedAction, { kind: 'income' }> | undefined

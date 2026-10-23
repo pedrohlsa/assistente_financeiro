@@ -2,7 +2,7 @@
 import { AppState, Insight, IntervalUnit, RecurrenceOccurrence, RecurringExpense, Transaction } from '../models/types'
 import { addDays, dateForDayOfMonth, daysInMonth, dueLabel, fmtBRL, fmtNum, fromISO, monthKey, monthShortLabel, stampOf, todayISO, toISO } from '../utils/format'
 import { sentenceCase, weekdayName } from '../utils/text'
-import { installmentsThisMonth, monthlyCommitments, installmentsInMonth, chargesInMonth } from './cards'
+import { installmentsThisMonth, monthlyCommitments, installmentsInMonth, chargesInMonth, activeCards, cardInvoice } from './cards'
 
 export interface PeriodStats {
   income: number
@@ -314,15 +314,36 @@ export function representedRecurringExpenseMonths(
 }
 
 function projectedInstallments(s: AppState, mk: string, from: string): number {
-  const pending = installmentsInMonth(s, mk)
-    .filter(i => i.status === 'pending' && i.dueDate >= from)
+  const cards = activeCards(s)
+  const cardIds = new Set(cards.map(c => c.id))
+  const plans = new Map((s.installmentPlans || []).map(p => [p.id, p]))
+  // A fatura reconcilia parcelas, assinaturas e pagamentos no mesmo lugar.
+  // Somar assinatura bruta depois de quitar a fatura cobrava-a uma segunda vez.
+  const invoiced = cards.reduce((sum, card) => {
+    const invoice = cardInvoice(s, card, mk)
+    if (invoice.dueDate < from) return sum
+    // O botão de pagar UMA parcela marca o item diretamente, sem CardPayment.
+    // A fatura bruta ainda o lista, mas o saldo projetado não pode cobrá-lo
+    // de novo. Pagamento da fatura marca as parcelas com a mesma data dele.
+    const payments = (s.cardPayments || []).filter(p => p.cardId === card.id && p.referenceMonth === mk)
+    const paidDirectly = installmentsInMonth(s, mk)
+      .filter(i => plans.get(i.planId)?.cardId === card.id && i.status === 'paid'
+        && !payments.some(p => p.paymentDate === i.paidAt))
+      .reduce((n, i) => n + (i.paidAmount || i.amount), 0)
+    return sum + Math.max(invoice.pending - paidDirectly, 0)
+  }, 0)
+  // Dados legados podem conter parcela sem plano/cartão; mantemos a projeção
+  // desses itens, que não aparecem em nenhuma fatura.
+  const orphanInstallments = installmentsInMonth(s, mk)
+    .filter(i => i.status === 'pending' && i.dueDate >= from
+      && !cardIds.has(plans.get(i.planId)?.cardId || ''))
     .reduce((sum, i) => sum + Math.max(i.amount - (i.paidAmount || 0), 0), 0)
-  const charges = chargesInMonth(s, mk).reduce((sum, c) => {
+  const orphanCharges = chargesInMonth(s, mk).filter(c => !cardIds.has(c.cardId)).reduce((sum, c) => {
     const due = c.nextDate.slice(0, 7) === mk ? c.nextDate
       : toISO(dateForDayOfMonth(Number(mk.slice(0, 4)), Number(mk.slice(5, 7)) - 1, Number(c.nextDate.slice(8, 10))))
     return due >= from && (!c.endDate || due <= c.endDate) ? sum + c.amount : sum
   }, 0)
-  return Math.round((pending + charges) * 100) / 100
+  return Math.round((invoiced + orphanInstallments + orphanCharges) * 100) / 100
 }
 
 /**
@@ -605,8 +626,20 @@ const MAX_OCCURRENCES = 400
 export function occurrencesBetween(r: RecurringExpense, from: string, to: string, asOf = todayISO()): string[] {
   if (r.active === false) return []
   const anchor = recurrenceAnchor(r, asOf)
+  if (to < anchor || to < from) return []
+  const { interval, unit } = recurrenceStep(r)
+  const a = fromISO(anchor)
+  const f = fromISO(from)
+  const calendarDays = (d: Date) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000
+  const elapsed = unit === 'day' || unit === 'week'
+    ? Math.floor((calendarDays(f) - calendarDays(a)) / (interval * (unit === 'week' ? 7 : 1)))
+    : Math.floor(((f.getFullYear() - a.getFullYear()) * 12 + f.getMonth() - a.getMonth())
+      / (interval * (unit === 'year' ? 12 : 1)))
+  // O limite protege a JANELA, não toda a vida da recorrência. Uma diária de
+  // 2025 ainda precisa aparecer numa projeção feita em 2026.
+  const first = Math.max(0, elapsed - 1)
   const out: string[] = []
-  for (let n = 0; n < MAX_OCCURRENCES; n++) {
+  for (let n = first; n < first + MAX_OCCURRENCES; n++) {
     const d = occurrenceAt(r, anchor, n)
     if (d > to) break
     if (r.endDate && d > r.endDate) break

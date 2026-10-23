@@ -123,11 +123,11 @@ export function composeAnswer(r: AssistantQueryResult): string {
   if (r.compareTotal !== undefined && p.comparePeriod && !rankeado) {
     const antes = formatValue(r.compareTotal, r.unit)
     const d = r.delta || 0
-    const direcao = d > 0 ? 'a mais' : 'a menos'
+    const direcao = d > 0 ? 'acima' : 'abaixo'
     const pct = r.deltaPct !== undefined && r.deltaPct !== 0 ? ` (${r.deltaPct > 0 ? '+' : ''}${r.deltaPct}%)` : ''
     linhas.push(d === 0
       ? `${maiuscula(p.comparePeriod.label)} foi exatamente o mesmo valor.`
-      : `${maiuscula(p.comparePeriod.label)} foram ${antes} — ${formatValue(Math.abs(d), r.unit)} ${direcao}${pct}.`)
+      : `${maiuscula(p.comparePeriod.label)}: ${antes}. O período principal ficou ${formatValue(Math.abs(d), r.unit)} ${direcao}${pct}.`)
   }
 
   // ---- amostra e ressalvas ----------------------------------------------

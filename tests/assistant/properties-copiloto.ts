@@ -746,7 +746,8 @@ export async function runCopilotProperties(): Promise<PropertyReport> {
   })
 
   check(r, 'reserva segue início e fim das recorrências no calendário', () => {
-    const today = todayISO()
+    // A ocorrência do dia 5/10 precisa estar no futuro em qualquer dia de execução.
+    const today = '2026-10-01'
     const d = new Date(`${today}T12:00:00`)
     const thisMonthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0)
     const endDate = `${thisMonthEnd.getFullYear()}-${String(thisMonthEnd.getMonth() + 1).padStart(2, '0')}-${String(thisMonthEnd.getDate()).padStart(2, '0')}`
@@ -770,7 +771,7 @@ export async function runCopilotProperties(): Promise<PropertyReport> {
   })
 
   check(r, 'corte de recorrente entra uma vez e respeita fim cadastrado', () => {
-    const today = todayISO()
+    const today = '2026-10-01'
     const d = new Date(`${today}T12:00:00`)
     const endDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-28`
     const st = { ...autonomoRico(today), transactions: [], installments: [], installmentPlans: [], cardCharges: [], recurring: [

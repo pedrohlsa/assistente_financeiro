@@ -7,8 +7,8 @@ export type PreferenceMutation =
   | { type: 'remove'; id: string }
 
 const clean = (s: string) => s.trim().replace(/\s+/g, ' ')
-const GRAMMAR = /\b(?:vou|vai|irei|amanha|ontem|hoje|futuro|passado|nao|nunca|sim|gastei|gastar|paguei|pagar|recebi|receber|ganhei|ganhar|guardei|guardar|renda|despesa|receita|valor|reais?)\b/
-const PROTECTED = /\b(?:segunda|terca|quarta|quinta|sexta|sabado|domingo|janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|dia|dias|semana|semanas|mes|meses|ano|anos|mensal|semanal|diario|anual|quinzenal|bimestral|trimestral|recorrente|parcela|parcelas|vezes|porcento|percentual|porcentagem|metade|dobro|triplo|futuro|amanha|ontem|hoje|nao|nunca|talvez|pretendo|quero|vou|confirm[a-z]*|pendente|cancel[a-z]*|registr[a-z]*|anot[a-z]*|estorn[a-z]*|devol[a-z]*|transfer[a-z]*|deposit[a-z]*|receb[a-z]*|pag[a-z]*|gast[a-z]*|ganh[a-z]*|envi[a-z]*|mand[a-z]*|ped[a-z]*|solicit[a-z]*|entrada|saida|receita|despesa|renda|saldo|reais?|centavos?|pix|km|quilometros?)\b/
+const GRAMMAR = /\b(?:vou|vai|irei|amanha|ontem|anteontem|hoje|agora|futuro|passado|nao|nunca|sim|queria|comprei|comprou|comprar|gastei|gastar|paguei|pagar|recebi|receber|ganhei|ganhar|guardei|guardar|renda|despesa|receita|valor|reais?)\b/
+const PROTECTED = /\b(?:segunda|terca|quarta|quinta|sexta|sabado|domingo|janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|dia|dias|semana|semanas|mes|meses|ano|anos|mensal|semanal|diario|anual|quinzenal|bimestral|trimestral|recorrente|parcela|parcelas|vezes|porcento|percentual|porcentagem|metade|dobro|triplo|futuro|amanha|ontem|anteontem|hoje|agora|nao|nunca|talvez|pretendo|quero|queria|vou|compr[a-z]*|confirm[a-z]*|pendente|cancel[a-z]*|registr[a-z]*|anot[a-z]*|estorn[a-z]*|devol[a-z]*|transfer[a-z]*|deposit[a-z]*|receb[a-z]*|pag[a-z]*|gast[a-z]*|ganh[a-z]*|envi[a-z]*|mand[a-z]*|ped[a-z]*|solicit[a-z]*|entrada|saida|receita|despesa|renda|saldo|reais?|centavos?|pix|km|quilometros?)\b/
 const PROTECTED_GLOBAL = new RegExp(`${NUMBER_WORD_RE.source}|${PROTECTED.source}|\\d+(?:[.,]\\d+)*\\s*%?`, 'g')
 const protectedSignature = (text: string): string =>
   (normalizeName(text).match(PROTECTED_GLOBAL) || []).join('|')
@@ -152,7 +152,10 @@ export function applyPreferenceAliases(state: AppState, text: string): string {
       const pattern = [...folded].map(char => char === ' ' ? '\\s+'
         : accented[char] || char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('')
       const changed = out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${pattern}(?![\\p{L}\\p{N}])`, 'giu'), p.value)
-      return protectedSignature(out) === protectedSignature(changed) ? changed : out
+      // O numeral de "Casa 1" é parte do nome da entidade, não um valor.
+      const signature = (s: string) => protectedSignature(p.kind === 'entity-alias'
+        ? s.replace(/\bcasa\s+\d{1,2}\b/gi, 'casa') : s)
+      return signature(out) === signature(changed) ? changed : out
     }, text)
 }
 

@@ -219,7 +219,7 @@ function runCompoundMonths(
         saved[i] += deposit
         effects[i] -= deposit
       })
-      facts.push(fato(`Reservar ${Math.round(ratio * 100)}% da sobra`, ratio * 100, 'count', 'percentual aplicado separadamente a cada mês'))
+      facts.push(fato(`Reservar ${(ratio * 100).toLocaleString('pt-BR')}% da sobra`, ratio * 100, 'count', 'percentual aplicado separadamente a cada mês'))
       continue
     }
     // Pagar fatura não cria nova despesa; gasto avulso e trabalho extra não
@@ -350,24 +350,28 @@ export function runScenario(
     case 'save': {
       const porMes = plan.amount || 0
       if (!(porMes > 0)) return vazio(plan, caveats, 'Me diga quanto você quer guardar por mês.')
+      const combined = runCompoundMonths(state, [plan], meses, hoje)
+      const final = combined.months[combined.months.length - 1]
+      if (final?.accumulated !== undefined) facts.push(fato('Reserva acumulada no horizonte', final.accumulated, 'BRL', 'depósitos simulados dentro das datas pedidas'))
+      caveats.push(...combined.caveats)
       const metas = (state.goals || []).filter(g => !g.done)
       const alvo = plan.goalName
         ? metas.find(g => normalizeName(g.name).includes(normalizeName(plan.goalName!)))
         : metas[0]
       if (!alvo) {
         facts.push(fato('Guardando por mês', porMes, 'BRL', 'informado na pergunta'))
-        facts.push(fato('Em 12 meses', porMes * 12, 'BRL', 'multiplicação simples'))
         caveats.push('Você não tem meta de compra cadastrada, então não dá para dizer quando ela seria batida.')
-        return { plan, facts, months: [], caveats, empty: false }
+        return { plan, facts, months: combined.months, caveats, empty: false }
       }
       const falta = Math.max(alvo.target - alvo.saved, 0)
       const mesesNecessarios = Math.ceil(falta / porMes)
-      const quando = new Date(fromISO(hoje).getFullYear(), fromISO(hoje).getMonth() + mesesNecessarios, 1)
+      const inicio = plan.startMonth ? fromISO(`${plan.startMonth}-01`) : fromISO(hoje)
+      const quando = new Date(inicio.getFullYear(), inicio.getMonth() + mesesNecessarios - 1, 1)
       facts.push(fato(`Falta para a meta ${alvo.name}`, falta, 'BRL', 'meta menos o já guardado'))
       facts.push(fato('Guardando por mês', porMes, 'BRL', 'informado na pergunta'))
       facts.push(fato('Meses até bater a meta', mesesNecessarios, 'count', 'divisão'))
       caveats.push(`Nesse ritmo, por volta de ${quando.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}.`)
-      return { plan, facts, months: [], feasible: true, caveats, empty: false }
+      return { plan, facts, months: combined.months, feasible: true, caveats, empty: false }
     }
 
     // ----------------------------------------------- reduzir por valor fixo

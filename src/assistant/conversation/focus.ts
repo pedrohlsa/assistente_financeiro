@@ -70,6 +70,8 @@ export interface ConversationFocus {
    * com junho e o usuário lia sobre um mês que ninguém citou.
    */
   previousQueryPlan?: AssistantQueryPlan
+  /** Resultado que o usuário viu antes do último período, para comparar sem inverter os lados. */
+  previousQuery?: QuerySummary
   lastScenarioPlan?: AssistantScenarioPlan
   lastScenario?: ScenarioSummary
   /** Pilha curta para "volta pro cenário anterior". */
@@ -109,6 +111,9 @@ export function rememberQuery(
     previousQueryPlan: prev?.lastQueryPlan && prev.lastQueryPlan.period.from !== plan.period.from
       ? prev.lastQueryPlan
       : prev?.previousQueryPlan,
+    previousQuery: prev?.lastQueryPlan && prev.lastQueryPlan.period.from !== plan.period.from
+      ? prev.lastQuery
+      : prev?.previousQuery,
     lastQuery: {
       label: plan.label || 'Total',
       total: result.total,
@@ -264,6 +269,12 @@ export function resolveFollowUp(
   if (focus.last === 'scenario' && focus.lastScenarioPlan) {
     const refinado = refinaCenario(focus, t, today)
     if (refinado) return { kind: 'scenario', plan: refinado }
+    const gasto = t.match(/^(?:e\s+)?(?:tirando|sem)\s+(.+?)\s*\??$/)?.[1]?.replace(/\?$/, '').trim()
+    if (gasto) return {
+      kind: 'ambiguous',
+      question: `Você quer tirar ${gasto} da simulação atual? Só posso retirar despesas futuras cadastradas. Confirme o gasto ou diga qual outro devo usar.`,
+      options: [],
+    }
     // Uma continuação não compreendida pertence ao cenário ativo. Não se
     // pode ressuscitar uma consulta antiga só porque ela ainda está no foco.
     return {
@@ -416,6 +427,31 @@ function refinaConsulta(
 
   // ---- "qual foi pior?" — os DOIS períodos que ele acabou de ver -------
   if (/^qual\s+(?:foi\s+)?(?:o\s+)?(?:pior|melhor)\s*\??$/.test(t)) {
+    const anterior = focus.previousQuery
+    const atual = focus.lastQuery
+    const outroPlano = focus.previousQueryPlan
+    const mesmoRecorte = outroPlano && outroPlano.source === base.source
+      && outroPlano.metric === base.metric && outroPlano.field === base.field
+      && JSON.stringify(outroPlano.filter) === JSON.stringify(base.filter)
+    const tipo = base.filter.txType
+    if (anterior && atual && mesmoRecorte && base.metric === 'sum'
+      && tipo?.length === 1 && (tipo[0] === 'expense' || tipo[0] === 'income')) {
+      const maiorPior = tipo[0] === 'expense'
+      const querPior = /pior/.test(t)
+      const aVence = querPior
+        ? (maiorPior ? atual.total > anterior.total : atual.total < anterior.total)
+        : (maiorPior ? atual.total < anterior.total : atual.total > anterior.total)
+      const vencedor = aVence ? atual : anterior
+      const perdedor = aVence ? anterior : atual
+      const nome = (q: QuerySummary) => q.period.grain === 'month'
+        ? fromISO(q.period.from).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+        : q.period.label
+      const medida = maiorPior ? 'gastos' : 'receitas'
+      if (atual.total === anterior.total) return { kind: 'explain', text:
+        `Empataram em ${medida}: ${nome(atual)} e ${nome(anterior)} tiveram ${fmtBRL(atual.total)}.` }
+      return { kind: 'explain', text:
+        `${nome(vencedor)} foi ${querPior ? 'pior' : 'melhor'} em ${medida}: ${fmtBRL(vencedor.total)}, contra ${fmtBRL(perdedor.total)} em ${nome(perdedor)}.` }
+    }
     const cmp = focus.previousQueryPlan?.period || base.comparePeriod || previousPeriod(base.period)
     return planned({ ...base, comparePeriod: cmp }, `comparação com ${cmp.label}`)
   }
@@ -433,6 +469,13 @@ function refinaConsulta(
 
   // ---- "qual a diferença?" / "compara os dois" --------------------------
   if (/^(?:qual\s+(?:a\s+)?diferenca|compara)/.test(t)) {
+    // Dois meses citados nesta pergunta vencem o foco anterior. Sem isso,
+    // "quanto gastei em julho" → "compara julho com junho" comparava julho
+    // com o mês que estava no foco antes da conversa.
+    if (/^compar[ao]\s+(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b.*\bcom\s+(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/.test(t)) {
+      const novo = planQuery(state, t, { today })
+      if (novo) return { kind: 'query', planned: novo }
+    }
     // "Os dois" são os DOIS PERÍODOS que o usuário acabou de ver. Só na falta
     // de um segundo período é que cai no imediatamente anterior.
     const cmp = focus.previousQueryPlan?.period || base.comparePeriod || previousPeriod(base.period)

@@ -545,11 +545,11 @@ function runLocal(
     // Cada opção carrega a lista COMPLETA de ações já resolvidas: escolher
     // "GNV" não obriga o usuário a repetir o valor nem a descrição.
     clarification = {
-      question: ambiguities.length > 1 && ambiguities.every(c => !c.ambiguity?.options.length)
+      question: ambiguities.length > 1
         ? ambiguities.map(c => c.ambiguity!.question).join('\n\n')
         : ambiguous.ambiguity.question,
-      options: ambiguous.ambiguity.options.map(o => ({ label: o.label, value: o.label, actions: o.actions })),
-      field: 'ambiguity',
+      options: ambiguities.length > 1 ? [] : ambiguous.ambiguity.options.map(o => ({ label: o.label, value: o.label, actions: o.actions, reply: o.reply })),
+      field: ambiguities.length > 1 ? 'financial-events' : ambiguous.ambiguity.field || 'ambiguity',
     }
   }
 
@@ -786,9 +786,27 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
       (said.length > 2 && (normalizeName(o.label).includes(said) || said.includes(normalizeName(o.label)))))
     if (hit) {
       if (hit.actions?.length) {
-        const cands = hit.actions.map(a => candidate(a, 'local'))
+        const validated: ParsedAction[] = []
+        for (const action of hit.actions) {
+          const checked = validateAction(action, caps, today)
+          if (isValidationFailure(checked)) {
+            return {
+              draft: null,
+              keepPending: pc.field === 'financial-event',
+              response: {
+                version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local',
+                actions: [], unresolved: [],
+                reply: `Não consegui preparar esse registro: ${checked.detail || checked.code}. Conte o valor e o que aconteceu de novo.`,
+              },
+            }
+          }
+          validated.push(checked.action)
+        }
+        const previous = pc.field === 'financial-event' ? input.pending || [] : []
+        const cands = [...previous, ...validated.map(a => candidate(a, 'local'))]
         return {
           draft: null,
+          correctedPending: previous.length ? cands : undefined,
           response: {
             version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
             actions: cands, unresolved: [],
@@ -802,6 +820,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
       if (hit.reply) {
         return {
           draft: null,
+          keepPending: pc.field === 'financial-event',
           response: {
             version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local',
             actions: [], unresolved: [], reply: hit.reply,

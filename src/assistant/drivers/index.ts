@@ -49,7 +49,7 @@ const sinal = (v: number) => `${v >= 0 ? '+' : '−'}${fmtBRL(Math.abs(v))}`
 export function answerChangeQuestion(state: AppState, message: string, today: string) {
   if (!looksLikeChangeQuestion(message)) return null
   const category = expenseCategoryInQuestion(state, message)
-  const current = currentMonthToDate(today)
+  const current = parsePeriod(message, today)?.period || currentMonthToDate(today)
   const scope = { current, previous: previousPeriod(current), expenseCategory: category }
   const analysis = analyzeChanges(state, today, scope)
   const reply = composeChangeExplanation(analysis, message)

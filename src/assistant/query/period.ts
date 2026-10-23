@@ -236,7 +236,7 @@ export function parsePeriod(input: string, hoje = todayISO()): { period: QueryPe
     if (m) return { period: P(`${ano - 1}-01-01`, `${ano - 1}-12-31`, `em ${ano - 1}`, 'year', hoje), matched: 'ano passado', span: m[0] }
   }
   {
-    const m = t.match(/\b(?:est[ea]|ess[ea]|ness?[ea]|nest[ea])\s+ano\b|\bano\s+atual\b|\bno\s+ano\b/)
+    const m = t.match(/\b(?:est[ea]|ess[ea]|ness?[ea]|nest[ea])\s+ano\b|\bano\s+atual\b|\b(?:no|do)\s+ano\b/)
     if (m) return { period: P(`${ano}-01-01`, hoje, 'neste ano', 'year', hoje), matched: 'este ano', span: m[0] }
   }
   const anoExplicito = t.match(/\bem\s+(20\d{2})\b/)

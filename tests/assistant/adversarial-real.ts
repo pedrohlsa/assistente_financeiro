@@ -2,7 +2,7 @@
 // → resposta/proposta/foco. O oráculo financeiro é literal, não runScenario.
 import type { AppState } from '../../src/models/types'
 import { orchestrate } from '../../src/assistant/orchestrator'
-import { monthlyProjections } from '../../src/services/calc'
+import { currentBalance, monthlyProjections, occurrencesBetween } from '../../src/services/calc'
 import { applyBatchPure } from '../../src/assistant/execute'
 import { applyPreferenceAliases } from '../../src/assistant/preferences'
 import { hydrateForTest, reducer } from '../../src/store/store'
@@ -128,7 +128,10 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
 
   const h2Purchase = await scenario(baseline(), 'Se eu comprar algo de R$ 1.234,56 em 10x')
   out.push(result('H2-compra', h2Purchase, 'purchase principal R$ 1.234,56 em 10x',
-    h2Purchase.plan?.kind === 'purchase' && h2Purchase.plan.amount === 1234.56 && h2Purchase.plan.installments === 10))
+    h2Purchase.plan?.kind === 'purchase' && h2Purchase.plan.amount === 1234.56 && h2Purchase.plan.installments === 10
+      && /R\$\s*1\.234,56\s+em\s+10x/.test(h2Purchase.reply)
+      && /R\$\s*123,45\s+por\s+mês/.test(h2Purchase.reply)
+      && h2Purchase.months?.[1]?.after === 1876.55))
   const h2Reduce = await scenario(baseline(), 'Se eu reduzir alimentação em 100,50')
   out.push(result('H2-reducao', h2Reduce, 'reduce R$ 100,50',
     h2Reduce.plan?.kind === 'reduce' && h2Reduce.plan.amount === 100.5))
@@ -156,7 +159,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   if (c3Teach.preferenceMutation?.type === 'upsert') c3State.assistantPreferences = [c3Teach.preferenceMutation.preference]
   const c3Spent = await turn(c3State, 'gastei cem reais no mercado')
   out.push(result('C3-dinheiro', { teach: c3Teach, spent: c3Spent }, 'recusar ensino; gasto continua R$ 100',
-    !c3Teach.preferenceMutation && c3Spent.actions.every(a => !('amount' in a) || a.amount !== 1000)))
+    !c3Teach.preferenceMutation && c3Spent.actions.some(a => a.kind === 'expense' && a.amount === 100)))
   const c3Week = await turn(baseline(), 'quando eu falar sexta é segunda')
   out.push(result('C3-data', c3Week, 'recusar alias de dia da semana', !c3Week.preferenceMutation))
   const c3Protected = await Promise.all([
@@ -282,8 +285,10 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const h6b = await turn(h6State, 'Se eu guardar metade do que sobrar até dezembro.', h6a.focus)
   const h6c = await turn(h6State, 'E tirando alimentação?', h6b.focus)
   out.push(result('H6-followup', { first: h6a, second: h6b, third: h6c },
-    'terceiro turno permanece cenário ou esclarece; não consulta obra histórica',
-    h6c.focus?.last !== 'query' && !/Total gasto.*obra/i.test(h6c.reply)))
+    'terceiro turno simula tirar alimentação ou pergunta claramente o que falta',
+    h6c.focus?.last !== 'query' && !/Total gasto.*obra/i.test(h6c.reply)
+      && (/Simulação.*alimentação/is.test(h6c.reply)
+        || (h6c.mode === 'clarify' && /alimenta[cç][ãa]o/i.test(h6c.reply)))))
 
   const m6State = baseline()
   m6State.recurring.push({ id: 'obra-futura', name: 'Obra', amount: 200, frequency: 'monthly',
@@ -359,6 +364,200 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && h9Applied.state.transactions.some(t => t.type === 'expense' && t.amount === 40 && t.category === 'combustivel')
       && h9Applied.state.transactions.some(t => t.type === 'expense' && t.amount === 30 && t.category === 'manutencao')
       && !h9Applied.state.transactions.some(t => t.amount === 15 || t.amount === 70)))
+
+  const c3Modality = await Promise.all([
+    'quando eu falar queria é comprei',
+    'quando eu falar agora é anteontem',
+  ].map(message => turn(baseline(), message)))
+  out.push(result('C3-modalidade-tempo', c3Modality, 'nenhuma preferência muda intenção ou data',
+    c3Modality.every(x => !x.preferenceMutation)))
+  const c3Entity = await turn(baseline(), 'sobrado é minha Casa 1')
+  const c3AliasState = baseline()
+  if (c3Entity.preferenceMutation?.type === 'upsert') c3AliasState.assistantPreferences = [c3Entity.preferenceMutation.preference]
+  const c3Aliased = await turn(c3AliasState, 'recebi 100 do sobrado')
+  out.push(result('C3-alias-entidade', c3Aliased, 'R$ 100, origem Casa 1',
+    c3Aliased.actions.some(a => a.kind === 'income' && a.amount === 100 && a.origin === 'Casa 1')))
+
+  const daily = baseline()
+  daily.recurring.push({ id: 'old-daily', name: 'Diária', amount: 10, frequency: 'monthly',
+    dueDay: 1, startDate: '2025-01-01', interval: 1, intervalUnit: 'day',
+    category: 'casa', kind: 'expense', active: true })
+  const dailyAnswer = await scenario(daily, 'Se eu guardar tudo que sobrar até dezembro')
+  const dailyProjection = monthlyProjections(daily, 4, TODAY)
+  out.push(result('C2-diaria-antiga', { answer: dailyAnswer, projection: dailyProjection },
+    '108 ocorrências futuras; reservas [840,690,700,690], total R$ 2.920',
+    occurrencesBetween(daily.recurring[1], TODAY, '2026-12-31', TODAY).length === 108
+      && JSON.stringify(dailyProjection.map(m => m.bills)) === '[160,310,300,310]'
+      && JSON.stringify(dailyAnswer.months?.map(m => m.saved)) === '[840,690,700,690]'
+      && dailyAnswer.months?.[3]?.accumulated === 2920))
+
+  const paidCard = buildState({ profile: 'autonomo', balance: 1000,
+    cards: [{ name: 'Inter', dueDay: 20, closingDay: 5 }] })
+  paidCard.settings.balanceAsOf = '2026-09-14T00:00'
+  paidCard.cardCharges = [{ id: 'charge', cardId: 'card0', description: 'Assinatura', amount: 200,
+    frequency: 'monthly', nextDate: '2026-09-20', active: true, createdAt: '2026-09-01' }]
+  const paid = applyBatchPure(paidCard, [{ id: 'pay-inter', action: { kind: 'card-payment', cardName: 'Inter', amount: 200 } }],
+    { source: 'ai', now: { date: TODAY, time: '10:00' } })
+  const paidProjection = monthlyProjections(paid.state, 1, TODAY)
+  out.push(result('C2-assinatura-paga', { paid: paid.applied, balance: currentBalance(paid.state), projection: paidProjection },
+    'saldo R$ 800 e setembro não desconta assinatura já paga',
+    paid.applied && currentBalance(paid.state) === 800 && paidProjection[0]?.runningBalance === 800
+      && paidProjection[0]?.installments === 0))
+  const manuallyPaidCard = buildState({ profile: 'autonomo', balance: 800,
+    cards: [{ name: 'Inter', dueDay: 20, closingDay: 5 }] })
+  manuallyPaidCard.settings.balanceAsOf = TODAY
+  manuallyPaidCard.installmentPlans = [{ id: 'manual-plan', description: 'Compra', cardId: 'card0',
+    totalAmount: 200, installmentCount: 1, firstDueDate: '2026-09-20', purchaseDate: '2026-09-01',
+    status: 'active', operationType: 'card-purchase', createdAt: '2026-09-01' }]
+  manuallyPaidCard.installments = [{ id: 'manual-inst', planId: 'manual-plan', number: 1, total: 1,
+    amount: 200, dueDate: '2026-09-20', status: 'paid', paidAt: '2026-09-10', paidAmount: 200 }]
+  out.push(result('C2-parcela-cartao-paga-avulsa', monthlyProjections(manuallyPaidCard, 1, TODAY),
+    'parcela do cartão já marcada paga não volta à projeção',
+    monthlyProjections(manuallyPaidCard, 1, TODAY)[0]?.installments === 0))
+
+  for (const [id, phrase, ratio, monthly, total] of [
+    ['H1-percentual-decimal', 'Se eu guardar 30,5% da sobra até dezembro', 0.305, 305, 1220],
+    ['H1-percentual-pequeno', 'Se eu guardar 2,5% da sobra até dezembro', 0.025, 25, 100],
+  ] as const) {
+    const actual = await scenario(baseline(), phrase)
+    out.push(result(id, actual, `${ratio * 100}% da sobra, ${monthly} por mês, total ${total}`,
+      actual.plan?.kind === 'save-share' && actual.plan.ratio === ratio
+        && actual.months?.every(m => m.saved === monthly)
+        && actual.months?.[3]?.accumulated === total
+        && !/R\$\s*30,50\s+por\s+mês/.test(actual.reply)))
+  }
+  const h4Fixed = await scenario(baseline(), 'Se eu guardar 100 reais por mês a partir de novembro até dezembro')
+  out.push(result('H4-fixo-com-datas', h4Fixed, 'somente novembro e dezembro: R$ 200 até dezembro',
+    h4Fixed.plan?.kind === 'save' && h4Fixed.plan.startMonth === '2026-11'
+      && JSON.stringify(h4Fixed.months?.map(m => m.saved)) === '[0,0,100,100]'
+      && /R\$\s*200,00\s+até\s+dez\/2026/.test(h4Fixed.reply)))
+  const h4Second = await scenario(baseline(), 'Se eu guardar metade da sobra até dezembro depois investir 200 em ações')
+  out.push(result('H4-segunda-operacao', h4Second, 'investir R$ 200 fica explicitamente fora da simulação',
+    /n[ãa]o inclu[íi][^\n]*investir 200/i.test(h4Second.reply)))
+  const h4Help = await scenario(baseline(), 'Se eu guardar metade da sobra até dezembro e ajudar minha filha com 200 reais por mês')
+  out.push(result('H4-ajuda', h4Help, 'ajuda mensal fica explicitamente fora da simulação',
+    /n[ãa]o inclu[íi][^\n]*ajudar minha filha/i.test(h4Help.reply)))
+
+  const h5Last = await turn(m1State, 'Por que gastei mais em alimentação mês passado?')
+  const h5August = await turn(m1State, 'Por que gastei mais em alimentação em agosto?')
+  out.push(result('H5-periodos-explicitos', { last: h5Last, august: h5August },
+    'agosto R$ 30 comparado a julho R$ 0, sem usar setembro como mês atual',
+    [h5Last, h5August].every(x => x.focus?.lastDriver?.analysis.current.from === '2026-08-01'
+      && x.focus.lastDriver.analysis.previous.from === '2026-07-01'
+      && x.focus.lastDriver.analysis.totals.expenseAfter === 30
+      && x.focus.lastDriver.analysis.totals.expenseBefore === 0)))
+
+  const unpaidSame = await turn(buildState({ profile: 'driver' }), 'Fiz uma corrida de 70 e o passageiro não me pagou')
+  out.push(result('H7-nao-pagou-mesma-frase', unpaidSame, 'sem receita de R$ 70',
+    !unpaidSame.actions.some(a => a.kind === 'income' && a.amount === 70)
+      && /n[ãa]o.*pagou/i.test(unpaidSame.reply)))
+  const mixedPix = await turn(buildState({ profile: 'driver' }), 'Paguei 30 no pneu e minha filha pediu um pix de 15')
+  const mixedPixApplied = applyBatchPure(buildState({ profile: 'driver' }),
+    mixedPix.actions.map((action, i) => ({ id: `mixed-pix-${i}`, action })), { source: 'ai' })
+  out.push(result('H7-pix-misto', { answer: mixedPix, applied: mixedPixApplied.state.transactions },
+    'pneu R$ 30 realizado; Pix R$ 15 pendente, nunca R$ 30',
+    mixedPix.actions.some(a => a.kind === 'expense' && a.amount === 30)
+      && !mixedPix.actions.some(a => 'amount' in a && a.amount === 15)
+      && /Pix[^\n]*15/.test(mixedPix.reply)
+      && mixedPixApplied.state.transactions.some(t => t.amount === 30)
+      && !mixedPixApplied.state.transactions.some(t => t.amount === 15)))
+  const noComma = await turn(buildState({ profile: 'driver' }), 'Gastei 40 no combustível quer dizer 45 e 30 no pneu')
+  const noCommaApplied = applyBatchPure(buildState({ profile: 'driver' }),
+    noComma.actions.map((action, i) => ({ id: `no-comma-${i}`, action })), { source: 'ai' })
+  out.push(result('H9-correcao-sem-virgula', { answer: noComma, applied: noCommaApplied.state.transactions },
+    'combustível R$ 45 e pneu R$ 30 aplicados, nenhum R$ 40',
+    noComma.actions.some(a => a.kind === 'fuel' && a.amount === 45)
+      && noComma.actions.some(a => a.kind === 'expense' && a.amount === 30 && a.category === 'manutencao')
+      && noCommaApplied.state.transactions.some(t => t.amount === 45)
+      && noCommaApplied.state.transactions.some(t => t.amount === 30)
+      && !noCommaApplied.state.transactions.some(t => t.amount === 40)))
+  const wholeNoComma = await turn(buildState({ profile: 'driver' }),
+    'fiz 20 reais gastei 40 em combustievl furando o pneu foi mais 30 minha filha pediu um pix de 15 tocou uma corrida de 70 reais')
+  const wholeNoCommaApplied = applyBatchPure(buildState({ profile: 'driver' }),
+    wholeNoComma.actions.map((action, i) => ({ id: `whole-no-comma-${i}`, action })), { source: 'ai' })
+  out.push(result('H9-relato-sem-virgulas', { answer: wholeNoComma, applied: wholeNoCommaApplied.state.transactions },
+    'receita 20, combustível 40, pneu 30; Pix 15 e corrida 70 esclarecidos',
+    wholeNoComma.actions.some(a => a.kind === 'income' && a.amount === 20)
+      && wholeNoComma.actions.some(a => a.kind === 'expense' && a.amount === 40 && a.category === 'combustivel')
+      && wholeNoComma.actions.some(a => a.kind === 'expense' && a.amount === 30 && a.category === 'manutencao')
+      && /Pix[^\n]*15/.test(wholeNoComma.reply) && /corrida[^\n]*70/.test(wholeNoComma.reply)
+      && !wholeNoComma.actions.some(a => 'amount' in a && (a.amount === 15 || a.amount === 70))
+      && wholeNoCommaApplied.state.transactions.some(t => t.type === 'income' && t.amount === 20)
+      && wholeNoCommaApplied.state.transactions.some(t => t.type === 'expense' && t.amount === 40)
+      && wholeNoCommaApplied.state.transactions.some(t => t.type === 'expense' && t.amount === 30)))
+
+  const pixFirst = await orchestrate({ state: buildState(), message: 'Minha filha pediu um Pix de 15', today: TODAY, remoteEnabled: false })
+  const pixYes = await orchestrate({ state: buildState(), message: 'sim', today: TODAY, remoteEnabled: false,
+    pendingClarification: pixFirst.response.mode === 'clarify' ? pixFirst.response.clarification : undefined })
+  out.push(result('H7-pix-continuacao', pixYes.response, 'sim propõe despesa R$ 15 para confirmação',
+    pixYes.response.mode === 'propose_actions'
+      && pixYes.response.actions.some(a => a.action.kind === 'expense' && a.action.amount === 15)))
+  const rideFirst = await orchestrate({ state: buildState({ profile: 'driver' }), message: 'Tocou uma corrida de 70', today: TODAY, remoteEnabled: false })
+  const rideYes = await orchestrate({ state: buildState({ profile: 'driver' }), message: 'sim', today: TODAY, remoteEnabled: false,
+    pendingClarification: rideFirst.response.mode === 'clarify' ? rideFirst.response.clarification : undefined })
+  out.push(result('H7-corrida-continuacao', rideYes.response, 'sim propõe receita R$ 70 para confirmação',
+    rideYes.response.mode === 'propose_actions'
+      && rideYes.response.actions.some(a => a.action.kind === 'income' && a.action.amount === 70)))
+  const refundFirst = await orchestrate({ state: buildState(), message: 'Recebi 70, mas devolvi 20', today: TODAY, remoteEnabled: false })
+  const refundYes = await orchestrate({ state: buildState(), message: 'sim', today: TODAY, remoteEnabled: false,
+    pending: refundFirst.response.actions,
+    pendingClarification: refundFirst.response.mode === 'clarify' ? refundFirst.response.clarification : undefined })
+  out.push(result('H9-devolucao-continuacao', refundYes.response, 'sim mantém receita R$ 70 e propõe saída R$ 20',
+    refundYes.response.mode === 'propose_actions'
+      && refundYes.response.actions.some(a => a.action.kind === 'income' && a.action.amount === 70)
+      && refundYes.response.actions.some(a => a.action.kind === 'expense' && a.action.amount === 20)))
+  const invalidChoice = await orchestrate({ state: buildState(), message: 'sim', today: TODAY, remoteEnabled: false,
+    pendingClarification: { question: 'Registrar?', field: 'financial-event',
+      options: [{ label: 'Sim', value: 'sim', actions: [{ kind: 'expense', amount: -10, category: 'alimentacao' }] }] } })
+  out.push(result('H7-opcao-validada', invalidChoice.response, 'ação inválida de opção não vira proposta',
+    invalidChoice.response.actions.length === 0 && invalidChoice.response.mode === 'answer'))
+  const cardWithQuestion = buildState()
+  cardWithQuestion.chat = [{ id: 'm', role: 'assistant', text: 'Recebi 70, mas devolvi 20', time: '10:00',
+    proposal: [{ id: 'income-70', action: { kind: 'income', amount: 70, category: 'outros-in' },
+      engine: 'local', confidence: 'high' }],
+    clarification: { question: 'Devolveu 20?', options: [{ label: 'Sim', value: 'sim' }] } }]
+  const clearedQuestion = reducer(cardWithQuestion, { type: 'chatClearClarification', id: 'm' })
+  out.push(result('H9-proposta-sobrevive-esclarecimento', clearedQuestion.chat[0],
+    'limpar escolha não apaga receita ainda confirmável',
+    !clearedQuestion.chat[0].clarification && clearedQuestion.chat[0].proposal?.[0]?.action.kind === 'income'
+      && clearedQuestion.chat[0].proposal?.[0]?.action.amount === 70))
+
+  // A sonda exploratória encontrou respostas com números plausíveis, mas
+  // período, métrica ou sentido da comparação errados. Oráculos literais.
+  const q = buildState()
+  q.transactions = [
+    { id: 'q-jun', type: 'expense', amount: 10, category: 'casa', date: '2026-06-05', time: '10:00' },
+    { id: 'q-jul', type: 'expense', amount: 30, category: 'casa', date: '2026-07-05', time: '10:00' },
+    { id: 'q-ago', type: 'expense', amount: 500, category: 'casa', date: '2026-08-05', time: '10:00' },
+    { id: 'q-set', type: 'expense', amount: 100, category: 'casa', date: '2026-09-05', time: '10:00' },
+  ]
+  const qAverage = await turn(q, 'quanto eu gasto em media por lançamento')
+  out.push(result('Q-media-lancamento', qAverage, 'média dos últimos 90 dias = R$ 210, sem filtro de texto',
+    qAverage.focus?.lastQuery?.total === 210 && !qAverage.focus?.lastQueryPlan?.filter.text
+      && /210,00/.test(qAverage.reply)))
+  const qMax = await turn(q, 'qual foi meu maior gasto do ano')
+  out.push(result('Q-maior-do-ano', qMax, 'maior gasto de 2026 = R$ 500 em agosto',
+    qMax.focus?.lastQueryPlan?.period.from === '2026-01-01'
+      && qMax.focus?.lastQuery?.total === 500 && /500,00/.test(qMax.reply)))
+  const qCompare = await turn(q, 'compara julho com junho')
+  out.push(result('Q-dois-meses', qCompare, 'julho R$ 30 contra junho R$ 10, diferença de R$ 20',
+    qCompare.focus?.lastQueryPlan?.period.from === '2026-07-01'
+      && qCompare.focus?.lastQueryPlan?.comparePeriod?.from === '2026-06-01'
+      && qCompare.focus?.lastQuery?.total === 30
+      && /30,00/.test(qCompare.reply) && /10,00/.test(qCompare.reply) && /20,00/.test(qCompare.reply)))
+  const qJuly = await turn(q, 'quanto gastei em julho')
+  const qCompareWithFocus = await turn(q, 'compara julho com junho', qJuly.focus)
+  out.push(result('Q-dois-meses-com-foco', qCompareWithFocus, 'meses explícitos vencem foco anterior',
+    qCompareWithFocus.focus?.lastQueryPlan?.period.from === '2026-07-01'
+      && qCompareWithFocus.focus?.lastQueryPlan?.comparePeriod?.from === '2026-06-01'
+      && /30,00/.test(qCompareWithFocus.reply) && /10,00/.test(qCompareWithFocus.reply)))
+  const qThis = await turn(q, 'quanto gastei este mês')
+  const qLast = await turn(q, 'e mês passado?', qThis.focus)
+  const qWorse = await turn(q, 'qual foi pior', qLast.focus)
+  out.push(result('Q-pior-mes', qWorse, 'agosto R$ 500 foi pior que setembro R$ 100 em gastos',
+    /agosto/i.test(qWorse.reply) && /500,00/.test(qWorse.reply)
+      && /100,00/.test(qWorse.reply) && /pior/i.test(qWorse.reply)
+      && !/500,00[^\n]*a menos/i.test(qWorse.reply)))
   return out
 }
 

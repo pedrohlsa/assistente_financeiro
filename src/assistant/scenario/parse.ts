@@ -238,16 +238,16 @@ function planSingleScenario(
   }
 
   // ---- guardar por mês ----------------------------------------------------
-  const sharePercent = t.match(/\b(?:guardar|guardando|poupar|separar|juntar)\s+(\d{1,3})\s*(?:%|por\s+(?:cento|100))\s+(?:da\s+sobra|do\s+que\s+sobrar)\b/)
+  const sharePercent = t.match(/\b(?:guardar|guardando|poupar|separar|juntar)\s+(\d{1,3}(?:[.,]\d{1,2})?)\s*(?:%|por\s+(?:cento|100))\s+(?:da\s+sobra|do\s+que\s+sobrar)\b/)
   const shareHalf = /\b(?:guardar|guardando|poupar|separar|juntar)\s+(?:a\s+)?metade(?:\s+(?:da\s+sobra|do\s+que\s+sobrar)\b|(?=\s+(?:so\s+)?a\s+partir\b|\s+ate\b|$))/.test(t)
   const shareAll = /\b(?:guardar|guardando|poupar|separar|juntar)\s+(?:tudo|100\s*%)\s+(?:da\s+sobra|(?:o\s+)?que\s+sobrar)\b/.test(t)
   if (sharePercent || shareHalf || shareAll) {
-    const ratio = shareAll ? 1 : shareHalf ? 0.5 : Math.min(Number(sharePercent![1]) / 100, 1)
+    const ratio = shareAll ? 1 : shareHalf ? 0.5 : Math.min(parseMoney(sharePercent![1]) / 100, 1)
     return base('save-share', { ratio, months: horizonte(t, opts.today || todayISO()), startMonth: firstSavingMonth(t, opts.today || todayISO()) },
-      `guardar ${Math.round(ratio * 100)}% do que sobrar`)
+      `guardar ${(ratio * 100).toLocaleString('pt-BR')}% do que sobrar`)
   }
   // Uma porcentagem da sobra nunca pode cair no ramo de valor fixo.
-  if (/\b(?:guardar|guardando|poupar|separar|juntar)\b[^,]{0,35}(?:%|por\s+(?:cento|100))/.test(t)) return null
+  if (/\b(?:guardar|guardando|poupar|separar|juntar)\b.{0,35}?(?:%|por\s+(?:cento|100))/.test(t)) return null
 
   // Redução por valor mantém a categoria explícita e não finge que o gasto
   // desapareceu por completo.
@@ -266,7 +266,10 @@ function planSingleScenario(
     if (Number.isFinite(valor) && valor > 0) {
       const meta = (state.goals || []).find(g => !g.done && normalizeName(g.name).length > 2
         && t.includes(normalizeName(g.name).split(' ')[0]))
-      return base('save', { amount: valor, goalName: meta?.name, months: horizonte(t, opts.today || todayISO()) }, `guardar ${valor} por mês`)
+      const explicitWindow = /\b(?:a\s+partir\s+de|ate\s+(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)|durante\s+\d+\s+mes|por\s+\d+\s+mes)/.test(t)
+      return base('save', { amount: valor, goalName: meta?.name,
+        months: explicitWindow ? horizonte(t, opts.today || todayISO()) : 12,
+        startMonth: firstSavingMonth(t, opts.today || todayISO()) }, `guardar ${valor} por mês`)
     }
   }
 
@@ -318,7 +321,7 @@ export function planScenario(
   state: AppState, input: string, opts: { today?: string; focusCategory?: string } = {},
 ): AssistantScenarioPlan | null {
   if (!looksLikeScenario(input)) return null
-  const partes = input.split(/,(?=\s*[a-zA-ZÀ-ÿ])|\s+e\s+(?=(?:eu\s+)?(?:ainda\s+|tamb[eé]m\s+)?(?:continuar\s+guardando|pagar|quitar|guardar|poupar|reduzir|diminuir|baixar|parar|cortar|investir|aplicar|comprar|gastar)\b)/i)
+  const partes = input.split(/,(?=\s*[a-zA-ZÀ-ÿ])|\s+(?:e\s+|depois\s+)(?=(?:eu\s+)?(?:ainda\s+|tamb[eé]m\s+)?(?:continuar\s+guardando|pagar|quitar|guardar|poupar|reduzir|diminuir|baixar|parar|cortar|investir|aplicar|ajudar|comprar|gastar)\b)/i)
     .map(p => p.trim()).filter(Boolean)
   const planned = partes.map(p => ({ fragment: p, plan: planSingleScenario(state, p, opts, true) }))
   const steps = planned.map(p => p.plan).filter((p): p is AssistantScenarioPlan => !!p)

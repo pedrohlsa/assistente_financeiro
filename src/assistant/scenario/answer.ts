@@ -79,13 +79,15 @@ export function composeScenario(r: AssistantScenarioResult): string {
     case 'save': {
       const falta = r.facts.find(f => f.label.startsWith('Falta para a meta'))
       const meses = valor('Meses até bater a meta')
+      const acumulado = valor('Reserva acumulada no horizonte')
+      const ultimo = r.months[r.months.length - 1]
       if (falta && meses !== undefined) {
         linhas.push(`Guardando ${fmtBRL(p.amount || 0)} por mês, faltam ${fmtNum(meses, 0)} ${meses === 1 ? 'mês' : 'meses'} `
           + `para ${falta.label.replace('Falta para a meta ', '')} — ainda faltam ${fmtBRL(falta.value)}.`)
       } else {
-        const doze = valor('Em 12 meses')
-        linhas.push(`Guardando ${fmtBRL(p.amount || 0)} por mês, você teria ${fmtBRL(doze ?? 0)} em um ano.`)
+        linhas.push(`Guardando ${fmtBRL(p.amount || 0)} por mês, você teria ${fmtBRL(acumulado ?? 0)} até ${ultimo?.label || 'o fim do período'}.`)
       }
+      if (falta && ultimo) linhas.push(`Até ${ultimo.label}, a reserva simulada soma ${fmtBRL(acumulado ?? 0)}.`)
       break
     }
 
@@ -97,7 +99,7 @@ export function composeScenario(r: AssistantScenarioResult): string {
     }
 
     case 'save-share': {
-      const ratio = Math.round((p.ratio || 0) * 100)
+      const ratio = ((p.ratio || 0) * 100).toLocaleString('pt-BR')
       linhas.push(`Guardando ${ratio}% do que sobrar em cada mês:`)
       linhas.push(r.months.slice(0, 4).map(m => `• ${m.label}: reservado ${fmtBRL(m.saved || 0)}, acumulado ${fmtBRL(m.accumulated || 0)}`).join('\n'))
       if (r.months.length > 4) {
