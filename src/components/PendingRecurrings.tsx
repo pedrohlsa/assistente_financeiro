@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from 'react'
 import { useStore } from '../store/store'
 import { pendingRecurrings } from '../services/calc'
-import { addDays, dueLabel, fmtBRL, fromISO, nowTime, parseMoney, todayISO, uid } from '../utils/format'
+import { addDays, dueLabel, fmtBRL, fromISO, nowPaymentTime, parseMoney, todayISO, uid } from '../utils/format'
 import { sentenceCase } from '../utils/text'
 import { MoneyInput, useToast } from './ui'
 
@@ -33,7 +33,7 @@ export default function PendingRecurrings() {
       tx: {
         id: txId, type: kind, amount, category: rec.category,
         description: rec.name, origin: rec.origin,
-        date: todayISO(), time: nowTime(), source: 'recurring',
+        date: todayISO(), time: nowPaymentTime(), source: 'recurring',
         recurringId: rec.id, occurrenceDate, profileAtCreation: state.settings.profile,
       },
     })

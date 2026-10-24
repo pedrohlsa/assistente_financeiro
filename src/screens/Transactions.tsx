@@ -172,7 +172,7 @@ export default function Transactions() {
                     <div style={{ fontWeight: 650, fontSize: '0.92rem' }}>{sentenceCase(t.description) || cat.name}</div>
                     <div className="tiny">
                       {t.type === 'financed-cash-inflow' ? 'Entrada financiada (não é receita)' : cat.name}
-                      {t.time ? ` · ${t.time}` : ''}
+                      {t.time ? ` · ${t.time.slice(0, 5)}` : ''}
                     </div>
                   </div>
                   {/* 'financed-cash-inflow' entra no caixa mas NÃO é receita:
@@ -215,7 +215,7 @@ function TransactionDetail({ tx, onClose, onRemove }: {
     ['Tipo', TYPE_LABEL[tx.type] || tx.type],
     ['Categoria', `${cat.icon} ${cat.name}`],
     ['Data', fromISO(tx.date).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })],
-    ['Horário', tx.time],
+    ['Horário', tx.time?.slice(0, 8)],
     ['Origem / fonte', sentenceCase(tx.origin) || undefined],
     ['Forma de pagamento', tx.paymentMethod],
     ['Observação', tx.note],

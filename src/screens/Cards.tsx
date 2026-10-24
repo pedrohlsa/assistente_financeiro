@@ -2,18 +2,18 @@
 // Regra central: a compra vira dívida parcelada (InstallmentPlan) e só as
 // PARCELAS entram no fluxo mensal. Pagar a fatura quita a dívida sem gerar
 // despesa nova — ver services/cards.ts.
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/store'
 import { CreditCard, Installment, InstallmentPlan } from '../models/types'
-import { fmtBRL, fmtDateShort, monthKey, nowPaymentTime, todayISO, toISO, fromISO, parseMoney, uid } from '../utils/format'
+import { fmtBRL, fmtDateShort, nowPaymentTime, todayISO, toISO, fromISO, parseMoney, uid } from '../utils/format'
 import { ConfirmDialog, EmptyState, Progress, Sheet, useToast } from '../components/ui'
 import {
   CardChargeForm, CardForm, CardPaymentForm, FinancedInflowForm, PurchaseForm, StandalonePlanForm,
 } from '../components/cardForms'
 import {
   cardInvoice, cardLimits, cardsOverview, commitmentTimeline, currentInvoice,
-  planProgress, upcomingInvoices, planInstallments, splitInstallmentAmounts,
+  planProgress, upcomingInvoices, planInstallments, splitInstallmentAmounts, installmentLinkedToCardPayment,
 } from '../services/cards'
 import { monthlyProjections, hasProjectionData } from '../services/calc'
 import { catById } from '../data/categories'
@@ -475,6 +475,8 @@ function PlansTab({ ov, onAddPurchase, onAddPlan }: { ov: ReturnType<typeof card
 
 function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>; open: boolean; onToggle: () => void }) {
   const { state, dispatch } = useStore()
+  const stateRef = useRef(state)
+  stateRef.current = state
   const toast = useToast()
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [confirmAction, setConfirmAction] = useState<'settle' | 'cancel-future' | null>(null)
@@ -493,6 +495,11 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
     const left = pp.remainingCount - 1
     if (left <= 0) dispatch({ type: 'updatePlan', id: plan.id, patch: { status: 'settled' } })
     toast({ text: `Parcela ${i.number} marcada como paga.`, undo: () => {
+      const current = stateRef.current.installments.find(x => x.id === i.id)
+      if (current && installmentLinkedToCardPayment(stateRef.current, current)) {
+        toast({ text: 'Não reabri a parcela: ela está vinculada a um pagamento da fatura.' })
+        return
+      }
       dispatch({ type: 'unpayInstallment', id: i.id })
       if (left <= 0) dispatch({ type: 'updatePlan', id: plan.id, patch: { status: 'active' } })
     } })
@@ -585,8 +592,8 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
           <p className="tiny" style={{ fontWeight: 650, margin: '10px 0 2px' }}>Todas as parcelas</p>
           {pp.installments.map(i => {
             const overdue = i.status === 'pending' && i.dueDate < t
-            const invoicePayment = !!plan.cardId && state.cardPayments.some(p =>
-              p.cardId === plan.cardId && p.referenceMonth === monthKey(i.dueDate))
+            const invoicePayment = installmentLinkedToCardPayment(state, i)
+            const incompleteLegacy = i.status === 'paid' && (i.paidAmount ?? i.amount) < i.amount - 0.009
             const early = i.status === 'paid' && i.paidAt && i.paidAt < i.dueDate
             const color = i.status === 'cancelled' ? 'var(--text-3)' : i.status === 'paid' ? 'var(--positive)' : overdue ? 'var(--danger)' : undefined
             return (
@@ -597,6 +604,7 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
                   </div>
                   <div className="tiny" style={{ color }}>
                     {i.status === 'cancelled' ? 'cancelada'
+                      : incompleteLegacy ? `pagamento parcial ${fmtBRL(i.paidAmount || 0)} — falta completar`
                       : i.status === 'paid' ? `paga em ${fmtDateShort(i.paidAt || i.dueDate)}${early ? ' (antecipada)' : ''}`
                       : overdue ? `venceu em ${fmtDateShort(i.dueDate)}` : `vence em ${fmtDateShort(i.dueDate)}`}
                     {i.paidAmount && i.status === 'pending' ? ` · pago parcial ${fmtBRL(i.paidAmount)}` : ''}
@@ -608,6 +616,12 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
                     <button className="link tiny" onClick={() => markPaid(i)}>Pagar</button>
                     <button className="link tiny" onClick={() => setPartial(i)}>Parcial</button>
                   </>
+                )}
+                {incompleteLegacy && !invoicePayment && i.paidVia !== 'invoice' && (
+                  <button className="link tiny" onClick={() => {
+                    dispatch({ type: 'payInstallment', id: i.id, paidAt: todayISO() })
+                    toast({ text: 'Restante da parcela registrado.' })
+                  }}>Completar</button>
                 )}
                 {i.status === 'paid' && (invoicePayment
                   ? <span className="tiny muted" title="O pagamento da fatura precisa ser reconciliado antes de reabrir esta parcela.">

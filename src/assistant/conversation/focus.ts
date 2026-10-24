@@ -476,9 +476,12 @@ function refinaConsulta(
       const novo = planQuery(state, t, { today })
       if (novo) {
         const explicitCategory = !!novo.plan.filter.categories?.length
-        const allCategories = /\b(?:todas?\s+as\s+categorias|no\s+total|total\s+geral)\b/.test(t)
-        const filter = { ...base.filter, ...novo.plan.filter }
-        if (!explicitCategory && !allCategories) filter.categories = base.filter.categories
+        const allCategories = /\b(?:todas?\s+as\s+categorias|no\s+total|total\s+geral|em\s+geral|de\s+tudo)\b/.test(t)
+        // O plano novo serve para identificar um recorte explicitamente pedido.
+        // Seus defaults (como txType=expense) e texto residual não podem trocar
+        // a medida da consulta anterior nem contaminar os próximos turnos.
+        const filter = { ...base.filter }
+        if (explicitCategory) filter.categories = novo.plan.filter.categories
         if (allCategories) delete filter.categories
         return { kind: 'query', planned: { ...novo, plan: { ...novo.plan,
           source: base.source, metric: base.metric, field: base.field, filter,

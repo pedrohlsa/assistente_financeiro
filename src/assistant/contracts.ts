@@ -277,7 +277,7 @@ export type AssistantErrorCode =
   | 'category-not-found' | 'category-wrong-type'
   | 'card-not-found' | 'card-ambiguous' | 'goal-not-found' | 'goal-ambiguous'
   | 'duplicate' | 'missing-field' | 'profile-forbidden'
-  | 'invoice-empty' | 'insufficient-reserve'
+  | 'invoice-empty' | 'invoice-conflict' | 'insufficient-reserve'
   | 'unsupported-action' | 'conflict' | 'text-too-long' | 'unknown-field'
   | 'batch-not-found' | 'batch-not-reversible' | 'already-undone'
   | 'transaction-not-found' | 'edit-not-allowed'
@@ -298,6 +298,7 @@ export const ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
   'missing-field': 'Falta uma informação obrigatória.',
   'profile-forbidden': 'Esse tipo de registro não existe no seu perfil.',
   'invoice-empty': 'Essa fatura não tem valor pendente.',
+  'invoice-conflict': 'Os pagamentos desta fatura precisam ser conferidos antes de registrar outro.',
   'insufficient-reserve': 'Você não tem esse valor guardado na reserva.',
   'unsupported-action': 'Ainda não sei registrar isso.',
   'conflict': 'Esse registro entra em conflito com outro da mesma mensagem.',

@@ -7,7 +7,7 @@ import { cardInvoice } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
 import { applyPreferenceAliases } from '../../src/assistant/preferences'
 import { hydrateForTest, reducer } from '../../src/store/store'
-import { nowStamp } from '../../src/utils/format'
+import { nowPaymentTime, nowStamp } from '../../src/utils/format'
 import { autonomoRico } from '../fixtures/richState'
 import { buildState } from './harness'
 
@@ -710,6 +710,16 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   }, 'parcial direto 100 + fatura 200 quitam 300 sem desconto duplo',
     currentBalance(partialThenInvoice) === 700
       && cardInvoice(partialThenInvoice, directMixed.cards[0], '2026-09').pending === 0))
+  const removedMixedInvoice = reducer(partialThenInvoice, { type: 'removeCardPayment', id: 'ui-partial-rest' })
+  out.push(result('C-remover-fatura-reabre-parcelas', {
+    balance: currentBalance(removedMixedInvoice),
+    pending: cardInvoice(removedMixedInvoice, directMixed.cards[0], '2026-09').pending,
+    installments: removedMixedInvoice.installments,
+  }, 'sem a fatura, parcial direto R$ 100 permanece e R$ 200 voltam a ficar pendentes',
+    currentBalance(removedMixedInvoice) === 900
+      && cardInvoice(removedMixedInvoice, directMixed.cards[0], '2026-09').pending === 200
+      && removedMixedInvoice.installments.every(i => i.status === 'pending')
+      && removedMixedInvoice.installments[0].paidAmount === 100))
   const longReport = await turn(buildState({ profile: 'driver' }),
     'fiz 20 reais mas gastei 40 em combustievl acabando furando o pneu foi mais 30 e depois disso minha filha pediu um pix de 15 reais para sorvete tocou uma corrida de 70 reais bla bla bla bla')
   const longState = buildState({ profile: 'driver' })
@@ -749,6 +759,30 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && foodCompare.focus?.lastQuery?.total === 80
       && /80,00/.test(foodCompare.reply) && /10,00/.test(foodCompare.reply)
       && /70,00\s+acima/i.test(foodCompare.reply.replace(/\u00a0/g, ' '))))
+  const incomeCompareState = buildState({ transactions: [
+    { id: 'rent-aug', type: 'income', amount: 1800, category: 'aluguel', origin: 'Casa 1', date: '2026-08-05' },
+    { id: 'rent-jul', type: 'income', amount: 1200, category: 'aluguel', origin: 'Casa 1', date: '2026-07-05' },
+    { id: 'home-aug', type: 'expense', amount: 300, category: 'casa', origin: 'Casa 1', date: '2026-08-10' },
+  ] })
+  const rentAugust = await turn(incomeCompareState, 'quanto a Casa 1 me rendeu em agosto')
+  const rentCompare = await turn(incomeCompareState, 'compara agosto com julho', rentAugust.focus)
+  out.push(result('C-comparacao-receita-nao-vira-despesa', rentCompare,
+    'receita de R$ 1800 contra R$ 1200, diferença R$ 600',
+    rentCompare.focus?.lastQueryPlan?.filter.txType?.[0] === 'income'
+      && rentCompare.focus?.lastQuery?.total === 1800
+      && /1\.800,00/.test(rentCompare.reply) && /1\.200,00/.test(rentCompare.reply)
+      && /600,00\s+acima/i.test(rentCompare.reply.replace(/\u00a0/g, ' '))))
+  for (const [id, phrase] of [
+    ['em-geral', 'compara julho com junho em geral'],
+    ['de-tudo', 'compara julho com junho de tudo'],
+  ] as const) {
+    const comparison = await turn(categoryFocus, phrase, foodJuly.focus)
+    out.push(result(`C-comparacao-${id}`, comparison, 'todas as categorias: 2080 contra 1010',
+      !comparison.focus?.lastQueryPlan?.filter.categories?.length
+        && !comparison.focus?.lastQueryPlan?.filter.text
+        && comparison.focus?.lastQuery?.total === 2080
+        && /2\.080,00/.test(comparison.reply) && /1\.010,00/.test(comparison.reply)))
+  }
   const houseState = buildState({ transactions: [
     { id: 'house-1', type: 'income', amount: 1800, category: 'aluguel', origin: 'Casa 1', date: '2026-09-05' },
     { id: 'house-2', type: 'income', amount: 1200, category: 'aluguel', origin: 'Casa 2', date: '2026-09-07' },
@@ -787,8 +821,12 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const sameMinute = { ...directMixed, settings: { ...directMixed.settings,
     balanceAsOf: '2026-09-01T00:00' }, installments: [directMixed.installments[0]] }
   const actualStamp = nowStamp()
-  out.push(result('B-carimbo-ancora-tem-segundos', actualStamp,
-    'âncora com precisão de segundos', /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(actualStamp)))
+  out.push(result('B-carimbo-ancora-tem-milissegundos', actualStamp,
+    'âncora com precisão de milissegundos', /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}$/.test(actualStamp)))
+  const actualPaymentTime = nowPaymentTime()
+  out.push(result('C-carimbo-lancamento-tem-milissegundos', actualPaymentTime,
+    'lançamento financeiro com a mesma precisão da âncora',
+    /^\d{2}:\d{2}:\d{2}\.\d{3}$/.test(actualPaymentTime)))
   const earlyInvoice = applyBatchPure(sameMinute,
     [{ id: 'early-invoice', action: { kind: 'card-payment', cardName: 'Inter', amount: 200 } }],
     { now: { date: TODAY, time: '09:00:10' } })
@@ -805,6 +843,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   }, 'pagamento às 09:00:10 já incluído na âncora das 09:00:50',
     laterAnchor.applied && laterDirectAnchor.applied
       && currentBalance(laterAnchor.state) === 800 && currentBalance(laterDirectAnchor.state) === 800))
+  const anchorThenExpense = applyBatchPure(buildState({ balance: 0 }), [
+    { id: 'anchor-first', action: { kind: 'balance', amount: 800 } },
+    { id: 'expense-second', action: { kind: 'expense', amount: 50, description: 'Mercado' } },
+  ], { now: { date: TODAY, time: '09:00:50' } })
+  const expenseThenAnchor = applyBatchPure(buildState({ balance: 0 }), [
+    { id: 'expense-first', action: { kind: 'expense', amount: 50, description: 'Mercado' } },
+    { id: 'anchor-second', action: { kind: 'balance', amount: 800 } },
+  ], { now: { date: TODAY, time: '09:00:50' } })
+  out.push(result('C-ordem-do-lote-na-mesma-hora', {
+    first: currentBalance(anchorThenExpense.state), second: currentBalance(expenseThenAnchor.state),
+  }, 'saldo antes do gasto = 750; saldo depois do gasto = 800',
+    anchorThenExpense.applied && expenseThenAnchor.applied
+      && currentBalance(anchorThenExpense.state) === 750
+      && currentBalance(expenseThenAnchor.state) === 800))
   const legacyKnown = { ...sameMinute, installments: [{ ...sameMinute.installments[0],
     status: 'pending' as const, paidAmount: 100, paidAt: '2026-09-10', paidVia: 'direct' as const }] }
   const legacyCompleted = reducer(legacyKnown, { type: 'payInstallment', id: 'mixed-0',
@@ -841,6 +893,32 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   }, 'saldo R$ 700 e fatura zero', legacyInvoiceRest.applied
     && currentBalance(legacyInvoiceRest.state) === 700
     && cardInvoice(legacyInvoiceRest.state, legacyInvoice.cards[0], '2026-09').pending === 0))
+  const conflictingLegacy = { ...legacyInvoice, installments: [{ ...legacyInvoice.installments[0],
+    paidAt: '2026-09-12' }, legacyInvoice.installments[1]],
+    cardPayments: [{ id: 'old-invoice', cardId: 'card0', amount: 200,
+      paymentDate: '2026-09-13', referenceMonth: '2026-09', fromBalance: true }] }
+  const refusedConflict = applyBatchPure(conflictingLegacy,
+    [{ id: 'conflicting-payment', action: { kind: 'card-payment', cardName: 'Inter', amount: 100 } }],
+    { now: { date: TODAY, time: '14:00' } })
+  out.push(result('C-fatura-legada-conflitante-nao-amplia-erro', {
+    paid: cardInvoice(conflictingLegacy, conflictingLegacy.cards[0], '2026-09').paid,
+    applied: refusedConflict.applied, results: refusedConflict.results,
+  }, 'recusar novo pagamento enquanto o histórico da fatura é inconsistente',
+    cardInvoice(conflictingLegacy, conflictingLegacy.cards[0], '2026-09').paid > 300
+      && !refusedConflict.applied
+      && refusedConflict.results[0]?.ok === false
+      && refusedConflict.state === conflictingLegacy))
+  const legacyMarkedPaidPartial = { ...legacyKnown, installments: [{ ...legacyKnown.installments[0],
+    status: 'paid' as const }] }
+  const legacyMarkedCompleted = reducer(legacyMarkedPaidPartial, { type: 'payInstallment',
+    id: 'mixed-0', paidAt: TODAY, paidTime: '14:00' })
+  out.push(result('C-legado-marcado-pago-mas-parcial', {
+    before: currentBalance(legacyMarkedPaidPartial), after: currentBalance(legacyMarkedCompleted),
+    events: legacyMarkedCompleted.installments[0].directPayments,
+  }, 'completar apenas R$ 100 restantes sem perder o histórico de R$ 100',
+    currentBalance(legacyMarkedPaidPartial) === 900
+      && currentBalance(legacyMarkedCompleted) === 800
+      && legacyMarkedCompleted.installments[0].directPayments?.length === 2))
   const mixedUndo = reducer(partialThenInvoice, { type: 'unpayInstallment', id: 'mixed-0' })
   out.push(result('B-desfazer-parcela-com-fatura-bloqueado', {
     balance: currentBalance(mixedUndo), pending: cardInvoice(mixedUndo, directMixed.cards[0], '2026-09').pending,
@@ -848,6 +926,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     currentBalance(mixedUndo) === 700
       && cardInvoice(mixedUndo, directMixed.cards[0], '2026-09').pending === 0
       && mixedUndo.installments[0].status === 'paid'))
+  const unrelatedPartial = reducer(directMixed, { type: 'addCardPayment',
+    payment: { id: 'prior-partial', cardId: 'card0', amount: 30, paymentDate: '2026-09-14',
+      paymentTime: '14:00', referenceMonth: '2026-09', fromBalance: true },
+    settleInstallmentIds: [] })
+  const paidAfterPartial = reducer(unrelatedPartial, { type: 'payInstallment', id: 'mixed-0',
+    paidAt: TODAY, paidTime: '14:00' })
+  const undoneAfterPartial = reducer(paidAfterPartial, { type: 'unpayInstallment', id: 'mixed-0' })
+  out.push(result('C-desfazer-direto-apos-fatura-parcial', {
+    paid: currentBalance(paidAfterPartial), undone: currentBalance(undoneAfterPartial),
+  }, 'parcial anterior não impede desfazer pagamento direto posterior',
+    currentBalance(paidAfterPartial) === 770
+      && currentBalance(undoneAfterPartial) === 970
+      && undoneAfterPartial.installments[0].status === 'pending'))
   for (const [name, phrase] of [
     ['pingou', 'quando eu falar sonho é pingou'],
     ['cairam', 'quando eu falar sonharia é cairam'],
@@ -881,6 +972,17 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   out.push(result('B-negacao-de-outra-renda', unrelatedNegative, 'receita de corrida R$ 70 preservada',
     unrelatedNegative.actions.filter(a => a.kind === 'income').length === 1
       && unrelatedNegative.actions.some(a => a.kind === 'income' && a.amount === 70)))
+  for (const [id, phrase] of [
+    ['nao-me-pagaram', 'Fiz uma corrida de 70 mas não me pagaram'],
+    ['nao-recebi-nada', 'Fiz uma corrida de 70 mas não recebi nada'],
+    ['nao-recebi-o-valor', 'Fiz uma corrida de 70 mas não recebi o valor ainda'],
+    ['nao-caiu-nada', 'Fiz uma corrida de 70 mas não caiu nada ainda'],
+    ['nunca-me-pagaram', 'Fiz uma corrida de 70 mas nunca me pagaram'],
+  ] as const) {
+    const unpaid = await turn(buildState({ profile: 'driver' }), phrase)
+    out.push(result(`C-corrida-${id}`, unpaid, 'nenhuma receita proposta',
+      !unpaid.actions.some(a => a.kind === 'income')))
+  }
   const houseCompare = await turn(categoryFocus, 'compara julho com junho em casa', foodJuly.focus)
   const allCompare = await turn(categoryFocus, 'compara julho com junho de todas as categorias', foodJuly.focus)
   out.push(result('B-comparacao-categoria-explicita', houseCompare, 'casa R$ 2000 contra R$ 1000',

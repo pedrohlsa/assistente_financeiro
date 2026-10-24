@@ -45,13 +45,16 @@ export const nowTime = () => {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-/** Pagamentos precisam de segundos para serem posteriores a uma âncora criada no mesmo minuto. */
-export const nowPaymentTime = () => new Date().toTimeString().slice(0, 8)
+/** Eventos financeiros precisam de precisão suficiente para respeitar a âncora de saldo. */
+export const nowPaymentTime = () => {
+  const d = new Date()
+  return `${d.toTimeString().slice(0, 8)}.${String(d.getMilliseconds()).padStart(3, '0')}`
+}
 
-/** Carimbo 'YYYY-MM-DDTHH:mm:ss' — data e hora do mesmo instante. */
+/** Carimbo 'YYYY-MM-DDTHH:mm:ss.SSS' — data e hora do mesmo instante. */
 export const nowStamp = () => {
   const d = new Date()
-  return `${toISO(d)}T${d.toTimeString().slice(0, 8)}`
+  return `${toISO(d)}T${d.toTimeString().slice(0, 8)}.${String(d.getMilliseconds()).padStart(3, '0')}`
 }
 
 /** Mesmo formato de `nowStamp`, montado a partir de uma transação. */

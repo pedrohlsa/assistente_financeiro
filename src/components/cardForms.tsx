@@ -632,7 +632,8 @@ export function CardPaymentForm({ onDone, card, referenceMonth }: { onDone: () =
       type: 'addCardPayment',
       payment: { id: uid(), cardId: card.id, amount: v, paymentDate: date,
         paymentTime: date === todayISO() ? nowPaymentTime() : undefined,
-        referenceMonth: mk, note: note.trim() || undefined, fromBalance },
+        referenceMonth: mk, note: note.trim() || undefined, fromBalance,
+        settledInstallmentIds: settleIds },
       settleInstallmentIds: settleIds,
     })
     toast({ text: fullyPaid ? 'Fatura quitada. ✅' : `Pagamento parcial de ${fmtBRL(v)} registrado.` })

@@ -15,7 +15,7 @@ import type {
 import type { ActionExecutionResult, AssistantErrorCode } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, errorMessage } from './contracts'
 import { JOURNAL_LIMIT, diffForJournal, isRevertFailure, revertBatchPure } from './journal'
-import { addDays, monthKey, nowPaymentTime, nowStamp, nowTime, todayISO, uid } from '../utils/format'
+import { addDays, monthKey, nowPaymentTime, nowStamp, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
 import { buildInstallments, cardInvoice, directInstallmentPaidAmount, suggestedFirstDueDate } from '../services/cards'
@@ -114,7 +114,7 @@ export function applyActionPure(
 ): { state: AppState; result: ActionExecutionResult } {
   const gen = opts.newId || uid
   const date = opts.now?.date || todayISO()
-  const time = opts.now?.time || nowTime()
+  const time = opts.now?.time || nowPaymentTime()
   const source = opts.source || 'ai'
   const profileAtCreation = state.settings.profile
   const batch = opts.batchId
@@ -255,7 +255,7 @@ export function applyActionPure(
     case 'balance': {
       return {
         state: { ...state, settings: { ...state.settings, balance: action.amount,
-          balanceAsOf: opts.stamp || `${date}T${opts.now?.time || nowPaymentTime()}` } },
+          balanceAsOf: opts.now ? `${date}T${opts.now.time}` : opts.stamp || `${date}T${nowPaymentTime()}` } },
         result: { ok: true, actionId },
       }
     }
@@ -335,6 +335,10 @@ export function applyActionPure(
       }
       const mk = monthKey(date)
       const invoice = cardInvoice(state, card, mk)
+      if (invoice.paid > invoice.total + 0.009) return {
+        state, result: fail(actionId, 'invoice-conflict', `${card.name}.`, false),
+      }
+      if (invoice.pending <= 0.009) return { state, result: fail(actionId, 'invoice-empty', `${card.name}.`, false) }
       const amount = action.amount ?? invoice.pending
       if (!(amount > 0)) return { state, result: fail(actionId, 'invoice-empty', `${card.name}.`, false) }
       const fullyPaid = amount >= invoice.pending - 0.009
@@ -348,7 +352,7 @@ export function applyActionPure(
       const payment = {
         id: gen(), cardId: card.id, amount, paymentDate: date,
         paymentTime: opts.now?.time || opts.stamp?.slice(11) || nowPaymentTime(),
-        referenceMonth: mk, fromBalance: true,
+        referenceMonth: mk, fromBalance: true, settledInstallmentIds: [...settle],
       }
       return {
         state: {
@@ -446,8 +450,17 @@ export function applyBatchPure(
   const atomic = opts.atomic !== false
   let cur = state
   const results: ActionExecutionResult[] = []
-  for (const item of items) {
-    const step = applyActionPure(cur, item.action, item.id, opts)
+  // O lote tem ordem conhecida mesmo quando todas as ações caem no mesmo
+  // milissegundo: o sufixo ordinal coloca pagamentos/lançamentos antes ou
+  // depois de uma âncora conforme a posição real na frase confirmada.
+  const batchDate = opts.now?.date || opts.stamp?.slice(0, 10) || todayISO()
+  const batchTime = opts.now?.time || opts.stamp?.slice(11) || nowPaymentTime()
+  const normalizedTime = /^\d{2}:\d{2}$/.test(batchTime) ? `${batchTime}:00.000`
+    : /^\d{2}:\d{2}:\d{2}$/.test(batchTime) ? `${batchTime}.000` : batchTime
+  for (const [index, item] of items.entries()) {
+    const time = `${normalizedTime}${String(index + 1).padStart(6, '0')}`
+    const step = applyActionPure(cur, item.action, item.id,
+      { ...opts, now: { date: batchDate, time } })
     results.push(step.result)
     if (step.result.ok) cur = step.state
     else if (atomic) return { state, results, applied: false }

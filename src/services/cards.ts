@@ -129,6 +129,21 @@ export function directInstallmentPaidAmount(s: AppState, i: Installment): number
   return round2(Math.min(Math.max(amount, 0), i.amount))
 }
 
+/** Só bloqueia o desfazer individual quando uma fatura ainda representa esta parcela.
+ * Pagamentos novos guardam os IDs exatos. Em backups sem essa proveniência,
+ * uma fatura anterior ao pagamento direto não pode ser a quitação dele.
+ */
+export function installmentLinkedToCardPayment(s: AppState, i: Installment): boolean {
+  const cardId = planById(s, i.planId)?.cardId
+  if (!cardId) return false
+  return (s.cardPayments || []).some(p => {
+    if (p.cardId !== cardId || p.referenceMonth !== monthKey(i.dueDate)) return false
+    if (p.settledInstallmentIds !== undefined) return p.settledInstallmentIds.includes(i.id)
+    if (i.paidVia === 'invoice') return true
+    return !!i.paidAt && p.paymentDate >= i.paidAt
+  })
+}
+
 /** Assinaturas ativas que caem no mês de referência. */
 export function chargesInMonth(s: AppState, mk: string): RecurringCardCharge[] {
   return (s.cardCharges || []).filter(c => {

@@ -3,7 +3,7 @@ import React, { useMemo, useState } from 'react'
 import { findGoalByExactName, useStore } from '../store/store'
 import { ConfirmDialog, MoneyInput, useToast } from './ui'
 import { Budget, CategoryType, FinancialGoal, FuelRecord, IntervalUnit, MaintenanceItem, RecurringExpense, Transaction } from '../models/types'
-import { addDays, fromISO, nowTime, parseMoney, todayISO, uid, fmtBRL } from '../utils/format'
+import { addDays, fromISO, nowPaymentTime, parseMoney, todayISO, uid, fmtBRL } from '../utils/format'
 import { describeRecurrence, occurrencesBetween } from '../services/calc'
 import { sentenceCase } from '../utils/text'
 import { guessCategory } from '../data/categories'
@@ -35,7 +35,7 @@ export function TransactionForm({ type: initialType, onDone }: { type?: Category
       id: uid(), type, amount: v,
       category: category || suggested || (type === 'income' ? 'outros-in' : 'outros-out'),
       description: description || undefined, origin: origin || undefined,
-      date, time: nowTime(), paymentMethod: payment, note: note || undefined, source: 'manual',
+      date, time: nowPaymentTime(), paymentMethod: payment, note: note || undefined, source: 'manual',
       profileAtCreation: state.settings.profile,
     }
     dispatch({ type: 'addTx', tx })
@@ -99,7 +99,7 @@ export function WorkForm({ onDone }: { onDone: () => void }) {
   const save = () => {
     dispatch({ type: 'addWork', w: { date: todayISO(), km: parseMoney(km) || 0, trips: parseMoney(trips) || 0, hours: parseMoney(hours) || 0 } })
     const v = parseMoney(earned)
-    if (v > 0) dispatch({ type: 'addTx', tx: { id: uid(), type: 'income', amount: v, category: 'corridas', description: 'Corridas do dia', date: todayISO(), time: nowTime(), source: 'manual' } })
+    if (v > 0) dispatch({ type: 'addTx', tx: { id: uid(), type: 'income', amount: v, category: 'corridas', description: 'Corridas do dia', date: todayISO(), time: nowPaymentTime(), source: 'manual' } })
     toast({ text: 'Trabalho registrado.' })
     onDone()
   }
@@ -147,7 +147,7 @@ export function FuelForm({ onDone }: { onDone: () => void }) {
     if ((!a || a <= 0) && (!l || l <= 0)) return
     const f: FuelRecord = { id: uid(), date: todayISO(), amount: a, liters: l || 0, pricePerLiter: ppl || state.settings.fuelPricePerLiter, odometer: odo || undefined, station: station || undefined, fuelType }
     dispatch({ type: 'addFuel', f })
-    dispatch({ type: 'addTx', tx: { id: uid(), type: 'expense', amount: a, category: 'combustivel', description: `Abastecimento${station ? ' ' + station : ''}`, date: todayISO(), time: nowTime(), source: 'manual' } })
+    dispatch({ type: 'addTx', tx: { id: uid(), type: 'expense', amount: a, category: 'combustivel', description: `Abastecimento${station ? ' ' + station : ''}`, date: todayISO(), time: nowPaymentTime(), source: 'manual' } })
     // guarda o preço/L como referência para o próximo
     if (ppl > 0) dispatch({ type: 'settings', patch: { fuelPricePerLiter: Math.round(ppl * 100) / 100 } })
     toast({ text: kmSince > 0 ? `Abastecido. Você rodou ${Math.round(kmSince)} km (${consumo.toFixed(1)} km/L).` : `Abastecimento de ${fmtBRL(a)} registrado.` })
@@ -204,7 +204,7 @@ export function MaintenanceForm({ onDone }: { onDone: () => void }) {
     if (!c) return
     const m: MaintenanceItem = { id: uid(), name, cost: c, kmInstalled: parseMoney(km) || 0, lifeKm: parseMoney(life) || 0, date: todayISO() }
     dispatch({ type: 'addMaintenance', m })
-    dispatch({ type: 'addTx', tx: { id: uid(), type: 'expense', amount: c, category: 'manutencao', description: `Troca: ${name}`, date: todayISO(), time: nowTime(), source: 'manual' } })
+    dispatch({ type: 'addTx', tx: { id: uid(), type: 'expense', amount: c, category: 'manutencao', description: `Troca: ${name}`, date: todayISO(), time: nowPaymentTime(), source: 'manual' } })
     toast({ text: `${name} registrado.` })
     onDone()
   }
@@ -395,7 +395,7 @@ export function RecurringForm({ onDone, defaultKind, lockKind = false }: { onDon
       type: 'addTx',
       tx: {
         id: txId, type: kind, amount: r.amount, category: r.category,
-        description: r.name, origin: r.origin, date: startDate, time: nowTime(),
+        description: r.name, origin: r.origin, date: startDate, time: nowPaymentTime(),
         source: 'recurring', recurringId: r.id, occurrenceDate: startDate,
         profileAtCreation: state.settings.profile,
       },
@@ -541,7 +541,7 @@ export function SavingForm({ onDone }: { onDone: () => void }) {
       type: 'addTx',
       tx: {
         id: uid(), type: 'saving', amount: v, category: 'reserva',
-        description: description || 'Guardado', date: todayISO(), time: nowTime(),
+        description: description || 'Guardado', date: todayISO(), time: nowPaymentTime(),
         source: 'manual', profileAtCreation: state.settings.profile,
       },
     })
@@ -580,7 +580,7 @@ export function QuickAdd({ onDone }: { onDone: () => void }) {
     const v = parseMoney(value)
     if (!v) return
     if (mode === 'income' || mode === 'expense') {
-      const tx: Transaction = { id: uid(), type: mode, amount: v, category: mode === 'income' ? defaultIncomeCategory(state.settings) : 'outros-out', date: todayISO(), time: nowTime(), source: 'quick' }
+      const tx: Transaction = { id: uid(), type: mode, amount: v, category: mode === 'income' ? defaultIncomeCategory(state.settings) : 'outros-out', date: todayISO(), time: nowPaymentTime(), source: 'quick' }
       dispatch({ type: 'addTx', tx })
       toast({ text: `${fmtBRL(v)} ${mode === 'income' ? 'adicionados' : 'registrados como despesa'}.`, undo: () => dispatch({ type: 'removeTx', id: tx.id }) })
     } else if (mode === 'km') {

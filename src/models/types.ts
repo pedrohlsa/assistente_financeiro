@@ -273,6 +273,8 @@ export interface CardPayment {
   paymentTime?: string
   /** Fatura quitada por este pagamento ('YYYY-MM' do vencimento). */
   referenceMonth: string
+  /** IDs quitados por este pagamento; [] significa parcial sem parcela quitada. Ausente em backups antigos. */
+  settledInstallmentIds?: string[]
   note?: string
   /** Se o valor foi descontado do saldo em conta informado pelo usuário. */
   fromBalance?: boolean

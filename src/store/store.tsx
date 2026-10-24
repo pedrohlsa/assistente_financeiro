@@ -13,7 +13,7 @@ import { buildDemoData } from '../data/demo'
 import { addDays, monthKey, nowPaymentTime, nowStamp, nowTime, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
-import { currentInvoice, directInstallmentPaidAmount } from '../services/cards'
+import { currentInvoice, directInstallmentPaidAmount, installmentLinkedToCardPayment } from '../services/cards'
 import { applyBatchPure } from '../assistant/execute'
 import type { BatchItem } from '../assistant/execute'
 import type { ActionExecutionResult } from '../assistant/contracts'
@@ -309,11 +309,15 @@ export function reducer(s: AppState, a: Action): AppState {
       return {
         ...s,
         installments: s.installments.map(i => {
-          if (i.id !== a.id || i.status !== 'pending') return i
+          if (i.id !== a.id || i.status === 'cancelled' || i.paidVia === 'invoice') return i
+          // Backups podem marcar "paid" com paidAmount menor que a parcela.
+          // Completar o restante é permitido só sem quitação de fatura ligada.
+          if (i.status === 'paid' && ((i.paidAmount ?? i.amount) >= i.amount - 0.009
+            || installmentLinkedToCardPayment(s, i))) return i
           const previous = Math.min(Math.max(i.paidAmount || 0, 0), i.amount)
           const remainder = Math.max((a.paidAmount ?? i.amount) - previous, 0)
           const history = i.directPayments?.length ? i.directPayments
-            : i.paidAt && previous > 0 && i.paidVia !== 'invoice'
+            : i.paidAt && previous > 0
               ? [{ amount: previous, date: i.paidAt }] : []
           return { ...i, status: 'paid' as const, paidAt: a.paidAt,
             paidAmount: a.paidAmount ?? i.amount, paidVia: 'direct' as const,
@@ -337,9 +341,7 @@ export function reducer(s: AppState, a: Action): AppState {
       // Uma fatura paga é um registro separado. Reabrir apenas a parcela
       // removeria o crédito direto mas deixaria o pagamento da fatura intacto.
       const installment = s.installments.find(i => i.id === a.id)
-      const cardId = s.installmentPlans.find(p => p.id === installment?.planId)?.cardId
-      if (cardId && installment && s.cardPayments.some(cp => cp.cardId === cardId
-        && cp.referenceMonth === monthKey(installment.dueDate))) return s
+      if (installment && installmentLinkedToCardPayment(s, installment)) return s
       return {
         ...s,
         installments: s.installments.map(i =>
@@ -355,7 +357,7 @@ export function reducer(s: AppState, a: Action): AppState {
       const settle = new Set(a.settleInstallmentIds)
       return {
         ...s,
-        cardPayments: [a.payment, ...s.cardPayments],
+        cardPayments: [{ ...a.payment, settledInstallmentIds: a.settleInstallmentIds }, ...s.cardPayments],
         installments: settle.size
           ? s.installments.map(i => settle.has(i.id)
             ? directInstallmentPaidAmount(s, i) > 0
@@ -368,7 +370,28 @@ export function reducer(s: AppState, a: Action): AppState {
         // desconta os pagamentos com `fromBalance`. Mexer nos dois lugares contaria duas vezes.
       }
     }
-    case 'removeCardPayment': return { ...s, cardPayments: s.cardPayments.filter(p => p.id !== a.id) }
+    case 'removeCardPayment': {
+      const payment = s.cardPayments.find(p => p.id === a.id)
+      if (!payment) return s
+      // Sem os IDs quitados não é possível reabrir a parcela certa. Não
+      // removemos só o dinheiro e deixamos a dívida falsamente como paga.
+      if (payment.settledInstallmentIds === undefined) return s
+      const cardPayments = s.cardPayments.filter(p => p.id !== a.id)
+      const reopened = new Set<string>()
+      const installments = s.installments.map(i => {
+        if (!payment.settledInstallmentIds!.includes(i.id)
+          || cardPayments.some(p => p.settledInstallmentIds?.includes(i.id))) return i
+        const direct = directInstallmentPaidAmount(s, i)
+        if (direct >= i.amount - 0.009) return i
+        reopened.add(i.planId)
+        if (direct > 0) return { ...i, status: 'pending' as const, paidVia: 'direct' as const }
+        return { ...i, status: 'pending' as const, paidAt: undefined,
+          paidAmount: undefined, paidVia: undefined, directPayments: undefined }
+      })
+      return { ...s, cardPayments, installments,
+        installmentPlans: reopened.size ? s.installmentPlans.map(p => reopened.has(p.id) && p.status === 'settled'
+          ? { ...p, status: 'active' as const } : p) : s.installmentPlans }
+    }
     case 'addCardCharge': return { ...s, cardCharges: [a.charge, ...s.cardCharges] }
     case 'updateCardCharge':
       return { ...s, cardCharges: s.cardCharges.map(c => c.id === a.id ? { ...c, ...a.patch } : c) }

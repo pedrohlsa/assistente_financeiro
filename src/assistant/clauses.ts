@@ -949,7 +949,7 @@ export function analyzeMessage(
   // porém o dinheiro não entrou. A negação está na cláusula seguinte.
   for (let i = 0; i < clauses.length; i++) {
     const clause = clauses[i]
-    if (!/\b(?:ainda\s+)?n[ãa]o\s+(?:me\s+)?pagou\b|\bn[ãa]o\s+recebi(?:\s+ainda)?\s*(?:[.!?,;]|$)|\bn[ãa]o\s+recebi\s+(?:o\s+pagamento|pela\s+corrida|da\s+corrida)\b|\bn[ãa]o\s+fui\s+pag[oa]\b|\bsem\s+pagamento\b/i.test(clause.text)) continue
+    if (!/\b(?:(?:ainda\s+)?n[ãa]o|nunca|jamais)\s+(?:me\s+)?pag(?:ou|aram)\b|\bn[ãa]o\s+recebi(?:\s+ainda)?\s*(?:[.!?,;]|$)|\bn[ãa]o\s+recebi\s+(?:nada|o\s+valor(?:\s+ainda)?|o\s+pagamento|pela\s+corrida|da\s+corrida)\b|\bn[ãa]o\s+caiu\s+nada\b|\bn[ãa]o\s+fui\s+pag[oa]\b|\bsem\s+pagamento\b/i.test(clause.text)) continue
     const previous = [...clauses.slice(0, i + 1)].reverse().find(c => /\bcorrida\b/i.test(c.text)
       && c.actions.some(a => a.kind === 'income'))
     if (!previous) continue
