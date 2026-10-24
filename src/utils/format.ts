@@ -45,6 +45,9 @@ export const nowTime = () => {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+/** Pagamentos precisam de segundos para serem posteriores a uma âncora criada no mesmo minuto. */
+export const nowPaymentTime = () => new Date().toTimeString().slice(0, 8)
+
 /** Carimbo 'YYYY-MM-DDTHH:mm' — ordenável como string, usado pela âncora do saldo. */
 export const nowStamp = () => `${todayISO()}T${nowTime()}`
 

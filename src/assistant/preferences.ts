@@ -1,14 +1,15 @@
 import type { AppState, AssistantPreference } from '../models/types'
 import { normalizeName } from '../utils/text'
 import { NUMBER_WORD_RE } from './numbers'
+import { looksPast } from './clauses'
 
 export type PreferenceMutation =
   | { type: 'upsert'; preference: AssistantPreference }
   | { type: 'remove'; id: string }
 
 const clean = (s: string) => s.trim().replace(/\s+/g, ' ')
-const GRAMMAR = /\b(?:vou|vai|irei|amanha|ontem|anteontem|hoje|agora|futuro|passado|nao|nunca|sim|queria|comprei|comprou|comprar|gastei|gastar|paguei|pagar|recebi|receber|ganhei|ganhar|guardei|guardar|renda|despesa|receita|valor|reais?)\b/
-const PROTECTED = /\b(?:segunda|terca|quarta|quinta|sexta|sabado|domingo|janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|dia|dias|semana|semanas|mes|meses|ano|anos|mensal|semanal|diario|anual|quinzenal|bimestral|trimestral|recorrente|parcela|parcelas|vezes|porcento|percentual|porcentagem|metade|dobro|triplo|futuro|amanha|ontem|anteontem|hoje|agora|nao|nunca|talvez|pretendo|quero|queria|vou|compr[a-z]*|confirm[a-z]*|pendente|cancel[a-z]*|registr[a-z]*|anot[a-z]*|estorn[a-z]*|devol[a-z]*|transfer[a-z]*|deposit[a-z]*|receb[a-z]*|pag[a-z]*|gast[a-z]*|ganh[a-z]*|envi[a-z]*|mand[a-z]*|ped[a-z]*|solicit[a-z]*|entrada|saida|receita|despesa|renda|saldo|reais?|centavos?|pix|km|quilometros?)\b/
+const GRAMMAR = /\b(?:se|ja|sim|nao|nem|nunca|talvez|quando|caso|supondo|hipotese|pretendo|planejo|planejar|penso|pensando|queria|quero|vou|vai|irei|iria|amanha|ontem|anteontem|hoje|agora|futuro|passado|pendente|confirmado|fiz|fazer|feito|faturei|faturar|lucrei|lucrar|comprei|comprou|comprar|gastei|gastar|paguei|pagar|recebi|receber|ganhei|ganhar|guardei|guardar|renda|despesa|receita|valor|reais?)\b/
+const PROTECTED = /\b(?:se|ja|sim|nem|caso|supondo|hipotese|planej[a-z]*|pens[a-z]*|fatur[a-z]*|lucr[a-z]*|faz[a-z]*|fiz|feito|segunda|terca|quarta|quinta|sexta|sabado|domingo|janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|dia|dias|semana|semanas|mes|meses|ano|anos|mensal|semanal|diario|anual|quinzenal|bimestral|trimestral|recorrente|parcela|parcelas|vezes|porcento|percentual|porcentagem|metade|dobro|triplo|futuro|amanha|ontem|anteontem|hoje|agora|nao|nunca|talvez|pretendo|quero|queria|vou|compr[a-z]*|confirm[a-z]*|pendente|cancel[a-z]*|registr[a-z]*|anot[a-z]*|estorn[a-z]*|devol[a-z]*|transfer[a-z]*|deposit[a-z]*|receb[a-z]*|pag[a-z]*|gast[a-z]*|ganh[a-z]*|envi[a-z]*|mand[a-z]*|ped[a-z]*|solicit[a-z]*|entrada|saida|receita|despesa|renda|saldo|reais?|centavos?|pix|km|quilometros?)\b/
 const PROTECTED_GLOBAL = new RegExp(`${NUMBER_WORD_RE.source}|${PROTECTED.source}|\\d+(?:[.,]\\d+)*\\s*%?`, 'g')
 const protectedSignature = (text: string): string =>
   (normalizeName(text).match(PROTECTED_GLOBAL) || []).join('|')
@@ -21,6 +22,7 @@ const safeVocabulary = (trigger: string, value: string, kind: AssistantPreferenc
     && /[a-z]/.test(a) && /[a-z]/.test(b)
     && !/[\r\n\u0000-\u001f$]/.test(trigger + value)
     && !GRAMMAR.test(a) && !GRAMMAR.test(b)
+    && !looksPast(a) && !looksPast(b)
     && !changesFinancialMeaning(trigger, kind === 'entity-alias' && /^casa\s+\d{1,2}$/i.test(value) ? 'casa' : value)
     && (kind !== 'entity-alias' || !/\d/.test(trigger))
     && (kind === 'category-mapping' ? !/\d/.test(a)

@@ -6,7 +6,7 @@ import React, { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/store'
 import { CreditCard, Installment, InstallmentPlan } from '../models/types'
-import { fmtBRL, fmtDateShort, monthKey, todayISO, toISO, fromISO, parseMoney, uid } from '../utils/format'
+import { fmtBRL, fmtDateShort, monthKey, nowPaymentTime, todayISO, toISO, fromISO, parseMoney, uid } from '../utils/format'
 import { ConfirmDialog, EmptyState, Progress, Sheet, useToast } from '../components/ui'
 import {
   CardChargeForm, CardForm, CardPaymentForm, FinancedInflowForm, PurchaseForm, StandalonePlanForm,
@@ -687,13 +687,13 @@ function PartialPaymentBox({ installment, onDone }: { installment: Installment; 
       </p>
       <div className="row" style={{ gap: 8 }}>
         <input className="input" inputMode="decimal" autoFocus placeholder="0,00" value={value} onChange={e => setValue(e.target.value)} />
-        <button className="btn btn-primary btn-sm" disabled={!(v > 0)} onClick={() => {
+        <button className="btn btn-primary btn-sm" disabled={!(v > 0 && v <= left + 0.009)} onClick={() => {
           const paid = (installment.paidAmount || 0) + v
           if (paid >= installment.amount - 0.009) {
-            dispatch({ type: 'payInstallment', id: installment.id, paidAt: todayISO(), paidAmount: installment.amount })
+            dispatch({ type: 'payInstallment', id: installment.id, paidAt: todayISO(), paidTime: nowPaymentTime(), paidAmount: installment.amount })
             toast({ text: 'Parcela quitada.' })
           } else {
-            dispatch({ type: 'updateInstallment', id: installment.id, patch: { paidAmount: paid } })
+            dispatch({ type: 'partialPayInstallment', id: installment.id, amount: v, paidAt: todayISO(), paidTime: nowPaymentTime() })
             toast({ text: `Pagamento parcial registrado. Restam ${fmtBRL(installment.amount - paid)}.` })
           }
           onDone()

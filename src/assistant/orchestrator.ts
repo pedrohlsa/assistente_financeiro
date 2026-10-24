@@ -781,9 +781,16 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   const pc = input.pendingClarification
   if (pc?.options?.length) {
     const said = normalizeName(input.message)
-    const hit = pc.options.find(o =>
-      normalizeName(o.label) === said || normalizeName(o.value) === said ||
-      (said.length > 2 && (normalizeName(o.label).includes(said) || said.includes(normalizeName(o.label)))))
+    const financialEvent = pc.field === 'financial-event'
+    // Para dinheiro, só uma resposta inequívoca aceita a ação antiga. "assim"
+    // contém "sim", e "sim, mandei só 10" altera o valor da proposta.
+    const simpleAnswer = said.replace(/[.!?]+$/g, '').trim()
+    const negativeAnswer = financialEvent && /^(?:nao|nem)(?:\b|$)/.test(simpleAnswer)
+    const hit = pc.options.find(o => financialEvent
+      ? (normalizeName(o.label) === simpleAnswer || normalizeName(o.value) === simpleAnswer
+        || (negativeAnswer && normalizeName(o.label) === 'nao'))
+      : (normalizeName(o.label) === said || normalizeName(o.value) === said ||
+        (said.length > 2 && (normalizeName(o.label).includes(said) || said.includes(normalizeName(o.label))))))
     if (hit) {
       if (hit.actions?.length) {
         const validated: ParsedAction[] = []
@@ -829,6 +836,16 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
       }
       // Opção sem efeito pré-calculado (ex.: escolha de cartão): a resposta
       // segue o fluxo normal já com o valor escolhido embutido na frase.
+    }
+    if (financialEvent) {
+      return {
+        draft: null, keepPending: true,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local',
+          actions: [], unresolved: [],
+          reply: 'Entendi que você acrescentou ou corrigiu algo. Para não registrar valor ou data errados, diga em uma frase completa o que realmente aconteceu, com valor e data.',
+        },
+      }
     }
   }
 

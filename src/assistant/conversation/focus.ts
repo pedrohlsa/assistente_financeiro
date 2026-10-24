@@ -18,7 +18,7 @@
 
 import type { AppState } from '../../models/types'
 import { addDays, fmtBRL, fromISO, todayISO, toISO } from '../../utils/format'
-import { normalizeName } from '../../utils/text'
+import { normalizeName, sentenceCase } from '../../utils/text'
 import { activeCards } from '../../services/cards'
 import { usableCategories } from '../../data/categories'
 import { normalizeNumberWords } from '../numbers'
@@ -474,7 +474,8 @@ function refinaConsulta(
     // com o mês que estava no foco antes da conversa.
     if (/^compar[ao]\s+(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b.*\bcom\s+(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/.test(t)) {
       const novo = planQuery(state, t, { today })
-      if (novo) return { kind: 'query', planned: novo }
+      if (novo) return { kind: 'query', planned: { ...novo, plan: { ...novo.plan,
+        source: base.source, metric: base.metric, field: base.field, filter: base.filter } } }
     }
     // "Os dois" são os DOIS PERÍODOS que o usuário acabou de ver. Só na falta
     // de um segundo período é que cai no imediatamente anterior.
@@ -582,7 +583,14 @@ function refinaConsulta(
       // ao mesmo tempo e não achava nada.
       filtro.origin = alvo
     } else filtro.text = alvo
-    return planned({ ...base, filter: filtro, group: cartao || cat ? 'none' : base.group }, `só ${alvo}`)
+    // O filtro e o cabeçalho precisam mudar juntos: antes a Casa 2 tinha o
+    // valor certo, mas a resposta dizia "Casa 1" por herdar o rótulo antigo.
+    const label = (cat || (base.filter.origin && ehNomeDeOrigem(alvo))) && base.label
+      ? `${base.label.split(' - ')[0]} - ${cat
+        ? state.categories.find(c => c.id === cat)?.name || sentenceCase(alvo)
+        : sentenceCase(alvo)}`
+      : base.label
+    return planned({ ...base, filter: filtro, label, group: cartao || cat ? 'none' : base.group }, `só ${alvo}`)
   }
 
   // ---- "e <pergunta nova curta>?": tenta o planner completo -------------

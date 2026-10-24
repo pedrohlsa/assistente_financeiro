@@ -85,14 +85,20 @@ export function currentBalance(s: AppState): number {
   }
   for (const p of s.cardPayments || []) {
     if (!p.fromBalance) continue
-    if (stampOf(p.paymentDate) <= since) continue
+    if (stampOf(p.paymentDate, p.paymentTime) <= since) continue
     total -= p.amount
   }
   // O botão "marcar parcela como paga" não cria CardPayment. Sem este evento
   // no caixa, saldo e projeção afirmavam que os R$ 200 ainda estavam na conta.
   for (const i of s.installments || []) {
-    if (!i.paidAt || stampOf(i.paidAt) <= since) continue
-    total -= directInstallmentPaidAmount(s, i)
+    if (i.directPayments?.length) {
+      // Cada parcela parcial mantém sua própria hora; o total acumulado não
+      // pode ser todo movido para o instante do pagamento mais recente.
+      total -= i.directPayments.filter(p => stampOf(p.date, p.time) > since)
+        .reduce((sum, p) => sum + p.amount, 0)
+    } else if (i.paidAt && stampOf(i.paidAt) > since) {
+      total -= directInstallmentPaidAmount(s, i)
+    }
   }
   return Math.round(total * 100) / 100
 }

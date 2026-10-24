@@ -7,7 +7,7 @@ import { ConfirmDialog, MoneyInput, useToast } from './ui'
 import {
   CreditCard, Installment, InstallmentPlan, RecurringCardCharge,
 } from '../models/types'
-import { fmtBRL, fmtDateShort, parseMoney, todayISO, uid } from '../utils/format'
+import { fmtBRL, fmtDateShort, nowPaymentTime, parseMoney, todayISO, uid } from '../utils/format'
 import {
   activeCards, buildInstallments, cardInvoice, cardById, findCardByExactName, planInstallments,
   round2, simulatePurchase, splitInstallmentAmounts, suggestedDueDay, suggestedFirstDueDate,
@@ -630,7 +630,9 @@ export function CardPaymentForm({ onDone, card, referenceMonth }: { onDone: () =
       : []
     dispatch({
       type: 'addCardPayment',
-      payment: { id: uid(), cardId: card.id, amount: v, paymentDate: date, referenceMonth: mk, note: note.trim() || undefined, fromBalance },
+      payment: { id: uid(), cardId: card.id, amount: v, paymentDate: date,
+        paymentTime: date === todayISO() ? nowPaymentTime() : undefined,
+        referenceMonth: mk, note: note.trim() || undefined, fromBalance },
       settleInstallmentIds: settleIds,
     })
     toast({ text: fullyPaid ? 'Fatura quitada. ✅' : `Pagamento parcial de ${fmtBRL(v)} registrado.` })

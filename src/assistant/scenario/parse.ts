@@ -325,7 +325,7 @@ export function planScenario(
     .map(p => p.trim()).filter(Boolean)
   const planned = partes.map(p => ({ fragment: p, plan: planSingleScenario(state, p, opts, true) }))
   const steps = planned.map(p => p.plan).filter((p): p is AssistantScenarioPlan => !!p)
-  const unsupportedFragments = planned.filter(p => !p.plan && /\d|\binvestir\b|\baplicar\b/i.test(p.fragment))
+  const unsupportedFragments = planned.filter(p => !p.plan && /\d|\binvestir\b|\baplicar\b/i.test(normalizeNumberWords(p.fragment).text))
     .map(p => p.fragment)
   const normalized = semAcento(normalizeNumberWords(input).text)
   const planningIssue = horizonProblem(normalized, opts.today || todayISO())

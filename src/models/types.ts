@@ -259,6 +259,8 @@ export interface Installment {
   paidAmount?: number
   /** Origem do pagamento: evita descontar fatura e parcela duas vezes. Opcional para backups antigos. */
   paidVia?: 'direct' | 'invoice'
+  /** Eventos de pagamento direto; preservam pagamentos parciais em lados diferentes de uma âncora de saldo. */
+  directPayments?: { amount: number; date: string; time?: string }[]
   status: InstallmentStatus
 }
 
@@ -267,6 +269,8 @@ export interface CardPayment {
   cardId: string
   amount: number
   paymentDate: string
+  /** Horário do pagamento, quando registrado no mesmo dia. Backups antigos continuam sem ele. */
+  paymentTime?: string
   /** Fatura quitada por este pagamento ('YYYY-MM' do vencimento). */
   referenceMonth: string
   note?: string

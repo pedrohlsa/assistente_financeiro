@@ -120,7 +120,8 @@ export function installmentsInMonth(s: AppState, mk: string): Installment[] {
  * apenas como fallback para não deduzir duas vezes uma quitação de fatura.
  */
 export function directInstallmentPaidAmount(s: AppState, i: Installment): number {
-  if (i.status === 'cancelled' || !i.paidAt || i.paidVia === 'invoice') return 0
+  if (i.status === 'cancelled' || i.paidVia === 'invoice'
+    || (!i.paidAt && !i.directPayments?.length)) return 0
   const plan = planById(s, i.planId)
   if (i.paidVia !== 'direct' && plan?.cardId && (s.cardPayments || []).some(p =>
     p.cardId === plan.cardId && p.referenceMonth === monthKey(i.dueDate) && p.paymentDate === i.paidAt)) return 0
@@ -133,7 +134,11 @@ export function chargesInMonth(s: AppState, mk: string): RecurringCardCharge[] {
   return (s.cardCharges || []).filter(c => {
     if (c.active === false) return false
     if (monthKey(c.nextDate) > mk) return false          // ainda não começou
-    if (c.endDate && monthKey(c.endDate) < mk) return false // já terminou
+    const [year, month] = mk.split('-').map(Number)
+    const occurrence = c.frequency === 'monthly'
+      ? toISO(dateForDayOfMonth(year, month - 1, Number(c.nextDate.slice(8, 10))))
+      : c.nextDate
+    if (c.endDate && occurrence > c.endDate) return false // encerrada antes da cobrança
     return c.frequency === 'monthly' || monthKey(c.nextDate) === mk
   })
 }

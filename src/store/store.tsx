@@ -10,7 +10,7 @@ import {
 } from '../models/types'
 import { DEFAULT_CATEGORIES, mergeDefaultCategories } from '../data/categories'
 import { buildDemoData } from '../data/demo'
-import { addDays, monthKey, nowStamp, nowTime, todayISO, uid } from '../utils/format'
+import { addDays, monthKey, nowPaymentTime, nowStamp, nowTime, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
 import { currentInvoice } from '../services/cards'
@@ -146,7 +146,8 @@ type Action =
   | { type: 'removePlan'; id: string }
   /** Cancela apenas as parcelas ainda não pagas — preserva o histórico. */
   | { type: 'cancelFutureInstallments'; planId: string }
-  | { type: 'payInstallment'; id: string; paidAt: string; paidAmount?: number }
+  | { type: 'payInstallment'; id: string; paidAt: string; paidTime?: string; paidAmount?: number }
+  | { type: 'partialPayInstallment'; id: string; amount: number; paidAt: string; paidTime?: string }
   | { type: 'unpayInstallment'; id: string }
   | { type: 'updateInstallment'; id: string; patch: Partial<Installment> }
   | { type: 'addCardPayment'; payment: CardPayment; settleInstallmentIds: string[] }
@@ -306,16 +307,31 @@ export function reducer(s: AppState, a: Action): AppState {
     case 'payInstallment':
       return {
         ...s,
-        installments: s.installments.map(i =>
-          i.id === a.id ? { ...i, status: 'paid' as const, paidAt: a.paidAt,
-            paidAmount: a.paidAmount ?? i.amount, paidVia: 'direct' as const } : i),
+        installments: s.installments.map(i => {
+          if (i.id !== a.id || i.status === 'cancelled') return i
+          const previous = i.paidVia === 'direct' ? Math.min(i.paidAmount || 0, i.amount) : 0
+          const remainder = Math.max((a.paidAmount ?? i.amount) - previous, 0)
+          return { ...i, status: 'paid' as const, paidAt: a.paidAt,
+            paidAmount: a.paidAmount ?? i.amount, paidVia: 'direct' as const,
+            directPayments: remainder > 0 ? [...(i.directPayments || []),
+              { amount: remainder, date: a.paidAt, time: a.paidTime || nowPaymentTime() }] : i.directPayments }
+        }),
       }
+    case 'partialPayInstallment':
+      return { ...s, installments: s.installments.map(i => {
+        if (i.id !== a.id || i.status !== 'pending' || !(a.amount > 0)) return i
+        const paid = Math.min(i.amount, (i.paidAmount || 0) + a.amount)
+        if (paid >= i.amount - 0.009) return i
+        return { ...i, paidAmount: paid, paidAt: a.paidAt, paidVia: 'direct' as const,
+          directPayments: [...(i.directPayments || []),
+            { amount: a.amount, date: a.paidAt, time: a.paidTime || nowPaymentTime() }] }
+      }) }
     case 'unpayInstallment':
       return {
         ...s,
         installments: s.installments.map(i =>
           i.id === a.id ? { ...i, status: 'pending' as const, paidAt: undefined, paidAmount: undefined,
-            paidVia: undefined } : i),
+            paidVia: undefined, directPayments: undefined } : i),
       }
     case 'updateInstallment':
       return { ...s, installments: s.installments.map(i => i.id === a.id ? { ...i, ...a.patch } : i) }
@@ -327,8 +343,12 @@ export function reducer(s: AppState, a: Action): AppState {
         ...s,
         cardPayments: [a.payment, ...s.cardPayments],
         installments: settle.size
-          ? s.installments.map(i => settle.has(i.id) ? { ...i, status: 'paid' as const,
-            paidAt: a.payment.paymentDate, paidAmount: i.amount, paidVia: 'invoice' as const } : i)
+          ? s.installments.map(i => settle.has(i.id)
+            ? i.paidVia === 'direct' && (i.paidAmount || 0) > 0
+              ? { ...i, status: 'paid' as const }
+              : { ...i, status: 'paid' as const,
+                paidAt: a.payment.paymentDate, paidAmount: i.amount, paidVia: 'invoice' as const }
+            : i)
           : s.installments,
         // O saldo NÃO é alterado aqui: ele é derivado em currentBalance(), que já
         // desconta os pagamentos com `fromBalance`. Mexer nos dois lugares contaria duas vezes.

@@ -116,7 +116,7 @@ const QUESTION_PATTERNS: RegExp[] = [
   /\bt[áa]\s+(?:pesad|caro|apertad|ok|tranquil|folgad)/i,
   /\b(?:compensa|vale\s+a\s+pena)\b/i,
   /\bo\s+que\s+(?:voc[êe]|vc)\s+acha\b/i,
-  /\be\s+(?:agora|depois|no\s+pr[óo]ximo|mês\s+que\s+vem|m[eê]s\s+que\s+vem)\b/i,
+  /^\s*e\s+(?:agora|depois|no\s+pr[óo]ximo|mês\s+que\s+vem|m[eê]s\s+que\s+vem)\b/i,
   /\b(?:posso|consigo|devo|preciso|dever[ií]a)\b/i,
   /\bcobr[eo]m?\b/i,
   /\bd[íi]vida\s+(?:t[áa]|est[áa])\b/i,
@@ -339,7 +339,8 @@ export function segment(text: string): { text: string; start: number; end: numbe
   // escolhia um único valor e os demais desapareciam dentro da descrição.
   for (const m of text.matchAll(/\s+(?=(?:ganhei|recebi|gastei|paguei|fiz|furando|furou|furei|tocou)\b)/gi)) {
     const prefix = text.slice(0, m.index || 0)
-    if (/\d/.test(prefix) && !/\b(?:e|dps)\s*$/i.test(prefix)) push((m.index || 0) + m[0].length)
+    // Nunca deixe a negação no fragmento anterior: "não gastei" é uma unidade.
+    if (/\d/.test(prefix) && !/\b(?:e|dps|n[ãa]o|nem)\s*$/i.test(prefix)) push((m.index || 0) + m[0].length)
   }
   // Pedido, corrida oferecida e gasto avulso após vírgula são proposições
   // próprias. A modalidade de uma não pode contaminar a outra.
@@ -948,7 +949,7 @@ export function analyzeMessage(
   // porém o dinheiro não entrou. A negação está na cláusula seguinte.
   for (let i = 0; i < clauses.length; i++) {
     const clause = clauses[i]
-    if (!/\b(?:ainda\s+)?n[ãa]o\s+(?:me\s+)?pagou\b|\bsem\s+pagamento\b/i.test(clause.text)) continue
+    if (!/\b(?:ainda\s+)?n[ãa]o\s+(?:me\s+)?(?:pagou|receb[io])\b|\bn[ãa]o\s+recebi\s+ainda\b|\bsem\s+pagamento\b/i.test(clause.text)) continue
     const previous = [...clauses.slice(0, i + 1)].reverse().find(c => /\bcorrida\b/i.test(c.text)
       && c.actions.some(a => a.kind === 'income'))
     if (!previous) continue

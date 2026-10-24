@@ -15,7 +15,7 @@ import type {
 import type { ActionExecutionResult, AssistantErrorCode } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, errorMessage } from './contracts'
 import { JOURNAL_LIMIT, diffForJournal, isRevertFailure, revertBatchPure } from './journal'
-import { addDays, monthKey, nowStamp, nowTime, todayISO, uid } from '../utils/format'
+import { addDays, monthKey, nowPaymentTime, nowStamp, nowTime, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
 import { buildInstallments, cardInvoice, suggestedFirstDueDate } from '../services/cards'
@@ -345,7 +345,7 @@ export function applyActionPure(
           : [],
       )
       const payment = {
-        id: gen(), cardId: card.id, amount, paymentDate: date,
+        id: gen(), cardId: card.id, amount, paymentDate: date, paymentTime: opts.now?.time || nowPaymentTime(),
         referenceMonth: mk, fromBalance: true,
       }
       return {
@@ -353,8 +353,11 @@ export function applyActionPure(
           ...state,
           cardPayments: [payment, ...state.cardPayments],
           installments: settle.size
-            ? state.installments.map(i => (settle.has(i.id) ? { ...i, status: 'paid' as const,
-              paidAt: date, paidAmount: i.amount, paidVia: 'invoice' as const } : i))
+            ? state.installments.map(i => (settle.has(i.id)
+              ? i.paidVia === 'direct' && (i.paidAmount || 0) > 0
+                ? { ...i, status: 'paid' as const } // mantém a parte paga fora da fatura
+                : { ...i, status: 'paid' as const, paidAt: date, paidAmount: i.amount, paidVia: 'invoice' as const }
+              : i))
             : state.installments,
         },
         result: { ok: true, actionId, entityId: payment.id },

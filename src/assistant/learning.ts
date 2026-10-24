@@ -291,19 +291,20 @@ export function outOfPatternWarning(
   // Sem data explícita, a proposta é de hoje; datas futuras também não têm base.
   const age = a.date ? ageInDays(a.date, today) : 0
   if (age < 0 || age > 120) return undefined
+  const evidenceDate = a.date || today
 
   // Identidade exata, no mesmo tipo e categoria. Sem seis ocorrências recentes
   // e estáveis, um lugar novo ou de preço variável não gera alerta.
   const name = String(a.description || a.origin || '').trim()
   if (name) {
-    const p = merchantAmountProfile(state, action, today)
+    const p = merchantAmountProfile(state, action, evidenceDate)
     if (p && valor >= p.median * 4) {
       return `Esse valor está bem acima do seu padrão recente em ${p.name}. Confirma ${fmtBRL(valor)}?`
     }
     return undefined
   }
 
-  const p = buildPersonalModel(state, today).amountProfile(action.kind, a.category)
+  const p = buildPersonalModel(state, evidenceDate).amountProfile(action.kind, a.category)
   if (!p) return undefined
 
   if (valor >= p.median * FATOR) {
