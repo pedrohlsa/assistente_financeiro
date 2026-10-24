@@ -474,8 +474,16 @@ function refinaConsulta(
     // com o mês que estava no foco antes da conversa.
     if (/^compar[ao]\s+(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b.*\bcom\s+(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/.test(t)) {
       const novo = planQuery(state, t, { today })
-      if (novo) return { kind: 'query', planned: { ...novo, plan: { ...novo.plan,
-        source: base.source, metric: base.metric, field: base.field, filter: base.filter } } }
+      if (novo) {
+        const explicitCategory = !!novo.plan.filter.categories?.length
+        const allCategories = /\b(?:todas?\s+as\s+categorias|no\s+total|total\s+geral)\b/.test(t)
+        const filter = { ...base.filter, ...novo.plan.filter }
+        if (!explicitCategory && !allCategories) filter.categories = base.filter.categories
+        if (allCategories) delete filter.categories
+        return { kind: 'query', planned: { ...novo, plan: { ...novo.plan,
+          source: base.source, metric: base.metric, field: base.field, filter,
+          label: explicitCategory || allCategories ? novo.plan.label : base.label } } }
+      }
     }
     // "Os dois" são os DOIS PERÍODOS que o usuário acabou de ver. Só na falta
     // de um segundo período é que cai no imediatamente anterior.

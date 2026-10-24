@@ -48,8 +48,11 @@ export const nowTime = () => {
 /** Pagamentos precisam de segundos para serem posteriores a uma âncora criada no mesmo minuto. */
 export const nowPaymentTime = () => new Date().toTimeString().slice(0, 8)
 
-/** Carimbo 'YYYY-MM-DDTHH:mm' — ordenável como string, usado pela âncora do saldo. */
-export const nowStamp = () => `${todayISO()}T${nowTime()}`
+/** Carimbo 'YYYY-MM-DDTHH:mm:ss' — data e hora do mesmo instante. */
+export const nowStamp = () => {
+  const d = new Date()
+  return `${toISO(d)}T${d.toTimeString().slice(0, 8)}`
+}
 
 /** Mesmo formato de `nowStamp`, montado a partir de uma transação. */
 export const stampOf = (date: string, time?: string) => `${date}T${time || '00:00'}`

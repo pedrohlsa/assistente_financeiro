@@ -7,6 +7,7 @@ import { cardInvoice } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
 import { applyPreferenceAliases } from '../../src/assistant/preferences'
 import { hydrateForTest, reducer } from '../../src/store/store'
+import { nowStamp } from '../../src/utils/format'
 import { autonomoRico } from '../fixtures/richState'
 import { buildState } from './harness'
 
@@ -724,7 +725,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && !longReport.actions.some(a => 'amount' in a && (a.amount === 15 || a.amount === 70))))
   const unpaidRide = await turn(buildState({ profile: 'driver' }), 'Fiz uma corrida de 70 mas não recebi ainda')
   out.push(result('A-corrida-sem-receber', unpaidRide, 'viagem sem receita de R$ 70',
-    !unpaidRide.actions.some(a => a.kind === 'income' && a.amount === 70)))
+    !unpaidRide.actions.some(a => a.kind === 'income')))
   const endedCharge = baseline()
   endedCharge.cards = [{ ...directMixed.cards[0] }]
   endedCharge.cardCharges = [{ id: 'ended', cardId: 'card0', description: 'Assinatura', amount: 200,
@@ -747,7 +748,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     foodCompare.focus?.lastQueryPlan?.filter.categories?.includes('alimentacao') === true
       && foodCompare.focus?.lastQuery?.total === 80
       && /80,00/.test(foodCompare.reply) && /10,00/.test(foodCompare.reply)
-      && /70,00/.test(foodCompare.reply)))
+      && /70,00\s+acima/i.test(foodCompare.reply.replace(/\u00a0/g, ' '))))
   const houseState = buildState({ transactions: [
     { id: 'house-1', type: 'income', amount: 1800, category: 'aluguel', origin: 'Casa 1', date: '2026-09-05' },
     { id: 'house-2', type: 'income', amount: 1200, category: 'aluguel', origin: 'Casa 2', date: '2026-09-07' },
@@ -783,6 +784,113 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     'lançamento em agosto não recebe aviso baseado somente em gastos de setembro',
     retroactive.response.mode === 'answer'
       || retroactive.response.actions.every(a => !a.patternWarning)))
+  const sameMinute = { ...directMixed, settings: { ...directMixed.settings,
+    balanceAsOf: '2026-09-01T00:00' }, installments: [directMixed.installments[0]] }
+  const actualStamp = nowStamp()
+  out.push(result('B-carimbo-ancora-tem-segundos', actualStamp,
+    'âncora com precisão de segundos', /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(actualStamp)))
+  const earlyInvoice = applyBatchPure(sameMinute,
+    [{ id: 'early-invoice', action: { kind: 'card-payment', cardName: 'Inter', amount: 200 } }],
+    { now: { date: TODAY, time: '09:00:10' } })
+  const laterAnchor = applyBatchPure(earlyInvoice.state,
+    [{ id: 'later-anchor', action: { kind: 'balance', amount: 800 } }],
+    { now: { date: TODAY, time: '09:00:50' } })
+  const earlyDirect = reducer(sameMinute, { type: 'payInstallment', id: 'mixed-0',
+    paidAt: TODAY, paidTime: '09:00:10' })
+  const laterDirectAnchor = applyBatchPure(earlyDirect,
+    [{ id: 'later-direct-anchor', action: { kind: 'balance', amount: 800 } }],
+    { now: { date: TODAY, time: '09:00:50' } })
+  out.push(result('B-ancora-mesmo-minuto', {
+    invoice: currentBalance(laterAnchor.state), direct: currentBalance(laterDirectAnchor.state),
+  }, 'pagamento às 09:00:10 já incluído na âncora das 09:00:50',
+    laterAnchor.applied && laterDirectAnchor.applied
+      && currentBalance(laterAnchor.state) === 800 && currentBalance(laterDirectAnchor.state) === 800))
+  const legacyKnown = { ...sameMinute, installments: [{ ...sameMinute.installments[0],
+    status: 'pending' as const, paidAmount: 100, paidAt: '2026-09-10', paidVia: 'direct' as const }] }
+  const legacyCompleted = reducer(legacyKnown, { type: 'payInstallment', id: 'mixed-0',
+    paidAt: TODAY, paidTime: '14:00' })
+  const legacyMore = reducer(legacyKnown, { type: 'partialPayInstallment', id: 'mixed-0',
+    amount: 50, paidAt: TODAY, paidTime: '14:00' })
+  out.push(result('B-legado-com-data-mais-pagamento', {
+    before: currentBalance(legacyKnown), completed: currentBalance(legacyCompleted),
+    partial: currentBalance(legacyMore), events: legacyMore.installments[0].directPayments,
+  }, 'R$ 900 antes, R$ 800 ao completar, R$ 850 no novo parcial',
+    currentBalance(legacyKnown) === 900 && currentBalance(legacyCompleted) === 800
+      && currentBalance(legacyMore) === 850
+      && legacyMore.installments[0].directPayments?.length === 2))
+  const legacyUndated = { ...sameMinute, settings: { ...sameMinute.settings,
+    balance: 900, balanceAsOf: `${TODAY}T09:00` },
+    installments: [{ ...sameMinute.installments[0], status: 'pending' as const, paidAmount: 100 }] }
+  const undatedCompleted = reducer(legacyUndated, { type: 'payInstallment', id: 'mixed-0',
+    paidAt: TODAY, paidTime: '14:00' })
+  out.push(result('B-legado-sem-data-nao-inventa-novo-pagamento', {
+    balance: currentBalance(undatedCompleted), events: undatedCompleted.installments[0].directPayments,
+  }, 'só os R$ 100 restantes são pagamento novo',
+    currentBalance(undatedCompleted) === 800
+      && undatedCompleted.installments[0].directPayments?.[0]?.amount === 100))
+  const legacyInvoice = { ...directMixed, settings: { ...directMixed.settings,
+    balanceAsOf: '2026-09-01T00:00' },
+    installments: [{ ...directMixed.installments[0], status: 'paid' as const,
+      paidAmount: 200, paidAt: '2026-09-10' }, directMixed.installments[1]] }
+  const legacyInvoiceRest = applyBatchPure(legacyInvoice,
+    [{ id: 'legacy-invoice-rest', action: { kind: 'card-payment', cardName: 'Inter' } }],
+    { now: { date: TODAY, time: '14:00' } })
+  out.push(result('B-legado-direto-depois-fatura', {
+    balance: currentBalance(legacyInvoiceRest.state),
+    pending: cardInvoice(legacyInvoiceRest.state, legacyInvoice.cards[0], '2026-09').pending,
+  }, 'saldo R$ 700 e fatura zero', legacyInvoiceRest.applied
+    && currentBalance(legacyInvoiceRest.state) === 700
+    && cardInvoice(legacyInvoiceRest.state, legacyInvoice.cards[0], '2026-09').pending === 0))
+  const mixedUndo = reducer(partialThenInvoice, { type: 'unpayInstallment', id: 'mixed-0' })
+  out.push(result('B-desfazer-parcela-com-fatura-bloqueado', {
+    balance: currentBalance(mixedUndo), pending: cardInvoice(mixedUndo, directMixed.cards[0], '2026-09').pending,
+  }, 'não reabrir só a parcela enquanto a fatura paga continua no estado',
+    currentBalance(mixedUndo) === 700
+      && cardInvoice(mixedUndo, directMixed.cards[0], '2026-09').pending === 0
+      && mixedUndo.installments[0].status === 'paid'))
+  for (const [name, phrase] of [
+    ['pingou', 'quando eu falar sonho é pingou'],
+    ['cairam', 'quando eu falar sonharia é cairam'],
+    ['quitei', 'quando eu falar imagino é quitei'],
+    ['abastecendo', 'quando eu falar pretendia é abastecendo'],
+  ] as const) {
+    const proposal = await turn(buildState({ cards: [{ name: 'Inter' }] }), phrase)
+    out.push(result(`B-alias-${name}`, proposal, 'ensino de alias financeiro recusado',
+      !proposal.preferenceMutation))
+  }
+  for (const [id, phrase, amount] of [
+    ['nunca', 'Recebi 100 mas nunca gastei 40 no mercado', 100],
+    ['nem-sequer', 'Recebi 100 mas nem sequer gastei 40 no mercado', 100],
+    ['jamais', 'Paguei 30 no pneu mas jamais fiz uma corrida de 70', -30],
+  ] as const) {
+    const st = buildState({ profile: id === 'jamais' ? 'driver' : 'autonomo' })
+    st.settings.balanceAsOf = '2026-09-14T09:00'
+    const answer = await turn(st, phrase)
+    const applied = applyBatchPure(st, answer.actions.map((action, i) => ({ id: `${id}-${i}`, action })),
+      { now: { date: TODAY, time: '14:00' } })
+    out.push(result(`B-negacao-${id}`, { answer, balance: currentBalance(applied.state) },
+      `saldo ${amount}, sem viagem inventada`,
+      currentBalance(applied.state) === amount && applied.state.workSessions.length === 0))
+  }
+  const unpaidPassive = await turn(buildState({ profile: 'driver' }),
+    'Fiz uma corrida de 70 mas ainda não fui pago')
+  const unrelatedNegative = await turn(buildState({ profile: 'driver' }),
+    'Recebi 70 pela corrida mas não recebo salário fixo')
+  out.push(result('B-corrida-nega-pagamento', unpaidPassive, 'sem qualquer receita',
+    !unpaidPassive.actions.some(a => a.kind === 'income')))
+  out.push(result('B-negacao-de-outra-renda', unrelatedNegative, 'receita de corrida R$ 70 preservada',
+    unrelatedNegative.actions.filter(a => a.kind === 'income').length === 1
+      && unrelatedNegative.actions.some(a => a.kind === 'income' && a.amount === 70)))
+  const houseCompare = await turn(categoryFocus, 'compara julho com junho em casa', foodJuly.focus)
+  const allCompare = await turn(categoryFocus, 'compara julho com junho de todas as categorias', foodJuly.focus)
+  out.push(result('B-comparacao-categoria-explicita', houseCompare, 'casa R$ 2000 contra R$ 1000',
+    houseCompare.focus?.lastQueryPlan?.filter.categories?.includes('casa') === true
+      && houseCompare.focus?.lastQuery?.total === 2000
+      && /2\.000,00/.test(houseCompare.reply) && /1\.000,00/.test(houseCompare.reply)))
+  out.push(result('B-comparacao-todas-categorias', allCompare, 'total R$ 2080 contra R$ 1010',
+    !allCompare.focus?.lastQueryPlan?.filter.categories?.length
+      && allCompare.focus?.lastQuery?.total === 2080
+      && /2\.080,00/.test(allCompare.reply) && /1\.010,00/.test(allCompare.reply)))
   return out
 }
 

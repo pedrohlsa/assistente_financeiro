@@ -13,7 +13,7 @@ import { buildDemoData } from '../data/demo'
 import { addDays, monthKey, nowPaymentTime, nowStamp, nowTime, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
-import { currentInvoice } from '../services/cards'
+import { currentInvoice, directInstallmentPaidAmount } from '../services/cards'
 import { applyBatchPure } from '../assistant/execute'
 import type { BatchItem } from '../assistant/execute'
 import type { ActionExecutionResult } from '../assistant/contracts'
@@ -159,7 +159,8 @@ type Action =
    * Lote confirmado do assistente. É UMA action só de propósito: aplicar as
    * ações em dispatches separados devolveria o mesmo estado antigo para todas.
    */
-  | { type: 'assistantBatch'; items: BatchItem[]; source: Transaction['source']; batchId: string; engine?: AssistantJournalEntry['engine']; messageId?: string }
+  | { type: 'assistantBatch'; items: BatchItem[]; source: Transaction['source']; batchId: string;
+      engine?: AssistantJournalEntry['engine']; messageId?: string; stamp?: string }
   | { type: 'chat'; msg: ChatMessage }
   | { type: 'chatUpdateProposal'; id: string; proposal: ProposedAction[] }
   | { type: 'chatClearClarification'; id: string }
@@ -308,13 +309,16 @@ export function reducer(s: AppState, a: Action): AppState {
       return {
         ...s,
         installments: s.installments.map(i => {
-          if (i.id !== a.id || i.status === 'cancelled') return i
-          const previous = i.paidVia === 'direct' ? Math.min(i.paidAmount || 0, i.amount) : 0
+          if (i.id !== a.id || i.status !== 'pending') return i
+          const previous = Math.min(Math.max(i.paidAmount || 0, 0), i.amount)
           const remainder = Math.max((a.paidAmount ?? i.amount) - previous, 0)
+          const history = i.directPayments?.length ? i.directPayments
+            : i.paidAt && previous > 0 && i.paidVia !== 'invoice'
+              ? [{ amount: previous, date: i.paidAt }] : []
           return { ...i, status: 'paid' as const, paidAt: a.paidAt,
             paidAmount: a.paidAmount ?? i.amount, paidVia: 'direct' as const,
-            directPayments: remainder > 0 ? [...(i.directPayments || []),
-              { amount: remainder, date: a.paidAt, time: a.paidTime || nowPaymentTime() }] : i.directPayments }
+            directPayments: remainder > 0 ? [...history,
+              { amount: remainder, date: a.paidAt, time: a.paidTime || nowPaymentTime() }] : history }
         }),
       }
     case 'partialPayInstallment':
@@ -322,17 +326,27 @@ export function reducer(s: AppState, a: Action): AppState {
         if (i.id !== a.id || i.status !== 'pending' || !(a.amount > 0)) return i
         const paid = Math.min(i.amount, (i.paidAmount || 0) + a.amount)
         if (paid >= i.amount - 0.009) return i
+        const history = i.directPayments?.length ? i.directPayments
+          : i.paidAt && (i.paidAmount || 0) > 0 && i.paidVia !== 'invoice'
+            ? [{ amount: i.paidAmount!, date: i.paidAt }] : []
         return { ...i, paidAmount: paid, paidAt: a.paidAt, paidVia: 'direct' as const,
-          directPayments: [...(i.directPayments || []),
+          directPayments: [...history,
             { amount: a.amount, date: a.paidAt, time: a.paidTime || nowPaymentTime() }] }
       }) }
-    case 'unpayInstallment':
+    case 'unpayInstallment': {
+      // Uma fatura paga é um registro separado. Reabrir apenas a parcela
+      // removeria o crédito direto mas deixaria o pagamento da fatura intacto.
+      const installment = s.installments.find(i => i.id === a.id)
+      const cardId = s.installmentPlans.find(p => p.id === installment?.planId)?.cardId
+      if (cardId && installment && s.cardPayments.some(cp => cp.cardId === cardId
+        && cp.referenceMonth === monthKey(installment.dueDate))) return s
       return {
         ...s,
         installments: s.installments.map(i =>
           i.id === a.id ? { ...i, status: 'pending' as const, paidAt: undefined, paidAmount: undefined,
             paidVia: undefined, directPayments: undefined } : i),
       }
+    }
     case 'updateInstallment':
       return { ...s, installments: s.installments.map(i => i.id === a.id ? { ...i, ...a.patch } : i) }
     case 'addCardPayment': {
@@ -344,8 +358,8 @@ export function reducer(s: AppState, a: Action): AppState {
         cardPayments: [a.payment, ...s.cardPayments],
         installments: settle.size
           ? s.installments.map(i => settle.has(i.id)
-            ? i.paidVia === 'direct' && (i.paidAmount || 0) > 0
-              ? { ...i, status: 'paid' as const }
+            ? directInstallmentPaidAmount(s, i) > 0
+              ? { ...i, status: 'paid' as const, paidVia: 'direct' as const }
               : { ...i, status: 'paid' as const,
                 paidAt: a.payment.paymentDate, paidAmount: i.amount, paidVia: 'invoice' as const }
             : i)
@@ -385,7 +399,7 @@ export function reducer(s: AppState, a: Action): AppState {
       // Atômico: `applyBatchPure` devolve o estado original quando qualquer
       // ação falha, então nunca sobra meio lote gravado.
       const out = applyBatchPure(s, a.items, {
-        source: a.source, batchId: a.batchId, engine: a.engine, messageId: a.messageId,
+        source: a.source, batchId: a.batchId, engine: a.engine, messageId: a.messageId, stamp: a.stamp,
       })
       return out.applied ? out.state : s
     }
@@ -526,10 +540,11 @@ export function applyAssistantBatch(
   meta: { engine?: AssistantJournalEntry['engine']; messageId?: string } = {},
 ): { results: ActionExecutionResult[]; applied: boolean; batchId: string } {
   const batchId = uid()
+  const stamp = nowStamp()
   // Simulação antes de despachar: o resultado por ação vem daqui, e o reducer
   // repete exatamente o mesmo cálculo de forma determinística.
-  const dry = applyBatchPure(state, items, { source, batchId, ...meta })
-  if (dry.applied) dispatch({ type: 'assistantBatch', items, source, batchId, ...meta })
+  const dry = applyBatchPure(state, items, { source, batchId, stamp, ...meta })
+  if (dry.applied) dispatch({ type: 'assistantBatch', items, source, batchId, stamp, ...meta })
   return { results: dry.results, applied: dry.applied, batchId }
 }
 

@@ -1,14 +1,14 @@
 import type { AppState, AssistantPreference } from '../models/types'
 import { normalizeName } from '../utils/text'
 import { NUMBER_WORD_RE } from './numbers'
-import { looksPast } from './clauses'
+import { analyzeMessage, looksPast } from './clauses'
 
 export type PreferenceMutation =
   | { type: 'upsert'; preference: AssistantPreference }
   | { type: 'remove'; id: string }
 
 const clean = (s: string) => s.trim().replace(/\s+/g, ' ')
-const GRAMMAR = /\b(?:se|ja|sim|nao|nem|nunca|talvez|quando|caso|supondo|hipotese|pretendo|planejo|planejar|penso|pensando|queria|quero|vou|vai|irei|iria|amanha|ontem|anteontem|hoje|agora|futuro|passado|pendente|confirmado|fiz|fazer|feito|faturei|faturar|lucrei|lucrar|comprei|comprou|comprar|gastei|gastar|paguei|pagar|recebi|receber|ganhei|ganhar|guardei|guardar|renda|despesa|receita|valor|reais?)\b/
+const GRAMMAR = /\b(?:se|ja|sim|nao|nem|nunca|jamais|talvez|quando|caso|supondo|hipotese|pretendo|pretendia|planejo|planejar|sonho|sonharia|imagino|penso|pensando|queria|quero|vou|vai|irei|iria|amanha|ontem|anteontem|hoje|agora|futuro|passado|pendente|confirmado|fiz|fazer|feito|faturei|faturar|lucrei|lucrar|pingou|cairam|quitei|quitou|quitar|abastecendo|comprei|comprou|comprar|gastei|gastar|paguei|pagar|recebi|receber|ganhei|ganhar|guardei|guardar|renda|despesa|receita|valor|reais?)\b/
 const PROTECTED = /\b(?:se|ja|sim|nem|caso|supondo|hipotese|planej[a-z]*|pens[a-z]*|fatur[a-z]*|lucr[a-z]*|faz[a-z]*|fiz|feito|segunda|terca|quarta|quinta|sexta|sabado|domingo|janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|dia|dias|semana|semanas|mes|meses|ano|anos|mensal|semanal|diario|anual|quinzenal|bimestral|trimestral|recorrente|parcela|parcelas|vezes|porcento|percentual|porcentagem|metade|dobro|triplo|futuro|amanha|ontem|anteontem|hoje|agora|nao|nunca|talvez|pretendo|quero|queria|vou|compr[a-z]*|confirm[a-z]*|pendente|cancel[a-z]*|registr[a-z]*|anot[a-z]*|estorn[a-z]*|devol[a-z]*|transfer[a-z]*|deposit[a-z]*|receb[a-z]*|pag[a-z]*|gast[a-z]*|ganh[a-z]*|envi[a-z]*|mand[a-z]*|ped[a-z]*|solicit[a-z]*|entrada|saida|receita|despesa|renda|saldo|reais?|centavos?|pix|km|quilometros?)\b/
 const PROTECTED_GLOBAL = new RegExp(`${NUMBER_WORD_RE.source}|${PROTECTED.source}|\\d+(?:[.,]\\d+)*\\s*%?`, 'g')
 const protectedSignature = (text: string): string =>
@@ -142,6 +142,20 @@ function categoryId(state: AppState, text: string): string | undefined {
 
 /** Substitui somente aliases textuais; números e modalidade nunca entram aqui. */
 export function applyPreferenceAliases(state: AppState, text: string): string {
+  // A lista de palavras proibidas protege o cadastro. Esta segunda barreira
+  // protege o TURNO: um alias desconhecido não pode criar, remover ou mudar
+  // uma ação financeira, mesmo se escapar da lista lexical.
+  const effects = (message: string, driver: boolean) => JSON.stringify(
+    analyzeMessage(message, { driver }).clauses.flatMap(c => c.actions).map(a => {
+      const x = a as unknown as Record<string, unknown>
+      // "gasosa → gasolina" pode especializar despesa em abastecimento,
+      // preservando o MESMO dinheiro que saiu. Um novo evento ou troca de
+      // polaridade continua proibido.
+      const kind = a.kind === 'expense' || a.kind === 'fuel' ? 'outflow' : a.kind
+      return [kind, x.amount, x.cost, x.total, x.netReceived, x.date,
+        x.km, x.trips, x.hours, x.value, x.liters, x.odometer]
+    }),
+  )
   return mergePreferenceLists([], state.assistantPreferences)
     .filter(p => isSafePreference(p) && (p.kind === 'alias' || p.kind === 'entity-alias' || p.kind === 'terminology'))
     .sort((a, b) => b.trigger.length - a.trigger.length)
@@ -157,7 +171,10 @@ export function applyPreferenceAliases(state: AppState, text: string): string {
       // O numeral de "Casa 1" é parte do nome da entidade, não um valor.
       const signature = (s: string) => protectedSignature(p.kind === 'entity-alias'
         ? s.replace(/\bcasa\s+\d{1,2}\b/gi, 'casa') : s)
-      return signature(out) === signature(changed) ? changed : out
+      return signature(out) === signature(changed)
+        && effects(out, false) === effects(changed, false)
+        && effects(out, true) === effects(changed, true)
+        ? changed : out
     }, text)
 }
 

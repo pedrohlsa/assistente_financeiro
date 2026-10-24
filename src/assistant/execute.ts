@@ -18,7 +18,7 @@ import { JOURNAL_LIMIT, diffForJournal, isRevertFailure, revertBatchPure } from 
 import { addDays, monthKey, nowPaymentTime, nowStamp, nowTime, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
-import { buildInstallments, cardInvoice, suggestedFirstDueDate } from '../services/cards'
+import { buildInstallments, cardInvoice, directInstallmentPaidAmount, suggestedFirstDueDate } from '../services/cards'
 
 // ---------------------------------------------------------------------------
 // Resolvedores de referência (moram aqui para o store poder ser puro)
@@ -254,7 +254,8 @@ export function applyActionPure(
     }
     case 'balance': {
       return {
-        state: { ...state, settings: { ...state.settings, balance: action.amount, balanceAsOf: nowStamp() } },
+        state: { ...state, settings: { ...state.settings, balance: action.amount,
+          balanceAsOf: opts.stamp || `${date}T${opts.now?.time || nowPaymentTime()}` } },
         result: { ok: true, actionId },
       }
     }
@@ -345,7 +346,8 @@ export function applyActionPure(
           : [],
       )
       const payment = {
-        id: gen(), cardId: card.id, amount, paymentDate: date, paymentTime: opts.now?.time || nowPaymentTime(),
+        id: gen(), cardId: card.id, amount, paymentDate: date,
+        paymentTime: opts.now?.time || opts.stamp?.slice(11) || nowPaymentTime(),
         referenceMonth: mk, fromBalance: true,
       }
       return {
@@ -354,8 +356,8 @@ export function applyActionPure(
           cardPayments: [payment, ...state.cardPayments],
           installments: settle.size
             ? state.installments.map(i => (settle.has(i.id)
-              ? i.paidVia === 'direct' && (i.paidAmount || 0) > 0
-                ? { ...i, status: 'paid' as const } // mantém a parte paga fora da fatura
+              ? directInstallmentPaidAmount(state, i) > 0
+                ? { ...i, status: 'paid' as const, paidVia: 'direct' as const } // mantém a parte paga fora da fatura
                 : { ...i, status: 'paid' as const, paidAt: date, paidAmount: i.amount, paidVia: 'invoice' as const }
               : i))
             : state.installments,

@@ -585,6 +585,8 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
           <p className="tiny" style={{ fontWeight: 650, margin: '10px 0 2px' }}>Todas as parcelas</p>
           {pp.installments.map(i => {
             const overdue = i.status === 'pending' && i.dueDate < t
+            const invoicePayment = !!plan.cardId && state.cardPayments.some(p =>
+              p.cardId === plan.cardId && p.referenceMonth === monthKey(i.dueDate))
             const early = i.status === 'paid' && i.paidAt && i.paidAt < i.dueDate
             const color = i.status === 'cancelled' ? 'var(--text-3)' : i.status === 'paid' ? 'var(--positive)' : overdue ? 'var(--danger)' : undefined
             return (
@@ -607,13 +609,15 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
                     <button className="link tiny" onClick={() => setPartial(i)}>Parcial</button>
                   </>
                 )}
-                {i.status === 'paid' && (
-                  <button className="link tiny" onClick={() => {
+                {i.status === 'paid' && (invoicePayment
+                  ? <span className="tiny muted" title="O pagamento da fatura precisa ser reconciliado antes de reabrir esta parcela.">
+                      Vinculada à fatura paga
+                    </span>
+                  : <button className="link tiny" onClick={() => {
                     dispatch({ type: 'unpayInstallment', id: i.id })
                     if (plan.status === 'settled') dispatch({ type: 'updatePlan', id: plan.id, patch: { status: 'active' } })
                     toast({ text: 'Parcela reaberta.' })
-                  }}>Desfazer</button>
-                )}
+                  }}>Desfazer</button>)}
               </div>
             )
           })}

@@ -168,7 +168,7 @@ const NEGATED_VERBS =
  * ("nem gastei isso").
  */
 const NEGATED_STATEMENT = new RegExp(
-  String.raw`^\s*(?:mas\s*,?\s*|e\s*,?\s*|ah\s*,?\s*|olha\s*,?\s*)?(?:n[ãa]o|nem)\b[\s,;!]*(?:\S+[\s,]+){0,3}?(?:${NEGATED_VERBS})(?![a-zà-ú])`,
+  String.raw`^\s*(?:mas\s*,?\s*|e\s*,?\s*|ah\s*,?\s*|olha\s*,?\s*)?(?:n[ãa]o|nem|nunca|jamais)\b[\s,;!]*(?:\S+[\s,]+){0,3}?(?:${NEGATED_VERBS})(?![a-zà-ú])`,
   'i',
 )
 
@@ -340,7 +340,7 @@ export function segment(text: string): { text: string; start: number; end: numbe
   for (const m of text.matchAll(/\s+(?=(?:ganhei|recebi|gastei|paguei|fiz|furando|furou|furei|tocou)\b)/gi)) {
     const prefix = text.slice(0, m.index || 0)
     // Nunca deixe a negação no fragmento anterior: "não gastei" é uma unidade.
-    if (/\d/.test(prefix) && !/\b(?:e|dps|n[ãa]o|nem)\s*$/i.test(prefix)) push((m.index || 0) + m[0].length)
+    if (/\d/.test(prefix) && !/\b(?:e|dps|n[ãa]o|nunca|jamais|nem(?:\s+sequer)?)\s*$/i.test(prefix)) push((m.index || 0) + m[0].length)
   }
   // Pedido, corrida oferecida e gasto avulso após vírgula são proposições
   // próprias. A modalidade de uma não pode contaminar a outra.
@@ -949,7 +949,7 @@ export function analyzeMessage(
   // porém o dinheiro não entrou. A negação está na cláusula seguinte.
   for (let i = 0; i < clauses.length; i++) {
     const clause = clauses[i]
-    if (!/\b(?:ainda\s+)?n[ãa]o\s+(?:me\s+)?(?:pagou|receb[io])\b|\bn[ãa]o\s+recebi\s+ainda\b|\bsem\s+pagamento\b/i.test(clause.text)) continue
+    if (!/\b(?:ainda\s+)?n[ãa]o\s+(?:me\s+)?pagou\b|\bn[ãa]o\s+recebi(?:\s+ainda)?\s*(?:[.!?,;]|$)|\bn[ãa]o\s+recebi\s+(?:o\s+pagamento|pela\s+corrida|da\s+corrida)\b|\bn[ãa]o\s+fui\s+pag[oa]\b|\bsem\s+pagamento\b/i.test(clause.text)) continue
     const previous = [...clauses.slice(0, i + 1)].reverse().find(c => /\bcorrida\b/i.test(c.text)
       && c.actions.some(a => a.kind === 'income'))
     if (!previous) continue
