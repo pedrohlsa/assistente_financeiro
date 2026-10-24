@@ -5,6 +5,11 @@ A visão consolidada do produto — perfis, arquitetura, regras financeiras e pe
 está em [CONTEXTO.md](CONTEXTO.md). As regras permanentes de implementação estão em
 [CLAUDE.md](CLAUDE.md).
 
+Checkpoint de desenvolvimento: a branch `feat/assistant-intelligence-v2` ainda
+está **NOT READY para merge/deploy**; veja o início de [CONTEXTO.md](CONTEXTO.md)
+e a última seção de [PROGRESS.md](PROGRESS.md). `CONTEXT.md` é só um atalho
+compatível com handoffs antigos, não um segundo documento de estado atual.
+
 > "Eu cuido dos seus números enquanto você cuida da sua rotina."
 
 ## Rodando
@@ -79,8 +84,8 @@ O assistente usa três motores:
    "se eu comprar um pc de 4000 em 10x, dá ruim?" e o "e mês passado?" seguinte
    são resolvidos no aparelho, por uma DSL de vocabulário fechado. Nenhum número
    sai daqui, e simulação nunca grava.
-3. **DeepSeek** (modelo padrão `deepseek-v4-flash`, configurável por
-   `DEEPSEEK_MODEL`) — perguntas e análises livres. A chave fica em `.env`
+3. **DeepSeek** (modelo padrão `deepseek-v4-pro`, thinking desligado,
+   configurável por `DEEPSEEK_MODEL`) — perguntas e análises livres. A chave fica em `.env`
    (`DEEPSEEK_API_KEY`) e é usada **apenas no servidor**. `POST /api/ai/chat`
    tem duas implementações espelhadas: o middleware em `vite.config.ts` (dev) e
    a função serverless `api/ai/chat.ts` (produção/APK, endereçada por

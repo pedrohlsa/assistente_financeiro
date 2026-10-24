@@ -1,9 +1,36 @@
 # AssistFin — Contexto do produto
 
-Visão consolidada e **verificada no código** em 25/08/2026, com o canal da IA remota revisto
-em 15/09/2026 (branch `feat/assistant-semantic-copilot`).
-Este arquivo descreve o que o aplicativo é hoje. Regras permanentes de implementação ficam no
-[CLAUDE.md](CLAUDE.md); o histórico de rodadas fica no [PROGRESS.md](PROGRESS.md).
+Visão do produto consolidada em 25/08/2026 e revisada para o checkpoint de
+24/10/2026. Regras permanentes de implementação ficam no [CLAUDE.md](CLAUDE.md);
+o histórico de rodadas fica no [PROGRESS.md](PROGRESS.md). As seções antigas
+abaixo preservam decisões de sua época; este checkpoint prevalece onde houver
+divergência temporal. O código e os testes prevalecem sobre a documentação.
+
+## Checkpoint vigente — 24/10/2026
+
+- Trabalho local: `feat/assistant-intelligence-v2`, com base de código em
+  `c63d6bc` antes desta revisão documental; a única alteração preexistente
+  era `.claude/launch.json`, que não pertence às entregas.
+- A produção publicada corresponde à `main` em `e6f6229`, não à Intelligence V2.
+  O deployment de 25/09/2026 usa `deepseek-v4-pro` com thinking desligado;
+  essa informação vem do registro de deploy e smoke, não de uma checagem ao vivo
+  nesta revisão documental. Não houve push, merge, deploy ou APK da V2.
+- A V2 acrescentou consultas e cenários multi-entidade, continuidade de conversa,
+  preferências locais explícitas e reconciliação parcial de cartões. Baseline
+  local mais recente: 660/660 corpus, 99/99 consulta/cenário/continuidade,
+  50/50 semânticos, 128/128 adversariais, 4.088 + 3.800 metamórficos,
+  1.416 fuzz, 151/151 invariantes e 468/468 verificações remotas **offline**;
+  typechecks, teste de dinheiro, build e rubrica passaram.
+- **NOT READY para merge/deploy.** A auditoria independente de `c63d6bc`
+  encontrou problemas ainda reproduzíveis: rótulo de comparação incompatível
+  com o tipo financeiro, mudança explícita de origem/tipo ignorada, negativas
+  coloquiais de corrida não paga, perda de movimentação anterior à âncora numa
+  frase composta, remoção de pagamento parcial que deixa parcelas quitadas,
+  vínculo excessivo de parcelas à fatura, recorte de mês histórico e ordem
+  entre operações separadas no mesmo milissegundo. Dados legados sem
+  proveniência podem produzir saldo ambíguo e exigem reconciliação — não
+  inferência automática. Detalhes e reproduções estão na última seção de
+  [PROGRESS.md](PROGRESS.md).
 
 ---
 
@@ -180,7 +207,8 @@ Só existe um: **`POST /api/ai/chat`**.
 
 ### Integração DeepSeek
 
-`api/_lib/deepseek.ts` centraliza config e chamada: modelo (default `deepseek-v4-flash`), base URL
+`api/_lib/deepseek.ts` centraliza config e chamada: modelo (default `deepseek-v4-pro`,
+thinking desligado), base URL
 (default `https://api.deepseek.com`), timeout (20 s), classificação de erro, retry único quando a
 resposta vem vazia, e mensagens de erro seguras. A chave nunca chega ao cliente.
 
@@ -188,10 +216,11 @@ resposta vem vazia, e mensagens de erro seguras. A chave nunca chega ao cliente.
 em branco com prompts longos. O JSON é pedido no prompt e extraído da resposta; texto puro vira
 `reply` sem ações.
 
-O nome padrão `deepseek-v4-flash` é LEGADO: desde 10/09/2026 a DeepSeek o roteia
-"temporariamente" para o V4.1-Flash, e `/models` lista `deepseek-flash` e `deepseek-v4-pro`. A
-chamada não manda o parâmetro de pensamento, que a API liga por padrão. Trocar modelo ou modo de
-pensamento só com medição (regra 60, `docs/AI_REMOTE_EVAL.md`).
+O antigo padrão `deepseek-v4-flash` foi substituído após a avaliação comparativa
+registrada em [docs/AI_REMOTE_EVAL.md](docs/AI_REMOTE_EVAL.md) §16. A produção
+de 25/09/2026 usa o padrão do código porque o override `DEEPSEEK_MODEL` da
+Vercel foi removido. Qualquer nova troca de modelo ou modo de pensamento exige
+nova medição (regra 60).
 
 Variáveis de ambiente (server-only, sem prefixo `VITE_`): `DEEPSEEK_API_KEY` (obrigatória),
 `DEEPSEEK_MODEL`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_TIMEOUT_MS`. Ver `.env.example`.
@@ -347,7 +376,8 @@ personalizadas e o estado "arquivada". Importar backup oferece **Mesclar** (dedu
 
 ## 4. Estado funcional atual
 
-Verificado no código nesta auditoria.
+Retrato funcional iniciado em 25/08/2026; para estado de entrega atual e
+bloqueios, use o checkpoint no início deste arquivo.
 
 | Área | Situação |
 |---|---|
@@ -373,7 +403,9 @@ Verificado no código nesta auditoria.
 
 ## 5. Limitações e pendências reais
 
-Confirmadas no código em 28/07/2026.
+Lista histórica confirmada em 28/07/2026; alguns itens foram resolvidos em
+rodadas posteriores. Para pendências atuais, use o checkpoint e a última seção
+de `PROGRESS.md`.
 
 ### Financeiro
 
@@ -419,8 +451,9 @@ Detalhe completo em [docs/AI_CURRENT_STATE.md §6](docs/AI_CURRENT_STATE.md).
    trabalho, manutenção e template de recorrência — o assistente recusa e indica a tela.
 9. **`Analytics.tsx` por perfil** — pendência anterior a esta reformulação.
 
-**Menores**: "meio" não é interpretado; intervalos de data não viram intervalo estruturado — a
-barreira pede esclarecimento em vez de usar hoje. A proposta pendente não vai no payload remoto
+**Nota histórica:** "meio" não era interpretado; intervalos de data não viravam intervalo
+estruturado naquela rodada (a V2 passou a reconhecer intervalos `desde` e fechados).
+A proposta pendente não vai no payload remoto
 (investigado, sem falha demonstrada); a qualidade do texto da IA remota não é testada, só o
 contrato.
 
@@ -430,5 +463,5 @@ contrato.
     mesma estrutura para motorista e não motorista.
 12. **Sincronização em nuvem** não existe — o app é single-device.
 13. **Sem autenticação e sem multiusuário.**
-14. **`SYSTEM_PROMPT` sincronizada ainda não foi republicada** em produção: o redeploy está
-    deliberadamente adiado até reunir as alterações verificadas.
+14. **Registro histórico superado:** o redeploy da IA remota foi feito em
+    25/09/2026. A Intelligence V2 desta branch ainda não foi publicada.

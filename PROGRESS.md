@@ -1,15 +1,15 @@
 # AssistFin — Estado do Projeto
 
-**Última atualização**: 2026-09-15 — CANAL REMOTO E ROTEAMENTO LOCAL (o histórico da
-conversa deixou de ir para a IA remota; leitura local de baixa confiança deixou de bloquear o
-remoto) na branch `feat/assistant-semantic-copilot`, depois da rodada do COPILOTO SEMÂNTICO
-(25/08) e da preparação da avaliação dos modelos remotos (13/09). Ver a última seção e o
-CHECKPOINT no fim dela (o que está corrigido, o que não está e o que continua não autorizado).
+**Última atualização**: 2026-10-24 — consolidação documental da Intelligence V2
+após a auditoria independente de `c63d6bc`. **NOT READY para merge/deploy**.
+Leia a última seção antes das entradas históricas: ela distingue a produção
+publicada (`main`) da branch local e lista os bloqueios reproduzidos.
 
 > **Aviso de leitura**: as seções datadas abaixo são um diário — cada uma registra o que era
 > verdade **naquela data** e não é reescrita depois. Para o estado atual verificado, use
 > [CONTEXTO.md](CONTEXTO.md), [docs/AI_CURRENT_STATE.md](docs/AI_CURRENT_STATE.md) e a última
-> seção deste arquivo.
+> seção deste arquivo. Os metadados de branch/produção imediatamente abaixo
+> registram a sessão inicial de julho de 2026, **não o estado atual**.
 **Pasta canônica do projeto (mudou nesta sessão)**: `D:\Claude\AssistFin`. A cópia antiga em
 `C:\Users\ph969\OneDrive\Área de Trabalho\AssistFin` foi deixada intacta, mas **não é mais usada**
 — era uma cópia interrompida no meio (faltavam `profile.ts`, `PendingRecurrings.tsx`,
@@ -3311,3 +3311,80 @@ chunk maior que 500 kB permanece.
 **Não declarar READY** até a segunda auditoria Astra do diff. M5 (anomalia)
 permanece fora desta rodada. Zero DeepSeek/gasto, push, merge, deploy ou APK;
 `.claude/launch.json` fica fora dos commits.
+
+## 2026-10-24 — checkpoint documental após três auditorias locais da Intelligence V2
+
+**Estado verificado nesta revisão:** branch `feat/assistant-intelligence-v2`;
+base de código `c63d6bc` antes deste commit de documentação. A única alteração
+preexistente no working tree era `.claude/launch.json`, configuração local não
+incluída em commits. `main` e `origin/main` apontam para `e6f6229`; a
+Intelligence V2 continua só na branch local. Produção foi publicada em
+25/09/2026 com `deepseek-v4-pro` e thinking desligado, conforme o registro de
+deploy/smoke acima — não houve nova checagem online nesta revisão.
+
+**Por que os documentos pareciam parados:** o cabeçalho deste diário ainda
+dizia “15/09”, embora o fim já contivesse checkpoints de 25/09 e 01/10.
+`CONTEXT.md` era um handoff de 15/09, com números e próximos passos obsoletos;
+`CONTEXTO.md` é a visão de produto. O handoff antigo foi preservado em
+`docs/archive/CONTEXT-2026-09-15.md`; `CONTEXT.md` agora só encaminha para as
+fontes atuais. `CONTEXTO.md`, `README.md` e `docs/AI_CURRENT_STATE.md` ganharam
+o checkpoint atual; `CLAUDE.md` continua como guia de regras permanentes.
+
+### Trabalho local desde o checkpoint de 01/10
+
+- `acd5f7b`, `64be663`, `4e5f050`, `e9177e5` e `3693a23`: correções de
+  consultas, modalidade, pagamentos e anomalias após auditorias adversariais.
+- `ff6a6a3`: correções do segundo parecer, incluindo âncora temporal,
+  pagamentos legados, aliases, negações e foco de categoria. Relatório em
+  `docs/AI_INTELLIGENCE_V2_ASTRA_AUDIT_FOLLOWUP_2.md`.
+- `c63d6bc`: correções do parecer seguinte para comparação, corrida não paga,
+  precisão temporal e vínculos de fatura. Relatório em
+  `docs/AI_INTELLIGENCE_V2_ASTRA_AUDIT_FOLLOWUP_3.md`.
+
+**Gates locais registrados para `c63d6bc`:** 660/660 corpus, 99/99
+consulta/cenário/continuidade, 50/50 semânticos, 128/128 adversariais,
+4.088 + 3.800 metamórficos, 1.416 fuzz, 151/151 invariantes e 468/468
+verificações remotas **offline**. `typecheck`, `typecheck:api`, `test:money`,
+`build`, rubrica e `git diff --check` passaram. Rubrica: 0 perigosa, 0 ruim,
+7 aceitáveis, 83 excelentes. O build conserva aviso de chunk acima de 500 kB.
+Isso é evidência de regressão conhecida, **não aprovação**.
+
+### Último parecer independente recebido para `c63d6bc`: NOT READY
+
+O Astra confirmou os gates e reproduziu, com orquestrador/executor/reducer e
+estados sintéticos, defeitos fora dos 128 testes. O parecer completo foi
+fornecido pelo usuário nesta rodada; os itens abaixo são **achados do parecer**,
+não correções desta revisão documental:
+
+1. Comparação de receita pode manter os números de receita mas rotulá-los
+   “Total gasto”; a etiqueta errada continua em follow-ups.
+2. Mudança explícita de origem ou de receita para gasto pode ser ignorada e
+   contaminar turnos seguintes.
+3. Variantes coloquiais de corrida não paga ainda propõem receita; negativas
+   sobre outra renda podem apagar uma corrida recebida.
+4. Frase “gastei 50 no mercado e meu saldo é 800” registra só a âncora, perdendo
+   a despesa no histórico; a variante com receita antes da âncora também falha.
+5. Remover pagamento parcial anterior pode deixar parcelas como quitadas com
+   pendência na fatura; o assistente pode responder R$ 0 apesar dessa pendência.
+6. Pagamento de fatura vincula IDs de parcelas já quitadas diretamente, o que
+   bloqueia indevidamente o desfazer dessas parcelas.
+7. Continuação de comparação mensal pode excluir 31/05 de um mês histórico
+   completo sem informar o recorte.
+8. Eventos de lotes distintos no mesmo milissegundo continuam sem ordem
+   confiável; registros antigos só com minuto também não podem ser ordenados
+   retroativamente.
+9. Histórico legado sem proveniência pode apresentar saldo e total de fatura
+   ambíguos. Recusar novo pagamento evita piora, mas `qual meu saldo?` ainda
+   pode afirmar um número sem avisar da ambiguidade. É preciso reconciliar com
+   o usuário, não escolher uma interpretação por heurística.
+
+O parecer também mostrou dois **falsos verdes** possíveis: trocar “recebido”
+por “gasto” no rótulo de uma comparação e acrescentar despesa indevida a uma
+corrida não paga mantêm 128/128. Fortalecer os oráculos, além de corrigir o
+código, é parte do próximo lote. Não houve nesta revisão alteração de código,
+chamada paga, push, merge, deploy ou APK.
+
+**Próximo passo técnico:** REDs independentes para as classes acima, correções
+com oráculos de ações/valores/rótulos/continuidade, gates completos e nova
+auditoria externa. Persistência real e navegador ainda não foram validados
+para este lote. **Não liberar merge/deploy antes disso.**

@@ -1,8 +1,11 @@
 # Arquitetura do assistente do AssistFin
 
-Estado **depois** da rodada Intelligence v2 de 25/09/2026
-(branch `feat/assistant-intelligence-v2`). A auditoria e o checkpoint completos estão em
-[AI_INTELLIGENCE_V2.md](AI_INTELLIGENCE_V2.md).
+Arquitetura da Intelligence v2 iniciada em 25/09/2026
+(branch `feat/assistant-intelligence-v2`). O checkpoint vigente de 24/10/2026
+está no início de [`CONTEXTO.md`](../CONTEXTO.md) e na última seção de
+[`PROGRESS.md`](../PROGRESS.md). A implementação original está em
+[AI_INTELLIGENCE_V2.md](AI_INTELLIGENCE_V2.md); o código atual inclui correções
+posteriores e **não tem aprovação para merge/deploy**.
 Contrato do assistente: **versão 1** — deliberadamente NÃO incrementado: nada no
 envelope mudou, e a DSL de consulta tem versão própria (`QUERY_DSL_VERSION = 2`).
 
@@ -376,15 +379,15 @@ Duas consequências, e a segunda é uma decisão de NÃO fazer:
   38 números e ela teria ~11% de eficácia. Ligar ali faria o código alegar uma proteção que não
   existe. Fica registrado aqui, com o número.
 
-### 6.6 O que continua sem cobertura
+### 6.6 Lacunas registradas em 25/08/2026 (reavaliar antes de usar)
 
 1. **O compositor remoto existe e não está ligado.** `askRemoteCompose` está implementado,
    protegido (não envia rótulo vindo de descrição ou origem — regra 44) e limitado pelo teto
    acima, mas nenhuma resposta hoje passa por ele: toda composição é determinística. É
    infraestrutura pronta, não caminho vivo.
-2. **Roteamento de modelo (fase 22) não foi feito**, por dependência: exige resultado de
-   avaliação, que exige chamada paga, que exige autorização explícita de gasto. A
-   infraestrutura está pronta (`npm run eval:models`, que **não gasta** sem `--executar`).
+2. **Naquela data, o roteamento de modelo (fase 22) não tinha sido feito.**
+   A avaliação comparativa e a mudança para `deepseek-v4-pro` foram concluídas
+   depois, em 19–25/09; ver [AI_REMOTE_EVAL.md](AI_REMOTE_EVAL.md) §16.
 3. **`orchestrate` tem 817 linhas** numa função só (eram 526). Lê-se como pipeline e os passos
    estão numerados na ordem real de execução, mas é o maior candidato a extração da próxima
    rodada.
@@ -393,14 +396,14 @@ Duas consequências, e a segunda é uma decisão de NÃO fazer:
 
 ---
 
-### 6.7 Avaliação dos modelos remotos (13/09/2026)
+### 6.7 Preparação da avaliação dos modelos remotos (13/09/2026; histórico)
 
-Infraestrutura pronta e testada sem rede; **nenhuma chamada paga feita**. Antes de medir, corrigiu-se o
+Naquele checkpoint, a infraestrutura estava pronta e testada sem rede; **nenhuma chamada paga havia sido feita ainda**. Antes de medir, corrigiu-se o
 planejador remoto de consulta, que nunca tinha funcionado (commit `7080edb`, invariante 107). Achados,
 configurações, corpus, métricas, privacidade, custo e a lista de defeitos do motor LOCAL encontrados
 no caminho estão em [AI_REMOTE_EVAL.md](AI_REMOTE_EVAL.md).
 
-### 6.8 O canal remoto e o roteamento local (15/09/2026)
+### 6.8 O canal remoto e o roteamento local (15/09/2026; histórico)
 
 **O que saía do aparelho, medido antes da correção.** Numa conversa encadeada como a tela
 fazia, com estado-canário, o corpo do chat remoto levava o nome do usuário, a descrição e o
@@ -429,8 +432,8 @@ aparelho (a lista, com o esperado de cada uma, está em `docs/AI_REMOTE_EVAL.md`
 do corpus de avaliação continuam com rota `local-errada` (eram 27, depois 15; ver §10 de lá) — desde 15/09/2026 eles ficam de fato fora
 da bateria paga e da nota dos modelos, porque a elegibilidade passou a ser medida no orquestrador em
 vez de lida do rótulo; o planejador remoto continua sem
-estado (não recebe o plano anterior); e as mudanças de `api/**` só chegam ao app publicado com
-um redeploy, que não foi feito.
+estado (não recebe o plano anterior); e as mudanças de `api/**` só chegariam ao app publicado com
+um redeploy. O redeploy da configuração remota ocorreu em 25/09; a V2 local continua não publicada.
 
 **O que ainda sai do aparelho, e só isto.** No chat: o texto do turno atual (ou só o trecho em
 aberto), perfil, IDs e nomes de categoria, nomes de cartão e de meta, os IDs das categorias mais
@@ -489,8 +492,9 @@ cliente, endereço, grafia, journal ou valor para a IA remota.
 3. **Categoria dita e categoria adivinhada são indistinguíveis** na saída do parser: vale a
    decisão de que histórico consistente e forte ganha do palpite genérico.
 4. **Erro de digitação no verbo** (`gsatei 60 no merkado`) continua sem registro local.
-5. **O eval comparativo de modelos remotos não foi executado** — exige chamadas pagas à API,
-   não autorizadas. Nenhum modelo, preço ou retry foi alterado.
+5. **Na rodada adaptativa de 17/08, o eval comparativo ainda não tinha sido executado.**
+   Isso foi superado pela avaliação de 19/09 e pelo deploy de 25/09; ver
+   [AI_REMOTE_EVAL.md](AI_REMOTE_EVAL.md) §16.
 
 A matriz caso a caso está em [AI_REGRESSION_MATRIX.md](AI_REGRESSION_MATRIX.md).
 
@@ -545,7 +549,7 @@ configuração, protegida pela invariante 129 inclusive no reenvio. O override l
 `DEEPSEEK_MODEL` foi removido da Vercel, e o deployment `dpl_9T7v31TwTRBWk4Qzxf4y6MWvTBu6` passou
 no smoke público de chat, proposta, esclarecimento, planner e composição em 25/09/2026.
 
-**Intelligence V2 após auditoria adversarial (01/10/2026).** A branch
+**Registro histórico de 01/10/2026.** A branch
 `feat/assistant-intelligence-v2` corrigiu C1–C3 e H1–H9 reproduzidos na
 primeira auditoria, além de M1–M4 e M6. Os REDs atravessam o orquestrador real;
 os gates locais estão verdes, mas **não há veredito READY** até uma segunda
@@ -555,3 +559,14 @@ para provas, totais e dívida restante. A frase acima sobre “nunca mandar nome
 se refere ao contexto/histórico estruturado: um **alias aplicado à mensagem
 atual** pode levar seu valor substituto ao planejador/chat remoto quando esse
 turno usa IA. A lista de preferências não sai como contexto.
+
+**Checkpoint de 24/10/2026.** Três rodadas locais de correção após auditorias
+independentes chegaram a `3693a23`, `ff6a6a3` e `c63d6bc`. Há 128/128 casos
+adversariais verdes, mas a auditoria seguinte de `c63d6bc` encontrou falhas
+financeiras e de linguagem natural ainda fora da cobertura. O veredito é
+**NOT READY para merge/deploy**. Não usar o número de testes como substituto
+das reproduções independentes. A lista atual e o estado de produção estão no
+checkpoint de [`CONTEXTO.md`](../CONTEXTO.md) e na última seção de
+[`PROGRESS.md`](../PROGRESS.md); os lotes anteriores estão em
+[`AI_INTELLIGENCE_V2_ASTRA_AUDIT_FOLLOWUP_3.md`](AI_INTELLIGENCE_V2_ASTRA_AUDIT_FOLLOWUP_3.md)
+e nos dois arquivos de follow-up anteriores.

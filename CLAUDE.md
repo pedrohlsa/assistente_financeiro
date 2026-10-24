@@ -1,5 +1,9 @@
 # AssistFin — Guia do Projeto
 
+> Regras permanentes de implementação. Para branch, HEAD, gates e bloqueios
+> atuais, leia o checkpoint de [CONTEXTO.md](CONTEXTO.md) e a última seção de
+> [PROGRESS.md](PROGRESS.md). `CONTEXT.md` é apenas um atalho histórico.
+
 ## Objetivo
 
 App mobile-first (React + Vite + Capacitor) de gestão financeira pessoal com assistente em
