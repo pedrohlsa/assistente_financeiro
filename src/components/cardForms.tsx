@@ -10,7 +10,7 @@ import {
 import { fmtBRL, fmtDateShort, nowPaymentTime, parseMoney, todayISO, uid } from '../utils/format'
 import {
   activeCards, buildInstallments, cardInvoice, cardById, findCardByExactName, planInstallments,
-  round2, simulatePurchase, splitInstallmentAmounts, suggestedDueDay, suggestedFirstDueDate,
+  round2, settleableInstallmentIds, simulatePurchase, splitInstallmentAmounts, suggestedDueDay, suggestedFirstDueDate,
 } from '../services/cards'
 import { monthKey } from '../utils/format'
 import { currentBalance } from '../services/calc'
@@ -622,12 +622,7 @@ export function CardPaymentForm({ onDone, card, referenceMonth }: { onDone: () =
   const save = () => {
     if (!valid) return
     const fullyPaid = v >= invoice.pending - 0.009
-    const settleIds = fullyPaid
-      ? invoice.items
-          .filter(i => i.kind === 'installment' && i.planId)
-          .map(i => planInstallments(state, i.planId!).find(x => x.number === i.installmentNumber)?.id)
-          .filter((x): x is string => !!x)
-      : []
+    const settleIds = fullyPaid ? settleableInstallmentIds(state, invoice) : []
     dispatch({
       type: 'addCardPayment',
       payment: { id: uid(), cardId: card.id, amount: v, paymentDate: date,

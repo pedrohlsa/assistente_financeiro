@@ -29,7 +29,7 @@ import { adaptiveEnabled, buildPersonalModel } from '../assistant/personalModel'
 import { catById } from '../data/categories'
 import { isDriver } from './profile'
 import {
-  activeCards, cardsOverview, currentInvoice, monthlyCommitments, activePlans,
+  activeCards, cardInvoice, cardsOverview, currentInvoice, monthlyCommitments, activePlans,
   planProgress, overdueInstallments, upcomingInvoices, installmentsThisMonth,
 } from './cards'
 
@@ -732,6 +732,14 @@ function resolveLocal(s: AppState, input: string): AiReply {
 
   // "qual meu saldo" / "quanto tenho no banco"
   if (/(qual|quanto).*(saldo|no banco|na conta)|meu saldo|quanto\s+(?:eu\s+)?tenho(?:\s+(?:de\s+)?(?:dinheiro|guardado|sobrando))?\s*\??$|quanto\s+sobrou\s+(?:de\s+)?dinheiro/.test(t)) {
+    const ambiguousPayment = (s.cardPayments || []).find(p => {
+      if (p.settledInstallmentIds !== undefined || !/^\d{4}-\d{2}$/.test(p.referenceMonth || '')) return false
+      const card = s.cards.find(c => c.id === p.cardId)
+      if (!card) return false
+      const invoice = cardInvoice(s, card, p.referenceMonth)
+      return invoice.paid > invoice.total + 0.009
+    })
+    if (ambiguousPayment) return { text: 'Não consigo confirmar seu saldo com segurança: há um pagamento antigo de fatura sem vínculo com as parcelas e os valores pagos excedem a fatura. Confira se os registros representam pagamentos diferentes ou o mesmo pagamento duplicado antes de usar esse saldo.' }
     const bo = balanceOutlook(s, 7)
     if (currentBalance(s) === 0) return { text: 'Seu saldo em conta está zerado. Toque em "Saldo em conta" na tela inicial, ou me diga "meu saldo é 1500".' }
     return {

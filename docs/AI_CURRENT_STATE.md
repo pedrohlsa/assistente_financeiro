@@ -1,7 +1,7 @@
 # Arquitetura do assistente do AssistFin
 
 Arquitetura da Intelligence v2 iniciada em 25/09/2026
-(branch `feat/assistant-intelligence-v2`). O checkpoint vigente de 24/10/2026
+(branch `feat/assistant-intelligence-v2`). O checkpoint vigente de 25/10/2026
 está no início de [`CONTEXTO.md`](../CONTEXTO.md) e na última seção de
 [`PROGRESS.md`](../PROGRESS.md). A implementação original está em
 [AI_INTELLIGENCE_V2.md](AI_INTELLIGENCE_V2.md); o código atual inclui correções

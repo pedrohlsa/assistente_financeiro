@@ -56,6 +56,28 @@ export const prevMonthStats = (s: AppState) => {
 }
 
 // ---------- SALDO EM CONTA: FONTE ÚNICA ----------
+/** Desempata eventos de caixa gravados no mesmo milissegundo. A sequência vem
+ * do estado, não de um contador global: funciona após reload e em lotes
+ * separados. Horários legados com precisão menor permanecem intocados.
+ */
+export function nextCashEventTime(s: AppState, date: string, time: string, forceOrdinal = false): string {
+  if (!/^\d{2}:\d{2}:\d{2}\.\d{3}$/.test(time)) return time
+  const prefix = `${date}T${time}`
+  const stamps = [s.settings.balanceAsOf,
+    ...s.transactions.map(t => stampOf(t.date, t.time)),
+    ...(s.cardPayments || []).map(p => stampOf(p.paymentDate, p.paymentTime)),
+    ...(s.installments || []).flatMap(i => (i.directPayments || []).map(p => stampOf(p.date, p.time))),
+  ]
+  let max = -1
+  for (const stamp of stamps) {
+    if (stamp === prefix) max = Math.max(max, 0)
+    else if (stamp?.startsWith(prefix) && /^\d{6}$/.test(stamp.slice(prefix.length))) {
+      max = Math.max(max, Number(stamp.slice(prefix.length)))
+    }
+  }
+  return max < 0 && !forceOrdinal ? time : `${time}${String(max + 1).padStart(6, '0')}`
+}
+
 /**
  * Saldo atual = âncora informada pelo usuário + tudo que REALMENTE mexeu no caixa
  * depois dela. Nenhuma tela pode calcular saldo por conta própria.

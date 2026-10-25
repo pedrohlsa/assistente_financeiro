@@ -64,7 +64,8 @@ export function previousPeriod(p: QueryPeriod): QueryPeriod {
     const mes = ant.getMonth()
     // "Este mês" vai do dia 1 até hoje: o comparável é o MESMO pedaço do mês
     // anterior, não o mês inteiro — senão 15 dias perdem para 31 por construção.
-    const diaFim = fromISO(p.to).getDate()
+    const mesPrincipalCompleto = p.to === ultimoDia(d.getFullYear(), d.getMonth())
+    const diaFim = mesPrincipalCompleto ? 31 : fromISO(p.to).getDate()
     const fimReal = fromISO(ultimoDia(ano, mes)).getDate()
     const to = `${primeiroDia(ano, mes).slice(0, 8)}${String(Math.min(diaFim, fimReal)).padStart(2, '0')}`
     return { from: primeiroDia(ano, mes), to, label: `em ${MESES[mes]}`, grain: 'month' }

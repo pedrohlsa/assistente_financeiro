@@ -334,6 +334,12 @@ export function segment(text: string): { text: string; start: number; end: numbe
   for (const m of text.matchAll(new RegExp(String.raw`\s+e\s+(?=(?:${COMMAND_VERBS})\b)`, 'gi'))) {
     push((m.index || 0) + m[0].length)
   }
+  // A âncora de saldo não começa com verbo de comando. Sem esta divisão,
+  // parseClause encontra o saldo e retorna antes de registrar a movimentação
+  // que o usuário acabou de declarar na mesma frase.
+  for (const m of text.matchAll(/\s+e\s+(?=(?:(?:meu|o)\s+)?saldo\b)/gi)) {
+    push((m.index || 0) + m[0].length)
+  }
   // Ditado sem pontuação: "fiz 20 reais gastei 40 ... furando o pneu foi
   // mais 30" contém fatos separados mesmo sem "e". Sem estes cortes o parser
   // escolhia um único valor e os demais desapareciam dentro da descrição.
@@ -949,7 +955,13 @@ export function analyzeMessage(
   // porém o dinheiro não entrou. A negação está na cláusula seguinte.
   for (let i = 0; i < clauses.length; i++) {
     const clause = clauses[i]
-    if (!/\b(?:(?:ainda\s+)?n[ãa]o|nunca|jamais)\s+(?:me\s+)?pag(?:ou|aram)\b|\bn[ãa]o\s+recebi(?:\s+ainda)?\s*(?:[.!?,;]|$)|\bn[ãa]o\s+recebi\s+(?:nada|o\s+valor(?:\s+ainda)?|o\s+pagamento|pela\s+corrida|da\s+corrida)\b|\bn[ãa]o\s+caiu\s+nada\b|\bn[ãa]o\s+fui\s+pag[oa]\b|\bsem\s+pagamento\b/i.test(clause.text)) continue
+    const unpaid = /\b(?:(?:ainda\s+)?n[ãa]o|nunca|jamais)\s+(?:me\s+)?pag(?:ou|aram)\b|\bn[ãa]o\s+recebi(?:\s+ainda)?\s*(?:[.!?,;]|$)|\bn[ãa]o\s+recebi\s+(?:nada|um\s+centavo|o\s+valor(?:\s+ainda)?|o\s+pagamento|pela\s+corrida|da\s+corrida)\b|\bn[ãa]o\s+caiu\s+nada\b|\bn[ãa]o\s+fui\s+pag[oa]\b|\bsem\s+pagamento\b|\bfiquei\s+sem\s+receber\b|\b(?:cliente|passageiro)\s+t[áa]\s+me\s+devendo\b|\bdinheiro\s+ainda\s+n[ãa]o\s+caiu\b|\bpix\s+n[ãa]o\s+entrou\b/i.test(clause.text)
+    if (!unpaid) continue
+    // A negativa pode se referir a outra fonte de renda na mesma mensagem.
+    // Não se pode apagar uma corrida recebida por causa de salário, venda ou
+    // aluguel não pagos.
+    const negativePart = clause.text.split(/\bmas\b/i).pop() || clause.text
+    if (/\b(?:sal[áa]rio|patr[ãa]o|venda|aluguel)\b/i.test(negativePart)) continue
     const previous = [...clauses.slice(0, i + 1)].reverse().find(c => /\bcorrida\b/i.test(c.text)
       && c.actions.some(a => a.kind === 'income'))
     if (!previous) continue

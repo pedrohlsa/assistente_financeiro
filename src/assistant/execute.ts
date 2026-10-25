@@ -18,7 +18,8 @@ import { JOURNAL_LIMIT, diffForJournal, isRevertFailure, revertBatchPure } from 
 import { addDays, monthKey, nowPaymentTime, nowStamp, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
-import { buildInstallments, cardInvoice, directInstallmentPaidAmount, suggestedFirstDueDate } from '../services/cards'
+import { nextCashEventTime } from '../services/calc'
+import { buildInstallments, cardInvoice, directInstallmentPaidAmount, settleableInstallmentIds, suggestedFirstDueDate } from '../services/cards'
 
 // ---------------------------------------------------------------------------
 // Resolvedores de referência (moram aqui para o store poder ser puro)
@@ -342,13 +343,7 @@ export function applyActionPure(
       const amount = action.amount ?? invoice.pending
       if (!(amount > 0)) return { state, result: fail(actionId, 'invoice-empty', `${card.name}.`, false) }
       const fullyPaid = amount >= invoice.pending - 0.009
-      const settle = new Set(
-        fullyPaid
-          ? invoice.items.filter(i => i.kind === 'installment' && i.planId)
-              .map(i => (state.installments || []).find(x => x.planId === i.planId && x.number === i.installmentNumber)?.id)
-              .filter((x): x is string => !!x)
-          : [],
-      )
+      const settle = new Set(fullyPaid ? settleableInstallmentIds(state, invoice) : [])
       const payment = {
         id: gen(), cardId: card.id, amount, paymentDate: date,
         paymentTime: opts.now?.time || opts.stamp?.slice(11) || nowPaymentTime(),
@@ -457,8 +452,8 @@ export function applyBatchPure(
   const batchTime = opts.now?.time || opts.stamp?.slice(11) || nowPaymentTime()
   const normalizedTime = /^\d{2}:\d{2}$/.test(batchTime) ? `${batchTime}:00.000`
     : /^\d{2}:\d{2}:\d{2}$/.test(batchTime) ? `${batchTime}.000` : batchTime
-  for (const [index, item] of items.entries()) {
-    const time = `${normalizedTime}${String(index + 1).padStart(6, '0')}`
+  for (const item of items) {
+    const time = nextCashEventTime(cur, batchDate, normalizedTime, true)
     const step = applyActionPure(cur, item.action, item.id,
       { ...opts, now: { date: batchDate, time } })
     results.push(step.result)

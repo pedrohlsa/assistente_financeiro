@@ -13,7 +13,8 @@ import { buildDemoData } from '../data/demo'
 import { addDays, monthKey, nowPaymentTime, nowStamp, nowTime, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
-import { currentInvoice, directInstallmentPaidAmount, installmentLinkedToCardPayment } from '../services/cards'
+import { nextCashEventTime } from '../services/calc'
+import { cardInvoice, currentInvoice, directInstallmentPaidAmount, installmentLinkedToCardPayment } from '../services/cards'
 import { applyBatchPure } from '../assistant/execute'
 import type { BatchItem } from '../assistant/execute'
 import type { ActionExecutionResult } from '../assistant/contracts'
@@ -174,13 +175,21 @@ export function reducer(s: AppState, a: Action): AppState {
   switch (a.type) {
     // Backup antigo (sem cartões/parcelas) precisa ser normalizado, senão o app quebra.
     case 'hydrate': return normalizeState(a.state)
-    case 'settings': return { ...s, settings: { ...s.settings, ...a.patch } }
+    case 'settings': {
+      const stamp = a.patch.balanceAsOf
+      const balanceAsOf = stamp?.includes('T')
+        ? `${stamp.slice(0, 11)}${nextCashEventTime(s, stamp.slice(0, 10), stamp.slice(11))}`
+        : stamp
+      return { ...s, settings: { ...s.settings, ...a.patch,
+        ...(stamp ? { balanceAsOf } : {}) } }
+    }
     case 'assistantPreferenceUpsert': {
       if (!isSafePreference(a.preference)) return s
       return { ...s, assistantPreferences: mergePreferenceLists(s.assistantPreferences || [], [a.preference]) }
     }
     case 'assistantPreferenceRemove': return { ...s, assistantPreferences: (s.assistantPreferences || []).filter(p => p.id !== a.id) }
-    case 'addTx': return { ...s, transactions: [a.tx, ...s.transactions] }
+    case 'addTx': return { ...s, transactions: [{ ...a.tx,
+      time: a.tx.time ? nextCashEventTime(s, a.tx.date, a.tx.time) : a.tx.time }, ...s.transactions] }
     case 'removeTx': return { ...s, transactions: s.transactions.filter(t => t.id !== a.id) }
     case 'addWork': {
       const date = a.w.date || todayISO()
@@ -305,7 +314,8 @@ export function reducer(s: AppState, a: Action): AppState {
         installments: s.installments.map(i =>
           i.planId === a.planId && i.status === 'pending' ? { ...i, status: 'cancelled' as const } : i),
       }
-    case 'payInstallment':
+    case 'payInstallment': {
+      const paidTime = nextCashEventTime(s, a.paidAt, a.paidTime || nowPaymentTime())
       return {
         ...s,
         installments: s.installments.map(i => {
@@ -322,10 +332,12 @@ export function reducer(s: AppState, a: Action): AppState {
           return { ...i, status: 'paid' as const, paidAt: a.paidAt,
             paidAmount: a.paidAmount ?? i.amount, paidVia: 'direct' as const,
             directPayments: remainder > 0 ? [...history,
-              { amount: remainder, date: a.paidAt, time: a.paidTime || nowPaymentTime() }] : history }
+              { amount: remainder, date: a.paidAt, time: paidTime }] : history }
         }),
       }
-    case 'partialPayInstallment':
+    }
+    case 'partialPayInstallment': {
+      const paidTime = nextCashEventTime(s, a.paidAt, a.paidTime || nowPaymentTime())
       return { ...s, installments: s.installments.map(i => {
         if (i.id !== a.id || i.status !== 'pending' || !(a.amount > 0)) return i
         const paid = Math.min(i.amount, (i.paidAmount || 0) + a.amount)
@@ -335,8 +347,9 @@ export function reducer(s: AppState, a: Action): AppState {
             ? [{ amount: i.paidAmount!, date: i.paidAt }] : []
         return { ...i, paidAmount: paid, paidAt: a.paidAt, paidVia: 'direct' as const,
           directPayments: [...history,
-            { amount: a.amount, date: a.paidAt, time: a.paidTime || nowPaymentTime() }] }
+            { amount: a.amount, date: a.paidAt, time: paidTime }] }
       }) }
+    }
     case 'unpayInstallment': {
       // Uma fatura paga é um registro separado. Reabrir apenas a parcela
       // removeria o crédito direto mas deixaria o pagamento da fatura intacto.
@@ -354,10 +367,17 @@ export function reducer(s: AppState, a: Action): AppState {
     case 'addCardPayment': {
       // Quitar a fatura marca as parcelas dela como pagas — a despesa já foi
       // contada como parcela, o pagamento NÃO cria despesa nova.
-      const settle = new Set(a.settleInstallmentIds)
+      const settle = new Set(a.settleInstallmentIds.filter(id => {
+        const installment = s.installments.find(i => i.id === id)
+        return !!installment && directInstallmentPaidAmount(s, installment) < installment.amount - 0.009
+      }))
       return {
         ...s,
-        cardPayments: [{ ...a.payment, settledInstallmentIds: a.settleInstallmentIds }, ...s.cardPayments],
+        cardPayments: [{ ...a.payment,
+          paymentTime: a.payment.paymentTime
+            ? nextCashEventTime(s, a.payment.paymentDate, a.payment.paymentTime)
+            : undefined,
+          settledInstallmentIds: [...settle] }, ...s.cardPayments],
         installments: settle.size
           ? s.installments.map(i => settle.has(i.id)
             ? directInstallmentPaidAmount(s, i) > 0
@@ -377,6 +397,14 @@ export function reducer(s: AppState, a: Action): AppState {
       // removemos só o dinheiro e deixamos a dívida falsamente como paga.
       if (payment.settledInstallmentIds === undefined) return s
       const cardPayments = s.cardPayments.filter(p => p.id !== a.id)
+      const card = s.cards.find(c => c.id === payment.cardId)
+      // Um parcial antigo pode ter permitido que a fatura posterior quitasse
+      // parcelas sem registrar qual parte daquele parcial cabia a cada uma.
+      // Removê-lo deixaria parcelas "paid" com saldo pendente. Sem proveniência
+      // para redistribuir o restante, exigir reconciliação em vez de inventar.
+      if (card && cardPayments.some(p => p.cardId === payment.cardId
+        && p.referenceMonth === payment.referenceMonth && p.settledInstallmentIds?.length)
+        && cardInvoice({ ...s, cardPayments }, card, payment.referenceMonth).pending > 0.009) return s
       const reopened = new Set<string>()
       const installments = s.installments.map(i => {
         if (!payment.settledInstallmentIds!.includes(i.id)

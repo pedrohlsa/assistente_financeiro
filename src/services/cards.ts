@@ -206,6 +206,18 @@ export interface CardInvoice {
   status: InvoiceStatus
 }
 
+/** Só vincula ao pagamento da fatura parcelas com saldo ainda devido nela.
+ * Uma parcela já quitada diretamente não pode impedir o desfazer desse
+ * pagamento por causa de outra obrigação paga na mesma fatura.
+ */
+export function settleableInstallmentIds(s: AppState, invoice: CardInvoice): string[] {
+  return invoice.items.filter(item => item.kind === 'installment' && item.planId)
+    .map(item => (s.installments || []).find(i => i.planId === item.planId
+      && i.number === item.installmentNumber))
+    .filter((i): i is Installment => !!i && directInstallmentPaidAmount(s, i) < i.amount - 0.009)
+    .map(i => i.id)
+}
+
 /** Fatura de um cartão no mês de referência ('YYYY-MM' do vencimento). */
 export function cardInvoice(s: AppState, card: CreditCard, mk: string): CardInvoice {
   const [y, m] = mk.split('-').map(Number)

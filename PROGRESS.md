@@ -1,7 +1,7 @@
 # AssistFin — Estado do Projeto
 
-**Última atualização**: 2026-10-24 — consolidação documental da Intelligence V2
-após a auditoria independente de `c63d6bc`. **NOT READY para merge/deploy**.
+**Última atualização**: 2026-10-25 — correções locais após a auditoria independente
+de `c63d6bc`. **NOT READY para merge/deploy** até nova auditoria externa.
 Leia a última seção antes das entradas históricas: ela distingue a produção
 publicada (`main`) da branch local e lista os bloqueios reproduzidos.
 
@@ -3388,3 +3388,46 @@ chamada paga, push, merge, deploy ou APK.
 com oráculos de ações/valores/rótulos/continuidade, gates completos e nova
 auditoria externa. Persistência real e navegador ainda não foram validados
 para este lote. **Não liberar merge/deploy antes disso.**
+
+## 2026-10-25 — resposta local ao último parecer Astra
+
+Partindo de `7d9096b` na branch `feat/assistant-intelligence-v2`, foram
+adicionadas 19 reproduções adversariais pelo orquestrador, executor e reducer
+reais (128 → 147). Os REDs cobriram rótulo de receita, troca explícita de
+origem/tipo e continuidade, mês histórico completo, corrida não paga em cinco
+variantes, negativa sobre salário/venda/aluguel, lançamento antes/depois de
+âncora, vínculos de fatura, remoção de parcial, saldo legado ambíguo e eventos
+de lotes distintos no mesmo milissegundo.
+
+Correções locais:
+
+- Comparações preservam modalidade e rótulo; origem/tipo explícitos substituem
+  o foco anterior. “Em geral” remove os recortes de categoria/origem/texto.
+- O período anterior a um mês histórico completo inclui seu último dia.
+- A segmentação separa movimentação e âncora na mesma frase. Negativas de
+  recebimento da corrida cobrem as variantes reproduzidas sem apagar uma
+  corrida paga por causa de outra renda negada. “Venda” não vira “vendi” no
+  corretor de digitação.
+- A quitação da fatura só vincula parcelas ainda devidas; o reducer também
+  filtra IDs de parcelas integralmente pagas diretamente. Remover um parcial
+  antigo que deixaria parcelas falsamente quitadas é **recusado** até haver
+  reconciliação, pois o estado não diz como distribuí-lo entre parcelas.
+- Eventos novos de caixa no mesmo milissegundo recebem ordem baseada no estado,
+  também entre lotes e lançamentos/pagamentos manuais. Horários legados com
+  precisão de minuto continuam ambíguos; não foram reordenados por suposição.
+- Consulta de saldo não afirma valor como certo quando um pagamento legado sem
+  vínculo com parcelas produz total pago maior que a fatura. Pede conferência
+  dos registros, sem decidir se são desembolsos distintos ou duplicados.
+
+Gates após as correções: 660/660 corpus, 99/99 consulta/cenário/continuidade,
+50/50 semânticos, **147/147 adversariais**, 4.088 + 3.800 metamórficos,
+1.416 fuzz, 151/151 invariantes e 468/468 verificações remotas **offline**.
+`typecheck`, `typecheck:api`, `test:money`, build, rubrica e `git diff --check`
+passaram. Rubrica: 0 perigosa, 0 ruim, 7 aceitáveis, 83 excelentes. O aviso
+de chunk acima de 500 kB permanece.
+
+**Ainda NOT READY:** falta auditoria independente deste novo diff; navegador e
+persistência real não foram validados nesta rodada. A recusa de remover parcial
+antigo precisa de fluxo de reconciliação/feedback na interface antes de ser
+tratada como funcionalidade completa. Nenhuma chamada paga, push, merge, deploy
+ou APK nesta rodada. `.claude/launch.json` permaneceu intocado.

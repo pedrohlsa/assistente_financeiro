@@ -477,15 +477,33 @@ function refinaConsulta(
       if (novo) {
         const explicitCategory = !!novo.plan.filter.categories?.length
         const allCategories = /\b(?:todas?\s+as\s+categorias|no\s+total|total\s+geral|em\s+geral|de\s+tudo)\b/.test(t)
+        const explicitOrigin = !!novo.plan.filter.origin || !!novo.plan.filter.origins?.length
+        const explicitType = /\b(?:gastos?|despesas?|receitas?|entradas?|renda|ganhos?|recebid[oa]s?)\b/.test(t)
         // O plano novo serve para identificar um recorte explicitamente pedido.
         // Seus defaults (como txType=expense) e texto residual não podem trocar
         // a medida da consulta anterior nem contaminar os próximos turnos.
         const filter = { ...base.filter }
         if (explicitCategory) filter.categories = novo.plan.filter.categories
-        if (allCategories) delete filter.categories
+        if (explicitOrigin) {
+          filter.origin = novo.plan.filter.origin
+          filter.origins = novo.plan.filter.origins
+        }
+        if (explicitType) filter.txType = novo.plan.filter.txType
+        if (allCategories) {
+          delete filter.categories
+          delete filter.origin
+          delete filter.origins
+          delete filter.text
+        }
+        const basePrefix = base.label.split(' - ')[0]
+        const newPrefix = novo.plan.label.split(' - ')[0]
+        const newScope = novo.plan.label.slice(newPrefix.length)
+        const oldScope = base.label.slice(basePrefix.length)
+        const label = `${explicitType ? newPrefix : basePrefix}${allCategories ? ''
+          : explicitCategory || explicitOrigin ? newScope : oldScope}`
         return { kind: 'query', planned: { ...novo, plan: { ...novo.plan,
           source: base.source, metric: base.metric, field: base.field, filter,
-          label: explicitCategory || allCategories ? novo.plan.label : base.label } } }
+          label } } }
       }
     }
     // "Os dois" são os DOIS PERÍODOS que o usuário acabou de ver. Só na falta

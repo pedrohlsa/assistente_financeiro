@@ -673,6 +673,15 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     && currentBalance(invoiceRest.state) === 700
     && cardInvoice(invoiceRest.state, directMixed.cards[0], '2026-09').pending === 0
     && invoiceRest.state.installments.every(i => i.status === 'paid')))
+  const undoDirectAfterInvoice = reducer(invoiceRest.state, { type: 'unpayInstallment', id: 'mixed-0' })
+  out.push(result('D-desfazer-direto-apos-fatura-de-outra-parcela', {
+    payment: invoiceRest.state.cardPayments[0], balance: currentBalance(undoDirectAfterInvoice),
+    pending: cardInvoice(undoDirectAfterInvoice, directMixed.cards[0], '2026-09').pending,
+  }, 'fatura vincula só mixed-1; desfazer mixed-0 deixa saldo 900 e dívida 200',
+    invoiceRest.state.cardPayments[0]?.settledInstallmentIds?.join(',') === 'mixed-1'
+      && currentBalance(undoDirectAfterInvoice) === 900
+      && cardInvoice(undoDirectAfterInvoice, directMixed.cards[0], '2026-09').pending === 200
+      && undoDirectAfterInvoice.installments[0].status === 'pending'))
   const partialState = reducer(directMixed, { type: 'partialPayInstallment', id: 'mixed-0',
     amount: 100, paidAt: TODAY, paidTime: '14:00' })
   out.push(result('A-parcial-caixa', {
@@ -720,6 +729,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && cardInvoice(removedMixedInvoice, directMixed.cards[0], '2026-09').pending === 200
       && removedMixedInvoice.installments.every(i => i.status === 'pending')
       && removedMixedInvoice.installments[0].paidAmount === 100))
+  const partialInvoiceFirst = reducer(directMixed, { type: 'addCardPayment',
+    payment: { id: 'early-30', cardId: 'card0', amount: 30, paymentDate: TODAY,
+      paymentTime: '10:00', referenceMonth: '2026-09', fromBalance: true },
+    settleInstallmentIds: [] })
+  const partialInvoiceRest = applyBatchPure(partialInvoiceFirst,
+    [{ id: 'later-270', action: { kind: 'card-payment', cardName: 'Inter' } }],
+    { now: { date: TODAY, time: '14:00' } })
+  const unsafeRemoval = reducer(partialInvoiceRest.state, { type: 'removeCardPayment', id: 'early-30' })
+  out.push(result('D-remover-parcial-antes-quitacao-exige-reconciliacao', {
+    applied: partialInvoiceRest.applied, unchanged: unsafeRemoval === partialInvoiceRest.state,
+    payments: unsafeRemoval.cardPayments, installments: unsafeRemoval.installments,
+  }, 'sem distribuição por parcela, recusar remoção que deixaria quitadas com fatura pendente',
+    partialInvoiceRest.applied && unsafeRemoval === partialInvoiceRest.state))
   const longReport = await turn(buildState({ profile: 'driver' }),
     'fiz 20 reais mas gastei 40 em combustievl acabando furando o pneu foi mais 30 e depois disso minha filha pediu um pix de 15 reais para sorvete tocou uma corrida de 70 reais bla bla bla bla')
   const longState = buildState({ profile: 'driver' })
@@ -857,6 +879,37 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     anchorThenExpense.applied && expenseThenAnchor.applied
       && currentBalance(anchorThenExpense.state) === 750
       && currentBalance(expenseThenAnchor.state) === 800))
+  const exactTime = '09:00:10.100'
+  const anchorOne = applyBatchPure(buildState({ balance: 0 }),
+    [{ id: 'same-ms-anchor', action: { kind: 'balance', amount: 800 } }],
+    { now: { date: TODAY, time: exactTime } })
+  const expenseLater = applyBatchPure(anchorOne.state,
+    [{ id: 'same-ms-expense', action: { kind: 'expense', amount: 100, description: 'Mercado' } }],
+    { now: { date: TODAY, time: exactTime } })
+  const manualExpenseLater = reducer(anchorOne.state, { type: 'addTx', tx: {
+    id: 'manual-same-ms', type: 'expense', amount: 100, category: 'casa', date: TODAY,
+    time: exactTime, source: 'manual',
+  } })
+  out.push(result('D-eventos-separados-mesmo-milissegundo', {
+    batch: currentBalance(expenseLater.state), manual: currentBalance(manualExpenseLater),
+  }, 'despesa posterior à âncora descontada em ambos os fluxos',
+    anchorOne.applied && expenseLater.applied
+      && currentBalance(expenseLater.state) === 700
+      && currentBalance(manualExpenseLater) === 700))
+  const cardAnchor = applyBatchPure(directMixed,
+    [{ id: 'card-same-ms-anchor', action: { kind: 'balance', amount: 800 } }],
+    { now: { date: TODAY, time: exactTime } })
+  const cardPaymentLater = applyBatchPure(cardAnchor.state,
+    [{ id: 'card-same-ms-pay', action: { kind: 'card-payment', cardName: 'Inter', amount: 200 } }],
+    { now: { date: TODAY, time: exactTime } })
+  const directPaymentLater = reducer(cardAnchor.state, { type: 'payInstallment', id: 'mixed-0',
+    paidAt: TODAY, paidTime: exactTime })
+  out.push(result('D-pagamentos-mesmo-milissegundo', {
+    invoice: currentBalance(cardPaymentLater.state), direct: currentBalance(directPaymentLater),
+  }, 'pagamento posterior à âncora descontado, por fatura ou direto',
+    cardAnchor.applied && cardPaymentLater.applied
+      && currentBalance(cardPaymentLater.state) === 600
+      && currentBalance(directPaymentLater) === 600))
   const legacyKnown = { ...sameMinute, installments: [{ ...sameMinute.installments[0],
     status: 'pending' as const, paidAmount: 100, paidAt: '2026-09-10', paidVia: 'direct' as const }] }
   const legacyCompleted = reducer(legacyKnown, { type: 'payInstallment', id: 'mixed-0',
@@ -908,6 +961,11 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && !refusedConflict.applied
       && refusedConflict.results[0]?.ok === false
       && refusedConflict.state === conflictingLegacy))
+  const ambiguousBalance = await turn(conflictingLegacy, 'qual meu saldo?')
+  out.push(result('D-saldo-legado-ambiguo-nao-afirma-numero', ambiguousBalance,
+    'pedir reconciliação sem afirmar saldo R$ 600',
+    /conferir|reconcilia|confirmar/i.test(ambiguousBalance.reply)
+      && !/seu saldo em conta (?:é|está)\s*R\$\s*600/i.test(ambiguousBalance.reply)))
   const legacyMarkedPaidPartial = { ...legacyKnown, installments: [{ ...legacyKnown.installments[0],
     status: 'paid' as const }] }
   const legacyMarkedCompleted = reducer(legacyMarkedPaidPartial, { type: 'payInstallment',
@@ -993,6 +1051,86 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     !allCompare.focus?.lastQueryPlan?.filter.categories?.length
       && allCompare.focus?.lastQuery?.total === 2080
       && /2\.080,00/.test(allCompare.reply) && /1\.010,00/.test(allCompare.reply)))
+  const incomeByHouse = buildState({ transactions: [
+    { id: 'h1-aug', type: 'income', amount: 1800, category: 'aluguel', origin: 'Casa 1', date: '2026-08-05' },
+    { id: 'h1-jul', type: 'income', amount: 1200, category: 'aluguel', origin: 'Casa 1', date: '2026-07-05' },
+    { id: 'h1-jun', type: 'income', amount: 600, category: 'aluguel', origin: 'Casa 1', date: '2026-06-05' },
+    { id: 'h2-aug', type: 'income', amount: 2500, category: 'aluguel', origin: 'Casa 2', date: '2026-08-05' },
+    { id: 'h2-jul', type: 'income', amount: 2100, category: 'aluguel', origin: 'Casa 2', date: '2026-07-05' },
+    { id: 'h2-jun', type: 'income', amount: 1900, category: 'aluguel', origin: 'Casa 2', date: '2026-06-05' },
+    { id: 'h1-exp-aug', type: 'expense', amount: 300, category: 'casa', origin: 'Casa 1', date: '2026-08-10' },
+    { id: 'h1-exp-jul', type: 'expense', amount: 100, category: 'casa', origin: 'Casa 1', date: '2026-07-10' },
+  ] })
+  const h1August = await turn(incomeByHouse, 'quanto a Casa 1 me rendeu em agosto')
+  const allIncome = await turn(incomeByHouse, 'compara agosto com julho em geral', h1August.focus)
+  out.push(result('D-comparacao-receita-rotulo', allIncome, 'receita 4300 contra 3300, rotulada como recebida',
+    allIncome.focus?.lastQuery?.total === 4300
+      && allIncome.focus?.lastQueryPlan?.filter.txType?.[0] === 'income'
+      && /total recebido/i.test(allIncome.reply) && !/total gasto/i.test(allIncome.reply)))
+  const h2Compare = await turn(incomeByHouse, 'compara agosto com julho da Casa 2', h1August.focus)
+  const h2June = await turn(incomeByHouse, 'e em junho', h2Compare.focus)
+  out.push(result('D-comparacao-origem-explicita', { h2Compare, h2June },
+    'Casa 2: 2500 contra 2100, depois junho 1900',
+    h2Compare.focus?.lastQuery?.total === 2500
+      && h2Compare.focus?.lastQueryPlan?.filter.origin === 'casa 2'
+      && h2June.focus?.lastQuery?.total === 1900
+      && /Casa 2/i.test(h2Compare.reply) && /Casa 2/i.test(h2June.reply)))
+  const expenses = await turn(incomeByHouse, 'compara agosto com julho em gastos', h1August.focus)
+  out.push(result('D-comparacao-tipo-explicito', expenses, 'mudança explícita para despesa',
+    expenses.focus?.lastQueryPlan?.filter.txType?.[0] === 'expense'
+      && /total gasto/i.test(expenses.reply) && !/total recebido/i.test(expenses.reply)))
+  const historical = buildState({ transactions: [
+    { id: 'food-aug-h', type: 'expense', amount: 60, category: 'alimentacao', date: '2026-08-10' },
+    { id: 'food-jul-h', type: 'expense', amount: 40, category: 'alimentacao', date: '2026-07-10' },
+    { id: 'food-jun-h', type: 'expense', amount: 100, category: 'alimentacao', date: '2026-06-10' },
+    { id: 'food-may-last', type: 'expense', amount: 500, category: 'alimentacao', date: '2026-05-31' },
+  ] })
+  const histAugust = await turn(historical, 'quanto gastei com alimentação em agosto')
+  const histCompare = await turn(historical, 'compara agosto com julho', histAugust.focus)
+  const histJune = await turn(historical, 'e em junho', histCompare.focus)
+  out.push(result('D-mes-historico-completo', histJune, 'junho 100 contra maio 500 incluindo 31/05',
+    histJune.focus?.lastQuery?.total === 100
+      && histJune.focus?.lastQueryPlan?.comparePeriod?.to === '2026-05-31'
+      && /500,00/.test(histJune.reply) && /400,00/.test(histJune.reply)))
+  for (const [id, phrase] of [
+    ['devendo', 'Fiz uma corrida de 70 mas o cliente tá me devendo'],
+    ['sem-receber', 'Fiz uma corrida de 70 mas fiquei sem receber'],
+    ['dinheiro-nao-caiu', 'Fiz uma corrida de 70 mas o dinheiro ainda não caiu'],
+    ['pix-nao-entrou', 'Fiz uma corrida de 70 mas o Pix não entrou'],
+    ['nem-centavo', 'Fiz uma corrida de 70 mas não recebi um centavo'],
+  ] as const) {
+    const proposal = await turn(buildState({ profile: 'driver' }), phrase)
+    out.push(result(`D-corrida-nao-paga-${id}`, proposal, 'só viagem; nenhuma ação financeira',
+      proposal.actions.length > 0 && proposal.actions.every(a => a.kind === 'work')))
+  }
+  for (const [id, phrase] of [
+    ['salario', 'Recebi 70 pela corrida mas meu patrão nunca me pagou o salário'],
+    ['venda', 'Recebi 70 pela corrida mas da venda não recebi nada'],
+    ['aluguel', 'Recebi 70 pela corrida mas não caiu nada do aluguel'],
+  ] as const) {
+    const proposal = await turn(buildState({ profile: 'driver' }), phrase)
+    out.push(result(`D-corrida-outra-renda-${id}`, proposal, 'receita de corrida 70 preservada, sem extras',
+      proposal.actions.filter(a => a.kind === 'income' && a.amount === 70).length === 1
+        && proposal.actions.every(a => a.kind === 'income' || a.kind === 'work')))
+  }
+  const expenseAnchor = await turn(buildState(), 'gastei 50 no mercado e meu saldo é 800')
+  const expenseAnchorApplied = applyBatchPure(buildState(), expenseAnchor.actions.map((action, i) =>
+    ({ id: `expense-anchor-${i}`, action })), { now: { date: TODAY, time: '14:00' } })
+  out.push(result('D-despesa-antes-ancora', { expenseAnchor, expenseAnchorApplied },
+    'despesa 50 antes de âncora 800; histórico preservado',
+    expenseAnchor.actions.map(a => a.kind).join(',') === 'expense,balance'
+      && expenseAnchorApplied.applied && currentBalance(expenseAnchorApplied.state) === 800
+      && expenseAnchorApplied.state.transactions.some(t => t.type === 'expense' && t.amount === 50)))
+  const threeEvents = await turn(buildState(),
+    'recebi 100 de aluguel e meu saldo é 800 e gastei 20 no mercado')
+  const threeApplied = applyBatchPure(buildState(), threeEvents.actions.map((action, i) =>
+    ({ id: `three-events-${i}`, action })), { now: { date: TODAY, time: '14:00' } })
+  out.push(result('D-receita-ancora-despesa-na-ordem', { threeEvents, threeApplied },
+    'receita 100, âncora 800, despesa 20; saldo 780 e histórico íntegro',
+    threeEvents.actions.map(a => a.kind).join(',') === 'income,balance,expense'
+      && threeApplied.applied && currentBalance(threeApplied.state) === 780
+      && threeApplied.state.transactions.some(t => t.type === 'income' && t.amount === 100)
+      && threeApplied.state.transactions.some(t => t.type === 'expense' && t.amount === 20)))
   return out
 }
 
