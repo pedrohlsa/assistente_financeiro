@@ -1,7 +1,7 @@
 # AssistFin — Estado do Projeto
 
 **Última atualização**: 2026-10-25 — correções locais após a auditoria independente
-de `c63d6bc`. **NOT READY para merge/deploy** até nova auditoria externa.
+de `345d55e`. **NOT READY para merge/deploy** até nova auditoria externa.
 Leia a última seção antes das entradas históricas: ela distingue a produção
 publicada (`main`) da branch local e lista os bloqueios reproduzidos.
 
@@ -3431,3 +3431,55 @@ persistência real não foram validados nesta rodada. A recusa de remover parcia
 antigo precisa de fluxo de reconciliação/feedback na interface antes de ser
 tratada como funcionalidade completa. Nenhuma chamada paga, push, merge, deploy
 ou APK nesta rodada. `.claude/launch.json` permaneceu intocado.
+
+## 2026-10-25 — resposta ao parecer independente de `345d55e`
+
+O Astra confirmou o baseline de `345d55e` e declarou **NOT READY**. Oito
+defeitos foram reproduzidos com estado sintético, orquestrador, executor e
+reducer reais: quatro variantes de corrida recebida/não recebida; perda de
+despesa antes de âncora de saldo sem `e`; troca explícita para recebimentos
+ignorada no foco; `todas as categorias` apagando origem explícita; média e
+categoria omitidas do rótulo; `qual foi pior?` comparando uma consulta antiga
+em vez dos dois períodos exibidos; pagamento parcial da fatura omitido da
+dívida do cartão; saldo legado ambíguo usado em gasto permitido e cenário.
+O mesmo parecer mostrou quatro oráculos falsamente verdes. O texto recebido
+está no anexo do chat desta rodada; este registro resume os achados, sem
+atribuir ao Astra as correções abaixo.
+
+Foram adicionados REDs de classe no corpus adversarial e os quatro oráculos
+foram endurecidos: valores/ações exatos nas corridas; nenhuma ação na
+comparação entre imóveis; direção `abaixo` no histórico; nenhum R$ 600 na
+resposta ao saldo ambíguo. Depois das correções, **165/165** casos passam.
+
+- A segmentação reconhece `agora meu saldo` e `meu saldo` sem conector depois
+  de movimentação. A negação de recebimento distingue passageiro de outra
+  renda; valor de corrida não paga é representado como mencionado, sem criar
+  receita nem pergunta espúria sobre o valor.
+- A continuidade respeita o verbo explícito `recebi`, preserva origem citada
+  junto com `todas as categorias`, recompõe o rótulo a partir da métrica e dos
+  filtros executados e compara os dois números da última resposta em `qual
+  foi pior?`.
+- Pagamento parcial de fatura com vínculo explícito vazio e composta somente
+  por parcelas reduz a dívida agregada do cartão, o limite usado e o resumo de
+  dívida parcelada, sem atribuir artificialmente o pagamento a um plano
+  individual. O teste cobre proposta, aplicação, saldo, fatura, dívida,
+  pagamento direto posterior e desfazer. Fatura mista com assinatura/saldo
+  inicial não recebe essa atribuição automática: faltam dados para dizer a
+  qual item o pagamento pertence.
+- Uma única verificação de inconsistência de pagamento legado é usada em
+  consulta de saldo, limite de gasto, cobertura de contas, resumo com saldo e
+  cenários. A resposta pede reconciliação sem afirmar saldo projetado.
+
+Gates após este lote: 660/660 corpus, 99/99 consulta/cenário/continuidade,
+50/50 semânticos, **165/165 adversariais**, 4.088 + 3.800 metamórficos,
+1.416 fuzz, 151/151 invariantes, 468/468 verificações remotas offline;
+`typecheck`, `typecheck:api`, `test:money`, `build`, `rubric` e
+`probe:redteam -- imovel` passaram. Rubrica: 0 perigosa, 0 ruim, 7 aceitáveis,
+83 excelentes. O build ainda avisa de chunk acima de 500 kB.
+
+**Ainda NOT READY:** o novo diff precisa de auditoria independente. A
+reconciliação de pagamento legado ambíguo e a alocação de pagamento parcial em
+fatura mista não podem ser inventadas. Persistência e navegador não foram
+revalidados neste lote. Sem chamadas remotas pagas, push, merge, deploy ou
+APK. `.claude/launch.json` segue como alteração local preexistente, fora das
+entregas.

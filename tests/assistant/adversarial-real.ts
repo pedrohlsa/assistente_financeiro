@@ -3,7 +3,7 @@
 import type { AppState } from '../../src/models/types'
 import { orchestrate } from '../../src/assistant/orchestrator'
 import { currentBalance, monthlyProjections, occurrencesBetween } from '../../src/services/calc'
-import { cardInvoice } from '../../src/services/cards'
+import { cardInvoice, cardOutstanding, cardsOverview } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
 import { applyPreferenceAliases } from '../../src/assistant/preferences'
 import { hydrateForTest, reducer } from '../../src/store/store'
@@ -965,7 +965,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   out.push(result('D-saldo-legado-ambiguo-nao-afirma-numero', ambiguousBalance,
     'pedir reconciliação sem afirmar saldo R$ 600',
     /conferir|reconcilia|confirmar/i.test(ambiguousBalance.reply)
-      && !/seu saldo em conta (?:é|está)\s*R\$\s*600/i.test(ambiguousBalance.reply)))
+      && !/R\$\s*600(?:,00)?\b/i.test(ambiguousBalance.reply)))
+  for (const [id, phrase] of [
+    ['gasto-hoje', 'quanto posso gastar hoje?'],
+    ['cenario-gasto', 'se eu gastar 100 hoje quanto sobra?'],
+    ['cobertura-contas', 'meu salário cobre minhas contas?'],
+    ['resumo-mes', 'como está meu mês?'],
+  ] as const) {
+    const answer = await turn(conflictingLegacy, phrase)
+    out.push(result(`E-saldo-legado-${id}`, answer,
+      'reconciliação exigida antes de usar saldo ambíguo',
+      /conferir|reconcilia|confirmar/i.test(answer.reply)
+        && !/R\$\s*(?:600|500|420|400)(?:,00)?\b/i.test(answer.reply)
+        && answer.actions.length === 0))
+  }
   const legacyMarkedPaidPartial = { ...legacyKnown, installments: [{ ...legacyKnown.installments[0],
     status: 'paid' as const }] }
   const legacyMarkedCompleted = reducer(legacyMarkedPaidPartial, { type: 'payInstallment',
@@ -988,6 +1001,42 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     payment: { id: 'prior-partial', cardId: 'card0', amount: 30, paymentDate: '2026-09-14',
       paymentTime: '14:00', referenceMonth: '2026-09', fromBalance: true },
     settleInstallmentIds: [] })
+  const cardDebt = await turn(unrelatedPartial, 'quanto falta pagar do Inter?')
+  out.push(result('E-cartao-parcial-divida', {
+    cardDebt, invoice: cardInvoice(unrelatedPartial, unrelatedPartial.cards[0], '2026-09'),
+  }, 'fatura e dívida do cartão R$ 270 após pagamento parcial de R$ 30',
+    cardInvoice(unrelatedPartial, unrelatedPartial.cards[0], '2026-09').pending === 270
+      && cardOutstanding(unrelatedPartial, 'card0') === 270
+      && cardsOverview(unrelatedPartial).totalDebt === 270
+      && /270,00/.test(cardDebt.reply) && !/300,00/.test(cardDebt.reply)
+      && cardDebt.actions.length === 0))
+  const proposedPartial = await turn(directMixed, 'paguei 30 da fatura do Inter')
+  const appliedPartial = applyBatchPure(directMixed, proposedPartial.actions.map((action, i) =>
+    ({ id: `audit-partial-${i}`, action })), { now: { date: TODAY, time: '14:00' } })
+  const debtFromRealFlow = await turn(appliedPartial.state, 'quanto falta pagar do Inter?')
+  out.push(result('E-cartao-parcial-fluxo-real', { proposedPartial, appliedPartial, debtFromRealFlow },
+    'proposta confirmada, saldo 970, fatura e dívida 270, sem despesa extra',
+    proposedPartial.actions.length === 1 && proposedPartial.actions[0].kind === 'card-payment'
+      && proposedPartial.actions[0].amount === 30 && appliedPartial.applied
+      && appliedPartial.state.transactions.length === directMixed.transactions.length
+      && currentBalance(appliedPartial.state) === 970
+      && cardInvoice(appliedPartial.state, directMixed.cards[0], '2026-09').pending === 270
+      && cardOutstanding(appliedPartial.state, 'card0') === 270
+      && cardsOverview(appliedPartial.state).totalDebt === 270
+      && /270,00/.test(debtFromRealFlow.reply) && !/300,00/.test(debtFromRealFlow.reply)
+      && debtFromRealFlow.actions.length === 0))
+  const paidDirectAfterPartial = reducer(unrelatedPartial, { type: 'payInstallment',
+    id: 'mixed-0', paidAt: TODAY, paidTime: '14:30' })
+  const debtAfterDirect = await turn(paidDirectAfterPartial, 'quanto falta pagar do Inter?')
+  const undoneDirectAfterPartial = reducer(paidDirectAfterPartial, { type: 'unpayInstallment', id: 'mixed-0' })
+  const debtAfterUndo = await turn(undoneDirectAfterPartial, 'quanto falta pagar do Inter?')
+  out.push(result('E-cartao-parcial-direto-desfazer', { debtAfterDirect, debtAfterUndo },
+    'R$ 70 depois de pagar R$ 200 diretamente; R$ 270 após desfazer',
+    cardOutstanding(paidDirectAfterPartial, 'card0') === 70
+      && /70,00/.test(debtAfterDirect.reply) && !/270,00/.test(debtAfterDirect.reply)
+      && cardOutstanding(undoneDirectAfterPartial, 'card0') === 270
+      && /270,00/.test(debtAfterUndo.reply)
+      && debtAfterDirect.actions.length === 0 && debtAfterUndo.actions.length === 0))
   const paidAfterPartial = reducer(unrelatedPartial, { type: 'payInstallment', id: 'mixed-0',
     paidAt: TODAY, paidTime: '14:00' })
   const undoneAfterPartial = reducer(paidAfterPartial, { type: 'unpayInstallment', id: 'mixed-0' })
@@ -1074,7 +1123,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     h2Compare.focus?.lastQuery?.total === 2500
       && h2Compare.focus?.lastQueryPlan?.filter.origin === 'casa 2'
       && h2June.focus?.lastQuery?.total === 1900
-      && /Casa 2/i.test(h2Compare.reply) && /Casa 2/i.test(h2June.reply)))
+      && /Casa 2/i.test(h2Compare.reply) && /Casa 2/i.test(h2June.reply)
+      && h2Compare.actions.length === 0 && h2June.actions.length === 0))
   const expenses = await turn(incomeByHouse, 'compara agosto com julho em gastos', h1August.focus)
   out.push(result('D-comparacao-tipo-explicito', expenses, 'mudança explícita para despesa',
     expenses.focus?.lastQueryPlan?.filter.txType?.[0] === 'expense'
@@ -1091,7 +1141,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   out.push(result('D-mes-historico-completo', histJune, 'junho 100 contra maio 500 incluindo 31/05',
     histJune.focus?.lastQuery?.total === 100
       && histJune.focus?.lastQueryPlan?.comparePeriod?.to === '2026-05-31'
-      && /500,00/.test(histJune.reply) && /400,00/.test(histJune.reply)))
+      && /500,00/.test(histJune.reply) && /400,00\s+abaixo/.test(histJune.reply.replace(/\u00a0/g, ' '))))
   for (const [id, phrase] of [
     ['devendo', 'Fiz uma corrida de 70 mas o cliente tá me devendo'],
     ['sem-receber', 'Fiz uma corrida de 70 mas fiquei sem receber'],
@@ -1110,7 +1160,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   ] as const) {
     const proposal = await turn(buildState({ profile: 'driver' }), phrase)
     out.push(result(`D-corrida-outra-renda-${id}`, proposal, 'receita de corrida 70 preservada, sem extras',
-      proposal.actions.filter(a => a.kind === 'income' && a.amount === 70).length === 1
+      JSON.stringify(proposal.actions.filter(a => a.kind === 'income').map(a => a.amount)) === '[70]'
         && proposal.actions.every(a => a.kind === 'income' || a.kind === 'work')))
   }
   const expenseAnchor = await turn(buildState(), 'gastei 50 no mercado e meu saldo é 800')
@@ -1131,6 +1181,98 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && threeApplied.applied && currentBalance(threeApplied.state) === 780
       && threeApplied.state.transactions.some(t => t.type === 'income' && t.amount === 100)
       && threeApplied.state.transactions.some(t => t.type === 'expense' && t.amount === 20)))
+  // Parecer independente seguinte: variantes que os 147 casos anteriores não
+  // distinguiam. O oráculo recusa qualquer ação financeira extra.
+  for (const [id, phrase, expectedIncomes, expectedTrips] of [
+    ['pix-pendente', 'Fiz uma corrida de 70 mas não recebi o Pix', [], 1],
+    ['comissao-negada', 'Recebi 70 pela corrida mas da comissão não recebi nada', [70], 1],
+    ['cliente-devendo-salario', 'Fiz uma corrida de 70 mas o cliente não me pagou porque não recebeu o salário', [], 1],
+    ['duas-corridas', 'Fiz uma corrida de 70 sem receber e recebi 40 de outra corrida', [40], 2],
+  ] as const) {
+    const proposal = await turn(buildState({ profile: 'driver' }), phrase)
+    const incomes = proposal.actions.filter(a => a.kind === 'income').map(a => a.amount).sort((a, b) => a - b)
+    const trips = proposal.actions.filter(a => a.kind === 'work').reduce((n, a) => n + (a.trips || 0), 0)
+    out.push(result(`E-corrida-${id}`, proposal, { incomes: expectedIncomes, trips: expectedTrips },
+      JSON.stringify(incomes) === JSON.stringify(expectedIncomes)
+        && trips === expectedTrips
+        && proposal.actions.every(a => a.kind === 'income' || a.kind === 'work')))
+  }
+  for (const [id, phrase] of [
+    ['agora', 'gastei 50 no mercado agora meu saldo é 800'],
+    ['sem-conector', 'gastei 50 no mercado meu saldo é 800'],
+  ] as const) {
+    const proposal = await turn(buildState(), phrase)
+    const applied = applyBatchPure(buildState(), proposal.actions.map((action, i) =>
+      ({ id: `anchor-no-and-${id}-${i}`, action })), { now: { date: TODAY, time: '14:00' } })
+    out.push(result(`E-ancora-${id}`, { proposal, applied }, 'despesa 50, âncora 800, histórico preservado',
+      proposal.actions.map(a => a.kind).join(',') === 'expense,balance'
+        && applied.applied && currentBalance(applied.state) === 800
+        && applied.state.transactions.length === 1
+        && applied.state.transactions[0].type === 'expense'
+        && applied.state.transactions[0].amount === 50))
+  }
+  const auditQueryState = buildState()
+  const auditEntries = [
+    ['Casa 1', 'income', 'aluguel', [1800, 1200, 600]],
+    ['Casa 1', 'income', 'outros-in', [700, 400, 200]],
+    ['Casa 2', 'income', 'aluguel', [2500, 2100, 1900]],
+    ['Casa 2', 'income', 'outros-in', [900, 800, 300]],
+    ['Casa 1', 'expense', 'casa', [300, 100, 50]],
+    ['Casa 1', 'expense', 'alimentacao', [60, 40, 100]],
+    ['Casa 2', 'expense', 'casa', [550, 450, 350]],
+    ['Casa 2', 'expense', 'alimentacao', [80, 20, 200]],
+  ] as const
+  auditQueryState.transactions = auditEntries.flatMap(([origin, type, category, amounts], row) =>
+    amounts.map((amount, month) => ({ id: `audit-${row}-${month}`, type, category, origin,
+      amount, date: `2026-${String(8 - month).padStart(2, '0')}-10` })))
+  auditQueryState.transactions.push({ id: 'audit-may', type: 'income', category: 'aluguel',
+    origin: 'Casa 2', amount: 1000, date: '2026-05-10' })
+  const spentH1 = await turn(auditQueryState, 'quanto gastei da Casa 1 em agosto')
+  const receivedH1 = await turn(auditQueryState, 'compara agosto com julho quanto recebi', spentH1.focus)
+  const receivedH1June = await turn(auditQueryState, 'e em junho', receivedH1.focus)
+  out.push(result('E-foco-recebi-explicito', { receivedH1, receivedH1June },
+    'Casa 1: receitas 2500/1600/800, rótulo recebido, sem ações',
+    receivedH1.focus?.lastQueryPlan?.filter.txType?.[0] === 'income'
+      && receivedH1.focus?.lastQuery?.total === 2500
+      && /1\.600,00/.test(receivedH1.reply)
+      && receivedH1June.focus?.lastQuery?.total === 800
+      && /total recebido/i.test(receivedH1June.reply)
+      && receivedH1.actions.length === 0 && receivedH1June.actions.length === 0))
+  const foodH1 = await turn(auditQueryState, 'quanto gastei com alimentação da Casa 1 em agosto')
+  const allH2 = await turn(auditQueryState, 'compara agosto com julho de todas as categorias da Casa 2', foodH1.focus)
+  const allH2June = await turn(auditQueryState, 'e em junho', allH2.focus)
+  out.push(result('E-todas-categorias-origem-explicita', { allH2, allH2June },
+    'Casa 2 gastos 630/470/550, sem ações nem outras origens',
+    allH2.focus?.lastQueryPlan?.filter.origin === 'casa 2'
+      && !allH2.focus?.lastQueryPlan?.filter.categories?.length
+      && allH2.focus?.lastQuery?.total === 630 && /470,00/.test(allH2.reply)
+      && allH2June.focus?.lastQuery?.total === 550
+      && allH2.actions.length === 0 && allH2June.actions.length === 0))
+  const avgH1 = await turn(auditQueryState, 'qual a média de gastos da Casa 1 em agosto')
+  const avgH2 = await turn(auditQueryState, 'compara agosto com julho da Casa 2 em gastos', avgH1.focus)
+  const avgH2June = await turn(auditQueryState, 'e em junho', avgH2.focus)
+  out.push(result('E-media-nao-vira-total', { avgH2, avgH2June },
+    'médias 315/235/275, rotuladas como média',
+    avgH2.focus?.lastQueryPlan?.metric === 'avg'
+      && avgH2.focus?.lastQuery?.total === 315 && /235,00/.test(avgH2.reply)
+      && avgH2June.focus?.lastQuery?.total === 275
+      && /m[eé]dia/i.test(avgH2.reply) && /m[eé]dia/i.test(avgH2June.reply)
+      && !/total gasto/i.test(avgH2.reply + avgH2June.reply)))
+  const foodH2 = await turn(auditQueryState, 'compara agosto com julho da Casa 2', foodH1.focus)
+  out.push(result('E-rotulo-conserva-categoria', foodH2,
+    'alimentação da Casa 2: 80/20, ambos os filtros no rótulo',
+    foodH2.focus?.lastQuery?.total === 80 && /20,00/.test(foodH2.reply)
+      && /alimenta/i.test(foodH2.reply) && /Casa 2/i.test(foodH2.reply)))
+  const incomeH2 = await turn(auditQueryState, 'compara agosto com julho da Casa 2 em receitas', spentH1.focus)
+  const incomeH2June = await turn(auditQueryState, 'e em junho', incomeH2.focus)
+  const worse = await turn(auditQueryState, 'qual foi pior?', incomeH2June.focus)
+  out.push(result('E-pior-comparativo-visivel', { incomeH2June, worse },
+    'maio 1000 foi pior que junho 2200; agosto não participa',
+    incomeH2June.focus?.lastQuery?.total === 2200
+      && incomeH2June.focus?.lastQueryPlan?.comparePeriod?.from === '2026-05-01'
+      && /maio.*pior/i.test(worse.reply) && /1\.000,00/.test(worse.reply)
+      && /2\.200,00/.test(worse.reply) && !/agosto/i.test(worse.reply)
+      && worse.actions.length === 0))
   return out
 }
 

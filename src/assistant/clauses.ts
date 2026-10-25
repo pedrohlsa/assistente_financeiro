@@ -51,6 +51,8 @@ export interface AnalyzedClause {
    * o modelo remoto participarem em vez de a ação errada fechar a frase.
    */
   suspicious?: SuspicionReason[]
+  /** Valor dito de uma corrida explicitamente não recebida: não é dinheiro faltando. */
+  unpaidRideAmount?: number
 }
 
 export interface TemporalSignal {
@@ -340,6 +342,9 @@ export function segment(text: string): { text: string; start: number; end: numbe
   for (const m of text.matchAll(/\s+e\s+(?=(?:(?:meu|o)\s+)?saldo\b)/gi)) {
     push((m.index || 0) + m[0].length)
   }
+  for (const m of text.matchAll(/\s+(?:agora\s+)?(?=(?:(?:meu|o)\s+)?saldo\s*(?:atual|[ée]|:)?\s*(?:r\$\s*)?\d)/gi)) {
+    if (/\d/.test(text.slice(0, m.index))) push((m.index || 0) + m[0].length)
+  }
   // Ditado sem pontuação: "fiz 20 reais gastei 40 ... furando o pneu foi
   // mais 30" contém fatos separados mesmo sem "e". Sem estes cortes o parser
   // escolhia um único valor e os demais desapareciam dentro da descrição.
@@ -575,6 +580,7 @@ function unaccountedMoney(clause: AnalyzedClause): number[] {
     const v: any = a
     return v.amount ?? v.cost
   }).filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+  if (clause.unpaidRideAmount !== undefined) represented.push(clause.unpaidRideAmount)
   const missing: number[] = []
   for (const m of normalized.matchAll(/(?<![\d.,])(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?![\d.,])/g)) {
     const at = m.index || 0
@@ -955,18 +961,20 @@ export function analyzeMessage(
   // porém o dinheiro não entrou. A negação está na cláusula seguinte.
   for (let i = 0; i < clauses.length; i++) {
     const clause = clauses[i]
-    const unpaid = /\b(?:(?:ainda\s+)?n[ãa]o|nunca|jamais)\s+(?:me\s+)?pag(?:ou|aram)\b|\bn[ãa]o\s+recebi(?:\s+ainda)?\s*(?:[.!?,;]|$)|\bn[ãa]o\s+recebi\s+(?:nada|um\s+centavo|o\s+valor(?:\s+ainda)?|o\s+pagamento|pela\s+corrida|da\s+corrida)\b|\bn[ãa]o\s+caiu\s+nada\b|\bn[ãa]o\s+fui\s+pag[oa]\b|\bsem\s+pagamento\b|\bfiquei\s+sem\s+receber\b|\b(?:cliente|passageiro)\s+t[áa]\s+me\s+devendo\b|\bdinheiro\s+ainda\s+n[ãa]o\s+caiu\b|\bpix\s+n[ãa]o\s+entrou\b/i.test(clause.text)
+    const unpaid = /\b(?:(?:ainda\s+)?n[ãa]o|nunca|jamais)\s+(?:me\s+)?pag(?:ou|aram)\b|\bn[ãa]o\s+recebi(?:\s+ainda)?\s*(?:[.!?,;]|$)|\bn[ãa]o\s+recebi\s+(?:nada|um\s+centavo|o\s+pix|o\s+valor(?:\s+ainda)?|o\s+pagamento|pela\s+corrida|da\s+corrida)\b|\bn[ãa]o\s+caiu\s+nada\b|\bn[ãa]o\s+fui\s+pag[oa]\b|\bsem\s+(?:pagamento|receber)\b|\bfiquei\s+sem\s+receber\b|\b(?:cliente|passageiro)\s+t[áa]\s+me\s+devendo\b|\bdinheiro\s+ainda\s+n[ãa]o\s+caiu\b|\bpix\s+n[ãa]o\s+entrou\b/i.test(clause.text)
     if (!unpaid) continue
-    // A negativa pode se referir a outra fonte de renda na mesma mensagem.
-    // Não se pode apagar uma corrida recebida por causa de salário, venda ou
-    // aluguel não pagos.
+    // O alvo da negação importa mais que a mera presença de uma palavra.
+    // "cliente não me pagou porque não recebeu salário" nega a corrida;
+    // "da comissão não recebi nada" nega outra renda, não a corrida paga.
     const negativePart = clause.text.split(/\bmas\b/i).pop() || clause.text
-    if (/\b(?:sal[áa]rio|patr[ãa]o|venda|aluguel)\b/i.test(negativePart)) continue
+    const ridePayerDenied = /\b(?:cliente|passageiro)\b[^.!?]*\bn[ãa]o\s+(?:me\s+)?pag(?:ou|aram)\b|\bn[ãa]o\s+(?:me\s+)?pag(?:ou|aram)\b[^.!?]*\b(?:cliente|passageiro)\b/i.test(negativePart)
+    if (!ridePayerDenied && /\b(?:sal[áa]rio|patr[ãa]o|venda|aluguel|comiss[ãa]o)\b/i.test(negativePart)) continue
     const previous = [...clauses.slice(0, i + 1)].reverse().find(c => /\bcorrida\b/i.test(c.text)
       && c.actions.some(a => a.kind === 'income'))
     if (!previous) continue
     const income = previous.actions.find(a => a.kind === 'income') as Extract<ParsedAction, { kind: 'income' }> | undefined
     previous.actions = previous.actions.filter(a => a !== income)
+    previous.unpaidRideAmount = income?.amount
     clause.ambiguity = { question: `O passageiro ainda não pagou os R$ ${income?.amount.toFixed(2).replace('.', ',')}? Não vou registrar essa receita antes do pagamento.`, options: [] }
     clause.handled = true
   }

@@ -14,7 +14,7 @@ import { catById } from '../../data/categories'
 import { fromISO, monthKey, monthShortLabel, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase, weekdayName } from '../../utils/text'
 import {
-  activeCards, cardById, cardInvoice, planProgress,
+  activeCards, cardById, cardInvoice, cardOutstanding, planProgress,
 } from '../../services/cards'
 import { monthlyProjections, occurrencesBetween, recurringActiveOn } from '../../services/calc'
 import type {
@@ -538,6 +538,15 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan): AssistantQu
   const caveats: string[] = []
 
   let total = ag.total
+  // Pagamento parcial de fatura reduz a dívida do CARTÃO, mas não tem vínculo
+  // com um plano específico. Só substituímos a soma na pergunta pelo cartão;
+  // atribuir o crédito a um plano individual inventaria uma alocação.
+  const cardDebt = plan.source === 'plans' && plan.field === 'remaining'
+    && plan.metric === 'sum' && plan.group === 'none' && !plan.comparePeriod
+    && plan.filter.cardNames?.length === 1 && !plan.filter.text
+    && !plan.filter.categories?.length && !plan.filter.status?.length
+    ? activeCards(state).find(c => c.name === plan.filter.cardNames![0]) : undefined
+  if (cardDebt) total = cardOutstanding(state, cardDebt.id)
   let base = 0
   if (plan.metric === 'share') {
     base = baseParaShare(state, plan)
@@ -566,7 +575,7 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan): AssistantQu
     const anterior = compareGroups ? (compareGroups.get(key) ?? 0) : undefined
     const delta = anterior === undefined ? undefined : r2(valor - anterior)
     return {
-      key, label: g.label, value: r2(valor), count: g.valores.length,
+      key, label: g.label, value: r2(cardDebt ? total : valor), count: g.valores.length,
       compareValue: anterior === undefined ? undefined : r2(anterior),
       delta,
       deltaPct: anterior !== undefined && anterior !== 0 ? Math.round(((valor - anterior) / Math.abs(anterior)) * 100) : undefined,

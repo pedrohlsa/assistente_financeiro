@@ -17,7 +17,7 @@ import {
   representedRecurringExpenseMonths,
 } from '../../services/calc'
 import {
-  activeCards, cardById, currentInvoice, nextInvoiceDueDate, splitInstallmentAmounts,
+  activeCards, cardById, currentInvoice, nextInvoiceDueDate, splitInstallmentAmounts, hasAmbiguousLegacyCardBalance,
 } from '../../services/cards'
 import { isDriver } from '../../services/profile'
 import type { AssistantFact } from '../query/types'
@@ -269,6 +269,9 @@ export function runScenario(
   const facts: AssistantFact[] = []
   const meses = Math.min(Math.max(plan.months || 6, 1), 12)
   if (plan.planningIssue) return vazio(plan, caveats, plan.planningIssue)
+  if (hasAmbiguousLegacyCardBalance(state)) {
+    return vazio(plan, caveats, 'Não consigo confirmar seu saldo com segurança. Confira o pagamento antigo da fatura e as parcelas antes de usar uma simulação de saldo.')
+  }
 
   switch (plan.kind) {
     // ----------------------------------------------------------- composto

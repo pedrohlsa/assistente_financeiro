@@ -293,6 +293,21 @@ export function upcomingInvoices(s: AppState, card: CreditCard, months = 6): Car
  * Dívida em aberto do cartão = tudo que ainda será cobrado (parcelas pendentes)
  * menos o que já foi pago em faturas. É o limite comprometido.
  */
+function unallocatedInstallmentPayments(s: AppState, cardId: string): number {
+  const card = cardById(s, cardId)
+  // Pagamento parcial da fatura não quita uma parcela específica. Só é seguro
+  // abater do total do cartão quando a fatura contém exclusivamente parcelas;
+  // com assinatura/saldo anterior não sabemos a qual obrigação atribuí-lo.
+  return (s.cardPayments || [])
+    .filter(p => p.cardId === cardId && p.settledInstallmentIds?.length === 0)
+    .reduce((sum, p) => {
+      if (!card || !/^\d{4}-\d{2}$/.test(p.referenceMonth || '')) return sum
+      const invoice = cardInvoice(s, card, p.referenceMonth)
+      return invoice.items.length && invoice.items.every(item => item.kind === 'installment')
+        ? sum + p.amount : sum
+    }, 0)
+}
+
 export function cardOutstanding(s: AppState, cardId: string): number {
   const planIds = new Set((s.installmentPlans || [])
     .filter(p => p.cardId === cardId && p.status !== 'cancelled').map(p => p.id))
@@ -308,7 +323,18 @@ export function cardOutstanding(s: AppState, cardId: string): number {
     const firstInvoice = cardInvoice(s, card, monthKey(nextInvoiceDueDate(card, card.createdAt)))
     initialLeft = Math.min(card.initialInvoiceBalance, firstInvoice.pending)
   }
-  return round2(Math.max(pending + initialLeft, 0))
+  return round2(Math.max(pending + initialLeft - unallocatedInstallmentPayments(s, cardId), 0))
+}
+
+/** Backups antigos podem contar o mesmo pagamento na parcela e na fatura. */
+export function hasAmbiguousLegacyCardBalance(s: AppState): boolean {
+  return (s.cardPayments || []).some(p => {
+    if (p.settledInstallmentIds !== undefined || !/^\d{4}-\d{2}$/.test(p.referenceMonth || '')) return false
+    const card = cardById(s, p.cardId)
+    if (!card) return false
+    const invoice = cardInvoice(s, card, p.referenceMonth)
+    return invoice.paid > invoice.total + 0.009
+  })
 }
 
 export interface CardLimits {
@@ -393,7 +419,16 @@ export function cardsOverview(s: AppState): CardsOverview {
 
   const openInvoicesTotal = round2(cards.reduce((a, c) => a + currentInvoice(s, c).pending, 0))
   const nextInvoicesTotal = round2(cards.reduce((a, c) => a + cardInvoice(s, c, nextMk).pending, 0))
-  const totalDebt = round2(activePlans(s).reduce((a, p) => a + planProgress(s, p).remainingAmount, 0))
+  const plans = activePlans(s)
+  const knownCardIds = new Set((s.cards || []).map(c => c.id))
+  const noCardDebt = plans.filter(p => !p.cardId || !knownCardIds.has(p.cardId))
+    .reduce((a, p) => a + planProgress(s, p).remainingAmount, 0)
+  const cardPlanDebt = (s.cards || []).reduce((sum, c) => {
+    const pending = plans.filter(p => p.cardId === c.id)
+      .reduce((a, p) => a + planProgress(s, p).remainingAmount, 0)
+    return sum + Math.max(pending - unallocatedInstallmentPayments(s, c.id), 0)
+  }, 0)
+  const totalDebt = round2(noCardDebt + cardPlanDebt)
   const totalLimit = round2(cards.reduce((a, c) => a + (c.limit || 0), 0))
   const usedLimit = round2(cards.reduce((a, c) => a + cardOutstanding(s, c.id), 0))
   const overdue = overdueInstallments(s)

@@ -8,7 +8,7 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
 
 ## Checkpoint vigente — 25/10/2026
 
-- Trabalho local: `feat/assistant-intelligence-v2`, a partir de `7d9096b`.
+- Trabalho local: `feat/assistant-intelligence-v2`, com último commit antes deste lote em `345d55e`.
   `.claude/launch.json` é modificação local preexistente e não pertence às entregas.
 - A produção publicada corresponde à `main` em `e6f6229`, não à Intelligence V2.
   O deployment de 25/09/2026 usa `deepseek-v4-pro` com thinking desligado;
@@ -17,16 +17,20 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
 - A V2 acrescentou consultas e cenários multi-entidade, continuidade de conversa,
   preferências locais explícitas e reconciliação parcial de cartões. Baseline
   local mais recente: 660/660 corpus, 99/99 consulta/cenário/continuidade,
-  50/50 semânticos, 147/147 adversariais, 4.088 + 3.800 metamórficos,
+  50/50 semânticos, 165/165 adversariais, 4.088 + 3.800 metamórficos,
   1.416 fuzz, 151/151 invariantes e 468/468 verificações remotas **offline**;
   typechecks, teste de dinheiro, build e rubrica passaram.
-- **NOT READY para merge/deploy.** As falhas reproduzidas pelo último Astra
-  receberam correções locais e REDs, mas o novo diff ainda precisa de auditoria
-  independente. Pagamento parcial legado sem distribuição por parcela agora tem
-  remoção recusada se ela contradisser quitações posteriores; falta um fluxo de
-  reconciliação com feedback na interface. Horários legados só com minuto não
-  permitem recuperar a ordem real. Persistência e navegador não foram
-  revalidados nesta rodada. Detalhes na última seção de [PROGRESS.md](PROGRESS.md).
+- **NOT READY para merge/deploy.** O parecer sobre `345d55e` encontrou oito
+  falhas e quatro oráculos falsamente verdes. Os REDs e correções locais cobrem
+  corridas não recebidas, âncora de saldo, foco de consulta, rótulos, comparação,
+  dívida após pagamento parcial e propagação de saldo legado ambíguo. O novo
+  diff ainda precisa de auditoria independente. Pagamento parcial legado sem
+  distribuição por parcela tem remoção recusada se contradisser quitações
+  posteriores; falta fluxo de reconciliação com feedback na interface. Fatura
+  mista não permite atribuir pagamento parcial a uma parcela específica.
+  Horários legados só com minuto não revelam a ordem real. Persistência e
+  navegador não foram revalidados neste lote. Detalhes na última seção de
+  [PROGRESS.md](PROGRESS.md).
 
 ---
 

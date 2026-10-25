@@ -570,3 +570,10 @@ checkpoint de [`CONTEXTO.md`](../CONTEXTO.md) e na última seção de
 [`PROGRESS.md`](../PROGRESS.md); os lotes anteriores estão em
 [`AI_INTELLIGENCE_V2_ASTRA_AUDIT_FOLLOWUP_3.md`](AI_INTELLIGENCE_V2_ASTRA_AUDIT_FOLLOWUP_3.md)
 e nos dois arquivos de follow-up anteriores.
+
+**Checkpoint de 25/10/2026.** Após `345d55e`, uma nova auditoria Astra
+reproduziu oito falhas financeiras/de continuidade e quatro oráculos falsamente
+verdes. Os REDs e correções estão na última seção de
+[`PROGRESS.md`](../PROGRESS.md): 165/165 casos adversariais verdes, com gates
+locais completos. **Ainda NOT READY para merge/deploy** até auditoria
+independente do novo diff; produção segue na `main`, sem V2.

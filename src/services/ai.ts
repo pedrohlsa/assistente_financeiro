@@ -30,8 +30,10 @@ import { catById } from '../data/categories'
 import { isDriver } from './profile'
 import {
   activeCards, cardInvoice, cardsOverview, currentInvoice, monthlyCommitments, activePlans,
-  planProgress, overdueInstallments, upcomingInvoices, installmentsThisMonth,
+  planProgress, overdueInstallments, upcomingInvoices, installmentsThisMonth, hasAmbiguousLegacyCardBalance,
 } from './cards'
+
+const AMBIGUOUS_BALANCE_REPLY = 'Não consigo confirmar seu saldo com segurança: há um pagamento antigo de fatura sem vínculo com as parcelas e os valores pagos excedem a fatura. Confira se os registros representam pagamentos diferentes ou o mesmo pagamento duplicado antes de usar esse saldo.'
 
 export interface AiReply {
   text: string
@@ -603,12 +605,13 @@ function resolveLocal(s: AppState, input: string): AiReply {
 
     // "como está meu mês?"
     if (/como\s+(?:est[aá]|foi)\s+(?:o\s+)?meu\s+m[eê]s|meu m[eê]s|resultado do m[eê]s|fechamento do m[eê]s/.test(t)) {
-      const bo = balanceOutlook(s, 7)
+      const ambiguousBalance = hasAmbiguousLegacyCardBalance(s)
+      const bo = ambiguousBalance ? null : balanceOutlook(s, 7)
       return {
         text: `Seu mês até agora (dados reais):\n\n` +
           `• Entrou: ${fmtBRL(mg.income)}\n• Saiu: ${fmtBRL(mg.expense)}\n• ${mg.net >= 0 ? 'Sobra do mês' : 'Déficit do mês'}: ${fmtBRL(Math.abs(mg.net))}\n` +
           (mg.target > 0 ? `• Meta para guardar: ${fmtBRL(mg.target)} (${mg.pct}% atingido)\n` : '') +
-          (bo.bills.length
+          (ambiguousBalance ? `\n${AMBIGUOUS_BALANCE_REPLY}` : bo && bo.bills.length
             ? `\nContas nos próximos 7 dias: ${fmtBRL(bo.billsSoon)} — ${bo.ok ? `seu saldo cobre e sobra ${fmtBRL(bo.leftover)}.` : `faltam ${fmtBRL(bo.shortfall)}.`}`
             : ''),
       }
@@ -690,6 +693,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
 
   // "quanto posso gastar hoje" — usa o saldo (modo banco) quando informado
   if (/quanto\s+(?:eu\s+)?(?:posso|da\s+para|consigo|poderia)\s+gastar|da\s+para\s+gastar\s+quanto/.test(t)) {
+    if (hasAmbiguousLegacyCardBalance(s)) return { text: AMBIGUOUS_BALANCE_REPLY }
     const ts = todayStats(s)
     const goal = dailyGoal(s)
     const bo = balanceOutlook(s, 7)
@@ -732,14 +736,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
 
   // "qual meu saldo" / "quanto tenho no banco"
   if (/(qual|quanto).*(saldo|no banco|na conta)|meu saldo|quanto\s+(?:eu\s+)?tenho(?:\s+(?:de\s+)?(?:dinheiro|guardado|sobrando))?\s*\??$|quanto\s+sobrou\s+(?:de\s+)?dinheiro/.test(t)) {
-    const ambiguousPayment = (s.cardPayments || []).find(p => {
-      if (p.settledInstallmentIds !== undefined || !/^\d{4}-\d{2}$/.test(p.referenceMonth || '')) return false
-      const card = s.cards.find(c => c.id === p.cardId)
-      if (!card) return false
-      const invoice = cardInvoice(s, card, p.referenceMonth)
-      return invoice.paid > invoice.total + 0.009
-    })
-    if (ambiguousPayment) return { text: 'Não consigo confirmar seu saldo com segurança: há um pagamento antigo de fatura sem vínculo com as parcelas e os valores pagos excedem a fatura. Confira se os registros representam pagamentos diferentes ou o mesmo pagamento duplicado antes de usar esse saldo.' }
+    if (hasAmbiguousLegacyCardBalance(s)) return { text: AMBIGUOUS_BALANCE_REPLY }
     const bo = balanceOutlook(s, 7)
     if (currentBalance(s) === 0) return { text: 'Seu saldo em conta está zerado. Toque em "Saldo em conta" na tela inicial, ou me diga "meu saldo é 1500".' }
     return {
@@ -1037,6 +1034,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // "contas" e a lista a capturava primeiro.
   if (/\b(?:cobre|cobrem|cobrir|d[áa]\s+(?:pra|para)\s+pagar|consigo\s+pagar|vou\s+conseguir\s+pagar|tenho\s+(?:saldo|dinheiro)\s+(?:pra|para))\b/.test(t)
     && /\bcontas?\b|\bvencer\b|\bvencimento\b|\bfatura\b/.test(t)) {
+    if (hasAmbiguousLegacyCardBalance(s)) return { text: AMBIGUOUS_BALANCE_REPLY }
     const bo = balanceOutlook(s, 15)
     if (!bo.bills.length) return { text: 'Você não tem conta fixa cadastrada vencendo nos próximos 15 dias, então não há o que cobrir.' }
     const lista = bo.bills.map(b => `• ${sentenceCase(b.name)}: ${fmtBRL(b.amount)} — ${dueLabel(b.inDays).toLowerCase()}`).join('\n')
@@ -1068,7 +1066,8 @@ function resolveLocal(s: AppState, input: string): AiReply {
   if (/resumo|como estou|situa[çc][aã]o|como\s+(?:esta|foi|vai|anda)\s+(?:o\s+)?meu\s+m[eê]s|meu m[eê]s(?:\s|\?|$)|como\s+(?:esta|foi)\s+(?:o\s+)?m[eê]s/.test(t)) {
     if (!driverMode) {
       const mg = monthlySavingGoal(s)
-      const bo = balanceOutlook(s, 7)
+      const ambiguousBalance = hasAmbiguousLegacyCardBalance(s)
+      const bo = ambiguousBalance ? null : balanceOutlook(s, 7)
       const bills = upcomingBills(s, 7)
       const inst = installmentsThisMonth(s)
       return {
@@ -1079,7 +1078,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
           `• Já guardado de verdade: ${fmtBRL(mg.saved)}\n` +
           (mg.target > 0 ? `• Meta mensal para guardar: ${fmtBRL(mg.target)} (${mg.pct}% atingido)\n` : '') +
           (inst > 0 ? `• Parcelas e faturas que vencem neste mês: ${fmtBRL(inst)}\n` : '') +
-          (bills.length
+          (ambiguousBalance ? `\n${AMBIGUOUS_BALANCE_REPLY}` : bills.length && bo
             ? `\nContas nos próximos 7 dias: ${fmtBRL(bo.billsSoon)} — ${bo.ok ? `seu saldo cobre e sobra ${fmtBRL(bo.leftover)}.` : `faltam ${fmtBRL(bo.shortfall)}.`}`
             : '\nNenhuma conta cadastrada vence nos próximos 7 dias.'),
       }

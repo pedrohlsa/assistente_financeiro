@@ -36,6 +36,8 @@ export const FOCUS_TTL_MINUTES = 20
 export interface QuerySummary {
   label: string
   total: number
+  /** Segundo número mostrado na última resposta, quando ela comparou períodos. */
+  compareTotal?: number
   unit: FactUnit
   period: QueryPeriod
   groups: { key: string; label: string; value: number; delta?: number }[]
@@ -117,6 +119,7 @@ export function rememberQuery(
     lastQuery: {
       label: plan.label || 'Total',
       total: result.total,
+      compareTotal: result.compareTotal,
       unit: result.unit,
       period: plan.period,
       groups: result.groups.slice(0, 8).map(g => ({ key: g.key, label: g.label, value: g.value, delta: g.delta })),
@@ -434,21 +437,26 @@ function refinaConsulta(
       && outroPlano.metric === base.metric && outroPlano.field === base.field
       && JSON.stringify(outroPlano.filter) === JSON.stringify(base.filter)
     const tipo = base.filter.txType
-    if (anterior && atual && mesmoRecorte && base.metric === 'sum'
+    // A última resposta pode já ter mostrado DOIS períodos. Nesse caso o
+    // comparativo visível vence uma consulta ainda mais antiga da conversa.
+    const comparado = atual?.compareTotal !== undefined && base.comparePeriod
+      ? { ...atual, total: atual.compareTotal, period: base.comparePeriod }
+      : mesmoRecorte ? anterior : undefined
+    if (comparado && atual && base.metric === 'sum'
       && tipo?.length === 1 && (tipo[0] === 'expense' || tipo[0] === 'income')) {
       const maiorPior = tipo[0] === 'expense'
       const querPior = /pior/.test(t)
       const aVence = querPior
-        ? (maiorPior ? atual.total > anterior.total : atual.total < anterior.total)
-        : (maiorPior ? atual.total < anterior.total : atual.total > anterior.total)
-      const vencedor = aVence ? atual : anterior
-      const perdedor = aVence ? anterior : atual
+        ? (maiorPior ? atual.total > comparado.total : atual.total < comparado.total)
+        : (maiorPior ? atual.total < comparado.total : atual.total > comparado.total)
+      const vencedor = aVence ? atual : comparado
+      const perdedor = aVence ? comparado : atual
       const nome = (q: QuerySummary) => q.period.grain === 'month'
         ? fromISO(q.period.from).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
         : q.period.label
       const medida = maiorPior ? 'gastos' : 'receitas'
-      if (atual.total === anterior.total) return { kind: 'explain', text:
-        `Empataram em ${medida}: ${nome(atual)} e ${nome(anterior)} tiveram ${fmtBRL(atual.total)}.` }
+      if (atual.total === comparado.total) return { kind: 'explain', text:
+        `Empataram em ${medida}: ${nome(atual)} e ${nome(comparado)} tiveram ${fmtBRL(atual.total)}.` }
       return { kind: 'explain', text:
         `${nome(vencedor)} foi ${querPior ? 'pior' : 'melhor'} em ${medida}: ${fmtBRL(vencedor.total)}, contra ${fmtBRL(perdedor.total)} em ${nome(perdedor)}.` }
     }
@@ -478,7 +486,7 @@ function refinaConsulta(
         const explicitCategory = !!novo.plan.filter.categories?.length
         const allCategories = /\b(?:todas?\s+as\s+categorias|no\s+total|total\s+geral|em\s+geral|de\s+tudo)\b/.test(t)
         const explicitOrigin = !!novo.plan.filter.origin || !!novo.plan.filter.origins?.length
-        const explicitType = /\b(?:gastos?|despesas?|receitas?|entradas?|renda|ganhos?|recebid[oa]s?)\b/.test(t)
+        const explicitType = /\b(?:gastos?|despesas?|receitas?|entradas?|renda|ganhos?|recebid[oa]s?|receb(?:i|o|er)|ganh(?:ei|o|ar)|gast(?:ei|o|ar)|pagu(?:ei|e)|pagar)\b/.test(t)
         // O plano novo serve para identificar um recorte explicitamente pedido.
         // Seus defaults (como txType=expense) e texto residual não podem trocar
         // a medida da consulta anterior nem contaminar os próximos turnos.
@@ -491,16 +499,24 @@ function refinaConsulta(
         if (explicitType) filter.txType = novo.plan.filter.txType
         if (allCategories) {
           delete filter.categories
-          delete filter.origin
-          delete filter.origins
           delete filter.text
+          if (!explicitOrigin) {
+            delete filter.origin
+            delete filter.origins
+          }
         }
         const basePrefix = base.label.split(' - ')[0]
-        const newPrefix = novo.plan.label.split(' - ')[0]
-        const newScope = novo.plan.label.slice(newPrefix.length)
-        const oldScope = base.label.slice(basePrefix.length)
-        const label = `${explicitType ? newPrefix : basePrefix}${allCategories ? ''
-          : explicitCategory || explicitOrigin ? newScope : oldScope}`
+        const sumPrefix = filter.txType?.length === 1
+          ? filter.txType[0] === 'income' ? 'Total recebido'
+            : filter.txType[0] === 'saving' ? 'Total guardado' : 'Total gasto'
+          : basePrefix
+        const prefix = base.source === 'transactions' && base.metric === 'sum' ? sumPrefix : basePrefix
+        const scopes = [
+          ...(filter.categories || []).map(id => state.categories.find(c => c.id === id)?.name || id),
+          ...(filter.origins || (filter.origin ? [filter.origin] : [])).map(sentenceCase),
+          ...(filter.text ? [sentenceCase(filter.text)] : []),
+        ]
+        const label = scopes.length ? `${prefix} - ${scopes.join(' - ')}` : prefix
         return { kind: 'query', planned: { ...novo, plan: { ...novo.plan,
           source: base.source, metric: base.metric, field: base.field, filter,
           label } } }
