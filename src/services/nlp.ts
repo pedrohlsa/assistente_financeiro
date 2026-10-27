@@ -78,10 +78,14 @@ const DESC_STOPWORDS = new Set([
  * Remoção no meio destruiria nomes legítimos ("gás de cozinha",
  * "material de construção"), por isso nunca é feita.
  */
+const VERBO_NO_INICIO = new Set(['gasto', 'gastos', 'pago', 'compro'])
+
 export function cleanDescription(raw?: string): string | undefined {
   if (!raw) return undefined
   const words = raw.toLowerCase().replace(/[.,;!?]+$/g, '').split(/\s+/).filter(Boolean)
-  while (words.length && DESC_STOPWORDS.has(words[0])) words.shift()
+  // O verbo no presente só sai do INÍCIO: "gasto 50 de luz" gravava "Gasto de
+  // luz", mas no fim o "pago" é nome ("Mercado Pago").
+  while (words.length && (DESC_STOPWORDS.has(words[0]) || VERBO_NO_INICIO.has(words[0]))) words.shift()
   while (words.length && DESC_STOPWORDS.has(words[words.length - 1])) words.pop()
   const out = words.join(' ').trim()
   // Um número sozinho nunca descreve um gasto: "gastei 20 e 30" deixava a

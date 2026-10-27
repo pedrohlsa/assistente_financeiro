@@ -4443,6 +4443,16 @@ casos no grupo PM (os 2 vermelhos antes). Gates: 666/666, 99/99, 50/50,
 **403/403**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
 build, rubrica, varredura e `git diff --check` passaram.
 
+## 2026-10-27 — verbo no presente fora da descrição
+
+"Gasto 50 de luz" gravava a descrição "Gasto de luz"; "pago 80 de internet
+hoje", "Pago de internet"; "gasto de 50 no mercado", "Gasto de no mercado".
+A limpeza da descrição tira "gasto/gastos/pago/compro" só do INÍCIO — no fim,
+"pago" é nome ("Mercado Pago" continua inteiro). 4 casos no grupo DS (3
+vermelhos antes, 1 controle). Gates: 666/666, 99/99, 50/50, **407/407**,
+metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica,
+varredura e `git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `73c8d24`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800
@@ -4455,8 +4465,6 @@ precisam de auditoria independente; navegador, persistência real e dados
 legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas:
-- "Gasto 50 de luz" grava a descrição "Gasto de luz" (o verbo entra na
-  descrição).
 - Rótulo da consulta perde o acento do texto buscado ("Ze da esquina").
 - "E se eu gastar 500 esse mês" simula como gasto de hoje ("Se você gastar
   R$ 500,00 hoje").

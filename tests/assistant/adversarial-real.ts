@@ -2542,6 +2542,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // O verbo no presente não é descrição: "gasto 50 de luz" gravava "Gasto de
+  // luz", e "gasto de 50 no mercado", "Gasto de no mercado". "Mercado Pago"
+  // continua com o "pago" — ali ele é nome.
+  {
+    const clt = buildState({ profile: 'clt' })
+    for (const [frase, desc] of [['gasto 50 de luz', 'Luz'], ['pago 80 de internet hoje', 'Internet'], ['gasto de 50 no mercado', 'Mercado'],
+      ['gastei 50 no mercado pago', 'Mercado pago']]) {
+      const r = await turnoHoje(clt, frase)
+      out.push(result(`DS-${frase.replace(/\W+/g, '-')}`, r.actions, `descrição "${desc}"`,
+        r.actions.some(a => a.kind === 'expense' && a.amount > 0 && a.description === desc)))
+    }
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.
