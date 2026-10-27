@@ -20,9 +20,11 @@ import {
 import { promptSafe, sentenceCase } from '../utils/text'
 import { MAX_COMPOSE_FACTS } from '../assistant/grounding'
 import {
-  analyzeRide, avgDailyProfit, balanceOutlook, bestWorstDay, currentBalance, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
+  analyzeRide, avgDailyProfit, balanceOutlook, bestWorstDay, cashObligationsUntil, currentBalance, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
   monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections, budgetUsage,
 } from './calc'
+import type { CashObligation } from './calc'
+import { alvoDaReserva, pedeContaQueAperta, pedeReservaDeCaixa } from '../assistant/cashQuestions'
 import { describeAction, parseNaturalFull } from './nlp'
 import { driverInsight } from '../assistant/driverInsights'
 import { adaptiveEnabled, buildPersonalModel } from '../assistant/personalModel'
@@ -34,6 +36,27 @@ import {
 } from './cards'
 
 const AMBIGUOUS_BALANCE_REPLY = 'Não consigo confirmar seu saldo com segurança: há um pagamento antigo de fatura sem vínculo com as parcelas e os valores pagos excedem a fatura. Confira se os registros representam pagamentos diferentes ou o mesmo pagamento duplicado antes de usar esse saldo.'
+
+const round2 = (v: number) => Math.round(v * 100) / 100
+/** 'DD/MM' montado à mão: a forma da string do ICU muda com o aparelho. */
+const diaMes = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
+const nomeDaObrigacao = (o: CashObligation) => sentenceCase(o.name)
+const somaDe = (itens: CashObligation[]) => round2(itens.reduce((a, o) => a + o.amount, 0))
+const listaDeNomes = (nomes: string[]) => nomes.length < 2 ? nomes.join('')
+  : `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}`
+/**
+ * Conta fixa vencida sem confirmação pode ter sido paga e não marcada. Somar
+ * como dívida inflava a reserva; esconder escondia um atraso real. Fica à parte.
+ */
+function semConfirmacao(itens: CashObligation[]): string {
+  const sem = itens.filter(o => o.unconfirmed)
+  if (!sem.length) return ''
+  const nomes = listaDeNomes([...new Set(sem.map(nomeDaObrigacao))])
+  return `${sem.length === 1 ? 'Há 1 vencimento de conta fixa' : `Há ${sem.length} vencimentos de contas fixas`} sem confirmação — ${nomes}, somando ${fmtBRL(somaDe(sem))}. Se ainda não pagou, some esse valor; se já pagou, confirme na tela inicial.`
+}
+const linhasDeObrigacao = (itens: CashObligation[]) => itens
+  .map(o => `• ${nomeDaObrigacao(o)}: ${fmtBRL(o.amount)} — ${dueLabel(o.inDays).toLowerCase()}`)
+  .join('\n')
 
 export interface AiReply {
   text: string
@@ -430,6 +453,88 @@ export function normalizeQuestion(input: string): string {
 function resolveLocal(s: AppState, input: string): AiReply {
   const t = normalizeQuestion(input)
   const driverMode = isDriver(s.settings)
+
+  // "Quanto preciso deixar parado até dia 10": o que está CADASTRADO para sair
+  // até a data, inclusive o que já venceu. Antes a frase virava o gasto do mês
+  // ou uma pergunta de "qual mês?" — o próximo dia 10 é o que todo mundo entende.
+  if (pedeReservaDeCaixa(t)) {
+    const alvo = alvoDaReserva(t, todayISO())
+    if (alvo.kind === 'missing') {
+      return { text: 'Até quando você quer deixar o dinheiro separado? Me diga o dia — por exemplo, “até dia 10” — que eu somo as contas, faturas e parcelas cadastradas até lá.' }
+    }
+    if (alvo.kind === 'invalid') {
+      return { text: `Não existe dia ${alvo.dia} no calendário. Me diga outro dia — por exemplo, “até dia 10”.` }
+    }
+    if (hasAmbiguousLegacyCardBalance(s)) return { text: AMBIGUOUS_BALANCE_REPLY }
+    const todas = cashObligationsUntil(s, alvo.date)
+    const certas = todas.filter(o => !o.unconfirmed)
+    const ate = diaMes(alvo.date)
+    const partes: string[] = []
+    if (certas.length) {
+      partes.push(`Até ${ate}, deixe pelo menos ${fmtBRL(somaDe(certas))} para o que está cadastrado:\n\n${linhasDeObrigacao(certas)}`)
+    } else {
+      partes.push(`Nada cadastrado tem vencimento certo até ${ate}.`)
+    }
+    const pendentes = semConfirmacao(todas)
+    if (pendentes) partes.push(pendentes)
+    partes.push('Gastos do dia a dia, como mercado e combustível, não estão cadastrados e ficam fora dessa conta.')
+    if (certas.length) {
+      const saldo = currentBalance(s)
+      const total = somaDe(certas)
+      partes.push(saldo >= total - 0.009
+        ? `Seu saldo de ${fmtBRL(saldo)} cobre esse valor e sobram ${fmtBRL(round2(saldo - total))}.`
+        : `Seu saldo é ${fmtBRL(saldo)} — faltam ${fmtBRL(round2(total - saldo))} para cobrir.`)
+    }
+    return { text: partes.join('\n\n') }
+  }
+
+  // "Qual conta está me apertando?" pede uma comparação, não uma lista crua.
+  // Fatura ou parcela vencida aperta mais que qualquer conta futura; depois vêm
+  // valor e prazo, que são critérios diferentes e por isso aparecem os dois.
+  if (pedeContaQueAperta(t)) {
+    const todas = cashObligationsUntil(s, addDays(todayISO(), 30))
+    const pendentes = semConfirmacao(todas)
+    const atrasadas = todas.filter(o => o.inDays < 0 && !o.unconfirmed)
+    const futuras = todas.filter(o => o.inDays >= 0)
+    if (!atrasadas.length && !futuras.length) {
+      return { text: ['Nenhuma conta, fatura ou parcela cadastrada vence nos próximos 30 dias, e nada está atrasado.', pendentes].filter(Boolean).join('\n\n') }
+    }
+    const partes: string[] = []
+    if (atrasadas.length === 1) {
+      partes.push(`O que mais aperta é o que já venceu: ${nomeDaObrigacao(atrasadas[0])}, ${fmtBRL(atrasadas[0].amount)} (${dueLabel(atrasadas[0].inDays).toLowerCase()}).`)
+    } else if (atrasadas.length > 1) {
+      partes.push(`O que mais aperta é o que já venceu: ${atrasadas.length} itens atrasados somando ${fmtBRL(somaDe(atrasadas))}.\n\n${linhasDeObrigacao(atrasadas)}`)
+    }
+    if (futuras.length) {
+      const maior = Math.max(...futuras.map(o => o.amount))
+      const topo = futuras.filter(o => Math.abs(o.amount - maior) < 0.005)
+      const proxima = futuras[0]
+      const quando = (o: CashObligation) => dueLabel(o.inDays).toLowerCase()
+      const abre = atrasadas.length ? 'Nos próximos 30 dias, ' : ''
+      if (topo.length > 1) {
+        partes.push(`${abre}${topo.length === futuras.length ? 'as contas empatam' : `${topo.length} empatam como as maiores`} em ${fmtBRL(maior)}: ${topo.map(o => `${nomeDaObrigacao(o)} (${quando(o)})`).join(', ')}.`)
+      } else {
+        partes.push(`${abre}${abre ? 'a' : 'A'} maior é ${nomeDaObrigacao(topo[0])}: ${fmtBRL(topo[0].amount)} (${quando(topo[0])}).`)
+      }
+      if (!topo.includes(proxima)) {
+        partes.push(`A próxima a vencer é ${nomeDaObrigacao(proxima)}: ${fmtBRL(proxima.amount)} (${quando(proxima)}).`)
+      } else if (topo.length === 1 && futuras.length > 1) {
+        partes.push('Ela também é a próxima a vencer.')
+      }
+    }
+    if (pendentes) partes.push(pendentes)
+    if (hasAmbiguousLegacyCardBalance(s)) {
+      partes.push(AMBIGUOUS_BALANCE_REPLY)
+    } else {
+      const saldo = currentBalance(s)
+      const total = somaDe([...atrasadas, ...futuras])
+      const alcance = atrasadas.length ? 'em atraso e a vencer nos próximos 30 dias' : 'a vencer nos próximos 30 dias'
+      partes.push(saldo >= total - 0.009
+        ? `Seu saldo de ${fmtBRL(saldo)} cobre os ${fmtBRL(total)} ${alcance}.`
+        : `Seu saldo de ${fmtBRL(saldo)} não cobre os ${fmtBRL(total)} ${alcance} — faltam ${fmtBRL(round2(total - saldo))}.`)
+    }
+    return { text: partes.join('\n\n') }
+  }
 
   // Intenção de conversar/avisar o que virá não é um pedido de resumo.
   if (/\b(?:vou|posso|quero)\s+(?:te\s+)?(?:passar|falar|dizer|mandar)\b/.test(t) && !/\b\d+(?:[.,]\d+)*\b/.test(t)) {

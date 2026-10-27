@@ -3483,3 +3483,43 @@ fatura mista não podem ser inventadas. Persistência e navegador não foram
 revalidados neste lote. Sem chamadas remotas pagas, push, merge, deploy ou
 APK. `.claude/launch.json` segue como alteração local preexistente, fora das
 entregas.
+
+## 2026-10-27 — caixa futuro: reserva até uma data e conta que aperta
+
+O `probe:redteam -- imovel` mostrou duas respostas deslocadas. Um primeiro
+ajuste em `ai.ts` (não commitado) trocava o gasto do mês por perguntas fixas,
+mas a leitura humana de variantes mostrou que ele ainda errava: ecoava "dia 10"
+para "até o dia 5" e "fim do mês", sequestrava "quanto preciso reservar pra
+viagem" e, sobretudo, dizia que a conta que apertava era a Luz de R$ 180 com
+uma fatura do Inter atrasada e a do Nubank vencendo no dia seguinte. Variantes
+naturais caíam em "você já bateu a meta de hoje" (motorista), "total gasto este
+mês" ("qual boleto tá me apertando") ou na recusa "não consegui ler: conta ate".
+
+- `src/assistant/cashQuestions.ts` reconhece as duas intenções e a data-limite.
+  "Dia N" sem mês é o próximo dia N; dia inexistente é recusado; sem data, o app
+  pergunta até quando. Pergunta de meta ("pra viagem", "por mês") não é reserva.
+  O planejador da DSL recusa essas frases e o roteador antigo responde.
+- `cashObligationsUntil()` em `calc.ts` lista o que está cadastrado para sair até
+  a data: contas fixas não resolvidas, pendente de cada fatura (parcela de cartão
+  só pela fatura, regra 10) e parcelas fora de cartão, inclusive vencidas.
+  Conta fixa vencida **sem confirmação** fica à parte e nunca é somada como
+  dívida certa. Fatura cujas parcelas estão marcadas como pagas sem data
+  (backup antigo) não vira atraso: o limite é o pendente pelo status de cada item.
+- A resposta de "qual conta aperta" põe o vencido primeiro, depois a maior e a
+  próxima a vencer (empate é dito), e compara com o saldo; com saldo legado
+  ambíguo, a reserva recusa o número e o aperto não afirma cobertura.
+
+14 casos novos em `adversarial-real.ts`, montados em volta do relógio real
+porque o roteador antigo lê `todayISO()` (regra 35), e 6 no corpus
+`falareal`. Duas mutações da implementação (sem a guarda por status; conta sem
+confirmação somada como certa) deixam 8 desses casos vermelhos.
+
+Gates: 666/666 corpus, 99/99, 50/50, **179/179 adversariais**, 4.088 + 3.800
+metamórficos, 1.416 fuzz, 151/151 invariantes, 468/468 offline; `typecheck`,
+`typecheck:api`, `test:money`, `build`, `git diff --check` passaram. Rubrica:
+0 perigosa, 0 ruim, 6 aceitáveis, 84 excelentes.
+
+**Fora deste lote, de propósito:** "o que vence essa semana" e "minhas contas
+cobrem até dia 10?" ainda olham só contas fixas (sem faturas) e uma janela fixa
+de 15 dias; `balanceOutlook` na Home também. **Ainda NOT READY para
+merge/deploy.** Sem chamadas pagas, push, merge, deploy ou APK.

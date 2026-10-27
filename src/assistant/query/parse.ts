@@ -30,6 +30,7 @@ import { addDays, fromISO, todayISO, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase } from '../../utils/text'
 import { isDriver } from '../../services/profile'
 import { buildPersonalModel, adaptiveEnabled } from '../personalModel'
+import { pedeContaQueAperta, pedeReservaDeCaixa } from '../cashQuestions'
 import {
   currentMonthToDate, monthPeriod, nextMonths, parseFutureMonth, parsePeriod, previousPeriod,
 } from './period'
@@ -130,6 +131,9 @@ const NAO_E_CONSULTA = [
 export function looksLikeDataQuestion(input: string): boolean {
   const t = normalizeQuery(input)
   if (NAO_E_CONSULTA.some(re => re.test(t))) return false
+  // Caixa FUTURO: a DSL soma o passado, e estas perguntas olham o que ainda
+  // vai vencer. O roteador antigo responde com `cashObligationsUntil()`.
+  if (pedeReservaDeCaixa(t) || pedeContaQueAperta(t)) return false
   return PEDE_DADO.some(re => re.test(t))
 }
 

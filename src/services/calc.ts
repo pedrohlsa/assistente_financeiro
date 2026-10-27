@@ -788,6 +788,92 @@ export function balanceOutlook(s: AppState, horizon = 7): BalanceOutlook {
   return { balance, billsSoon, horizon, bills, shortfall, leftover, needPerDay, ok: shortfall <= 0.01 }
 }
 
+export interface CashObligation {
+  name: string
+  amount: number
+  date: string
+  /** Negativo: já venceu e continua em aberto. */
+  inDays: number
+  kind: 'bill' | 'invoice' | 'installment'
+  /**
+   * Conta fixa que venceu sem confirmação. Pode ter sido paga e não marcada —
+   * por isso nunca é somada como dívida certa (regra 7: recorrente só pergunta).
+   */
+  unconfirmed?: boolean
+}
+
+/** Meses para trás em que uma fatura ainda em aberto conta como atrasada. */
+const OBLIGATION_LOOKBACK_MONTHS = 12
+
+/**
+ * Tudo que está CADASTRADO para sair do caixa até `until` (inclusive), junto
+ * com o que já venceu e segue em aberto: conta fixa não resolvida, o pendente
+ * de cada fatura e parcela fora de cartão. `balanceOutlook` olha só as contas
+ * fixas — com uma fatura atrasada, "qual conta tá me apertando" respondia a
+ * conta de luz.
+ *
+ * Parcela de cartão entra pela FATURA, nunca sozinha (regra 10). Gasto
+ * variável não entra: não existe cadastro dele, e uma média aqui seria
+ * previsão com cara de compromisso.
+ */
+export function cashObligationsUntil(s: AppState, until: string): CashObligation[] {
+  const t = todayISO()
+  const today = fromISO(t)
+  const inDays = (iso: string) => Math.round((fromISO(iso).getTime() - today.getTime()) / 86400000)
+  const out: CashObligation[] = []
+
+  // Atrasadas e de hoje: a mesma lista de pendências da Home.
+  for (const p of pendingRecurrings(s)) {
+    if (p.kind !== 'expense' || p.dueDate > until) continue
+    out.push({ name: p.rec.name, amount: p.rec.amount, date: p.dueDate, inDays: p.inDays, kind: 'bill',
+      ...(p.inDays < 0 ? { unconfirmed: true } : {}) })
+  }
+  if (until > t) {
+    for (const b of upcomingBills(s, inDays(until))) {
+      if (b.inDays > 0) out.push({ name: b.name, amount: b.amount, date: b.date, inDays: b.inDays, kind: 'bill' })
+    }
+  }
+
+  const last = fromISO(until)
+  const plans = new Map((s.installmentPlans || []).map(p => [p.id, p]))
+  const byNumber = new Map((s.installments || []).map(i => [`${i.planId}#${i.number}`, i]))
+  for (const card of activeCards(s)) {
+    for (let back = OBLIGATION_LOOKBACK_MONTHS; ; back--) {
+      const d = new Date(today.getFullYear(), today.getMonth() - back, 1)
+      if (d > last) break
+      const inv = cardInvoice(s, card, monthKey(toISO(d)))
+      if (inv.pending <= 0.009 || inv.dueDate > until) continue
+      // Parcela marcada como paga sem data (backup antigo) não entra no "pago"
+      // da fatura, e a fatura aparecia atrasada com tudo quitado. O que o
+      // usuário marcou como pago não é compromisso: o limite é o que segue
+      // pendente pelo STATUS de cada item.
+      const porStatus = inv.items.reduce((sum, it) => {
+        if (it.kind !== 'installment') return sum + it.amount
+        const inst = byNumber.get(`${it.planId}#${it.installmentNumber}`)
+        if (!inst || inst.status !== 'pending') return sum
+        return sum + it.amount - Math.min(Math.max(inst.paidAmount || 0, 0), it.amount)
+      }, 0)
+      const amount = Math.round(Math.min(inv.pending, porStatus) * 100) / 100
+      if (amount > 0.009) {
+        out.push({ name: `Fatura ${card.name}`, amount, date: inv.dueDate, inDays: inDays(inv.dueDate), kind: 'invoice' })
+      }
+    }
+  }
+
+  const cardIds = new Set(activeCards(s).map(c => c.id))
+  for (const i of s.installments || []) {
+    const plan = plans.get(i.planId)
+    if (!plan || plan.status === 'cancelled' || i.status !== 'pending' || i.dueDate > until) continue
+    if (plan.cardId && cardIds.has(plan.cardId)) continue
+    const left = Math.round((i.amount - Math.min(Math.max(i.paidAmount || 0, 0), i.amount)) * 100) / 100
+    if (left > 0.009) {
+      out.push({ name: `${plan.description} (${i.number}/${i.total})`, amount: left, date: i.dueDate, inDays: inDays(i.dueDate), kind: 'installment' })
+    }
+  }
+
+  return out.sort((a, b) => a.inDays - b.inDays || b.amount - a.amount)
+}
+
 // ---------- ORÇAMENTOS (seção 26) ----------
 export function budgetUsage(s: AppState, category: string): number {
   const t = todayISO()

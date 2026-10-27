@@ -7,7 +7,7 @@ import { cardInvoice, cardOutstanding, cardsOverview } from '../../src/services/
 import { applyBatchPure } from '../../src/assistant/execute'
 import { applyPreferenceAliases } from '../../src/assistant/preferences'
 import { hydrateForTest, reducer } from '../../src/store/store'
-import { nowPaymentTime, nowStamp } from '../../src/utils/format'
+import { addDays, nowPaymentTime, nowStamp, todayISO } from '../../src/utils/format'
 import { autonomoRico } from '../fixtures/richState'
 import { buildState } from './harness'
 
@@ -1273,7 +1273,133 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && /maio.*pior/i.test(worse.reply) && /1\.000,00/.test(worse.reply)
       && /2\.200,00/.test(worse.reply) && !/agosto/i.test(worse.reply)
       && worse.actions.length === 0))
+
+  // Caixa FUTURO pelo roteador antigo, que lê o relógio real (regra 35): o
+  // estado é montado em volta de hoje. Oráculos calculados à mão:
+  //   até hoje+10 → fatura Inter atrasada 300 + Internet 100 + Aluguel 900 = 1.300;
+  //   Água de hoje−15 venceu SEM confirmação (50) e fica à parte;
+  //   a fatura do Nubank tem a parcela marcada como paga e não é compromisso.
+  const hoje = todayISO()
+  const alvo = addDays(hoje, 10)
+  const dd = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
+  const deslocada = /total gasto|meta de hoje|n[ãa]o consegui ler|pr[óo]ximas contas|de qual m[êe]s|bateu a meta/i
+  for (const [id, perfil, frase] of [
+    ['F-reserva-parado', 'autonomo', `quanto eu preciso deixar parado ate dia ${Number(alvo.slice(8, 10))}`],
+    ['F-reserva-na-conta', 'autonomo', `quanto preciso deixar na conta ate dia ${Number(alvo.slice(8, 10))}`],
+    ['F-reserva-separar-motorista', 'driver', `quanto tenho que separar pras contas ate dia ${Number(alvo.slice(8, 10))}`],
+    ['F-reserva-ter-pro-dia', 'driver', `qnt preciso ter na conta pro dia ${Number(alvo.slice(8, 10))}`],
+  ] as const) {
+    const st = estadoDeCaixaFuturo(hoje, 2000, perfil)
+    const antes = JSON.stringify(st)
+    const r = await turn(st, frase)
+    out.push(result(id, r.reply, `até ${dd(alvo)}: R$ 1.300 certos, Água 50 sem confirmação, sobram R$ 700`,
+      r.actions.length === 0 && JSON.stringify(st) === antes
+        && r.reply.startsWith(`Até ${dd(alvo)}, deixe pelo menos R$`) && /1\.300,00/.test(r.reply)
+        && /Fatura Inter: R\$\s300,00/.test(r.reply) && /Aluguel: R\$\s900,00/.test(r.reply)
+        && /Internet: R\$\s100,00/.test(r.reply) && !/Nubank/.test(r.reply)
+        && /sem confirma[çc][ãa]o — [ÁA]gua, somando R\$\s50,00/.test(r.reply)
+        && /sobram R\$\s700,00/.test(r.reply) && !deslocada.test(r.reply)))
+  }
+  {
+    const st = estadoDeCaixaFuturo(hoje, 2000, 'autonomo')
+    const dia5 = await turn(st, 'quanto devo deixar reservado até o dia 5')
+    const alvo5 = (() => {
+      const d = Number(hoje.slice(8, 10))
+      const [y, m] = hoje.split('-').map(Number)
+      return d <= 5 ? `${hoje.slice(0, 8)}05` : `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-05`
+    })()
+    const semDia = await turn(st, 'quanto preciso deixar parado pras contas')
+    const dia32 = await turn(st, 'quanto preciso reservar ate dia 32')
+    const meta = await turn({ ...st, goals: [{ id: 'g-viagem', name: 'Viagem', target: 6000, saved: 4800, createdAt: hoje }] },
+      'quanto preciso reservar pra viagem')
+    out.push(result('F-reserva-ecoa-o-dia-pedido', dia5.reply, `data ${dd(alvo5)}, nunca "dia 10" fixo`,
+      dia5.reply.startsWith(`Até ${dd(alvo5)}`) && !/dia 10/.test(dia5.reply)))
+    out.push(result('F-reserva-sem-data-pergunta', semDia.reply, 'pergunta até quando, sem número',
+      /at[ée] quando/i.test(semDia.reply) && !/R\$/.test(semDia.reply)))
+    out.push(result('F-reserva-dia-inexistente', dia32.reply, 'recusa o dia 32, sem número',
+      /dia 32/.test(dia32.reply) && !/R\$/.test(dia32.reply)))
+    out.push(result('F-reserva-nao-sequestra-meta', meta.reply, 'responde a meta Viagem (falta R$ 1.200)',
+      /viagem/i.test(meta.reply) && /1\.200,00/.test(meta.reply) && !/deixe pelo menos/i.test(meta.reply)))
+  }
+  {
+    // Total do aperto: atrasada 300 + Internet 100 + Aluguel 900 + Água (a
+    // próxima, dentro de 30 dias) 50 = 1.350. A maior futura é o Aluguel; a
+    // mais próxima é a Internet.
+    for (const frase of ['qual conta ta me apertando', 'qual das contas ta pesando mais', 'qual boleto ta me apertando']) {
+      const st = estadoDeCaixaFuturo(hoje, 2000, 'autonomo')
+      const r = await turn(st, frase)
+      out.push(result(`F-aperto-${frase.split(' ')[1]}-${frase.split(' ').slice(-1)[0]}`, r.reply,
+        'atrasada primeiro; maior Aluguel 900; próxima Internet 100; cobre R$ 1.350',
+        r.actions.length === 0
+          && /^O que mais aperta é o que já venceu: Fatura Inter, R\$\s300,00/.test(r.reply)
+          && /a maior é Aluguel: R\$\s900,00/.test(r.reply)
+          && /A próxima a vencer é Internet: R\$\s100,00/.test(r.reply)
+          && /cobre os R\$\s1\.350,00/.test(r.reply) && !/Nubank/.test(r.reply)
+          && /sem confirma[çc][ãa]o/.test(r.reply) && !deslocada.test(r.reply)))
+    }
+    const curto = await turn(estadoDeCaixaFuturo(hoje, 500, 'autonomo'), 'qual conta ta me apertando')
+    out.push(result('F-aperto-saldo-nao-cobre', curto.reply, 'saldo 500 não cobre 1.350: faltam 850',
+      /n[ãa]o cobre os R\$\s1\.350,00/.test(curto.reply) && /faltam R\$\s850,00/.test(curto.reply)))
+    const empate = estadoDeCaixaFuturo(hoje, 2000, 'autonomo')
+    empate.recurring = empate.recurring.map(r => r.id === 'aluguel' ? { ...r, amount: 100 } : r)
+    const empatou = await turn(empate, 'qual conta pesa mais')
+    out.push(result('F-aperto-empate-dito', empatou.reply, 'Internet e Aluguel empatam em R$ 100',
+      /empatam/.test(empatou.reply) && /Internet/.test(empatou.reply) && /Aluguel/.test(empatou.reply)
+      && !/a maior é/i.test(empatou.reply)))
+    const ambiguo = estadoDeCaixaFuturo(hoje, 2000, 'autonomo')
+    ambiguo.installments = ambiguo.installments.map(i => i.id === 'cx-inter' ? { ...i, status: 'paid' as const,
+      paidAt: addDays(hoje, -5), paidAmount: 300, paidVia: 'direct' as const } : i)
+    ambiguo.cardPayments = [{ id: 'cx-dup', cardId: 'cx-card-inter', amount: 300, paymentDate: addDays(hoje, -4),
+      paymentTime: '10:00:00', referenceMonth: addDays(hoje, -5).slice(0, 7), fromBalance: true }]
+    const reservaAmbigua = await turn(ambiguo, `quanto preciso deixar parado ate dia ${Number(alvo.slice(8, 10))}`)
+    const apertoAmbiguo = await turn(ambiguo, 'qual conta ta me apertando')
+    out.push(result('F-caixa-futuro-saldo-legado-ambiguo', { reservaAmbigua: reservaAmbigua.reply, apertoAmbiguo: apertoAmbiguo.reply },
+      'reserva recusa o número; aperto não afirma cobertura pelo saldo',
+      /n[ãa]o consigo confirmar seu saldo/i.test(reservaAmbigua.reply) && !/deixe pelo menos/.test(reservaAmbigua.reply)
+        && /n[ãa]o consigo confirmar seu saldo/i.test(apertoAmbiguo.reply) && !/cobre os/.test(apertoAmbiguo.reply)))
+  }
   return out
+}
+
+/**
+ * Estado com compromissos em volta de HOJE: fatura do Inter vencida há 5 dias
+ * (parcela pendente de 300), Internet 100 amanhã, Aluguel 900 em 3 dias, Água
+ * 50 mensal que venceu há 15 dias sem confirmação, e uma parcela do Nubank no
+ * mês passado marcada como paga sem data — forma de backup antigo que deixa a
+ * fatura com "pendente" no cálculo de caixa.
+ */
+function estadoDeCaixaFuturo(hoje: string, balance: number, profile: 'autonomo' | 'driver'): AppState {
+  const s = buildState({ profile, balance })
+  s.settings.balanceAsOf = `${addDays(hoje, -60)}T00:00:00`
+  const vencida = addDays(hoje, -5)
+  const passada = addDays(hoje, -35)
+  const dia = (iso: string) => Number(iso.slice(8, 10))
+  const conta = (id: string, name: string, amount: number, start: string, end?: string) => ({
+    id, name, amount, frequency: 'monthly' as const, dueDay: dia(start), startDate: start,
+    ...(end ? { endDate: end } : {}), category: 'casa', kind: 'expense' as const, active: true,
+  })
+  s.recurring = [
+    conta('internet', 'Internet', 100, addDays(hoje, 1), addDays(hoje, 1)),
+    conta('aluguel', 'Aluguel', 900, addDays(hoje, 3), addDays(hoje, 3)),
+    conta('agua', 'Água', 50, addDays(hoje, -15)),
+  ]
+  s.cards = [
+    { id: 'cx-card-inter', name: 'Inter', limit: 5000, closingDay: dia(vencida), dueDay: dia(vencida), createdAt: addDays(hoje, -90) },
+    { id: 'cx-card-nubank', name: 'Nubank', limit: 5000, closingDay: dia(passada), dueDay: dia(passada), createdAt: addDays(hoje, -90) },
+  ] as AppState['cards']
+  s.installmentPlans = [
+    { id: 'cx-p-inter', description: 'Celular', cardId: 'cx-card-inter', totalAmount: 300, installmentCount: 1,
+      firstDueDate: vencida, purchaseDate: addDays(hoje, -40), status: 'active', operationType: 'card-purchase',
+      createdAt: addDays(hoje, -40) },
+    { id: 'cx-p-nubank', description: 'Fone', cardId: 'cx-card-nubank', totalAmount: 300, installmentCount: 1,
+      firstDueDate: passada, purchaseDate: addDays(hoje, -70), status: 'active', operationType: 'card-purchase',
+      createdAt: addDays(hoje, -70) },
+  ] as AppState['installmentPlans']
+  s.installments = [
+    { id: 'cx-inter', planId: 'cx-p-inter', number: 1, total: 1, amount: 300, dueDate: vencida, status: 'pending' },
+    { id: 'cx-nubank', planId: 'cx-p-nubank', number: 1, total: 1, amount: 300, dueDate: passada, status: 'paid' },
+  ] as AppState['installments']
+  return s
 }
 
 if (process.argv.includes('--probe')) {

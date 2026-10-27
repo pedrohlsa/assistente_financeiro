@@ -104,6 +104,30 @@ export const FALA_REAL: AssistantCase[] = [
     forbidReply: [AJUDA_GENERICA, /n[ãa]o tenho certeza do que registrar/i],
     expectReply: [/km/i],
   },
+  // Caixa futuro: viravam "meta de hoje", "total gasto" ou recusa por resíduo
+  // ("não consegui ler: conta ate"). Sem contas cadastradas, a resposta certa
+  // diz que nada vence — e nunca troca a pergunta.
+  q('fr-29', 'quanto eu preciso deixar parado ate dia 10', {
+    expectReply: [/nada cadastrado tem vencimento certo at[ée] 10\//i],
+    forbidReply: [AJUDA_GENERICA, /meta de hoje|total gasto|n[ãa]o consegui ler/i],
+  }),
+  q('fr-30', 'quanto preciso deixar na conta ate dia 10', {
+    expectReply: [/nada cadastrado tem vencimento certo/i],
+    forbidReply: [AJUDA_GENERICA, /n[ãa]o consegui ler/i],
+  }),
+  q('fr-31', 'quanto tenho que separar pras contas ate dia 10', {
+    expectReply: [/nada cadastrado tem vencimento certo/i],
+    forbidReply: [AJUDA_GENERICA, /meta de hoje|bateu a meta/i],
+  }),
+  q('fr-32', 'quanto preciso reservar ate dia 32', { expectReply: [/n[ãa]o existe dia 32/i] }),
+  q('fr-33', 'qual conta ta me apertando', {
+    expectReply: [/nenhuma conta, fatura ou parcela/i],
+    forbidReply: [AJUDA_GENERICA, /total gasto/i],
+  }),
+  q('fr-34', 'qual boleto ta me apertando', {
+    expectReply: [/nenhuma conta, fatura ou parcela/i],
+    forbidReply: [AJUDA_GENERICA, /total gasto/i],
+  }),
 ]
 
 export default FALA_REAL

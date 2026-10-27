@@ -577,3 +577,10 @@ verdes. Os REDs e correções estão na última seção de
 [`PROGRESS.md`](../PROGRESS.md): 165/165 casos adversariais verdes, com gates
 locais completos. **Ainda NOT READY para merge/deploy** até auditoria
 independente do novo diff; produção segue na `main`, sem V2.
+
+**Caixa futuro (27/10/2026).** "Quanto deixar parado até dia N" e "qual conta
+tá me apertando" saem da DSL (que soma o passado) por
+`src/assistant/cashQuestions.ts` e são respondidas pelo roteador antigo com
+`cashObligationsUntil()` em `calc.ts`: contas fixas, pendente de cada fatura e
+parcelas fora de cartão, inclusive o que já venceu. Conta fixa vencida sem
+confirmação aparece à parte, nunca somada como dívida certa. 179/179 adversariais.
