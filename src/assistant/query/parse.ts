@@ -1361,8 +1361,15 @@ function rotulo(
   const cat = filter.categories?.length
     ? (state.categories || []).find(c => c.id === filter.categories![0])?.name
     : undefined
-  const nome = cat || (filter.origin ? sentenceCase(filter.origin) : undefined)
-    || (filter.text ? sentenceCase(filter.text) : undefined) || alvo
+  // O texto buscado chega sem acento (a pergunta é normalizada); o rótulo usa a
+  // grafia dos próprios lançamentos — "Zé da esquina", não "Ze da esquina".
+  const comoEle = (texto: string) => {
+    const k = normalizeName(texto)
+    const x = (state.transactions || []).find(t => normalizeName(t.description) === k || normalizeName(t.origin) === k)
+    return x ? (normalizeName(x.description) === k ? x.description! : x.origin!) : sentenceCase(texto)
+  }
+  const nome = cat || (filter.origin ? comoEle(filter.origin) : undefined)
+    || (filter.text ? comoEle(filter.text) : undefined) || alvo
   // Filtro que MUDA o número tem que aparecer no texto. "Total recebido na
   // semana passada: R$ 1.433" somava só a Uber, e "Total gasto nos últimos 60
   // dias: R$ 3.340" só os fins de semana — número certo, lido como outro.

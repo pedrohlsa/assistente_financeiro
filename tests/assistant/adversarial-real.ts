@@ -2564,6 +2564,13 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('GM-gasto-hoje-continua', hojeMesmo, '"hoje"', /gastar R\$\s500,00 hoje/.test(hojeMesmo)))
   }
 
+  // O rótulo usa a grafia DELE: "Total gasto - Ze da esquina" perdia o acento
+  // que está nos próprios lançamentos ("Zé da esquina").
+  {
+    const r = (await turnoHoje(autonomoRico(hoje), 'quanto gastei no zé da esquina desde julho')).reply
+    out.push(result('GR-rotulo-com-acento', r, '"Zé da esquina" no rótulo', /Zé da esquina/.test(r)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.
