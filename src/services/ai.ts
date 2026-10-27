@@ -8,7 +8,7 @@
 // outro lado: responder localmente tudo que o app sabe com certeza, para que a
 // pergunta factual nunca dependa de rede nem de modelo.
 
-import { AppState, ParsedAction } from '../models/types'
+import { AppState, ParsedAction, RecurringExpense } from '../models/types'
 import { validateAction, isValidationFailure } from '../assistant/contracts'
 import type { AssistantErrorCode } from '../assistant/contracts'
 import { buildCapabilities } from '../assistant/capabilities'
@@ -22,10 +22,11 @@ import { MAX_COMPOSE_FACTS } from '../assistant/grounding'
 import {
   analyzeRide, avgDailyProfit, balanceOutlook, bestWorstDay, cashObligationsUntil, currentBalance, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
   monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections, budgetUsage,
+  describeRecurrence, occurrenceRecord, occurrencesBetween, recurringActiveOn,
 } from './calc'
 import type { CashObligation } from './calc'
-import { alvoDaReserva, pedeContaQueAperta, pedeContasAPagar, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, prazoDasContas, retiraDaReserva } from '../assistant/cashQuestions'
-import type { PerguntaDeFatura } from '../assistant/cashQuestions'
+import { alvoDaReserva, pedeContaQueAperta, pedeContasAPagar, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeConta, perguntaDeFatura, prazoDasContas, retiraDaReserva } from '../assistant/cashQuestions'
+import type { PerguntaDeConta, PerguntaDeFatura } from '../assistant/cashQuestions'
 import { describeAction, parseNaturalFull } from './nlp'
 import { driverInsight } from '../assistant/driverInsights'
 import { adaptiveEnabled, buildPersonalModel } from '../assistant/personalModel'
@@ -573,6 +574,13 @@ function resolveLocal(s: AppState, input: string): AiReply {
     }
     return { text: partes.join('\n\n') }
   }
+
+  // "Já paguei a luz?", "quando vence a água", "quanto é a internet": UMA
+  // conta fixa, pelo nome. Caíam na ajuda genérica, na lista de tudo que
+  // vence, ou em "não tenho lançamento" — a conta está cadastrada.
+  const sobreConta = perguntaDeConta(t)
+  const conta = sobreConta ? contaCitada(s, t) : undefined
+  if (sobreConta && conta) return respostaDaConta(s, conta, sobreConta)
 
   // Intenção de conversar/avisar o que virá não é um pedido de resumo.
   if (/\b(?:vou|posso|quero)\s+(?:te\s+)?(?:passar|falar|dizer|mandar)\b/.test(t) && !/\b\d+(?:[.,]\d+)*\b/.test(t)) {
@@ -1543,6 +1551,67 @@ function respostaDaFatura(s: AppState, t: string, tipo: PerguntaDeFatura): AiRep
       }).join('\n')}` }
     case 'fecha':
       return { text: `Fechamento das faturas:\n${faturas.map(f => `• ${f.nome}: fecha todo dia ${f.closingDay} e vence todo dia ${f.dueDay}`).join('\n')}` }
+  }
+}
+
+/** A conta fixa (saída) citada pelo nome; o nome mais longo ganha ("Luz casa 2" antes de "Luz"). */
+function contaCitada(s: AppState, t: string): RecurringExpense | undefined {
+  return (s.recurring || [])
+    .filter(r => r.kind !== 'income' && r.active !== false)
+    .map(r => ({ r, n: normalizeQuestion(r.name) }))
+    .filter(({ n }) => n.length >= 3 && new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(t))
+    .sort((a, b) => b.n.length - a.n.length)[0]?.r
+}
+
+/**
+ * Paga, vencimento e valor de uma conta fixa, pelas ocorrências DELA. Sem
+ * artigo antes do nome ("a conta Luz"): o gênero do nome que o usuário deu não
+ * é inferido (regra 45).
+ */
+function respostaDaConta(s: AppState, r: RecurringExpense, tipo: PerguntaDeConta): AiReply {
+  const hoje = todayISO()
+  const nome = r.name.trim()
+  const vencidas = occurrencesBetween(r, addDays(hoje, -62), hoje).filter(d => recurringActiveOn(r, d))
+  const ultima = vencidas[vencidas.length - 1]
+  const proxima = occurrencesBetween(r, addDays(hoje, 1), addDays(hoje, 400))
+    .find(d => recurringActiveOn(r, d) && !occurrenceRecord(r, d))
+  const paga = (d: string) => occurrenceRecord(r, d)?.status === 'confirmed'
+    || s.transactions.some(x => x.recurringId === r.id && x.occurrenceDate === d)
+  const pulada = (d: string) => occurrenceRecord(r, d)?.status === 'skipped'
+  const valorDe = (d: string) => occurrenceRecord(r, d)?.amount ?? r.amount
+  const emAberto = vencidas.filter(d => !paga(d) && !pulada(d))
+  const regra = describeRecurrence(r)
+  const quando = regra.charAt(0).toLowerCase() + regra.slice(1)
+  const amanha = (d: string) => d === addDays(hoje, 1) ? ' (amanhã)' : ''
+  const prox = proxima ? `A próxima vence em ${dataCompleta(proxima)}${amanha(proxima)}.` : ''
+  const aberto = emAberto.length
+    ? emAberto.length === 1
+      ? `A de ${dataCompleta(emAberto[0])} ainda não foi confirmada.`
+      : `${emAberto.length} vencimentos dela ainda não foram confirmados, somando ${fmtBRL(round2(emAberto.reduce((a, d) => a + valorDe(d), 0)))}.`
+    : ''
+  switch (tipo) {
+    case 'paga': {
+      if (!ultima) {
+        return { text: proxima
+          ? `Ainda não venceu nenhuma conta ${nome}: a primeira vence em ${dataCompleta(proxima)}${amanha(proxima)}, de ${fmtBRL(r.amount)}.`
+          : `Não há vencimento da conta ${nome} nos últimos dois meses.` }
+      }
+      if (emAberto.length) {
+        const ult = emAberto[emAberto.length - 1]
+        return { text: [`Não está marcada como paga: a conta ${nome} de ${fmtBRL(valorDe(ult))} venceu em ${dataCompleta(ult)} e não foi confirmada.`,
+          emAberto.length > 1 ? aberto : '', 'Se já pagou, confirme na tela inicial.'].filter(Boolean).join(' ') }
+      }
+      if (pulada(ultima)) return { text: [`A conta ${nome} de ${dataCompleta(ultima)} foi marcada como não paga.`, prox].filter(Boolean).join(' ') }
+      return { text: [`Sim. A conta ${nome} de ${dataCompleta(ultima)} está paga (${fmtBRL(valorDe(ultima))}).`, prox].filter(Boolean).join(' ') }
+    }
+    case 'vence':
+      if (!proxima) return { text: [`A conta ${nome} não tem próximo vencimento${r.endDate ? `: ela terminou em ${dataCompleta(r.endDate)}` : ''}.`, aberto].filter(Boolean).join(' ') }
+      return { text: [`A conta ${nome} vence ${quando}. A próxima é em ${dataCompleta(proxima)}${amanha(proxima)}, de ${fmtBRL(r.amount)}.`, aberto].filter(Boolean).join(' ') }
+    case 'valor': {
+      const ultimaPaga = ultima && paga(ultima) && Math.abs(valorDe(ultima) - r.amount) > 0.009
+        ? `A de ${dataCompleta(ultima)} foi paga com ${fmtBRL(valorDe(ultima))}.` : ''
+      return { text: [`A conta ${nome} é de ${fmtBRL(r.amount)}, ${quando}.`, prox, ultimaPaga, aberto].filter(Boolean).join(' ') }
+    }
   }
 }
 

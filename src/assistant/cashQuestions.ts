@@ -82,6 +82,21 @@ export function pedeContasAPagar(t: string): boolean {
     || /\bquanto\s+(?:ainda\s+)?(?:me\s+)?(?:falta|resta)\s+(?:eu\s+)?pagar\s+(?:(?:esse|este|nesse|neste)\s+mes|ate\s+o\s+(?:fim|final)\s+do\s+mes)\s*\??$/.test(t)
 }
 
+export type PerguntaDeConta = 'paga' | 'vence' | 'valor'
+
+/**
+ * Situação de UMA conta fixa citada pelo nome — quem acha o nome é o roteador,
+ * que tem o estado. "Já paguei a luz?" só é pergunta com "?"; sem ele, é
+ * registro. Fatura, meta e parcela ficam com quem já as responde.
+ */
+export function perguntaDeConta(t: string): PerguntaDeConta | null {
+  if (/\bfaturas?\b|\bmetas?\b|\bparcel/.test(t)) return null
+  if (/\bpague[iu]\b[^?]*\?|\b(?:esta|foi|estao|foram)\s+(?:ja\s+)?pag[ao]s?\b|\bpag[ao]\s*\?\s*$|\bpaguei\s+ou\s+nao\b/.test(t)) return 'paga'
+  if (/\bquando\b[^?]*\bvence\b|\bvence\s+quando\b|\bque\s+dia\s+vence\b|\bvencimento\b/.test(t)) return 'vence'
+  if (/\bquanto\s+(?:e|esta|vem|veio|fica|ficou|custa|deu)\b|\bvalor\s+d[ao]s?\b|\bqual\s+(?:e\s+)?o\s+valor\b/.test(t)) return 'valor'
+  return null
+}
+
 /** "qual conta está me apertando", "qual das contas pesa mais", "qual boleto…". */
 export function pedeContaQueAperta(t: string): boolean {
   return /\bqual\s+(?:das\s+|dos\s+|e\s+a\s+|e\s+o\s+)?(?:contas?|boletos?|compromissos?)\b.*\b(?:apertando|aperta|pesando|pesa|pesada|pesado|matando|sufocando)\b/.test(t)

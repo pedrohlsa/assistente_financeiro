@@ -3943,6 +3943,26 @@ dia 1º e `dueDay` 10/15. A âncora é o `startDate` (o formulário sempre grava
 os dois coerentes), então nesse fixture elas vencem no dia 1º — não é defeito
 do produto, mas engana quem lê as respostas dele.
 
+## 2026-10-27 — situação de uma conta fixa pelo nome
+
+"Já paguei a luz?" e "a água tá paga?" caíam na ajuda genérica; "quanto é a
+internet" dizia que não havia lançamento; "quando vence a água" devolvia a
+lista de tudo que vence. `perguntaDeConta()` reconhece paga/vence/valor e o
+roteador responde pelas ocorrências da conta citada: confirmada ("Sim. A conta
+Luz de 07/10/2026 está paga"), pulada, ou vencida sem confirmação ("Não está
+marcada como paga… Se já pagou, confirme na tela inicial"), com a próxima data
+e o valor. Sem artigo antes do nome (regra 45). "Paguei a luz" sem "?"
+continua registro.
+
+4 casos no grupo CF (todos vermelhos antes). Gates: 666/666, 99/99, 50/50,
+**315/315**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
+build, rubrica (0 perigosa, 0 ruim), varredura e `git diff --check` passaram.
+
+Achado sem correção (decisão de produto): "paguei a luz de 180" cria despesa
+avulsa; a ocorrência da conta fixa Luz continua pendente na tela inicial, e
+confirmá-la lá depois duplica o gasto. Não existe ação de catálogo para
+confirmar ocorrência pelo chat.
+
 ## Pendências em 27/10/2026 (HEAD `c824fe0`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800

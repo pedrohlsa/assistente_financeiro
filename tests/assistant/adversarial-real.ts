@@ -1953,6 +1953,36 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // Situação de UMA conta fixa pelo nome: "já paguei a luz?" e "a água tá
+  // paga?" caíam na ajuda genérica; "quanto é a internet" dizia que não havia
+  // lançamento; "quando vence a água" devolvia a lista de tudo que vence.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const data = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
+    const st = estadoDeCaixaFuturo(hoje, 2000, 'autonomo')
+    const luz = addDays(hoje, -20)
+    st.recurring = [...st.recurring, { id: 'luz', name: 'Luz', amount: 150, frequency: 'monthly', dueDay: Number(luz.slice(8, 10)),
+      startDate: luz, category: 'casa', kind: 'expense', active: true,
+      occurrences: [{ date: luz, status: 'confirmed', txId: 'luz-paga', amount: 150 }] }] as AppState['recurring']
+    st.transactions = [...st.transactions, { id: 'luz-paga', type: 'expense', amount: 150, category: 'casa', date: luz,
+      description: 'Luz', recurringId: 'luz', occurrenceDate: luz, time: '10:00' }] as AppState['transactions']
+    const agua = addDays(hoje, -15)
+    const casos: [string, string, string, (r: string) => boolean][] = [
+      ['CF-luz-paga', 'ja paguei a luz?', `Sim, ${brl(150)} de ${data(luz)}`, r => /^Sim\b/.test(r) && r.includes(brl(150)) && r.includes(data(luz))],
+      ['CF-agua-nao-confirmada', 'a agua ta paga?', `Não confirmada: ${brl(50)} de ${data(agua)}`,
+        r => /^Não\b/.test(r) && r.includes(brl(50)) && r.includes(data(agua))],
+      ['CF-vencimento-agua', 'quando vence a agua', `todo dia ${Number(agua.slice(8, 10))}, só a Água`,
+        r => new RegExp(`dia ${Number(agua.slice(8, 10))}\\b`).test(r) && !/Internet|Aluguel|Fatura/.test(r)],
+      ['CF-valor-internet', 'quanto e a internet', `${brl(100)}, vence ${data(addDays(hoje, 1))}`,
+        r => r.includes(brl(100)) && r.includes(data(addDays(hoje, 1))) && !/nenhum lan[çc]amento/i.test(r)],
+    ]
+    for (const [id, frase, esperado, ok] of casos) {
+      const r = await turnoHoje(st, frase)
+      out.push(result(id, r.reply, esperado, ok(limpa(r.reply)) && r.actions.length === 0))
+    }
+  }
+
   // A pergunta que repete o verbo do registro é uma cláusula só: "quanto
   // gastei de alimentação" era cortado em "quanto" + "gastei de alimentação",
   // e nenhuma das duas metades tinha resposta.
