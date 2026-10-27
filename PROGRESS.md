@@ -3573,3 +3573,24 @@ planejador anterior). Gates: 666/666, 99/99, 50/50, **194/194**, metamórficos,
 fuzz, 151/151, 468; typechecks, `test:money`, build e rubrica passaram.
 Limite conhecido: "este mês" contra um mês passado inteiro ainda compara 27
 dias com 30 quando o mês é dito por extenso.
+
+## 2026-10-27 — mensagens internas e categoria criada pelo usuário
+
+- Recusa de ação mostrava código interno: "Uma parte não pôde ser registrada —
+  work (Trabalho)" e "expense (amount)", depois de um "não tenho certeza do que
+  registrar" que mentia (a frase foi entendida). Agora o motivo vem em palavras
+  do usuário — km é registro do perfil de motorista; número fora do limite pede
+  para conferir — e substitui a dúvida genérica quando nada virou proposta.
+- A proposta mostrava o id da categoria: "(alimentacao)", "(outros-out)" e,
+  para categoria criada na tela, o id aleatório. `describeAction` recebe as
+  categorias do usuário e mostra o nome.
+- "Feira coloca em Feirinha" (categoria criada pelo usuário) era recusado com
+  "nunca trocar valores, datas ou regras financeiras": o id vem de `uid()`,
+  sempre com dígitos, e a barreira lexical lia os dígitos como valor. Em
+  `category-mapping` o valor é id — a existência e o tipo da categoria já são
+  conferidos no uso.
+
+6 casos adversariais (todos vermelhos no código anterior). A rubrica aprendeu a
+nova forma de "recusa com motivo". Gates: 666/666, 99/99, 50/50, **199/199**,
+metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica
+(0 perigosa, 0 ruim, 6 aceitáveis, 84 excelentes).

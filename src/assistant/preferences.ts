@@ -18,12 +18,20 @@ const changesFinancialMeaning = (trigger: string, value: string): boolean =>
 const safeVocabulary = (trigger: string, value: string, kind: AssistantPreference['kind']) => {
   const a = normalizeName(trigger)
   const b = normalizeName(value)
-  return a.length >= 2 && b.length >= 2 && a.length <= 60 && b.length <= 60
-    && /[a-z]/.test(a) && /[a-z]/.test(b)
+  // Em `category-mapping` o VALOR é o id de uma categoria, não texto dito. A
+  // categoria criada na tela tem id aleatório com dígitos (`uid()`), e a
+  // barreira lexical lia esses dígitos como valor financeiro: todo mapeamento
+  // para categoria do usuário era recusado. Existência e tipo da categoria são
+  // conferidos no uso (`preferenceCategoryFor`).
+  const valorEhId = kind === 'category-mapping'
+  if (valorEhId && !/^[a-z0-9][a-z0-9-]{0,59}$/.test(value)) return false
+  return a.length >= 2 && (valorEhId || b.length >= 2) && a.length <= 60 && b.length <= 60
+    && /[a-z]/.test(a) && (valorEhId || /[a-z]/.test(b))
     && !/[\r\n\u0000-\u001f$]/.test(trigger + value)
-    && !GRAMMAR.test(a) && !GRAMMAR.test(b)
-    && !looksPast(a) && !looksPast(b)
-    && !changesFinancialMeaning(trigger, kind === 'entity-alias' && /^casa\s+\d{1,2}$/i.test(value) ? 'casa' : value)
+    && !GRAMMAR.test(a) && (valorEhId || !GRAMMAR.test(b))
+    && !looksPast(a) && (valorEhId || !looksPast(b))
+    && !changesFinancialMeaning(trigger, valorEhId ? ''
+      : kind === 'entity-alias' && /^casa\s+\d{1,2}$/i.test(value) ? 'casa' : value)
     && (kind !== 'entity-alias' || !/\d/.test(trigger))
     && (kind === 'category-mapping' ? !/\d/.test(a)
       : kind === 'entity-alias' ? !/\d{3,}/.test(a + b)

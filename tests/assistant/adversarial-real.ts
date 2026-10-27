@@ -1430,6 +1430,39 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && !limpa(gasolina.reply).includes(`${brl(soma(inicioMes, hoje, 'expense'))} (dado real)`)
         || soma(inicioMes, hoje, 'expense', 'Gasolina') === soma(inicioMes, hoje, 'expense') && /Gasolina/.test(gasolina.reply)))
   }
+
+  // Código interno nunca chega ao usuário: "work (Trabalho)", "expense
+  // (amount)", "(outros-out)", nem o id aleatório de uma categoria criada.
+  const interno = /\b(?:work|expense|income|fuel|saving)\s*\(|\((?:amount|km|outros-out|alimentacao|combustivel)\)|c-uid-/i
+  const kmSemPerfil = await turn(buildState({ profile: 'other' }), 'rodei 200 km hoje')
+  out.push(result('I-km-fora-do-perfil', kmSemPerfil.reply, 'explica que km é do perfil motorista',
+    /perfil de motorista/i.test(kmSemPerfil.reply) && !/n[ãa]o tenho certeza/i.test(kmSemPerfil.reply)
+      && !interno.test(kmSemPerfil.reply) && kmSemPerfil.actions.length === 0))
+  const gigante = await turn(buildState(), 'gastei 99999999999 no mercado')
+  out.push(result('I-valor-fora-do-limite', gigante.reply, 'pede para conferir o valor, sem nome de campo',
+    /confere o valor/i.test(gigante.reply) && !interno.test(gigante.reply) && gigante.actions.length === 0))
+  const nomeDaCategoria = await turn(buildState(), 'gastei 50 no mercado')
+  out.push(result('I-proposta-mostra-nome-da-categoria', nomeDaCategoria.reply, '(Alimentação), não (alimentacao)',
+    /\(Alimenta[çc][ãa]o\)/.test(nomeDaCategoria.reply) && !interno.test(nomeDaCategoria.reply)))
+  const personalizada = buildState()
+  personalizada.categories = [...personalizada.categories,
+    { id: 'c-uid-k3j9', name: 'Feirinha', type: 'expense', icon: '🏷️', custom: true }]
+  personalizada.assistantPreferences = [{ id: 'pref-feira', kind: 'category-mapping', trigger: 'feira', value: 'c-uid-k3j9',
+    source: 'user-explicit', createdAt: TODAY, updatedAt: TODAY }]
+  const feira = await turn(personalizada, 'gastei 30 na feira')
+  out.push(result('I-categoria-personalizada-pelo-nome', { reply: feira.reply, actions: feira.actions },
+    'proposta com (Feirinha), nunca o id aleatório',
+    feira.actions.some(a => a.kind === 'expense' && a.category === 'c-uid-k3j9')
+      && /\(Feirinha\)/.test(feira.reply) && !interno.test(feira.reply)))
+  // O id real vem de `uid()`, sempre com dígitos: o cadastro lia os dígitos
+  // como valor financeiro e recusava "coloca em <categoria criada>".
+  const comUid = buildState()
+  comUid.categories = [...comUid.categories,
+    { id: 'k3x9q2mvqjx0we', name: 'Feirinha', type: 'expense', icon: '🏷️', custom: true }]
+  const ensina = await turn(comUid, 'feira coloca em Feirinha')
+  out.push(result('I-ensinar-categoria-criada', ensina, 'propõe guardar feira → Feirinha',
+    ensina.preferenceMutation?.type === 'upsert'
+      && ensina.preferenceMutation.preference.value === 'k3x9q2mvqjx0we' && /Feirinha/.test(ensina.reply)))
   return out
 }
 
