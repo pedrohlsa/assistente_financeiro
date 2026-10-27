@@ -4472,6 +4472,22 @@ texto — "Zé da esquina". 1 caso (vermelho antes). Gates: 666/666, 99/99,
 50/50, **410/410**, metamórficos, fuzz, 151/151, 468; typechecks,
 `test:money`, build, rubrica, varredura e `git diff --check` passaram.
 
+## 2026-10-27 — cada item com o seu "dia N"
+
+"Gastei 50 dia 3 e 80 dia 10" gravava as duas despesas no dia 3; "gastei 30
+no mercado dia 3 e 50 na farmácia dia 4" também; e "recebi 1800 dia 5 e 1200
+dia 7" PERDIA os R$ 1.200 em silêncio. O corte "cada metade com o seu dia"
+conhecia hoje/ontem/anteontem, não "dia N"; agora conhece. Cortada, a segunda
+metade de uma receita com origem ("1200 da casa 2") não tinha verbo e sumia: a
+herança de tipo do parser passou a aceitar valor + "da/do/de <origem>" para
+receita, como o leitor de receitas enumeradas. 4 casos no grupo DT (os 4
+vermelhos antes; datas calculadas no oráculo). Gates: 666/666, 99/99, 50/50,
+**414/414**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
+build, rubrica, varredura e `git diff --check` passaram.
+
+Achados sem correção: "transferi 500 pra minha mãe" e "vendi a bike por 800"
+caem na ajuda genérica, sem dizer o que fazer.
+
 ## Pendências em 27/10/2026 (HEAD `73c8d24`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800

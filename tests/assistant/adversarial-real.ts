@@ -2571,6 +2571,27 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('GR-rotulo-com-acento', r, '"Zé da esquina" no rótulo', /Zé da esquina/.test(r)))
   }
 
+  // Cada item com o SEU "dia N": "gastei 50 dia 3 e 80 dia 10" gravava os dois
+  // no dia 3, e "recebi 1800 dia 5 e 1200 dia 7" perdia os 1200 em silêncio.
+  {
+    const rico = autonomoRico(hoje)
+    const h = fromISO(hoje)
+    // "Dia N" num registro é o último dia N que já passou.
+    const dia = (n: number) => toISOdate(n <= h.getDate() ? new Date(h.getFullYear(), h.getMonth(), n) : new Date(h.getFullYear(), h.getMonth() - 1, n))
+    const casos: [string, [string, number, number][]][] = [
+      ['gastei 50 dia 3 e 80 dia 10', [['expense', 50, 3], ['expense', 80, 10]]],
+      ['recebi 1800 dia 5 e 1200 dia 7', [['income', 1800, 5], ['income', 1200, 7]]],
+      ['recebi 1800 da casa 1 dia 5 e 1200 da casa 2 dia 7', [['income', 1800, 5], ['income', 1200, 7]]],
+      ['gastei 30 no mercado dia 3 e 50 na farmacia dia 4', [['expense', 30, 3], ['expense', 50, 4]]],
+    ]
+    for (const [frase, itens] of casos) {
+      const r = await turnoHoje(rico, frase)
+      const ok = itens.every(([kind, amount, d]) => r.actions.some(a => a.kind === kind && a.amount === amount && a.date === dia(d)))
+        && r.actions.filter(a => a.kind === 'income' || a.kind === 'expense').length === itens.length
+      out.push(result(`DT-${frase.replace(/\W+/g, '-')}`, r.actions, itens.map(([k, v, d]) => `${k} ${v} em ${dia(d)}`).join('; '), ok))
+    }
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

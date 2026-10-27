@@ -403,7 +403,7 @@ export function segment(text: string): { text: string; start: number; end: numbe
   for (const m of text.matchAll(/[,;]\s*(?=(?:hoje|hj|ontem|anteontem)\b[^,;.!?]*\d)/gi)) {
     push((m.index || 0) + m[0].length)
   }
-  const DIA = /\b(?:hoje|hj|ontem|anteontem)\b/i
+  const DIA = /\b(?:hoje|hj|ontem|anteontem|dia\s+\d{1,2})\b/i
   for (const m of text.matchAll(/\s+e\s+(?=\d)/gi)) {
     const antes = text.slice(0, m.index || 0)
     const depois = text.slice((m.index || 0) + m[0].length).split(/[,;.!?]|\s+e\s+/)[0]

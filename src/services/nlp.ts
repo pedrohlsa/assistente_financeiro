@@ -368,6 +368,15 @@ export function parseNaturalFull(
         ? { kind: 'income', amount: valor } as ParsedAction
         : { kind: 'expense', amount: valor, category: 'outros-out' } as ParsedAction]
     }
+    // "Recebi 1800 da casa 1 dia 5 E 1200 da casa 2 dia 7": cortada pelos dois
+    // dias, a segunda metade é valor + DE ONDE veio, sem verbo. Sem isto os
+    // 1200 sumiam em silêncio.
+    const comOrigem = !actions.length && opts.inheritedKind === 'income'
+      ? input.trim().match(new RegExp(String.raw`^(?:mais\s+)?(?:r\$\s*)?${NUM}\s*${MOEDA}?\s+d[aoe]s?\s+(?:um\s+|uma\s+|o\s+|a\s+)?([a-zà-ú][\wçãõáéíóúâê]*(?:\s+\d+)?)\s*$`, 'i'))
+      : null
+    if (comOrigem && parseNum(comOrigem[1]) > 0) {
+      actions = [{ kind: 'income', amount: parseNum(comOrigem[1]), category: guessCategory(comOrigem[2], 'income') } as ParsedAction]
+    }
   }
 
   // No perfil motorista, uma receita sem origem explícita continua sendo de
