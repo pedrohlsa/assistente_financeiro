@@ -4011,8 +4011,23 @@ fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica (0 perigosa,
 
 Achados sem correção neste lote: "quando consigo comprar o notebook" é
 recusado como hipótese (já era antes; "quando VOU conseguir" responde);
-"quanto eu guardei por mês" titula a soma de 3 meses como "Total guardado por
+"quanto eu guardei por mês" titulava a soma de 3 meses como "Total guardado por
 mês: R$ 1.200,00".
+
+## 2026-10-27 — soma agrupada por tempo não se lê como "por mês"
+
+"Quanto recebi por mês de aluguel" abria com "Total recebido - Aluguéis por
+mês: R$ 18.000,00" — lido como 18 mil POR MÊS (são 3 mil, em 6 meses) — e
+"E mais 1 item" cortava justamente o mês atual. Agrupamentos por mês, semana
+ou dia (soma ou resultado) agora listam primeiro, com o corte deixando de fora
+os mais ANTIGOS ("E mais N meses antes"), e fecham com "Soma dos 6 meses:
+R$ 18.000,00 · média de R$ 3.000,00 por mês (sem o mês incompleto)". Período
+cortado pelo recorte é dito na linha ("out/2026 (até 27/10)", "semana de
+27/09 (desde 01/10)") e fica fora da média.
+
+2 casos no grupo GT (os 2 vermelhos antes). Gates: 666/666, 99/99, 50/50,
+**329/329**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
+build, rubrica (0 perigosa, 0 ruim), varredura e `git diff --check` passaram.
 
 ## Pendências em 27/10/2026 (HEAD `c824fe0`)
 

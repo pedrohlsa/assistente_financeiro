@@ -2032,6 +2032,26 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // Soma agrupada por tempo: "Total recebido - Aluguéis por mês: R$ 18.000,00"
+  // lia como 18 mil POR MÊS (são 3 mil, em 6 meses), e "E mais 1 item" cortava
+  // justamente o mês atual.
+  {
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const aluguel = await turnoHoje(rico, 'quanto recebi por mes de aluguel')
+    const texto = limpa(aluguel.reply)
+    const mesAtual = monthShortLabel(fromISO(hoje))
+    out.push(result('GT-soma-nao-e-por-mes', aluguel.reply, 'R$ 18.000,00 só como soma dos 6 meses; média R$ 3.000,00; mês atual listado',
+      !/por m[êe]s: R\$ 18\.000,00/.test(texto) && /Soma dos 6 meses: R\$ 18\.000,00/.test(texto)
+        && /m[ée]dia de R\$ 3\.000,00 por m[êe]s/.test(texto) && texto.includes(`• ${mesAtual}`)))
+    const semana = await turnoHoje(rico, 'quanto gastei por semana esse mes')
+    // "Esse mês" por semana: a primeira semana começa antes do dia 1º e só conta
+    // dali em diante — a linha precisa dizer isso.
+    const comecaNoDomingo = fromISO(`${hoje.slice(0, 8)}01`).getDay() === 0
+    out.push(result('GT-semana-parcial-marcada', semana.reply, 'primeira semana marcada "desde 01/mm"; soma no fim',
+      (comecaNoDomingo || new RegExp(`\\(desde 01/${hoje.slice(5, 7)}\\)`).test(semana.reply)) && /Soma das \d+ semanas/.test(limpa(semana.reply))))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

@@ -10,7 +10,7 @@
 //   · sem base, o texto DIZ que não há base e o que registrar (regra 43);
 //   · sem markdown decorativo, sem repetir a pergunta, sem parecer formulário.
 
-import { fmtBRL, fmtNum, fromISO } from '../../utils/format'
+import { addDays, fmtBRL, fmtNum, fromISO, toISO } from '../../utils/format'
 import type { AssistantQueryPlan, AssistantQueryResult, FactUnit, QueryGroupResult } from './types'
 
 const brDate = (iso: string) => fromISO(iso).toLocaleDateString('pt-BR')
@@ -32,6 +32,56 @@ export function formatValue(v: number, unit: FactUnit): string {
 }
 
 const plural = (n: number, um: string, muitos: string) => (n === 1 ? um : muitos)
+
+/** Agrupamentos por tempo: singular, plural e gênero ("dos meses", "das semanas"). */
+const TEMPO: Partial<Record<AssistantQueryPlan['group'], { um: string; varios: string; feminino: boolean }>> = {
+  month: { um: 'mês', varios: 'meses', feminino: false },
+  week: { um: 'semana', varios: 'semanas', feminino: true },
+  day: { um: 'dia', varios: 'dias', feminino: false },
+}
+
+/** O intervalo de datas de um grupo de tempo, pela chave que o motor gera. */
+function intervaloDoGrupo(group: AssistantQueryPlan['group'], key: string): [string, string] {
+  if (group === 'month') {
+    const [y, m] = key.split('-').map(Number)
+    return [`${key}-01`, toISO(new Date(y, m, 0))]
+  }
+  if (group === 'week') return [key, addDays(key, 6)]
+  return [key, key]
+}
+
+/**
+ * Soma agrupada por mês, semana ou dia. "Total recebido por mês: R$ 18.000,00"
+ * lia como 18 mil POR MÊS — eram 3 mil em seis meses. A lista vem primeiro, a
+ * soma depois com o nome do que soma, e a média só dos períodos inteiros. O
+ * corte, quando há, deixa de fora os mais ANTIGOS: "E mais 1 item" escondia o
+ * mês atual. Período cortado pelo recorte é dito na própria linha.
+ */
+function linhasPorTempo(r: AssistantQueryResult, selo: string): string[] {
+  const p = r.plan
+  const t = TEMPO[p.group]!
+  const diaMes = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
+  const recorte = (g: QueryGroupResult): string => {
+    const [ini, fim] = intervaloDoGrupo(p.group, g.key)
+    if (ini < p.period.from) return ` (desde ${diaMes(p.period.from)})`
+    if (fim > p.period.to) return ` (até ${diaMes(p.period.to)})`
+    return ''
+  }
+  const limite = p.group === 'month' ? 12 : p.group === 'week' ? 8 : 10
+  const mostra = r.groups.slice(-limite)
+  const out = [[`${cabecalho(r)}${selo}:`, ...mostra.map(g => `• ${g.label}${recorte(g)}: ${formatValue(g.value, r.unit)}${sufixoGrupo(g, r)}`)].join('\n')]
+  const antes = r.groups.length - mostra.length
+  if (antes > 0) out.push(`E mais ${antes} ${plural(antes, t.um, t.varios)} antes.`)
+  const inteiros = r.groups.filter(g => !recorte(g))
+  const media = inteiros.length > 1 ? inteiros.reduce((a, g) => a + g.value, 0) / inteiros.length : undefined
+  const fora = r.groups.length - inteiros.length
+  const [o, os, incompleto] = t.feminino ? ['a', 'as', 'incompleta'] : ['o', 'os', 'incompleto']
+  const semIncompletos = fora === 1 ? ` (sem ${o} ${t.um} ${incompleto})` : fora > 1 ? ` (sem ${os} ${fora} ${incompleto}s)` : ''
+  out.push(`Soma d${os} ${r.groups.length} ${t.varios}: ${formatValue(r.total, r.unit)}`
+    + (media !== undefined ? ` · média de ${formatValue(Math.round(media * 100) / 100, r.unit)} por ${t.um}${semIncompletos}` : '')
+    + '.')
+  return out
+}
 
 /** "3 lançamentos entre 01/08 e 20/08" — a amostra vai junto com o número. */
 function amostra(r: AssistantQueryResult): string {
@@ -145,6 +195,8 @@ export function composeAnswer(r: AssistantQueryResult): string {
     if (resto.length) {
       linhas.push(['Depois:', ...resto.map(g => `• ${g.label}: ${formatValue(g.value, r.unit)}${sufixoGrupo(g, r)}`)].join('\n'))
     }
+  } else if (TEMPO[p.group] && (p.metric === 'sum' || p.metric === 'net') && r.groups.length > 1) {
+    linhas.push(...linhasPorTempo(r, selo))
   } else {
     linhas.push(`${cabecalho(r)}: ${formatValue(r.total, r.unit)}${selo}.`)
     if (p.group !== 'none' && r.groups.length) {
