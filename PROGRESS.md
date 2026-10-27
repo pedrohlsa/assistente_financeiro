@@ -3796,3 +3796,32 @@ apagar não cria ação e a resposta diz que apagar é pela tela de Movimentaç�
 (ou "desfaz o último" para o último lote do assistente). Sem caso adversarial
 dedicado neste lote — fica para o próximo. Gates: npm test verde (256/256),
 typechecks e build.
+
+## Pendências em 27/10/2026 (HEAD `c824fe0`)
+
+Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800
+metamórficos, 1.416 fuzz, 151/151 invariantes, 468/468 offline; typechecks,
+`test:money`, build e rubrica (0 perigosa, 0 ruim) verdes. Tudo local, sem
+DeepSeek, push, merge, deploy ou APK. **NOT READY para merge/deploy**: o diff
+`c3648de..c824fe0` precisa de auditoria independente; navegador, persistência
+real e dados legados reais não foram revalidados.
+
+Abertas, achadas na leitura humana e ainda não corrigidas:
+- Pedido de apagar (`c824fe0`) sem caso adversarial dedicado.
+- "Quanto falta pagar da fatura do inter" responde a dívida parcelada do
+  cartão (R$ 2.000), não o pendente da fatura.
+- "Consigo bater a meta" não considera prazo de meta de compra; "quanto
+  preciso guardar por mês pra completar a viagem até dezembro" é recusado.
+- "Dá ruim?" no primeiro turno de "e se eu gastar X" não abre com veredito.
+- "e quanto fica nesse mês" depois de simular compra pergunta outra coisa.
+- "pq?" depois de "qual foi pior" explica o mês errado; "tirando cimento" não
+  diz a exclusão no rótulo; "e o inter" chama fatura atrasada de "dado real".
+- "Se eu ficar mais 3h… vale?" rotula "estimativa para um dia" e não responde
+  sim/não; "hj deu … como foi" registra sem responder o "como foi".
+- Proposta de receita não mostra a origem ("Casa 2").
+
+Decisões de produto pendentes:
+- `balanceOutlook` (Home e simulações "e se eu gastar") só considera contas
+  fixas; as respostas do chat já usam `cashObligationsUntil()`.
+- Não existe lançamento de retirada da reserva (`insufficient-reserve` não é usado).
+- O chat não apaga lançamento salvo (só "desfaz o último" lote do assistente).
