@@ -155,6 +155,18 @@ export function perguntaDeManutencao(t: string): boolean {
   return /\btroca\w*\b[^?]*\b(?:oleo|pneus?|pastilhas?|filtros?|correia)\b|\b(?:oleo|pneus?|pastilhas?|filtros?|correia)\b[^?]*\btroca\w*\b/.test(t)
 }
 
+/**
+ * "Qual meu gasto fixo", "quais minhas contas fixas", "quanto pago de contas
+ * fixas": o que se REPETE todo mês, não tudo o que saiu nem o que vence agora
+ * (fatura entrava na lista). Prazo, vencimento e cobertura pelo saldo ficam com
+ * quem já os responde.
+ */
+export function pedeContasFixas(t: string): boolean {
+  if (/\bvenc|\bproxim|\bcobre|\batrasad|\bsaldo\b|\bdinheiro\b/.test(t)) return false
+  return /\b(?:gastos?|custos?|despesas?|contas?)\s+fix[oa]s?\b/.test(t)
+    && /\b(?:qual|quais|quanto|quanta|lista|listar|mostra|mostrar)\b|\?/.test(t)
+}
+
 export type PerguntaDeConta = 'paga' | 'vence' | 'valor'
 
 /**

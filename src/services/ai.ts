@@ -22,11 +22,12 @@ import { MAX_COMPOSE_FACTS } from '../assistant/grounding'
 import {
   analyzeRide, avgDailyProfit, balanceOutlook, bestWorstDay, cashObligationsUntil, currentBalance, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
   monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections, budgetUsage,
-  describeRecurrence, occurrenceRecord, occurrencesBetween, recurringActiveOn, savedThisMonth,
+  describeRecurrence, occurrenceRecord, occurrencesBetween, recurrenceStep, recurringActiveOn, savedThisMonth,
 } from './calc'
 import type { CashObligation } from './calc'
 import {
-  alvoDaReserva, mesesAtePrazo, pedeContaQueAperta, pedeContasAPagar, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeConta, perguntaDeFatura, perguntaDeManutencao,
+  alvoDaReserva, mesesAtePrazo, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeConta,
+  perguntaDeFatura, perguntaDeManutencao,
   planoDeGuardar, prazoDasContas, retiraDaReserva,
 } from '../assistant/cashQuestions'
 import type { PerguntaDeConta, PerguntaDeFatura, PlanoDeGuardar } from '../assistant/cashQuestions'
@@ -1231,6 +1232,10 @@ function resolveLocal(s: AppState, input: string): AiReply {
     }
   }
 
+  // "Qual meu gasto fixo", "quais minhas contas fixas": o que se repete, por
+  // mês. Listava TODOS os gastos, ou a lista do que vence com as faturas.
+  if (pedeContasFixas(t)) return respostaDasContasFixas(s, driverMode)
+
   // "meu salário cobre minhas contas?" — pergunta de SIM OU NÃO, e a resposta
   // era a lista de contas. O app sabia responder (`balanceOutlook` calcula
   // exatamente isso) e devolvia dado em vez de resposta; quem lê no celular
@@ -1643,6 +1648,47 @@ function respostaDePlano(s: AppState, t: string, plano: PlanoDeGuardar, driverMo
     return { text: `Sim, no ritmo ${ritmo}. ${conta}, e sobraram em média ${fmtBRL(sobra.media)} por mês. ${aviso}` }
   }
   return { text: `Não no ritmo ${ritmo}. ${conta}, e sobraram em média ${fmtBRL(sobra.media)} por mês — faltariam ${fmtBRL(round2(mensal - Math.max(sobra.media, 0)))} por mês. ${aviso}` }
+}
+
+/** Quanto uma conta fixa pesa por mês, seja qual for a repetição dela. */
+function equivalenteMensal(r: RecurringExpense): number {
+  const { interval, unit } = recurrenceStep(r)
+  const n = Math.max(interval || 1, 1)
+  const porMes = unit === 'year' ? r.amount / (12 * n)
+    : unit === 'week' ? (r.amount * 52) / (12 * n)
+      : unit === 'day' ? (r.amount * 365) / (12 * n)
+        : r.amount / n
+  return round2(porMes)
+}
+
+/**
+ * As contas fixas ativas, cada uma com a regra dela e o peso mensal; o
+ * motorista soma o custo fixo do carro que cadastrou em Configurações.
+ */
+function respostaDasContasFixas(s: AppState, driverMode: boolean): AiReply {
+  const hoje = todayISO()
+  const contas = (s.recurring || []).filter(r => r.kind !== 'income' && r.active !== false && (!r.endDate || r.endDate >= hoje))
+  const carro = driverMode ? Math.max(s.settings.fixedMonthlyCosts || 0, 0) : 0
+  if (!contas.length && !carro) {
+    return { text: 'Você não tem conta fixa cadastrada. Cadastre em Planejamento que eu passo a acompanhar e avisar os vencimentos.' }
+  }
+  const linhas = contas.map(r => {
+    const mensal = equivalenteMensal(r)
+    const regra = describeRecurrence(r)
+    const peso = Math.abs(mensal - r.amount) > 0.009 ? ` (≈ ${fmtBRL(mensal)} por mês)` : ''
+    return { mensal, linha: `• ${r.name.trim()}: ${fmtBRL(r.amount)} — ${regra.charAt(0).toLowerCase()}${regra.slice(1)}${peso}` }
+  })
+  const somaContas = round2(linhas.reduce((a, l) => a + l.mensal, 0))
+  const partes: string[] = []
+  if (contas.length) {
+    partes.push(`Suas contas fixas somam ${fmtBRL(somaContas)} por mês:\n${linhas.map(l => l.linha).join('\n')}`)
+  }
+  if (carro) {
+    partes.push(contas.length
+      ? `Além disso, o custo fixo mensal cadastrado em Configurações é ${fmtBRL(carro)} — ao todo, ${fmtBRL(round2(somaContas + carro))} por mês.`
+      : `Seu custo fixo mensal cadastrado em Configurações é ${fmtBRL(carro)} (seguro, IPVA, financiamento e o que mais você somou ali).`)
+  }
+  return { text: partes.join('\n\n') }
 }
 
 /** A conta fixa (saída) citada pelo nome; o nome mais longo ganha ("Luz casa 2" antes de "Luz"). */

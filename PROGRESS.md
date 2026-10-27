@@ -4071,6 +4071,23 @@ espera 2 viagens para "430 na uber 399 na 99 … trabalhei 8 horas" e o
 `mul-07` 1 viagem com 120 km. O corpus se contradiz; mudar é escolha de
 produto.
 
+## 2026-10-27 — gasto fixo é o que se repete
+
+"Qual meu gasto fixo por mês" listava TODOS os gastos mês a mês; "quais
+minhas contas fixas" e "quanto pago de contas fixas" devolviam a lista do que
+vence, com faturas; o motorista que pergunta "qual meu custo fixo" recebia o
+gasto do mês, e os R$ 900 de custos fixos que ele cadastrou em Configurações
+nunca apareciam. `pedeContasFixas()` faz a DSL recusar essas frases e o
+roteador lista as contas fixas ativas com a regra e o peso mensal de cada uma
+(repetição semanal ou anual vira equivalente por mês), somando o custo fixo do
+carro para o motorista. Vencimento, prazo e cobertura pelo saldo continuam com
+a lista de contas.
+
+4 casos no grupo FX (todos vermelhos antes; literal: Luz 180 + Internet 120,
+custo do carro 900). Gates: 666/666, 99/99, 50/50, **343/343**,
+metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica
+(0 perigosa, 0 ruim), varredura e `git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `c824fe0`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800

@@ -30,7 +30,7 @@ import { addDays, fromISO, todayISO, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase } from '../../utils/text'
 import { isDriver } from '../../services/profile'
 import { buildPersonalModel, adaptiveEnabled } from '../personalModel'
-import { pedeContaQueAperta, pedeContasAPagar, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, perguntaDeManutencao, planoDeGuardar } from '../cashQuestions'
+import { pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, perguntaDeManutencao, planoDeGuardar } from '../cashQuestions'
 import {
   currentMonthToDate, monthPeriod, nextMonths, parseFutureMonth, parsePeriod, previousPeriod,
 } from './period'
@@ -148,7 +148,8 @@ export function looksLikeDataQuestion(input: string): boolean {
   // Situação da fatura de agora ("quanto falta pagar da fatura") é o pendente
   // dela, não a dívida parcelada que a DSL somava.
   if (pedeReservaDeCaixa(t) || pedeContaQueAperta(t) || pedeTotalGuardado(t) || perguntaDeFatura(t)
-    || pedeContasAPagar(t) || planoDeGuardar(t) || perguntaDeManutencao(t)) return false
+    || pedeContasAPagar(t) || planoDeGuardar(t) || perguntaDeManutencao(t)
+    || pedeContasFixas(t)) return false
   return PEDE_DADO.some(re => re.test(t))
 }
 

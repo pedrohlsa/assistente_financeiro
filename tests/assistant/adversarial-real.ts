@@ -2098,6 +2098,21 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /R\$\s280,00/.test(gasto.reply) && !/pr[óo]xima troca/.test(gasto.reply)))
   }
 
+  // "Gasto fixo" é o que se repete: listava TODOS os gastos por mês; "quais
+  // minhas contas fixas" misturava faturas; o custo fixo do carro (R$ 900 em
+  // Configurações) nunca aparecia. Literal: Luz 180 + Internet 120 por mês.
+  {
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    for (const frase of ['qual meu gasto fixo por mes', 'quais minhas contas fixas', 'quanto pago de contas fixas']) {
+      const r = limpa((await turnoHoje(rico, frase)).reply)
+      out.push(result(`FX-${frase.replace(/\W+/g, '-')}`, r, 'R$ 300,00 por mês: Luz 180 e Internet 120, sem fatura',
+        /R\$ 300,00 por m[êe]s/.test(r) && /Luz: R\$ 180,00/.test(r) && /Internet: R\$ 120,00/.test(r) && !/Fatura/.test(r)))
+    }
+    const mot = limpa((await turnoHoje(motoristaRico(hoje), 'qual meu custo fixo')).reply)
+    out.push(result('FX-motorista-custo-fixo', mot, 'R$ 900,00 cadastrados em Configurações', /R\$ 900,00/.test(mot) && /Configura[çc][õo]es/.test(mot)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.
