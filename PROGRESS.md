@@ -1458,8 +1458,8 @@ escrito depois da correção.
 | 17 | `gastei quarenta e nove e noventa` | virava **R$ 139,00** (49 + 90) | segunda dezena no mesmo grupo é lida como centavos |
 
 **Defeito de ferramenta, não de produto**: três regex estavam quebradas por um
-caractere de controle 0x08 gravado no lugar de `` por scripts de edição. O
-`` virava BACKSPACE e o regex nunca casava. Todos os arquivos foram varridos;
+caractere de controle 0x08 gravado no lugar de `\b` por scripts de edição. O
+`\b` virava BACKSPACE e o regex nunca casava. Todos os arquivos foram varridos;
 zero caracteres de controle restantes.
 
 ### Cenários obrigatórios
@@ -4414,17 +4414,26 @@ antes). Gates: 666/666, 99/99, 50/50, **399/399**, metamórficos, fuzz,
 151/151, 468; typechecks, `test:money`, build, rubrica, varredura e
 `git diff --check` passaram.
 
-## Pendências em 27/10/2026 (HEAD `b049bdf`)
+## Pendências em 27/10/2026 (HEAD `73c8d24`)
 
-Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800
-metamórficos, 1.416 fuzz, 151/151 invariantes, 468/468 offline; typechecks,
-`test:money`, build e rubrica (0 perigosa, 0 ruim) verdes. Tudo local, sem
-DeepSeek, push, merge, deploy ou APK. **NOT READY para merge/deploy**: os diffs
-`c3648de..c824fe0` e `c824fe0..b049bdf` (20 correções e 1 teste, seções acima)
+Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800
+metamórficos, 1.416 fuzz, 151/151 invariantes, 468/468 offline (67 frases
+chegam hoje ao modelo remoto); typechecks, `test:money`, build e rubrica
+(0 perigosa, 0 ruim) verdes. Tudo local, sem DeepSeek, push, merge, deploy ou
+APK. **NOT READY para merge/deploy**: os diffs `c3648de..c824fe0`,
+`c824fe0..b049bdf` e `b049bdf..73c8d24` (seções acima, uma por causa)
 precisam de auditoria independente; navegador, persistência real e dados
 legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas:
+- "E a internet?" logo depois de uma pergunta de fatura cai na elipse de
+  compra ("A internet de quanto?").
+- "Gasto 50 de luz" grava a descrição "Gasto de luz" (o verbo entra na
+  descrição).
+- Rótulo da consulta perde o acento do texto buscado ("Ze da esquina").
+- "Qual foi meu pior mês" põe o mês corrente, incompleto, no ranking.
+- "E se eu gastar 500 esse mês" simula como gasto de hoje ("Se você gastar
+  R$ 500,00 hoje").
 
 Decisões de produto pendentes:
 - `balanceOutlook` (Home e simulações "e se eu gastar") só considera contas
@@ -4436,5 +4445,8 @@ Decisões de produto pendentes:
   duplica.
 - Viagem inferida em total do dia: o corpus se contradiz (`rr-01` sem viagem
   com horas; `sem-04` 2 viagens com 8 horas; `mul-07` 1 viagem com 120 km).
+- "Vale a pena ficar mais 3h?" e "vale a pena rodar domingo?" respondem com
+  o que rende e a meta/histórico, sem Sim/Não: o app não sabe o cansaço nem o
+  custo de oportunidade de ninguém.
 - Fixture `autonomoRico`: Luz/Internet com `startDate` no dia 1º e `dueDay`
   10/15 — vencem no dia 1º nas respostas (o formulário grava os dois coerentes).
