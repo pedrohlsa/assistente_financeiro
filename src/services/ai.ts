@@ -453,6 +453,11 @@ export function normalizeQuestion(input: string): string {
 function resolveLocal(s: AppState, input: string): AiReply {
   const t = normalizeQuestion(input)
   const driverMode = isDriver(s.settings)
+  // Meta de COMPRA citada pelo NOME ganha da meta diária e da mensal. O usuário
+  // tem as duas, e a palavra "meta" serve às duas — mas quem batizou a meta de
+  // "Moto" e pergunta por ela espera ouvir sobre ela.
+  const metaCitadaPeloNome = s.goals.some(g => !g.done && g.name?.trim()
+    && t.includes(normalizeQuestion(g.name).split(' ')[0]))
 
   // "Quanto preciso deixar parado até dia 10": o que está CADASTRADO para sair
   // até a data, inclusive o que já venceu. Antes a frase virava o gasto do mês
@@ -681,7 +686,19 @@ function resolveLocal(s: AppState, input: string): AiReply {
     const mg = monthlySavingGoal(s)
 
     // "quanto posso guardar este mês?" / "como está minha meta mensal?"
-    if (/quanto\s+(?:eu\s+)?posso\s+guardar|meta\s+mensal|quanto\s+consigo\s+guardar|guardar\s+este\s+m[eê]s|minha\s+meta|qual\s+(?:é\s+)?a?\s*minha\s+meta|como\s+est[aá]\s+minha\s+meta/.test(t)) {
+    // Meta de COMPRA citada pelo nome ("minha meta do notebook") não é a meta
+    // mensal: o "minha meta" capturava a frase e respondia a meta de guardar.
+    // "Consigo bater a meta?" e "bati a meta do mês?" pedem sim ou não.
+    const bater = /\bbat(?:er|i|eu|endo)\s+(?:a\s+)?(?:minha\s+)?meta\b|\bmeta\s+(?:do|deste|desse|neste|nesse)\s+mes\b/.test(t)
+    if (!metaCitadaPeloNome && (bater || /quanto\s+(?:eu\s+)?posso\s+guardar|meta\s+mensal|quanto\s+consigo\s+guardar|guardar\s+este\s+m[eê]s|minha\s+meta|qual\s+(?:é\s+)?a?\s*minha\s+meta|como\s+est[aá]\s+minha\s+meta/.test(t))) {
+      const simNao = bater && mg.target > 0 && !mg.negative
+        ? mg.reached ? `Sim, já bateu: guardou ${fmtBRL(mg.saved)} de ${fmtBRL(mg.target)}.\n\n`
+          : /\b(?:consigo|consegue|da\s+para|dá\s+para|vou\s+conseguir)\b/.test(t)
+            ? mg.projectedAvailable >= mg.missing - 0.009
+              ? `Dá: faltam ${fmtBRL(mg.missing)} e ainda sobram ${fmtBRL(mg.projectedAvailable)} livres neste mês${mg.installmentsDue > 0 ? ', já descontadas as parcelas' : ''}.\n\n`
+              : `Do jeito que está, não: faltam ${fmtBRL(mg.missing)} e sobram ${fmtBRL(mg.projectedAvailable)} livres neste mês${mg.installmentsDue > 0 ? ', já descontadas as parcelas' : ''}.\n\n`
+            : `Ainda não: guardou ${fmtBRL(mg.saved)} de ${fmtBRL(mg.target)} (faltam ${fmtBRL(mg.missing)}).\n\n`
+        : ''
       if (mg.target <= 0) {
         return {
           text: `Neste mês entraram ${fmtBRL(mg.income)} e saíram ${fmtBRL(mg.expense)} — resultado líquido de ${fmtBRL(mg.net)}.\n\n` +
@@ -696,7 +713,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
         }
       }
       return {
-        text: `Sua meta é guardar ${fmtBRL(mg.target)} por mês.\n\n` +
+        text: `${simNao}Sua meta é guardar ${fmtBRL(mg.target)} por mês.\n\n` +
           `• Entradas recebidas: ${fmtBRL(mg.income)}\n• Despesas realizadas: ${fmtBRL(mg.expense)}\n` +
           `• ${mg.net >= 0 ? 'Sobra do mês' : 'Déficit do mês'}: ${fmtBRL(Math.abs(mg.net))}\n` +
           `• Guardado de verdade: ${fmtBRL(mg.saved)} (${mg.pct}% da meta)\n\n` +
@@ -854,11 +871,22 @@ function resolveLocal(s: AppState, input: string): AiReply {
     }
   }
 
-  // Meta de COMPRA citada pelo NOME ganha da meta diária. O motorista tem as
-  // duas, e a palavra "meta" serve às duas — mas quem batizou a meta de "Moto"
-  // e pergunta por ela espera ouvir sobre ela, não a composição da meta do dia.
-  const metaCitadaPeloNome = s.goals.some(g => !g.done && g.name?.trim()
-    && t.includes(normalizeQuestion(g.name).split(' ')[0]))
+
+  // PROGRESSO da meta do dia: "bati a meta?", "quanto falta pra meta de hoje".
+  // Vinha depois da composição, que capturava qualquer "meta" e respondia a
+  // conta da meta sem dizer se foi batida.
+  if (driverMode && !metaCitadaPeloNome
+    && (/\bbat(?:i|eu|er)\s+(?:a\s+)?(?:minha\s+)?meta\b/.test(t)
+      || /\bquanto\s+falta\b.*\bmeta\b|\bmeta\b.*\bquanto\s+falta\b/.test(t))) {
+    const ts = todayStats(s)
+    const g = dailyGoal(s)
+    const falta = round2(g.total - ts.profit)
+    return {
+      text: falta <= 0.009
+        ? `Sim, bateu: lucro de ${fmtBRL(ts.profit)} hoje contra a meta de ${fmtBRL(g.total)} (dado real). O que vier agora é lucro.`
+        : `Ainda não: lucro de ${fmtBRL(ts.profit)} hoje contra a meta de ${fmtBRL(g.total)} — faltam ${fmtBRL(falta)} (dado real).`,
+    }
+  }
 
   // "quanto preciso ganhar amanhã?" / "qual minha meta"
   if (driverMode && !metaCitadaPeloNome

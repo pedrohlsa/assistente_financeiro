@@ -3720,3 +3720,27 @@ typechecks, `test:money`, build e rubrica passaram.
 7 casos (5 vermelhos no código anterior, 2 controles do dia compartilhado).
 Gates: 666/666, 99/99, 50/50, **238/238**, metamórficos, fuzz, 151/151, 468;
 typechecks, `test:money`, build e rubrica passaram.
+
+## 2026-10-27 — cada meta no seu lugar
+
+"Meta" serve a três coisas: a meta de COMPRA (pelo nome), a meta mensal de
+guardar e a meta diária do motorista. A varredura achou as três trocadas:
+
+- "Quanto falta pra minha meta do notebook" respondia a meta MENSAL ("faltam
+  R$ 300 para a meta mensal") em vez do Notebook (faltam R$ 2.800): o
+  "minha meta" do roteador antigo capturava a frase. Meta citada pelo nome agora
+  ganha das outras duas; o planejador consome "meta do <nome>" junto com o
+  nome (sobrando, virava resíduo e a pergunta era recusada); "como tá a meta do
+  notebook" deixou de cair na ajuda.
+- "Consigo bater a meta esse mês?" e "bati a meta do mês?" caíam na ajuda.
+  Agora abrem com o veredito ("Ainda não: guardou R$ 500 de R$ 800 (faltam
+  R$ 300)", "Dá:", "Do jeito que está, não:", "Sim, já bateu").
+- Motorista: "quanto falta pra meta de hoje" dizia que não havia meta de
+  compra; "quanto falta pra bater a meta" procurava a compra "bater a"; "bati a
+  meta?" mostrava a composição sem dizer se bateu. O progresso do dia vem antes
+  da composição, com sim ou não, e "meta de hoje/do mês" e "bater a meta" não
+  são consulta de meta de compra.
+
+10 casos (9 vermelhos no código anterior; "qual minha meta" segue com a
+composição). Gates: 666/666, 99/99, 50/50, **248/248**, metamórficos, fuzz,
+151/151, 468; typechecks, `test:money`, build e rubrica passaram.

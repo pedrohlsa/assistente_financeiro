@@ -117,6 +117,8 @@ const PEDE_DADO = [
   // ficava no foco, o "e o inter" seguinte não tinha em que se apoiar.
   /\b(?:ta|esta|anda|vem)\s+(?:me\s+)?(?:pesando|apertando|matando|fudendo|acabando|estourando|quebrando|sufocando|comendo)\b/,
   /\bpesa(?:ndo)?\b/, /\bcomprometid/,
+  // "Como tá a meta do notebook" pergunta o progresso de uma meta pelo nome.
+  /\bcomo\s+(?:esta|vai|anda)\s+(?:a\s+|minha\s+)?metas?\s+d[aeo]s?\s+\w/,
   // "Gastei fora do normal esse mês?" não tem palavra de medida e caía na ajuda.
   /\b(?:fora|acima)\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:padrao|normal|comum|costume|media)\b/,
   // "Onde vazou meu dinheiro", "pra onde foi", "onde gastei": DESTINO do
@@ -131,6 +133,11 @@ const NAO_E_CONSULTA = [
   /\bestou\s+pensando\b/, /\bpretendo\b/, /\bvou\s+comprar\b/, /\bse\s+for\b/,
   // Explicação é local, determinística e tem módulo próprio.
   /\bpor\s*que\s+voce\b/, /\bo\s+que\s+voce\s+aprendeu\b/, /\bquantas\s+vezes\s+eu\s+fiz\s+isso\b/,
+  // Meta do DIA ou do MÊS é a de lucro/guardar, que mora no roteador antigo —
+  // não a meta de compra. "Quanto falta pra meta de hoje" respondia que não
+  // havia meta de compra; "quanto falta pra bater a meta" procurava "bater a".
+  /\bbat(?:er|i|eu|endo)\s+(?:a\s+)?(?:minha\s+)?meta\b/,
+  /\bmeta\s+(?:de\s+hoje|do\s+dia|diaria|de\s+amanha|do\s+mes|deste\s+mes|desse\s+mes|mensal)\b/,
 ]
 
 export function looksLikeDataQuestion(input: string): boolean {
@@ -291,7 +298,10 @@ function lerFonte(t: string, driver: boolean, metas: string[] = []): { valor: Fo
   // viagem": específica, educada e sobre outra coisa.
   const meta = metas.find(n => new RegExp(`\\b${escapaRegex(n)}\\b`).test(t))
   if (meta && /\bfalta\b|\bfaltam\b|\bquanto\b|\bcomo\s+(?:ta|esta|vai)\b|\bperto\b/.test(t)) {
-    return { valor: { source: 'goals', field: 'remaining' }, matched: meta }
+    // "Meta DO notebook": o artigo e a palavra "meta" saem junto com o nome.
+    // Sobrando, "meta do" virava resíduo e a pergunta era recusada.
+    const comMeta = t.match(new RegExp(String.raw`\b(?:(?:minha|a)\s+)?metas?\s+(?:d[aeo]s?\s+)?${escapaRegex(meta)}\b`))
+    return { valor: { source: 'goals', field: 'remaining' }, matched: comMeta?.[0] || meta }
   }
 
   const tabela: [RegExp, FonteLida][] = [

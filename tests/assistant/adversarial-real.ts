@@ -1607,6 +1607,46 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       sobra.actions.some((a: any) => a.amount === 30) && /N[ãa]o registrei esta parte: “anteontem 20 de uber”/.test(sobra.reply)))
   }
 
+  // Cada "meta" no seu lugar: a de COMPRA pelo nome, a mensal de guardar e a
+  // diária do motorista. "Minha meta do notebook" respondia a meta mensal;
+  // "quanto falta pra meta de hoje" dizia que não havia meta de compra; "bati
+  // a meta?" mostrava a composição sem dizer se bateu.
+  {
+    const st = autonomoRico(hoje)
+    const notebook = st.goals.find(g => g.name === 'Notebook')!
+    const faltaNotebook = fmtBRL(notebook.target - notebook.saved).replace(/ /g, ' ')
+    for (const frase of ['quanto falta pra minha meta do notebook', 'quanto falta pra meta do notebook', 'como ta a meta do notebook']) {
+      const r = await turnoHoje(st, frase)
+      out.push(result(`P-meta-pelo-nome-${frase.replace(/\W+/g, '-')}`, r.reply, `Notebook, falta ${faltaNotebook}`,
+        r.reply.replace(/ /g, ' ').includes(faltaNotebook) && /Notebook/.test(r.reply) && !/por m[êe]s\./.test(r.reply.split('\n')[0])))
+    }
+    const mesAtual = hoje.slice(0, 7)
+    const guardado = st.transactions.filter(t => t.type === 'saving' && t.date.slice(0, 7) === mesAtual && t.date <= hoje)
+      .reduce((a, t) => a + t.amount, 0)
+    const alvoMensal = st.settings.monthlyProfitTarget
+    const bati = await turnoHoje(st, 'bati a meta do mes?')
+    out.push(result('P-bati-meta-do-mes', bati.reply, guardado >= alvoMensal ? 'Sim, já bateu' : 'Ainda não',
+      bati.reply.startsWith(guardado >= alvoMensal ? 'Sim, já bateu' : 'Ainda não:')))
+    const consigo = await turnoHoje(st, 'consigo bater a meta esse mes?')
+    const falta = fmtBRL(Math.max(alvoMensal - guardado, 0)).replace(/ /g, ' ')
+    out.push(result('P-consigo-bater-meta', consigo.reply, `veredito primeiro, faltam ${falta}`,
+      /^(?:Sim, já bateu|Dá:|Do jeito que está, não:)/.test(consigo.reply)
+        && (guardado >= alvoMensal || consigo.reply.replace(/ /g, ' ').split('\n')[0].includes(`faltam ${falta}`))))
+  }
+  {
+    const st = motoristaRico(hoje)
+    const lucroHoje = st.transactions.filter(t => t.date === hoje)
+      .reduce((a, t) => a + (t.type === 'income' ? t.amount : t.type === 'expense' ? -t.amount : 0), 0)
+    const lucro = fmtBRL(Math.round(lucroHoje * 100) / 100).replace(/ /g, ' ')
+    for (const frase of ['bati a meta?', 'quanto falta pra meta de hoje', 'quanto falta pra bater a meta', 'ja bati a meta de hoje?']) {
+      const r = await turnoHoje(st, frase)
+      out.push(result(`P-meta-do-dia-${frase.replace(/\W+/g, '-')}`, r.reply, `sim/não primeiro, com o lucro de hoje ${lucro}`,
+        /^(?:Sim, bateu:|Ainda não:)/.test(r.reply) && r.reply.replace(/ /g, ' ').includes(`lucro de ${lucro}`)))
+    }
+    const composicao = await turnoHoje(st, 'qual minha meta')
+    out.push(result('P-composicao-continua', composicao.reply, 'composição da meta diária', /Composi[çc][ãa]o/.test(composicao.reply)))
+  }
+
   // A linha do mês só diz "com a parcela" se a parcela cai nele. Sem cartão,
   // a primeira vence em 30 dias: a linha do mês corrente afirmava a parcela
   // com o saldo intacto.
