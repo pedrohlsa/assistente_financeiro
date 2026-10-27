@@ -7,7 +7,7 @@ import { cardInvoice, cardOutstanding, cardsOverview } from '../../src/services/
 import { applyBatchPure } from '../../src/assistant/execute'
 import { applyPreferenceAliases } from '../../src/assistant/preferences'
 import { hydrateForTest, reducer } from '../../src/store/store'
-import { addDays, fmtBRL, fromISO, monthShortLabel, nowPaymentTime, nowStamp, todayISO } from '../../src/utils/format'
+import { addDays, fmtBRL, fromISO, monthShortLabel, nowPaymentTime, nowStamp, todayISO, toISO as toISOdate } from '../../src/utils/format'
 import { autonomoRico, motoristaRico } from '../fixtures/richState'
 import { buildState } from './harness'
 
@@ -1645,6 +1645,41 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
     const composicao = await turnoHoje(st, 'qual minha meta')
     out.push(result('P-composicao-continua', composicao.reply, 'composição da meta diária', /Composi[çc][ãa]o/.test(composicao.reply)))
+  }
+
+  // "Por mês em média" é a média dos TOTAIS mensais, em meses fechados. Era a
+  // média por lançamento agrupada por mês: R$ 1.396 para quem recebe R$ 3.000.
+  {
+    const st = buildState({ profile: 'autonomo', transactions: [
+      { id: 'm6a', type: 'income', amount: 400, category: 'outros-in', date: '2026-06-05' },
+      { id: 'm6b', type: 'income', amount: 600, category: 'outros-in', date: '2026-06-20' },
+      { id: 'm7', type: 'income', amount: 2000, category: 'outros-in', date: '2026-07-10' },
+      { id: 'm8a', type: 'income', amount: 1000, category: 'outros-in', date: '2026-08-03' },
+      { id: 'm8b', type: 'income', amount: 2000, category: 'outros-in', date: '2026-08-25' },
+      { id: 'm9', type: 'income', amount: 500, category: 'outros-in', date: '2026-09-02' },
+    ] })
+    const r = await turn(st, 'quanto eu ganho por mes em media')
+    out.push(result('Q-media-mensal-de-totais', r.reply, 'R$ 2.000,00 = (1.000 + 2.000 + 3.000) / 3; setembro aberto fica fora',
+      /^M[ée]dia por m[êe]s: R\$\s2\.000,00/.test(r.reply) && /3 meses completos/.test(r.reply) && !/por lan[çc]amento/.test(r.reply)))
+    const rico = autonomoRico(hoje)
+    const mesAtual = hoje.slice(0, 7)
+    const inicio = (() => { const d = fromISO(hoje); return toISOdate(new Date(d.getFullYear(), d.getMonth() - 5, 1)) })()
+    const porMes = new Map<string, number>()
+    for (const t of rico.transactions) {
+      if (t.type !== 'income' || t.date < inicio || t.date.slice(0, 7) >= mesAtual) continue
+      porMes.set(t.date.slice(0, 7), (porMes.get(t.date.slice(0, 7)) || 0) + t.amount)
+    }
+    const chaves = [...porMes.keys()].sort()
+    const meses: string[] = []
+    for (let k = chaves[0]; k && k <= chaves[chaves.length - 1];) {
+      meses.push(k)
+      const [y, m] = k.split('-').map(Number)
+      k = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`
+    }
+    const media = meses.reduce((a, k) => a + (porMes.get(k) || 0), 0) / Math.max(meses.length, 1)
+    const esperado = fmtBRL(Math.round(media * 100) / 100).replace(/ /g, ' ')
+    const rr = await turnoHoje(rico, 'quanto eu ganho por mes em media')
+    out.push(result('Q-media-mensal-fixture', rr.reply, esperado, rr.reply.replace(/ /g, ' ').startsWith(`Média por mês: ${esperado}`)))
   }
 
   // A linha do mês só diz "com a parcela" se a parcela cai nele. Sem cartão,

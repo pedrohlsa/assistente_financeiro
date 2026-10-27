@@ -3744,3 +3744,18 @@ guardar e a meta diária do motorista. A varredura achou as três trocadas:
 10 casos (9 vermelhos no código anterior; "qual minha meta" segue com a
 composição). Gates: 666/666, 99/99, 50/50, **248/248**, metamórficos, fuzz,
 151/151, 468; typechecks, `test:money`, build e rubrica passaram.
+
+## 2026-10-27 — média por mês é média dos totais mensais
+
+"Quanto eu ganho por mês em média" respondia "Média por lançamento por mês:
+R$ 1.396,43" no fixture de quem recebe dois aluguéis (R$ 3.000/mês): a métrica
+era média POR LANÇAMENTO, agrupada por mês. Agora `avg` agrupado por mês é a
+média dos totais mensais, sobre os meses completos desde o primeiro com dado
+(o mês que o período corta no meio fica fora, e os meses antes do primeiro
+registro não contam como zero). O rótulo vira "Média por mês" e uma ressalva
+diz quais meses entraram. O contrato da DSL não muda (mesmo `metric`/`group`).
+
+2 casos (vermelhos antes): estado exato 1.000/2.000/3.000 + setembro aberto →
+R$ 2.000,00; fixture rico com a média somada direto dos lançamentos. Gates:
+666/666, 99/99, 50/50, **250/250**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build e rubrica passaram.

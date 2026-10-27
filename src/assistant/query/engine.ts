@@ -598,6 +598,36 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan): AssistantQu
     }
   }
 
+  // "Quanto eu ganho POR MÊS em média": a média dos TOTAIS mensais. Lida como
+  // média por lançamento agrupada por mês, a resposta era "R$ 1.396" para quem
+  // recebe R$ 3.000 todo mês (dois aluguéis de R$ 1.500). Cada mês vale o que
+  // somou; a média usa os meses COMPLETOS desde o primeiro com dado — o mês
+  // corrente ainda não fechou, e os meses antes do primeiro registro não são
+  // zero, são falta de histórico.
+  if (plan.metric === 'avg' && plan.group === 'month' && !plan.comparePeriod) {
+    // O mês que o período corta no meio (termina antes do último dia) não fechou.
+    const fim = fromISO(plan.period.to)
+    const mesAtual = new Date(fim.getFullYear(), fim.getMonth() + 1, 0).getDate() === fim.getDate()
+      ? '9999-99' : monthKey(plan.period.to)
+    for (const g of groups) {
+      const soma = ag.groups.get(g.key)?.valores.reduce((a, b) => a + b, 0) ?? 0
+      g.value = r2(soma)
+    }
+    const comDado = [...ag.groups.keys()].sort()
+    const fechados = comDado.filter(k => k < mesAtual)
+    const usados = (fechados.length ? fechados : comDado)
+    if (usados.length) {
+      const meses: string[] = []
+      for (let k = usados[0]; k <= usados[usados.length - 1]; k = monthKey(toISO(new Date(Number(k.slice(0, 4)), Number(k.slice(5, 7)), 1)))) meses.push(k)
+      const soma = meses.reduce((a, k) => a + (ag.groups.get(k)?.valores.reduce((x, y) => x + y, 0) ?? 0), 0)
+      total = soma / meses.length
+      const nome = (k: string) => monthShortLabel(fromISO(`${k}-01`))
+      caveats.push(meses.length === 1
+        ? `Média de 1 mês completo (${nome(meses[0])}).`
+        : `Média de ${meses.length} meses completos (${nome(meses[0])} a ${nome(meses[meses.length - 1])})${fechados.length && comDado.includes(mesAtual) ? '; o mês atual ainda não fechou e fica fora' : ''}.`)
+    }
+  }
+
   // Ordenar por diferença sem ter comparação devolveria a lista na ordem do
   // acaso com cara de ranking. Sem `comparePeriod`, cai no valor.
   const pedida = plan.order
