@@ -11,7 +11,7 @@
 //   · sem markdown decorativo, sem repetir a pergunta, sem parecer formulário.
 
 import { fmtBRL, fmtNum, fromISO } from '../../utils/format'
-import type { AssistantQueryResult, FactUnit, QueryGroupResult } from './types'
+import type { AssistantQueryPlan, AssistantQueryResult, FactUnit, QueryGroupResult } from './types'
 
 const brDate = (iso: string) => fromISO(iso).toLocaleDateString('pt-BR')
 
@@ -82,6 +82,35 @@ const COMO_REGISTRAR: Record<string, string> = {
  * CAÍDO. A resposta estava aritmeticamente certa e contradizia a pergunta logo
  * na primeira linha; quem lê para de ler ali.
  */
+/**
+ * "Meu custo por km piorou?" é pergunta de sim ou não (regra 57): a resposta
+ * começa por "Sim" ou "Não" e só depois mostra os números. Vazio quando a
+ * pergunta não é de sim ou não, ou quando não houve comparação.
+ *
+ * "Piorou" muda de sentido com a medida: gasto que SOBE piorou; receita ou
+ * resultado que CAI piorou. Recebe o texto já sem acento e em minúsculas.
+ */
+export function leadSimNao(t: string, plan: AssistantQueryPlan, total: number, compareTotal?: number): string {
+  if (compareTotal === undefined || plan.group !== 'none' || !plan.comparePeriod) return ''
+  if (/^\s*(?:e\s+)?(?:qual|quais|quanto|quanta|quantos|quantas|quando|onde|como|por\s*que|pq)\b/.test(t)) return ''
+  if (!/\?\s*$|^\s*(?:e\s+)?(?:eu\s+)?(?:estou|esta|ando|to|tou|meu|minha|gastei|ganhei|fiz|recebi)\b/.test(t)) return ''
+  const pior = /\b(?:piorou|pioraram|pior)\b/.test(t)
+  const melhor = /\b(?:melhorou|melhoraram|melhor)\b/.test(t)
+  const sobe = /\b(?:aumentou|aumentaram|subiu|subiram|cresceu|mais\s+(?:do\s+)?que)\b/.test(t)
+  const desce = /\b(?:caiu|cairam|diminuiu|diminuiram|desceu|baixou|menos\s+(?:do\s+)?que)\b/.test(t)
+  if ([pior, melhor, sobe, desce].filter(Boolean).length !== 1) return ''
+  const d = Math.round((total - compareTotal) * 100) / 100
+  if (d === 0) return 'Não, ficou igual. '
+  const custo = plan.metric !== 'net' && plan.filter.txType?.length === 1 && plan.filter.txType[0] === 'expense'
+  const piorou = custo ? d > 0 : d < 0
+  if (pior || melhor) {
+    const sim = pior ? piorou : !piorou
+    return `${sim ? 'Sim' : 'Não'}, ${piorou ? 'piorou' : 'melhorou'}. `
+  }
+  const sim = sobe ? d > 0 : d < 0
+  return `${sim ? 'Sim' : 'Não'}, ${d > 0 ? 'subiu' : 'caiu'}. `
+}
+
 export function composeAnswer(r: AssistantQueryResult): string {
   const p = r.plan
   const periodo = p.period.label

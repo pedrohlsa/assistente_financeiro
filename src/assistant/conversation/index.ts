@@ -16,6 +16,8 @@ import type { AppState } from '../../models/types'
 import { todayISO } from '../../utils/format'
 import { normalizeName } from '../../utils/text'
 import { planQuery, runPlannedQuery } from '../query'
+import { leadSimNao } from '../query/answer'
+import { normalizeQuery } from '../query/parse'
 import { parsePeriod, previousPeriod } from '../query/period'
 import type { QueryAnswer } from '../query'
 import { answerScenario, rerunScenario } from '../scenario'
@@ -59,6 +61,23 @@ export interface ConversationOptions {
 }
 
 export function answerConversation(
+  state: AppState,
+  message: string,
+  opts: ConversationOptions = {},
+): ConversationAnswer | null {
+  const out = respondeConversa(state, message, opts)
+  // Pergunta de sim ou não começa por sim ou não (regra 57), em qualquer
+  // caminho que tenha terminado numa comparação: consulta nova ou refino.
+  const plan = out?.kind === 'query' ? out.focus?.lastQueryPlan : undefined
+  const q = out?.kind === 'query' ? out.focus?.lastQuery : undefined
+  if (out && plan && q) {
+    const lead = leadSimNao(normalizeQuery(message), plan, q.total, q.compareTotal)
+    if (lead && !/^(?:sim|n[ãa]o)\b/i.test(out.reply)) return { ...out, reply: `${lead}${out.reply}` }
+  }
+  return out
+}
+
+function respondeConversa(
   state: AppState,
   message: string,
   opts: ConversationOptions = {},

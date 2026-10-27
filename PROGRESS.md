@@ -3594,3 +3594,20 @@ dias com 30 quando o mês é dito por extenso.
 nova forma de "recusa com motivo". Gates: 666/666, 99/99, 50/50, **199/199**,
 metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica
 (0 perigosa, 0 ruim, 6 aceitáveis, 84 excelentes).
+
+## 2026-10-27 — sim ou não primeiro, e assunto escrito por radical
+
+- "Meu custo por km piorou?", "tô melhor que semana passada?" e "gastei mais
+  que semana passada?" mostravam os números sem dizer sim ou não (regra 57).
+  `leadSimNao()` lê a polaridade da pergunta e a direção da medida — gasto que
+  sobe piorou; receita ou resultado que cai piorou — e a conversa abre com
+  "Sim, piorou." / "Não, melhorou." / "Não, ficou igual.". Pergunta aberta
+  ("quanto gastei a mais…?") e frase sem interrogação ficam como estavam.
+- "Minha gasolina aumentou?" comparava todos os gastos: o termo de combustível
+  é o radical "gasolin" e o leitor de categoria solta só aceitava palavra
+  inteira. Radical de 6+ letras no começo de uma palavra conta como a palavra.
+
+6 casos (4 vermelhos no código anterior, 2 controles), com a direção esperada
+calculada do fixture. Gates: 666/666, 99/99, 50/50, **205/205**, metamórficos,
+fuzz, 151/151, 468; typechecks, `test:money`, build e rubrica (0 perigosa,
+0 ruim) passaram.

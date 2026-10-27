@@ -1415,7 +1415,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const anterior = soma(antes[0], antes[1], tipo, desc)
       const texto = limpa(r.reply)
       out.push(result(id, r.reply, `${brl(atual)} nos últimos 7 dias contra ${brl(anterior)} na semana anterior`,
-        rotuloEsperado.test(texto) && texto.includes(brl(atual)) && texto.includes(`Na semana passada: ${brl(anterior)}`)
+        // A pergunta de sim ou não ganha "Sim, …"/"Não, …" na frente (regra 57).
+        rotuloEsperado.test(texto.replace(/^(?:Sim|Não), [a-z]+\. /, ''))
+          && texto.includes(brl(atual)) && texto.includes(`Na semana passada: ${brl(anterior)}`)
           && !/este m[êe]s/i.test(texto) && r.actions.length === 0))
     }
     const hojeOntem = await turnoHoje(st, 'como foi hoje comparado com ontem')
@@ -1429,6 +1431,40 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /Gasolina/.test(gasolina.reply) && limpa(gasolina.reply).includes(brl(soma(inicioMes, hoje, 'expense', 'Gasolina')))
         && !limpa(gasolina.reply).includes(`${brl(soma(inicioMes, hoje, 'expense'))} (dado real)`)
         || soma(inicioMes, hoje, 'expense', 'Gasolina') === soma(inicioMes, hoje, 'expense') && /Gasolina/.test(gasolina.reply)))
+
+    // Sim ou não primeiro, com o sentido calculado do fixture: "melhor" é
+    // resultado maior; "gastei mais" é gasto maior; "custo por km piorou" é
+    // gasto por km maior. Pergunta aberta e frase sem "?" não ganham "Sim".
+    const net7 = soma(sete[0], sete[1]); const netAntes = soma(antes[0], antes[1])
+    const gasto7 = soma(sete[0], sete[1], 'expense'); const gastoAntes = soma(antes[0], antes[1], 'expense')
+    const melhor = await turnoHoje(st, 'to melhor que semana passada?')
+    out.push(result('J-sim-nao-melhor', melhor.reply, net7 > netAntes ? 'Sim, melhorou.' : 'Não, piorou.',
+      limpa(melhor.reply).startsWith(net7 > netAntes ? 'Sim, melhorou.' : 'Não, piorou.')))
+    const gastou = await turnoHoje(st, 'gastei mais que semana passada?')
+    out.push(result('J-sim-nao-gastei-mais', gastou.reply, gasto7 > gastoAntes ? 'Sim, subiu.' : 'Não, caiu.',
+      limpa(gastou.reply).startsWith(gasto7 > gastoAntes ? 'Sim, subiu.' : 'Não, caiu.')))
+    const dia = Number(hoje.slice(8, 10))
+    const [y, m] = hoje.split('-').map(Number)
+    const inicioAnt = `${m === 1 ? y - 1 : y}-${String(m === 1 ? 12 : m - 1).padStart(2, '0')}-01`
+    const fimAnt = `${inicioAnt.slice(0, 8)}${String(Math.min(dia, new Date(m === 1 ? y - 1 : y, m === 1 ? 12 : m - 1, 0).getDate())).padStart(2, '0')}`
+    const kmEntre = (from: string, to: string) => st.workSessions.filter(w => w.date >= from && w.date <= to).reduce((a, w) => a + w.km, 0)
+    const porKm = (from: string, to: string) => soma(from, to, 'expense') / Math.max(kmEntre(from, to), 1)
+    const custoKm = await turnoHoje(st, 'meu custo por km piorou?')
+    const subiuKm = porKm(inicioMes, hoje) > porKm(inicioAnt, fimAnt)
+    out.push(result('J-sim-nao-custo-por-km', custoKm.reply, subiuKm ? 'Sim, piorou.' : 'Não, melhorou.',
+      limpa(custoKm.reply).startsWith(subiuKm ? 'Sim, piorou.' : 'Não, melhorou.')))
+    for (const [id, frase] of [
+      ['J-sem-interrogacao-nao-ganha-lead', 'comparado com a semana passada'],
+      ['J-pergunta-aberta-nao-ganha-lead', 'quanto gastei a mais que semana passada?'],
+    ] as const) {
+      const r = await turnoHoje(st, frase)
+      out.push(result(id, r.reply, 'sem "Sim"/"Não" na frente', !/^(?:Sim|Não),/.test(r.reply)))
+    }
+    const gasolinaSubiu = await turnoHoje(st, 'minha gasolina aumentou?')
+    const combustivelMes = Math.round(st.transactions.filter(t => t.type === 'expense' && t.category === 'combustivel'
+      && t.date >= inicioMes && t.date <= hoje).reduce((a, t) => a + t.amount, 0) * 100) / 100
+    out.push(result('J-assunto-por-radical', gasolinaSubiu.reply, `combustível do mês ${brl(combustivelMes)}`,
+      /Combust[íi]vel/.test(gasolinaSubiu.reply) && limpa(gasolinaSubiu.reply).includes(brl(combustivelMes))))
   }
 
   // Código interno nunca chega ao usuário: "work (Trabalho)", "expense
