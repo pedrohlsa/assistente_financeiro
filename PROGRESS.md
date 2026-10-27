@@ -4360,6 +4360,17 @@ varredura e `git diff --check` passaram.
 Achado sem correção: "meu salário é 3000 e cai dia 5" cai na ajuda genérica
 ("ganho 3500 por mês" recebe a orientação de cadastrar a recorrência).
 
+## 2026-10-27 — "cai dia 5" é recorrência
+
+"Meu salário é 3000 e cai dia 5" caía na ajuda genérica, enquanto "ganho 3500
+por mês" recebia a orientação de cadastrar a recorrência (regra 18). O
+reconhecimento de recorrência agora inclui "cai/caem/entra/entram (todo) dia
+N", no presente; "caiu hoje" continua registro e "vence dia N" ficou de fora
+(colide com pergunta de fatura). 2 casos (1 vermelho antes, 1 controle).
+Gates: 666/666, 99/99, 50/50, **392/392**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build, rubrica, varredura e `git diff --check`
+passaram.
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800

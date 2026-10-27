@@ -244,6 +244,9 @@ const RECORRENCIA = new RegExp([
   String.raw`\b(?:por|ao|a\s+cada)\s+m[eê]s\b`,
   String.raw`\bmensalmente\b|\btodo\s+m[eê]s\b|\bmensal\b`,
   String.raw`\bcada\s+\d{1,2}\s+(?:dias|semanas|meses)\b`,
+  // "Meu salário cai dia 5": o presente diz que se repete ("caiu" é registro).
+  // "Vence dia N" fica de fora: colide com pergunta sobre a fatura.
+  String.raw`\b(?:cai|caem|entra|entram)\s+(?:sempre\s+)?(?:todo\s+)?(?:no\s+)?dia\s+\d{1,2}\b`,
 ].join('|'), 'i')
 
 export const looksRecurring = (t: string): boolean => RECORRENCIA.test(t)

@@ -2443,6 +2443,17 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // "Meu salário é 3000 e cai dia 5" é recorrência, como "ganho 3500 por
+  // mês" — caía na ajuda. "Caiu dia 5" (passado) continua registro.
+  {
+    const clt = buildState({ profile: 'clt' })
+    const declara = await turnoHoje(clt, 'meu salario e 3000 e cai dia 5')
+    out.push(result('RC-cai-dia-5', declara, 'orienta cadastrar a recorrência, sem lançamento',
+      /se repete|Planejamento/.test(declara.reply) && declara.actions.length === 0))
+    const caiu = await turnoHoje(clt, 'meu salario de 3000 caiu hoje')
+    out.push(result('RC-caiu-continua-registro', caiu.actions, 'receita de 3000', caiu.actions.some(a => a.kind === 'income' && a.amount === 3000)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.
