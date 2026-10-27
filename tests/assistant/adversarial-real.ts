@@ -2357,6 +2357,41 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // "Vale a pena rodar domingo?" caía na ajuda. Sem domingo no histórico, diz
+  // que não há base; com domingo, compara o lucro médio dele com o dos outros dias.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const semDomingo = limpa((await turnoHoje(motoristaRico(hoje), 'vale a pena rodar domingo?')).reply)
+    // Os dois melhores dias pelo lucro médio; a menos de 2% um do outro, é empate (regra 56).
+    const lucroPorData = new Map<string, number>()
+    for (const x of motoristaRico(hoje).transactions.filter(x => x.date >= addDays(hoje, -90) && x.date < hoje)) {
+      lucroPorData.set(x.date, (lucroPorData.get(x.date) || 0) + (x.type === 'income' ? x.amount : x.type === 'expense' ? -x.amount : 0))
+    }
+    const medias = [1, 2, 3, 4, 5, 6].map(wd => {
+      const v = [...lucroPorData].filter(([d]) => fromISO(d).getDay() === wd).map(([, x]) => x)
+      return v.length ? v.reduce((a, x) => a + x, 0) / v.length : 0
+    }).sort((x, y) => y - x)
+    const empatados = Math.abs(medias[0] - medias[1]) / Math.max(Math.abs(medias[0]), 1) <= 0.02
+    out.push(result('WD-sem-domingo', semDomingo, 'sem domingo registrado: diz que não há base',
+      /domingo/i.test(semDomingo) && /nenhum/i.test(semDomingo) && !/Posso te ajudar/.test(semDomingo)
+        && empatados === /empat/.test(semDomingo)))
+    const comDomingo = motoristaRico(hoje)
+    let domingo = addDays(hoje, -1)
+    while (fromISO(domingo).getDay() !== 0) domingo = addDays(domingo, -1)
+    comDomingo.transactions = [...comDomingo.transactions,
+      { id: 'dom-1', type: 'income', amount: 400, category: 'corridas', date: domingo, description: 'Uber', time: '10:00' }] as AppState['transactions']
+    const ini = addDays(hoje, -90)
+    const porDia = new Map<string, number>()
+    for (const x of comDomingo.transactions.filter(x => x.date >= ini && x.date < hoje && fromISO(x.date).getDay() !== 0)) {
+      porDia.set(x.date, (porDia.get(x.date) || 0) + (x.type === 'income' ? x.amount : x.type === 'expense' ? -x.amount : 0))
+    }
+    const outros = Math.round([...porDia.values()].reduce((a, v) => a + v, 0) / porDia.size * 100) / 100
+    const r = limpa((await turnoHoje(comDomingo, 'vale a pena rodar domingo?')).reply)
+    out.push(result('WD-com-domingo', r, `domingo ${brl(400)} contra ${brl(outros)} nos outros dias`,
+      r.includes(brl(400)) && r.includes(brl(outros)) && /estimativa|hist[óo]rico/i.test(r)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

@@ -4291,6 +4291,21 @@ inDrive ou 99 (o "99" só com preposição, porque sem ela pode ser o valor).
 **379/379**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
 build, rubrica, varredura e `git diff --check` passaram.
 
+## 2026-10-27 — "vale a pena rodar domingo?"
+
+Caía na ajuda genérica. `diaDaSemanaPedido()` lê "vale a pena/compensa
+rodar/trabalhar <dia>", e o roteador compara o lucro médio daquele dia da
+semana com o dos outros dias, nos dias com lançamento dos últimos 90 (hoje
+fora). Sem nenhum registro daquele dia, diz que não tem base e mostra a média
+dos dias trabalhados e o melhor dia — com empate dito quando os dois melhores
+ficam a menos de 2% (regra 56, mesma margem da consulta, agora exportada). Com
+poucos registros, avisa que a base é pequena. Sem Sim/Não inventado.
+
+2 casos no grupo WD (os 2 vermelhos antes; médias calculadas no oráculo).
+Gates: 666/666, 99/99, 50/50, **381/381**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build, rubrica, varredura e `git diff --check`
+passaram.
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800
@@ -4303,7 +4318,6 @@ legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas:
 - Pergunta nominal sem "quanto" ("gastos dessa semana") cai na ajuda genérica.
-- "Vale a pena rodar domingo?" cai na ajuda genérica.
 
 Decisões de produto pendentes:
 - `balanceOutlook` (Home e simulações "e se eu gastar") só considera contas

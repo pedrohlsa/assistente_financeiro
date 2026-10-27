@@ -264,7 +264,7 @@ export function composeAnswer(r: AssistantQueryResult): string {
  * O limiar é RELATIVO (2%) porque a distância que importa depende da escala:
  * dez reais entre dois mil é empate, dez reais entre trinta não é.
  */
-const MARGEM_EMPATE = 0.02
+export const MARGEM_EMPATE = 0.02
 
 function empateNoTopo(r: AssistantQueryResult): string | null {
   const [a, b] = r.groups

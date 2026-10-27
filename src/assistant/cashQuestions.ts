@@ -189,6 +189,17 @@ export function pedeResumoDoDia(t: string): boolean {
     || /^\s*(?:e\s+)?(?:(?:o\s+)?(?:meu\s+)?dia\s+|hoje\s+)?(?:foi|esta|tava|estava)\s+(?:um\s+dia\s+)?(?:bom|boa|fraco|ruim|bem|razoavel|legal|forte)\s*(?:hoje)?\s*\??\s*$/.test(t)
 }
 
+const DIAS_DA_SEMANA = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado']
+
+/**
+ * "Vale a pena rodar domingo?", "compensa trabalhar no sábado?": o dia da
+ * semana perguntado (0 = domingo), ou `null`. Caía na ajuda genérica.
+ */
+export function diaDaSemanaPedido(t: string): number | null {
+  const m = t.match(/\b(?:vale\s+a\s+pena|compensa|e\s+bom|da\s+para\s+ganhar\s+bem)\s+(?:eu\s+)?(?:rodar|trabalhar|sair|abrir)\s+(?:n[oa]s?\s+|d[ea]\s+|aos?\s+|as\s+)?(domingo|segunda|terca|quarta|quinta|sexta|sabado)s?\b/)
+  return m ? DIAS_DA_SEMANA.indexOf(m[1]) : null
+}
+
 export type PerguntaDeConta = 'paga' | 'vence' | 'valor'
 
 /**

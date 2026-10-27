@@ -19,6 +19,7 @@ import {
 } from '../utils/format'
 import { promptSafe, sentenceCase } from '../utils/text'
 import { MAX_COMPOSE_FACTS } from '../assistant/grounding'
+import { MARGEM_EMPATE } from '../assistant/query/answer'
 import {
   analyzeRide, avgDailyProfit, balanceOutlook, bestWorstDay, cashObligationsUntil, currentBalance, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
   monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections, budgetUsage,
@@ -26,7 +27,7 @@ import {
 } from './calc'
 import type { CashObligation } from './calc'
 import {
-  alvoDaReserva, mesesAtePrazo, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeResumoDoDia, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
+  alvoDaReserva, diaDaSemanaPedido, mesesAtePrazo, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeResumoDoDia, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
   perguntaDeFatura, perguntaDeManutencao,
   planoDeGuardar, prazoDasContas, retiraDaReserva,
 } from '../assistant/cashQuestions'
@@ -585,6 +586,10 @@ function resolveLocal(s: AppState, input: string): AiReply {
   const sobreConta = perguntaDeConta(t)
   const conta = sobreConta ? contaCitada(s, t) : undefined
   if (sobreConta && conta) return respostaDaConta(s, conta, sobreConta)
+
+  // "Vale a pena rodar domingo?": o histórico daquele dia da semana.
+  const diaPedido = diaDaSemanaPedido(t)
+  if (diaPedido !== null) return respostaDoDiaDaSemana(s, diaPedido)
 
   // "Como foi hoje?", "foi bom?": o dia contra a média dos outros dias.
   if (pedeResumoDoDia(t)) return respostaDoDia(s, t, driverMode)
@@ -1658,6 +1663,46 @@ function respostaDePlano(s: AppState, t: string, plano: PlanoDeGuardar, driverMo
     return { text: `Sim, no ritmo ${ritmo}. ${qualMeta} ${conta}, e sobraram em média ${fmtBRL(sobra.media)} por mês. ${aviso}` }
   }
   return { text: `Não no ritmo ${ritmo}. ${qualMeta} ${conta}, e sobraram em média ${fmtBRL(sobra.media)} por mês — faltariam ${fmtBRL(round2(mensal - Math.max(sobra.media, 0)))} por mês. ${aviso}` }
+}
+
+const NOMES_DA_SEMANA: { um: string; varios: string; feminino: boolean }[] = [
+  { um: 'domingo', varios: 'domingos', feminino: false }, { um: 'segunda', varios: 'segundas', feminino: true },
+  { um: 'terça', varios: 'terças', feminino: true }, { um: 'quarta', varios: 'quartas', feminino: true },
+  { um: 'quinta', varios: 'quintas', feminino: true }, { um: 'sexta', varios: 'sextas', feminino: true },
+  { um: 'sábado', varios: 'sábados', feminino: false },
+]
+
+/**
+ * Lucro médio do dia da semana perguntado contra o dos outros dias, nos dias
+ * com lançamento dos últimos 90 (hoje fora, porque ainda não acabou). Sem
+ * nenhum daquele dia, o app diz que não tem base — e o que tem.
+ */
+function respostaDoDiaDaSemana(s: AppState, alvo: number): AiReply {
+  const hoje = todayISO()
+  const ini = addDays(hoje, -90)
+  const porDia = new Map<string, number>()
+  for (const x of s.transactions) {
+    if (x.date < ini || x.date >= hoje || (x.type !== 'income' && x.type !== 'expense')) continue
+    porDia.set(x.date, (porDia.get(x.date) || 0) + (x.type === 'income' ? x.amount : -x.amount))
+  }
+  const media = (xs: number[]) => xs.length ? round2(xs.reduce((a, v) => a + v, 0) / xs.length) : 0
+  const doAlvo = [...porDia].filter(([d]) => fromISO(d).getDay() === alvo).map(([, v]) => v)
+  const outros = [...porDia].filter(([d]) => fromISO(d).getDay() !== alvo).map(([, v]) => v)
+  const nome = NOMES_DA_SEMANA[alvo]
+  if (!doAlvo.length) {
+    const porSemana = NOMES_DA_SEMANA.map((_, wd) => ({ wd, m: media([...porDia].filter(([d]) => fromISO(d).getDay() === wd).map(([, v]) => v)) }))
+      .filter(x => x.wd !== alvo && x.m !== 0).sort((a, b) => b.m - a.m)
+    const [melhor, segundo] = porSemana
+    // Empate é dito, não desempatado (regra 56), com a mesma margem da consulta.
+    const empate = melhor && segundo && Math.abs(melhor.m - segundo.m) / Math.max(Math.abs(melhor.m), 1) <= MARGEM_EMPATE
+      ? `, praticamente empatado com ${NOMES_DA_SEMANA[segundo.wd].um} (${fmtBRL(segundo.m)})` : ''
+    return { text: `Você não tem ${nome.feminino ? 'nenhuma' : 'nenhum'} ${nome.um} registrad${nome.feminino ? 'a' : 'o'} nos últimos 90 dias, então não sei dizer pelo seu histórico.`
+      + (outros.length ? ` Nos dias em que você trabalha, o lucro médio é de ${fmtBRL(media(outros))} por dia${melhor ? `; o melhor dia tem sido ${NOMES_DA_SEMANA[melhor.wd].um} (${fmtBRL(melhor.m)})${empate}` : ''}.` : '') }
+  }
+  const m = media(doAlvo)
+  const mo = media(outros)
+  const base = doAlvo.length < 4 ? ` É uma estimativa com pouca base: ${doAlvo.length} ${doAlvo.length === 1 ? nome.um : nome.varios}.` : ' É uma estimativa pelo seu histórico.'
+  return { text: `Pelo seu histórico, ${nome.um} rende ${m >= mo ? 'mais' : 'menos'} que os outros dias: lucro médio de ${fmtBRL(m)} contra ${fmtBRL(mo)} nos outros dias.${base}` }
 }
 
 /**
