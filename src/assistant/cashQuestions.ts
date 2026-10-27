@@ -189,6 +189,33 @@ export function pedeResumoDoDia(t: string): boolean {
     || /^\s*(?:e\s+)?(?:(?:o\s+)?(?:meu\s+)?dia\s+|hoje\s+)?(?:foi|esta|tava|estava)\s+(?:um\s+dia\s+)?(?:bom|boa|fraco|ruim|bem|razoavel|legal|forte)\s*(?:hoje)?\s*\??\s*$/.test(t)
 }
 
+/**
+ * Pergunta TELEGRÁFICA, sem verbo nem número: "gastos dessa semana", "entradas
+ * do mês", "saldo?". Caíam na ajuda genérica. Vira a pergunta com verbo que o
+ * app já responde ("quanto gastei essa semana?"). Recebe o texto do usuário;
+ * com dígito, é registro ("gasto 50 de luz") e fica como está.
+ */
+export function perguntaNominal(texto: string): string | null {
+  if (/\d/.test(texto)) return null
+  // Só minúscula: o resto da frase segue com os acentos dele ("Zé da esquina").
+  const n = texto.toLowerCase().replace(/[?.!]+\s*$/, '').trim()
+  const fim = String.raw`(?![\wà-ú])`
+  if (new RegExp(String.raw`^(?:e\s+)?(?:o\s+|meu\s+)?saldo(?:\s+(?:atual|de\s+hoje|agora))?$`).test(n)) return 'qual meu saldo?'
+  const m = n.match(/^(?:e\s+)?(?:(?:os|as|meus|minhas)\s+)?(gastos?|despesas?|sa[ií]das?|entradas?|receitas?|ganhos?)\s+(.+)$/)
+  if (!m) return null
+  const verbo = /^(?:gasto|despesa|sa[ií]da)/.test(m[1]) ? 'gastei' : 'recebi'
+  const resto = m[2]
+    .replace(new RegExp(String.raw`^de\s+(hoje|ontem)${fim}`), '$1')
+    .replace(/^d(ess|est)([ea])\s+/, '$1$2 ')
+    .replace(new RegExp(String.raw`^do\s+m[eê]s\s+passado${fim}`), 'no mês passado')
+    .replace(new RegExp(String.raw`^do\s+m[eê]s${fim}`), 'esse mês')
+    .replace(new RegExp(String.raw`^da\s+semana\s+passada${fim}`), 'na semana passada')
+    .replace(new RegExp(String.raw`^da\s+semana${fim}`), 'essa semana')
+    .replace(new RegExp(String.raw`^do\s+ano${fim}`), 'esse ano')
+    .replace(new RegExp(String.raw`^de\s+(janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)${fim}`), 'em $1')
+  return `quanto ${verbo} ${resto}?`
+}
+
 const DIAS_DA_SEMANA = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado']
 
 /**

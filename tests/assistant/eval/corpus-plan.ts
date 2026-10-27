@@ -163,7 +163,8 @@ export const CASOS_PLANO: CasoPlano[] = [
       { source: 'transactions', filtro: { txType: RECEITA, categories: ['freelance'] }, metric: 'share', shareBase: umDe('income', 'same', null), periodo: exatos(esteMes) },
       { source: 'transactions', filtro: { categories: ['freelance'] }, metric: 'share', shareBase: 'income', periodo: exatos(esteMes) },
     ]),
-  caso('p-15', 'autonomo', 'plano-complexo', 'remota',
+  // 27/10/2026: a pergunta telegráfica (sem verbo) virou "quanto gastei…" e é respondida no aparelho (R$ 135,00, conferido).
+  caso('p-15', 'autonomo', 'plano-complexo', 'local',
     'gastos no zé da esquina desde julho',
     'nome próprio vira texto de busca + "desde" é ATÉ HOJE, não só julho',
     [{ source: 'transactions', filtro: { txType: umDe(GASTO, null), text: 'Zé da esquina' }, group: umDe('none', 'description'), periodo: exatos(h => desde(h, JUL)) }]),

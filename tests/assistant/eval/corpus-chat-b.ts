@@ -205,7 +205,8 @@ export const CASOS_CHAT_B: CasoChat[] = [
       deveMencionar: [/3\.000|3\.900|900|n[ãa]o (?:tenho|consigo|vejo)/i],
       derivados: ctx => [Math.abs((ctx?.mesAnterior?.receitas ?? 0) - (ctx?.esteMes?.receitas ?? 0))],
     }),
-  casoChat('c-55', 'autonomo', 'utilidade', 'remota',
+  // 27/10/2026: a pergunta telegráfica agora é respondida no aparelho; não chega mais ao chat.
+  casoChat('c-55', 'autonomo', 'utilidade', 'local',
     'gastos no zé da esquina desde julho',
     'é o que sobra para o chat quando o planejador falha: sem descrição no contexto, qualquer valor é inventado',
     { intencao: 'responder', acoes: [], respondivel: true, deveMencionar: [/n[ãa]o (?:tenho|consigo|vejo|encontr)|hist[óo]rico|lan[çc]amento/i] }),

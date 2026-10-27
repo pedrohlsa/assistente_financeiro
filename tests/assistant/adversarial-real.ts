@@ -2392,6 +2392,29 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       r.includes(brl(400)) && r.includes(brl(outros)) && /estimativa|hist[óo]rico/i.test(r)))
   }
 
+  // Pergunta telegráfica, sem verbo nem número: "gastos dessa semana",
+  // "entradas do mês", "saldo?" caíam na ajuda genérica.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const soma = (f: (x: AppState['transactions'][number]) => boolean) =>
+      Math.round(rico.transactions.filter(x => x.date <= hoje && f(x)).reduce((a, x) => a + x.amount, 0) * 100) / 100
+    const ini = `${hoje.slice(0, 8)}01`
+    const casos: [string, number][] = [
+      ['gastos dessa semana', soma(x => x.type === 'expense' && x.date >= addDays(hoje, -6))],
+      ['entradas do mes', soma(x => x.type === 'income' && x.date >= ini)],
+      ['gastos com obra esse mes', soma(x => x.type === 'expense' && x.category === 'obra' && x.date >= ini)],
+      ['saldo?', currentBalance(rico)],
+    ]
+    for (const [frase, valor] of casos) {
+      const r = limpa((await turnoHoje(rico, frase)).reply)
+      out.push(result(`NM-${frase.replace(/\W+/g, '-')}`, r, brl(valor), r.includes(brl(valor)) && !/Posso te ajudar/.test(r)))
+    }
+    const registro = await turnoHoje(rico, 'gasto 50 de luz')
+    out.push(result('NM-com-valor-continua-registro', registro.actions, 'despesa de 50', registro.actions.some(a => a.kind === 'expense' && a.amount === 50)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

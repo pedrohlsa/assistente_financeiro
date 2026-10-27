@@ -43,7 +43,7 @@ import { applyCorrection, parseCorrection } from './corrections'
 import type { CorrectionPlan } from './corrections'
 import { findGoalByName, planAssistantActions } from './execute'
 import { askAssistant, normalizeQuestion, respostaDeMetaCitada } from '../services/ai'
-import { perguntaDeFatura } from './cashQuestions'
+import { perguntaDeFatura, perguntaNominal } from './cashQuestions'
 import { buildCapabilities } from './capabilities'
 import { describeAction, META_OUTRA } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
@@ -951,6 +951,10 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   }
   const preferredMessage = applyPreferenceAliases(input.state, input.message)
   if (preferredMessage !== input.message) input = { ...input, message: preferredMessage }
+  // "Gastos dessa semana", "saldo?": pergunta telegráfica vira a pergunta com
+  // verbo que o app responde. Resposta a uma opção oferecida fica como está.
+  const nominal = input.pendingClarification ? null : perguntaNominal(input.message)
+  if (nominal) input = { ...input, message: nominal }
   const caps = buildCapabilities(input.state)
   const today = input.today || todayISO()
 

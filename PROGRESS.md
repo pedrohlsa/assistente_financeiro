@@ -4306,6 +4306,29 @@ Gates: 666/666, 99/99, 50/50, **381/381**, metamórficos, fuzz, 151/151, 468;
 typechecks, `test:money`, build, rubrica, varredura e `git diff --check`
 passaram.
 
+## 2026-10-27 — pergunta telegráfica sem verbo
+
+"Gastos dessa semana", "entradas do mês", "gastos com obra esse mês" e até
+"saldo?" caíam na ajuda genérica. Sem verbo e sem número, a entrada do
+orquestrador reescreve a pergunta com o verbo que o app já responde
+(`perguntaNominal()`: "gastos <resto>" → "quanto gastei <resto>?", "entradas"
+→ "quanto recebi", "saldo?" → "qual meu saldo?", com "do mês/da semana/de
+hoje" ajustados). Com dígito é registro e fica como está ("gasto 50 de luz").
+A reescrita mantém os acentos do resto da frase.
+
+Dois rótulos do corpus remoto envelheceram com isso e foram atualizados com
+nota datada: p-15 e c-55 ("gastos no zé da esquina desde julho") agora são
+respondidos no aparelho (R$ 135,00, conferido) — 67 frases chegam hoje ao
+modelo remoto (eram 69).
+
+5 casos no grupo NM (4 vermelhos antes, 1 controle de registro). Gates:
+666/666, 99/99, 50/50, **386/386**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
+`git diff --check` passaram.
+
+Achados sem correção: "resumo da semana" responde o mês; "contas do mês" olha
+15 dias em vez de até o fim do mês.
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800
@@ -4317,7 +4340,6 @@ precisam de auditoria independente; navegador, persistência real e dados
 legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas:
-- Pergunta nominal sem "quanto" ("gastos dessa semana") cai na ajuda genérica.
 
 Decisões de produto pendentes:
 - `balanceOutlook` (Home e simulações "e se eu gastar") só considera contas
