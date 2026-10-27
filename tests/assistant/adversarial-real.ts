@@ -2258,6 +2258,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // Continuidade da fatura: "quanto tá a fatura do nubank" → "e o inter?"
+  // virava "O inter de quanto?" (elipse de compra) depois que a fatura passou
+  // a ser respondida pelo roteador, sem plano no foco.
+  {
+    const st = estadoDeFaturas(hoje)
+    const r1 = await turnoHoje(st, 'quanto falta pagar da fatura do nubank')
+    const r2 = await turnoHoje(st, 'e o inter?', r1.focus)
+    out.push(result('FC-e-o-inter-depois-da-fatura', r2.reply, 'a mesma pergunta para o Inter: R$ 300,00 atrasada',
+      /Inter/.test(r2.reply) && /R\$\s300,00/.test(r2.reply) && !/de quanto/i.test(r2.reply) && r2.actions.length === 0))
+    const r3 = await turnoHoje(st, 'e o c6', r2.focus)
+    out.push(result('FC-e-o-c6-em-seguida', r3.reply, 'segue trocando o cartão', /C6/.test(r3.reply) && !/de quanto/i.test(r3.reply)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

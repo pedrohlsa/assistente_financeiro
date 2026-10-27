@@ -4202,6 +4202,18 @@ Gates: 666/666, 99/99, 50/50, **365/365**, metamórficos, fuzz, 151/151, 468;
 typechecks, `test:money`, build, rubrica, varredura e `git diff --check`
 passaram.
 
+## 2026-10-27 — "e o Inter?" depois de uma pergunta de fatura (regressão de `748a3cc`)
+
+Com a fatura respondida pelo roteador (`748a3cc`), a pergunta deixou de pôr
+um plano de consulta no foco, e "quanto falta pagar da fatura do nubank" →
+"e o inter?" caía na elipse de compra: "O inter de quanto? Me diga o valor e
+em quantas vezes…". O foco agora guarda a última pergunta de fatura de um
+cartão (`lastInvoiceQuestion`), e "e o <cartão>?" — exatamente um cartão
+ativo — repete a pergunta com o cartão trocado, em sequência ("e o c6"
+depois). 2 casos no grupo FC (os 2 vermelhos antes). Gates: 666/666, 99/99,
+50/50, **367/367**, metamórficos, fuzz, 151/151, 468; typechecks,
+`test:money`, build, rubrica, varredura e `git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800

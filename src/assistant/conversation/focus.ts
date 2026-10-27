@@ -86,6 +86,11 @@ export interface ConversationFocus {
   last?: 'query' | 'scenario' | 'driver'
   /** Entidades citadas — matéria-prima da elipse ("e o outro?"). */
   entities?: { cards?: string[]; categories?: string[]; goals?: string[]; origins?: string[] }
+  /**
+   * A última pergunta de FATURA de um cartão só, que o roteador respondeu sem
+   * plano de consulta. É ela que "e o Inter?" repete com o outro cartão.
+   */
+  lastInvoiceQuestion?: string
   updatedAt: number
 }
 

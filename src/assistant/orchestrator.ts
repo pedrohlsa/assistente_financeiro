@@ -42,7 +42,8 @@ import type { AssistantDraft } from './drafts'
 import { applyCorrection, parseCorrection } from './corrections'
 import type { CorrectionPlan } from './corrections'
 import { findGoalByName, planAssistantActions } from './execute'
-import { askAssistant, respostaDeMetaCitada } from '../services/ai'
+import { askAssistant, normalizeQuestion, respostaDeMetaCitada } from '../services/ai'
+import { perguntaDeFatura } from './cashQuestions'
 import { buildCapabilities } from './capabilities'
 import { describeAction, META_OUTRA } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
@@ -779,6 +780,30 @@ function hypotheticalSummary(candidates: AssistantCandidateAction[]): string | n
   return `Se você confirmar, ${parts.join(', ')}${tail} Nada foi registrado ainda.`
 }
 
+const escapaRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** Cartões ativos citados pelo nome num texto já normalizado. */
+function cartoesNaFrase(state: AppState, t: string): string[] {
+  return (state.cards || []).filter(c => !c.archived).map(c => c.name)
+    .filter(n => { const k = normalizeName(n); return k.length >= 2 && new RegExp(`\\b${escapaRegex(k)}\\b`).test(t) })
+}
+
+/**
+ * "E o Inter?" logo depois de uma pergunta de fatura de outro cartão: a mesma
+ * pergunta com o cartão trocado. Só quando a elipse é EXATAMENTE um cartão.
+ */
+function faturaComOutroCartao(state: AppState, focus: ConversationFocus | undefined, mensagem: string): string | null {
+  if (!isFocusFresh(focus) || !focus?.lastInvoiceQuestion) return null
+  const m = normalizeName(mensagem).match(/^e\s+(?:o|a|no|na|do|da)?\s*(?:cartao\s+(?:d[oa]\s+)?)?(.+?)\s*\??$/)
+  if (!m) return null
+  const novo = cartoesNaFrase(state, m[1])
+  if (novo.length !== 1 || normalizeName(novo[0]) !== m[1].trim()) return null
+  const anterior = normalizeName(focus.lastInvoiceQuestion)
+  const velho = cartoesNaFrase(state, anterior)
+  if (velho.length !== 1 || normalizeName(velho[0]) === normalizeName(novo[0])) return null
+  return anterior.replace(new RegExp(`\\b${escapaRegex(normalizeName(velho[0]))}\\b`), normalizeName(novo[0]))
+}
+
 /**
  * Gasto avulso com o nome de uma conta fixa que tem vencimento sem confirmação.
  * O chat não confirma ocorrência (não há ação no catálogo para isso): confirmar
@@ -1504,6 +1529,19 @@ Confirmar?`,
     }
   }
 
+  // ---- 10d) "E o Inter?" depois de uma pergunta de fatura ---------------
+  // A fatura de um cartão é respondida pelo roteador, sem plano no foco: a
+  // elipse caía em "O inter de quanto?", como se fosse compra.
+  const faturaDeNovo = faturaComOutroCartao(input.state, input.focus, mensagem)
+  if (faturaDeNovo) {
+    const r = askAssistant(input.state, faturaDeNovo)
+    return {
+      draft: null, keepPending: true,
+      focus: { ...input.focus!, lastInvoiceQuestion: faturaDeNovo, updatedAt: Date.now() },
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply: r.text },
+    }
+  }
+
   // ---- 11) Consulta, cenário e continuação ------------------------------
   const temFato = hasBlock(turno, 'record')
 
@@ -1934,6 +1972,10 @@ ${reply}`
         ? { ...base, mode, actions: [] }
         : { ...base, mode, actions: candidates }
 
+  // Pergunta de fatura de UM cartão respondida: fica no foco para "e o Inter?".
+  if (mode === 'answer' && perguntaDeFatura(normalizeQuestion(mensagem)) && cartoesNaFrase(input.state, normalizeName(mensagem)).length === 1) {
+    focoFinal = { ...(focoFinal || {}), lastInvoiceQuestion: mensagem, updatedAt: Date.now() }
+  }
   return { draft: null, response, focus: focoFinal }
 }
 
