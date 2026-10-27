@@ -2304,6 +2304,12 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // "Mais 2h por dia ESSA SEMANA" são 7 dias, não 30.
+  {
+    const r = (await turnoHoje(motoristaRico(hoje), 'e se eu rodar mais 2h por dia essa semana')).reply
+    out.push(result('HX-essa-semana-sete-dias', r, '7 dias', /em 7 dias/.test(r) && !/30 dias rendem/.test(r)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

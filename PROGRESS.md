@@ -4246,6 +4246,13 @@ há Sim/Não inventado: o app não sabe o cansaço de ninguém.
 **372/372**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
 build, rubrica (0 perigosa, 0 ruim), varredura e `git diff --check` passaram.
 
+## 2026-10-27 — "essa semana" na simulação de horas são 7 dias
+
+"E se eu rodar mais 2h por dia essa semana" estimava 30 dias (R$ 2.423,75): o
+leitor de duração conhecia "semana toda" e "toda a semana", não "essa semana".
+Agora são 7 dias (R$ 565,54). 1 caso (vermelho antes). Gates: 666/666,
+**373/373**, 151/151 e os demais verdes.
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800

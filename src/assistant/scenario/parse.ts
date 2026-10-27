@@ -187,7 +187,7 @@ function planSingleScenario(
       const duracao = t.match(/\b(?:durante|por)\s+(\d{1,2})\s+(dias?|semanas?|mes(?:es)?)\b/)
       const dias = porDia
         ? (duracao ? Number(duracao[1]) * (/^semana/.test(duracao[2]) ? 7 : /^mes/.test(duracao[2]) ? 30 : 1)
-          : /\bsemana\s+toda\b|\btoda\s+a\s+semana\b/.test(t) ? 7
+          : /\bsemana\s+toda\b|\btoda\s+a\s+semana\b|\b(?:essa|esta|nessa|nesta)\s+semana\b/.test(t) ? 7
           : /\bdias?\s+uteis\b/.test(t) ? 5 : 30)
         : 1
       return base('extra-work', { hoursPerDay: parseMoney(horas[1]), days: dias },
