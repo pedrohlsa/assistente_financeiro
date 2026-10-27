@@ -2454,6 +2454,22 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('RC-caiu-continua-registro', caiu.actions, 'receita de 3000', caiu.actions.some(a => a.kind === 'income' && a.amount === 3000)))
   }
 
+  // Elipse de categoria sem "no/na": depois de "quanto gastei com obra esse
+  // mês", "e alimentação?", "e com lazer?" e "e de alimentação?" caíam na ajuda.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const ini = `${hoje.slice(0, 8)}01`
+    const daCat = (cat: string) => Math.round(rico.transactions.filter(x => x.type === 'expense' && x.category === cat && x.date >= ini && x.date <= hoje)
+      .reduce((a, x) => a + x.amount, 0) * 100) / 100
+    const r1 = await turnoHoje(rico, 'quanto gastei com obra esse mes')
+    for (const [frase, cat] of [['e alimentacao?', 'alimentacao'], ['e com lazer?', 'lazer'], ['e de alimentacao?', 'alimentacao']]) {
+      const r = limpa((await turnoHoje(rico, frase, r1.focus)).reply)
+      out.push(result(`EL-${frase.replace(/\W+/g, '-')}`, r, brl(daCat(cat)), daCat(cat) > 0 && r.includes(brl(daCat(cat))) && !/Posso te ajudar/.test(r)))
+    }
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

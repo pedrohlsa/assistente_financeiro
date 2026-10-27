@@ -713,8 +713,12 @@ function refinaConsulta(
   }
 
   // ---- restrição: "e só aluguel?", "e no Nubank?" -----------------------
+  // "E alimentação?", "e com lazer?", "e de mercado?": sem "no/na", só vale
+  // quando o nome É uma categoria ou um cartão — senão a elipse é outra coisa.
+  const nuaOuComDe = t.match(/^e\s+(?:(?:com|de|em)\s+)?([a-z0-9çãõáéíóúâê][a-z0-9\s\-çãõáéíóúâê]{1,30}?)\s*\??$/)
   const restringir = t.match(/^(?:e\s+)?(?:so|somente|apenas)\s+(?:o\s+|a\s+)?([a-z0-9çãõáéíóúâê][a-z0-9\s\-çãõáéíóúâê]{1,30}?)\s*\??$/)
     || t.match(/^e\s+(?:n?[oa]s?|d[oa]s?)\s+([a-z0-9çãõáéíóúâê][a-z0-9\s\-çãõáéíóúâê]{1,30}?)\s*\??$/)
+    || (nuaOuComDe && (achaCategoria(state, nuaOuComDe[1].trim()) || achaCartao(state, nuaOuComDe[1].trim())) ? nuaOuComDe : null)
   if (restringir) {
     const alvo = restringir[1].trim()
     const cartao = achaCartao(state, alvo)

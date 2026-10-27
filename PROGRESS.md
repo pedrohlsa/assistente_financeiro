@@ -4371,6 +4371,23 @@ Gates: 666/666, 99/99, 50/50, **392/392**, metamórficos, fuzz, 151/151, 468;
 typechecks, `test:money`, build, rubrica, varredura e `git diff --check`
 passaram.
 
+## 2026-10-27 — "e alimentação?" na continuação
+
+Depois de "quanto gastei com obra esse mês", "e alimentação?", "e com lazer?"
+e "e de alimentação?" caíam na ajuda genérica: a restrição da continuação só
+aceitava "e no/na/do/da X". Agora "e X", "e com X", "e de X" e "e em X"
+trocam o recorte — mas só quando X é o nome de uma categoria ou de um cartão
+(sem isso a elipse pode ser outra coisa e segue para os outros leitores).
+3 casos no grupo EL (os 3 vermelhos antes). Gates: 666/666, 99/99, 50/50,
+**395/395**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
+build, rubrica, varredura e `git diff --check` passaram.
+
+Achados da mesma conversa, sem correção ainda: "qual foi o maior gasto
+disso?" ignora o "disso" (respondeu os últimos 7 dias em Lazer); "somando as
+duas?" (Casa 1 e Casa 2) cai na ajuda; "e no ano?" herda a comparação e
+compara com 2025 (R$ 0); "qual a diferença?" diz "o período principal ficou
+R$ 420 abaixo" em vez de "este mês ficou R$ 420 acima do mês passado".
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800
