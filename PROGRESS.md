@@ -3820,6 +3820,22 @@ crescer"). Cartão citado que não existe é dito, sem número. Fatura de mês d
 typechecks, `test:money`, build, rubrica (0 perigosa, 0 ruim), varredura de
 controle e `git diff --check` passaram.
 
+## 2026-10-27 — nome com acento contra pergunta sem acento
+
+O roteador antigo compara a pergunta já sem acento (`normalizeQuestion`) com o
+nome cadastrado COM acento. "Quanto gastei de alimentação esse mês" respondia
+"R$ 0,00 … dado real" com R$ 463 lançados; "quanto falta pra câmera"
+respondia a meta Notebook (a primeira da lista); o orçamento citado pelo nome
+nunca era achado. Os três pontos passam o nome pela mesma normalização. No
+mesmo leitor: "com O bar" levava o artigo para a busca (R$ 0,00 com R$ 480
+no Bar), e palavra que não é categoria nem descrição ("comida") afirmava
+R$ 0,00 — agora a pergunta segue para a consulta, que conhece mais nomes e,
+sem base, diz que não tem.
+
+6 casos no grupo U (todos vermelhos antes). Gates: 666/666, 99/99, 50/50,
+**278/278**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
+build, rubrica (0 perigosa, 0 ruim), varredura e `git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `c824fe0`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800

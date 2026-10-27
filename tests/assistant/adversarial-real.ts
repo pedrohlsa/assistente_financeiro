@@ -1811,6 +1811,37 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('S-afirmacao-ainda-registra', paguei.actions, 'pagamento de fatura do Nubank proposto',
       paguei.actions.some(a => a.kind === 'card-payment' && /nubank/i.test(a.cardName || ''))))
   }
+
+  // A pergunta chega SEM acento ao roteador; o nome cadastrado tem acento.
+  // "Quanto gastei de alimentação" respondia R$ 0,00 "dado real", e "quanto
+  // falta pra câmera" respondia a primeira meta da lista.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const alimentacao = Math.round(rico.transactions.filter(x => x.type === 'expense' && x.category === 'alimentacao'
+      && x.date >= `${hoje.slice(0, 8)}01` && x.date <= hoje).reduce((a, x) => a + x.amount, 0) * 100) / 100
+    for (const frase of ['quanto gastei de alimentacao esse mes?', 'quanto gastei com alimentação esse mês?']) {
+      const r = await turnoHoje(rico, frase)
+      out.push(result(`U-categoria-${frase.includes('ç') ? 'com' : 'sem'}-acento`, r.reply, `${brl(alimentacao)} em Alimentação`,
+        alimentacao > 0 && limpa(r.reply).includes(brl(alimentacao)) && !limpa(r.reply).includes(brl(0))))
+    }
+    const comida = await turnoHoje(rico, 'quanto gastei com comida esse mes?')
+    out.push(result('U-sinonimo-nao-vira-zero', comida.reply, `${brl(alimentacao)}, nunca ${brl(0)} "dado real"`,
+      limpa(comida.reply).includes(brl(alimentacao)) && !limpa(comida.reply).includes(brl(0))))
+    const bar = Math.round(rico.transactions.filter(x => x.type === 'expense' && x.description === 'Bar'
+      && x.date >= `${hoje.slice(0, 8)}01` && x.date <= hoje).reduce((a, x) => a + x.amount, 0) * 100) / 100
+    const oBar = await turnoHoje(rico, 'quanto gastei com o bar esse mes')
+    out.push(result('U-artigo-fora-do-nome', oBar.reply, `${brl(bar)} no Bar`,
+      bar > 0 && limpa(oBar.reply).includes(brl(bar))))
+    const metas = buildState({ profile: 'autonomo', balance: 1000,
+      goals: [{ name: 'Notebook', target: 4000, saved: 1200 }, { name: 'Câmera', target: 3000, saved: 500 }] })
+    for (const frase of ['quanto falta pra camera', 'quanto falta pra câmera']) {
+      const r = await turnoHoje(metas, frase)
+      out.push(result(`U-meta-${frase.includes('â') ? 'com' : 'sem'}-acento`, r.reply, `Câmera: faltam ${brl(2500)}`,
+        /C[âa]mera/.test(r.reply) && limpa(r.reply).includes(brl(2500)) && !/Notebook/.test(r.reply)))
+    }
+  }
   return out
 }
 

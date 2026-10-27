@@ -606,7 +606,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   if (actions.length && /(?:quanto|qual).*(?:limite|dispon[ií]vel|resta|sobrou)|ainda\s+tenho.*limite/.test(t)) {
     const expenseActions = actions.filter(a => a.kind === 'expense') as Extract<ParsedAction, { kind: 'expense' }>[]
     const categoryId = expenseActions.find(a => a.category)?.category
-      || s.budgets.find(b => t.includes(catById(s.categories, b.category).name.toLowerCase()))?.category
+      || s.budgets.find(b => t.includes(normalizeQuestion(catById(s.categories, b.category).name)))?.category
     const budget = categoryId ? s.budgets.find(b => b.category === categoryId) : undefined
     if (budget) {
       const used = budgetUsage(s, budget.category)
@@ -971,9 +971,11 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // "Quanto já juntei da moto" é a mesma pergunta pelo outro lado — o usuário
   // quer o progresso, e tanto faz se pediu o que falta ou o que já tem.
   const metaPeloNome = /quanto\s+(?:falta|(?:eu\s+)?(?:j[áa]\s+)?(?:juntei|guardei|tenho|consegui|separei))/.test(t)
-    && s.goals.some(g => !g.done && t.includes(g.name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(' ')[0]))
+    && s.goals.some(g => !g.done && t.includes(normalizeQuestion(g.name).split(' ')[0]))
   if (metaPeloNome || /quando\s+(vou|consigo|vou conseguir|poderei)\s+(comprar|atingir|juntar)/.test(t) || /quando.*meta/.test(t) || /quanto\s+falta\s+(?:para|pra)\s+(?:a\s+|o\s+|minha\s+|meu\s+)?meta/.test(t)) {
-    const goal = s.goals.find(g => !g.done && t.includes(g.name.toLowerCase().split(' ')[0])) || s.goals.filter(g => !g.done)[0]
+    // O nome passa pela MESMA normalização da pergunta: "Câmera" com acento
+    // nunca aparecia em "quanto falta pra camera", e a resposta era a primeira meta.
+    const goal = s.goals.find(g => !g.done && t.includes(normalizeQuestion(g.name).split(' ')[0])) || s.goals.filter(g => !g.done)[0]
     if (!goal) return { text: 'Você ainda não tem metas de compra cadastradas. Diga algo como "quero comprar um celular de 5000 em 6 meses" que eu crio para você.' }
     const remaining = goal.target - goal.saved
     const avg = avgDailyProfit(s)
@@ -1110,13 +1112,20 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // "quanto gastei com gasolina esse mês" / "quanto perco por mês com gasolina"
   const spentM = t.match(/quanto\s+(?:eu\s+)?(?:ja\s+)?(?:gastei|gasto|perco|perdi|torrei)\s*(?:por m[eê]s)?\s*(?:com|de|em)\s+([\wçãõáéíóú\s]+?)(?:\s+(?:esse|este|nesse|neste)?\s*(m[eê]s|semana|hoje|ano)|\?|$)/)
   if (spentM) {
-    const what = spentM[1].trim()
+    // "Com O bar": o artigo não é parte do nome, e "o bar" não achava "Bar".
+    const what = spentM[1].trim().replace(/^(?:o|a|os|as|no|na|nos|nas|meu|minha|meus|minhas)\s+/, '')
     const p = periodFromText(t)
     if (!p) return ajudaGenerica(driverMode)
-    const catGuess = s.categories.find(c => c.name.toLowerCase().includes(what)) ||
+    // Pergunta sem acento contra nome com acento: "alimentacao" nunca achava
+    // "Alimentação" e a resposta era R$ 0,00 com cara de dado real.
+    const catGuess = s.categories.find(c => normalizeQuestion(c.name).includes(what)) ||
       (/(gasolina|combust|etanol|alcool)/.test(what) ? catById(s.categories, 'combustivel') : undefined)
     const txs = s.transactions.filter(x => x.type === 'expense' && x.date >= p.from && x.date <= p.to &&
-      (catGuess ? x.category === catGuess.id : (x.description || '').toLowerCase().includes(what)))
+      (catGuess ? x.category === catGuess.id : normalizeQuestion(x.description || '').includes(what)))
+    // Palavra que não é categoria nem aparece em lançamento nenhum: "R$ 0,00 —
+    // dado real" afirmava um zero para quem chama Alimentação de "comida". A
+    // consulta conhece mais nomes e, sem base, diz que não tem.
+    if (!catGuess && !txs.length) return ajudaGenerica(driverMode)
     const total = txs.reduce((a, x) => a + x.amount, 0)
     return { text: `Você gastou ${fmtBRL(total)} com ${catGuess ? catGuess.name : what} ${p.label} (${txs.length} registro${txs.length === 1 ? '' : 's'} — dado real).` }
   }
