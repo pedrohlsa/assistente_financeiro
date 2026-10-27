@@ -536,7 +536,10 @@ function parseCardClause(text: string): ParsedAction[] {
   }
 
   // "paguei a fatura do nubank" / "paguei 700 da fatura"
-  if (/fatura/.test(text) && /(paguei|pagar|quitei|quitar)/.test(text)) {
+  // Pergunta nunca paga fatura (regra 33): "quanto falta pagar da fatura do
+  // inter" virava proposta de pagamento — sem valor, a guarda de "pergunta com
+  // valor" não via — e a resposta saía calculada como se tivesse sido pago.
+  if (/fatura/.test(text) && /(paguei|pagar|quitei|quitar)/.test(text) && !PERGUNTA_EM_QUALQUER_LUGAR.test(text)) {
     const amountM = text.match(new RegExp(String.raw`(?:paguei|pagar|quitei)\s*(?:r\$)?\s*${NUM}`, 'i'))
     return [{ kind: 'card-payment', cardName: matchCardName(text), amount: amountM ? parseNum(amountM[1]) : undefined }]
   }
