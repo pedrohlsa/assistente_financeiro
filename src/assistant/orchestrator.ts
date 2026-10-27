@@ -691,7 +691,7 @@ function answerQuestions(
   const answered: AnalyzedClause[] = []
   let focus: ConversationFocus | undefined
   for (const q of questions) {
-    const pergunta = perguntaComAssunto(q.text, candidates)
+    const pergunta = perguntaComAssunto(caudaDaPergunta(q.text, candidates), candidates)
     // A consulta só entra ao lado de um registro e com pergunta inteira. Sem
     // registro, quem responde é o turno normal, que lê a mensagem toda; e um
     // fragmento ("minha reserva tá em | quanto") virava "Total gasto este mês".
@@ -733,6 +733,19 @@ function respostaLocal(
   // confirmar. A pergunta segue em aberto e vai para quem sabe respondê-la.
   if (r.handled !== false && !r.actions?.length && !/entendi isso/i.test(r.text)) return { text: r.text, focus: consulta?.focus }
   return consulta ? { text: consulta.reply, focus: consulta.focus } : null
+}
+
+/**
+ * "Fiz 280 hoje, foi bom?" chega como uma cláusula só, com registro e pergunta:
+ * perguntada inteira ao roteador, a frase virava proposta e a pergunta sumia. Ao
+ * lado de um registro, a pergunta é o último pedaço curto depois da vírgula.
+ */
+function caudaDaPergunta(texto: string, candidates: AssistantCandidateAction[]): string {
+  if (!candidates.length) return texto
+  const pedacos = texto.split(/[,;.!]\s+/).map(p => p.trim()).filter(Boolean)
+  const cauda = pedacos[pedacos.length - 1]
+  if (pedacos.length < 2 || !cauda || /\d/.test(cauda) || cauda.split(/\s+/).length > 6) return texto
+  return cauda
 }
 
 /**

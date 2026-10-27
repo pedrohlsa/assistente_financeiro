@@ -2332,6 +2332,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       (hojeLucro >= media ? /^Sim\b/ : /^N[ãa]o\b|^Abaixo|^Foi mais fraco/).test(bom) && bom.includes(brl(media))))
   }
 
+  // Registro e "como foi?" juntos: "hj deu 300 uber como foi" virava "não
+  // tenho certeza do que registrar" (a frase não era cortada antes do "como"),
+  // e "fiz 280 hoje, foi bom?" registrava sem responder.
+  {
+    const mot = motoristaRico(hoje)
+    for (const [frase, valor] of [['hj deu 300 uber como foi', 300], ['fiz 280 hoje, foi bom?', 280]] as [string, number][]) {
+      const r = await turnoHoje(mot, frase)
+      out.push(result(`DD-registro-e-${frase.replace(/\W+/g, '-')}`, { reply: r.reply, actions: r.actions },
+        `receita de ${valor} proposta e o dia comparado, marcado como hipotético`,
+        r.actions.some(a => a.kind === 'income' && a.amount === valor) && /Se voc[êe] confirmar (?:o registro|os registros) acima/.test(r.reply)
+          && /m[ée]dia/.test(r.reply)))
+    }
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

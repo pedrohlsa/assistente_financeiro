@@ -4266,6 +4266,21 @@ Gates: 666/666, 99/99, 50/50, **375/375**, metamórficos, fuzz, 151/151, 468;
 typechecks, `test:money`, build, rubrica, varredura e `git diff --check`
 passaram.
 
+## 2026-10-27 — registro e "como foi?" na mesma mensagem
+
+"Hj deu 300 uber como foi" virava "não tenho certeza do que registrar": o
+segmentador não cortava antes de "como foi", a frase inteira ficava pergunta
+e a receita sumia. "Fiz 280 hoje, foi bom?" chega como uma cláusula só, com
+registro e pergunta; perguntada inteira ao roteador, virava proposta e a
+pergunta ficava sem resposta. O corte interrogativo agora inclui "como
+foi/tá/está/ficou", e ao lado de um registro a pergunta é o último pedaço
+curto depois da vírgula. As duas respondem o dia marcado como hipotético ("Se
+você confirmar o registro acima: Hoje: R$ 671,00 de entradas…").
+
+2 casos (os 2 vermelhos antes). Gates: 666/666, 99/99, 50/50, **377/377**,
+metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica,
+varredura e `git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800
@@ -4277,7 +4292,6 @@ precisam de auditoria independente; navegador, persistência real e dados
 legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas:
-- "hj deu … como foi" e "fiz 280 hoje, foi bom?" registram sem responder a pergunta.
 - Pergunta nominal sem "quanto" ("gastos dessa semana") cai na ajuda genérica.
 - "Vale a pena rodar domingo?" cai na ajuda genérica.
 

@@ -420,7 +420,9 @@ export function segment(text: string): { text: string; start: number; end: numbe
   // Palavra interrogativa começando uma pergunta colada ao registro:
   // "gastei 80 de mercado QUANTO sobrou" — sem este corte a pergunta virava
   // parte da descrição ("Mercado quanto") e nunca era respondida.
-  for (const m of text.matchAll(/\s+(?=(?:e\s+)?(?:quanto|quantos|quantas|qual|quais|quando)\b)/gi)) {
+  // "Como foi" também: "hj deu 300 uber como foi" ficava uma frase só, e o
+  // registro sumia em "não tenho certeza do que registrar".
+  for (const m of text.matchAll(/\s+(?=(?:e\s+)?(?:(?:quanto|quantos|quantas|qual|quais|quando)\b|como\s+(?:foi|t[aá]|est[aá]|ficou)(?![\wà-ú])))/gi)) {
     // O espaço entre "e" e "quanto" não é outro corte: o "e" ficava sozinho.
     if (/\be$/i.test(text.slice(0, m.index || 0))) continue
     push((m.index || 0) + m[0].length)
