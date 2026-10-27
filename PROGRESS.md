@@ -3547,3 +3547,29 @@ virava o gasto do mês.
 8 casos adversariais (6 vermelhos no planejador anterior, 2 controles).
 Gates: 666/666, 99/99, 50/50, **187/187**, metamórficos, fuzz, 151/151, 468;
 typechecks, `test:money`, build e rubrica (0 perigosa, 0 ruim) passaram.
+
+## 2026-10-27 — comparação com período de outro tamanho
+
+"Tô melhor que semana passada?" (motorista) comparava o **gasto do mês** (27
+dias) com o gasto da semana passada (7 dias): "+861%". "Quanto fiz na Uber
+comparado com semana passada" dava +277% pelo mesmo motivo. "E comparado cm
+semana passada" nem comparava ("cm" não era expandido), "uber comparado com
+semana passada" procurava gasto na Uber e "gasolina comparado com o mês
+passado" perdia o assunto e comparava todos os gastos.
+
+- Sem período principal dito, a comparação com semana/dia/ano usa a janela
+  atual do MESMO tamanho (últimos 7 dias, hoje, este ano).
+- "Melhor/pior que …", "como foi … comparado" e "comparado com …" sem verbo nem
+  assunto comparam o **resultado**, como "qual mês foi o pior" já fazia.
+  "Compara julho com junho" mantém o contrato de gasto.
+- "Comparado com o passado/anterior" compara com o período imediatamente
+  anterior; "cm" vira "com"; "tô pior de gasolina?" é comparação implícita.
+- O assunto sem preposição antes de "comparado" vira o alvo da consulta.
+- Plataforma (Uber/99/inDrive) sem verbo de gasto é receita, com rótulo
+  "Total recebido".
+
+7 casos adversariais com oráculo somado direto do fixture (vermelhos no
+planejador anterior). Gates: 666/666, 99/99, 50/50, **194/194**, metamórficos,
+fuzz, 151/151, 468; typechecks, `test:money`, build e rubrica passaram.
+Limite conhecido: "este mês" contra um mês passado inteiro ainda compara 27
+dias com 30 quando o mês é dito por extenso.

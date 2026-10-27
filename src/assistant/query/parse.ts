@@ -81,6 +81,9 @@ const ABREV: [RegExp, string][] = [
   // ranking e a pergunta virava o total do mês.
   [/\boq\b/g, 'o que'],
   [/\bq\b/g, 'que'], [/\bpq\b/g, 'porque'], [/\bvc\b/g, 'voce'],
+  // "comparado cm semana passada": sem a troca o marcador de comparação não
+  // casava e a semana passada virava o período principal.
+  [/\bcm\b/g, 'com'],
   [/\bhj\b/g, 'hoje'], [/\bontm\b/g, 'ontem'], [/\bmsm\b/g, 'mesmo'],
   [/\bmt\b/g, 'muito'], [/\btbm?\b/g, 'tambem'], [/\bta[h]?\b/g, 'esta'],
   [/\bto[u]?\b/g, 'estou'], [/\bpra\b/g, 'para'], [/\bpro\b/g, 'para'],
@@ -382,7 +385,11 @@ function lerGrupo(t: string, driver: boolean): { valor: QueryGroup; matched: str
 // ele abre qualquer oração: "qnto q foi d obra nos ultimo 3 mes" tinha o período
 // inteiro lido como o termo de COMPARAÇÃO, e a resposta vinha sobre este mês.
 const MARCADOR_CMP = /\b(?:comparad[oa]\s+(?:com|ao|a)|comparando\s+com|compar[ao]\s+com|em\s+relacao\s+a[o]?|versus|vs|(?:mais|menos|maior|menor|melhor|pior)\s+(?:do\s+)?que)\s+(?:o\s+|a\s+|os\s+|as\s+)?([^?,.!]{2,40})/
-const CMP_IMPLICITA = /\baument(?:ou|aram|o)\b|\bcai(?:u|ram)\b|\bsubiu\b|\bdesceu\b|\bcresceu\b|\bdiminuiu\b|\bpiorou\b|\bmelhorou\b|\bdiferenca\b|\bmudou\b|\bmudancas?\b|\bque\s+antes\b|\bdo\s+que\s+antes\b|\bmais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:gastava|ganhava|fazia)\b/
+/** Marca "comparado com o anterior": o período de comparação é o imediatamente anterior. */
+const ANTERIOR = 'periodo-anterior'
+// "Tô pior de gasolina?" pergunta por mudança, como "piorou": sem isto a
+// resposta era só o total do mês.
+const CMP_IMPLICITA = /\b(?:estou|esta|ando|anda|tou)\s+(?:pior|melhor)\s+(?:de|em|com|no|na)\b|\baument(?:ou|aram|o)\b|\bcai(?:u|ram)\b|\bsubiu\b|\bdesceu\b|\bcresceu\b|\bdiminuiu\b|\bpiorou\b|\bmelhorou\b|\bdiferenca\b|\bmudou\b|\bmudancas?\b|\bque\s+antes\b|\bdo\s+que\s+antes\b|\bmais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:gastava|ganhava|fazia)\b/
 
 /** "3 meses atrás" dentro de uma comparação = a MESMA janela, deslocada. */
 function deslocaPeriodo(p: QueryPeriod, n: number, unidade: string): QueryPeriod {
@@ -691,6 +698,8 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   // trecho primeiro, ele era lido como o período PRINCIPAL — e a pergunta
   // comparava o mês passado com ele mesmo.
   let textoComparacao: string | undefined
+  /** "Gasolina comparado com o mês passado": o assunto vem sem preposição. */
+  let sujeitoDaComparacao: string | undefined
   // "Compara julho com junho" traz os dois períodos na mesma construção;
   // o marcador genérico só entende "comparado com junho".
   const doisMeses = t0.match(/\bcompar[ao]\s+((?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)(?:\s+de\s+20\d{2})?)\s+com\s+((?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)(?:\s+de\s+20\d{2})?)\b/)
@@ -701,6 +710,13 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     rest.consome(doisMeses[0])
   } else if (marcador && parsePeriod(marcador[1], hoje)) {
     textoComparacao = marcador[1]
+    rest.consome(marcador[0])
+    sujeitoDaComparacao = soUteis(t0.slice(0, marcador.index))
+  } else if (marcador && /^(?:o\s+|a\s+)?(?:passad[oa]|anterior)\s*$/.test(marcador[1].trim())) {
+    // "Comparado com o passado" / "com a anterior": o período imediatamente
+    // anterior ao principal. Sem período legível a frase saía da consulta e
+    // virava o resumo do mês, que não compara nada.
+    textoComparacao = ANTERIOR
     rest.consome(marcador[0])
   }
   const pedeComparacao = !!textoComparacao || CMP_IMPLICITA.test(t0)
@@ -755,8 +771,19 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   // mês, não pelo total gasto. Com verbo explícito ("qual mês gastei mais") o
   // que ele disse manda — o usuário sempre ganha do palpite.
   const semVerbo = !GASTO.test(base) && !ENTRADA.test(base) && !GUARDADO.test(base)
-  if (semVerbo && metric === 'sum' && /\b(?:melhor|pior)\b/.test(base)
-    && (group === 'month' || group === 'week' || group === 'day')) {
+  // "Tô melhor que semana passada?" é a mesma pergunta sem ranking: melhor no
+  // RESULTADO. Lida como gasto, a resposta comparava despesas.
+  // O marcador da comparação já saiu de `base`; a construção é lida na frase.
+  // "E comparado com semana passada", sem verbo nem assunto, também é "como
+  // estou indo": sobra só palavra de estrutura e de período.
+  // "Compara julho com junho" é outra construção, com contrato próprio (gasto).
+  const soComparacao = !!marcador && !!textoComparacao && !base
+    .replace(/\b(?:e|eu|estou|esta|como|foi|ficou|meu|minha|o|a|os|as|de|do|da|em|no|na|nesse|neste|essa|esse|esta|este|mes|semana|hoje|ano|dia|entao|ai|hein|ne)\b/g, '')
+    .replace(/[?!.,\s]+/g, '')
+  const melhorQue = pedeComparacao && (soComparacao
+    || /\b(?:melhor|pior)\s+(?:do\s+)?que\b|\bcomo\s+(?:foi|esta|anda|vai|ficou)\b/.test(t0))
+  if (semVerbo && metric === 'sum' && (melhorQue || (/\b(?:melhor|pior)\b/.test(base)
+    && (group === 'month' || group === 'week' || group === 'day')))) {
     metric = 'net'
     metrica.valor.txType = ['income', 'expense']
     metrica.valor.label = 'Resultado'
@@ -833,12 +860,21 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   // ---- 6) período de comparação ------------------------------------------
   let comparePeriod: QueryPeriod | undefined
   if (pedeComparacao) {
-    if (textoComparacao) {
+    if (textoComparacao && textoComparacao !== ANTERIOR) {
       const atras = textoComparacao.match(/(\d{1,3})\s+(dias?|semanas?|mes(?:es)?|anos?)\s+atras/)
       if (atras) comparePeriod = deslocaPeriodo(period, Number(atras[1]), atras[2])
       else comparePeriod = parsePeriod(textoComparacao, hoje)?.period
     }
     if (!comparePeriod) comparePeriod = previousPeriod(period)
+    // "Comparado com a semana passada" sem período principal dito compara com
+    // ESTA semana. O padrão era o mês corrente, e a resposta punha 27 dias de
+    // gasto contra 7 — "+861%" sobre períodos de tamanhos diferentes.
+    if (comparePeriod && !periodoExplicito && group === 'none' && comparePeriod.grain !== period.grain) {
+      const mesmoTamanho = comparePeriod.grain === 'week' ? 'nos ultimos 7 dias'
+        : comparePeriod.grain === 'day' ? 'hoje' : comparePeriod.grain === 'year' ? 'este ano' : undefined
+      const atual = mesmoTamanho ? parsePeriod(mesmoTamanho, hoje)?.period : undefined
+      if (atual) period = atual
+    }
     if (comparePeriod) recognized.push(`comparação com ${comparePeriod.label}`)
   }
 
@@ -937,6 +973,13 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
       filter.platform = /in\s*drive/.test(plat[1]) ? 'inDrive' : plat[1]
       rest.consome(plat[0])
       recognized.push(`plataforma ${filter.platform}`)
+      // Plataforma é de onde o dinheiro VEM (a mesma regra do agrupamento por
+      // plataforma): "uber comparado com semana passada" procurava gasto na
+      // Uber e respondia que não havia lançamento.
+      if (!GASTO.test(t0) && filter.txType?.length === 1 && filter.txType[0] === 'expense') {
+        filter.txType = ['income']
+        if (metrica.valor.label === 'Total gasto') metrica.valor.label = 'Total recebido'
+      }
     }
   }
 
@@ -955,7 +998,12 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     entidadesAmbiguas = !separadas && !juntas
     recognized.push(`categorias ${categorias.map(c => c.id).join(', ')}`)
   }
-  const alvo = extrairAlvo(rest.texto)
+  // Sem preposição o leitor de alvo não via o assunto, que sumia da consulta:
+  // "gasolina comparado com o mês passado" comparava TODOS os gastos.
+  const sujeito = sujeitoDaComparacao && !filter.categories?.length && !filter.origin
+    && new RegExp(`(?:^|\\s)${escapaRegex(sujeitoDaComparacao)}(?:\\s|$)`).test(rest.texto)
+    ? { valor: sujeitoDaComparacao, literal: sujeitoDaComparacao, matched: sujeitoDaComparacao } : undefined
+  const alvo = extrairAlvo(rest.texto) || sujeito
   let fallbackCategory: string | undefined
   let incompleto: string | undefined = periodoVago ? 'últimos meses — quantos meses?' : undefined
   // "No CARTÃO nubank": com o cartão já reconhecido, a palavra repete o que foi

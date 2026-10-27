@@ -429,7 +429,7 @@ function periodFromText(t: string): { from: string; to: string; label: string } 
 const ABREVIACOES: [RegExp, string][] = [
   [/\bta\b/g, 'esta'], [/\btah\b/g, 'esta'], [/\bto\b/g, 'estou'], [/\btou\b/g, 'estou'],
   [/\bpra\b/g, 'para'], [/\bpro\b/g, 'para'], [/\bpq\b/g, 'porque'],
-  [/\bvc\b/g, 'voce'], [/\bq\b/g, 'que'], [/\bhj\b/g, 'hoje'], [/\bhje\b/g, 'hoje'],
+  [/\bvc\b/g, 'voce'], [/\bq\b/g, 'que'], [/\bcm\b/g, 'com'], [/\bhj\b/g, 'hoje'], [/\bhje\b/g, 'hoje'],
   [/\bontm\b/g, 'ontem'], [/\btb\b/g, 'tambem'], [/\btbm\b/g, 'tambem'],
   [/\bqnt\b/g, 'quanto'], [/\bqto\b/g, 'quanto'], [/\bqnd\b/g, 'quando'],
   [/\bmsm\b/g, 'mesmo'], [/\bdps\b/g, 'depois'], [/\bmt\b/g, 'muito'],

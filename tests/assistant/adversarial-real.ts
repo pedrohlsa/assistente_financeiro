@@ -7,8 +7,8 @@ import { cardInvoice, cardOutstanding, cardsOverview } from '../../src/services/
 import { applyBatchPure } from '../../src/assistant/execute'
 import { applyPreferenceAliases } from '../../src/assistant/preferences'
 import { hydrateForTest, reducer } from '../../src/store/store'
-import { addDays, nowPaymentTime, nowStamp, todayISO } from '../../src/utils/format'
-import { autonomoRico } from '../fixtures/richState'
+import { addDays, fmtBRL, nowPaymentTime, nowStamp, todayISO } from '../../src/utils/format'
+import { autonomoRico, motoristaRico } from '../fixtures/richState'
 import { buildState } from './harness'
 
 const TODAY = '2026-09-15'
@@ -43,6 +43,12 @@ async function turn(s: AppState, message: string, focus?: Awaited<ReturnType<typ
     clarification: out.response.mode === 'clarify' ? out.response.clarification : undefined,
     preferenceMutation: out.preferenceMutation, focus: out.focus,
   }
+}
+
+/** A DSL usa o `today` injetado; estados montados em volta do relógio real precisam dele. */
+async function turnoHoje(s: AppState, message: string) {
+  const out = await orchestrate({ state: s, message, today: todayISO(), remoteEnabled: false })
+  return { reply: out.response.reply, actions: out.response.actions.map(a => a.action) }
 }
 
 const result = (id: string, actual: unknown, expected: unknown, ok: boolean): AdversarialResult => ({ id, actual, expected, ok })
@@ -1383,6 +1389,47 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const aluguel = await turn(autonomoRico(todayISO()), 'quanto paguei do aluguel')
   out.push(result('G-paguei-sem-plano-continua-lancamento', aluguel.reply, 'não lê "aluguel" como parcelamento',
     !/j[áa] pago|parcelamento/i.test(aluguel.reply)))
+
+  // Comparação com período de outro TAMANHO: "tô melhor que semana passada?"
+  // comparava o gasto do mês (27 dias) com o da semana (7), "+861%". O oráculo
+  // soma os lançamentos do fixture direto, sem passar pela consulta.
+  {
+    const st = motoristaRico(hoje)
+    const soma = (from: string, to: string, tipo?: 'income' | 'expense', desc?: string) => Math.round(st.transactions
+      .filter(t => t.date >= from && t.date <= to && (!desc || t.description === desc))
+      .reduce((a, t) => a + (t.type === 'income' && tipo !== 'expense' ? t.amount
+        : t.type === 'expense' && tipo !== 'income' ? (tipo ? t.amount : -t.amount) : 0), 0) * 100) / 100
+    const sete = [addDays(hoje, -6), hoje] as const
+    const antes = [addDays(hoje, -13), addDays(hoje, -7)] as const
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    for (const [id, frase, tipo, desc, rotuloEsperado] of [
+      ['H-melhor-que-semana', 'to melhor que semana passada?', undefined, undefined, /^Resultado nos últimos 7 dias/],
+      ['H-comparado-cm-semana', 'e comparado cm semana passada', undefined, undefined, /^Resultado nos últimos 7 dias/],
+      ['H-gastei-mais-que-semana', 'gastei mais que semana passada?', 'expense', undefined, /^Total gasto nos últimos 7 dias/],
+      ['H-uber-comparado-semana', 'uber comparado com semana passada', 'income', 'Uber', /^Total recebido na Uber nos últimos 7 dias/],
+      ['H-fiz-na-uber-comparado', 'quanto fiz na uber comparado com semana passada', 'income', 'Uber', /^Total recebido na Uber nos últimos 7 dias/],
+    ] as const) {
+      const r = await turnoHoje(st, frase)
+      const atual = soma(sete[0], sete[1], tipo, desc)
+      const anterior = soma(antes[0], antes[1], tipo, desc)
+      const texto = limpa(r.reply)
+      out.push(result(id, r.reply, `${brl(atual)} nos últimos 7 dias contra ${brl(anterior)} na semana anterior`,
+        rotuloEsperado.test(texto) && texto.includes(brl(atual)) && texto.includes(`Na semana passada: ${brl(anterior)}`)
+          && !/este m[êe]s/i.test(texto) && r.actions.length === 0))
+    }
+    const hojeOntem = await turnoHoje(st, 'como foi hoje comparado com ontem')
+    const ontem = addDays(hoje, -1)
+    out.push(result('H-como-foi-hoje-ontem', hojeOntem.reply, 'resultado de hoje contra o de ontem',
+      /^Resultado hoje/.test(limpa(hojeOntem.reply)) && limpa(hojeOntem.reply).includes(brl(soma(hoje, hoje)))
+        && limpa(hojeOntem.reply).includes(brl(soma(ontem, ontem)))))
+    const gasolina = await turnoHoje(st, 'gasolina comparado com o mes passado')
+    const inicioMes = `${hoje.slice(0, 8)}01`
+    out.push(result('H-sujeito-sem-preposicao', gasolina.reply, 'gasto com gasolina, não o gasto total',
+      /Gasolina/.test(gasolina.reply) && limpa(gasolina.reply).includes(brl(soma(inicioMes, hoje, 'expense', 'Gasolina')))
+        && !limpa(gasolina.reply).includes(`${brl(soma(inicioMes, hoje, 'expense'))} (dado real)`)
+        || soma(inicioMes, hoje, 'expense', 'Gasolina') === soma(inicioMes, hoje, 'expense') && /Gasolina/.test(gasolina.reply)))
+  }
   return out
 }
 
