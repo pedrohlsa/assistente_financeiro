@@ -283,6 +283,9 @@ const INTENCAO = new RegExp(
 
 export const declaresIntention = (t: string): boolean => INTENCAO.test(t)
 
+/** Pedido de apagar um lançamento salvo — o assistente não apaga por conversa. */
+export const PEDE_APAGAR = /^\s*(?:por\s+favor\s+)?(?:apaga|apague|apagar|exclui|exclua|excluir|deleta|delete|deletar|remove|remova|remover)\s+(?:o|a|os|as|esse|essa|aquele|aquela|meu|minha)?\s*(?:gasto|despesa|lancamento|lançamento|receita|entrada|registro)s?\b/i
+
 // ---------------------------------------------------------------------------
 // Segmentação com offsets
 // ---------------------------------------------------------------------------
@@ -832,6 +835,9 @@ export function analyzeMessage(
     // "Supondo que eu ganhar 250 na uber" registrava os 250: a lista só
     // conhecia "se eu", e as outras formas de abrir uma hipótese passavam
     // direto. Uma hipótese que vira fato é dinheiro inventado.
+    // "Exclui a despesa de 120 da luz" virava uma despesa NOVA de 120: pedido
+    // de apagar nunca cria lançamento.
+    if (PEDE_APAGAR.test(part.text)) actions = []
     if (/\bse\s+(?:eu|voc[êe]|a\s+gente)\b|\bt[ôo]\s+pensando\b|\bestou\s+pensando\b|\bacho\s+que\b|\bsupondo\b|\bimagina(?:ndo)?\s+que\b|\bvamos\s+supor\b|\bpartindo\s+do\s+principio\b/i.test(part.text)) {
       actions = []
     }

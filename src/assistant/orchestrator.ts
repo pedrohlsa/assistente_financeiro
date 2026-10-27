@@ -18,7 +18,7 @@ import type {
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, errorMessage, isValidationFailure, validateAction } from './contracts'
-import { analyzeMessage, contestsProposal, declaresIntention, looksLikeQuestion, looksLikeRetraction, looksPast, looksRecurring } from './clauses'
+import { PEDE_APAGAR, analyzeMessage, contestsProposal, declaresIntention, looksLikeQuestion, looksLikeRetraction, looksPast, looksRecurring } from './clauses'
 import { categoryDilemma, outOfPatternWarning, withLearnedCategory } from './learning'
 import { explainRequest } from './explain'
 import { answerConversation, isFocusFresh, looksLikeFollowUp } from './conversation'
@@ -1744,6 +1744,10 @@ Confirmar?`,
       reply = 'Isso se repete todo período, então não registrei como movimentação de hoje — '
         + 'é uma previsão, não algo que já entrou ou saiu.\n\n'
         + 'Cadastre em Planejamento para eu acompanhar todo mês e te avisar do vencimento.'
+    } else if (PEDE_APAGAR.test(mensagem)) {
+      // "Não registrei nada" respondia um pedido de APAGAR como se fosse negação.
+      reply = 'Por aqui eu não apago lançamentos salvos. Para remover, abra Movimentações e apague o lançamento. '
+        + 'Se foi o último registro feito por mim, diga "desfaz o último".'
     } else if (negadas.length) {
       // O usuário disse que NÃO fez o lançamento. Confirmar isso em voz alta é
       // parte da correção — e nada pode sugerir registro.

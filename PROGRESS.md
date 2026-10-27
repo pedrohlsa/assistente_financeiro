@@ -3787,3 +3787,12 @@ como "o que vence" e "qual conta aperta". 1 caso (vermelho antes). Gates:
 666/666, 99/99, 50/50, **256/256**, metamórficos, fuzz, 151/151, 468;
 typechecks, `test:money`, build e rubrica passaram. `balanceOutlook` segue
 inalterado na Home e nas simulações — decisão de produto pendente.
+
+## 2026-10-27 — pedido de apagar não cria lançamento
+
+"Exclui a despesa de 120 da luz" virava uma despesa NOVA de R$ 120; "apaga o
+gasto do mercado" respondia "não registrei nada", como negação. Pedido de
+apagar não cria ação e a resposta diz que apagar é pela tela de Movimentações
+(ou "desfaz o último" para o último lote do assistente). Sem caso adversarial
+dedicado neste lote — fica para o próximo. Gates: npm test verde (256/256),
+typechecks e build.
