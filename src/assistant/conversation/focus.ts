@@ -51,6 +51,9 @@ export interface ScenarioSummary {
   facts: { label: string; value: number; unit: FactUnit }[]
   months: AssistantScenarioResult['months']
   explain: string
+  /** O veredito do motor: "dá ruim?" e "qual mês fica pior?" respondem a partir dele. */
+  feasible?: boolean
+  tightest?: AssistantScenarioResult['tightest']
 }
 
 export interface DriverSummary {
@@ -160,6 +163,8 @@ export function rememberScenario(
       facts: result.facts.map(f => ({ label: f.label, value: f.value, unit: f.unit })),
       months: result.months,
       explain,
+      feasible: result.feasible,
+      tightest: result.tightest,
     },
     scenarioHistory: pilha.slice(0, 5),
     last: 'scenario',
@@ -272,6 +277,11 @@ export function resolveFollowUp(
   if (focus.last === 'scenario' && focus.lastScenarioPlan) {
     const refinado = refinaCenario(focus, t, today)
     if (refinado) return { kind: 'scenario', plan: refinado }
+    // "Volta" sem simulação anterior: repetir a mesma conta parecia que o app
+    // não tinha ouvido. Nada foi gravado — é isso que a pessoa precisa saber.
+    if (/^(?:volta|esquece|deixa\s+(?:pra|para)\s+la|cancela)\b/.test(t)) {
+      return { kind: 'explain', text: 'Ok, deixei a simulação de lado. Nada foi registrado — era só uma conta.' }
+    }
     const gasto = t.match(/^(?:e\s+)?(?:tirando|sem)\s+(.+?)\s*\??$/)?.[1]?.replace(/\?$/, '').trim()
     if (gasto) return {
       kind: 'ambiguous',
@@ -366,10 +376,8 @@ function refinaCenario(focus: ConversationFocus, t: string, today: string): Assi
       : { version: base.version, kind: 'compound', steps: [base, share], months: base.months, label: 'cenário com 2 mudanças' }
   }
 
-  if (/^volta\b/.test(t)) {
-    // Sem cenário anterior, devolver o ATUAL é melhor que o texto genérico de
-    // ajuda: o usuário continua vendo aquilo de que estava falando.
-    return { ...(focus.scenarioHistory?.[0] || base) }
+  if (/^volta\b/.test(t) && focus.scenarioHistory?.[0]) {
+    return { ...focus.scenarioHistory[0] }
   }
 
   // "e em 12?" / "agora em 6x" / "e em 10 vezes"

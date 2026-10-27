@@ -13,8 +13,8 @@
 // Nada daqui produz ação. Consulta e cenário são sempre RESPOSTA.
 
 import type { AppState } from '../../models/types'
-import { todayISO } from '../../utils/format'
-import { normalizeName } from '../../utils/text'
+import { fmtBRL, todayISO } from '../../utils/format'
+import { normalizeName, sentenceCase } from '../../utils/text'
 import { planQuery, runPlannedQuery } from '../query'
 import { leadSimNao } from '../query/answer'
 import { normalizeQuery } from '../query/parse'
@@ -74,7 +74,31 @@ export function answerConversation(
     const lead = leadSimNao(normalizeQuery(message), plan, q.total, q.compareTotal, q.groups?.[0]?.delta)
     if (lead && !/^(?:sim|n[ãa]o)\b/i.test(out.reply)) return { ...out, reply: `${lead}${out.reply}` }
   }
+  const cenario = out?.kind === 'scenario' ? out.focus?.lastScenario : undefined
+  if (out && cenario) return { ...out, reply: releCenario(normalizeQuery(message), out.reply, cenario) }
   return out
+}
+
+/**
+ * "Dá ruim?" e "qual mês fica pior?" repetiam a simulação inteira, igual à
+ * anterior — o comentário prometia destacar a resposta e nada destacava. O
+ * veredito e o mês mais apertado já vêm do motor; aqui só vão para a frente.
+ */
+function releCenario(t: string, reply: string, c: NonNullable<ConversationFocus['lastScenario']>): string {
+  // Só a pergunta SOLTA, depois da simulação. Dentro da frase que monta o
+  // cenário, a resposta completa já diz o mês mais apertado.
+  if (/^(?:e\s+|entao\s+)?qual\s+mes\b.*\b(?:pior|mais\s+apertado)\b/.test(t)) {
+    const m = c.tightest || [...c.months].sort((a, b) => a.after - b.after)[0]
+    if (!m) return reply
+    const sem = m.before !== m.after ? ` (seriam ${fmtBRL(m.before)} sem a hipótese)` : ''
+    return `${sentenceCase(m.label)}: saldo estimado de ${fmtBRL(m.after)}${sem}. É o mês mais apertado da simulação.\n\nSimulação — nada foi registrado.`
+  }
+  if (!/\b(?:da|de)\s+ruim\b|\b(?:esta|fica|ficou|e)\s+ruim\b|\bvale\s+a\s+pena\b|\bcompensa\b|\baguento\b|\bcabe\b/.test(t)) return reply
+  if (/^(?:sim|n[ãa]o|d[áa]\s+ruim|aperta)\b/i.test(reply) || c.feasible === undefined) return reply
+  const mesNegativo = c.facts.some(f => /sobra do m[eê]s/i.test(f.label) && f.value < 0)
+  const lead = c.feasible === false ? 'Dá ruim.'
+    : mesNegativo ? 'O saldo aguenta, mas aperta: o mês fecha no vermelho.' : 'Não dá ruim.'
+  return `${lead} ${reply}`
 }
 
 function respondeConversa(

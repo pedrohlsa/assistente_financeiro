@@ -3650,3 +3650,23 @@ typechecks, `test:money`, build e rubrica passaram.
 Fora de propósito: `balanceOutlook` (Home e simulações "e se eu gastar")
 continua só com contas fixas; mudar isso altera a tela inicial e merece
 decisão de produto.
+
+## 2026-10-27 — continuação de simulação sem repetir a conta
+
+Depois de "e se eu gastar mais 500 em obra", tanto "dá ruim?" quanto "volta"
+repetiam a simulação inteira, idêntica; "qual mês fica pior" fazia o mesmo com
+a compra parcelada. O código prometia destacar a resposta, mas reprocessava o
+mesmo plano e devolvia o mesmo texto. A pergunta "se eu meter um pc de 4k em
+10x dá ruim?" também não começava pelo veredito.
+
+- O foco guarda o veredito do motor (`feasible`, `tightest`). "Dá ruim?",
+  "vale a pena?", "cabe?" abrem com "Não dá ruim." / "Dá ruim." / "O saldo
+  aguenta, mas aperta: o mês fecha no vermelho." (sobra do mês negativa).
+- "Qual mês fica pior" sozinho responde o mês mais apertado em uma frase; na
+  frase que monta o cenário composto, a resposta completa segue igual.
+- "Volta" sem simulação anterior confirma que nada foi registrado; com
+  anterior, volta para ela.
+
+5 casos multiturno (4 vermelhos no código anterior; "volta com anterior" já
+funcionava). Gates: 666/666, 99/99, 50/50, **219/219**, metamórficos, fuzz,
+151/151, 468; typechecks, `test:money`, build e rubrica passaram.

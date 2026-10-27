@@ -46,9 +46,9 @@ async function turn(s: AppState, message: string, focus?: Awaited<ReturnType<typ
 }
 
 /** A DSL usa o `today` injetado; estados montados em volta do relógio real precisam dele. */
-async function turnoHoje(s: AppState, message: string) {
-  const out = await orchestrate({ state: s, message, today: todayISO(), remoteEnabled: false })
-  return { reply: out.response.reply, actions: out.response.actions.map(a => a.action) }
+async function turnoHoje(s: AppState, message: string, focus?: Awaited<ReturnType<typeof orchestrate>>['focus']) {
+  const out = await orchestrate({ state: s, message, today: todayISO(), remoteEnabled: false, focus })
+  return { reply: out.response.reply, actions: out.response.actions.map(a => a.action), focus: out.focus || focus }
 }
 
 const result = (id: string, actual: unknown, expected: unknown, ok: boolean): AdversarialResult => ({ id, actual, expected, ok })
@@ -1528,6 +1528,35 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const normal = await turnoHoje(st, 'gastei fora do normal esse mes?')
     out.push(result('K-fora-do-normal-sim-ou-nao', normal.reply, totalAgora > totalAntes ? 'Sim, subiu.' : 'Não, caiu.',
       normal.reply.startsWith(totalAgora > totalAntes ? 'Sim, subiu.' : 'Não, caiu.')))
+  }
+
+  // Continuação de simulação: "dá ruim?", "volta" e "qual mês fica pior"
+  // repetiam a simulação inteira, idêntica. O veredito tem que bater com os
+  // números mostrados: mês com sobra negativa não é "não dá ruim".
+  {
+    const st = autonomoRico(hoje)
+    const t1 = await turnoHoje(st, 'e se eu gastar mais 500 em obra')
+    const t2 = await turnoHoje(st, 'da ruim?', t1.focus)
+    const t3 = await turnoHoje(st, 'volta', t2.focus)
+    const t4 = await turnoHoje(st, 'e se for 50000?', t2.focus)
+    const t5 = await turnoHoje(st, 'da ruim?', t4.focus)
+    const veredito = (r: string) => /sobra do m[êe]s passaria a -R\$/.test(r) || /saldo em conta ficaria em -R\$/i.test(r.replace(/ /g, ' '))
+    const esperado = (r: string) => /saldo em conta ficaria em -R\$/i.test(r.replace(/ /g, ' ')) ? /^D[áa] ruim\./
+      : veredito(r) ? /^O saldo aguenta, mas aperta/ : /^N[ãa]o d[áa] ruim\./
+    out.push(result('L-da-ruim-com-veredito', [t2.reply, t5.reply], 'veredito primeiro, coerente com a sobra mostrada',
+      esperado(t2.reply).test(t2.reply) && esperado(t5.reply).test(t5.reply) && t2.reply !== t1.reply))
+    out.push(result('L-volta-sem-anterior', t3.reply, 'confirma que nada foi registrado, sem repetir a conta',
+      /nada foi registrado/i.test(t3.reply) && !/R\$/.test(t3.reply)))
+    const c1 = await turnoHoje(st, 'se eu meter um pc de 4k em 10x da ruim?')
+    const c2 = await turnoHoje(st, 'qual mes fica pior', c1.focus)
+    const c3 = await turnoHoje(st, 'e em 12?', c1.focus)
+    const c4 = await turnoHoje(st, 'volta', c3.focus)
+    const apertado = (c1.reply.match(/mais apertado seria ([a-z]{3}\/\d{4})/) || [])[1]
+    out.push(result('L-compra-pergunta-com-veredito', c1.reply, 'abre com o veredito',
+      /^(?:N[ãa]o d[áa] ruim|D[áa] ruim|O saldo aguenta)/.test(c1.reply)))
+    out.push(result('L-qual-mes-pior-direto', c2.reply, `${apertado} primeiro, sem a lista de meses`,
+      !!apertado && c2.reply.startsWith(apertado.charAt(0).toUpperCase() + apertado.slice(1)) && !/•/.test(c2.reply)))
+    out.push(result('L-volta-com-anterior', c4.reply, 'volta para os 10x', /em 10x/.test(c4.reply) && /em 12x/.test(c3.reply)))
   }
 
   // Código interno nunca chega ao usuário: "work (Trabalho)", "expense
