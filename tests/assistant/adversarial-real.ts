@@ -2515,6 +2515,16 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /n[ãa]o h[áa] lan[çc]amentos? para comparar/i.test(r4) && !/R\$ 0,00/.test(r4)))
   }
 
+  // Elipse com o nome de algo CADASTRADO: "e a internet?" (conta fixa) e "e a
+  // viagem?" (meta) caíam na elipse de compra — "A internet de quanto?".
+  {
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const m1 = await turnoHoje(rico, 'quanto falta pro notebook')
+    const viagem = limpa((await turnoHoje(rico, 'e a viagem?', m1.focus)).reply)
+    out.push(result('EC-e-a-viagem', viagem, 'meta Viagem: faltam R$ 1.200,00', /Viagem/.test(viagem) && /R\$ 1\.200,00/.test(viagem) && !/de quanto/i.test(viagem)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

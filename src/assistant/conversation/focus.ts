@@ -762,6 +762,17 @@ function refinaConsulta(
     || (nuaOuComDe && (achaCategoria(state, nuaOuComDe[1].trim()) || achaCartao(state, nuaOuComDe[1].trim())) ? nuaOuComDe : null)
   if (restringir) {
     const alvo = restringir[1].trim()
+    // "Quanto falta pro notebook" → "e a viagem?": TROCA a meta. Somar o texto
+    // "viagem" por cima da meta Notebook não achava nada, e a resposta dizia
+    // que não existia meta com esse nome — existindo.
+    const meta = base.source === 'goals'
+      ? (state.goals || []).find(g => !g.done && normalizeName(g.name) === normalizeName(alvo))
+      : undefined
+    if (meta) {
+      const filtro = { ...base.filter, goalName: meta.name }
+      delete filtro.text
+      return planned({ ...base, filter: filtro }, `meta ${meta.name}`)
+    }
     const cartao = achaCartao(state, alvo)
     const cat = cartao ? undefined : achaCategoria(state, alvo)
     const filtro = { ...base.filter }

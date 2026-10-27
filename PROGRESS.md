@@ -4414,6 +4414,15 @@ antes). Gates: 666/666, 99/99, 50/50, **399/399**, metamórficos, fuzz,
 151/151, 468; typechecks, `test:money`, build, rubrica, varredura e
 `git diff --check` passaram.
 
+## 2026-10-27 — "e a viagem?" troca a meta
+
+"Quanto falta pro notebook" → "e a viagem?" respondia "Você ainda não tem
+metas de compra cadastradas com 'viagem'" — com a meta Viagem cadastrada. A
+continuação somava o texto "viagem" por cima do filtro da meta Notebook e não
+achava nada. Em consulta de metas, o nome de uma meta ativa agora TROCA a
+meta do filtro ("Falta para a meta Viagem: R$ 1.200,00"). 1 caso (vermelho
+antes). Gates: 666/666, **400/400**, 151/151, 468 e os demais verdes.
+
 ## Pendências em 27/10/2026 (HEAD `73c8d24`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800
