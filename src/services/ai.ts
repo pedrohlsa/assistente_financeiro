@@ -1310,6 +1310,20 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // "como está meu mês" tinha resposta SÓ no ramo não-motorista; no perfil
   // motorista caía no texto genérico de ajuda.
   if (/resumo|como estou|situa[çc][aã]o|como\s+(?:esta|foi|vai|anda)\s+(?:o\s+)?meu\s+m[eê]s|meu m[eê]s(?:\s|\?|$)|como\s+(?:esta|foi)\s+(?:o\s+)?m[eê]s/.test(t)) {
+    // "Resumo da semana" pedia a semana e recebia o mês.
+    if (!driverMode && /\bsemana\b/.test(t)) {
+      const hoje = todayISO()
+      const sem = periodStats(s, addDays(hoje, -6), hoje)
+      const guardado = round2(s.transactions.filter(x => x.type === 'saving' && x.date >= addDays(hoje, -6) && x.date <= hoje)
+        .reduce((a, x) => a + x.amount, 0))
+      return {
+        text: `Sua semana — últimos 7 dias (dados reais):\n\n`
+          + `• Entradas: ${fmtBRL(sem.income)}\n`
+          + `• Despesas: ${fmtBRL(sem.expense)}\n`
+          + `• ${sem.profit >= 0 ? 'Sobra' : 'Déficit'}: ${fmtBRL(Math.abs(sem.profit))}\n`
+          + `• Guardado: ${fmtBRL(guardado)}`,
+      }
+    }
     if (!driverMode) {
       const mg = monthlySavingGoal(s)
       const ambiguousBalance = hasAmbiguousLegacyCardBalance(s)

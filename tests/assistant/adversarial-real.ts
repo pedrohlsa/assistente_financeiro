@@ -2415,11 +2415,16 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('NM-com-valor-continua-registro', registro.actions, 'despesa de 50', registro.actions.some(a => a.kind === 'expense' && a.amount === 50)))
   }
 
-  // "Contas do mês" olhava 15 dias, não até o fim do mês.
+  // "Resumo da semana" respondia o mês; "contas do mês" olhava 15 dias.
   {
     const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
     const limpa = (s: string) => s.replace(/ /g, ' ')
     const rico = autonomoRico(hoje)
+    const semana = Math.round(rico.transactions.filter(x => x.type === 'expense' && x.date >= addDays(hoje, -6) && x.date <= hoje)
+      .reduce((a, x) => a + x.amount, 0) * 100) / 100
+    const resumo = limpa((await turnoHoje(rico, 'resumo da semana')).reply)
+    out.push(result('RS-resumo-da-semana', resumo, `semana: despesas ${brl(semana)}`,
+      /semana|7 dias/i.test(resumo) && resumo.includes(brl(semana)) && !/neste m[êe]s/.test(resumo)))
     const h = fromISO(hoje)
     const fim = toISOdate(new Date(h.getFullYear(), h.getMonth() + 1, 0))
     const contas = (await turnoHoje(rico, 'contas do mes')).reply

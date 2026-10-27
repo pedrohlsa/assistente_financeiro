@@ -4337,6 +4337,14 @@ Agora as formas com "do/deste/desse" vão até o último dia do mês, e "da/dess
 semana" até 7 dias. 1 caso (vermelho antes). Gates: 666/666, **387/387**,
 151/151, 468 e os demais verdes.
 
+## 2026-10-27 — "resumo da semana" é a semana
+
+"Resumo da semana" respondia "Sua situação neste mês". O resumo do autônomo
+agora, com "semana" na frase, dá os últimos 7 dias: entradas, despesas, sobra
+ou déficit e o guardado. (O resumo do motorista já trazia os 7 dias.) 1 caso
+(vermelho antes). Gates: 666/666, **388/388**, 151/151, 468 e os demais
+verdes.
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800
