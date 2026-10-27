@@ -570,8 +570,10 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan): AssistantQu
 
   let compareTotal: number | undefined
   let compareGroups: Map<string, number> | undefined
+  let compareCount: number | undefined
   if (plan.comparePeriod) {
     const c = agrega(state, plan, plan.comparePeriod)
+    compareCount = c.rows.length
     compareTotal = plan.metric === 'share'
       ? (base > 0 ? (c.ag.total / base) * 100 : 0)
       : c.ag.total
@@ -698,6 +700,7 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan): AssistantQu
     count: rows.length,
     groups: limitados,
     compareTotal: compareTotal === undefined ? undefined : r2(compareTotal),
+    compareCount,
     delta: compareTotal === undefined ? undefined : r2(total - compareTotal),
     deltaPct: compareTotal !== undefined && compareTotal !== 0
       ? Math.round(((total - compareTotal) / Math.abs(compareTotal)) * 100)

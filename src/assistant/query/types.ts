@@ -275,6 +275,8 @@ export interface AssistantQueryResult {
   count: number
   groups: QueryGroupResult[]
   compareTotal?: number
+  /** Lançamentos no período comparado: zero não é base para comparar nada. */
+  compareCount?: number
   delta?: number
   deltaPct?: number
   unit: FactUnit

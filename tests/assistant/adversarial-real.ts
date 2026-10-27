@@ -2493,6 +2493,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       soma.includes(brl(da('Casa 1') + da('Casa 2'))) && !/Posso te ajudar/.test(soma)))
   }
 
+  // Comparação legível: "O período principal ficou R$ 420,00 abaixo" era
+  // jargão; e "Em 2025: R$ 0,00 … acima" comparava com um ano sem lançamento.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const h = fromISO(hoje)
+    const obra = (de: string, ate: string) => rico.transactions.filter(x => x.type === 'expense' && x.category === 'obra' && x.date >= de && x.date <= ate)
+      .reduce((a, x) => a + x.amount, 0)
+    const esteMes = obra(`${hoje.slice(0, 8)}01`, hoje)
+    const passado = obra(toISOdate(new Date(h.getFullYear(), h.getMonth() - 1, 1)), toISOdate(new Date(h.getFullYear(), h.getMonth(), 0)))
+    const r1 = await turnoHoje(rico, 'quanto gastei com obra esse mes')
+    const r2 = await turnoHoje(rico, 'e no mes passado?', r1.focus)
+    const r3 = await turnoHoje(rico, 'qual a diferenca?', r2.focus)
+    const dif = limpa(r3.reply)
+    out.push(result('CP-diferenca-sem-jargao', dif, `diferença de ${brl(Math.abs(esteMes - passado))}, sem "período principal"`,
+      dif.includes(brl(Math.abs(esteMes - passado))) && !/per[íi]odo principal/i.test(dif)))
+    const r4 = limpa((await turnoHoje(rico, 'e no ano?', r3.focus)).reply)
+    out.push(result('CP-ano-sem-base-para-comparar', r4, 'ano anterior sem lançamento: diz que não há o que comparar',
+      /n[ãa]o h[áa] lan[çc]amentos? para comparar/i.test(r4) && !/R\$ 0,00/.test(r4)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

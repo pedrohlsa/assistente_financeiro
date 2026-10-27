@@ -230,9 +230,13 @@ export function composeAnswer(r: AssistantQueryResult): string {
     const d = r.delta || 0
     const direcao = d > 0 ? 'acima' : 'abaixo'
     const pct = r.deltaPct !== undefined && r.deltaPct !== 0 ? ` (${r.deltaPct > 0 ? '+' : ''}${r.deltaPct}%)` : ''
-    linhas.push(d === 0
-      ? `${maiuscula(p.comparePeriod.label)} foi exatamente o mesmo valor.`
-      : `${maiuscula(p.comparePeriod.label)}: ${antes}. O período principal ficou ${formatValue(Math.abs(d), r.unit)} ${direcao}${pct}.`)
+    // Sem lançamento no período comparado, "R$ 0,00 … acima" não compara nada.
+    // E o período principal tem nome: "o período principal ficou" era jargão.
+    linhas.push(r.compareCount === 0
+      ? `${maiuscula(p.comparePeriod.label)} não há lançamentos para comparar.`
+      : d === 0
+        ? `${maiuscula(p.comparePeriod.label)} foi exatamente o mesmo valor.`
+        : `${maiuscula(p.comparePeriod.label)}: ${antes}. ${maiuscula(p.period.label)} ficou ${formatValue(Math.abs(d), r.unit)} ${direcao}${pct}.`)
   }
 
   // ---- situação das faturas ---------------------------------------------

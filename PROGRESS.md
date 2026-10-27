@@ -4401,6 +4401,19 @@ AN (os 2 vermelhos antes). Gates: 666/666, 99/99, 50/50, **397/397**,
 metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica,
 varredura e `git diff --check` passaram.
 
+## 2026-10-27 — comparação legível e sem base vazia
+
+"Qual a diferença?" respondia "O período principal ficou R$ 420,00 abaixo" —
+jargão — e "e no ano?" herdava a comparação e dizia "Em 2025: R$ 0,00. O
+período principal ficou R$ 3.630,00 acima", comparando com um ano sem
+lançamento. A linha de comparação agora nomeia o período ("No mês passado
+ficou R$ 420,00 abaixo (-29%)"), e o resultado da consulta carrega quantos
+lançamentos o período comparado tem (`compareCount`): sem nenhum, diz "Em
+2025 não há lançamentos para comparar." 2 casos no grupo CP (os 2 vermelhos
+antes). Gates: 666/666, 99/99, 50/50, **399/399**, metamórficos, fuzz,
+151/151, 468; typechecks, `test:money`, build, rubrica, varredura e
+`git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800
