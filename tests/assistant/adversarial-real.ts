@@ -2180,6 +2180,16 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // A proposta de receita diz DE ONDE: "Receita de R$ 1.200,00 (Aluguéis)" não
+  // dizia que era a Casa 2, nem "(Corridas)" que era a Uber — e é isso que o
+  // usuário confere antes de confirmar.
+  {
+    const casa = await turnoHoje(autonomoRico(hoje), 'recebi 1200 da casa 2')
+    out.push(result('OR-receita-com-origem', casa.reply, 'proposta mostra Casa 2', /Receita de R\$\s1\.200,00 \(Alugu[ée]is\) — Casa 2/.test(casa.reply)))
+    const uber = await turnoHoje(motoristaRico(hoje), 'ganhei 430 na uber')
+    out.push(result('OR-receita-com-plataforma', uber.reply, 'proposta mostra Uber', /Receita de R\$\s430,00 \(Corridas\) — Uber/.test(uber.reply)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

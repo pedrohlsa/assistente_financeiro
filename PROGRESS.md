@@ -4136,6 +4136,17 @@ gastar de suco por dia", quebrou na primeira tentativa e voltou).
 **352/352**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
 build, rubrica (0 perigosa, 0 ruim), varredura e `git diff --check` passaram.
 
+## 2026-10-27 — a proposta de receita diz de onde veio
+
+"Recebi 1200 da casa 2" propunha "Receita de R$ 1.200,00 (Aluguéis)" e
+"ganhei 430 na uber" "Receita de R$ 430,00 (Corridas)": a linha da receita não
+mostrava nem a origem nem a descrição, e é ela que o usuário confere antes de
+confirmar. Agora: "(Aluguéis) — Casa 2", "(Corridas) — Uber"; a descrição só
+entra quando diz algo que a categoria não diz ("de aluguel" não repete
+"Aluguel"). 2 casos (os 2 vermelhos antes). Gates: 666/666, 99/99, 50/50,
+**354/354**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
+build, rubrica, varredura e `git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800
@@ -4153,7 +4164,6 @@ Abertas, achadas na leitura humana e ainda não corrigidas:
   fatura atrasada de "dado real".
 - "Se eu ficar mais 3h… vale?" rotula "estimativa para um dia" e não responde
   sim/não; "hj deu … como foi" registra sem responder o "como foi".
-- Proposta de receita não mostra a origem ("Casa 2").
 - "Quando consigo comprar o notebook" é recusado como hipótese ("quando VOU
   conseguir" responde).
 - Pergunta nominal sem "quanto" ("gastos dessa semana") cai na ajuda genérica.

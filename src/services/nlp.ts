@@ -4,7 +4,7 @@
 import { ParsedAction } from '../models/types'
 import { DEFAULT_CATEGORIES, guessCategory } from '../data/categories'
 import { fmtBRL, parseMoney } from '../utils/format'
-import { sentenceCase } from '../utils/text'
+import { normalizeName, sentenceCase } from '../utils/text'
 
 // Captura valores com QUALQUER combinação de separadores ("100.000,00",
 // "10,000,00", "1.234,56", "5000"). A interpretação é sempre delegada ao
@@ -1267,7 +1267,15 @@ export function describeAction(a: ParsedAction, categoryName?: (id: string) => s
   const cat = (id?: string) => id
     ? ` (${categoryName?.(id) || DEFAULT_CATEGORIES.find(c => c.id === id)?.name || id})` : ''
   switch (a.kind) {
-    case 'income': return `Receita de ${fmtBRL(a.amount)}${cat(a.category)}${a.is99 ? ' — plataforma 99' : ''}`
+    case 'income': {
+      // De ONDE veio é o que se confere: "(Aluguéis)" não diz que foi a Casa 2.
+      // A descrição só entra quando diz algo que a categoria e a origem não dizem.
+      const nomeCat = normalizeName(categoryName?.(a.category || '') || DEFAULT_CATEGORIES.find(c => c.id === a.category)?.name)
+      const extra = [a.origin, a.description]
+        .filter((x, i, xs): x is string => !!x?.trim() && xs.findIndex(y => normalizeName(y) === normalizeName(x)) === i
+          && !nomeCat.startsWith(normalizeName(x).replace(/s$/, '')))
+      return `Receita de ${fmtBRL(a.amount)}${cat(a.category)}${extra.length ? ` — ${extra.map(x => sentenceCase(x)).join(' · ')}` : ''}${a.is99 ? ' — plataforma 99' : ''}`
+    }
     case 'expense': return `Despesa de ${fmtBRL(a.amount)}${cat(a.category)}${a.description ? ` — ${a.description}` : ''}`
     // Sem este caso o `switch` caía fora e a linha da proposta virava "undefined".
     case 'saving': return `Guardar ${fmtBRL(a.amount)} na reserva${a.description ? ` — ${a.description}` : ''}`
