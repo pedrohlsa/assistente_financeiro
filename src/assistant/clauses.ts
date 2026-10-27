@@ -357,7 +357,12 @@ export function segment(text: string): { text: string; start: number; end: numbe
   for (const m of text.matchAll(/\s+(?=(?:ganhei|recebi|gastei|paguei|fiz|furando|furou|furei|tocou)\b)/gi)) {
     const prefix = text.slice(0, m.index || 0)
     // Nunca deixe a negação no fragmento anterior: "não gastei" é uma unidade.
-    if (/\d/.test(prefix) && !/\b(?:e|dps|n[ãa]o|nunca|jamais|nem(?:\s+sequer)?)\s*$/i.test(prefix)) push((m.index || 0) + m[0].length)
+    // Nem a pergunta: "quanto gastei de alimentação" era cortado em "quanto" +
+    // "gastei de alimentação", e nenhuma das metades tinha resposta.
+    if (/\d/.test(prefix) && !/\b(?:e|dps|n[ãa]o|nunca|jamais|nem(?:\s+sequer)?)\s*$/i.test(prefix)
+      && !/\b(?:quanto|quantos|quantas|qual|quais|quando|onde|como|que)\b(?:\s+[^\s\d,;.!?]+){0,3}\s*$/i.test(prefix)) {
+      push((m.index || 0) + m[0].length)
+    }
   }
   // Pedido, corrida oferecida e gasto avulso após vírgula são proposições
   // próprias. A modalidade de uma não pode contaminar a outra.
@@ -416,6 +421,8 @@ export function segment(text: string): { text: string; start: number; end: numbe
   // "gastei 80 de mercado QUANTO sobrou" — sem este corte a pergunta virava
   // parte da descrição ("Mercado quanto") e nunca era respondida.
   for (const m of text.matchAll(/\s+(?=(?:e\s+)?(?:quanto|quantos|quantas|qual|quais|quando)\b)/gi)) {
+    // O espaço entre "e" e "quanto" não é outro corte: o "e" ficava sozinho.
+    if (/\be$/i.test(text.slice(0, m.index || 0))) continue
     push((m.index || 0) + m[0].length)
   }
   // Marcador de correção dentro da própria mensagem.

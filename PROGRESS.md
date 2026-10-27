@@ -3868,6 +3868,21 @@ destino é a reserva. Com meta dita antes ("pra viagem essa semana") nada muda.
 `test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
 `git diff --check` passaram.
 
+## 2026-10-27 — pergunta que repete o verbo do registro fica inteira
+
+"Gastei 50 no mercado, quanto gastei de alimentação esse mês?" era cortada em
+"quanto" + "gastei de alimentação esse mês?": o corte de ditado sem pontuação
+separa antes de "gastei/recebi/paguei" sempre que já apareceu um número, e
+nenhuma das duas metades virava pergunta respondível. O corte agora não
+acontece quando o fragmento anterior termina em palavra interrogativa (com até
+três palavras depois: "qual conta eu | paguei"). E "e quanto" não deixa mais
+um "e" sozinho como cláusula.
+
+3 casos de segmentação no grupo Y (todos vermelhos antes). Gates: 666/666,
+99/99, 50/50, **294/294**, metamórficos, fuzz, 151/151, 468; typechecks,
+`test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
+`git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `c824fe0`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800

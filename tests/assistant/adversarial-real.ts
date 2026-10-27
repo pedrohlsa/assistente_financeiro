@@ -2,6 +2,7 @@
 // → resposta/proposta/foco. O oráculo financeiro é literal, não runScenario.
 import type { AppState } from '../../src/models/types'
 import { orchestrate } from '../../src/assistant/orchestrator'
+import { segment } from '../../src/assistant/clauses'
 import { currentBalance, monthlyProjections, occurrencesBetween } from '../../src/services/calc'
 import { cardInvoice, cardOutstanding, cardsOverview } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
@@ -1879,6 +1880,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const comMeta = await turnoHoje(rico, 'guardei 300 pra viagem essa semana')
     out.push(result('W-meta-antes-do-tempo', comMeta.actions, 'depósito de 300 na Viagem', deposito('Viagem', 300)(comMeta.actions)))
   }
+
+  // A pergunta que repete o verbo do registro é uma cláusula só: "quanto
+  // gastei de alimentação" era cortado em "quanto" + "gastei de alimentação",
+  // e nenhuma das duas metades tinha resposta.
+  for (const [frase, pergunta] of [
+    ['gastei 50 no mercado, quanto gastei de alimentacao esse mes?', 'quanto gastei de alimentacao esse mes?'],
+    ['recebi 1200 da casa 2 e quanto eu recebi esse mes?', 'quanto eu recebi esse mes?'],
+    ['paguei 80 de luz, qual conta eu paguei mais caro?', 'qual conta eu paguei mais caro?'],
+  ] as [string, string][]) {
+    const partes = segment(frase).map(c => c.text.trim())
+    out.push(result(`Y-pergunta-inteira-${pergunta.split(' ').slice(0, 2).join('-')}`, partes, `cláusula "${pergunta}" inteira`,
+      partes.some(p => p.replace(/^e\s+/, '') === pergunta) && !partes.includes('e')))
+  }
+
   return out
 }
 
