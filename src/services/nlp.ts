@@ -344,6 +344,19 @@ export function parseNaturalFull(
   let dayAsk: DayResult['ask']
   let doDia = false
 
+  // "Gastei 30 ontem e 20 hoje": a segunda metade é só o valor (o dia saiu na
+  // análise de cláusulas) e o verbo é o da metade anterior. Sem herdar, os 20
+  // sumiam — ou entravam na data de ontem quando a frase não era cortada.
+  if (!actions.length && opts?.inheritedKind && !opts.driver) {
+    const so = input.trim().match(new RegExp(String.raw`^(?:mais\s+)?(?:r\$\s*)?${NUM}\s*(?:reais|real|conto|contos|pila)?$`, 'i'))
+    const valor = so ? parseNum(so[1]) : NaN
+    if (valor > 0) {
+      actions = [opts.inheritedKind === 'income'
+        ? { kind: 'income', amount: valor } as ParsedAction
+        : { kind: 'expense', amount: valor, category: 'outros-out' } as ParsedAction]
+    }
+  }
+
   // No perfil motorista, uma receita sem origem explícita continua sendo de
   // corridas. Se a frase menciona corrida/Uber/99, o contexto vale também para
   // cláusulas curtas como "ganhei 150" logo após "fiz uma corrida".

@@ -387,6 +387,20 @@ export function segment(text: string): { text: string; start: number; end: numbe
   for (const m of text.matchAll(/[,;]?\s+e\s+(?=(?:hoje|hj|ontem|anteontem)\b[^,;.!?]*\d)/gi)) {
     push((m.index || 0) + m[0].length)
   }
+  // O mesmo com vírgula ("ontem 30 de lanche, anteontem 20 de padaria") e com
+  // o dia DEPOIS de cada item ("30 de lanche ontem e 20 de padaria anteontem").
+  // Sem o corte, o primeiro dia valia para tudo e a padaria entrava na data
+  // errada. O segundo caso só corta quando CADA metade tem o seu dia: em "30 de
+  // lanche e 20 de padaria ontem" o dia é dos dois.
+  for (const m of text.matchAll(/[,;]\s*(?=(?:hoje|hj|ontem|anteontem)\b[^,;.!?]*\d)/gi)) {
+    push((m.index || 0) + m[0].length)
+  }
+  const DIA = /\b(?:hoje|hj|ontem|anteontem)\b/i
+  for (const m of text.matchAll(/\s+e\s+(?=\d)/gi)) {
+    const antes = text.slice(0, m.index || 0)
+    const depois = text.slice((m.index || 0) + m[0].length).split(/[,;.!?]|\s+e\s+/)[0]
+    if (DIA.test(antes.split(/[,;.!?]/).pop() || '') && DIA.test(depois)) push((m.index || 0) + m[0].length)
+  }
   // Conector explícito começando uma nova ideia — só quando um verbo de comando
   // vem logo depois. Sem essa exigência, "gastei 190 reais DEPOIS comprando
   // cimento" era cortado no meio e a descrição se perdia.
