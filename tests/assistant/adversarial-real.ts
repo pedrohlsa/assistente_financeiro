@@ -1363,6 +1363,30 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       'reserva recusa o número; aperto não afirma cobertura pelo saldo',
       /n[ãa]o consigo confirmar seu saldo/i.test(reservaAmbigua.reply) && !/deixe pelo menos/.test(reservaAmbigua.reply)
         && /n[ãa]o consigo confirmar seu saldo/i.test(apertoAmbiguo.reply) && !/cobre os/.test(apertoAmbiguo.reply)))
+
+    // As três respostas de vencimento usam as MESMAS fontes e o prazo dito.
+    // "O que vence" e "contas cobrem" olhavam só conta fixa, 15 dias fixos,
+    // e contradiziam a reserva no mesmo aparelho.
+    const n = Number(alvo.slice(8, 10))
+    const estado = estadoDeCaixaFuturo(hoje, 2000, 'autonomo')
+    const vence = await turn(estado, `quais contas vencem ate dia ${n}`)
+    const cobre = await turn(estado, `minhas contas cobrem ate dia ${n}?`)
+    const reserva = await turn(estado, `quanto preciso deixar parado ate dia ${n}`)
+    const totalDe = (s: string) => (s.match(/R\$\s([\d.]+,\d{2})/) || [])[1]
+    out.push(result('F-vencimentos-coerentes', { vence: vence.reply, cobre: cobre.reply, reserva: reserva.reply },
+      'R$ 1.300,00 nas três, com a fatura atrasada e sem a Água sem confirmação',
+      totalDe(vence.reply) === '1.300,00' && /cobre os R\$\s1\.300,00/.test(cobre.reply)
+        && /deixe pelo menos R\$\s1\.300,00/.test(reserva.reply)
+        && [vence, cobre].every(r => /Fatura Inter/.test(r.reply) && /sem confirma[çc][ãa]o — [ÁA]gua/.test(r.reply))
+        && cobre.reply.startsWith('Sim.') && /sobram R\$\s700,00/.test(cobre.reply)))
+    const curtoCobre = await turn(estadoDeCaixaFuturo(hoje, 500, 'autonomo'), `minhas contas cobrem ate dia ${n}?`)
+    out.push(result('F-cobre-nao', curtoCobre.reply, 'Não; faltam R$ 800',
+      curtoCobre.reply.startsWith('Não.') && /faltam R\$\s800,00/.test(curtoCobre.reply)))
+    const semana = await turn(estado, 'o que vence essa semana')
+    out.push(result('F-vence-essa-semana', semana.reply, `até ${dd(addDays(hoje, 7))}, R$ 1.300`,
+      semana.reply.startsWith(`Vence até ${dd(addDays(hoje, 7))}: R$`) && /1\.300,00/.test(semana.reply)))
+    const temConta = await turn(estado, 'tem conta vencendo?')
+    out.push(result('F-tem-conta-sim', temConta.reply, 'começa com Sim.', temConta.reply.startsWith('Sim.')))
   }
 
   // Compra parcelada citada pelo NOME com "falta do", "devo do", "paguei do".

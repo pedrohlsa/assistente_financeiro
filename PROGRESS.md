@@ -3631,3 +3631,22 @@ caía na ajuda.
 5 casos (vermelhos no código anterior), com diferenças por categoria somadas do
 fixture. Gates: 666/666, 99/99, 50/50, **210/210**, metamórficos, fuzz,
 151/151, 468; typechecks, `test:money`, build e rubrica passaram.
+
+## 2026-10-27 — vencimentos coerentes entre as respostas
+
+Depois do lote de caixa futuro, "o que vence essa semana" e "minhas contas
+cobrem até dia 10?" ainda olhavam só conta fixa e uma janela fixa de 15 dias:
+no fixture rico, R$ 300 de contas contra R$ 1.500 em "qual conta tá me
+apertando" — duas respostas do mesmo app se contradizendo, e "até dia 10" e
+"essa semana" ignorados.
+
+As duas passam a usar `cashObligationsUntil()` com o prazo da frase
+(`prazoDasContas`: essa semana, até dia N, este mês; 15 dias sem prazo dito),
+com a conta fixa sem confirmação à parte. "Tem conta vencendo?" abre com sim
+ou não. 4 casos, incluindo a coerência dos três totais para o mesmo prazo.
+Gates: 666/666, 99/99, 50/50, **214/214**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build e rubrica passaram.
+
+Fora de propósito: `balanceOutlook` (Home e simulações "e se eu gastar")
+continua só com contas fixas; mudar isso altera a tela inicial e merece
+decisão de produto.

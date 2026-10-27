@@ -36,6 +36,21 @@ export function pedeContaQueAperta(t: string): boolean {
   return /\bqual\s+(?:das\s+|dos\s+|e\s+a\s+|e\s+o\s+)?(?:contas?|boletos?|compromissos?)\b.*\b(?:apertando|aperta|pesando|pesa|pesada|pesado|matando|sufocando)\b/.test(t)
 }
 
+/**
+ * Até quando olhar o que vence: "essa semana", "até dia 10", "este mês".
+ * Sem prazo dito, `padraoDias` — o mesmo horizonte que a resposta já usava.
+ */
+export function prazoDasContas(t: string, hoje: string, padraoDias: number): string {
+  if (/\b(?:essa|esta|nessa|nesta)\s+semana\b|\bproxim[oa]s?\s+7\s+dias\b/.test(t)) return addDays(hoje, 7)
+  const dito = alvoDaReserva(t, hoje)
+  if (dito.kind === 'date') return dito.date
+  if (/\b(?:esse|este|nesse|neste)\s+mes\b/.test(t)) {
+    const h = fromISO(hoje)
+    return toISO(new Date(h.getFullYear(), h.getMonth() + 1, 0))
+  }
+  return addDays(hoje, padraoDias)
+}
+
 export type AlvoDaReserva =
   | { kind: 'date'; date: string }
   | { kind: 'invalid'; dia: number }

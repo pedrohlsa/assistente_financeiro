@@ -24,7 +24,7 @@ import {
   monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections, budgetUsage,
 } from './calc'
 import type { CashObligation } from './calc'
-import { alvoDaReserva, pedeContaQueAperta, pedeReservaDeCaixa } from '../assistant/cashQuestions'
+import { alvoDaReserva, pedeContaQueAperta, pedeReservaDeCaixa, prazoDasContas } from '../assistant/cashQuestions'
 import { describeAction, parseNaturalFull } from './nlp'
 import { driverInsight } from '../assistant/driverInsights'
 import { adaptiveEnabled, buildPersonalModel } from '../assistant/personalModel'
@@ -1139,23 +1139,43 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // "contas" e a lista a capturava primeiro.
   if (/\b(?:cobre|cobrem|cobrir|d[áa]\s+(?:pra|para)\s+pagar|consigo\s+pagar|vou\s+conseguir\s+pagar|tenho\s+(?:saldo|dinheiro)\s+(?:pra|para))\b/.test(t)
     && /\bcontas?\b|\bvencer\b|\bvencimento\b|\bfatura\b/.test(t)) {
+    // Fatura e o que já venceu entram, e o prazo dito ("até dia 10") manda:
+    // com só as contas fixas e 15 dias fixos, esta resposta contradizia
+    // "qual conta tá me apertando" no mesmo aparelho.
     if (hasAmbiguousLegacyCardBalance(s)) return { text: AMBIGUOUS_BALANCE_REPLY }
-    const bo = balanceOutlook(s, 15)
-    if (!bo.bills.length) return { text: 'Você não tem conta fixa cadastrada vencendo nos próximos 15 dias, então não há o que cobrir.' }
-    const lista = bo.bills.map(b => `• ${sentenceCase(b.name)}: ${fmtBRL(b.amount)} — ${dueLabel(b.inDays).toLowerCase()}`).join('\n')
+    const ate = prazoDasContas(t, todayISO(), 15)
+    const todas = cashObligationsUntil(s, ate)
+    const certas = todas.filter(o => !o.unconfirmed)
+    const pendentes = semConfirmacao(todas)
+    if (!certas.length) {
+      return { text: [`Nada cadastrado vence até ${diaMes(ate)}, então não há o que cobrir.`, pendentes].filter(Boolean).join('\n\n') }
+    }
+    const saldo = currentBalance(s)
+    const total = somaDe(certas)
+    const itens = certas.length === 1 ? '1 item' : `${certas.length} itens`
     return {
-      text: (bo.ok
-        ? `Sim. Seu saldo de ${fmtBRL(bo.balance)} cobre ${bo.bills.length === 1 ? 'a' : 'as'} ${bo.bills.length} ${bo.bills.length === 1 ? 'conta' : 'contas'} dos próximos ${bo.horizon} dias (${fmtBRL(bo.billsSoon)}) e ainda sobram ${fmtBRL(bo.leftover)}.`
-        : `Não. As contas dos próximos ${bo.horizon} dias somam ${fmtBRL(bo.billsSoon)} e seu saldo é ${fmtBRL(bo.balance)} — faltam ${fmtBRL(bo.shortfall)}.`)
-        + `\n\n${lista}`,
+      text: [saldo >= total - 0.009
+        ? `Sim. Seu saldo de ${fmtBRL(saldo)} cobre os ${fmtBRL(total)} que vencem até ${diaMes(ate)} (${itens}) e ainda sobram ${fmtBRL(round2(saldo - total))}.`
+        : `Não. Até ${diaMes(ate)} vencem ${fmtBRL(total)} (${itens}) e seu saldo é ${fmtBRL(saldo)} — faltam ${fmtBRL(round2(total - saldo))}.`,
+      linhasDeObrigacao(certas), pendentes].filter(Boolean).join('\n\n'),
     }
   }
 
-  // contas próximas
+  // contas próximas — mesmas fontes da cobertura, com o prazo que foi dito.
   if (/contas?( fixas)?|vencimento|vence/.test(t)) {
-    const bills = upcomingBills(s, 15)
-    if (!bills.length) return { text: 'Nenhuma conta fixa vence nos próximos 15 dias.' }
-    return { text: 'Próximas contas:\n\n' + bills.map(b => `• ${sentenceCase(b.name)}: ${fmtBRL(b.amount)} — ${dueLabel(b.inDays).toLowerCase()}`).join('\n') }
+    const ate = prazoDasContas(t, todayISO(), 15)
+    const todas = cashObligationsUntil(s, ate)
+    const certas = todas.filter(o => !o.unconfirmed)
+    const pendentes = semConfirmacao(todas)
+    // "Tem conta vencendo?" é de sim ou não (regra 57).
+    const simNao = /^\s*(?:e\s+)?(?:eu\s+)?tem\b/.test(t)
+    if (!certas.length) {
+      return { text: [`${simNao ? 'Não. ' : ''}Nada cadastrado vence até ${diaMes(ate)}.`, pendentes].filter(Boolean).join('\n\n') }
+    }
+    return {
+      text: [`${simNao ? 'Sim. ' : ''}Vence até ${diaMes(ate)}: ${fmtBRL(somaDe(certas))}.`, linhasDeObrigacao(certas), pendentes]
+        .filter(Boolean).join('\n\n'),
+    }
   }
 
   // consumo
