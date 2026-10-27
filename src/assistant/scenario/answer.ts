@@ -144,6 +144,20 @@ export function composeScenario(r: AssistantScenarioResult): string {
     case 'extra-work': {
       const estimativa = r.facts.find(f => f.label.startsWith('Estimativa'))
       const ritmo = r.facts.find(f => f.label.startsWith('Seu lucro por'))
+      const meta = r.facts.find(f => f.label === 'Meta de hoje')
+      const feito = r.facts.find(f => f.label === 'Lucro de hoje até agora')
+      if (p.hoursPerDay && ritmo && estimativa) {
+        // "Vale ficar mais 3h?" se decide pelo que rende e pela meta do dia.
+        const quanto = estimativa.label.replace(/^Estimativa com /, '')
+        linhas.push(`No seu ritmo real (${formatValue(ritmo.value, ritmo.unit)}), ${quanto} rendem uns ${fmtBRL(estimativa.value)}.`)
+        if (meta && feito && meta.value > 0) {
+          const falta = meta.value - feito.value
+          linhas.push(falta <= 0.005
+            ? `A meta de hoje (${fmtBRL(meta.value)}) já foi batida: você fez ${fmtBRL(feito.value)} até agora, então essas horas seriam lucro a mais.`
+            : `Faltam ${fmtBRL(falta)} para a meta de hoje (${fmtBRL(meta.value)}); ${estimativa.value >= falta ? 'com essas horas, você bate a meta' : 'só essas horas não bastam para bater a meta'}.`)
+        }
+        break
+      }
       if (ritmo) linhas.push(`No seu ritmo real (${formatValue(ritmo.value, ritmo.unit)}):`)
       if (estimativa) linhas.push(`• ${estimativa.label}: ${fmtBRL(estimativa.value)}`)
       break

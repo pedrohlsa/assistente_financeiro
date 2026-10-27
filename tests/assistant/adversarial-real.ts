@@ -2292,6 +2292,18 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('FS-backup-pago-nao-atrasa', antiga, 'paga, sem "atrasada"', /\bpaga\b/.test(antiga) && !/atrasada/.test(antiga)))
   }
 
+  // Horas a mais HOJE: o rótulo dizia "Estimativa para um dia" (eram 3 horas),
+  // a resposta não ajudava a decidir, e "vale a pena ficar mais 3 horas?" (sem
+  // "se eu") caía em "não tenho certeza do que registrar".
+  {
+    const mot = motoristaRico(hoje)
+    for (const frase of ['se eu ficar mais 3h na rua hoje vale?', 'vale a pena ficar mais 3 horas?']) {
+      const r = (await turnoHoje(mot, frase)).reply
+      out.push(result(`HX-${frase.replace(/\W+/g, '-')}`, r, '3 horas a mais rendem ~R$ X, com a meta de hoje',
+        /3\s*h(?:oras)? a mais/.test(r) && !/para um dia/.test(r) && /meta de hoje/.test(r) && !/n[ãa]o tenho certeza/i.test(r)))
+    }
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

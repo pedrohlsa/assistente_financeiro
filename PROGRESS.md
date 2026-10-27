@@ -4231,6 +4231,21 @@ fatura e o caixa davam como quitada.
 **370/370**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
 build, rubrica (0 perigosa, 0 ruim), varredura e `git diff --check` passaram.
 
+## 2026-10-27 — horas a mais hoje: quanto rendem e a meta do dia
+
+"Se eu ficar mais 3h na rua hoje, vale?" respondia "Estimativa para um dia:
+R$ 121,19" — eram 3 horas, não um dia — sem nada que ajudasse a decidir; "vale
+a pena ficar mais 3 horas?" (sem "se") caía em "não tenho certeza do que
+registrar". A hipótese agora reconhece "vale a pena/compensa ficar/rodar
+mais", o rótulo diz as horas, e para hoje a resposta traz a meta do dia: "No
+seu ritmo real (R$ 40,40/hora), 3h a mais hoje rendem uns R$ 121,19. A meta
+de hoje (R$ 127,02) já foi batida…", ou quanto falta e se as horas bastam. Não
+há Sim/Não inventado: o app não sabe o cansaço de ninguém.
+
+2 casos no grupo HX (os 2 vermelhos antes). Gates: 666/666, 99/99, 50/50,
+**372/372**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
+build, rubrica (0 perigosa, 0 ruim), varredura e `git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800
@@ -4242,8 +4257,7 @@ precisam de auditoria independente; navegador, persistência real e dados
 legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas:
-- "Se eu ficar mais 3h… vale?" rotula "estimativa para um dia" e não responde
-  sim/não; "hj deu … como foi" registra sem responder o "como foi".
+- "hj deu … como foi" e "fiz 280 hoje, foi bom?" registram sem responder a pergunta.
 - Pergunta nominal sem "quanto" ("gastos dessa semana") cai na ajuda genérica.
 - "Vale a pena rodar domingo?" cai na ajuda genérica.
 

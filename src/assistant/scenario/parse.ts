@@ -39,6 +39,9 @@ const HIPOTESE = [
   /\bse\s+(?:r\$\s*)?\d/,
   /\bcabe\b/, /\bd[áa]\s+pra\b[^?]*\d/, /\bdaria\s+pra\b/,
   /\bconsigo\s+(?:comprar|pagar|bancar)\b/, /\bs[óo]\s+quero\s+saber\s+se\b/,
+  // "Vale a pena ficar mais 3 horas?" é a mesma hipótese do "se eu ficar mais
+  // 3h", sem o "se" — caía em "não tenho certeza do que registrar".
+  /\b(?:vale\s+a\s+pena|compensa)\s+(?:eu\s+)?(?:ficar|rodar|trabalhar|fazer)\s+mais\b/,
 ]
 
 export const looksLikeScenario = (input: string): boolean => {

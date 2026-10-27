@@ -10,11 +10,11 @@
 // tivesse comprado.
 
 import type { AppState, Installment, InstallmentPlan, Transaction } from '../../models/types'
-import { addDays, fromISO, monthKey, todayISO, toISO } from '../../utils/format'
+import { addDays, fmtNum, fromISO, monthKey, todayISO, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase } from '../../utils/text'
 import {
-  balanceOutlook, currentBalance, monthlyProjections, monthlySavingGoal, periodStats,
-  representedRecurringExpenseMonths,
+  balanceOutlook, currentBalance, dailyGoal, monthlyProjections, monthlySavingGoal, periodStats,
+  representedRecurringExpenseMonths, todayStats,
 } from '../../services/calc'
 import {
   activeCards, cardById, currentInvoice, nextInvoiceDueDate, splitInstallmentAmounts, hasAmbiguousLegacyCardBalance,
@@ -481,8 +481,15 @@ export function runScenario(
         const porHora = st.profitPerHour
         facts.push(fato('Seu lucro por hora (últimos 30 dias)', porHora, 'per-hour', 'histórico real', st.days))
         facts.push(fato('Horas a mais por dia', plan.hoursPerDay, 'hours', 'informado na pergunta'))
-        facts.push(fato(dias === 1 ? 'Estimativa para um dia' : `Estimativa em ${dias} dias`,
+        // O rótulo diz as HORAS: "Estimativa para um dia" lia como o dia inteiro.
+        facts.push(fato(dias === 1 ? `Estimativa com ${fmtNum(plan.hoursPerDay)}h a mais hoje` : `Estimativa com ${fmtNum(plan.hoursPerDay)}h a mais por dia em ${dias} dias`,
           porHora * plan.hoursPerDay * dias, 'BRL', 'ritmo × horas × dias'))
+        // Para decidir se vale ficar HOJE, a meta do dia é a referência que o
+        // motorista já usa: falta quanto, ou já bateu.
+        if (dias === 1) {
+          facts.push(fato('Meta de hoje', dailyGoal(state).total, 'BRL', 'meta diária do app'))
+          facts.push(fato('Lucro de hoje até agora', todayStats(state).profit, 'BRL', 'lançamentos de hoje'))
+        }
         caveats.push(`Estimativa no SEU ritmo dos últimos 30 dias (${st.days} dias com registro). Dia bom e dia ruim mudam isso.`)
         return { plan, facts, months: [], caveats, empty: false }
       }
