@@ -4136,14 +4136,15 @@ gastar de suco por dia", quebrou na primeira tentativa e voltou).
 **352/352**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
 build, rubrica (0 perigosa, 0 ruim), varredura e `git diff --check` passaram.
 
-## Pendências em 27/10/2026 (HEAD `c824fe0`)
+## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
-Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800
+Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800
 metamórficos, 1.416 fuzz, 151/151 invariantes, 468/468 offline; typechecks,
 `test:money`, build e rubrica (0 perigosa, 0 ruim) verdes. Tudo local, sem
-DeepSeek, push, merge, deploy ou APK. **NOT READY para merge/deploy**: o diff
-`c3648de..c824fe0` precisa de auditoria independente; navegador, persistência
-real e dados legados reais não foram revalidados.
+DeepSeek, push, merge, deploy ou APK. **NOT READY para merge/deploy**: os diffs
+`c3648de..c824fe0` e `c824fe0..b049bdf` (20 correções e 1 teste, seções acima)
+precisam de auditoria independente; navegador, persistência real e dados
+legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas:
 - "Dá ruim?" no primeiro turno de "e se eu gastar X" não abre com veredito.
@@ -4153,9 +4154,20 @@ Abertas, achadas na leitura humana e ainda não corrigidas:
 - "Se eu ficar mais 3h… vale?" rotula "estimativa para um dia" e não responde
   sim/não; "hj deu … como foi" registra sem responder o "como foi".
 - Proposta de receita não mostra a origem ("Casa 2").
+- "Quando consigo comprar o notebook" é recusado como hipótese ("quando VOU
+  conseguir" responde).
+- Pergunta nominal sem "quanto" ("gastos dessa semana") cai na ajuda genérica.
+- "Vale a pena rodar domingo?" cai na ajuda genérica.
 
 Decisões de produto pendentes:
 - `balanceOutlook` (Home e simulações "e se eu gastar") só considera contas
   fixas; as respostas do chat já usam `cashObligationsUntil()`.
 - Não existe lançamento de retirada da reserva (`insufficient-reserve` não é usado).
 - O chat não apaga lançamento salvo (só "desfaz o último" lote do assistente).
+- O chat não confirma ocorrência de conta fixa: "paguei a luz de 180" cria
+  despesa avulsa (agora com aviso), e confirmar a Luz depois na tela inicial
+  duplica.
+- Viagem inferida em total do dia: o corpus se contradiz (`rr-01` sem viagem
+  com horas; `sem-04` 2 viagens com 8 horas; `mul-07` 1 viagem com 120 km).
+- Fixture `autonomoRico`: Luz/Internet com `startDate` no dia 1º e `dueDay`
+  10/15 — vencem no dia 1º nas respostas (o formulário grava os dois coerentes).
