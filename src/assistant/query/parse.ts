@@ -251,9 +251,12 @@ function lerMetrica(t: string): { valor: MetricaLida; matched: string } {
     [/\bpor\s+km\b|\bpor\s+quilometro\b|\bo\s+km\b|\bkm\s+sai\b/, { metric: 'per-km', txType: tipo, label: `${porUnidade}km` }],
     [/\bpor\s+hora\b|\ba\s+hora\b|\bhora\s+trabalhada\b/, { metric: 'per-hour', txType: tipo, label: `${porUnidade}hora` }],
     [/\bpor\s+(?:viagem|corrida)\b|\bcada\s+(?:viagem|corrida)\b/, { metric: 'per-trip', txType: tipo, label: `${porUnidade}viagem` }],
-    [/\b(?:em|na|por)\s+media\b|\bmedia\b|\bnormalmente\b|\bcostum[oa]\b|\bgeralmente\b/,
-      { metric: 'avg', txType: tipo, label: 'Média por lançamento' }],
+    // Hábito ("quanto COSTUMO gastar de suco por dia") é a pergunta que o
+    // vocabulário aprendido responde, e fica antes do dia. Já "em média POR
+    // DIA" pede o dia: lido como média, virava média por lançamento.
+    [/\bnormalmente\b|\bcostum[oa]\b|\bgeralmente\b/, { metric: 'avg', txType: tipo, label: 'Média por lançamento' }],
     [/\bpor\s+dia\b|\bao\s+dia\b|\bdiari[oa]\b/, { metric: 'per-day', txType: tipo, label: `${porUnidade}dia` }],
+    [/\b(?:em|na|por)\s+media\b|\bmedia\b/, { metric: 'avg', txType: tipo, label: 'Média por lançamento' }],
   ]
 
   const achou = primeira(t, tabela)

@@ -1017,8 +1017,11 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // "quanto eu gastei essa semana / ontem / esse mês" — SEM categoria.
   // O caminho de categoria existe há tempo, mas exigia "com/de/em <coisa>", e
   // a pergunta mais comum não tem categoria nenhuma.
+  // "Por dia" e "em média" são outra conta, que a consulta faz: aqui saía o
+  // total de 7 dias para quem perguntou quanto gasta por dia.
   if (/quanto\s+(?:eu\s+)?(?:j[áa]\s+)?(?:gastei|gastou|torrei|saiu|foi)\b(?!\s*(?:com|de|em)\s+[a-zà-ú])/.test(t)
-    && !/quanto\s+(?:eu\s+)?(?:posso|da\s+para|consigo)/.test(t)) {
+    && !/quanto\s+(?:eu\s+)?(?:posso|da\s+para|consigo)/.test(t)
+    && !/\bpor\s+(?:dia|semana|mes)\b|\bao\s+dia\b|\bdiari[oa]\b|\bmedia\b/.test(t)) {
     const p = periodFromText(t)
     if (!p) return ajudaGenerica(driverMode)
     const st = periodStats(s, p.from, p.to)

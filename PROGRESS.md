@@ -4120,6 +4120,22 @@ Gates: 666/666, 99/99, 50/50, **349/349**, metamórficos, fuzz, 151/151, 468;
 typechecks, `test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
 `git diff --check` passaram.
 
+## 2026-10-27 — "por dia" é por dia
+
+"Quanto gastei por dia" e "por dia na semana passada" devolviam o TOTAL do
+período (o roteador antigo pegava "quanto gastei" e ignorava o "por dia");
+"quanto gastei em média por dia esse mês" virava "Média por lançamento"
+(R$ 215,73 em vez de R$ 87,89 por dia), porque a média vinha antes da unidade
+— o contrário do que o comentário da tabela pede. O roteador deixa "por
+dia/semana/mês" e "média" para a consulta, e na tabela o dia vem antes de "em
+média". As palavras de hábito ("costumo", "normalmente") continuam antes: são
+a pergunta que o vocabulário aprendido responde (`ad-41`, "quanto costumo
+gastar de suco por dia", quebrou na primeira tentativa e voltou).
+
+3 casos no grupo PD (os 3 vermelhos antes). Gates: 666/666, 99/99, 50/50,
+**352/352**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
+build, rubrica (0 perigosa, 0 ruim), varredura e `git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `c824fe0`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800

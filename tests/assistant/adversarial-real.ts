@@ -2158,6 +2158,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // "Por dia" é por dia: "quanto gastei por dia" devolvia o total de 7 dias,
+  // e "em média por dia" a média por LANÇAMENTO.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const gasto = (de: string, ate: string) => rico.transactions.filter(x => x.type === 'expense' && x.date >= de && x.date <= ate)
+      .reduce((a, x) => a + x.amount, 0)
+    const r2 = (v: number) => Math.round(v * 100) / 100
+    const mes = r2(gasto(`${hoje.slice(0, 8)}01`, hoje) / Number(hoje.slice(8, 10)))
+    const semana = r2(gasto(addDays(hoje, -13), addDays(hoje, -7)) / 7)
+    const casos: [string, string, number][] = [
+      ['PD-gastei-por-dia', 'quanto gastei por dia', mes],
+      ['PD-media-por-dia', 'quanto gastei em media por dia esse mes', mes],
+      ['PD-por-dia-semana-passada', 'quanto gastei por dia na semana passada', semana],
+    ]
+    for (const [id, frase, valor] of casos) {
+      const r = limpa((await turnoHoje(rico, frase)).reply)
+      out.push(result(id, r, `${brl(valor)} por dia`, r.includes(brl(valor)) && /dias corridos/.test(r) && !/por lan[çc]amento/.test(r)))
+    }
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.
