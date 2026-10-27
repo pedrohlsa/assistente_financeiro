@@ -3921,6 +3921,28 @@ Gates: 666/666, 99/99, 50/50, **308/308**, metamórficos, fuzz, 151/151, 468;
 typechecks, `test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
 `git diff --check` passaram.
 
+## 2026-10-27 — "quanto falta pagar esse mês" é o que ainda vence
+
+"Quanto falta pagar esse mês" respondia a dívida parcelada INTEIRA (R$ 1.500,
+com parcelas de daqui a 40 dias); "quanto falta de conta esse mês" procurava
+um parcelamento chamado "conta esse"; "quanto ainda tenho de conta pra pagar"
+era recusado. O roteador antigo já respondia certo pelas mesmas obrigações do
+caixa, mas a consulta se declarava `beyondLegacy` e tomava a frente.
+`pedeContasAPagar()` faz a DSL recusar essas frases e leva o roteador à lista
+de contas, que agora abre com "Até 31/10 falta pagar R$ X". Compra citada
+("do computador") e "quanto falta pagar" sem prazo continuam na consulta.
+
+3 casos no grupo CT (todos vermelhos antes; oráculo literal sobre estado com
+fatura vencida, contas a vencer, conta sem confirmação e parcelas futuras).
+Gates: 666/666, 99/99, 50/50, **311/311**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
+`git diff --check` passaram.
+
+Observação de fixture: `autonomoRico` cria Luz e Internet com `startDate` no
+dia 1º e `dueDay` 10/15. A âncora é o `startDate` (o formulário sempre grava
+os dois coerentes), então nesse fixture elas vencem no dia 1º — não é defeito
+do produto, mas engana quem lê as respostas dele.
+
 ## Pendências em 27/10/2026 (HEAD `c824fe0`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800

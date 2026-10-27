@@ -69,6 +69,19 @@ export function perguntaDeFatura(t: string): PerguntaDeFatura | null {
   return null
 }
 
+/**
+ * "Quanto falta pagar esse mês", "quanto falta de conta", "quanto ainda tenho
+ * de conta pra pagar": o que AINDA vence. A DSL lia "falta pagar" como
+ * parcelamento e respondia a dívida parcelada inteira, ou procurava um
+ * parcelamento chamado "conta esse". Compra citada ("do computador") e fatura
+ * ficam com quem já as responde.
+ */
+export function pedeContasAPagar(t: string): boolean {
+  return /\bquanto\b[^?]*\b(?:falta|faltam|resta|restam)\s+(?:(?:eu\s+)?pagar\s+)?(?:de\s+|em\s+)?(?:conta|contas|boleto|boletos)\b/.test(t)
+    || /\bquanto\b[^?]*\b(?:tenho|tem)\s+(?:de\s+|em\s+)?(?:conta|contas|boleto|boletos)\s+(?:para|a)\s+pagar\b/.test(t)
+    || /\bquanto\s+(?:ainda\s+)?(?:me\s+)?(?:falta|resta)\s+(?:eu\s+)?pagar\s+(?:(?:esse|este|nesse|neste)\s+mes|ate\s+o\s+(?:fim|final)\s+do\s+mes)\s*\??$/.test(t)
+}
+
 /** "qual conta está me apertando", "qual das contas pesa mais", "qual boleto…". */
 export function pedeContaQueAperta(t: string): boolean {
   return /\bqual\s+(?:das\s+|dos\s+|e\s+a\s+|e\s+o\s+)?(?:contas?|boletos?|compromissos?)\b.*\b(?:apertando|aperta|pesando|pesa|pesada|pesado|matando|sufocando)\b/.test(t)

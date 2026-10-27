@@ -1930,6 +1930,29 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // "Quanto falta pagar esse mês" é o que AINDA vence no mês, não a dívida
+  // parcelada inteira: a consulta respondia R$ 1.500 de parcelamentos, ou
+  // "parcelamentos com 'conta esse'", por cima do roteador que sabia.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const st = estadoDeCaixaFuturo(hoje, 2000, 'autonomo')
+    const sofa = addDays(hoje, 40)
+    st.installmentPlans = [...st.installmentPlans, { id: 'ct-sofa', description: 'Sofá', totalAmount: 1200, installmentCount: 6,
+      firstDueDate: sofa, purchaseDate: hoje, status: 'active', operationType: 'card-purchase', createdAt: hoje }] as AppState['installmentPlans']
+    st.installments = [...st.installments, ...[0, 1, 2, 3, 4, 5].map(n => ({ id: `ct-sofa-${n + 1}`, planId: 'ct-sofa', number: n + 1, total: 6,
+      amount: 200, dueDate: addDays(sofa, 30 * n), status: 'pending' }))] as AppState['installments']
+    const fimDoMes = toISOdate(new Date(fromISO(hoje).getFullYear(), fromISO(hoje).getMonth() + 1, 0))
+    // Literal: Inter 300 vencida há 5 dias, Internet 100 amanhã, Aluguel 900 em 3 dias; Água 50 sem confirmação à parte.
+    const esperado = [[-5, 300], [1, 100], [3, 900]].filter(([d]) => addDays(hoje, d) <= fimDoMes).reduce((a, [, v]) => a + v, 0)
+    for (const frase of ['quanto falta pagar esse mes', 'quanto falta de conta esse mes?', 'quanto ainda tenho de conta pra pagar esse mes']) {
+      const r = await turnoHoje(st, frase)
+      const texto = limpa(r.reply)
+      out.push(result(`CT-${frase.replace(/\W+/g, '-')}`, r.reply, `${brl(esperado)} até ${fimDoMes}, nunca a dívida ${brl(1500)}`,
+        texto.includes(brl(esperado)) && !texto.includes(brl(1500)) && !/parcelamentos? em aberto|conta esse/.test(texto)))
+    }
+  }
+
   // A pergunta que repete o verbo do registro é uma cláusula só: "quanto
   // gastei de alimentação" era cortado em "quanto" + "gastei de alimentação",
   // e nenhuma das duas metades tinha resposta.

@@ -24,7 +24,7 @@ import {
   monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections, budgetUsage,
 } from './calc'
 import type { CashObligation } from './calc'
-import { alvoDaReserva, pedeContaQueAperta, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, prazoDasContas, retiraDaReserva } from '../assistant/cashQuestions'
+import { alvoDaReserva, pedeContaQueAperta, pedeContasAPagar, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, prazoDasContas, retiraDaReserva } from '../assistant/cashQuestions'
 import type { PerguntaDeFatura } from '../assistant/cashQuestions'
 import { describeAction, parseNaturalFull } from './nlp'
 import { driverInsight } from '../assistant/driverInsights'
@@ -1240,7 +1240,8 @@ function resolveLocal(s: AppState, input: string): AiReply {
   }
 
   // contas próximas — mesmas fontes da cobertura, com o prazo que foi dito.
-  if (/contas?( fixas)?|vencimento|vence/.test(t)) {
+  // "Quanto falta pagar esse mês" é a mesma pergunta sem a palavra "conta".
+  if (/contas?( fixas)?|vencimento|vence/.test(t) || pedeContasAPagar(t)) {
     const ate = prazoDasContas(t, todayISO(), 15)
     const todas = cashObligationsUntil(s, ate)
     const certas = todas.filter(o => !o.unconfirmed)
@@ -1250,9 +1251,11 @@ function resolveLocal(s: AppState, input: string): AiReply {
     if (!certas.length) {
       return { text: [`${simNao ? 'Não. ' : ''}Nada cadastrado vence até ${diaMes(ate)}.`, pendentes].filter(Boolean).join('\n\n') }
     }
+    const abre = pedeContasAPagar(t)
+      ? `Até ${diaMes(ate)} falta pagar ${fmtBRL(somaDe(certas))}.`
+      : `${simNao ? 'Sim. ' : ''}Vence até ${diaMes(ate)}: ${fmtBRL(somaDe(certas))}.`
     return {
-      text: [`${simNao ? 'Sim. ' : ''}Vence até ${diaMes(ate)}: ${fmtBRL(somaDe(certas))}.`, linhasDeObrigacao(certas), pendentes]
-        .filter(Boolean).join('\n\n'),
+      text: [abre, linhasDeObrigacao(certas), pendentes].filter(Boolean).join('\n\n'),
     }
   }
 
