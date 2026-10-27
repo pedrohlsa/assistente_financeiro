@@ -1994,6 +1994,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('CF-conta-confirmada-sem-aviso', luzPaga.reply, 'Luz já confirmada: sem aviso', !/conta fixa/i.test(luzPaga.reply)))
   }
 
+  // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
+  // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
+  // "não registrei nada", como negação.
+  {
+    const st = autonomoRico(hoje)
+    for (const frase of ['exclui a despesa de 120 da luz', 'apaga o gasto do mercado', 'remove o lançamento de ontem',
+      'deleta a receita de 1200 da casa 2']) {
+      const r = await turnoHoje(st, frase)
+      out.push(result(`AP-${frase.replace(/\W+/g, '-')}`, { reply: r.reply, actions: r.actions }, 'nenhuma ação; aponta Movimentações',
+        r.actions.length === 0 && /Movimenta[çc][õo]es/.test(r.reply) && !/n[ãa]o registrei nada/i.test(r.reply)))
+    }
+  }
+
   // A pergunta que repete o verbo do registro é uma cláusula só: "quanto
   // gastei de alimentação" era cortado em "quanto" + "gastei de alimentação",
   // e nenhuma das duas metades tinha resposta.

@@ -3976,6 +3976,13 @@ ação de confirmar ocorrência pelo chat continua decisão de produto.
 **318/318**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
 build, rubrica (0 perigosa, 0 ruim), varredura e `git diff --check` passaram.
 
+## 2026-10-27 — caso adversarial do pedido de apagar
+
+Cobertura que faltava para `c824fe0`: 4 frases de apagar (despesa com valor,
+gasto pelo nome, lançamento de ontem, receita com origem) não criam ação e
+apontam Movimentações. Vermelhas no código anterior a `c824fe0` (rodado numa
+worktree temporária), verdes agora. **322/322**; demais gates verdes.
+
 ## Pendências em 27/10/2026 (HEAD `c824fe0`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800
@@ -3986,7 +3993,6 @@ DeepSeek, push, merge, deploy ou APK. **NOT READY para merge/deploy**: o diff
 real e dados legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas:
-- Pedido de apagar (`c824fe0`) sem caso adversarial dedicado.
 - "Consigo bater a meta" não considera prazo de meta de compra; "quanto
   preciso guardar por mês pra completar a viagem até dezembro" é recusado.
 - "Dá ruim?" no primeiro turno de "e se eu gastar X" não abre com veredito.
