@@ -4281,6 +4281,16 @@ você confirmar o registro acima: Hoje: R$ 671,00 de entradas…").
 metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica,
 varredura e `git diff --check` passaram.
 
+## 2026-10-27 — resultado do dia guarda a plataforma
+
+"Hj deu 300 uber" e "hoje foi 300 uber" (resultado do dia, sem verbo de
+ganho) registravam a receita sem descrição, e o dia não contava para a Uber em
+"qual plataforma paga melhor". O leitor do resultado do dia agora guarda Uber,
+inDrive ou 99 (o "99" só com preposição, porque sem ela pode ser o valor).
+2 casos no grupo PL (os 2 vermelhos antes). Gates: 666/666, 99/99, 50/50,
+**379/379**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
+build, rubrica, varredura e `git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800

@@ -2346,6 +2346,17 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // O resultado do dia guarda a PLATAFORMA dita: "hj deu 300 uber" ficava sem
+  // descrição, e o dia não contava para a Uber em "qual plataforma paga melhor".
+  {
+    const mot = motoristaRico(hoje)
+    for (const frase of ['hj deu 300 uber', 'hoje foi 300 uber']) {
+      const r = await turnoHoje(mot, frase)
+      out.push(result(`PL-${frase.replace(/\W+/g, '-')}`, r.actions, 'receita de 300 com descrição Uber',
+        r.actions.some(a => a.kind === 'income' && a.amount === 300 && a.description === 'Uber')))
+    }
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

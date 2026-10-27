@@ -312,7 +312,13 @@ function driverDayResult(input: string, actions: ParsedAction[], dayHint?: boole
     ? [...rest, { kind: 'work', hours: parseNum(hm[1]) } as ParsedAction]
     : rest
 
-  const income: ParsedAction = { kind: 'income', amount, category: 'corridas' }
+  // A plataforma dita fica na receita: sem ela, "hj deu 300 uber" não contava
+  // para a Uber no "qual plataforma paga melhor". O "99" só com preposição — sem
+  // ela, pode ser o próprio valor.
+  const plataforma = /\buber\b/.test(t) ? 'Uber'
+    : /\bin\s*driver?\b/.test(t) ? 'inDrive'
+      : /\b(?:n[ao]|d[ao]|pel[ao])\s+99\b/.test(t) ? '99' : undefined
+  const income: ParsedAction = { kind: 'income', amount, category: 'corridas', ...(plataforma ? { description: plataforma } : {}) }
 
   // Sinal forte de resultado (verbo, qualificação ou marca de dinheiro) decide
   // sozinho. "hoje 250", sem nenhum deles, é ambíguo de verdade: pergunta.
