@@ -2206,6 +2206,24 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('MC-compra-sem-meta-simula', celular, 'compra sem meta continua simulação', /R\$ 300,00 por m[êe]s/.test(celular)))
   }
 
+  // Simulação perguntada como sim/não abre com a resposta, na palavra da
+  // pergunta: "consigo comprar … em 10x?" não tinha veredito, e "cabe?"
+  // recebia "Não dá ruim".
+  {
+    const rico = autonomoRico(hoje)
+    const apertado = buildState({ profile: 'autonomo', balance: 500 })
+    const casos: [string, AppState, string, RegExp][] = [
+      ['VD-consigo-sim', rico, 'consigo comprar um celular de 3000 em 10x?', /^Sim\b/],
+      ['VD-da-pra-sim', rico, 'da pra comprar uma geladeira de 4000 em 12x?', /^Sim\b/],
+      ['VD-cabe', rico, 'se eu comprar uma tv de 2000 em 5x cabe?', /^Cabe\b/],
+      ['VD-consigo-nao', apertado, 'consigo comprar um celular de 3000 em 2x?', /^Não\b/],
+    ]
+    for (const [id, st, frase, lead] of casos) {
+      const r = await turnoHoje(st, frase)
+      out.push(result(id, r.reply, String(lead), lead.test(r.reply) && r.actions.length === 0))
+    }
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

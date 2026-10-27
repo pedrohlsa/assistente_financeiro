@@ -4163,6 +4163,20 @@ A resposta de viabilidade agora diz a meta e quanto falta. Compra sem meta
 `test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
 `git diff --check` passaram.
 
+## 2026-10-27 — simulação sim/não responde na palavra da pergunta
+
+"Consigo comprar um celular de 3000 em 10x?" e "dá pra comprar uma geladeira
+de 4000 em 12x?" simulavam sem abrir com resposta, e "…cabe?" recebia "Não dá
+ruim." `releCenario` agora escolhe o veredito pela pergunta: "Sim./Não./Dá,
+mas aperta" para consigo/dá pra/posso, "Cabe./Não cabe./Cabe no saldo, mas
+aperta" para cabe, e o "dá ruim" de antes para dá ruim/vale a pena/compensa. O
+"dá ruim?" do primeiro turno, listado como pendente, já abria com veredito.
+
+4 casos no grupo VD (os 4 vermelhos antes, incluindo um que não cabe).
+Gates: 666/666, 99/99, 50/50, **361/361**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
+`git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800
@@ -4174,7 +4188,6 @@ precisam de auditoria independente; navegador, persistência real e dados
 legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas:
-- "Dá ruim?" no primeiro turno de "e se eu gastar X" não abre com veredito.
 - "e quanto fica nesse mês" depois de simular compra pergunta outra coisa.
 - "pq?" depois de "qual foi pior" explica o mês errado; "e o inter" chama
   fatura atrasada de "dado real".

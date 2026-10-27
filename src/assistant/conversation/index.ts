@@ -93,11 +93,20 @@ function releCenario(t: string, reply: string, c: NonNullable<ConversationFocus[
     const sem = m.before !== m.after ? ` (seriam ${fmtBRL(m.before)} sem a hipótese)` : ''
     return `${sentenceCase(m.label)}: saldo estimado de ${fmtBRL(m.after)}${sem}. É o mês mais apertado da simulação.\n\nSimulação — nada foi registrado.`
   }
-  if (!/\b(?:da|de)\s+ruim\b|\b(?:esta|fica|ficou|e)\s+ruim\b|\bvale\s+a\s+pena\b|\bcompensa\b|\baguento\b|\bcabe\b/.test(t)) return reply
-  if (/^(?:sim|n[ãa]o|d[áa]\s+ruim|aperta)\b/i.test(reply) || c.feasible === undefined) return reply
+  // A resposta usa a palavra da pergunta: "cabe?" pede "cabe", "consigo?" pede
+  // sim ou não. "Não dá ruim" para quem perguntou se cabe não responde nada.
+  const pergunta = /\b(?:da|de)\s+ruim\b|\b(?:esta|fica|ficou|e)\s+ruim\b|\bvale\s+a\s+pena\b|\bcompensa\b|\baguento\b/.test(t) ? 'ruim'
+    : /\bcabe\b/.test(t) ? 'cabe'
+      : /\b(?:consigo|conseguiria|da\s+para|posso|e\s+possivel)\b/.test(t) ? 'sim' : null
+  if (!pergunta || c.feasible === undefined) return reply
+  if (/^(?:sim|n[ãa]o|d[áa]\s+ruim|d[áa],|aperta|cabe|o\s+saldo\s+aguenta)\b/i.test(reply)) return reply
   const mesNegativo = c.facts.some(f => /sobra do m[eê]s/i.test(f.label) && f.value < 0)
-  const lead = c.feasible === false ? 'Dá ruim.'
-    : mesNegativo ? 'O saldo aguenta, mas aperta: o mês fecha no vermelho.' : 'Não dá ruim.'
+  const respostas = {
+    ruim: ['Dá ruim.', 'O saldo aguenta, mas aperta: o mês fecha no vermelho.', 'Não dá ruim.'],
+    cabe: ['Não cabe.', 'Cabe no saldo, mas aperta: o mês fecha no vermelho.', 'Cabe.'],
+    sim: ['Não.', 'Dá, mas aperta: o mês fecha no vermelho.', 'Sim.'],
+  }[pergunta]
+  const lead = c.feasible === false ? respostas[0] : mesNegativo ? respostas[1] : respostas[2]
   return `${lead} ${reply}`
 }
 
