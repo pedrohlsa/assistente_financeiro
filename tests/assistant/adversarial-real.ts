@@ -1981,6 +1981,17 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const r = await turnoHoje(st, frase)
       out.push(result(id, r.reply, esperado, ok(limpa(r.reply)) && r.actions.length === 0))
     }
+    // Pagar pelo chat a conta fixa com vencimento em aberto cria gasto avulso,
+    // e a tela inicial continua pedindo a confirmação dela: confirmar lá depois
+    // conta duas vezes. A proposta segue, mas avisa.
+    const agua50 = await turnoHoje(st, 'paguei a agua de 50')
+    out.push(result('CF-avulsa-avisa-conta-fixa', agua50, `despesa de 50 com aviso da Água de ${data(agua)} sem confirmação`,
+      agua50.actions.some(a => a.kind === 'expense' && a.amount === 50)
+        && /conta fixa/i.test(agua50.reply) && agua50.reply.includes(data(agua))))
+    const mercado = await turnoHoje(st, 'paguei 50 no mercado')
+    out.push(result('CF-sem-conta-fixa-sem-aviso', mercado.reply, 'sem aviso de conta fixa', !/conta fixa/i.test(mercado.reply)))
+    const luzPaga = await turnoHoje(st, 'paguei a luz de 150')
+    out.push(result('CF-conta-confirmada-sem-aviso', luzPaga.reply, 'Luz já confirmada: sem aviso', !/conta fixa/i.test(luzPaga.reply)))
   }
 
   // A pergunta que repete o verbo do registro é uma cláusula só: "quanto

@@ -3963,6 +3963,19 @@ avulsa; a ocorrência da conta fixa Luz continua pendente na tela inicial, e
 confirmá-la lá depois duplica o gasto. Não existe ação de catálogo para
 confirmar ocorrência pelo chat.
 
+## 2026-10-27 — aviso de conta fixa em aberto na proposta de gasto
+
+Mitigação do achado anterior, sem mudar valor nenhum: quando a despesa
+proposta tem o nome de uma conta fixa ativa com vencimento sem confirmação
+("paguei a água de 50", Água vencida em 12/10 sem confirmar), a proposta diz
+que é conta fixa, a data em aberto, e que confirmar aqui e na tela inicial
+conta duas vezes. Conta já confirmada e gasto sem conta fixa não avisam. A
+ação de confirmar ocorrência pelo chat continua decisão de produto.
+
+3 casos (1 vermelho antes, 2 controles). Gates: 666/666, 99/99, 50/50,
+**318/318**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
+build, rubrica (0 perigosa, 0 ruim), varredura e `git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `c824fe0`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800

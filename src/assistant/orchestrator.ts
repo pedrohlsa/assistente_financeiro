@@ -47,7 +47,8 @@ import { buildCapabilities } from './capabilities'
 import { describeAction, META_OUTRA } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
 import { catById, usableCategories } from '../data/categories'
-import { fmtBRL, todayISO, uid } from '../utils/format'
+import { addDays, fmtBRL, todayISO, uid } from '../utils/format'
+import { occurrenceRecord, occurrencesBetween, recurringActiveOn } from '../services/calc'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { brDate, dateLabel, findDate, previousYearOf, resolveDayInWindow } from './dates'
 import { applyPreferenceAliases, parsePreferenceCommand } from './preferences'
@@ -776,6 +777,30 @@ function hypotheticalSummary(candidates: AssistantCandidateAction[]): string | n
     ? ` — diferença de ${fmtBRL(Math.abs(diff))}${diff < 0 ? ', negativa' : ''}.`
     : '.'
   return `Se você confirmar, ${parts.join(', ')}${tail} Nada foi registrado ainda.`
+}
+
+/**
+ * Gasto avulso com o nome de uma conta fixa que tem vencimento sem confirmação.
+ * O chat não confirma ocorrência (não há ação no catálogo para isso): confirmar
+ * aqui E depois na tela inicial conta o mesmo pagamento duas vezes. A proposta
+ * segue igual — só avisa.
+ */
+function avisoDeContaFixa(candidates: AssistantCandidateAction[], state: AppState): string {
+  const hoje = todayISO()
+  const avisos: string[] = []
+  for (const c of candidates) {
+    const a: any = c.action
+    if (a.kind !== 'expense' || !a.description) continue
+    const r = (state.recurring || []).find(x => x.kind !== 'income' && x.active !== false
+      && normalizeName(x.name) === normalizeName(a.description))
+    if (!r) continue
+    const abertas = occurrencesBetween(r, addDays(hoje, -62), hoje).filter(d => recurringActiveOn(r, d)
+      && !occurrenceRecord(r, d) && !state.transactions.some(t => t.recurringId === r.id && t.occurrenceDate === d))
+    if (!abertas.length) continue
+    avisos.push(`${r.name} é conta fixa, e o vencimento de ${brDate(abertas[abertas.length - 1])} ainda não foi confirmado. `
+      + 'Se for o pagamento dessa conta, confirme pela tela inicial em vez de aqui: confirmar nos dois lugares conta duas vezes.')
+  }
+  return avisos.length ? `\n\n${avisos.join('\n\n')}` : ''
 }
 
 function proposalText(candidates: AssistantCandidateAction[], state: AppState): string {
@@ -1755,10 +1780,10 @@ Confirmar?`,
       : clarification.question
   } else if (candidates.length && answerPart) {
     mode = 'answer_and_actions'
-    reply = `${proposalText(candidates, input.state)}${sobraComValor(unresolved)}\n\n${answerPart}\n\nConfirmar os registros?`
+    reply = `${proposalText(candidates, input.state)}${sobraComValor(unresolved)}${avisoDeContaFixa(candidates, input.state)}\n\n${answerPart}\n\nConfirmar os registros?`
   } else if (candidates.length) {
     mode = 'propose_actions'
-    reply = `${proposalText(candidates, input.state)}${sobraComValor(unresolved)}\n\nConfirmar?`
+    reply = `${proposalText(candidates, input.state)}${sobraComValor(unresolved)}${avisoDeContaFixa(candidates, input.state)}\n\nConfirmar?`
   } else if (answerPart) {
     mode = 'answer'
     reply = answerPart
