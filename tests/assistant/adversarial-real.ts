@@ -1913,6 +1913,23 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result(id, { reply: r.reply, actions: r.actions }, esperado, ok(limpa(r.reply), r.actions)))
     }
   }
+  // O NOME da categoria escolhe a categoria: "gastei 50 de lazer" ia para
+  // Outros com Lazer cadastrada, e a categoria que o usuário criou ("Pet",
+  // "Saúde") nunca era achada pelo nome.
+  {
+    const st = buildState({ profile: 'autonomo', balance: 1000 })
+    st.categories = [...st.categories,
+      { id: 'k3x9pet', name: 'Pet', type: 'expense', icon: '🐶', custom: true },
+      { id: 'k7saude', name: 'Saúde', type: 'expense', icon: '💊', custom: true }] as AppState['categories']
+    for (const [frase, cat] of [['gastei 50 de lazer', 'lazer'], ['gastei 50 de alimentacao', 'alimentacao'],
+      ['gastei 50 de compras', 'compras'], ['gastei 50 de casa', 'casa'], ['gastei 50 de pet', 'k3x9pet'],
+      ['gastei 50 com saude', 'k7saude'], ['gastei 50 no bar', 'lazer'], ['gastei 50 de areia', 'obra']] as [string, string][]) {
+      const r = await turnoHoje(st, frase)
+      out.push(result(`Z-${frase.replace(/\W+/g, '-')}`, r.actions, `categoria ${cat}`,
+        r.actions.length === 1 && r.actions[0].kind === 'expense' && r.actions[0].category === cat))
+    }
+  }
+
   // A pergunta que repete o verbo do registro é uma cláusula só: "quanto
   // gastei de alimentação" era cortado em "quanto" + "gastei de alimentação",
   // e nenhuma das duas metades tinha resposta.

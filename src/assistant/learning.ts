@@ -41,6 +41,16 @@ const isMoney = (kind: ParsedAction['kind']): kind is MoneyType =>
 /** O texto que identifica o lançamento: o que o usuário escreveu sobre ele. */
 const entityText = (a: any): string => String(a.description || a.origin || '').trim()
 
+/** Categoria usável do mesmo tipo cujo nome É o texto, com ou sem o "s" final. */
+function categoriaPeloNome(state: AppState, texto: string, kind: ParsedAction['kind']): string | undefined {
+  const tipo = kind === 'income' ? 'income' : kind === 'expense' ? 'expense' : undefined
+  const alvo = normalizeName(texto)
+  if (!tipo || !alvo) return undefined
+  const semS = (s: string) => s.replace(/s$/, '')
+  return usableCategories(state.categories || []).find(c => c.type === tipo
+    && !/^outros-/.test(c.id) && semS(normalizeName(c.name)) === semS(alvo))?.id
+}
+
 /**
  * Categoria que o usuário costuma dar para este texto, com a evidência junto.
  *
@@ -154,6 +164,14 @@ export function withLearnedCategory(
   // valor, tipo, data ou confirmação.
   const preferred = preferenceCategoryFor(state, entityText(a)!, action.kind)
   if (preferred) return { ...action, category: preferred } as ParsedAction
+
+  // O NOME de uma categoria dele é a categoria: "gastei 50 de lazer" ia para
+  // Outros com Lazer cadastrada, e a "Pet" que ele criou nunca era achada. Vem
+  // antes do histórico porque o histórico pode ter aprendido o próprio erro.
+  if (!a.category || a.category === 'outros-out' || a.category === 'outros-in') {
+    const pelaCategoria = categoriaPeloNome(state, entityText(a), action.kind)
+    if (pelaCategoria) return { ...action, category: pelaCategoria } as ParsedAction
+  }
 
   if (!adaptiveEnabled(state)) return action
   const model = buildPersonalModel(state, today)

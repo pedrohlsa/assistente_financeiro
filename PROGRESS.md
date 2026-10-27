@@ -3906,6 +3906,21 @@ foco guardado é o do estado real.
 `test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
 `git diff --check` passaram.
 
+## 2026-10-27 — o nome da categoria escolhe a categoria
+
+"Gastei 50 de lazer", "de alimentação", "de compras" e "de casa" iam para
+Outros com essas categorias cadastradas: o nome da própria categoria não está
+nas palavras-chave delas. Categoria criada pelo usuário ("Pet", "Saúde") nunca
+era achada pelo nome. `withLearnedCategory` agora usa a categoria usável do
+mesmo tipo cujo nome é a descrição (com ou sem "s"), quando o palpite está
+vazio ou é Outros — depois da preferência ensinada e antes do histórico, que
+pode ter aprendido o próprio erro.
+
+8 casos no grupo Z (6 vermelhos antes, 2 controles por palavra-chave).
+Gates: 666/666, 99/99, 50/50, **308/308**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
+`git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `c824fe0`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800
