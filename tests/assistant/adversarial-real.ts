@@ -2062,6 +2062,27 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // "Desse mês", "deste ano", "dessa semana": a contração não era período, o
+  // resto virava texto de busca ("obra desse") e o período caía em "este mês".
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/\u00a0/g, ' ')
+    const limpa = (s: string) => s.replace(/\u00a0/g, ' ')
+    const rico = autonomoRico(hoje)
+    const soma = (f: (x: AppState['transactions'][number]) => boolean) =>
+      Math.round(rico.transactions.filter(x => x.date <= hoje && f(x)).reduce((a, x) => a + x.amount, 0) * 100) / 100
+    const obraMes = soma(x => x.type === 'expense' && x.category === 'obra' && x.date >= `${hoje.slice(0, 8)}01`)
+    const mercadoAno = soma(x => x.type === 'expense' && x.description === 'Mercado' && x.date >= `${hoje.slice(0, 4)}-01-01`)
+    const obra = await turnoHoje(rico, 'quanto gastei de obra desse mes')
+    out.push(result('DP-desse-mes', obra.reply, `${brl(obraMes)} de obra`, obraMes > 0 && limpa(obra.reply).includes(brl(obraMes))))
+    const mercado = await turnoHoje(rico, 'quanto gastei de mercado deste ano')
+    out.push(result('DP-deste-ano', mercado.reply, `${brl(mercadoAno)} no ano`, mercadoAno > 0 && limpa(mercado.reply).includes(brl(mercadoAno))))
+    const semanas = await turnoHoje(rico, 'quanto gastei em cada semana desse mes')
+    const mesPassado = toISOdate(new Date(fromISO(hoje).getFullYear(), fromISO(hoje).getMonth() - 1, 15)).slice(5, 7)
+    out.push(result('DP-semanas-desse-mes', semanas.reply, 'só as semanas deste mês',
+      /Soma das \d+ semanas/.test(limpa(semanas.reply)) && !new RegExp(`semana de \\d{2}/${mesPassado}(?! \\(desde)`).test(semanas.reply)
+        && !/últimas 12 semanas/.test(semanas.reply)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

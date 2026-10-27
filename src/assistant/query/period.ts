@@ -209,7 +209,9 @@ export function parsePeriod(input: string, hoje = todayISO()): { period: QueryPe
     }
   }
   {
-    const m = t.match(/\b(?:est[ea]|ess[ea]|ness?[ea]|nest[ea])\s+mes\b|\bdo\s+mes\b|\bno\s+mes\b(?!\s+de)|\bmes\s+atual\b/)
+    // "Desse/deste mês" é "de + esse": sem a contração, "de obra desse mês"
+    // buscava o texto "obra desse" e respondia que não havia lançamento.
+    const m = t.match(/\b(?:d?est[ea]|d?ess[ea]|ness?[ea]|nest[ea])\s+mes\b|\bdo\s+mes\b|\bno\s+mes\b(?!\s+de)|\bmes\s+atual\b/)
     if (m) return { period: currentMonthToDate(hoje), matched: 'este mês', span: m[0] }
   }
 
@@ -227,7 +229,7 @@ export function parsePeriod(input: string, hoje = todayISO()): { period: QueryPe
     if (m) return { period: P(addDays(hoje, 1), addDays(hoje, 7), 'na semana que vem', 'week', hoje), matched: 'semana que vem', span: m[0] }
   }
   {
-    const m = t.match(/\b(?:est[ea]|ess[ea]|ness?[ea]|nest[ea])\s+semana\b|\bda\s+semana\b|\bna\s+semana\b/)
+    const m = t.match(/\b(?:d?est[ea]|d?ess[ea]|ness?[ea]|nest[ea])\s+semana\b|\bda\s+semana\b|\bna\s+semana\b/)
     if (m) return { period: P(addDays(hoje, -6), hoje, 'nos últimos 7 dias', 'week', hoje), matched: 'esta semana', span: m[0] }
   }
 
@@ -237,7 +239,7 @@ export function parsePeriod(input: string, hoje = todayISO()): { period: QueryPe
     if (m) return { period: P(`${ano - 1}-01-01`, `${ano - 1}-12-31`, `em ${ano - 1}`, 'year', hoje), matched: 'ano passado', span: m[0] }
   }
   {
-    const m = t.match(/\b(?:est[ea]|ess[ea]|ness?[ea]|nest[ea])\s+ano\b|\bano\s+atual\b|\b(?:no|do)\s+ano\b/)
+    const m = t.match(/\b(?:d?est[ea]|d?ess[ea]|ness?[ea]|nest[ea])\s+ano\b|\bano\s+atual\b|\b(?:no|do)\s+ano\b/)
     if (m) return { period: P(`${ano}-01-01`, hoje, 'neste ano', 'year', hoje), matched: 'este ano', span: m[0] }
   }
   const anoExplicito = t.match(/\bem\s+(20\d{2})\b/)

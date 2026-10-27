@@ -4038,6 +4038,19 @@ antes; "mês por mês" já funcionava). Gates: 666/666, 99/99, 50/50,
 **332/332**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
 build, rubrica (0 perigosa, 0 ruim), varredura e `git diff --check` passaram.
 
+## 2026-10-27 — "desse mês", "deste ano", "dessa semana" são período
+
+"Quanto gastei de obra desse mês" respondia "nenhum lançamento com 'obra
+desse'" com R$ 1.430 lançados; "de mercado deste ano" virava "este mês" e
+procurava "mercado deste"; "em cada semana desse mês" listava 12 semanas. O
+leitor de período conhecia "esse/este/nesse/neste", não a contração com "de".
+3 casos no grupo DP (os 3 vermelhos antes). Gates: 666/666, 99/99, 50/50,
+**335/335**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
+build, rubrica (0 perigosa, 0 ruim), varredura e `git diff --check` passaram.
+
+Achado sem correção: pergunta nominal sem "quanto" ("gastos dessa semana")
+cai na ajuda genérica.
+
 ## Pendências em 27/10/2026 (HEAD `c824fe0`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800
