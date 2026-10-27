@@ -2136,6 +2136,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /L[íi]quido por dia/.test(rotulo) && new RegExp(`${dias} dias corridos`).test(rotulo)))
   }
 
+  // "Tirando cimento" tira o CIMENTO, não a categoria Obra inteira (areia e
+  // tijolo junto), e o rótulo diz o que ficou de fora. "Tirando obra" (o nome
+  // da categoria) e "tirando comida" (sem lançamento com esse nome) continuam
+  // tirando a categoria.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const ini = `${hoje.slice(0, 8)}01`
+    const gastos = rico.transactions.filter(x => x.type === 'expense' && x.date >= ini && x.date <= hoje)
+    const soma = (f: (x: typeof gastos[number]) => boolean) => Math.round(gastos.filter(f).reduce((a, x) => a + x.amount, 0) * 100) / 100
+    const casos: [string, string, number, RegExp][] = [
+      ['EX-tirando-cimento', 'quanto gastei esse mes tirando cimento', soma(x => x.description !== 'Cimento'), /sem cimento/i],
+      ['EX-tirando-obra', 'quanto gastei esse mes tirando obra', soma(x => x.category !== 'obra'), /sem obra/i],
+      ['EX-tirando-comida', 'quanto gastei esse mes tirando comida', soma(x => x.category !== 'alimentacao'), /sem (?:comida|alimenta)/i],
+    ]
+    for (const [id, frase, valor, rotulo] of casos) {
+      const r = limpa((await turnoHoje(rico, frase)).reply)
+      out.push(result(id, r, `${brl(valor)} e o rótulo diz a exclusão`, r.includes(brl(valor)) && rotulo.test(r)))
+    }
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

@@ -611,6 +611,23 @@ function extrairOrigem(t: string): { valor: string; matched: string } | undefine
  * busca literal não achou nada — que é o caso do motorista que fala "suco" e
  * tem "Combustível" gravado na descrição.
  */
+/**
+ * A categoria que uma EXCLUSÃO tira. "Tirando cimento" com lançamentos chamados
+ * Cimento tira o cimento: a lista genérica (cimento → Obra) tirava a categoria
+ * inteira, com areia e tijolo junto. O nome da categoria ("tirando obra") e a
+ * palavra que não nomeia lançamento nenhum ("tirando comida") continuam
+ * tirando a categoria.
+ */
+function categoriaDaExclusao(state: AppState, valor: string, tipo: 'income' | 'expense'): string | undefined {
+  const cat = resolverCategoria(state, valor, tipo)
+  if (!cat) return undefined
+  const alvo = normalizeName(valor)
+  const nome = normalizeName((state.categories || []).find(c => c.id === cat)?.name)
+  if (nome === alvo || (alvo.length >= 4 && (nome.includes(alvo) || alvo.includes(nome)))) return cat
+  const palavra = new RegExp(`\\b${alvo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`)
+  return (state.transactions || []).some(x => palavra.test(normalizeName(x.description))) ? undefined : cat
+}
+
 function resolverCategoria(
   state: AppState, nome: string, tipo: 'income' | 'expense', lugar = false,
 ): string | undefined {
@@ -919,7 +936,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   const excluir = excluirLista ? undefined : extrairExclusao(rest.texto)
   if (excluirLista) {
     rest.consome(excluirLista.matched)
-    const cats = excluirLista.valores.map(v => resolverCategoria(state, v, tipoAlvo))
+    const cats = excluirLista.valores.map(v => categoriaDaExclusao(state, v, tipoAlvo))
     const cards = excluirLista.valores.map(v => cartoesCitados(state, v)[0])
     const plataformas = driver && excluirLista.valores.every(v => /^(?:uber|99|indrive|in\s*drive)$/.test(normalizeName(v)))
     if (plataformas) filter.excludeTexts = excluirLista.valores
@@ -930,7 +947,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   } else if (excluir) {
     rest.consome(excluir.matched)
     const cartao = cartoesCitados(state, excluir.valor)[0]
-    const cat = cartao ? undefined : resolverCategoria(state, excluir.valor, tipoAlvo)
+    const cat = cartao ? undefined : categoriaDaExclusao(state, excluir.valor, tipoAlvo)
     if (cartao) filter.excludeCardNames = [cartao]
     else if (cat) filter.excludeCategories = [cat]
     else filter.excludeText = excluir.valor
@@ -1351,6 +1368,17 @@ function rotulo(
   const dias = (filter.weekdays || []).join(',')
   if (dias === '0,6') extras.push('nos fins de semana')
   else if (dias === '1,2,3,4,5') extras.push('nos dias úteis')
+  // A exclusão também muda o número: "tirando cimento" respondia "Total gasto
+  // este mês", lido como o gasto do mês inteiro.
+  // Cartão é nome próprio e fica como foi cadastrado; o resto vai em minúscula.
+  const fora = [
+    ...[
+      ...(filter.excludeCategories || []).map(id => (state.categories || []).find(c => c.id === id)?.name || id),
+      ...(filter.excludeText ? [filter.excludeText] : []), ...(filter.excludeTexts || []),
+    ].map(v => v.trim().toLowerCase()),
+    ...(filter.excludeCardNames || []),
+  ]
+  if (fora.length) extras.push(`sem ${fora.length > 1 ? `${fora.slice(0, -1).join(', ')} e ${fora[fora.length - 1]}` : fora[0]}`)
   const cabeca = nome ? `${base} - ${nome}` : base
   return extras.length ? `${cabeca} ${extras.join(' ')}` : cabeca
 }

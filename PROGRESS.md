@@ -4104,6 +4104,22 @@ Gates: 666/666, 99/99, 50/50, **346/346**, metamórficos, fuzz, 151/151, 468;
 typechecks, `test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
 `git diff --check` passaram.
 
+## 2026-10-27 — "tirando cimento" tira o cimento, e o rótulo diz
+
+"Quanto gastei esse mês tirando cimento" excluía a categoria Obra INTEIRA
+(cimento, areia e tijolo): R$ 943 em vez de R$ 1.853, com o rótulo "Total
+gasto este mês", lido como o gasto do mês todo. A palavra da lista genérica
+(cimento → Obra) serve para classificar um lançamento novo; numa exclusão,
+`categoriaDaExclusao()` só tira a categoria quando a palavra é o nome dela
+("tirando obra") ou quando nenhum lançamento tem esse nome ("tirando
+comida"); senão, tira pelo texto. O rótulo diz o que ficou de fora ("Total
+gasto sem cimento este mês"; cartão com o nome cadastrado, "sem Nubank").
+
+3 casos no grupo EX (os 3 vermelhos antes; oráculo somando o fixture).
+Gates: 666/666, 99/99, 50/50, **349/349**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
+`git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `c824fe0`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800
@@ -4116,8 +4132,8 @@ real e dados legados reais não foram revalidados.
 Abertas, achadas na leitura humana e ainda não corrigidas:
 - "Dá ruim?" no primeiro turno de "e se eu gastar X" não abre com veredito.
 - "e quanto fica nesse mês" depois de simular compra pergunta outra coisa.
-- "pq?" depois de "qual foi pior" explica o mês errado; "tirando cimento" não
-  diz a exclusão no rótulo; "e o inter" chama fatura atrasada de "dado real".
+- "pq?" depois de "qual foi pior" explica o mês errado; "e o inter" chama
+  fatura atrasada de "dado real".
 - "Se eu ficar mais 3h… vale?" rotula "estimativa para um dia" e não responde
   sim/não; "hj deu … como foi" registra sem responder o "como foi".
 - Proposta de receita não mostra a origem ("Casa 2").
