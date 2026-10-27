@@ -890,15 +890,21 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // "qual meu saldo" / "quanto tenho no banco"
   if (/(qual|quanto).*(saldo|no banco|na conta)|meu saldo|quanto\s+(?:eu\s+)?tenho(?:\s+(?:de\s+)?(?:dinheiro|guardado|sobrando))?\s*\??$|quanto\s+sobrou\s+(?:de\s+)?dinheiro/.test(t)) {
     if (hasAmbiguousLegacyCardBalance(s)) return { text: AMBIGUOUS_BALANCE_REPLY }
-    const bo = balanceOutlook(s, 7)
-    if (currentBalance(s) === 0) return { text: 'Seu saldo em conta está zerado. Toque em "Saldo em conta" na tela inicial, ou me diga "meu saldo é 1500".' }
+    const saldo = currentBalance(s)
+    if (saldo === 0) return { text: 'Seu saldo em conta está zerado. Toque em "Saldo em conta" na tela inicial, ou me diga "meu saldo é 1500".' }
+    // As mesmas fontes de "o que vence" e "qual conta aperta": com só as contas
+    // fixas, o saldo "cobria R$ 300" com uma fatura vencendo amanhã.
+    const ate = addDays(todayISO(), 7)
+    const certas = cashObligationsUntil(s, ate).filter(o => !o.unconfirmed)
+    const total = somaDe(certas)
+    const itens = certas.length === 1 ? '1 item' : `${certas.length} itens`
     return {
-      text: `Seu saldo em conta é ${fmtBRL(bo.balance)}.` +
-        (bo.bills.length
-          ? bo.ok
-            ? ` Cobre ${bo.bills.length === 1 ? 'a' : 'as'} ${bo.bills.length} ${bo.bills.length === 1 ? 'conta' : 'contas'} dos próximos ${bo.horizon} dias (${fmtBRL(bo.billsSoon)}) e ainda sobram ${fmtBRL(bo.leftover)}.`
-            : ` Mas ${fmtBRL(bo.billsSoon)} em contas vencem nos próximos ${bo.horizon} dias — faltam ${fmtBRL(bo.shortfall)} (${fmtBRL(bo.needPerDay)}/dia até quitar).`
-          : ' Nenhuma conta fixa cadastrada para os próximos dias.'),
+      text: `Seu saldo em conta é ${fmtBRL(saldo)}.` +
+        (certas.length
+          ? saldo >= total - 0.009
+            ? ` Cobre os ${fmtBRL(total)} que vencem até ${diaMes(ate)} (${itens}) e ainda sobram ${fmtBRL(round2(saldo - total))}.`
+            : ` Mas ${fmtBRL(total)} vencem até ${diaMes(ate)} (${itens}) — faltam ${fmtBRL(round2(total - saldo))}.`
+          : ` Nada cadastrado vence até ${diaMes(ate)}.`),
     }
   }
 

@@ -1387,6 +1387,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       semana.reply.startsWith(`Vence até ${dd(addDays(hoje, 7))}: R$`) && /1\.300,00/.test(semana.reply)))
     const temConta = await turn(estado, 'tem conta vencendo?')
     out.push(result('F-tem-conta-sim', temConta.reply, 'começa com Sim.', temConta.reply.startsWith('Sim.')))
+    const saldo = await turn(estado, 'qual meu saldo')
+    out.push(result('F-saldo-cobre-as-mesmas-obrigacoes', saldo.reply, 'R$ 2.000 cobre R$ 1.300 (fatura atrasada incluída) e sobram R$ 700',
+      /cobre os R\$\s1\.300,00/i.test(saldo.reply) && /sobram R\$\s700,00/.test(saldo.reply)))
   }
 
   // Compra parcelada citada pelo NOME com "falta do", "devo do", "paguei do".

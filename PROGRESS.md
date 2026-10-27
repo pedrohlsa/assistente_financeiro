@@ -3777,3 +3777,13 @@ typechecks, `test:money`, build e rubrica passaram.
 5 casos (4 vermelhos no código anterior, 1 controle com período). Gates:
 666/666, 99/99, 50/50, **255/255**, metamórficos, fuzz, 151/151, 468;
 typechecks, `test:money`, build e rubrica passaram.
+
+## 2026-10-27 — "qual meu saldo" com as mesmas obrigações
+
+A frase de cobertura de "qual meu saldo" ainda usava `balanceOutlook` (só
+contas fixas): "cobre as 2 contas dos próximos 7 dias (R$ 300)" com uma fatura
+vencendo amanhã e outra atrasada. Agora usa `cashObligationsUntil()` até hoje+7,
+como "o que vence" e "qual conta aperta". 1 caso (vermelho antes). Gates:
+666/666, 99/99, 50/50, **256/256**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build e rubrica passaram. `balanceOutlook` segue
+inalterado na Home e nas simulações — decisão de produto pendente.
