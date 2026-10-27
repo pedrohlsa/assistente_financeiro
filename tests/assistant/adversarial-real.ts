@@ -1358,6 +1358,31 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /n[ãa]o consigo confirmar seu saldo/i.test(reservaAmbigua.reply) && !/deixe pelo menos/.test(reservaAmbigua.reply)
         && /n[ãa]o consigo confirmar seu saldo/i.test(apertoAmbiguo.reply) && !/cobre os/.test(apertoAmbiguo.reply)))
   }
+
+  // Compra parcelada citada pelo NOME com "falta do", "devo do", "paguei do".
+  // O nome ficava sem leitor e a resposta somava os dois parcelamentos
+  // (R$ 5.200) como se fossem o computador. Oráculo do fixture: Computador
+  // 10 × 400 com 2 pagas (falta 3.200, pago 800, 8 parcelas); Geladeira 6 × 400
+  // com 1 paga (falta 2.000, pago 400, 5 parcelas).
+  for (const [id, frase, esperado, rotuloEsperado] of [
+    ['G-falta-do-computador', 'quanto ainda falta do computador', /R\$\s3\.200,00/, /Computador/],
+    ['G-devo-do-computador', 'quanto ainda devo do computador', /R\$\s3\.200,00/, /Computador/],
+    ['G-parcelas-faltam-do-computador', 'quantas parcelas faltam do computador', /:\s8\b/, /Parcelas restantes - Computador/],
+    ['G-parcelas-da-geladeira-faltam', 'quantas parcelas da geladeira faltam', /:\s5\b/, /Parcelas restantes - Geladeira/],
+    ['G-ja-paguei-do-computador', 'quanto ja paguei do computador', /R\$\s800,00/, /J[áa] pago - Computador/],
+    ['G-controle-geladeira', 'quanto falta pagar da geladeira', /R\$\s2\.000,00/, /Geladeira/],
+  ] as const) {
+    const r = await turn(autonomoRico(todayISO()), frase)
+    out.push(result(id, r.reply, `${esperado} com rótulo ${rotuloEsperado}`,
+      esperado.test(r.reply) && rotuloEsperado.test(r.reply) && !/5\.200,00|total gasto/i.test(r.reply)
+        && r.actions.length === 0))
+  }
+  const semCompra = await turn(autonomoRico(todayISO()), 'quanto falta do carro')
+  out.push(result('G-compra-inexistente', semCompra.reply, 'sem parcelamento "carro", sem número',
+    /carro/i.test(semCompra.reply) && !/R\$/.test(semCompra.reply)))
+  const aluguel = await turn(autonomoRico(todayISO()), 'quanto paguei do aluguel')
+  out.push(result('G-paguei-sem-plano-continua-lancamento', aluguel.reply, 'não lê "aluguel" como parcelamento',
+    !/j[áa] pago|parcelamento/i.test(aluguel.reply)))
   return out
 }
 

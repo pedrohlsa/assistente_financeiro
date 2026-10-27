@@ -3523,3 +3523,27 @@ metamórficos, 1.416 fuzz, 151/151 invariantes, 468/468 offline; `typecheck`,
 cobrem até dia 10?" ainda olham só contas fixas (sem faturas) e uma janela fixa
 de 15 dias; `balanceOutlook` na Home também. **Ainda NOT READY para
 merge/deploy.** Sem chamadas pagas, push, merge, deploy ou APK.
+
+## 2026-10-27 — compra parcelada citada pelo nome
+
+Leitura do `probe:redteam` inteiro: "quanto ainda falta do computador"
+respondia **R$ 5.200,00** (Computador + Geladeira) em vez de R$ 3.200,00. O
+leitor do nome da compra só aceitava "parcelas/pagar/quitar do X"; com "falta
+do", "devo do" e "paguei do" o nome ficava sem leitor e a consulta somava todos
+os parcelamentos. A rubrica marcava essa resposta como boa — ela não confere
+o número contra a pergunta.
+
+No mesmo caminho: "quantas parcelas faltam da geladeira" contava parcelamentos
+(1) em vez de somar parcelas restantes (5); "quantas parcelas da geladeira
+faltam" procurava a compra "geladeira faltam"; "quanto já paguei do computador"
+virava o gasto do mês.
+
+- `ITEM_PARCELADO` aceita falta/resta/devo/paguei e para o nome antes de
+  "ainda", "faltam", "no inter"; "total", "valor" e "resto" não são nome de compra.
+- "Devo do X" é dívida de parcelamento; "paguei do X" só vira parcelamento
+  quando existe um plano com esse nome — "paguei do aluguel" segue lançamento.
+- "Quantas parcelas" soma `remainingCount`, com rótulo "Parcelas restantes".
+
+8 casos adversariais (6 vermelhos no planejador anterior, 2 controles).
+Gates: 666/666, 99/99, 50/50, **187/187**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build e rubrica (0 perigosa, 0 ruim) passaram.

@@ -272,8 +272,11 @@ const escapaRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 /**
  * "Parcelas da geladeira", "parcelamento do celular": o nome da compra depois
  * da parcela. Período ("do mês"), cartão ("do nubank") e fatura não são compra.
+ * "Quanto falta DO computador" e "quanto ainda devo do computador" dizem o nome
+ * do mesmo jeito; sem estes verbos o nome ficava sem leitor e a resposta somava
+ * todos os parcelamentos como se fossem o computador.
  */
-const ITEM_PARCELADO = /\b(?:parcelas?|parcelamentos?|prestac(?:ao|oes)|pagar|quitar)\s+d[oa]s?\s+(?!(?:mes|meses|ano|semana|cartao|cartoes|fatura|faturas|proxim[oa]s?|ultim[oa]s?|nubank|inter|itau|bradesco|santander|caixa|c6|next|pan|picpay|mercado\s+pago)\b)([a-z][a-z0-9\-]*(?:\s+(?!(?:e|ou|que|quanto|esse|este|nesse|neste|ja)\b)[a-z0-9][a-z0-9\-]*){0,2})/
+const ITEM_PARCELADO = /\b(?:parcelas?|parcelamentos?|prestac(?:ao|oes)|pagar|quitar|paguei|pagamos|quitei|faltam?|faltando|restam?|restando|devo|deve|devendo)\s+d[oa]s?\s+(?!(?:mes|meses|ano|semana|cartao|cartoes|fatura|faturas|total|valor|resto|restante|saldo|parcelas?|proxim[oa]s?|ultim[oa]s?|nubank|inter|itau|bradesco|santander|caixa|c6|next|pan|picpay|mercado\s+pago)\b)([a-z][a-z0-9\-]*(?:\s+(?!(?:e|ou|que|quanto|quantas?|esse|este|nesse|neste|ja|ainda|faltam?|faltando|restam?|restando|tem|tenho|pagar|paguei|pago|agora|hoje|ate|no|na|nos|nas|em|pelo|pela)\b)[a-z0-9][a-z0-9\-]*){0,2})/
 
 function lerFonte(t: string, driver: boolean, metas: string[] = []): { valor: FonteLida; matched: string } | null {
   // "Quanto falta pra viagem?" — sem a palavra "meta". O usuário chama a meta
@@ -293,6 +296,8 @@ function lerFonte(t: string, driver: boolean, metas: string[] = []): { valor: Fo
     // para quem perguntou por uma meta de compra que existe.
     [/\bmetas?\b(?!\s+(?:diaria|mensal|do\s+dia|do\s+mes))/, { source: 'goals', field: 'remaining' }],
     [/\bfalta\s+(?:pagar|quitar)\b|\bquanto\s+(?:ainda\s+)?falta\b/, { source: 'plans', field: 'remaining' }],
+    // "Quanto ainda devo do computador": dívida de uma compra, não gasto do mês.
+    [/\b(?:devo|devendo)\s+d[oa]s?\s+(?!(?:mes|meses|ano|semana|cartao|cartoes|fatura|faturas)\b)[a-z]/, { source: 'plans', field: 'remaining' }],
     [/\bparcelamentos?\b/, { source: 'plans', field: 'remaining' }],
     // "As parcelas DA GELADEIRA": a compra tem nome, e a pergunta é sobre o
     // parcelamento dela inteiro. Lido como "parcelas" soltas, a pergunta caía
@@ -1016,7 +1021,19 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
 
   // A compra citada pelo nome ("parcelas da geladeira") é o filtro do
   // parcelamento. Cartão com esse nome já foi lido acima e não é compra.
-  const itemParcelado = source === 'plans' && !filter.text ? t0.match(ITEM_PARCELADO) : null
+  // "Quanto já paguei do computador": o nome é de um PARCELAMENTO cadastrado.
+  // Sem um plano com esse nome, "paguei do aluguel" continua sendo lançamento.
+  if (source === 'transactions' && !filter.text && !filter.categories?.length) {
+    const pago = t0.match(/\b(?:paguei|pagamos|quitei)\s+d[oa]s?\s+([a-z][a-z0-9-]*)/)
+    const nome = pago ? normalizeName(pago[1]) : ''
+    if (nome && (state.installmentPlans || []).some(p => p.status !== 'cancelled'
+      && normalizeName(p.description).split(/\s+/).includes(nome))) {
+      source = 'plans'
+      delete filter.txType
+      if (!periodoExplicito) period = janelaAberta(hoje)
+    }
+  }
+  const itemParcelado = (source === 'plans' || source === 'installments') && !filter.text ? t0.match(ITEM_PARCELADO) : null
   if (itemParcelado && cartoesCitados(state, itemParcelado[1]).length) {
     // "As parcelas do <cartão que ele batizou>": é o cartão, lido acima — a
     // pergunta continua sendo sobre as parcelas dele, como sempre foi.
@@ -1025,6 +1042,13 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
       fonteLida.valor = { source: 'installments' }
     }
   } else if (itemParcelado) {
+    // "Quantas parcelas faltam do computador": a contagem é do PARCELAMENTO
+    // citado. Parcela solta não carrega o nome da compra.
+    if (source === 'installments') {
+      source = 'plans'
+      delete filter.status
+      if (!periodoExplicito) period = janelaAberta(hoje)
+    }
     filter.text = itemParcelado[1].trim()
     rest.consome(itemParcelado[0])
     recognized.push(`parcelamento "${filter.text}"`)
@@ -1035,7 +1059,12 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     || (source === 'goals' ? 'remaining' : source === 'plans' ? 'remaining'
       : source === 'projections' ? projField(t0) : 'amount')
   if (source === 'goals' && /\bmais\s+per|\bperto\s+de\s+terminar|\bfalta\s+menos\b|\bquase\b/.test(t0)) field = 'pct'
-  if (source === 'plans' && /\bquantas\s+parcelas\b/.test(t0)) field = 'remainingCount'
+  if (source === 'plans' && /\bquantas\s+parcelas\b/.test(t0)) {
+    field = 'remainingCount'
+    // "Quantas" pede a SOMA das parcelas restantes. Contar linhas respondia
+    // "1" — o número de parcelamentos — para quem tem cinco parcelas a pagar.
+    if (metric === 'count') metric = 'sum'
+  }
   // "Quanto eu JÁ PAGUEI da geladeira": o que saiu, não o que falta.
   if (source === 'plans' && /\b(?:ja\s+)?(?:paguei|pagamos|quitei)\b/.test(t0) && !/\bfalta\b|\bfaltam\b/.test(t0)) field = 'paid'
 
@@ -1221,6 +1250,8 @@ function rotulo(
     : field === 'pct' ? 'Progresso das metas'
       : source === 'plans' && field === 'paid' ? 'Já pago'
         : source === 'plans' && field === 'total' ? 'Valor total'
+          // "Falta pagar: 8" parecia R$ 8; é a QUANTIDADE de parcelas.
+          : source === 'plans' && field === 'remainingCount' ? 'Parcelas restantes'
           : ROTULO_FONTE[source] || m.label
   const cat = filter.categories?.length
     ? (state.categories || []).find(c => c.id === filter.categories![0])?.name
