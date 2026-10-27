@@ -2242,6 +2242,22 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // "Pq?" depois de "qual foi meu pior mês" quer saber o que pesou NAQUELE
+  // mês — recebia a metodologia ("subtraí as saídas das entradas de 46
+  // registros"). No fixture, o mês passado tem a reforma do telhado (2.400).
+  {
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    for (const [pergunta, porque] of [['qual foi meu pior mes', 'pq?'], ['qual mes eu gastei mais', 'por que?']]) {
+      const r1 = await turnoHoje(rico, pergunta)
+      const topo = r1.focus?.lastQuery?.groups?.[0]
+      const r2 = limpa((await turnoHoje(rico, porque, r1.focus)).reply)
+      out.push(result(`PQ-${pergunta.replace(/\W+/g, '-')}`, r2, `${topo?.label}: o que pesou, com a reforma do telhado`,
+        !!topo && r2.toLowerCase().includes(topo.label.toLowerCase()) && /Reforma do telhado/i.test(r2) && /R\$ 2\.400,00/.test(r2)
+          && !/^Subtra[íi]|^Somei/.test(r2)))
+    }
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

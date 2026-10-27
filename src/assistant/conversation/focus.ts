@@ -241,6 +241,62 @@ const PEDE_EXPLICACAO = /^(?:por\s*que|pq|como\s+(?:voce\s+)?(?:chegou|calculou|
 
 const MESES_DO_ANO = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
 
+/**
+ * O que pesou no mês que encabeçou o ranking por mês: entradas e saídas dele,
+ * as três categorias de saída maiores (com o lançamento que domina cada uma) e
+ * a média de saídas dos outros meses inteiros. Só para ranking de lançamentos;
+ * o resto continua com a metodologia.
+ */
+function porQueDoMes(state: AppState, focus: ConversationFocus): string | null {
+  const plan = focus.lastQueryPlan
+  const q = focus.lastQuery
+  if (!plan || !q || plan.group !== 'month' || plan.source !== 'transactions' || !q.groups.length) return null
+  if (!plan.order || !/^value-/.test(plan.order)) return null
+  const tipos = plan.filter.txType || []
+  const liquido = tipos.includes('income') && tipos.includes('expense')
+  if (!liquido && !(tipos.length === 1 && tipos[0] === 'expense')) return null
+  const intervalo = (key: string): [string, string] => {
+    const [y, m] = key.split('-').map(Number)
+    return [`${key}-01`, toISO(new Date(y, m, 0))]
+  }
+  const top = q.groups[0]
+  const [ini, fim] = intervalo(top.key)
+  const doMes = (state.transactions || []).filter(x => x.date >= ini && x.date <= fim)
+  const soma = (xs: typeof doMes) => Math.round(xs.reduce((a, x) => a + x.amount, 0) * 100) / 100
+  const entradas = soma(doMes.filter(x => x.type === 'income'))
+  const saidas = doMes.filter(x => x.type === 'expense')
+  const totalSaidas = soma(saidas)
+  const nome = sentenceCase(top.label)
+  const lead = liquido
+    ? plan.order === 'value-asc'
+      ? totalSaidas > entradas
+        ? `Em ${top.label} as saídas (${fmtBRL(totalSaidas)}) passaram das entradas (${fmtBRL(entradas)}).`
+        : `Em ${top.label} sobrou menos: entradas de ${fmtBRL(entradas)} e saídas de ${fmtBRL(totalSaidas)}.`
+      : `Em ${top.label} sobrou mais: entradas de ${fmtBRL(entradas)} e saídas de ${fmtBRL(totalSaidas)}.`
+    : plan.order === 'value-desc' ? `${nome} teve as maiores saídas: ${fmtBRL(totalSaidas)}.` : `${nome} teve as menores saídas: ${fmtBRL(totalSaidas)}.`
+  const porCategoria = new Map<string, typeof saidas>()
+  for (const x of saidas) porCategoria.set(x.category || '—', [...(porCategoria.get(x.category || '—') || []), x])
+  const pesos = [...porCategoria].map(([cat, xs]) => ({ cat, xs, total: soma(xs) })).sort((a, b) => b.total - a.total).slice(0, 3)
+  const linhas = pesos.map(({ cat, xs, total }) => {
+    const nomeCat = (state.categories || []).find(c => c.id === cat)?.name || 'Sem categoria'
+    const maior = [...xs].sort((a, b) => b.amount - a.amount)[0]
+    const destaque = xs.length > 1 && maior?.description && maior.amount >= total * 0.5
+      ? ` (${sentenceCase(maior.description)}: ${fmtBRL(maior.amount)})`
+      : xs.length === 1 && maior?.description ? ` (${sentenceCase(maior.description)})` : ''
+    return `• ${nomeCat}: ${fmtBRL(total)}${destaque}`
+  })
+  const outros = q.groups.slice(1).filter(g => intervalo(g.key)[1] <= q.period.to)
+  const mediaOutros = outros.length
+    ? outros.reduce((a, g) => {
+      const [i, f] = intervalo(g.key)
+      return a + soma((state.transactions || []).filter(x => x.type === 'expense' && x.date >= i && x.date <= f))
+    }, 0) / outros.length
+    : undefined
+  return [lead, linhas.length ? `O que mais pesou nas saídas:\n${linhas.join('\n')}` : '',
+    mediaOutros !== undefined ? `Nos outros meses inteiros, as saídas ficaram em média em ${fmtBRL(Math.round(mediaOutros * 100) / 100)}.` : '']
+    .filter(Boolean).join('\n\n')
+}
+
 /** O mês ('YYYY-MM') que a continuação pede dentro da simulação ativa. */
 function mesDaSimulacao(t: string, today: string): string | null {
   const h = fromISO(today)
@@ -280,6 +336,10 @@ export function resolveFollowUp(
 
   // ---- "por quê?" / "como chegou nisso?" --------------------------------
   if (PEDE_EXPLICACAO.test(t)) {
+    // "Pq?" depois de "qual foi meu pior mês" quer o que pesou NAQUELE mês;
+    // a metodologia ("subtraí as saídas das entradas de 46 registros") não diz.
+    const doMes = focus.last === 'query' ? porQueDoMes(state, focus) : null
+    if (doMes) return { kind: 'explain', text: doMes }
     const texto = focus.last === 'scenario' ? focus.lastScenario?.explain
       : focus.last === 'driver' ? focus.lastDriver?.explain
         : focus.lastQuery?.explain

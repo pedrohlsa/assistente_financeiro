@@ -4189,6 +4189,19 @@ cai depois. 2 casos no grupo SM (os 2 vermelhos antes). Gates: 666/666,
 99/99, 50/50, **363/363**, metamórficos, fuzz, 151/151, 468; typechecks,
 `test:money`, build, rubrica, varredura e `git diff --check` passaram.
 
+## 2026-10-27 — "pq?" depois do pior mês diz o que pesou
+
+"Qual foi meu pior mês" → "pq?" respondia a metodologia ("Subtraí as saídas
+das entradas de 46 registros…"); quem pergunta quer saber o que pesou NAQUELE
+mês. Para ranking de lançamentos por mês, a explicação agora traz entradas e
+saídas do mês do topo, as três categorias de saída maiores com o lançamento
+que domina cada uma ("Casa: R$ 2.400,00 (Reforma do telhado)") e a média de
+saídas dos outros meses inteiros (o mês corrente, incompleto, fica fora). O
+resto continua com a metodologia. 2 casos no grupo PQ (os 2 vermelhos antes).
+Gates: 666/666, 99/99, 50/50, **365/365**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build, rubrica, varredura e `git diff --check`
+passaram.
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800
@@ -4200,8 +4213,7 @@ precisam de auditoria independente; navegador, persistência real e dados
 legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas:
-- "pq?" depois de "qual foi pior" explica o mês errado; "e o inter" chama
-  fatura atrasada de "dado real".
+- "e o inter" chama fatura atrasada de "dado real".
 - "Se eu ficar mais 3h… vale?" rotula "estimativa para um dia" e não responde
   sim/não; "hj deu … como foi" registra sem responder o "como foi".
 - Pergunta nominal sem "quanto" ("gastos dessa semana") cai na ajuda genérica.
