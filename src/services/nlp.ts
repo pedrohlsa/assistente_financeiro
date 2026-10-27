@@ -716,7 +716,9 @@ function parseClause(input: string): ParsedAction[] {
   // ----- guardar na RESERVA (não é meta): "guardei 150", "coloquei 300 na reserva",
   // "separei 500 para investir". Vira `type:'saving'` — nem receita nem despesa.
   const savingRe = new RegExp(
-    String.raw`(?:guardei|guardar|guarda|separei|separar|separa|reservei|poupei|apliquei|investi|coloquei|botei|depositei|joguei|meti)\s*${APROX}(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:(?:na|no|em|para|pra|pro)\s+(?:a\s+|o\s+)?(reserva|poupan[çc]a|investimento|investir|guardado|caixinha|cofrinho))?`,
+    // "Mandei 200 pra poupança" é reserva; sem destino de reserva, "mandei" segue
+    // para a transferência a alguém, mais abaixo.
+    String.raw`(?:guardei|guardar|guarda|separei|separar|separa|reservei|poupei|apliquei|investi|coloquei|botei|depositei|joguei|meti|mandei|transferi|enviei)\s*${APROX}(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:(?:na|no|em|para|pra|pro)\s+(?:a\s+|o\s+)?(?:minha\s+|meu\s+)?(reserva|poupan[çc]a|investimento|investir|guardado|caixinha|cofrinho))?`,
     'i',
   )
   const sav = text.match(savingRe)
@@ -844,6 +846,12 @@ function parseClause(input: string): ParsedAction[] {
     else actions.push({ kind: 'odometer', value })
   }
 
+  // ----- venda: "vendi a bike por 800", "vendi 3 bolos por 60". Caía na ajuda.
+  const venda = text.match(new RegExp(String.raw`\bvendi\s+(.+?)\s+(?:por|a)\s+(?:r\$\s*)?${NUM}\s*${MOEDA}?\s*$`, 'i'))
+  if (venda && !actions.some(a => a.kind === 'income')) {
+    actions.push({ kind: 'income', amount: parseNum(venda[2]), category: 'vendas', description: cleanDescription(venda[1]) })
+  }
+
   // ----- receitas, inclusive várias na mesma cláusula:
   // "ganhei 430 Uber, mais 399 da 99"
   if (!actions.length || !actions.some(a => a.kind === 'goal')) {
@@ -969,6 +977,13 @@ function parseClause(input: string): ParsedAction[] {
     || text.match(new RegExp(String.raw`\b(?:mandei|enviei|transferi|fiz)\s+(?:um\s+)?pix\s+(?:de\s+)?(?:r\$\s*)?${NUM}\b`, 'i'))
   if (sentPix && !actions.some(a => a.kind === 'expense' && a.amount === parseNum(sentPix[1]))) {
     actions.push({ kind: 'expense', amount: parseNum(sentPix[1]), category: 'outros-out', description: 'Pix enviado' })
+  }
+  // "Transferi 500 pra minha mãe": dinheiro que saiu para ALGUÉM. Caía na ajuda
+  // genérica. Reserva, poupança e meta têm caminho próprio, acima.
+  const paraAlguem = sentPix ? null : text.match(new RegExp(String.raw`\b(?:mandei|enviei|transferi)\s+(?:r\$\s*)?${NUM}\s*(?:reais?\s*)?(?:pra|para|pro)\s+(?:a\s+|o\s+)?((?:minha|meu)\s+[a-zà-úçãõ]+|[a-zà-úçãõ]+(?:\s+[a-zà-úçãõ]+)?)\s*$`, 'i'))
+  if (paraAlguem && !/^(?:(?:minha|meu)\s+)?(?:reserva|poupan[çc]a|metas?|caixinha|cofrinho|investimento)/i.test(paraAlguem[2])
+    && !actions.some(a => (a.kind === 'expense' || a.kind === 'saving' || a.kind === 'goal-deposit') && (a as any).amount === parseNum(paraAlguem[1]))) {
+    actions.push({ kind: 'expense', amount: parseNum(paraAlguem[1]), category: 'outros-out', description: `Transferência para ${paraAlguem[2].trim().toLowerCase()}` })
   }
 
   // ----- despesa: "gastei 40 de gasolina", "gastei MAIS 79 de gás", "paguei 120 de internet"

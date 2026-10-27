@@ -4488,6 +4488,26 @@ build, rubrica, varredura e `git diff --check` passaram.
 Achados sem correção: "transferi 500 pra minha mãe" e "vendi a bike por 800"
 caem na ajuda genérica, sem dizer o que fazer.
 
+## 2026-10-27 — transferência para alguém, venda e reserva com "minha"
+
+"Transferi 500 pra minha mãe", "mandei 300 pro meu irmão" e "vendi a bike por
+800" caíam na ajuda genérica; "mandei 200 pra poupança" não registrava nada.
+Agora: transferência afirmada para alguém é despesa ("Transferência para
+minha mae"), "vendi X por N" é receita em Vendas, e "mandei/transferi/enviei"
+entraram nos verbos de reserva. No meio do caminho apareceu o pior caso:
+"transferi 300 pra MINHA poupança" viraria despesa (regra 5) — o destino de
+reserva não aceitava "minha/meu". Aceita agora, e a transferência a alguém
+ignora o possessivo ao checar reserva/poupança/meta.
+
+Dois rótulos do corpus remoto envelheceram e foram atualizados com nota:
+c-06 (reserva) e c-07 (venda) agora são resolvidos no aparelho — 65 frases
+chegam hoje ao modelo remoto (eram 67).
+
+7 casos no grupo TV (os 7 vermelhos antes, incluindo os 2 de reserva com
+"minha"). Gates: 666/666, 99/99, 50/50, **421/421**, metamórficos, fuzz,
+151/151, 468; typechecks, `test:money`, build, rubrica, varredura e
+`git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `73c8d24`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800

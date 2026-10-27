@@ -64,11 +64,13 @@ export const CASOS_CHAT_A: CasoChat[] = [
     'gastei 80 no... não, espera, foi no posto, 80 de gasolina',
     'frase interrompida e retomada; gasolina de quem NÃO é motorista é despesa comum, nunca abastecimento',
     { intencao: 'registrar', acoes: [acao('expense', { amount: 80, category: umDe('combustivel', 'outros-out') })], tiposProibidos: ['fuel'] }),
-  casoChat('c-06', 'other', 'linguagem', 'remota',
+  // 27/10/2026: "transferi … pra minha poupança" agora é reserva no aparelho (conferido).
+  casoChat('c-06', 'other', 'linguagem', 'local',
     'transferi 300 pra minha poupança',
     'transferência para reserva não é receita nem despesa (regra 5)',
     { intencao: 'registrar', acoes: [acao('saving', { amount: 300 })], tiposProibidos: ['expense', 'income'] }),
-  casoChat('c-07', 'autonomo', 'linguagem', 'remota',
+  // 27/10/2026: "vendi … por N" agora é receita em Vendas no aparelho (conferido).
+  casoChat('c-07', 'autonomo', 'linguagem', 'local',
     'vendi a bicicleta velha por 350',
     'venda avulsa é entrada, e o motor local não reconhece "vendi"',
     { intencao: 'registrar', acoes: [acao('income', { amount: 350, category: umDe('vendas', 'outros-in') })] }),

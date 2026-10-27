@@ -2592,6 +2592,26 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // Transferência para alguém e venda: "transferi 500 pra minha mãe" e "vendi
+  // a bike por 800" caíam na ajuda genérica. Reserva continua reserva.
+  {
+    const clt = buildState({ profile: 'clt' })
+    const casos: [string, string, (acts: any[]) => boolean][] = [
+      ['transferi 500 pra minha mae', 'despesa de 500 para a mãe', a => a.some(x => x.kind === 'expense' && x.amount === 500 && /m[ãa]e/i.test(x.description || ''))],
+      ['mandei 300 pro meu irmao', 'despesa de 300 para o irmão', a => a.some(x => x.kind === 'expense' && x.amount === 300 && /irm[ãa]o/i.test(x.description || ''))],
+      ['vendi a bike por 800', 'receita de 800 em Vendas', a => a.some(x => x.kind === 'income' && x.amount === 800 && x.category === 'vendas' && /bike/i.test(x.description || ''))],
+      ['vendi 3 bolos por 60', 'receita de 60 em Vendas', a => a.some(x => x.kind === 'income' && x.amount === 60 && x.category === 'vendas')],
+      ['mandei 200 pra poupanca', 'continua guardar na reserva', a => a.some(x => x.kind === 'saving' && x.amount === 200)],
+      // Regra 5: transferência para a PRÓPRIA reserva não é despesa, com ou sem "minha".
+      ['transferi 300 pra minha poupança', 'reserva, nunca despesa', a => a.some(x => x.kind === 'saving' && x.amount === 300) && !a.some(x => x.kind === 'expense')],
+      ['mandei 200 pra minha reserva', 'reserva, nunca despesa', a => a.some(x => x.kind === 'saving' && x.amount === 200) && !a.some(x => x.kind === 'expense')],
+    ]
+    for (const [frase, esperado, ok] of casos) {
+      const r = await turnoHoje(clt, frase)
+      out.push(result(`TV-${frase.replace(/\W+/g, '-')}`, r.actions, esperado, ok(r.actions)))
+    }
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.
