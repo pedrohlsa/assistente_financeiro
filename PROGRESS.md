@@ -4388,6 +4388,19 @@ duas?" (Casa 1 e Casa 2) cai na ajuda; "e no ano?" herda a comparação e
 compara com 2025 (R$ 0); "qual a diferença?" diz "o período principal ficou
 R$ 420 abaixo" em vez de "este mês ficou R$ 420 acima do mês passado".
 
+## 2026-10-27 — continuação que fala do que acabou de ser mostrado
+
+"Qual foi o maior gasto disso?" depois de "quanto gastei com obra esse mês"
+respondia o maior gasto dos últimos 7 dias, em Lazer; "somando as duas?"
+depois de Casa 1 e Casa 2 caía na ajuda. A continuação agora lê a anáfora
+("disso/desse/deles") com maior/menor como o extremo do recorte em foco
+("Maior valor - Obra e construção este mês: R$ 520,00"), e "somando as
+duas/os dois juntos" soma a origem anterior com a atual — o foco passou a
+guardar `previousOrigin` quando a conversa troca de origem. 2 casos no grupo
+AN (os 2 vermelhos antes). Gates: 666/666, 99/99, 50/50, **397/397**,
+metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica,
+varredura e `git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800

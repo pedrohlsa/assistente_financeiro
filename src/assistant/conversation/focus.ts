@@ -91,6 +91,8 @@ export interface ConversationFocus {
    * plano de consulta. É ela que "e o Inter?" repete com o outro cartão.
    */
   lastInvoiceQuestion?: string
+  /** A origem anterior quando a conversa trocou de origem ("e da Casa 2?"). */
+  previousOrigin?: string
   updatedAt: number
 }
 
@@ -124,6 +126,12 @@ export function rememberQuery(
     previousQuery: prev?.lastQueryPlan && prev.lastQueryPlan.period.from !== plan.period.from
       ? prev.lastQuery
       : prev?.previousQuery,
+    // Casa 1 → Casa 2 troca a ORIGEM, não o período: "somando as duas" precisa
+    // da que saiu.
+    previousOrigin: prev?.lastQueryPlan?.filter.origin && plan.filter.origin
+      && normalizeName(prev.lastQueryPlan.filter.origin) !== normalizeName(plan.filter.origin)
+      ? prev.lastQueryPlan.filter.origin
+      : prev?.previousOrigin,
     lastQuery: {
       label: plan.label || 'Total',
       total: result.total,
@@ -219,7 +227,14 @@ const CONTINUACAO = [
   /^qual\s+d[oa]s\s+(?:duas|dois)\b/,
   // "Dá ruim?" depois de uma simulação pergunta pela simulação.
   /^(?:d[áa]\s+ruim|ficou\s+ruim|t[áa]\s+ruim|[ée]\s+ruim|vale\s+a\s+pena)\s*\??$/,
+  // "O maior gasto DISSO" e "somando as duas" só fazem sentido sobre o que
+  // acabou de ser mostrado.
+  /\b(?:maior|menor)\s+(?:gasto|valor|lancamento|despesa|entrada|compra)\b.*\b(?:disso|desse|dessa|desses|dessas|daquilo|nisso|deles|delas)\b/,
+  /^(?:e\s+)?(?:somando|soma|juntando|junta)\b|^(?:e\s+)?(?:os|as)\s+(?:dois|duas)\s+juntos?/,
 ]
+
+/** "Disso", "desse", "deles": a frase fala do assunto anterior. */
+const ANAFORA = /\b(?:disso|desse|dessa|desses|dessas|daquilo|nisso|deles|delas)\b/
 
 /** Frase curta o bastante para ser continuação, e não uma pergunta nova. */
 const MAX_FOLLOWUP_CHARS = 70
@@ -527,6 +542,32 @@ function refinaConsulta(
 ): FollowUp | null {
   const planned = (plan: AssistantQueryPlan, motivo: string): FollowUp =>
     ({ kind: 'query', planned: { plan, confidence: 'high', recognized: [motivo] } })
+
+  // ---- "qual foi o maior gasto disso?" — o recorte em foco -------------
+  // O "disso" é o assunto anterior: sem esta leitura, saía o maior gasto dos
+  // últimos 7 dias de qualquer categoria.
+  const extremo = t.match(/\b(maior|menor)\s+(?:gasto|valor|lancamento|despesa|entrada|compra)\b/)
+  if (extremo && ANAFORA.test(t) && base.source === 'transactions') {
+    const maior = extremo[1] === 'maior'
+    // O rótulo leva o assunto: "Maior valor este mês" não dizia de quê.
+    const assunto = base.label?.includes(' - ') ? ` - ${base.label.split(' - ').slice(1).join(' - ')}` : ''
+    return planned({ ...base, metric: maior ? 'max' : 'min', order: maior ? 'value-desc' : 'value-asc', limit: 3,
+      group: 'none', comparePeriod: undefined, label: `${maior ? 'Maior valor' : 'Menor valor'}${assunto}` }, `${extremo[1]} valor do recorte`)
+  }
+
+  // ---- "somando as duas?" — a origem anterior e a atual juntas ---------
+  // "Quanto recebi da Casa 1" → "e da Casa 2?" → "somando as duas?": as duas
+  // origens que ele acabou de ver, numa soma só.
+  if (/^(?:e\s+)?(?:somando|soma|juntando|junta)\b|^(?:e\s+)?(?:os|as)\s+(?:dois|duas)\s+juntos?|^(?:e\s+)?no\s+total\s*\??$/.test(t)) {
+    const antes = focus.previousOrigin
+    const agora = base.filter.origin
+    if (antes && agora && normalizeName(antes) !== normalizeName(agora)) {
+      const filtro = { ...base.filter, origins: [antes, agora] }
+      delete filtro.origin
+      return planned({ ...base, filter: filtro, comparePeriod: undefined,
+        label: `${base.label.split(' - ')[0]} - ${sentenceCase(antes)} e ${sentenceCase(agora)}` }, 'as duas origens')
+    }
+  }
 
   // ---- "qual foi pior?" — os DOIS períodos que ele acabou de ver -------
   if (/^qual\s+(?:foi\s+)?(?:o\s+)?(?:pior|melhor)\s*\??$/.test(t)) {

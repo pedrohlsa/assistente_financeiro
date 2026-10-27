@@ -2470,6 +2470,29 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // Anáfora e soma na continuação: "qual foi o maior gasto disso?" respondia
+  // o maior gasto dos últimos 7 dias (Lazer) depois de uma pergunta sobre obra;
+  // "somando as duas?" depois de Casa 1 e Casa 2 caía na ajuda.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const ini = `${hoje.slice(0, 8)}01`
+    const obras = rico.transactions.filter(x => x.type === 'expense' && x.category === 'obra' && x.date >= ini && x.date <= hoje)
+    const maior = Math.max(...obras.map(x => x.amount))
+    const r1 = await turnoHoje(rico, 'quanto gastei com obra esse mes')
+    const disso = limpa((await turnoHoje(rico, 'qual foi o maior gasto disso?', r1.focus)).reply)
+    out.push(result('AN-maior-disso', disso, `maior gasto de obra: ${brl(maior)}`, disso.includes(brl(maior)) && !/Lazer/.test(disso)))
+    const ano = `${hoje.slice(0, 4)}-01-01`
+    const da = (origem: string) => rico.transactions.filter(x => x.type === 'income' && x.origin === origem && x.date >= ano && x.date <= hoje)
+      .reduce((a, x) => a + x.amount, 0)
+    const c1 = await turnoHoje(rico, 'quanto recebi da casa 1 esse ano')
+    const c2 = await turnoHoje(rico, 'e da casa 2?', c1.focus)
+    const soma = limpa((await turnoHoje(rico, 'somando as duas?', c2.focus)).reply)
+    out.push(result('AN-somando-as-duas', soma, `Casa 1 + Casa 2: ${brl(da('Casa 1') + da('Casa 2'))}`,
+      soma.includes(brl(da('Casa 1') + da('Casa 2'))) && !/Posso te ajudar/.test(soma)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.
