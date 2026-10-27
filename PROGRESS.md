@@ -4423,6 +4423,16 @@ achava nada. Em consulta de metas, o nome de uma meta ativa agora TROCA a
 meta do filtro ("Falta para a meta Viagem: R$ 1.200,00"). 1 caso (vermelho
 antes). Gates: 666/666, **400/400**, 151/151, 468 e os demais verdes.
 
+## 2026-10-27 — "e a internet?" é a conta cadastrada
+
+"E a internet?" (depois de uma pergunta de fatura) caía na elipse de compra:
+"A internet de quanto? Me diga o valor e em quantas vezes…". Antes dela, o
+orquestrador agora verifica se o nome é de uma conta fixa ou de uma meta
+ativa e responde sobre ela ("A conta Internet é de R$ 100,00, todo dia 28. A
+próxima vence em 28/10/2026 (amanhã)."). Nome que não é de nada cadastrado
+segue para a elipse de compra. 1 caso (vermelho antes). Gates: 666/666,
+**401/401**, 151/151, 468 e os demais verdes.
+
 ## Pendências em 27/10/2026 (HEAD `73c8d24`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800
@@ -4435,8 +4445,6 @@ precisam de auditoria independente; navegador, persistência real e dados
 legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas:
-- "E a internet?" logo depois de uma pergunta de fatura cai na elipse de
-  compra ("A internet de quanto?").
 - "Gasto 50 de luz" grava a descrição "Gasto de luz" (o verbo entra na
   descrição).
 - Rótulo da consulta perde o acento do texto buscado ("Ze da esquina").

@@ -2519,6 +2519,10 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   // viagem?" (meta) caíam na elipse de compra — "A internet de quanto?".
   {
     const limpa = (s: string) => s.replace(/ /g, ' ')
+    const caixa = estadoDeCaixaFuturo(hoje, 2000, 'autonomo')
+    const f1 = await turnoHoje(caixa, 'quanto falta pagar da fatura do inter')
+    const internet = limpa((await turnoHoje(caixa, 'e a internet?', f1.focus)).reply)
+    out.push(result('EC-e-a-internet', internet, 'conta Internet: R$ 100,00', /Internet/.test(internet) && /R\$ 100,00/.test(internet) && !/de quanto/i.test(internet)))
     const rico = autonomoRico(hoje)
     const m1 = await turnoHoje(rico, 'quanto falta pro notebook')
     const viagem = limpa((await turnoHoje(rico, 'e a viagem?', m1.focus)).reply)

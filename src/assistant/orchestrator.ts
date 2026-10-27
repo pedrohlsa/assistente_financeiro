@@ -795,6 +795,20 @@ function hypotheticalSummary(candidates: AssistantCandidateAction[]): string | n
 
 const escapaRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
+/**
+ * "E a internet?", "e a viagem?": a elipse nomeia algo CADASTRADO — uma conta
+ * fixa ou uma meta ativa. Devolve a pergunta que o roteador responde sobre ela;
+ * `null` quando o nome não é de nada cadastrado (aí é a elipse de compra).
+ */
+function elipseDeCadastro(state: AppState, mensagem: string): string | null {
+  const m = normalizeName(mensagem).match(/^e\s+(?:o|a|os|as|do|da|no|na)?\s*([a-z][a-z0-9\s]{2,30}?)\s*\??$/)
+  if (!m) return null
+  const nome = m[1].trim()
+  if ((state.recurring || []).some(r => r.kind !== 'income' && r.active !== false && normalizeName(r.name) === nome)) return `quanto e a ${nome}`
+  if ((state.goals || []).some(g => !g.done && normalizeName(g.name) === nome)) return `quanto falta para a meta ${nome}`
+  return null
+}
+
 /** Cartões ativos citados pelo nome num texto já normalizado. */
 function cartoesNaFrase(state: AppState, t: string): string[] {
   return (state.cards || []).filter(c => !c.archived).map(c => c.name)
@@ -1867,6 +1881,11 @@ Confirmar?`,
     mode = 'answer'
     reply = 'Valor negativo eu não sei registrar. Me diga o que aconteceu — '
       + '"gastei 50 no mercado" ou "recebi 50 de volta" — que eu lanço no lado certo.'
+  } else if (elipseDeCadastro(input.state, mensagem)) {
+    // "E a internet?" é a conta fixa cadastrada; "e a viagem?", a meta. A
+    // elipse de compra abaixo perguntava "A internet de quanto?".
+    mode = 'answer'
+    reply = askAssistant(input.state, elipseDeCadastro(input.state, mensagem)!).text
   } else if (/^\s*e\s+(?:um|uma|o|a)\s+([a-zà-ú]{3,20})\s*\??\s*$/i.test(mensagem)) {
     // "E uma geladeira?" logo depois de uma compra parcelada. A elipse é clara
     // no assunto e muda a COISA, mas não traz valor nenhum — e sem valor não há
