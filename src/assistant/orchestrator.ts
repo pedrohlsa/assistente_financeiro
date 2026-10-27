@@ -740,6 +740,18 @@ const pedeParaQuebrarRegra = (t: string): boolean => QUEBRAR_REGRA.some(re => re
 const SEM_CERTEZA = 'Não tenho certeza do que registrar aqui. Pode escrever de outro jeito?'
 
 /**
+ * Pedaço com valor que nada leu, numa mensagem em que outra parte virou
+ * proposta. "Ontem gastei 30 de lanche e anteontem 20 de uber" mostrava só os
+ * 30 — o usuário confirmava achando que tinha lançado os dois.
+ */
+function sobraComValor(unresolved: AssistantUnresolvedClause[]): string {
+  const sobra = unresolved.filter(u => u.reason === 'not-understood' && /\d/.test(u.text))
+  if (!sobra.length) return ''
+  const trechos = sobra.map(u => `“${u.text.trim().replace(/[\s,;]+$/, '')}”`).join(', ')
+  return `\n\nNão registrei ${sobra.length === 1 ? 'esta parte' : 'estas partes'}: ${trechos}. Me diga o que foi que eu lanço.`
+}
+
+/**
  * Por que a ação entendida não virou proposta, em palavras do usuário. O
  * texto antigo mostrava o código interno ("work (Trabalho)", "expense
  * (amount)") — nome de campo não explica nada a quem digitou a frase.
@@ -1667,10 +1679,10 @@ Confirmar?`,
       : clarification.question
   } else if (candidates.length && answerPart) {
     mode = 'answer_and_actions'
-    reply = `${proposalText(candidates, input.state)}\n\n${answerPart}\n\nConfirmar os registros?`
+    reply = `${proposalText(candidates, input.state)}${sobraComValor(unresolved)}\n\n${answerPart}\n\nConfirmar os registros?`
   } else if (candidates.length) {
     mode = 'propose_actions'
-    reply = `${proposalText(candidates, input.state)}\n\nConfirmar?`
+    reply = `${proposalText(candidates, input.state)}${sobraComValor(unresolved)}\n\nConfirmar?`
   } else if (answerPart) {
     mode = 'answer'
     reply = answerPart

@@ -3703,3 +3703,20 @@ guardar 200 na meta do notebook" viravam registro de algo que não aconteceu.
 10 casos (6 vermelhos no código anterior, 4 controles de registro legítimo).
 Gates: 666/666, 99/99, 50/50, **231/231**, metamórficos, fuzz, 151/151, 468;
 typechecks, `test:money`, build e rubrica passaram.
+
+## 2026-10-27 — cada item com o seu dia, e nenhum valor some
+
+- "Gastei 30 de lanche ontem e 20 de padaria anteontem" e "ontem 30 de lanche,
+  anteontem 20 de padaria" gravavam os dois **ontem**: a cláusula usava a
+  primeira data para todas as ações. "Gastei 30 ontem e 20 hoje" também. O
+  segmentador agora corta antes do dia depois de vírgula, e no "e" antes de um
+  valor quando cada metade tem o seu dia ("30 de lanche e 20 de padaria ontem"
+  continua com um dia só). Um trecho que é só valor herda o verbo da metade
+  anterior.
+- "Ontem gastei 30 de lanche e anteontem 20 de uber" mostrava só os 30; a parte
+  dos 20 sumia sem aviso. Pedaço com valor que nada leu agora aparece na
+  proposta: "Não registrei esta parte: “anteontem 20 de uber”. Me diga o que foi".
+
+7 casos (5 vermelhos no código anterior, 2 controles do dia compartilhado).
+Gates: 666/666, 99/99, 50/50, **238/238**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build e rubrica passaram.

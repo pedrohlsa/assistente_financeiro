@@ -1585,6 +1585,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result(id, { reply: r.reply, actions: r.actions }, esperado, atual === esperado))
   }
 
+  // Cada item com o SEU dia, e nenhum valor some. "30 de lanche ontem e 20 de
+  // padaria anteontem" punha os dois ontem; "gastei 30 ontem e 20 hoje" também;
+  // "anteontem 20 de uber" sumia sem aviso ao lado de um item entendido.
+  {
+    const ontem = addDays(hoje, -1); const anteontem = addDays(hoje, -2)
+    const datas = (r: { actions: any[] }) => r.actions.map(a => `${a.kind}:${a.amount}@${a.date || hoje}`).join(',')
+    for (const [id, frase, esperado] of [
+      ['O-dia-depois-de-cada-item', 'gastei 30 de lanche ontem e 20 de padaria anteontem', `expense:30@${ontem},expense:20@${anteontem}`],
+      ['O-dia-depois-da-virgula', 'ontem 30 de lanche, anteontem 20 de padaria', `expense:30@${ontem},expense:20@${anteontem}`],
+      ['O-valor-solto-herda-verbo', 'gastei 30 ontem e 20 hoje', `expense:30@${ontem},expense:20@${hoje}`],
+      ['O-receita-solta-herda-verbo', 'recebi 1800 ontem e 1200 hoje', `income:1800@${ontem},income:1200@${hoje}`],
+      ['O-dia-unico-vale-para-os-dois', 'gastei 30 de lanche e 20 de padaria ontem', `expense:30@${ontem},expense:20@${ontem}`],
+      ['O-dia-no-comeco-vale-para-os-dois', 'ontem gastei 30 de lanche e 20 de padaria', `expense:30@${ontem},expense:20@${ontem}`],
+    ] as const) {
+      const r = await turnoHoje(buildState({ profile: 'autonomo' }), frase)
+      out.push(result(id, { reply: r.reply, actions: r.actions }, esperado, datas(r) === esperado))
+    }
+    const sobra = await turnoHoje(buildState({ profile: 'autonomo' }), 'ontem gastei 30 de lanche e anteontem 20 de uber')
+    out.push(result('O-parte-com-valor-nao-some', sobra.reply, 'propõe os 30 e diz que a parte dos 20 não foi registrada',
+      sobra.actions.some((a: any) => a.amount === 30) && /N[ãa]o registrei esta parte: “anteontem 20 de uber”/.test(sobra.reply)))
+  }
+
   // A linha do mês só diz "com a parcela" se a parcela cai nele. Sem cartão,
   // a primeira vence em 30 dias: a linha do mês corrente afirmava a parcela
   // com o saldo intacto.
