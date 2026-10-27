@@ -43,7 +43,7 @@ export function composeScenario(r: AssistantScenarioResult): string {
       const depois = valor('Saldo depois do gasto')
       const sobra = valor('Sobra do mês depois do gasto')
       const contas = valor('Contas nos próximos 7 dias')
-      linhas.push(`Se você gastar ${fmtBRL(p.amount || 0)} hoje:`)
+      linhas.push(`Se você gastar ${fmtBRL(p.amount || 0)} ${p.when || 'hoje'}:`)
       const itens = [`• Saldo em conta ficaria em ${fmtBRL(depois ?? 0)}`]
       if (sobra !== undefined) itens.push(`• A sobra do mês passaria a ${fmtBRL(sobra)}`)
       if (contas) itens.push(`• Ainda vencem ${fmtBRL(contas)} em contas nos próximos 7 dias`)

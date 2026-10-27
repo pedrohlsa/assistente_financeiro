@@ -2555,6 +2555,15 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // "E se eu gastar 500 esse mês" não é gasto de HOJE: a simulação dizia "Se
+  // você gastar R$ 500,00 hoje".
+  {
+    const r = (await turnoHoje(autonomoRico(hoje), 'e se eu gastar 500 esse mes?')).reply
+    out.push(result('GM-gasto-este-mes', r, '"este mês", não "hoje"', /gastar R\$\s500,00 este m[êe]s/.test(r) && !/500,00 hoje/.test(r)))
+    const hojeMesmo = (await turnoHoje(autonomoRico(hoje), 'e se eu gastar 500 hoje?')).reply
+    out.push(result('GM-gasto-hoje-continua', hojeMesmo, '"hoje"', /gastar R\$\s500,00 hoje/.test(hojeMesmo)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

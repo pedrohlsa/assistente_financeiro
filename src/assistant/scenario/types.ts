@@ -48,6 +48,8 @@ export interface AssistantScenarioPlan {
   origin?: string
   category?: string
   description?: string
+  /** Quando o gasto acontece, como o usuário disse ("este mês"). Ausente = hoje. */
+  when?: string
   hoursPerDay?: number
   extraKm?: number
   /** Quantos dias a mais de trabalho a hipótese cobre. */

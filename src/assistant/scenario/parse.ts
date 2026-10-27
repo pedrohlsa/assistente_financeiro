@@ -308,7 +308,9 @@ function planSingleScenario(
     // simular nada.
     const valor = valorDeDinheiro(t, lerValor(t))
     if (valor !== undefined) {
-      return base('spend', { amount: valor, category: categoriaDe(state, t) }, `gastar ${valor}`)
+      // "Gastar 500 esse mês" não é gasto de hoje: o texto da simulação diz quando.
+      const when = /\b(?:d?esse|d?este|nesse|neste|no)\s+mes\b/.test(t) ? 'este mês' : undefined
+      return base('spend', { amount: valor, category: categoriaDe(state, t), ...(when ? { when } : {}) }, `gastar ${valor}`)
     }
   }
 

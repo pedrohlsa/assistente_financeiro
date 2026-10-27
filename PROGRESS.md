@@ -4453,6 +4453,16 @@ vermelhos antes, 1 controle). Gates: 666/666, 99/99, 50/50, **407/407**,
 metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica,
 varredura e `git diff --check` passaram.
 
+## 2026-10-27 — gasto simulado "esse mês" não é "hoje"
+
+"E se eu gastar 500 esse mês?" simulava "Se você gastar R$ 500,00 hoje". O
+plano de gasto ganhou `when` ("este mês" quando a frase diz esse/este/no mês;
+ausente = hoje) e o texto da simulação usa o que foi dito. Os números não
+mudam (saldo e sobra no fim do mês são os mesmos). 2 casos (1 vermelho antes,
+1 controle). Gates: 666/666, 99/99, 50/50, **409/409**, metamórficos, fuzz,
+151/151, 468; typechecks, `test:money`, build, rubrica, varredura e
+`git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `73c8d24`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800
@@ -4466,8 +4476,6 @@ legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas:
 - Rótulo da consulta perde o acento do texto buscado ("Ze da esquina").
-- "E se eu gastar 500 esse mês" simula como gasto de hoje ("Se você gastar
-  R$ 500,00 hoje").
 
 Decisões de produto pendentes:
 - `balanceOutlook` (Home e simulações "e se eu gastar") só considera contas
