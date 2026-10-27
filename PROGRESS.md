@@ -4051,6 +4051,26 @@ build, rubrica (0 perigosa, 0 ruim), varredura e `git diff --check` passaram.
 Achado sem correção: pergunta nominal sem "quanto" ("gastos dessa semana")
 cai na ajuda genérica.
 
+## 2026-10-27 — próxima troca de óleo
+
+"Quanto falta pra trocar o óleo" respondia parcelamentos ("trocar o oleo"),
+"quantos km faltam pra trocar o óleo" procurava dias de trabalho, e "falta
+muito pra troca de óleo?" caía na ajuda. `perguntaDeManutencao()` faz a DSL
+recusar essas frases (gasto com a troca continua consulta), o roteador aceita
+o substantivo "troca", e o "quanto falta" da meta do dia do motorista não as
+toma mais. 4 casos no grupo MN (3 vermelhos antes, 1 controle de gasto;
+literal: troca aos 210.000 km, hodômetro 206.400). Gates: 666/666, 99/99,
+50/50, **339/339**, metamórficos, fuzz, 151/151, 468; typechecks,
+`test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
+`git diff --check` passaram.
+
+Decisão de produto registrada (sem mudança): viagem inferida em total do dia.
+"Fiz 320 hoje rodei 180km em 9 horas" ganha "1 viagem"; o `rr-01` diz que
+inventar viagem num dia inteiro estraga o ganho por viagem, mas o `sem-04`
+espera 2 viagens para "430 na uber 399 na 99 … trabalhei 8 horas" e o
+`mul-07` 1 viagem com 120 km. O corpus se contradiz; mudar é escolha de
+produto.
+
 ## Pendências em 27/10/2026 (HEAD `c824fe0`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800

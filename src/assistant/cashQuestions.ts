@@ -144,6 +144,17 @@ export function mesesAtePrazo(t: string, hoje: string, prazoDaMeta?: string): st
   return null
 }
 
+/**
+ * "Quanto falta pra trocar o óleo", "falta muito pra troca de óleo?": a PRÓXIMA
+ * troca, que o roteador calcula pelo hodômetro. A DSL lia "falta" como
+ * parcelamento e "km" como dias de trabalho. Quanto se GASTOU com a troca
+ * continua sendo consulta.
+ */
+export function perguntaDeManutencao(t: string): boolean {
+  if (/\b(?:gastei|gasto|gastou|paguei|custou|custa|custo)\b/.test(t)) return false
+  return /\btroca\w*\b[^?]*\b(?:oleo|pneus?|pastilhas?|filtros?|correia)\b|\b(?:oleo|pneus?|pastilhas?|filtros?|correia)\b[^?]*\btroca\w*\b/.test(t)
+}
+
 export type PerguntaDeConta = 'paga' | 'vence' | 'valor'
 
 /**

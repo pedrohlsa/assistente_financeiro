@@ -2083,6 +2083,21 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && !/últimas 12 semanas/.test(semanas.reply)))
   }
 
+  // Troca de óleo é manutenção: "quanto falta pra trocar o óleo" respondia
+  // parcelamentos, "quantos km faltam" procurava dias de trabalho, "falta muito
+  // pra troca de óleo?" caía na ajuda. Literal: troca aos 210.000, hodômetro 206.400.
+  {
+    const mot = motoristaRico(hoje)
+    for (const frase of ['quanto falta pra trocar o oleo', 'quantos km faltam pra trocar o oleo', 'falta muito pra troca de oleo?']) {
+      const r = await turnoHoje(mot, frase)
+      out.push(result(`MN-${frase.replace(/\W+/g, '-')}`, r.reply, 'faltam 3.600 km para a troca aos 210.000',
+        /3\.600 km/.test(r.reply) && /210\.000/.test(r.reply) && r.actions.length === 0))
+    }
+    const gasto = await turnoHoje(mot, 'quanto gastei com troca de oleo')
+    out.push(result('MN-gasto-com-troca-continua-consulta', gasto.reply, 'R$ 280,00 gastos, não a próxima troca',
+      /R\$\s280,00/.test(gasto.reply) && !/pr[óo]xima troca/.test(gasto.reply)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

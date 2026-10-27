@@ -26,7 +26,7 @@ import {
 } from './calc'
 import type { CashObligation } from './calc'
 import {
-  alvoDaReserva, mesesAtePrazo, pedeContaQueAperta, pedeContasAPagar, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeConta, perguntaDeFatura,
+  alvoDaReserva, mesesAtePrazo, pedeContaQueAperta, pedeContasAPagar, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeConta, perguntaDeFatura, perguntaDeManutencao,
   planoDeGuardar, prazoDasContas, retiraDaReserva,
 } from '../assistant/cashQuestions'
 import type { PerguntaDeConta, PerguntaDeFatura, PlanoDeGuardar } from '../assistant/cashQuestions'
@@ -1026,7 +1026,8 @@ function resolveLocal(s: AppState, input: string): AiReply {
   }
 
   // "quanto eu preciso fazer hoje ainda" — o que falta para a meta do dia.
-  if (driverMode && /quanto\s+(?:eu\s+)?(?:ainda\s+)?(?:preciso|falta|falto|tenho\s+que|tenho\s+de)\s*(?:fazer|ganhar|rodar|tirar|faturar|trabalhar)?/.test(t)) {
+  if (driverMode && /quanto\s+(?:eu\s+)?(?:ainda\s+)?(?:preciso|falta|falto|tenho\s+que|tenho\s+de)\s*(?:fazer|ganhar|rodar|tirar|faturar|trabalhar)?/.test(t)
+    && !perguntaDeManutencao(t)) {
     const goal = dailyGoal(s)
     const ts = todayStats(s)
     const falta = goal.total - ts.profit
@@ -1194,7 +1195,8 @@ function resolveLocal(s: AppState, input: string): AiReply {
   }
 
   // "quando preciso trocar meu óleo"
-  if (driverMode && (/trocar.*(óleo|oleo|pneu|pastilha|filtro)/.test(t) || /quando.*troca/.test(t))) {
+  // "Falta muito pra TROCA de óleo?" é o mesmo pedido com o substantivo.
+  if (driverMode && (/trocar.*(óleo|oleo|pneu|pastilha|filtro)/.test(t) || /quando.*troca/.test(t) || perguntaDeManutencao(t))) {
     if (!s.maintenance.length) return { text: 'Você ainda não registrou manutenções. Diga por exemplo: "troquei o óleo por 280 com 84 mil km".' }
     const odo = s.vehicle?.odometer || 0
     // Sem o intervalo (`lifeKm`), NÃO existe "próxima troca": a conta virava
