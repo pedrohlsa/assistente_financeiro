@@ -252,10 +252,11 @@ export function pedeContaQueAperta(t: string): boolean {
  * Sem prazo dito, `padraoDias` — o mesmo horizonte que a resposta já usava.
  */
 export function prazoDasContas(t: string, hoje: string, padraoDias: number): string {
-  if (/\b(?:essa|esta|nessa|nesta)\s+semana\b|\bproxim[oa]s?\s+7\s+dias\b/.test(t)) return addDays(hoje, 7)
+  if (/\b(?:d?essa|d?esta|nessa|nesta|da)\s+semana\b|\bproxim[oa]s?\s+7\s+dias\b/.test(t)) return addDays(hoje, 7)
   const dito = alvoDaReserva(t, hoje)
   if (dito.kind === 'date') return dito.date
-  if (/\b(?:esse|este|nesse|neste)\s+mes\b/.test(t)) {
+  // "Contas DO mês", "deste mês": o mesmo fim de mês — olhavam 15 dias.
+  if (/\b(?:d?esse|d?este|nesse|neste|do)\s+mes\b/.test(t)) {
     const h = fromISO(hoje)
     return toISO(new Date(h.getFullYear(), h.getMonth() + 1, 0))
   }

@@ -4329,6 +4329,14 @@ typechecks, `test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
 Achados sem correção: "resumo da semana" responde o mês; "contas do mês" olha
 15 dias em vez de até o fim do mês.
 
+## 2026-10-27 — "contas do mês" vai até o fim do mês
+
+"Contas do mês" listava o que vence em 15 dias (até 11/11): o prazo das
+contas conhecia "esse/este/nesse/neste mês", não "do mês" nem "deste/desse".
+Agora as formas com "do/deste/desse" vão até o último dia do mês, e "da/dessa
+semana" até 7 dias. 1 caso (vermelho antes). Gates: 666/666, **387/387**,
+151/151, 468 e os demais verdes.
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800

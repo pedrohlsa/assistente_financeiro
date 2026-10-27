@@ -2415,6 +2415,17 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('NM-com-valor-continua-registro', registro.actions, 'despesa de 50', registro.actions.some(a => a.kind === 'expense' && a.amount === 50)))
   }
 
+  // "Contas do mês" olhava 15 dias, não até o fim do mês.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const h = fromISO(hoje)
+    const fim = toISOdate(new Date(h.getFullYear(), h.getMonth() + 1, 0))
+    const contas = (await turnoHoje(rico, 'contas do mes')).reply
+    out.push(result('RS-contas-do-mes', contas, `até ${fim.slice(8, 10)}/${fim.slice(5, 7)}`, contas.includes(`${fim.slice(8, 10)}/${fim.slice(5, 7)}`)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.
