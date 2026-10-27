@@ -2052,6 +2052,16 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       (comecaNoDomingo || new RegExp(`\\(desde 01/${hoje.slice(5, 7)}\\)`).test(semana.reply)) && /Soma das \d+ semanas/.test(limpa(semana.reply))))
   }
 
+  // "Em cada mês" e "mês por mês" pedem a lista por mês — respondiam só o mês atual.
+  {
+    const rico = autonomoRico(hoje)
+    for (const [frase, soma] of [['quanto gastei em cada mes', /Soma dos \d+ meses/], ['quanto recebi mes por mes', /Soma dos \d+ meses/],
+      ['quanto gastei em cada semana desse mes', /Soma das \d+ semanas/]] as [string, RegExp][]) {
+      const r = await turnoHoje(rico, frase)
+      out.push(result(`GT-${frase.replace(/\W+/g, '-')}`, r.reply, 'lista por período com a soma no fim', soma.test(r.reply.replace(/ /g, ' '))))
+    }
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

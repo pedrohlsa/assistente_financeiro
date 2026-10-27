@@ -4029,6 +4029,15 @@ cortado pelo recorte é dito na linha ("out/2026 (até 27/10)", "semana de
 **329/329**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
 build, rubrica (0 perigosa, 0 ruim), varredura e `git diff --check` passaram.
 
+## 2026-10-27 — "em cada mês" pede a lista por mês
+
+"Quanto gastei em cada mês" e "em cada semana" respondiam só o total deste
+mês: o leitor de agrupamento conhecia "por mês" e "mês a mês", não "cada
+mês". As duas formas (e "semana a semana") entraram. 3 casos (2 vermelhos
+antes; "mês por mês" já funcionava). Gates: 666/666, 99/99, 50/50,
+**332/332**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
+build, rubrica (0 perigosa, 0 ruim), varredura e `git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `c824fe0`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800
