@@ -3855,6 +3855,19 @@ nos verbos de depósito do parser e na guarda do "mais" de receita.
 `test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
 `git diff --check` passaram.
 
+## 2026-10-27 — tempo depois do valor não é nome de meta
+
+"Guardei 500 essa semana" respondia "não encontrei a meta Essa semana";
+"esse mês", "hoje cedo", "de novo" e "de manhã" viravam as metas "Esse mes",
+"Cedo", "Novo" e "Manha". O leitor de depósito pega tudo depois do valor como
+nome; agora tira antes as expressões de tempo e de repetição, e sem nome o
+destino é a reserva. Com meta dita antes ("pra viagem essa semana") nada muda.
+
+6 casos no grupo W (5 vermelhos antes, 1 controle). Gates: 666/666, 99/99,
+50/50, **291/291**, metamórficos, fuzz, 151/151, 468; typechecks,
+`test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
+`git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `c824fe0`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800

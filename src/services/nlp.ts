@@ -722,7 +722,9 @@ function parseClause(input: string): ParsedAction[] {
     // só palavra funcional não é meta nenhuma: o destino é a reserva.
     // O nome da meta não pode carregar palavra funcional nas pontas:
     // "guardei 100 na meta da viagem E gastei 90" virava a meta "viagem e".
-    const rawName = (cleanDescription(dep[2] || '') || '').trim()
+    // Tempo e muleta depois do valor não são nome: "guardei 500 essa semana"
+    // perguntava pela meta "Essa semana", e "de novo" virava a meta "Novo".
+    const rawName = (cleanDescription((dep[2] || '').replace(TEMPO_NO_NOME, ' ')) || '').trim()
     const name = DESC_STOPWORDS.has(rawName.toLowerCase()) || rawName.length < 2 ? '' : rawName
     if (!name) {
       actions.push({ kind: 'saving', amount: parseNum(dep[1]) })
@@ -1139,6 +1141,9 @@ function parseClause(input: string): ParsedAction[] {
  * estado — uma meta sobrando, é ela; mais de uma, pergunta.
  */
 export const META_OUTRA = 'outra'
+
+/** Quando e como, ditos depois do valor de um depósito. O fim é lookahead porque `\b` não vê o "ã". */
+const TEMPO_NO_NOME = /\b(?:(?:essa|esta|nessa|nesta)\s+semana|(?:esse|este|nesse|neste)\s+m[eê]s|hoje(?:\s+cedo)?|cedo|agora|de\s+novo|novamente|de\s+(?:manh[ãa]|tarde|noite)|(?:mais\s+)?uma\s+vez)(?![\wà-ú])/gi
 
 function outrosDepositos(text: string, actions: ParsedAction[]): void {
   const re = new RegExp(

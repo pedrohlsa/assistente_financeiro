@@ -1867,6 +1867,17 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const r = await turnoHoje(st, frase)
       out.push(result(id, r.actions, esperado, ok(r.actions)))
     }
+
+    // Palavra de tempo depois do valor não é nome de meta: "guardei 500 essa
+    // semana" perguntava "não encontrei a meta Essa semana".
+    for (const [frase, valor] of [['guardei 500 essa semana', 500], ['guardei 200 esse mes', 200], ['guardei 100 hoje cedo', 100],
+      ['guardei 200 de novo', 200], ['guardei 150 de manha', 150]] as [string, number][]) {
+      const r = await turnoHoje(rico, frase)
+      out.push(result(`W-${frase.replace(/\W+/g, '-')}`, { reply: r.reply, actions: r.actions }, `reserva de ${valor}, sem perguntar meta`,
+        r.actions.length === 1 && r.actions[0].kind === 'saving' && r.actions[0].amount === valor && !/n[ãa]o encontrei a meta/i.test(r.reply)))
+    }
+    const comMeta = await turnoHoje(rico, 'guardei 300 pra viagem essa semana')
+    out.push(result('W-meta-antes-do-tempo', comMeta.actions, 'depósito de 300 na Viagem', deposito('Viagem', 300)(comMeta.actions)))
   }
   return out
 }
