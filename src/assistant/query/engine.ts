@@ -651,6 +651,18 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan): AssistantQu
     ? 'value-desc'
     : pedida || (plan.group === 'none' ? 'value-desc'
       : (plan.group === 'month' || plan.group === 'day' || plan.group === 'week') ? 'date-asc' : 'value-desc')
+  // "Qual foi meu pior mês": o mês que o período corta no meio ainda não
+  // fechou e perdia (ou ganhava) por estar pela metade. Fica fora do
+  // ranking, e a resposta diz isso.
+  if (plan.group === 'month' && (ordem === 'value-asc' || ordem === 'value-desc') && !plan.comparePeriod) {
+    const fimDoPeriodo = fromISO(plan.period.to)
+    const corta = new Date(fimDoPeriodo.getFullYear(), fimDoPeriodo.getMonth() + 1, 0).getDate() !== fimDoPeriodo.getDate()
+    const incompleto = corta ? groups.findIndex(g => g.key === monthKey(plan.period.to)) : -1
+    if (incompleto >= 0 && groups.length > 1) {
+      groups.splice(incompleto, 1)
+      caveats.push(`${sentenceCase(monthShortLabel(fimDoPeriodo))}, ainda incompleto, ficou fora da comparação.`)
+    }
+  }
   groups.sort((a, b) => {
     switch (ordem) {
       case 'value-asc': return a.value - b.value

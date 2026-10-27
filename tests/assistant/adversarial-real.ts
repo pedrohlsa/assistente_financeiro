@@ -2529,6 +2529,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('EC-e-a-viagem', viagem, 'meta Viagem: faltam R$ 1.200,00', /Viagem/.test(viagem) && /R\$ 1\.200,00/.test(viagem) && !/de quanto/i.test(viagem)))
   }
 
+  // Ranking por mês sem o mês corrente incompleto: "qual foi meu pior mês"
+  // listava o mês atual, que perde (ou ganha) por estar pela metade.
+  {
+    const rico = autonomoRico(hoje)
+    const mesAtual = monthShortLabel(fromISO(hoje))
+    const ultimoDia = new Date(fromISO(hoje).getFullYear(), fromISO(hoje).getMonth() + 1, 0).getDate() === fromISO(hoje).getDate()
+    for (const frase of ['qual foi meu pior mes', 'qual mes eu gastei mais']) {
+      const r = (await turnoHoje(rico, frase)).reply
+      out.push(result(`PM-${frase.replace(/\W+/g, '-')}`, r, `${mesAtual} fora do ranking, dito`,
+        ultimoDia || (!r.includes(`• ${mesAtual}:`) && !r.startsWith(`O menor foi ${mesAtual}`) && /incomplet/.test(r))))
+    }
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

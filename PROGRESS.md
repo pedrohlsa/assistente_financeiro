@@ -4433,6 +4433,16 @@ próxima vence em 28/10/2026 (amanhã)."). Nome que não é de nada cadastrado
 segue para a elipse de compra. 1 caso (vermelho antes). Gates: 666/666,
 **401/401**, 151/151, 468 e os demais verdes.
 
+## 2026-10-27 — ranking por mês sem o mês incompleto
+
+"Qual foi meu pior mês" e "qual mês eu gastei mais" punham o mês corrente,
+ainda pela metade, no ranking — ele perde (ou ganha) por estar incompleto. O
+mês que o período corta no meio agora fica fora de rankings por valor, e a
+resposta diz: "Out/2026, ainda incompleto, ficou fora da comparação." 2
+casos no grupo PM (os 2 vermelhos antes). Gates: 666/666, 99/99, 50/50,
+**403/403**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
+build, rubrica, varredura e `git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `73c8d24`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800
@@ -4448,7 +4458,6 @@ Abertas, achadas na leitura humana e ainda não corrigidas:
 - "Gasto 50 de luz" grava a descrição "Gasto de luz" (o verbo entra na
   descrição).
 - Rótulo da consulta perde o acento do texto buscado ("Ze da esquina").
-- "Qual foi meu pior mês" põe o mês corrente, incompleto, no ranking.
 - "E se eu gastar 500 esse mês" simula como gasto de hoje ("Se você gastar
   R$ 500,00 hoje").
 
