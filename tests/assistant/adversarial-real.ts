@@ -1559,6 +1559,32 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('L-volta-com-anterior', c4.reply, 'volta para os 10x', /em 10x/.test(c4.reply) && /em 12x/.test(c3.reply)))
   }
 
+  // Pergunta e intenção não movem dinheiro (regra 33). "Quanto falta pagar da
+  // fatura do inter" virava proposta de pagamento (sem valor, a guarda de
+  // pergunta com valor não via) e a resposta era calculada como se pago;
+  // "vou pagar a fatura amanhã" e "vou assinar a netflix" viravam registro.
+  for (const [id, frase] of [
+    ['N-pergunta-falta-pagar-fatura', 'quanto falta pagar da fatura do inter'],
+    ['N-pergunta-ja-paguei-fatura', 'ja paguei a fatura do nubank?'],
+    ['N-intencao-pagar-fatura', 'vou pagar a fatura do nubank amanha'],
+    ['N-intencao-quero-pagar-fatura', 'quero pagar a fatura do inter semana que vem'],
+    ['N-intencao-assinar', 'vou assinar a netflix de 39,90 no nubank'],
+    ['N-intencao-deposito-meta-existente', 'vou guardar 200 na meta do notebook'],
+  ] as const) {
+    const r = await turnoHoje(autonomoRico(hoje), frase)
+    out.push(result(id, { reply: r.reply, actions: r.actions }, 'nenhuma ação proposta', r.actions.length === 0))
+  }
+  for (const [id, frase, esperado] of [
+    ['N-controle-paguei-fatura', 'paguei a fatura do nubank', 'card-payment:'],
+    ['N-controle-guardei-meta', 'guardei 200 na meta do notebook', 'goal-deposit:200'],
+    ['N-controle-paguei-e-pergunta', 'paguei 200 da fatura do inter, quanto falta?', 'card-payment:200'],
+    ['N-controle-feito-e-intencao', 'paguei a fatura do nubank e vou pagar a do inter amanha', 'card-payment:'],
+  ] as const) {
+    const r = await turnoHoje(autonomoRico(hoje), frase)
+    const atual = r.actions.map((a: any) => `${a.kind}:${a.amount ?? ''}`).join(',')
+    out.push(result(id, { reply: r.reply, actions: r.actions }, esperado, atual === esperado))
+  }
+
   // A linha do mês só diz "com a parcela" se a parcela cai nele. Sem cartão,
   // a primeira vence em 30 dias: a linha do mês corrente afirmava a parcela
   // com o saldo intacto.

@@ -272,6 +272,9 @@ export const looksLikeConversation = (t: string): boolean => hasAny(t, CONVERSAT
 const MODAIS = 'posso|poderia|devo|deveria|quero|queria|pretendo|penso\\s+em|planejo|vou|vamos|vai|v[ãa]o|irei|iria|ir[áa]|ir[ãa]o|deve|devem|preciso|precisava|tenho\\s+que|tenho\\s+de|d[áa]\\s+pra|d[áa]\\s+para|consigo|gostaria\\s+de|to\\s+querendo|estou\\s+querendo'
 const INFINITIVOS_DINHEIRO = 'gastar|pagar|receber|ganhar|comprar|guardar|separar|colocar|botar|abastecer|investir|depositar|tirar|vender|parcelar|juntar|poupar|torrar|meter|trocar|instalar|rodar|trabalhar|faturar|lucrar|aplicar|quitar'
   + '|cair|entrar|pingar|sair|vencer|debitar|descontar|cobrar'
+  // "Vou assinar a netflix de 39,90" virava despesa de hoje com a frase inteira
+  // como descrição; mandar, transferir e emprestar são o mesmo dinheiro futuro.
+  + '|assinar|contratar|financiar|transferir|mandar|enviar|emprestar|doar|alugar'
 
 const INTENCAO = new RegExp(
   String.raw`\b(?:${MODAIS})\s+(?:\S+\s+){0,2}?(?:${INFINITIVOS_DINHEIRO})\b`,
@@ -828,7 +831,12 @@ export function analyzeMessage(
     // lançamento legítimo, e quem cuida do plano é a regra temporal. Sem esta
     // condição a guarda de intenção engolia o gasto de hoje junto.
     if (!looksPast(part.text) && declaresIntention(part.text)) {
-      const MOVIMENTO_INTENCAO = new Set(['income', 'expense', 'saving', 'fuel', 'work', 'maintenance', 'card-purchase', 'balance'])
+      // Pagar fatura, assinar e financiar também movem dinheiro: "vou pagar a
+      // fatura do nubank amanhã" virava pagamento feito. Depósito em meta fica
+      // com o orquestrador, que sabe se a meta existe ("quero guardar 2000 para
+      // a viagem" sem meta Viagem é pergunta: criar a meta ou reservar?).
+      const MOVIMENTO_INTENCAO = new Set(['income', 'expense', 'saving', 'fuel', 'work', 'maintenance', 'card-purchase', 'balance',
+        'card-payment', 'financed-cash-inflow', 'card-charge'])
       const antes = actions.length
       actions = actions.filter(a => !MOVIMENTO_INTENCAO.has(a.kind))
       intencao = actions.length < antes

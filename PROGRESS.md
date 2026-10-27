@@ -3681,3 +3681,25 @@ em todos os meses. Agora ela sai do calendário simulado das parcelas. 2 casos:
 o mês corrente sem parcela e a propriedade "parcela citada ⇔ saldo do mês mexeu
 pela parcela". Gates: 666/666, 99/99, 50/50, **221/221**, metamórficos, fuzz,
 151/151, 468; typechecks, `test:money`, build e rubrica passaram.
+
+## 2026-10-27 — pergunta e intenção não pagam fatura
+
+Varredura nova, fora do corpus: "quanto falta pagar da fatura do inter" virava
+**proposta de pagamento** — o infinitivo "pagar" casava e, sem valor na frase,
+a guarda de "pergunta com valor" (regra 33a) não via — e a resposta era
+calculada sobre o estado projetado, como se o pagamento estivesse feito
+("Dívida parcelada restante: R$ 4.800" em vez de 5.200). "Já paguei a fatura
+do nubank?" fazia o mesmo. "Vou pagar a fatura do nubank amanhã", "quero pagar
+a fatura do inter semana que vem", "vou assinar a netflix de 39,90" e "vou
+guardar 200 na meta do notebook" viravam registro de algo que não aconteceu.
+
+- O leitor de pagamento de fatura ignora cláusula que é pergunta.
+- A guarda de intenção cobre pagamento de fatura, assinatura e entrada
+  financiada, e os verbos assinar/contratar/financiar/transferir/mandar/
+  enviar/emprestar/doar/alugar. Depósito em meta EXISTENTE com intenção não é
+  registrado; sem meta com esse nome, a pergunta "criar a meta ou reservar?"
+  continua (rr-38).
+
+10 casos (6 vermelhos no código anterior, 4 controles de registro legítimo).
+Gates: 666/666, 99/99, 50/50, **231/231**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build e rubrica passaram.

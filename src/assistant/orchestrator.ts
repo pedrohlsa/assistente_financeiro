@@ -18,7 +18,7 @@ import type {
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, errorMessage, isValidationFailure, validateAction } from './contracts'
-import { analyzeMessage, contestsProposal, looksLikeQuestion, looksLikeRetraction, looksPast, looksRecurring } from './clauses'
+import { analyzeMessage, contestsProposal, declaresIntention, looksLikeQuestion, looksLikeRetraction, looksPast, looksRecurring } from './clauses'
 import { categoryDilemma, outOfPatternWarning, withLearnedCategory } from './learning'
 import { explainRequest } from './explain'
 import { answerConversation, isFocusFresh, looksLikeFollowUp } from './conversation'
@@ -496,6 +496,14 @@ function runLocal(
       let action = idx >= 0 ? reconciled[idx] : raw
       // Depósito segurado até o usuário dizer em qual meta — ver abaixo.
       if (!action) continue
+      // "Vou guardar 200 na meta do notebook": a meta existe, o depósito ainda
+      // não aconteceu. Sem meta com esse nome, a pergunta (criar ou reservar?)
+      // continua — ela é o caminho para criar o objetivo.
+      if (action.kind === 'goal-deposit' && action.name && !looksPast(clause.text) && declaresIntention(clause.text)
+        && findGoalByName(input.state, action.name)) {
+        intencaoDeclarada = true
+        continue
+      }
 
       // Quem não é motorista também abastece e faz manutenção — só não tem a
       // estrutura de veículo do app. Em vez de descartar o lançamento (o
