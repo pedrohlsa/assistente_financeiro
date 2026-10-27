@@ -1650,10 +1650,11 @@ function respostaDePlano(s: AppState, t: string, plano: PlanoDeGuardar, driverMo
   if (!sobra) return { text: `Faltam ${fmtBRL(falta)} para a meta ${meta.name}. ${conta}. Ainda não tenho um mês completo para comparar com o que costuma sobrar.` }
   const ritmo = sobra.meses === 1 ? 'do último mês completo' : `dos últimos ${sobra.meses} meses completos`
   const aviso = 'É uma estimativa: o que sobrou antes não garante o que vai sobrar.'
+  const qualMeta = `Faltam ${fmtBRL(falta)} para a meta ${meta.name}.`
   if (mensal <= sobra.media + 0.009) {
-    return { text: `Sim, no ritmo ${ritmo}. ${conta}, e sobraram em média ${fmtBRL(sobra.media)} por mês. ${aviso}` }
+    return { text: `Sim, no ritmo ${ritmo}. ${qualMeta} ${conta}, e sobraram em média ${fmtBRL(sobra.media)} por mês. ${aviso}` }
   }
-  return { text: `Não no ritmo ${ritmo}. ${conta}, e sobraram em média ${fmtBRL(sobra.media)} por mês — faltariam ${fmtBRL(round2(mensal - Math.max(sobra.media, 0)))} por mês. ${aviso}` }
+  return { text: `Não no ritmo ${ritmo}. ${qualMeta} ${conta}, e sobraram em média ${fmtBRL(sobra.media)} por mês — faltariam ${fmtBRL(round2(mensal - Math.max(sobra.media, 0)))} por mês. ${aviso}` }
 }
 
 /**
@@ -1683,6 +1684,21 @@ function respostaSobraSemCombustivel(s: AppState, t: string): AiReply {
     ? `Com as outras despesas (${fmtBRL(outras)}), sobram ${porDia ? `${fmtBRL(round2((sobra - outras) / dias))} por dia` : fmtBRL(round2(sobra - outras))}.`
     : ''
   return { text: [primeira, resto].filter(Boolean).join(' ') }
+}
+
+/**
+ * A resposta da META citada pelo nome, para frase que o turno leu como hipótese:
+ * "consigo comprar o notebook até março?" (plano com prazo) e "quando consigo
+ * comprar o notebook" (projeção). Sem meta com esse nome, `null`: a frase segue
+ * como hipótese de compra.
+ */
+export function respostaDeMetaCitada(s: AppState, input: string): string | null {
+  const t = normalizeQuestion(input)
+  if (!metaCitada(s, t)) return null
+  const plano = planoDeGuardar(t)
+  if (plano?.kind !== 'meta' && !/\bquando\b/.test(t)) return null
+  const r = resolveLocal(s, input)
+  return r.handled === false || r.actions?.length ? null : r.text
 }
 
 /** Quanto uma conta fixa pesa por mês, seja qual for a repetição dela. */

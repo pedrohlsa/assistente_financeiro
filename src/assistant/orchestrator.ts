@@ -42,7 +42,7 @@ import type { AssistantDraft } from './drafts'
 import { applyCorrection, parseCorrection } from './corrections'
 import type { CorrectionPlan } from './corrections'
 import { findGoalByName, planAssistantActions } from './execute'
-import { askAssistant } from '../services/ai'
+import { askAssistant, respostaDeMetaCitada } from '../services/ai'
 import { buildCapabilities } from './capabilities'
 import { describeAction, META_OUTRA } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
@@ -1565,6 +1565,18 @@ Confirmar?`,
   // app DIZ que não sabe. Resposta local errada com cara de certa é pior que
   // chamar o modelo.
   const hipoteseSemPlano = hasBlock(turno, 'scenario') && conversa?.kind !== 'scenario' && !cenarioJunto
+  // "Consigo comprar o notebook até março?", "quando consigo comprar o
+  // notebook": a META existe e o plano dela responde. Lida como hipótese, a
+  // frase ganhava "esse tipo de cenário eu ainda não sei simular".
+  if (hipoteseSemPlano && !temFato) {
+    const daMeta = respostaDeMetaCitada(input.state, mensagem)
+    if (daMeta) {
+      return {
+        draft: null, keepPending: true, focus: input.focus,
+        response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply: daMeta },
+      }
+    }
+  }
   const consultaIncompleta = conversa?.kind === 'incomplete'
   /** A pergunta pertence à hipótese: vem depois dela, na MESMA frase. */
   const semRespostaLocal = (q: AnalyzedClause): boolean => consultaIncompleta

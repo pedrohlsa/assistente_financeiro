@@ -4147,6 +4147,22 @@ entra quando diz algo que a categoria não diz ("de aluguel" não repete
 **354/354**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
 build, rubrica, varredura e `git diff --check` passaram.
 
+## 2026-10-27 — meta citada não é hipótese
+
+"Quando consigo comprar o notebook" e "consigo comprar o notebook até março?"
+eram recusadas com "isso é uma hipótese, e esse tipo de cenário eu ainda não
+sei simular": "consigo comprar" é marcador de hipótese de compra, mas ali a
+META existe e tem resposta. Quando o turno é hipótese sem plano, sem registro,
+e a frase cita uma meta ativa pelo nome com pedido de plano ou "quando",
+`respostaDeMetaCitada()` responde pelo roteador (plano com prazo ou projeção).
+A resposta de viabilidade agora diz a meta e quanto falta. Compra sem meta
+("um celular de 3000 em 10x") continua simulação.
+
+3 casos no grupo MC (2 vermelhos antes, 1 controle). Gates: 666/666, 99/99,
+50/50, **357/357**, metamórficos, fuzz, 151/151, 468; typechecks,
+`test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
+`git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800
@@ -4164,8 +4180,6 @@ Abertas, achadas na leitura humana e ainda não corrigidas:
   fatura atrasada de "dado real".
 - "Se eu ficar mais 3h… vale?" rotula "estimativa para um dia" e não responde
   sim/não; "hj deu … como foi" registra sem responder o "como foi".
-- "Quando consigo comprar o notebook" é recusado como hipótese ("quando VOU
-  conseguir" responde).
 - Pergunta nominal sem "quanto" ("gastos dessa semana") cai na ajuda genérica.
 - "Vale a pena rodar domingo?" cai na ajuda genérica.
 

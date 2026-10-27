@@ -2190,6 +2190,22 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('OR-receita-com-plataforma', uber.reply, 'proposta mostra Uber', /Receita de R\$\s430,00 \(Corridas\) — Uber/.test(uber.reply)))
   }
 
+  // A META existe: "quando consigo comprar o notebook" e "consigo comprar o
+  // notebook até março?" eram recusadas como hipótese que não se sabe simular.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const quando = limpa((await turnoHoje(rico, 'quando consigo comprar o notebook')).reply)
+    out.push(result('MC-quando-consigo', quando, `Notebook: faltam ${brl(2800)}, com projeção`,
+      /Notebook/.test(quando) && quando.includes(brl(2800)) && !/hip[óo]tese/i.test(quando)))
+    const ate = limpa((await turnoHoje(rico, 'consigo comprar o notebook ate marco?')).reply)
+    out.push(result('MC-consigo-ate-marco', ate, 'Sim/Não com o valor por mês até março',
+      /^(?:Sim|Não)\b/.test(ate) && /Notebook|dep[óo]sitos/.test(ate) && !/hip[óo]tese/i.test(ate)))
+    const celular = limpa((await turnoHoje(rico, 'consigo comprar um celular de 3000 em 10x?')).reply)
+    out.push(result('MC-compra-sem-meta-simula', celular, 'compra sem meta continua simulação', /R\$ 300,00 por m[êe]s/.test(celular)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.
