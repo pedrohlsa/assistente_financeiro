@@ -678,7 +678,8 @@ function answerQuestions(
   state: AppState,
   questions: AnalyzedClause[],
   candidates: AssistantCandidateAction[],
-): { text: string; answered: AnalyzedClause[] } {
+  today: string,
+): { text: string; answered: AnalyzedClause[]; focus?: ConversationFocus } {
   if (!questions.length) return { text: '', answered: [] }
   const projected = candidates.length
     ? planAssistantActions(state, candidates.map(c => ({ id: c.id, action: c.action }))).projected
@@ -686,19 +687,70 @@ function answerQuestions(
 
   const parts: string[] = []
   const answered: AnalyzedClause[] = []
+  let focus: ConversationFocus | undefined
   for (const q of questions) {
-    const r = askAssistant(projected, q.text)
-    if (r.handled === false) continue
-    // CUIDADO: `askAssistant` tem parser próprio e, quando acha uma ação, monta
-    // "Entendi isso… / Confirmar?". Isso é uma PROPOSTA, não a resposta de uma
-    // pergunta — usá-la aqui mostrava a proposta na tela sem nenhum botão para
-    // confirmar. A pergunta segue em aberto e vai para quem sabe respondê-la.
-    if (r.actions?.length || /entendi isso/i.test(r.text)) continue
-    parts.push(r.text)
+    const pergunta = perguntaComAssunto(q.text, candidates)
+    // A consulta só entra ao lado de um registro e com pergunta inteira. Sem
+    // registro, quem responde é o turno normal, que lê a mensagem toda; e um
+    // fragmento ("minha reserva tá em | quanto") virava "Total gasto este mês".
+    const usaConsulta = candidates.length > 0 && pergunta.trim().split(/\s+/).length >= 3
+    const real = respostaLocal(state, pergunta, today, usaConsulta)
+    const comRegistro = candidates.length ? respostaLocal(projected, pergunta, today, usaConsulta) : real
+    if (!comRegistro) continue
+    // Regra 27: o número que conta com o registro ainda não confirmado é
+    // hipotético. "Qual meu saldo" mostrava o saldo já descontado como se fosse
+    // o de hoje, e a resposta dizia "dado real".
+    const depende = candidates.length > 0 && real?.text !== comRegistro.text
+    parts.push(depende
+      ? `Se você confirmar ${candidates.length === 1 ? 'o registro acima' : 'os registros acima'}:\n${semDadoReal(comRegistro.text)}`
+      : comRegistro.text)
+    // O foco vem do estado REAL: um "pq?" seguinte não pode explicar números
+    // de um registro que talvez nunca seja confirmado.
+    focus = real?.focus || focus
     answered.push(q)
   }
-  return { text: parts.join('\n\n'), answered }
+  return { text: parts.join('\n\n'), answered, focus }
 }
+
+/**
+ * A resposta local de uma pergunta solta, como no turno sem registro: a
+ * consulta toma a frente só no que o roteador antigo não expressa, e responde
+ * quando ele não sabe. Antes, sem resposta do roteador, "gastei 50, quanto
+ * sobrou esse mês?" respondia só "se você confirmar, saem R$ 50".
+ */
+function respostaLocal(
+  state: AppState, pergunta: string, today: string, usaConsulta: boolean,
+): { text: string; focus?: ConversationFocus } | null {
+  const conv = usaConsulta ? answerConversation(state, pergunta, { today }) : null
+  const consulta = conv?.kind === 'query' ? conv : null
+  if (consulta?.beyondLegacy) return { text: consulta.reply, focus: consulta.focus }
+  const r = askAssistant(state, pergunta)
+  // CUIDADO: `askAssistant` tem parser próprio e, quando acha uma ação, monta
+  // "Entendi isso… / Confirmar?". Isso é uma PROPOSTA, não a resposta de uma
+  // pergunta — usá-la aqui mostrava a proposta na tela sem nenhum botão para
+  // confirmar. A pergunta segue em aberto e vai para quem sabe respondê-la.
+  if (r.handled !== false && !r.actions?.length && !/entendi isso/i.test(r.text)) return { text: r.text, focus: consulta?.focus }
+  return consulta ? { text: consulta.reply, focus: consulta.focus } : null
+}
+
+/**
+ * "Quanto falta?" logo depois de um depósito ou de um pagamento de fatura não
+ * diz de quê: o assunto é o registro ao lado. Sem ele, a pergunta sumia.
+ */
+function perguntaComAssunto(pergunta: string, candidates: AssistantCandidateAction[]): string {
+  if (!/^\s*(?:e\s+)?quanto\s+(?:ainda\s+)?(?:falta|faltam|resta|restam)\s*\??\s*$/i.test(pergunta)) return pergunta
+  const alvos = candidates.map(c => c.action as any).filter(a => a.kind === 'goal-deposit' || a.kind === 'card-payment')
+  if (alvos.length !== 1) return pergunta
+  const [a] = alvos
+  if (a.kind === 'goal-deposit' && a.name) return `quanto falta para a meta ${a.name}`
+  if (a.kind === 'card-payment' && a.cardName) return `quanto falta pagar da fatura do ${a.cardName}`
+  return pergunta
+}
+
+/** Número que depende de confirmação não leva o selo de dado real. */
+const semDadoReal = (texto: string) => texto
+  .replace(/\s*\((?:dados?\s+reais?|dado\s+real)\b[^)]*\)/gi, '')
+  .replace(/\s*[—-]\s*(?:dados?\s+reais?|dado\s+real)\b/gi, '')
 
 /**
  * Resposta HIPOTÉTICA para uma pergunta que o motor local não sabe responder
@@ -1524,7 +1576,7 @@ Confirmar?`,
 
   // ---- 14) Perguntas respondidas localmente -------------------------------
   const questions = analysis.clauses.filter(c => c.intent === 'question' && !semRespostaLocal(c))
-  const local_answers = answerQuestions(input.state, questions, candidates)
+  const local_answers = answerQuestions(input.state, questions, candidates, today)
   const answeredIds = new Set(local_answers.answered.map(c => c.id))
   unresolved = unresolved.filter(u => !answeredIds.has(u.clauseId))
 
@@ -1693,6 +1745,7 @@ Confirmar?`,
   // devolvia o total do mês inteiro.
   let focoFinal: ConversationFocus | undefined = cenarioJunto?.focus
     || (local_answers.text && conversa?.kind === 'query' ? conversa.focus : undefined)
+    || local_answers.focus
     || input.focus
 
   if (clarification) {

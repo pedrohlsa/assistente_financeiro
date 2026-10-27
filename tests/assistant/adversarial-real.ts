@@ -1770,8 +1770,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   // Nubank 250 fechada a vencer (dívida 750), C6 200 paga pela fatura.
   {
     const st = estadoDeFaturas(hoje)
-    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
-    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
     const data = (iso: string) => fromISO(iso).toLocaleDateString('pt-BR')
     const casos: [string, string, string, (r: string) => boolean][] = [
       ['S-falta-fatura-inter', 'quanto falta pagar da fatura do inter', `${brl(300)} vencida em ${data(addDays(hoje, -5))}, nunca ${brl(900)}`,
@@ -1817,8 +1817,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   // "Quanto gastei de alimentação" respondia R$ 0,00 "dado real", e "quanto
   // falta pra câmera" respondia a primeira meta da lista.
   {
-    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
-    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
     const rico = autonomoRico(hoje)
     const alimentacao = Math.round(rico.transactions.filter(x => x.type === 'expense' && x.category === 'alimentacao'
       && x.date >= `${hoje.slice(0, 8)}01` && x.date <= hoje).reduce((a, x) => a + x.amount, 0) * 100) / 100
@@ -1881,6 +1881,38 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('W-meta-antes-do-tempo', comMeta.actions, 'depósito de 300 na Viagem', deposito('Viagem', 300)(comMeta.actions)))
   }
 
+  // Registra E pergunta (regra 27): as duas metades têm resposta, e o número
+  // que conta com o registro ainda não confirmado é marcado como hipotético.
+  // Antes: "quanto sobrou" virava "se você confirmar, saem R$ 50", "quanto
+  // falta?" depois de um depósito sumia, e "qual meu saldo" mostrava o saldo
+  // já descontado como se fosse o real.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const doMes = (tipo: string, cat?: string) => Math.round(rico.transactions.filter(x => x.type === tipo
+      && (!cat || x.category === cat) && x.date >= `${hoje.slice(0, 8)}01` && x.date <= hoje).reduce((a, x) => a + x.amount, 0) * 100) / 100
+    const marcado = (r: string) => /se voc[êe] confirmar/i.test(r) && !/dados? reais?|dado real/i.test(r)
+    const registrou = (acts: any[], kind: string, valor: number) => acts.some(a => a.kind === kind && a.amount === valor)
+    const casos: [string, string, string, (r: string, acts: any[]) => boolean][] = [
+      ['X-sobrou-respondido', 'gastei 50 no mercado, quanto sobrou esse mes?', `sobra ${brl(doMes('income') - doMes('expense') - 50)}, marcada`,
+        (r, a) => r.includes(brl(doMes('income') - doMes('expense') - 50)) && marcado(r) && registrou(a, 'expense', 50)],
+      ['X-categoria-com-registro', 'gastei 50 no mercado, quanto gastei de alimentacao esse mes?', `${brl(doMes('expense', 'alimentacao') + 50)}, marcado`,
+        (r, a) => r.includes(brl(doMes('expense', 'alimentacao') + 50)) && marcado(r) && registrou(a, 'expense', 50)],
+      ['X-saldo-marcado', 'gastei 50 no mercado, qual meu saldo?', 'saldo com o registro marcado como hipotético',
+        (r, a) => marcado(r) && registrou(a, 'expense', 50)],
+      ['X-falta-meta', 'guardei 200 na meta notebook, quanto falta?', `Notebook: faltam ${brl(2600)}, marcado`,
+        (r, a) => /Notebook/.test(r) && r.includes(brl(2600)) && marcado(r) && registrou(a, 'goal-deposit', 200)],
+      ['X-falta-fatura', 'paguei 200 da fatura do inter, quanto falta?', `falta ${brl(200)} da fatura do Inter, marcado`,
+        (r, a) => /Falta pagar R\$ 200,00 da fatura do Inter/.test(r) && marcado(r) && registrou(a, 'card-payment', 200)],
+      ['X-nao-afetada-sem-marca', 'gastei 50 no mercado, quando vence a fatura do nubank?', 'vencimento sem marca de hipótese',
+        (r, a) => /vence/.test(r) && !/se voc[êe] confirmar/i.test(r.split('Confirmar')[0].replace(/Se você confirmar, saem[^.]*\./, '')) && registrou(a, 'expense', 50)],
+    ]
+    for (const [id, frase, esperado, ok] of casos) {
+      const r = await turnoHoje(rico, frase)
+      out.push(result(id, { reply: r.reply, actions: r.actions }, esperado, ok(limpa(r.reply), r.actions)))
+    }
+  }
   // A pergunta que repete o verbo do registro é uma cláusula só: "quanto
   // gastei de alimentação" era cortado em "quanto" + "gastei de alimentação",
   // e nenhuma das duas metades tinha resposta.

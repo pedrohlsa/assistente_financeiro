@@ -3883,6 +3883,29 @@ um "e" sozinho como cláusula.
 `test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
 `git diff --check` passaram.
 
+## 2026-10-27 — registra e pergunta: as duas metades, com o número marcado
+
+Regra 27, quebrada de três jeitos. (1) Pergunta que o roteador antigo não sabe
+("gastei 50 no mercado, quanto sobrou esse mês?") virava só "se você
+confirmar, saem R$ 50,00" — a consulta nunca era tentada quando a mensagem
+tinha registro. (2) "Quanto falta?" depois de "guardei 200 na meta notebook"
+ou de "paguei 200 da fatura do inter" sumia: a cláusula não diz de quê.
+(3) "Qual meu saldo" ao lado de um gasto mostrava o saldo JÁ descontado como
+"Seu saldo em conta é…", e respostas assim saíam com "(dado real)".
+
+`answerQuestions` agora responde cada pergunta como o turno normal (consulta à
+frente só no que o roteador não expressa, e quando ele não sabe), mas só ao
+lado de um registro e com pergunta de 3+ palavras — um fragmento como
+"quanto" virava "Total gasto este mês". "Quanto falta?" ganha o assunto do
+depósito ou do pagamento ao lado. Quando a resposta muda com o registro, ela
+vem sob "Se você confirmar o registro acima:" e sem o selo de dado real; o
+foco guardado é o do estado real.
+
+6 casos no grupo X (5 vermelhos antes, 1 controle sem marca). Gates: 666/666,
+99/99, 50/50, **300/300**, metamórficos, fuzz, 151/151, 468; typechecks,
+`test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
+`git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `c824fe0`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800
