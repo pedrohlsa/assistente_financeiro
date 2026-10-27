@@ -22,11 +22,14 @@ import { MAX_COMPOSE_FACTS } from '../assistant/grounding'
 import {
   analyzeRide, avgDailyProfit, balanceOutlook, bestWorstDay, cashObligationsUntil, currentBalance, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
   monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections, budgetUsage,
-  describeRecurrence, occurrenceRecord, occurrencesBetween, recurringActiveOn,
+  describeRecurrence, occurrenceRecord, occurrencesBetween, recurringActiveOn, savedThisMonth,
 } from './calc'
 import type { CashObligation } from './calc'
-import { alvoDaReserva, pedeContaQueAperta, pedeContasAPagar, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeConta, perguntaDeFatura, prazoDasContas, retiraDaReserva } from '../assistant/cashQuestions'
-import type { PerguntaDeConta, PerguntaDeFatura } from '../assistant/cashQuestions'
+import {
+  alvoDaReserva, mesesAtePrazo, pedeContaQueAperta, pedeContasAPagar, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeConta, perguntaDeFatura,
+  planoDeGuardar, prazoDasContas, retiraDaReserva,
+} from '../assistant/cashQuestions'
+import type { PerguntaDeConta, PerguntaDeFatura, PlanoDeGuardar } from '../assistant/cashQuestions'
 import { describeAction, parseNaturalFull } from './nlp'
 import { driverInsight } from '../assistant/driverInsights'
 import { adaptiveEnabled, buildPersonalModel } from '../assistant/personalModel'
@@ -978,6 +981,14 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // NOME da meta, não pela palavra "meta".
   // "Quanto já juntei da moto" é a mesma pergunta pelo outro lado — o usuário
   // quer o progresso, e tanto faz se pediu o que falta ou o que já tem.
+  // "Quanto preciso guardar por mês pra viagem até dezembro", "consigo juntar
+  // o notebook até março?": plano com prazo, dito com os meses contados.
+  const plano = planoDeGuardar(t)
+  if (plano) {
+    const resposta = respostaDePlano(s, t, plano, driverMode)
+    if (resposta) return resposta
+  }
+
   const metaPeloNome = /quanto\s+(?:falta|(?:eu\s+)?(?:j[áa]\s+)?(?:juntei|guardei|tenho|consegui|separei))/.test(t)
     && s.goals.some(g => !g.done && t.includes(normalizeQuestion(g.name).split(' ')[0]))
   if (metaPeloNome || /quando\s+(vou|consigo|vou conseguir|poderei)\s+(comprar|atingir|juntar)/.test(t) || /quando.*meta/.test(t) || /quanto\s+falta\s+(?:para|pra)\s+(?:a\s+|o\s+|minha\s+|meu\s+)?meta/.test(t)) {
@@ -1552,6 +1563,84 @@ function respostaDaFatura(s: AppState, t: string, tipo: PerguntaDeFatura): AiRep
     case 'fecha':
       return { text: `Fechamento das faturas:\n${faturas.map(f => `• ${f.nome}: fecha todo dia ${f.closingDay} e vence todo dia ${f.dueDay}`).join('\n')}` }
   }
+}
+
+const NOMES_DOS_MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+const nomeDoMes = (mk: string) => NOMES_DOS_MESES[Number(mk.slice(5, 7)) - 1]
+/** Arredonda PARA CIMA no centavo: a soma das parcelas nunca fica abaixo do total. */
+const porMesAcima = (valor: number, meses: number) => Math.ceil((valor / meses) * 100) / 100
+const depositosAte = (meses: string[]) => `${meses.length === 1 ? 'É 1 depósito' : `São ${meses.length} depósitos`} até ${nomeDoMes(meses[meses.length - 1])} (${listaDeNomes(meses.map(nomeDoMes))})`
+
+/** A meta de compra ativa citada pelo nome; o nome mais longo ganha. */
+function metaCitada(s: AppState, t: string) {
+  return (s.goals || []).filter(g => !g.done && g.name?.trim())
+    .map(g => ({ g, n: normalizeQuestion(g.name) }))
+    .filter(({ n }) => n.length >= 2 && new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(t))
+    .sort((a, b) => b.n.length - a.n.length)[0]?.g
+}
+
+/** Média de entradas menos saídas nos últimos meses COMPLETOS que têm lançamento. */
+function sobraMedia(s: AppState, meses = 3): { media: number; meses: number } | null {
+  const h = fromISO(todayISO())
+  const sobras: number[] = []
+  for (let n = 1; n <= meses; n++) {
+    const ini = toISO(new Date(h.getFullYear(), h.getMonth() - n, 1))
+    const fim = toISO(new Date(h.getFullYear(), h.getMonth() - n + 1, 0))
+    if (!s.transactions.some(x => x.date >= ini && x.date <= fim && (x.type === 'income' || x.type === 'expense'))) continue
+    sobras.push(periodStats(s, ini, fim).profit)
+  }
+  return sobras.length ? { media: round2(sobras.reduce((a, v) => a + v, 0) / sobras.length), meses: sobras.length } : null
+}
+
+/**
+ * Quanto guardar por mês para uma meta, para um valor ou para a meta mensal —
+ * e se dá, comparado com o que costuma sobrar. Os meses de depósito são
+ * NOMEADOS: "até dezembro" no fim de outubro são novembro e dezembro, e quem
+ * lê confere a conta. Sem prazo, mostra dois exemplos e pergunta.
+ */
+function respostaDePlano(s: AppState, t: string, plano: PlanoDeGuardar, driverMode: boolean): AiReply | null {
+  const hoje = todayISO()
+  if (plano.kind === 'mensal') {
+    const alvo = Math.max(s.settings.monthlyProfitTarget || 0, 0)
+    if (driverMode) {
+      return { text: alvo > 0
+        ? `Você não tem uma meta de guardar por mês; o objetivo cadastrado é de lucro: ${fmtBRL(alvo)} por mês.`
+        : 'Você ainda não cadastrou objetivo mensal. Dá para definir em Mais → Configurações.' }
+    }
+    if (alvo <= 0) return { text: 'Você ainda não definiu quanto quer guardar por mês. Dá para definir em Mais → Configurações, em "Quanto deseja guardar por mês".' }
+    const guardado = savedThisMonth(s)
+    return { text: `Sua meta é guardar ${fmtBRL(alvo)} por mês. Este mês você já guardou ${fmtBRL(guardado)}${guardado >= alvo - 0.009 ? ' — meta batida.' : `; faltam ${fmtBRL(round2(alvo - guardado))}.`}` }
+  }
+  if (plano.kind === 'valor') {
+    const meses = mesesAtePrazo(t, hoje)
+    if (!meses) {
+      return { text: `Para juntar ${fmtBRL(plano.valor)}: em 6 meses são ${fmtBRL(porMesAcima(plano.valor, 6))} por mês; em 12, ${fmtBRL(porMesAcima(plano.valor, 12))}. Até quando você quer juntar?` }
+    }
+    return { text: `Para juntar ${fmtBRL(plano.valor)}, contando de agora e sem o que você já tem guardado: ${depositosAte(meses).replace(/^É|^São/, m => m.toLowerCase())}, de ${fmtBRL(porMesAcima(plano.valor, meses.length))} por mês.` }
+  }
+  const meta = metaCitada(s, t)
+  if (!meta) {
+    const ativas = (s.goals || []).filter(g => !g.done)
+    if (!ativas.length) return null
+    return { text: `Não encontrei essa meta. Suas metas: ${listaDeNomes(ativas.map(g => g.name))}. Para criar outra, diga algo como "quero comprar um celular de 5000 em 6 meses".` }
+  }
+  const falta = round2(meta.target - meta.saved)
+  if (falta <= 0.009) return { text: `A meta ${meta.name} já está completa: ${fmtBRL(meta.saved)} de ${fmtBRL(meta.target)}.` }
+  const meses = mesesAtePrazo(t, hoje, meta.deadline)
+  if (!meses) {
+    return { text: `Faltam ${fmtBRL(falta)} para a meta ${meta.name}, e ela não tem prazo. Em 6 meses seriam ${fmtBRL(porMesAcima(falta, 6))} por mês; em 12, ${fmtBRL(porMesAcima(falta, 12))}. Até quando você quer completar?` }
+  }
+  const mensal = porMesAcima(falta, meses.length)
+  const conta = `${depositosAte(meses)}: ${fmtBRL(mensal)} por mês`
+  if (!plano.viavel) return { text: `Faltam ${fmtBRL(falta)} para a meta ${meta.name}. ${conta}.` }
+  const sobra = sobraMedia(s)
+  if (!sobra) return { text: `Faltam ${fmtBRL(falta)} para a meta ${meta.name}. ${conta}. Ainda não tenho um mês completo para comparar com o que costuma sobrar.` }
+  const ritmo = sobra.meses === 1 ? 'do último mês completo' : `dos últimos ${sobra.meses} meses completos`
+  const aviso = 'É uma estimativa: o que sobrou antes não garante o que vai sobrar.'
+  if (mensal <= sobra.media + 0.009) {
+    return { text: `Sim, no ritmo ${ritmo}. ${conta}, e sobraram em média ${fmtBRL(sobra.media)} por mês. ${aviso}` }
+  }
+  return { text: `Não no ritmo ${ritmo}. ${conta}, e sobraram em média ${fmtBRL(sobra.media)} por mês — faltariam ${fmtBRL(round2(mensal - Math.max(sobra.media, 0)))} por mês. ${aviso}` }
 }
 
 /** A conta fixa (saída) citada pelo nome; o nome mais longo ganha ("Luz casa 2" antes de "Luz"). */

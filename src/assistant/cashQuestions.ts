@@ -82,6 +82,68 @@ export function pedeContasAPagar(t: string): boolean {
     || /\bquanto\s+(?:ainda\s+)?(?:me\s+)?(?:falta|resta)\s+(?:eu\s+)?pagar\s+(?:(?:esse|este|nesse|neste)\s+mes|ate\s+o\s+(?:fim|final)\s+do\s+mes)\s*\??$/.test(t)
 }
 
+export type PlanoDeGuardar =
+  /** "quanto preciso guardar por mês pro X" (`viavel` false) ou "consigo juntar o X até dezembro?" (true). */
+  | { kind: 'meta'; viavel: boolean }
+  /** "quanto preciso guardar por mês pra ter 10 mil". */
+  | { kind: 'valor'; valor: number }
+  /** "quanto preciso guardar por mês", sem destino: a meta mensal. */
+  | { kind: 'mensal' }
+
+const GUARDAR = String.raw`(?:guardar|juntar|separar|poupar|economizar|reservar)`
+const PRECISO = String.raw`(?:preciso|tenho\s+que|tenho\s+de|devo|teria\s+que|precisaria)`
+
+/**
+ * "Quanto PRECISO guardar por mês" é plano, não histórico — a consulta somava o
+ * que já foi guardado, ou o resto da meta agrupado por mês ("o menor foi
+ * jul/2026"). Qual meta é, quem acha é o roteador, que tem o estado. "Consigo
+ * bater a meta esse mês?" é a meta MENSAL e fica com quem já responde.
+ */
+export function planoDeGuardar(t: string): PlanoDeGuardar | null {
+  const consigo = /\b(?:consigo|conseguiria|vou\s+conseguir|da\s+para|e\s+possivel)\s+(?:completar|juntar|atingir|comprar|chegar|fechar|guardar)\b/.test(t)
+  // "QUANDO consigo comprar" pede a data, e quem a projeta já responde.
+  if (consigo && !/\bquando\b|\b(?:esse|este|nesse|neste)\s+mes\b|\bmeta\s+(?:de\s+hoje|do\s+dia|diaria|do\s+mes|mensal)\b/.test(t)) {
+    return { kind: 'meta', viavel: true }
+  }
+  if (!new RegExp(String.raw`\bquanto\b[^?]*\b${PRECISO}\s+${GUARDAR}\b`).test(t)) return null
+  const dito = t.match(/\b(?:ter|juntar|chegar\s+(?:a|em)|completar)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)\s*(mil|k)?\b/)
+  if (dito) {
+    const bruto = dito[1].replace(/\.(?=\d{3}\b)/g, '').replace(',', '.')
+    const valor = Number(bruto) * (dito[2] ? 1000 : 1)
+    if (valor > 0) return { kind: 'valor', valor }
+  }
+  // Com destino ("pro notebook", "pra completar a viagem") é meta de compra;
+  // sem destino, a meta mensal. "Pra" e "pro" já chegam como "para".
+  if (/\bpara\s+(?!o\s+mes\b|ter\b)[a-z]/.test(t)) return { kind: 'meta', viavel: false }
+  return /\bpor\s+mes\b|\bcada\s+mes\b|\bmensal(?:mente)?\b/.test(t) ? { kind: 'mensal' } : null
+}
+
+/**
+ * Os meses de depósito até o prazo dito ("até dezembro", "em 6 meses", "até o
+ * fim do ano") ou o prazo cadastrado na meta. O mês corrente conta quando ainda
+ * tem 7 dias ou mais — e a resposta NOMEIA os meses, para a conta ficar à vista.
+ */
+export function mesesAtePrazo(t: string, hoje: string, prazoDaMeta?: string): string[] | null {
+  const h = fromISO(hoje)
+  const ultimoDia = new Date(h.getFullYear(), h.getMonth() + 1, 0).getDate()
+  const inicio = ultimoDia - h.getDate() + 1 >= 7 ? 0 : 1
+  const mes = (n: number) => toISO(new Date(h.getFullYear(), h.getMonth() + n, 1)).slice(0, 7)
+  const ate = (fim: number) => Array.from({ length: Math.max(fim - inicio + 1, 1) }, (_, i) => mes(fim < inicio ? fim : inicio + i))
+  const emMeses = t.match(/\bem\s+(\d{1,2})\s+mes(?:es)?\b/)
+  if (emMeses && Number(emMeses[1]) > 0) return Array.from({ length: Math.min(Number(emMeses[1]), 60) }, (_, i) => mes(inicio + i))
+  if (/\bate\s+o\s+(?:fim|final)\s+do\s+ano\b/.test(t)) return ate(11 - h.getMonth())
+  const nome = t.match(/\bate\s+(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/)
+  if (nome) {
+    const alvo = MESES.indexOf(nome[1])
+    return ate(((alvo - h.getMonth()) + 12) % 12)
+  }
+  if (prazoDaMeta && prazoDaMeta >= hoje) {
+    const p = fromISO(prazoDaMeta)
+    return ate((p.getFullYear() - h.getFullYear()) * 12 + p.getMonth() - h.getMonth())
+  }
+  return null
+}
+
 export type PerguntaDeConta = 'paga' | 'vence' | 'valor'
 
 /**

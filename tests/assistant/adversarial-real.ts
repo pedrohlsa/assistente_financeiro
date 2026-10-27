@@ -1994,6 +1994,44 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('CF-conta-confirmada-sem-aviso', luzPaga.reply, 'Luz já confirmada: sem aviso', !/conta fixa/i.test(luzPaga.reply)))
   }
 
+  // "Quanto PRECISO guardar por mês" é plano, não histórico: "pro notebook"
+  // respondia "O menor foi jul/2026, com R$ 2.800,00"; "pra viagem até
+  // dezembro" era recusado; "consigo completar a viagem até dezembro?" caía na
+  // ajuda; "quanto preciso guardar por mês" devolvia o que já foi guardado.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const h = fromISO(hoje)
+    const ultimoDia = new Date(h.getFullYear(), h.getMonth() + 1, 0).getDate()
+    // Depósitos até dezembro: o mês corrente conta se ainda tem 7 dias ou mais.
+    const depositos = Math.max(11 - h.getMonth() + (ultimoDia - h.getDate() + 1 >= 7 ? 1 : 0), 1)
+    const porMes = (v: number) => Math.ceil((v / depositos) * 100) / 100
+    // Sobra média dos 3 meses completos anteriores, entradas menos saídas.
+    const sobra = [1, 2, 3].map(n => {
+      const ini = toISOdate(new Date(h.getFullYear(), h.getMonth() - n, 1))
+      const fim = toISOdate(new Date(h.getFullYear(), h.getMonth() - n + 1, 0))
+      const doMes = rico.transactions.filter(x => x.date >= ini && x.date <= fim)
+      return doMes.filter(x => x.type === 'income').reduce((a, x) => a + x.amount, 0) - doMes.filter(x => x.type === 'expense').reduce((a, x) => a + x.amount, 0)
+    }).reduce((a, v) => a + v, 0) / 3
+    const casos: [string, string, string, (r: string) => boolean][] = [
+      ['MP-viagem-ate-dezembro', 'quanto eu preciso guardar por mes pra completar a viagem ate dezembro', `${brl(porMes(1200))} por mês em ${depositos} depósitos`,
+        r => r.includes(brl(porMes(1200))) && r.includes(brl(1200)) && new RegExp(`\\b${depositos} dep[óo]sitos?`).test(r)],
+      ['MP-notebook-sem-prazo', 'quanto preciso guardar por mes pro notebook', `faltam ${brl(2800)}, sem prazo: pergunta até quando`,
+        r => r.includes(brl(2800)) && /prazo/.test(r) && /at[ée] quando/i.test(r) && !/menor foi/i.test(r)],
+      ['MP-consigo-viagem', 'consigo completar a viagem ate dezembro?', `${porMes(1200) <= sobra ? 'Sim' : 'Não'}: ${brl(porMes(1200))}/mês contra sobra média`,
+        r => new RegExp(`^${porMes(1200) <= sobra ? 'Sim' : 'Não'}\\b`).test(r) && r.includes(brl(porMes(1200))) && /estimativa/i.test(r)],
+      ['MP-valor-ate-dezembro', 'quanto preciso guardar por mes pra ter 10 mil ate dezembro', `${brl(porMes(10000))} por mês`,
+        r => r.includes(brl(porMes(10000))) && r.includes(brl(10000))],
+      ['MP-meta-mensal', 'quanto preciso guardar por mes', `meta de ${brl(800)} por mês, não o histórico`,
+        r => r.includes(brl(800)) && !/Total guardado/i.test(r)],
+    ]
+    for (const [id, frase, esperado, ok] of casos) {
+      const r = await turnoHoje(rico, frase)
+      out.push(result(id, r.reply, esperado, ok(limpa(r.reply)) && r.actions.length === 0))
+    }
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

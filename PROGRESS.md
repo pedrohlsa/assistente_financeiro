@@ -3983,6 +3983,37 @@ gasto pelo nome, lançamento de ontem, receita com origem) não criam ação e
 apontam Movimentações. Vermelhas no código anterior a `c824fe0` (rodado numa
 worktree temporária), verdes agora. **322/322**; demais gates verdes.
 
+## 2026-10-27 — quanto guardar por mês, com prazo e meses contados
+
+"Quanto preciso guardar por mês pro notebook" respondia "O menor foi jul/2026,
+com R$ 2.800,00"; "pra completar a viagem até dezembro" e "pra ter 10 mil até
+dezembro" eram recusados por resíduo; "consigo completar a viagem até
+dezembro?" caía na ajuda; "quanto preciso guardar por mês" devolvia o que já
+foi guardado. `planoDeGuardar()` faz a DSL recusar essas frases e o roteador
+responde por `respostaDePlano()`:
+- meta citada: o que falta dividido pelos meses de depósito até o prazo dito
+  ("até dezembro", "em 6 meses", "até o fim do ano") ou o prazo cadastrado,
+  com os meses NOMEADOS ("São 2 depósitos até dezembro (novembro e
+  dezembro): R$ 600,00 por mês"). O mês corrente conta se ainda tem 7 dias.
+  Arredonda para cima no centavo;
+- sem prazo: dois exemplos (6 e 12 meses) e a pergunta "até quando?";
+- "consigo…?": Sim/Não comparando com a sobra média dos últimos meses
+  completos, marcado como estimativa;
+- valor ("pra ter 10 mil"): o mesmo cálculo, contando de agora;
+- sem destino: a meta mensal de Configurações e quanto falta dela.
+"Quando consigo comprar" (data) e "consigo bater a meta esse mês" seguem onde
+estavam.
+
+5 casos no grupo MP (todos vermelhos antes; meses e sobra média calculados à
+mão no oráculo). Gates: 666/666, 99/99, 50/50, **327/327**, metamórficos,
+fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica (0 perigosa,
+0 ruim), varredura e `git diff --check` passaram.
+
+Achados sem correção neste lote: "quando consigo comprar o notebook" é
+recusado como hipótese (já era antes; "quando VOU conseguir" responde);
+"quanto eu guardei por mês" titula a soma de 3 meses como "Total guardado por
+mês: R$ 1.200,00".
+
 ## Pendências em 27/10/2026 (HEAD `c824fe0`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800
@@ -3993,8 +4024,6 @@ DeepSeek, push, merge, deploy ou APK. **NOT READY para merge/deploy**: o diff
 real e dados legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas:
-- "Consigo bater a meta" não considera prazo de meta de compra; "quanto
-  preciso guardar por mês pra completar a viagem até dezembro" é recusado.
 - "Dá ruim?" no primeiro turno de "e se eu gastar X" não abre com veredito.
 - "e quanto fica nesse mês" depois de simular compra pergunta outra coisa.
 - "pq?" depois de "qual foi pior" explica o mês errado; "tirando cimento" não
