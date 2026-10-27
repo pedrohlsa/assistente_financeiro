@@ -45,6 +45,30 @@ export function pedeTotalGuardado(t: string): boolean {
 export const retiraDaReserva = (t: string): boolean =>
   /\b(?:tirei|retirei|saquei|peguei|usei)\b[^.?!]*\b(?:da|na)\s+(?:minha\s+)?(?:reserva|poupanca)\b/.test(t)
 
+export type PerguntaDeFatura = 'falta' | 'paga' | 'atrasada' | 'vence' | 'fecha' | 'valor'
+
+/**
+ * Situação da fatura de agora: quanto falta, se já foi paga, se atrasou, quando
+ * vence ou fecha. "Quanto falta pagar DA FATURA" é o pendente dela — a DSL lia
+ * "falta pagar" como parcelamento e respondia a dívida inteira do cartão. Fatura
+ * futura ("mês que vem", "próximos meses", "maior fatura") fica com quem já a
+ * responde. "Paguei a fatura" só é pergunta com "?" — sem ele, é registro.
+ */
+export function perguntaDeFatura(t: string): PerguntaDeFatura | null {
+  if (!/\bfaturas?\b/.test(t)) return null
+  if (/\bmaior\b|\bproxim[oa]s?\s+(?:\d+\s+|dois\s+|tres\s+|quatro\s+|cinco\s+|seis\s+)?meses\b|\bmes\s+que\s+vem\b|\bproximo\s+mes\b|\b(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/.test(t)) return null
+  if (/\bquanto\b[^?]*\b(?:falta|faltam|resta|restam)\b|\b(?:falta|resta)\s+(?:pagar|quitar)\b|\bquanto\s+(?:eu\s+)?(?:ainda\s+)?devo\s+d[ae]s?\s+(?:minhas?\s+)?faturas?\b/.test(t)) return 'falta'
+  if (/\batrasad|\bvencid|\bja\s+venceu\b/.test(t)) return 'atrasada'
+  if (/\bfaturas?\b[^?]*\b(?:esta|foi|estao|foram)\s+(?:ja\s+)?pagas?\b|\bpague[iu]\b[^?]*\bfaturas?\b[^?]*\?|\bsera\s+que\s+(?:eu\s+)?(?:ja\s+)?pague[iu]\b/.test(t)) return 'paga'
+  if (/\bquando\b[^?]*\bvence\b|\bvence\s+quando\b|\bque\s+dia\s+vence\b|\bvencimento\b/.test(t)) return 'vence'
+  if (/\bfecha\b|\bfechou\b|\bfechamento\b|\bquando\b[^?]*\bvira\b|\bvira\s+quando\b/.test(t)) return 'fecha'
+  // "Quanto tá a fatura": a de AGORA. O mês do calendário respondia a do C6
+  // que já venceu e foi paga, e chamava de "previsão" uma fatura fechada.
+  if (!/\bpassad[oa]\b|\banterior\b|\bultima\b|\b(?:esse|este)\s+ano\b/.test(t)
+    && /\bquanto\s+(?:e|esta|vem|veio|ficou|deu|vai\s+(?:vir|ficar|dar))\s+(?:a\s+)?(?:minha\s+)?fatura\b|\bquanto\s+(?:e|esta|vem|veio|ficou|deu|vai\s+(?:vir|ficar|dar))\b[^?]*\bfatura\b|\bvalor\s+da\s+(?:minha\s+)?fatura\b|\bqual\s+(?:e\s+)?a\s+(?:minha\s+)?fatura\b/.test(t)) return 'valor'
+  return null
+}
+
 /** "qual conta está me apertando", "qual das contas pesa mais", "qual boleto…". */
 export function pedeContaQueAperta(t: string): boolean {
   return /\bqual\s+(?:das\s+|dos\s+|e\s+a\s+|e\s+o\s+)?(?:contas?|boletos?|compromissos?)\b.*\b(?:apertando|aperta|pesando|pesa|pesada|pesado|matando|sufocando)\b/.test(t)

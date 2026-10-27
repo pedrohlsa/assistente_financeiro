@@ -800,6 +800,8 @@ export interface CashObligation {
    * por isso nunca é somada como dívida certa (regra 7: recorrente só pergunta).
    */
   unconfirmed?: boolean
+  /** Cartão da fatura, para quem pergunta por uma fatura só. */
+  cardId?: string
 }
 
 /** Meses para trás em que uma fatura ainda em aberto conta como atrasada. */
@@ -855,7 +857,7 @@ export function cashObligationsUntil(s: AppState, until: string): CashObligation
       }, 0)
       const amount = Math.round(Math.min(inv.pending, porStatus) * 100) / 100
       if (amount > 0.009) {
-        out.push({ name: `Fatura ${card.name}`, amount, date: inv.dueDate, inDays: inDays(inv.dueDate), kind: 'invoice' })
+        out.push({ name: `Fatura ${card.name}`, amount, date: inv.dueDate, inDays: inDays(inv.dueDate), kind: 'invoice', cardId: card.id })
       }
     }
   }

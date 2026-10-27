@@ -3797,6 +3797,29 @@ apagar não cria ação e a resposta diz que apagar é pela tela de Movimentaç�
 dedicado neste lote — fica para o próximo. Gates: npm test verde (256/256),
 typechecks e build.
 
+## 2026-10-27 — situação da fatura de agora
+
+"Quanto falta pagar da fatura do Inter" respondia a dívida parcelada do cartão
+(R$ 2.000, "previsão") em vez dos R$ 400 da fatura vencida: a DSL lia "falta
+pagar" como parcelamento antes de ver "fatura". "Já paguei a fatura do
+Nubank?", "tá atrasada?", "quando vence", "já fechou?" caíam no resumo de todos
+os cartões, sem sim/não; "quanto vem a fatura do C6" respondia a do mês do
+calendário (já vencida e paga) e chamava fatura fechada de "previsão".
+
+`perguntaDeFatura()` (em `cashQuestions.ts`) reconhece falta/paga/atrasada/
+vence/fecha/valor da fatura de agora; a DSL recusa essas frases e o roteador
+responde por `respostaDaFatura()`, com o pendente de `cashObligationsUntil()`
+(o mesmo do caixa; a obrigação de fatura ganhou `cardId`). Atrasadas de meses
+anteriores entram; a próxima fatura ainda aberta aparece à parte ("o valor pode
+crescer"). Cartão citado que não existe é dito, sem número. Fatura de mês dito,
+"mês que vem", "próximos meses" e "maior fatura" continuam onde estavam;
+"paguei a fatura" sem "?" continua registro.
+
+16 casos no grupo S (15 vermelhos antes, 1 controle de registro). Gates:
+666/666, 99/99, 50/50, **272/272**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build, rubrica (0 perigosa, 0 ruim), varredura de
+controle e `git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `c824fe0`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800
@@ -3808,8 +3831,6 @@ real e dados legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas:
 - Pedido de apagar (`c824fe0`) sem caso adversarial dedicado.
-- "Quanto falta pagar da fatura do inter" responde a dívida parcelada do
-  cartão (R$ 2.000), não o pendente da fatura.
 - "Consigo bater a meta" não considera prazo de meta de compra; "quanto
   preciso guardar por mês pra completar a viagem até dezembro" é recusado.
 - "Dá ruim?" no primeiro turno de "e se eu gastar X" não abre com veredito.

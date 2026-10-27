@@ -15,7 +15,7 @@ import { buildCapabilities } from '../assistant/capabilities'
 import type { OrchestratorInput } from '../assistant/orchestrator'
 import type { RemoteConversationContext } from '../assistant/conversation/remoteContext'
 import {
-  addDays, dueLabel, fmtBRL, fmtNum, fromISO, todayISO, daysInMonth, parseMoney,
+  addDays, dueLabel, fmtBRL, fmtNum, fromISO, monthKey, todayISO, toISO, daysInMonth, parseMoney,
 } from '../utils/format'
 import { promptSafe, sentenceCase } from '../utils/text'
 import { MAX_COMPOSE_FACTS } from '../assistant/grounding'
@@ -24,7 +24,8 @@ import {
   monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections, budgetUsage,
 } from './calc'
 import type { CashObligation } from './calc'
-import { alvoDaReserva, pedeContaQueAperta, pedeReservaDeCaixa, pedeTotalGuardado, prazoDasContas, retiraDaReserva } from '../assistant/cashQuestions'
+import { alvoDaReserva, pedeContaQueAperta, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, prazoDasContas, retiraDaReserva } from '../assistant/cashQuestions'
+import type { PerguntaDeFatura } from '../assistant/cashQuestions'
 import { describeAction, parseNaturalFull } from './nlp'
 import { driverInsight } from '../assistant/driverInsights'
 import { adaptiveEnabled, buildPersonalModel } from '../assistant/personalModel'
@@ -34,6 +35,7 @@ import {
   activeCards, cardInvoice, cardsOverview, currentInvoice, monthlyCommitments, activePlans,
   planProgress, overdueInstallments, upcomingInvoices, installmentsThisMonth, hasAmbiguousLegacyCardBalance,
 } from './cards'
+import type { CardInvoice } from './cards'
 
 const AMBIGUOUS_BALANCE_REPLY = 'Não consigo confirmar seu saldo com segurança: há um pagamento antigo de fatura sem vínculo com as parcelas e os valores pagos excedem a fatura. Confira se os registros representam pagamentos diferentes ou o mesmo pagamento duplicado antes de usar esse saldo.'
 
@@ -628,6 +630,8 @@ function resolveLocal(s: AppState, input: string): AiReply {
     if (!ov.hasData) {
       return { text: 'Você ainda não cadastrou cartões nem parcelamentos. Você pode adicionar em Mais → Cartões e parcelamentos.' }
     }
+    const sobreFatura = perguntaDeFatura(t)
+    if (sobreFatura && activeCards(s).length) return respostaDaFatura(s, t, sobreFatura)
     // "quanto tenho de parcela no mês que vem?"
     if (/(m[eê]s que vem|pr[oó]ximo m[eê]s)/.test(t) && /parcela|fatura|cart[ãa]o/.test(t)) {
       return {
@@ -1319,6 +1323,215 @@ function resolveLocal(s: AppState, input: string): AiReply {
   }
 
   return ajudaGenerica(driverMode)
+}
+
+/** 'DD/MM/AAAA' montado à mão, pelo mesmo motivo de `diaMes`. */
+const dataCompleta = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
+
+interface SituacaoDaFatura {
+  nome: string
+  closingDay: number
+  dueDay: number
+  /** Venceram e seguem com valor a pagar, pelo mesmo cálculo do caixa. */
+  atrasadas: CashObligation[]
+  /** A primeira fatura que vence de hoje em diante. */
+  proxima: CardInvoice
+  /** Quanto falta dela, pelo mesmo cálculo do caixa. */
+  aPagar: number
+  /** Já fechou: o valor não cresce mais. */
+  fechou: boolean
+  /** A última que já venceu — a de "já paguei a fatura?" quando nada mais fechou. */
+  ultima: CardInvoice
+  /** Fechamento da fatura seguinte à `proxima`. */
+  fechaDepois: string
+}
+
+/** Cartões citados pelo nome; nome curto como "C6" também vale. */
+function cartoesDaPergunta(s: AppState, t: string) {
+  return activeCards(s).filter(c => {
+    const n = normalizeQuestion(c.name)
+    return n.length >= 2 && new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(t)
+  })
+}
+
+function situacaoDasFaturas(s: AppState, cartoes: ReturnType<typeof activeCards>): SituacaoDaFatura[] {
+  const hoje = todayISO()
+  const h = fromISO(hoje)
+  const mes = (n: number) => monthKey(toISO(new Date(h.getFullYear(), h.getMonth() + n, 1)))
+  const base = cartoes.map(card => {
+    const desteMes = cardInvoice(s, card, mes(0))
+    const proxima = desteMes.dueDate >= hoje ? desteMes : cardInvoice(s, card, mes(1))
+    const ultima = desteMes.dueDate < hoje ? desteMes : cardInvoice(s, card, mes(-1))
+    const [y, m] = proxima.monthKey.split('-').map(Number)
+    const seguinte = cardInvoice(s, card, monthKey(toISO(new Date(y, m, 1))))
+    return { card, proxima, ultima, fechaDepois: seguinte.closingDate }
+  })
+  const ate = base.reduce((max, b) => b.proxima.dueDate > max ? b.proxima.dueDate : max, hoje)
+  const faturas = cashObligationsUntil(s, ate).filter(o => o.kind === 'invoice')
+  return base.map(({ card, proxima, ultima, fechaDepois }) => ({
+    nome: card.name, closingDay: card.closingDay, dueDay: card.dueDay,
+    atrasadas: faturas.filter(o => o.cardId === card.id && o.date < hoje),
+    proxima, ultima, fechaDepois,
+    aPagar: faturas.find(o => o.cardId === card.id && o.date === proxima.dueDate)?.amount || 0,
+    fechou: proxima.closingDate < hoje,
+  }))
+}
+
+const venceEm = (iso: string) => iso === todayISO() ? `hoje (${dataCompleta(iso)})` : `em ${dataCompleta(iso)}`
+
+/** A fatura atual ainda aberta, que pode crescer até fechar. */
+function notaDaAberta(f: SituacaoDaFatura, prefixo = 'A próxima'): string {
+  if (f.fechou || f.aPagar <= 0) return ''
+  return `${prefixo}, ainda aberta, está em ${fmtBRL(f.aPagar)}: fecha em ${dataCompleta(f.proxima.closingDate)} e vence em ${dataCompleta(f.proxima.dueDate)}.`
+}
+
+/** O que já venceu ou fechou e falta pagar, uma linha por fatura. */
+function devidasDa(f: SituacaoDaFatura): { valor: number; data: string; linha: string; atrasada: boolean }[] {
+  const out = f.atrasadas.map(o => ({ valor: o.amount, data: o.date, linha: `${fmtBRL(o.amount)} — venceu em ${dataCompleta(o.date)}, atrasada`, atrasada: true }))
+  if (f.fechou && f.aPagar > 0) {
+    out.push({ valor: f.aPagar, data: f.proxima.dueDate, linha: `${fmtBRL(f.aPagar)} — fechada, vence ${venceEm(f.proxima.dueDate)}`, atrasada: false })
+  }
+  return out
+}
+
+/**
+ * "Quanto falta pagar da fatura do Inter", "já paguei a do Nubank?", "tenho
+ * fatura atrasada?", "quando vence", "quando fecha". O pendente vem do mesmo
+ * cálculo do caixa (`cashObligationsUntil`), para a fatura não ter um valor
+ * aqui e outro em "quanto preciso deixar até dia 10".
+ */
+function respostaDaFatura(s: AppState, t: string, tipo: PerguntaDeFatura): AiReply {
+  const citados = cartoesDaPergunta(s, t)
+  if (!citados.length) {
+    const dito = t.match(/\bfaturas?\s+d[oa]s?\s+(?:meu\s+|minha\s+)?(?:cartao\s+(?:d[oa]\s+)?)?([a-z][a-z0-9]*)/)
+    if (dito && !/^(?:cartao|cartoes|credito|mes|meses|ano|semana|dia|atual|agora|passad[oa]|anterior|ultim[oa]|proxim[oa]|hoje)$/.test(dito[1])) {
+      return { text: `Não encontrei um cartão chamado ${sentenceCase(dito[1])}. Seus cartões: ${listaDeNomes(activeCards(s).map(c => c.name))}.` }
+    }
+  }
+  const faturas = situacaoDasFaturas(s, citados.length ? citados : activeCards(s))
+  if (faturas.length === 1) {
+    const f = faturas[0]
+    const devidas = devidasDa(f)
+    const atrasadas = devidas.filter(d => d.atrasada)
+    const somaAtrasada = round2(atrasadas.reduce((a, d) => a + d.valor, 0))
+    const listaAtrasadas = atrasadas.length === 1
+      ? `A fatura do ${f.nome} de ${fmtBRL(somaAtrasada)} venceu em ${dataCompleta(f.atrasadas[0].date)}`
+      : `${atrasadas.length} faturas do ${f.nome} venceram sem pagamento, somando ${fmtBRL(somaAtrasada)}:\n${atrasadas.map(d => `• ${d.linha}`).join('\n')}\n\n`
+    const fechadaPaga = f.fechou && f.proxima.total > 0 && f.aPagar <= 0
+    const ultimaPaga = f.ultima.total > 0 && f.ultima.pending <= 0.009
+    switch (tipo) {
+      case 'falta': {
+        const total = round2(devidas.reduce((a, d) => a + d.valor, 0))
+        const aberta = notaDaAberta(f)
+        if (!devidas.length) {
+          const paga = fechadaPaga ? `a fatura do ${f.nome} que vence ${venceEm(f.proxima.dueDate)} já está paga.`
+            : ultimaPaga ? `a fatura do ${f.nome} que venceu em ${dataCompleta(f.ultima.dueDate)} está paga.`
+              : `não há fatura vencida ou fechada para pagar no ${f.nome}.`
+          return { text: [`Não falta nada: ${paga}`, aberta].filter(Boolean).join(' ') }
+        }
+        const corpo = devidas.length === 1
+          ? atrasadas.length
+            ? `Falta pagar ${fmtBRL(total)} da fatura do ${f.nome}. Ela venceu em ${dataCompleta(f.atrasadas[0].date)} e está atrasada.`
+            : `Falta pagar ${fmtBRL(total)} da fatura do ${f.nome}, que já fechou e vence ${venceEm(f.proxima.dueDate)}.`
+          : `Falta pagar ${fmtBRL(total)} em faturas do ${f.nome}:\n${devidas.map(d => `• ${d.linha}`).join('\n')}`
+        return { text: [corpo, aberta].filter(Boolean).join('\n\n') }
+      }
+      case 'paga': {
+        if (atrasadas.length) {
+          return { text: atrasadas.length === 1 ? `Não. ${listaAtrasadas} e ainda não foi paga.` : `Não. ${listaAtrasadas.trim()}` }
+        }
+        if (f.fechou && f.aPagar > 0) {
+          return { text: f.proxima.paid > 0.009
+            ? `Não toda. Você já pagou ${fmtBRL(f.proxima.paid)} da fatura do ${f.nome} e falta ${fmtBRL(f.aPagar)} até ${dataCompleta(f.proxima.dueDate)}.`
+            : `Não. A fatura do ${f.nome} já fechou e falta pagar ${fmtBRL(f.aPagar)} até ${dataCompleta(f.proxima.dueDate)}.` }
+        }
+        if (fechadaPaga) return { text: `Sim. A fatura do ${f.nome} de ${fmtBRL(f.proxima.total)}, que vence ${venceEm(f.proxima.dueDate)}, está paga.` }
+        if (ultimaPaga) {
+          return { text: [`Sim. A fatura do ${f.nome} de ${fmtBRL(f.ultima.total)}, que venceu em ${dataCompleta(f.ultima.dueDate)}, está paga.`, notaDaAberta(f)].filter(Boolean).join(' ') }
+        }
+        const aberta = notaDaAberta(f, 'A atual')
+        return { text: aberta ? `Ainda não há fatura fechada para pagar no ${f.nome}. ${aberta}` : `O ${f.nome} não tem fatura com valor para pagar agora.` }
+      }
+      case 'atrasada': {
+        if (atrasadas.length) return { text: atrasadas.length === 1 ? `Sim. ${listaAtrasadas} e não foi paga.` : `Sim. ${listaAtrasadas.trim()}` }
+        const proxima = f.aPagar > 0 ? ` Ela vence ${venceEm(f.proxima.dueDate)}, com ${fmtBRL(f.aPagar)} a pagar${f.fechou ? '' : ' até agora'}.` : ''
+        return { text: `Não, a fatura do ${f.nome} não está atrasada.${proxima}` }
+      }
+      case 'vence': {
+        const valor = fechadaPaga ? ' e já está paga'
+          : f.aPagar > 0 ? `, com ${fmtBRL(f.aPagar)} ${f.fechou ? 'a pagar' : 'até agora (ainda aberta)'}` : ''
+        if (atrasadas.length) {
+          return { text: `A fatura do ${f.nome} venceu em ${dataCompleta(f.atrasadas[0].date)} e está atrasada: falta ${fmtBRL(somaAtrasada)}. A próxima vence ${venceEm(f.proxima.dueDate)}${valor}.` }
+        }
+        return { text: `A fatura do ${f.nome} vence ${venceEm(f.proxima.dueDate)}${valor}.` }
+      }
+      case 'fecha': {
+        const regra = `A fatura do ${f.nome} fecha todo dia ${f.closingDay} e vence todo dia ${f.dueDay}.`
+        const atual = f.fechou
+          ? `A atual fechou em ${dataCompleta(f.proxima.closingDate)} e vence ${venceEm(f.proxima.dueDate)}; a próxima fecha em ${dataCompleta(f.fechaDepois)}.`
+          : `A atual fecha em ${dataCompleta(f.proxima.closingDate)} e vence em ${dataCompleta(f.proxima.dueDate)}.`
+        const atraso = atrasadas.length
+          ? `\n\nAtenção: ${atrasadas.length === 1 ? `a de ${dataCompleta(f.atrasadas[0].date)} venceu sem pagamento` : `${atrasadas.length} faturas venceram sem pagamento`} — falta ${fmtBRL(somaAtrasada)}.`
+          : ''
+        // "Já fechou?" é sim/não; a regra do cartão não precisa vir junto.
+        if (/\bfechou\b/.test(t)) {
+          return { text: (f.fechou
+            ? `Sim. A fatura do ${f.nome} fechou em ${dataCompleta(f.proxima.closingDate)} e vence ${venceEm(f.proxima.dueDate)}; a próxima fecha em ${dataCompleta(f.fechaDepois)}.`
+            : `Ainda não. A fatura do ${f.nome} fecha em ${dataCompleta(f.proxima.closingDate)} e vence em ${dataCompleta(f.proxima.dueDate)}.`) + atraso }
+        }
+        return { text: `${regra} ${atual}${atraso}` }
+      }
+      case 'valor': {
+        if (atrasadas.length) {
+          return { text: [`${listaAtrasadas.trim()}${atrasadas.length === 1 ? ' e está atrasada.' : ''}`, notaDaAberta(f)].filter(Boolean).join('\n\n') }
+        }
+        if (f.fechou && f.proxima.total > 0) {
+          const fechou = `A fatura do ${f.nome} fechou em ${fmtBRL(f.proxima.total)}`
+          if (fechadaPaga) return { text: `${fechou} e já está paga (vence ${venceEm(f.proxima.dueDate)}).` }
+          return { text: `${fechou} e vence ${venceEm(f.proxima.dueDate)}.${f.proxima.paid > 0.009
+            ? ` Você já pagou ${fmtBRL(f.proxima.paid)}; falta ${fmtBRL(f.aPagar)}.` : ''}` }
+        }
+        const aberta = notaDaAberta(f, `A fatura atual do ${f.nome}`)
+        return { text: aberta || `A fatura atual do ${f.nome} ainda está sem valor: fecha em ${dataCompleta(f.proxima.closingDate)} e vence em ${dataCompleta(f.proxima.dueDate)}.` }
+      }
+    }
+  }
+
+  // A atrasada vem primeiro: a ordem dos cartões cadastrados não diz nada.
+  const devidas = faturas.flatMap(f => devidasDa(f).map(d => ({ ...d, nome: f.nome })))
+    .sort((a, b) => a.data.localeCompare(b.data))
+  const total = round2(devidas.reduce((a, d) => a + d.valor, 0))
+  const linhas = (itens: typeof devidas) => itens.map(d => `• ${d.nome}: ${d.linha}`).join('\n')
+  const abertas = faturas.filter(f => !f.fechou && f.aPagar > 0)
+    .map(f => `• ${f.nome}: ${fmtBRL(f.aPagar)} — fecha em ${dataCompleta(f.proxima.closingDate)}, vence em ${dataCompleta(f.proxima.dueDate)}`)
+  const notaAbertas = abertas.length ? `Ainda ${abertas.length === 1 ? 'aberta' : 'abertas'}, o valor pode crescer até fechar:\n${abertas.join('\n')}` : ''
+  switch (tipo) {
+    case 'falta':
+    case 'paga':
+    case 'valor': {
+      const corpo = devidas.length
+        ? `${tipo === 'paga' ? 'Não. ' : ''}Falta pagar ${fmtBRL(total)} em faturas:\n${linhas(devidas)}`
+        : `${tipo === 'paga' ? 'Sim. ' : ''}Nenhuma fatura vencida ou fechada está esperando pagamento.`
+      return { text: [corpo, notaAbertas].filter(Boolean).join('\n\n') }
+    }
+    case 'atrasada': {
+      const atrasadas = devidas.filter(d => d.atrasada)
+      if (atrasadas.length) {
+        const soma = round2(atrasadas.reduce((a, d) => a + d.valor, 0))
+        return { text: `Sim. ${atrasadas.length === 1 ? 'Uma fatura está atrasada' : `${atrasadas.length} faturas estão atrasadas, somando ${fmtBRL(soma)}`}:\n${linhas(atrasadas)}` }
+      }
+      const proxima = faturas.filter(f => f.aPagar > 0).sort((a, b) => a.proxima.dueDate.localeCompare(b.proxima.dueDate))[0]
+      return { text: `Não, nenhuma fatura está atrasada.${proxima ? ` A próxima a vencer é a do ${proxima.nome}, ${venceEm(proxima.proxima.dueDate)}, com ${fmtBRL(proxima.aPagar)}${proxima.fechou ? '' : ' até agora'}.` : ''}` }
+    }
+    case 'vence':
+      return { text: `Vencimento das faturas:\n${faturas.map(f => {
+        const atrasada = devidasDa(f).filter(d => d.atrasada)
+        const valor = f.aPagar > 0 ? ` — ${fmtBRL(f.aPagar)}${f.fechou ? '' : ' até agora'}` : ''
+        return `• ${f.nome}: ${atrasada.length ? `venceu em ${dataCompleta(f.atrasadas[0].date)}, atrasada; a próxima vence ${venceEm(f.proxima.dueDate)}` : `vence ${venceEm(f.proxima.dueDate)}`}${valor}`
+      }).join('\n')}` }
+    case 'fecha':
+      return { text: `Fechamento das faturas:\n${faturas.map(f => `• ${f.nome}: fecha todo dia ${f.closingDay} e vence todo dia ${f.dueDay}`).join('\n')}` }
+  }
 }
 
 /**

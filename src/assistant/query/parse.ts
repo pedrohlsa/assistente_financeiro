@@ -30,7 +30,7 @@ import { addDays, fromISO, todayISO, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase } from '../../utils/text'
 import { isDriver } from '../../services/profile'
 import { buildPersonalModel, adaptiveEnabled } from '../personalModel'
-import { pedeContaQueAperta, pedeReservaDeCaixa, pedeTotalGuardado } from '../cashQuestions'
+import { pedeContaQueAperta, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura } from '../cashQuestions'
 import {
   currentMonthToDate, monthPeriod, nextMonths, parseFutureMonth, parsePeriod, previousPeriod,
 } from './period'
@@ -145,7 +145,9 @@ export function looksLikeDataQuestion(input: string): boolean {
   if (NAO_E_CONSULTA.some(re => re.test(t))) return false
   // Caixa FUTURO: a DSL soma o passado, e estas perguntas olham o que ainda
   // vai vencer. O roteador antigo responde com `cashObligationsUntil()`.
-  if (pedeReservaDeCaixa(t) || pedeContaQueAperta(t) || pedeTotalGuardado(t)) return false
+  // Situação da fatura de agora ("quanto falta pagar da fatura") é o pendente
+  // dela, não a dívida parcelada que a DSL somava.
+  if (pedeReservaDeCaixa(t) || pedeContaQueAperta(t) || pedeTotalGuardado(t) || perguntaDeFatura(t)) return false
   return PEDE_DADO.some(re => re.test(t))
 }
 

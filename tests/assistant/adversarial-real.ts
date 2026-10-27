@@ -1763,7 +1763,100 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   out.push(result('I-ensinar-categoria-criada', ensina, 'propõe guardar feira → Feirinha',
     ensina.preferenceMutation?.type === 'upsert'
       && ensina.preferenceMutation.preference.value === 'k3x9q2mvqjx0we' && /Feirinha/.test(ensina.reply)))
+
+  // "Quanto falta pagar DA FATURA": o pendente da fatura, não a dívida
+  // parcelada do cartão. Oráculos à mão: Inter 300 vencida (dívida 900),
+  // Nubank 250 fechada a vencer (dívida 750), C6 200 paga pela fatura.
+  {
+    const st = estadoDeFaturas(hoje)
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const data = (iso: string) => fromISO(iso).toLocaleDateString('pt-BR')
+    const casos: [string, string, string, (r: string) => boolean][] = [
+      ['S-falta-fatura-inter', 'quanto falta pagar da fatura do inter', `${brl(300)} vencida em ${data(addDays(hoje, -5))}, nunca ${brl(900)}`,
+        r => r.includes(brl(300)) && r.includes(data(addDays(hoje, -5))) && /atrasad|venceu/.test(r) && !r.includes(brl(900))],
+      ['S-falta-fatura-nubank', 'quanto falta da fatura do nubank', `${brl(250)} até ${data(addDays(hoje, 3))}, nunca ${brl(750)}`,
+        r => r.includes(brl(250)) && r.includes(data(addDays(hoje, 3))) && !r.includes(brl(750))],
+      ['S-ja-paguei-nubank', 'ja paguei a fatura do nubank?', `Não; falta ${brl(250)}`,
+        r => /^Não\b/.test(r) && r.includes(brl(250)) && !/Inter/.test(r)],
+      ['S-c6-paga', 'a fatura do c6 ta paga?', 'Sim, paga', r => /^Sim\b/.test(r) && /paga/.test(r)],
+      ['S-inter-atrasada', 'a fatura do inter ta atrasada?', `Sim; ${brl(300)}`, r => /^Sim\b/.test(r) && r.includes(brl(300))],
+      ['S-nubank-nao-atrasada', 'a fatura do nubank ta atrasada?', 'Não, vence depois', r => /^Não\b/.test(r) && r.includes(data(addDays(hoje, 3)))],
+      ['S-vencimento-nubank', 'quando vence a fatura do nubank', `vence ${data(addDays(hoje, 3))}`,
+        r => r.includes(data(addDays(hoje, 3))) && r.includes(brl(250)) && !/Inter|C6/.test(r)],
+      ['S-tem-atrasada', 'tenho fatura atrasada?', `Sim: Inter ${brl(300)}`,
+        r => /^Sim\b/.test(r) && /Inter/.test(r) && r.includes(brl(300)) && !/Nubank|C6/.test(r)],
+      ['S-falta-todas', 'quanto falta pagar das faturas', `${brl(550)} somando Inter e Nubank, nunca a dívida ${brl(2050)}`,
+        r => r.includes(brl(550)) && !r.includes(brl(2050))],
+      ['S-fechamento', 'a fatura do nubank fecha quando', 'diz o dia de fechamento',
+        r => new RegExp(`fecha\\w*\\b[^.]*\\bdia ${st.cards.find(c => c.name === 'Nubank')!.closingDay}\\b`).test(r)],
+      ['S-cartao-inexistente', 'quanto falta da fatura do itau', 'não há cartão Itaú; nenhum valor',
+        r => /n[ãa]o (?:encontrei|tenho|achei)[^.]*cart[ãa]o/i.test(r) && !/R\$/.test(r)],
+      // A fatura de AGORA, não a do mês do calendário: a do C6 que venceu está
+      // paga, e "quanto vem" quer a próxima.
+      ['S-valor-nubank-fechada', 'quanto ta a fatura do nubank', `${brl(250)}, fechada, vence ${data(addDays(hoje, 3))}, sem "previsão"`,
+        r => r.includes(brl(250)) && /fech/.test(r) && r.includes(data(addDays(hoje, 3))) && !/previs/i.test(r)],
+      ['S-valor-c6-proxima', 'quanto vem a fatura do c6', `próxima, aberta, ${brl(200)}`,
+        r => r.includes(brl(200)) && /aberta/.test(r) && !r.includes(data(addDays(hoje, -2))) && !/Nubank|Inter/.test(r)],
+      ['S-ja-fechou', 'a fatura do nubank ja fechou?', `Sim, fechou em ${data(addDays(hoje, -2))}`,
+        r => /^Sim\b/.test(r) && r.includes(data(addDays(hoje, -2)))],
+      ['S-atrasada-primeiro', 'quanto falta pagar das faturas', 'Inter (atrasada) antes do Nubank',
+        r => r.indexOf('Inter') >= 0 && r.indexOf('Inter') < r.indexOf('Nubank')],
+    ]
+    for (const [id, frase, esperado, ok] of casos) {
+      const r = await turnoHoje(st, frase)
+      out.push(result(id, r.reply, esperado, ok(limpa(r.reply)) && r.actions.length === 0))
+    }
+    const paguei = await turnoHoje(st, 'paguei a fatura do nubank')
+    out.push(result('S-afirmacao-ainda-registra', paguei.actions, 'pagamento de fatura do Nubank proposto',
+      paguei.actions.some(a => a.kind === 'card-payment' && /nubank/i.test(a.cardName || ''))))
+  }
   return out
+}
+
+/**
+ * Três cartões em volta de HOJE: Inter com fatura de 300 vencida há 5 dias
+ * (Celular 3x de 300), Nubank com fatura de 250 fechada que vence em 3 dias
+ * (Fone 3x de 250), C6 com fatura de 200 vencida há 2 dias e paga pela fatura.
+ */
+function estadoDeFaturas(hoje: string): AppState {
+  const s = buildState({ profile: 'autonomo', balance: 3000 })
+  const dia = (iso: string) => Number(iso.slice(8, 10))
+  const mes = (iso: string, n: number) => {
+    const d = fromISO(iso)
+    return toISOdate(new Date(d.getFullYear(), d.getMonth() + n, Math.min(d.getDate(), 28)))
+  }
+  const inter = addDays(hoje, -5)
+  const nubank = addDays(hoje, 3)
+  const c6 = addDays(hoje, -2)
+  s.cards = [
+    { id: 'sf-nubank', name: 'Nubank', limit: 5000, closingDay: dia(addDays(hoje, -2)), dueDay: dia(nubank), createdAt: addDays(hoje, -120) },
+    { id: 'sf-inter', name: 'Inter', limit: 5000, closingDay: dia(addDays(inter, -7)), dueDay: dia(inter), createdAt: addDays(hoje, -120) },
+    { id: 'sf-c6', name: 'C6', limit: 5000, closingDay: dia(addDays(c6, -7)), dueDay: dia(c6), createdAt: addDays(hoje, -120) },
+  ] as AppState['cards']
+  const plano = (id: string, description: string, cardId: string, parcela: number, primeira: string) => ({
+    id, description, cardId, totalAmount: parcela * 3, installmentCount: 3, firstDueDate: primeira,
+    purchaseDate: addDays(primeira, -20), status: 'active', operationType: 'card-purchase', createdAt: addDays(primeira, -20),
+  })
+  s.installmentPlans = [
+    plano('sf-p-inter', 'Celular', 'sf-inter', 300, inter),
+    plano('sf-p-nubank', 'Fone', 'sf-nubank', 250, nubank),
+    plano('sf-p-c6', 'Cadeira', 'sf-c6', 200, c6),
+  ] as AppState['installmentPlans']
+  const parcelas = (planId: string, valor: number, primeira: string, dueDay: number) => [0, 1, 2].map(n => {
+    const base = mes(primeira, n)
+    return { id: `${planId}-${n + 1}`, planId, number: n + 1, total: 3, amount: valor,
+      dueDate: n === 0 ? primeira : `${base.slice(0, 8)}${String(Math.min(dueDay, 28)).padStart(2, '0')}`, status: 'pending' }
+  })
+  s.installments = [
+    ...parcelas('sf-p-inter', 300, inter, dia(inter)),
+    ...parcelas('sf-p-nubank', 250, nubank, dia(nubank)),
+    ...parcelas('sf-p-c6', 200, c6, dia(c6)).map((i, n) => n === 0
+      ? { ...i, status: 'paid', paidAt: c6, paidAmount: 200, paidVia: 'invoice' } : i),
+  ] as AppState['installments']
+  s.cardPayments = [{ id: 'sf-pay-c6', cardId: 'sf-c6', amount: 200, paymentDate: c6, referenceMonth: c6.slice(0, 7),
+    settledInstallmentIds: ['sf-p-c6-1'] }]
+  return s
 }
 
 /**
