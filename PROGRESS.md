@@ -4253,6 +4253,19 @@ leitor de duração conhecia "semana toda" e "toda a semana", não "essa semana"
 Agora são 7 dias (R$ 565,54). 1 caso (vermelho antes). Gates: 666/666,
 **373/373**, 151/151 e os demais verdes.
 
+## 2026-10-27 — "como foi hoje?" e "foi bom?"
+
+"Como foi hoje", "como foi meu dia" e "foi bom?" caíam na ajuda genérica.
+`pedeResumoDoDia()` e `respostaDoDia()`: entradas, saídas e lucro de hoje
+contra o lucro médio dos dias com registro nos 30 anteriores, a meta do dia
+para o motorista, e sim/não na direção da palavra usada ("foi bom?" → "Não,
+ficou abaixo da sua média"; "foi fraco?" inverte). Abaixo da média, a
+resposta lembra que o dia pode não ter acabado. Sem nada registrado hoje, diz
+isso. 2 casos no grupo DD (os 2 vermelhos antes; oráculo somando o fixture).
+Gates: 666/666, 99/99, 50/50, **375/375**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build, rubrica, varredura e `git diff --check`
+passaram.
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800

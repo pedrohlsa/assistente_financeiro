@@ -2310,6 +2310,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('HX-essa-semana-sete-dias', r, '7 dias', /em 7 dias/.test(r) && !/30 dias rendem/.test(r)))
   }
 
+  // "Como foi hoje?" e "foi bom?" caíam na ajuda genérica. Oráculo: lucro de
+  // hoje e lucro médio dos dias com registro nos 30 dias anteriores.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const mot = motoristaRico(hoje)
+    const r2 = (v: number) => Math.round(v * 100) / 100
+    const lucro = (de: string, ate: string) => mot.transactions.filter(x => x.date >= de && x.date <= ate)
+      .reduce((a, x) => a + (x.type === 'income' ? x.amount : x.type === 'expense' ? -x.amount : 0), 0)
+    const ini = addDays(hoje, -30), ontem = addDays(hoje, -1)
+    const dias = new Set([...mot.transactions.filter(x => x.date >= ini && x.date <= ontem).map(x => x.date),
+      ...mot.workSessions.filter(w => w.date >= ini && w.date <= ontem).map(w => w.date)]).size
+    const hojeLucro = r2(lucro(hoje, hoje))
+    const media = r2(lucro(ini, ontem) / dias)
+    const como = limpa((await turnoHoje(mot, 'como foi hoje')).reply)
+    out.push(result('DD-como-foi-hoje', como, `lucro ${brl(hojeLucro)} contra média ${brl(media)}`,
+      como.includes(brl(hojeLucro)) && como.includes(brl(media)) && !/Posso te ajudar/.test(como)))
+    const bom = limpa((await turnoHoje(mot, 'foi bom?')).reply)
+    out.push(result('DD-foi-bom', bom, hojeLucro >= media ? 'Sim, acima da média' : 'abaixo da média',
+      (hojeLucro >= media ? /^Sim\b/ : /^N[ãa]o\b|^Abaixo|^Foi mais fraco/).test(bom) && bom.includes(brl(media))))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

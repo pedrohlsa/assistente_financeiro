@@ -180,6 +180,15 @@ export function pedeSobraSemCombustivel(t: string): boolean {
     && !/\b(?:gastei|gasto|gastos|despesas?)\b/.test(t)
 }
 
+/**
+ * "Como foi hoje?", "como foi meu dia", "foi bom?", "hoje foi fraco?": o dia
+ * de hoje contra os outros dias. Caíam na ajuda genérica.
+ */
+export function pedeResumoDoDia(t: string): boolean {
+  return /^\s*(?:e\s+)?como\s+(?:foi|esta|ficou|vai|anda)(?:\s+(?:(?:o\s+)?(?:meu\s+)?dia(?:\s+de\s+hoje)?|hoje))?\s*\??\s*$/.test(t)
+    || /^\s*(?:e\s+)?(?:(?:o\s+)?(?:meu\s+)?dia\s+|hoje\s+)?(?:foi|esta|tava|estava)\s+(?:um\s+dia\s+)?(?:bom|boa|fraco|ruim|bem|razoavel|legal|forte)\s*(?:hoje)?\s*\??\s*$/.test(t)
+}
+
 export type PerguntaDeConta = 'paga' | 'vence' | 'valor'
 
 /**

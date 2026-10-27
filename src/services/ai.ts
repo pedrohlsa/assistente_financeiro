@@ -26,7 +26,7 @@ import {
 } from './calc'
 import type { CashObligation } from './calc'
 import {
-  alvoDaReserva, mesesAtePrazo, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
+  alvoDaReserva, mesesAtePrazo, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeResumoDoDia, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
   perguntaDeFatura, perguntaDeManutencao,
   planoDeGuardar, prazoDasContas, retiraDaReserva,
 } from '../assistant/cashQuestions'
@@ -585,6 +585,9 @@ function resolveLocal(s: AppState, input: string): AiReply {
   const sobreConta = perguntaDeConta(t)
   const conta = sobreConta ? contaCitada(s, t) : undefined
   if (sobreConta && conta) return respostaDaConta(s, conta, sobreConta)
+
+  // "Como foi hoje?", "foi bom?": o dia contra a média dos outros dias.
+  if (pedeResumoDoDia(t)) return respostaDoDia(s, t, driverMode)
 
   // "Quanto fico por dia tirando a gasolina": entradas MENOS combustível.
   if (pedeSobraSemCombustivel(t)) return respostaSobraSemCombustivel(s, t)
@@ -1655,6 +1658,40 @@ function respostaDePlano(s: AppState, t: string, plano: PlanoDeGuardar, driverMo
     return { text: `Sim, no ritmo ${ritmo}. ${qualMeta} ${conta}, e sobraram em média ${fmtBRL(sobra.media)} por mês. ${aviso}` }
   }
   return { text: `Não no ritmo ${ritmo}. ${qualMeta} ${conta}, e sobraram em média ${fmtBRL(sobra.media)} por mês — faltariam ${fmtBRL(round2(mensal - Math.max(sobra.media, 0)))} por mês. ${aviso}` }
+}
+
+/**
+ * Hoje contra o lucro médio dos dias com registro nos 30 dias anteriores; para
+ * o motorista, a meta do dia também. "Foi bom?"/"foi fraco?" abre com sim ou
+ * não (regra 57) — na direção da palavra que a pessoa usou.
+ */
+function respostaDoDia(s: AppState, t: string, driverMode: boolean): AiReply {
+  const dia = todayStats(s)
+  if (!(dia.income > 0) && !(dia.expense > 0)) {
+    return { text: 'Hoje ainda não tem nada registrado. Me conta como foi — "fiz 300 hoje" ou "gastei 50 de gasolina" — que eu lanço e comparo com seus outros dias.' }
+  }
+  const lucro = round2(dia.profit)
+  const media = round2(avgDailyProfit(s))
+  const temMedia = Math.abs(media) > 0.005
+  const acima = lucro >= media
+  const pedeBom = /\b(?:bom|boa|bem|legal|forte|razoavel)\b/.test(t)
+  const pedeFraco = /\b(?:fraco|ruim)\b/.test(t)
+  const lead = !temMedia ? ''
+    : pedeBom ? (acima ? 'Sim, acima da sua média. ' : 'Não, ficou abaixo da sua média. ')
+      : pedeFraco ? (acima ? 'Não, ficou acima da sua média. ' : 'Sim, abaixo da sua média. ') : ''
+  const nome = driverMode ? 'lucro' : 'sobra'
+  const partes = [`${lead}Hoje: ${fmtBRL(dia.income)} de entradas e ${fmtBRL(dia.expense)} de saídas — ${nome} de ${fmtBRL(lucro)} (dado real).`]
+  if (temMedia) {
+    const diff = round2(Math.abs(lucro - media))
+    // A média é de dias INTEIROS; hoje pode não ter acabado.
+    partes.push(`Nos dias com registro dos últimos 30, a média foi de ${fmtBRL(media)}: hoje ficou ${diff < 0.005 ? 'igual' : `${fmtBRL(diff)} ${acima ? 'acima' : 'abaixo'}`}`
+      + `${acima ? '' : ' — se o dia ainda não acabou, essa conta muda'}.`)
+  }
+  if (driverMode) {
+    const meta = round2(dailyGoal(s).total)
+    if (meta > 0) partes.push(lucro >= meta ? `A meta de hoje (${fmtBRL(meta)}) foi batida.` : `A meta de hoje é ${fmtBRL(meta)}: faltam ${fmtBRL(round2(meta - lucro))}.`)
+  }
+  return { text: partes.join('\n\n') }
 }
 
 /**
