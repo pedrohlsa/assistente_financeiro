@@ -510,7 +510,11 @@ function categoriaSolta(state: AppState, t: string, tipo: 'income' | 'expense'):
     for (const p of palavras) {
       const chave = normalizeName(p)
       if (chave.length < 4 || /\s/.test(chave)) continue
-      if (new RegExp(`(^|\\s)${escapaRegex(chave)}(\\s|$)`).test(t)) return { id: c.id, nome: chave }
+      // Radical longo no COMEÇO de uma palavra é a palavra dita: "minha
+      // gasolina aumentou?" perdia o assunto porque o termo é "gasolin".
+      const fim = chave.length >= 6 ? String.raw`[a-z]*(\s|$)` : String.raw`(\s|$)`
+      const dita = t.match(new RegExp(`(^|\\s)${escapaRegex(chave)}${fim}`))
+      if (dita) return { id: c.id, nome: dita[0].trim() }
     }
   }
   return undefined
