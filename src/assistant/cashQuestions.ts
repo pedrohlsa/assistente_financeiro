@@ -167,6 +167,19 @@ export function pedeContasFixas(t: string): boolean {
     && /\b(?:qual|quais|quanto|quanta|lista|listar|mostra|mostrar)\b|\?/.test(t)
 }
 
+const COMBUSTIVEL = String.raw`(?:a\s+|o\s+)?(?:gasolina|combustivel|etanol|alcool|gnv|abastecimentos?)\b`
+
+/**
+ * "Quanto fico por dia tirando a gasolina", "quanto sobra depois do
+ * combustível": com verbo de SOBRA, "tirando" é descontar. A consulta lia
+ * exclusão — tirava a gasolina das despesas e respondia o resto delas.
+ */
+export function pedeSobraSemCombustivel(t: string): boolean {
+  const desconta = new RegExp(String.raw`\b(?:tirando|descontando|depois\s+d[aoe]s?|menos|pagando)\s+${COMBUSTIVEL}`)
+  return /\b(?:sobra|sobram|sobrou|fico|fica|ficou|lucro|lucrei|lucra|liquido|limpo)\b/.test(t) && desconta.test(t)
+    && !/\b(?:gastei|gasto|gastos|despesas?)\b/.test(t)
+}
+
 export type PerguntaDeConta = 'paga' | 'vence' | 'valor'
 
 /**

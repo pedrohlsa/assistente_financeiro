@@ -2113,6 +2113,29 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('FX-motorista-custo-fixo', mot, 'R$ 900,00 cadastrados em Configurações', /R\$ 900,00/.test(mot) && /Configura[çc][õo]es/.test(mot)))
   }
 
+  // "Quanto fico por dia tirando a gasolina" é entrada MENOS combustível: a
+  // consulta excluía a gasolina das despesas e respondia R$ 10,37 (a troca de
+  // óleo por dia). E "Por dia este mês" não dizia de quê nem por quantos dias.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const mot = motoristaRico(hoje)
+    const ini = `${hoje.slice(0, 8)}01`
+    const doMes = mot.transactions.filter(x => x.date >= ini && x.date <= hoje)
+    const entradas = doMes.filter(x => x.type === 'income').reduce((a, x) => a + x.amount, 0)
+    const combustivel = doMes.filter(x => x.type === 'expense' && x.category === 'combustivel').reduce((a, x) => a + x.amount, 0)
+    const dias = Number(hoje.slice(8, 10))
+    const r2 = (v: number) => Math.round(v * 100) / 100
+    const porDia = limpa((await turnoHoje(mot, 'quanto fico por dia tirando a gasolina')).reply)
+    out.push(result('SC-por-dia-tirando-gasolina', porDia, `${brl(r2((entradas - combustivel) / dias))} por dia`,
+      porDia.includes(brl(r2((entradas - combustivel) / dias))) && !porDia.includes(brl(10.37))))
+    const total = limpa((await turnoHoje(mot, 'quanto sobra depois da gasolina')).reply)
+    out.push(result('SC-total-depois-da-gasolina', total, `${brl(r2(entradas - combustivel))} no mês`, total.includes(brl(r2(entradas - combustivel)))))
+    const rotulo = limpa((await turnoHoje(mot, 'quanto sobra por dia')).reply)
+    out.push(result('SC-rotulo-por-dia', rotulo, 'diz que é líquido e que divide pelos dias corridos',
+      /L[íi]quido por dia/.test(rotulo) && new RegExp(`${dias} dias corridos`).test(rotulo)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

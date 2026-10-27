@@ -26,7 +26,7 @@ import {
 } from './calc'
 import type { CashObligation } from './calc'
 import {
-  alvoDaReserva, mesesAtePrazo, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeConta,
+  alvoDaReserva, mesesAtePrazo, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
   perguntaDeFatura, perguntaDeManutencao,
   planoDeGuardar, prazoDasContas, retiraDaReserva,
 } from '../assistant/cashQuestions'
@@ -585,6 +585,9 @@ function resolveLocal(s: AppState, input: string): AiReply {
   const sobreConta = perguntaDeConta(t)
   const conta = sobreConta ? contaCitada(s, t) : undefined
   if (sobreConta && conta) return respostaDaConta(s, conta, sobreConta)
+
+  // "Quanto fico por dia tirando a gasolina": entradas MENOS combustível.
+  if (pedeSobraSemCombustivel(t)) return respostaSobraSemCombustivel(s, t)
 
   // Intenção de conversar/avisar o que virá não é um pedido de resumo.
   if (/\b(?:vou|posso|quero)\s+(?:te\s+)?(?:passar|falar|dizer|mandar)\b/.test(t) && !/\b\d+(?:[.,]\d+)*\b/.test(t)) {
@@ -1648,6 +1651,35 @@ function respostaDePlano(s: AppState, t: string, plano: PlanoDeGuardar, driverMo
     return { text: `Sim, no ritmo ${ritmo}. ${conta}, e sobraram em média ${fmtBRL(sobra.media)} por mês. ${aviso}` }
   }
   return { text: `Não no ritmo ${ritmo}. ${conta}, e sobraram em média ${fmtBRL(sobra.media)} por mês — faltariam ${fmtBRL(round2(mensal - Math.max(sobra.media, 0)))} por mês. ${aviso}` }
+}
+
+/**
+ * Entradas menos combustível no período (este mês, se nada for dito), e por
+ * dia corrido quando pedido. As outras despesas vêm à parte: quem pergunta
+ * "tirando a gasolina" quer esse desconto primeiro, mas não pode achar que
+ * sobrou o que a troca de óleo já levou.
+ */
+function respostaSobraSemCombustivel(s: AppState, t: string): AiReply {
+  const hoje = todayISO()
+  const dito = /\bhoje\b|\bontem\b|\bsemana\b|\bmes\s+passado\b/.test(t) ? periodFromText(t) : null
+  const p = dito || { from: `${hoje.slice(0, 8)}01`, to: hoje, label: 'este mês' }
+  const txs = s.transactions.filter(x => x.date >= p.from && x.date <= p.to)
+  const soma = (f: (x: typeof txs[number]) => boolean) => round2(txs.filter(f).reduce((a, x) => a + x.amount, 0))
+  const entradas = soma(x => x.type === 'income')
+  const combustivel = soma(x => x.type === 'expense' && x.category === 'combustivel')
+  const outras = soma(x => x.type === 'expense' && x.category !== 'combustivel')
+  if (!entradas && !combustivel) return { text: `Não tenho entradas nem combustível registrados ${p.label}.` }
+  const dias = Math.round((fromISO(p.to).getTime() - fromISO(p.from).getTime()) / 86400000) + 1
+  const porDia = /\bpor\s+dia\b|\bao\s+dia\b|\bdiari[oa]\b/.test(t) && dias > 1
+  const sobra = round2(entradas - combustivel)
+  const conta = `${fmtBRL(entradas)} de entradas menos ${fmtBRL(combustivel)} de combustível`
+  const primeira = porDia
+    ? `Tirando o combustível, sobram ${fmtBRL(round2(sobra / dias))} por dia ${p.label} (dado real): ${conta}, em ${dias} dias corridos.`
+    : `Tirando o combustível, sobram ${fmtBRL(sobra)} ${p.label} (dado real): ${conta}.`
+  const resto = outras > 0.009
+    ? `Com as outras despesas (${fmtBRL(outras)}), sobram ${porDia ? `${fmtBRL(round2((sobra - outras) / dias))} por dia` : fmtBRL(round2(sobra - outras))}.`
+    : ''
+  return { text: [primeira, resto].filter(Boolean).join(' ') }
 }
 
 /** Quanto uma conta fixa pesa por mês, seja qual for a repetição dela. */

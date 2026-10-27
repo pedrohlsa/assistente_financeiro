@@ -548,6 +548,12 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan): AssistantQu
     ? activeCards(state).find(c => c.name === plan.filter.cardNames![0]) : undefined
   if (cardDebt) total = cardOutstanding(state, cardDebt.id)
   let base = 0
+  // "Por dia" divide pelos dias CORRIDOS. Para quem não trabalha todo dia, o
+  // número muda muito conforme o divisor — a resposta diz qual foi.
+  if (plan.metric === 'per-day') {
+    const dias = Math.round((fromISO(plan.period.to).getTime() - fromISO(plan.period.from).getTime()) / 86400000) + 1
+    if (dias > 1) caveats.push(`Dividido pelos ${dias} dias corridos do período, com ou sem lançamento.`)
+  }
   if (plan.metric === 'share') {
     base = baseParaShare(state, plan)
     total = base > 0 ? (ag.total / base) * 100 : 0

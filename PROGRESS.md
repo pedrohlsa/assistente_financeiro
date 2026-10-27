@@ -4088,6 +4088,22 @@ custo do carro 900). Gates: 666/666, 99/99, 50/50, **343/343**,
 metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica
 (0 perigosa, 0 ruim), varredura e `git diff --check` passaram.
 
+## 2026-10-27 — sobra tirando o combustível
+
+"Quanto fico por dia tirando a gasolina" respondia R$ 10,37: a consulta lia
+"tirando" como exclusão e devolvia as OUTRAS despesas por dia (a troca de
+óleo). Com verbo de sobra, "tirando/descontando/depois da gasolina" é
+descontar: `pedeSobraSemCombustivel()` faz a DSL recusar e o roteador
+responde entradas menos combustível no período (este mês, se nada for dito),
+por dia corrido quando pedido, e diz à parte quanto sobra com as outras
+despesas. O "por dia" da consulta agora se rotula "Líquido por dia" quando é
+entrada menos saída e diz que divide pelos dias corridos.
+
+3 casos no grupo SC (todos vermelhos antes; oráculo somando o fixture).
+Gates: 666/666, 99/99, 50/50, **346/346**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
+`git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `c824fe0`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800
