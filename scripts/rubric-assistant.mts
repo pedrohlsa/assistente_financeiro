@@ -125,7 +125,9 @@ function classifica(a: Omit<Avaliada, 'faixa' | 'motivo'>, state: AppState): { f
   // Declarou um gasto e nada foi proposto nem perguntado.
   // Recusa COM MOTIVO não é lançamento perdido: o app disse o que houve e o
   // que fazer. Sumir em silêncio é que seria o defeito.
-  const recusouComMotivo = /valor negativo|não pôde ser registrad|nao pode ser registrad|fora de faixa|escrever de outro jeito/i.test(reply)
+  // O motivo agora vem em palavras do usuário ("confere o valor?", "registro
+  // do perfil de motorista") em vez do código interno da ação recusada.
+  const recusouComMotivo = /valor negativo|não pôde ser registrad|nao pode ser registrad|fora de faixa|escrever de outro jeito|fora do que eu consigo registrar|registro do perfil de motorista/i.test(reply)
   if (ehRegistro(msg) && !acoes && mode !== 'clarify' && !recusouComMotivo) {
     return { faixa: 'RUIM', motivo: 'o lançamento sumiu' }
   }

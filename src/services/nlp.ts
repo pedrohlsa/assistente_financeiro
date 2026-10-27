@@ -2,7 +2,7 @@
 // Parser local em pt-BR — funciona offline. Preparado para ser substituído/complementado
 // por um serviço de IA no backend (ver services/ai.ts).
 import { ParsedAction } from '../models/types'
-import { guessCategory } from '../data/categories'
+import { DEFAULT_CATEGORIES, guessCategory } from '../data/categories'
 import { fmtBRL, parseMoney } from '../utils/format'
 import { sentenceCase } from '../utils/text'
 
@@ -1235,10 +1235,17 @@ export function describeActionDetailed(a: ParsedAction, opts?: { fee?: number; c
   return lines
 }
 
-export function describeAction(a: ParsedAction): string {
+/**
+ * Linha da proposta que o usuário confere antes de gravar. A categoria sai
+ * pelo NOME: o id ("outros-out", "alimentacao") é detalhe interno, e o de uma
+ * categoria criada pelo usuário é aleatório.
+ */
+export function describeAction(a: ParsedAction, categoryName?: (id: string) => string | undefined): string {
+  const cat = (id?: string) => id
+    ? ` (${categoryName?.(id) || DEFAULT_CATEGORIES.find(c => c.id === id)?.name || id})` : ''
   switch (a.kind) {
-    case 'income': return `Receita de ${fmtBRL(a.amount)}${a.category ? ` (${a.category})` : ''}${a.is99 ? ' — plataforma 99' : ''}`
-    case 'expense': return `Despesa de ${fmtBRL(a.amount)}${a.category ? ` (${a.category})` : ''}${a.description ? ` — ${a.description}` : ''}`
+    case 'income': return `Receita de ${fmtBRL(a.amount)}${cat(a.category)}${a.is99 ? ' — plataforma 99' : ''}`
+    case 'expense': return `Despesa de ${fmtBRL(a.amount)}${cat(a.category)}${a.description ? ` — ${a.description}` : ''}`
     // Sem este caso o `switch` caía fora e a linha da proposta virava "undefined".
     case 'saving': return `Guardar ${fmtBRL(a.amount)} na reserva${a.description ? ` — ${a.description}` : ''}`
     case 'work': {

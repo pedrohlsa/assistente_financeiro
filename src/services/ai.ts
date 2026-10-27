@@ -556,7 +556,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
       return { text: parsed.ambiguity.question, choices: parsed.ambiguity.options }
     }
     return {
-      text: 'Entendi isso:\n\n' + actions.map(a => '• ' + describeAction(a)).join('\n') + '\n\nConfirmar?',
+      text: 'Entendi isso:\n\n' + actions.map(a => '• ' + describeAction(a, id => s.categories?.find(c => c.id === id)?.name)).join('\n') + '\n\nConfirmar?',
       actions,
     }
   }
@@ -1230,7 +1230,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // Se o parser achou ações mas parecia pergunta, ofereça registro
   if (actions.length) {
     if (parsed.ambiguity) return { text: parsed.ambiguity.question, choices: parsed.ambiguity.options }
-    return { text: 'Entendi isso:\n\n' + actions.map(a => '• ' + describeAction(a)).join('\n') + '\n\nConfirmar?', actions }
+    return { text: 'Entendi isso:\n\n' + actions.map(a => '• ' + describeAction(a, id => s.categories?.find(c => c.id === id)?.name)).join('\n') + '\n\nConfirmar?', actions }
   }
 
   return ajudaGenerica(driverMode)

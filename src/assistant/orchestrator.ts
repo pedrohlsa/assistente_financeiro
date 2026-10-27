@@ -17,7 +17,7 @@ import type {
   AssistantCandidateAction, AssistantCapabilities, AssistantClarification,
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
 } from './contracts'
-import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, isValidationFailure, validateAction } from './contracts'
+import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, errorMessage, isValidationFailure, validateAction } from './contracts'
 import { analyzeMessage, contestsProposal, looksLikeQuestion, looksLikeRetraction, looksPast, looksRecurring } from './clauses'
 import { categoryDilemma, outOfPatternWarning, withLearnedCategory } from './learning'
 import { explainRequest } from './explain'
@@ -695,11 +695,11 @@ function hypotheticalSummary(candidates: AssistantCandidateAction[]): string | n
   return `Se você confirmar, ${parts.join(', ')}${tail} Nada foi registrado ainda.`
 }
 
-function proposalText(candidates: AssistantCandidateAction[]): string {
+function proposalText(candidates: AssistantCandidateAction[], state: AppState): string {
   const lines = candidates.map(c => {
     const d = (c.action as any).date
     const suffix = d ? ` · ${dateLabel(d)}` : ''
-    return `• ${describeAction(c.action)}${suffix}`
+    return `• ${describeAction(c.action, id => state.categories?.find(x => x.id === id)?.name)}${suffix}`
   })
   return `Entendi isso:\n\n${lines.join('\n')}`
 }
@@ -729,11 +729,32 @@ const QUEBRAR_REGRA = [
 
 const pedeParaQuebrarRegra = (t: string): boolean => QUEBRAR_REGRA.some(re => re.test(t))
 
-const rejectionNote = (rejected: LocalPass['rejected']): string => {
+const SEM_CERTEZA = 'Não tenho certeza do que registrar aqui. Pode escrever de outro jeito?'
+
+/**
+ * Por que a ação entendida não virou proposta, em palavras do usuário. O
+ * texto antigo mostrava o código interno ("work (Trabalho)", "expense
+ * (amount)") — nome de campo não explica nada a quem digitou a frase.
+ */
+function motivoDaRecusa(rejected: LocalPass['rejected']): string {
   if (!rejected.length) return ''
   const first = rejected[0]
-  const what = first.detail ? `${first.kind} (${first.detail})` : first.kind
-  return `\n\nUma parte não pôde ser registrada — ${what}. Se quiser, reformule só esse pedaço.`
+  const nome = actionSpec(first.kind)?.label || 'Esse registro'
+  switch (first.code) {
+    case 'profile-forbidden':
+      return `${nome} é um registro do perfil de motorista. Se você dirige por aplicativo, troque o perfil em Configurações.`
+    case 'invalid-amount':
+    case 'invalid-number':
+      return `${nome}: esse número está fora do que eu consigo registrar. Confere o valor?`
+    // Nestes o detalhe é algo que o usuário escreveu (categoria, data).
+    case 'category-not-found':
+    case 'category-wrong-type':
+    case 'invalid-date':
+    case 'future-date':
+      return `${nome}: ${errorMessage(first.code, first.detail ? `(${first.detail})` : undefined)}`
+    default:
+      return `${nome}: ${errorMessage(first.code)}`
+  }
 }
 
 /**
@@ -817,7 +838,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
           response: {
             version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
             actions: cands, unresolved: [],
-            reply: `${proposalText(cands)}\n\nConfirmar?`,
+            reply: `${proposalText(cands, input.state)}\n\nConfirmar?`,
           },
         }
       }
@@ -861,7 +882,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
         response: {
           version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
           actions: cands, unresolved: [],
-          reply: `${proposalText(cands)}\n\nConfirmar?`,
+          reply: `${proposalText(cands, input.state)}\n\nConfirmar?`,
         },
       }
     }
@@ -894,7 +915,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
         response: {
           version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
           actions: cands, unresolved: [],
-          reply: `${proposalText(cands)}\n\nConfirmar?`,
+          reply: `${proposalText(cands, input.state)}\n\nConfirmar?`,
         },
       }
     }
@@ -937,7 +958,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
         actions: cands, unresolved: [],
         reply: `Sem problema — deixei em Outros, e você pode trocar a categoria no card.
 
-${proposalText(cands)}
+${proposalText(cands, input.state)}
 
 Confirmar?`,
       },
@@ -970,7 +991,7 @@ Confirmar?`,
           response: {
             version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
             actions: cand, unresolved: [],
-            reply: `${proposalText(cand)}\n\nConfirmar?`,
+            reply: `${proposalText(cand, input.state)}\n\nConfirmar?`,
           },
         }
       }
@@ -1019,7 +1040,7 @@ Confirmar?`,
         response: {
           version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
           actions: next, unresolved: [],
-          reply: `${plan.summary.join(' ')}\n\n${proposalText(next)}\n\nConfirmar?`,
+          reply: `${plan.summary.join(' ')}\n\n${proposalText(next, input.state)}\n\nConfirmar?`,
         },
       }
     }
@@ -1314,7 +1335,7 @@ Confirmar?`,
           response: {
             version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
             actions: cands, unresolved: [],
-            reply: `${proposalText(cands)}\n\nConfirmar?`,
+            reply: `${proposalText(cands, input.state)}\n\nConfirmar?`,
           },
         }
       }
@@ -1354,7 +1375,7 @@ Confirmar?`,
           response: {
             version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
             actions: cands, unresolved: [],
-            reply: `${proposalText(cands)}
+            reply: `${proposalText(cands, input.state)}
 
 Confirmar?`,
           },
@@ -1634,14 +1655,14 @@ Confirmar?`,
   if (clarification) {
     mode = 'clarify'
     reply = candidates.length
-      ? `${proposalText(candidates)}\n\n${clarification.question}`
+      ? `${proposalText(candidates, input.state)}\n\n${clarification.question}`
       : clarification.question
   } else if (candidates.length && answerPart) {
     mode = 'answer_and_actions'
-    reply = `${proposalText(candidates)}\n\n${answerPart}\n\nConfirmar os registros?`
+    reply = `${proposalText(candidates, input.state)}\n\n${answerPart}\n\nConfirmar os registros?`
   } else if (candidates.length) {
     mode = 'propose_actions'
-    reply = `${proposalText(candidates)}\n\nConfirmar?`
+    reply = `${proposalText(candidates, input.state)}\n\nConfirmar?`
   } else if (answerPart) {
     mode = 'answer'
     reply = answerPart
@@ -1729,7 +1750,7 @@ Confirmar?`,
         // texto generico de ajuda no meio da conversa.
         if (conversa && conversa.kind === 'query') focoFinal = conversa.focus
         reply = local.actions?.length
-          ? 'Não tenho certeza do que registrar aqui. Pode escrever de outro jeito?'
+          ? SEM_CERTEZA
           : local.text
       }
     }
@@ -1749,7 +1770,11 @@ ${reply}`
     reply += ['', '', 'Sua mensagem era muito longa e eu li só o começo. '
       + 'Se faltou alguma coisa, me mande em partes.'].join('\n')
   }
-  reply += rejectionNote(rejectedAll)
+  // Se nada virou proposta e a resposta era só a dúvida genérica, o motivo da
+  // recusa É a resposta: "não tenho certeza" mentia — a frase foi entendida.
+  const recusa = motivoDaRecusa(rejectedAll)
+  if (recusa && !candidates.length && reply.includes(SEM_CERTEZA)) reply = reply.replace(SEM_CERTEZA, recusa)
+  else if (recusa) reply += `\n\nUma parte não pôde ser registrada. ${recusa}`
 
   const diagnostics: AssistantDiagnostics | undefined = input.devDiagnostics
     ? {
