@@ -1467,6 +1467,45 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /Combust[íi]vel/.test(gasolinaSubiu.reply) && limpa(gasolinaSubiu.reply).includes(brl(combustivelMes))))
   }
 
+  // "O que mais subiu" é ranking pela DIFERENÇA, e a lista embaixo segue o
+  // mesmo sentido. "Gastando mais que antes" virava o maior gasto do mês e
+  // "fora do meu padrão" virava a exclusão "padrao". Oráculo: diferença por
+  // categoria entre o mês até hoje e o mesmo trecho do mês anterior.
+  {
+    const st = autonomoRico(hoje)
+    const dia = Number(hoje.slice(8, 10))
+    const [y, m] = hoje.split('-').map(Number)
+    const ya = m === 1 ? y - 1 : y; const ma = m === 1 ? 12 : m - 1
+    const ini = `${hoje.slice(0, 8)}01`
+    const iniAnt = `${ya}-${String(ma).padStart(2, '0')}-01`
+    const fimAnt = `${iniAnt.slice(0, 8)}${String(Math.min(dia, new Date(ya, ma, 0).getDate())).padStart(2, '0')}`
+    const porCat = (from: string, to: string) => {
+      const acc = new Map<string, number>()
+      for (const t of st.transactions) if (t.type === 'expense' && t.date >= from && t.date <= to) acc.set(t.category, (acc.get(t.category) || 0) + t.amount)
+      return acc
+    }
+    const agora = porCat(ini, hoje); const antes = porCat(iniAnt, fimAnt)
+    const deltas = [...new Set([...agora.keys(), ...antes.keys()])]
+      .map(id => ({ id, nome: st.categories.find(c => c.id === id)?.name || id, d: (agora.get(id) || 0) - (antes.get(id) || 0) }))
+    const subiu = [...deltas].sort((a, b) => b.d - a.d)[0]
+    const caiu = [...deltas].sort((a, b) => a.d - b.d)[0]
+    for (const frase of ['tem alguma coisa q eu to gastando mt mais q antes?', 'qual despesa esta mais fora do meu padrao', 'o que aumentou mais esse mes']) {
+      const r = await turnoHoje(st, frase)
+      const depois = r.reply.split('Depois:')[1] || ''
+      out.push(result(`K-subiu-${frase.split(' ').slice(2, 4).join('-')}`, r.reply, `${subiu.nome} foi o que mais subiu; lista só com altas`,
+        subiu.d > 0 && r.reply.includes(`${subiu.nome} foi o que mais subiu comparado com`) && !/−R\$/.test(depois)
+          && !/padrao|padrão/i.test(r.reply) && (!/^tem/.test(frase) || r.reply.startsWith('Sim.'))))
+    }
+    const r = await turnoHoje(st, 'qual categoria caiu mais')
+    out.push(result('K-caiu-lista-so-quedas', r.reply, `${caiu.nome} foi o que mais caiu; lista só com quedas`,
+      r.reply.includes(`${caiu.nome} foi o que mais caiu comparado com`) && !/\+R\$/.test(r.reply.split('Depois:')[1] || '')))
+    const totalAgora = [...agora.values()].reduce((a, v) => a + v, 0)
+    const totalAntes = [...antes.values()].reduce((a, v) => a + v, 0)
+    const normal = await turnoHoje(st, 'gastei fora do normal esse mes?')
+    out.push(result('K-fora-do-normal-sim-ou-nao', normal.reply, totalAgora > totalAntes ? 'Sim, subiu.' : 'Não, caiu.',
+      normal.reply.startsWith(totalAgora > totalAntes ? 'Sim, subiu.' : 'Não, caiu.')))
+  }
+
   // Código interno nunca chega ao usuário: "work (Trabalho)", "expense
   // (amount)", "(outros-out)", nem o id aleatório de uma categoria criada.
   const interno = /\b(?:work|expense|income|fuel|saving)\s*\(|\((?:amount|km|outros-out|alimentacao|combustivel)\)|c-uid-/i

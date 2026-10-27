@@ -117,6 +117,8 @@ const PEDE_DADO = [
   // ficava no foco, o "e o inter" seguinte não tinha em que se apoiar.
   /\b(?:ta|esta|anda|vem)\s+(?:me\s+)?(?:pesando|apertando|matando|fudendo|acabando|estourando|quebrando|sufocando|comendo)\b/,
   /\bpesa(?:ndo)?\b/, /\bcomprometid/,
+  // "Gastei fora do normal esse mês?" não tem palavra de medida e caía na ajuda.
+  /\b(?:fora|acima)\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:padrao|normal|comum|costume|media)\b/,
   // "Onde vazou meu dinheiro", "pra onde foi", "onde gastei": DESTINO do
   // dinheiro. Nenhuma palavra de medida aparece, e a frase nem chegava ao
   // planejador — o roteador antigo respondia o total, que diz QUANTO e não ONDE.
@@ -350,7 +352,9 @@ function lerGrupo(t: string, driver: boolean): { valor: QueryGroup; matched: str
     // "O que mais aumentou?" pede um RANKING por categoria. Sem esta regra o
     // agrupamento ficava em `none`, a ordenação por diferença não tinha o que
     // ordenar e a resposta virava um total solto — que não responde "o quê".
-    [/\bo\s+que\s+mais\s+(?:aumentou|subiu|cresceu|pesou|caiu|diminuiu|desceu)\b/, 'category'],
+    // "O que aumentou mais esse mês" diz o verbo antes do "mais"; sem esta
+    // forma a pergunta comparava só os dois totais.
+    [/\bo\s+que\s+(?:mais\s+)?(?:aumentou|subiu|cresceu|pesou|caiu|diminuiu|desceu)\b/, 'category'],
     // DISTRIBUIÇÃO: "onde vazou", "pra onde foi meu dinheiro", "onde gastei
     // mais". "Onde" pergunta pelo destino, e a resposta é um ranking por
     // categoria — não o total, que responde "quanto". "De onde" é a pergunta
@@ -389,7 +393,10 @@ const MARCADOR_CMP = /\b(?:comparad[oa]\s+(?:com|ao|a)|comparando\s+com|compar[a
 const ANTERIOR = 'periodo-anterior'
 // "Tô pior de gasolina?" pergunta por mudança, como "piorou": sem isto a
 // resposta era só o total do mês.
-const CMP_IMPLICITA = /\b(?:estou|esta|ando|anda|tou)\s+(?:pior|melhor)\s+(?:de|em|com|no|na)\b|\baument(?:ou|aram|o)\b|\bcai(?:u|ram)\b|\bsubiu\b|\bdesceu\b|\bcresceu\b|\bdiminuiu\b|\bpiorou\b|\bmelhorou\b|\bdiferenca\b|\bmudou\b|\bmudancas?\b|\bque\s+antes\b|\bdo\s+que\s+antes\b|\bmais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:gastava|ganhava|fazia)\b/
+// "Fora do meu padrão" é desvio do que ele costuma gastar — comparação, não a
+// exclusão "fora o aluguel".
+const FORA_DO_PADRAO = /\b(?:fora|acima)\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:padrao|normal|comum|costume|media)\b/
+const CMP_IMPLICITA = /\b(?:fora|acima)\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:padrao|normal|comum|costume|media)\b|\b(?:estou|esta|ando|anda|tou)\s+(?:pior|melhor)\s+(?:de|em|com|no|na)\b|\baument(?:ou|aram|o)\b|\bcai(?:u|ram)\b|\bsubiu\b|\bdesceu\b|\bcresceu\b|\bdiminuiu\b|\bpiorou\b|\bmelhorou\b|\bdiferenca\b|\bmudou\b|\bmudancas?\b|\bque\s+antes\b|\bdo\s+que\s+antes\b|\bmais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:gastava|ganhava|fazia)\b/
 
 /** "3 meses atrás" dentro de uma comparação = a MESMA janela, deslocada. */
 function deslocaPeriodo(p: QueryPeriod, n: number, unidade: string): QueryPeriod {
@@ -724,6 +731,10 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     rest.consome(marcador[0])
   }
   const pedeComparacao = !!textoComparacao || CMP_IMPLICITA.test(t0)
+  // Consumido aqui para o leitor de exclusão não ler "fora do meu padrão" como
+  // "exceto padrão" — virava o filtro `excludeText: "padrao"`.
+  const desvio = t0.match(FORA_DO_PADRAO)
+  if (desvio) rest.consome(desvio[0])
 
   // ---- 1b) denominador da proporção, consumido ANTES do verbo ------------
   // "quanto DAS MINHAS RECEITAS está indo para combustível" tem dois lados: o
@@ -1122,7 +1133,10 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
 
   let order: QueryOrder | undefined = metrica.valor.order
   if (comparePeriod && group !== 'none') {
-    if (/\baument(?:ou|aram|o)\b|\bsubiu\b|\bcresceu\b|\bpiorou\b|\bpesou\s+mais\b|\bmudancas?\b|\bmudou\b/.test(t0)) {
+    // "Gastando muito mais que antes" e "fora do meu padrão" pedem o que mais
+    // SUBIU. Lidas pelo "mais" solto, viravam o maior gasto do mês.
+    if (/\baument(?:ou|aram|o)\b|\bsubiu\b|\bcresceu\b|\bpiorou\b|\bpesou\s+mais\b|\bmudancas?\b|\bmudou\b|\bmais\s+(?:do\s+)?que\s+antes\b|\bgastando\s+(?:muito\s+)?mais\b/.test(t0)
+      || FORA_DO_PADRAO.test(t0)) {
       order = 'delta-desc'
       // "Qual foi a MAIOR mudança": o "maior" é da diferença, não do
       // lançamento. Sem isto a métrica virava `max` e a resposta era o maior

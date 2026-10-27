@@ -71,7 +71,7 @@ export function answerConversation(
   const plan = out?.kind === 'query' ? out.focus?.lastQueryPlan : undefined
   const q = out?.kind === 'query' ? out.focus?.lastQuery : undefined
   if (out && plan && q) {
-    const lead = leadSimNao(normalizeQuery(message), plan, q.total, q.compareTotal)
+    const lead = leadSimNao(normalizeQuery(message), plan, q.total, q.compareTotal, q.groups?.[0]?.delta)
     if (lead && !/^(?:sim|n[ãa]o)\b/i.test(out.reply)) return { ...out, reply: `${lead}${out.reply}` }
   }
   return out

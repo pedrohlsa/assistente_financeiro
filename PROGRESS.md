@@ -3611,3 +3611,23 @@ metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica
 calculada do fixture. Gates: 666/666, 99/99, 50/50, **205/205**, metamórficos,
 fuzz, 151/151, 468; typechecks, `test:money`, build e rubrica (0 perigosa,
 0 ruim) passaram.
+
+## 2026-10-27 — ranking do que mudou
+
+"Tem alguma coisa que eu tô gastando muito mais que antes?" respondia o maior
+gasto do mês e listava embaixo categorias que CAÍRAM; "qual despesa está mais
+fora do meu padrão" virava a exclusão `excludeText: "padrao"`; "o que aumentou
+mais esse mês" comparava só os dois totais; "gastei fora do normal esse mês?"
+caía na ajuda.
+
+- "Mais que antes", "gastando mais" e "fora do/acima do padrão/normal" pedem o
+  que mais SUBIU (ordem por diferença); "fora do padrão" é comparação, não
+  exclusão. "O que aumentou mais" agrupa por categoria.
+- Em ranking por diferença, a lista "Depois" só traz itens no mesmo sentido, e
+  a frase diz contra o que comparou ("comparado com setembro").
+- "Tem alguma coisa…?" começa com "Sim." ou "Não."; "gastei fora do normal?"
+  ganha a resposta de sim ou não sobre o total.
+
+5 casos (vermelhos no código anterior), com diferenças por categoria somadas do
+fixture. Gates: 666/666, 99/99, 50/50, **210/210**, metamórficos, fuzz,
+151/151, 468; typechecks, `test:money`, build e rubrica passaram.

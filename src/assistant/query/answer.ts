@@ -90,13 +90,17 @@ const COMO_REGISTRAR: Record<string, string> = {
  * "Piorou" muda de sentido com a medida: gasto que SOBE piorou; receita ou
  * resultado que CAI piorou. Recebe o texto já sem acento e em minúsculas.
  */
-export function leadSimNao(t: string, plan: AssistantQueryPlan, total: number, compareTotal?: number): string {
+export function leadSimNao(t: string, plan: AssistantQueryPlan, total: number, compareTotal?: number, topDelta?: number): string {
+  // "Tem alguma coisa que eu tô gastando mais que antes?" responde com o
+  // ranking do que subiu — e começa dizendo se algo subiu.
+  if (plan.group !== 'none' && plan.order === 'delta-desc' && topDelta !== undefined
+    && /\btem\s+(?:alguma\s+coisa|algo|alguma|algum)\b/.test(t)) return topDelta > 0 ? 'Sim. ' : 'Não. '
   if (compareTotal === undefined || plan.group !== 'none' || !plan.comparePeriod) return ''
   if (/^\s*(?:e\s+)?(?:qual|quais|quanto|quanta|quantos|quantas|quando|onde|como|por\s*que|pq)\b/.test(t)) return ''
   if (!/\?\s*$|^\s*(?:e\s+)?(?:eu\s+)?(?:estou|esta|ando|to|tou|meu|minha|gastei|ganhei|fiz|recebi)\b/.test(t)) return ''
   const pior = /\b(?:piorou|pioraram|pior)\b/.test(t)
   const melhor = /\b(?:melhorou|melhoraram|melhor)\b/.test(t)
-  const sobe = /\b(?:aumentou|aumentaram|subiu|subiram|cresceu|mais\s+(?:do\s+)?que)\b/.test(t)
+  const sobe = /\b(?:aumentou|aumentaram|subiu|subiram|cresceu|mais\s+(?:do\s+)?que)\b|\b(?:fora|acima)\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:padrao|normal|comum|costume|media)\b/.test(t)
   const desce = /\b(?:caiu|cairam|diminuiu|diminuiram|desceu|baixou|menos\s+(?:do\s+)?que)\b/.test(t)
   if ([pior, melhor, sobe, desce].filter(Boolean).length !== 1) return ''
   const d = Math.round((total - compareTotal) * 100) / 100
@@ -133,7 +137,11 @@ export function composeAnswer(r: AssistantQueryResult): string {
     linhas.push(`${respostaDeRanking(r, top)}${selo}.`)
     const empate = empateNoTopo(r)
     if (empate) linhas.push(empate)
-    const resto = r.groups.slice(1, p.group === 'weekday' ? 7 : 5)
+    // Em "o que mais subiu", o resto da lista também SUBIU: listar quem caiu
+    // embaixo de "foi o que mais subiu" responde outra pergunta.
+    const mesmoSentido = (g: QueryGroupResult) => p.order === 'delta-desc' ? (g.delta ?? 0) > 0
+      : p.order === 'delta-asc' ? (g.delta ?? 0) < 0 : true
+    const resto = r.groups.slice(1).filter(mesmoSentido).slice(0, p.group === 'weekday' ? 6 : 4)
     if (resto.length) {
       linhas.push(['Depois:', ...resto.map(g => `• ${g.label}: ${formatValue(g.value, r.unit)}${sufixoGrupo(g, r)}`)].join('\n'))
     }
@@ -200,15 +208,19 @@ function empateNoTopo(r: AssistantQueryResult): string | null {
 function respostaDeRanking(r: AssistantQueryResult, top: QueryGroupResult): string {
   const p = r.plan
   const valor = formatValue(top.value, r.unit)
+  // "Subiu" sem dizer em relação a quê não deixa conferir: o período de
+  // comparação vai junto.
+  const contra = p.comparePeriod ? ` comparado com ${p.comparePeriod.label
+    .replace(/^em\s+/, '').replace(/^n([oa]s?)\s+/, '$1 ')}` : ''
   if (p.order === 'delta-desc' && top.delta !== undefined) {
     return top.delta > 0
-      ? `${top.label} foi o que mais subiu: ${formatValue(top.delta, r.unit)} a mais, indo para ${valor}`
-      : `Nada subiu — ${top.label} foi o que menos caiu (${formatValue(top.delta, r.unit)}), ficando em ${valor}`
+      ? `${top.label} foi o que mais subiu${contra}: ${formatValue(top.delta, r.unit)} a mais, indo para ${valor}`
+      : `Nada subiu${contra} — ${top.label} foi o que menos caiu (${formatValue(top.delta, r.unit)}), ficando em ${valor}`
   }
   if (p.order === 'delta-asc' && top.delta !== undefined) {
     return top.delta < 0
-      ? `${top.label} foi o que mais caiu: ${formatValue(Math.abs(top.delta), r.unit)} a menos, ficando em ${valor}`
-      : `Nada caiu — ${top.label} foi o que menos subiu (+${formatValue(top.delta, r.unit)}), chegando a ${valor}`
+      ? `${top.label} foi o que mais caiu${contra}: ${formatValue(Math.abs(top.delta), r.unit)} a menos, ficando em ${valor}`
+      : `Nada caiu${contra} — ${top.label} foi o que menos subiu (+${formatValue(top.delta, r.unit)}), chegando a ${valor}`
   }
   if (p.order === 'count-desc') {
     return `${top.label}, ${top.count} ${plural(top.count, 'vez', 'vezes')} ${p.period.label}`
