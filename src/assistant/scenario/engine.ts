@@ -55,7 +55,7 @@ function comDespesa(state: AppState, amount: number, category: string, hoje: str
  */
 function comCompra(
   state: AppState, plan: AssistantScenarioPlan, hoje: string,
-): { state: AppState; parcela: number; financiado: number; cardNome?: string } {
+): { state: AppState; parcela: number; financiado: number; cardNome?: string; porMes: (mk: string) => number } {
   const total = plan.amount || 0
   const entrada = Math.min(plan.downPayment || 0, total)
   const financiado = r2(total - entrada)
@@ -89,7 +89,11 @@ function comCompra(
   }
   if (entrada > 0) projetado = comDespesa(projetado, entrada, plan.category || 'outros-out', hoje)
 
-  return { state: projetado, parcela: valores[0], financiado, cardNome: card?.name }
+  // Parcela que cai em CADA mês, pelo calendário simulado. A linha de outubro
+  // dizia "com a parcela de R$ 400" para uma compra cuja primeira parcela vence
+  // em novembro — o saldo estava certo, o texto não.
+  const porMes = (mk: string) => r2(parcelasSim.filter(i => monthKey(i.dueDate) === mk).reduce((a, i) => a + i.amount, 0))
+  return { state: projetado, parcela: valores[0], financiado, cardNome: card?.name, porMes }
 }
 
 /** Projeção mês a mês antes e depois, com o mês mais apertado. */
@@ -322,8 +326,8 @@ export function runScenario(
       if (!(total > 0) || !(n > 0)) {
         return vazio(plan, caveats, 'Me diga o valor total e em quantas vezes que eu simulo.')
       }
-      const { state: projetado, parcela, financiado, cardNome } = comCompra(state, plan, hoje)
-      const linhas = compara(state, projetado, meses, () => parcela, hoje)
+      const { state: projetado, parcela, financiado, cardNome, porMes } = comCompra(state, plan, hoje)
+      const linhas = compara(state, projetado, meses, porMes, hoje)
       const apertado = [...linhas].sort((a, b) => a.after - b.after)[0]
 
       facts.push(fato('Valor da compra', total, 'BRL', 'informado na pergunta'))

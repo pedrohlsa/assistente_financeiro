@@ -7,7 +7,7 @@ import { cardInvoice, cardOutstanding, cardsOverview } from '../../src/services/
 import { applyBatchPure } from '../../src/assistant/execute'
 import { applyPreferenceAliases } from '../../src/assistant/preferences'
 import { hydrateForTest, reducer } from '../../src/store/store'
-import { addDays, fmtBRL, nowPaymentTime, nowStamp, todayISO } from '../../src/utils/format'
+import { addDays, fmtBRL, fromISO, monthShortLabel, nowPaymentTime, nowStamp, todayISO } from '../../src/utils/format'
 import { autonomoRico, motoristaRico } from '../fixtures/richState'
 import { buildState } from './harness'
 
@@ -1557,6 +1557,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('L-qual-mes-pior-direto', c2.reply, `${apertado} primeiro, sem a lista de meses`,
       !!apertado && c2.reply.startsWith(apertado.charAt(0).toUpperCase() + apertado.slice(1)) && !/•/.test(c2.reply)))
     out.push(result('L-volta-com-anterior', c4.reply, 'volta para os 10x', /em 10x/.test(c4.reply) && /em 12x/.test(c3.reply)))
+  }
+
+  // A linha do mês só diz "com a parcela" se a parcela cai nele. Sem cartão,
+  // a primeira vence em 30 dias: a linha do mês corrente afirmava a parcela
+  // com o saldo intacto.
+  {
+    const semCartao = await turnoHoje(buildState({ balance: 5000 }), 'se eu comprar um pc de 4000 em 10x')
+    const linhaDoMes = (r: string, iso: string) => r.split('\n').find(l => l.startsWith(`• ${monthShortLabel(fromISO(iso))}:`)) || ''
+    const r2 = (v: number) => Math.round(v * 100) / 100
+    const primeira = addDays(hoje, 30)
+    const mesmoMes = primeira.slice(0, 7) === hoje.slice(0, 7)
+    out.push(result('M-parcela-so-no-mes-em-que-cai', semCartao.reply, `sem parcela no mês corrente; parcela em ${primeira.slice(0, 7)}`,
+      (mesmoMes || !/com a parcela/.test(linhaDoMes(semCartao.reply, hoje)))
+        && /com a parcela de R\$\s400,00/.test(linhaDoMes(semCartao.reply, primeira))))
+    const rico = await turnoHoje(autonomoRico(hoje), 'se eu comprar um pc de 4000 em 10x')
+    const meses = rico.focus?.lastScenario?.months || []
+    out.push(result('M-texto-bate-com-o-saldo', meses, 'parcela citada ⇔ saldo do mês mexeu pela parcela',
+      meses.length > 0 && meses.every((m, i) => {
+        const caiu = r2(m.delta - (i ? meses[i - 1].delta : 0)) < 0
+        const citou = /com a parcela/.test(linhaDoMes(rico.reply, `${m.monthKey}-01`))
+        return !linhaDoMes(rico.reply, `${m.monthKey}-01`) || caiu === citou
+      })))
   }
 
   // Código interno nunca chega ao usuário: "work (Trabalho)", "expense

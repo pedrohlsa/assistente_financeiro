@@ -3670,3 +3670,14 @@ mesmo plano e devolvia o mesmo texto. A pergunta "se eu meter um pc de 4k em
 5 casos multiturno (4 vermelhos no código anterior; "volta com anterior" já
 funcionava). Gates: 666/666, 99/99, 50/50, **219/219**, metamórficos, fuzz,
 151/151, 468; typechecks, `test:money`, build e rubrica passaram.
+
+## 2026-10-27 — simulação de compra: a parcela no mês em que cai
+
+"Se eu comprar um pc de 4000 em 10x" (hoje, 27/10, sem cartão escolhido)
+mostrava "out/2026: R$ 13.595,00 (com a parcela de R$ 400,00)". O saldo de
+outubro estava certo — a primeira parcela vence em 30 dias, em novembro —, mas
+a coluna "acrescentado" era uma função constante e o texto afirmava a parcela
+em todos os meses. Agora ela sai do calendário simulado das parcelas. 2 casos:
+o mês corrente sem parcela e a propriedade "parcela citada ⇔ saldo do mês mexeu
+pela parcela". Gates: 666/666, 99/99, 50/50, **221/221**, metamórficos, fuzz,
+151/151, 468; typechecks, `test:money`, build e rubrica passaram.
