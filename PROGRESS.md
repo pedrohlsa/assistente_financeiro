@@ -4345,6 +4345,21 @@ ou déficit e o guardado. (O resumo do motorista já trazia os 7 dias.) 1 caso
 (vermelho antes). Gates: 666/666, **388/388**, 151/151, 468 e os demais
 verdes.
 
+## 2026-10-27 — simulação sem base não dá veredito
+
+Usuário novo, que nunca informou saldo e não lançou nada: "consigo comprar um
+celular de 2000 em 10x?" respondia "Não." e "e se eu gastar 500 hoje, dá
+ruim?" "Dá ruim." — vereditos sobre um zero que ninguém disse. `runScenario`
+agora envolve a simulação: sem saldo, sem lançamento e sem entrada fixa, a
+conta continua, o veredito some e a resposta pede o saldo ("me diga 'meu
+saldo é 1500'"). Com saldo informado (mesmo baixo) nada muda. 2 casos no
+grupo SB (os 2 vermelhos antes). Gates: 666/666, 99/99, 50/50, **390/390**,
+metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica,
+varredura e `git diff --check` passaram.
+
+Achado sem correção: "meu salário é 3000 e cai dia 5" cai na ajuda genérica
+("ganho 3500 por mês" recebe a orientação de cadastrar a recorrência).
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800

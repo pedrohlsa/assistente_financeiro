@@ -261,7 +261,26 @@ function runCompoundMonths(
  * resultado vazio com ressalva, porque um erro no meio de uma pergunta é pior
  * para o usuário do que um "não consigo simular isso".
  */
+/**
+ * Sem BASE nenhuma — saldo zero, nada lançado, nenhuma entrada fixa — o app não
+ * sabe a situação de ninguém: "consigo comprar em 10x?" respondia "Não" para um
+ * zero que o usuário nunca disse. A conta continua; o veredito some, e a
+ * resposta pede o saldo.
+ */
 export function runScenario(
+  state: AppState,
+  plan: AssistantScenarioPlan,
+  hoje = todayISO(),
+): AssistantScenarioResult {
+  const r = simulaCenario(state, plan, hoje)
+  const semBase = currentBalance(state) === 0 && !(state.transactions || []).length
+    && !(state.recurring || []).some(x => x.kind === 'income' && x.active !== false)
+  if (!semBase || r.empty || r.feasible === undefined) return r
+  const aviso = 'Seu saldo está zerado no app e não há nada lançado, então não sei dizer se cabe. Me diga "meu saldo é 1500" (com o seu valor) que eu refaço a conta.'
+  return { ...r, feasible: undefined, caveats: [...r.caveats.filter(c => !/ainda não informou seu saldo/.test(c)), aviso] }
+}
+
+function simulaCenario(
   state: AppState,
   plan: AssistantScenarioPlan,
   hoje = todayISO(),

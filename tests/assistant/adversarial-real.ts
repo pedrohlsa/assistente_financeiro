@@ -2431,6 +2431,18 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('RS-contas-do-mes', contas, `até ${fim.slice(8, 10)}/${fim.slice(5, 7)}`, contas.includes(`${fim.slice(8, 10)}/${fim.slice(5, 7)}`)))
   }
 
+  // Usuário NOVO (saldo nunca informado, nada registrado): "consigo comprar
+  // um celular de 2000 em 10x?" respondia "Não." com base num zero que ninguém
+  // disse. Sem base, a simulação não dá veredito — pede o saldo.
+  {
+    const novo = buildState({ profile: 'clt' })
+    for (const frase of ['consigo comprar um celular de 2000 em 10x?', 'e se eu gastar 500 hoje, da ruim?']) {
+      const r = (await turnoHoje(novo, frase)).reply
+      out.push(result(`SB-${frase.replace(/\W+/g, '-')}`, r, 'sem veredito; pede o saldo',
+        !/^(?:Sim|Não|N[ãa]o dá ruim|Dá ruim)\b/.test(r) && /meu saldo [ée]/i.test(r)))
+    }
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.
