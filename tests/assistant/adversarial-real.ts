@@ -2224,6 +2224,24 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // Depois de simular a compra, "e quanto fica nesse mês?" e "e no mês que
+  // vem?" pedem a linha DAQUELE mês — recebiam "você quer mudar a simulação?".
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const sim = await turnoHoje(rico, 'se eu comprar um pc de 4000 em 10x')
+    const meses = sim.focus?.lastScenario?.months || []
+    const h = fromISO(hoje)
+    const mk = (n: number) => toISOdate(new Date(h.getFullYear(), h.getMonth() + n, 1)).slice(0, 7)
+    for (const [frase, n] of [['e quanto fica nesse mes', 0], ['e no mes que vem?', 1]] as [string, number][]) {
+      const m = meses.find(x => x.monthKey === mk(n))
+      const r = limpa((await turnoHoje(rico, frase, sim.focus)).reply)
+      out.push(result(`SM-${frase.replace(/\W+/g, '-')}`, r, m ? `${m.label}: ${brl(m.after)}` : 'mês na simulação',
+        !!m && r.includes(brl(m.after)) && r.toLowerCase().includes(m.label.toLowerCase()) && !/mudar a simula/i.test(r)))
+    }
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

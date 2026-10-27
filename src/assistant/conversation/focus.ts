@@ -239,6 +239,19 @@ export type FollowUp =
 
 const PEDE_EXPLICACAO = /^(?:por\s*que|pq|como\s+(?:voce\s+)?(?:chegou|calculou|fez)|de\s+onde|quais\s+dados)/
 
+const MESES_DO_ANO = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+
+/** O mês ('YYYY-MM') que a continuação pede dentro da simulação ativa. */
+function mesDaSimulacao(t: string, today: string): string | null {
+  const h = fromISO(today)
+  const mk = (n: number) => toISO(new Date(h.getFullYear(), h.getMonth() + n, 1)).slice(0, 7)
+  if (/\b(?:n|d)?(?:ess|est)[ea]\s+mes\b|\bmes\s+atual\b/.test(t)) return mk(0)
+  if (/\bmes\s+que\s+vem\b|\bproximo\s+mes\b/.test(t)) return mk(1)
+  const nome = t.match(/\b(?:em|de|no|para)\s+(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/)
+  if (nome) return mk((MESES_DO_ANO.indexOf(nome[1]) - h.getMonth() + 12) % 12)
+  return null
+}
+
 /**
  * Interpreta a continuação sobre o foco. `null` quando não dá para resolver com
  * segurança — e aí a mensagem segue o caminho normal, que é sempre melhor do
@@ -281,6 +294,20 @@ export function resolveFollowUp(
     // não tinha ouvido. Nada foi gravado — é isso que a pessoa precisa saber.
     if (/^(?:volta|esquece|deixa\s+(?:pra|para)\s+la|cancela)\b/.test(t)) {
       return { kind: 'explain', text: 'Ok, deixei a simulação de lado. Nada foi registrado — era só uma conta.' }
+    }
+    // "E quanto fica nesse mês?", "e no mês que vem?", "e em dezembro?": a
+    // linha DAQUELE mês da simulação na tela. Antes: "você quer mudar a
+    // simulação atual?", para quem só queria ler um mês dela.
+    const mes = mesDaSimulacao(t, today)
+    const linha = mes ? focus.lastScenario?.months.find(m => m.monthKey === mes) : undefined
+    if (linha && focus.lastScenario) {
+      const compra = focus.lastScenarioPlan.kind === 'purchase'
+      const primeira = focus.lastScenario.months.find(m => m.added > 0.005)
+      const efeito = linha.added > 0.005
+        ? `, ${compra ? 'com a parcela de' : 'com'} ${fmtBRL(linha.added)}${compra ? '' : ' da simulação'}`
+        : compra && primeira && primeira.monthKey > linha.monthKey ? `; a primeira parcela só cai em ${primeira.label}` : ''
+      const sem = Math.abs(linha.before - linha.after) > 0.005 ? ` (seriam ${fmtBRL(linha.before)} sem a hipótese)` : ''
+      return { kind: 'explain', text: `${sentenceCase(linha.label)}: saldo estimado de ${fmtBRL(linha.after)}${efeito}${sem}.\n\nSimulação — nada foi registrado.` }
     }
     const gasto = t.match(/^(?:e\s+)?(?:tirando|sem)\s+(.+?)\s*\??$/)?.[1]?.replace(/\?$/, '').trim()
     if (gasto) return {

@@ -4177,6 +4177,18 @@ Gates: 666/666, 99/99, 50/50, **361/361**, metamórficos, fuzz, 151/151, 468;
 typechecks, `test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
 `git diff --check` passaram.
 
+## 2026-10-27 — o mês pedido dentro da simulação
+
+Depois de "se eu comprar um pc de 4000 em 10x", "e quanto fica nesse mês?" e
+"e no mês que vem?" recebiam "Você quer mudar a simulação atual? Diga qual
+gasto futuro cadastrado devo tirar ou reduzir." A continuação agora lê o mês
+pedido ("nesse mês", "mês que vem", "em dezembro") e responde a linha dele na
+simulação ativa: "Nov/2026: saldo estimado de R$ 12.095,00, com a parcela de
+R$ 400,00 (seriam R$ 12.495,00 sem a hipótese)", ou que a primeira parcela só
+cai depois. 2 casos no grupo SM (os 2 vermelhos antes). Gates: 666/666,
+99/99, 50/50, **363/363**, metamórficos, fuzz, 151/151, 468; typechecks,
+`test:money`, build, rubrica, varredura e `git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800
@@ -4188,7 +4200,6 @@ precisam de auditoria independente; navegador, persistência real e dados
 legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas:
-- "e quanto fica nesse mês" depois de simular compra pergunta outra coisa.
 - "pq?" depois de "qual foi pior" explica o mês errado; "e o inter" chama
   fatura atrasada de "dado real".
 - "Se eu ficar mais 3h… vale?" rotula "estimativa para um dia" e não responde
