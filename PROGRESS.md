@@ -3759,3 +3759,21 @@ diz quais meses entraram. O contrato da DSL não muda (mesmo `metric`/`group`).
 R$ 2.000,00; fixture rico com a média somada direto dos lançamentos. Gates:
 666/666, 99/99, 50/50, **250/250**, metamórficos, fuzz, 151/151, 468;
 typechecks, `test:money`, build e rubrica passaram.
+
+## 2026-10-27 — guardado não é saldo em conta
+
+- "Quanto eu tenho guardado" respondia o SALDO EM CONTA (o "tenho" puxava o
+  handler de saldo); "minha reserva tá em quanto" e "quanto tem na reserva"
+  procuravam DESPESA na categoria reserva e diziam que não havia lançamento;
+  "quanto eu já guardei" respondia só o mês. Agora: reserva = soma das
+  transferências `saving` (regra 5), metas = o guardado de cada meta, e o
+  saldo em conta aparece como separado. Pergunta pela reserva começa por ela;
+  com período ("esse ano") continua na consulta.
+- "Tirei 300 da reserva" caía na ajuda genérica. O app não tem lançamento de
+  retirada da reserva (o código `insufficient-reserve` existe e nunca é usado);
+  a resposta agora diz isso e aponta Movimentações. Criar a retirada é decisão
+  de produto, fora deste lote.
+
+5 casos (4 vermelhos no código anterior, 1 controle com período). Gates:
+666/666, 99/99, 50/50, **255/255**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build e rubrica passaram.

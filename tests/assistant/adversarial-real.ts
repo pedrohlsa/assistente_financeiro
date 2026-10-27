@@ -1682,6 +1682,30 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('Q-media-mensal-fixture', rr.reply, esperado, rr.reply.replace(/ /g, ' ').startsWith(`Média por mês: ${esperado}`)))
   }
 
+  // Guardado ≠ saldo em conta. "Quanto eu tenho guardado" respondia o saldo,
+  // "minha reserva tá em quanto" procurava despesa na categoria reserva e
+  // "tirei 300 da reserva" caía na ajuda. Oráculo: soma dos `saving` e das metas.
+  {
+    const st = autonomoRico(hoje)
+    const reserva = st.transactions.filter(t => t.type === 'saving').reduce((a, t) => a + t.amount, 0)
+    const metas = st.goals.reduce((a, g) => a + g.saved, 0)
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const guardado = await turnoHoje(st, 'quanto eu tenho guardado')
+    out.push(result('R-guardado-nao-e-saldo', guardado.reply, `${brl(reserva + metas)} = reserva ${brl(reserva)} + metas ${brl(metas)}`,
+      limpa(guardado.reply).startsWith(`Guardado ao todo: ${brl(reserva + metas)}`) && !/saldo em conta é R\$/i.test(guardado.reply)))
+    for (const frase of ['minha reserva ta em quanto', 'quanto tem na reserva']) {
+      const r = await turnoHoje(st, frase)
+      out.push(result(`R-reserva-${frase.replace(/\W+/g, '-')}`, r.reply, `reserva ${brl(reserva)} primeiro`,
+        limpa(r.reply).startsWith(`Sua reserva tem ${brl(reserva)}`)))
+    }
+    const comPeriodo = await turnoHoje(st, 'quanto eu guardei esse ano')
+    out.push(result('R-guardado-com-periodo-continua-consulta', comPeriodo.reply, 'consulta do ano', /neste ano/.test(comPeriodo.reply)))
+    const tirei = await turnoHoje(st, 'tirei 300 da reserva')
+    out.push(result('R-retirada-explicada', tirei, 'diz que retirada não existe, sem ajuda genérica e sem ação',
+      /retirada da reserva/.test(tirei.reply) && !/Posso te ajudar com coisas como/.test(tirei.reply) && tirei.actions.length === 0))
+  }
+
   // A linha do mês só diz "com a parcela" se a parcela cai nele. Sem cartão,
   // a primeira vence em 30 dias: a linha do mês corrente afirmava a parcela
   // com o saldo intacto.

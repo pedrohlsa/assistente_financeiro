@@ -31,6 +31,20 @@ export function pedeReservaDeCaixa(t: string): boolean {
   return QUANTO_DEIXAR.test(t) && PRAZO_OU_CAIXA.test(t) && !PERGUNTA_DE_META.test(t)
 }
 
+/**
+ * "Quanto eu tenho guardado", "minha reserva tá em quanto", "quanto já guardei":
+ * o TOTAL guardado até hoje, não o saldo em conta nem o guardado do mês. A
+ * reserva é a soma das transferências `saving` (regra 5) e as metas guardam o
+ * próprio valor. Pergunta com período ("esse ano") continua na consulta.
+ */
+export function pedeTotalGuardado(t: string): boolean {
+  return /\bquanto\s+(?:eu\s+)?(?:tenho|tem|ha)\s+(?:de\s+)?(?:guardado|reservado|na\s+reserva|na\s+poupanca)\b|\breserva\s+(?:esta|ta)\s+em\s+quanto\b|\bquanto\s+(?:esta|ta)\s+(?:a\s+)?(?:minha\s+)?reserva\b|\bsaldo\s+da\s+reserva\b|\bquanto\s+(?:eu\s+)?ja\s+guardei\s*\??$/.test(t)
+}
+
+/** "Tirei 300 da reserva": não há lançamento de retirada no app. */
+export const retiraDaReserva = (t: string): boolean =>
+  /\b(?:tirei|retirei|saquei|peguei|usei)\b[^.?!]*\b(?:da|na)\s+(?:minha\s+)?(?:reserva|poupanca)\b/.test(t)
+
 /** "qual conta está me apertando", "qual das contas pesa mais", "qual boleto…". */
 export function pedeContaQueAperta(t: string): boolean {
   return /\bqual\s+(?:das\s+|dos\s+|e\s+a\s+|e\s+o\s+)?(?:contas?|boletos?|compromissos?)\b.*\b(?:apertando|aperta|pesando|pesa|pesada|pesado|matando|sufocando)\b/.test(t)

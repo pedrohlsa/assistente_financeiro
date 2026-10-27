@@ -24,7 +24,7 @@ import {
   monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections, budgetUsage,
 } from './calc'
 import type { CashObligation } from './calc'
-import { alvoDaReserva, pedeContaQueAperta, pedeReservaDeCaixa, prazoDasContas } from '../assistant/cashQuestions'
+import { alvoDaReserva, pedeContaQueAperta, pedeReservaDeCaixa, pedeTotalGuardado, prazoDasContas, retiraDaReserva } from '../assistant/cashQuestions'
 import { describeAction, parseNaturalFull } from './nlp'
 import { driverInsight } from '../assistant/driverInsights'
 import { adaptiveEnabled, buildPersonalModel } from '../assistant/personalModel'
@@ -491,6 +491,37 @@ function resolveLocal(s: AppState, input: string): AiReply {
         : `Seu saldo é ${fmtBRL(saldo)} — faltam ${fmtBRL(round2(total - saldo))} para cobrir.`)
     }
     return { text: partes.join('\n\n') }
+  }
+
+  // "Quanto eu tenho guardado": o saldo em conta respondia no lugar (a palavra
+  // "tenho" puxava o handler de saldo) e "minha reserva tá em quanto" procurava
+  // DESPESA na categoria reserva. Guardado é reserva (`saving`) + metas.
+  if (pedeTotalGuardado(t)) {
+    const depositos = s.transactions.filter(x => x.type === 'saving')
+    const reserva = round2(depositos.reduce((a, x) => a + x.amount, 0))
+    const metas = s.goals.filter(g => g.saved > 0)
+    const emMetas = round2(metas.reduce((a, g) => a + g.saved, 0))
+    if (!reserva && !emMetas) {
+      return { text: 'Você ainda não registrou nada guardado. Diga, por exemplo, "guardei 200 na reserva" que eu lanço.' }
+    }
+    const linhaReserva = `${fmtBRL(reserva)} (${depositos.length} ${depositos.length === 1 ? 'depósito' : 'depósitos'})`
+    const linhaMetas = `${fmtBRL(emMetas)} — ${metas.map(g => `${sentenceCase(g.name)} ${fmtBRL(g.saved)}`).join(', ')}`
+    const separado = 'O saldo em conta é separado: o que vai para a reserva não sai dele.'
+    // Quem pergunta pela RESERVA quer o número dela primeiro; metas vêm à parte.
+    if (/\breserva\b|\bpoupanca\b/.test(t)) {
+      return { text: [`Sua reserva tem ${fmtBRL(reserva)}, em ${depositos.length} ${depositos.length === 1 ? 'depósito' : 'depósitos'} (dado real).`, emMetas ? `Nas metas, à parte: ${linhaMetas}.` : '', separado].filter(Boolean).join('\n\n') }
+    }
+    const partes: string[] = []
+    if (reserva) partes.push(`Na reserva: ${linhaReserva}.`)
+    if (emMetas) partes.push(`Nas metas: ${linhaMetas}.`)
+    const total = reserva && emMetas ? `Guardado ao todo: ${fmtBRL(round2(reserva + emMetas))} (dado real).\n\n` : ''
+    return { text: `${total}${partes.join('\n')}\n\n${separado}` }
+  }
+
+  // "Tirei 300 da reserva": não existe lançamento de retirada. O texto genérico
+  // de ajuda deixava parecer que a frase não foi entendida.
+  if (retiraDaReserva(t)) {
+    return { text: 'Ainda não registro retirada da reserva: ela é a soma do que você guardou, e retirar não tem um lançamento próprio no app. Se o depósito foi lançado errado, corrija ou apague em Movimentações.' }
   }
 
   // "Qual conta está me apertando?" pede uma comparação, não uma lista crua.
