@@ -2271,6 +2271,27 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('FC-e-o-c6-em-seguida', r3.reply, 'segue trocando o cartão', /C6/.test(r3.reply) && !/de quanto/i.test(r3.reply)))
   }
 
+  // Fatura na consulta diz a SITUAÇÃO: a atrasada sem pagamento saía "(dado
+  // real)", lido como paga, e a fechada "(previsão)" com valor já fechado.
+  {
+    const st = estadoDeFaturas(hoje)
+    const palavra: Record<string, RegExp> = { atrasada: /atrasada/, fechada: /fechada/, paga: /\bpaga\b/, parcial: /paga em parte/, aberta: /aberta/ }
+    for (const [frase, nome] of [['quanto gastei no cartao inter esse mes', 'Inter'], ['quanto gastei no cartao nubank esse mes', 'Nubank']]) {
+      const card = st.cards.find(c => c.name === nome)!
+      const inv = cardInvoice(st, card, hoje.slice(0, 7))
+      const r = (await turnoHoje(st, frase)).reply
+      out.push(result(`FS-${nome}`, r, `situação ${inv.status}`,
+        palavra[inv.status].test(r) && (inv.status === 'aberta' || !/previs/i.test(r))))
+    }
+    // Parcela marcada como paga SEM data (backup antigo): o caixa e a resposta
+    // de fatura já a tratam como quitada; a consulta não pode chamá-la de atrasada.
+    const caixa = estadoDeCaixaFuturo(hoje, 1000, 'autonomo')
+    const passada = addDays(hoje, -35)
+    const mesDela = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'][fromISO(passada).getMonth()]
+    const antiga = (await turnoHoje(caixa, `quanto gastei no cartao nubank em ${mesDela}`)).reply
+    out.push(result('FS-backup-pago-nao-atrasa', antiga, 'paga, sem "atrasada"', /\bpaga\b/.test(antiga) && !/atrasada/.test(antiga)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

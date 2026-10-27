@@ -14,7 +14,7 @@ import { catById } from '../../data/categories'
 import { fromISO, monthKey, monthShortLabel, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase, weekdayName } from '../../utils/text'
 import {
-  activeCards, cardById, cardInvoice, cardOutstanding, planProgress,
+  activeCards, cardById, cardInvoice, cardOutstanding, invoiceOpenAmount, planProgress,
 } from '../../services/cards'
 import { monthlyProjections, occurrencesBetween, recurringActiveOn } from '../../services/calc'
 import type {
@@ -115,12 +115,20 @@ function rowsOf(state: AppState, plan: AssistantQueryPlan): QueryRow[] {
           mesesVistos.add(mk)
           for (const c of activeCards(state)) {
             const inv = cardInvoice(state, c, mk)
+            // O pendente é o do caixa: parcela marcada como paga (mesmo sem
+            // data) não deixa a fatura "atrasada" aqui e quitada na resposta
+            // de fatura.
+            const aberto = invoiceOpenAmount(state, inv)
+            const status = inv.total > 0 && aberto <= 0.009 && inv.status !== 'aberta' ? 'paga' : inv.status
             out.push({
               id: `${c.id}@${mk}`, date: inv.dueDate, value: r2(inv.total),
               label: `${c.name} · ${mk}`, cardId: c.id, cardName: c.name,
-              status: inv.status, txType: 'expense',
-              estimated: inv.status === 'aberta' || inv.status === 'fechada',
-              extra: { paid: r2(inv.paid), total: r2(inv.total), pending: r2(inv.pending) },
+              // Só a fatura ABERTA ainda pode mudar de valor. Fechada, atrasada
+              // ou paga tem valor conhecido; se foi paga, quem diz é a situação
+              // na resposta, não o selo.
+              status, txType: 'expense',
+              estimated: inv.status === 'aberta',
+              extra: { paid: r2(inv.paid), total: r2(inv.total), pending: aberto },
             })
           }
         }

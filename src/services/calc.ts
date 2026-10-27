@@ -2,7 +2,7 @@
 import { AppState, Insight, IntervalUnit, RecurrenceOccurrence, RecurringExpense, Transaction } from '../models/types'
 import { addDays, dateForDayOfMonth, daysInMonth, dueLabel, fmtBRL, fmtNum, fromISO, monthKey, monthShortLabel, stampOf, todayISO, toISO } from '../utils/format'
 import { sentenceCase, weekdayName } from '../utils/text'
-import { installmentsThisMonth, monthlyCommitments, installmentsInMonth, chargesInMonth, activeCards, cardInvoice, directInstallmentPaidAmount } from './cards'
+import { installmentsThisMonth, monthlyCommitments, installmentsInMonth, chargesInMonth, activeCards, cardInvoice, directInstallmentPaidAmount, invoiceOpenAmount } from './cards'
 
 export interface PeriodStats {
   income: number
@@ -838,24 +838,13 @@ export function cashObligationsUntil(s: AppState, until: string): CashObligation
 
   const last = fromISO(until)
   const plans = new Map((s.installmentPlans || []).map(p => [p.id, p]))
-  const byNumber = new Map((s.installments || []).map(i => [`${i.planId}#${i.number}`, i]))
   for (const card of activeCards(s)) {
     for (let back = OBLIGATION_LOOKBACK_MONTHS; ; back--) {
       const d = new Date(today.getFullYear(), today.getMonth() - back, 1)
       if (d > last) break
       const inv = cardInvoice(s, card, monthKey(toISO(d)))
       if (inv.pending <= 0.009 || inv.dueDate > until) continue
-      // Parcela marcada como paga sem data (backup antigo) não entra no "pago"
-      // da fatura, e a fatura aparecia atrasada com tudo quitado. O que o
-      // usuário marcou como pago não é compromisso: o limite é o que segue
-      // pendente pelo STATUS de cada item.
-      const porStatus = inv.items.reduce((sum, it) => {
-        if (it.kind !== 'installment') return sum + it.amount
-        const inst = byNumber.get(`${it.planId}#${it.installmentNumber}`)
-        if (!inst || inst.status !== 'pending') return sum
-        return sum + it.amount - Math.min(Math.max(inst.paidAmount || 0, 0), it.amount)
-      }, 0)
-      const amount = Math.round(Math.min(inv.pending, porStatus) * 100) / 100
+      const amount = invoiceOpenAmount(s, inv)
       if (amount > 0.009) {
         out.push({ name: `Fatura ${card.name}`, amount, date: inv.dueDate, inDays: inDays(inv.dueDate), kind: 'invoice', cardId: card.id })
       }

@@ -33,6 +33,22 @@ export function formatValue(v: number, unit: FactUnit): string {
 
 const plural = (n: number, um: string, muitos: string) => (n === 1 ? um : muitos)
 
+/** Uma linha por fatura com a situação dela e o que falta, quando falta. */
+function situacaoDaFatura(row: AssistantQueryResult['samples'][number]): string {
+  const data = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
+  const falta = typeof row.extra?.pending === 'number' ? row.extra.pending : 0
+  // O vencimento identifica a fatura: com várias, "Nubank: paga" se repetia.
+  const quem = `• ${row.cardName ? `${row.cardName} ` : ''}(vencimento ${data(row.date)}): `
+  switch (row.status) {
+    case 'atrasada': return `${quem}atrasada, falta ${fmtBRL(falta)}.`
+    case 'fechada': return `${quem}fechada, a pagar.`
+    case 'parcial': return `${quem}paga em parte, falta ${fmtBRL(falta)}.`
+    case 'paga': return `${quem}paga.`
+    case 'aberta': return `${quem}ainda aberta; o valor pode crescer até fechar.`
+    default: return ''
+  }
+}
+
 /** Agrupamentos por tempo: singular, plural e gênero ("dos meses", "das semanas"). */
 const TEMPO: Partial<Record<AssistantQueryPlan['group'], { um: string; varios: string; feminino: boolean }>> = {
   month: { um: 'mês', varios: 'meses', feminino: false },
@@ -217,6 +233,14 @@ export function composeAnswer(r: AssistantQueryResult): string {
     linhas.push(d === 0
       ? `${maiuscula(p.comparePeriod.label)} foi exatamente o mesmo valor.`
       : `${maiuscula(p.comparePeriod.label)}: ${antes}. O período principal ficou ${formatValue(Math.abs(d), r.unit)} ${direcao}${pct}.`)
+  }
+
+  // ---- situação das faturas ---------------------------------------------
+  // "(dado real)" numa fatura atrasada se lia como paga. Cada fatura diz onde
+  // está: aberta, fechada a pagar, atrasada, paga em parte ou paga.
+  if (p.source === 'invoices' && p.group === 'none') {
+    const situacoes = r.samples.filter(row => row.value > 0.005).map(situacaoDaFatura).filter(Boolean)
+    if (situacoes.length) linhas.push(situacoes.join('\n'))
   }
 
   // ---- amostra e ressalvas ----------------------------------------------

@@ -4214,6 +4214,23 @@ depois). 2 casos no grupo FC (os 2 vermelhos antes). Gates: 666/666, 99/99,
 50/50, **367/367**, metamórficos, fuzz, 151/151, 468; typechecks,
 `test:money`, build, rubrica, varredura e `git diff --check` passaram.
 
+## 2026-10-27 — fatura na consulta diz a situação
+
+Na consulta, fatura atrasada sem pagamento saía "(dado real)" — lido como
+paga — e fatura fechada "(previsão)", com o valor já fechado. Agora só a
+fatura ABERTA é previsão, e cada fatura ganha uma linha com a situação e o
+vencimento: "Inter (vencimento 15/10/2026): atrasada, falta R$ 400,00",
+"fechada, a pagar", "paga em parte", "paga", "ainda aberta". O pendente é o
+mesmo do caixa: o desconto pelo status de cada item (parcela marcada como paga
+sem data, de backup antigo) saiu de `cashObligationsUntil` para
+`invoiceOpenAmount()` em `cards.ts`, e a consulta usa a mesma função — antes
+ela chamava de "atrasada, falta R$ 400" a fatura de setembro que a resposta de
+fatura e o caixa davam como quitada.
+
+3 casos no grupo FS (os 3 vermelhos antes). Gates: 666/666, 99/99, 50/50,
+**370/370**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
+build, rubrica (0 perigosa, 0 ruim), varredura e `git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `b049bdf`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **352/352 adversariais**, 4.088 + 3.800
@@ -4225,7 +4242,6 @@ precisam de auditoria independente; navegador, persistência real e dados
 legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas:
-- "e o inter" chama fatura atrasada de "dado real".
 - "Se eu ficar mais 3h… vale?" rotula "estimativa para um dia" e não responde
   sim/não; "hj deu … como foi" registra sem responder o "como foi".
 - Pergunta nominal sem "quanto" ("gastos dessa semana") cai na ajuda genérica.

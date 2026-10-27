@@ -218,6 +218,24 @@ export function settleableInstallmentIds(s: AppState, invoice: CardInvoice): str
     .map(i => i.id)
 }
 
+/**
+ * Quanto da fatura segue de fato em aberto. Parcela marcada como paga sem data
+ * (backup antigo) não entra no "pago" da fatura, e ela aparecia atrasada com
+ * tudo quitado. O que o usuário marcou como pago não é compromisso: o limite é
+ * o que segue pendente pelo STATUS de cada item. Caixa, resposta de fatura e
+ * consulta usam este mesmo número.
+ */
+export function invoiceOpenAmount(s: AppState, inv: CardInvoice): number {
+  const byNumber = new Map((s.installments || []).map(i => [`${i.planId}#${i.number}`, i]))
+  const porStatus = inv.items.reduce((sum, it) => {
+    if (it.kind !== 'installment') return sum + it.amount
+    const inst = byNumber.get(`${it.planId}#${it.installmentNumber}`)
+    if (!inst || inst.status !== 'pending') return sum
+    return sum + it.amount - Math.min(Math.max(inst.paidAmount || 0, 0), it.amount)
+  }, 0)
+  return Math.round(Math.max(Math.min(inv.pending, porStatus), 0) * 100) / 100
+}
+
 /** Fatura de um cartão no mês de referência ('YYYY-MM' do vencimento). */
 export function cardInvoice(s: AppState, card: CreditCard, mk: string): CardInvoice {
   const [y, m] = mk.split('-').map(Number)
