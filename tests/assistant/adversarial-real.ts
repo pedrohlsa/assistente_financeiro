@@ -1842,6 +1842,32 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         /C[âa]mera/.test(r.reply) && limpa(r.reply).includes(brl(2500)) && !/Notebook/.test(r.reply)))
     }
   }
+
+  // Pôr dinheiro NA META pelo nome dela: "coloquei 300 na viagem" virava
+  // despesa de R$ 300 (Outros) e "juntei mais 100 pra viagem" virava receita
+  // de corrida para um autônomo. Gastar na viagem continua sendo gasto.
+  {
+    const rico = autonomoRico(hoje)
+    const deposito = (nome: string, valor: number) => (acts: any[]) => acts.length === 1
+      && acts[0].kind === 'goal-deposit' && acts[0].name === nome && acts[0].amount === valor
+    const casos: [string, AppState, string, string, (acts: any[]) => boolean][] = [
+      ['V-coloquei-na-meta', rico, 'coloquei 300 na viagem', 'depósito de 300 na meta Viagem', deposito('Viagem', 300)],
+      ['V-botei-no-notebook', rico, 'botei 200 no notebook', 'depósito de 200 na meta Notebook', deposito('Notebook', 200)],
+      ['V-juntei-mais', rico, 'juntei mais 100 pra viagem', 'depósito de 100 na meta Viagem, sem receita', deposito('Viagem', 100)],
+      ['V-juntei', rico, 'juntei 100 pra viagem', 'depósito de 100 na meta Viagem', deposito('Viagem', 100)],
+      ['V-gastei-na-viagem-e-gasto', rico, 'gastei 300 na viagem', 'despesa de 300, não depósito',
+        acts => acts.length === 1 && acts[0].kind === 'expense' && acts[0].amount === 300],
+      ['V-gasolina-na-moto-e-gasto', buildState({ profile: 'autonomo', balance: 500, goals: [{ name: 'Moto', target: 9000, saved: 1000 }] }),
+        'coloquei 50 de gasolina na moto', 'gasto de combustível, não depósito na meta Moto',
+        acts => acts.length === 1 && acts[0].kind !== 'goal-deposit' && acts[0].amount === 50],
+      ['V-sem-meta-nao-inventa', buildState({ profile: 'autonomo', balance: 500 }), 'coloquei 300 na viagem', 'sem meta, sem depósito',
+        acts => !acts.some(a => a.kind === 'goal-deposit')],
+    ]
+    for (const [id, st, frase, esperado, ok] of casos) {
+      const r = await turnoHoje(st, frase)
+      out.push(result(id, r.actions, esperado, ok(r.actions)))
+    }
+  }
   return out
 }
 

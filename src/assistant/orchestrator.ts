@@ -436,6 +436,22 @@ function goalDepositClarification(
   }
 }
 
+/**
+ * A meta ativa que recebe o dinheiro em "coloquei/botei 300 na <meta>". O valor
+ * vai DIRETO para o nome (sem "de gasolina" no meio) e a descrição que o parser
+ * leu é o próprio nome da meta — os dois juntos, nunca um só.
+ */
+function metaDoDeposito(state: AppState, text: string, action: Extract<ParsedAction, { kind: 'expense' }>) {
+  const t = normalizeName(text)
+  const m = t.match(/\b(?:coloquei|botei|pus|joguei|mandei|transferi)\s+(?:mais\s+)?(?:r\$\s*)?\d[\d.,]*\s*(?:reais|real|conto|contos|pila)?\s+(?:na|no|pra|pro|para)\s+(?:a\s+|o\s+|minha\s+|meu\s+)?(.+)$/)
+  if (!m) return undefined
+  const desc = normalizeName(action.description)
+  return (state.goals || []).filter(g => !g.done).find(g => {
+    const nome = normalizeName(g.name)
+    return !!nome && (m[1] === nome || m[1].startsWith(`${nome} `)) && desc === nome
+  })
+}
+
 function runLocal(
   input: OrchestratorInput,
   caps: AssistantCapabilities,
@@ -496,6 +512,13 @@ function runLocal(
       let action = idx >= 0 ? reconciled[idx] : raw
       // Depósito segurado até o usuário dizer em qual meta — ver abaixo.
       if (!action) continue
+      // "Coloquei 300 na viagem" com a meta Viagem: o parser não conhece as
+      // metas e lia despesa de R$ 300 (Outros). Pôr dinheiro direto NA meta
+      // ativa é depósito; "coloquei 50 de gasolina na moto" continua gasto.
+      if (action.kind === 'expense') {
+        const meta = metaDoDeposito(input.state, clause.text, action)
+        if (meta) action = { kind: 'goal-deposit', amount: action.amount, name: meta.name }
+      }
       // "Vou guardar 200 na meta do notebook": a meta existe, o depósito ainda
       // não aconteceu. Sem meta com esse nome, a pergunta (criar ou reservar?)
       // continua — ela é o caminho para criar o objetivo.

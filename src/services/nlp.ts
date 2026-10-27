@@ -713,7 +713,9 @@ function parseClause(input: string): ParsedAction[] {
   }
 
   // ----- guardar dinheiro numa meta: "guardei 100 para o iphone", "guarda 50 na meta da viagem"
-  const depositRe = new RegExp(String.raw`(?:guardei|guarda|guardar|separei|separa|separar|deposita|depositei)\s*${APROX}(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:para|pra|pro|na|no|da|do|em)?\s*(?:a\s+|o\s+)?(?:meta\s+)?(?:d[oa]\s+)?([\wçãõáéíóúâêô\s]+)?`, 'i')
+  // "Juntei 100 pra viagem" é juntar PARA a meta: sem o verbo aqui, a frase não
+  // registrava nada, e com "mais" virava receita de corrida.
+  const depositRe = new RegExp(String.raw`(?:guardei|guarda|guardar|separei|separa|separar|deposita|depositei|juntei)\s*${APROX}(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:para|pra|pro|na|no|da|do|em)?\s*(?:a\s+|o\s+)?(?:meta\s+)?(?:d[oa]\s+)?([\wçãõáéíóúâêô\s]+)?`, 'i')
   const dep = text.match(depositRe)
   if (dep) {
     // "guardei 150 E gastei 355" deixava o nome da meta como "e". Um nome que é
@@ -834,7 +836,7 @@ function parseClause(input: string): ParsedAction[] {
       // "gastei MAIS 190 de cimento": o `mais` solto é ênfase de uma DESPESA já
       // em curso, não uma receita nova. Sem esta guarda a mesma frase gerava
       // uma despesa de 190 e uma receita fantasma de 190.
-      if (/^mais\b/i.test(inc[0]) && /\b(?:gastei|paguei|comprei|torrei|coloquei|botei|abasteci)\b/i.test(text.slice(0, at))) continue
+      if (/^mais\b/i.test(inc[0]) && /\b(?:gastei|paguei|comprei|torrei|coloquei|botei|abasteci|juntei|guardei|separei|depositei)\b/i.test(text.slice(0, at))) continue
       const afterAmount = text.slice(at + inc[0].length)
       const nearbyPlatform = afterAmount.match(/^\s*(?:(?:d[ao]|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(uber|99|indriver|corrida(?:\s+privada)?)/i)
       const platform = (inc[2] || nearbyPlatform?.[1] || '').trim().toLowerCase()

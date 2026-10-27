@@ -3836,6 +3836,25 @@ sem base, diz que não tem.
 **278/278**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
 build, rubrica (0 perigosa, 0 ruim), varredura e `git diff --check` passaram.
 
+## 2026-10-27 — dinheiro posto na meta pelo nome dela
+
+"Coloquei 300 na viagem" e "botei 200 no notebook", com as metas Viagem e
+Notebook ativas, viravam despesa de R$ 300/200 (Outros): o parser não conhece
+as metas e só lia depósito com a palavra "meta". "Juntei mais 100 pra viagem"
+virava RECEITA de R$ 100 em Corridas para um autônomo (o "mais 100" era lido
+como receita e "viagem" como corrida); sem o "mais", nada era registrado.
+
+O orquestrador, que tem o estado, troca a despesa por depósito quando o valor
+vai direto para o nome de uma meta ativa ("coloquei 300 na viagem") e a
+descrição lida é esse nome. "Gastei 300 na viagem" e "coloquei 50 de gasolina
+na moto" (com meta Moto) continuam gasto; sem meta, nada muda. "Juntei" entrou
+nos verbos de depósito do parser e na guarda do "mais" de receita.
+
+7 casos no grupo V (4 vermelhos antes, 3 controles). Gates: 666/666, 99/99,
+50/50, **285/285**, metamórficos, fuzz, 151/151, 468; typechecks,
+`test:money`, build, rubrica (0 perigosa, 0 ruim), varredura e
+`git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `c824fe0`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **256/256 adversariais**, 4.088 + 3.800
