@@ -2894,6 +2894,22 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /Falta pagar R\$ 800,00/.test(fatura) && !/Cadastre|Não tenho|para pagar|Situação dos seus cartões/.test(fatura)))
   }
 
+  // Refeição é gasto sem "gastei" ("almocei 32 reais"), e dois itens com "e"
+  // antes do valor ("comprei pão e leite 18") são um gasto só. As duas caíam
+  // na ajuda genérica.
+  {
+    const rico = autonomoRico(hoje)
+    const gasto = async (msg: string) => ((await turnoHoje(rico, msg)).actions as { kind: string, amount?: number, category?: string }[])
+    for (const [id, msg, valor] of [['RF-almocei', 'almocei 32 reais', 32], ['RF-jantei-no-lugar', 'jantei 45 no restaurante', 45],
+      ['RF-comprei-dois-itens', 'comprei pão e leite 18', 18]] as const) {
+      const a = await gasto(msg)
+      out.push(result(id, a, `despesa de ${valor} em Alimentação`,
+        a.length === 1 && a[0].kind === 'expense' && a[0].amount === valor && a[0].category === 'alimentacao'))
+    }
+    const semValor = await gasto('almocei com o joao hoje')
+    out.push(result('RF-sem-valor-controle', semValor, 'nada a registrar', semValor.length === 0))
+  }
+
   // "Quanto de fatura vence esse mês" é a soma das faturas a pagar (Inter
   // atrasada + Nubank de hoje = R$ 800,00), não o resumo dos cartões.
   {

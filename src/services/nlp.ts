@@ -1032,6 +1032,17 @@ function parseClause(input: string): ParsedAction[] {
     actions.push({ kind: 'expense', amount: parseNum(e[1]), category: guessCategory(rawDesc || text, 'expense'), description: desc })
   }
 
+  // ----- refeição sem "gastei": "almocei 32 reais", "lanchei por 15". O verbo
+  // já diz que houve gasto e com quê; a frase caía na ajuda genérica.
+  if (!e && !m && !f) {
+    const ref = text.match(new RegExp(String.raw`\b(almoc|jant|lanch)(?:ei|amos)\b\s*(?:por|de|uns|umas)?\s*(?:r\$)?\s*${NUM}(?!\d|[.,]\d)\s*${MOEDA}?\s*$`, 'i'))
+    const amount = ref ? parseNum(ref[2]) : NaN
+    if (ref && amount > 0) {
+      const nome: Record<string, string> = { almoc: 'Almoço', jant: 'Jantar', lanch: 'Lanche' }
+      actions.push({ kind: 'expense', amount, category: 'alimentacao', description: nome[ref[1].toLowerCase()] })
+    }
+  }
+
   // ----- valor ANTES do verbo de saída: "entrou 3200 do salario e 1100 SAIU de
   // aluguel". A ordem é a da fala; sem esta leitura a despesa sumia, e o
   // substantivo de renda da outra metade ainda tirava o "saiu" da lista acima.
@@ -1055,7 +1066,9 @@ function parseClause(input: string): ParsedAction[] {
       // Sem preposição nenhuma no meio: "paguei o aluguel 900". Exige que o
       // substantivo seja de uma categoria conhecida — é o que separa isto de
       // um número solto que ninguém sabe o que é.
-      const nuRe = new RegExp(String.raw`(?:gastei|paguei|comprei|torrei)\s+(?:mais\s+)?(?:o|a|os|as|um|uma|meu|minha)?\s*([a-zà-úçãõ][\wçãõáéíóúâê]*(?:\s+[a-zà-úçãõ][\wçãõáéíóúâê]*)?)\s+(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*$`, 'i')
+      // Dois itens com "e" ("comprei pão e leite 18") são um gasto só: sem o
+      // "e" a frase caía na ajuda genérica.
+      const nuRe = new RegExp(String.raw`(?:gastei|paguei|comprei|torrei)\s+(?:mais\s+)?(?:o|a|os|as|um|uma|meu|minha)?\s*([a-zà-úçãõ][\wçãõáéíóúâê]*(?:\s+(?:e\s+)?[a-zà-úçãõ][\wçãõáéíóúâê]*)?)\s+(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*$`, 'i')
       const nu = text.match(nuRe)
       const cat = nu ? guessCategory(nu[1], 'expense') : undefined
       if (nu && cat) {

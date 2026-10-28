@@ -4905,6 +4905,22 @@ com a consulta. 2 casos no grupo FV (os 2 vermelhos antes). Gates: 666/666,
 99/99, 50/50, **495/495**, metamórficos, fuzz, 151/151, 468; typechecks,
 `test:money`, build, rubrica, varredura e `git diff --check` passaram.
 
+## 2026-10-28 — "almocei 32" e "comprei pão e leite 18"
+
+Registro perdido: "almocei 32 reais" e "comprei pão e leite 18" caíam na
+ajuda genérica. O parser só lia gasto com verbo de gasto ("gastei, paguei,
+comprei…"), e "almoçar/jantar/lanchar" já dizem que houve gasto e com quê; o
+padrão "comprei <item> <valor>" aceitava no máximo duas palavras, sem "e".
+Agora "almocei/jantei/lanchei (por) N" é despesa de Alimentação ("Almoço",
+"Jantar", "Lanche"), e o item pode ter "e" ("Pão e leite", "Cimento e
+areia"). "Almocei com o João hoje", sem valor, não registra nada. 4 casos no
+grupo RF (2 vermelhos antes, 2 controles). Gates: 666/666, 99/99, 50/50,
+**499/499**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
+build, rubrica, varredura e `git diff --check` passaram.
+
+Achado sem correção: "quanto almocei esse mes" responde o gasto total do mês
+(R$ 2.373,00), não o de almoço/alimentação.
+
 ## Pendências em 28/10/2026 (HEAD `8c3fd2f`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **490/490 adversariais**, 4.088 + 3.800
