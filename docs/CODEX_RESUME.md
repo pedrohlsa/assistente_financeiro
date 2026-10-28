@@ -23,8 +23,8 @@ o checkpoint de CONTEXTO.md e as últimas seções de PROGRESS.md.
 
 ## Estado ao encerrar esta janela
 
-Último commit confirmado ao iniciar o lote atual:b1efa8e. Este lote impede
-o chat de escolher mês errado entre faturas pendentes. Confira git log/status antes de
+Último commit confirmado no lote de código:a656cec. Depois dele foi feito
+smoke local com dados fictícios. Confira git log/status antes de
 editar. Só .claude/launch.json deve permanecer modificado após o commit.
 
 Baseline validada:666 corpus,99 consulta/cenário,50 semânticos,
@@ -37,8 +37,11 @@ Produção antiga: main em e6f6229, DeepSeek Pro com thinking desligado,
 conforme registro anterior; não foi rechecada ao vivo. V2 NÃO publicada e
 continua NOT READY para merge/deploy até auditoria independente. O smoke
 anterior de persistência cobriu só manutenção/confirmar/recarregar/desfazer
-com dados fictícios. Novas mudanças na Home/data de pagamento ainda não
-tiveram novo smoke de interface.
+com dados fictícios. Smoke de 28/10: Home mostrou a cautela por contas vencidas;
+um cartão fictício com fatura R$300 apareceu com limite comprometido R$300;
+no formulário, data futura ou vazia desabilitou "Registrar pagamento" e
+mostrou a explicação. Nenhum pagamento foi executado. Aviso de backup com
+pagamento futuro ainda não passou por smoke visual.
 
 ## Commits e correções desta janela
 
@@ -84,8 +87,12 @@ tiveram novo smoke de interface.
 1. Chat card-payment só tem cartão e valor; não mantém data do pagamento nem
    referenceMonth. Referência/data explícitas e múltiplas faturas abertas são
    recusadas no chat. Seleção de outro mês ainda exige a tela de cartões.
-2. Fazer smoke local da Home, da validação de pagamento e do aviso de pagamento
-   futuro em backup sintético, sem acessar dados financeiros reais nem habilitar remoto.
+2. Fazer smoke visual do aviso de pagamento futuro em backup sintético, sem
+   acessar dados financeiros reais nem habilitar remoto. Home e validação de
+   data já foram vistos no navegador local.
+3. Investigar a limitação histórica: confirmação de recorrência pelo chat e
+   depois pela Home pode duplicar a movimentação. Reproduzir com duas rotas
+   reais antes de alterar persistência.
 
 Outras limitações/decisões permanecem no fim de PROGRESS.md: confirmação de
 recorrente pelo chat ainda duplica se também confirmada na Home, retirada de

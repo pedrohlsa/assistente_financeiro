@@ -5610,3 +5610,16 @@ controles passaram a reconciliar somente as faturas antigas dentro do teste,
 preservando a verificação de que pagamento corrente inequívoco é proposto.
 637/637 adversariais; suíte completa e invariantes verdes. Nenhuma chamada
 paga, publicação ou APK; V2 continua NOT READY até auditoria independente.
+
+## 28/10/2026 — Smoke local da Home e da data da fatura
+
+Em servidor local isolado, onboarding e dados de demonstração foram usados
+sem dados financeiros reais. A Home exibiu aviso de contas vencidas sem
+confirmação e não afirmou que o saldo cobria os compromissos. Um cartão
+fictício "Inter Teste" com fatura inicial de R$300 apareceu como R$300 de
+limite comprometido e R$700 disponível sobre limite R$1000. No formulário
+de pagamento, a data de amanhã desabilitou "Registrar pagamento" e explicou
+que só se registra pagamento já ocorrido; data vazia também ficou bloqueada.
+Nenhum pagamento foi confirmado. O navegador de teste e servidor local foram
+encerrados. O aviso visual para backup com pagamento futuro permanece sem
+smoke; cálculos/reducer/executor dessa classe têm regressões automáticas.
