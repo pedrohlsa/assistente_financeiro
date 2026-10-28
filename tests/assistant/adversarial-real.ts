@@ -3026,6 +3026,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       por.length === 1 && por[0].kind === 'fuel' && por[0].amount === 180 && por[0].liters === 24))
   }
 
+  // "Quanto almocei esse mês" é Alimentação, não o gasto do mês inteiro.
+  {
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const fmt = (v: number) => `R$ ${v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`
+    const comida = rico.transactions.filter(t => t.type === 'expense' && t.category === 'alimentacao'
+      && t.date.slice(0, 7) === hoje.slice(0, 7) && t.date <= hoje).reduce((a, t) => a + t.amount, 0)
+    for (const [id, msg] of [['QA-almocei', 'quanto almocei esse mes'], ['QA-jantei', 'quanto jantei esse mes']]) {
+      const r = limpa((await turnoHoje(rico, msg)).reply)
+      out.push(result(id, r, `Alimentação ${fmt(comida)}`, comida > 0 && r.includes(fmt(comida)) && !/^Total gasto este mês/.test(r)))
+    }
+  }
+
   // Refeição é gasto sem "gastei" ("almocei 32 reais"), e dois itens com "e"
   // antes do valor ("comprei pão e leite 18") são um gasto só. As duas caíam
   // na ajuda genérica.

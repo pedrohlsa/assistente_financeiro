@@ -66,7 +66,9 @@ export const CATEGORY_KEYWORDS: Record<string, string[]> = {
   // gasto para "outros" e sumia do custo de combustível do motorista.
   combustivel: ['gasolin', 'gazolin', 'gasolna', 'etanol', 'alcool', 'álcool', 'diesel', 'dizel', 'disel', 'gnv', 'gás veicular', 'gas veicular', 'gás do carro', 'posto', 'shell', 'ipiranga', 'petrobras', 'br ', 'abasteci', 'combustivel', 'combustível', 'combustievl'],
   obra: ['cimento', 'areia', 'tijolo', 'bloco', 'brita', 'argamassa', 'rejunte', 'telha', 'madeira', 'vergalhão', 'vergalhao', 'material de construção', 'material de construcao', 'obra', 'construção', 'construcao', 'reforma', 'pedreiro'],
-  alimentacao: ['almoço', 'almoco', 'janta', 'jantar', 'lanche', 'comida', 'ifood', 'restaurante', 'padaria', 'mercad', 'mercearia', 'sacolão', 'sacolao', 'quitanda', 'café', 'cafe', 'marmita', 'pizza', 'burger', 'hamb', 'salgado', 'coxinha', 'açaí', 'acai', 'sorvete', 'pão', ' pao'],
+  // 'almocei' e 'jantei' cobrem o verbo: "quanto almocei esse mês" é
+  // Alimentação, e sem eles a pergunta dava o gasto do mês inteiro.
+  alimentacao: ['almoço', 'almoco', 'almocei', 'almoçamos', 'almocamos', 'janta', 'jantar', 'jantei', 'jantamos', 'lanche', 'comida', 'ifood', 'restaurante', 'padaria', 'mercad', 'mercearia', 'sacolão', 'sacolao', 'quitanda', 'café', 'cafe', 'marmita', 'pizza', 'burger', 'hamb', 'salgado', 'coxinha', 'açaí', 'acai', 'sorvete', 'pão', ' pao'],
   manutencao: ['óleo', 'oleo', 'pneu', 'freio', 'pastilha', 'revisão', 'revisao', 'mecânico', 'mecanico', 'oficina', 'peça', 'peca', 'filtro', 'vela', 'correia', 'amortecedor', 'manutenção', 'manutencao', 'lavagem', 'lava'],
   estacionamento: ['estacionamento', 'estacionei', 'zona azul', 'parquímetro', 'parquimetro'],
   pedagio: ['pedágio', 'pedagio', 'sem parar', 'veloe', 'conectcar'],

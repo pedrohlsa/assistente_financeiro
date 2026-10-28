@@ -5059,6 +5059,18 @@ lidos. 2 casos a mais no grupo KH (os 2 vermelhos antes). Gates: 666/666,
 99/99, 50/50, **528/528**, metamórficos, fuzz, 151/151, 468; typechecks,
 `test:money`, build, rubrica, varredura e `git diff --check` passaram.
 
+## 2026-10-28 — "quanto almocei esse mês"
+
+"Quanto almocei esse mes" e "quanto jantei esse mes" davam "Total gasto este
+mês: R$ 2.373,00", o mês inteiro: "almocei" e "jantei" não contêm as
+palavras-chave "almoço" e "janta", e a pergunta ficava sem categoria
+("quanto lanchei" já funcionava, porque "lanchei" contém "lanche"). Agora
+"almocei", "almoçamos", "jantei" e "jantamos" são palavras-chave de
+Alimentação (R$ 463,00 no mês do fixture). 2 casos no grupo QA (os 2
+vermelhos antes). Gates: 666/666, 99/99, 50/50, **530/530**, metamórficos,
+fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica, varredura e
+`git diff --check` passaram.
+
 ## Pendências em 28/10/2026 (HEAD `4e16b70`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **516/516 adversariais**, 4.088 + 3.800
@@ -5074,7 +5086,6 @@ Abertas, achadas na leitura humana e ainda não corrigidas (detalhe nas
 seções de 27 e 28/10 acima):
 - "Quando paguei a fatura do nubank" e "antecipei a fatura do nubank" dão o
   resumo dos cartões.
-- "Quanto almocei esse mes" responde o gasto total do mês.
 - Motorista: "troquei o óleo com 45 mil km", sem custo, cai na ajuda em vez
   de perguntar o valor.
 - Receita sem origem: "recebi 2 mil do cliente" e "caiu 350 de pix do joão"
