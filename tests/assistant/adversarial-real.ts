@@ -2612,6 +2612,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // Trocar a CATEGORIA da proposta na tela: "muda pra lazer" respondia "não
+  // registrei nada" e descartava a proposta; "coloca em lazer" caía na ajuda.
+  {
+    const rico = autonomoRico(hoje)
+    for (const frase of ['muda pra lazer', 'coloca em lazer', 'a categoria e lazer', 'era lazer', 'troca a categoria pra lazer']) {
+      const p1 = await orchestrate({ state: rico, message: 'gastei 50 no mercado', today: hoje, remoteEnabled: false })
+      const p2 = await orchestrate({ state: rico, message: frase, today: hoje, remoteEnabled: false, pending: p1.response.actions })
+      const acts = p2.response.actions.map(a => a.action as any)
+      out.push(result(`CC-${frase.replace(/\W+/g, '-')}`, { reply: p2.response.reply, acts }, 'mesma despesa de 50, agora em Lazer',
+        acts.length === 1 && acts[0].kind === 'expense' && acts[0].amount === 50 && acts[0].category === 'lazer' && /\(Lazer\)/.test(p2.response.reply)))
+    }
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

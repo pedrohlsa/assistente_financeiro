@@ -258,6 +258,33 @@ export function parseCorrection(
     if (touched) plan.summary.push(`Ajustei a data para ${d.label}.`)
   }
 
+  // Categoria: "muda pra lazer", "coloca em lazer", "a categoria é lazer", "era
+  // lazer". Sem isto, "muda pra lazer" virava negação — "não registrei nada" —
+  // e a proposta sumia; as outras formas caíam na ajuda. Só vale quando o nome
+  // é de uma categoria do tipo do lançamento.
+  {
+    const cm = normalizeName(t).match(/^(?:(?:muda|mudar|troca|trocar|coloca|colocar|poe|bota|botar|passa|passar|joga|jogar|lanca|lancar)\s+(?:a\s+categoria\s+)?(?:pra|para|pro|em|na|no|como)|(?:a\s+)?categoria\s+(?:e|eh|era|foi|e\s+de)|era|e\s+de|foi\s+de)\s+([a-z][a-z\s]{2,30}?)\s*[.!?]*$/)
+    if (cm) {
+      const nome = cm[1].trim().replace(/s$/, '')
+      const target = resolveTarget(t, remaining)
+      const p = target && 'id' in target ? remaining.find(x => x.id === target.id) : undefined
+      const kind = p?.action.kind
+      const cat = (kind === 'expense' || kind === 'income')
+        ? caps.categories.find(c => c.type === kind && normalizeName(c.name).replace(/s$/, '') === nome)
+        : undefined
+      if (p && cat && (p.action as any).category !== cat.id) {
+        plan.edits.push({ id: p.id, field: 'category', value: cat.id, was: (p.action as any).category })
+        plan.summary.push(`Passei para a categoria ${cat.name}.`)
+        touched = true
+      } else if (p && cat) {
+        // Já está nela: dizer isso, e a proposta fica — sem esta volta, a
+        // frase caía na negação e a proposta sumia.
+        plan.summary.push(`Já está na categoria ${cat.name}.`)
+        touched = true
+      }
+    }
+  }
+
   // Ambiguidade do gás resolvida por correção: "é GNV, não gás de cozinha"
   if (/\b[ée]\s+gnv\b/i.test(t) || /\bgnv\b.*\bn[ãa]o\b/i.test(t)) {
     for (const p of remaining) {

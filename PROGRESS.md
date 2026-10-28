@@ -4508,6 +4508,20 @@ chegam hoje ao modelo remoto (eram 67).
 151/151, 468; typechecks, `test:money`, build, rubrica, varredura e
 `git diff --check` passaram.
 
+## 2026-10-27 — trocar a categoria da proposta na tela
+
+Com "gastei 50 no mercado" na tela, "muda pra lazer" e "troca a categoria pra
+lazer" respondiam "Entendi que isso não aconteceu — não registrei nada" e
+DESCARTAVAM a proposta; "coloca em lazer", "a categoria é lazer" e "era
+lazer" caíam na ajuda. A correção da proposta ganhou a categoria: muda/troca/
+coloca/passa/joga… pra/em <categoria>, "a categoria é <x>", "era <x>" — só
+quando o nome é de uma categoria do tipo do lançamento. Pedida a que já está,
+a resposta diz "Já está na categoria Alimentação" e a proposta fica. Valor e
+data continuam como antes. 5 casos no grupo CC (os 5 vermelhos antes).
+Gates: 666/666, 99/99, 50/50, **426/426**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build, rubrica, varredura e `git diff --check`
+passaram.
+
 ## Pendências em 27/10/2026 (HEAD `73c8d24`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800
