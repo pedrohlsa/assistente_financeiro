@@ -4941,10 +4941,31 @@ representado (sem isso, a resposta perguntava "o que aconteceu com os R$
 `test:money`, build, rubrica, varredura e `git diff --check` passaram.
 
 Achados sem correção, da mesma sondagem do motorista:
-- "fiz 12 corridas e ganhei 260" registra 13 viagens;
+- "fiz 12 corridas e ganhei 260" registra 13 viagens — corrigido na seção
+  seguinte;
 - "hoje deu 310 no uber e 90 na 99" pergunta o que houve com "R$ 99,00" (é a
   plataforma);
 - "recebi 50 de gorjeta" cria uma viagem.
+
+## 2026-10-28 — "fiz 12 corridas e ganhei 260" são 12 viagens
+
+Contagem errada: "fiz 12 corridas e ganhei 260" (e na ordem inversa)
+registrava 13 viagens. A segmentação corta a frase em duas; a metade "ganhei
+260", sozinha, inferia 1 viagem da receita (regra vigente para quem não diz a
+quantidade), e a fusão do trabalho do dia somava 12 + 1. Agora, se alguma
+cláusula DIZ a quantidade ("N corridas/viagens"), as viagens inferidas nas
+outras saem antes da fusão (o trabalho sem km nem horas sai junto). "Ganhei
+260" sozinho continua inferindo 1 viagem. 3 casos no grupo VG (2 vermelhos
+antes, 1 controle). Gates: 666/666, 99/99, 50/50, **505/505**, metamórficos,
+fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica, varredura e
+`git diff --check` passaram.
+
+Achados sem correção, da mesma sondagem:
+- "rodei 8 horas, fiz 15 viagens e faturei 340" registra 8 KM (as horas
+  viram quilômetros) e 16 viagens;
+- "fiz 3 corridas de 40 e uma de 25" perde os R$ 145,00 e pergunta o que
+  houve com "R$ 40,00, R$ 25,00";
+- "fiz 12 corridas e 260", sem verbo na segunda metade, perde os R$ 260,00.
 
 ## Pendências em 28/10/2026 (HEAD `8c3fd2f`)
 

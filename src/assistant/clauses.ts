@@ -596,6 +596,25 @@ function parseFirstAmount(text: string): number {
 }
 
 /** Números monetários ainda não representados, sem confundir data, medida e fonte. */
+/**
+ * "Fiz 12 corridas E ganhei 260": cortada, a metade da receita inferia sozinha
+ * 1 viagem, e a mensagem registrava 13. A quantidade DITA numa cláusula vale
+ * para a mensagem: as viagens que as outras cláusulas inferiram da receita
+ * saem (o trabalho sem km nem horas sai junto).
+ */
+const QUANTIDADE_DE_VIAGENS = /\b\d+\s+(?:corridas|viagens|corrida|viagem)\b/i
+function semViagemInferidaComQuantidadeDita(clauses: AnalyzedClause[]): void {
+  if (!clauses.some(c => QUANTIDADE_DE_VIAGENS.test(c.text) && c.actions.some(a => a.kind === 'work' && a.trips))) return
+  for (const c of clauses) {
+    if (QUANTIDADE_DE_VIAGENS.test(c.text)) continue
+    c.actions = c.actions.flatMap(a => {
+      if (a.kind !== 'work' || !a.trips) return [a]
+      const { trips: _inferida, ...resto } = a
+      return resto.km || resto.hours ? [resto] : []
+    })
+  }
+}
+
 function unaccountedMoney(clause: AnalyzedClause): number[] {
   if (clause.ambiguity || clause.temporal || clause.intention || clause.intent === 'question'
     || clause.intent === 'conversation' || clause.intent === 'correction'
@@ -1017,6 +1036,10 @@ export function analyzeMessage(
     clause.ambiguity = { question: `O passageiro ainda não pagou os R$ ${income?.amount.toFixed(2).replace('.', ',')}? Não vou registrar essa receita antes do pagamento.`, options: [] }
     clause.handled = true
   }
+
+  // A quantidade dita vale antes de fundir: depois, a viagem inferida já está
+  // somada às ditas.
+  semViagemInferidaComQuantidadeDita(clauses)
 
   // Registros de trabalho de cláusulas diferentes são o MESMO dia: "rodei 120 km
   // e fiz 14 viagens" não são dois turnos. A fusão acontece aqui porque a

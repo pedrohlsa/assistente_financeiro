@@ -2894,6 +2894,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /Falta pagar R\$ 800,00/.test(fatura) && !/Cadastre|Não tenho|para pagar|Situação dos seus cartões/.test(fatura)))
   }
 
+  // Quantidade de viagens DITA vale para a mensagem toda: "fiz 12 corridas e
+  // ganhei 260" registrava 13 (a receita da outra metade inferia mais uma).
+  {
+    const moto = motoristaRico(hoje)
+    const viagens = async (msg: string) => ((await turnoHoje(moto, msg)).actions as { kind: string, trips?: number }[])
+      .filter(a => a.kind === 'work').reduce((s, a) => s + (a.trips || 0), 0)
+    for (const [id, msg] of [['VG-fiz-n-e-ganhei', 'fiz 12 corridas e ganhei 260'], ['VG-ganhei-e-fiz-n', 'ganhei 260 e fiz 12 corridas']]) {
+      const n = await viagens(msg)
+      out.push(result(id, n, '12 viagens', n === 12))
+    }
+    const so = await viagens('ganhei 260')
+    out.push(result('VG-sem-quantidade-controle', so, '1 viagem inferida (decisão vigente)', so === 1))
+  }
+
   // "40 litros A 5,89" é o preço do litro: o abastecimento entrava com R$ 5,89,
   // e a leitura genérica ainda criava "Despesa de R$ 40,00 — Litros a 5".
   // Total = 40 × 5,89 = R$ 235,60. "Por 180" segue sendo o total.
