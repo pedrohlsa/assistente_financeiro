@@ -4768,18 +4768,36 @@ vermelhos antes; somas dos lançamentos do fixture). Gates: 666/666, 99/99,
 50/50, **472/472**, metamórficos, fuzz, 151/151, 468; typechecks,
 `test:money`, build, rubrica, varredura e `git diff --check` passaram.
 
-## Pendências em 27/10/2026 (HEAD `73c8d24`)
+## Pendências em 28/10/2026 (HEAD `74899d2`)
 
-Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800
-metamórficos, 1.416 fuzz, 151/151 invariantes, 468/468 offline (67 frases
+Estado: 666/666 corpus, 99/99, 50/50, **472/472 adversariais**, 4.088 + 3.800
+metamórficos, 1.416 fuzz, 151/151 invariantes, 468/468 offline (65 frases
 chegam hoje ao modelo remoto); typechecks, `test:money`, build e rubrica
 (0 perigosa, 0 ruim) verdes. Tudo local, sem DeepSeek, push, merge, deploy ou
 APK. **NOT READY para merge/deploy**: os diffs `c3648de..c824fe0`,
-`c824fe0..b049bdf` e `b049bdf..73c8d24` (seções acima, uma por causa)
-precisam de auditoria independente; navegador, persistência real e dados
-legados reais não foram revalidados.
+`c824fe0..b049bdf`, `b049bdf..73c8d24` e `73c8d24..74899d2` (seções acima,
+uma por causa) precisam de auditoria independente; navegador, persistência
+real e dados legados reais não foram revalidados.
 
-Abertas, achadas na leitura humana e ainda não corrigidas:
+Abertas, achadas na leitura humana e ainda não corrigidas (detalhe nas
+seções de 27/10 acima):
+- Palavras da pergunta sobrando como texto de busca: "quanto tenho de parcela
+  pra pagar mes que vem" ("com 'para pagar'"), "quanto vou pagar de cartao em
+  dezembro" ("com 'cartao'"), "quanto de parcela vence em dezembro" ("com
+  'vence'") dizem que não há nada.
+- "Quanto vou receber em novembro" é lido como gasto.
+- "Quanto paguei de fatura" e "quando paguei a fatura do nubank" dão o resumo
+  dos cartões, não o que foi pago e quando; "antecipei a fatura do nubank"
+  também.
+- "Quais meus parcelamentos" dá só a soma, sem listar; "quantas parcelas eu
+  tenho" não dá a contagem; "quando comprei a geladeira" cai na ajuda;
+  "quanto parcelei no nubank" dá a fatura do mês.
+- "Comprei um celular de 1200 em 10x" vai para Assinaturas ("celular" é a
+  palavra da conta de telefone).
+- "Quanto devo gastar por dia" responde a média gasta, não quanto dá para
+  gastar; "devo muito?" cai na ajuda.
+- "Quanto guardei nas metas esse mes" responde o total até agora (a meta não
+  guarda depósitos por mês).
 
 Decisões de produto pendentes:
 - `balanceOutlook` (Home e simulações "e se eu gastar") só considera contas
