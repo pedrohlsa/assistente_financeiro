@@ -1102,6 +1102,19 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     }
   }
 
+  // A reserva É o tipo `saving`, não uma categoria: o depósito pode estar em
+  // qualquer uma (o legado gravava "Outros"), e é assim que a resposta de
+  // "quanto tenho na reserva" conta. Filtrada pela categoria, "quanto guardei
+  // na reserva" dizia "não tenho lançamento" para quem guardou R$ 500,00 no
+  // mês, e "mandei pra reserva" ainda virava gasto.
+  const naReserva = source === 'transactions' && !!filter.categories?.includes('reserva')
+  if (naReserva) {
+    filter.categories = filter.categories!.filter(c => c !== 'reserva')
+    if (!filter.categories.length) delete filter.categories
+    filter.txType = ['saving']
+    metrica.valor.label = metrica.valor.label.replace(/^Total (?:gasto|recebido|guardado)\b/, 'Guardado na reserva')
+  }
+
   if (source === 'installments' && /\bfaltam?\b|\brestam?\b|\bpendentes?\b|\bem\s+aberto\b/.test(t0)) {
     filter.status = ['pending']
     // Parcela que FALTA é toda a que ainda vai vencer, não a deste mês. Sem
@@ -1210,7 +1223,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     shareBase,
     // Sobra repetida ou não entendida não é assunto: "Faturas - cartao do
     // Nubank" repetia no rótulo a palavra que o filtro já tinha descartado.
-    label: rotulo(metrica.valor, repeteCartao || incompleto ? undefined : alvo?.valor, filter, state, source, field),
+    label: rotulo(metrica.valor, repeteCartao || incompleto || naReserva ? undefined : alvo?.valor, filter, state, source, field),
   }
 
   const confidence: PlannedQuery['confidence'] =

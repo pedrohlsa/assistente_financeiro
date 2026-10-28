@@ -2798,6 +2798,25 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('QP-registro-sem-cartao-controle', semCartao.reply, 'pergunta o cartão', /Em qual cartão/.test(semCartao.reply)))
   }
 
+  // A reserva é o tipo `saving`, não a categoria "reserva": os depósitos do
+  // fixture estão em "Outros", como no legado. Filtrada pela categoria, "quanto
+  // guardei na reserva" dizia "não tenho lançamento" enquanto "quanto devo
+  // guardar" dizia "este mês você já guardou R$ 500,00"; "mandei pra reserva"
+  // ainda virava gasto.
+  {
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const doMes = rico.transactions.filter(t => t.type === 'saving' && t.date.slice(0, 7) === hoje.slice(0, 7) && t.date <= hoje)
+      .reduce((a, t) => a + t.amount, 0)
+    const fmt = (v: number) => `R$ ${v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`
+    for (const [id, msg] of [['RV-guardei-na-reserva', 'quanto guardei na reserva'], ['RV-mandei-pra-reserva', 'quanto mandei pra reserva'],
+      ['RV-coloquei-na-reserva', 'quanto coloquei na reserva esse mes']]) {
+      const r = limpa((await turnoHoje(rico, msg)).reply)
+      out.push(result(id, r, `${fmt(doMes)} guardados no mês`,
+        doMes > 0 && r.includes(fmt(doMes)) && !/Não tenho nenhum lançamento|Total gasto/.test(r)))
+    }
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

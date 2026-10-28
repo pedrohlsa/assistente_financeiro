@@ -4702,6 +4702,31 @@ Achado sem correção: a resposta de "quanto paguei de fatura" agora é o resumo
 dos cartões, quando deveria ser quanto foi pago; "quando paguei a fatura do
 nubank" também cai no resumo.
 
+## 2026-10-27 — "quanto guardei na reserva" dizia que não havia nada
+
+Contradição entre respostas: "quanto guardei na reserva", "quanto mandei pra
+reserva" e "quanto coloquei na reserva esse mes" diziam "Não tenho nenhum
+lançamento… este mês", enquanto "quanto devo guardar por mês" dizia "Este mês
+você já guardou R$ 500,00" e "quanto tenho na reserva" contava os 3
+depósitos. A DSL filtrava pela CATEGORIA "reserva", mas a reserva é o TIPO
+`saving` e o depósito pode estar em qualquer categoria (o legado gravava
+"Outros", como o fixture). "Mandei pra reserva" ainda virava gasto.
+
+Agora a categoria "reserva" numa consulta de lançamentos vira `txType:
+['saving']` sem filtro de categoria, com o rótulo "Guardado na reserva" ("…
+este mês: R$ 500,00"; por ano e por mês também). 3 casos no grupo RV (os 3
+vermelhos antes; valor somado dos depósitos do mês no fixture). Gates:
+666/666, 99/99, 50/50, **464/464**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build, rubrica, varredura e `git diff --check`
+passaram.
+
+Achados sem correção, da mesma sondagem:
+- "quanto depositei na viagem" responde quanto FALTA (R$ 1.200,00), não o
+  que foi guardado (R$ 4.800,00);
+- "quanto recebi de aluguel" olha "os últimos 7 dias";
+- "quando comprei a geladeira" cai na ajuda; "quanto parcelei no nubank" dá
+  a fatura do mês.
+
 ## Pendências em 27/10/2026 (HEAD `73c8d24`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800
