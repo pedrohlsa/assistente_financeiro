@@ -3026,6 +3026,33 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       por.length === 1 && por[0].kind === 'fuel' && por[0].amount === 180 && por[0].liters === 24))
   }
 
+  // "Compara COM SETEMBRO" na continuidade compara com setembro. O foco antigo
+  // vencia: "Em agosto foi exatamente o mesmo valor" (o mês do turno de antes),
+  // ou "Em julho" (o anterior ao foco).
+  {
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const fmt = (v: number) => `R$ ${v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`
+    const setembro = new Date(Number(hoje.slice(0, 4)), Number(hoje.slice(5, 7)) - 2, 1)
+    const nomeSet = setembro.toLocaleDateString('pt-BR', { month: 'long' })
+    const pref = `${setembro.getFullYear()}-${String(setembro.getMonth() + 1).padStart(2, '0')}`
+    const recebidoSet = rico.transactions.filter(t => t.type === 'income' && t.date.startsWith(pref)).reduce((a, t) => a + t.amount, 0)
+    const agosto = new Date(Number(hoje.slice(0, 4)), Number(hoje.slice(5, 7)) - 3, 1).toLocaleDateString('pt-BR', { month: 'long' })
+    for (const [id, antes] of [['CS-depois-do-mes-atual', ['quanto gastei em ' + agosto, 'quanto recebi esse mes']],
+      ['CS-depois-de-outro-mes', ['quanto gastei em ' + agosto, 'e quanto recebi?']]] as const) {
+      let foco: Awaited<ReturnType<typeof turnoHoje>>['focus']
+      for (const m of antes) foco = (await turnoHoje(rico, m, foco)).focus
+      const r = limpa((await turnoHoje(rico, `compara com ${nomeSet}`, foco)).reply)
+      out.push(result(id, r, `comparado com ${nomeSet} (${fmt(recebidoSet)})`,
+        new RegExp(nomeSet, 'i').test(r) && r.includes(fmt(recebidoSet))))
+    }
+    // Grãos diferentes: "este mês" contra "a semana passada" é semana com semana.
+    const focoMes = (await turnoHoje(rico, 'quanto gastei esse mes')).focus
+    const semana = limpa((await turnoHoje(rico, 'compara com a semana passada', focoMes)).reply)
+    out.push(result('CS-graos-diferentes', semana, 'semana contra semana, nunca o mês contra uma semana',
+      /semana passada/i.test(semana) && !/^Total gasto este mês/.test(semana)))
+  }
+
   // "Quanto almocei esse mês" é Alimentação, não o gasto do mês inteiro.
   {
     const limpa = (s: string) => s.replace(/ /g, ' ')

@@ -663,6 +663,19 @@ function refinaConsulta(
           label } } }
       }
     }
+    // "Compara COM SETEMBRO": o período dito é o comparado. Sem isto valia o
+    // foco antigo — "Em agosto foi exatamente o mesmo valor", ou julho.
+    const dito = t.match(/^compar[ao]\s+com\s+(.+)$/)
+    const periodoDito = dito ? parsePeriod(dito[1], today) : null
+    if (periodoDito) {
+      // Grãos diferentes ("este mês" contra "a semana passada") comparavam um
+      // mês com uma semana (+691%): o período em foco vira o atual do mesmo grão.
+      const atualDoGrao: Record<string, string> = { day: 'hoje', week: 'esta semana', month: 'este mes', year: 'este ano' }
+      const mesmoGrao = periodoDito.period.grain !== base.period.grain && atualDoGrao[periodoDito.period.grain]
+        ? parsePeriod(atualDoGrao[periodoDito.period.grain], today)?.period : undefined
+      return planned({ ...base, ...(mesmoGrao ? { period: mesmoGrao } : {}), comparePeriod: periodoDito.period },
+        `comparação com ${periodoDito.period.label}`)
+    }
     // "Os dois" são os DOIS PERÍODOS que o usuário acabou de ver. Só na falta
     // de um segundo período é que cai no imediatamente anterior.
     const cmp = focus.previousQueryPlan?.period || base.comparePeriod || previousPeriod(base.period)

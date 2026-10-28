@@ -5071,6 +5071,23 @@ vermelhos antes). Gates: 666/666, 99/99, 50/50, **530/530**, metamórficos,
 fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica, varredura e
 `git diff --check` passaram.
 
+## 2026-10-28 — "compara com setembro" na continuidade
+
+Comparação com o mês errado: em conversa, "compara com setembro" ignorava o
+mês dito. Depois de "quanto gastei em agosto" e "quanto recebi esse mes", a
+resposta foi "Em agosto foi exatamente o mesmo valor" (o foco antigo; em
+setembro entraram R$ 3.900,00); depois de "e quanto recebi?", comparou agosto
+com julho. O foco tratava "compara JULHO com JUNHO" (dois meses), não
+"compara COM X". Agora o período dito depois de "compara com" é o comparado;
+com grão diferente ("este mês" contra "a semana passada", que dava +691%),
+o período em foco vira o atual do mesmo grão (semana contra semana). 3 casos
+no grupo CS (os 3 vermelhos antes; somas do fixture). Gates: 666/666, 99/99,
+50/50, **533/533**, metamórficos, fuzz, 151/151, 468; typechecks,
+`test:money`, build, rubrica, varredura e `git diff --check` passaram.
+
+Achado sem correção, da mesma conversa: "e de aluguel?" depois de "e quanto
+recebi?" cai na ajuda genérica (deveria filtrar a receita por Aluguéis).
+
 ## Pendências em 28/10/2026 (HEAD `4e16b70`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **516/516 adversariais**, 4.088 + 3.800
