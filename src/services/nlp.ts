@@ -829,7 +829,9 @@ function parseClause(input: string): ParsedAction[] {
   if (upd) {
     let target = parseNum(upd[2])
     if (upd[3]) target *= 1000
-    actions.push({ kind: 'goal-update', name: (upd[1] || '').trim(), target })
+    // O nome com a mesma grafia do depósito ("Viagem"): a confirmação mostrava
+    // "Alterar meta 'viagem'", em minúscula.
+    actions.push({ kind: 'goal-update', name: cleanDescription((upd[1] || '').trim()) || '', target })
     return actions
   }
 

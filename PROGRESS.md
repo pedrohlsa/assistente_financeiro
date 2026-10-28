@@ -5183,7 +5183,6 @@ Achados sem correção, da mesma sondagem:
 - "quero juntar 1000 pra viagem e amanhã pago a luz 180" cria a meta "Viagem
   e pago" e perde a luz (já antes) — o nome corrigido na seção seguinte; a
   metade futura ainda some sem aviso (a frase não é cortada em "e amanhã");
-- "muda a meta da viagem pra 7000" mostra o nome em minúscula ("viagem").
 
 ## 2026-10-28 — o nome da meta para no "e"
 
@@ -5208,6 +5207,19 @@ build, rubrica, varredura e `git diff --check` passaram.
 Achado sem correção: "usei 50 da viagem pra pagar a luz" registra a despesa
 de R$ 50,00 (Casa) com a descrição "Usei da viagem pra pagar a luz" e não
 mexe na meta.
+
+## 2026-10-28 — "Alterar meta 'Viagem'"
+
+"Muda a meta da viagem pra 7000" confirmava "Alterar meta 'viagem'", em
+minúscula, enquanto o depósito na mesma meta mostra "Viagem": o nome da
+alteração não passava por `cleanDescription()`. 1 caso no grupo TM (vermelho
+antes). Gates: 666/666, 99/99, 50/50, **548/548**, metamórficos, fuzz,
+151/151, 468; typechecks, `test:money`, build, rubrica, varredura e `git diff
+--check` passaram.
+
+Achado sem correção: "aumenta a meta pra 6000", sem dizer qual, responde
+"Alterar meta: Falta uma informação obrigatória." em vez de perguntar qual
+das metas.
 
 ## Pendências em 28/10/2026 (HEAD `0e1efb3`)
 

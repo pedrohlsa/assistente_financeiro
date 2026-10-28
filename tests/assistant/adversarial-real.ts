@@ -3069,6 +3069,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const txt = limpa(r.reply)
     out.push(result('TM-tirei-da-meta', { reply: txt, actions: r.actions }, 'aponta Metas → Editar, de R$ 4.800,00 para R$ 4.700,00, sem ação',
       r.actions.length === 0 && /Metas/.test(txt) && /Já guardado/.test(txt) && /R\$ 4\.700,00/.test(txt)))
+    // Alterar a meta mostra o nome como o depósito mostra: "viagem" em minúscula.
+    const muda = await turnoHoje(rico, 'muda a meta da viagem pra 7000')
+    out.push(result('TM-alterar-nome-da-meta', muda.reply, 'Alterar meta "Viagem"', /meta "Viagem"/.test(muda.reply)))
     const notebook = limpa((await turnoHoje(rico, 'retirei 200 da meta do notebook')).reply)
     out.push(result('TM-retirei-da-meta-do', notebook, 'Notebook: de R$ 1.200,00 para R$ 1.000,00', /Notebook/.test(notebook) && /R\$ 1\.000,00/.test(notebook)))
   }
