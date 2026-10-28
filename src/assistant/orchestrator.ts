@@ -796,6 +796,20 @@ function hypotheticalSummary(candidates: AssistantCandidateAction[]): string | n
 const escapaRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /**
+ * "E mais 20 de pão", "mais 15 no café", "e 30 de uber" com a proposta na
+ * tela: a frase com o verbo dos itens pendentes ("gastei 20 de pão"), para o
+ * fluxo normal ler e a resposta juntar à proposta. Só quando todos os itens de
+ * dinheiro pendentes são do mesmo tipo e a frase não tem verbo.
+ */
+function acrescimoAProposta(pending: AssistantCandidateAction[], mensagem: string): string | null {
+  const tipos = new Set(pending.map(p => p.action.kind).filter(k => k === 'expense' || k === 'income'))
+  if (tipos.size !== 1) return null
+  const m = mensagem.toLowerCase().trim().match(/^(?:e\s+)?(?:mais\s+|tamb[ée]m\s+)?(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real|conto|contos|pila)?\s+(de|do|da|dos|das|no|na|nos|nas|em|com|pro|pra|para)\s+([a-zà-úç][a-zà-úç0-9\s]{1,40}?)\s*[?.!]*$/)
+  if (!m) return null
+  return `${tipos.has('income') ? 'recebi' : 'gastei'} ${m[1]} ${m[2]} ${m[3]}`
+}
+
+/**
  * "E a internet?", "e a viagem?": a elipse nomeia algo CADASTRADO — uma conta
  * fixa ou uma meta ativa. Devolve a pergunta que o roteador responde sobre ela;
  * `null` quando o nome não é de nada cadastrado (aí é a elipse de compra).
@@ -1255,6 +1269,24 @@ Confirmar?`,
         actions: [], unresolved: [],
         reply: 'Entendi. A proposta continua pendente e nada foi registrado ainda. Se os dados estão certos, toque em Confirmar no card acima.',
       },
+    }
+  }
+
+  // ---- 6b) "E mais 20 de pão" com a proposta na tela: ACRESCENTA --------
+  // Sem verbo, o "mais 20" era lido como RECEITA, e a resposta trazia só ele:
+  // a proposta da tela (almoço, café) era substituída e sumia.
+  const acrescimo = input.pending?.length ? acrescimoAProposta(input.pending, input.message) : null
+  if (acrescimo) {
+    const novo = await orchestrate({ ...input, message: acrescimo, pending: undefined })
+    if (novo.response.mode === 'propose_actions' && novo.response.actions.length) {
+      const todos = [...input.pending!, ...novo.response.actions]
+      return {
+        draft: null, focus: input.focus,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
+          actions: todos, unresolved: [], reply: `${proposalText(todos, input.state)}\n\nConfirmar?`,
+        },
+      }
     }
   }
 

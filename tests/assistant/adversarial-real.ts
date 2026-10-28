@@ -2640,6 +2640,18 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       itens.length === 2 && itens.some(x => /Almo/.test(x.description) && x.amount === 35) && itens.some(x => /Caf/.test(x.description) && x.amount === 15)))
   }
 
+  // "E mais 20 de pão" com despesas na tela ACRESCENTA uma despesa: virava
+  // RECEITA de R$ 20 e substituía a proposta (o almoço e o café sumiam).
+  {
+    const rico = autonomoRico(hoje)
+    const base = await orchestrate({ state: rico, message: 'gastei 30 no almoço e 15 no café', today: hoje, remoteEnabled: false })
+    const mais = await orchestrate({ state: rico, message: 'e mais 20 de pão', today: hoje, remoteEnabled: false, pending: base.response.actions })
+    const itens = mais.response.actions.map(a => a.action as any)
+    out.push(result('PN-e-mais-acrescenta', itens, 'almoço 30, café 15 e pão 20, todos despesa',
+      itens.length === 3 && itens.every(x => x.kind === 'expense') && itens.some(x => x.amount === 20 && /p[ãa]o/i.test(x.description || ''))
+        && itens.some(x => x.amount === 30) && itens.some(x => x.amount === 15)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

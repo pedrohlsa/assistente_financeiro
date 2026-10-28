@@ -4537,6 +4537,20 @@ Achados sem correção ainda, na mesma conversa: "e mais 20 de pão" com
 despesas na tela vira RECEITA de R$ 20 e substitui a proposta (o almoço
 some); "foi na padaria" (trocar descrição) cai na ajuda.
 
+## 2026-10-27 — "e mais 20 de pão" acrescenta à proposta
+
+Com almoço e café na tela, "e mais 20 de pão" virava RECEITA de R$ 20 (o
+"mais 20" sem verbo é lido como receita) e a resposta trazia só ela — a
+proposta da tela era substituída e o almoço e o café sumiam. Com a proposta
+pendente toda de um tipo e a frase sem verbo ("e mais 20 de pão", "mais 15 no
+café"), o orquestrador agora lê a frase com o verbo dos itens pendentes e
+junta o novo item à proposta. 1 caso (vermelho antes). Gates: 666/666,
+99/99, 50/50, **429/429**, metamórficos, fuzz, 151/151, 468; typechecks,
+`test:money`, build, rubrica, varredura e `git diff --check` passaram.
+
+Achados sem correção: "pão" não é palavra de Alimentação (cai em Outros);
+"foi na padaria" (trocar a descrição da proposta) cai na ajuda.
+
 ## Pendências em 27/10/2026 (HEAD `73c8d24`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800
