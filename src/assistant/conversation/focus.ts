@@ -774,7 +774,8 @@ function refinaConsulta(
   const nuaOuComDe = t.match(/^e\s+(?:(?:com|de|em)\s+)?([a-z0-9çãõáéíóúâê][a-z0-9\s\-çãõáéíóúâê]{1,30}?)\s*\??$/)
   const restringir = t.match(/^(?:e\s+)?(?:so|somente|apenas)\s+(?:o\s+|a\s+)?([a-z0-9çãõáéíóúâê][a-z0-9\s\-çãõáéíóúâê]{1,30}?)\s*\??$/)
     || t.match(/^e\s+(?:n?[oa]s?|d[oa]s?)\s+([a-z0-9çãõáéíóúâê][a-z0-9\s\-çãõáéíóúâê]{1,30}?)\s*\??$/)
-    || (nuaOuComDe && (achaCategoria(state, nuaOuComDe[1].trim(), tipoDaConsulta) || achaCartao(state, nuaOuComDe[1].trim())) ? nuaOuComDe : null)
+    || (nuaOuComDe && (achaCategoria(state, nuaOuComDe[1].trim(), tipoDaConsulta) || achaCartao(state, nuaOuComDe[1].trim())
+      || (base.source === 'transactions' && /^e\s+(?:com|de|em)\s/.test(t) && estaNoHistorico(state, nuaOuComDe[1].trim()))) ? nuaOuComDe : null)
   if (restringir) {
     const alvo = restringir[1].trim()
     // "Quanto falta pro notebook" → "e a viagem?": TROCA a meta. Somar o texto
@@ -878,6 +879,18 @@ const janelaSeisMeses = (hoje: string): QueryPeriod => {
     from: toISO(new Date(d.getFullYear(), d.getMonth() - 5, 1)),
     to: hoje, label: 'nos últimos 6 meses', grain: 'month',
   }
+}
+
+/**
+ * "E de mercado?": com preposição, o nome vale como restrição quando está nas
+ * descrições ou origens dos lançamentos dele. Sem evidência ("e de novo?",
+ * "e com isso?"), a elipse é outra coisa.
+ */
+const estaNoHistorico = (state: AppState, nome: string): boolean => {
+  const alvo = normalizeName(nome)
+  if (alvo.length < 3 || ehResiduo(alvo)) return false
+  const palavra = new RegExp(`(?:^|\\s)${alvo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s|$)`)
+  return (state.transactions || []).some(t => palavra.test(normalizeName(t.description || '')) || palavra.test(normalizeName(t.origin || '')))
 }
 
 /** "casa 2", "cliente joão": substantivo de fonte seguido de identificador. */

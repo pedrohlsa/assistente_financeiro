@@ -3058,6 +3058,13 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const focoGasto = (await turnoHoje(rico, 'quanto gastei esse mes')).focus
     const noMercado = limpa((await turnoHoje(rico, 'e no mercado?', focoGasto)).reply)
     out.push(result('CS-rotulo-do-texto', noMercado, 'o cabeçalho cita o mercado', /^Total gasto - Mercado/i.test(noMercado)))
+    // "E de mercado?" (com preposição, nome que está nos lançamentos dele) é a
+    // mesma restrição de "e no mercado?". Caía na ajuda. "E de novo?" não é.
+    const deMercado = limpa((await turnoHoje(rico, 'e de mercado?', focoGasto)).reply)
+    out.push(result('CS-e-de-nome-do-historico', deMercado, 'Total gasto - Mercado, R$ 200,00',
+      /^Total gasto - Mercado/i.test(deMercado) && /R\$ 200,00/.test(deMercado)))
+    const deNovo = limpa((await turnoHoje(rico, 'e de novo?', focoGasto)).reply)
+    out.push(result('CS-e-de-novo-controle', deNovo, 'não vira busca por "novo"', !/Total gasto - Novo/i.test(deNovo)))
     // "E só no nubank?" depois de um gasto é a fatura do Nubank (R$ 400,00 no
     // mês): lançamento não carrega cartão, e o filtro dizia "não tenho nada".
     const noNubank = limpa((await turnoHoje(rico, 'e so no nubank?', focoGasto)).reply)

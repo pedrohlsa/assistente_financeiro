@@ -5119,6 +5119,19 @@ de setembro). 1 caso no grupo CS (vermelho antes). Gates: 666/666, 99/99,
 50/50, **536/536**, metamórficos, fuzz, 151/151, 468; typechecks,
 `test:money`, build, rubrica, varredura e `git diff --check` passaram.
 
+## 2026-10-28 — "e de mercado?" na conversa
+
+"E de mercado?" (e "e de cimento?") depois de "quanto gastei esse mes" caía
+na ajuda genérica; só "e no mercado?" funcionava. A restrição sem "no/na"
+exigia que o nome fosse categoria ou cartão, para não confundir outras
+elipses. Agora, com preposição ("com/de/em") sobre lançamentos, o nome também
+vale quando aparece nas descrições ou origens dos lançamentos dele ("Total
+gasto - Mercado este mês: R$ 200,00"). Sem essa evidência ("e de novo?", "e
+com isso?") segue como antes. 2 casos no grupo CS (1 vermelho antes, 1
+controle). Gates: 666/666, 99/99, 50/50, **538/538**, metamórficos, fuzz,
+151/151, 468; typechecks, `test:money`, build, rubrica, varredura e `git diff
+--check` passaram.
+
 ## Pendências em 28/10/2026 (HEAD `0e1efb3`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **536/536 adversariais**, 4.088 + 3.800
