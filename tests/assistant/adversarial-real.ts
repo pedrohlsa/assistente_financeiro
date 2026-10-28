@@ -3059,6 +3059,24 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('MPZ-nome-para-no-e', comConector, '"Viagem"', !!comConector && comConector.name === 'Viagem'))
   }
 
+  // Com a receita na tela, "e era da casa 2" diz DE ONDE veio. Respondia
+  // "Entendi que isso não aconteceu — não registrei nada" e a proposta sumia.
+  {
+    const rico = autonomoRico(hoje)
+    const recebi = await orchestrate({ state: rico, message: 'recebi 1800 do aluguel', today: todayISO(), remoteEnabled: false })
+    const origem = await orchestrate({ state: rico, message: 'e era da casa 2', today: todayISO(), remoteEnabled: false,
+      pending: recebi.response.actions } as Parameters<typeof orchestrate>[0])
+    const acao = origem.response.actions.map(a => a.action as { kind: string, origin?: string, amount?: number })
+    out.push(result('OC-origem-na-proposta', { reply: origem.response.reply, actions: acao }, 'a receita fica, com origem Casa 2',
+      acao.length === 1 && acao[0].kind === 'income' && acao[0].amount === 1800 && /casa 2/i.test(acao[0].origin || '')
+        && !/não aconteceu/.test(origem.response.reply)))
+    // Correção que não deu para entender, com proposta na tela: pergunta e
+    // mantém a proposta; nunca "não aconteceu".
+    const vaga = await orchestrate({ state: rico, message: 'e era daquele lugar', today: todayISO(), remoteEnabled: false,
+      pending: recebi.response.actions } as Parameters<typeof orchestrate>[0])
+    out.push(result('OC-correcao-vaga-mantem', vaga.response.reply, 'não diz "não aconteceu"', !/não aconteceu/.test(vaga.response.reply)))
+  }
+
   // "Tirei 100 da viagem": retirar de meta não tem ação no chat, mas a tela tem
   // (Metas → Editar → "Já guardado"). Caía na ajuda; agora aponta o caminho
   // com o valor que fica (R$ 4.800,00 − R$ 100,00), sem criar ação.

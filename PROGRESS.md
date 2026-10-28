@@ -5235,6 +5235,24 @@ por meta. 3 casos no grupo TM (os 3 vermelhos antes). Gates: 666/666, 99/99,
 50/50, **551/551**, metamórficos, fuzz, 151/151, 468; typechecks,
 `test:money`, build, rubrica, varredura e `git diff --check` passaram.
 
+## 2026-10-28 — "e era da casa 2" com a proposta na tela
+
+Proposta descartada: com "Receita de R$ 1.800,00 (Aluguéis)" na tela, "e era
+da casa 2" respondia "Entendi que isso não aconteceu — não registrei nada" e
+a proposta sumia. As correções liam valor, parcelas, cartão, data, categoria
+e lugar, não a origem; a frase sobrava como correção sem ação, e o
+orquestrador a lia como negação. Agora "(e) era/foi/veio do/da <origem>"
+corrige a origem da receita ou despesa em foco, pela mesma regra explícita
+de `extractOrigins` (substantivo de fonte + identificador, ou nome próprio):
+"Anotei a origem: Casa 2." 2 casos no grupo OC (1 vermelho antes; o controle
+garante que uma correção vaga não vira "não aconteceu"). Gates: 666/666,
+99/99, 50/50, **553/553**, metamórficos, fuzz, 151/151, 468; typechecks,
+`test:money`, build, rubrica, varredura e `git diff --check` passaram.
+
+Achado sem correção, da mesma sondagem: "na verdade foi na padaria", com a
+despesa do mercado na tela, responde "não peguei o quê" (a correção de lugar
+só aceita a frase começando em "foi/era").
+
 ## Pendências em 28/10/2026 (HEAD `54ff16d`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **551/551 adversariais**, 4.088 + 3.800

@@ -9,6 +9,7 @@ import type { AssistantCandidateAction, AssistantCapabilities } from './contract
 import { fmtBRL, parseMoney, todayISO } from '../utils/format'
 import { normalizeNumberWords } from './numbers'
 import { findDate } from './dates'
+import { extractOrigins } from './clauses'
 import { normalizeName } from '../utils/text'
 import { guessCategory } from '../data/categories'
 
@@ -294,6 +295,23 @@ export function parseCorrection(
         plan.summary.push(`Já está na categoria ${cat.name}.`)
         touched = true
       }
+    }
+  }
+
+  // Origem: "e era da casa 2", "foi do cliente João", "veio da Empresa X". Caía
+  // na negação ("isso não aconteceu") e a proposta sumia. Só origem explícita
+  // (`extractOrigins`): substantivo de fonte + identificador, ou nome próprio.
+  if (!touched && /^(?:e\s+)?(?:era|foi|e|é|veio|vem|vieram)\s+d[ao]s?\s/.test(t)) {
+    const origem = extractOrigins(message.trim())[0]?.value
+    const target = origem ? resolveTarget(t, remaining) : null
+    const p = target && 'id' in target ? remaining.find(x => x.id === target.id) : undefined
+    if (origem && p && (p.action.kind === 'income' || p.action.kind === 'expense')) {
+      const nova = origem.replace(/(^|\s)(\S)/g, (_, s: string, c: string) => s + c.toUpperCase())
+      if (normalizeName((p.action as any).origin || '') !== normalizeName(nova)) {
+        plan.edits.push({ id: p.id, field: 'origin', value: nova, was: (p.action as any).origin })
+        plan.summary.push(`Anotei a origem: ${nova}.`)
+      }
+      touched = true
     }
   }
 
