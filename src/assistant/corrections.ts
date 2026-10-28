@@ -10,6 +10,7 @@ import { fmtBRL, parseMoney, todayISO } from '../utils/format'
 import { normalizeNumberWords } from './numbers'
 import { findDate } from './dates'
 import { normalizeName } from '../utils/text'
+import { guessCategory } from '../data/categories'
 
 const NUMBER = String.raw`(\d+(?:[.,]\d+)*)`
 
@@ -293,6 +294,25 @@ export function parseCorrection(
         plan.summary.push(`Já está na categoria ${cat.name}.`)
         touched = true
       }
+    }
+  }
+
+  // Lugar/descrição: "foi na padaria", "era no açougue", "a descrição é feira".
+  // Caía na ajuda. Cartão ("foi no Inter"), data ("foi ontem") e categoria
+  // ("era lazer") já foram lidos acima e têm prioridade.
+  if (!touched) {
+    const dm = t.match(/^(?:(?:foi|era)\s+(?:n[oa]s?|em)|(?:a\s+)?descri[cç][aã]o\s+(?:[ée]|era)|(?:muda|troca)\s+(?:a\s+descri[cç][aã]o|o\s+nome)\s+(?:pra|para))\s+([a-zà-úç][a-zà-úç0-9\s]{1,40}?)\s*[.!?]*$/)
+    const target = dm ? resolveTarget(t, remaining) : null
+    const p = target && 'id' in target ? remaining.find(x => x.id === target.id) : undefined
+    if (dm && p && (p.action.kind === 'expense' || p.action.kind === 'income')) {
+      const lugar = dm[1].trim()
+      const nova = lugar.charAt(0).toUpperCase() + lugar.slice(1)
+      plan.edits.push({ id: p.id, field: 'description', value: nova, was: (p.action as any).description })
+      // O lugar novo pode dizer a categoria ("padaria" é comida).
+      const cat = guessCategory(lugar, p.action.kind)
+      if (cat && cat !== (p.action as any).category) plan.edits.push({ id: p.id, field: 'category', value: cat, was: (p.action as any).category })
+      plan.summary.push(`Troquei para ${nova}.`)
+      touched = true
     }
   }
 

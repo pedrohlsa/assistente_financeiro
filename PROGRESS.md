@@ -4551,6 +4551,17 @@ junta o novo item à proposta. 1 caso (vermelho antes). Gates: 666/666,
 Achados sem correção: "pão" não é palavra de Alimentação (cai em Outros);
 "foi na padaria" (trocar a descrição da proposta) cai na ajuda.
 
+## 2026-10-27 — trocar o lugar da proposta na tela
+
+Com "gastei 50 no mercado" na tela, "foi na padaria" caía na ajuda genérica.
+A correção da proposta agora troca o lugar/descrição ("foi na/no X", "era no
+X", "a descrição é X", "muda o nome pra X") e, se o lugar novo diz a
+categoria, troca também ("Padaria" → Alimentação). Cartão ("foi no Inter"),
+data ("foi ontem") e categoria ("era lazer") continuam com prioridade. 2
+casos (1 vermelho antes, 1 controle de cartão). Gates: 666/666, **431/431**,
+151/151, 468 e os demais verdes — o `typecheck:api` (que inclui os testes)
+pegou uma anotação de tipo faltando no oráculo, corrigida antes do commit.
+
 ## Pendências em 27/10/2026 (HEAD `73c8d24`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800

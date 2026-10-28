@@ -2652,6 +2652,21 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && itens.some(x => x.amount === 30) && itens.some(x => x.amount === 15)))
   }
 
+  // Trocar o LUGAR da proposta: "foi na padaria" caía na ajuda. E "pão" é
+  // comida: "gastei 20 de pão" ia para Outros.
+  {
+    const rico = autonomoRico(hoje)
+    const p1 = await orchestrate({ state: rico, message: 'gastei 50 no mercado', today: hoje, remoteEnabled: false })
+    const p2 = await orchestrate({ state: rico, message: 'foi na padaria', today: hoje, remoteEnabled: false, pending: p1.response.actions })
+    const acts = p2.response.actions.map(a => a.action as any)
+    out.push(result('PN-foi-na-padaria', { reply: p2.response.reply, acts }, 'mesma despesa de 50, agora Padaria',
+      acts.length === 1 && acts[0].amount === 50 && acts[0].description === 'Padaria' && acts[0].category === 'alimentacao'))
+    const cartao = await orchestrate({ state: rico, message: 'comprei uma tv de 2400 em 12x no nubank', today: hoje, remoteEnabled: false })
+    const noInter = await orchestrate({ state: rico, message: 'foi no inter', today: hoje, remoteEnabled: false, pending: cartao.response.actions })
+    out.push(result('PN-foi-no-cartao-continua-cartao', noInter.response.actions.map(a => a.action), 'cartão Inter, descrição intacta',
+      (noInter.response.actions as { action: any }[]).some(a => /inter/i.test(a.action.cardName || '') && /tv/i.test(a.action.description || ''))))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.
