@@ -2894,6 +2894,26 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /Falta pagar R\$ 800,00/.test(fatura) && !/Cadastre|Não tenho|para pagar|Situação dos seus cartões/.test(fatura)))
   }
 
+  // "Rodei 8 horas" é jornada, não distância: virava 8 km.
+  {
+    const moto = motoristaRico(hoje)
+    const trabalho = async (msg: string) => ((await turnoHoje(moto, msg)).actions as { kind: string, km?: number, hours?: number, trips?: number }[])
+      .filter(a => a.kind === 'work')
+    for (const [id, msg, horas] of [['KH-rodei-horas', 'rodei 8 horas', 8], ['KH-rodei-h', 'rodei 10h hoje', 10]] as const) {
+      const w = await trabalho(msg)
+      out.push(result(id, w, `${horas} horas, sem km`, w.length === 1 && w[0].hours === horas && !w[0].km))
+    }
+    const tudo = await trabalho('rodei 8 horas, fiz 15 viagens e faturei 340')
+    out.push(result('KH-jornada-viagens-e-receita', tudo, '8 horas, 15 viagens, sem km',
+      tudo.length === 1 && tudo[0].hours === 8 && tudo[0].trips === 15 && !tudo[0].km))
+    const km = await trabalho('rodei 120 km')
+    out.push(result('KH-km-controle', km, '120 km', km.length === 1 && km[0].km === 120 && !km[0].hours))
+    for (const [id, msg] of [['KH-horas-e-km', 'rodei 8h e 150 km'], ['KH-km-e-horas', 'rodei 150 km e 8 horas']]) {
+      const w = await trabalho(msg)
+      out.push(result(id, w, '150 km e 8 horas', w.length === 1 && w[0].km === 150 && w[0].hours === 8))
+    }
+  }
+
   // Quantidade de viagens DITA vale para a mensagem toda: "fiz 12 corridas e
   // ganhei 260" registrava 13 (a receita da outra metade inferia mais uma).
   {
