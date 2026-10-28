@@ -4871,6 +4871,29 @@ Decisão registrada: o prazo do "por dia" é de 30 dias e desconta a meta de
 guardar do mês. A Home continua com `balanceOutlook` (decisão pendente
 abaixo).
 
+## 2026-10-28 — "quanto paguei de fatura" é o que foi pago
+
+Dinheiro errado: "quanto já paguei de fatura esse ano" respondia "Faturas
+neste ano: R$ 2.000,00", o FATURADO (pagos: R$ 1.200,00); "quanto paguei de
+fatura mês passado" e "quanto paguei de fatura" davam o resumo dos cartões.
+A consulta usava o campo `amount` mesmo com "paguei", como o parcelamento já
+não fazia. Trocado o campo, apareceu a contradição de fundo: "Pago nas
+faturas no mês passado: R$ 0,00" ao lado de "Nubank: paga" e "Inter: paga".
+O `paid` da fatura só somava pagamentos registrados (`CardPayment`), enquanto
+o status vem das parcelas quitadas (`invoiceOpenAmount`).
+
+Agora "paguei/quitei" com fonte de fatura pede o campo `paid`, rotulado
+"Pago nas faturas", e a consulta toma a frente (o roteador antigo não o
+expressa). O pago é o total menos o pendente, a mesma fonte do status. 3
+casos no grupo FP (os 3 vermelhos antes; soma das parcelas pagas do fixture
+pelo vencimento). Gates: 666/666, 99/99, 50/50, **493/493**, metamórficos,
+fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica, varredura e
+`git diff --check` passaram.
+
+Achados sem correção: "quando paguei a fatura do nubank" segue no resumo dos
+cartões; a base do ano conta "20 faturas", incluindo meses em que os cartões
+ainda não existiam (R$ 0,00 cada).
+
 ## Pendências em 28/10/2026 (HEAD `8c3fd2f`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **490/490 adversariais**, 4.088 + 3.800

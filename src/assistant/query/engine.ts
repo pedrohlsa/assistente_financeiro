@@ -128,7 +128,10 @@ function rowsOf(state: AppState, plan: AssistantQueryPlan): QueryRow[] {
               // na resposta, não o selo.
               status, txType: 'expense',
               estimated: inv.status === 'aberta',
-              extra: { paid: r2(inv.paid), total: r2(inv.total), pending: aberto },
+              // Pago é o total menos o pendente, a mesma fonte do status: só os
+              // pagamentos registrados davam "R$ 0,00 pago" numa fatura "paga"
+              // pelas parcelas quitadas.
+              extra: { paid: r2(Math.max(inv.total - aberto, 0)), total: r2(inv.total), pending: aberto },
             })
           }
         }

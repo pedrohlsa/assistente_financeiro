@@ -1202,8 +1202,9 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     // "1" — o número de parcelamentos — para quem tem cinco parcelas a pagar.
     if (metric === 'count') metric = 'sum'
   }
-  // "Quanto eu JÁ PAGUEI da geladeira": o que saiu, não o que falta.
-  if (source === 'plans' && /\b(?:ja\s+)?(?:paguei|pagamos|quitei)\b/.test(t0) && !/\bfalta\b|\bfaltam\b/.test(t0)) field = 'paid'
+  // "Quanto eu JÁ PAGUEI da geladeira": o que saiu, não o que falta. Na
+  // fatura também: "quanto paguei de fatura esse ano" dava o faturado.
+  if ((source === 'plans' || source === 'invoices') && /\b(?:ja\s+)?(?:paguei|pagamos|quitei)\b/.test(t0) && !/\bfalta\b|\bfaltam\b/.test(t0)) field = 'paid'
   // A meta também: "quanto DEPOSITEI na viagem" é o que já foi guardado. A
   // resposta dava o que falta (R$ 1.200,00 de uma meta com R$ 4.800,00 dentro).
   if (source === 'goals' && field === 'remaining' && !/\bfalta\b|\bfaltam\b/.test(t0)
@@ -1344,6 +1345,8 @@ function alemDoAntigo(plan: AssistantQueryPlan, periodoDito: boolean, porLancame
   // Hábito de um item nomeado continua com ele (ex.: suco por dia).
   if (plan.metric === 'avg' && porLancamento && !f.text) return true
   if (plan.source === 'plans' || plan.source === 'projections') return true
+  // O que foi PAGO nas faturas: o roteador antigo só tem o resumo dos cartões.
+  if (plan.source === 'invoices' && plan.field === 'paid') return true
   // (C) Pergunta sobre UM cartão. O roteador antigo responde o mês inteiro —
   // certo como número, errado como resposta, e sem deixar o cartão no foco.
   if (f.cardNames?.length) return true
@@ -1396,6 +1399,7 @@ function rotulo(
     ? m.label
     : field === 'pct' ? 'Progresso das metas'
       : source === 'plans' && field === 'paid' ? 'Já pago'
+        : source === 'invoices' && field === 'paid' ? 'Pago nas faturas'
         : source === 'plans' && field === 'total' ? 'Valor total'
           // "Falta pagar: 8" parecia R$ 8; é a QUANTIDADE de parcelas.
           : source === 'plans' && field === 'remainingCount' ? 'Parcelas restantes'

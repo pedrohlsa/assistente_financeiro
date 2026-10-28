@@ -2894,6 +2894,29 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /Falta pagar R\$ 800,00/.test(fatura) && !/Cadastre|Não tenho|para pagar|Situação dos seus cartões/.test(fatura)))
   }
 
+  // "Quanto PAGUEI de fatura" é o que foi pago, não o valor das faturas: "esse
+  // ano" dava R$ 2.000,00 (o faturado) com R$ 1.200,00 pagos; "mês passado"
+  // e sem período davam o resumo dos cartões. Pago = parcelas marcadas pagas,
+  // pelo vencimento, no fixture.
+  {
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const fmt = (v: number) => `R$ ${v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`
+    const pagoEm = (prefixo: string) => rico.installments.filter(i => i.status === 'paid' && i.dueDate.startsWith(prefixo))
+      .reduce((a, i) => a + i.amount, 0)
+    const passado = new Date(Number(hoje.slice(0, 4)), Number(hoje.slice(5, 7)) - 2, 1)
+    const prefixoPassado = `${passado.getFullYear()}-${String(passado.getMonth() + 1).padStart(2, '0')}`
+    const mesPassado = limpa((await turnoHoje(rico, 'quanto paguei de fatura mes passado')).reply)
+    out.push(result('FP-paguei-mes-passado', mesPassado, `${fmt(pagoEm(prefixoPassado))} pagos`,
+      pagoEm(prefixoPassado) > 0 && mesPassado.includes(fmt(pagoEm(prefixoPassado))) && !/Situação dos seus cartões/.test(mesPassado)))
+    const ano = limpa((await turnoHoje(rico, 'quanto ja paguei de fatura esse ano')).reply)
+    out.push(result('FP-paguei-no-ano', ano, `${fmt(pagoEm(hoje.slice(0, 4)))} pagos, não o faturado`,
+      ano.includes(fmt(pagoEm(hoje.slice(0, 4)))) && !/R\$ 2\.000,00/.test(ano)))
+    const semPeriodo = limpa((await turnoHoje(rico, 'quanto paguei de fatura')).reply)
+    out.push(result('FP-paguei-sem-periodo', semPeriodo, `${fmt(pagoEm(hoje.slice(0, 7)))} pagos este mês`,
+      semPeriodo.includes(fmt(pagoEm(hoje.slice(0, 7)))) && !/Situação dos seus cartões/.test(semPeriodo)))
+  }
+
   // "Quanto posso gastar por dia" dava 70% do saldo menos só as contas fixas de
   // 7 dias, como gasto de HOJE: "R$ 9.586,50 hoje", com a fatura do Inter
   // atrasada e a do Nubank vencendo hoje (R$ 800,00) fora da conta. O limite
