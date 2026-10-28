@@ -5088,8 +5088,15 @@ seções de 27 e 28/10 acima):
   resumo dos cartões.
 - Motorista: "troquei o óleo com 45 mil km", sem custo, cai na ajuda em vez
   de perguntar o valor.
-- Receita sem origem: "recebi 2 mil do cliente" e "caiu 350 de pix do joão"
-  não guardam de quem veio.
+- Receita sem origem ("recebi 2 mil do cliente", "caiu 350 de pix do joão")
+  é a regra "Origem explícita — nunca inferida" (`extractOrigins`, em
+  clauses.ts): só valem substantivo de fonte + identificador ("do cliente
+  João", "da casa 1") ou nome próprio com maiúscula. Uma tentativa em
+  28/10 de ler "do <nome>" no parser foi revertida antes do commit: quebrou a
+  invariante "futuro explícito nunca vira realizado" ("…e 700 do cliente ana
+  mas o da ana só entra amanhã" virou recebido) e o corpus adaptativo. Se o
+  produto quiser origem de nome em minúscula, o caminho é perguntar "de
+  quem?", não inferir.
 - Mês que vem em lançamentos ("quanto vou receber em dezembro") responde
   "Não tenho nenhum lançamento… Assim que você registrar", em vez da previsão.
 - "Devo muito?" cai na ajuda.
