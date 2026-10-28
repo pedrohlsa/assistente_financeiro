@@ -19,7 +19,8 @@ import { addDays, monthKey, nowPaymentTime, nowStamp, todayISO, uid } from '../u
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
 import { nextCashEventTime } from '../services/calc'
-import { buildInstallments, cardInvoice, directInstallmentPaidAmount, settleableInstallmentIds, suggestedFirstDueDate } from '../services/cards'
+import { buildInstallments, cardInvoice, directInstallmentPaidAmount, futureInvoicePaymentDate,
+  settleableInstallmentIds, suggestedFirstDueDate } from '../services/cards'
 
 // ---------------------------------------------------------------------------
 // Resolvedores de referência (moram aqui para o store poder ser puro)
@@ -335,6 +336,9 @@ export function applyActionPure(
         return { state, result: fail(actionId, 'card-ambiguous') }
       }
       const mk = monthKey(date)
+      if (futureInvoicePaymentDate(state, card, mk)) return {
+        state, result: fail(actionId, 'invoice-conflict', `${card.name}: há pagamento com data futura.`, false),
+      }
       const invoice = cardInvoice(state, card, mk)
       if (invoice.paid > invoice.total + 0.009) return {
         state, result: fail(actionId, 'invoice-conflict', `${card.name}.`, false),

@@ -5565,3 +5565,31 @@ hoje até seis dias à frente, rotulada "nos próximos 7 dias". A pergunta de
 receita realizada continua nos últimos sete dias. Três regressões novas,
 629/629 adversariais; suíte completa, typecheck frontend e build passaram.
 Sem rede paga, publicação ou APK; V2 permanece NOT READY até auditoria.
+
+## 28/10/2026 — Backup com quitação datada no futuro
+
+Após b225bde, um backup sintético com fatura de R$300, pagamento registrado
+para amanhã e parcela marcada paga mostrava fatura quitada, dívida zero e
+limite livre hoje. O saldo já não descontava R$300 antes da data: os números
+se contradiziam. O mesmo acontecia com quitação direta da parcela. Testes
+vermelhos cobriram essas duas classes e plano marcado `settled` pelo backup.
+
+Os cálculos de fatura, parcela, dívida, limite e progresso agora contam apenas
+pagamentos até hoje, incluindo parcelas parciais com histórico misto de hoje e
+amanhã. O registro bruto não foi apagado nem migrado. A consulta pelo
+orquestrador diz R$300 pendentes; a tela de parcelamento sinaliza a data
+futura e impede "Antecipar"/"Quitar tudo" nesse plano antes de reconciliar.
+O plano com status `settled` só volta à dívida se houver evidência de pagamento
+futuro; o invariante que exclui planos quitados comuns permanece válido.
+
+A correção de leitura expôs outra rota: pagar a fatura hoje duplicaria o
+registro futuro quando a data chegasse. Dois REDs novos cobriram executor e
+reducer com pagamento futuro da fatura e pagamento direto futuro da parcela.
+O formulário também desabilita salvar e mostra a data; executor e reducer
+recusam a nova quitação até o registro futuro ser reconciliado.
+
+Sete regressões novas; 636/636 adversariais. Suíte completa, typechecks e
+build passaram; rubrica anterior permanece 0 perigosa/ruim (não houve mudança
+na redação das respostas usuais). A tela nova ainda pede smoke visual local.
+Sem rede paga, publicação ou APK. V2 segue
+NOT READY até auditoria independente.

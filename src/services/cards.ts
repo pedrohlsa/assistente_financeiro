@@ -107,10 +107,12 @@ export const planById = (s: AppState, id: string) => (s.installmentPlans || []).
  * restante: R$ 0,00" — dois números da mesma coisa se contradizendo.
  *
  * Quitado e cancelado continuam de fora; ausente conta como dívida, que é a
- * leitura segura de um plano com parcela pendente.
+ * leitura segura de um plano com parcela pendente. Exceção: backup que marcou
+ * quitado por pagamento com data futura ainda tem dívida hoje.
  */
 export const activePlans = (s: AppState): InstallmentPlan[] =>
-  (s.installmentPlans || []).filter(p => p.status !== 'settled' && p.status !== 'cancelled')
+  (s.installmentPlans || []).filter(p => p.status !== 'cancelled'
+    && (p.status !== 'settled' || planInstallments(s, p.id).some(i => !!futureInstallmentPaymentDate(s, i))))
 
 /** Parcelas que vencem no mês de referência ('YYYY-MM'), ignorando canceladas. */
 export function installmentsInMonth(s: AppState, mk: string): Installment[] {
@@ -124,14 +126,52 @@ export function installmentsInMonth(s: AppState, mk: string): Installment[] {
  * `paidVia` distingue os registros novos; backups antigos usam data/cartão
  * apenas como fallback para não deduzir duas vezes uma quitação de fatura.
  */
-export function directInstallmentPaidAmount(s: AppState, i: Installment): number {
+export function directInstallmentPaidAmount(s: AppState, i: Installment, asOf = todayISO()): number {
   if (i.status === 'cancelled' || i.paidVia === 'invoice'
     || (!i.paidAt && !i.directPayments?.length)) return 0
   const plan = planById(s, i.planId)
   if (i.paidVia !== 'direct' && plan?.cardId && (s.cardPayments || []).some(p =>
     p.cardId === plan.cardId && p.referenceMonth === monthKey(i.dueDate) && p.paymentDate === i.paidAt)) return 0
-  const amount = i.status === 'paid' ? (i.paidAmount ?? i.amount) : (i.paidAmount ?? 0)
+  const amount = i.directPayments?.length
+    ? i.directPayments.filter(p => p.date <= asOf).reduce((sum, p) => sum + p.amount, 0)
+    : i.paidAt && i.paidAt <= asOf
+      ? i.status === 'paid' ? (i.paidAmount ?? i.amount) : (i.paidAmount ?? 0)
+      : 0
   return round2(Math.min(Math.max(amount, 0), i.amount))
+}
+
+/** Data futura preservada em backup antigo; não representa quitação hoje. */
+export function futureInstallmentPaymentDate(s: AppState, i: Installment, asOf = todayISO()): string | undefined {
+  const dates = i.paidAt && i.paidAt > asOf ? [i.paidAt] : []
+  const cardId = planById(s, i.planId)?.cardId
+  if (cardId) for (const p of s.cardPayments || []) {
+    if (p.cardId === cardId && p.referenceMonth === monthKey(i.dueDate)
+      && p.paymentDate > asOf && (p.settledInstallmentIds?.includes(i.id)
+        || (p.settledInstallmentIds === undefined && i.paidVia === 'invoice'))) dates.push(p.paymentDate)
+  }
+  return dates.sort()[0]
+}
+
+/** Impede uma segunda quitação enquanto um backup conserva pagamento futuro. */
+export function futureInvoicePaymentDate(s: AppState, card: CreditCard, mk: string, asOf = todayISO()): string | undefined {
+  const dates = (s.cardPayments || [])
+    .filter(p => p.cardId === card.id && p.referenceMonth === mk && p.paymentDate > asOf)
+    .map(p => p.paymentDate)
+  for (const i of installmentsInMonth(s, mk)) {
+    if (planById(s, i.planId)?.cardId !== card.id) continue
+    const future = futureInstallmentPaymentDate(s, i, asOf)
+    if (future) dates.push(future)
+  }
+  return dates.sort()[0]
+}
+
+/** Parte realmente quitada até a data, inclusive em backups com pagamento futuro. */
+function installmentPaidAsOf(s: AppState, i: Installment, asOf = todayISO()): number {
+  if (i.status === 'cancelled') return 0
+  const direct = directInstallmentPaidAmount(s, i, asOf)
+  if (i.status === 'pending') return direct
+  if (i.status !== 'paid') return 0
+  return futureInstallmentPaymentDate(s, i, asOf) ? direct : i.amount
 }
 
 /** Só bloqueia o desfazer individual quando uma fatura ainda representa esta parcela.
@@ -181,7 +221,8 @@ export function overdueInstallments(s: AppState): Installment[] {
   const t = todayISO()
   const cancelled = new Set((s.installmentPlans || []).filter(p => p.status === 'cancelled').map(p => p.id))
   return (s.installments || [])
-    .filter(i => i.status === 'pending' && !cancelled.has(i.planId) && i.dueDate < t)
+    .filter(i => i.status !== 'cancelled' && !cancelled.has(i.planId) && i.dueDate < t
+      && installmentPaidAsOf(s, i, t) < i.amount - 0.009)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
 }
 
@@ -235,8 +276,8 @@ export function invoiceOpenAmount(s: AppState, inv: CardInvoice): number {
   const porStatus = inv.items.reduce((sum, it) => {
     if (it.kind !== 'installment') return sum + it.amount
     const inst = byNumber.get(`${it.planId}#${it.installmentNumber}`)
-    if (!inst || inst.status !== 'pending') return sum
-    return sum + it.amount - Math.min(Math.max(inst.paidAmount || 0, 0), it.amount)
+    if (!inst) return sum
+    return sum + it.amount - installmentPaidAsOf(s, inst)
   }, 0)
   return Math.round(Math.max(Math.min(inv.pending, porStatus), 0) * 100) / 100
 }
@@ -276,7 +317,7 @@ export function cardInvoice(s: AppState, card: CreditCard, mk: string): CardInvo
 
   const total = round2(items.reduce((a, i) => a + i.amount, 0))
   const paid = round2(directPaid + (s.cardPayments || [])
-    .filter(p => p.cardId === card.id && p.referenceMonth === mk)
+    .filter(p => p.cardId === card.id && p.referenceMonth === mk && p.paymentDate <= todayISO())
     .reduce((a, p) => a + p.amount, 0))
   const pending = round2(Math.max(total - paid, 0))
 
@@ -322,7 +363,7 @@ function unallocatedInstallmentPayments(s: AppState, cardId: string): number {
   // abater do total do cartão quando a fatura contém exclusivamente parcelas;
   // com assinatura/saldo anterior não sabemos a qual obrigação atribuí-lo.
   return (s.cardPayments || [])
-    .filter(p => p.cardId === cardId && p.settledInstallmentIds?.length === 0)
+    .filter(p => p.cardId === cardId && p.paymentDate <= todayISO() && p.settledInstallmentIds?.length === 0)
     .reduce((sum, p) => {
       if (!card || !/^\d{4}-\d{2}$/.test(p.referenceMonth || '')) return sum
       const invoice = cardInvoice(s, card, p.referenceMonth)
@@ -335,8 +376,8 @@ export function cardOutstanding(s: AppState, cardId: string): number {
   const planIds = new Set((s.installmentPlans || [])
     .filter(p => p.cardId === cardId && p.status !== 'cancelled').map(p => p.id))
   const pending = (s.installments || [])
-    .filter(i => planIds.has(i.planId) && i.status === 'pending')
-    .reduce((a, i) => a + (i.amount - (i.paidAmount || 0)), 0)
+    .filter(i => planIds.has(i.planId) && i.status !== 'cancelled')
+    .reduce((a, i) => a + (i.amount - installmentPaidAsOf(s, i)), 0)
 
   // O saldo anterior entra na primeira fatura: só continua devido enquanto
   // essa fatura não foi quitada.
@@ -396,10 +437,11 @@ export interface PlanProgress {
 export function planProgress(s: AppState, plan: InstallmentPlan): PlanProgress {
   const list = planInstallments(s, plan.id)
   const active = list.filter(i => i.status !== 'cancelled')
-  const paid = active.filter(i => i.status === 'paid')
-  const pending = active.filter(i => i.status === 'pending').sort((a, b) => a.dueDate.localeCompare(b.dueDate))
   const t = todayISO()
-  const paidAmount = round2(paid.reduce((a, i) => a + i.amount, 0) + active.filter(i => i.status === 'pending').reduce((a, i) => a + (i.paidAmount || 0), 0))
+  const paid = active.filter(i => installmentPaidAsOf(s, i, t) >= i.amount - 0.009)
+  const pending = active.filter(i => installmentPaidAsOf(s, i, t) < i.amount - 0.009)
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+  const paidAmount = round2(active.reduce((a, i) => a + installmentPaidAsOf(s, i, t), 0))
   const totalActive = round2(active.reduce((a, i) => a + i.amount, 0))
   return {
     plan,

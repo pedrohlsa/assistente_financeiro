@@ -15,7 +15,8 @@ import { addDays, monthKey, nowPaymentTime, nowStamp, nowTime, todayISO, uid } f
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
 import { nextCashEventTime } from '../services/calc'
-import { cardInvoice, currentInvoice, directInstallmentPaidAmount, installmentLinkedToCardPayment, validPaymentDate } from '../services/cards'
+import { cardInvoice, currentInvoice, directInstallmentPaidAmount, futureInvoicePaymentDate,
+  installmentLinkedToCardPayment, validPaymentDate } from '../services/cards'
 import { applyBatchPure } from '../assistant/execute'
 import type { BatchItem } from '../assistant/execute'
 import type { ActionExecutionResult } from '../assistant/contracts'
@@ -369,6 +370,8 @@ export function reducer(s: AppState, a: Action): AppState {
       return { ...s, installments: s.installments.map(i => i.id === a.id ? { ...i, ...a.patch } : i) }
     case 'addCardPayment': {
       if (!validPaymentDate(a.payment.paymentDate)) return s
+      const card = s.cards.find(c => c.id === a.payment.cardId)
+      if (card && futureInvoicePaymentDate(s, card, a.payment.referenceMonth)) return s
       // Quitar a fatura marca as parcelas dela como pagas — a despesa já foi
       // contada como parcela, o pagamento NÃO cria despesa nova.
       const settle = new Set(a.settleInstallmentIds.filter(id => {

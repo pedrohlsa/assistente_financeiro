@@ -10,7 +10,8 @@ import {
 import { fmtBRL, fmtDateShort, nowPaymentTime, parseMoney, todayISO, uid } from '../utils/format'
 import {
   activeCards, buildInstallments, cardInvoice, cardById, findCardByExactName, planInstallments,
-  round2, settleableInstallmentIds, simulatePurchase, splitInstallmentAmounts, suggestedDueDay, suggestedFirstDueDate, validPaymentDate,
+  futureInvoicePaymentDate, round2, settleableInstallmentIds, simulatePurchase, splitInstallmentAmounts,
+  suggestedDueDay, suggestedFirstDueDate, validPaymentDate,
 } from '../services/cards'
 import { monthKey } from '../utils/format'
 import { currentBalance } from '../services/calc'
@@ -609,6 +610,7 @@ export function CardPaymentForm({ onDone, card, referenceMonth }: { onDone: () =
   const toast = useToast()
   const mk = referenceMonth || monthKey(todayISO())
   const invoice = useMemo(() => cardInvoice(state, card, mk), [state, card, mk])
+  const futurePayment = futureInvoicePaymentDate(state, card, mk)
   const [amount, setAmount] = useState(invoice.pending > 0 ? String(invoice.pending.toFixed(2)).replace('.', ',') : '')
   const [date, setDate] = useState(todayISO())
   const [fromBalance, setFromBalance] = useState(true)
@@ -618,7 +620,7 @@ export function CardPaymentForm({ onDone, card, referenceMonth }: { onDone: () =
   const v = parseMoney(amount) || 0
   const over = v > invoice.pending + 0.009
   const dateValid = validPaymentDate(date)
-  const valid = v > 0 && (!over || confirmOver) && dateValid
+  const valid = v > 0 && (!over || confirmOver) && dateValid && !futurePayment
 
   const save = () => {
     if (!valid) return
@@ -650,6 +652,10 @@ export function CardPaymentForm({ onDone, card, referenceMonth }: { onDone: () =
         Pagar a fatura não cria uma despesa nova — as compras já foram contadas como parcelas.
         Este registro apenas quita a dívida do cartão.
       </p>
+      {futurePayment && <p className="tiny" role="alert">
+        Há um pagamento com data futura ({fmtDateShort(futurePayment)}) neste cartão.
+        Confira ou remova esse registro antes de pagar a fatura novamente.
+      </p>}
       <div className="form-grid">
         <div className="field"><label>Valor pago (R$)</label>
           <MoneyInput autoFocus value={amount} onChange={setAmount} />

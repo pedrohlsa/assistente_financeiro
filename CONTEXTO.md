@@ -54,6 +54,8 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
   e execução usam o valor informado, e número de conta não vira dinheiro.
   Previsão de receita "esta semana" olha hoje e os seis dias seguintes;
   receita já recebida usa os últimos sete dias.
+  Backups antigos com pagamento datado no futuro conservam o registro, mas
+  fatura, dívida e saldo de hoje não contam essa quitação antecipadamente.
   Retomada: docs/CODEX_RESUME.md.
   Lista de pendências no
   fim de [PROGRESS.md](PROGRESS.md), seção "Pendências em 28/10/2026".

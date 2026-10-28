@@ -4,7 +4,7 @@ import type { AppState } from '../../src/models/types'
 import { orchestrate } from '../../src/assistant/orchestrator'
 import { segment } from '../../src/assistant/clauses'
 import { balanceOutlook, balanceOutlookText, currentBalance, monthlyProjections, occurrencesBetween } from '../../src/services/calc'
-import { cardInvoice, cardOutstanding, cardsOverview } from '../../src/services/cards'
+import { cardInvoice, cardOutstanding, cardsOverview, futureInstallmentPaymentDate, invoiceOpenAmount, planProgress } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
 import { applyPreferenceAliases } from '../../src/assistant/preferences'
 import { hydrateForTest, reducer } from '../../src/store/store'
@@ -3699,6 +3699,69 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       settleInstallmentIds: ['payment-date-installment'] })
     out.push(result('PDATE-pagamento-hoje-fatura-futura', early.installments[0], 'pagamento de hoje pode quitar parcela de fatura que ainda vencerá',
       early.cardPayments.length === 1 && early.installments[0].status === 'paid'))
+  }
+
+  {
+    const amanha = addDays(hoje, 1)
+    const st = buildState({ profile: 'autonomo', balance: 1000, cards: [{ name: 'Inter' }] })
+    st.installmentPlans = [{ id: 'legacy-future-plan', description: 'Compra', cardId: 'card0', totalAmount: 300,
+      installmentCount: 1, firstDueDate: hoje, purchaseDate: addDays(hoje, -20),
+      createdAt: addDays(hoje, -20), status: 'active', operationType: 'card-purchase' }]
+    st.installments = [{ id: 'legacy-future-installment', planId: 'legacy-future-plan', number: 1, total: 1,
+      amount: 300, dueDate: hoje, status: 'paid', paidAt: amanha, paidAmount: 300, paidVia: 'invoice' }]
+    st.cardPayments = [{ id: 'legacy-future-payment', cardId: 'card0', amount: 300,
+      paymentDate: amanha, referenceMonth: hoje.slice(0, 7), fromBalance: true,
+      settledInstallmentIds: ['legacy-future-installment'] }]
+    const inv = cardInvoice(st, st.cards[0], hoje.slice(0, 7))
+    const ov = cardsOverview(st)
+    const chat = await turnoHoje(st, 'quanto falta pagar da fatura do Inter?')
+    out.push(result('PLEG-fatura-futura-nao-quitada-hoje', { inv, ov, balance: currentBalance(st) },
+      'pagamento legado de amanhã não quita fatura ou dívida hoje; saldo permanece1000',
+      inv.paid === 0 && inv.pending === 300 && inv.status !== 'paga'
+        && invoiceOpenAmount(st, inv) === 300 && ov.totalDebt === 300
+        && ov.usedLimit === 300 && currentBalance(st) === 1000))
+    out.push(result('PLEG-chat-mostra-pendencia-hoje', chat,
+      'consulta real da fatura informa300 pendentes, sem alegar quitação futura',
+      /300,00/.test(chat.reply) && !/quitad|paga integralmente/i.test(chat.reply)
+        && chat.actions.length === 0))
+    const duplicateInvoice = applyBatchPure(st,
+      [{ id: 'duplicate-legacy-invoice', action: { kind: 'card-payment', cardName: 'Inter', amount: 300 } }],
+      { now: { date: hoje, time: '14:00' } })
+    const duplicateReducer = reducer(st, { type: 'addCardPayment',
+      payment: { id: 'duplicate-direct-reducer', cardId: 'card0', amount: 300,
+        paymentDate: hoje, referenceMonth: hoje.slice(0, 7), fromBalance: true },
+      settleInstallmentIds: ['legacy-future-installment'] })
+    out.push(result('PLEG-impede-pagamento-duplicado-da-fatura', { duplicateInvoice, duplicateReducer },
+      'com pagamento futuro preservado, confirmar hoje exige reconciliação primeiro',
+      !duplicateInvoice.applied && duplicateInvoice.state === st && duplicateReducer === st))
+    const settledPlan = { ...st, installmentPlans: st.installmentPlans.map(p => ({ ...p, status: 'settled' as const })) }
+    out.push(result('PLEG-plano-marcado-quitado-no-backup', cardsOverview(settledPlan),
+      'plano marcado quitado por pagamento futuro ainda representa dívida de300 hoje',
+      cardsOverview(settledPlan).totalDebt === 300 && cardsOverview(settledPlan).usedLimit === 300
+        && planProgress(settledPlan, settledPlan.installmentPlans[0]).remainingCount === 1
+        && planProgress(settledPlan, settledPlan.installmentPlans[0]).paidCount === 0
+        && futureInstallmentPaymentDate(settledPlan, settledPlan.installments[0], hoje) === amanha))
+    st.cardPayments = []
+    st.installments[0] = { ...st.installments[0], paidVia: 'direct' }
+    const directInv = cardInvoice(st, st.cards[0], hoje.slice(0, 7))
+    const directOv = cardsOverview(st)
+    out.push(result('PLEG-direto-futuro-nao-quitado-hoje', { directInv, directOv, balance: currentBalance(st) },
+      'quitação direta legada de amanhã não quita parcela ou fatura hoje',
+      directInv.paid === 0 && directInv.pending === 300
+        && invoiceOpenAmount(st, directInv) === 300 && directOv.totalDebt === 300
+        && directOv.usedLimit === 300 && currentBalance(st) === 1000))
+    const duplicateDirect = applyBatchPure(st,
+      [{ id: 'duplicate-legacy-direct', action: { kind: 'card-payment', cardName: 'Inter', amount: 300 } }],
+      { now: { date: hoje, time: '14:00' } })
+    out.push(result('PLEG-impede-duplicar-parcela-direta-futura', duplicateDirect,
+      'pagamento direto futuro também exige reconciliação antes da fatura',
+      !duplicateDirect.applied && duplicateDirect.state === st))
+    st.installments[0] = { ...st.installments[0], status: 'pending', paidAmount: 200,
+      directPayments: [{ amount: 100, date: hoje }, { amount: 100, date: amanha }] }
+    const mixedInv = cardInvoice(st, st.cards[0], hoje.slice(0, 7))
+    out.push(result('PLEG-parcial-mista-respeita-data', mixedInv,
+      'parcial de hoje100 conta; parcial futura100 não antecipa quitação',
+      mixedInv.paid === 100 && mixedInv.pending === 200 && cardsOverview(st).totalDebt === 200))
   }
 
   {

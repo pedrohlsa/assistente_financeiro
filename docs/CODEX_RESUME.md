@@ -23,12 +23,12 @@ o checkpoint de CONTEXTO.md e as últimas seções de PROGRESS.md.
 
 ## Estado ao encerrar esta janela
 
-Último commit confirmado ao iniciar o lote atual:c30f413. Este lote corrige
-a janela da previsão semanal de receita. Confira git log/status antes de
+Último commit confirmado ao iniciar o lote atual:b225bde. Este lote corrige
+a leitura de pagamentos futuros em backups antigos. Confira git log/status antes de
 editar. Só .claude/launch.json deve permanecer modificado após o commit.
 
 Baseline validada:666 corpus,99 consulta/cenário,50 semânticos,
-629 adversariais,4088 +3800 metamórficos,1416 fuzz,151 invariantes,
+636 adversariais,4088 +3800 metamórficos,1416 fuzz,151 invariantes,
 468 avaliações remotas OFFLINE; suíte completa, typechecks frontend/API,
 build e rubrica verdes (0 perigosa/ruim,5 aceitáveis,85 excelentes).
 Aviso conhecido de bundle grande (~848kB) permanece.
@@ -69,18 +69,20 @@ tiveram novo smoke de interface.
 - Previsão de receita "esta/essa semana" passa a olhar hoje e os próximos seis
   dias. A entrada recorrente de amanhã não some; o recebido permanece nos
   últimos sete dias realizados. Três regressões pelo orquestrador real.
+- Pagamentos futuros em backups não quitam a fatura/parcela hoje. Fatura,
+  dívida total, limite usado, projeções, consulta e progresso consideram só o
+  que foi pago até hoje. O registro bruto foi preservado; a tela sinaliza a
+  data futura e bloqueia pagamento duplicado até a reconciliação, inclusive
+  no formulário, executor e reducer. Sete regressões.
 
 ## Próximas prioridades concretas
 
-1. Backups já existentes com pagamento datado no futuro: saldo não desconta
-   antes da data, mas fatura/parcela ainda pode aparecer quitada. Não migrar
-   nem reinterpretar histórico sem reproduzir e preservar proveniência.
-2. Chat card-payment só tem cartão e valor; não mantém data do pagamento nem
+1. Chat card-payment só tem cartão e valor; não mantém data do pagamento nem
    referenceMonth. Execução usa mês do dia de execução, que pode divergir da
    fatura exibida pelo cartão. A barreira cobre referência/data explícitas;
    investigar também a escolha implícita de fatura perto da virada do mês.
-3. Fazer smoke local da Home e da validação de pagamento com dados sintéticos,
-   sem acessar dados financeiros reais e sem habilitar remoto.
+2. Fazer smoke local da Home, da validação de pagamento e do aviso de pagamento
+   futuro em backup sintético, sem acessar dados financeiros reais nem habilitar remoto.
 
 Outras limitações/decisões permanecem no fim de PROGRESS.md: confirmação de
 recorrente pelo chat ainda duplica se também confirmada na Home, retirada de

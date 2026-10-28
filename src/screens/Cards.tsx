@@ -14,6 +14,7 @@ import {
 import {
   cardInvoice, cardLimits, cardsOverview, commitmentTimeline, currentInvoice,
   planProgress, upcomingInvoices, planInstallments, splitInstallmentAmounts, installmentLinkedToCardPayment,
+  futureInstallmentPaymentDate,
 } from '../services/cards'
 import { monthlyProjections, hasProjectionData } from '../services/calc'
 import { catById } from '../data/categories'
@@ -484,8 +485,10 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
   const plan = pp.plan
   const cat = plan.categoryId ? catById(state.categories, plan.categoryId) : undefined
   const t = todayISO()
+  const futurePaid = pp.installments.some(i => !!futureInstallmentPaymentDate(state, i, t))
 
   const statusLabel = plan.status === 'cancelled' ? 'Cancelado'
+    : futurePaid ? 'Pagamento futuro'
     : plan.status === 'settled' || pp.remainingCount === 0 ? 'Quitado'
     : pp.overdueCount > 0 ? 'Atrasado' : 'Ativo'
   const statusCls = statusLabel === 'Quitado' ? 'pos' : statusLabel === 'Atrasado' ? 'neg' : statusLabel === 'Cancelado' ? 'neutral' : 'warn'
@@ -514,6 +517,11 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
   }
 
   const settleAll = () => {
+    if (futurePaid) {
+      setConfirmAction(null)
+      toast({ text: 'Confira o pagamento com data futura antes de quitar o parcelamento.' })
+      return
+    }
     const pending = pp.installments.filter(i => i.status === 'pending')
     pending.forEach(i => dispatch({ type: 'payInstallment', id: i.id, paidAt: todayISO() }))
     dispatch({ type: 'updatePlan', id: plan.id, patch: { status: 'settled' } })
@@ -591,11 +599,13 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
 
           <p className="tiny" style={{ fontWeight: 650, margin: '10px 0 2px' }}>Todas as parcelas</p>
           {pp.installments.map(i => {
-            const overdue = i.status === 'pending' && i.dueDate < t
+            const futureDate = futureInstallmentPaymentDate(state, i, t)
+            const overdue = (i.status === 'pending' || !!futureDate) && i.dueDate < t
             const invoicePayment = installmentLinkedToCardPayment(state, i)
-            const incompleteLegacy = i.status === 'paid' && (i.paidAmount ?? i.amount) < i.amount - 0.009
-            const early = i.status === 'paid' && i.paidAt && i.paidAt < i.dueDate
-            const color = i.status === 'cancelled' ? 'var(--text-3)' : i.status === 'paid' ? 'var(--positive)' : overdue ? 'var(--danger)' : undefined
+            const incompleteLegacy = i.status === 'paid' && !futureDate && (i.paidAmount ?? i.amount) < i.amount - 0.009
+            const early = i.status === 'paid' && !futureDate && i.paidAt && i.paidAt < i.dueDate
+            const color = i.status === 'cancelled' ? 'var(--text-3)' : futureDate ? 'var(--text-3)'
+              : i.status === 'paid' ? 'var(--positive)' : overdue ? 'var(--danger)' : undefined
             return (
               <div key={i.id} className="row list-item">
                 <div className="grow">
@@ -604,6 +614,7 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
                   </div>
                   <div className="tiny" style={{ color }}>
                     {i.status === 'cancelled' ? 'cancelada'
+                      : futureDate ? `pagamento com data futura (${fmtDateShort(futureDate)}); ainda não quitada hoje`
                       : incompleteLegacy ? `pagamento parcial ${fmtBRL(i.paidAmount || 0)} — falta completar`
                       : i.status === 'paid' ? `paga em ${fmtDateShort(i.paidAt || i.dueDate)}${early ? ' (antecipada)' : ''}`
                       : overdue ? `venceu em ${fmtDateShort(i.dueDate)}` : `vence em ${fmtDateShort(i.dueDate)}`}
@@ -611,7 +622,7 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
                   </div>
                 </div>
                 <span className="mono-num small" style={{ color }}>{fmtBRL(i.amount)}</span>
-                {i.status === 'pending' && (
+                {i.status === 'pending' && !futureDate && (
                   <>
                     <button className="link tiny" onClick={() => markPaid(i)}>Pagar</button>
                     <button className="link tiny" onClick={() => setPartial(i)}>Parcial</button>
@@ -625,7 +636,7 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
                 )}
                 {i.status === 'paid' && (invoicePayment
                   ? <span className="tiny muted" title="O pagamento da fatura precisa ser reconciliado antes de reabrir esta parcela.">
-                      Vinculada à fatura paga
+                      {futureDate ? 'Vinculada ao pagamento da fatura' : 'Vinculada à fatura paga'}
                     </span>
                   : <button className="link tiny" onClick={() => {
                     dispatch({ type: 'unpayInstallment', id: i.id })
@@ -639,9 +650,10 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
           {partial && <PartialPaymentBox installment={partial} onDone={() => setPartial(null)} />}
 
           <div className="suggestion-row" style={{ marginTop: 12 }}>
-            {pp.remainingCount > 1 && <button className="btn btn-soft btn-sm" onClick={() => anticipate(1)}>Antecipar 1</button>}
-            {pp.remainingCount > 2 && <button className="btn btn-soft btn-sm" onClick={() => anticipate(2)}>Antecipar 2</button>}
-            {pp.remainingCount > 0 && <button className="btn btn-soft btn-sm" onClick={() => setConfirmAction('settle')}>Quitar tudo</button>}
+            {pp.remainingCount > 1 && !futurePaid && <button className="btn btn-soft btn-sm" onClick={() => anticipate(1)}>Antecipar 1</button>}
+            {pp.remainingCount > 2 && !futurePaid && <button className="btn btn-soft btn-sm" onClick={() => anticipate(2)}>Antecipar 2</button>}
+            {pp.remainingCount > 0 && !futurePaid && <button className="btn btn-soft btn-sm" onClick={() => setConfirmAction('settle')}>Quitar tudo</button>}
+            {futurePaid && <span className="tiny muted">Confira ou remova o pagamento com data futura antes de quitar o parcelamento.</span>}
             {pp.remainingCount > 0 && (
               <button className="btn btn-soft btn-sm" onClick={() => setConfirmAction('cancel-future')}>Cancelar futuras</button>
             )}
