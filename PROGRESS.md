@@ -5012,21 +5012,27 @@ Gates: 666/666, 99/99, 50/50, **516/516**, metamórficos, fuzz, 151/151, 468;
 typechecks, `test:money`, build, rubrica, varredura e `git diff --check`
 passaram.
 
-## Pendências em 28/10/2026 (HEAD `8c3fd2f`)
+## Pendências em 28/10/2026 (HEAD `4e16b70`)
 
-Estado: 666/666 corpus, 99/99, 50/50, **490/490 adversariais**, 4.088 + 3.800
+Estado: 666/666 corpus, 99/99, 50/50, **516/516 adversariais**, 4.088 + 3.800
 metamórficos, 1.416 fuzz, 151/151 invariantes, 468/468 offline (65 frases
 chegam hoje ao modelo remoto); typechecks, `test:money`, build e rubrica
 (0 perigosa, 0 ruim) verdes. Tudo local, sem DeepSeek, push, merge, deploy ou
 APK. **NOT READY para merge/deploy**: os diffs `c3648de..c824fe0`,
-`c824fe0..b049bdf`, `b049bdf..73c8d24` e `73c8d24..8c3fd2f` (seções acima,
+`c824fe0..b049bdf`, `b049bdf..73c8d24` e `73c8d24..4e16b70` (seções acima,
 uma por causa) precisam de auditoria independente; navegador, persistência
 real e dados legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas (detalhe nas
-seções de 27/10 acima):
+seções de 27 e 28/10 acima):
 - "Quando paguei a fatura do nubank" e "antecipei a fatura do nubank" dão o
   resumo dos cartões.
+- "Quanto almocei esse mes" responde o gasto total do mês.
+- Motorista: "recebi 50 de gorjeta" cria uma viagem; "fiz 12 corridas e 260",
+  sem verbo na segunda metade, perde os R$ 260,00; "troquei o óleo com 150
+  km" vira manutenção de R$ 150,00.
+- Receita sem origem: "recebi 2 mil do cliente" e "caiu 350 de pix do joão"
+  não guardam de quem veio.
 - Mês que vem em lançamentos ("quanto vou receber em dezembro") responde
   "Não tenho nenhum lançamento… Assim que você registrar", em vez da previsão.
 - "Devo muito?" cai na ajuda.
