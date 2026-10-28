@@ -3053,6 +3053,11 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && t.date.slice(0, 7) === hoje.slice(0, 7) && t.date <= hoje).reduce((a, t) => a + t.amount, 0)
     const deAluguel = limpa((await turnoHoje(rico, 'e de aluguel?', focoReceita)).reply)
     out.push(result('CS-e-de-aluguel', deAluguel, `Aluguéis ${fmt(aluguelDoMes)}`, deAluguel.includes(fmt(aluguelDoMes)) && /Aluguéis/.test(deAluguel)))
+    // "E no mercado?" filtra pelo texto e o cabeçalho diz isso: o número certo
+    // saía como "Total gasto este mês", lido como o mês inteiro.
+    const focoGasto = (await turnoHoje(rico, 'quanto gastei esse mes')).focus
+    const noMercado = limpa((await turnoHoje(rico, 'e no mercado?', focoGasto)).reply)
+    out.push(result('CS-rotulo-do-texto', noMercado, 'o cabeçalho cita o mercado', /^Total gasto - Mercado/i.test(noMercado)))
     // Grãos diferentes: "este mês" contra "a semana passada" é semana com semana.
     const focoMes = (await turnoHoje(rico, 'quanto gastei esse mes')).focus
     const semana = limpa((await turnoHoje(rico, 'compara com a semana passada', focoMes)).reply)

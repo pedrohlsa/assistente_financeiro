@@ -800,8 +800,9 @@ function refinaConsulta(
       filtro.origin = alvo
     } else filtro.text = alvo
     // O filtro e o cabeçalho precisam mudar juntos: antes a Casa 2 tinha o
-    // valor certo, mas a resposta dizia "Casa 1" por herdar o rótulo antigo.
-    const label = (cat || (base.filter.origin && ehNomeDeOrigem(alvo))) && base.label
+    // valor certo, mas a resposta dizia "Casa 1" por herdar o rótulo antigo. A
+    // busca por texto também: "e no mercado?" saía como "Total gasto este mês".
+    const label = (cat || filtro.text || (base.filter.origin && ehNomeDeOrigem(alvo))) && base.label
       ? `${base.label.split(' - ')[0]} - ${cat
         ? state.categories.find(c => c.id === cat)?.name || sentenceCase(alvo)
         : sentenceCase(alvo)}`

@@ -5098,7 +5098,21 @@ varredura e `git diff --check` passaram.
 Achados sem correção (já antes desta rodada): no contexto de gasto, "e de
 mercado?" e "e de aluguel?" caem na ajuda ("e no mercado?" funciona); e "e no
 mercado?" responde "Total gasto este mês: R$ 200,00" sem dizer que é só o
-mercado.
+mercado — este último corrigido na seção seguinte.
+
+## 2026-10-28 — "e no mercado?" diz que é só o mercado
+
+Rótulo enganoso: em conversa, "e no mercado?" respondia "Total gasto este
+mês: R$ 200,00" — número certo, lido como o gasto do mês inteiro. A
+restrição trocava o cabeçalho para categoria e origem, mas a busca por texto
+herdava o rótulo antigo. Agora: "Total gasto - Mercado este mês". 1 caso no
+grupo CS (vermelho antes). Gates: 666/666, 99/99, 50/50, **535/535**,
+metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica,
+varredura e `git diff --check` passaram.
+
+Achado sem correção (já antes): "e só no nubank?" depois de "quanto gastei
+esse mes" diz "Não tenho nenhum lançamento": a restrição põe o cartão como
+filtro de lançamentos, e lançamento não carrega cartão.
 
 ## Pendências em 28/10/2026 (HEAD `4e16b70`)
 
