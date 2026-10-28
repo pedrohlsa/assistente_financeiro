@@ -18,7 +18,7 @@ import { JOURNAL_LIMIT, diffForJournal, isRevertFailure, revertBatchPure } from 
 import { addDays, monthKey, nowPaymentTime, nowStamp, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
-import { nextCashEventTime } from '../services/calc'
+import { nextCashEventTime, pendingExpenseByName } from '../services/calc'
 import { buildInstallments, cardInvoice, directInstallmentPaidAmount, futureInvoicePaymentDate,
   settleableInstallmentIds, suggestedFirstDueDate, unpaidPriorInvoiceMonth } from '../services/cards'
 
@@ -143,6 +143,9 @@ export function applyActionPure(
       return { state: withTx(t), result: { ok: true, actionId, entityId: t.id } }
     }
     case 'expense': {
+      const pending = pendingExpenseByName(state, action.description, date)
+      if (pending) return { state, result: fail(actionId, 'recurring-conflict',
+        `${pending.rec.name}: confirme o pagamento pela tela inicial.`, false) }
       const t = tx({
         type: 'expense', amount: action.amount,
         category: action.category || 'outros-out',

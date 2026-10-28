@@ -5373,8 +5373,8 @@ Decisões de produto pendentes:
 - Não existe lançamento de retirada da reserva (`insufficient-reserve` não é usado).
 - O chat não apaga lançamento salvo (só "desfaz o último" lote do assistente).
 - O chat não confirma ocorrência de conta fixa: "paguei a luz de 180" cria
-  despesa avulsa (agora com aviso), e confirmar a Luz depois na tela inicial
-  duplica.
+  despesa avulsa (com aviso) no estado antigo; a correção de 28/10 abaixo
+  passou a recusar essa proposta quando a conta fixa está em aberto.
 - Viagem inferida em total do dia: o corpus se contradiz (`rr-01` sem viagem
   com horas; `sem-04` 2 viagens com 8 horas; `mul-07` 1 viagem com 120 km).
 - "Vale a pena ficar mais 3h?" e "vale a pena rodar domingo?" respondem com
@@ -5623,3 +5623,28 @@ que só se registra pagamento já ocorrido; data vazia também ficou bloqueada.
 Nenhum pagamento foi confirmado. O navegador de teste e servidor local foram
 encerrados. O aviso visual para backup com pagamento futuro permanece sem
 smoke; cálculos/reducer/executor dessa classe têm regressões automáticas.
+
+## 28/10/2026 — Conta fixa paga pelo chat não duplica a Home
+
+Com Internet de R$120 vencendo hoje e saldo R$1000, o orquestrador real
+propunha uma despesa avulsa para "paguei 120 da internet". O executor a
+salvava sem recurringId/occurrenceDate: saldo R$880, mas a Home ainda pedia
+confirmação. Confirmar lá pelo reducer criava uma segunda saída, saldo R$760.
+O teste vermelho reproduziu as duas rotas e a divergência entre registro e
+ocorrência.
+
+Quando a descrição da despesa coincide com o nome de uma conta fixa cuja
+ocorrência está em aberto, o chat agora não propõe despesa avulsa e orienta
+confirmar pela tela inicial. O executor também recusa proposta antiga ou de
+outra rota. Aviso adiado não contorna a barreira; outra despesa no mesmo lote
+continua proposta. A Home confirma a conta uma vez, com saldo R$880 no caso.
+Não houve migração nem reconciliação automática de lançamentos antigos sem
+vínculo: eles ainda podem duplicar se o usuário confirmar de novo na Home.
+Essa reconciliação precisa de escolha explícita antes de atrelar um registro
+antigo à ocorrência. Nomes diferentes não são associados por aproximação.
+
+641/641 adversariais; 666/666 corpus, 99/99 consulta/cenário, 50/50
+semânticos, 4.088 + 3.800 metamórficos, 1.416 fuzz, 151/151 invariantes e
+468/468 avaliações remotas offline. Typechecks frontend/API e build verdes.
+Sem chamada paga, reset, push, merge, deploy ou APK. V2 segue NOT READY para
+merge/deploy até auditoria independente.

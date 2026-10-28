@@ -276,7 +276,7 @@ export type AssistantErrorCode =
   | 'invalid-amount' | 'invalid-date' | 'future-date' | 'invalid-number'
   | 'category-not-found' | 'category-wrong-type'
   | 'card-not-found' | 'card-ambiguous' | 'goal-not-found' | 'goal-ambiguous'
-  | 'duplicate' | 'missing-field' | 'profile-forbidden'
+  | 'duplicate' | 'recurring-conflict' | 'missing-field' | 'profile-forbidden'
   | 'invoice-empty' | 'invoice-conflict' | 'insufficient-reserve'
   | 'unsupported-action' | 'conflict' | 'text-too-long' | 'unknown-field'
   | 'batch-not-found' | 'batch-not-reversible' | 'already-undone'
@@ -295,6 +295,7 @@ export const ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
   'goal-not-found': 'Não encontrei essa meta.',
   'goal-ambiguous': 'Você tem mais de uma meta parecida — preciso saber qual.',
   'duplicate': 'Isso parece já ter sido registrado.',
+  'recurring-conflict': 'Essa conta fixa tem um vencimento sem confirmação.',
   'missing-field': 'Falta uma informação obrigatória.',
   'profile-forbidden': 'Esse tipo de registro não existe no seu perfil.',
   'invoice-empty': 'Essa fatura não tem valor pendente.',

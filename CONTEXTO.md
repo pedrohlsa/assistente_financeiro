@@ -58,6 +58,9 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
   fatura, dívida e saldo de hoje não contam essa quitação antecipadamente.
   Se houver fatura anterior aberta, o chat não presume qual mês o usuário
   pagou; orienta selecionar a referência na tela de cartões.
+  A despesa pelo chat com nome igual ao de conta fixa em aberto agora é
+  recusada antes do Confirmar e no executor; a Home continua sendo a rota de
+  confirmação. Lançamentos avulsos antigos ainda exigem reconciliação.
   Retomada: docs/CODEX_RESUME.md.
   Lista de pendências no
   fim de [PROGRESS.md](PROGRESS.md), seção "Pendências em 28/10/2026".

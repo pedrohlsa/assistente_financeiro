@@ -49,7 +49,7 @@ import { describeAction, META_OUTRA } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
 import { catById, usableCategories } from '../data/categories'
 import { addDays, fmtBRL, todayISO, uid } from '../utils/format'
-import { occurrenceRecord, occurrencesBetween, recurringActiveOn } from '../services/calc'
+import { occurrenceRecord, occurrencesBetween, recurringActiveOn, pendingExpenseByName } from '../services/calc'
 import { unpaidPriorInvoiceMonth } from '../services/cards'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { brDate, dateLabel, findDate, previousYearOf, resolveDayInWindow } from './dates'
@@ -877,30 +877,6 @@ function faturaComOutroCartao(state: AppState, focus: ConversationFocus | undefi
   const velho = cartoesNaFrase(state, anterior)
   if (velho.length !== 1 || normalizeName(velho[0]) === normalizeName(novo[0])) return null
   return anterior.replace(new RegExp(`\\b${escapaRegex(normalizeName(velho[0]))}\\b`), normalizeName(novo[0]))
-}
-
-/**
- * Gasto avulso com o nome de uma conta fixa que tem vencimento sem confirmação.
- * O chat não confirma ocorrência (não há ação no catálogo para isso): confirmar
- * aqui E depois na tela inicial conta o mesmo pagamento duas vezes. A proposta
- * segue igual — só avisa.
- */
-function avisoDeContaFixa(candidates: AssistantCandidateAction[], state: AppState): string {
-  const hoje = todayISO()
-  const avisos: string[] = []
-  for (const c of candidates) {
-    const a: any = c.action
-    if (a.kind !== 'expense' || !a.description) continue
-    const r = (state.recurring || []).find(x => x.kind !== 'income' && x.active !== false
-      && normalizeName(x.name) === normalizeName(a.description))
-    if (!r) continue
-    const abertas = occurrencesBetween(r, addDays(hoje, -62), hoje).filter(d => recurringActiveOn(r, d)
-      && !occurrenceRecord(r, d) && !state.transactions.some(t => t.recurringId === r.id && t.occurrenceDate === d))
-    if (!abertas.length) continue
-    avisos.push(`${r.name} é conta fixa, e o vencimento de ${brDate(abertas[abertas.length - 1])} ainda não foi confirmado. `
-      + 'Se for o pagamento dessa conta, confirme pela tela inicial em vez de aqui: confirmar nos dois lugares conta duas vezes.')
-  }
-  return avisos.length ? `\n\n${avisos.join('\n\n')}` : ''
 }
 
 function proposalText(candidates: AssistantCandidateAction[], state: AppState): string {
@@ -1897,6 +1873,19 @@ Confirmar?`,
 
   candidates = candidates.slice(0, MAX_ACTIONS_PER_BATCH)
 
+  // Despesa comum não traz recurringId/occurrenceDate. Com conta de mesmo nome
+  // em aberto, confirmar aqui e na Home criaria duas saídas reais. O executor
+  // repete esta checagem para propostas antigas ou vindas de outra rota.
+  const blockedRecurring: string[] = []
+  candidates = candidates.filter(c => {
+    if (c.action.kind !== 'expense') return true
+    const pending = pendingExpenseByName(input.state, c.action.description, today)
+    if (!pending) return true
+    blockedRecurring.push(`${pending.rec.name} é conta fixa com vencimento de ${brDate(pending.dueDate)} sem confirmação. `
+      + 'Se esse foi o pagamento, confirme pela tela inicial. Não propus uma despesa avulsa para evitar contar duas vezes.')
+    return false
+  })
+
   // ---- 17) Avisos de duplicidade (contra o estado E dentro do lote) -------
   const batchSeen = new Map<string, number>()
   candidates = candidates.map(c => {
@@ -1937,7 +1926,8 @@ Confirmar?`,
   // Neste turno NADA foi executado: a execução só acontece no Confirmar. O texto
   // do modelo não pode dizer "anotei/registrei" com a ação ainda na tela.
   const remotoSemAlegacao = remoteReply ? semAlegacaoDeExecucao(remoteReply, candidates.length ? 'pendente' : 'nada-proposto') : ''
-  const answerPart = [local_answers.text, remotoSemAlegacao, cenarioJunto?.reply, hypo, planNote, intentionNote, remoteNote]
+  const answerPart = [local_answers.text, remotoSemAlegacao, cenarioJunto?.reply, hypo, planNote, intentionNote, remoteNote,
+    ...new Set(blockedRecurring)]
     .filter(Boolean).join('\n\n')
   const rejectedAll = [...local.rejected, ...remoteRejected]
 
@@ -1960,10 +1950,10 @@ Confirmar?`,
       : clarification.question
   } else if (candidates.length && answerPart) {
     mode = 'answer_and_actions'
-    reply = `${proposalText(candidates, input.state)}${sobraComValor(unresolved)}${avisoDeContaFixa(candidates, input.state)}\n\n${answerPart}\n\nConfirmar os registros?`
+    reply = `${proposalText(candidates, input.state)}${sobraComValor(unresolved)}\n\n${answerPart}\n\nConfirmar os registros?`
   } else if (candidates.length) {
     mode = 'propose_actions'
-    reply = `${proposalText(candidates, input.state)}${sobraComValor(unresolved)}${avisoDeContaFixa(candidates, input.state)}\n\nConfirmar?`
+    reply = `${proposalText(candidates, input.state)}${sobraComValor(unresolved)}\n\nConfirmar?`
   } else if (answerPart) {
     mode = 'answer'
     reply = answerPart

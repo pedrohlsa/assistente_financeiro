@@ -1,7 +1,7 @@
 // Motor de cálculos financeiros — todos os números do app saem daqui.
 import { AppState, Insight, IntervalUnit, RecurrenceOccurrence, RecurringExpense, Transaction } from '../models/types'
 import { addDays, dateForDayOfMonth, daysInMonth, dueLabel, fmtBRL, fmtNum, fromISO, monthKey, monthShortLabel, stampOf, todayISO, toISO } from '../utils/format'
-import { sentenceCase, weekdayName } from '../utils/text'
+import { normalizeName, sentenceCase, weekdayName } from '../utils/text'
 import { installmentsThisMonth, monthlyCommitments, installmentsInMonth, chargesInMonth, activeCards, cardInvoice, directInstallmentPaidAmount, invoiceOpenAmount, hasAmbiguousLegacyCardBalance } from './cards'
 
 export interface PeriodStats {
@@ -439,12 +439,12 @@ const PENDING_LOOKBACK_DAYS = 60
  * Ocorrências cuja data já chegou e que ainda não foram resolvidas — em QUALQUER
  * frequência, não só mensal. Nada é lançado automaticamente: só vira pergunta.
  */
-export function pendingRecurrings(s: AppState, t = todayISO()): PendingRecurring[] {
+export function pendingRecurrings(s: AppState, t = todayISO(), includeSnoozed = false): PendingRecurring[] {
   const today = fromISO(t)
   const from = addDays(t, -PENDING_LOOKBACK_DAYS)
   const out: PendingRecurring[] = []
   for (const r of s.recurring) {
-    if (r.snoozeUntil && t < r.snoozeUntil) continue
+    if (!includeSnoozed && r.snoozeUntil && t < r.snoozeUntil) continue
     for (const dueIso of occurrencesBetween(r, from, t, t)) {
       // Uma recorrente cadastrada hoje NÃO nasce atrasada: a âncora define a
       // primeira ocorrência e nada antes dela vira pendência.
@@ -460,6 +460,13 @@ export function pendingRecurrings(s: AppState, t = todayISO()): PendingRecurring
     }
   }
   return out.sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+}
+
+/** Nome igual ao de uma conta fixa em aberto: o chat não tem chave de ocorrência. */
+export function pendingExpenseByName(s: AppState, description: string | undefined, t = todayISO()): PendingRecurring | undefined {
+  const name = normalizeName(description)
+  if (!name) return undefined
+  return pendingRecurrings(s, t, true).find(p => p.kind === 'expense' && normalizeName(p.rec.name) === name)
 }
 
 // ---------- CUSTO REAL POR KM (seção 23) ----------

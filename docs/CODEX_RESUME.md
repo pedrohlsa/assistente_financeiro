@@ -23,12 +23,12 @@ o checkpoint de CONTEXTO.md e as últimas seções de PROGRESS.md.
 
 ## Estado ao encerrar esta janela
 
-Último commit confirmado no lote de código:a656cec. Depois dele foi feito
-smoke local com dados fictícios. Confira git log/status antes de
+Último commit confirmado antes da retomada: f282326. Nesta retomada, o lote
+da conta fixa foi validado e deve constar no log. Confira git log/status antes de
 editar. Só .claude/launch.json deve permanecer modificado após o commit.
 
 Baseline validada:666 corpus,99 consulta/cenário,50 semânticos,
-637 adversariais,4088 +3800 metamórficos,1416 fuzz,151 invariantes,
+641 adversariais,4088 +3800 metamórficos,1416 fuzz,151 invariantes,
 468 avaliações remotas OFFLINE; suíte completa, typechecks frontend/API,
 build e rubrica verdes (0 perigosa/ruim,5 aceitáveis,85 excelentes).
 Aviso conhecido de bundle grande (~848kB) permanece.
@@ -81,6 +81,13 @@ pagamento futuro ainda não passou por smoke visual.
   escolhe a fatura atual automaticamente; explica a ambiguidade e indica a
   tela com mês de referência. O executor também recusa a ação ambígua. Testes
   de controle com fixture rica usam faturas antigas reconciliadas.
+- Conta fixa com vencimento não confirmado e descrição igual à despesa do chat
+  deixa de gerar proposta avulsa: o chat orienta confirmar na tela inicial.
+  O executor recusa propostas antigas dessa classe, inclusive com aviso adiado.
+  Despesa independente no mesmo lote continua possível. RED pelo orquestrador,
+  executor e reducer reais mostrou saldo 880 após chat + 760 após Home para
+  um só pagamento de 120; com a barreira, a Home registra uma única saída e
+  o saldo fica 880. Registros avulsos antigos ainda não são reconciliados.
 
 ## Próximas prioridades concretas
 
@@ -90,12 +97,12 @@ pagamento futuro ainda não passou por smoke visual.
 2. Fazer smoke visual do aviso de pagamento futuro em backup sintético, sem
    acessar dados financeiros reais nem habilitar remoto. Home e validação de
    data já foram vistos no navegador local.
-3. Investigar a limitação histórica: confirmação de recorrência pelo chat e
-   depois pela Home pode duplicar a movimentação. Reproduzir com duas rotas
-   reais antes de alterar persistência.
+3. Reconciliar, com escolha explícita do usuário, despesas avulsas antigas que
+   correspondem a uma conta fixa ainda pendente. A barreira nova impede novos
+   registros iguais pelo chat, mas um lançamento anterior sem recurringId
+   continua sem vínculo e pode ser confirmado de novo na Home.
 
-Outras limitações/decisões permanecem no fim de PROGRESS.md: confirmação de
-recorrente pelo chat ainda duplica se também confirmada na Home, retirada de
+Outras limitações/decisões permanecem no fim de PROGRESS.md: retirada de
 reserva não implementada, apagar transação salva pelo chat ausente, origem em
 minúscula não deve ser inferida, fixtures antigas às vezes têm startDate/dueDay
 incoerentes. Não reintroduzir inferência de origem que já quebrou modalidade.
