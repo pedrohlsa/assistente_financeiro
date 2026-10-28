@@ -75,6 +75,17 @@ function resolveTarget(
     if (hits.length > 1) return { ambiguousAmong: hits }
   }
 
+  // "o café", "o almoço" — o NOME do lançamento. Sem isto, "tira o café" com
+  // almoço e café na tela não achava alvo e a proposta inteira sumia.
+  {
+    const hits = pending.filter(p => {
+      const nome = normalizeName(String((p.action as any).description || (p.action as any).origin || ''))
+      return nome.length >= 3 && new RegExp(`\\b${nome.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(t)
+    })
+    if (hits.length === 1) return { id: hits[0].id }
+    if (hits.length > 1) return { ambiguousAmong: hits }
+  }
+
   // "o salário", "a despesa"
   for (const kw of KIND_WORDS) {
     if (!kw.re.test(t)) continue

@@ -2625,6 +2625,21 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // O item da proposta pelo NOME: com almoço e café na tela, "tira o café"
+  // descartava os dois ("não registrei nada"), e "o almoço foi 35" não achava
+  // o almoço.
+  {
+    const rico = autonomoRico(hoje)
+    const base = await orchestrate({ state: rico, message: 'gastei 30 no almoço e 15 no café', today: hoje, remoteEnabled: false })
+    const tira = await orchestrate({ state: rico, message: 'tira o café', today: hoje, remoteEnabled: false, pending: base.response.actions })
+    const restam = tira.response.actions.map(a => a.action as any)
+    out.push(result('PN-tira-pelo-nome', restam, 'só o almoço de 30 fica', restam.length === 1 && restam[0].amount === 30 && /Almo/.test(restam[0].description)))
+    const corrige = await orchestrate({ state: rico, message: 'na verdade o almoço foi 35', today: hoje, remoteEnabled: false, pending: base.response.actions })
+    const itens = corrige.response.actions.map(a => a.action as any)
+    out.push(result('PN-corrige-pelo-nome', itens, 'almoço 35, café 15',
+      itens.length === 2 && itens.some(x => /Almo/.test(x.description) && x.amount === 35) && itens.some(x => /Caf/.test(x.description) && x.amount === 15)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

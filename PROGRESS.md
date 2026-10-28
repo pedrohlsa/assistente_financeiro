@@ -4522,6 +4522,21 @@ Gates: 666/666, 99/99, 50/50, **426/426**, metamórficos, fuzz, 151/151, 468;
 typechecks, `test:money`, build, rubrica, varredura e `git diff --check`
 passaram.
 
+## 2026-10-27 — item da proposta pelo nome
+
+Com "almoço 30" e "café 15" na tela, "tira o café" não achava alvo, caía na
+negação ("não registrei nada") e a proposta INTEIRA sumia — o almoço junto;
+"na verdade o almoço foi 35" também não achava o almoço. O alvo de uma
+correção agora também é achado pelo nome do lançamento (descrição ou
+origem), antes do tipo ("a despesa"). 2 casos no grupo PN (os 2 vermelhos
+antes). Gates: 666/666, 99/99, 50/50, **428/428**, metamórficos, fuzz,
+151/151, 468; typechecks, `test:money`, build, rubrica, varredura e
+`git diff --check` passaram.
+
+Achados sem correção ainda, na mesma conversa: "e mais 20 de pão" com
+despesas na tela vira RECEITA de R$ 20 e substitui a proposta (o almoço
+some); "foi na padaria" (trocar descrição) cai na ajuda.
+
 ## Pendências em 27/10/2026 (HEAD `73c8d24`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800
