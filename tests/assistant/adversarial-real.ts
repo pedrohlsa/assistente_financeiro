@@ -2894,6 +2894,17 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /Falta pagar R\$ 800,00/.test(fatura) && !/Cadastre|Não tenho|para pagar|Situação dos seus cartões/.test(fatura)))
   }
 
+  // "Quanto de fatura vence esse mês" é a soma das faturas a pagar (Inter
+  // atrasada + Nubank de hoje = R$ 800,00), não o resumo dos cartões.
+  {
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    for (const [id, msg] of [['FV-quanto-de-fatura-vence', 'quanto de fatura vence esse mes'], ['FV-quanto-vence-de-fatura', 'quanto vence de fatura esse mes']]) {
+      const r = limpa((await turnoHoje(rico, msg)).reply)
+      out.push(result(id, r, 'R$ 800,00 em faturas a pagar', /R\$ 800,00/.test(r) && !/Situação dos seus cartões/.test(r)))
+    }
+  }
+
   // "Quanto PAGUEI de fatura" é o que foi pago, não o valor das faturas: "esse
   // ano" dava R$ 2.000,00 (o faturado) com R$ 1.200,00 pagos; "mês passado"
   // e sem período davam o resumo dos cartões. Pago = parcelas marcadas pagas,

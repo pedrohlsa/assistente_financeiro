@@ -4894,6 +4894,17 @@ Achados sem correção: "quando paguei a fatura do nubank" segue no resumo dos
 cartões; a base do ano conta "20 faturas", incluindo meses em que os cartões
 ainda não existiam (R$ 0,00 cada).
 
+## 2026-10-28 — "quanto de fatura vence esse mês"
+
+"Quanto de fatura vence esse mes" e "quanto vence de fatura esse mes" davam
+o resumo dos cartões, sem a soma. É a pergunta de quanto falta pagar em
+faturas, dita com "vence": `perguntaDeFatura()` agora a lê como 'falta' ("Falta
+pagar R$ 800,00 em faturas", cartão por cartão). "Quando vence a fatura do
+nubank" segue com a data, e mês futuro ("mês que vem", "em dezembro") segue
+com a consulta. 2 casos no grupo FV (os 2 vermelhos antes). Gates: 666/666,
+99/99, 50/50, **495/495**, metamórficos, fuzz, 151/151, 468; typechecks,
+`test:money`, build, rubrica, varredura e `git diff --check` passaram.
+
 ## Pendências em 28/10/2026 (HEAD `8c3fd2f`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **490/490 adversariais**, 4.088 + 3.800
@@ -4909,8 +4920,6 @@ Abertas, achadas na leitura humana e ainda não corrigidas (detalhe nas
 seções de 27/10 acima):
 - "Quando paguei a fatura do nubank" e "antecipei a fatura do nubank" dão o
   resumo dos cartões.
-- "Quanto de fatura vence esse mes" dá o resumo dos cartões, sem somar o que
-  vence.
 - Mês que vem em lançamentos ("quanto vou receber em dezembro") responde
   "Não tenho nenhum lançamento… Assim que você registrar", em vez da previsão.
 - "Devo muito?" cai na ajuda.
