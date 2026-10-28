@@ -4677,6 +4677,31 @@ Achados sem correção, da mesma sondagem:
 - "vence", "pra pagar" e "cartao" sobram como texto de busca ("Não tenho
   parcelas… com 'vence'").
 
+## 2026-10-27 — "quanto paguei de fatura" propunha pagar a fatura
+
+Regra 33 quebrada: "quanto paguei de fatura" e "quanto paguei de fatura esse
+mes" respondiam "Entendi isso: • Pagar fatura (valor pendente). Em qual
+cartão?"; "quanto eu paguei da fatura do nubank" propunha o pagamento e
+ainda respondia como se já estivesse pago ("Se você confirmar… paga").
+Confirmar ali registraria R$ 400,00 que ninguém pagou. "Paguei a fatura?"
+perguntava o cartão.
+
+Causa: `splitClauses()` corta a frase antes de cada verbo de comando, e
+"quanto | paguei de fatura" deixava a segunda metade sem a palavra que a faz
+pergunta. A guarda de pergunta de `parseCardClause()` olhava só a metade.
+Agora a cláusula que é só a palavra de pergunta ("quanto", "quanto eu") volta
+para a seguinte antes do parser. O rascunho de pagamento sem cartão
+(`detectIncomplete`) também tinha a mesma brecha e passa a ignorar pergunta.
+"Paguei a fatura do nubank", "paguei 300 da fatura do inter" e "já paguei a
+fatura" (afirmação) continuam propondo o pagamento. 6 casos no grupo QP (4
+vermelhos antes, 2 controles). Gates: 666/666, 99/99, 50/50, **461/461**,
+metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica,
+varredura e `git diff --check` passaram.
+
+Achado sem correção: a resposta de "quanto paguei de fatura" agora é o resumo
+dos cartões, quando deveria ser quanto foi pago; "quando paguei a fatura do
+nubank" também cai no resumo.
+
 ## Pendências em 27/10/2026 (HEAD `73c8d24`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800

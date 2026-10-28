@@ -166,8 +166,16 @@ export function parseNatural(input: string): ParsedAction[] {
   const whole = parseCardClause(input.toLowerCase().trim())
   if (whole.length) return whole
 
-  const clauses = splitClauses(input)
-  let actions = clauses.length > 1 ? clauses.flatMap(c => parseClause(c)) : parseClause(input)
+  // Cláusula que é só a palavra de pergunta volta para a seguinte: cortada no
+  // verbo, "quanto | paguei de fatura" deixava a segunda metade sem o que a faz
+  // pergunta, e ela virava pagamento de fatura (regra 33).
+  const clauses = splitClauses(input).reduce<string[]>((acc, c) => {
+    const anterior = acc[acc.length - 1]
+    if (anterior !== undefined && SO_PALAVRA_DE_PERGUNTA.test(anterior)) acc[acc.length - 1] = `${anterior} ${c}`
+    else acc.push(c)
+    return acc
+  }, [])
+  let actions = clauses.length > 1 ? clauses.flatMap(c => parseClause(c)) : parseClause(clauses[0] ?? input)
 
   // funde múltiplos registros de trabalho (km + viagens + horas) em um só
   const works = actions.filter(a => a.kind === 'work') as Extract<ParsedAction, { kind: 'work' }>[]
@@ -266,6 +274,8 @@ const UNIT_AFTER = String.raw`\s*(?:h\b|horas?\b|hrs?\b|km\b|quil[oô]metros?\b|
  * duas passavam pela guarda que só olhava o começo da frase.
  */
 const PERGUNTA_EM_QUALQUER_LUGAR = /\?|\b(?:quanto|quantos|quantas|qual|quais|quando|onde|qnto|qnta|qntos|qntas|qnt|qto|qta|qts|qnd|qndo)\b/i
+/** "quanto", "quanto eu", "e quando que eu": a pergunta sem o resto da frase. */
+const SO_PALAVRA_DE_PERGUNTA = /^(?:e\s+)?(?:quanto|quantos|quantas|qual|quais|quando|onde|qnto|qto|qnd|qndo)(?:\s+(?:que|eu|voce|vc|a\s+gente|ja|foi\s+que))*$/i
 const HOURS_ANY = new RegExp(String.raw`${NUM}\s*(?:horas?|hrs?|h)\b`, 'i')
 
 /** Valores monetários de um texto, já descartando o que é unidade. */

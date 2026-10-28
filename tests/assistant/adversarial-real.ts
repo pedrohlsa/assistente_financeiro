@@ -2777,6 +2777,27 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('MF-passado-controle', foi, `${mes} do ano anterior: nada ali`, !foi.includes(fmt(doMes('p1'))) || doMes('p1') === 0))
   }
 
+  // Pergunta sobre pagamento nunca propõe pagamento (regra 33). O parser
+  // cortava a frase no verbo ("quanto | paguei de fatura"), a metade sem o
+  // "quanto" virava pagamento da fatura, e o rascunho perguntava o cartão.
+  // Confirmar ali registraria R$ 400,00 que ninguém pagou.
+  {
+    const rico = autonomoRico(hoje)
+    for (const [id, msg] of [['QP-quanto-paguei-de-fatura', 'quanto paguei de fatura'],
+      ['QP-quanto-paguei-da-fatura-do-cartao', 'quanto eu paguei da fatura do nubank'],
+      ['QP-quanto-paguei-fatura-no-mes', 'quanto paguei de fatura esse mes'],
+      ['QP-paguei-a-fatura-pergunta', 'paguei a fatura?']]) {
+      const r = await turnoHoje(rico, msg)
+      out.push(result(id, { reply: r.reply, actions: r.actions }, 'resposta, sem proposta de pagamento',
+        r.actions.length === 0 && !/Em qual cartão|Confirmar|Se você confirmar/.test(r.reply)))
+    }
+    const registra = await turnoHoje(rico, 'paguei a fatura do nubank')
+    out.push(result('QP-registro-controle', registra.actions, 'pagamento proposto',
+      (registra.actions as { kind: string }[]).some(a => a.kind === 'card-payment')))
+    const semCartao = await turnoHoje(rico, 'paguei a fatura')
+    out.push(result('QP-registro-sem-cartao-controle', semCartao.reply, 'pergunta o cartão', /Em qual cartão/.test(semCartao.reply)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

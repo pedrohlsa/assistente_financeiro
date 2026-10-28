@@ -132,8 +132,10 @@ export function detectIncomplete(text: string, caps: AssistantCapabilities): Inc
   const rascunho = semValorDraft(text, t, caps)
   if (rascunho) return rascunho
 
-  // Pagamento de fatura sem saber o cartão, com mais de um cadastrado.
-  if (/\bfatura\b/.test(t) && /\b(paguei|pagar|quitei|quitar)\b/.test(t) && caps.cardNames.length > 1) {
+  // Pagamento de fatura sem saber o cartão, com mais de um cadastrado. Pergunta
+  // ("quanto paguei de fatura", "paguei a fatura?") não é pagamento (regra 33).
+  if (/\bfatura\b/.test(t) && /\b(paguei|pagar|quitei|quitar)\b/.test(t) && caps.cardNames.length > 1
+    && !/\?|\b(?:quanto|quantos|quantas|qual|quais|quando|onde)\b/.test(t)) {
     const hasCard = caps.cardNames.some(c => t.includes(normalizeName(c)))
     if (!hasCard) {
       const amountM = t.match(new RegExp(String.raw`(?:paguei|pagar|quitei)\s*(?:r\$)?\s*${NUMBER}`))
