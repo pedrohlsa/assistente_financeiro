@@ -292,6 +292,25 @@ export function parseFutureMonth(input: string, hoje = todayISO()): QueryPeriod 
   return P(primeiroDia(anoAlvo, mi), ultimoDia(anoAlvo, mi), `em ${MESES[mi]}`, 'month', hoje)
 }
 
+/**
+ * Mês solto que `parsePeriod` jogou para o ano anterior por estar à frente no
+ * calendário ("dezembro", dito em outubro), relido para o que VEM quando a
+ * pergunta é de fatura ou parcela e não tem verbo no passado. Fatura e parcela
+ * vencem no futuro; lidas no passado, a resposta era "R$ 0,00" de um mês
+ * anterior a qualquer parcelamento. `null` quando a leitura original fica.
+ */
+export function mesAFrente(lido: { period: QueryPeriod; matched: string }, texto: string, hoje = todayISO()): QueryPeriod | null {
+  if (lido.period.grain !== 'month' || /\b20\d{2}\b/.test(lido.matched)) return null
+  const t = semAcento(texto)
+  if (PASSADO_NA_FRASE.test(t)) return null
+  // Mês já passado neste ano ("janeiro", em outubro) só vira o próximo com o
+  // futuro dito: "quanto vence em janeiro". Sem verbo, segue o que já houve.
+  const anoAnterior = Number(lido.period.from.slice(0, 4)) < fromISO(hoje).getFullYear()
+  const passouComFuturoDito = lido.period.to < hoje && /\b(?:vou|vai|vamos|vao|irei|ira|vence|vencem|vencer)\b/.test(t)
+  if (!anoAnterior && !passouComFuturoDito) return null
+  return parseFutureMonth(lido.matched, hoje)
+}
+
 /** Janela "próximos N meses", para projeção. */
 export function nextMonths(n: number, hoje = todayISO()): QueryPeriod {
   const d = fromISO(hoje)

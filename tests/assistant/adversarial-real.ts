@@ -2747,6 +2747,36 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('DV-devo-do-item-controle', computador, 'Computador R$ 3.200,00', /Computador/.test(computador) && /R\$ 3\.200,00/.test(computador)))
   }
 
+  // Mês solto à frente no calendário, com fatura ou parcela: é o que VEM. Lido
+  // no passado, "dezembro" em outubro virava dezembro do ano anterior, antes de
+  // qualquer parcela, e a resposta dizia "R$ 0,00 (dado real)". O mês pedido é
+  // calculado de hoje (dois meses à frente), e as parcelas pendentes dele vêm
+  // do fixture. Com verbo no passado ("foi"), segue o ano anterior.
+  {
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const alvo = new Date(Number(hoje.slice(0, 4)), Number(hoje.slice(5, 7)) + 1, 1)
+    const nomes = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+    const mes = nomes[alvo.getMonth()]
+    const prefixo = `${alvo.getFullYear()}-${String(alvo.getMonth() + 1).padStart(2, '0')}`
+    const doMes = (plano?: string) => rico.installments
+      .filter(i => i.status === 'pending' && i.dueDate.startsWith(prefixo) && (!plano || i.planId === plano)).reduce((a, i) => a + i.amount, 0)
+    const fmt = (v: number) => `R$ ${v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`
+    const fatura = limpa((await turnoHoje(rico, `quanto vai ser a fatura do nubank em ${mes}`)).reply)
+    out.push(result('MF-fatura-mes-a-frente', fatura, `${fmt(doMes('p1'))} do ${mes} que vem, não R$ 0,00 do ano passado`,
+      doMes('p1') > 0 && fatura.includes(fmt(doMes('p1'))) && fatura.includes(String(alvo.getFullYear())) && !/R\$ 0,00/.test(fatura)))
+    const parcelas = limpa((await turnoHoje(rico, `quanto vou pagar de parcela em ${mes}`)).reply)
+    out.push(result('MF-parcela-mes-a-frente', parcelas, `${fmt(doMes())} em parcelas`,
+      doMes() > 0 && parcelas.includes(fmt(doMes())) && parcelas.includes(String(alvo.getFullYear()))))
+    // Mês já passado neste ano, com o futuro dito: o do ano que vem.
+    const atras = new Date(Number(hoje.slice(0, 4)), Number(hoje.slice(5, 7)) - 3, 1)
+    const vence = limpa((await turnoHoje(rico, `quanto vence de fatura em ${nomes[atras.getMonth()]}`)).reply)
+    out.push(result('MF-vence-mes-ja-passado', vence, `${nomes[atras.getMonth()]} de ${atras.getFullYear() + 1}`,
+      vence.includes(String(atras.getFullYear() + 1)) && !vence.includes(`/${atras.getFullYear()}`)))
+    const foi = limpa((await turnoHoje(rico, `quanto foi a fatura do nubank em ${mes}`)).reply)
+    out.push(result('MF-passado-controle', foi, `${mes} do ano anterior: nada ali`, !foi.includes(fmt(doMes('p1'))) || doMes('p1') === 0))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

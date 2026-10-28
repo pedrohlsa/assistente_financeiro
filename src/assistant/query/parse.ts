@@ -32,7 +32,7 @@ import { isDriver } from '../../services/profile'
 import { buildPersonalModel, adaptiveEnabled } from '../personalModel'
 import { pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeDividaTotal, pedeFimDoParcelamento, pedeLimite, pedeMaiorParcela, pedeSobraSemCombustivel, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, perguntaDeManutencao, planoDeGuardar } from '../cashQuestions'
 import {
-  currentMonthToDate, monthPeriod, nextMonths, parseFutureMonth, parsePeriod, previousPeriod,
+  currentMonthToDate, mesAFrente, monthPeriod, nextMonths, parseFutureMonth, parsePeriod, previousPeriod,
 } from './period'
 import type {
   AssistantQueryPlan, QueryField, QueryFilter, QueryGroup, QueryMetric,
@@ -880,6 +880,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     period = janelaAberta(hoje)
   } else if (lido || periodoComparadoDireto) {
     period = lido?.period || periodoComparadoDireto!
+    if (lido && (source === 'invoices' || source === 'installments')) period = mesAFrente(lido, t0, hoje) || period
     periodoExplicito = true
     if (lido) { rest.consome(lido.span ?? lido.matched); recognized.push(lido.matched) }
     // “Caiu ou subiu desde junho?” pede a série desde o marco dito, não uma

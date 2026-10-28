@@ -4651,6 +4651,32 @@ Achados sem correção, da mesma sondagem:
 - "comprei um celular de 1200 em 10x" vai para Assinaturas;
 - "quanto devo gastar por dia" responde a média gasta, não quanto pode gastar.
 
+## 2026-10-27 — fatura e parcela de um mês à frente
+
+Dinheiro errado: "quanto vai ser a fatura do nubank em dezembro", perguntado
+em outubro, respondia "R$ 0,00 (dado real)" com base em 28/12/2025. O mês
+solto era lido no passado, regra certa para "quanto gastei em dezembro", e
+dezembro do ano anterior vem antes de qualquer parcelamento. "Quanto vou
+pagar de parcela em dezembro" dizia que não havia parcelas; "quanto vence de
+fatura em janeiro" lia janeiro de 2026.
+
+Agora `mesAFrente()` (period.ts) relê o mês para o que vem quando a fonte é
+fatura ou parcela e a frase não tem verbo no passado: o mês à frente no
+calendário sempre, e o mês que já passou neste ano só com futuro dito
+("vence", "vai", "vou"). "Quanto foi a fatura em dezembro" segue no ano
+anterior, e "quanto de parcela em setembro" segue em setembro passado. 4
+casos no grupo MF (3 vermelhos antes, 1 controle; mês e valores calculados de
+hoje e do fixture). Gates: 666/666, 99/99, 50/50, **455/455**, metamórficos,
+fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica, varredura e
+`git diff --check` passaram.
+
+Achados sem correção, da mesma sondagem:
+- "quanto paguei de fatura em dezembro" PROPÕE um pagamento de fatura ("Em
+  qual cartão?"): pergunta virando registro;
+- "quanto vou receber em novembro" é lido como gasto ("Total gasto");
+- "vence", "pra pagar" e "cartao" sobram como texto de busca ("Não tenho
+  parcelas… com 'vence'").
+
 ## Pendências em 27/10/2026 (HEAD `73c8d24`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800
