@@ -5366,8 +5366,8 @@ seções de 27 e 28/10 acima):
 - "Devo muito?" cai na ajuda.
 
 Decisões de produto pendentes:
-- `balanceOutlook` (Home e o cenário de entrada ausente) só considera contas
-  fixas; o cenário de gasto e as respostas do chat usam `cashObligationsUntil()`.
+- `balanceOutlook` na Home só considera contas fixas. A rodada abaixo também
+  migrou o cenário de entrada ausente para `cashObligationsUntil()`.
 - Não existe lançamento de retirada da reserva (`insufficient-reserve` não é usado).
 - O chat não apaga lançamento salvo (só "desfaz o último" lote do assistente).
 - O chat não confirma ocorrência de conta fixa: "paguei a luz de 180" cria
@@ -5380,3 +5380,33 @@ Decisões de produto pendentes:
   custo de oportunidade de ninguém.
 - Fixture `autonomoRico`: Luz/Internet com `startDate` no dia 1º e `dueDay`
   10/15 — vencem no dia 1º nas respostas (o formulário grava os dois coerentes).
+
+## 28/10/2026 — Receita ausente, nova hipótese e modalidade em continuidade
+
+Reproduzidos antes da correção: saldo 1000 com fatura 1200 fazia a hipótese
+"e se a Casa 1 não pagar?" dizer que sobrava 1000; após ela, "e se eu gastar
+100 hoje?" era bloqueada por esclarecimento. Agora a ausência de receita
+usa compromissos vencidos e dos próximos 30 dias, incluindo faturas uma vez
+e parcelas sem cartão. Mostra -200 no primeiro caso e -300 no novo gasto.
+Contas vencidas sem confirmação não viram dívida certa; se puderem inverter
+o resultado, o veredito fica indefinido e o texto pede conferir as pendências.
+A média de receita e o saldo usam somente transações até a data consultada.
+Valor explícito não é descrito como média. O cálculo explica que usa caixa
+atual, sem somar receitas futuras ou subtrair duas vezes renda não recebida.
+
+A consulta em continuidade agora respeita a modalidade explícita: previsão
+650 da Casa 1 -> recebido 9000 da Casa 1 -> previsão deste mês 650, de hoje
+ao fim do mês. Casa 2 explicitamente citada substitui Casa 1 (4000 realizados).
+Os filtros de previsão/realizado não atravessam indevidamente a troca de fonte.
+Depois da limitação de depósitos mensais em metas, "e no total?" recupera
+6000 acumulados; "e na viagem?" restringe para 4800; mês passado continua
+indisponível e "e até agora?" recupera 4800 sem perder a meta.
+
+14 novos testes reais; 590/590 adversariais. Baseline restante preservada:
+666 corpus, 99 consulta/cenário, 50 semânticos, 4088 + 3800 metamórficos,
+1416 fuzz, 151 invariantes, 468 avaliações offline; typechecks, build, dinheiro
+e rubrica (0 perigosa/ruim, 5 aceitáveis, 85 excelentes) passaram. Aviso de chunk
+grande permanece. Sem remoto pago, publicação ou APK. `.claude/launch.json`
+continua alteração preexistente fora dos commits. NOT READY: falta auditoria
+independente. Retomadas autorizadas neste chat e instruções em
+`docs/CODEX_RESUME.md`; reserva mínima de uso 5%, parada conservadora com 10%.

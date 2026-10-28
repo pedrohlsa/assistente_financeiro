@@ -543,6 +543,48 @@ function refinaConsulta(
   const planned = (plan: AssistantQueryPlan, motivo: string): FollowUp =>
     ({ kind: 'query', planned: { plan, confidence: 'high', recognized: [motivo] } })
 
+  // A modalidade dita agora prevalece sobre o plano anterior. Trocar só o
+  // período deixava "recebi" preso em recorrências e "previsão" no passado.
+  const incomeFocus = (base.source === 'transactions' || base.source === 'recurring')
+    && base.filter.txType?.length === 1 && base.filter.txType[0] === 'income'
+  const realizedIncome = /\b(?:recebi|recebemos|ganhei|entrou|entraram|caiu|cairam)\b/.test(t)
+  const forecastIncome = /\b(?:vou|vamos)\s+receber\b|\b(?:vai|vao)\s+(?:entrar|cair)\b|\bprevisao\b/.test(t)
+  if (incomeFocus && (realizedIncome || forecastIncome) && !/\b(?:se|nao)\b/.test(t)) {
+    const input = forecastIncome && /\bprevisao\b/.test(t)
+      ? t.replace(/^(?:e\s+)?(?:a\s+)?previsao(?:\s+de\s+receita)?\b/, 'quanto vou receber')
+      : t.replace(/^e\s+/, '')
+    const novo = planQuery(state, input, { today })
+    if (novo && !novo.incompleto && !novo.clarification
+      && (novo.plan.source === 'transactions' || novo.plan.source === 'recurring')) {
+      const filter = { ...base.filter, ...novo.plan.filter }
+      delete filter.status
+      delete filter.plannedOnly
+      delete filter.realizedOnly
+      if (novo.plan.filter.plannedOnly) filter.plannedOnly = true
+      if (novo.plan.filter.realizedOnly) filter.realizedOnly = true
+      if (novo.plan.filter.origin) delete filter.origins
+      if (novo.plan.filter.origins) delete filter.origin
+      const scopes = [
+        ...(filter.categories || []).map(id => state.categories.find(c => c.id === id)?.name || id),
+        ...(filter.origins || (filter.origin ? [filter.origin] : [])).map(sentenceCase),
+        ...(filter.text ? [sentenceCase(filter.text)] : []),
+      ]
+      const prefix = novo.plan.label.split(' - ')[0]
+      return planned({ ...novo.plan, filter,
+        label: scopes.length ? `${prefix} - ${scopes.join(' - ')}` : prefix }, 'modalidade explícita da receita')
+    }
+  }
+
+  // O acumulado das metas é uma foto atual, disponível mesmo quando a consulta
+  // anterior pediu depósitos por mês (histórico que o app ainda não possui).
+  if (base.source === 'goals' && base.field === 'saved'
+    && /^(?:e\s+)?(?:(?:no\s+)?total|ao\s+todo|ate\s+agora)\s*\??$/.test(t)) {
+    const snapshot = planQuery(state, 'quanto já guardei nas metas', { today })
+    if (snapshot) return planned({ ...base, period: snapshot.plan.period, comparePeriod: undefined,
+      label: base.filter.goalName ? `Guardado nas metas - ${base.filter.goalName}` : 'Guardado nas metas',
+    }, 'saldo acumulado atual das metas')
+  }
+
   // ---- "qual foi o maior gasto disso?" — o recorte em foco -------------
   // O "disso" é o assunto anterior: sem esta leitura, saía o maior gasto dos
   // últimos 7 dias de qualquer categoria.

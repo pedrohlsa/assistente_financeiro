@@ -125,11 +125,14 @@ export function composeScenario(r: AssistantScenarioResult): string {
     case 'income-missing': {
       const entrada = r.facts.find(f => f.label.includes('Entrada'))
       const sobra = valor('Sobra estimada sem essa entrada')
-      const contas = valor('Contas previstas nos próximos 30 dias')
-      if (entrada) linhas.push(`${entrada.label}: ${fmtBRL(entrada.value)} por mês.`)
+      const contas = valor('Compromissos vencidos e dos próximos 30 dias')
+      const faturas = valor('Faturas incluídas nos compromissos')
+      if (entrada) linhas.push(`${entrada.label}: ${fmtBRL(entrada.value)}${p.amount ? '' : ' por mês'}.`)
       linhas.push(`Sem ela, sobrariam ${fmtBRL(sobra ?? 0)}`
-        + (contas ? ` depois das ${fmtBRL(contas)} em contas dos próximos 30 dias.` : '.'))
-      linhas.push(r.feasible ? 'Ainda dá para cobrir suas contas.' : 'Assim as contas não fecham — vale se preparar.')
+        + (contas ? ` depois de ${fmtBRL(contas)} em compromissos vencidos e dos próximos 30 dias${faturas ? ` (inclui ${fmtBRL(faturas)} em faturas)` : ''}.` : '.'))
+      if (r.feasible === true) linhas.push('O saldo cobre os compromissos cadastrados nesse horizonte.')
+      else if (r.feasible === false) linhas.push('Assim os compromissos cadastrados não cabem no saldo — vale se preparar.')
+      else linhas.push('Ainda não dá para confirmar se o saldo cobre tudo: confira as contas sem confirmação.')
       break
     }
 

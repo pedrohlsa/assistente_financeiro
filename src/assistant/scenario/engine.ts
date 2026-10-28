@@ -13,7 +13,7 @@ import type { AppState, Installment, InstallmentPlan, Transaction } from '../../
 import { addDays, fmtBRL, fmtNum, fromISO, monthKey, todayISO, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase } from '../../utils/text'
 import {
-  balanceOutlook, cashObligationsUntil, currentBalance, dailyGoal, monthlyProjections, monthlySavingGoal, periodStats,
+  cashObligationsUntil, currentBalance, dailyGoal, monthlyProjections, monthlySavingGoal, periodStats,
   representedRecurringExpenseMonths, todayStats,
 } from '../../services/calc'
 import {
@@ -486,12 +486,11 @@ function simulaCenario(
 
     // -------------------------------------------------- entrada que não vem
     case 'income-missing': {
-      const bo = balanceOutlook(state, 30)
       const nome = plan.origin || plan.description
       // Quanto essa fonte costuma trazer por mês, medido no histórico DELE.
       const from = addDays(hoje, -89)
       const doOrigem = (state.transactions || []).filter(t =>
-        t && t.type === 'income' && t.date >= from
+        t && t.type === 'income' && t.date >= from && t.date <= hoje
         && (nome ? normalizeName(t.origin || t.description || '').includes(normalizeName(nome)) : true))
       const valor = plan.amount
         || (doOrigem.length ? r2(doOrigem.reduce((a, t) => a + t.amount, 0) / Math.max(mesesEntre(doOrigem), 1)) : 0)
@@ -500,14 +499,23 @@ function simulaCenario(
           ? `Não tenho entradas de "${nome}" registradas nos últimos 90 dias, então não sei quanto deixaria de entrar.`
           : 'Me diga quanto deixaria de entrar que eu faço a conta.')
       }
-      const saldo = currentBalance(state)
-      const contas = bo.billsSoon
-      facts.push(fato(nome ? `Entrada média de ${sentenceCase(nome)}` : 'Entrada que faltaria', valor, 'BRL', 'média dos últimos 90 dias', doOrigem.length))
+      const saldo = currentBalance({ ...state, transactions: state.transactions.filter(t => t.date <= hoje) })
+      const obligations = cashObligationsUntil(state, addDays(hoje, 30), hoje)
+      const certas = obligations.filter(o => !o.unconfirmed)
+      const contas = r2(certas.reduce((sum, o) => sum + o.amount, 0))
+      const faturas = r2(certas.filter(o => o.kind === 'invoice').reduce((sum, o) => sum + o.amount, 0))
+      const livre = r2(saldo - contas)
+      const incertas = obligations.filter(o => o.unconfirmed)
+      const podeMudarVeredito = livre - incertas.reduce((sum, o) => sum + o.amount, 0) < 0
+      facts.push(fato(plan.amount ? 'Entrada que faltaria' : nome ? `Entrada média de ${sentenceCase(nome)}` : 'Entrada que faltaria',
+        valor, 'BRL', plan.amount ? 'valor informado na pergunta' : 'média dos últimos 90 dias', plan.amount ? 1 : doOrigem.length))
       facts.push(fato('Saldo hoje', saldo, 'BRL', 'saldo atual'))
-      facts.push(fato('Contas previstas nos próximos 30 dias', contas, 'BRL', 'recorrentes cadastradas', bo.bills.length))
-      facts.push(fato('Sobra estimada sem essa entrada', saldo - contas, 'BRL', 'saldo menos contas'))
-      if (!bo.bills.length) caveats.push('Você não tem contas fixas cadastradas, então a conta olha só o saldo.')
-      return { plan, facts, months: [], feasible: saldo - contas >= 0, caveats, empty: false }
+      facts.push(fato('Compromissos vencidos e dos próximos 30 dias', contas, 'BRL', 'contas, faturas e parcelas pendentes cadastradas', certas.length))
+      if (faturas > 0) facts.push(fato('Faturas incluídas nos compromissos', faturas, 'BRL', 'parte dos compromissos, sem contar parcelas novamente'))
+      facts.push(fato('Sobra estimada sem essa entrada', livre, 'BRL', 'saldo atual menos compromissos cadastrados'))
+      caveats.push('A conta usa o saldo disponível hoje e os compromissos cadastrados; não soma receitas futuras nem desconta de novo uma entrada que ainda não entrou.')
+      if (incertas.length) caveats.push('Há contas vencidas sem confirmação de pagamento. Não as contei como dívida certa; confira essas pendências antes de usar a folga estimada.')
+      return { plan, facts, months: [], feasible: livre < 0 ? false : podeMudarVeredito ? undefined : true, caveats, empty: false }
     }
 
     // ------------------------------------------------- horas/km a mais

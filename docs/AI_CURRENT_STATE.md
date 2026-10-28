@@ -594,3 +594,12 @@ tá me apertando" saem da DSL (que soma o passado) por
 `cashObligationsUntil()` em `calc.ts`: contas fixas, pendente de cada fatura e
 parcelas fora de cartão, inclusive o que já venceu. Conta fixa vencida sem
 confirmação aparece à parte, nunca somada como dívida certa. 179/179 adversariais.
+
+## Checkpoint adicional — 28/10/2026, após 27d40cc
+
+Entrada ausente considera contas/faturas/parcelas em 30 dias e não usa receita
+futura como histórico. Nova hipótese completa pode substituir o cenário atual.
+Continuidade troca previsão/realizado preservando origem; metas recuperam
+acumulado atual após pergunta mensal indisponível.14 regressões adicionadas:
+590/590 adversariais; demais gates verdes, mesma baseline do checkpoint anterior.
+NOT READY para publicar; ver fim do PROGRESS.md e docs/CODEX_RESUME.md.

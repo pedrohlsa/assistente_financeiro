@@ -160,6 +160,12 @@ function respondeConversa(
   // ---- 1) continuação ----------------------------------------------------
   if (isFocusFresh(focus, agora) && looksLikeFollowUp(message)) {
     const fu = resolveFollowUp(state, focus, message, hoje)
+    // Uma hipótese completa pode iniciar outro cenário depois de uma simulação.
+    // Referências parciais continuam usando o refinador e seus esclarecimentos.
+    if (fu?.kind === 'ambiguous' && looksLikeScenario(message)) {
+      const fresh = answerScenario(state, message, { today: hoje })
+      if (fresh) return doCenario(focus, fresh, agora)
+    }
     // Hipótese nunca é refino de CONSULTA. Depois de "onde vazou meu dinheiro",
     // "e se eu parar a obra, quanto sobra até dezembro" era lida como a consulta
     // anterior com outro período — número real para um mundo que não existe. O

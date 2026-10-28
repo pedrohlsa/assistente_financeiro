@@ -3475,6 +3475,92 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && incerto.actions.length === 0))
   }
 
+  {
+    const st = buildState({ profile: 'autonomo', balance: 1000,
+      cards: [{ name: 'Inter', dueDay: 18, closingDay: 1 }] })
+    st.settings.balanceAsOf = TODAY
+    st.transactions = [{ id: 'rent-history', type: 'income', category: 'aluguel', amount: 500,
+      origin: 'Casa 1', date: '2026-09-05' }]
+    st.installmentPlans = [{ id: 'missing-plan', description: 'Compra', cardId: 'card0', totalAmount: 1200,
+      installmentCount: 1, firstDueDate: '2026-09-18', purchaseDate: '2026-08-25',
+      createdAt: '2026-08-25', status: 'active', operationType: 'card-purchase' }]
+    st.installments = [{ id: 'missing-installment', planId: 'missing-plan', number: 1, total: 1,
+      amount: 1200, dueDate: '2026-09-18', status: 'pending' }]
+    const before = JSON.stringify(st)
+    const missing = await turn(st, 'e se a Casa 1 não pagar?')
+    out.push(result('IMISS-fatura-nao-omitida', missing, 'saldo 1000 menos fatura 1200 deixa -200, sem duplicar renda histórica',
+      missing.focus?.lastScenario?.feasible === false && /1\.200,00/.test(missing.reply)
+        && /-R\$\s*200,00/.test(missing.reply) && /fatura/i.test(missing.reply) && missing.actions.length === 0))
+    const verdict = await turn(st, 'dá ruim?', missing.focus)
+    out.push(result('IMISS-veredito-continuado', verdict, 'não declarar que a ausência da renda cabe no saldo',
+      verdict.focus?.lastScenario?.feasible === false && /^Dá ruim\./i.test(verdict.reply)))
+    const spend = await turn(st, 'e se eu gastar 100 hoje?', missing.focus)
+    out.push(result('SCEN-nova-hipotese-explicita', spend, 'nova hipótese de gasto 100, não esclarecimento do cenário anterior',
+      spend.focus?.lastScenarioPlan?.kind === 'spend' && spend.focus.lastScenarioPlan.amount === 100
+        && spend.focus.lastScenario?.feasible === false && /-R\$\s*300,00/.test(spend.reply) && spend.actions.length === 0))
+    out.push(result('IMISS-somente-leitura', JSON.stringify(st), before, JSON.stringify(st) === before))
+    st.transactions.push({ id: 'future-income', type: 'income', category: 'aluguel', amount: 9500,
+      origin: 'Casa 1', date: '2026-09-25' })
+    const future = await turn(st, 'e se a Casa 1 não pagar?')
+    out.push(result('IMISS-media-exclui-futuro', future, 'base histórica apenas até a data injetada: 500, não 10000',
+      future.focus?.lastScenario?.facts.find(f => f.label.startsWith('Entrada'))?.value === 500))
+    st.transactions.pop()
+    st.installments[0].status = 'paid'
+    const paid = await turn(st, 'e se a Casa 1 não pagar?')
+    out.push(result('IMISS-fatura-paga', paid, 'não recobrar dívida quitada nem subtrair renda não projetada',
+      paid.focus?.lastScenario?.feasible === true && /1\.000,00/.test(paid.reply) && !/1\.200,00/.test(paid.reply)))
+    st.recurring = [{ id: 'missing-uncertain', name: 'Conta sem confirmação', amount: 1500, frequency: 'monthly',
+      dueDay: 14, startDate: '2026-09-14', endDate: '2026-09-14', category: 'casa', kind: 'expense', active: true }]
+    const uncertain = await turn(st, 'e se a Casa 1 não pagar?')
+    out.push(result('IMISS-pendencia-incerta', uncertain, 'sem veredito quando pendência pode inverter resultado',
+      uncertain.focus?.lastScenario?.feasible === undefined && /sem confirma[çc][ãa]o/.test(uncertain.reply)
+        && !/Ainda dá para|Assim as contas não fecham/.test(uncertain.reply)))
+  }
+
+  {
+    const st = buildState({ profile: 'autonomo', balance: 1000 })
+    st.recurring = [
+      { ...recurringIncome(650), id: 'house1', name: 'Casa 1', category: 'aluguel', origin: 'Casa 1' },
+      { ...recurringIncome(350), id: 'house2', name: 'Casa 2', category: 'aluguel', origin: 'Casa 2' },
+    ]
+    st.transactions = [
+      { id: 'received-house1', type: 'income', category: 'aluguel', amount: 9000, origin: 'Casa 1', date: TODAY },
+      { id: 'received-house2', type: 'income', category: 'aluguel', amount: 4000, origin: 'Casa 2', date: TODAY },
+    ]
+    const first = await turn(st, 'quanto vou receber da Casa 1 mês que vem?')
+    out.push(result('QMOD-futuro-base-com-origem', first, 'previsão 650 da Casa 1, não 1000 de todas',
+      first.focus?.lastQuery?.total === 650 && first.focus.lastQueryPlan?.source === 'recurring'))
+    const real = await turn(st, 'e quanto recebi esse mes?', first.focus)
+    out.push(result('QMOD-futuro-para-real', real, '9000 recebidos da mesma origem; fonte e filtro de previsão removidos',
+      real.focus?.lastQuery?.total === 9000 && real.focus.lastQueryPlan?.source === 'transactions'
+        && !real.focus.lastQueryPlan.filter.plannedOnly && /9\.000,00/.test(real.reply)
+        && !/previs[ãa]o/.test(real.reply) && real.actions.length === 0))
+    const forecast = await turn(st, 'e a previsão deste mês?', real.focus)
+    out.push(result('QMOD-real-para-previsao', forecast, '650 previstos da Casa 1 entre hoje e o fim do mês',
+      forecast.focus?.lastQuery?.total === 650 && forecast.focus.lastQueryPlan?.source === 'recurring'
+        && forecast.focus.lastQueryPlan.period.from === TODAY && forecast.focus.lastQueryPlan.period.to === '2026-09-30'
+        && forecast.focus.lastQueryPlan.filter.plannedOnly === true && /previs[ãa]o/.test(forecast.reply)))
+    const changed = await turn(st, 'e quanto recebi da Casa 2 esse mes?', forecast.focus)
+    out.push(result('QMOD-origem-explicita-substitui', changed, 'origem explícita nova substitui Casa 1: 4000',
+      changed.focus?.lastQuery?.total === 4000 && changed.actions.length === 0))
+  }
+
+  {
+    const st = autonomoRico(TODAY)
+    const monthly = await turn(st, 'quanto guardei nas metas esse mes')
+    const total = await turn(st, 'e no total?', monthly.focus)
+    out.push(result('HMETA-mensal-para-total', total, 'total atual 6000 após explicar ausência de histórico mensal',
+      total.focus?.lastQuery?.total === 6000 && /6\.000,00/.test(total.reply) && total.actions.length === 0))
+    const named = await turn(st, 'e na viagem?', total.focus)
+    out.push(result('HMETA-total-restringe-meta', named, 'Viagem: saldo acumulado 4800',
+      named.focus?.lastQuery?.total === 4800 && /4\.800,00/.test(named.reply)))
+    const lastMonth = await turn(st, 'e no mês passado?', named.focus)
+    const again = await turn(st, 'e até agora?', lastMonth.focus)
+    out.push(result('HMETA-ate-agora-preserva-meta', { lastMonth, again }, 'mês passado continua indisponível; até agora recupera Viagem4800',
+      lastMonth.focus?.lastQuery?.empty === true && /hist[óo]rico/.test(lastMonth.reply)
+        && again.focus?.lastQuery?.total === 4800 && /4\.800,00/.test(again.reply)))
+  }
+
   return out
 }
 
