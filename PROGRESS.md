@@ -4590,6 +4590,38 @@ Achados sem correção ainda: "qual minha maior parcela" devolve o resumo dos
 cartões; "quando acaba a geladeira" cai na ajuda; "antecipei 2 parcelas do
 computador" devolve o resumo em vez de dizer que o chat não antecipa.
 
+## 2026-10-27 — parcelamento pelo nome, última e maior parcela
+
+Os três achados acima, mais os vizinhos que a sondagem trouxe: "qual a
+parcela mais cara" (outra ordem) devolvia o resumo; "qual a ultima parcela do
+nubank" virava "Falta pagar até agora: R$ 5.200,00" pela DSL (soma de todos os
+parcelamentos, sem a data pedida); "quando é a última parcela" devolvia o
+resumo. Causa: pergunta de parcelamento sem dono. A seção de cartões só abria
+com "parcela/cartão/fatura", e dentro dela não havia resposta para o fim nem
+para a maior parcela.
+
+Agora `pedeFimDoParcelamento()` e `pedeMaiorParcela()` (cashQuestions) fazem a
+DSL recusar, e `respostaDoParcelamento()` responde:
+- com o parcelamento citado pelo nome ("quando acaba a geladeira", que abre a
+  seção sem a palavra "parcela"): "Geladeira termina em DD/MM/AAAA (parcela
+  6/6): faltam 5 parcelas de R$ 400,00, R$ 2.000,00 ao todo.";
+- sem nome: os parcelamentos do cartão citado, ou todos, com o último
+  primeiro; cartão que não existe ("do itau") diz que não encontrou, em vez de
+  responder pelos outros;
+- maior parcela: a próxima parcela de cada parcelamento, com o empate dito
+  (regra 56).
+Antecipar não tem ação no chat; a resposta aponta Mais → Cartões e
+parcelamentos → "Antecipar", a tela que já faz isso. "Vale a pena quitar o
+computador" continua indo para o remoto: a entrada pelo nome exige pergunta de
+data ("quando… acaba/termina/quito"), e o autoteste remoto pegou c-49 quando
+"quitar" bastava. 7 casos no grupo PC (os 7 vermelhos antes; datas e somas
+calculadas do fixture). Gates: 666/666, 99/99, 50/50, **443/443**,
+metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica,
+varredura e `git diff --check` passaram.
+
+Achado sem correção: "antecipei a fatura do nubank" devolve o resumo dos
+cartões (é pagamento adiantado, não antecipação de parcela).
+
 ## Pendências em 27/10/2026 (HEAD `73c8d24`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800

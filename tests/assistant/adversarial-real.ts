@@ -2686,6 +2686,44 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /R\$ 13\.000,00/.test(todos) && /R\$ 5\.200,00/.test(todos) && /R\$ 7\.800,00/.test(todos)))
   }
 
+  // Parcelamento pelo nome: "quando acaba a geladeira" caía na ajuda; "qual
+  // minha maior parcela" e "antecipei 2 parcelas do computador" devolviam o
+  // resumo dos cartões. Geladeira: 6x de 400, 5 pendentes, a última no dia 15
+  // daqui a 4 meses; Computador: 400 por parcela também (empate).
+  {
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const ultima = rico.installments.filter(i => i.planId === 'p2' && i.status === 'pending').map(i => i.dueDate).sort().pop()!
+    const data = `${ultima.slice(8, 10)}/${ultima.slice(5, 7)}/${ultima.slice(0, 4)}`
+    const acaba = limpa((await turnoHoje(rico, 'quando acaba a geladeira')).reply)
+    out.push(result('PC-quando-acaba', acaba, `termina em ${data}, 5 parcelas, R$ 2.000,00`,
+      acaba.includes(data) && /\b5 parcelas\b/.test(acaba) && /R\$ 2\.000,00/.test(acaba)))
+    const maior = limpa((await turnoHoje(rico, 'qual minha maior parcela')).reply)
+    out.push(result('PC-maior-parcela', maior, 'R$ 400,00, empate entre Computador e Geladeira',
+      /R\$ 400,00/.test(maior) && /Computador/.test(maior) && /Geladeira/.test(maior) && !/Situação dos seus cartões/.test(maior)))
+    const antecipa = await turnoHoje(rico, 'antecipei 2 parcelas do computador')
+    out.push(result('PC-antecipar-aponta-a-tela', antecipa.reply, 'aponta Cartões e parcelamentos → Antecipar, sem ação',
+      antecipa.actions.length === 0 && /Cart[õo]es e parcelamentos/.test(antecipa.reply) && /Antecipar/.test(antecipa.reply)
+        && !/Situação dos seus cartões/.test(antecipa.reply)))
+    // A outra ordem das palavras e "última parcela" sem o nome: a DSL somava o
+    // que falta pagar (R$ 5.200,00) e o resumo dos cartões respondia o resto.
+    const cara = limpa((await turnoHoje(rico, 'qual a parcela mais cara')).reply)
+    out.push(result('PC-parcela-mais-cara', cara, 'R$ 400,00, empate entre Computador e Geladeira',
+      /R\$ 400,00/.test(cara) && /empate/.test(cara) && !/Situação dos seus cartões/.test(cara)))
+    const fimComputador = rico.installments.filter(i => i.planId === 'p1' && i.status === 'pending').map(i => i.dueDate).sort().pop()!
+    const dataComputador = `${fimComputador.slice(8, 10)}/${fimComputador.slice(5, 7)}/${fimComputador.slice(0, 4)}`
+    const doNubank = limpa((await turnoHoje(rico, 'qual a ultima parcela do nubank')).reply)
+    out.push(result('PC-ultima-parcela-do-cartao', doNubank, `Computador (Nubank) termina em ${dataComputador}, não "falta pagar"`,
+      doNubank.includes(dataComputador) && /Computador/.test(doNubank) && !/Geladeira/.test(doNubank) && !/Falta pagar/.test(doNubank)))
+    const todas = limpa((await turnoHoje(rico, 'quando e a ultima parcela')).reply)
+    out.push(result('PC-ultima-parcela-de-todas', todas, `a última é a do Computador, em ${dataComputador}; Geladeira em ${data}`,
+      todas.includes(dataComputador) && todas.includes(data) && /Computador/.test(todas.split('\n')[0])
+        && !/Situação dos seus cartões/.test(todas)))
+    const itau = limpa((await turnoHoje(rico, 'qual a ultima parcela do itau')).reply)
+    out.push(result('PC-ultima-parcela-cartao-inexistente', itau, 'não há cartão Itau; nada de responder pelos outros',
+      /Não encontrei/.test(itau) && /Itau/.test(itau) && !/termina em/.test(itau)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

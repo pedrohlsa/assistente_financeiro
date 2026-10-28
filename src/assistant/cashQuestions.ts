@@ -223,6 +223,20 @@ export function perguntaNominal(texto: string): string | null {
 export const pedeLimite = (t: string): boolean =>
   /\blimite\b/.test(t) && /\b(?:quanto|qual|quais|tenho|tem|sobra|sobrou|resta|disponivel|livre)\b/.test(t)
 
+/**
+ * "Qual a última parcela do nubank", "quando termino de pagar as parcelas": o
+ * fim do parcelamento. A DSL somava o que falta pagar e o resumo dos cartões
+ * respondia o resto. Sem a palavra "parcela" ("quando acaba a geladeira"), só
+ * o nome do parcelamento diz o assunto, e quem decide isso é o roteador.
+ */
+export const pedeFimDoParcelamento = (t: string): boolean =>
+  /\bultimas?\s+parcelas?\b/.test(t)
+  || (/\bparcel/.test(t) && /\b(?:quando|que\s+mes|que\s+dia)\b[^?]*\b(?:acaba|acabam|termina|terminam|quita|quito|termino|acabo)\b/.test(t))
+
+/** "Qual a maior parcela", "a parcela mais cara". */
+export const pedeMaiorParcela = (t: string): boolean =>
+  /\b(?:maior|mais\s+cara|mais\s+alta)\s+parcela\b|\bparcela\s+mais\s+(?:cara|alta)\b/.test(t)
+
 const DIAS_DA_SEMANA = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado']
 
 /**

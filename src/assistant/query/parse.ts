@@ -30,7 +30,7 @@ import { addDays, fromISO, todayISO, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase } from '../../utils/text'
 import { isDriver } from '../../services/profile'
 import { buildPersonalModel, adaptiveEnabled } from '../personalModel'
-import { pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeLimite, pedeSobraSemCombustivel, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, perguntaDeManutencao, planoDeGuardar } from '../cashQuestions'
+import { pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeFimDoParcelamento, pedeLimite, pedeMaiorParcela, pedeSobraSemCombustivel, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, perguntaDeManutencao, planoDeGuardar } from '../cashQuestions'
 import {
   currentMonthToDate, monthPeriod, nextMonths, parseFutureMonth, parsePeriod, previousPeriod,
 } from './period'
@@ -149,7 +149,8 @@ export function looksLikeDataQuestion(input: string): boolean {
   // dela, não a dívida parcelada que a DSL somava.
   if (pedeReservaDeCaixa(t) || pedeContaQueAperta(t) || pedeTotalGuardado(t) || perguntaDeFatura(t)
     || pedeContasAPagar(t) || planoDeGuardar(t) || perguntaDeManutencao(t)
-    || pedeContasFixas(t) || pedeSobraSemCombustivel(t) || pedeLimite(t)) return false
+    || pedeContasFixas(t) || pedeSobraSemCombustivel(t) || pedeLimite(t)
+    || pedeFimDoParcelamento(t) || pedeMaiorParcela(t)) return false
   return PEDE_DADO.some(re => re.test(t))
 }
 

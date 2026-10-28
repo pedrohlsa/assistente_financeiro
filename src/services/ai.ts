@@ -27,7 +27,7 @@ import {
 } from './calc'
 import type { CashObligation } from './calc'
 import {
-  alvoDaReserva, diaDaSemanaPedido, mesesAtePrazo, pedeLimite, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeResumoDoDia, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
+  alvoDaReserva, diaDaSemanaPedido, mesesAtePrazo, pedeFimDoParcelamento, pedeLimite, pedeMaiorParcela, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeResumoDoDia, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
   perguntaDeFatura, perguntaDeManutencao,
   planoDeGuardar, prazoDasContas, retiraDaReserva,
 } from '../assistant/cashQuestions'
@@ -649,13 +649,23 @@ function resolveLocal(s: AppState, input: string): AiReply {
 
   // ===== Cartões, parcelas e faturas (todos os perfis) =====
   const ov = cardsOverview(s)
-  // "Limite no Nubank" é pergunta de cartão mesmo sem a palavra "cartão".
-  if (/parcela|fatura|cart[ãa]o|parcelamento|d[ií]vida/.test(t) || (pedeLimite(t) && activeCards(s).length > 0)) {
+  // "Limite no Nubank" é pergunta de cartão mesmo sem a palavra "cartão"; e
+  // "quando acaba a geladeira" é do parcelamento, citado pelo nome.
+  if (/parcela|fatura|cart[ãa]o|parcelamento|d[ií]vida/.test(t) || (pedeLimite(t) && activeCards(s).length > 0)
+    || (planoCitado(s, t) && (FIM_DO_PLANO.test(t) || /\b(?:antecip|adiantei\b|adiantar\b)/.test(t)))) {
     if (!ov.hasData) {
       return { text: 'Você ainda não cadastrou cartões nem parcelamentos. Você pode adicionar em Mais → Cartões e parcelamentos.' }
     }
     const sobreFatura = perguntaDeFatura(t)
     if (sobreFatura && activeCards(s).length) return respostaDaFatura(s, t, sobreFatura)
+    // Antecipar parcela não tem ação no chat; a tela tem ("Antecipar 1/2").
+    // Antes: o resumo dos cartões, como se a pessoa tivesse perguntado outra coisa.
+    const p = planoCitado(s, t)
+    if (/\bantecip|\badiantei\b|\badiantar\b/.test(t) && (p || /\bparcela/.test(t))) {
+      return { text: `Antecipar parcela pelo chat ainda não dá. Na tela: Mais → Cartões e parcelamentos, abra ${p ? `o parcelamento ${p.description}` : 'o parcelamento'} e use "Antecipar".` }
+    }
+    const resposta = respostaDoParcelamento(s, t)
+    if (resposta) return resposta
     // "quanto tenho de parcela no mês que vem?"
     if (/(m[eê]s que vem|pr[oó]ximo m[eê]s)/.test(t) && /parcela|fatura|cart[ãa]o/.test(t)) {
       return {
@@ -1804,6 +1814,74 @@ export function respostaDeMetaCitada(s: AppState, input: string): string | null 
   if (plano?.kind !== 'meta' && !/\bquando\b/.test(t)) return null
   const r = resolveLocal(s, input)
   return r.handled === false || r.actions?.length ? null : r.text
+}
+
+/**
+ * "Quando acaba a geladeira", "quando quito o computador": a data, nunca "vale
+ * a pena quitar", que é decisão e vai para quem raciocina.
+ */
+const FIM_DO_PLANO = /\b(?:quando|que\s+mes|que\s+dia)\b[^?]*\b(?:acaba|acabo|termina|termino|quita|quito)\b|\bultimas?\s+parcelas?\b/
+
+/** O parcelamento ativo citado pelo nome da compra ("a geladeira"). */
+function planoCitado(s: AppState, t: string) {
+  return activePlans(s).filter(p => p.description?.trim())
+    .map(p => ({ p, n: normalizeQuestion(p.description) }))
+    .filter(({ n }) => n.length >= 3 && new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(t))
+    .sort((a, b) => b.n.length - a.n.length)[0]?.p
+}
+
+/**
+ * "Quando acaba a geladeira" (a última parcela) e "qual minha maior parcela"
+ * (a próxima parcela de cada parcelamento, com empate dito — regra 56). O
+ * resumo dos cartões respondia as duas como se fossem a mesma pergunta.
+ */
+function respostaDoParcelamento(s: AppState, t: string): AiReply | null {
+  const pendentes = (planId: string) => (s.installments || [])
+    .filter(i => i.planId === planId && i.status === 'pending')
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+  const nome = (p: { description?: string }) => sentenceCase(p.description || 'Parcelamento')
+  const fim = (p: { id: string, description?: string }) => {
+    const resto = pendentes(p.id)
+    const ultima = resto[resto.length - 1]
+    const soma = round2(resto.reduce((a, i) => a + i.amount - Math.min(Math.max(i.paidAmount || 0, 0), i.amount), 0))
+    const iguais = resto.every(i => Math.abs(i.amount - resto[0].amount) < 0.005)
+    return { ultima, frase: `termina em ${dataCompleta(ultima.dueDate)} (parcela ${ultima.number}/${ultima.total}): faltam ${resto.length} ${resto.length === 1 ? 'parcela' : 'parcelas'}`
+      + `${iguais ? ` de ${fmtBRL(resto[0].amount)}` : ''}, ${fmtBRL(soma)} ao todo` }
+  }
+  const plano = planoCitado(s, t)
+  if (plano && (pedeFimDoParcelamento(t) || FIM_DO_PLANO.test(t))) {
+    if (!pendentes(plano.id).length) return { text: `O parcelamento ${plano.description} não tem parcela pendente.` }
+    return { text: `${nome(plano)} ${fim(plano).frase}.` }
+  }
+  // Sem o nome: os parcelamentos do cartão citado, ou todos; o último primeiro.
+  if (pedeFimDoParcelamento(t)) {
+    const cartoes = cartoesDaPergunta(s, t)
+    const dito = t.match(/\bparcelas?\s+d[oa]s?\s+(?:meu\s+|minha\s+)?(?:cartao\s+(?:d[oa]\s+)?)?([a-z][a-z0-9]*)/)
+    if (!cartoes.length && dito && !/^(?:cartao|cartoes|credito|mes|meses|ano|semana|dia|atual|agora|parcelamento|parcelamentos|compra|compras)$/.test(dito[1])) {
+      return { text: `Não encontrei cartão nem parcelamento chamado ${sentenceCase(dito[1])}. Seus parcelamentos: ${listaDeNomes(activePlans(s).map(nome))}.` }
+    }
+    const doCartao = cartoes.length ? activePlans(s).filter(p => cartoes.some(c => c.id === p.cardId)) : activePlans(s)
+    const vivos = doCartao.filter(p => pendentes(p.id).length).map(p => ({ p, ...fim(p) }))
+      .sort((a, b) => b.ultima.dueDate.localeCompare(a.ultima.dueDate))
+    const onde = cartoes.length ? ` no ${listaDeNomes(cartoes.map(c => c.name))}` : ''
+    if (!vivos.length) return { text: `Você não tem parcela pendente${onde}.` }
+    if (vivos.length === 1) return { text: `${nome(vivos[0].p)}${onde} ${vivos[0].frase}.` }
+    return { text: `A última parcela${onde} é a do parcelamento ${nome(vivos[0].p)}, em ${dataCompleta(vivos[0].ultima.dueDate)}.\n\n`
+      + vivos.map(x => `• ${nome(x.p)}: ${x.frase}`).join('\n') }
+  }
+  if (pedeMaiorParcela(t)) {
+    const proximas = activePlans(s).map(p => ({ p, prox: pendentes(p.id)[0], restam: pendentes(p.id).length })).filter(x => x.prox)
+    if (!proximas.length) return { text: 'Você não tem parcela pendente.' }
+    const maior = Math.max(...proximas.map(x => x.prox!.amount))
+    const topo = proximas.filter(x => Math.abs(x.prox!.amount - maior) < 0.005)
+    const linhas = proximas.sort((a, b) => b.prox!.amount - a.prox!.amount)
+      .map(x => `• ${nome(x.p)}: ${fmtBRL(x.prox!.amount)} (${x.restam} ${x.restam === 1 ? 'restante' : 'restantes'})`)
+    const abre = topo.length > 1
+      ? `A maior parcela é de ${fmtBRL(maior)}, e é empate: ${listaDeNomes(topo.map(x => nome(x.p)))}.`
+      : `A maior parcela é a do parcelamento ${nome(topo[0].p)}: ${fmtBRL(maior)}.`
+    return { text: `${abre}\n\n${linhas.join('\n')}` }
+  }
+  return null
 }
 
 /** Quanto uma conta fixa pesa por mês, seja qual for a repetição dela. */
