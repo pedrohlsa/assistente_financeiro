@@ -618,3 +618,10 @@ currentBalance exclui eventos de caixa futuros: transações, CardPayment,
 quitação direta e pagamentos parciais de parcela. Referência opcional usada
 em cenário/projeção/avisos.603/603 adversariais; gates e ressalvas no fim do
 PROGRESS.md. Investigar separadamente situação da dívida em pagamento futuro.
+
+## 28/10/2026 — Validação da data de pagamento
+
+Formulário e reducer recusam pagamento futuro/inválido/vazio, sem quitar
+a dívida. Pagamento real de hoje para fatura futura continua permitido.
+607/607 adversariais, suíte completa, typechecks e build verdes. Backups
+antigos permanecem intactos; ver ressalva sobre dívida no PROGRESS.md.

@@ -12,6 +12,11 @@ import {
   AppState, CreditCard, Installment, InstallmentPlan, RecurringCardCharge,
 } from '../models/types'
 import { addDays, dateForDayOfMonth, fromISO, monthKey, todayISO, toISO } from '../utils/format'
+
+/** Data do dinheiro já pago; vencimento futuro pode ser quitado hoje. */
+export function validPaymentDate(date: string, today = todayISO()): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= today && toISO(fromISO(date)) === date
+}
 import { normalizeName, sameName } from '../utils/text'
 
 const round2 = (v: number) => Math.round(v * 100) / 100

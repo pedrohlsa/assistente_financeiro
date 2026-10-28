@@ -5452,3 +5452,22 @@ preservadas; não houve chamada paga, publicação ou APK. NOT READY para merge
 até auditoria independente. Pagamentos futuros registrados podem ainda
 marcar uma parcela como paga nas visões de dívida: essa semântica não foi
 alterada neste lote e deve ser investigada separadamente.
+
+## 28/10/2026 — Pagamento não pode quitar antes de acontecer
+
+Depois6195f23, reproduzida no reducer a quitação de parcela por CardPayment
+com data futura: o saldo não saía mais antecipadamente, mas a dívida era
+marcada como paga. Data vazia e30/02 também passavam. O formulário de fatura
+não validava data. As três classes agora são recusadas na entrada, sem
+alterar o estado: pagamento da fatura, quitação direta e parcial de parcela.
+A tela limita a data a hoje, desabilita salvar e explica o erro. O mesmo
+validador de data é compartilhado com o reducer, protegendo chamadas diretas.
+
+Contraste: pagar HOJE uma fatura que vence depois permanece permitido;
+vencimento e data do desembolso são coisas diferentes. Não foi feita migração
+nem reinterpretação de pagamentos futuros já salvos em backups. Para eles,
+o saldo respeita a data, mas a situação da dívida ainda exige investigação.
+
+Quatro casos novos primeiro vermelhos;607/607 adversariais agora verdes.
+Suíte completa, frontend/API typechecks e build passaram. Contagens restantes
+preservadas. Sem chamada paga, publicação ou APK; NOT READY até auditoria.

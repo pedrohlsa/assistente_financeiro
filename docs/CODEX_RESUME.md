@@ -57,6 +57,11 @@ saldo do cenário de entrada ausente também excluem transações futuras.
 - Depois, `currentBalance` central passou a ignorar datas futuras em receitas,
   despesas e pagamentos (fatura e direto/parcial de parcela). Cenários e
   projeção mensal recebem a data de referência. 603/603 adversariais.
+- O lote seguinte recusa datas futuras, vazias e inválidas para registrar
+  pagamento de fatura e quitação direta/parcial. A tela explica o erro;
+  pagamento de hoje para vencimento futuro continua válido. 607/607 testes
+  adversariais, suíte completa, typechecks e build verdes. Backups antigos
+  já gravados não são reescritos; verificar separadamente essas inconsistências.
 - Reproduzir "antecipei a fatura do Nubank" e "devo muito?"; o chat não
   possui ação para antecipação por mês. Não inventar execução nem capacidade.
 - Testar novos contrastes de continuidade e datas, sem repetir os exemplos

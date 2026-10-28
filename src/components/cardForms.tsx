@@ -10,7 +10,7 @@ import {
 import { fmtBRL, fmtDateShort, nowPaymentTime, parseMoney, todayISO, uid } from '../utils/format'
 import {
   activeCards, buildInstallments, cardInvoice, cardById, findCardByExactName, planInstallments,
-  round2, settleableInstallmentIds, simulatePurchase, splitInstallmentAmounts, suggestedDueDay, suggestedFirstDueDate,
+  round2, settleableInstallmentIds, simulatePurchase, splitInstallmentAmounts, suggestedDueDay, suggestedFirstDueDate, validPaymentDate,
 } from '../services/cards'
 import { monthKey } from '../utils/format'
 import { currentBalance } from '../services/calc'
@@ -617,7 +617,8 @@ export function CardPaymentForm({ onDone, card, referenceMonth }: { onDone: () =
 
   const v = parseMoney(amount) || 0
   const over = v > invoice.pending + 0.009
-  const valid = v > 0 && (!over || confirmOver)
+  const dateValid = validPaymentDate(date)
+  const valid = v > 0 && (!over || confirmOver) && dateValid
 
   const save = () => {
     if (!valid) return
@@ -654,7 +655,8 @@ export function CardPaymentForm({ onDone, card, referenceMonth }: { onDone: () =
           <MoneyInput autoFocus value={amount} onChange={setAmount} />
         </div>
         <div className="field"><label>Data do pagamento</label>
-          <input type="date" className="input" value={date} onChange={e => setDate(e.target.value)} />
+          <input type="date" className="input" max={todayISO()} value={date} onChange={e => setDate(e.target.value)} />
+          {!dateValid && <span className="tiny">Informe a data em que o pagamento já aconteceu, até hoje.</span>}
         </div>
         <div className="field full"><label>Observação (opcional)</label>
           <input className="input" value={note} onChange={e => setNote(e.target.value)} />

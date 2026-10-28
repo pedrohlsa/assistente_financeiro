@@ -3639,6 +3639,30 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       spend.focus?.lastScenario?.feasible === false && spend.actions.length === 0))
   }
 
+  {
+    const st = buildState({ profile: 'autonomo', balance: 1000,
+      cards: [{ name: 'Inter', dueDay: Number(addDays(hoje, 3).slice(8)), closingDay: 1 }] })
+    st.installmentPlans = [{ id: 'payment-date-plan', description: 'Compra', cardId: 'card0', totalAmount: 300,
+      installmentCount: 1, firstDueDate: addDays(hoje, 3), purchaseDate: hoje,
+      createdAt: hoje, status: 'active', operationType: 'card-purchase' }]
+    st.installments = [{ id: 'payment-date-installment', planId: 'payment-date-plan', number: 1, total: 1,
+      amount: 300, dueDate: addDays(hoje, 3), status: 'pending' }]
+    for (const date of [addDays(hoje, 1), '', '2026-02-30']) {
+      const payment = reducer(st, { type: 'addCardPayment', payment: { id: 'invalid-date-payment', cardId: 'card0',
+        amount: 300, paymentDate: date, referenceMonth: addDays(hoje, 3).slice(0, 7), fromBalance: true },
+        settleInstallmentIds: ['payment-date-installment'] })
+      const direct = reducer(st, { type: 'payInstallment', id: 'payment-date-installment', paidAt: date })
+      const partial = reducer(st, { type: 'partialPayInstallment', id: 'payment-date-installment', paidAt: date, amount: 100 })
+      out.push(result(`PDATE-rejeita-${date || 'vazia'}`, { payment, direct, partial }, 'datas futuras/inválidas não quitam dívida nem salvam pagamento',
+        payment === st && direct === st && partial === st))
+    }
+    const early = reducer(st, { type: 'addCardPayment', payment: { id: 'early-payment', cardId: 'card0', amount: 300,
+      paymentDate: hoje, referenceMonth: addDays(hoje, 3).slice(0, 7), fromBalance: true },
+      settleInstallmentIds: ['payment-date-installment'] })
+    out.push(result('PDATE-pagamento-hoje-fatura-futura', early.installments[0], 'pagamento de hoje pode quitar parcela de fatura que ainda vencerá',
+      early.cardPayments.length === 1 && early.installments[0].status === 'paid'))
+  }
+
   return out
 }
 

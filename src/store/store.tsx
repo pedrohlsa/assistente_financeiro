@@ -15,7 +15,7 @@ import { addDays, monthKey, nowPaymentTime, nowStamp, nowTime, todayISO, uid } f
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
 import { nextCashEventTime } from '../services/calc'
-import { cardInvoice, currentInvoice, directInstallmentPaidAmount, installmentLinkedToCardPayment } from '../services/cards'
+import { cardInvoice, currentInvoice, directInstallmentPaidAmount, installmentLinkedToCardPayment, validPaymentDate } from '../services/cards'
 import { applyBatchPure } from '../assistant/execute'
 import type { BatchItem } from '../assistant/execute'
 import type { ActionExecutionResult } from '../assistant/contracts'
@@ -316,6 +316,7 @@ export function reducer(s: AppState, a: Action): AppState {
           i.planId === a.planId && i.status === 'pending' ? { ...i, status: 'cancelled' as const } : i),
       }
     case 'payInstallment': {
+      if (!validPaymentDate(a.paidAt)) return s
       const paidTime = nextCashEventTime(s, a.paidAt, a.paidTime || nowPaymentTime())
       return {
         ...s,
@@ -338,6 +339,7 @@ export function reducer(s: AppState, a: Action): AppState {
       }
     }
     case 'partialPayInstallment': {
+      if (!validPaymentDate(a.paidAt)) return s
       const paidTime = nextCashEventTime(s, a.paidAt, a.paidTime || nowPaymentTime())
       return { ...s, installments: s.installments.map(i => {
         if (i.id !== a.id || i.status !== 'pending' || !(a.amount > 0)) return i
@@ -366,6 +368,7 @@ export function reducer(s: AppState, a: Action): AppState {
     case 'updateInstallment':
       return { ...s, installments: s.installments.map(i => i.id === a.id ? { ...i, ...a.patch } : i) }
     case 'addCardPayment': {
+      if (!validPaymentDate(a.payment.paymentDate)) return s
       // Quitar a fatura marca as parcelas dela como pagas — a despesa já foi
       // contada como parcela, o pagamento NÃO cria despesa nova.
       const settle = new Set(a.settleInstallmentIds.filter(id => {
