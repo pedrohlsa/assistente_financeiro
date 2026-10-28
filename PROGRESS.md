@@ -5110,9 +5110,14 @@ grupo CS (vermelho antes). Gates: 666/666, 99/99, 50/50, **535/535**,
 metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica,
 varredura e `git diff --check` passaram.
 
-Achado sem correção (já antes): "e só no nubank?" depois de "quanto gastei
-esse mes" diz "Não tenho nenhum lançamento": a restrição põe o cartão como
-filtro de lançamentos, e lançamento não carrega cartão.
+Achado (já antes): "e só no nubank?" depois de "quanto gastei esse mes"
+dizia "Não tenho nenhum lançamento": a restrição punha o cartão como filtro
+de lançamentos, e lançamento não carrega cartão. Corrigido em seguida, como
+a consulta direta já fazia: cartão sobre lançamentos é a fatura dele ("Faturas
+do Nubank este mês: R$ 400,00"; "e no inter?" depois de "em setembro" dá a
+de setembro). 1 caso no grupo CS (vermelho antes). Gates: 666/666, 99/99,
+50/50, **536/536**, metamórficos, fuzz, 151/151, 468; typechecks,
+`test:money`, build, rubrica, varredura e `git diff --check` passaram.
 
 ## Pendências em 28/10/2026 (HEAD `4e16b70`)
 

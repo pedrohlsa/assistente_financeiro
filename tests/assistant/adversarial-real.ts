@@ -3058,6 +3058,11 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const focoGasto = (await turnoHoje(rico, 'quanto gastei esse mes')).focus
     const noMercado = limpa((await turnoHoje(rico, 'e no mercado?', focoGasto)).reply)
     out.push(result('CS-rotulo-do-texto', noMercado, 'o cabeçalho cita o mercado', /^Total gasto - Mercado/i.test(noMercado)))
+    // "E só no nubank?" depois de um gasto é a fatura do Nubank (R$ 400,00 no
+    // mês): lançamento não carrega cartão, e o filtro dizia "não tenho nada".
+    const noNubank = limpa((await turnoHoje(rico, 'e so no nubank?', focoGasto)).reply)
+    out.push(result('CS-cartao-depois-de-gasto', noNubank, 'fatura do Nubank, R$ 400,00',
+      /Nubank/.test(noNubank) && /R\$ 400,00/.test(noNubank) && !/Não tenho nenhum lançamento/.test(noNubank)))
     // Grãos diferentes: "este mês" contra "a semana passada" é semana com semana.
     const focoMes = (await turnoHoje(rico, 'quanto gastei esse mes')).focus
     const semana = limpa((await turnoHoje(rico, 'compara com a semana passada', focoMes)).reply)

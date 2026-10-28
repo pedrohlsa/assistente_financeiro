@@ -807,6 +807,13 @@ function refinaConsulta(
         ? state.categories.find(c => c.id === cat)?.name || sentenceCase(alvo)
         : sentenceCase(alvo)}`
       : base.label
+    // Cartão sobre lançamentos é a FATURA dele, como na consulta direta:
+    // lançamento não carrega cartão, e "e só no nubank?" depois de um gasto
+    // dizia "não tenho nenhum lançamento".
+    if (cartao && base.source === 'transactions') {
+      delete filtro.txType
+      return planned({ ...base, source: 'invoices', field: 'amount', filter: filtro, label: 'Faturas', group: 'none' }, `só ${alvo}`)
+    }
     return planned({ ...base, filter: filtro, label, group: cartao || cat ? 'none' : base.group }, `só ${alvo}`)
   }
 
