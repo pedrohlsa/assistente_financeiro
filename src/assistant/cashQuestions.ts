@@ -258,6 +258,14 @@ export const pedeListaDeParcelamentos = (t: string): boolean =>
   || /\bquantas\s+parcelas\s+(?:eu\s+)?(?:tenho|faltam|restam|ainda)\b(?![^?]*\bd[oa]s?\s+[a-z])/.test(t)
   || /\bquanto\s+(?:eu\s+)?(?:ja\s+)?parcelei\b/.test(t)
 
+/**
+ * "Quanto posso gastar (por dia, hoje, esse mês)": quanto cabe no saldo.
+ * "Quanto devo gastar por dia" é a mesma pergunta; a DSL lia a média do que já
+ * foi gasto.
+ */
+export const pedeQuantoPossoGastar = (t: string): boolean =>
+  /\bquanto\s+(?:eu\s+)?(?:posso|devo|deveria|da\s+para|consigo|poderia)\s+gastar\b|\bda\s+para\s+gastar\s+quanto\b/.test(t)
+
 /** "Qual a maior parcela", "a parcela mais cara". */
 export const pedeMaiorParcela = (t: string): boolean =>
   /\b(?:maior|mais\s+cara|mais\s+alta)\s+parcela\b|\bparcela\s+mais\s+(?:cara|alta)\b/.test(t)

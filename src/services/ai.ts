@@ -27,7 +27,7 @@ import {
 } from './calc'
 import type { CashObligation } from './calc'
 import {
-  alvoDaReserva, diaDaSemanaPedido, mesesAtePrazo, pedeDividaTotal, pedeFimDoParcelamento, pedeListaDeParcelamentos, pedeLimite, pedeMaiorParcela, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeResumoDoDia, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
+  alvoDaReserva, diaDaSemanaPedido, mesesAtePrazo, pedeDividaTotal, pedeFimDoParcelamento, pedeListaDeParcelamentos, pedeQuantoPossoGastar, pedeLimite, pedeMaiorParcela, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeResumoDoDia, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
   perguntaDeFatura, perguntaDeManutencao,
   planoDeGuardar, prazoDasContas, retiraDaReserva,
 } from '../assistant/cashQuestions'
@@ -899,23 +899,46 @@ function resolveLocal(s: AppState, input: string): AiReply {
   }
 
   // "quanto posso gastar hoje" — usa o saldo (modo banco) quando informado
-  if (/quanto\s+(?:eu\s+)?(?:posso|da\s+para|consigo|poderia)\s+gastar|da\s+para\s+gastar\s+quanto/.test(t)) {
+  if (pedeQuantoPossoGastar(t)) {
     if (hasAmbiguousLegacyCardBalance(s)) return { text: AMBIGUOUS_BALANCE_REPLY }
     const ts = todayStats(s)
     const goal = dailyGoal(s)
-    const bo = balanceOutlook(s, 7)
     if (currentBalance(s) !== 0) {
-      const livre = Math.max(bo.leftover, 0)
-      if (bo.ok) {
-        return {
-          text: `Você tem ${fmtBRL(bo.balance)} em conta.` +
-            (bo.bills.length ? ` Descontando ${fmtBRL(bo.billsSoon)} das contas dos próximos ${bo.horizon} dias, sobram ${fmtBRL(livre)}.` : '') +
-            ` Dá pra gastar até uns ${fmtBRL(livre * 0.7)} hoje mantendo uma folga de segurança. (estimativa)`,
-        }
+      // Saldo menos o que vence (fatura e o que já venceu: as mesmas fontes de
+      // "o que vence") e o que falta da meta de guardar do mês, dividido pelo
+      // prazo. Antes: 70% do saldo menos só as contas fixas de 7 dias, como
+      // gasto de HOJE — "R$ 9.586,50 hoje" com duas faturas na frente e a
+      // pergunta sendo "por dia". "Esse mês" vai até o último dia; o resto,
+      // 30 dias, sem contar o que ainda vai entrar.
+      const hoje = todayISO()
+      const d = fromISO(hoje)
+      const doMes = /\b(?:esse|este|nesse|neste|no)\s+mes\b|\bate\s+o\s+fim\s+do\s+mes\b/.test(t)
+      const fimDoMes = new Date(d.getFullYear(), d.getMonth() + 1, 0)
+      const ate = doMes ? toISO(fimDoMes) : addDays(hoje, 29)
+      const dias = doMes ? fimDoMes.getDate() - d.getDate() + 1 : 30
+      const todas = cashObligationsUntil(s, ate)
+      const certas = todas.filter(o => !o.unconfirmed)
+      const contas = somaDe(certas)
+      const guardar = round2(monthlySavingGoal(s).missing)
+      const saldo = currentBalance(s)
+      const livre = round2(saldo - contas - guardar)
+      const tirando = [
+        certas.length ? `${fmtBRL(contas)} que vencem até ${diaMes(ate)} (${certas.length === 1 ? '1 item' : `${certas.length} itens`})` : '',
+        guardar > 0 ? `${fmtBRL(guardar)} que faltam da meta de guardar do mês` : '',
+      ].filter(Boolean)
+      if (livre <= 0) {
+        return { text: [`Nada além do essencial: seu saldo de ${fmtBRL(saldo)} não cobre ${listaDeNomes(tirando)} — faltam ${fmtBRL(-livre)}.`,
+          linhasDeObrigacao(certas), semConfirmacao(todas)].filter(Boolean).join('\n\n') }
       }
-      return {
-        text: `Cuidado: você tem ${fmtBRL(bo.balance)} em conta, mas ${fmtBRL(bo.billsSoon)} em contas nos próximos ${bo.horizon} dias — faltam ${fmtBRL(bo.shortfall)}.\n\nO ideal é não gastar nada extra hoje e priorizar fazer ~${fmtBRL(bo.needPerDay)} por dia até quitar.`,
-      }
+      const porDia = round2(livre / dias)
+      const abre = doMes
+        ? `Até ${diaMes(ate)} dá para gastar até ${fmtBRL(livre)}, uns ${fmtBRL(porDia)} por dia.`
+        : `Dá uns ${fmtBRL(porDia)} por dia nos próximos 30 dias.`
+      const conta = `Seu saldo é ${fmtBRL(saldo)}${tirando.length ? `; tirando ${listaDeNomes(tirando)}, sobram ${fmtBRL(livre)}` : ''}, sem contar o que ainda vai entrar. (estimativa)`
+      // Fim de mês perto: o que vence logo depois também é desse saldo.
+      const depois = doMes ? round2(somaDe(cashObligationsUntil(s, addDays(hoje, 29)).filter(o => !o.unconfirmed)) - contas) : 0
+      const aviso = depois > 0.009 ? `Logo depois, até ${diaMes(addDays(hoje, 29))}, vencem mais ${fmtBRL(depois)}.` : ''
+      return { text: [abre, conta, aviso, linhasDeObrigacao(certas), semConfirmacao(todas)].filter(Boolean).join('\n\n') }
     }
     // Sem saldo informado: motorista usa a meta diária; os outros perfis usam o mês.
     if (!driverMode) {

@@ -4844,6 +4844,33 @@ literais do fixture). Gates: 666/666, 99/99, 50/50, **487/487**, metamórficos,
 fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica (agora 85
 excelentes, 5 aceitáveis), varredura e `git diff --check` passaram.
 
+## 2026-10-28 — "quanto posso gastar por dia"
+
+Resposta perigosa: "quanto posso gastar por dia" (e "hoje", e "esse mes")
+respondia "Dá pra gastar até uns R$ 9.586,50 hoje mantendo uma folga de
+segurança": 70% do saldo menos só as contas fixas dos próximos 7 dias
+(`balanceOutlook`), como gasto de HOJE. A fatura do Inter atrasada e a do
+Nubank vencendo hoje (R$ 800,00) ficavam fora, o "por dia" era ignorado, e
+"esse mês" recebia a mesma frase. "Quanto devo gastar por dia" ia para a
+consulta e devolvia a média do que já foi gasto (R$ 84,75).
+
+Agora `pedeQuantoPossoGastar()` cobre "posso/devo/deveria/consigo gastar", a
+DSL recusa, e a conta é: saldo menos o que vence no prazo (as mesmas fontes
+de "o que vence": faturas, contas e o que já venceu; o que falta confirmar
+vai à parte) menos o que falta da meta de guardar do mês, dividido pelos
+dias. Sem prazo dito, 30 dias: "Dá uns R$ 406,50 por dia nos próximos 30
+dias", com a conta e os itens; "esse mês" vai até o último dia e avisa o que
+vence logo depois. Sem contar o que ainda vai entrar, e dito assim. Sem
+saldo informado, segue o caminho anterior (mês ou meta do dia). 3 casos no
+grupo GD (os 3 vermelhos antes; teto do "por dia" = (saldo − R$ 800,00) / 30,
+com o saldo do fixture). Gates: 666/666, 99/99, 50/50, **490/490**,
+metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica,
+varredura e `git diff --check` passaram.
+
+Decisão registrada: o prazo do "por dia" é de 30 dias e desconta a meta de
+guardar do mês. A Home continua com `balanceOutlook` (decisão pendente
+abaixo).
+
 ## Pendências em 28/10/2026 (HEAD `74899d2`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **472/472 adversariais**, 4.088 + 3.800
@@ -4860,8 +4887,7 @@ seções de 27/10 acima):
 - "Quanto paguei de fatura" e "quando paguei a fatura do nubank" dão o resumo
   dos cartões, não o que foi pago e quando; "antecipei a fatura do nubank"
   também.
-- "Quanto devo gastar por dia" responde a média gasta, não quanto dá para
-  gastar; "devo muito?" cai na ajuda.
+- "Devo muito?" cai na ajuda.
 - "Quanto guardei nas metas esse mes" responde o total até agora (a meta não
   guarda depósitos por mês).
 

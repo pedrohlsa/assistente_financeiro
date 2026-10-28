@@ -2894,6 +2894,30 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /Falta pagar R\$ 800,00/.test(fatura) && !/Cadastre|Não tenho|para pagar|Situação dos seus cartões/.test(fatura)))
   }
 
+  // "Quanto posso gastar por dia" dava 70% do saldo menos só as contas fixas de
+  // 7 dias, como gasto de HOJE: "R$ 9.586,50 hoje", com a fatura do Inter
+  // atrasada e a do Nubank vencendo hoje (R$ 800,00) fora da conta. O limite
+  // por dia tem que caber em 30 dias do saldo depois dessas faturas, e "esse
+  // mês" vai até o último dia do mês. "Quanto devo gastar por dia" é a mesma
+  // pergunta, não a média do que já foi gasto.
+  {
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const saldo = currentBalance(rico)
+    const valorDe = (s: string, re: RegExp) => { const m = s.match(re); return m ? Number(m[1].replace(/\./g, '').replace(',', '.')) : NaN }
+    for (const [id, msg] of [['GD-posso-por-dia', 'quanto posso gastar por dia'], ['GD-devo-por-dia', 'quanto devo gastar por dia']]) {
+      const r = limpa((await turnoHoje(rico, msg)).reply)
+      const porDia = valorDe(r, /R\$ ([\d.]+,\d{2}) por dia/)
+      out.push(result(id, r, `por dia ≤ (saldo − faturas) / 30 = ${((saldo - 800) / 30).toFixed(2)}, com as faturas na conta`,
+        porDia > 0 && porDia <= (saldo - 800) / 30 + 0.01 && /Inter/.test(r) && /Nubank/.test(r) && !/hoje mantendo|Dividido pelos/.test(r)))
+    }
+    const ultimo = new Date(Number(hoje.slice(0, 4)), Number(hoje.slice(5, 7)), 0)
+    const fimDoMes = `${String(ultimo.getDate()).padStart(2, '0')}/${hoje.slice(5, 7)}`
+    const mes = limpa((await turnoHoje(rico, 'quanto posso gastar esse mes')).reply)
+    out.push(result('GD-posso-esse-mes', mes, `até ${fimDoMes}, com as faturas na conta`,
+      mes.includes(fimDoMes) && /Inter/.test(mes) && !/hoje mantendo/.test(mes)))
+  }
+
   // Lista dos parcelamentos: quais são, quantas parcelas faltam, quanto foi
   // parcelado num cartão e quando foi a compra. Antes: a soma sem nomes, o
   // resumo dos cartões sem contagem, a fatura do mês e a ajuda genérica.
