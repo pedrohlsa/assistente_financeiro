@@ -162,7 +162,7 @@ function firstSavingMonth(t: string, hoje: string): string | undefined {
 }
 
 /** Parar um tipo de gasto: "parar a obra", "cortar o lazer", "não gastar mais com mercado". */
-const PARAR_GASTO = /\b(?:parar|pare|parasse|parando|cortar|corte|cortasse|tirar|tirasse|deixar\s+de\s+gastar|nao\s+gastar\s+mais|parar\s+de\s+gastar)\b/
+const PARAR_GASTO = /\b(?:parar|pare|parasse|parando|cortar|corte|cortasse|tirar|tirasse|cancelar|cancelasse|cancelo|deixar\s+de\s+gastar|nao\s+gastar\s+mais|parar\s+de\s+gastar)\b/
 
 function planSingleScenario(
   state: AppState, input: string, opts: { today?: string; focusCategory?: string } = {},
@@ -204,6 +204,15 @@ function planSingleScenario(
   // PROJEÇÃO FACTUAL. Guardar/poupar ficam de fora — "parar de guardar" é
   // outra conta, e sem representação ainda.
   if (PARAR_GASTO.test(t) && !/\bguard|\bpoup|\bjunt|\bsepar/.test(t)) {
+    // Conta fixa citada pelo nome vem antes da categoria: "parar de pagar a
+    // internet" ia para Assinaturas (a palavra-chave) e dizia "não achei
+    // base", com a Internet cadastrada em Casa.
+    const conta = (state.recurring || []).find(r => r.kind !== 'income' && r.active !== false && r.name?.trim()
+      && new RegExp(`\\b${semAcento(r.name).toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(t))
+    if (conta) {
+      return base('cut', { category: conta.category, description: conta.name, recurringId: conta.id,
+        months: horizonte(t, opts.today || todayISO()) }, `parar de pagar ${conta.name}`)
+    }
     // A entidade pode ter ficado na conversa: "quanto gasto com obra?" → "e se
     // parar?". Sem categoria nem no texto nem no foco, não há o que simular.
     const categoria = categoriaDe(state, t) || opts.focusCategory

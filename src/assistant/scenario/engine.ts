@@ -10,7 +10,7 @@
 // tivesse comprado.
 
 import type { AppState, Installment, InstallmentPlan, Transaction } from '../../models/types'
-import { addDays, fmtNum, fromISO, monthKey, todayISO, toISO } from '../../utils/format'
+import { addDays, fmtBRL, fmtNum, fromISO, monthKey, todayISO, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase } from '../../utils/text'
 import {
   balanceOutlook, currentBalance, dailyGoal, monthlyProjections, monthlySavingGoal, periodStats,
@@ -145,15 +145,19 @@ function runCompoundMonths(
 
   for (const step of steps) {
     if (step.kind === 'cut') {
-      if (step.category && cutCategories.has(step.category)) {
+      const chave = step.recurringId || step.category
+      if (chave && cutCategories.has(chave)) {
         caveats.push(`O corte em ${step.description || step.category} apareceu mais de uma vez; apliquei uma vez só.`)
         continue
       }
-      const cut = step.category ? cutPerMonth(state, step.category, hoje) : undefined
-      const recurring = (projectedState.recurring || []).filter(r => r.kind !== 'income' && r.category === step.category && r.active !== false)
+      // Conta fixa pelo nome: só ela sai, e a média da categoria não entra (a
+      // de Casa mistura Luz e Internet).
+      const cut = step.category && !step.recurringId ? cutPerMonth(state, step.category, hoje) : undefined
+      const recurring = (projectedState.recurring || []).filter(r => r.kind !== 'income' && r.category === step.category && r.active !== false
+        && (!step.recurringId || r.id === step.recurringId))
       if (!cut && !recurring.length) { incomplete = true; caveats.push(`Não achei base para estimar o corte em ${step.description || step.category || 'esse gasto'}.`); continue }
-      cutCategories.add(step.category!)
-      const represented = representedRecurringExpenseMonths(projectedState, step.category!, meses, hoje)
+      cutCategories.add(chave!)
+      const represented = representedRecurringExpenseMonths(projectedState, step.category!, meses, hoje, step.recurringId)
       if (recurring.length) projectedState = { ...projectedState, recurring: projectedState.recurring.filter(r => !recurring.includes(r)) }
       const alreadyReduced = priorReductions.get(step.category!) || represented.map(() => 0)
       effects.forEach((_, i) => { effects[i] += Math.max(represented[i] - alreadyReduced[i], 0) })
@@ -162,7 +166,10 @@ function runCompoundMonths(
         caveats.push('O histórico variável é contexto, não crédito: só retirei despesas futuras já cadastradas na projeção.')
       }
       if (!represented.some(x => x > 0)) caveats.push(`Não há ${step.description || step.category} futuro cadastrado para retirar da sobra projetada.`)
-      if (recurring.length) caveats.push(`Também retirei da simulação ${recurring.length} conta(s) recorrente(s) dessa categoria, respeitando início e fim cadastrados.`)
+      if (step.recurringId && recurring.length) {
+        const r = recurring[0]
+        caveats.push(`Retirei da simulação só a conta fixa ${r.name}, de ${fmtBRL(r.amount)} por vencimento, respeitando início e fim cadastrados.`)
+      } else if (recurring.length) caveats.push(`Também retirei da simulação ${recurring.length} conta(s) recorrente(s) dessa categoria, respeitando início e fim cadastrados.`)
       continue
     }
     if (step.kind === 'reduce') {

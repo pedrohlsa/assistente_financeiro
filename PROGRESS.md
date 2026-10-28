@@ -5132,6 +5132,28 @@ controle). Gates: 666/666, 99/99, 50/50, **538/538**, metamórficos, fuzz,
 151/151, 468; typechecks, `test:money`, build, rubrica, varredura e `git diff
 --check` passaram.
 
+## 2026-10-28 — "se eu parar de pagar a internet" simula a conta fixa
+
+"Se eu parar de pagar a internet quanto sobra?" respondia "Se você parar os
+gastos com Assinaturas… R$ 0,00… Não achei base": a simulação de corte
+resolvia o alvo pela palavra-chave ("internet" é Assinaturas), e a conta
+fixa Internet do fixture está em Casa. Cortar a categoria Casa também não
+servia: tiraria a Luz junto. "Se eu cancelar a internet" nem era reconhecido.
+
+Agora o corte procura antes uma conta fixa citada pelo nome e, achando, leva
+o `recurringId`: o motor retira só aquela conta (a média da categoria não
+entra, porque misturaria Luz e Internet) e diz "Retirei da simulação só a
+conta fixa Internet, de R$ 120,00 por vencimento" (R$ 600,00 no horizonte).
+`representedRecurringExpenseMonths()` ganhou o filtro opcional por conta.
+"Cancelar" passou a ser verbo de corte. 2 casos no grupo CFX (os 2 vermelhos
+antes). Gates: 666/666, 99/99, 50/50, **540/540**, metamórficos, fuzz,
+151/151, 468; typechecks, `test:money`, build, rubrica, varredura e `git diff
+--check` passaram.
+
+Achado sem correção, da mesma sondagem: "e se eu cortar o mercado pela
+metade?" responde "Se você PARAR os gastos com Alimentação" — a metade vira
+corte total.
+
 ## Pendências em 28/10/2026 (HEAD `0e1efb3`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **536/536 adversariais**, 4.088 + 3.800

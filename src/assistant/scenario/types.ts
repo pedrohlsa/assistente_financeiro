@@ -48,6 +48,8 @@ export interface AssistantScenarioPlan {
   origin?: string
   category?: string
   description?: string
+  /** Conta fixa citada pelo nome ("parar de pagar a internet"): o corte é só dela. */
+  recurringId?: string
   /** Quando o gasto acontece, como o usuário disse ("este mês"). Ausente = hoje. */
   when?: string
   hoursPerDay?: number

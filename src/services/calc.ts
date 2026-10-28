@@ -333,16 +333,20 @@ function projectedRecurringAmount(s: AppState, r: RecurringExpense, from: string
     .reduce(sum => sum + r.amount, 0)
 }
 
-/** Despesa da categoria que a própria projeção representaria em cada mês. */
+/**
+ * Despesa da categoria que a própria projeção representaria em cada mês. Com
+ * `recurringId`, só a daquela conta fixa ("parar de pagar a internet" não
+ * tira a Luz, que também é Casa).
+ */
 export function representedRecurringExpenseMonths(
-  s: AppState, category: string, months: number, today = todayISO(),
+  s: AppState, category: string, months: number, today = todayISO(), recurringId?: string,
 ): number[] {
   const start = fromISO(today)
   return Array.from({ length: months }, (_, i) => {
     const first = toISO(new Date(start.getFullYear(), start.getMonth() + i, 1))
     const last = toISO(new Date(start.getFullYear(), start.getMonth() + i + 1, 0))
     const from = i === 0 ? today : first
-    return s.recurring.filter(r => r.kind !== 'income' && r.category === category)
+    return s.recurring.filter(r => r.kind !== 'income' && r.category === category && (!recurringId || r.id === recurringId))
       .reduce((sum, r) => sum + projectedRecurringAmount(s, r, from, last, today), 0)
   })
 }
