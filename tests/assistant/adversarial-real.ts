@@ -2724,6 +2724,29 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /Não encontrei/.test(itau) && /Itau/.test(itau) && !/termina em/.test(itau)))
   }
 
+  // Dívida sem a palavra "cartão": a DSL somava o gasto do mês (R$ 2.373,00)
+  // como se fosse o que a pessoa deve. Dívida do autonomoRico: 8 + 5 parcelas
+  // de 400 = R$ 5.200,00; no Inter, só a Geladeira: R$ 2.000,00. "Devo" modal
+  // ("quanto devo guardar") e "devo do computador" ficam como estavam.
+  {
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    for (const [id, msg] of [['DV-to-devendo', 'to devendo quanto'], ['DV-ainda-devo', 'quanto ainda devo'], ['DV-devo-no-total', 'quanto devo no total'],
+      ['DV-devo-ao-banco', 'quanto devo ao banco']]) {
+      const r = limpa((await turnoHoje(rico, msg)).reply)
+      out.push(result(id, r, 'dívida R$ 5.200,00, nunca o gasto do mês', /R\$ 5\.200,00/.test(r) && !/Total gasto/.test(r)))
+    }
+    const divida = limpa((await turnoHoje(rico, 'qual minha divida')).reply)
+    out.push(result('DV-qual-minha-divida', divida, 'começa pela dívida, R$ 5.200,00', /^Sua dívida[^\n]*R\$ 5\.200,00/.test(divida)))
+    const inter = limpa((await turnoHoje(rico, 'quanto eu to devendo no inter')).reply)
+    out.push(result('DV-devendo-no-cartao', inter, 'falta pagar no Inter R$ 2.000,00, como "quanto devo no nubank"',
+      /R\$ 2\.000,00/.test(inter) && !/Faturas do Inter este mês/.test(inter)))
+    const guardar = limpa((await turnoHoje(rico, 'quanto devo guardar por mes')).reply)
+    out.push(result('DV-devo-modal-controle', guardar, 'meta de guardar, não dívida', /guardar/.test(guardar) && !/dívida/i.test(guardar)))
+    const computador = limpa((await turnoHoje(rico, 'quanto devo do computador')).reply)
+    out.push(result('DV-devo-do-item-controle', computador, 'Computador R$ 3.200,00', /Computador/.test(computador) && /R\$ 3\.200,00/.test(computador)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

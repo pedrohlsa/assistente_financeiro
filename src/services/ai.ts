@@ -27,7 +27,7 @@ import {
 } from './calc'
 import type { CashObligation } from './calc'
 import {
-  alvoDaReserva, diaDaSemanaPedido, mesesAtePrazo, pedeFimDoParcelamento, pedeLimite, pedeMaiorParcela, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeResumoDoDia, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
+  alvoDaReserva, diaDaSemanaPedido, mesesAtePrazo, pedeDividaTotal, pedeFimDoParcelamento, pedeLimite, pedeMaiorParcela, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeResumoDoDia, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
   perguntaDeFatura, perguntaDeManutencao,
   planoDeGuardar, prazoDasContas, retiraDaReserva,
 } from '../assistant/cashQuestions'
@@ -651,7 +651,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   const ov = cardsOverview(s)
   // "Limite no Nubank" é pergunta de cartão mesmo sem a palavra "cartão"; e
   // "quando acaba a geladeira" é do parcelamento, citado pelo nome.
-  if (/parcela|fatura|cart[ãa]o|parcelamento|d[ií]vida/.test(t) || (pedeLimite(t) && activeCards(s).length > 0)
+  if (/parcela|fatura|cart[ãa]o|parcelamento|d[ií]vida/.test(t) || (pedeLimite(t) && activeCards(s).length > 0) || pedeDividaTotal(t)
     || (planoCitado(s, t) && (FIM_DO_PLANO.test(t) || /\b(?:antecip|adiantei\b|adiantar\b)/.test(t)))) {
     if (!ov.hasData) {
       return { text: 'Você ainda não cadastrou cartões nem parcelamentos. Você pode adicionar em Mais → Cartões e parcelamentos.' }
@@ -699,9 +699,9 @@ function resolveLocal(s: AppState, input: string): AiReply {
     }
 
     // "quanto devo de cartão / minha dívida"
-    if (/(quanto.*(devo|dívida|divida))|d[ií]vida total/.test(t)) {
+    if (pedeDividaTotal(t) || /(quanto.*(devo|dívida|divida))|d[ií]vida total/.test(t)) {
       return {
-        text: `Sua dívida parcelada restante é ${fmtBRL(ov.totalDebt)} em ${ov.activePlanCount} parcelamento(s).\n\n` +
+        text: `Sua dívida parcelada restante é ${fmtBRL(ov.totalDebt)} em ${ov.activePlanCount} ${ov.activePlanCount === 1 ? 'parcelamento' : 'parcelamentos'}.\n\n` +
           `• Faturas em aberto agora: ${fmtBRL(ov.openInvoicesTotal)}\n` +
           `• Parcelas deste mês: ${fmtBRL(ov.installmentsThisMonth)}\n` +
           `• Próximo mês: ${fmtBRL(ov.installmentsNextMonth)}` +

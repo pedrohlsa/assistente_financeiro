@@ -30,7 +30,7 @@ import { addDays, fromISO, todayISO, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase } from '../../utils/text'
 import { isDriver } from '../../services/profile'
 import { buildPersonalModel, adaptiveEnabled } from '../personalModel'
-import { pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeFimDoParcelamento, pedeLimite, pedeMaiorParcela, pedeSobraSemCombustivel, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, perguntaDeManutencao, planoDeGuardar } from '../cashQuestions'
+import { pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeDividaTotal, pedeFimDoParcelamento, pedeLimite, pedeMaiorParcela, pedeSobraSemCombustivel, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, perguntaDeManutencao, planoDeGuardar } from '../cashQuestions'
 import {
   currentMonthToDate, monthPeriod, nextMonths, parseFutureMonth, parsePeriod, previousPeriod,
 } from './period'
@@ -150,7 +150,7 @@ export function looksLikeDataQuestion(input: string): boolean {
   if (pedeReservaDeCaixa(t) || pedeContaQueAperta(t) || pedeTotalGuardado(t) || perguntaDeFatura(t)
     || pedeContasAPagar(t) || planoDeGuardar(t) || perguntaDeManutencao(t)
     || pedeContasFixas(t) || pedeSobraSemCombustivel(t) || pedeLimite(t)
-    || pedeFimDoParcelamento(t) || pedeMaiorParcela(t)) return false
+    || pedeFimDoParcelamento(t) || pedeMaiorParcela(t) || pedeDividaTotal(t)) return false
   return PEDE_DADO.some(re => re.test(t))
 }
 
@@ -849,7 +849,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   // cartão (regra 10 — compra parcelada não vira Transaction). A fonte certa é
   // a dívida ou a fatura, e qual delas depende do que se perguntou.
   if (group === 'card' && source === 'transactions') {
-    source = /\bcomprometid|\bpesad|\bdivida|\bdevo\b|\bfalta\b/.test(t0) ? 'plans' : 'invoices'
+    source = /\bcomprometid|\bpesad|\bdivida|\bdevo\b|\bdevendo\b|\bfalta\b/.test(t0) ? 'plans' : 'invoices'
   }
   // Plataforma (Uber, 99, inDrive) é de onde o dinheiro VEM. Sem verbo de gasto
   // explícito, "uber ou 99, qual me dá mais?" é pergunta de receita — comparar
@@ -1112,7 +1112,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   // Cartão citado (incluído ou excluído) em `transactions` não filtra nada:
   // lançamento não carrega cartão. A pergunta é sobre dívida ou fatura.
   if (source === 'transactions' && (filter.cardNames?.length || filter.excludeCardNames?.length)) {
-    source = /\bcomprometid|\bpesad|\bdivida|\bdevo\b|\bfalta\b|\bparcelad/.test(t0) ? 'plans' : 'invoices'
+    source = /\bcomprometid|\bpesad|\bdivida|\bdevo\b|\bdevendo\b|\bfalta\b|\bparcelad/.test(t0) ? 'plans' : 'invoices'
     delete filter.txType
     if (source === 'plans') period = janelaAberta(hoje)
   }

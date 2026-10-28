@@ -4622,6 +4622,35 @@ varredura e `git diff --check` passaram.
 Achado sem correção: "antecipei a fatura do nubank" devolve o resumo dos
 cartões (é pagamento adiantado, não antecipação de parcela).
 
+## 2026-10-27 — "tô devendo quanto" não é gasto do mês
+
+Dinheiro errado: "to devendo quanto", "quanto ainda devo", "quanto devo no
+total" e "quanto devo ao banco" respondiam "Total gasto este mês: R$
+2.373,00". A DSL lia "devo" como gasto e somava o mês; a dívida do fixture é
+R$ 5.200,00. "Qual minha dívida" caía no resumo dos cartões, e "quanto eu to
+devendo no inter" dava só a fatura do mês (R$ 400,00), enquanto "quanto devo
+no nubank" dava o que falta (R$ 3.200,00): a DSL só reconhecia "devo" como
+dívida, não "devendo".
+
+Agora `pedeDividaTotal()` faz a DSL recusar e abre a seção de cartões, que já
+tinha a resposta da dívida ("Sua dívida parcelada restante é…", com o plural
+de "parcelamentos" corrigido). Ficam de fora a dívida com dono ("devo do
+computador", "devendo no inter", "devo pro joão") e o "devo" modal ("quanto
+devo guardar"). A DSL também lê "devendo" como dívida quando há cartão
+citado. 9 casos no grupo DV (6 vermelhos antes, 3 controles). Gates: 666/666,
+99/99, 50/50, **451/451**, metamórficos, fuzz, 151/151, 468; typechecks,
+`test:money`, build, rubrica, varredura e `git diff --check` passaram.
+
+Achados sem correção, da mesma sondagem:
+- "quanto tenho de parcela pra pagar mes que vem" diz que não há parcelas
+  "com 'para pagar'" (há duas de R$ 400,00);
+- "quanto vou pagar de cartao em dezembro" diz que não há lançamento com
+  "cartao";
+- "quais meus parcelamentos" dá só a soma, sem listar; "quantas parcelas eu
+  tenho" não dá a contagem;
+- "comprei um celular de 1200 em 10x" vai para Assinaturas;
+- "quanto devo gastar por dia" responde a média gasta, não quanto pode gastar.
+
 ## Pendências em 27/10/2026 (HEAD `73c8d24`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800

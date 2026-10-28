@@ -233,6 +233,18 @@ export const pedeFimDoParcelamento = (t: string): boolean =>
   /\bultimas?\s+parcelas?\b/.test(t)
   || (/\bparcel/.test(t) && /\b(?:quando|que\s+mes|que\s+dia)\b[^?]*\b(?:acaba|acabam|termina|terminam|quita|quito|termino|acabo)\b/.test(t))
 
+/**
+ * "Tô devendo quanto", "quanto ainda devo", "qual minha dívida": a dívida toda.
+ * A DSL lia "devo" como gasto e somava o mês. Fica de fora o que tem dono —
+ * "devo do computador", "devendo no inter" — e o "devo" modal ("quanto devo
+ * guardar"), que não é dívida.
+ */
+export const pedeDividaTotal = (t: string): boolean =>
+  (/\b(?:quanto|qual|quais)\b/.test(t) || /\b(?:to|estou|esta)\s+devendo\b/.test(t))
+  && /\b(?:devo|devendo|dividas?)\b/.test(t)
+  && !/\bdevo\s+(?:\w+\s+)?[a-z]+(?:ar|er|ir)\b/.test(t)
+  && !/\b(?:devo|devendo|dividas?)\s+(?:(?:ainda|hoje|agora)\s+)?(?:d[oa]s?|n[oa]s?|com(?:\s+[oa]s?)?|pr[oa]s?|para(?:\s+[oa]s?)?|ao|a)\s+(?!(?:total|geral|todo|tudo|cartao|cartoes|banco|bancos)\b)[a-z]/.test(t)
+
 /** "Qual a maior parcela", "a parcela mais cara". */
 export const pedeMaiorParcela = (t: string): boolean =>
   /\b(?:maior|mais\s+cara|mais\s+alta)\s+parcela\b|\bparcela\s+mais\s+(?:cara|alta)\b/.test(t)
