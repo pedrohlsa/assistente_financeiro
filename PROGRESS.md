@@ -4768,6 +4768,28 @@ vermelhos antes; somas dos lançamentos do fixture). Gates: 666/666, 99/99,
 50/50, **472/472**, metamórficos, fuzz, 151/151, 468; typechecks,
 `test:money`, build, rubrica, varredura e `git diff --check` passaram.
 
+## 2026-10-28 — "pra pagar", "vence" e "cartão" não são nome de lançamento
+
+"Não tenho" falso: "quanto tenho de parcela pra pagar mes que vem" dizia
+"Não tenho parcelas… com 'para pagar'" (há R$ 800,00); "quanto de parcela
+vence em dezembro", o mesmo "com 'vence'"; "quanto vou pagar de cartao em
+dezembro" procurava lançamentos com o texto "cartao"; e "quanto tenho de
+fatura pra pagar" mandava "Cadastre um cartão" a quem tem dois. As palavras
+que descrevem a fonte sobravam no texto e viravam filtro de busca.
+
+Agora, com fonte de parcela, fatura ou parcelamento, "pra/para/a pagar" e
+"vence/vencem/vencendo" são consumidos; "pagar/vence de cartão" (o cartão em
+geral, sem nome) passa a ser fatura, decidido antes do período para que o mês
+à frente valha também ali; e "quanto tenho de fatura pra pagar" é a pergunta
+de quanto falta ("Falta pagar R$ 800,00 em faturas", cartão por cartão). 4
+casos no grupo FL (os 4 vermelhos antes; somas das parcelas pendentes do
+fixture em cada mês). Gates: 666/666, 99/99, 50/50, **476/476**,
+metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica,
+varredura e `git diff --check` passaram.
+
+Achado sem correção: "quanto de fatura vence esse mes" ainda dá o resumo dos
+cartões (certo em valores, mas sem somar o que vence).
+
 ## Pendências em 28/10/2026 (HEAD `74899d2`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **472/472 adversariais**, 4.088 + 3.800
@@ -4781,10 +4803,6 @@ real e dados legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas (detalhe nas
 seções de 27/10 acima):
-- Palavras da pergunta sobrando como texto de busca: "quanto tenho de parcela
-  pra pagar mes que vem" ("com 'para pagar'"), "quanto vou pagar de cartao em
-  dezembro" ("com 'cartao'"), "quanto de parcela vence em dezembro" ("com
-  'vence'") dizem que não há nada.
 - "Quanto vou receber em novembro" é lido como gasto.
 - "Quanto paguei de fatura" e "quando paguei a fatura do nubank" dão o resumo
   dos cartões, não o que foi pago e quando; "antecipei a fatura do nubank"

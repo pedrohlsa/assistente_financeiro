@@ -2864,6 +2864,36 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /[Ff]reela/.test(freelaMes) && !/lucro|faturou/i.test(freelaMes)))
   }
 
+  // "Pra pagar", "vence" e "cartão" genérico descrevem a FONTE (parcela,
+  // fatura), não um nome. Sobrando, viravam busca por texto e a resposta dizia
+  // "não tenho parcelas com 'para pagar'" — ou mandava cadastrar um cartão a
+  // quem tem dois. Somas das parcelas pendentes do fixture em cada mês.
+  {
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const fmt = (v: number) => `R$ ${v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`
+    const nomes = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+    const mesAdiante = (n: number) => new Date(Number(hoje.slice(0, 4)), Number(hoje.slice(5, 7)) - 1 + n, 1)
+    const pendentesEm = (d: Date) => {
+      const prefixo = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      return rico.installments.filter(i => i.status === 'pending' && i.dueDate.startsWith(prefixo)).reduce((a, i) => a + i.amount, 0)
+    }
+    const proximo = pendentesEm(mesAdiante(1))
+    const praPagar = limpa((await turnoHoje(rico, 'quanto tenho de parcela pra pagar mes que vem')).reply)
+    out.push(result('FL-parcela-pra-pagar', praPagar, `${fmt(proximo)} no mês que vem`,
+      proximo > 0 && praPagar.includes(fmt(proximo)) && !/Não tenho|para pagar/.test(praPagar)))
+    const daqui2 = mesAdiante(2)
+    const vence = limpa((await turnoHoje(rico, `quanto de parcela vence em ${nomes[daqui2.getMonth()]}`)).reply)
+    out.push(result('FL-parcela-vence', vence, `${fmt(pendentesEm(daqui2))} em ${nomes[daqui2.getMonth()]}`,
+      pendentesEm(daqui2) > 0 && vence.includes(fmt(pendentesEm(daqui2))) && !/Não tenho|"vence"/.test(vence)))
+    const cartao = limpa((await turnoHoje(rico, `quanto vou pagar de cartao em ${nomes[daqui2.getMonth()]}`)).reply)
+    out.push(result('FL-pagar-de-cartao', cartao, `faturas de ${nomes[daqui2.getMonth()]}: ${fmt(pendentesEm(daqui2))}`,
+      cartao.includes(fmt(pendentesEm(daqui2))) && !/Não tenho|"cartao"/.test(cartao)))
+    const fatura = limpa((await turnoHoje(rico, 'quanto tenho de fatura pra pagar')).reply)
+    out.push(result('FL-fatura-pra-pagar', fatura, 'falta pagar R$ 800,00 em faturas, nunca "cadastre um cartão"',
+      /Falta pagar R\$ 800,00/.test(fatura) && !/Cadastre|Não tenho|para pagar|Situação dos seus cartões/.test(fatura)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

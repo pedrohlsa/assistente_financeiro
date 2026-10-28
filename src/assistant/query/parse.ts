@@ -859,6 +859,22 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     if (!GASTO.test(t0)) metrica.valor.txType = ['income']
   }
 
+  // "Quanto vou pagar DE CARTÃO em dezembro": o cartão em geral, sem nome, é a
+  // fatura. Em lançamentos ele virava a busca pelo texto "cartao".
+  const cartaoGeral = source === 'transactions' && cartoes.length === 0
+    && /\b(?:pagar|pago|pagando|vence|vencem|vou\s+pagar)\b/.test(t0)
+    ? rest.texto.match(/\b(?:de|no|em|com|nos)\s+(?:meus?\s+)?cart(?:ao|oes)\b/) : null
+  if (cartaoGeral) {
+    source = 'invoices'
+    rest.consome(cartaoGeral[0])
+  }
+  // "Pra pagar", "a pagar", "vence" descrevem a parcela e a fatura, não um
+  // nome. Sobrando, viravam a busca por "para pagar", e a resposta dizia que
+  // não havia nada — ou mandava cadastrar um cartão a quem tem dois.
+  if (source === 'installments' || source === 'invoices' || source === 'plans') {
+    for (const m of rest.texto.match(/\b(?:(?:para|pra|a)\s+pagar|vencem|vence|vencendo|vencer)\b/g) || []) rest.consome(m)
+  }
+
   // ---- 5) período --------------------------------------------------------
   const lido = parsePeriod(rest.texto, hoje)
   let period: QueryPeriod

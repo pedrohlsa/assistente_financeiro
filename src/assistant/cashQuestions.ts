@@ -57,7 +57,9 @@ export type PerguntaDeFatura = 'falta' | 'paga' | 'atrasada' | 'vence' | 'fecha'
 export function perguntaDeFatura(t: string): PerguntaDeFatura | null {
   if (!/\bfaturas?\b/.test(t)) return null
   if (/\bmaior\b|\bproxim[oa]s?\s+(?:\d+\s+|dois\s+|tres\s+|quatro\s+|cinco\s+|seis\s+)?meses\b|\bmes\s+que\s+vem\b|\bproximo\s+mes\b|\b(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/.test(t)) return null
-  if (/\bquanto\b[^?]*\b(?:falta|faltam|resta|restam)\b|\b(?:falta|resta)\s+(?:pagar|quitar)\b|\bquanto\s+(?:eu\s+)?(?:ainda\s+)?devo\s+d[ae]s?\s+(?:minhas?\s+)?faturas?\b/.test(t)) return 'falta'
+  // "Quanto tenho de fatura pra pagar" é o que falta, dito de outro jeito.
+  if (/\bquanto\b[^?]*\b(?:falta|faltam|resta|restam)\b|\b(?:falta|resta)\s+(?:pagar|quitar)\b|\bquanto\s+(?:eu\s+)?(?:ainda\s+)?devo\s+d[ae]s?\s+(?:minhas?\s+)?faturas?\b/.test(t)
+    || /\bquanto\b[^?]*\bfaturas?\b[^?]*\b(?:para|pra|a)\s+pagar\b|\bquanto\b[^?]*\b(?:para|pra|a)\s+pagar\b[^?]*\bfaturas?\b/.test(t)) return 'falta'
   if (/\batrasad|\bvencid|\bja\s+venceu\b/.test(t)) return 'atrasada'
   if (/\bfaturas?\b[^?]*\b(?:esta|foi|estao|foram)\s+(?:ja\s+)?pagas?\b|\bpague[iu]\b[^?]*\bfaturas?\b[^?]*\?|\bsera\s+que\s+(?:eu\s+)?(?:ja\s+)?pague[iu]\b/.test(t)) return 'paga'
   if (/\bquando\b[^?]*\bvence\b|\bvence\s+quando\b|\bque\s+dia\s+vence\b|\bvencimento\b/.test(t)) return 'vence'
