@@ -4871,14 +4871,14 @@ Decisão registrada: o prazo do "por dia" é de 30 dias e desconta a meta de
 guardar do mês. A Home continua com `balanceOutlook` (decisão pendente
 abaixo).
 
-## Pendências em 28/10/2026 (HEAD `74899d2`)
+## Pendências em 28/10/2026 (HEAD `8c3fd2f`)
 
-Estado: 666/666 corpus, 99/99, 50/50, **472/472 adversariais**, 4.088 + 3.800
+Estado: 666/666 corpus, 99/99, 50/50, **490/490 adversariais**, 4.088 + 3.800
 metamórficos, 1.416 fuzz, 151/151 invariantes, 468/468 offline (65 frases
 chegam hoje ao modelo remoto); typechecks, `test:money`, build e rubrica
 (0 perigosa, 0 ruim) verdes. Tudo local, sem DeepSeek, push, merge, deploy ou
 APK. **NOT READY para merge/deploy**: os diffs `c3648de..c824fe0`,
-`c824fe0..b049bdf`, `b049bdf..73c8d24` e `73c8d24..74899d2` (seções acima,
+`c824fe0..b049bdf`, `b049bdf..73c8d24` e `73c8d24..8c3fd2f` (seções acima,
 uma por causa) precisam de auditoria independente; navegador, persistência
 real e dados legados reais não foram revalidados.
 
