@@ -847,9 +847,21 @@ function parseClause(input: string): ParsedAction[] {
     const porValor = (!f || fSaoLitros) && litersM
       ? depoisDosLitros.match(new RegExp(String.raw`^\s*(?:por|a|custou|saiu\s+por)\s*(?:r\$)?\s*${NUM}`, 'i'))
       : null
-    const amount = f && !fSaoLitros ? parseNum(f[1]) : porValor ? parseNum(porValor[1]) : undefined
-    actions.push({ kind: 'fuel', amount, liters: litersM ? parseNum(litersM[1]) : undefined })
+    const liters = litersM ? parseNum(litersM[1]) : undefined
+    // "40 litros A 5,89" (ou "a 6,10 o litro") é o PREÇO do litro, não o total:
+    // o abastecimento entrava com R$ 5,89. Valor de litro não passa de R$ 20;
+    // "por 180" continua sendo o total.
+    const precoDoLitro = porValor && liters
+      && (/^\s*a\s/i.test(depoisDosLitros) && parseNum(porValor[1]) < 20 || /^\s*a\s*(?:r\$)?\s*[\d.,]+\s*(?:o|por|cada)\s+litro\b/i.test(depoisDosLitros))
+      ? parseNum(porValor[1]) : undefined
+    const amount = f && !fSaoLitros ? parseNum(f[1])
+      : precoDoLitro ? Math.round(precoDoLitro * liters! * 100) / 100
+        : porValor ? parseNum(porValor[1]) : undefined
+    actions.push({ kind: 'fuel', amount, liters, ...(precoDoLitro ? { pricePerLiter: precoDoLitro } : {}) })
   }
+  // Abastecimento lido pelos LITROS também é o lançamento da frase: sem esta
+  // trava, a leitura genérica de despesa ainda criava "R$ 40,00 — Litros a 5".
+  const abasteceu = !!f || actions.some(a => a.kind === 'fuel')
 
   // Hodômetro é dado do veículo, NUNCA distância trabalhada.
   // Duas formas: com a unidade explícita ("estou com 220.007 km") e a coloquial
@@ -1026,7 +1038,7 @@ function parseClause(input: string): ParsedAction[] {
   // descrição "Luz 180 de agua", e os R$ 180 sumiam dentro do texto.
   const expRe = new RegExp(String.raw`(?:${expVerbs})\s*${APROX}(?:r\$)?\s*${NUM}(?!\d|[.,]\d|\s*(?:dias|semanas|meses|anos)\b)\s*${MOEDA}?\s*(?:(?:de|com|no|na|em|para|pra)\s+)?([\wçãõáéíóúâê\s]*?)(?=\s*\d+(?:[.,]\d+)*\s*(?:${MOEDA})?\s*(?:de|com|no|na|em)\s+[a-zà-úçãõ]|[^\wçãõáéíóúâê\s]|$)`, 'i')
   const e = text.match(expRe)
-  if (e && !m && !f) {
+  if (e && !m && !abasteceu) {
     const rawDesc = (e[2] || '').trim().split(/\s+e\s+|,/)[0].trim()
     const desc = cleanDescription(rawDesc)
     actions.push({ kind: 'expense', amount: parseNum(e[1]), category: guessCategory(rawDesc || text, 'expense'), description: desc })
@@ -1034,7 +1046,7 @@ function parseClause(input: string): ParsedAction[] {
 
   // ----- refeição sem "gastei": "almocei 32 reais", "lanchei por 15". O verbo
   // já diz que houve gasto e com quê; a frase caía na ajuda genérica.
-  if (!e && !m && !f) {
+  if (!e && !m && !abasteceu) {
     const ref = text.match(new RegExp(String.raw`\b(almoc|jant|lanch)(?:ei|amos)\b\s*(?:por|de|uns|umas)?\s*(?:r\$)?\s*${NUM}(?!\d|[.,]\d)\s*${MOEDA}?\s*$`, 'i'))
     const amount = ref ? parseNum(ref[2]) : NaN
     if (ref && amount > 0) {
@@ -1046,7 +1058,7 @@ function parseClause(input: string): ParsedAction[] {
   // ----- valor ANTES do verbo de saída: "entrou 3200 do salario e 1100 SAIU de
   // aluguel". A ordem é a da fala; sem esta leitura a despesa sumia, e o
   // substantivo de renda da outra metade ainda tirava o "saiu" da lista acima.
-  if (!m && !f) {
+  if (!m && !abasteceu) {
     const valorVerboRe = new RegExp(String.raw`(?:^|\se\s|,(?!\d)|;)\s*(?:r\$)?\s*${NUM}\s*${MOEDA}?\s+saiu\s+(?:de|do|da|com|no|na|em|pr[ao])\s+([a-zà-úçãõ][\wçãõáéíóúâê]*)`, 'gi')
     for (const vv of text.matchAll(valorVerboRe)) {
       const amount = parseNum(vv[1])
@@ -1056,7 +1068,7 @@ function parseClause(input: string): ParsedAction[] {
   }
 
   // ----- despesa na ordem inversa: "comprei cimento por 190", "paguei a internet a 120"
-  if (!e && !m && !f) {
+  if (!e && !m && !abasteceu) {
     const invRe = new RegExp(String.raw`(?:gastei|paguei|comprei|torrei)\s+${APROX}(?:um|uma|o|a|uns|umas)?\s*([a-zà-úçãõ][\wçãõáéíóúâê]*(?:\s+[\wçãõáéíóúâê]+){0,2}?)\s+(?:por|a|custou|saiu por)\s*(?:r\$)?\s*${NUM}`, 'i')
     const inv = text.match(invRe)
     if (inv) {
@@ -1090,7 +1102,7 @@ function parseClause(input: string): ParsedAction[] {
       const amount = parseNum(mm[1])
       const isFuel = /gasolina|etanol|alcool|álcool|diesel|combust/.test(rawDesc)
       if (isFuel) {
-        if (!f) actions.push({ kind: 'fuel', amount })
+        if (!abasteceu) actions.push({ kind: 'fuel', amount })
       } else {
         actions.push({ kind: 'expense', amount, category: guessCategory(rawDesc, 'expense'), description: cleanDescription(rawDesc) })
       }
@@ -1109,7 +1121,7 @@ function parseClause(input: string): ParsedAction[] {
         if (!(amount > 0) || DESC_STOPWORDS.has(rawDesc)) continue
         const isFuel = /gasolina|etanol|alcool|álcool|diesel|combust/.test(rawDesc)
         if (isFuel) {
-          if (!f) actions.push({ kind: 'fuel', amount })
+          if (!abasteceu) actions.push({ kind: 'fuel', amount })
         } else {
           actions.push({ kind: 'expense', amount, category: guessCategory(rawDesc, 'expense'), description: cleanDescription(rawDesc) })
         }

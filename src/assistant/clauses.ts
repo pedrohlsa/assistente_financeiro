@@ -605,9 +605,11 @@ function unaccountedMoney(clause: AnalyzedClause): number[] {
   // Sem leitura local, a frase segue para o planejador remoto. A guarda só
   // impede que uma ação PARCIAL feche a cláusula e esconda outro valor.
   if (!clause.actions.length) return []
-  const represented = clause.actions.map(a => {
+  // O preço do litro também é valor dito e representado: "40 litros a 5,89"
+  // vira um abastecimento de R$ 235,60, e os 5,89 estão nele.
+  const represented = clause.actions.flatMap(a => {
     const v: any = a
-    return v.amount ?? v.cost
+    return [v.amount ?? v.cost, v.pricePerLiter]
   }).filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
   if (clause.unpaidRideAmount !== undefined) represented.push(clause.unpaidRideAmount)
   const missing: number[] = []

@@ -2894,6 +2894,25 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /Falta pagar R\$ 800,00/.test(fatura) && !/Cadastre|Não tenho|para pagar|Situação dos seus cartões/.test(fatura)))
   }
 
+  // "40 litros A 5,89" é o preço do litro: o abastecimento entrava com R$ 5,89,
+  // e a leitura genérica ainda criava "Despesa de R$ 40,00 — Litros a 5".
+  // Total = 40 × 5,89 = R$ 235,60. "Por 180" segue sendo o total.
+  {
+    const moto = motoristaRico(hoje)
+    const acoes = async (msg: string) => ((await turnoHoje(moto, msg)).actions as { kind: string, amount?: number, liters?: number, pricePerLiter?: number }[])
+    const turno = await turnoHoje(moto, 'coloquei 40 litros a 5,89')
+    const a = turno.actions as { kind: string, amount?: number, liters?: number, pricePerLiter?: number }[]
+    out.push(result('AB-litros-a-preco', { reply: turno.reply, actions: a }, 'um abastecimento: 40 L a 5,89 = R$ 235,60, sem perguntar dos 5,89',
+      a.length === 1 && a[0].kind === 'fuel' && a[0].liters === 40 && a[0].pricePerLiter === 5.89 && a[0].amount === 235.6
+        && !/não consegui ligar/.test(turno.reply)))
+    const oLitro = await acoes('abasteci 30 litros a 6,10 o litro')
+    out.push(result('AB-litros-a-preco-o-litro', oLitro, 'um abastecimento: 30 L a 6,10 = R$ 183,00',
+      oLitro.length === 1 && oLitro[0].kind === 'fuel' && oLitro[0].amount === 183 && oLitro[0].pricePerLiter === 6.1))
+    const por = await acoes('abasteci 24 litros por 180')
+    out.push(result('AB-litros-por-total-controle', por, 'um abastecimento: 24 L por R$ 180,00',
+      por.length === 1 && por[0].kind === 'fuel' && por[0].amount === 180 && por[0].liters === 24))
+  }
+
   // Refeição é gasto sem "gastei" ("almocei 32 reais"), e dois itens com "e"
   // antes do valor ("comprei pão e leite 18") são um gasto só. As duas caíam
   // na ajuda genérica.

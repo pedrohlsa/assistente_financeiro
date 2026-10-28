@@ -4921,6 +4921,31 @@ build, rubrica, varredura e `git diff --check` passaram.
 Achado sem correção: "quanto almocei esse mes" responde o gasto total do mês
 (R$ 2.373,00), não o de almoço/alimentação.
 
+## 2026-10-28 — "coloquei 40 litros a 5,89"
+
+Dinheiro errado no registro do motorista: "coloquei 40 litros a 5,89" virava
+um abastecimento de R$ 5,89 (o preço do litro lido como total) e mais uma
+"Despesa de R$ 40,00 — Litros a 5", que a leitura genérica criava porque o
+abastecimento lido só pelos litros não travava as outras leituras (`!f`
+olhava só o padrão de valor). Certo: um abastecimento de R$ 235,60, 40 L a
+R$ 5,89.
+
+Agora "a X" depois dos litros é o preço do litro quando X é de litro (menor
+que R$ 20) ou vem com "o litro"; total = litros × preço, e o `pricePerLiter`
+vai junto. O abastecimento pelos litros trava as leituras de despesa
+(`abasteceu`). A checagem de valores soltos conta o preço do litro como valor
+representado (sem isso, a resposta perguntava "o que aconteceu com os R$
+5,89?"). "Abasteci 24 litros por 180" e "30 litros a 180" seguem como total.
+3 casos no grupo AB (2 vermelhos antes, 1 controle). Gates: 666/666, 99/99,
+50/50, **502/502**, metamórficos, fuzz, 151/151, 468; typechecks,
+`test:money`, build, rubrica, varredura e `git diff --check` passaram.
+
+Achados sem correção, da mesma sondagem do motorista:
+- "fiz 12 corridas e ganhei 260" registra 13 viagens;
+- "hoje deu 310 no uber e 90 na 99" pergunta o que houve com "R$ 99,00" (é a
+  plataforma);
+- "recebi 50 de gorjeta" cria uma viagem.
+
 ## Pendências em 28/10/2026 (HEAD `8c3fd2f`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **490/490 adversariais**, 4.088 + 3.800
