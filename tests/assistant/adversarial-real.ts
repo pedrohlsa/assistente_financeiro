@@ -2894,6 +2894,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /Falta pagar R\$ 800,00/.test(fatura) && !/Cadastre|Não tenho|para pagar|Situação dos seus cartões/.test(fatura)))
   }
 
+  // Comprar o APARELHO é compra; "celular" sozinho é a conta do telefone. "Comprei
+  // um celular de 1200 em 10x" ia para Assinaturas.
+  {
+    const rico = autonomoRico(hoje)
+    const cat = async (msg: string) => ((await turnoHoje(rico, msg)).actions as { category?: string }[])[0]?.category
+    for (const [id, msg] of [['CEL-comprei-parcelado', 'comprei um celular de 1200 em 10x no nubank'],
+      ['CEL-comprei-a-vista', 'comprei um celular de 900']]) {
+      const c = await cat(msg)
+      out.push(result(id, c, 'compras', c === 'compras'))
+    }
+    const conta = await cat('paguei 60 do celular')
+    out.push(result('CEL-conta-do-celular-controle', conta, 'assinaturas (a conta)', conta === 'assinaturas'))
+  }
+
   // "Receber" e "entrar" no infinitivo são entrada. Sem eles, "quanto vou
   // receber esse mes" respondia "Total gasto este mês: R$ 2.373,00".
   {

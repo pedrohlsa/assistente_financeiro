@@ -151,6 +151,17 @@ function janelaLocal(text: string, inicio: number, fim: number): string {
   return text.slice(de, ate)
 }
 
+/**
+ * "Celular" é a palavra da CONTA ("paguei 60 do celular" → Assinaturas), mas
+ * comprar o aparelho é compra: "comprei um celular de 1200 em 10x" ia para
+ * Assinaturas. Só troca a categoria que veio da palavra "celular".
+ */
+function aparelhoComprado(texto: string, actions: ParsedAction[]): ParsedAction[] {
+  if (!/\b(?:comprei|compramos|parcelei|comprar)\s+(?:um|uma|o|a|meu|minha)?\s*(?:novo\s+|nova\s+)?(?:celular|smartphone|iphone|aparelho\s+de\s+celular)\b/i.test(texto)) return actions
+  return actions.map(a => (a.kind === 'expense' || a.kind === 'card-purchase') && a.category === 'assinaturas'
+    ? { ...a, category: 'compras' } : a)
+}
+
 function splitClauses(input: string): string[] {
   const marked = input
     .toLowerCase()
@@ -164,7 +175,7 @@ export function parseNatural(input: string): ParsedAction[] {
   // meio, e cortar ali transformava uma entrada financiada numa receita de
   // 1850 — exatamente o que a regra 11 proíbe.
   const whole = parseCardClause(input.toLowerCase().trim())
-  if (whole.length) return whole
+  if (whole.length) return aparelhoComprado(input, whole)
 
   // Cláusula que é só a palavra de pergunta volta para a seguinte: cortada no
   // verbo, "quanto | paguei de fatura" deixava a segunda metade sem o que a faz
@@ -175,7 +186,9 @@ export function parseNatural(input: string): ParsedAction[] {
     else acc.push(c)
     return acc
   }, [])
-  let actions = clauses.length > 1 ? clauses.flatMap(c => parseClause(c)) : parseClause(clauses[0] ?? input)
+  let actions = clauses.length > 1
+    ? clauses.flatMap(c => aparelhoComprado(c, parseClause(c)))
+    : aparelhoComprado(clauses[0] ?? input, parseClause(clauses[0] ?? input))
 
   // funde múltiplos registros de trabalho (km + viagens + horas) em um só
   const works = actions.filter(a => a.kind === 'work') as Extract<ParsedAction, { kind: 'work' }>[]

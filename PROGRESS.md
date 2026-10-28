@@ -4813,6 +4813,18 @@ Achado sem correção: para o mês que vem, a resposta é "Não tenho nenhum
 lançamento… Assim que você registrar", quando o útil seria a previsão (contas
 fixas de entrada, média dos meses).
 
+## 2026-10-28 — comprar um celular é compra, não assinatura
+
+"Comprei um celular de 1200 em 10x no nubank" e "comprei um celular de 900"
+iam para Assinaturas: "celular" é palavra-chave da conta de telefone. Agora,
+na mesma cláusula de "comprei/parcelei um celular (smartphone, iPhone)", a
+categoria que veio dessa palavra vira Compras. "Paguei 60 do celular" segue
+em Assinaturas, e "comprei um celular de 900 e paguei 60 da conta do
+celular" dá uma de cada. 3 casos no grupo CEL (2 vermelhos antes, 1
+controle). Gates: 666/666, 99/99, 50/50, **482/482**, metamórficos, fuzz,
+151/151, 468; typechecks, `test:money`, build, rubrica, varredura e `git diff
+--check` passaram.
+
 ## Pendências em 28/10/2026 (HEAD `74899d2`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **472/472 adversariais**, 4.088 + 3.800
@@ -4832,8 +4844,6 @@ seções de 27/10 acima):
 - "Quais meus parcelamentos" dá só a soma, sem listar; "quantas parcelas eu
   tenho" não dá a contagem; "quando comprei a geladeira" cai na ajuda;
   "quanto parcelei no nubank" dá a fatura do mês.
-- "Comprei um celular de 1200 em 10x" vai para Assinaturas ("celular" é a
-  palavra da conta de telefone).
 - "Quanto devo gastar por dia" responde a média gasta, não quanto dá para
   gastar; "devo muito?" cai na ajuda.
 - "Quanto guardei nas metas esse mes" responde o total até agora (a meta não
