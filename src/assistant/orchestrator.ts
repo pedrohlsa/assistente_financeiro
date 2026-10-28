@@ -1019,6 +1019,25 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   const caps = buildCapabilities(input.state)
   const today = input.today || todayISO()
 
+  // CardPayment no contrato do chat só tem cartão/valor: data e referência
+  // explícitas seriam descartadas e a confirmação pagaria outra fatura.
+  const paymentText = normalizeQuestion(input.message)
+  if (/\bfaturas?\b/.test(paymentText) && /\b(?:paguei|pagamos|quitei|quitamos)\b/.test(paymentText)) {
+    const unsupported = analyzeMessage(input.message, { driver: caps.isDriver, today }).clauses.some(c => {
+      const text = normalizeQuestion(c.text)
+      if (!/\bfaturas?\b/.test(text) || !/\b(?:paguei|pagamos|quitei|quitamos)\b/.test(text) || looksLikeQuestion(c.text)) return false
+      const date = findDate(c.text, today)
+      const explicitMonth = /\bfaturas?\b[^.!?]*\b(?:de|do|da|referente\s+a|referencia)\s+(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|\d{1,2}[/-]\d{4})\b/.test(text)
+        || /\bfaturas?\b[^.!?]*\b(?:mes\s+passado|mes\s+que\s+vem|proximo\s+mes|mes\s+anterior)\b/.test(text)
+      return explicitMonth || !!date && (date.kind !== 'date' || date.date !== today)
+    })
+    if (unsupported) return {
+      draft: null, focus: input.focus,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
+        reply: 'O chat ainda não mantém a data de pagamento ou o mês de referência que você informou para a fatura. Não propus nenhum registro desta mensagem. Em Mais → Cartões e parcelamentos, confira a fatura exibida e a data antes de registrar; se a referência for outra, não use essa fatura. Outros lançamentos podem ser enviados separadamente.' },
+    }
+  }
+
   // ---- 0) A mensagem escolhe uma opção que o assistente ofereceu? --------
   // "GNV" logo depois de "gás de cozinha ou GNV?" precisa recuperar o valor e
   // a descrição da mensagem anterior — o usuário não repete nada.

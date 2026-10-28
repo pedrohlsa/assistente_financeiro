@@ -48,6 +48,8 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
   fatura explica a falta de seleção de referência no chat, sem alegar registro.
   Continuação só de período também preserva a janela da previsão; origem e
   período podem ser trocados juntos sem ignorar o novo imóvel citado.
+  Pagamento de fatura com mês ou data que o contrato não representa agora
+  é recusado antes da proposta; a informação não pode ser descartada.
   Retomada: docs/CODEX_RESUME.md.
   Lista de pendências no
   fim de [PROGRESS.md](PROGRESS.md), seção "Pendências em 28/10/2026".
@@ -59,7 +61,7 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
 - A V2 acrescentou consultas e cenários multi-entidade, continuidade de conversa,
   preferências locais explícitas e reconciliação parcial de cartões. Baseline
   local mais recente: 666/666 corpus, 99/99 consulta/cenário/continuidade,
-  50/50 semânticos, 617/617 adversariais, 4.088 + 3.800 metamórficos,
+  50/50 semânticos, 621/621 adversariais, 4.088 + 3.800 metamórficos,
   1.416 fuzz, 151/151 invariantes e 468/468 verificações remotas **offline**;
   typechecks, teste de dinheiro, build e rubrica passaram.
 - **NOT READY para merge/deploy.** O parecer sobre `345d55e` encontrou oito

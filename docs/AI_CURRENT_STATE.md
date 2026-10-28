@@ -637,3 +637,11 @@ fatura explica limitação de referência no chat e pede conferir fatura na tela
 "E este mês?" herda janela futura em previsão; "e da Casa2 esse mês?" muda
 origem e período juntos.617/617 adversariais; suíte completa, typechecks e
 build verdes. Detalhes e restrições no fim do PROGRESS.md.
+
+## 28/10/2026 — Checkpoint de pausa por uso
+
+621/621 adversariais, suíte completa, typechecks, build e rubrica verdes.
+Fatura com data/mês não representável não gera proposta que descarte a
+informação. Sem publicação; NOT READY. Próximo defeito a reproduzir: valor
+parcial depois do nome do cartão/fatura pode virar pagamento integral.
+Estado e autorização de retomada em CODEX_RESUME.md neste diretório.

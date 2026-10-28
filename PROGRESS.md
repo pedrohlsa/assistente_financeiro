@@ -5505,3 +5505,26 @@ Casa2 na previsão(650/350) e no recebido(9000/4000), incluindo o rótulo.
 Cinco regressões novas primeiro vermelhas;617/617 adversariais. Suíte completa,
 frontend/API typechecks e build verdes. Demais contagens preservadas. Tudo
 local, sem chamadas pagas/publicação/APK. NOT READY até auditoria independente.
+
+## 28/10/2026 — Fatura não perde data ou mês na proposta
+
+Depois34fc8a0, a sonda mostrou "paguei200 da fatura do Inter de setembro"
+e "paguei200 da fatura do Inter ontem" propondo card-payment sem data ou
+referência: o executor usaria hoje/mês atual. O contrato contém só cartão e
+valor. Agora registro com informação temporal que não pode ser preservada
+recebe explicação local, sem proposta e sem remoto. O exame usa a cláusula
+do pagamento: "paguei a fatura do Nubank e vou pagar a do Inter amanhã"
+continua propondo somente o pagamento feito, como antes. Pagamento simples
+de hoje continua proposto. Não foi criada seleção de mês pelo chat.
+
+Quatro testes novos;621/621 adversariais, suíte completa, typechecks e build
+verdes. Rubrica permanece0 perigosa/ruim. Só uso local, sem chamadas pagas,
+publicação ou APK. Ainda NOT READY até auditoria independente.
+
+Pendência nova para próxima janela: extrator em nlp.ts reconhece dinheiro só
+logo após paguei/pagar/quitei para card-payment. Valor ao fim pode ser perdido
+e virar pagamento integral; o exemplo com referência de novembro agora é
+bloqueado, mas reproduzir sem referência antes de implementar correção.
+Outras prioridades e ponto de retomada em docs/CODEX_RESUME.md. Última leitura
+de uso:89% consumidos (11% restantes); iniciada gravação da pausa conservadora
+para preservar reserva mínima5%. Retomada recorrente existente permanece ativa.

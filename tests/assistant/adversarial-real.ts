@@ -3698,6 +3698,23 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  {
+    const st = buildState({ profile: 'autonomo', balance: 1000, cards: [{ name: 'Inter' }] })
+    for (const phrase of ['paguei a fatura de novembro do Inter 200',
+      'paguei 200 da fatura do Inter de setembro', 'paguei 200 da fatura do Inter ontem']) {
+      let remoteCalls = 0
+      const r = await orchestrate({ state: st, message: phrase, today: hoje, remoteEnabled: true,
+        askRemote: async () => { remoteCalls++; return { reply: 'Registrei!', mode: 'propose_actions',
+          actions: [{ kind: 'card-payment', cardName: 'Inter', amount: 200 }], rejected: [] } } })
+      out.push(result(`FREF-nao-descarta-${phrase}`, r.response, 'sem proposta que perderia data/mês; explica limitação localmente',
+        r.response.actions.length === 0 && remoteCalls === 0 && /chat/.test(r.response.reply)
+          && /data|refer[eê]ncia/.test(r.response.reply) && /Cart[õo]es e parcelamentos/i.test(r.response.reply)))
+    }
+    const ordinary = await turnoHoje(st, 'paguei 200 da fatura do Inter hoje')
+    out.push(result('FREF-pagamento-hoje-preservado', ordinary, 'pagamento simples de hoje continua proposto200',
+      ordinary.actions.length === 1 && ordinary.actions[0].kind === 'card-payment' && ordinary.actions[0].amount === 200))
+  }
+
   return out
 }
 
