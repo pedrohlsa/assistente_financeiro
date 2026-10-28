@@ -424,7 +424,11 @@ function periodFromText(t: string): { from: string; to: string; label: string } 
   if (/(esse|este|neste|nesse)\s+m[eê]s|m[eê]s/.test(t)) return { from: today.slice(0, 8) + '01', to: today, label: 'este mês' }
   if (/ontem/.test(t)) return { from: addDays(today, -1), to: addDays(today, -1), label: 'ontem' }
   if (/hoje/.test(t)) return { from: today, to: today, label: 'hoje' }
-  return { from: addDays(today, -6), to: today, label: 'nos últimos 7 dias' }
+  // Sem período dito, o mês corrente — a mesma janela da consulta. Os últimos
+  // 7 dias faziam "quanto recebi de aluguel" responder R$ 0,00 para quem
+  // recebeu R$ 3.000,00 no mês, e a pergunta mudava de resposta conforme quem
+  // a lia.
+  return { from: today.slice(0, 8) + '01', to: today, label: 'este mês' }
 }
 
 // Motor local determinístico. Retorna handled:false SÓ no fallback genérico
@@ -817,11 +821,14 @@ function resolveLocal(s: AppState, input: string): AiReply {
     }
 
     // "quanto recebi de aluguéis este mês?" / salário
-    const fonteM = t.match(/(alugu[eé]|alugueis|alugu[eé]is|sal[aá]rio|freelance|vendas?)/)
+    // "Freela" e "bico" são como se fala; sem eles, "quanto ganhei de freela"
+    // caía no lucro do período inteiro, sem filtro nenhum.
+    const fonteM = t.match(/(alugu[eé]|alugueis|alugu[eé]is|sal[aá]rio|freelance|freela|bico|vendas?)/)
     if (fonteM && /quanto\s+(?:eu\s+)?(?:recebi|ganhei|entrou)/.test(t)) {
       const map: Record<string, string> = {
         alugue: 'aluguel', alugueis: 'aluguel', 'aluguéis': 'aluguel', 'alugué': 'aluguel',
-        salario: 'salario', 'salário': 'salario', freelance: 'freelance', venda: 'vendas', vendas: 'vendas',
+        salario: 'salario', 'salário': 'salario', freelance: 'freelance', freela: 'freelance', bico: 'freelance',
+        venda: 'vendas', vendas: 'vendas',
       }
       const catId = map[fonteM[1]] || 'aluguel'
       const p = periodFromText(t)

@@ -2839,6 +2839,31 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('MG-valor-das-metas', valor, 'R$ 10.000,00 de alvo', /R\$ 10\.000,00/.test(valor)))
   }
 
+  // Receita por categoria sem período: o mês, como na consulta. O roteador
+  // antigo olhava os últimos 7 dias e dizia "R$ 0,00 em Aluguéis" para quem
+  // recebeu os dois aluguéis do mês; "freela" nem era reconhecido, e a
+  // resposta era o lucro da semana inteira.
+  {
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const fmt = (v: number) => `R$ ${v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`
+    const aluguelDoMes = rico.transactions.filter(t => t.type === 'income' && t.category === 'aluguel'
+      && t.date.slice(0, 7) === hoje.slice(0, 7) && t.date <= hoje).reduce((a, t) => a + t.amount, 0)
+    const aluguel = limpa((await turnoHoje(rico, 'quanto recebi de aluguel')).reply)
+    out.push(result('RCAT-aluguel-no-mes', aluguel, `${fmt(aluguelDoMes)} este mês`,
+      aluguelDoMes > 0 && aluguel.includes(fmt(aluguelDoMes)) && !/7 dias/.test(aluguel)))
+    const passado = new Date(Number(hoje.slice(0, 4)), Number(hoje.slice(5, 7)) - 2, 1)
+    const prefixo = `${passado.getFullYear()}-${String(passado.getMonth() + 1).padStart(2, '0')}`
+    const freelaPassado = rico.transactions.filter(t => t.type === 'income' && t.category === 'freelance' && t.date.startsWith(prefixo))
+      .reduce((a, t) => a + t.amount, 0)
+    const freela = limpa((await turnoHoje(rico, 'quanto ganhei de freela no mes passado')).reply)
+    out.push(result('RCAT-freela-mes-passado', freela, `${fmt(freelaPassado)} de Freelance`,
+      freelaPassado > 0 && freela.includes(fmt(freelaPassado)) && !/lucro/i.test(freela)))
+    const freelaMes = limpa((await turnoHoje(rico, 'quanto ganhei de freela')).reply)
+    out.push(result('RCAT-freela-sem-periodo', freelaMes, 'Freelance do mês, não o lucro da semana',
+      /[Ff]reela/.test(freelaMes) && !/lucro|faturou/i.test(freelaMes)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

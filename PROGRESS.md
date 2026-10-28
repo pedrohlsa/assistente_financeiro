@@ -4750,6 +4750,24 @@ Achado sem correção: "quanto guardei nas metas esse mes" responde o total
 "até agora" (a meta não guarda histórico de depósitos por mês); o "até agora"
 diz isso, mas a pergunta era do mês.
 
+## 2026-10-27 — sem período dito, o mês (no roteador antigo também)
+
+Dinheiro errado: "quanto recebi de aluguel" respondia "R$ 0,00 em Aluguéis
+nos últimos 7 dias" para quem recebeu R$ 3.000,00 no mês; "quanto ganhei de
+freela" dava o lucro da semana inteira (−R$ 120,00), sem filtro nenhum, e
+"quanto ganhei de freela no mês passado" dava o faturamento total do mês
+(R$ 3.900,00, Freelance foi R$ 900,00). Duas causas no mesmo handler:
+`periodFromText()` caía em "últimos 7 dias" sem período dito, enquanto a
+consulta usa o mês (a mesma pergunta mudava de janela conforme quem a lia), e
+o mapa de receita por categoria não conhecia "freela" nem "bico".
+
+Decisão: sem período dito, o roteador antigo usa o mês corrente, como a
+consulta. Com "essa semana" seguem os últimos 7 dias. Corpus, semânticos e
+roteamento passaram sem mudança de rótulo. 3 casos no grupo RCAT (os 3
+vermelhos antes; somas dos lançamentos do fixture). Gates: 666/666, 99/99,
+50/50, **472/472**, metamórficos, fuzz, 151/151, 468; typechecks,
+`test:money`, build, rubrica, varredura e `git diff --check` passaram.
+
 ## Pendências em 27/10/2026 (HEAD `73c8d24`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800
