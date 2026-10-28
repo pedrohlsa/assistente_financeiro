@@ -2894,6 +2894,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /Falta pagar R\$ 800,00/.test(fatura) && !/Cadastre|Não tenho|para pagar|Situação dos seus cartões/.test(fatura)))
   }
 
+  // Gorjeta, bônus e incentivo são receita, não viagem: "recebi 50 de gorjeta"
+  // registrava "Trabalho: 1 viagem", e o ganho por viagem caía.
+  {
+    const moto = motoristaRico(hoje)
+    for (const [id, msg, valor] of [['GJ-gorjeta', 'recebi 50 de gorjeta', 50], ['GJ-bonus', 'ganhei 120 de bonus da uber', 120],
+      ['GJ-incentivo', 'caiu 80 de incentivo da 99', 80]] as const) {
+      const a = (await turnoHoje(moto, msg)).actions as { kind: string, amount?: number, trips?: number }[]
+      out.push(result(id, a, `receita de ${valor}, sem viagem`,
+        a.some(x => x.kind === 'income' && x.amount === valor) && !a.some(x => x.kind === 'work' && x.trips)))
+    }
+    const corrida = (await turnoHoje(moto, 'ganhei 40 numa corrida')).actions as { kind: string, trips?: number }[]
+    out.push(result('GJ-corrida-controle', corrida, '1 viagem', corrida.some(x => x.kind === 'work' && x.trips === 1)))
+  }
+
   // "Fiz 3 corridas DE 40 e uma de 25": quantidade × valor. Só as 3 viagens
   // entravam, e os R$ 145,00 viravam uma pergunta.
   {

@@ -5012,6 +5012,18 @@ Gates: 666/666, 99/99, 50/50, **516/516**, metamórficos, fuzz, 151/151, 468;
 typechecks, `test:money`, build, rubrica, varredura e `git diff --check`
 passaram.
 
+## 2026-10-28 — gorjeta não é viagem
+
+"Recebi 50 de gorjeta", "ganhei 120 de bônus da uber" e "caiu 80 de
+incentivo da 99" registravam também "Trabalho: 1 viagem": a regra que infere
+uma viagem de cada receita de corrida não distinguia o que não é corrida, e
+o ganho por viagem do motorista caía. Agora gorjeta, bônus, incentivo,
+promoção e caixinha seguem como receita de Corridas, sem viagem. "Ganhei 40
+numa corrida" segue com 1 viagem. 4 casos no grupo GJ (3 vermelhos antes, 1
+controle). Gates: 666/666, 99/99, 50/50, **520/520**, metamórficos, fuzz,
+151/151, 468; typechecks, `test:money`, build, rubrica, varredura e `git diff
+--check` passaram.
+
 ## Pendências em 28/10/2026 (HEAD `4e16b70`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **516/516 adversariais**, 4.088 + 3.800
@@ -5028,9 +5040,8 @@ seções de 27 e 28/10 acima):
 - "Quando paguei a fatura do nubank" e "antecipei a fatura do nubank" dão o
   resumo dos cartões.
 - "Quanto almocei esse mes" responde o gasto total do mês.
-- Motorista: "recebi 50 de gorjeta" cria uma viagem; "fiz 12 corridas e 260",
-  sem verbo na segunda metade, perde os R$ 260,00; "troquei o óleo com 150
-  km" vira manutenção de R$ 150,00.
+- Motorista: "fiz 12 corridas e 260", sem verbo na segunda metade, perde os
+  R$ 260,00; "troquei o óleo com 150 km" vira manutenção de R$ 150,00.
 - Receita sem origem: "recebi 2 mil do cliente" e "caiu 350 de pix do joão"
   não guardam de quem veio.
 - Mês que vem em lançamentos ("quanto vou receber em dezembro") responde

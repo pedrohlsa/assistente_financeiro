@@ -485,7 +485,10 @@ export function parseNaturalFull(
     // ganho por viagem do motorista.
     const hasExplicitTrips = actions.some(a => a.kind === 'work' && a.trips !== undefined)
     const rideEntries = actions.filter(a => a.kind === 'income' && a.category === 'corridas').length
-    if (!hasExplicitTrips && rideEntries > 0 && !doDia) {
+    // Gorjeta, bônus e incentivo são receita da corrida, não viagem: "recebi 50
+    // de gorjeta" contava 1 viagem e derrubava o ganho por viagem.
+    const naoEViagem = /\b(?:gorjetas?|b[oô]nus|incentivos?|promo(?:cao|ção|çao)?|caixinha)\b/i.test(input)
+    if (!hasExplicitTrips && rideEntries > 0 && !doDia && !naoEViagem) {
       const work = actions.find(a => a.kind === 'work') as Extract<ParsedAction, { kind: 'work' }> | undefined
       if (work) work.trips = rideEntries
       else actions.push({ kind: 'work', trips: rideEntries })
