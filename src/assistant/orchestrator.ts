@@ -50,6 +50,7 @@ import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../servi
 import { catById, usableCategories } from '../data/categories'
 import { addDays, fmtBRL, todayISO, uid } from '../utils/format'
 import { occurrenceRecord, occurrencesBetween, recurringActiveOn } from '../services/calc'
+import { unpaidPriorInvoiceMonth } from '../services/cards'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { brDate, dateLabel, findDate, previousYearOf, resolveDayInWindow } from './dates'
 import { applyPreferenceAliases, parsePreferenceCommand } from './preferences'
@@ -1023,7 +1024,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   // explícitas seriam descartadas e a confirmação pagaria outra fatura.
   const paymentText = normalizeQuestion(input.message)
   if (/\bfaturas?\b/.test(paymentText) && /\b(?:paguei|pagamos|quitei|quitamos)\b/.test(paymentText)) {
-    const unsupported = analyzeMessage(input.message, { driver: caps.isDriver, today }).clauses.some(c => {
+    const paymentClauses = analyzeMessage(input.message, { driver: caps.isDriver, today }).clauses
+    const unsupported = paymentClauses.some(c => {
       const text = normalizeQuestion(c.text)
       if (!/\bfaturas?\b/.test(text) || !/\b(?:paguei|pagamos|quitei|quitamos)\b/.test(text) || looksLikeQuestion(c.text)) return false
       const date = findDate(c.text, today)
@@ -1035,6 +1037,19 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
       draft: null, focus: input.focus,
       response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
         reply: 'O chat ainda não mantém a data de pagamento ou o mês de referência que você informou para a fatura. Não propus nenhum registro desta mensagem. Em Mais → Cartões e parcelamentos, confira a fatura exibida e a data antes de registrar; se a referência for outra, não use essa fatura. Outros lançamentos podem ser enviados separadamente.' },
+    }
+    const ambiguousInvoice = paymentClauses.some(c => c.actions.some(a => {
+      if (a.kind !== 'card-payment') return false
+      const cards = input.state.cards.filter(card => !card.archived)
+      const name = normalizeName(a.cardName)
+      const card = name ? cards.find(card => normalizeName(card.name) === name)
+        : cards.length === 1 ? cards[0] : undefined
+      return !!card && !!unpaidPriorInvoiceMonth(input.state, card, today.slice(0, 7))
+    }))
+    if (ambiguousInvoice) return {
+      draft: null, focus: input.focus,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
+        reply: 'Há uma fatura anterior desse cartão ainda pendente. O chat não consegue escolher com segurança o mês de referência do pagamento, então não propus nenhum registro. Em Mais → Cartões e parcelamentos, confira a fatura e registre o pagamento no mês correto.' },
     }
   }
 

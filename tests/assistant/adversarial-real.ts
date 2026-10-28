@@ -52,6 +52,14 @@ async function turnoHoje(s: AppState, message: string, focus?: Awaited<ReturnTyp
   return { reply: out.response.reply, actions: out.response.actions.map(a => a.action), focus: out.focus || focus }
 }
 
+/** Controles de pagamento corrente sem dívidas antigas incoerentes do fixture rico. */
+function somenteFaturasAtuais(s: AppState, hoje: string): AppState {
+  const inicioMes = `${hoje.slice(0, 7)}-01`
+  return { ...s, installments: s.installments.map(i => i.dueDate < inicioMes && i.status === 'pending'
+    ? { ...i, status: 'paid' as const, paidAt: i.dueDate, paidAmount: i.amount, paidVia: 'direct' as const }
+    : i) }
+}
+
 const result = (id: string, actual: unknown, expected: unknown, ok: boolean): AdversarialResult => ({ id, actual, expected, ok })
 
 export async function runAdversarialReal(): Promise<AdversarialResult[]> {
@@ -1588,7 +1596,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     ['N-controle-paguei-e-pergunta', 'paguei 200 da fatura do inter, quanto falta?', 'card-payment:200'],
     ['N-controle-feito-e-intencao', 'paguei a fatura do nubank e vou pagar a do inter amanha', 'card-payment:'],
   ] as const) {
-    const r = await turnoHoje(autonomoRico(hoje), frase)
+    const r = await turnoHoje(somenteFaturasAtuais(autonomoRico(hoje), hoje), frase)
     const atual = r.actions.map((a: any) => `${a.kind}:${a.amount ?? ''}`).join(',')
     out.push(result(id, { reply: r.reply, actions: r.actions }, esperado, atual === esperado))
   }
@@ -1913,7 +1921,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         (r, a) => /vence/.test(r) && !/se voc[êe] confirmar/i.test(r.split('Confirmar')[0].replace(/Se você confirmar, saem[^.]*\./, '')) && registrou(a, 'expense', 50)],
     ]
     for (const [id, frase, esperado, ok] of casos) {
-      const r = await turnoHoje(rico, frase)
+      const r = await turnoHoje(id === 'X-falta-fatura' ? somenteFaturasAtuais(rico, hoje) : rico, frase)
       out.push(result(id, { reply: r.reply, actions: r.actions }, esperado, ok(limpa(r.reply), r.actions)))
     }
   }
@@ -2795,7 +2803,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result(id, { reply: r.reply, actions: r.actions }, 'resposta, sem proposta de pagamento',
         r.actions.length === 0 && !/Em qual cartão|Confirmar|Se você confirmar/.test(r.reply)))
     }
-    const registra = await turnoHoje(rico, 'paguei a fatura do nubank')
+    const registra = await turnoHoje(somenteFaturasAtuais(rico, hoje), 'paguei a fatura do nubank')
     out.push(result('QP-registro-controle', registra.actions, 'pagamento proposto',
       (registra.actions as { kind: string }[]).some(a => a.kind === 'card-payment')))
     const semCartao = await turnoHoje(rico, 'paguei a fatura')
@@ -3762,6 +3770,37 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('PLEG-parcial-mista-respeita-data', mixedInv,
       'parcial de hoje100 conta; parcial futura100 não antecipa quitação',
       mixedInv.paid === 100 && mixedInv.pending === 200 && cardsOverview(st).totalDebt === 200))
+  }
+
+  {
+    const d = fromISO(hoje)
+    const mesAnterior = toISOdate(new Date(d.getFullYear(), d.getMonth() - 1, 10))
+    const st = buildState({ profile: 'autonomo', balance: 1000,
+      cards: [{ name: 'Inter', closingDay: 1, dueDay: 10 }] })
+    st.installmentPlans = [
+      { id: 'reference-old', description: 'Antiga', cardId: 'card0', totalAmount: 300,
+        installmentCount: 1, firstDueDate: mesAnterior, purchaseDate: addDays(mesAnterior, -20),
+        createdAt: addDays(mesAnterior, -20), status: 'active', operationType: 'card-purchase' },
+      { id: 'reference-now', description: 'Atual', cardId: 'card0', totalAmount: 200,
+        installmentCount: 1, firstDueDate: hoje, purchaseDate: addDays(hoje, -20),
+        createdAt: addDays(hoje, -20), status: 'active', operationType: 'card-purchase' },
+    ]
+    st.installments = [
+      { id: 'reference-old-1', planId: 'reference-old', number: 1, total: 1,
+        amount: 300, dueDate: mesAnterior, status: 'pending' },
+      { id: 'reference-now-1', planId: 'reference-now', number: 1, total: 1,
+        amount: 200, dueDate: hoje, status: 'pending' },
+    ]
+    const proposed = await turnoHoje(st, 'paguei a fatura do Inter')
+    const execution = applyBatchPure(st,
+      [{ id: 'ambiguous-reference-payment', action: { kind: 'card-payment', cardName: 'Inter' } }],
+      { now: { date: hoje, time: '14:00' } })
+    out.push(result('FIMP-duas-faturas-nao-escolhe-mes', { proposed, execution },
+      'fatura antiga300 e atual200: chat sem referência não paga a atual silenciosamente',
+      cardInvoice(st, st.cards[0], mesAnterior.slice(0, 7)).pending === 300
+        && cardInvoice(st, st.cards[0], hoje.slice(0, 7)).pending === 200
+        && proposed.actions.length === 0 && /fatura|m[eê]s|refer[eê]ncia/i.test(proposed.reply)
+        && !execution.applied && execution.state === st))
   }
 
   {

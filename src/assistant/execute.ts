@@ -20,7 +20,7 @@ import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
 import { nextCashEventTime } from '../services/calc'
 import { buildInstallments, cardInvoice, directInstallmentPaidAmount, futureInvoicePaymentDate,
-  settleableInstallmentIds, suggestedFirstDueDate } from '../services/cards'
+  settleableInstallmentIds, suggestedFirstDueDate, unpaidPriorInvoiceMonth } from '../services/cards'
 
 // ---------------------------------------------------------------------------
 // Resolvedores de referência (moram aqui para o store poder ser puro)
@@ -338,6 +338,9 @@ export function applyActionPure(
       const mk = monthKey(date)
       if (futureInvoicePaymentDate(state, card, mk)) return {
         state, result: fail(actionId, 'invoice-conflict', `${card.name}: há pagamento com data futura.`, false),
+      }
+      if (unpaidPriorInvoiceMonth(state, card, mk)) return {
+        state, result: fail(actionId, 'invoice-conflict', `${card.name}: há fatura anterior pendente.`, false),
       }
       const invoice = cardInvoice(state, card, mk)
       if (invoice.paid > invoice.total + 0.009) return {

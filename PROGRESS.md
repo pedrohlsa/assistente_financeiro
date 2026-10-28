@@ -5593,3 +5593,20 @@ build passaram; rubrica anterior permanece 0 perigosa/ruim (não houve mudança
 na redação das respostas usuais). A tela nova ainda pede smoke visual local.
 Sem rede paga, publicação ou APK. V2 segue
 NOT READY até auditoria independente.
+
+## 28/10/2026 — Fatura anterior pendente torna mês implícito ambíguo
+
+Após b1efa8e, uma fatura sintética anterior de R$300 e a atual de R$200
+estavam abertas. "Paguei a fatura do Inter" propunha pagar a atual e o
+executor a quitava, sem evidência de que esse era o mês referido. O novo RED
+passou pelo orquestrador e executor reais. O chat agora verifica se existe
+fatura anterior efetivamente pendente, explica a ambiguidade e não propõe
+pagamento; o executor também rejeita uma proposta que chegasse por outra
+rota. A tela de cartões segue capaz de escolher explicitamente o mês.
+
+Os controles antigos usavam uma fixture rica com parcelas pendentes de meses
+anteriores e pressupunham que o pagamento fosse da fatura atual. Esses
+controles passaram a reconciliar somente as faturas antigas dentro do teste,
+preservando a verificação de que pagamento corrente inequívoco é proposto.
+637/637 adversariais; suíte completa e invariantes verdes. Nenhuma chamada
+paga, publicação ou APK; V2 continua NOT READY até auditoria independente.

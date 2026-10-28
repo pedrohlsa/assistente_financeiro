@@ -23,12 +23,12 @@ o checkpoint de CONTEXTO.md e as últimas seções de PROGRESS.md.
 
 ## Estado ao encerrar esta janela
 
-Último commit confirmado ao iniciar o lote atual:b225bde. Este lote corrige
-a leitura de pagamentos futuros em backups antigos. Confira git log/status antes de
+Último commit confirmado ao iniciar o lote atual:b1efa8e. Este lote impede
+o chat de escolher mês errado entre faturas pendentes. Confira git log/status antes de
 editar. Só .claude/launch.json deve permanecer modificado após o commit.
 
 Baseline validada:666 corpus,99 consulta/cenário,50 semânticos,
-636 adversariais,4088 +3800 metamórficos,1416 fuzz,151 invariantes,
+637 adversariais,4088 +3800 metamórficos,1416 fuzz,151 invariantes,
 468 avaliações remotas OFFLINE; suíte completa, typechecks frontend/API,
 build e rubrica verdes (0 perigosa/ruim,5 aceitáveis,85 excelentes).
 Aviso conhecido de bundle grande (~848kB) permanece.
@@ -74,13 +74,16 @@ tiveram novo smoke de interface.
   que foi pago até hoje. O registro bruto foi preservado; a tela sinaliza a
   data futura e bloqueia pagamento duplicado até a reconciliação, inclusive
   no formulário, executor e reducer. Sete regressões.
+- Quando há fatura anterior ainda aberta, pagamento pelo chat sem mês não
+  escolhe a fatura atual automaticamente; explica a ambiguidade e indica a
+  tela com mês de referência. O executor também recusa a ação ambígua. Testes
+  de controle com fixture rica usam faturas antigas reconciliadas.
 
 ## Próximas prioridades concretas
 
 1. Chat card-payment só tem cartão e valor; não mantém data do pagamento nem
-   referenceMonth. Execução usa mês do dia de execução, que pode divergir da
-   fatura exibida pelo cartão. A barreira cobre referência/data explícitas;
-   investigar também a escolha implícita de fatura perto da virada do mês.
+   referenceMonth. Referência/data explícitas e múltiplas faturas abertas são
+   recusadas no chat. Seleção de outro mês ainda exige a tela de cartões.
 2. Fazer smoke local da Home, da validação de pagamento e do aviso de pagamento
    futuro em backup sintético, sem acessar dados financeiros reais nem habilitar remoto.
 
