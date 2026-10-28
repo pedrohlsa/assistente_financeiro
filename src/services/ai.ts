@@ -27,7 +27,7 @@ import {
 } from './calc'
 import type { CashObligation } from './calc'
 import {
-  alvoDaReserva, diaDaSemanaPedido, mesesAtePrazo, pedeDividaTotal, pedeFimDoParcelamento, pedeLimite, pedeMaiorParcela, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeResumoDoDia, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
+  alvoDaReserva, diaDaSemanaPedido, mesesAtePrazo, pedeDividaTotal, pedeFimDoParcelamento, pedeListaDeParcelamentos, pedeLimite, pedeMaiorParcela, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeResumoDoDia, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
   perguntaDeFatura, perguntaDeManutencao,
   planoDeGuardar, prazoDasContas, retiraDaReserva,
 } from '../assistant/cashQuestions'
@@ -656,7 +656,8 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // "Limite no Nubank" é pergunta de cartão mesmo sem a palavra "cartão"; e
   // "quando acaba a geladeira" é do parcelamento, citado pelo nome.
   if (/parcela|fatura|cart[ãa]o|parcelamento|d[ií]vida/.test(t) || (pedeLimite(t) && activeCards(s).length > 0) || pedeDividaTotal(t)
-    || (planoCitado(s, t) && (FIM_DO_PLANO.test(t) || /\b(?:antecip|adiantei\b|adiantar\b)/.test(t)))) {
+    || pedeListaDeParcelamentos(t)
+    || (planoCitado(s, t) && (FIM_DO_PLANO.test(t) || COMPRA_DO_PLANO.test(t) || /\b(?:antecip|adiantei\b|adiantar\b)/.test(t)))) {
     if (!ov.hasData) {
       return { text: 'Você ainda não cadastrou cartões nem parcelamentos. Você pode adicionar em Mais → Cartões e parcelamentos.' }
     }
@@ -1829,6 +1830,9 @@ export function respostaDeMetaCitada(s: AppState, input: string): string | null 
  */
 const FIM_DO_PLANO = /\b(?:quando|que\s+mes|que\s+dia)\b[^?]*\b(?:acaba|acabo|termina|termino|quita|quito)\b|\bultimas?\s+parcelas?\b/
 
+/** "Quando comprei a geladeira": a data da compra parcelada. */
+const COMPRA_DO_PLANO = /\bquando\b[^?]*\b(?:comprei|compramos|parcelei|foi\s+a\s+compra)\b|\bque\s+dia\s+(?:eu\s+)?comprei\b/
+
 /** O parcelamento ativo citado pelo nome da compra ("a geladeira"). */
 function planoCitado(s: AppState, t: string) {
   return activePlans(s).filter(p => p.description?.trim())
@@ -1856,6 +1860,29 @@ function respostaDoParcelamento(s: AppState, t: string): AiReply | null {
       + `${iguais ? ` de ${fmtBRL(resto[0].amount)}` : ''}, ${fmtBRL(soma)} ao todo` }
   }
   const plano = planoCitado(s, t)
+  const cartaoDo = (p: { cardId?: string }) => (s.cards || []).find(c => c.id === p.cardId)?.name
+  if (plano && COMPRA_DO_PLANO.test(t)) {
+    const onde = cartaoDo(plano)
+    return { text: `${nome(plano)}: compra em ${dataCompleta(plano.purchaseDate)}, ${fmtBRL(plano.totalAmount)} em ${plano.installmentCount}x`
+      + `${onde ? ` no ${onde}` : ''}. ${fim(plano).frase.replace(/^termina/, 'Termina')}.` }
+  }
+  if (pedeListaDeParcelamentos(t)) {
+    const cartoes = cartoesDaPergunta(s, t)
+    const planos = activePlans(s).filter(p => !cartoes.length || cartoes.some(c => c.id === p.cardId))
+      .filter(p => pendentes(p.id).length)
+    const onde = cartoes.length ? `No ${listaDeNomes(cartoes.map(c => c.name))},` : 'Você tem'
+    if (!planos.length) return { text: `${cartoes.length ? `${onde} nenhum` : 'Você não tem'} parcelamento com parcela a pagar.` }
+    const parcelas = planos.reduce((a, p) => a + pendentes(p.id).length, 0)
+    const resta = round2(planos.reduce((a, p) => a + pendentes(p.id).reduce((b, i) => b + i.amount - Math.min(Math.max(i.paidAmount || 0, 0), i.amount), 0), 0))
+    const linhas = planos.map(p => {
+      const r = pendentes(p.id)
+      const c = cartaoDo(p)
+      return `• ${nome(p)}${c ? ` (${c})` : ''}: ${fmtBRL(p.totalAmount)} em ${p.installmentCount}x — faltam ${r.length} `
+        + `${r.length === 1 ? 'parcela' : 'parcelas'}, ${fmtBRL(round2(r.reduce((a, i) => a + i.amount - Math.min(Math.max(i.paidAmount || 0, 0), i.amount), 0)))}, até ${dataCompleta(r[r.length - 1].dueDate)}`
+    })
+    return { text: `${onde} ${planos.length} ${planos.length === 1 ? 'parcelamento' : 'parcelamentos'} com parcela a pagar: `
+      + `${parcelas} ${parcelas === 1 ? 'parcela' : 'parcelas'}, ${fmtBRL(resta)} ao todo.\n\n${linhas.join('\n')}` }
+  }
   if (plano && (pedeFimDoParcelamento(t) || FIM_DO_PLANO.test(t))) {
     if (!pendentes(plano.id).length) return { text: `O parcelamento ${plano.description} não tem parcela pendente.` }
     return { text: `${nome(plano)} ${fim(plano).frase}.` }

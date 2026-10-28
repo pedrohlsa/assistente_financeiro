@@ -247,6 +247,17 @@ export const pedeDividaTotal = (t: string): boolean =>
   && !/\bdevo\s+(?:\w+\s+)?[a-z]+(?:ar|er|ir)\b/.test(t)
   && !/\b(?:devo|devendo|dividas?)\s+(?:(?:ainda|hoje|agora)\s+)?(?:d[oa]s?|n[oa]s?|com(?:\s+[oa]s?)?|pr[oa]s?|para(?:\s+[oa]s?)?|ao|a)\s+(?!(?:total|geral|todo|tudo|cartao|cartoes|banco|bancos)\b)[a-z]/.test(t)
 
+/**
+ * "Quais meus parcelamentos", "quantas parcelas faltam", "quanto parcelei no
+ * nubank": a lista. A DSL dava só a soma do que falta, e o resumo dos cartões
+ * não dizia quantas parcelas eram. Parcela de UMA compra ("quantas parcelas
+ * faltam do computador") fica com a consulta.
+ */
+export const pedeListaDeParcelamentos = (t: string): boolean =>
+  /\b(?:quais|lista|listar|liste|mostra|mostrar|quantos|meus)\b[^?]*\bparcelamentos\b/.test(t)
+  || /\bquantas\s+parcelas\s+(?:eu\s+)?(?:tenho|faltam|restam|ainda)\b(?![^?]*\bd[oa]s?\s+[a-z])/.test(t)
+  || /\bquanto\s+(?:eu\s+)?(?:ja\s+)?parcelei\b/.test(t)
+
 /** "Qual a maior parcela", "a parcela mais cara". */
 export const pedeMaiorParcela = (t: string): boolean =>
   /\b(?:maior|mais\s+cara|mais\s+alta)\s+parcela\b|\bparcela\s+mais\s+(?:cara|alta)\b/.test(t)

@@ -2894,6 +2894,31 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /Falta pagar R\$ 800,00/.test(fatura) && !/Cadastre|Não tenho|para pagar|Situação dos seus cartões/.test(fatura)))
   }
 
+  // Lista dos parcelamentos: quais são, quantas parcelas faltam, quanto foi
+  // parcelado num cartão e quando foi a compra. Antes: a soma sem nomes, o
+  // resumo dos cartões sem contagem, a fatura do mês e a ajuda genérica.
+  // Fixture: Computador (Nubank) 4.000 em 10x, 8 pendentes; Geladeira (Inter)
+  // 2.400 em 6x, 5 pendentes — 13 parcelas, R$ 5.200,00.
+  {
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const quais = limpa((await turnoHoje(rico, 'quais meus parcelamentos')).reply)
+    out.push(result('LP-quais-parcelamentos', quais, 'Computador R$ 3.200,00 e Geladeira R$ 2.000,00; 13 parcelas',
+      /Computador/.test(quais) && /Geladeira/.test(quais) && /R\$ 3\.200,00/.test(quais) && /R\$ 2\.000,00/.test(quais) && /\b13 parcelas\b/.test(quais)))
+    for (const [id, msg] of [['LP-quantas-parcelas-tenho', 'quantas parcelas eu tenho'], ['LP-quantas-parcelas-faltam', 'quantas parcelas faltam']]) {
+      const r = limpa((await turnoHoje(rico, msg)).reply)
+      out.push(result(id, r, '13 parcelas', /\b13 parcelas\b/.test(r) && !/Situação dos seus cartões/.test(r)))
+    }
+    const parcelei = limpa((await turnoHoje(rico, 'quanto parcelei no nubank')).reply)
+    out.push(result('LP-parcelei-no-cartao', parcelei, 'Computador, R$ 4.000,00 no Nubank',
+      /Computador/.test(parcelei) && /R\$ 4\.000,00/.test(parcelei) && !/Geladeira/.test(parcelei)))
+    const compra = rico.installmentPlans.find(p => p.id === 'p2')!.purchaseDate
+    const dataCompra = `${compra.slice(8, 10)}/${compra.slice(5, 7)}/${compra.slice(0, 4)}`
+    const quando = limpa((await turnoHoje(rico, 'quando comprei a geladeira')).reply)
+    out.push(result('LP-quando-comprei', quando, `Geladeira comprada em ${dataCompra}`,
+      /Geladeira/.test(quando) && quando.includes(dataCompra)))
+  }
+
   // Comprar o APARELHO é compra; "celular" sozinho é a conta do telefone. "Comprei
   // um celular de 1200 em 10x" ia para Assinaturas.
   {

@@ -4825,6 +4825,25 @@ controle). Gates: 666/666, 99/99, 50/50, **482/482**, metamórficos, fuzz,
 151/151, 468; typechecks, `test:money`, build, rubrica, varredura e `git diff
 --check` passaram.
 
+## 2026-10-28 — a lista dos parcelamentos
+
+"Quais meus parcelamentos" e "quantos parcelamentos eu tenho" davam "Falta
+pagar até agora: R$ 5.200,00", sem dizer quais; "quantas parcelas eu tenho"
+e "quantas parcelas faltam" davam o resumo dos cartões, que não conta
+parcelas (são 13); "quanto parcelei no nubank" dava a fatura do mês; "quando
+comprei a geladeira" caía na ajuda.
+
+Agora `pedeListaDeParcelamentos()` faz a DSL recusar, e a seção de cartões
+responde com a lista: "Você tem 2 parcelamentos com parcela a pagar: 13
+parcelas, R$ 5.200,00 ao todo", e uma linha por compra (cartão, valor e
+parcelas, quanto falta, até quando); com cartão citado, só os dele. Parcela
+de UMA compra ("quantas parcelas faltam do computador") segue com a
+consulta. Com o parcelamento citado, "quando comprei" dá a data da compra,
+valor, parcelas e cartão. 5 casos no grupo LP (os 5 vermelhos antes;
+literais do fixture). Gates: 666/666, 99/99, 50/50, **487/487**, metamórficos,
+fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica (agora 85
+excelentes, 5 aceitáveis), varredura e `git diff --check` passaram.
+
 ## Pendências em 28/10/2026 (HEAD `74899d2`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **472/472 adversariais**, 4.088 + 3.800
@@ -4841,9 +4860,6 @@ seções de 27/10 acima):
 - "Quanto paguei de fatura" e "quando paguei a fatura do nubank" dão o resumo
   dos cartões, não o que foi pago e quando; "antecipei a fatura do nubank"
   também.
-- "Quais meus parcelamentos" dá só a soma, sem listar; "quantas parcelas eu
-  tenho" não dá a contagem; "quando comprei a geladeira" cai na ajuda;
-  "quanto parcelei no nubank" dá a fatura do mês.
 - "Quanto devo gastar por dia" responde a média gasta, não quanto dá para
   gastar; "devo muito?" cai na ajuda.
 - "Quanto guardei nas metas esse mes" responde o total até agora (a meta não
