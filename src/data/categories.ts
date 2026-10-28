@@ -66,7 +66,7 @@ export const CATEGORY_KEYWORDS: Record<string, string[]> = {
   // gasto para "outros" e sumia do custo de combustível do motorista.
   combustivel: ['gasolin', 'gazolin', 'gasolna', 'etanol', 'alcool', 'álcool', 'diesel', 'dizel', 'disel', 'gnv', 'gás veicular', 'gas veicular', 'gás do carro', 'posto', 'shell', 'ipiranga', 'petrobras', 'br ', 'abasteci', 'combustivel', 'combustível', 'combustievl'],
   obra: ['cimento', 'areia', 'tijolo', 'bloco', 'brita', 'argamassa', 'rejunte', 'telha', 'madeira', 'vergalhão', 'vergalhao', 'material de construção', 'material de construcao', 'obra', 'construção', 'construcao', 'reforma', 'pedreiro'],
-  alimentacao: ['almoço', 'almoco', 'janta', 'jantar', 'lanche', 'comida', 'ifood', 'restaurante', 'padaria', 'mercad', 'mercearia', 'sacolão', 'sacolao', 'quitanda', 'café', 'cafe', 'marmita', 'pizza', 'burger', 'hamb', 'salgado', 'coxinha', 'açaí', 'acai', 'sorvete'],
+  alimentacao: ['almoço', 'almoco', 'janta', 'jantar', 'lanche', 'comida', 'ifood', 'restaurante', 'padaria', 'mercad', 'mercearia', 'sacolão', 'sacolao', 'quitanda', 'café', 'cafe', 'marmita', 'pizza', 'burger', 'hamb', 'salgado', 'coxinha', 'açaí', 'acai', 'sorvete', 'pão', ' pao'],
   manutencao: ['óleo', 'oleo', 'pneu', 'freio', 'pastilha', 'revisão', 'revisao', 'mecânico', 'mecanico', 'oficina', 'peça', 'peca', 'filtro', 'vela', 'correia', 'amortecedor', 'manutenção', 'manutencao', 'lavagem', 'lava'],
   estacionamento: ['estacionamento', 'estacionei', 'zona azul', 'parquímetro', 'parquimetro'],
   pedagio: ['pedágio', 'pedagio', 'sem parar', 'veloe', 'conectcar'],
@@ -85,7 +85,9 @@ export const CATEGORY_KEYWORDS: Record<string, string[]> = {
 }
 
 export function guessCategory(text: string, type: 'income' | 'expense'): string | undefined {
-  const t = text.toLowerCase()
+  // O espaço no começo deixa palavra-chave exigir início de palavra: " pao"
+  // casa "pao de queijo", nunca "japao".
+  const t = ` ${text.toLowerCase()}`
   for (const [cat, words] of Object.entries(CATEGORY_KEYWORDS)) {
     if (words.some(w => t.includes(w))) {
       const isIncomeCat = ['corridas', 'salario', 'aluguel', 'freelance', 'vendas'].includes(cat)

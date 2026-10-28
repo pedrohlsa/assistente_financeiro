@@ -2665,6 +2665,12 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const noInter = await orchestrate({ state: rico, message: 'foi no inter', today: hoje, remoteEnabled: false, pending: cartao.response.actions })
     out.push(result('PN-foi-no-cartao-continua-cartao', noInter.response.actions.map(a => a.action), 'cartão Inter, descrição intacta',
       (noInter.response.actions as { action: any }[]).some(a => /inter/i.test(a.action.cardName || '') && /tv/i.test(a.action.description || ''))))
+    const pao = await turnoHoje(rico, 'gastei 20 de pão')
+    out.push(result('PN-pao-e-alimentacao', pao.actions, 'Alimentação', pao.actions.some(a => a.kind === 'expense' && a.category === 'alimentacao')))
+    const paoSem = await turnoHoje(rico, 'gastei 20 de pao')
+    out.push(result('PN-pao-sem-acento', paoSem.actions, 'Alimentação', paoSem.actions.some(a => a.kind === 'expense' && a.category === 'alimentacao')))
+    const japao = await turnoHoje(rico, 'gastei 40 no japao')
+    out.push(result('PN-japao-nao-e-pao', japao.actions, 'não vira Alimentação', japao.actions.some(a => a.kind === 'expense' && a.category !== 'alimentacao')))
   }
 
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"

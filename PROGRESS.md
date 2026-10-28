@@ -4562,6 +4562,16 @@ casos (1 vermelho antes, 1 controle de cartão). Gates: 666/666, **431/431**,
 151/151, 468 e os demais verdes — o `typecheck:api` (que inclui os testes)
 pegou uma anotação de tipo faltando no oráculo, corrigida antes do commit.
 
+## 2026-10-27 — "pão" é Alimentação
+
+"Gastei 20 de pão" ia para Outros: "pão" não estava nas palavras de
+Alimentação. Entrou "pão", e "pao" sem acento exige início de palavra — o
+`guessCategory` agora examina o texto com um espaço na frente, então " pao"
+casa "pao de queijo" e nunca "japao". 3 casos (2 vermelhos antes, 1 controle).
+Gates: 666/666, 99/99, 50/50, **434/434**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build, rubrica, varredura e `git diff --check`
+passaram.
+
 ## Pendências em 27/10/2026 (HEAD `73c8d24`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800
