@@ -712,12 +712,15 @@ export function analyzeMessage(
     // "em 6 meses" em "quero comprar um celular de 5000 em 6 meses" é o PRAZO
     // da meta, não a data de um fato. Só as formas relativas colidem assim, e o
     // desempate é o parser: se a frase inteira produz uma meta, a expressão
-    // pertence a ela e não pode ser arrancada do texto.
-    if (datesOriginal.some(isRelativeFuture) || datesParser.some(isRelativeFuture)) {
+    // pertence a ela e não pode ser arrancada do texto. Vale para toda data
+    // futura: "até dezembro DO ANO QUE VEM" perdia o ano e o prazo encurtava.
+    let prazoDaMeta = false
+    if (datesOriginal.some(isFutureDate) || datesParser.some(isFutureDate)) {
       const full = parseNaturalFull(forParser, { driver: opts?.driver })
       if (full.actions.some(a => a.kind === 'goal' || a.kind === 'goal-update')) {
-        datesOriginal = datesOriginal.filter(d => !isRelativeFuture(d))
-        datesParser = datesParser.filter(d => !isRelativeFuture(d))
+        prazoDaMeta = true
+        datesOriginal = datesOriginal.filter(d => !isFutureDate(d))
+        datesParser = datesParser.filter(d => !isFutureDate(d))
         hintOriginal = null
         hintParser = null
       }
@@ -744,8 +747,11 @@ export function analyzeMessage(
       base = `${base.slice(0, hintParser.start)} ${base.slice(hintParser.end)}`
     }
 
+    // O prazo da meta fica no texto: a proteção acima filtrava as datas, mas
+    // aqui elas eram procuradas de novo e arrancadas — "em 6 meses" chegava ao
+    // parser sem o prazo, e a meta nascia sem ele.
     let semData = base
-    for (const d of [...findAllDates(base, today)].sort((a, b) => b.start - a.start)) {
+    for (const d of [...findAllDates(base, today)].filter(d => !(prazoDaMeta && isFutureDate(d))).sort((a, b) => b.start - a.start)) {
       semData = semData.slice(0, d.start) + ' ' + semData.slice(d.end)
     }
     // Conector órfão deixado pelo recorte ("gastei 40 e") não é descrição.

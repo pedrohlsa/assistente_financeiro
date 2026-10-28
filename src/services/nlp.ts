@@ -3,7 +3,7 @@
 // por um serviço de IA no backend (ver services/ai.ts).
 import { ParsedAction } from '../models/types'
 import { DEFAULT_CATEGORIES, guessCategory } from '../data/categories'
-import { fmtBRL, parseMoney } from '../utils/format'
+import { fmtBRL, fromISO, parseMoney, todayISO } from '../utils/format'
 import { normalizeName, sentenceCase } from '../utils/text'
 
 // Captura valores com QUALQUER combinação de separadores ("100.000,00",
@@ -848,7 +848,20 @@ function parseClause(input: string): ParsedAction[] {
       const n = parseInt(g[4])
       months = /dia/.test(g[5]) ? n / 30 : /semana/.test(g[5]) ? n / 4.33 : n
     }
-    const nome = cleanDescription(g[1]) || cleanDescription(g[3])
+    // "Até dezembro (do ano que vem)", "até o fim do ano": o PRAZO, não parte
+    // do nome — nascia a meta "Moto ate dezembro", sem prazo. O prazo é o
+    // último dia do mês dito, em meses de 30 dias (como a execução conta).
+    const ate = text.match(/\b(?:ate|até)\s+(?:o\s+)?(?:(?:fim|final)\s+d[oe]\s+)?(?:(ano)|(janeiro|fevereiro|marco|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro))(?:\s+(?:do|de)\s+(?:(ano\s+que\s+vem|pr[oó]ximo\s+ano)|(20\d{2})))?/i)
+    if (ate && months === undefined) {
+      const hoje = fromISO(todayISO())
+      const MESES = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+      const mes = ate[1] ? 11 : MESES.indexOf(ate[2].toLowerCase().replace('ç', 'c'))
+      const ano = ate[4] ? Number(ate[4]) : hoje.getFullYear() + (ate[3] || mes < hoje.getMonth() ? 1 : 0)
+      const dias = Math.round((new Date(ano, mes + 1, 0).getTime() - hoje.getTime()) / 86400000)
+      if (dias > 0) months = dias / 30
+    }
+    const semPrazo = (s: string) => s.replace(/\s*\b(?:ate|até)\b.*$/i, '').trim()
+    const nome = cleanDescription(semPrazo(g[1] || '')) || cleanDescription(semPrazo(g[3] || ''))
     actions.push({ kind: 'goal', name: nome || 'Objetivo', target, months })
   }
 

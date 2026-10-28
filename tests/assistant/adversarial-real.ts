@@ -3035,7 +3035,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const r = limpa((await turnoHoje(rico, 'se eu parar de pagar a internet quanto sobra?')).reply)
     out.push(result('CFX-parar-conta-fixa', r, 'Internet, R$ 120,00 por mês evitados, sem a Luz',
       /Internet/.test(r) && /R\$ 120,00/.test(r) && !/Não achei base/.test(r) && !/Assinaturas/.test(r) && !/2 conta/.test(r)))
-    // "Pela metade" é metade: a resposta dizia "Se você PARAR os gastos com
+    // "Até dezembro" é o PRAZO da meta, não parte do nome: nascia a meta "Moto
+  // ate dezembro", sem prazo. Prazo = último dia do mês dito.
+  {
+    const rico = autonomoRico(hoje)
+    const meta = async (msg: string) => ((await turnoHoje(rico, msg)).actions as { kind: string, name?: string, months?: number }[])
+      .find(a => a.kind === 'goal')
+    const dias = (ano: number, mes: number) => Math.round((new Date(ano, mes + 1, 0).getTime() - fromISO(hoje).getTime()) / 86400000)
+    const anoQueVem = await meta('quero juntar 5000 pra uma moto ate dezembro do ano que vem')
+    const esperado = dias(Number(hoje.slice(0, 4)) + 1, 11)
+    out.push(result('MPZ-ate-dezembro-ano-que-vem', anoQueVem, `"Moto", prazo em ${esperado} dias`,
+      !!anoQueVem && anoQueVem.name === 'Moto' && Math.round((anoQueVem.months || 0) * 30) === esperado))
+    const desteAno = await meta('quero juntar 5000 pra uma moto ate dezembro')
+    const esperado2 = dias(Number(hoje.slice(0, 4)) + (Number(hoje.slice(5, 7)) > 12 ? 1 : 0), 11)
+    out.push(result('MPZ-ate-dezembro', desteAno, `"Moto", prazo em ${esperado2} dias`,
+      !!desteAno && desteAno.name === 'Moto' && Math.round((desteAno.months || 0) * 30) === esperado2))
+    // "Em 6 meses" também se perdia: o texto que ia ao parser tirava as datas
+    // de novo, sem a proteção do prazo.
+    const seisMeses = await meta('quero comprar um celular de 5000 em 6 meses')
+    out.push(result('MPZ-em-6-meses', seisMeses, '"Celular", 6 meses', !!seisMeses && seisMeses.name === 'Celular' && seisMeses.months === 6))
+  }
+
+  // "Pela metade" é metade: a resposta dizia "Se você PARAR os gastos com
     // Alimentação". Metade da média de 3 meses do fixture, pela soma dele.
     const metade = limpa((await turnoHoje(rico, 'e se eu cortar o mercado pela metade?')).reply)
     out.push(result('CFX-pela-metade', metade, 'cortar pela metade, não parar', /metade/i.test(metade) && !/parar os gastos/i.test(metade)))

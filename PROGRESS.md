@@ -5161,6 +5161,30 @@ grupo CFX (vermelho antes). Gates: 666/666, 99/99, 50/50, **541/541**,
 metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica,
 varredura e `git diff --check` passaram.
 
+## 2026-10-28 — o prazo da meta não se perde
+
+Meta sem prazo: "quero juntar 5000 pra uma moto até dezembro do ano que vem"
+criava a meta chamada "Moto ate dezembro", sem prazo; e "quero comprar um
+celular de 5000 em 6 meses" também nascia sem prazo — o parser lia os 6
+meses, mas o texto que chegava a ele já vinha sem a data. Três causas:
+- o nome depois de "pra" engolia "até dezembro";
+- "até <mês>" não virava prazo;
+- a análise de cláusulas protegia o prazo da meta filtrando as datas, mas o
+  texto do parser (`semData`) procurava as datas de novo e as arrancava; e
+  só protegia prazo relativo, não "dezembro do ano que vem".
+Agora "até <mês> (do ano que vem | de AAAA)" e "até o fim do ano" viram
+`months` (até o último dia do mês, em meses de 30 dias, como a execução
+conta) e saem do nome; toda data futura numa frase de meta fica no texto do
+parser. 3 casos no grupo MPZ (os 3 vermelhos antes). Gates: 666/666, 99/99,
+50/50, **544/544**, metamórficos, fuzz, 151/151, 468; typechecks,
+`test:money`, build, rubrica, varredura e `git diff --check` passaram.
+
+Achados sem correção, da mesma sondagem:
+- "quero juntar 1000 pra viagem e amanhã pago a luz 180" cria a meta "Viagem
+  e pago" e perde a luz (já antes);
+- "tirei 100 da viagem" cai na ajuda (retirada de meta não existe no chat);
+- "muda a meta da viagem pra 7000" mostra o nome em minúscula ("viagem").
+
 ## Pendências em 28/10/2026 (HEAD `0e1efb3`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **536/536 adversariais**, 4.088 + 3.800
