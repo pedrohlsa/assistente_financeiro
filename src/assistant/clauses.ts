@@ -7,7 +7,7 @@
 
 import type { ParsedAction } from '../models/types'
 import type { AssistantConfidence, AssistantIntent } from './contracts'
-import { looksRecurring, parseNaturalFull } from '../services/nlp'
+import { gruposDeCorrida, looksRecurring, parseNaturalFull } from '../services/nlp'
 import { findAllDates, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
@@ -631,9 +631,13 @@ function unaccountedMoney(clause: AnalyzedClause): number[] {
     return [v.amount ?? v.cost, v.pricePerLiter]
   }).filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
   if (clause.unpaidRideAmount !== undefined) represented.push(clause.unpaidRideAmount)
+  // "3 corridas de 40 e uma de 25": quantidade e valor de cada grupo estão no
+  // produto registrado (R$ 120,00 e R$ 25,00); não são valores soltos.
+  const grupos = gruposDeCorrida(normalized).filter(g => represented.some(v => Math.abs(v - g.n * g.v) < 0.005))
   const missing: number[] = []
   for (const m of normalized.matchAll(/(?<![\d.,])(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?![\d.,])/g)) {
     const at = m.index || 0
+    if (grupos.some(g => at >= g.start && at < g.end)) continue
     const before = normalized.slice(Math.max(0, at - 24), at)
     const after = normalized.slice(at + m[0].length, at + m[0].length + 24)
     // "Na 99", "pela 99": é a plataforma, não R$ 99,00.

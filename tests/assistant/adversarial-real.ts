@@ -2894,6 +2894,27 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /Falta pagar R\$ 800,00/.test(fatura) && !/Cadastre|Não tenho|para pagar|Situação dos seus cartões/.test(fatura)))
   }
 
+  // "Fiz 3 corridas DE 40 e uma de 25": quantidade × valor. Só as 3 viagens
+  // entravam, e os R$ 145,00 viravam uma pergunta.
+  {
+    const moto = motoristaRico(hoje)
+    const conta = async (msg: string) => {
+      const t = await turnoHoje(moto, msg)
+      const a = t.actions as { kind: string, amount?: number, trips?: number }[]
+      return {
+        receita: Math.round(a.filter(x => x.kind === 'income').reduce((s, x) => s + (x.amount || 0), 0) * 100) / 100,
+        viagens: a.filter(x => x.kind === 'work').reduce((s, x) => s + (x.trips || 0), 0),
+        pergunta: /não consegui ligar/.test(t.reply),
+      }
+    }
+    for (const [id, msg, receita, viagens] of [['CQ-3-de-40-e-1-de-25', 'fiz 3 corridas de 40 e uma de 25', 145, 4],
+      ['CQ-2-viagens-de-50', 'fiz 2 viagens de 50', 100, 2], ['CQ-uma-de-30-controle', 'fiz uma corrida de 30 reais', 30, 1]] as const) {
+      const r = await conta(msg)
+      out.push(result(id, r, `receita R$ ${receita}, ${viagens} viagens, sem pergunta de valor solto`,
+        r.receita === receita && r.viagens === viagens && !r.pergunta))
+    }
+  }
+
   // "Na 99" é a plataforma, não R$ 99,00: o turno perguntava "o que aconteceu
   // com os R$ 99,00?" depois de ler as duas receitas certas.
   {

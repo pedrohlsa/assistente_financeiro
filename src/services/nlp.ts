@@ -152,6 +152,32 @@ function janelaLocal(text: string, inicio: number, fim: number): string {
 }
 
 /**
+ * Grupos de corrida com quantidade e valor: "3 corridas de 40 e uma de 25" →
+ * [{n: 3, v: 40}, {n: 1, v: 25}], com o trecho de cada um (a checagem de
+ * valores soltos ignora os números de dentro). O primeiro grupo precisa dizer
+ * "corridas/viagens" e ter mais de uma; os seguintes vêm depois de "e" ou
+ * vírgula. "10 corridas de 15 km" não é valor.
+ */
+export function gruposDeCorrida(text: string): { n: number, v: number, start: number, end: number }[] {
+  const QTD = String.raw`(\d+|uma|um|duas|dois|tres|três|quatro|cinco)`
+  const qtd = (s: string) => /^\d+$/.test(s) ? parseInt(s, 10)
+    : ({ um: 1, uma: 1, dois: 2, duas: 2, tres: 3, 'três': 3, quatro: 4, cinco: 5 } as Record<string, number>)[s.toLowerCase()] ?? NaN
+  const VALOR = String.raw`\s+(?:de|por)\s*(?:r\$)?\s*${NUM}(?![\d.,]|\s*(?:km|quil|horas?|h\b|litros?|min))`
+  const primeiro = text.match(new RegExp(String.raw`\b${QTD}\s+(?:corridas|viagens)${VALOR}`, 'i'))
+  if (!primeiro || !(qtd(primeiro[1]) > 1) || !(parseNum(primeiro[2]) > 0)) return []
+  const inicio = primeiro.index || 0
+  const fim = inicio + primeiro[0].length
+  const out = [{ n: qtd(primeiro[1]), v: parseNum(primeiro[2]), start: inicio, end: fim }]
+  for (const g of text.slice(fim).matchAll(new RegExp(String.raw`(?:\be\s+|,\s*)(?:mais\s+)?${QTD}${VALOR}`, 'gi'))) {
+    const n = qtd(g[1])
+    const v = parseNum(g[2])
+    if (!(n > 0) || !(v > 0)) continue
+    out.push({ n, v, start: fim + (g.index || 0), end: fim + (g.index || 0) + g[0].length })
+  }
+  return out
+}
+
+/**
  * "Celular" é a palavra da CONTA ("paguei 60 do celular" → Assinaturas), mas
  * comprar o aparelho é compra: "comprei um celular de 1200 em 10x" ia para
  * Assinaturas. Só troca a categoria que veio da palavra "celular".
@@ -1005,6 +1031,15 @@ function parseClause(input: string): ParsedAction[] {
         description: platform === 'uber' ? 'Uber' : platform === '99' ? '99' : platform === 'indriver' ? 'inDrive' : 'Corrida',
       })
     }
+
+    // "Fiz 3 corridas DE 40 e uma de 25": quantidade × valor, por grupo. Só as
+    // viagens entravam (o "3 corridas" é lido pelo trabalho, mais abaixo), e os
+    // R$ 145,00 viravam uma pergunta. Os grupos seguintes somam receita e
+    // viagens; a fusão do trabalho soma as viagens ditas com essas.
+    const grupos = gruposDeCorrida(text)
+    for (const g of grupos) actions.push({ kind: 'income', amount: Math.round(g.n * g.v * 100) / 100, category: 'corridas', description: 'Corridas' })
+    const extras = grupos.slice(1).reduce((s, g) => s + g.n, 0)
+    if (extras) actions.push({ kind: 'work', trips: extras })
   }
 
   // Transferência afirmada é saída; pedido de Pix não casa com este verbo.

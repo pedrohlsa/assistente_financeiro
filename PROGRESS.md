@@ -4996,6 +4996,22 @@ antes). Gates: 666/666, 99/99, 50/50, **513/513**, metamórficos, fuzz,
 151/151, 468; typechecks, `test:money`, build, rubrica, varredura e `git diff
 --check` passaram.
 
+## 2026-10-28 — "fiz 3 corridas de 40 e uma de 25"
+
+Dinheiro perdido no registro do motorista: "fiz 3 corridas de 40 e uma de
+25" e "fiz 2 viagens de 50" registravam só as viagens (3 e 2); os R$ 145,00
+e os R$ 100,00 viravam a pergunta "o que aconteceu com os R$ 40,00, R$
+25,00?". Só "uma corrida de X" era receita. Agora `gruposDeCorrida()` lê
+quantidade × valor por grupo — o primeiro diz "N corridas/viagens de X" com
+N > 1, os seguintes vêm depois de "e" ou vírgula ("e uma de 25", "e 3 de
+20") — e cada grupo vira receita de Corridas; as viagens dos grupos
+seguintes somam às ditas (4 no exemplo). A checagem de valores soltos ignora
+os números de dentro de um grupo cujo produto está registrado. "10 corridas
+de 15 km" não é valor. 3 casos no grupo CQ (2 vermelhos antes, 1 controle).
+Gates: 666/666, 99/99, 50/50, **516/516**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build, rubrica, varredura e `git diff --check`
+passaram.
+
 ## Pendências em 28/10/2026 (HEAD `8c3fd2f`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **490/490 adversariais**, 4.088 + 3.800
