@@ -3598,6 +3598,47 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('HOME-leitura-nao-muta', JSON.stringify(st), before, JSON.stringify(st) === before))
   }
 
+  {
+    const st = buildState({ profile: 'autonomo', balance: 1000 })
+    st.settings.balanceAsOf = `${hoje}T00:00:00`
+    st.transactions = [
+      { id: 'cash-today', type: 'income', category: 'salario', amount: 100, date: hoje, time: '12:00' },
+      { id: 'cash-future-income', type: 'income', category: 'salario', amount: 9000, date: addDays(hoje, 1) },
+      { id: 'cash-future-expense', type: 'expense', category: 'casa', amount: 2000, date: addDays(hoje, 2) },
+    ]
+    const tx = currentBalance(st)
+    out.push(result('CAIXA-data-futura-nao-disponivel', tx, 'saldo hoje1100; receita e despesa futuras não movimentam caixa atual', tx === 1100))
+    st.transactions = []
+    st.cardPayments = [{ id: 'future-card-payment', cardId: 'unused-card', amount: 200,
+      paymentDate: addDays(hoje, 1), referenceMonth: hoje.slice(0, 7), fromBalance: true }]
+    const payment = currentBalance(st)
+    out.push(result('CAIXA-pagamento-futuro-nao-sai', payment, 'pagamento de fatura amanhã não reduz saldo hoje1000', payment === 1000))
+    st.cardPayments = []
+    st.installmentPlans = [{ id: 'cash-direct', description: 'Acordo', totalAmount: 300, installmentCount: 1,
+      firstDueDate: addDays(hoje, 1), purchaseDate: hoje, createdAt: hoje, status: 'active', operationType: 'standalone' }]
+    st.installments = [{ id: 'cash-direct-1', planId: 'cash-direct', number: 1, total: 1, amount: 300,
+      dueDate: addDays(hoje, 1), status: 'paid', paidAt: addDays(hoje, 1) }]
+    const direct = currentBalance(st)
+    out.push(result('CAIXA-quitacao-direta-futura', direct, 'quitação direta com data futura não reduz saldo hoje', direct === 1000))
+    st.installments[0] = { ...st.installments[0], status: 'pending', paidAmount: 200,
+      directPayments: [{ amount: 100, date: hoje, time: '12:00' }, { amount: 100, date: addDays(hoje, 1), time: '12:00' }] }
+    const partial = currentBalance(st)
+    out.push(result('CAIXA-parcial-apenas-ate-hoje', partial, 'sai somente o parcial de hoje: saldo900', partial === 900))
+    st.transactions = [{ id: 'explicit-asof', type: 'income', category: 'salario', amount: 300,
+      date: addDays(hoje, 2), time: '12:00' }]
+    const projectedDate = currentBalance(st, addDays(hoje, 1))
+    out.push(result('CAIXA-referencia-injetada', projectedDate, 'no dia seguinte saíram dois parciais, mas receita de depois ainda não:800',
+      projectedDate === 800))
+    st.installments = []
+    const real = await turnoHoje(st, 'qual meu saldo?')
+    out.push(result('CAIXA-chat-nao-antecipa-receita', real, 'chat usa saldo1000, não1300 com receita futura',
+      /1\.000,00/.test(real.reply) && !/1\.300,00/.test(real.reply) && real.actions.length === 0))
+    st.transactions[0].amount = 9000
+    const spend = await turnoHoje(st, 'se eu gastar 1200 hoje, cabe?')
+    out.push(result('CAIXA-cenario-nao-usa-receita-futura', spend, 'gasto1200 não cabe em1000, mesmo com9000 futuros',
+      spend.focus?.lastScenario?.feasible === false && spend.actions.length === 0))
+  }
+
   return out
 }
 

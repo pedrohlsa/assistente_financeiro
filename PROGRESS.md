@@ -5429,3 +5429,26 @@ e rubrica verdes; demais contagens preservadas. Alteração local, sem envio
 remoto, publicação ou APK. Aviso de bundle grande permanece. Ainda NOT READY
 até auditoria independente. A exibição do número bruto do saldo em outros
 pontos e todas as telas/fluxos legados não foram revalidadas nesta rodada.
+
+## 28/10/2026 — Data futura não vira saldo disponível
+
+Após811ef5d, o teste literal mostrou que currentBalance somava receita9000
+de amanhã e descontava despesa2000 de depois de amanhã no saldo de hoje.
+Também descontava antecipadamente CardPayment futuro, quitação direta
+futura e parcelas parciais com datas de amanhã. Sete testes novos, primeiro
+vermelhos nas cinco classes matemáticas, cobrem essas fontes, data de
+referência explícita, pergunta de saldo e gasto maior que o caixa atual.
+
+currentBalance agora tem data opcional (hoje por padrão), respeita o limite
+superior da data em todos os eventos de caixa e mantém âncora/ordem/desconto
+único já existentes. Cenários, balanceOutlook e projeção mensal passam a
+mesma referência. A correção localizada anterior que filtrava só transações
+no cenário de receita ausente foi substituída pela função central.
+
+603/603 adversariais. npm test completo passou com os primeiros601 casos;
+os dois contrastes adicionais de chat também passaram no conjunto603.
+Typecheck frontend, API e build passaram. Demais invariantes e avaliações
+preservadas; não houve chamada paga, publicação ou APK. NOT READY para merge
+até auditoria independente. Pagamentos futuros registrados podem ainda
+marcar uma parcela como paga nas visões de dívida: essa semântica não foi
+alterada neste lote e deve ser investigada separadamente.

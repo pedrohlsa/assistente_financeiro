@@ -96,17 +96,17 @@ export function nextCashEventTime(s: AppState, date: string, time: string, force
  * a partir do INÍCIO DE HOJE — movimentações de dias anteriores já estavam
  * embutidas no valor que o usuário digitou, e as de hoje passam a somar.
  */
-export function currentBalance(s: AppState): number {
+export function currentBalance(s: AppState, today = todayISO()): number {
   const anchor = s.settings.balance || 0
-  const since = s.settings.balanceAsOf || `${todayISO()}T00:00`
+  const since = s.settings.balanceAsOf || `${today}T00:00`
   let total = anchor
   for (const t of s.transactions) {
-    if (stampOf(t.date, t.time) <= since) continue
+    if (t.date > today || stampOf(t.date, t.time) <= since) continue
     if (t.type === 'income' || t.type === 'financed-cash-inflow') total += t.amount
     else if (t.type === 'expense') total -= t.amount
   }
   for (const p of s.cardPayments || []) {
-    if (!p.fromBalance) continue
+    if (!p.fromBalance || p.paymentDate > today) continue
     if (stampOf(p.paymentDate, p.paymentTime) <= since) continue
     total -= p.amount
   }
@@ -116,9 +116,9 @@ export function currentBalance(s: AppState): number {
     if (i.directPayments?.length) {
       // Cada parcela parcial mantém sua própria hora; o total acumulado não
       // pode ser todo movido para o instante do pagamento mais recente.
-      total -= i.directPayments.filter(p => stampOf(p.date, p.time) > since)
+      total -= i.directPayments.filter(p => p.date <= today && stampOf(p.date, p.time) > since)
         .reduce((sum, p) => sum + p.amount, 0)
-    } else if (i.paidAt && stampOf(i.paidAt) > since) {
+    } else if (i.paidAt && i.paidAt.slice(0, 10) <= today && stampOf(i.paidAt) > since) {
       total -= directInstallmentPaidAmount(s, i)
     }
   }
@@ -386,7 +386,7 @@ export function monthlyProjections(s: AppState, months = 12, today = todayISO())
   const t = today
   const start = fromISO(t)
   const out: MonthProjection[] = []
-  let running = currentBalance(s)
+  let running = currentBalance(s, today)
 
   for (let i = 0; i < months; i++) {
     const d = new Date(start.getFullYear(), start.getMonth() + i, 1)
@@ -780,7 +780,7 @@ export interface BalanceOutlook {
 }
 
 export function balanceOutlook(s: AppState, horizon = 7, today = todayISO()): BalanceOutlook {
-  const balance = currentBalance({ ...s, transactions: s.transactions.filter(t => t.date <= today) })
+  const balance = currentBalance(s, today)
   const all = cashObligationsUntil(s, addDays(today, horizon), today)
   const bills = all.filter(b => !b.unconfirmed)
   const unconfirmed = all.filter(b => b.unconfirmed)

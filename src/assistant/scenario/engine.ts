@@ -286,7 +286,7 @@ export function runScenario(
   hoje = todayISO(),
 ): AssistantScenarioResult {
   const r = simulaCenario(state, plan, hoje)
-  const semBase = currentBalance(state) === 0 && !(state.transactions || []).length
+  const semBase = currentBalance(state, hoje) === 0 && !(state.transactions || []).length
     && !(state.recurring || []).some(x => x.kind === 'income' && x.active !== false)
   if (!semBase || r.empty || r.feasible === undefined) return r
   const aviso = 'Seu saldo está zerado no app e não há nada lançado, então não sei dizer se cabe. Me diga "meu saldo é 1500" (com o seu valor) que eu refaço a conta.'
@@ -332,8 +332,8 @@ function simulaCenario(
       const valor = plan.amount || 0
       if (!(valor > 0)) return vazio(plan, caveats, 'Me diga o valor que você está pensando em gastar.')
       const projetado = comDespesa(state, valor, plan.category || 'outros-out', hoje)
-      const saldoAntes = currentBalance(state)
-      const saldoDepois = currentBalance(projetado)
+      const saldoAntes = currentBalance(state, hoje)
+      const saldoDepois = currentBalance(projetado, hoje)
       const mgDepois = monthlySavingGoal(projetado)
       const obligations = cashObligationsUntil(projetado, addDays(hoje, 7), hoje)
       const certas = obligations.filter(o => !o.unconfirmed)
@@ -474,7 +474,7 @@ function simulaCenario(
         return { plan, facts, months: [], caveats, empty: true }
       }
       const inv = currentInvoice(state, alvo)
-      const saldo = currentBalance(state)
+      const saldo = currentBalance(state, hoje)
       facts.push(fato(`Fatura pendente do ${alvo.name}`, inv.pending, 'BRL', 'fatura atual'))
       facts.push(fato('Saldo hoje', saldo, 'BRL', 'saldo atual'))
       facts.push(fato('Saldo depois de pagar', saldo - inv.pending, 'BRL', 'subtração'))
@@ -499,7 +499,7 @@ function simulaCenario(
           ? `Não tenho entradas de "${nome}" registradas nos últimos 90 dias, então não sei quanto deixaria de entrar.`
           : 'Me diga quanto deixaria de entrar que eu faço a conta.')
       }
-      const saldo = currentBalance({ ...state, transactions: state.transactions.filter(t => t.date <= hoje) })
+      const saldo = currentBalance(state, hoje)
       const obligations = cashObligationsUntil(state, addDays(hoje, 30), hoje)
       const certas = obligations.filter(o => !o.unconfirmed)
       const contas = r2(certas.reduce((sum, o) => sum + o.amount, 0))

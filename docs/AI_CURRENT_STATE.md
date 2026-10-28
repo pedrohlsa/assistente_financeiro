@@ -611,3 +611,10 @@ cartão) e compartilha o texto da cobertura com Home/avisos/resumos. Sem
 veredito para pendência incerta capaz de inverter cobertura ou legado de
 pagamento ambíguo.596/596 adversariais; demais gates preservados. Ver fim
 do PROGRESS.md. Sem publicação; NOT READY até auditoria independente.
+
+## 28/10/2026 — Saldo respeita datas
+
+currentBalance exclui eventos de caixa futuros: transações, CardPayment,
+quitação direta e pagamentos parciais de parcela. Referência opcional usada
+em cenário/projeção/avisos.603/603 adversariais; gates e ressalvas no fim do
+PROGRESS.md. Investigar separadamente situação da dívida em pagamento futuro.

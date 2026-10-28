@@ -40,6 +40,8 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
   metas após uma pergunta mensal sem histórico. A Home e os resumos passaram
   a usar os mesmos compromissos; cobertura fica indefinida quando pendências
   incertas podem inverter o saldo ou há legado ambíguo de cartão.
+  O saldo central também passou a ignorar movimentações e pagamentos com
+  data futura, inclusive quitação direta/parcial de parcela.
   Retomada: docs/CODEX_RESUME.md.
   Lista de pendências no
   fim de [PROGRESS.md](PROGRESS.md), seção "Pendências em 28/10/2026".
@@ -51,7 +53,7 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
 - A V2 acrescentou consultas e cenários multi-entidade, continuidade de conversa,
   preferências locais explícitas e reconciliação parcial de cartões. Baseline
   local mais recente: 666/666 corpus, 99/99 consulta/cenário/continuidade,
-  50/50 semânticos, 596/596 adversariais, 4.088 + 3.800 metamórficos,
+  50/50 semânticos, 603/603 adversariais, 4.088 + 3.800 metamórficos,
   1.416 fuzz, 151/151 invariantes e 468/468 verificações remotas **offline**;
   typechecks, teste de dinheiro, build e rubrica passaram.
 - **NOT READY para merge/deploy.** O parecer sobre `345d55e` encontrou oito

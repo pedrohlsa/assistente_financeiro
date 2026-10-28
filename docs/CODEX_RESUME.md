@@ -54,6 +54,9 @@ saldo do cenário de entrada ausente também excluem transações futuras.
 - A rodada posterior alinhou `balanceOutlook` (Home/resumos/avisos) com os
   compromissos do chat: 596/596 adversariais. Inclui fatura, exclui quitada,
   admite incerteza de contas vencidas e bloqueia cobertura com legado ambíguo.
+- Depois, `currentBalance` central passou a ignorar datas futuras em receitas,
+  despesas e pagamentos (fatura e direto/parcial de parcela). Cenários e
+  projeção mensal recebem a data de referência. 603/603 adversariais.
 - Reproduzir "antecipei a fatura do Nubank" e "devo muito?"; o chat não
   possui ação para antecipação por mês. Não inventar execução nem capacidade.
 - Testar novos contrastes de continuidade e datas, sem repetir os exemplos
