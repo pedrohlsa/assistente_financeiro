@@ -5119,14 +5119,14 @@ de setembro). 1 caso no grupo CS (vermelho antes). Gates: 666/666, 99/99,
 50/50, **536/536**, metamórficos, fuzz, 151/151, 468; typechecks,
 `test:money`, build, rubrica, varredura e `git diff --check` passaram.
 
-## Pendências em 28/10/2026 (HEAD `4e16b70`)
+## Pendências em 28/10/2026 (HEAD `0e1efb3`)
 
-Estado: 666/666 corpus, 99/99, 50/50, **516/516 adversariais**, 4.088 + 3.800
+Estado: 666/666 corpus, 99/99, 50/50, **536/536 adversariais**, 4.088 + 3.800
 metamórficos, 1.416 fuzz, 151/151 invariantes, 468/468 offline (65 frases
 chegam hoje ao modelo remoto); typechecks, `test:money`, build e rubrica
 (0 perigosa, 0 ruim) verdes. Tudo local, sem DeepSeek, push, merge, deploy ou
 APK. **NOT READY para merge/deploy**: os diffs `c3648de..c824fe0`,
-`c824fe0..b049bdf`, `b049bdf..73c8d24` e `73c8d24..4e16b70` (seções acima,
+`c824fe0..b049bdf`, `b049bdf..73c8d24` e `73c8d24..0e1efb3` (seções acima,
 uma por causa) precisam de auditoria independente; navegador, persistência
 real e dados legados reais não foram revalidados.
 

@@ -8,8 +8,8 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
 
 ## Checkpoint vigente — 25/10/2026
 
-- Trabalho local: `feat/assistant-intelligence-v2`, HEAD `4e16b70`. Em 27-28/10/2026,
-  101 commits locais depois de `c3648de` corrigiram respostas lidas como usuário
+- Trabalho local: `feat/assistant-intelligence-v2`, HEAD `0e1efb3`. Em 27-28/10/2026,
+  112 commits locais depois de `c3648de` corrigiram respostas lidas como usuário
   (caixa futuro, faturas de agora, contas fixas, metas com prazo, registro e
   pergunta juntos, nomes com acento, categoria pelo nome, exclusões, períodos
   "desse/deste", agrupamento por tempo, por dia, manutenção, sobra tirando
@@ -19,7 +19,10 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
   depósito em meta, janela do mês no roteador antigo, "pra pagar/vence" como
   busca, "vou receber", celular comprado, lista dos parcelamentos, limite de
   gasto por dia, pago nas faturas, "almocei 32", e no registro do motorista:
-  preço do litro, viagens ditas, horas × km, "na 99" e grupos de corrida).
+  preço do litro, viagens ditas, horas × km, "na 99", grupos de corrida,
+  gorjeta, quilometragem da troca e valor depois das corridas; na conversa:
+  "compara com setembro", "e de aluguel?", rótulo do texto e cartão sobre
+  gasto).
   Lista de pendências no
   fim de [PROGRESS.md](PROGRESS.md), seção "Pendências em 28/10/2026".
   `.claude/launch.json` é modificação local preexistente e não pertence às entregas.
@@ -30,7 +33,7 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
 - A V2 acrescentou consultas e cenários multi-entidade, continuidade de conversa,
   preferências locais explícitas e reconciliação parcial de cartões. Baseline
   local mais recente: 666/666 corpus, 99/99 consulta/cenário/continuidade,
-  50/50 semânticos, 516/516 adversariais, 4.088 + 3.800 metamórficos,
+  50/50 semânticos, 536/536 adversariais, 4.088 + 3.800 metamórficos,
   1.416 fuzz, 151/151 invariantes e 468/468 verificações remotas **offline**;
   typechecks, teste de dinheiro, build e rubrica passaram.
 - **NOT READY para merge/deploy.** O parecer sobre `345d55e` encontrou oito
