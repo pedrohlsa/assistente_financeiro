@@ -21,7 +21,7 @@ import { promptSafe, sentenceCase } from '../utils/text'
 import { MAX_COMPOSE_FACTS } from '../assistant/grounding'
 import { MARGEM_EMPATE } from '../assistant/query/answer'
 import {
-  analyzeRide, avgDailyProfit, balanceOutlook, bestWorstDay, cashObligationsUntil, currentBalance, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
+  analyzeRide, avgDailyProfit, balanceOutlook, balanceOutlookText, bestWorstDay, cashObligationsUntil, currentBalance, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
   monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections, budgetUsage,
   describeRecurrence, occurrenceRecord, occurrencesBetween, recurrenceStep, recurringActiveOn, savedThisMonth,
 } from './calc'
@@ -824,8 +824,8 @@ function resolveLocal(s: AppState, input: string): AiReply {
         text: `Seu mês até agora (dados reais):\n\n` +
           `• Entrou: ${fmtBRL(mg.income)}\n• Saiu: ${fmtBRL(mg.expense)}\n• ${mg.net >= 0 ? 'Sobra do mês' : 'Déficit do mês'}: ${fmtBRL(Math.abs(mg.net))}\n` +
           (mg.target > 0 ? `• Meta para guardar: ${fmtBRL(mg.target)} (${mg.pct}% atingido)\n` : '') +
-          (ambiguousBalance ? `\n${AMBIGUOUS_BALANCE_REPLY}` : bo && bo.bills.length
-            ? `\nContas nos próximos 7 dias: ${fmtBRL(bo.billsSoon)} — ${bo.ok ? `seu saldo cobre e sobra ${fmtBRL(bo.leftover)}.` : `faltam ${fmtBRL(bo.shortfall)}.`}`
+          (ambiguousBalance ? `\n${AMBIGUOUS_BALANCE_REPLY}` : bo && (bo.bills.length || bo.unconfirmed.length)
+            ? `\n${balanceOutlookText(bo)}`
             : ''),
       }
     }
@@ -1387,7 +1387,6 @@ function resolveLocal(s: AppState, input: string): AiReply {
       const mg = monthlySavingGoal(s)
       const ambiguousBalance = hasAmbiguousLegacyCardBalance(s)
       const bo = ambiguousBalance ? null : balanceOutlook(s, 7)
-      const bills = upcomingBills(s, 7)
       const inst = installmentsThisMonth(s)
       return {
         text: `Sua situação neste mês (dados reais):\n\n` +
@@ -1397,9 +1396,9 @@ function resolveLocal(s: AppState, input: string): AiReply {
           `• Já guardado de verdade: ${fmtBRL(mg.saved)}\n` +
           (mg.target > 0 ? `• Meta mensal para guardar: ${fmtBRL(mg.target)} (${mg.pct}% atingido)\n` : '') +
           (inst > 0 ? `• Parcelas e faturas que vencem neste mês: ${fmtBRL(inst)}\n` : '') +
-          (ambiguousBalance ? `\n${AMBIGUOUS_BALANCE_REPLY}` : bills.length && bo
-            ? `\nContas nos próximos 7 dias: ${fmtBRL(bo.billsSoon)} — ${bo.ok ? `seu saldo cobre e sobra ${fmtBRL(bo.leftover)}.` : `faltam ${fmtBRL(bo.shortfall)}.`}`
-            : '\nNenhuma conta cadastrada vence nos próximos 7 dias.'),
+          (ambiguousBalance ? `\n${AMBIGUOUS_BALANCE_REPLY}` : bo && (bo.bills.length || bo.unconfirmed.length)
+            ? `\n${balanceOutlookText(bo)}`
+            : '\nNenhum compromisso cadastrado vencido ou nos próximos 7 dias.'),
       }
     }
     const ts = todayStats(s); const w = weekStats(s); const m2 = monthStats(s); const g = dailyGoal(s)

@@ -5366,8 +5366,8 @@ seções de 27 e 28/10 acima):
 - "Devo muito?" cai na ajuda.
 
 Decisões de produto pendentes:
-- `balanceOutlook` na Home só considera contas fixas. A rodada abaixo também
-  migrou o cenário de entrada ausente para `cashObligationsUntil()`.
+- `balanceOutlook` e o cenário de entrada ausente foram alinhados com
+  `cashObligationsUntil()` nos lotes abaixo; a divergência foi corrigida.
 - Não existe lançamento de retirada da reserva (`insufficient-reserve` não é usado).
 - O chat não apaga lançamento salvo (só "desfaz o último" lote do assistente).
 - O chat não confirma ocorrência de conta fixa: "paguei a luz de 180" cria
@@ -5410,3 +5410,22 @@ grande permanece. Sem remoto pago, publicação ou APK. `.claude/launch.json`
 continua alteração preexistente fora dos commits. NOT READY: falta auditoria
 independente. Retomadas autorizadas neste chat e instruções em
 `docs/CODEX_RESUME.md`; reserva mínima de uso 5%, parada conservadora com 10%.
+
+## 28/10/2026 — Cobertura de compromissos na Home e nos resumos
+
+Após cd5aaef, reproduzida a mesma omissão de faturas em balanceOutlook,
+usado pela tela inicial, avisos e resumo do chat. Saldo 1000/fatura1200
+agora produz compromisso1200, falta200, sem somar a parcela de novo.
+Fatura paga sai da conta, dívida vencida continua incluída e conta vencida
+sem confirmação fica separada; se puder inverter o resultado, ok é indefinido.
+Legado ambíguo de pagamento no cartão também impede veredito de cobertura.
+Home, avisos e os dois resumos usam texto comum e mostram o horizonte de
+compromissos vencidos e próximos7dias. A ressalva de pendências não atribui
+conta antiga automaticamente a dívida certa. O auxiliar aceita data de
+referência injetada; as transações futuras não viram saldo disponível hoje.
+
+6 regressões adicionais,596/596 adversariais. npm test, typechecks, build
+e rubrica verdes; demais contagens preservadas. Alteração local, sem envio
+remoto, publicação ou APK. Aviso de bundle grande permanece. Ainda NOT READY
+até auditoria independente. A exibição do número bruto do saldo em outros
+pontos e todas as telas/fluxos legados não foram revalidadas nesta rodada.

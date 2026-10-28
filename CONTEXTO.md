@@ -37,7 +37,10 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
   compromissos (30 dias), excluindo receita futura da média histórica e do
   saldo na data consultada. A conversa aceita uma nova hipótese completa,
   alterna previsão/recebido preservando a origem e recupera o acumulado das
-  metas após uma pergunta mensal sem histórico. Retomada: docs/CODEX_RESUME.md.
+  metas após uma pergunta mensal sem histórico. A Home e os resumos passaram
+  a usar os mesmos compromissos; cobertura fica indefinida quando pendências
+  incertas podem inverter o saldo ou há legado ambíguo de cartão.
+  Retomada: docs/CODEX_RESUME.md.
   Lista de pendências no
   fim de [PROGRESS.md](PROGRESS.md), seção "Pendências em 28/10/2026".
   `.claude/launch.json` é modificação local preexistente e não pertence às entregas.
@@ -48,7 +51,7 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
 - A V2 acrescentou consultas e cenários multi-entidade, continuidade de conversa,
   preferências locais explícitas e reconciliação parcial de cartões. Baseline
   local mais recente: 666/666 corpus, 99/99 consulta/cenário/continuidade,
-  50/50 semânticos, 590/590 adversariais, 4.088 + 3.800 metamórficos,
+  50/50 semânticos, 596/596 adversariais, 4.088 + 3.800 metamórficos,
   1.416 fuzz, 151/151 invariantes e 468/468 verificações remotas **offline**;
   typechecks, teste de dinheiro, build e rubrica passaram.
 - **NOT READY para merge/deploy.** O parecer sobre `345d55e` encontrou oito

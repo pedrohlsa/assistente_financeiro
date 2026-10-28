@@ -2,7 +2,7 @@
 import React, { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useStore } from '../store/store'
-import { dailyGoal, generateInsights, notifications, todayStats, weekStats, avgDailyProfit, kmCost, periodStats, balanceOutlook, currentBalance, monthStats, forecast30, upcomingIncomes, monthlySavingGoal, upcomingBills, monthForecast } from '../services/calc'
+import { dailyGoal, generateInsights, notifications, todayStats, weekStats, avgDailyProfit, kmCost, periodStats, balanceOutlook, balanceOutlookText, currentBalance, monthStats, forecast30, upcomingIncomes, monthlySavingGoal, upcomingBills, monthForecast } from '../services/calc'
 import { fmtBRL, fmtNum, greeting, todayISO, addDays, dueLabel, nowStamp, parseMoney } from '../utils/format'
 import { sentenceCase } from '../utils/text'
 import { MoneyInput, Progress, EmptyState, Sheet } from '../components/ui'
@@ -155,11 +155,9 @@ export default function Home() {
             {balance ? 'Editar' : 'Informar'}
           </button>
         </div>
-        {outlook.bills.length > 0 && (
-          <p className="tiny" style={{ marginTop: 8, color: outlook.ok ? 'var(--positive)' : 'var(--danger)' }}>
-            {outlook.ok
-              ? `✓ Cobre as contas dos próximos ${outlook.horizon} dias (${fmtBRL(outlook.billsSoon)}). Sobra ${fmtBRL(outlook.leftover)}.`
-              : `⚠ ${fmtBRL(outlook.billsSoon)} em contas nos próximos ${outlook.horizon} dias — faltam ${fmtBRL(outlook.shortfall)} (${fmtBRL(outlook.needPerDay)}/dia).`}
+        {(outlook.bills.length > 0 || outlook.unconfirmed.length > 0 || outlook.ambiguousBalance) && (
+          <p className="tiny" style={{ marginTop: 8, color: outlook.ok === true ? 'var(--positive)' : outlook.ok === false ? 'var(--danger)' : 'var(--muted)' }}>
+            {balanceOutlookText(outlook)}
           </p>
         )}
       </div>

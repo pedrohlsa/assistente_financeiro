@@ -3,7 +3,7 @@
 import type { AppState } from '../../src/models/types'
 import { orchestrate } from '../../src/assistant/orchestrator'
 import { segment } from '../../src/assistant/clauses'
-import { currentBalance, monthlyProjections, occurrencesBetween } from '../../src/services/calc'
+import { balanceOutlook, balanceOutlookText, currentBalance, monthlyProjections, occurrencesBetween } from '../../src/services/calc'
 import { cardInvoice, cardOutstanding, cardsOverview } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
 import { applyPreferenceAliases } from '../../src/assistant/preferences'
@@ -973,6 +973,10 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     'pedir reconciliação sem afirmar saldo R$ 600',
     /conferir|reconcilia|confirmar/i.test(ambiguousBalance.reply)
       && !/R\$\s*600(?:,00)?\b/i.test(ambiguousBalance.reply)))
+  const ambiguousHome = balanceOutlook(conflictingLegacy, 7, TODAY)
+  out.push(result('HOME-legado-nao-afirma-cobertura', ambiguousHome, 'sem veredito de cobertura nem promessa de sobra para saldo ambíguo',
+    ambiguousHome.ok === undefined && /concilia/.test(balanceOutlookText(ambiguousHome))
+      && !/sobra|cobre esse total/.test(balanceOutlookText(ambiguousHome))))
   for (const [id, phrase] of [
     ['gasto-hoje', 'quanto posso gastar hoje?'],
     ['cenario-gasto', 'se eu gastar 100 hoje quanto sobra?'],
@@ -3559,6 +3563,39 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('HMETA-ate-agora-preserva-meta', { lastMonth, again }, 'mês passado continua indisponível; até agora recupera Viagem4800',
       lastMonth.focus?.lastQuery?.empty === true && /hist[óo]rico/.test(lastMonth.reply)
         && again.focus?.lastQuery?.total === 4800 && /4\.800,00/.test(again.reply)))
+  }
+
+  {
+    const st = buildState({ profile: 'autonomo', balance: 1000,
+      cards: [{ name: 'Inter', dueDay: 18, closingDay: 1 }] })
+    st.installmentPlans = [{ id: 'home-plan', description: 'Compra', cardId: 'card0', totalAmount: 1200,
+      installmentCount: 1, firstDueDate: '2026-09-18', purchaseDate: '2026-08-25',
+      createdAt: '2026-08-25', status: 'active', operationType: 'card-purchase' }]
+    st.installments = [{ id: 'home-installment', planId: 'home-plan', number: 1, total: 1,
+      amount: 1200, dueDate: '2026-09-18', status: 'pending' }]
+    const before = JSON.stringify(st)
+    const debt = balanceOutlook(st, 7, TODAY)
+    out.push(result('HOME-fatura-no-compromisso', debt, 'compromissos 1200, falta200, sem duplicação da parcela',
+      debt.billsSoon === 1200 && debt.shortfall === 200 && debt.ok === false))
+    st.installments[0].status = 'paid'
+    const paid = balanceOutlook(st, 7, TODAY)
+    out.push(result('HOME-fatura-paga-nao-recobra', paid, 'nenhum compromisso após quitar parcela',
+      paid.billsSoon === 0 && paid.ok === true))
+    st.recurring = [{ id: 'home-uncertain', name: 'Luz', amount: 1500, frequency: 'monthly',
+      dueDay: 14, startDate: '2026-09-14', endDate: '2026-09-14', category: 'casa', kind: 'expense', active: true }]
+    const uncertain = balanceOutlook(st, 7, TODAY)
+    out.push(result('HOME-conta-vencida-sem-veredito', uncertain, 'conta sem confirmação não é dívida certa, mas pode impedir cobertura',
+      uncertain.ok === undefined && uncertain.billsSoon === 0 && uncertain.unconfirmed.length === 1
+        && /sem confirma[çc][ãa]o/.test(balanceOutlookText(uncertain))
+        && !/saldo cobre esse total/.test(balanceOutlookText(uncertain))))
+    st.recurring = []
+    st.installments[0].status = 'pending'
+    st.installments[0].dueDate = '2026-09-10'
+    const overdue = balanceOutlook(st, 7, TODAY)
+    out.push(result('HOME-fatura-atrasada-incluida', overdue, 'inclui fatura vencida ainda em aberto',
+      overdue.billsSoon === 1200 && overdue.ok === false))
+    st.installments[0].dueDate = '2026-09-18'
+    out.push(result('HOME-leitura-nao-muta', JSON.stringify(st), before, JSON.stringify(st) === before))
   }
 
   return out

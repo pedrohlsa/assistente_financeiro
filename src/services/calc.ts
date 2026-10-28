@@ -2,7 +2,7 @@
 import { AppState, Insight, IntervalUnit, RecurrenceOccurrence, RecurringExpense, Transaction } from '../models/types'
 import { addDays, dateForDayOfMonth, daysInMonth, dueLabel, fmtBRL, fmtNum, fromISO, monthKey, monthShortLabel, stampOf, todayISO, toISO } from '../utils/format'
 import { sentenceCase, weekdayName } from '../utils/text'
-import { installmentsThisMonth, monthlyCommitments, installmentsInMonth, chargesInMonth, activeCards, cardInvoice, directInstallmentPaidAmount, invoiceOpenAmount } from './cards'
+import { installmentsThisMonth, monthlyCommitments, installmentsInMonth, chargesInMonth, activeCards, cardInvoice, directInstallmentPaidAmount, invoiceOpenAmount, hasAmbiguousLegacyCardBalance } from './cards'
 
 export interface PeriodStats {
   income: number
@@ -768,26 +768,44 @@ export function upcomingIncomes(s: AppState, horizon = 30): UpcomingBill[] {
 // ---------- MODO BANCO: saúde do saldo (auto-adaptativo) ----------
 export interface BalanceOutlook {
   balance: number            // saldo atual em conta
-  billsSoon: number          // contas a vencer no horizonte
+  billsSoon: number          // compromissos certos, vencidos e dentro do horizonte
   horizon: number            // dias considerados
-  bills: UpcomingBill[]      // contas dentro do horizonte
+  bills: CashObligation[]    // contas, faturas e parcelas sem duplicação
+  unconfirmed: CashObligation[] // contas vencidas sem confirmação
+  ambiguousBalance: boolean  // legado sem informação suficiente para atestar cobertura
   shortfall: number          // quanto falta cobrir (0 se sobra)
   leftover: number           // quanto sobra após as contas (0 se falta)
   needPerDay: number         // ritmo diário para cobrir o buraco até o vencimento
-  ok: boolean                // saldo cobre as contas do horizonte
+  ok?: boolean               // undefined quando não se pode afirmar cobertura
 }
 
-export function balanceOutlook(s: AppState, horizon = 7): BalanceOutlook {
-  const balance = currentBalance(s)
-  const bills = upcomingBills(s, horizon)
-  const billsSoon = bills.reduce((a, b) => a + b.amount, 0)
+export function balanceOutlook(s: AppState, horizon = 7, today = todayISO()): BalanceOutlook {
+  const balance = currentBalance({ ...s, transactions: s.transactions.filter(t => t.date <= today) })
+  const all = cashObligationsUntil(s, addDays(today, horizon), today)
+  const bills = all.filter(b => !b.unconfirmed)
+  const unconfirmed = all.filter(b => b.unconfirmed)
+  const ambiguousBalance = hasAmbiguousLegacyCardBalance(s)
+  const billsSoon = Math.round(bills.reduce((a, b) => a + b.amount, 0) * 100) / 100
   const diff = balance - billsSoon
   const shortfall = diff < 0 ? -diff : 0
   const leftover = diff > 0 ? diff : 0
   // prazo mais curto entre as contas que faltam pagar (para calcular o ritmo)
   const daysToCover = bills.length ? Math.max(Math.min(...bills.map(b => b.inDays)), 1) : horizon
   const needPerDay = shortfall > 0 ? shortfall / daysToCover : 0
-  return { balance, billsSoon, horizon, bills, shortfall, leftover, needPerDay, ok: shortfall <= 0.01 }
+  const uncertainTotal = unconfirmed.reduce((sum, b) => sum + b.amount, 0)
+  const ok = ambiguousBalance ? undefined : diff < -0.009 ? false : diff - uncertainTotal < -0.009 ? undefined : true
+  return { balance, billsSoon, horizon, bills, shortfall, leftover, needPerDay, ok, unconfirmed, ambiguousBalance }
+}
+
+/** A mesma cobertura na Home, nos avisos e no resumo do chat. */
+export function balanceOutlookText(o: BalanceOutlook): string {
+  if (o.ambiguousBalance) return 'Não consigo confirmar a cobertura: há saldo legado de cartão com pagamentos sem conciliação. Confira o saldo e reconcilie esses pagamentos.'
+  const scope = `Compromissos vencidos e dos próximos ${o.horizon} dias: ${fmtBRL(o.billsSoon)}.`
+  const verdict = o.ok === true ? ` O saldo cobre esse total; sobra ${fmtBRL(o.leftover)}.`
+    : o.ok === false ? ` Faltam ${fmtBRL(o.shortfall)}.`
+      : ' Ainda não dá para confirmar se o saldo cobre tudo.'
+  const uncertain = o.unconfirmed.length ? ' Há contas vencidas sem confirmação; confira essas pendências antes de usar a folga.' : ''
+  return `${scope}${verdict}${uncertain}`
 }
 
 export interface CashObligation {
@@ -812,9 +830,8 @@ const OBLIGATION_LOOKBACK_MONTHS = 12
 /**
  * Tudo que está CADASTRADO para sair do caixa até `until` (inclusive), junto
  * com o que já venceu e segue em aberto: conta fixa não resolvida, o pendente
- * de cada fatura e parcela fora de cartão. `balanceOutlook` olha só as contas
- * fixas — com uma fatura atrasada, "qual conta tá me apertando" respondia a
- * conta de luz.
+ * de cada fatura e parcela fora de cartão. É também a fonte de compromissos
+ * para `balanceOutlook`, evitando divergência entre Home e chat.
  *
  * Parcela de cartão entra pela FATURA, nunca sozinha (regra 10). Gasto
  * variável não entra: não existe cadastro dele, e uma média aqui seria
@@ -1013,13 +1030,13 @@ export function notifications(s: AppState): Insight[] {
     out.push({ id: 'bill-' + b.name, icon: '📄', title: `${sentenceCase(b.name)}: ${dueLabel(b.inDays).toLowerCase()}`, text: `${fmtBRL(b.amount)} — programe-se para o pagamento.`, tone: 'warning' })
 
   // MODO BANCO: saldo não cobre as contas próximas → aviso auto-adaptativo
-  if (currentBalance(s) > 0 || s.recurring.length > 0) {
+  if (currentBalance(s) > 0 || s.recurring.length > 0 || s.cards?.length || s.installments?.length) {
     const bo = balanceOutlook(s, 7)
-    if (bo.bills.length && bo.shortfall > 1) {
+    if (bo.bills.length && bo.shortfall > 1 && !bo.ambiguousBalance) {
       out.push({
         id: 'balance-short', icon: '🏦',
-        title: 'Saldo não cobre as contas da semana',
-        text: `Você tem ${fmtBRL(bo.balance)} e ${fmtBRL(bo.billsSoon)} em contas nos próximos ${bo.horizon} dias. Faltam ${fmtBRL(bo.shortfall)} — precisa fazer cerca de ${fmtBRL(bo.needPerDay)} por dia até lá.`,
+        title: 'Saldo não cobre os compromissos próximos',
+        text: balanceOutlookText(bo),
         tone: 'negative',
       })
     }

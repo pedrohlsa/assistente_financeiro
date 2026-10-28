@@ -603,3 +603,11 @@ Continuidade troca previsão/realizado preservando origem; metas recuperam
 acumulado atual após pergunta mensal indisponível.14 regressões adicionadas:
 590/590 adversariais; demais gates verdes, mesma baseline do checkpoint anterior.
 NOT READY para publicar; ver fim do PROGRESS.md e docs/CODEX_RESUME.md.
+
+## 28/10/2026 — Home e resumos
+
+balanceOutlook usa compromissos de caixa (faturas, contas e parcelas sem
+cartão) e compartilha o texto da cobertura com Home/avisos/resumos. Sem
+veredito para pendência incerta capaz de inverter cobertura ou legado de
+pagamento ambíguo.596/596 adversariais; demais gates preservados. Ver fim
+do PROGRESS.md. Sem publicação; NOT READY até auditoria independente.

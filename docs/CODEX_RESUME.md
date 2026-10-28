@@ -45,13 +45,15 @@ As reproduções abaixo foram incorporadas aos testes adversariais, sem remoto:
 4. Depois de depósitos em metas no mês (sem histórico), "e no total?" não
    recupera o saldo total das metas; "e até agora?" cai na ajuda.
 
-As quatro causas foram corrigidas nesta rodada: 590/590 adversariais,
+As quatro causas foram corrigidas em `cd5aaef`: 590/590 adversariais,
 demais gates preservados, incluindo build e rubrica. A média histórica e o
 saldo do cenário de entrada ausente também excluem transações futuras.
 
 ## Próxima busca
 
-- Revisar cálculos na Home: `balanceOutlook` ainda ignora faturas.
+- A rodada posterior alinhou `balanceOutlook` (Home/resumos/avisos) com os
+  compromissos do chat: 596/596 adversariais. Inclui fatura, exclui quitada,
+  admite incerteza de contas vencidas e bloqueia cobertura com legado ambíguo.
 - Reproduzir "antecipei a fatura do Nubank" e "devo muito?"; o chat não
   possui ação para antecipação por mês. Não inventar execução nem capacidade.
 - Testar novos contrastes de continuidade e datas, sem repetir os exemplos
