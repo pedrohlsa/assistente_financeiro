@@ -132,10 +132,13 @@ export function composeScenario(r: AssistantScenarioResult): string {
 
     case 'cut': {
       const media = r.facts.find(f => f.label.startsWith('Gasto médio por mês'))
+      const fracao = r.facts.find(f => f.label.startsWith('Corte por mês'))
       const soma = r.facts.find(f => f.label === 'Despesa futura efetivamente evitada')
-      linhas.push(`Se você parar os gastos com ${p.description || 'esse gasto'}:`)
+      linhas.push(p.ratio === 0.5
+        ? `Se você cortar pela metade os gastos com ${p.description || 'esse gasto'}:`
+        : `Se você parar os gastos com ${p.description || 'esse gasto'}:`)
       const itens: string[] = []
-      if (media) itens.push(`• No histórico, foram em média ${fmtBRL(media.value)} por mês`)
+      if (media) itens.push(`• No histórico, foram em média ${fmtBRL(media.value)} por mês${fracao ? `; a metade é ${fmtBRL(fracao.value)}` : ''}`)
       if (soma) itens.push(`• Na projeção cadastrada, ${fmtBRL(soma.value)} de despesa futura seria evitada no horizonte`)
       linhas.push(itens.join('\n'))
       break
@@ -177,7 +180,7 @@ function descricaoPasso(p: NonNullable<AssistantScenarioResult['plan']['steps']>
     case 'save': return `guardar ${fmtBRL(p.amount || 0)} por mês`
     case 'income-missing': return `${p.origin || 'uma entrada'} não entra`
     case 'pay-invoice': return `pagar a fatura${p.cardName ? ` do ${p.cardName}` : ''}`
-    case 'cut': return `parar os gastos com ${p.description || p.category || 'a categoria'}`
+    case 'cut': return `${p.ratio === 0.5 ? 'cortar pela metade' : 'parar'} os gastos com ${p.description || p.category || 'a categoria'}`
     case 'reduce': return `reduzir ${p.description || p.category || 'o gasto'} em ${fmtBRL(p.amount || 0)} por mês`
     case 'save-share': {
       const pct = Math.round((p.ratio || 0) * 100)

@@ -5150,9 +5150,16 @@ antes). Gates: 666/666, 99/99, 50/50, **540/540**, metamórficos, fuzz,
 151/151, 468; typechecks, `test:money`, build, rubrica, varredura e `git diff
 --check` passaram.
 
-Achado sem correção, da mesma sondagem: "e se eu cortar o mercado pela
-metade?" responde "Se você PARAR os gastos com Alimentação" — a metade vira
-corte total.
+Achado, da mesma sondagem: "e se eu cortar o mercado pela metade?" respondia
+"Se você PARAR os gastos com Alimentação" — a metade virava corte total.
+Corrigido em seguida: "pela metade" leva `ratio: 0.5` no corte; o motor
+multiplica o efeito pela fração e não remove a conta cadastrada; a resposta
+diz "Se você cortar pela metade os gastos com Alimentação: … em média R$
+614,00 por mês; a metade é R$ 307,00". Vale para conta fixa também ("metade
+da conta fixa Internet: R$ 60,00 a menos por vencimento"). 1 caso a mais no
+grupo CFX (vermelho antes). Gates: 666/666, 99/99, 50/50, **541/541**,
+metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica,
+varredura e `git diff --check` passaram.
 
 ## Pendências em 28/10/2026 (HEAD `0e1efb3`)
 

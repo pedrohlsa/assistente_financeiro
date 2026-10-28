@@ -158,18 +158,24 @@ function runCompoundMonths(
       if (!cut && !recurring.length) { incomplete = true; caveats.push(`Não achei base para estimar o corte em ${step.description || step.category || 'esse gasto'}.`); continue }
       cutCategories.add(chave!)
       const represented = representedRecurringExpenseMonths(projectedState, step.category!, meses, hoje, step.recurringId)
-      if (recurring.length) projectedState = { ...projectedState, recurring: projectedState.recurring.filter(r => !recurring.includes(r)) }
+      // "Pela metade" (`ratio`): a conta cadastrada continua, só metade sai.
+      const fracao = step.ratio && step.ratio > 0 && step.ratio < 1 ? step.ratio : 1
+      if (recurring.length && fracao === 1) projectedState = { ...projectedState, recurring: projectedState.recurring.filter(r => !recurring.includes(r)) }
       const alreadyReduced = priorReductions.get(step.category!) || represented.map(() => 0)
-      effects.forEach((_, i) => { effects[i] += Math.max(represented[i] - alreadyReduced[i], 0) })
+      effects.forEach((_, i) => { effects[i] += Math.max(represented[i] - alreadyReduced[i], 0) * fracao })
       if (cut) {
         facts.push(fato(`Gasto médio por mês com ${step.description || step.category}`, cut.value, 'BRL', `média de ${cut.rows} lançamento(s) entre ${cut.from} e ${cut.to}`, cut.rows))
+        if (fracao < 1) facts.push(fato(`Corte por mês (${Math.round(fracao * 100)}% da média)`, cut.value * fracao, 'BRL', 'fração da média do histórico'))
         caveats.push('O histórico variável é contexto, não crédito: só retirei despesas futuras já cadastradas na projeção.')
       }
       if (!represented.some(x => x > 0)) caveats.push(`Não há ${step.description || step.category} futuro cadastrado para retirar da sobra projetada.`)
       if (step.recurringId && recurring.length) {
         const r = recurring[0]
-        caveats.push(`Retirei da simulação só a conta fixa ${r.name}, de ${fmtBRL(r.amount)} por vencimento, respeitando início e fim cadastrados.`)
-      } else if (recurring.length) caveats.push(`Também retirei da simulação ${recurring.length} conta(s) recorrente(s) dessa categoria, respeitando início e fim cadastrados.`)
+        caveats.push(fracao < 1
+          ? `Considerei metade da conta fixa ${r.name}: ${fmtBRL(r.amount * fracao)} a menos por vencimento.`
+          : `Retirei da simulação só a conta fixa ${r.name}, de ${fmtBRL(r.amount)} por vencimento, respeitando início e fim cadastrados.`)
+      } else if (recurring.length && fracao === 1) caveats.push(`Também retirei da simulação ${recurring.length} conta(s) recorrente(s) dessa categoria, respeitando início e fim cadastrados.`)
+      else if (recurring.length) caveats.push(`Considerei metade das ${recurring.length} conta(s) recorrente(s) dessa categoria.`)
       continue
     }
     if (step.kind === 'reduce') {

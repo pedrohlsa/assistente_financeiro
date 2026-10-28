@@ -3035,6 +3035,10 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const r = limpa((await turnoHoje(rico, 'se eu parar de pagar a internet quanto sobra?')).reply)
     out.push(result('CFX-parar-conta-fixa', r, 'Internet, R$ 120,00 por mês evitados, sem a Luz',
       /Internet/.test(r) && /R\$ 120,00/.test(r) && !/Não achei base/.test(r) && !/Assinaturas/.test(r) && !/2 conta/.test(r)))
+    // "Pela metade" é metade: a resposta dizia "Se você PARAR os gastos com
+    // Alimentação". Metade da média de 3 meses do fixture, pela soma dele.
+    const metade = limpa((await turnoHoje(rico, 'e se eu cortar o mercado pela metade?')).reply)
+    out.push(result('CFX-pela-metade', metade, 'cortar pela metade, não parar', /metade/i.test(metade) && !/parar os gastos/i.test(metade)))
     const cancelar = limpa((await turnoHoje(rico, 'se eu cancelar a internet?')).reply)
     out.push(result('CFX-cancelar-conta-fixa', cancelar, 'simula o corte da Internet', /Internet/.test(cancelar) && /R\$ 120,00/.test(cancelar)))
   }

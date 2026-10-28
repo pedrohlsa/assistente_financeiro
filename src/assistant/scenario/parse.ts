@@ -209,17 +209,21 @@ function planSingleScenario(
     // base", com a Internet cadastrada em Casa.
     const conta = (state.recurring || []).find(r => r.kind !== 'income' && r.active !== false && r.name?.trim()
       && new RegExp(`\\b${semAcento(r.name).toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(t))
+    const metade = /\b(?:pela|a|na)\s+metade\b|\bmetade\s+d[oa]s?\b/.test(t)
     if (conta) {
       return base('cut', { category: conta.category, description: conta.name, recurringId: conta.id,
-        months: horizonte(t, opts.today || todayISO()) }, `parar de pagar ${conta.name}`)
+        months: horizonte(t, opts.today || todayISO()), ...(metade ? { ratio: 0.5 } : {}) },
+      `${metade ? 'cortar pela metade' : 'parar de pagar'} ${conta.name}`)
     }
     // A entidade pode ter ficado na conversa: "quanto gasto com obra?" → "e se
     // parar?". Sem categoria nem no texto nem no foco, não há o que simular.
     const categoria = categoriaDe(state, t) || opts.focusCategory
     if (categoria) {
       const nome = usableCategories(state.categories || []).find(c => c.id === categoria)?.name || categoria
-      return base('cut', { category: categoria, description: nome, months: horizonte(t, opts.today || todayISO()) },
-        `parar os gastos com ${nome}`)
+      // "Cortar o mercado PELA METADE" é metade, não parar: a resposta dizia
+      // "se você parar os gastos com Alimentação".
+      return base('cut', { category: categoria, description: nome, months: horizonte(t, opts.today || todayISO()),
+        ...(metade ? { ratio: 0.5 } : {}) }, `${metade ? 'cortar pela metade' : 'parar'} os gastos com ${nome}`)
     }
   }
 
