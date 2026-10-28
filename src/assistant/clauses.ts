@@ -636,7 +636,9 @@ function unaccountedMoney(clause: AnalyzedClause): number[] {
     const at = m.index || 0
     const before = normalized.slice(Math.max(0, at - 24), at)
     const after = normalized.slice(at + m[0].length, at + m[0].length + 24)
-    if (/[\-/]$/.test(before) || /^[\-/]/.test(after)
+    // "Na 99", "pela 99": é a plataforma, não R$ 99,00.
+    const plataforma99 = m[0] === '99' && /\b(?:na|no|pela|pelo|da|do|de|a)\s*$/i.test(before) && !/^\s*(?:reais|real|conto|contos|pila)\b/i.test(after)
+    if (plataforma99 || /[\-/]$/.test(before) || /^[\-/]/.test(after)
       || /\b(?:dia|casa|apto|apartamento|numero|número|aro|tamanho|placa|modelo)\s*$/i.test(before)
       || /^\s*(?:x|vezes|parcelas?|km|quil[oô]metros?|litros?|horas?|viagens?|corridas?|dias?|semanas?|meses?|anos?|%|k\b)/i.test(after)) continue
     const amount = parseMoney(m[0])

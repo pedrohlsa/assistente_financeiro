@@ -4944,7 +4944,7 @@ Achados sem correção, da mesma sondagem do motorista:
 - "fiz 12 corridas e ganhei 260" registra 13 viagens — corrigido na seção
   seguinte;
 - "hoje deu 310 no uber e 90 na 99" pergunta o que houve com "R$ 99,00" (é a
-  plataforma);
+  plataforma) — corrigido mais abaixo;
 - "recebi 50 de gorjeta" cria uma viagem.
 
 ## 2026-10-28 — "fiz 12 corridas e ganhei 260" são 12 viagens
@@ -4983,6 +4983,18 @@ varredura e `git diff --check` passaram.
 
 Achado sem correção: "troquei o óleo com 150 km" vira manutenção de R$ 150,00
 (é a quilometragem, não o custo).
+
+## 2026-10-28 — "na 99" é a plataforma, não R$ 99,00
+
+"Hoje deu 310 no uber e 90 na 99" e "recebi 85 pela 99" liam as receitas
+certas e depois perguntavam "Você mencionou R$ 99,00 nesta parte… o que
+aconteceu com ele?": a checagem de valores soltos (`unaccountedMoney`) lia o
+nome da plataforma como dinheiro. Agora "99" depois de "na/no/pela/pelo/da/
+do/de/a", sem "reais" depois, não é valor. "Gastei 99 de lanche" e "recebi
+99 reais da 99" seguem com os R$ 99,00. 2 casos no grupo P99 (os 2 vermelhos
+antes). Gates: 666/666, 99/99, 50/50, **513/513**, metamórficos, fuzz,
+151/151, 468; typechecks, `test:money`, build, rubrica, varredura e `git diff
+--check` passaram.
 
 ## Pendências em 28/10/2026 (HEAD `8c3fd2f`)
 

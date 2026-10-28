@@ -2894,6 +2894,17 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /Falta pagar R\$ 800,00/.test(fatura) && !/Cadastre|Não tenho|para pagar|Situação dos seus cartões/.test(fatura)))
   }
 
+  // "Na 99" é a plataforma, não R$ 99,00: o turno perguntava "o que aconteceu
+  // com os R$ 99,00?" depois de ler as duas receitas certas.
+  {
+    const moto = motoristaRico(hoje)
+    for (const [id, msg] of [['P99-no-uber-e-na-99', 'hoje deu 310 no uber e 90 na 99'], ['P99-pela-99', 'recebi 85 pela 99']]) {
+      const r = await turnoHoje(moto, msg)
+      out.push(result(id, { reply: r.reply, actions: r.actions }, 'receitas registradas, sem perguntar de R$ 99,00',
+        r.actions.some(a => (a as { kind: string }).kind === 'income') && !/R\$ 99,00/.test(r.reply)))
+    }
+  }
+
   // "Rodei 8 horas" é jornada, não distância: virava 8 km.
   {
     const moto = motoristaRico(hoje)
