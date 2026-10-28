@@ -5353,7 +5353,8 @@ fictícios. Os demais fluxos e dados legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas (detalhe nas
 seções de 27 e 28/10 acima):
-- "Antecipei a fatura do nubank" ainda dá o resumo dos cartões.
+- "Antecipei a fatura do nubank" foi tratado no lote de 28/10 abaixo:
+  explica a limitação de referência no chat; não registra antecipação.
 - Receita sem origem ("recebi 2 mil do cliente", "caiu 350 de pix do joão")
   é a regra "Origem explícita — nunca inferida" (`extractOrigins`, em
   clauses.ts): só valem substantivo de fonte + identificador ("do cliente
@@ -5363,7 +5364,8 @@ seções de 27 e 28/10 acima):
   mas o da ana só entra amanhã" virou recebido) e o corpus adaptativo. Se o
   produto quiser origem de nome em minúscula, o caminho é perguntar "de
   quem?", não inferir.
-- "Devo muito?" cai na ajuda.
+- "Devo muito?" foi tratado no lote de 28/10 abaixo: apresenta dívida
+  cadastrada e evita classificar subjetivamente como muito ou pouco.
 
 Decisões de produto pendentes:
 - `balanceOutlook` e o cenário de entrada ausente foram alinhados com
@@ -5471,3 +5473,19 @@ o saldo respeita a data, mas a situação da dívida ainda exige investigação.
 Quatro casos novos primeiro vermelhos;607/607 adversariais agora verdes.
 Suíte completa, frontend/API typechecks e build passaram. Contagens restantes
 preservadas. Sem chamada paga, publicação ou APK; NOT READY até auditoria.
+
+## 28/10/2026 — Dívida em linguagem curta e limite da antecipação
+
+Após c48c641, "devo muito?" ainda caía na ajuda; "estou devendo muito?"
+mostrava a dívida sem responder ao julgamento pedido. Agora ambas mostram a
+dívida registrada e explicam que os dados não bastam para classificar como
+muito ou pouco. Não foi criado limiar de renda/risco. Antecipação de fatura
+("antecipei", "quero antecipar", "como adiantar") explica a limitação de mês
+de referência do contrato do chat. Orienta conferir cartão/vencimento na
+fatura exibida antes de usar a tela; não promete seleção arbitrária de mês.
+Sem alegação de registro nem ação financeira proposta nesses exemplos.
+
+5 regressões novas primeiro vermelhas; 612/612 adversariais. Suíte completa,
+frontend/API typechecks, build e rubrica (0 perigosa/ruim) verdes. Demais
+contagens preservadas. Sem chamada paga, publicação ou APK. NOT READY até
+auditoria independente; limitação de selecionar referência no chat permanece.

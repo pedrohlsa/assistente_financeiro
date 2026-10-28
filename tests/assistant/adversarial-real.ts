@@ -3663,6 +3663,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       early.cardPayments.length === 1 && early.installments[0].status === 'paid'))
   }
 
+  {
+    const st = buildState({ profile: 'autonomo', balance: 1000,
+      cards: [{ name: 'Inter', dueDay: Number(addDays(hoje, 3).slice(8)), closingDay: 1 }] })
+    st.installmentPlans = [{ id: 'debt-magnitude', description: 'Compra', cardId: 'card0', totalAmount: 300,
+      installmentCount: 1, firstDueDate: addDays(hoje, 3), purchaseDate: hoje,
+      createdAt: hoje, status: 'active', operationType: 'card-purchase' }]
+    st.installments = [{ id: 'debt-magnitude-1', planId: 'debt-magnitude', number: 1, total: 1,
+      amount: 300, dueDate: addDays(hoje, 3), status: 'pending' }]
+    for (const phrase of ['devo muito?', 'estou devendo muito?']) {
+      const r = await turnoHoje(st, phrase)
+      out.push(result(`DEBT-magnitude-${phrase}`, r, 'dívida cadastrada300, sem julgamento inventado de muito/pouco',
+        /300,00/.test(r.reply) && /n[ãa]o.*(?:classificar|dizer)|depende/i.test(r.reply)
+          && /d[ií]vida|parcelad/i.test(r.reply) && r.actions.length === 0))
+    }
+    for (const phrase of ['antecipei a fatura do Inter', 'quero antecipar a fatura do Inter', 'como adiantar a fatura do Inter?']) {
+      const r = await turnoHoje(st, phrase)
+      out.push(result(`FANT-limite-explicito-${phrase}`, r, 'explicar limite de referência da fatura no chat, sem alegar registro',
+        /chat/.test(r.reply) && /m[eê]s|refer[eê]ncia/.test(r.reply) && /Cart[õo]es e parcelamentos/i.test(r.reply)
+          && !/Anotei|Registrei|Registrado!/i.test(r.reply) && r.actions.length === 0))
+    }
+  }
+
   return out
 }
 

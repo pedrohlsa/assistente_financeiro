@@ -44,6 +44,8 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
   data futura, inclusive quitação direta/parcial de parcela.
   Novos pagamentos de fatura/parcela recusam datas futuras ou inválidas;
   antecipar hoje uma fatura que vencerá depois continua permitido na tela.
+  "Devo muito?" mostra a dívida sem classificar seu tamanho; antecipação de
+  fatura explica a falta de seleção de referência no chat, sem alegar registro.
   Retomada: docs/CODEX_RESUME.md.
   Lista de pendências no
   fim de [PROGRESS.md](PROGRESS.md), seção "Pendências em 28/10/2026".
@@ -55,7 +57,7 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
 - A V2 acrescentou consultas e cenários multi-entidade, continuidade de conversa,
   preferências locais explícitas e reconciliação parcial de cartões. Baseline
   local mais recente: 666/666 corpus, 99/99 consulta/cenário/continuidade,
-  50/50 semânticos, 607/607 adversariais, 4.088 + 3.800 metamórficos,
+  50/50 semânticos, 612/612 adversariais, 4.088 + 3.800 metamórficos,
   1.416 fuzz, 151/151 invariantes e 468/468 verificações remotas **offline**;
   typechecks, teste de dinheiro, build e rubrica passaram.
 - **NOT READY para merge/deploy.** O parecer sobre `345d55e` encontrou oito

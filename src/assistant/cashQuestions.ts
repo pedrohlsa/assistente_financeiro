@@ -47,6 +47,10 @@ export const retiraDaReserva = (t: string): boolean =>
 
 export type PerguntaDeFatura = 'falta' | 'paga' | 'atrasada' | 'vence' | 'fecha' | 'valor' | 'pagamentos'
 
+/** Antecipação exige escolher a referência, ausente no contrato atual do chat. */
+export const pedeAntecipacaoDeFatura = (t: string): boolean =>
+  /\bfaturas?\b/.test(t) && /\bantecip\w*\b|\badiantei\b|\badiantar\b/.test(t)
+
 /**
  * Situação da fatura de agora: quanto falta, se já foi paga, se atrasou, quando
  * vence ou fecha. "Quanto falta pagar DA FATURA" é o pendente dela — a DSL lia
@@ -246,7 +250,8 @@ export const pedeFimDoParcelamento = (t: string): boolean =>
  * guardar"), que não é dívida.
  */
 export const pedeDividaTotal = (t: string): boolean =>
-  (/\b(?:quanto|qual|quais)\b/.test(t) || /\b(?:to|estou|esta)\s+devendo\b/.test(t))
+  (/\b(?:quanto|qual|quais)\b/.test(t) || /\b(?:to|estou|esta)\s+devendo\b/.test(t)
+    || /^(?:e\s+)?(?:eu\s+)?devo\s+muito\s*\??$/.test(t))
   && /\b(?:devo|devendo|dividas?)\b/.test(t)
   && !/\bdevo\s+(?:\w+\s+)?[a-z]+(?:ar|er|ir)\b/.test(t)
   && !/\b(?:devo|devendo|dividas?)\s+(?:(?:ainda|hoje|agora)\s+)?(?:d[oa]s?|n[oa]s?|com(?:\s+[oa]s?)?|pr[oa]s?|para(?:\s+[oa]s?)?|ao|a)\s+(?!(?:total|geral|todo|tudo|cartao|cartoes|banco|bancos)\b)[a-z]/.test(t)

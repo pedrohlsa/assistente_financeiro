@@ -62,8 +62,10 @@ saldo do cenário de entrada ausente também excluem transações futuras.
   pagamento de hoje para vencimento futuro continua válido. 607/607 testes
   adversariais, suíte completa, typechecks e build verdes. Backups antigos
   já gravados não são reescritos; verificar separadamente essas inconsistências.
-- Reproduzir "antecipei a fatura do Nubank" e "devo muito?"; o chat não
-  possui ação para antecipação por mês. Não inventar execução nem capacidade.
+- "Devo muito?" e "antecipei a fatura do Inter" foram tratados após
+  `c48c641`: dívida factual com ressalva, e limitação de referência da fatura
+  no chat. 612/612 adversariais, suíte completa, typechecks, build e rubrica
+  verdes. Não foi criada escolha de referência nem execução de antecipação.
 - Testar novos contrastes de continuidade e datas, sem repetir os exemplos
   anteriores como substituto de busca independente.
 - Restrições de produto e demais pendências estão no fim do PROGRESS.md.

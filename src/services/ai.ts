@@ -28,7 +28,7 @@ import {
 import type { CashObligation } from './calc'
 import {
   alvoDaReserva, diaDaSemanaPedido, mesesAtePrazo, pedeDividaTotal, pedeFimDoParcelamento, pedeListaDeParcelamentos, pedeQuantoPossoGastar, pedeLimite, pedeMaiorParcela, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeResumoDoDia, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
-  perguntaDeFatura, perguntaDeManutencao,
+  pedeAntecipacaoDeFatura, perguntaDeFatura, perguntaDeManutencao,
   planoDeGuardar, prazoDasContas, retiraDaReserva,
 } from '../assistant/cashQuestions'
 import type { PerguntaDeConta, PerguntaDeFatura, PlanoDeGuardar } from '../assistant/cashQuestions'
@@ -670,6 +670,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
     if (!ov.hasData) {
       return { text: 'Você ainda não cadastrou cartões nem parcelamentos. Você pode adicionar em Mais → Cartões e parcelamentos.' }
     }
+    if (pedeAntecipacaoDeFatura(t)) return { text: 'O chat ainda não permite escolher o mês de referência de uma fatura antecipada. Em Mais → Cartões e parcelamentos, confira o cartão e o vencimento da fatura exibida antes de usar "Pagar fatura". Se ela não for a que você pagou, não registre em outra referência.' }
     const sobreFatura = perguntaDeFatura(t)
     if (sobreFatura && activeCards(s).length) return respostaDaFatura(s, t, sobreFatura)
     // Antecipar parcela não tem ação no chat; a tela tem ("Antecipar 1/2").
@@ -715,7 +716,8 @@ function resolveLocal(s: AppState, input: string): AiReply {
     // "quanto devo de cartão / minha dívida"
     if (pedeDividaTotal(t) || /(quanto.*(devo|dívida|divida))|d[ií]vida total/.test(t)) {
       return {
-        text: `Sua dívida parcelada restante é ${fmtBRL(ov.totalDebt)} em ${ov.activePlanCount} ${ov.activePlanCount === 1 ? 'parcelamento' : 'parcelamentos'}.\n\n` +
+        text: (/\bmuito\b/.test(t) ? 'Não dá para classificar como muito ou pouco só com os dados cadastrados. ' : '')
+          + `Sua dívida parcelada restante é ${fmtBRL(ov.totalDebt)} em ${ov.activePlanCount} ${ov.activePlanCount === 1 ? 'parcelamento' : 'parcelamentos'}.\n\n` +
           `• Faturas em aberto agora: ${fmtBRL(ov.openInvoicesTotal)}\n` +
           `• Parcelas deste mês: ${fmtBRL(ov.installmentsThisMonth)}\n` +
           `• Próximo mês: ${fmtBRL(ov.installmentsNextMonth)}` +

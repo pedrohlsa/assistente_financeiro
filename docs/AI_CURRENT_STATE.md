@@ -625,3 +625,9 @@ Formulário e reducer recusam pagamento futuro/inválido/vazio, sem quitar
 a dívida. Pagamento real de hoje para fatura futura continua permitido.
 607/607 adversariais, suíte completa, typechecks e build verdes. Backups
 antigos permanecem intactos; ver ressalva sobre dívida no PROGRESS.md.
+
+## 28/10/2026 — Dívida curta e antecipação
+
+"Devo muito?" apresenta dados sem classificação inventada. Antecipação de
+fatura explica limitação de referência no chat e pede conferir fatura na tela.
+612/612 adversariais; suíte completa, typechecks, build e rubrica verdes.
