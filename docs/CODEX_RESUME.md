@@ -23,12 +23,12 @@ o checkpoint de CONTEXTO.md e as últimas seções de PROGRESS.md.
 
 ## Estado ao encerrar esta janela
 
-Último commit antes deste checkpoint:34fc8a0. O lote que contém este documento
-acrescenta a barreira de data/referência da fatura. Confira git log/status antes
-de editar. Só .claude/launch.json deve permanecer modificado após o commit.
+Último commit confirmado ao iniciar este lote:27940a7. O lote seguinte corrige
+o valor de pagamento escrito depois do cartão. Confira git log/status antes de
+editar. Só .claude/launch.json deve permanecer modificado após o commit.
 
 Baseline validada:666 corpus,99 consulta/cenário,50 semânticos,
-621 adversariais,4088 +3800 metamórficos,1416 fuzz,151 invariantes,
+626 adversariais,4088 +3800 metamórficos,1416 fuzz,151 invariantes,
 468 avaliações remotas OFFLINE; suíte completa, typechecks frontend/API,
 build e rubrica verdes (0 perigosa/ruim,5 aceitáveis,85 excelentes).
 Aviso conhecido de bundle grande (~848kB) permanece.
@@ -61,27 +61,25 @@ tiveram novo smoke de interface.
   mês que o contrato não representa deixa de gerar proposta que descartaria
   a informação. Verifica a cláusula do pagamento, preservando contraste de
   pagamento feito junto de intenção futura em outra cláusula. Sem remoto.
+- Lote atual: "paguei a fatura do Inter 200", com R$ ou reais, propõe e executa
+  pagamento parcial de200; uma fatura300 mantém100 pendentes e saldo cai200.
+  Número de conta depois do cartão não é interpretado como pagamento. Cinco
+  testes adversariais novos, quatro vermelhos antes da correção. Sem valor explícito,
+  pagamento integral permanece. Sem remoto.
 
 ## Próximas prioridades concretas
 
-1. Investigar valor depois do nome da fatura. A sonda confirmou que
-   "paguei a fatura de novembro do Inter200" produzia card-payment SEM amount,
-   portanto pagamento de todo pendente. A referência explícita agora bloqueia
-   esse exemplo, mas o extrator em nlp.ts continua lendo valor só logo após
-   paguei/pagar/quitei. Reproduzir "paguei a fatura do Inter200" sem mês e
-   variantes com reais/R$, número de cartão e data: não assumir que todo número
-   é dinheiro nem pagar a fatura inteira quando foi informado valor parcial.
-2. Backups já existentes com pagamento datado no futuro: saldo não desconta
+1. Backups já existentes com pagamento datado no futuro: saldo não desconta
    antes da data, mas fatura/parcela ainda pode aparecer quitada. Não migrar
    nem reinterpretar histórico sem reproduzir e preservar proveniência.
-3. Chat card-payment só tem cartão e valor; não mantém data do pagamento nem
+2. Chat card-payment só tem cartão e valor; não mantém data do pagamento nem
    referenceMonth. Execução usa mês do dia de execução, que pode divergir da
    fatura exibida pelo cartão. A barreira cobre referência/data explícitas;
    investigar também a escolha implícita de fatura perto da virada do mês.
-4. Continuidade: previsão de receita "esta semana" ainda usa leitor de semana
+3. Continuidade: previsão de receita "esta semana" ainda usa leitor de semana
    realizada (últimos7dias), ao contrário do mês que foi corrigido. Reproduzir
    com vencimentos próximos. Resolver definição de janela explicitamente.
-5. Fazer smoke local da Home e da validação de pagamento com dados sintéticos,
+4. Fazer smoke local da Home e da validação de pagamento com dados sintéticos,
    sem acessar dados financeiros reais e sem habilitar remoto.
 
 Outras limitações/decisões permanecem no fim de PROGRESS.md: confirmação de

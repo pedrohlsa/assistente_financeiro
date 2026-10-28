@@ -649,8 +649,17 @@ function parseCardClause(text: string): ParsedAction[] {
   // inter" virava proposta de pagamento — sem valor, a guarda de "pergunta com
   // valor" não via — e a resposta saía calculada como se tivesse sido pago.
   if (/fatura/.test(text) && /(paguei|pagar|quitei|quitar)/.test(text) && !PERGUNTA_EM_QUALQUER_LUGAR.test(text)) {
-    const amountM = text.match(new RegExp(String.raw`(?:paguei|pagar|quitei)\s*(?:r\$)?\s*${NUM}`, 'i'))
-    return [{ kind: 'card-payment', cardName: matchCardName(text), amount: amountM ? parseNum(amountM[1]) : undefined }]
+    const amountBefore = text.match(new RegExp(String.raw`(?:paguei|pagar|quitei)\s*(?:r\$)?\s*${NUM}`, 'i'))
+    // O valor também pode vir depois do nome do cartão. Removê-lo antes de
+    // procurar o cartão evita interpretar "Inter R$ 200" como "Inter R".
+    const amountAfter = amountBefore ? null : text.match(new RegExp(String.raw`\s+(?:r\$\s*)?${NUM}(?:\s+reais)?\s*$`, 'i'))
+    const cardText = amountAfter ? text.slice(0, amountAfter.index) : text
+    const cardName = matchCardName(cardText)
+    // Um número solto após outra informação ("conta 1234", "final 1234")
+    // não autoriza tratá-lo como pagamento parcial nem como fatura inteira.
+    if (amountAfter && !cardText.trim().toLowerCase().endsWith((cardName || 'fatura').toLowerCase())) return []
+    return [{ kind: 'card-payment', cardName,
+      amount: amountBefore ? parseNum(amountBefore[1]) : amountAfter ? parseNum(amountAfter[1]) : undefined }]
   }
 
   // "tenho uma assinatura de 39,90 no cartão".

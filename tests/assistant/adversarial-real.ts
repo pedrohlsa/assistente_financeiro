@@ -3715,6 +3715,34 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       ordinary.actions.length === 1 && ordinary.actions[0].kind === 'card-payment' && ordinary.actions[0].amount === 200))
   }
 
+  {
+    const st = buildState({ profile: 'autonomo', balance: 1000, cards: [{ name: 'Inter' }] })
+    st.installmentPlans = [{ id: 'amount-after-card-plan', description: 'Compra', cardId: 'card0', totalAmount: 300,
+      installmentCount: 1, firstDueDate: hoje, purchaseDate: addDays(hoje, -20),
+      createdAt: addDays(hoje, -20), status: 'active', operationType: 'card-purchase' }]
+    st.installments = [{ id: 'amount-after-card-installment', planId: 'amount-after-card-plan', number: 1, total: 1,
+      amount: 300, dueDate: hoje, status: 'pending' }]
+    for (const phrase of ['paguei a fatura do Inter 200', 'paguei a fatura do Inter R$ 200',
+      'paguei a fatura do Inter 200 reais']) {
+      const proposed = await turnoHoje(st, phrase)
+      const applied = applyBatchPure(st, proposed.actions.map((action, i) =>
+        ({ id: `amount-after-card-${i}`, action })), { now: { date: hoje, time: '14:00' } })
+      out.push(result(`FAMT-parcial-apos-cartao-${phrase}`, { proposed, applied },
+        'proposta e execução de R$ 200: saldo 800 e fatura ainda pendente em R$ 100',
+        proposed.actions.length === 1 && proposed.actions[0].kind === 'card-payment'
+          && proposed.actions[0].amount === 200 && applied.applied
+          && currentBalance(applied.state) === 800
+          && cardInvoice(applied.state, st.cards[0], hoje.slice(0, 7)).pending === 100))
+    }
+    const full = await turnoHoje(st, 'paguei a fatura do Inter')
+    out.push(result('FAMT-sem-valor-paga-inteira', full, 'sem valor explícito, pagamento da fatura inteira continua possível',
+      full.actions.length === 1 && full.actions[0].kind === 'card-payment'
+        && full.actions[0].amount === undefined))
+    const accountNumber = await turnoHoje(st, 'paguei a fatura do Inter conta 1234')
+    out.push(result('FAMT-numero-de-conta-nao-e-valor', accountNumber,
+      'número de conta depois do cartão não vira valor de pagamento', accountNumber.actions.length === 0))
+  }
+
   return out
 }
 

@@ -50,6 +50,8 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
   período podem ser trocados juntos sem ignorar o novo imóvel citado.
   Pagamento de fatura com mês ou data que o contrato não representa agora
   é recusado antes da proposta; a informação não pode ser descartada.
+  Valor parcial escrito após o nome do cartão também é preservado: confirmação
+  e execução usam o valor informado, e número de conta não vira dinheiro.
   Retomada: docs/CODEX_RESUME.md.
   Lista de pendências no
   fim de [PROGRESS.md](PROGRESS.md), seção "Pendências em 28/10/2026".

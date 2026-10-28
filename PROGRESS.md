@@ -5528,3 +5528,25 @@ bloqueado, mas reproduzir sem referência antes de implementar correção.
 Outras prioridades e ponto de retomada em docs/CODEX_RESUME.md. Última leitura
 de uso:89% consumidos (11% restantes); iniciada gravação da pausa conservadora
 para preservar reserva mínima5%. Retomada recorrente existente permanece ativa.
+
+## 28/10/2026 — Valor parcial depois do nome da fatura
+
+Em27940a7, "paguei a fatura do Inter 200" era proposto como pagamento do
+valor pendente inteiro. Com fatura sintética de R$300, confirmar descontava
+R$300 e quitava a parcela, embora a frase tivesse R$200. A variante com R$
+ainda confundia "Inter R" com o nome do cartão. Três formatos foram
+reproduzidos vermelhos pelo orquestrador e executor reais: número simples,
+R$ e "reais". Um contraste com número de conta também foi vermelho: o número
+virava valor. O pagamento sem valor já funcionava e ficou como controle.
+
+O extrator agora lê o valor no fim da frase e o remove antes de reconhecer o
+cartão. O número só é valor quando vem imediatamente depois do nome do cartão
+ou da palavra "fatura". Informação numérica adicional sem esse formato não
+gera proposta local, evitando pagamento indevido. O teste real confirma saldo
+R$800 e pendência R$100 após pagar R$200 da fatura de R$300; sem valor
+explícito, continua possível pagar a fatura inteira.
+
+Cinco regressões novas;626/626 adversariais, suíte completa, typechecks
+frontend/API, build e rubrica passaram. Sem chamada paga, publicação ou APK.
+V2 continua NOT READY até auditoria independente. Próximas prioridades em
+docs/CODEX_RESUME.md.
