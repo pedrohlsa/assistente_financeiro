@@ -1228,13 +1228,14 @@ function parseClause(input: string): ParsedAction[] {
   // "Rodei 8 HORAS" é jornada: o número seguido de hora não é distância (virava
   // 8 km). A trava de dígito impede o recuo que leria "12 horas" como 1 km.
   const kmM = kmConsumo ? null : text.match(new RegExp(String.raw`\b(?:rodei|andei|dirigi|percorri|consegui\s+rodar)\s*${NUM}(?![\d.,]|\s*(?:horas?|hrs?|h)\b)\s*(?:km|quil[oô]metros?)?`, 'i'))
-    // "Rodei 8h E 150 KM": a distância vem depois da jornada, com a unidade dita.
-    || (/\b(?:rodei|andei|dirigi|percorri)\b/i.test(text)
+    // "Rodei 8h E 150 KM", "fiz 12 corridas E 40 KM": a distância vem depois
+    // da outra medida, com a unidade dita.
+    || (/\b(?:rodei|andei|dirigi|percorri)\b|\b\d+\s+(?:corridas|viagens)\b/i.test(text)
       ? text.match(new RegExp(String.raw`\b(?:e|com)\s+${NUM}\s*(?:km|quil[oô]metros?)\b`, 'i')) : null)
   const tripsM = text.match(new RegExp(String.raw`(?:fiz|realizei|completei)?\s*${NUM}\s*(?:viagens|corridas)`, 'i'))
   const hoursM = text.match(new RegExp(String.raw`\b(?:trabalhei|fiquei|rodei(?:\s+por)?)\s*${NUM}\s*(?:horas?|hrs?|h)\b`, 'i'))
-    // "Rodei 150 km E 8 HORAS": a jornada depois da distância.
-    || (/\b(?:rodei|trabalhei)\b/i.test(text) ? text.match(new RegExp(String.raw`\be\s+${NUM}\s*(?:horas?|hrs?|h)\b`, 'i')) : null)
+    // "Rodei 150 km E 8 HORAS", "fiz 5 corridas E 3 HORAS": a jornada depois.
+    || (/\b(?:rodei|trabalhei)\b|\b\d+\s+(?:corridas|viagens)\b/i.test(text) ? text.match(new RegExp(String.raw`\be\s+${NUM}\s*(?:horas?|hrs?|h)\b`, 'i')) : null)
     || text.match(new RegExp(String.raw`${NUM}\s*horas?\s*(?:online|trabalhad)`, 'i'))
     // Jornada como o motorista fala: "8 horas na rua", "10 horas rodando".
     || text.match(new RegExp(String.raw`${NUM}\s*(?:horas?|hrs?)\s+(?:na\s+rua|de\s+rua|rodando|na\s+ativa|no\s+corre|na\s+labuta|no\s+trampo|trabalhando|de\s+trabalho)`, 'i'))

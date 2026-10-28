@@ -5052,8 +5052,12 @@ vermelhos antes). Gates: 666/666, 99/99, 50/50, **526/526**, metamórficos,
 fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica, varredura e
 `git diff --check` passaram.
 
-Achado sem correção: "fiz 12 corridas e 40 km" e "fiz 5 corridas e 3 horas"
-perdem a medida depois do "e" (só "rodei" puxava a outra medida).
+Achado: "fiz 12 corridas e 40 km" e "fiz 5 corridas e 3 horas" perdiam a
+medida depois do "e" (só "rodei" puxava a outra medida). Corrigido em
+seguida: com "N corridas/viagens" na frase, "e N km" e "e N horas" também são
+lidos. 2 casos a mais no grupo KH (os 2 vermelhos antes). Gates: 666/666,
+99/99, 50/50, **528/528**, metamórficos, fuzz, 151/151, 468; typechecks,
+`test:money`, build, rubrica, varredura e `git diff --check` passaram.
 
 ## Pendências em 28/10/2026 (HEAD `4e16b70`)
 

@@ -2986,6 +2986,11 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const w = await trabalho(msg)
       out.push(result(id, w, '150 km e 8 horas', w.length === 1 && w[0].km === 150 && w[0].hours === 8))
     }
+    // Depois das corridas também: "fiz 12 corridas e 40 km" perdia os 40 km.
+    const corridasKm = await trabalho('fiz 12 corridas e 40 km')
+    out.push(result('KH-corridas-e-km', corridasKm, '12 viagens e 40 km', corridasKm.length === 1 && corridasKm[0].trips === 12 && corridasKm[0].km === 40))
+    const corridasHoras = await trabalho('fiz 5 corridas e 3 horas')
+    out.push(result('KH-corridas-e-horas', corridasHoras, '5 viagens e 3 horas', corridasHoras.length === 1 && corridasHoras[0].trips === 5 && corridasHoras[0].hours === 3))
   }
 
   // Quantidade de viagens DITA vale para a mensagem toda: "fiz 12 corridas e
