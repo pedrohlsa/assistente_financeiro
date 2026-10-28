@@ -3054,6 +3054,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     // de novo, sem a proteção do prazo.
     const seisMeses = await meta('quero comprar um celular de 5000 em 6 meses')
     out.push(result('MPZ-em-6-meses', seisMeses, '"Celular", 6 meses', !!seisMeses && seisMeses.name === 'Celular' && seisMeses.months === 6))
+    // O nome para no conector: "pra viagem E amanhã pago…" virava "Viagem e pago".
+    const comConector = await meta('quero juntar 1000 pra viagem e amanha pago a luz 180')
+    out.push(result('MPZ-nome-para-no-e', comConector, '"Viagem"', !!comConector && comConector.name === 'Viagem'))
   }
 
   // "Pela metade" é metade: a resposta dizia "Se você PARAR os gastos com

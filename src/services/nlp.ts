@@ -838,7 +838,7 @@ function parseClause(input: string): ParsedAction[] {
   // uma moto"). Só o primeiro era capturado, e toda meta dita do segundo jeito
   // nascia chamada "Objetivo" — com duas ou três assim, a lista de metas fica
   // ilegível e o usuário não sabe qual é qual.
-  const goalRe = new RegExp(String.raw`(?:quero|queria|vou|preciso)\s+(?:comprar|juntar|guardar)(?:\s+(?:uma|um|para|pra|o|a))?\s*([\wçãõáéíóú\s]*?)\s*(?:de|por|no valor de)?\s*(?:r\$)?\s*${NUM}(?:\s*(?:reais|mil|conto[s]?))?(?:\s*(?:pra|para|pro|p\/)\s+(?:uma?\s+|o\s+|a\s+|meu\s+|minha\s+)?([a-zà-úçãõ][\wçãõáéíóú]*(?:\s+[a-zà-úçãõ][\wçãõáéíóú]*){0,2}))?(?:\s*em\s*(\d+)\s*(mes(?:es)?|dias?|semanas?))?`, 'i')
+  const goalRe = new RegExp(String.raw`(?:quero|queria|vou|preciso)\s+(?:comprar|juntar|guardar)(?:\s+(?:uma|um|para|pra|o|a))?\s*([\wçãõáéíóú\s]*?)\s*(?:de|por|no valor de)?\s*(?:r\$)?\s*${NUM}(?:\s*(?:reais|mil|conto[s]?))?(?:\s*(?:pra|para|pro|p\/)\s+(?:uma?\s+|o\s+|a\s+|meu\s+|minha\s+)?([a-zà-úçãõ][\wçãõáéíóú]*(?:\s+(?!(?:e|mas|que|ate|até|em|daqui)\b)[a-zà-úçãõ][\wçãõáéíóú]*){0,2}))?(?:\s*em\s*(\d+)\s*(mes(?:es)?|dias?|semanas?))?`, 'i')
   const g = text.match(goalRe)
   if (g && !m) {
     let target = parseNum(g[2])

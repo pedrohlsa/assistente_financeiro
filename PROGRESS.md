@@ -5181,9 +5181,19 @@ parser. 3 casos no grupo MPZ (os 3 vermelhos antes). Gates: 666/666, 99/99,
 
 Achados sem correção, da mesma sondagem:
 - "quero juntar 1000 pra viagem e amanhã pago a luz 180" cria a meta "Viagem
-  e pago" e perde a luz (já antes);
+  e pago" e perde a luz (já antes) — o nome corrigido na seção seguinte; a
+  metade futura ainda some sem aviso (a frase não é cortada em "e amanhã");
 - "tirei 100 da viagem" cai na ajuda (retirada de meta não existe no chat);
 - "muda a meta da viagem pra 7000" mostra o nome em minúscula ("viagem").
+
+## 2026-10-28 — o nome da meta para no "e"
+
+"Quero juntar 1000 pra viagem e amanhã pago a luz 180" criava a meta "Viagem
+e pago": o nome depois de "pra" aceitava até três palavras quaisquer. Agora
+para em "e/mas/que/até/em/daqui" ("Viagem"; "moto nova" segue "Moto nova").
+1 caso no grupo MPZ (vermelho antes). Gates: 666/666, 99/99, 50/50,
+**545/545**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
+build, rubrica, varredura e `git diff --check` passaram.
 
 ## Pendências em 28/10/2026 (HEAD `0e1efb3`)
 
