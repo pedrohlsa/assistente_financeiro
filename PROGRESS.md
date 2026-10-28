@@ -4907,9 +4907,12 @@ real e dados legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas (detalhe nas
 seções de 27/10 acima):
-- "Quanto paguei de fatura" e "quando paguei a fatura do nubank" dão o resumo
-  dos cartões, não o que foi pago e quando; "antecipei a fatura do nubank"
-  também.
+- "Quando paguei a fatura do nubank" e "antecipei a fatura do nubank" dão o
+  resumo dos cartões.
+- "Quanto de fatura vence esse mes" dá o resumo dos cartões, sem somar o que
+  vence.
+- Mês que vem em lançamentos ("quanto vou receber em dezembro") responde
+  "Não tenho nenhum lançamento… Assim que você registrar", em vez da previsão.
 - "Devo muito?" cai na ajuda.
 - "Quanto guardei nas metas esse mes" responde o total até agora (a meta não
   guarda depósitos por mês).
