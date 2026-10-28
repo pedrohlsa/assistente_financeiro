@@ -2673,6 +2673,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('PN-japao-nao-e-pao', japao.actions, 'não vira Alimentação', japao.actions.some(a => a.kind === 'expense' && a.category !== 'alimentacao')))
   }
 
+  // Limite de UM cartão: "quanto eu tenho de limite no nubank" respondia "não
+  // tenho faturas com 'limite'". Literal: Nubank 8.000, 8 parcelas de 400
+  // pendentes (3.200 comprometidos), 4.800 disponíveis.
+  {
+    const r = (await turnoHoje(autonomoRico(hoje), 'quanto eu tenho de limite no nubank')).reply.replace(/ /g, ' ')
+    out.push(result('LM-limite-do-nubank', r, 'limite 8.000, comprometido 3.200, disponível 4.800, só Nubank',
+      /R\$ 8\.000,00/.test(r) && /R\$ 3\.200,00/.test(r) && /R\$ 4\.800,00/.test(r) && /Nubank/.test(r) && !/Inter/.test(r)))
+    // Sem cartão citado: a soma dos cartões (13.000, 5.200 comprometidos, 7.800 livres).
+    const todos = (await turnoHoje(autonomoRico(hoje), 'quanto tenho de limite')).reply.replace(/ /g, ' ')
+    out.push(result('LM-limite-de-todos', todos, 'soma: 13.000, 5.200, 7.800',
+      /R\$ 13\.000,00/.test(todos) && /R\$ 5\.200,00/.test(todos) && /R\$ 7\.800,00/.test(todos)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

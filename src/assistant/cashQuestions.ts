@@ -216,6 +216,13 @@ export function perguntaNominal(texto: string): string | null {
   return `quanto ${verbo} ${resto}?`
 }
 
+/**
+ * "Quanto eu tenho de limite no nubank", "qual o limite disponível": a DSL lia
+ * "limite" como texto de busca nas faturas e respondia que não havia nada.
+ */
+export const pedeLimite = (t: string): boolean =>
+  /\blimite\b/.test(t) && /\b(?:quanto|qual|quais|tenho|tem|sobra|sobrou|resta|disponivel|livre)\b/.test(t)
+
 const DIAS_DA_SEMANA = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado']
 
 /**

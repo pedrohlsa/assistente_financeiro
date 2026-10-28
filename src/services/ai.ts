@@ -27,7 +27,7 @@ import {
 } from './calc'
 import type { CashObligation } from './calc'
 import {
-  alvoDaReserva, diaDaSemanaPedido, mesesAtePrazo, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeResumoDoDia, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
+  alvoDaReserva, diaDaSemanaPedido, mesesAtePrazo, pedeLimite, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeResumoDoDia, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
   perguntaDeFatura, perguntaDeManutencao,
   planoDeGuardar, prazoDasContas, retiraDaReserva,
 } from '../assistant/cashQuestions'
@@ -38,7 +38,7 @@ import { adaptiveEnabled, buildPersonalModel } from '../assistant/personalModel'
 import { catById } from '../data/categories'
 import { isDriver } from './profile'
 import {
-  activeCards, cardInvoice, cardsOverview, currentInvoice, monthlyCommitments, activePlans,
+  activeCards, cardInvoice, cardOutstanding, cardsOverview, currentInvoice, monthlyCommitments, activePlans,
   planProgress, overdueInstallments, upcomingInvoices, installmentsThisMonth, hasAmbiguousLegacyCardBalance,
 } from './cards'
 import type { CardInvoice } from './cards'
@@ -649,7 +649,8 @@ function resolveLocal(s: AppState, input: string): AiReply {
 
   // ===== Cartões, parcelas e faturas (todos os perfis) =====
   const ov = cardsOverview(s)
-  if (/parcela|fatura|cart[ãa]o|parcelamento|d[ií]vida/.test(t)) {
+  // "Limite no Nubank" é pergunta de cartão mesmo sem a palavra "cartão".
+  if (/parcela|fatura|cart[ãa]o|parcelamento|d[ií]vida/.test(t) || (pedeLimite(t) && activeCards(s).length > 0)) {
     if (!ov.hasData) {
       return { text: 'Você ainda não cadastrou cartões nem parcelamentos. Você pode adicionar em Mais → Cartões e parcelamentos.' }
     }
@@ -700,6 +701,14 @@ function resolveLocal(s: AppState, input: string): AiReply {
 
     // "quanto tenho de limite"
     if (/limite/.test(t)) {
+      // "…de limite NO NUBANK": o cartão citado, não a soma de todos.
+      const doCartao = cartoesDaPergunta(s, t)
+      if (doCartao.length === 1) {
+        const c = doCartao[0]
+        if (!(c.limit > 0)) return { text: `Você não informou o limite do ${c.name}. Dá pra cadastrar em Mais → Cartões e parcelamentos.` }
+        const usado = round2(cardOutstanding(s, c.id))
+        return { text: `O ${c.name} tem limite de ${fmtBRL(c.limit)}. Comprometido em parcelas e compras: ${fmtBRL(usado)}. Disponível: ${fmtBRL(round2(Math.max(c.limit - usado, 0)))}. (dados reais)` }
+      }
       if (ov.totalLimit <= 0) return { text: 'Você ainda não informou o limite dos seus cartões. Dá pra cadastrar em Mais → Cartões e parcelamentos.' }
       return { text: `Seus cartões somam ${fmtBRL(ov.totalLimit)} de limite. Comprometido: ${fmtBRL(ov.usedLimit)}. Disponível: ${fmtBRL(ov.availableLimit)}. (dados reais)` }
     }

@@ -4572,6 +4572,24 @@ Gates: 666/666, 99/99, 50/50, **434/434**, metamórficos, fuzz, 151/151, 468;
 typechecks, `test:money`, build, rubrica, varredura e `git diff --check`
 passaram.
 
+## 2026-10-27 — limite do cartão
+
+"Quanto eu tenho de limite no nubank" respondia "Não tenho faturas nesse
+período com 'limite'"; "quanto tenho de limite" (sem "cartão"), "nenhum
+lançamento com 'limite'". A consulta lia "limite" como texto de busca, e a
+seção de cartões do roteador só abria com "cartão/fatura/parcela". Agora
+`pedeLimite()` faz a DSL recusar, a seção de cartões abre com pergunta de
+limite quando há cartão cadastrado, e o cartão citado tem resposta própria:
+"O Nubank tem limite de R$ 8.000,00. Comprometido em parcelas e compras:
+R$ 3.200,00. Disponível: R$ 4.800,00." Sem cartão citado, a soma. 2 casos no
+grupo LM (os 2 vermelhos antes; literais do fixture). Gates: 666/666, 99/99,
+50/50, **436/436**, metamórficos, fuzz, 151/151, 468; typechecks,
+`test:money`, build, rubrica, varredura e `git diff --check` passaram.
+
+Achados sem correção ainda: "qual minha maior parcela" devolve o resumo dos
+cartões; "quando acaba a geladeira" cai na ajuda; "antecipei 2 parcelas do
+computador" devolve o resumo em vez de dizer que o chat não antecipa.
+
 ## Pendências em 27/10/2026 (HEAD `73c8d24`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **399/399 adversariais**, 4.088 + 3.800
