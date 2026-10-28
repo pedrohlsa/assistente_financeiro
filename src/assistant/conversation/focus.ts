@@ -769,10 +769,12 @@ function refinaConsulta(
   // ---- restrição: "e só aluguel?", "e no Nubank?" -----------------------
   // "E alimentação?", "e com lazer?", "e de mercado?": sem "no/na", só vale
   // quando o nome É uma categoria ou um cartão — senão a elipse é outra coisa.
+  const tipoDaConsulta = base.filter.txType?.length === 1 && (base.filter.txType[0] === 'income' || base.filter.txType[0] === 'expense')
+    ? base.filter.txType[0] : undefined
   const nuaOuComDe = t.match(/^e\s+(?:(?:com|de|em)\s+)?([a-z0-9çãõáéíóúâê][a-z0-9\s\-çãõáéíóúâê]{1,30}?)\s*\??$/)
   const restringir = t.match(/^(?:e\s+)?(?:so|somente|apenas)\s+(?:o\s+|a\s+)?([a-z0-9çãõáéíóúâê][a-z0-9\s\-çãõáéíóúâê]{1,30}?)\s*\??$/)
     || t.match(/^e\s+(?:n?[oa]s?|d[oa]s?)\s+([a-z0-9çãõáéíóúâê][a-z0-9\s\-çãõáéíóúâê]{1,30}?)\s*\??$/)
-    || (nuaOuComDe && (achaCategoria(state, nuaOuComDe[1].trim()) || achaCartao(state, nuaOuComDe[1].trim())) ? nuaOuComDe : null)
+    || (nuaOuComDe && (achaCategoria(state, nuaOuComDe[1].trim(), tipoDaConsulta) || achaCartao(state, nuaOuComDe[1].trim())) ? nuaOuComDe : null)
   if (restringir) {
     const alvo = restringir[1].trim()
     // "Quanto falta pro notebook" → "e a viagem?": TROCA a meta. Somar o texto
@@ -787,7 +789,7 @@ function refinaConsulta(
       return planned({ ...base, filter: filtro }, `meta ${meta.name}`)
     }
     const cartao = achaCartao(state, alvo)
-    const cat = cartao ? undefined : achaCategoria(state, alvo)
+    const cat = cartao ? undefined : achaCategoria(state, alvo, tipoDaConsulta)
     const filtro = { ...base.filter }
     if (cartao) { filtro.cardNames = [cartao]; delete filtro.excludeCardNames }
     else if (cat) { filtro.categories = [cat]; delete filtro.excludeCategories }
@@ -878,12 +880,19 @@ const achaCartao = (state: AppState, nome: string): string | undefined =>
   activeCards(state).find(c => normalizeName(c.name) === normalizeName(nome)
     || normalizeName(nome).includes(normalizeName(c.name)))?.name
 
-const achaCategoria = (state: AppState, nome: string): string | undefined => {
+/**
+ * A categoria pelo nome — ou pelo id, no tipo da consulta: "e de aluguel?"
+ * depois de "quanto recebi" (id "aluguel", nome "Aluguéis") caía na ajuda.
+ * Palavra-chave não entra: "sem cimento" excluiria a Obra inteira, e "de
+ * mercado" buscaria toda a Alimentação em vez do texto.
+ */
+const achaCategoria = (state: AppState, nome: string, tipo?: 'income' | 'expense'): string | undefined => {
   const alvo = normalizeName(nome)
   if (alvo.length < 3) return undefined
-  return usableCategories(state.categories || [])
-    .find(c => normalizeName(c.name) === alvo
+  const usaveis = usableCategories(state.categories || [])
+  return usaveis.find(c => normalizeName(c.name) === alvo
       || (alvo.length >= 4 && normalizeName(c.name).includes(alvo)))?.id
+    || (tipo ? usaveis.find(c => c.type === tipo && c.id === alvo)?.id : undefined)
 }
 
 export { addDays }

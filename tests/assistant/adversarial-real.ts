@@ -3046,6 +3046,13 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result(id, r, `comparado com ${nomeSet} (${fmt(recebidoSet)})`,
         new RegExp(nomeSet, 'i').test(r) && r.includes(fmt(recebidoSet))))
     }
+    // "E de aluguel?" (singular) depois de "quanto recebi": a categoria
+    // Aluguéis. Só "aluguéis" casava; o singular caía na ajuda.
+    const focoReceita = (await turnoHoje(rico, 'quanto recebi esse mes')).focus
+    const aluguelDoMes = rico.transactions.filter(t => t.type === 'income' && t.category === 'aluguel'
+      && t.date.slice(0, 7) === hoje.slice(0, 7) && t.date <= hoje).reduce((a, t) => a + t.amount, 0)
+    const deAluguel = limpa((await turnoHoje(rico, 'e de aluguel?', focoReceita)).reply)
+    out.push(result('CS-e-de-aluguel', deAluguel, `Aluguéis ${fmt(aluguelDoMes)}`, deAluguel.includes(fmt(aluguelDoMes)) && /Aluguéis/.test(deAluguel)))
     // Grãos diferentes: "este mês" contra "a semana passada" é semana com semana.
     const focoMes = (await turnoHoje(rico, 'quanto gastei esse mes')).focus
     const semana = limpa((await turnoHoje(rico, 'compara com a semana passada', focoMes)).reply)

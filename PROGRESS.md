@@ -5085,8 +5085,20 @@ no grupo CS (os 3 vermelhos antes; somas do fixture). Gates: 666/666, 99/99,
 50/50, **533/533**, metamórficos, fuzz, 151/151, 468; typechecks,
 `test:money`, build, rubrica, varredura e `git diff --check` passaram.
 
-Achado sem correção, da mesma conversa: "e de aluguel?" depois de "e quanto
-recebi?" cai na ajuda genérica (deveria filtrar a receita por Aluguéis).
+Achado, da mesma conversa: "e de aluguel?" depois de "e quanto recebi?" caía
+na ajuda genérica. Corrigido em seguida: a restrição só aceitava o NOME da
+categoria ("Aluguéis"), e "aluguel" no singular não casava. Agora também o
+id, no tipo da consulta ("aluguel" recebido é Aluguéis; o gasto não muda).
+Palavra-chave ficou de fora de propósito: "sem cimento" excluiria a Obra
+inteira, e "de mercado" buscaria toda a Alimentação. 1 caso a mais no grupo
+CS (vermelho antes). Gates: 666/666, 99/99, 50/50, **534/534**,
+metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica,
+varredura e `git diff --check` passaram.
+
+Achados sem correção (já antes desta rodada): no contexto de gasto, "e de
+mercado?" e "e de aluguel?" caem na ajuda ("e no mercado?" funciona); e "e no
+mercado?" responde "Total gasto este mês: R$ 200,00" sem dizer que é só o
+mercado.
 
 ## Pendências em 28/10/2026 (HEAD `4e16b70`)
 
