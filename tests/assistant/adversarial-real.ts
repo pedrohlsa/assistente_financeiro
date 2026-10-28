@@ -3355,12 +3355,14 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const pagoEm = addDays(hoje, -2)
     const data = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
     st.cardPayments = [{ id: 'hp-parcial', cardId: st.cards[0].id, amount: 123,
-      paymentDate: pagoEm, referenceMonth: hoje.slice(0, 7), settledInstallmentIds: [] }]
+      paymentDate: pagoEm, referenceMonth: hoje.slice(0, 7), settledInstallmentIds: [] },
+      { id: 'hp-futuro', cardId: st.cards[0].id, amount: 456, paymentDate: addDays(hoje, 1), referenceMonth: hoje.slice(0, 7) },
+      { id: 'hp-invalido', cardId: st.cards[0].id, amount: 789, paymentDate: '2026-02-31', referenceMonth: '2026-02' }]
     for (const message of ['quando paguei a fatura do nubank', 'que dia paguei a fatura do nubank?',
       'quando foi o último pagamento da fatura do nubank?']) {
       const r = await turnoHoje(st, message)
       out.push(result(`HP-${message}`, r, 'data do evento e valor parcial 123; sem afirmar quitação',
-        r.reply.includes(data(pagoEm)) && /123,00/.test(r.reply) && /pagamento/i.test(r.reply)
+        r.reply.includes(data(pagoEm)) && /123,00/.test(r.reply) && !/456,00|789,00/.test(r.reply) && /pagamento/i.test(r.reply)
           && !/est[aá] paga|quitad[ao]/i.test(r.reply) && r.actions.length === 0))
     }
     const semEvento = await turnoHoje({ ...st, cardPayments: [] }, 'quando paguei a fatura do nubank')
@@ -3442,6 +3444,35 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /6\.000,00/.test(total.reply) && total.actions.length === 0
         && /4\.800,00/.test(total.focus?.lastQuery?.explain || '')
         && !/2\.800,00/.test(total.focus?.lastQuery?.explain || '')))
+  }
+
+  {
+    const st = buildState({ profile: 'autonomo', balance: 1000,
+      cards: [{ name: 'Inter', dueDay: Number(addDays(hoje, 3).slice(8)), closingDay: 1 }] })
+    st.installmentPlans = [{ id: 'scf-plan', description: 'Compra', cardId: 'card0', totalAmount: 1200,
+      installmentCount: 1, firstDueDate: addDays(hoje, 3), purchaseDate: addDays(hoje, -20),
+      createdAt: addDays(hoje, -20), status: 'active', operationType: 'card-purchase' }]
+    for (const offset of [3, -3]) {
+      st.installments = [{ id: 'scf-installment', planId: 'scf-plan', number: 1, total: 1,
+        amount: 1200, dueDate: addDays(hoje, offset), status: 'pending' }]
+      const r = await turnoHoje(st, 'se eu gastar 100 hoje, dá ruim?')
+      out.push(result(`SCF-fatura-${offset}`, r, 'saldo 900 não cobre fatura 1200; falta 300',
+        r.focus?.lastScenario?.feasible === false && /1\.200,00/.test(r.reply)
+          && /300,00/.test(r.reply) && /fatura/i.test(r.reply) && r.actions.length === 0))
+    }
+    st.installments[0].status = 'paid'
+    const pago = await turnoHoje(st, 'se eu gastar 100 hoje, dá ruim?')
+    out.push(result('SCF-fatura-paga-nao-recobra', pago, 'não contar como devida a parcela já quitada',
+      pago.focus?.lastScenario?.feasible === true && !/1\.200,00/.test(pago.reply) && pago.actions.length === 0))
+    st.installments[0].status = 'pending'
+    st.settings.balance = 1500
+    const ontem = addDays(hoje, -1)
+    st.recurring = [{ id: 'scf-incerta', name: 'Conta sem confirmação', amount: 500, frequency: 'monthly',
+      dueDay: Number(ontem.slice(8)), startDate: ontem, endDate: ontem, category: 'casa', kind: 'expense', active: true }]
+    const incerto = await turnoHoje(st, 'se eu gastar 100 hoje, dá ruim?')
+    out.push(result('SCF-pendencia-pode-mudar-veredito', incerto, 'não afirmar que cabe enquanto a conta vencida pode mudar o resultado',
+      incerto.focus?.lastScenario?.feasible === undefined && /sem confirma[çc][ãa]o/.test(incerto.reply)
+        && incerto.actions.length === 0))
   }
 
   return out

@@ -9,7 +9,7 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
 ## Checkpoint vigente — 28/10/2026
 
 - Trabalho local: `feat/assistant-intelligence-v2`, último lote retomado de `a4afa92`. Em 27-28/10/2026,
-  121 commits locais depois de `c3648de` corrigiram respostas lidas como usuário
+  mais de 120 commits locais depois de `c3648de` corrigiram respostas lidas como usuário
   (caixa futuro, faturas de agora, contas fixas, metas com prazo, registro e
   pergunta juntos, nomes com acento, categoria pelo nome, exclusões, períodos
   "desse/deste", agrupamento por tempo, por dia, manutenção, sobra tirando
@@ -28,6 +28,11 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
   fatura, manutenção sem custo (pergunta o valor e preserva o hodômetro), receita
   futura por recorrências abertas, intenção futura junto com meta e consulta
   mensal de depósitos em metas (explica a ausência de histórico, sem inventar).
+  O checkpoint `c72a069` salvou esse lote. Na verificação seguinte, a recarga
+  imediata após Confirmar perdeu um registro por causa do debounce: agora a
+  gravação é descarregada ao sair/ocultar a página. O smoke local confirmou
+  manutenção, confirmação, recarga, desfazer e nova recarga. A simulação de
+  gasto passou a incluir faturas e parcelas no cálculo de compromissos.
   Lista de pendências no
   fim de [PROGRESS.md](PROGRESS.md), seção "Pendências em 28/10/2026".
   `.claude/launch.json` é modificação local preexistente e não pertence às entregas.
@@ -38,7 +43,7 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
 - A V2 acrescentou consultas e cenários multi-entidade, continuidade de conversa,
   preferências locais explícitas e reconciliação parcial de cartões. Baseline
   local mais recente: 666/666 corpus, 99/99 consulta/cenário/continuidade,
-  50/50 semânticos, 572/572 adversariais, 4.088 + 3.800 metamórficos,
+  50/50 semânticos, 576/576 adversariais, 4.088 + 3.800 metamórficos,
   1.416 fuzz, 151/151 invariantes e 468/468 verificações remotas **offline**;
   typechecks, teste de dinheiro, build e rubrica passaram.
 - **NOT READY para merge/deploy.** O parecer sobre `345d55e` encontrou oito
@@ -49,8 +54,9 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
   distribuição por parcela tem remoção recusada se contradisser quitações
   posteriores; falta fluxo de reconciliação com feedback na interface. Fatura
   mista não permite atribuir pagamento parcial a uma parcela específica.
-  Horários legados só com minuto não revelam a ordem real. Persistência e
-  navegador não foram revalidados neste lote. Detalhes na última seção de
+  Horários legados só com minuto não revelam a ordem real. Houve smoke local
+  de navegador/persistência com dados fictícios; isso não valida todos os fluxos
+  nem dados legados reais. Detalhes na última seção de
   [PROGRESS.md](PROGRESS.md).
 
 ---

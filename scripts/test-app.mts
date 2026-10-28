@@ -6,6 +6,7 @@ import { plainChatText } from '../src/utils/text'
 import { AppState } from '../src/models/types'
 import { DEFAULT_CATEGORIES } from '../src/data/categories'
 import { runNavigationTests } from '../tests/navigation'
+import { createDeferredSave } from '../src/store/persistence'
 
 const state = (): AppState => ({
   settings: {
@@ -94,5 +95,24 @@ const state = (): AppState => ({
 }
 
 const navChecks = runNavigationTests()
+
+{
+  const disk: Array<{ amount: number }> = []
+  const save = createDeferredSave<{ amount: number }>(s => disk.push(s), 10)
+  save.queue({ amount: 100 })
+  save.queue({ amount: 180 })
+  save.flush() // a página sai antes de vencer o debounce
+  assert.deepEqual(disk, [{ amount: 180 }])
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(disk.length, 1, 'o timer cancelado não grava outra vez')
+  save.queue({ amount: 999 })
+  save.cancel() // reset remove a chave e cancela o estado antigo
+  save.flush()
+  assert.equal(disk.length, 1, 'sair após reset não ressuscita os dados antigos')
+  save.queue({ amount: 0 })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.deepEqual(disk, [{ amount: 180 }, { amount: 0 }])
+  save.cancel()
+}
 
 console.log(`Todos os testes do núcleo passaram (inclui ${navChecks} verificações de navegação).`)

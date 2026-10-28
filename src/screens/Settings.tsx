@@ -263,14 +263,16 @@ export default function SettingsScreen() {
       <div className="card stack">
         <h3>Privacidade e uso da IA</h3>
         <p className="tiny">
-          <strong>Fica só no seu aparelho:</strong> todas as movimentações, contas, metas, categorias,
-          saldo e configurações. O app funciona 100% offline e nada é enviado sem você perguntar algo.
+          <strong>Armazenados no seu aparelho:</strong> suas movimentações, contas, metas, categorias,
+          saldo e configurações. Você pode registrar e consultar seus dados offline.
         </p>
         <p className="tiny">
-          <strong>Quando você faz uma pergunta ao assistente:</strong> a maioria é respondida
-          localmente, sem sair do aparelho. Se a pergunta for aberta e a IA remota estiver ligada,
-          enviamos apenas um <em>resumo agregado</em> (totais do mês, saldo, contas próximas e metas)
-          — nunca a lista completa de lançamentos{driverMode ? '' : '. Dados de veículo não são enviados no seu perfil'}.
+          <strong>Quando você usa o assistente:</strong> a maioria dos pedidos é respondida
+          localmente, sem sair do aparelho. Quando usamos a IA remota, enviamos a mensagem atual
+          (ou a parte ainda não entendida), o assunto da conversa, perfil, categorias e nomes de
+          cartões e metas. Se necessário, também vão totais resumidos. O histórico de movimentações
+          e o saldo em conta não fazem parte do contexto automático. Dados que você escrever na
+          mensagem podem ser enviados.
         </p>
         <p className="tiny">
           As chaves de acesso à IA ficam apenas no servidor, nunca dentro do aplicativo.

@@ -42,11 +42,14 @@ export function composeScenario(r: AssistantScenarioResult): string {
     case 'spend': {
       const depois = valor('Saldo depois do gasto')
       const sobra = valor('Sobra do mês depois do gasto')
-      const contas = valor('Contas nos próximos 7 dias')
+      const contas = valor('Compromissos vencidos e dos próximos 7 dias')
+      const faturas = valor('Faturas incluídas nos compromissos')
+      const livre = valor('Saldo após esses compromissos')
       linhas.push(`Se você gastar ${fmtBRL(p.amount || 0)} ${p.when || 'hoje'}:`)
       const itens = [`• Saldo em conta ficaria em ${fmtBRL(depois ?? 0)}`]
       if (sobra !== undefined) itens.push(`• A sobra do mês passaria a ${fmtBRL(sobra)}`)
-      if (contas) itens.push(`• Ainda vencem ${fmtBRL(contas)} em contas nos próximos 7 dias`)
+      if (contas) itens.push(`• Compromissos cadastrados vencidos e dos próximos 7 dias: ${fmtBRL(contas)}${faturas ? ` (inclui ${fmtBRL(faturas)} em faturas)` : ''}`)
+      if (livre !== undefined) itens.push(`• Saldo após esses compromissos: ${fmtBRL(livre)}`)
       linhas.push(itens.join('\n'))
       if (r.feasible === false) {
         // Sem contas cadastradas não existe "as contas que vêm aí" — dizer isso

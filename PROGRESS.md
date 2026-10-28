@@ -5293,16 +5293,63 @@ teste monetário, build, rubrica e `git diff --check` passaram. Rubrica:
 chunk acima de 500 kB. Sem chamadas DeepSeek, push, merge, deploy ou APK.
 `.claude/launch.json` segue como modificação preexistente, fora da entrega.
 
-## Pendências em 28/10/2026 (após o lote iniciado em `a4afa92`)
+## 2026-10-28 — persistência real e compromissos da simulação, após `c72a069`
 
-Estado: 666/666 corpus, 99/99, 50/50, **572/572 adversariais**, 4.088 + 3.800
+Smoke no navegador em `http://127.0.0.1:5274`, origem local isolada, perfil
+fictício "Teste local", IA remota desligada antes de usar o chat. Reproduzido:
+"troquei o óleo aos 45000 km ontem" → pergunta custo → "custou 180" →
+proposta correta. Porém Confirmar seguido de recarga imediata perdeu a
+manutenção e a despesa: o timer de gravação de 150 ms ainda não tinha rodado.
+
+A fila de persistência foi extraída para `store/persistence.ts`. O provider
+atualiza o snapshot antes de pintar a tela e descarrega a gravação em
+`pagehide`, quando a página fica oculta e ao desmontar. O reset cancela o
+snapshot antigo antes de remover a chave. O teste do núcleo cobre descarga
+imediata do último snapshot, cancelamento do timer, cancelamento no reset e
+gravação normal pelo timer. O tratamento/aviso de erro de armazenamento foi
+preservado.
+
+Após a correção, Confirmar + recarga imediata manteve "Registrado!", a
+manutenção e a despesa de R$ 180. O journal também sobreviveu: "desfaz o
+último" encontrou despesa e manutenção, pediu confirmação e, após confirmar
+e recarregar imediatamente, a despesa continuou removida. Esse é um smoke
+específico, não validação completa de persistência nem de dados legados reais.
+
+Foi reproduzida também a divergência da simulação: saldo 1000, gasto
+hipotético 100 e fatura pendente 1200 resultavam em `feasible: true`.
+Agora o cenário de gasto usa `cashObligationsUntil` para contas, faturas e
+parcelas sem cartão, incluindo vencidas e próximos 7 dias. Mostra saldo 900,
+compromissos 1200 e saldo após compromissos -300. Parcela de cartão entra
+somente pela fatura. Compromisso já pago não volta a ser cobrado. Conta
+vencida sem confirmação não é dívida certa; se puder inverter o resultado,
+não há veredito de viabilidade. Quatro casos SCF cobrem esses contrastes.
+Os auxiliares de calendário aceitam uma data de referência opcional, usada
+pela simulação, mantendo o relógio atual como padrão dos outros chamadores.
+
+A tela de privacidade dizia que o saldo ia no resumo remoto. Foi corrigida
+para distinguir armazenamento local, mensagem atual, contexto mínimo e
+totais opcionais. O histórico de movimentações e saldo em conta não são
+contexto automático; dados escritos na mensagem atual podem ser enviados.
+Não houve mudança do payload. O histórico de pagamentos também recusa datas
+inválidas/futuras ao responder "quando paguei".
+
+Gates: 666/666, 99/99, 50/50, **576/576 adversariais**, 4.088 + 3.800
+metamórficos, 1.416 fuzz, 151/151 invariantes e 468/468 verificações remotas
+offline; typechecks, build e rubrica verdes (0 perigosa, 0 ruim, 5 aceitáveis,
+85 excelentes). O aviso de chunk acima de 500 kB permanece. Sem chamada
+DeepSeek, push, merge, deploy ou APK; `.claude/launch.json` intocado.
+
+## Pendências em 28/10/2026 (após o lote iniciado em `c72a069`)
+
+Estado: 666/666 corpus, 99/99, 50/50, **576/576 adversariais**, 4.088 + 3.800
 metamórficos, 1.416 fuzz, 151/151 invariantes, 468/468 offline (65 frases
 chegam hoje ao modelo remoto); typechecks, `test:money`, build e rubrica
 (0 perigosa, 0 ruim) verdes. Tudo local, sem DeepSeek, push, merge, deploy ou
 APK. **NOT READY para merge/deploy**: os diffs `c3648de..c824fe0`,
 `c824fe0..b049bdf`, `b049bdf..73c8d24` e os posteriores a `73c8d24` (seções acima,
-uma por causa) precisam de auditoria independente; navegador, persistência
-real e dados legados reais não foram revalidados.
+uma por causa) precisam de auditoria independente. Houve smoke local de
+navegador/persistência com manutenção e desfazer, usando somente dados
+fictícios. Os demais fluxos e dados legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas (detalhe nas
 seções de 27 e 28/10 acima):
@@ -5319,8 +5366,8 @@ seções de 27 e 28/10 acima):
 - "Devo muito?" cai na ajuda.
 
 Decisões de produto pendentes:
-- `balanceOutlook` (Home e simulações "e se eu gastar") só considera contas
-  fixas; as respostas do chat já usam `cashObligationsUntil()`.
+- `balanceOutlook` (Home e o cenário de entrada ausente) só considera contas
+  fixas; o cenário de gasto e as respostas do chat usam `cashObligationsUntil()`.
 - Não existe lançamento de retirada da reserva (`insufficient-reserve` não é usado).
 - O chat não apaga lançamento salvo (só "desfaz o último" lote do assistente).
 - O chat não confirma ocorrência de conta fixa: "paguei a luz de 180" cria

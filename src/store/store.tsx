@@ -1,7 +1,8 @@
 // Estado global + persistência local (localStorage) — funciona offline.
 // Preparado para sincronização futura: cada mutação passa por dispatch,
 // bastando acoplar uma fila de sync (INTEGRAÇÃO PENDENTE: backend/Supabase).
-import React, { createContext, useContext, useEffect, useMemo, useReducer, useState } from 'react'
+import React, { createContext, useContext, useLayoutEffect, useMemo, useReducer, useState } from 'react'
+import { createDeferredSave } from './persistence'
 import {
   AppState, Transaction, WorkSession, FuelRecord, MaintenanceItem, FinancialGoal,
   Deficit, RecurringExpense, RecurrenceOccurrence, Budget, ChatMessage, ProposedAction, Settings, Vehicle, ParsedAction, Category,
@@ -496,11 +497,11 @@ interface StoreValue {
 const StoreCtx = createContext<StoreValue>({ state: initialState, dispatch: () => {}, storageError: null })
 
 /**
- * Handle da gravação debounced. Precisa ser visível fora do provider porque o
+ * Controle da gravação debounced. Precisa ser visível fora do provider porque o
  * reset tem que CANCELAR a gravação pendente do estado antigo — senão ela roda
  * 150ms depois e ressuscita tudo que acabou de ser apagado.
  */
-let pendingSave: any = null
+let activeSave: ReturnType<typeof createDeferredSave<AppState>> | null = null
 
 /**
  * ÚNICA operação de apagar tudo do app (item 38). Usada pelo botão das
@@ -515,7 +516,7 @@ let pendingSave: any = null
  * Com a chave já removida, um reload em qualquer instante encontra o app limpo.
  */
 export function resetAllData(dispatch: React.Dispatch<Action>) {
-  if (pendingSave) { clearTimeout(pendingSave); pendingSave = null }
+  activeSave?.cancel()
   try { localStorage.removeItem(STORAGE_KEY) } catch { /* storage indisponível */ }
   dispatch({ type: 'reset' })
 }
@@ -540,22 +541,34 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
    */
   const [storageError, setStorageError] = useState<string | null>(null)
 
-  useEffect(() => {
-    clearTimeout(pendingSave)
-    pendingSave = setTimeout(() => {
-      pendingSave = null
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-        setStorageError(prev => (prev ? null : prev))
-      } catch (e: any) {
-        const cheio = e?.name === 'QuotaExceededError' || e?.code === 22 || e?.code === 1014
-        setStorageError(cheio
-          ? 'O armazenamento do aparelho está cheio: os últimos registros NÃO foram salvos. Exporte um backup e apague o que não precisar mais.'
-          : 'Não estou conseguindo salvar neste aparelho: os últimos registros podem se perder ao fechar o app. Exporte um backup por segurança.')
-      }
-    }, 150)
-    return () => clearTimeout(pendingSave)
-  }, [state])
+  const save = useMemo(() => createDeferredSave<AppState>((snapshot) => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
+      setStorageError(prev => (prev ? null : prev))
+    } catch (e: any) {
+      const cheio = e?.name === 'QuotaExceededError' || e?.code === 22 || e?.code === 1014
+      setStorageError(cheio
+        ? 'O armazenamento do aparelho está cheio: os últimos registros NÃO foram salvos. Exporte um backup e apague o que não precisar mais.'
+        : 'Não estou conseguindo salvar neste aparelho: os últimos registros podem se perder ao fechar o app. Exporte um backup por segurança.')
+    }
+  }), [])
+
+  // O snapshot já está atualizado antes de o browser poder recarregar. O
+  // debounce permanece durante o uso, mas sair/ocultar a página descarrega a
+  // gravação imediatamente; reset cancela a fila antes de remover a chave.
+  useLayoutEffect(() => { save.queue(state) }, [state, save])
+  useLayoutEffect(() => {
+    activeSave = save
+    const onHidden = () => { if (document.visibilityState === 'hidden') save.flush() }
+    window.addEventListener('pagehide', save.flush)
+    document.addEventListener('visibilitychange', onHidden)
+    return () => {
+      window.removeEventListener('pagehide', save.flush)
+      document.removeEventListener('visibilitychange', onHidden)
+      save.flush()
+      if (activeSave === save) activeSave = null
+    }
+  }, [save])
 
   const value = useMemo(() => ({ state, dispatch, storageError }), [state, storageError])
   return <StoreCtx.Provider value={value}>{children}</StoreCtx.Provider>

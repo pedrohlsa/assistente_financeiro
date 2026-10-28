@@ -439,14 +439,13 @@ const PENDING_LOOKBACK_DAYS = 60
  * Ocorrências cuja data já chegou e que ainda não foram resolvidas — em QUALQUER
  * frequência, não só mensal. Nada é lançado automaticamente: só vira pergunta.
  */
-export function pendingRecurrings(s: AppState): PendingRecurring[] {
-  const t = todayISO()
+export function pendingRecurrings(s: AppState, t = todayISO()): PendingRecurring[] {
   const today = fromISO(t)
   const from = addDays(t, -PENDING_LOOKBACK_DAYS)
   const out: PendingRecurring[] = []
   for (const r of s.recurring) {
     if (r.snoozeUntil && t < r.snoozeUntil) continue
-    for (const dueIso of occurrencesBetween(r, from, t)) {
+    for (const dueIso of occurrencesBetween(r, from, t, t)) {
       // Uma recorrente cadastrada hoje NÃO nasce atrasada: a âncora define a
       // primeira ocorrência e nada antes dela vira pendência.
       if (!recurringActiveOn(r, dueIso)) continue
@@ -739,14 +738,13 @@ export function recurringActiveOn(r: RecurringExpense, iso: string): boolean {
  * Ocorrência já confirmada sai daqui: senão o mesmo salário apareceria ao mesmo
  * tempo como saldo realizado e como entrada prevista (item 11).
  */
-function upcomingFrom(list: RecurringExpense[], horizon: number): UpcomingBill[] {
-  const t = todayISO()
+function upcomingFrom(list: RecurringExpense[], horizon: number, t = todayISO()): UpcomingBill[] {
   const today = fromISO(t)
   const to = addDays(t, horizon)
   const out: UpcomingBill[] = []
   for (const r of list) {
     const kind = r.kind === 'income' ? 'income' : 'expense'
-    for (const iso of occurrencesBetween(r, t, to)) {
+    for (const iso of occurrencesBetween(r, t, to, t)) {
       if (isOccurrenceResolved(r, iso)) continue
       out.push({
         name: r.name, amount: r.amount, date: iso, kind,
@@ -758,8 +756,8 @@ function upcomingFrom(list: RecurringExpense[], horizon: number): UpcomingBill[]
 }
 
 /** Contas a PAGAR nos próximos dias (só saídas). */
-export function upcomingBills(s: AppState, horizon = 30): UpcomingBill[] {
-  return upcomingFrom(s.recurring.filter(r => r.kind !== 'income'), horizon)
+export function upcomingBills(s: AppState, horizon = 30, today = todayISO()): UpcomingBill[] {
+  return upcomingFrom(s.recurring.filter(r => r.kind !== 'income'), horizon, today)
 }
 
 /** Entradas fixas a RECEBER nos próximos dias (salário/aluguel). */
@@ -822,20 +820,19 @@ const OBLIGATION_LOOKBACK_MONTHS = 12
  * variável não entra: não existe cadastro dele, e uma média aqui seria
  * previsão com cara de compromisso.
  */
-export function cashObligationsUntil(s: AppState, until: string): CashObligation[] {
-  const t = todayISO()
+export function cashObligationsUntil(s: AppState, until: string, t = todayISO()): CashObligation[] {
   const today = fromISO(t)
   const inDays = (iso: string) => Math.round((fromISO(iso).getTime() - today.getTime()) / 86400000)
   const out: CashObligation[] = []
 
   // Atrasadas e de hoje: a mesma lista de pendências da Home.
-  for (const p of pendingRecurrings(s)) {
+  for (const p of pendingRecurrings(s, t)) {
     if (p.kind !== 'expense' || p.dueDate > until) continue
     out.push({ name: p.rec.name, amount: p.rec.amount, date: p.dueDate, inDays: p.inDays, kind: 'bill',
       ...(p.inDays < 0 ? { unconfirmed: true } : {}) })
   }
   if (until > t) {
-    for (const b of upcomingBills(s, inDays(until))) {
+    for (const b of upcomingBills(s, inDays(until), t)) {
       if (b.inDays > 0) out.push({ name: b.name, amount: b.amount, date: b.date, inDays: b.inDays, kind: 'bill' })
     }
   }

@@ -1537,7 +1537,8 @@ function respostaDaFatura(s: AppState, t: string, tipo: PerguntaDeFatura): AiRep
   if (tipo === 'pagamentos') {
     const ids = new Set(cartoes.map(c => c.id))
     const pagamentos = (s.cardPayments || []).filter(p => ids.has(p.cardId)
-      && /^\d{4}-\d{2}-\d{2}$/.test(p.paymentDate))
+      && /^\d{4}-\d{2}-\d{2}$/.test(p.paymentDate)
+      && p.paymentDate <= todayISO() && toISO(fromISO(p.paymentDate)) === p.paymentDate)
       .sort((a, b) => b.paymentDate.localeCompare(a.paymentDate)
         || (b.paymentTime || '').localeCompare(a.paymentTime || ''))
     const alvo = citados.length === 1 ? ` do ${citados[0].name}` : ''

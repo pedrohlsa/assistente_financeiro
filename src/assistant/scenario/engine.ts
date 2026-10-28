@@ -13,7 +13,7 @@ import type { AppState, Installment, InstallmentPlan, Transaction } from '../../
 import { addDays, fmtBRL, fmtNum, fromISO, monthKey, todayISO, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase } from '../../utils/text'
 import {
-  balanceOutlook, currentBalance, dailyGoal, monthlyProjections, monthlySavingGoal, periodStats,
+  balanceOutlook, cashObligationsUntil, currentBalance, dailyGoal, monthlyProjections, monthlySavingGoal, periodStats,
   representedRecurringExpenseMonths, todayStats,
 } from '../../services/calc'
 import {
@@ -335,18 +335,27 @@ function simulaCenario(
       const saldoAntes = currentBalance(state)
       const saldoDepois = currentBalance(projetado)
       const mgDepois = monthlySavingGoal(projetado)
-      const bo = balanceOutlook(projetado, 7)
+      const obligations = cashObligationsUntil(projetado, addDays(hoje, 7), hoje)
+      const certas = obligations.filter(o => !o.unconfirmed)
+      const compromissos = r2(certas.reduce((sum, o) => sum + o.amount, 0))
+      const faturas = r2(certas.filter(o => o.kind === 'invoice').reduce((sum, o) => sum + o.amount, 0))
+      const livre = r2(saldoDepois - compromissos)
 
       facts.push(fato('Saldo hoje', saldoAntes, 'BRL', 'saldo atual'))
       facts.push(fato('Saldo depois do gasto', saldoDepois, 'BRL', 'saldo projetado'))
       facts.push(fato('Sobra do mês depois do gasto', mgDepois.net, 'BRL', 'resultado do mês projetado'))
-      if (bo.bills.length) {
-        facts.push(fato('Contas nos próximos 7 dias', bo.billsSoon, 'BRL', 'recorrentes previstas', bo.bills.length))
+      if (certas.length) {
+        facts.push(fato('Compromissos vencidos e dos próximos 7 dias', compromissos, 'BRL', 'contas, faturas e parcelas pendentes cadastradas', certas.length))
+        facts.push(fato('Saldo após esses compromissos', livre, 'BRL', 'saldo projetado menos compromissos cadastrados'))
       }
+      if (faturas > 0) facts.push(fato('Faturas incluídas nos compromissos', faturas, 'BRL', 'parte do total de compromissos, sem somar parcelas novamente'))
+      const semConfirmacao = obligations.filter(o => o.unconfirmed)
+      const podeMudarVeredito = livre - semConfirmacao.reduce((sum, o) => sum + o.amount, 0) < 0
+      if (semConfirmacao.length) caveats.push('Há contas vencidas sem confirmação de pagamento. Não as contei como dívida certa; confira essas pendências antes de usar a folga estimada.')
       if (saldoAntes === 0) caveats.push('Você ainda não informou seu saldo em conta, então o número olha só o resultado do mês.')
       return {
         plan, facts, months: [],
-        feasible: bo.bills.length ? bo.ok : saldoDepois >= 0,
+        feasible: livre < 0 ? false : podeMudarVeredito ? undefined : true,
         caveats, empty: false,
       }
     }

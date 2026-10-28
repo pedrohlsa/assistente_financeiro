@@ -578,6 +578,16 @@ verdes. Os REDs e correções estão na última seção de
 locais completos. **Ainda NOT READY para merge/deploy** até auditoria
 independente do novo diff; produção segue na `main`, sem V2.
 
+**Checkpoint de 28/10/2026.** A continuidade a partir de `a4afa92` chegou a
+576/576 adversariais. `c72a069` corrigiu perguntas de pagamento, rascunho de
+manutenção sem custo, receita prevista, intenção futura junto com meta e
+limitação de histórico mensal de metas. O lote seguinte corrigiu perda de
+registro ao recarregar antes do debounce e incluiu faturas no cenário de
+gasto. Houve smoke de interface e persistência com dados fictícios, incluindo
+confirmação/recarga e desfazer/recarga. O detalhamento e as limitações atuais
+estão no fim de [`PROGRESS.md`](../PROGRESS.md). **Ainda NOT READY** até
+auditoria independente dos diffs; nenhuma publicação da V2 foi feita.
+
 **Caixa futuro (27/10/2026).** "Quanto deixar parado até dia N" e "qual conta
 tá me apertando" saem da DSL (que soma o passado) por
 `src/assistant/cashQuestions.ts` e são respondidas pelo roteador antigo com
