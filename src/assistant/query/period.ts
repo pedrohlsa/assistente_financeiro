@@ -299,15 +299,19 @@ export function parseFutureMonth(input: string, hoje = todayISO()): QueryPeriod 
  * vencem no futuro; lidas no passado, a resposta era "R$ 0,00" de um mês
  * anterior a qualquer parcelamento. `null` quando a leitura original fica.
  */
-export function mesAFrente(lido: { period: QueryPeriod; matched: string }, texto: string, hoje = todayISO()): QueryPeriod | null {
+export function mesAFrente(lido: { period: QueryPeriod; matched: string }, texto: string, hoje = todayISO(),
+  soComFuturoDito = false): QueryPeriod | null {
   if (lido.period.grain !== 'month' || /\b20\d{2}\b/.test(lido.matched)) return null
   const t = semAcento(texto)
   if (PASSADO_NA_FRASE.test(t)) return null
   // Mês já passado neste ano ("janeiro", em outubro) só vira o próximo com o
   // futuro dito: "quanto vence em janeiro". Sem verbo, segue o que já houve.
+  // Lançamento (`soComFuturoDito`) é sempre assim: "quanto VOU receber em
+  // dezembro" respondia o dezembro do ano anterior como "dado real".
+  const futuroDito = /\b(?:vou|vai|vamos|vao|irei|ira|vence|vencem|vencer)\b/.test(t)
   const anoAnterior = Number(lido.period.from.slice(0, 4)) < fromISO(hoje).getFullYear()
-  const passouComFuturoDito = lido.period.to < hoje && /\b(?:vou|vai|vamos|vao|irei|ira|vence|vencem|vencer)\b/.test(t)
-  if (!anoAnterior && !passouComFuturoDito) return null
+  if (soComFuturoDito ? !futuroDito : !anoAnterior && !(lido.period.to < hoje && futuroDito)) return null
+  if (soComFuturoDito && !anoAnterior && lido.period.to >= hoje) return null
   return parseFutureMonth(lido.matched, hoje)
 }
 

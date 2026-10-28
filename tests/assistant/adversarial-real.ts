@@ -2894,6 +2894,31 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /Falta pagar R\$ 800,00/.test(fatura) && !/Cadastre|Não tenho|para pagar|Situação dos seus cartões/.test(fatura)))
   }
 
+  // "Receber" e "entrar" no infinitivo são entrada. Sem eles, "quanto vou
+  // receber esse mes" respondia "Total gasto este mês: R$ 2.373,00".
+  {
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const fmt = (v: number) => `R$ ${v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`
+    const doMes = (tipo: string) => rico.transactions.filter(t => t.type === tipo && t.date.slice(0, 7) === hoje.slice(0, 7) && t.date <= hoje)
+      .reduce((a, t) => a + t.amount, 0)
+    const receber = limpa((await turnoHoje(rico, 'quanto vou receber esse mes')).reply)
+    out.push(result('EN-vou-receber-no-mes', receber, `entradas do mês ${fmt(doMes('income'))}, nunca o gasto`,
+      receber.includes(fmt(doMes('income'))) && !receber.includes(fmt(doMes('expense'))) && !/gasto/i.test(receber)))
+    const entrar = limpa((await turnoHoje(rico, 'quanto vai entrar esse mes')).reply)
+    out.push(result('EN-vai-entrar-no-mes', entrar, `entradas do mês ${fmt(doMes('income'))}`,
+      entrar.includes(fmt(doMes('income'))) && !/gasto/i.test(entrar)))
+    // Mês à frente com verbo no futuro: nada do ano passado com cara de dado.
+    const alvo = new Date(Number(hoje.slice(0, 4)), Number(hoje.slice(5, 7)) + 1, 1)
+    const nomes = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+    const anoPassado = `${alvo.getFullYear() - 1}-${String(alvo.getMonth() + 1).padStart(2, '0')}-10`
+    const comHistorico = { ...rico, transactions: [...rico.transactions,
+      { ...rico.transactions.find(t => t.type === 'income')!, id: 'en-ano-passado', amount: 1777, date: anoPassado, createdAt: `${anoPassado}T10:00` }] }
+    const futuro = limpa((await turnoHoje(comHistorico, `quanto vou receber em ${nomes[alvo.getMonth()]}`)).reply)
+    out.push(result('EN-vou-receber-mes-a-frente', futuro, `${nomes[alvo.getMonth()]} que vem, nunca os R$ 1.777,00 do ano anterior`,
+      !/gasto/i.test(futuro) && !/R\$ 1\.777,00/.test(futuro) && !futuro.includes(`/${alvo.getFullYear() - 1}`)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

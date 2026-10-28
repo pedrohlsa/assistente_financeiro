@@ -4790,6 +4790,29 @@ varredura e `git diff --check` passaram.
 Achado sem correção: "quanto de fatura vence esse mes" ainda dá o resumo dos
 cartões (certo em valores, mas sem somar o que vence).
 
+## 2026-10-28 — "quanto vou receber" é entrada, e no mês que vem
+
+Dinheiro errado: "quanto vou receber esse mes" e "quanto vai entrar esse
+mes" respondiam "Total gasto este mês: R$ 2.373,00". A lista de verbos de
+entrada da consulta só tinha o passado e o presente ("recebi", "recebo",
+"entrou"); "receber", "entrar" e "ganhar" caíam em despesa. Corrigido isso,
+apareceu o segundo defeito: "quanto vou receber em dezembro", em outubro,
+respondia "Total recebido em dezembro: R$ 1.777,00 (dado real)" com um
+lançamento de dezembro do ano anterior.
+
+Agora ENTRADA reconhece o infinitivo e o futuro, e `mesAFrente()` vale também
+para lançamentos quando o futuro é dito ("vou", "vai", "vamos"): o mês à
+frente é o que vem. "Quanto recebi em dezembro" segue no ano anterior. 3
+casos no grupo EN. No código anterior, 2 vermelhos; o terceiro passava por
+acaso (o tipo errado nem somava a entrada) e ficou vermelho com a correção do
+verbo sozinha, antes da do mês. Gates: 666/666, 99/99, 50/50, **479/479**,
+metamórficos, fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica,
+varredura e `git diff --check` passaram.
+
+Achado sem correção: para o mês que vem, a resposta é "Não tenho nenhum
+lançamento… Assim que você registrar", quando o útil seria a previsão (contas
+fixas de entrada, média dos meses).
+
 ## Pendências em 28/10/2026 (HEAD `74899d2`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **472/472 adversariais**, 4.088 + 3.800
@@ -4803,7 +4826,6 @@ real e dados legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas (detalhe nas
 seções de 27/10 acima):
-- "Quanto vou receber em novembro" é lido como gasto.
 - "Quanto paguei de fatura" e "quando paguei a fatura do nubank" dão o resumo
   dos cartões, não o que foi pago e quando; "antecipei a fatura do nubank"
   também.
