@@ -3069,6 +3069,17 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const txt = limpa(r.reply)
     out.push(result('TM-tirei-da-meta', { reply: txt, actions: r.actions }, 'aponta Metas → Editar, de R$ 4.800,00 para R$ 4.700,00, sem ação',
       r.actions.length === 0 && /Metas/.test(txt) && /Já guardado/.test(txt) && /R\$ 4\.700,00/.test(txt)))
+    // "Aumenta a meta pra 6000" sem dizer qual: com duas metas, pergunta qual
+    // (antes: "Falta uma informação obrigatória"); com uma só, é ela.
+    const semNome = await turnoHoje(rico, 'aumenta a meta pra 6000')
+    out.push(result('TM-alterar-sem-nome-pergunta', semNome.reply, 'pergunta qual meta, Notebook ou Viagem',
+      /Qual meta/.test(semNome.reply) && !/Falta uma informação/.test(semNome.reply) && semNome.actions.length === 0))
+    const umaMeta = { ...rico, goals: rico.goals.filter(g => g.name === 'Viagem') }
+    const sozinha = (await turnoHoje(umaMeta, 'aumenta a meta pra 6000')).actions as { kind: string, name?: string }[]
+    out.push(result('TM-alterar-sem-nome-uma-meta', sozinha, 'altera a Viagem', sozinha.some(a => a.kind === 'goal-update' && a.name === 'Viagem')))
+    const inexistente = await turnoHoje(rico, 'muda a meta da casa pra 9000')
+    out.push(result('TM-alterar-meta-inexistente', inexistente.reply, 'não achei "Casa"; qual meta?',
+      /Não encontrei a meta "Casa"/.test(inexistente.reply) && inexistente.actions.length === 0))
     // Alterar a meta mostra o nome como o depósito mostra: "viagem" em minúscula.
     const muda = await turnoHoje(rico, 'muda a meta da viagem pra 7000')
     out.push(result('TM-alterar-nome-da-meta', muda.reply, 'Alterar meta "Viagem"', /meta "Viagem"/.test(muda.reply)))

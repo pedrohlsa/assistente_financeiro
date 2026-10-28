@@ -366,8 +366,14 @@ interface DepositoSemMeta { amount: number; name?: string }
 function reconcileGoalDeposits(
   state: AppState,
   actions: ParsedAction[],
-): { actions: (ParsedAction | null)[]; semMeta: DepositoSemMeta[] } {
+): { actions: (ParsedAction | null)[]; semMeta: DepositoSemMeta[]; alteracaoSemMeta: { target: number; name?: string }[] } {
   const semMeta: DepositoSemMeta[] = []
+  // "Aumenta a meta pra 6000" sem dizer qual: com uma meta ativa é ela; com
+  // várias, vira pergunta. Antes a validação respondia "Falta uma informação
+  // obrigatória". Nome que não existe também pergunta, como no depósito: a
+  // proposta só falharia depois do Confirmar.
+  const alteracaoSemMeta: { target: number; name?: string }[] = []
+  const ativasAgora = (state.goals || []).filter(g => !g.done)
   // "A outra" só quer dizer alguma coisa em relação às metas já citadas na
   // mesma frase. Com exatamente uma sobrando, é ela; com mais de uma, quem
   // pergunta é o fluxo de sempre — e o valor vai junto na pergunta.
@@ -377,6 +383,13 @@ function reconcileGoalDeposits(
       .filter(Boolean) as string[],
   )
   const out = actions.map(a => {
+    if (a.kind === 'goal-update') {
+      const g = a.name ? findGoalByName(state, a.name) : undefined
+      if (g) return { ...a, name: g.name } as ParsedAction
+      if (!a.name && ativasAgora.length === 1) return { ...a, name: ativasAgora[0].name } as ParsedAction
+      if (a.target) { alteracaoSemMeta.push({ target: a.target, name: a.name || undefined }); return null }
+      return a
+    }
     if (a.kind !== 'goal-deposit') return a
     if (a.name === META_OUTRA && !findGoalByName(state, META_OUTRA)) {
       const sobrando = (state.goals || []).filter(g => !g.done && !citadas.has(g.name))
@@ -389,7 +402,26 @@ function reconcileGoalDeposits(
     semMeta.push({ amount: a.amount, name: a.name || undefined })
     return null
   })
-  return { actions: out, semMeta }
+  return { actions: out, semMeta, alteracaoSemMeta }
+}
+
+/** "Qual meta você quer alterar para R$ 6.000,00?", com uma opção por meta ativa. */
+function goalUpdateClarification(state: AppState, pedido: { target: number; name?: string }, candidates: AssistantCandidateAction[]): AssistantClarification {
+  const ativas = (state.goals || []).filter(g => !g.done)
+  const resto = candidates.map(c => c.action)
+  const alvo = pedido.target
+  const naoAchei = pedido.name ? `Não encontrei a meta "${sentenceCase(pedido.name)}". ` : ''
+  if (!ativas.length) {
+    return { question: `${naoAchei}Você ainda não tem meta para alterar. Para criar uma, diga algo como "quero juntar 5000 pra uma moto".`, field: 'goalName' }
+  }
+  return {
+    question: `${naoAchei}Qual meta você quer alterar para ${fmtBRL(alvo)}?`,
+    field: 'goalName',
+    options: ativas.map(g => ({
+      label: g.name, value: g.name,
+      actions: [...resto, { kind: 'goal-update', name: g.name, target: alvo } as ParsedAction],
+    })),
+  }
 }
 
 /**
@@ -479,7 +511,7 @@ function runLocal(
   const temporalPlan = analysis.clauses.find(c => c.temporal?.plan)?.temporal
   if (temporalAsk) clarification = temporalClarification(temporalAsk)
 
-  const { actions: reconciled, semMeta } = reconcileGoalDeposits(input.state, analysis.actions)
+  const { actions: reconciled, semMeta, alteracaoSemMeta } = reconcileGoalDeposits(input.state, analysis.actions)
 
   // Corrigir exige algo para corrigir. Sem proposta na tela, "na verdade foi
   // 200" é um conserto sem alvo — e como `foi` é verbo de despesa no parser,
@@ -573,6 +605,7 @@ function runLocal(
     .map(c => unresolvedOf(c, c.intent === 'question' ? 'question-unanswered' : 'not-understood'))
 
   if (semMeta.length && !clarification) clarification = goalDepositClarification(input.state, semMeta, candidates)
+  if (alteracaoSemMeta.length && !clarification) clarification = goalUpdateClarification(input.state, alteracaoSemMeta[0], candidates)
 
   if (!clarification && ambiguous?.ambiguity) {
     // Cada opção carrega a lista COMPLETA de ações já resolvidas: escolher

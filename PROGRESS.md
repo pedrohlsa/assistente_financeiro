@@ -5217,9 +5217,23 @@ antes). Gates: 666/666, 99/99, 50/50, **548/548**, metamórficos, fuzz,
 151/151, 468; typechecks, `test:money`, build, rubrica, varredura e `git diff
 --check` passaram.
 
-Achado sem correção: "aumenta a meta pra 6000", sem dizer qual, responde
-"Alterar meta: Falta uma informação obrigatória." em vez de perguntar qual
-das metas.
+Achado: "aumenta a meta pra 6000", sem dizer qual, respondia "Alterar meta:
+Falta uma informação obrigatória." em vez de perguntar qual das metas.
+
+## 2026-10-28 — alterar meta sem nome, ou com nome que não existe
+
+"Aumenta a meta pra 6000" (sem nome, duas metas) respondia a mensagem de
+validação "Alterar meta: Falta uma informação obrigatória."; com uma meta só,
+também não propunha nada; e "muda a meta da casa pra 9000" (não existe meta
+Casa) propunha a alteração, que só falharia depois do Confirmar. O depósito
+em meta já tinha esse tratamento (`reconcileGoalDeposits`); a alteração não.
+Agora a mesma reconciliação vale para `goal-update`: nome conhecido leva a
+grafia da meta; sem nome e uma meta ativa, é ela; sem nome com várias, ou
+nome desconhecido, a ação é segurada e vira "Qual meta você quer alterar
+para R$ 6.000,00?" (ou "Não encontrei a meta "Casa". Qual…"), com uma opção
+por meta. 3 casos no grupo TM (os 3 vermelhos antes). Gates: 666/666, 99/99,
+50/50, **551/551**, metamórficos, fuzz, 151/151, 468; typechecks,
+`test:money`, build, rubrica, varredura e `git diff --check` passaram.
 
 ## Pendências em 28/10/2026 (HEAD `0e1efb3`)
 
