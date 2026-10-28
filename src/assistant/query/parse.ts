@@ -937,6 +937,12 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   let previsaoNoPassado = false
   if (previsaoDeReceita) {
     source = 'recurring'
+    // "Esta semana" é retrospectiva para receita realizada, mas a previsão
+    // precisa de sete dias a partir de hoje; recortar a janela passada em hoje
+    // deixava só um dia e ocultava vencimentos de amanhã.
+    if (lido?.matched === 'esta semana' && period.to === hoje) {
+      period = { ...period, from: hoje, to: addDays(hoje, 6), label: 'nos próximos 7 dias', future: true }
+    }
     if (period.to === hoje && (period.grain === 'month' || period.grain === 'year')) {
       const h = fromISO(hoje)
       const fim = period.grain === 'year' ? `${h.getFullYear()}-12-31`

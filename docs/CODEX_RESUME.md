@@ -23,12 +23,12 @@ o checkpoint de CONTEXTO.md e as últimas seções de PROGRESS.md.
 
 ## Estado ao encerrar esta janela
 
-Último commit confirmado ao iniciar este lote:27940a7. O lote seguinte corrige
-o valor de pagamento escrito depois do cartão. Confira git log/status antes de
+Último commit confirmado ao iniciar o lote atual:c30f413. Este lote corrige
+a janela da previsão semanal de receita. Confira git log/status antes de
 editar. Só .claude/launch.json deve permanecer modificado após o commit.
 
 Baseline validada:666 corpus,99 consulta/cenário,50 semânticos,
-626 adversariais,4088 +3800 metamórficos,1416 fuzz,151 invariantes,
+629 adversariais,4088 +3800 metamórficos,1416 fuzz,151 invariantes,
 468 avaliações remotas OFFLINE; suíte completa, typechecks frontend/API,
 build e rubrica verdes (0 perigosa/ruim,5 aceitáveis,85 excelentes).
 Aviso conhecido de bundle grande (~848kB) permanece.
@@ -66,6 +66,9 @@ tiveram novo smoke de interface.
   Número de conta depois do cartão não é interpretado como pagamento. Cinco
   testes adversariais novos, quatro vermelhos antes da correção. Sem valor explícito,
   pagamento integral permanece. Sem remoto.
+- Previsão de receita "esta/essa semana" passa a olhar hoje e os próximos seis
+  dias. A entrada recorrente de amanhã não some; o recebido permanece nos
+  últimos sete dias realizados. Três regressões pelo orquestrador real.
 
 ## Próximas prioridades concretas
 
@@ -76,10 +79,7 @@ tiveram novo smoke de interface.
    referenceMonth. Execução usa mês do dia de execução, que pode divergir da
    fatura exibida pelo cartão. A barreira cobre referência/data explícitas;
    investigar também a escolha implícita de fatura perto da virada do mês.
-3. Continuidade: previsão de receita "esta semana" ainda usa leitor de semana
-   realizada (últimos7dias), ao contrário do mês que foi corrigido. Reproduzir
-   com vencimentos próximos. Resolver definição de janela explicitamente.
-4. Fazer smoke local da Home e da validação de pagamento com dados sintéticos,
+3. Fazer smoke local da Home e da validação de pagamento com dados sintéticos,
    sem acessar dados financeiros reais e sem habilitar remoto.
 
 Outras limitações/decisões permanecem no fim de PROGRESS.md: confirmação de

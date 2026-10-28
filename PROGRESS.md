@@ -5550,3 +5550,18 @@ Cinco regressões novas;626/626 adversariais, suíte completa, typechecks
 frontend/API, build e rubrica passaram. Sem chamada paga, publicação ou APK.
 V2 continua NOT READY até auditoria independente. Próximas prioridades em
 docs/CODEX_RESUME.md.
+
+## 28/10/2026 — Previsão de receita na semana
+
+Após c30f413, "quanto vou receber esta semana?" usava o período realizado
+dos últimos sete dias. O planejamento recortava o passado em hoje, resultando
+em uma janela de um dia; uma entrada sintética de R$650 amanhã desaparecia e
+a resposta dizia que não havia previsão. "Quanto vai entrar essa semana?"
+reproduziu o mesmo erro. Dois testes novos foram vermelhos; o contraste
+"quanto recebi esta semana?" ficou verde com R$9000 realizados ontem.
+
+Agora a modalidade de previsão dá a "esta semana" uma janela explícita de
+hoje até seis dias à frente, rotulada "nos próximos 7 dias". A pergunta de
+receita realizada continua nos últimos sete dias. Três regressões novas,
+629/629 adversariais; suíte completa, typecheck frontend e build passaram.
+Sem rede paga, publicação ou APK; V2 permanece NOT READY até auditoria.

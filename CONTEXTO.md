@@ -52,6 +52,8 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
   é recusado antes da proposta; a informação não pode ser descartada.
   Valor parcial escrito após o nome do cartão também é preservado: confirmação
   e execução usam o valor informado, e número de conta não vira dinheiro.
+  Previsão de receita "esta semana" olha hoje e os seis dias seguintes;
+  receita já recebida usa os últimos sete dias.
   Retomada: docs/CODEX_RESUME.md.
   Lista de pendências no
   fim de [PROGRESS.md](PROGRESS.md), seção "Pendências em 28/10/2026".

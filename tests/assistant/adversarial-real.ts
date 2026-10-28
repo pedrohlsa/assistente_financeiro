@@ -3427,6 +3427,31 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && semPrevisao.actions.length === 0))
   }
 
+  {
+    const amanha = addDays(hoje, 1)
+    const st = buildState({ profile: 'autonomo' })
+    st.recurring = [{ id: 'weekly-forecast', name: 'Freela previsto', amount: 650,
+      frequency: 'monthly', dueDay: Number(amanha.slice(8)), startDate: amanha, endDate: amanha,
+      category: 'freelance', kind: 'income', active: true }]
+    st.transactions = [{ id: 'weekly-real', type: 'income', amount: 9000, category: 'freelance',
+      date: addDays(hoje, -1), time: '12:00' }]
+    for (const phrase of ['quanto vou receber esta semana?', 'quanto vai entrar essa semana?']) {
+      const r = await turnoHoje(st, phrase)
+      out.push(result(`RSEM-previsao-${phrase}`, r,
+        'próximos sete dias incluem entrada de amanhã650, sem somar os9000 já recebidos',
+        /650,00/.test(r.reply) && !/9\.000,00/.test(r.reply)
+          && r.focus?.lastQueryPlan?.source === 'recurring'
+          && r.focus?.lastQueryPlan?.period.from === hoje
+          && r.focus?.lastQueryPlan?.period.to === addDays(hoje, 6)
+          && r.actions.length === 0))
+    }
+    const realized = await turnoHoje(st, 'quanto recebi esta semana?')
+    out.push(result('RSEM-realizado-continua-passado', realized,
+      'recebido usa últimos sete dias:9000, sem previsão650',
+      /9\.000,00/.test(realized.reply) && !/650,00/.test(realized.reply)
+        && realized.focus?.lastQueryPlan?.source === 'transactions' && realized.actions.length === 0))
+  }
+
   for (const future of ['amanhã pago a luz 180', 'depois de amanhã vou pagar 180 de luz']) {
     const r = await turnoHoje(autonomoRico(hoje), `quero juntar 1000 pra viagem e ${future}`)
     out.push(result(`MFUT-${future}`, r, 'meta 1000 preservada e intenção futura explicada, sem despesa 180',
