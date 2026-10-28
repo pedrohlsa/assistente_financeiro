@@ -473,6 +473,14 @@ export function parseNaturalFull(
       }
     }
 
+    // "Fiz 12 corridas E (deu) 260": o valor depois das corridas é o que elas
+    // renderam. Só as viagens entravam, e o dinheiro virava uma pergunta.
+    if (!actions.some(a => a.kind === 'income') && actions.some(a => a.kind === 'work' && a.trips)) {
+      const rendeu = input.match(new RegExp(String.raw`\b(?:corridas|viagens)\b(?:\s+(?:hoje|ontem))?\s*(?:,|\be\b)\s*(?:deu|deram|rendeu|renderam|fiz|faturei|ganhei|foi|foram)?\s*(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*$`, 'i'))
+      const valor = rendeu ? parseNum(rendeu[1]) : NaN
+      if (valor > 0) actions.push({ kind: 'income', amount: valor, category: 'corridas' })
+    }
+
     const rideContext = /\bcorridas?\b|\buber\b|\bindriver\b|\b99\b/i.test(input)
     actions = actions.map(a => a.kind === 'income' && (!a.category || rideContext)
       ? { ...a, category: a.category || 'corridas' }

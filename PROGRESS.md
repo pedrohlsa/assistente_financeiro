@@ -5041,6 +5041,20 @@ fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica, varredura e
 Achado sem correção: sem custo, "troquei o óleo com 45 mil km" cai na ajuda;
 o certo seria perguntar quanto custou (rascunho).
 
+## 2026-10-28 — "fiz 12 corridas e (deu) 260"
+
+"Fiz 12 corridas e 260", "fiz 12 corridas e deu 260" e "fiz 12 corridas, 260
+reais" registravam só as 12 viagens e perguntavam "o que aconteceu com os R$
+260,00?". Para o motorista, o valor logo depois das corridas é o que elas
+renderam: agora vira receita de Corridas (sem viagem a mais). No perfil
+autônomo nada muda (viagem não é registro ali). 3 casos no grupo CR (os 3
+vermelhos antes). Gates: 666/666, 99/99, 50/50, **526/526**, metamórficos,
+fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica, varredura e
+`git diff --check` passaram.
+
+Achado sem correção: "fiz 12 corridas e 40 km" e "fiz 5 corridas e 3 horas"
+perdem a medida depois do "e" (só "rodei" puxava a outra medida).
+
 ## Pendências em 28/10/2026 (HEAD `4e16b70`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **516/516 adversariais**, 4.088 + 3.800
@@ -5057,8 +5071,7 @@ seções de 27 e 28/10 acima):
 - "Quando paguei a fatura do nubank" e "antecipei a fatura do nubank" dão o
   resumo dos cartões.
 - "Quanto almocei esse mes" responde o gasto total do mês.
-- Motorista: "fiz 12 corridas e 260", sem verbo na segunda metade, perde os
-  R$ 260,00; "troquei o óleo com 45 mil km", sem custo, cai na ajuda em vez
+- Motorista: "troquei o óleo com 45 mil km", sem custo, cai na ajuda em vez
   de perguntar o valor.
 - Receita sem origem: "recebi 2 mil do cliente" e "caiu 350 de pix do joão"
   não guardam de quem veio.

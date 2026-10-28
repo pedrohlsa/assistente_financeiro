@@ -2894,6 +2894,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /Falta pagar R\$ 800,00/.test(fatura) && !/Cadastre|Não tenho|para pagar|Situação dos seus cartões/.test(fatura)))
   }
 
+  // "Fiz 12 corridas e (deu) 260": para o motorista, o valor depois das
+  // corridas é o que elas renderam. Antes: só as viagens, e uma pergunta.
+  {
+    const moto = motoristaRico(hoje)
+    for (const [id, msg] of [['CR-corridas-e-valor', 'fiz 12 corridas e 260'], ['CR-corridas-e-deu', 'fiz 12 corridas e deu 260'],
+      ['CR-corridas-virgula-reais', 'fiz 12 corridas, 260 reais']]) {
+      const t = await turnoHoje(moto, msg)
+      const a = t.actions as { kind: string, amount?: number, trips?: number, category?: string }[]
+      out.push(result(id, { reply: t.reply, actions: a }, 'receita de Corridas R$ 260,00 e 12 viagens, sem pergunta',
+        a.some(x => x.kind === 'income' && x.amount === 260 && x.category === 'corridas')
+          && a.filter(x => x.kind === 'work').reduce((s, x) => s + (x.trips || 0), 0) === 12 && !/não consegui ligar/.test(t.reply)))
+    }
+  }
+
   // A quilometragem da troca não é o custo: "troquei o óleo com 45 mil km"
   // virava manutenção de R$ 45,00, e "aos 45 mil km por 180" perdia os R$ 180.
   {
