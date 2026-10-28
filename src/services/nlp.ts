@@ -733,7 +733,11 @@ function parseClause(input: string): ParsedAction[] {
 
   // ----- manutenção: "troquei o óleo por 280 com 84 mil km"
   const maintRe = new RegExp(String.raw`(?:troquei|trocar|coloquei|instalei)\s+(?:o|a|os|as)?\s*(${MAINT_ITEMS.join('|')})[^\d]*(?:por|de)?\s*(?:r\$)?\s*${NUM}(?:\s*${MOEDA})?(?:.*?com\s+(\d+(?:[.,]\d+)?\s*(?:mil)?)\s*km)?`, 'i')
-  const m = text.match(maintRe)
+  // A quilometragem da troca ("com 45 mil km", "aos 45000 km") é lida e
+  // RETIRADA antes do custo: "troquei o óleo com 45 mil km" virava manutenção
+  // de R$ 45.000,00, e "aos 45 mil km por 180" perdia os R$ 180,00.
+  const kmDaTroca = text.match(/\b(?:com|aos|a|em|no|nos)\s+(\d+(?:[.,]\d+)?\s*(?:mil)?)\s*(?:km|quil[oô]metros?)\b/i)
+  const m = (kmDaTroca ? text.replace(kmDaTroca[0], ' ') : text).match(maintRe)
   if (m) {
     const item = normalizeMaint(m[1])
     // De quantos em quantos km a peça é trocada. Sem isso o lembrete não tem
@@ -743,7 +747,7 @@ function parseClause(input: string): ParsedAction[] {
     actions.push({
       kind: 'maintenance', item,
       cost: parseNum(m[2]),
-      km: m[3] ? parseKmValue(m[3]) : undefined,
+      km: kmDaTroca ? parseKmValue(kmDaTroca[1]) : m[3] ? parseKmValue(m[3]) : undefined,
       lifeKm: vidaM ? parseKmValue(vidaM[0]) : undefined,
     })
   }

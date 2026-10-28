@@ -5024,6 +5024,23 @@ controle). Gates: 666/666, 99/99, 50/50, **520/520**, metamórficos, fuzz,
 151/151, 468; typechecks, `test:money`, build, rubrica, varredura e `git diff
 --check` passaram.
 
+## 2026-10-28 — a quilometragem da troca não é o custo
+
+Dinheiro errado: "troquei o óleo com 45 mil km" virava manutenção de R$
+45.000,00 (o "45 mil" chega como 45000 ao parser) e "troquei o óleo aos 45
+mil km por 180" registrava R$ 45.000,00 e perdia os R$ 180,00. O padrão de
+manutenção pegava o primeiro número depois do item como custo; a
+quilometragem só era lida se viesse depois do valor e com "com". Agora a
+quilometragem da troca ("com/aos/a/em/no N (mil) km") é lida e retirada antes
+do custo. Sem custo dito, nada é registrado (antes: R$ 45.000,00). "Troquei o
+óleo por 180 com 45 mil km" segue igual. 3 casos no grupo MK (2 vermelhos
+antes, 1 controle). Gates: 666/666, 99/99, 50/50, **523/523**, metamórficos,
+fuzz, 151/151, 468; typechecks, `test:money`, build, rubrica, varredura e
+`git diff --check` passaram.
+
+Achado sem correção: sem custo, "troquei o óleo com 45 mil km" cai na ajuda;
+o certo seria perguntar quanto custou (rascunho).
+
 ## Pendências em 28/10/2026 (HEAD `4e16b70`)
 
 Estado: 666/666 corpus, 99/99, 50/50, **516/516 adversariais**, 4.088 + 3.800
@@ -5041,7 +5058,8 @@ seções de 27 e 28/10 acima):
   resumo dos cartões.
 - "Quanto almocei esse mes" responde o gasto total do mês.
 - Motorista: "fiz 12 corridas e 260", sem verbo na segunda metade, perde os
-  R$ 260,00; "troquei o óleo com 150 km" vira manutenção de R$ 150,00.
+  R$ 260,00; "troquei o óleo com 45 mil km", sem custo, cai na ajuda em vez
+  de perguntar o valor.
 - Receita sem origem: "recebi 2 mil do cliente" e "caiu 350 de pix do joão"
   não guardam de quem veio.
 - Mês que vem em lançamentos ("quanto vou receber em dezembro") responde

@@ -2894,6 +2894,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /Falta pagar R\$ 800,00/.test(fatura) && !/Cadastre|Não tenho|para pagar|Situação dos seus cartões/.test(fatura)))
   }
 
+  // A quilometragem da troca não é o custo: "troquei o óleo com 45 mil km"
+  // virava manutenção de R$ 45,00, e "aos 45 mil km por 180" perdia os R$ 180.
+  {
+    const moto = motoristaRico(hoje)
+    const manut = async (msg: string) => ((await turnoHoje(moto, msg)).actions as { kind: string, cost?: number, km?: number }[])
+      .filter(a => a.kind === 'maintenance')
+    const soKm = await manut('troquei o oleo com 45 mil km')
+    out.push(result('MK-so-km', soKm, 'nenhuma manutenção de R$ 45,00 nem de R$ 45.000,00', !soKm.some(a => a.cost === 45 || a.cost === 45000)))
+    const aos = await manut('troquei o oleo aos 45 mil km por 180')
+    out.push(result('MK-aos-km-por-valor', aos, 'R$ 180,00 aos 45.000 km', aos.length === 1 && aos[0].cost === 180 && aos[0].km === 45000))
+    const ordem = await manut('troquei o oleo por 180 com 45 mil km')
+    out.push(result('MK-valor-com-km-controle', ordem, 'R$ 180,00 aos 45.000 km', ordem.length === 1 && ordem[0].cost === 180 && ordem[0].km === 45000))
+  }
+
   // Gorjeta, bônus e incentivo são receita, não viagem: "recebi 50 de gorjeta"
   // registrava "Trabalho: 1 viagem", e o ganho por viagem caía.
   {
