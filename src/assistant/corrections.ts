@@ -319,7 +319,10 @@ export function parseCorrection(
   // Caía na ajuda. Cartão ("foi no Inter"), data ("foi ontem") e categoria
   // ("era lazer") já foram lidos acima e têm prioridade.
   if (!touched) {
-    const dm = t.match(/^(?:(?:foi|era)\s+(?:n[oa]s?|em)|(?:a\s+)?descri[cç][aã]o\s+(?:[ée]|era)|(?:muda|troca)\s+(?:a\s+descri[cç][aã]o|o\s+nome)\s+(?:pra|para))\s+([a-zà-úç][a-zà-úç0-9\s]{1,40}?)\s*[.!?]*$/)
+    // O prefixo de conserto ("na verdade foi na padaria") é o jeito mais comum
+    // de dizer; sem ele a frase não casava e a resposta era "não peguei o quê".
+    const semPrefixo = t.replace(/^(?:na\s+verdade|na\s+real|ou\s+melhor|quer\s+dizer|pensando\s+bem)\s*,?\s*/, '')
+    const dm = semPrefixo.match(/^(?:(?:foi|era)\s+(?:n[oa]s?|em)|(?:a\s+)?descri[cç][aã]o\s+(?:[ée]|era)|(?:muda|troca)\s+(?:a\s+descri[cç][aã]o|o\s+nome)\s+(?:pra|para))\s+([a-zà-úç][a-zà-úç0-9\s]{1,40}?)\s*[.!?]*$/)
     const target = dm ? resolveTarget(t, remaining) : null
     const p = target && 'id' in target ? remaining.find(x => x.id === target.id) : undefined
     if (dm && p && (p.action.kind === 'expense' || p.action.kind === 'income')) {

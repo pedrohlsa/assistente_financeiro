@@ -5249,9 +5249,15 @@ garante que uma correção vaga não vira "não aconteceu"). Gates: 666/666,
 99/99, 50/50, **553/553**, metamórficos, fuzz, 151/151, 468; typechecks,
 `test:money`, build, rubrica, varredura e `git diff --check` passaram.
 
-Achado sem correção, da mesma sondagem: "na verdade foi na padaria", com a
-despesa do mercado na tela, responde "não peguei o quê" (a correção de lugar
-só aceita a frase começando em "foi/era").
+Achado, da mesma sondagem: "na verdade foi na padaria", com a despesa do
+mercado na tela, respondia "não peguei o quê" (a correção de lugar só aceitava
+a frase começando em "foi/era"). Corrigido em seguida: os prefixos de
+conserto ("na verdade", "na real", "ou melhor", "quer dizer", "pensando bem")
+saem antes de ler o lugar ("Troquei para Padaria."; "na verdade foi 45"
+segue trocando o valor). 1 caso no grupo OC (vermelho antes). Gates:
+666/666, 99/99, 50/50, **554/554**, metamórficos, fuzz, 151/151, 468;
+typechecks, `test:money`, build, rubrica, varredura e `git diff --check`
+passaram.
 
 ## Pendências em 28/10/2026 (HEAD `54ff16d`)
 

@@ -3070,6 +3070,13 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('OC-origem-na-proposta', { reply: origem.response.reply, actions: acao }, 'a receita fica, com origem Casa 2',
       acao.length === 1 && acao[0].kind === 'income' && acao[0].amount === 1800 && /casa 2/i.test(acao[0].origin || '')
         && !/não aconteceu/.test(origem.response.reply)))
+    // "Na verdade foi na padaria": o conserto de lugar com o prefixo mais comum.
+    const mercado = await orchestrate({ state: rico, message: 'gastei 50 no mercado', today: todayISO(), remoteEnabled: false })
+    const padaria = await orchestrate({ state: rico, message: 'na verdade foi na padaria', today: todayISO(), remoteEnabled: false,
+      pending: mercado.response.actions } as Parameters<typeof orchestrate>[0])
+    const lugar = padaria.response.actions.map(a => a.action as { kind: string, description?: string, amount?: number })
+    out.push(result('OC-na-verdade-lugar', { reply: padaria.response.reply, actions: lugar }, 'Padaria, R$ 50,00',
+      lugar.length === 1 && lugar[0].amount === 50 && /padaria/i.test(lugar[0].description || '')))
     // Correção que não deu para entender, com proposta na tela: pergunta e
     // mantém a proposta; nunca "não aconteceu".
     const vaga = await orchestrate({ state: rico, message: 'e era daquele lugar', today: todayISO(), remoteEnabled: false,
