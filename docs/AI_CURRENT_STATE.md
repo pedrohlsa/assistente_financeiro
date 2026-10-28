@@ -631,3 +631,9 @@ antigos permanecem intactos; ver ressalva sobre dívida no PROGRESS.md.
 "Devo muito?" apresenta dados sem classificação inventada. Antecipação de
 fatura explica limitação de referência no chat e pede conferir fatura na tela.
 612/612 adversariais; suíte completa, typechecks, build e rubrica verdes.
+
+## 28/10/2026 — Período e assunto na continuidade
+
+"E este mês?" herda janela futura em previsão; "e da Casa2 esse mês?" muda
+origem e período juntos.617/617 adversariais; suíte completa, typechecks e
+build verdes. Detalhes e restrições no fim do PROGRESS.md.

@@ -5489,3 +5489,19 @@ Sem alegação de registro nem ação financeira proposta nesses exemplos.
 frontend/API typechecks, build e rubrica (0 perigosa/ruim) verdes. Demais
 contagens preservadas. Sem chamada paga, publicação ou APK. NOT READY até
 auditoria independente; limitação de selecionar referência no chat permanece.
+
+## 28/10/2026 — Período curto da previsão e origem com mês
+
+Depois6f5a287, "quanto vou receber da Casa1 mês que vem?" -> "e este mês?"
+ainda copiava a janela realizada (dia1 até hoje), excluindo a receita do
+próximo dia20. Três variantes reproduziram o erro. Agora herdam o período
+da previsão, de hoje ao fim do mês, preservando origem e modalidade.
+
+Também reproduzido: "e da Casa2 esse mês?" ignorava Casa2, pois o leitor do
+período retornava antes da restrição. O refino lê a restrição explícita no
+texto restante antes de aplicar o mês. Testes literais distinguem Casa1 de
+Casa2 na previsão(650/350) e no recebido(9000/4000), incluindo o rótulo.
+
+Cinco regressões novas primeiro vermelhas;617/617 adversariais. Suíte completa,
+frontend/API typechecks e build verdes. Demais contagens preservadas. Tudo
+local, sem chamadas pagas/publicação/APK. NOT READY até auditoria independente.

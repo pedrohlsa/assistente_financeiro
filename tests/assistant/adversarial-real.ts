@@ -3547,6 +3547,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const changed = await turn(st, 'e quanto recebi da Casa 2 esse mes?', forecast.focus)
     out.push(result('QMOD-origem-explicita-substitui', changed, 'origem explícita nova substitui Casa 1: 4000',
       changed.focus?.lastQuery?.total === 4000 && changed.actions.length === 0))
+    for (const phrase of ['e esse mês?', 'e neste mês?', 'e este mês?']) {
+      const periodOnly = await turn(st, phrase, first.focus)
+      out.push(result(`QMOD-janela-prevista-${phrase}`, periodOnly, 'continuidade só de mês mantém previsão futura650 até30/09',
+        periodOnly.focus?.lastQuery?.total === 650 && periodOnly.focus.lastQueryPlan?.period.from === TODAY
+          && periodOnly.focus.lastQueryPlan.period.to === '2026-09-30' && /previs[ãa]o/.test(periodOnly.reply)))
+    }
+    const otherForecast = await turn(st, 'e da Casa 2 esse mês?', first.focus)
+    out.push(result('QMOD-periodo-e-outra-origem-prevista', otherForecast, 'Casa2 prevista350, de hoje ao fim do mês',
+      otherForecast.focus?.lastQuery?.total === 350 && /Casa 2/.test(otherForecast.reply)
+        && otherForecast.focus.lastQueryPlan?.period.to === '2026-09-30'))
+    const otherReal = await turn(st, 'e da Casa 2 esse mês?', real.focus)
+    out.push(result('QMOD-periodo-e-outra-origem-real', otherReal, 'Casa2 recebida4000 neste mês',
+      otherReal.focus?.lastQuery?.total === 4000 && /Casa 2/.test(otherReal.reply)))
   }
 
   {

@@ -68,5 +68,9 @@ saldo do cenário de entrada ausente também excluem transações futuras.
   verdes. Não foi criada escolha de referência nem execução de antecipação.
 - Testar novos contrastes de continuidade e datas, sem repetir os exemplos
   anteriores como substituto de busca independente.
+- A continuação curta "e este mês?" em receita prevista foi corrigida para
+  herdar a janela futura. "E da Casa 2 este mês?" agora troca a origem junto
+  do período, tanto em previsão quanto no realizado. 617/617 adversariais;
+  suíte completa, typechecks e build verdes.
 - Restrições de produto e demais pendências estão no fim do PROGRESS.md.
   Atualizar este arquivo e os checkpoints a cada lote concluído.

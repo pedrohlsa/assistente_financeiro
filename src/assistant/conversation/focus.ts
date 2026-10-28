@@ -770,6 +770,23 @@ function refinaConsulta(
   // ---- outro período: "e mês passado?", "e em outubro?" -----------------
   const p = parsePeriod(t, today)
   if (p) {
+    // Período e assunto podem mudar juntos: "e da Casa 2 este mês?".
+    // O reconhecedor de período não deve consumir a troca explícita de origem.
+    const rest = p.span ? t.replace(p.span, ' ').replace(/\s+\?/g, '?').replace(/\s+/g, ' ').trim() : t
+    if (rest !== t && /^(?:e\s+)?(?:(?:so|somente|apenas)\s+|(?:com|de|em|n[oa]s?|d[oa]s?)\s+)/.test(rest)) {
+      const scoped = refinaConsulta(state, focus, base, rest, today)
+      if (scoped?.kind === 'query') base = scoped.planned.plan
+      else if (scoped) return scoped
+    }
+    // "E este mês?" herda a previsão, inclusive sua janela de hoje até o
+    // fim do mês; a janela realizada (dia 1 até hoje) excluía o que vai entrar.
+    if (incomeFocus && base.source === 'recurring' && base.filter.plannedOnly) {
+      const forecast = planQuery(state, `quanto vou receber ${p.span || p.matched}`, { today })
+      if (forecast && !forecast.incompleto && forecast.plan.source === 'recurring') {
+        return planned({ ...base, period: forecast.plan.period,
+          comparePeriod: base.comparePeriod ? previousPeriod(forecast.plan.period) : undefined }, 'período da previsão')
+      }
+    }
     // Quando já havia comparação, trocar o período principal mantém o
     // comparativo relativo — "e mês passado?" depois de "e mês retrasado?"
     // continua comparando com o anterior imediato.
