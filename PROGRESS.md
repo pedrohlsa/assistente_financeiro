@@ -5183,7 +5183,6 @@ Achados sem correção, da mesma sondagem:
 - "quero juntar 1000 pra viagem e amanhã pago a luz 180" cria a meta "Viagem
   e pago" e perde a luz (já antes) — o nome corrigido na seção seguinte; a
   metade futura ainda some sem aviso (a frase não é cortada em "e amanhã");
-- "tirei 100 da viagem" cai na ajuda (retirada de meta não existe no chat);
 - "muda a meta da viagem pra 7000" mostra o nome em minúscula ("viagem").
 
 ## 2026-10-28 — o nome da meta para no "e"
@@ -5194,6 +5193,21 @@ para em "e/mas/que/até/em/daqui" ("Viagem"; "moto nova" segue "Moto nova").
 1 caso no grupo MPZ (vermelho antes). Gates: 666/666, 99/99, 50/50,
 **545/545**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
 build, rubrica, varredura e `git diff --check` passaram.
+
+## 2026-10-28 — "tirei 100 da viagem"
+
+"Tirei 100 da viagem" e "retirei 200 da meta do notebook" caíam na ajuda
+genérica. Retirar de meta não tem ação no chat (como a reserva, que já tinha
+resposta própria), mas a tela tem: Metas → <meta> → Editar → "Já guardado".
+Agora, com a meta citada pelo nome, a resposta aponta esse caminho com o
+valor que fica ("de R$ 4.800,00 para R$ 4.700,00"), sem criar ação. 2 casos
+no grupo TM (os 2 vermelhos antes). Gates: 666/666, 99/99, 50/50,
+**547/547**, metamórficos, fuzz, 151/151, 468; typechecks, `test:money`,
+build, rubrica, varredura e `git diff --check` passaram.
+
+Achado sem correção: "usei 50 da viagem pra pagar a luz" registra a despesa
+de R$ 50,00 (Casa) com a descrição "Usei da viagem pra pagar a luz" e não
+mexe na meta.
 
 ## Pendências em 28/10/2026 (HEAD `0e1efb3`)
 

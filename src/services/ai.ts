@@ -535,6 +535,15 @@ function resolveLocal(s: AppState, input: string): AiReply {
   if (retiraDaReserva(t)) {
     return { text: 'Ainda não registro retirada da reserva: ela é a soma do que você guardou, e retirar não tem um lançamento próprio no app. Se o depósito foi lançado errado, corrija ou apague em Movimentações.' }
   }
+  // "Tirei 100 da viagem": retirar de META também não tem ação no chat, mas a
+  // tela tem ("Já guardado" no Editar). Caía na ajuda genérica.
+  const retiradaDeMeta = t.match(new RegExp(String.raw`\b(?:tirei|retirei|saquei|resgatei|usei|peguei)\s+(?:r\$)?\s*${NUM}`))
+  const metaDaRetirada = retiradaDeMeta ? metaCitada(s, t) : undefined
+  if (retiradaDeMeta && metaDaRetirada) {
+    const valor = n(retiradaDeMeta[1])
+    const fica = round2(Math.max(metaDaRetirada.saved - valor, 0))
+    return { text: `Retirar dinheiro de uma meta pelo chat ainda não dá. Na tela: Metas → ${metaDaRetirada.name} → Editar, e mude "Já guardado" de ${fmtBRL(metaDaRetirada.saved)} para ${fmtBRL(fica)}.` }
+  }
 
   // "Qual conta está me apertando?" pede uma comparação, não uma lista crua.
   // Fatura ou parcela vencida aperta mais que qualquer conta futura; depois vêm

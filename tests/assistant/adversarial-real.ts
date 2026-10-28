@@ -3059,6 +3059,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('MPZ-nome-para-no-e', comConector, '"Viagem"', !!comConector && comConector.name === 'Viagem'))
   }
 
+  // "Tirei 100 da viagem": retirar de meta não tem ação no chat, mas a tela tem
+  // (Metas → Editar → "Já guardado"). Caía na ajuda; agora aponta o caminho
+  // com o valor que fica (R$ 4.800,00 − R$ 100,00), sem criar ação.
+  {
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const r = await turnoHoje(rico, 'tirei 100 da viagem')
+    const txt = limpa(r.reply)
+    out.push(result('TM-tirei-da-meta', { reply: txt, actions: r.actions }, 'aponta Metas → Editar, de R$ 4.800,00 para R$ 4.700,00, sem ação',
+      r.actions.length === 0 && /Metas/.test(txt) && /Já guardado/.test(txt) && /R\$ 4\.700,00/.test(txt)))
+    const notebook = limpa((await turnoHoje(rico, 'retirei 200 da meta do notebook')).reply)
+    out.push(result('TM-retirei-da-meta-do', notebook, 'Notebook: de R$ 1.200,00 para R$ 1.000,00', /Notebook/.test(notebook) && /R\$ 1\.000,00/.test(notebook)))
+  }
+
   // "Pela metade" é metade: a resposta dizia "Se você PARAR os gastos com
     // Alimentação". Metade da média de 3 meses do fixture, pela soma dele.
     const metade = limpa((await turnoHoje(rico, 'e se eu cortar o mercado pela metade?')).reply)
