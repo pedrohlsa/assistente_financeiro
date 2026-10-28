@@ -1,7 +1,7 @@
 # AssistFin — Estado do Projeto
 
-**Última atualização**: 2026-10-25 — correções locais após a auditoria independente
-de `345d55e`. **NOT READY para merge/deploy** até nova auditoria externa.
+**Última atualização**: 2026-10-28 — continuidade local a partir de `a4afa92`.
+**NOT READY para merge/deploy** até nova auditoria externa.
 Leia a última seção antes das entradas históricas: ela distingue a produção
 publicada (`main`) da branch local e lista os bloqueios reproduzidos.
 
@@ -5259,23 +5259,54 @@ segue trocando o valor). 1 caso no grupo OC (vermelho antes). Gates:
 typechecks, `test:money`, build, rubrica, varredura e `git diff --check`
 passaram.
 
-## Pendências em 28/10/2026 (HEAD `54ff16d`)
+## 2026-10-28 — continuidade no Codex após `a4afa92`
 
-Estado: 666/666 corpus, 99/99, 50/50, **551/551 adversariais**, 4.088 + 3.800
+Foram lidos os três relatos do Claude e confirmado o baseline de 554/554
+adversariais. Foram acrescentados 18 casos pelo orquestrador real, com RED
+antes das correções nas reproduções de falha e controles para comportamento
+legítimo. O lote trata cinco causas:
+
+- `Quando/que dia paguei a fatura`: usa `CardPayment.paymentDate`, nome do
+  cartão, valor e mês da fatura. Não usa vencimento como data de pagamento e
+  não chama parcial de quitação. Sem evento datado, explica a falta da data.
+- Manutenção sem custo: pergunta quanto custou, retém item, hodômetro e data,
+  e amadurece o rascunho após a resposta. Hodômetro não é usado como custo.
+- `Quanto vou receber`: usa recorrências previstas em aberto, sem somar
+  histórico realizado, ocorrências confirmadas/dispensadas ou transações já
+  materializadas. O mês corrente vai de hoje ao fim do mês. Dois oráculos EN
+  anteriores estavam errados ao exigir o já recebido para uma pergunta futura;
+  foram corrigidos, com novos casos de valores literais (650 previstos contra
+  9000 realizados). Receita no passado continua consultando transações.
+- Meta seguida de `e amanhã/depois de amanhã`: segmenta as duas intenções;
+  preserva a meta e informa a parte futura não registrada. O limite de palavra
+  passou a aceitar o `ã` final de amanhã.
+- Depósitos em metas por mês: o modelo de dados não guarda histórico completo
+  de depósitos. A consulta explica isso sem apresentar o acumulado atual como
+  depósito mensal. A consulta do acumulado continua válida; sua explicação
+  agora mostra o campo `saved`, em vez dos valores restantes das metas.
+
+Gates: 666/666 corpus, 99/99 consulta/cenário, 50/50 semânticos,
+**572/572 adversariais**, 4.088 + 3.800 metamórficos, 1.416 fuzz,
+151/151 invariantes e 468/468 verificações remotas offline. Typechecks,
+teste monetário, build, rubrica e `git diff --check` passaram. Rubrica:
+0 perigosa, 0 ruim, 5 aceitáveis e 85 excelentes. O build ainda avisa de
+chunk acima de 500 kB. Sem chamadas DeepSeek, push, merge, deploy ou APK.
+`.claude/launch.json` segue como modificação preexistente, fora da entrega.
+
+## Pendências em 28/10/2026 (após o lote iniciado em `a4afa92`)
+
+Estado: 666/666 corpus, 99/99, 50/50, **572/572 adversariais**, 4.088 + 3.800
 metamórficos, 1.416 fuzz, 151/151 invariantes, 468/468 offline (65 frases
 chegam hoje ao modelo remoto); typechecks, `test:money`, build e rubrica
 (0 perigosa, 0 ruim) verdes. Tudo local, sem DeepSeek, push, merge, deploy ou
 APK. **NOT READY para merge/deploy**: os diffs `c3648de..c824fe0`,
-`c824fe0..b049bdf`, `b049bdf..73c8d24` e `73c8d24..54ff16d` (seções acima,
+`c824fe0..b049bdf`, `b049bdf..73c8d24` e os posteriores a `73c8d24` (seções acima,
 uma por causa) precisam de auditoria independente; navegador, persistência
 real e dados legados reais não foram revalidados.
 
 Abertas, achadas na leitura humana e ainda não corrigidas (detalhe nas
 seções de 27 e 28/10 acima):
-- "Quando paguei a fatura do nubank" e "antecipei a fatura do nubank" dão o
-  resumo dos cartões.
-- Motorista: "troquei o óleo com 45 mil km", sem custo, cai na ajuda em vez
-  de perguntar o valor.
+- "Antecipei a fatura do nubank" ainda dá o resumo dos cartões.
 - Receita sem origem ("recebi 2 mil do cliente", "caiu 350 de pix do joão")
   é a regra "Origem explícita — nunca inferida" (`extractOrigins`, em
   clauses.ts): só valem substantivo de fonte + identificador ("do cliente
@@ -5285,11 +5316,7 @@ seções de 27 e 28/10 acima):
   mas o da ana só entra amanhã" virou recebido) e o corpus adaptativo. Se o
   produto quiser origem de nome em minúscula, o caminho é perguntar "de
   quem?", não inferir.
-- Mês que vem em lançamentos ("quanto vou receber em dezembro") responde
-  "Não tenho nenhum lançamento… Assim que você registrar", em vez da previsão.
 - "Devo muito?" cai na ajuda.
-- "Quanto guardei nas metas esse mes" responde o total até agora (a meta não
-  guarda depósitos por mês).
 
 Decisões de produto pendentes:
 - `balanceOutlook` (Home e simulações "e se eu gastar") só considera contas

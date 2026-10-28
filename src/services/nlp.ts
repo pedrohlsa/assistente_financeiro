@@ -44,6 +44,20 @@ function parseKmValue(raw: string): number {
   return v
 }
 
+/** Registro de manutenção iniciado sem custo. O hodômetro nunca é o preço. */
+export function maintenanceWithoutCost(text: string): Omit<Extract<ParsedAction, { kind: 'maintenance' }>, 'cost'> | null {
+  const item = text.match(new RegExp(String.raw`^\s*(?:eu\s+)?(?:j[áa]\s+)?(?:troquei|instalei|coloquei)\s+(?:o\s+|a\s+|os\s+|as\s+)?(${MAINT_ITEMS.join('|')})\b`, 'i'))
+  if (!item) return null
+  const km = text.match(/\b(?:com|aos|a|em|no|nos)\s+(\d+(?:[.,]\d+)?\s*(?:mil)?)\s*(?:km|quil[oô]metros?)\b/i)
+  const vida = text.match(/\b(?:a\s+)?cada\s+(\d+(?:[.,]\d+)?\s*(?:mil)?)\s*(?:km|quil[oô]metros?)\b/i)
+  let semMedidas = text
+  if (km) semMedidas = semMedidas.replace(km[0], ' ')
+  if (vida) semMedidas = semMedidas.replace(vida[0], ' ')
+  if (/\d/.test(semMedidas)) return null
+  return { kind: 'maintenance', item: normalizeMaint(item[1]),
+    ...(km ? { km: parseKmValue(km[1]) } : {}), ...(vida ? { lifeKm: parseKmValue(vida[1]) } : {}) }
+}
+
 // Verbos que iniciam um novo comando — usados para quebrar frases compostas
 // como "rodei no uber e ganhei 300 reais coloquei 70 de gasolina".
 const COMMAND_VERBS = ['ganhei', 'recebi', 'faturei', 'lucrei', 'gastei', 'paguei', 'comprei', 'parcelei', 'passei', 'troquei', 'instalei', 'abasteci', 'coloquei', 'botei', 'rodei', 'andei', 'dirigi', 'percorri', 'trabalhei', 'quero', 'fiz', 'guardei', 'guarda', 'guardar', 'separei', 'separa', 'muda', 'mudar', 'altera', 'alterar', 'aumenta', 'aumentar', 'diminui', 'diminuir', 'retira', 'retirei', 'tira', 'tirei', 'remove', 'removi', 'desconta', 'descontei', 'reduz', 'reduzi', 'corrige', 'corrigi']

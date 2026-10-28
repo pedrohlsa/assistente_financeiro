@@ -929,6 +929,24 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     }
   }
 
+  // Receita futura vem do calendário de recorrências, nunca do realizado.
+  const previsaoDeReceita = source === 'transactions' && metrica.valor.txType?.length === 1
+    && metrica.valor.txType[0] === 'income'
+    && (/\b(?:vou|vamos|vai|vao|irei|ira)\s+(?:receber|entrar|ganhar)\b/.test(t0)
+      || !!period.future && !/\b(?:recebi|ganhei|entrou|entraram|faturei)\b/.test(t0))
+  let previsaoNoPassado = false
+  if (previsaoDeReceita) {
+    source = 'recurring'
+    if (period.to === hoje && (period.grain === 'month' || period.grain === 'year')) {
+      const h = fromISO(hoje)
+      const fim = period.grain === 'year' ? `${h.getFullYear()}-12-31`
+        : toISO(new Date(h.getFullYear(), h.getMonth() + 1, 0))
+      period = { ...period, to: fim, label: period.grain === 'year' ? 'até o fim deste ano' : 'até o fim deste mês' }
+    }
+    previsaoNoPassado = period.to < hoje
+    if (!previsaoNoPassado) period = { ...period, from: period.from < hoje ? hoje : period.from, future: true }
+  }
+
   // ---- 6) período de comparação ------------------------------------------
   let comparePeriod: QueryPeriod | undefined
   if (pedeComparacao) {
@@ -952,6 +970,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
 
   // ---- 7) filtros --------------------------------------------------------
   const filter: QueryFilter = {}
+  if (previsaoDeReceita) filter.plannedOnly = true
   if (source === 'transactions' || source === 'recurring') {
     filter.txType = metric === 'net' ? ['income', 'expense'] : metrica.valor.txType
   }
@@ -1077,7 +1096,8 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     ? { valor: sujeitoDaComparacao, literal: sujeitoDaComparacao, matched: sujeitoDaComparacao } : undefined
   const alvo = extrairAlvo(rest.texto) || sujeito
   let fallbackCategory: string | undefined
-  let incompleto: string | undefined = periodoVago ? 'últimos meses — quantos meses?' : undefined
+  let incompleto: string | undefined = previsaoNoPassado ? 'recebimento futuro em período que já terminou'
+    : periodoVago ? 'últimos meses — quantos meses?' : undefined
   // "No CARTÃO nubank": com o cartão já reconhecido, a palavra repete o que foi
   // lido e não filtra nada. Virava texto de busca "cartao", e o app mandava
   // cadastrar um cartão que existe.
@@ -1209,6 +1229,10 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   // resposta dava o que falta (R$ 1.200,00 de uma meta com R$ 4.800,00 dentro).
   if (source === 'goals' && field === 'remaining' && !/\bfalta\b|\bfaltam\b/.test(t0)
     && /\b(?:depositei|depositamos|coloquei|colocamos|guardei|guardamos|juntei|juntamos|poupei|economizei|mandei|botei|pus|transferi|acumulei)\b|\bja\s+(?:tenho|foi)\b|\btenho\s+(?:guardado|juntado)\b/.test(t0)) field = 'saved'
+  if (source === 'goals' && field === 'saved' && lido) {
+    period = lido.period
+    periodoExplicito = true
+  }
   // "Qual o valor das minhas metas" é o alvo, não o que falta.
   if (source === 'goals' && field === 'remaining' && !/\bfalta\b|\bfaltam\b/.test(t0)
     && /\bvalor\s+(?:total\s+)?d[ao]s?\s+(?:minhas?\s+)?metas?\b|\bquanto\s+(?:e|sao|custa|custam)\s+(?:a|as)\s+(?:minhas?\s+)?metas?\b/.test(t0)) field = 'target'
@@ -1345,6 +1369,7 @@ function alemDoAntigo(plan: AssistantQueryPlan, periodoDito: boolean, porLancame
   // Hábito de um item nomeado continua com ele (ex.: suco por dia).
   if (plan.metric === 'avg' && porLancamento && !f.text) return true
   if (plan.source === 'plans' || plan.source === 'projections') return true
+  if (plan.source === 'recurring' && plan.filter.plannedOnly) return true
   // O que foi PAGO nas faturas: o roteador antigo só tem o resumo dos cartões.
   if (plan.source === 'invoices' && plan.field === 'paid') return true
   // (C) Pergunta sobre UM cartão. O roteador antigo responde o mês inteiro —
@@ -1407,6 +1432,7 @@ function rotulo(
           : source === 'goals' && field === 'remaining' ? 'Falta para as metas'
           : source === 'goals' && field === 'saved' ? 'Guardado nas metas'
           : source === 'goals' && field === 'target' ? 'Valor das metas'
+          : source === 'recurring' && filter.txType?.length === 1 && filter.txType[0] === 'income' ? 'Entradas previstas'
           : ROTULO_FONTE[source] || m.label
   const cat = filter.categories?.length
     ? (state.categories || []).find(c => c.id === filter.categories![0])?.name

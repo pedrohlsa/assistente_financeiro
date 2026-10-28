@@ -45,7 +45,7 @@ export function pedeTotalGuardado(t: string): boolean {
 export const retiraDaReserva = (t: string): boolean =>
   /\b(?:tirei|retirei|saquei|peguei|usei)\b[^.?!]*\b(?:da|na)\s+(?:minha\s+)?(?:reserva|poupanca)\b/.test(t)
 
-export type PerguntaDeFatura = 'falta' | 'paga' | 'atrasada' | 'vence' | 'fecha' | 'valor'
+export type PerguntaDeFatura = 'falta' | 'paga' | 'atrasada' | 'vence' | 'fecha' | 'valor' | 'pagamentos'
 
 /**
  * Situação da fatura de agora: quanto falta, se já foi paga, se atrasou, quando
@@ -57,6 +57,8 @@ export type PerguntaDeFatura = 'falta' | 'paga' | 'atrasada' | 'vence' | 'fecha'
 export function perguntaDeFatura(t: string): PerguntaDeFatura | null {
   if (!/\bfaturas?\b/.test(t)) return null
   if (/\bmaior\b|\bproxim[oa]s?\s+(?:\d+\s+|dois\s+|tres\s+|quatro\s+|cinco\s+|seis\s+)?meses\b|\bmes\s+que\s+vem\b|\bproximo\s+mes\b|\b(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/.test(t)) return null
+  // Data do desembolso, não vencimento nem situação de quitação.
+  if (/\b(?:quando|que\s+dia)\b[^?]*\b(?:paguei|pagamos|quitei)\b|\bquando\s+(?:foi|fiz)\b[^?]*\bpagamento\b|\bdata\s+do\s+(?:ultimo\s+)?pagamento\b/.test(t)) return 'pagamentos'
   // "Quanto tenho de fatura pra pagar" e "quanto de fatura vence esse mês" são
   // o que falta, ditos de outro jeito.
   if (/\bquanto\b[^?]*\bfaturas?\b[^?]*\bvencem?\b|\bquanto\b[^?]*\bvencem?\b[^?]*\bfaturas?\b/.test(t)) return 'falta'

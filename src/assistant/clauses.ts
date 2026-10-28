@@ -392,7 +392,7 @@ export function segment(text: string): { text: string; start: number; end: numbe
   // segundo dia era perdido em silêncio — o usuário achava que tinha lançado os
   // dois. Exige um número depois da palavra de dia: "trabalhei ontem e hoje"
   // não descreve dois lançamentos e não pode ser cortado.
-  for (const m of text.matchAll(/[,;]?\s+e\s+(?=(?:hoje|hj|ontem|anteontem)\b[^,;.!?]*\d)/gi)) {
+  for (const m of text.matchAll(/[,;]?\s+e\s+(?=(?:hoje|hj|ontem|anteontem|(?:depois\s+de\s+)?amanh[ãa])(?=\s|$)[^,;.!?]*\d)/gi)) {
     push((m.index || 0) + m[0].length)
   }
   // O mesmo com vírgula ("ontem 30 de lanche, anteontem 20 de padaria") e com

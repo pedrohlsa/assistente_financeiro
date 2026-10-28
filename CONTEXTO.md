@@ -1,14 +1,14 @@
 # AssistFin — Contexto do produto
 
 Visão do produto consolidada em 25/08/2026 e revisada para o checkpoint de
-25/10/2026. Regras permanentes de implementação ficam no [CLAUDE.md](CLAUDE.md);
+28/10/2026. Regras permanentes de implementação ficam no [CLAUDE.md](CLAUDE.md);
 o histórico de rodadas fica no [PROGRESS.md](PROGRESS.md). As seções antigas
 abaixo preservam decisões de sua época; este checkpoint prevalece onde houver
 divergência temporal. O código e os testes prevalecem sobre a documentação.
 
-## Checkpoint vigente — 25/10/2026
+## Checkpoint vigente — 28/10/2026
 
-- Trabalho local: `feat/assistant-intelligence-v2`, HEAD `54ff16d`. Em 27-28/10/2026,
+- Trabalho local: `feat/assistant-intelligence-v2`, último lote retomado de `a4afa92`. Em 27-28/10/2026,
   121 commits locais depois de `c3648de` corrigiram respostas lidas como usuário
   (caixa futuro, faturas de agora, contas fixas, metas com prazo, registro e
   pergunta juntos, nomes com acento, categoria pelo nome, exclusões, períodos
@@ -24,7 +24,10 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
   "compara com setembro", "e de aluguel?", "e de mercado?", rótulo do texto
   e cartão sobre gasto; nas simulações: conta fixa pelo nome e corte pela
   metade; nas metas: prazo "até dezembro", nome no conector, retirada,
-  alteração sem nome).
+  alteração sem nome). Após `a4afa92`, foram corrigidas a data do pagamento de
+  fatura, manutenção sem custo (pergunta o valor e preserva o hodômetro), receita
+  futura por recorrências abertas, intenção futura junto com meta e consulta
+  mensal de depósitos em metas (explica a ausência de histórico, sem inventar).
   Lista de pendências no
   fim de [PROGRESS.md](PROGRESS.md), seção "Pendências em 28/10/2026".
   `.claude/launch.json` é modificação local preexistente e não pertence às entregas.
@@ -35,7 +38,7 @@ divergência temporal. O código e os testes prevalecem sobre a documentação.
 - A V2 acrescentou consultas e cenários multi-entidade, continuidade de conversa,
   preferências locais explícitas e reconciliação parcial de cartões. Baseline
   local mais recente: 666/666 corpus, 99/99 consulta/cenário/continuidade,
-  50/50 semânticos, 551/551 adversariais, 4.088 + 3.800 metamórficos,
+  50/50 semânticos, 572/572 adversariais, 4.088 + 3.800 metamórficos,
   1.416 fuzz, 151/151 invariantes e 468/468 verificações remotas **offline**;
   typechecks, teste de dinheiro, build e rubrica passaram.
 - **NOT READY para merge/deploy.** O parecer sobre `345d55e` encontrou oito

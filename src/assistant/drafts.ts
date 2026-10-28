@@ -16,6 +16,7 @@ import { normalizeNumberWords } from './numbers'
 import { findDate } from './dates'
 import { guessCategory } from '../data/categories'
 import { sentenceCase, normalizeName } from '../utils/text'
+import { maintenanceWithoutCost } from '../services/nlp'
 
 export type DraftStatus = 'collecting' | 'ready' | 'confirmed' | 'cancelled'
 
@@ -97,8 +98,17 @@ function semValorDraft(text: string, t: string, caps: AssistantCapabilities): In
   return { partial, missing: ['amount'] }
 }
 
-export function detectIncomplete(text: string, caps: AssistantCapabilities): IncompleteIntent | null {
+export function detectIncomplete(text: string, caps: AssistantCapabilities, today = todayISO()): IncompleteIntent | null {
   const { text: t } = normalizeNumberWords(text.toLowerCase())
+
+  if (caps.isDriver && !/\?|\b(?:quanto|quando|qual|como|n[ãa]o|nunca|jamais)\b/.test(t)) {
+    const date = findDate(t, today)
+    if (!date || date.kind === 'date') {
+      const semData = date ? `${t.slice(0, date.start)} ${t.slice(date.end)}` : t
+      const maintenance = maintenanceWithoutCost(semData)
+      if (maintenance) return { partial: { ...maintenance, ...(date?.kind === 'date' ? { date: date.date } : {}) }, missing: ['cost'] }
+    }
+  }
 
   // Compra parcelada sem valor e/ou sem número de parcelas.
   if (/\b(comprei|compra|parcelei|parcelad[oa])\b/.test(t)) {
@@ -165,6 +175,7 @@ export function questionFor(
     total: 'Qual foi o valor total?',
     installments: 'Em quantas parcelas?',
     amount: 'Qual foi o valor?',
+    cost: 'Quanto custou essa manutenção?',
     cardName: caps.cardNames.length > 1
       ? 'Em qual cartão?'
       : caps.cardNames.length === 1
@@ -246,9 +257,14 @@ export function resolveDraftAnswer(
   }
 
   // Valor: qualquer quantia da frase que não seja o número de parcelas.
-  for (const field of ['total', 'amount', 'target'] as const) {
+  for (const field of ['total', 'amount', 'target', 'cost'] as const) {
     if (!pending.has(field)) continue
-    const stripped = lower.replace(/(?:em\s*)?\d+\s*(?:x|vezes|parcelas?)\b/g, ' ')
+    let stripped = lower.replace(/(?:em\s*)?\d+\s*(?:x|vezes|parcelas?)\b/g, ' ')
+    if (field === 'cost') {
+      stripped = stripped.replace(/\d+(?:[.,]\d+)*\s*(?:mil\s*)?(?:km|quil[oô]metros?)\b/g, ' ')
+      const date = findDate(stripped, today)
+      if (date) stripped = `${stripped.slice(0, date.start)} ${stripped.slice(date.end)}`
+    }
     const m = stripped.match(new RegExp(String.raw`(?:r\$\s*)?${NUMBER}`))
     if (m) {
       const v = parseMoney(m[1])

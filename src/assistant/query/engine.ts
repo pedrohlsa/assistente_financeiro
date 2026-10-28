@@ -16,7 +16,7 @@ import { normalizeName, sentenceCase, weekdayName } from '../../utils/text'
 import {
   activeCards, cardById, cardInvoice, cardOutstanding, invoiceOpenAmount, planProgress,
 } from '../../services/cards'
-import { monthlyProjections, occurrencesBetween, recurringActiveOn } from '../../services/calc'
+import { monthlyProjections, occurrencesBetween, recurringActiveOn, isOccurrenceResolved } from '../../services/calc'
 import type {
   AssistantFact, AssistantQueryPlan, AssistantQueryResult, FactUnit,
   QueryGroupResult, QueryRow,
@@ -73,6 +73,8 @@ function rowsOf(state: AppState, plan: AssistantQueryPlan): QueryRow[] {
         if (!rec || rec.active === false) continue
         for (const dia of occurrencesBetween(rec, from, to)) {
           if (!recurringActiveOn(rec, dia)) continue
+          if (plan.filter.plannedOnly && (isOccurrenceResolved(rec, dia)
+            || state.transactions.some(t => t.recurringId === rec.id && t.occurrenceDate === dia))) continue
           out.push({
             id: `${rec.id}@${dia}`, date: dia, value: Number(rec.amount) || 0,
             label: rec.name, category: rec.category, origin: rec.origin,
@@ -545,6 +547,13 @@ const factId = (() => {
  */
 export function runQuery(state: AppState, plan: AssistantQueryPlan): AssistantQueryResult {
   const unit = unidadeDe(plan)
+  // A meta só armazena o acumulado atual. Data de criação não é data dos
+  // depósitos, e o journal limitado não substitui um histórico completo.
+  if (plan.source === 'goals' && plan.field === 'saved' && plan.period.label !== 'até agora') {
+    return { plan, unit, total: 0, count: 0, groups: [], estimated: false, empty: true,
+      sample: { rows: 0, from: plan.period.from, to: plan.period.to }, facts: [], samples: [],
+      caveats: [`Não consigo calcular os depósitos nas metas ${plan.period.label}: o app guarda o total acumulado atual, sem histórico completo da data de cada depósito.`] }
+  }
   const { ag, rows } = agrega(state, plan, plan.period)
   const caveats: string[] = []
 

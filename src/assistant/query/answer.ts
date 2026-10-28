@@ -186,6 +186,10 @@ export function composeAnswer(r: AssistantQueryResult): string {
   const periodo = p.period.label
 
   if (r.empty) {
+    if (p.source === 'goals' && p.field === 'saved' && r.caveats.length) return r.caveats.join('\n\n')
+    if (p.source === 'recurring' && p.filter.plannedOnly && p.filter.txType?.[0] === 'income') {
+      return `Não há entradas recorrentes previstas em aberto ${periodo}. Cadastre as entradas em Planejamento para eu calcular essa previsão.`
+    }
     const base = FONTE_VAZIA[p.source] || 'Não tenho dados para isso'
     const alvo = p.filter.text ? ` com "${p.filter.text}"` : ''
     return `${base}${alvo} ${periodo}. ${COMO_REGISTRAR[p.source] || ''}`.trim()
@@ -407,7 +411,8 @@ export function explainQueryResult(r: AssistantQueryResult): string {
   }
 
   if (r.samples.length && r.count <= 6) {
-    partes.push(`Os valores: ${r.samples.map(s => fmtBRL(s.value)).join(', ')}.`)
+    const campo = p.field || 'amount'
+    partes.push(`Os valores: ${r.samples.map(s => fmtBRL(campo === 'amount' ? s.value : s.extra?.[campo] ?? s.value)).join(', ')}.`)
   }
   for (const c of r.caveats) partes.push(c)
   return partes.join('\n\n')

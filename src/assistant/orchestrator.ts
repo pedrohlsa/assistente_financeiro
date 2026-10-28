@@ -1729,7 +1729,7 @@ Confirmar?`,
 
   // ---- 13) Intenção incompleta vira rascunho ------------------------------
   if (!candidates.length && !clarification) {
-    const incomplete = detectIncomplete(mensagem, caps)
+    const incomplete = detectIncomplete(mensagem, caps, today)
     if (incomplete) {
       const d = newDraft(incomplete, input.message, caps)
       const q = d.missingFields[0]

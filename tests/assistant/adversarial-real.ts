@@ -3306,11 +3306,11 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const doMes = (tipo: string) => rico.transactions.filter(t => t.type === tipo && t.date.slice(0, 7) === hoje.slice(0, 7) && t.date <= hoje)
       .reduce((a, t) => a + t.amount, 0)
     const receber = limpa((await turnoHoje(rico, 'quanto vou receber esse mes')).reply)
-    out.push(result('EN-vou-receber-no-mes', receber, `entradas do mês ${fmt(doMes('income'))}, nunca o gasto`,
-      receber.includes(fmt(doMes('income'))) && !receber.includes(fmt(doMes('expense'))) && !/gasto/i.test(receber)))
+    out.push(result('EN-vou-receber-no-mes', receber, 'sem entradas recorrentes cadastradas; não usar o recebido como previsão',
+      /previst|cadastrad/i.test(receber) && !receber.includes(fmt(doMes('income'))) && !/gasto|dado real/i.test(receber)))
     const entrar = limpa((await turnoHoje(rico, 'quanto vai entrar esse mes')).reply)
-    out.push(result('EN-vai-entrar-no-mes', entrar, `entradas do mês ${fmt(doMes('income'))}`,
-      entrar.includes(fmt(doMes('income'))) && !/gasto/i.test(entrar)))
+    out.push(result('EN-vai-entrar-no-mes', entrar, 'sem previsão cadastrada; não usar histórico realizado',
+      /previst|cadastrad/i.test(entrar) && !entrar.includes(fmt(doMes('income'))) && !/gasto|dado real/i.test(entrar)))
     // Mês à frente com verbo no futuro: nada do ano passado com cara de dado.
     const alvo = new Date(Number(hoje.slice(0, 4)), Number(hoje.slice(5, 7)) + 1, 1)
     const nomes = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
@@ -3346,6 +3346,102 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const partes = segment(frase).map(c => c.text.trim())
     out.push(result(`Y-pergunta-inteira-${pergunta.split(' ').slice(0, 2).join('-')}`, partes, `cláusula "${pergunta}" inteira`,
       partes.some(p => p.replace(/^e\s+/, '') === pergunta) && !partes.includes('e')))
+  }
+
+  // A data do pagamento vem do evento, nunca do vencimento ou de uma parcela
+  // marcada paga sem data. Pagamento parcial não prova quitação da fatura.
+  {
+    const st = autonomoRico(hoje)
+    const pagoEm = addDays(hoje, -2)
+    const data = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
+    st.cardPayments = [{ id: 'hp-parcial', cardId: st.cards[0].id, amount: 123,
+      paymentDate: pagoEm, referenceMonth: hoje.slice(0, 7), settledInstallmentIds: [] }]
+    for (const message of ['quando paguei a fatura do nubank', 'que dia paguei a fatura do nubank?',
+      'quando foi o último pagamento da fatura do nubank?']) {
+      const r = await turnoHoje(st, message)
+      out.push(result(`HP-${message}`, r, 'data do evento e valor parcial 123; sem afirmar quitação',
+        r.reply.includes(data(pagoEm)) && /123,00/.test(r.reply) && /pagamento/i.test(r.reply)
+          && !/est[aá] paga|quitad[ao]/i.test(r.reply) && r.actions.length === 0))
+    }
+    const semEvento = await turnoHoje({ ...st, cardPayments: [] }, 'quando paguei a fatura do nubank')
+    out.push(result('HP-sem-evento-nao-inventa-data', semEvento, 'sem data de pagamento registrada',
+      /n[ãa]o.*pagamento|sem.*pagamento/i.test(semEvento.reply) && !/Situa[çc][ãa]o dos seus cart[õo]es/i.test(semEvento.reply)
+        && semEvento.actions.length === 0))
+    const outro = await turnoHoje(st, 'quando paguei a fatura do inter')
+    out.push(result('HP-respeita-cartao', outro, 'não atribuir o pagamento do Nubank ao Inter',
+      !/123,00/.test(outro.reply) && /n[ãa]o.*pagamento|sem.*pagamento/i.test(outro.reply)
+        && outro.actions.length === 0))
+  }
+
+  {
+    const st = motoristaRico(hoje)
+    for (const phrase of ['troquei o óleo com 45 mil km', 'troquei o óleo aos 45000 km ontem']) {
+      const first = await orchestrate({ state: st, message: phrase, today: hoje, remoteEnabled: false })
+      const second = await orchestrate({ state: st, message: 'aos 45000 km, custou 180', draft: first.draft || undefined,
+        today: hoje, remoteEnabled: false })
+      const maintenance = second.response.actions.map(a => a.action)
+      out.push(result(`MCO-${phrase}`, { first, second }, 'pergunta custo; manutenção de 180 aos 45000 km após resposta',
+        first.response.mode === 'clarify' && /quanto|valor|cust/i.test(first.response.reply)
+          && first.response.actions.length === 0 && maintenance.length === 1
+          && maintenance[0].kind === 'maintenance' && maintenance[0].cost === 180
+          && maintenance[0].km === 45000 && /[óo]leo/i.test(maintenance[0].item)
+          && (!/ontem/.test(phrase) || maintenance[0].date === addDays(hoje, -1))))
+    }
+    const question = await turnoHoje(st, 'quando troquei o óleo com 45 mil km?')
+    out.push(result('MCO-pergunta-nao-vira-registro', question, 'nenhuma manutenção proposta por pergunta',
+      question.actions.length === 0))
+  }
+
+  {
+    const st = buildState({ profile: 'autonomo' })
+    const proximo = fromISO(hoje)
+    proximo.setMonth(proximo.getMonth() + 1, 1)
+    const outroMes = toISOdate(proximo).slice(0, 7)
+    const renda = (id: string, amount: number) => ({ id, name: `Recebimento ${id}`, amount,
+      frequency: 'monthly' as const, dueDay: Number(hoje.slice(8)), startDate: hoje,
+      category: 'salario', kind: 'income' as const, active: true })
+    st.recurring = [renda('aberta', 650), { ...renda('paga', 4500), endDate: hoje,
+      occurrences: [{ date: hoje, status: 'confirmed', txId: 'renda-real' }] },
+      { ...renda('dispensada', 400), endDate: hoje, occurrences: [{ date: hoje, status: 'skipped' }] }]
+    st.transactions = [{ id: 'renda-real', type: 'income', category: 'salario', amount: 9000,
+      date: hoje, recurringId: 'paga', occurrenceDate: hoje }]
+    for (const phrase of ['quanto vou receber esse mes', 'quanto vai entrar esse mes', 'quanto vou receber mês que vem']) {
+      const r = await turnoHoje(st, phrase)
+      out.push(result(`RFUT-${phrase}`, r, 'só previsão aberta de 650, sem somar 9000 recebidos ou 400 dispensados',
+        /650,00/.test(r.reply) && !/9\.000,00|4\.500,00|400,00|dado real/.test(r.reply)
+          && /previst|previs[ãa]o/i.test(r.reply) && r.focus?.lastQueryPlan?.source === 'recurring'
+          && r.actions.length === 0 && (!/vem/.test(phrase) || r.focus?.lastQueryPlan?.period.from.startsWith(outroMes))))
+    }
+    const passado = await turnoHoje(st, 'quanto recebi esse mes')
+    out.push(result('RFUT-recebido-continua-realizado', passado, 'receita realizada 9000, nunca previsão 650',
+      /9\.000,00/.test(passado.reply) && !/650,00/.test(passado.reply) && passado.actions.length === 0))
+    const semPrevisao = await turnoHoje({ ...st, recurring: [] }, 'quanto vou receber mês que vem')
+    out.push(result('RFUT-sem-previsao-explicita', semPrevisao, 'não prometer zero nem o histórico como receita futura',
+      /previst|cadastrad/i.test(semPrevisao.reply) && !/9\.000,00|dado real/.test(semPrevisao.reply)
+        && semPrevisao.actions.length === 0))
+  }
+
+  for (const future of ['amanhã pago a luz 180', 'depois de amanhã vou pagar 180 de luz']) {
+    const r = await turnoHoje(autonomoRico(hoje), `quero juntar 1000 pra viagem e ${future}`)
+    out.push(result(`MFUT-${future}`, r, 'meta 1000 preservada e intenção futura explicada, sem despesa 180',
+      r.actions.length === 1 && r.actions[0].kind === 'goal' && r.actions[0].target === 1000
+        && /futur|ainda n[ãa]o|n[ãa]o registrei essa parte|planejad/i.test(r.reply)
+        && /180/.test(r.reply)))
+  }
+
+  {
+    const st = autonomoRico(hoje)
+    for (const phrase of ['quanto guardei nas metas esse mes', 'quanto depositei na viagem esse mes']) {
+      const r = await turnoHoje(st, phrase)
+      out.push(result(`HMETA-${phrase}`, r, 'explicar ausência de histórico mensal, sem atribuir o acumulado ao mês',
+        /hist[óo]rico|data.*dep[óo]sito/i.test(r.reply) && !/6\.000,00|4\.800,00|dado real/.test(r.reply)
+          && r.actions.length === 0 && r.focus?.lastQuery?.empty === true))
+    }
+    const total = await turnoHoje(st, 'quanto já guardei nas metas')
+    out.push(result('HMETA-total-acumulado-preservado', total, 'total atual 6000 pode ser consultado',
+      /6\.000,00/.test(total.reply) && total.actions.length === 0
+        && /4\.800,00/.test(total.focus?.lastQuery?.explain || '')
+        && !/2\.800,00/.test(total.focus?.lastQuery?.explain || '')))
   }
 
   return out

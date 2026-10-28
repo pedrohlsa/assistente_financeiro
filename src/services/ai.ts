@@ -1533,7 +1533,24 @@ function respostaDaFatura(s: AppState, t: string, tipo: PerguntaDeFatura): AiRep
       return { text: `Não encontrei um cartão chamado ${sentenceCase(dito[1])}. Seus cartões: ${listaDeNomes(activeCards(s).map(c => c.name))}.` }
     }
   }
-  const faturas = situacaoDasFaturas(s, citados.length ? citados : activeCards(s))
+  const cartoes = citados.length ? citados : activeCards(s)
+  if (tipo === 'pagamentos') {
+    const ids = new Set(cartoes.map(c => c.id))
+    const pagamentos = (s.cardPayments || []).filter(p => ids.has(p.cardId)
+      && /^\d{4}-\d{2}-\d{2}$/.test(p.paymentDate))
+      .sort((a, b) => b.paymentDate.localeCompare(a.paymentDate)
+        || (b.paymentTime || '').localeCompare(a.paymentTime || ''))
+    const alvo = citados.length === 1 ? ` do ${citados[0].name}` : ''
+    if (!pagamentos.length) return { text: `Não tenho pagamento de fatura${alvo} com data registrada. Uma parcela marcada como paga, sozinha, não informa quando a fatura foi paga.` }
+    const linhas = pagamentos.slice(0, 5).map(p => {
+      const nome = cartoes.find(c => c.id === p.cardId)!.name
+      const referencia = /^\d{4}-\d{2}$/.test(p.referenceMonth)
+        ? `; fatura de ${p.referenceMonth.slice(5, 7)}/${p.referenceMonth.slice(0, 4)}` : ''
+      return `• ${nome}: ${fmtBRL(p.amount)} em ${dataCompleta(p.paymentDate)}${referencia}.`
+    })
+    return { text: `Últimos pagamentos de fatura registrados${alvo}:\n${linhas.join('\n')}\n\nO valor de cada pagamento pode ser parcial.${pagamentos.length > 5 ? ` Mostrei os 5 mais recentes de ${pagamentos.length}.` : ''}` }
+  }
+  const faturas = situacaoDasFaturas(s, cartoes)
   if (faturas.length === 1) {
     const f = faturas[0]
     const devidas = devidasDa(f)
