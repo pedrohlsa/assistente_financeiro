@@ -2817,6 +2817,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // Meta com verbo de depósito pede o que JÁ foi guardado. Viagem: 4.800 de
+  // 6.000; Notebook: 1.200 de 4.000. "Quanto depositei nas metas" dizia "Metas
+  // até agora: R$ 4.000,00" — a soma do que FALTA, com o rótulo de nenhum dos
+  // dois números.
+  {
+    const limpa = (s: string) => s.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const viagem = limpa((await turnoHoje(rico, 'quanto depositei na viagem')).reply)
+    out.push(result('MG-depositei-na-meta', viagem, 'R$ 4.800,00 guardados na Viagem',
+      /R\$ 4\.800,00/.test(viagem) && !/^Falta/.test(viagem)))
+    const coloquei = limpa((await turnoHoje(rico, 'quanto coloquei na meta da viagem')).reply)
+    out.push(result('MG-coloquei-na-meta', coloquei, 'R$ 4.800,00', /R\$ 4\.800,00/.test(coloquei) && !/^Falta/.test(coloquei)))
+    const todas = limpa((await turnoHoje(rico, 'quanto depositei nas metas')).reply)
+    out.push(result('MG-depositei-nas-metas', todas, 'R$ 6.000,00 guardados nas metas',
+      /R\$ 6\.000,00/.test(todas) && !/R\$ 4\.000,00/.test(todas)))
+    const falta = limpa((await turnoHoje(rico, 'quanto falta nas metas')).reply)
+    out.push(result('MG-falta-nas-metas', falta, 'R$ 4.000,00, dito que é o que falta',
+      /R\$ 4\.000,00/.test(falta) && /[Ff]alta/.test(falta)))
+    const valor = limpa((await turnoHoje(rico, 'qual o valor das minhas metas')).reply)
+    out.push(result('MG-valor-das-metas', valor, 'R$ 10.000,00 de alvo', /R\$ 10\.000,00/.test(valor)))
+  }
+
   // Pedido de APAGAR nunca cria lançamento: "exclui a despesa de 120 da luz"
   // virava uma despesa NOVA de R$ 120, e "apaga o gasto do mercado" respondia
   // "não registrei nada", como negação.

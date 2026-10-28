@@ -4722,10 +4722,33 @@ passaram.
 
 Achados sem correção, da mesma sondagem:
 - "quanto depositei na viagem" responde quanto FALTA (R$ 1.200,00), não o
-  que foi guardado (R$ 4.800,00);
+  que foi guardado (R$ 4.800,00) — corrigido na seção seguinte;
 - "quanto recebi de aluguel" olha "os últimos 7 dias";
 - "quando comprei a geladeira" cai na ajuda; "quanto parcelei no nubank" dá
   a fatura do mês.
+
+## 2026-10-27 — meta: o que já foi guardado, o que falta e o alvo
+
+Dinheiro errado: "quanto depositei na viagem" e "quanto coloquei na meta da
+viagem" respondiam "Falta para a meta Viagem: R$ 1.200,00" (há R$ 4.800,00
+guardados); "quanto depositei nas metas" respondia "Metas até agora: R$
+4.000,00", que é a soma do que FALTA (guardado: R$ 6.000,00), com um rótulo
+que não diz qual dos números é; "qual o valor das minhas metas" dava os
+mesmos R$ 4.000,00 (alvo: R$ 10.000,00). A fonte de metas sempre usava o
+campo `remaining`.
+
+Agora o verbo escolhe o campo, como "já paguei" já fazia no parcelamento:
+depósito ("depositei, coloquei, guardei, juntei, já tenho…") pede `saved`;
+"valor das metas" pede `target`; "falta" fica em `remaining`. Sem meta pelo
+nome, o rótulo diz o número: "Guardado nas metas", "Falta para as metas",
+"Valor das metas". 5 casos no grupo MG (os 5 vermelhos antes; literais do
+fixture). Gates: 666/666, 99/99, 50/50, **469/469**, metamórficos, fuzz,
+151/151, 468; typechecks, `test:money`, build, rubrica, varredura e `git diff
+--check` passaram.
+
+Achado sem correção: "quanto guardei nas metas esse mes" responde o total
+"até agora" (a meta não guarda histórico de depósitos por mês); o "até agora"
+diz isso, mas a pergunta era do mês.
 
 ## Pendências em 27/10/2026 (HEAD `73c8d24`)
 

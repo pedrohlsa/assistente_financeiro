@@ -1184,6 +1184,13 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   }
   // "Quanto eu JÁ PAGUEI da geladeira": o que saiu, não o que falta.
   if (source === 'plans' && /\b(?:ja\s+)?(?:paguei|pagamos|quitei)\b/.test(t0) && !/\bfalta\b|\bfaltam\b/.test(t0)) field = 'paid'
+  // A meta também: "quanto DEPOSITEI na viagem" é o que já foi guardado. A
+  // resposta dava o que falta (R$ 1.200,00 de uma meta com R$ 4.800,00 dentro).
+  if (source === 'goals' && field === 'remaining' && !/\bfalta\b|\bfaltam\b/.test(t0)
+    && /\b(?:depositei|depositamos|coloquei|colocamos|guardei|guardamos|juntei|juntamos|poupei|economizei|mandei|botei|pus|transferi|acumulei)\b|\bja\s+(?:tenho|foi)\b|\btenho\s+(?:guardado|juntado)\b/.test(t0)) field = 'saved'
+  // "Qual o valor das minhas metas" é o alvo, não o que falta.
+  if (source === 'goals' && field === 'remaining' && !/\bfalta\b|\bfaltam\b/.test(t0)
+    && /\bvalor\s+(?:total\s+)?d[ao]s?\s+(?:minhas?\s+)?metas?\b|\bquanto\s+(?:e|sao|custa|custam)\s+(?:a|as)\s+(?:minhas?\s+)?metas?\b/.test(t0)) field = 'target'
 
   let order: QueryOrder | undefined = metrica.valor.order
   if (comparePeriod && group !== 'none') {
@@ -1372,6 +1379,10 @@ function rotulo(
         : source === 'plans' && field === 'total' ? 'Valor total'
           // "Falta pagar: 8" parecia R$ 8; é a QUANTIDADE de parcelas.
           : source === 'plans' && field === 'remainingCount' ? 'Parcelas restantes'
+          // "Metas: R$ 4.000,00" não dizia se é o que falta ou o que já tem.
+          : source === 'goals' && field === 'remaining' ? 'Falta para as metas'
+          : source === 'goals' && field === 'saved' ? 'Guardado nas metas'
+          : source === 'goals' && field === 'target' ? 'Valor das metas'
           : ROTULO_FONTE[source] || m.label
   const cat = filter.categories?.length
     ? (state.categories || []).find(c => c.id === filter.categories![0])?.name
