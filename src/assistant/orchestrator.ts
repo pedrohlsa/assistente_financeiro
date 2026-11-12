@@ -49,7 +49,7 @@ import { describeAction, META_OUTRA } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
 import { catById, usableCategories } from '../data/categories'
 import { addDays, fmtBRL, todayISO, uid } from '../utils/format'
-import { occurrenceRecord, occurrencesBetween, recurringActiveOn, pendingExpenseByName } from '../services/calc'
+import { occurrenceRecord, occurrencesBetween, recurringActiveOn, pendingExpenseByName, pendingRecurrings } from '../services/calc'
 import { unpaidPriorInvoiceMonth } from '../services/cards'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { brDate, dateLabel, findDate, previousYearOf, resolveDayInWindow } from './dates'
@@ -966,6 +966,40 @@ export function remoteNeedsAggregates(texto: string): boolean {
   return !registro
 }
 
+/**
+ * "Paguei a luz" / "recebi o aluguel" SEM valor: não há lançamento para
+ * converter, mas há a conta em aberto com o valor cadastrado. Só quando a
+ * frase é isso e nada mais, não é pergunta, e só com UMA conta daquele nome —
+ * duas perguntariam, nunca chutam. Sem conta pendente devolve `null` e a
+ * frase segue o caminho normal (o rascunho pergunta o valor).
+ */
+function confirmacaoDeContaFixaSemValor(
+  state: AppState, mensagem: string, caps: AssistantCapabilities, today: string,
+): { action: ParsedAction; nota: string } | null {
+  if (looksLikeQuestion(mensagem)) return null
+  const texto = mensagem.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  const m = texto.match(/^\s*(?:ja\s+|hoje\s+|ontem\s+|anteontem\s+)?(paguei|quitei|recebi)\s+(?:a\s+|o\s+|as\s+|os\s+)?(?:conta\s+d[aeo]\s+|boleto\s+d[aeo]\s+)?([a-z0-9][a-z0-9 ]{1,40}?)\s*(?:hoje|ontem|anteontem|agora|ja)?\s*[.!]*\s*$/)
+  if (!m) return null
+  const tipo = m[1] === 'recebi' ? 'income' : 'expense'
+  const nome = normalizeName(m[2])
+  const iguais = pendingRecurrings(state, today, true).filter(p => p.kind === tipo && normalizeName(p.rec.name) === nome)
+  if (iguais.length !== 1) return null
+  const p = iguais[0]
+  const dita = findDate(mensagem, today)
+  const action: ParsedAction = {
+    kind: 'recurring-confirm', recurringId: p.rec.id, occurrenceDate: p.dueDate, description: p.rec.name,
+    ...(dita && dita.kind === 'date' && dita.date !== today ? { date: dita.date } : {}),
+  }
+  const v = validateAction(action, caps, today)
+  if (isValidationFailure(v)) return null
+  return {
+    action: v.action,
+    nota: `${sentenceCase(p.rec.name)} é conta fixa com vencimento de ${brDate(p.dueDate)} em aberto: `
+      + `a proposta confirma ${tipo === 'income' ? 'esse recebimento' : 'esse pagamento'} com o valor cadastrado (${fmtBRL(p.rec.amount)}). `
+      + 'Se foi outro valor, me diga o valor.',
+  }
+}
+
 export async function orchestrate(entradaBruta: OrchestratorInput): Promise<OrchestratorOutput> {
   const started = Date.now()
   // FRONTEIRA (regra 46): caractere invisível e de controle saem AQUI, antes de
@@ -1738,6 +1772,16 @@ Confirmar?`,
   let remoteRejected: LocalPass['rejected'] = []
 
   // ---- 13) Intenção incompleta vira rascunho ------------------------------
+  // Antes de perguntar "qual foi o valor?": se a frase nomeia uma conta fixa
+  // em aberto, o valor já está cadastrado e a proposta é confirmar a ocorrência.
+  const notasDeContaFixa: string[] = []
+  if (!candidates.length && !clarification) {
+    const fixa = confirmacaoDeContaFixaSemValor(input.state, mensagem, caps, today)
+    if (fixa) {
+      candidates.push(candidate(fixa.action, 'local', undefined, 'high'))
+      notasDeContaFixa.push(fixa.nota)
+    }
+  }
   if (!candidates.length && !clarification) {
     const incomplete = detectIncomplete(mensagem, caps, today)
     if (incomplete) {
@@ -1874,16 +1918,26 @@ Confirmar?`,
   candidates = candidates.slice(0, MAX_ACTIONS_PER_BATCH)
 
   // Despesa comum não traz recurringId/occurrenceDate. Com conta de mesmo nome
-  // em aberto, confirmar aqui e na Home criaria duas saídas reais. O executor
-  // repete esta checagem para propostas antigas ou vindas de outra rota.
-  const blockedRecurring: string[] = []
-  candidates = candidates.filter(c => {
-    if (c.action.kind !== 'expense') return true
+  // em aberto, confirmar aqui e na Home criaria duas saídas reais. A proposta
+  // vira a CONFIRMAÇÃO daquela ocorrência (o mesmo que o card da Home faz), com
+  // o valor dito pelo usuário. O executor continua recusando a despesa avulsa
+  // para propostas antigas ou vindas de outra rota.
+  const blockedRecurring: string[] = [...notasDeContaFixa]
+  candidates = candidates.map(c => {
+    if (c.action.kind !== 'expense') return c
     const pending = pendingExpenseByName(input.state, c.action.description, today)
-    if (!pending) return true
-    blockedRecurring.push(`${pending.rec.name} é conta fixa com vencimento de ${brDate(pending.dueDate)} sem confirmação. `
-      + 'Se esse foi o pagamento, confirme pela tela inicial. Não propus uma despesa avulsa para evitar contar duas vezes.')
-    return false
+    if (!pending) return c
+    const pago = c.action.amount
+    const cadastrado = pending.rec.amount
+    const difere = Math.abs(pago - cadastrado) > 0.009
+    blockedRecurring.push(`${sentenceCase(pending.rec.name)} é conta fixa com vencimento de ${brDate(pending.dueDate)} em aberto: `
+      + `a proposta confirma esse pagamento${difere ? ` com ${fmtBRL(pago)} (cadastrado: ${fmtBRL(cadastrado)})` : ''}, `
+      + 'em vez de criar uma despesa avulsa — assim não conta duas vezes.')
+    const action: ParsedAction = {
+      kind: 'recurring-confirm', recurringId: pending.rec.id, occurrenceDate: pending.dueDate,
+      amount: pago, description: pending.rec.name, ...(c.action.date ? { date: c.action.date } : {}),
+    }
+    return { ...c, action }
   })
 
   // ---- 17) Avisos de duplicidade (contra o estado E dentro do lote) -------

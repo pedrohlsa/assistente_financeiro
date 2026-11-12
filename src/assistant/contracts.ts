@@ -244,6 +244,20 @@ export const ACTION_CATALOG: ActionSpec[] = [
     ],
   },
   {
+    kind: 'recurring-confirm', label: 'Confirmar conta fixa',
+    // Nasce de uma despesa com o nome de uma conta fixa em aberto: em vez de
+    // recusar e mandar para a Home, o chat propõe confirmar a ocorrência. A IA
+    // remota não conhece ids de recorrência e não propõe isto.
+    remoteAllowed: false,
+    fields: [
+      { name: 'recurringId', type: 'text', required: true, maxLength: 40, describe: 'id da conta fixa' },
+      { name: 'occurrenceDate', type: 'date', required: true, describe: 'vencimento da ocorrência confirmada, YYYY-MM-DD' },
+      { name: 'amount', type: 'money', required: false, min: 0.01, max: 99_999_999, describe: 'valor pago, se diferente do cadastrado' },
+      textField('description', 'nome da conta fixa, só para exibição'),
+      dateField,
+    ],
+  },
+  {
     kind: 'undo-batch', label: 'Desfazer o último registro',
     // Como o `reset`: destrutivo, então a IA remota NUNCA pode propor. O
     // usuário pede, o app lista o que sai e só reverte depois de confirmar.
@@ -281,6 +295,7 @@ export type AssistantErrorCode =
   | 'unsupported-action' | 'conflict' | 'text-too-long' | 'unknown-field'
   | 'batch-not-found' | 'batch-not-reversible' | 'already-undone'
   | 'transaction-not-found' | 'edit-not-allowed'
+  | 'recurring-not-found' | 'occurrence-resolved'
 
 /** Mensagem em pt-BR para o usuário. NUNCA "não encontrei a meta" para tudo. */
 export const ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
@@ -296,6 +311,8 @@ export const ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
   'goal-ambiguous': 'Você tem mais de uma meta parecida — preciso saber qual.',
   'duplicate': 'Isso parece já ter sido registrado.',
   'recurring-conflict': 'Essa conta fixa tem um vencimento sem confirmação.',
+  'recurring-not-found': 'Não encontrei essa conta fixa.',
+  'occurrence-resolved': 'Esse vencimento da conta fixa já foi confirmado.',
   'missing-field': 'Falta uma informação obrigatória.',
   'profile-forbidden': 'Esse tipo de registro não existe no seu perfil.',
   'invoice-empty': 'Essa fatura não tem valor pendente.',

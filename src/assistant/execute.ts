@@ -18,7 +18,7 @@ import { JOURNAL_LIMIT, diffForJournal, isRevertFailure, revertBatchPure } from 
 import { addDays, monthKey, nowPaymentTime, nowStamp, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
-import { nextCashEventTime, pendingExpenseByName } from '../services/calc'
+import { isOccurrenceResolved, nextCashEventTime, pendingExpenseByName } from '../services/calc'
 import { buildInstallments, cardInvoice, directInstallmentPaidAmount, futureInvoicePaymentDate,
   settleableInstallmentIds, suggestedFirstDueDate, unpaidPriorInvoiceMonth } from '../services/cards'
 
@@ -387,6 +387,26 @@ export function applyActionPure(
         frequency: 'monthly' as const, nextDate: date, active: true, createdAt: date,
       }
       return { state: { ...state, cardCharges: [charge, ...state.cardCharges] }, result: { ok: true, actionId, entityId: charge.id } }
+    }
+    case 'recurring-confirm': {
+      const rec = (state.recurring || []).find(r => r.id === action.recurringId)
+      if (!rec) return { state, result: fail(actionId, 'recurring-not-found', action.description, false) }
+      const occ = action.occurrenceDate
+      // A chave recurringId + data é a mesma da Home: confirmar duas vezes o
+      // mesmo vencimento é recusado, nunca duplicado.
+      if (isOccurrenceResolved(rec, occ) || state.transactions.some(x => x.recurringId === rec.id && x.occurrenceDate === occ)) {
+        return { state, result: fail(actionId, 'occurrence-resolved', rec.name, false) }
+      }
+      const amount = action.amount ?? rec.amount
+      const t = tx({
+        type: rec.kind === 'income' ? 'income' : 'expense', amount, category: rec.category,
+        description: rec.name, origin: rec.origin, recurringId: rec.id, occurrenceDate: occ,
+      })
+      const recurring = state.recurring.map(r => r.id !== rec.id ? r : {
+        ...r, snoozeUntil: undefined,
+        occurrences: [...(r.occurrences || []).filter(o => o.date !== occ), { date: occ, status: 'confirmed' as const, txId: t.id, amount }],
+      })
+      return { state: { ...withTx(t), recurring }, result: { ok: true, actionId, entityId: t.id } }
     }
     case 'edit-transaction': {
       const alvo = state.transactions.find(t => t.id === action.transactionId)

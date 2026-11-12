@@ -7,6 +7,7 @@ import { findDate } from '../../src/assistant/dates'
 import { balanceOutlook, balanceOutlookText, currentBalance, monthlyProjections, occurrencesBetween, pendingRecurrings } from '../../src/services/calc'
 import { cardInvoice, cardOutstanding, cardsOverview, futureInstallmentPaymentDate, invoiceOpenAmount, planProgress } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
+import { isRevertFailure, revertBatchPure } from '../../src/assistant/journal'
 import { applyPreferenceAliases } from '../../src/assistant/preferences'
 import { hydrateForTest, reducer } from '../../src/store/store'
 import { addDays, fmtBRL, fromISO, monthShortLabel, nowPaymentTime, nowStamp, todayISO, toISO as toISOdate } from '../../src/utils/format'
@@ -2042,11 +2043,12 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const r = await turnoHoje(st, frase)
       out.push(result(id, r.reply, esperado, ok(limpa(r.reply)) && r.actions.length === 0))
     }
-    // O chat não possui a chave da ocorrência: proposta avulsa duplicaria a Home.
+    // Conta fixa em aberto: a proposta é a CONFIRMAÇÃO da ocorrência (com a
+    // chave recurringId + vencimento), nunca uma despesa avulsa que duplicaria a Home.
     const agua50 = await turnoHoje(st, 'paguei a agua de 50')
-    out.push(result('CF-avulsa-avisa-conta-fixa', agua50, `sem despesa avulsa; Água de ${data(agua)} exige confirmação na Home`,
-      agua50.actions.length === 0 && /conta fixa/i.test(agua50.reply)
-        && /tela inicial/i.test(agua50.reply) && agua50.reply.includes(data(agua))))
+    out.push(result('CF-avulsa-vira-confirmacao', agua50, `confirmação da Água de ${data(agua)} com R$ 50, sem despesa avulsa`,
+      agua50.actions.length === 1 && agua50.actions[0].kind === 'recurring-confirm' && agua50.actions[0].amount === 50
+        && agua50.actions[0].occurrenceDate === agua && /conta fixa/i.test(agua50.reply) && agua50.reply.includes(data(agua))))
     const mercado = await turnoHoje(st, 'paguei 50 no mercado')
     out.push(result('CF-sem-conta-fixa-sem-aviso', mercado.reply, 'sem aviso de conta fixa', !/conta fixa/i.test(mercado.reply)))
     const luzPaga = await turnoHoje(st, 'paguei a luz de 150')
@@ -2476,8 +2478,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result(`NM-${frase.replace(/\W+/g, '-')}`, r, brl(valor), r.includes(brl(valor)) && !/Posso te ajudar/.test(r)))
     }
     const registro = await turnoHoje(rico, 'gasto 50 de luz')
-    out.push(result('NM-com-valor-conta-fixa', registro, 'Luz pendente exige confirmação na Home',
-      registro.actions.length === 0 && /conta fixa|tela inicial/i.test(registro.reply)))
+    out.push(result('NM-com-valor-conta-fixa', registro, 'Luz pendente vira confirmação com R$ 50 (cadastrado R$ 180 citado)',
+      registro.actions.length === 1 && registro.actions[0].kind === 'recurring-confirm' && registro.actions[0].amount === 50
+        && /cadastrado: R\$\s180,00/.test(registro.reply)))
     const avulso = await turnoHoje(rico, 'paguei 50 no mercado')
     out.push(result('NM-com-valor-avulso-continua-registro', avulso.actions, 'despesa avulsa de 50',
       avulso.actions.some(a => a.kind === 'expense' && a.amount === 50)))
@@ -3947,27 +3950,50 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     st.recurring = [{ id: 'internet-pendente', name: 'Internet', amount: 120,
       frequency: 'monthly', dueDay: Number(hoje.slice(8)), startDate: hoje,
       category: 'casa', kind: 'expense', active: true }]
+    // "Paguei 120 da internet" com a conta em aberto: o chat PROPÕE confirmar a
+    // ocorrência (o mesmo que o card da Home faz), com o valor dito. Confirmar
+    // pelo chat e depois pela Home não é possível: a ocorrência já está
+    // resolvida. A despesa avulsa antiga continua recusada pelo executor.
     const proposed = await turnoHoje(st, 'paguei 120 da internet')
     const forced = applyBatchPure(st, [{ id: 'internet-chat', action: {
       kind: 'expense', amount: 120, category: 'assinaturas', description: 'Internet', date: hoje,
     } }], { now: { date: hoje, time: '14:00' } })
-    const afterChat = forced.state
-    const pending = pendingRecurrings(afterChat, hoje)
-    const homeTx = { id: 'internet-home', type: 'expense' as const, amount: 120,
-      category: 'casa', description: 'Internet', date: hoje, time: '15:00',
-      recurringId: 'internet-pendente', occurrenceDate: hoje }
-    const afterHome = reducer(reducer(afterChat, { type: 'addTx', tx: homeTx }),
-      { type: 'resolveOccurrence', recurringId: 'internet-pendente',
-        occurrence: { date: hoje, status: 'confirmed', txId: homeTx.id, amount: 120 } })
-    out.push(result('RCUR-conta-fixa-chat-nao-duplica-home',
-      { proposed, forced: forced.results, pending: pending.length,
-        afterChat: currentBalance(afterChat), afterHome: currentBalance(afterHome),
-        transactions: afterHome.transactions.length },
-      'chat não propõe despesa avulsa para conta fixa pendente; executor recusa proposta antiga',
-      proposed.actions.length === 0 && /tela inicial|conta fixa/i.test(proposed.reply)
+    const viaChat = applyBatchPure(st, proposed.actions.map((action, i) => ({ id: `rc-${i}`, action })), { now: { date: hoje, time: '14:00' }, batchId: 'rc-lote', stamp: `${hoje}T14:00:00.000` })
+    const pendingAfterChat = pendingRecurrings(viaChat.state, hoje)
+    const segundaVez = applyBatchPure(viaChat.state, proposed.actions.map((action, i) => ({ id: `rc2-${i}`, action })), { now: { date: hoje, time: '15:00' } })
+    out.push(result('RCUR-conta-fixa-chat-confirma-ocorrencia',
+      { proposed, forced: forced.results, viaChat: viaChat.results, pendingAfterChat: pendingAfterChat.length,
+        saldo: currentBalance(viaChat.state), transactions: viaChat.state.transactions.length, segundaVez: segundaVez.results },
+      'proposta de confirmação com R$ 120 e o vencimento; executor recusa a avulsa; confirmar baixa a conta uma vez só',
+      proposed.actions.length === 1 && proposed.actions[0].kind === 'recurring-confirm'
+        && proposed.actions[0].amount === 120 && proposed.actions[0].occurrenceDate === hoje && proposed.actions[0].recurringId === 'internet-pendente'
+        && /conta fixa/i.test(proposed.reply) && !/tela inicial/i.test(proposed.reply)
         && !forced.applied && forced.state.transactions.length === 0
-        && pending.length === 1 && currentBalance(afterHome) === 880
-        && afterHome.transactions.length === 1))
+        && viaChat.applied && viaChat.state.transactions.length === 1
+        && viaChat.state.transactions[0].recurringId === 'internet-pendente' && viaChat.state.transactions[0].occurrenceDate === hoje
+        && viaChat.state.recurring[0].occurrences?.some(o => o.date === hoje && o.status === 'confirmed' && o.amount === 120)
+        && pendingAfterChat.length === 0 && currentBalance(viaChat.state) === 880
+        && !segundaVez.applied && segundaVez.results.some(r => 'code' in r && r.code === 'occurrence-resolved')))
+
+    // Valor diferente do cadastrado: a proposta leva o valor DITO e a resposta
+    // mostra os dois. Sem valor ("paguei a internet"), vale o cadastrado.
+    const diferente = await turnoHoje(st, 'paguei 135 da internet')
+    const semValor = await turnoHoje(st, 'paguei a internet')
+    const semValorAplicado = applyBatchPure(st, semValor.actions.map((action, i) => ({ id: `sv-${i}`, action })), { now: { date: hoje, time: '14:00' } })
+    out.push(result('RCUR-valor-dito-prevalece', { diferente: diferente.reply, actions: diferente.actions },
+      'R$ 135 na proposta, cadastrado R$ 120 citado',
+      diferente.actions.length === 1 && diferente.actions[0].kind === 'recurring-confirm' && diferente.actions[0].amount === 135
+        && /135,00/.test(diferente.reply) && /cadastrado: R\$\s120,00/.test(diferente.reply)))
+    out.push(result('RCUR-sem-valor-usa-cadastrado', { actions: semValor.actions, aplicado: semValorAplicado.results },
+      'confirmação com o valor cadastrado (R$ 120)',
+      semValor.actions.length === 1 && semValor.actions[0].kind === 'recurring-confirm'
+        && semValorAplicado.applied && semValorAplicado.state.transactions[0]?.amount === 120))
+
+    // Desfazer o lote reabre a ocorrência: a conta volta a aparecer como pendente.
+    const desfeito = revertBatchPure(viaChat.state, 'rc-lote', `${hoje}T16:00:00.000`)
+    out.push(result('RCUR-desfazer-reabre-ocorrencia', isRevertFailure(desfeito) ? desfeito : { pendentes: pendingRecurrings(desfeito.state, hoje).length, tx: desfeito.state.transactions.length },
+      'ocorrência pendente de novo, lançamento removido',
+      !isRevertFailure(desfeito) && pendingRecurrings(desfeito.state, hoje).length === 1 && desfeito.state.transactions.length === 0))
 
     const snoozed = { ...st, recurring: st.recurring.map(r => ({ ...r, snoozeUntil: addDays(hoje, 1) })) }
     const whileSnoozed = await turnoHoje(snoozed, 'paguei 120 da internet')
@@ -3975,13 +4001,14 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       kind: 'expense', amount: 120, description: 'Internet', category: 'assinaturas',
     } }], { now: { date: hoje, time: '14:00' } })
     out.push(result('RCUR-adiada-nao-abre-rota-avulsa', { whileSnoozed, forcedSnoozed: forcedSnoozed.results },
-      'adiar o aviso não permite duplicar pelo chat', whileSnoozed.actions.length === 0 && !forcedSnoozed.applied))
+      'adiar o aviso não permite duplicar pelo chat: a proposta é a confirmação, nunca a avulsa',
+      whileSnoozed.actions.length === 1 && whileSnoozed.actions[0].kind === 'recurring-confirm' && !forcedSnoozed.applied))
 
     const other = await turnoHoje(st, 'paguei 120 da internet e 30 no mercado')
     out.push(result('RCUR-outra-despesa-do-lote-preservada', other,
-      'conta fixa bloqueada; despesa independente de 30 continua proposta',
-      other.actions.length === 1 && other.actions[0].kind === 'expense'
-        && other.actions[0].amount === 30 && /internet/i.test(other.reply)))
+      'conta fixa vira confirmação; despesa independente de 30 continua proposta',
+      other.actions.length === 2 && other.actions.some(a => a.kind === 'recurring-confirm' && a.amount === 120)
+        && other.actions.some(a => a.kind === 'expense' && a.amount === 30) && /internet/i.test(other.reply)))
   }
 
   // "Até dia N" é PRAZO, não fato. No dia 12, "quanto preciso deixar parado

@@ -387,6 +387,11 @@ export type ParsedAction =
   // recorrente materializada; o TIPO nunca muda, e o que depende de plano,
   // cartão, meta, veículo ou template de recorrência é recusado.
   | { kind: 'edit-transaction'; transactionId: string; amount?: number; description?: string; category?: string; origin?: string; date?: string }
+  // Confirma pelo chat UMA ocorrência de conta fixa em aberto ("paguei 120 de
+  // luz"): cria a movimentação realizada e resolve a ocorrência, o mesmo que o
+  // card da Home faz. `amount` ausente = valor cadastrado; `date` = dia do
+  // pagamento (hoje por padrão). Local-only: o remoto não conhece ids.
+  | { kind: 'recurring-confirm'; recurringId: string; occurrenceDate: string; amount?: number; description?: string; date?: string }
 
 export interface Insight {
   id: string

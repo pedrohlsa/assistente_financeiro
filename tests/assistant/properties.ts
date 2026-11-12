@@ -120,6 +120,7 @@ const AMOSTRA: Record<string, any> = {
   'financed-cash-inflow': { total: 2000, netReceived: 1850, installments: 5, cardName: 'Nubank', source: 'Loja X' },
   'card-payment': { cardName: 'Nubank', amount: 300 },
   'card-charge': { amount: 39.9, description: 'Netflix', cardName: 'Nubank', category: 'assinaturas' },
+  'recurring-confirm': { recurringId: 'luz', occurrenceDate: TODAY, amount: 120, description: 'Luz', date: TODAY },
   reset: {},
 }
 
@@ -462,6 +463,7 @@ export async function runProperties(): Promise<PropertyReport> {
       balance: { amount: 10 }, 'card-purchase': { total: 10, installments: 2 },
       'financed-cash-inflow': { total: 10, netReceived: 9, installments: 2 },
       'card-payment': {}, 'card-charge': { amount: 10 }, reset: {},
+      'recurring-confirm': { recurringId: 'luz', occurrenceDate: TODAY, amount: 10, description: 'Luz' },
     }
     for (const spec of ACTION_CATALOG) {
       const text = describeAction({ kind: spec.kind, ...sample[spec.kind] } as any)

@@ -37,6 +37,7 @@ const LABELS: Record<string, string> = {
   pricePerLiter: 'Preço por litro', odometer: 'Hodômetro',
   installments: 'Parcelas', firstDueDate: 'Primeiro vencimento',
   source: 'Intermediário', date: 'Data',
+  recurringId: 'Conta fixa (id)', occurrenceDate: 'Vencimento confirmado',
 }
 
 /** Metas existentes viram lista: `goal-update` e `goal-deposit` exigem uma. */
