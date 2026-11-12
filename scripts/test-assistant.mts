@@ -12,6 +12,7 @@
 //   4. METAMÓRFICOS           — a CLASSE de frases, não a frase
 //   5. FUZZ e INVARIANTES     — nada trava, nada age sozinho, nada some
 
+import { TEST_TODAY } from '../tests/clock'
 import { CASES } from '../tests/assistant/cases'
 import { CRITICAL } from '../tests/assistant/cases-critical'
 import { ADVERSARIAL } from '../tests/assistant/cases-adversarial'
@@ -70,7 +71,7 @@ for (const r of results) {
   byGroup.set(r.group, g)
 }
 
-console.log('\n=== Corpus do assistente ===')
+console.log(`\n=== Corpus do assistente (relógio dos testes: ${TEST_TODAY}) ===`)
 for (const [group, g] of [...byGroup.entries()].sort()) {
   const mark = g.ok === g.total ? 'ok  ' : 'FAIL'
   console.log(`${mark} ${group.padEnd(14)} ${g.ok}/${g.total}`)

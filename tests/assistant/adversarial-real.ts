@@ -3,6 +3,7 @@
 import type { AppState } from '../../src/models/types'
 import { orchestrate } from '../../src/assistant/orchestrator'
 import { segment } from '../../src/assistant/clauses'
+import { findDate } from '../../src/assistant/dates'
 import { balanceOutlook, balanceOutlookText, currentBalance, monthlyProjections, occurrencesBetween, pendingRecurrings } from '../../src/services/calc'
 import { cardInvoice, cardOutstanding, cardsOverview, futureInstallmentPaymentDate, invoiceOpenAmount, planProgress } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
@@ -61,6 +62,33 @@ function somenteFaturasAtuais(s: AppState, hoje: string): AppState {
 }
 
 const result = (id: string, actual: unknown, expected: unknown, ok: boolean): AdversarialResult => ({ id, actual, expected, ok })
+
+/**
+ * O que "falta pagar em faturas" tem que dizer no fixture rico, conforme o dia
+ * do mês: antes do fechamento do Nubank (dia 20) a fatura dele ainda está
+ * ABERTA e sai à parte ("pode crescer até fechar"); depois, as duas fechadas
+ * somam R$ 800,00. O oráculo antigo só valia do dia 20 em diante.
+ */
+function faturasAPagarEsperadas(rico: AppState, hoje: string): { descricao: string; confere: (r: string) => boolean } {
+  const mk = hoje.slice(0, 7)
+  const porCartao = rico.cards.map(c => ({ nome: c.name, inv: cardInvoice(rico, c, mk) }))
+  const fechadas = porCartao.filter(x => x.inv.status !== 'aberta' && x.inv.total > 0)
+  const abertas = porCartao.filter(x => x.inv.status === 'aberta' && x.inv.total > 0)
+  const soma = fechadas.reduce((a, x) => a + x.inv.total, 0)
+  const brl = (v: number) => fmtBRL(v).replace(/\u00a0/g, ' ')
+  // A resposta também lista a próxima fatura ainda aberta de cada cartão, por
+  // isso "Ainda aberta" pode aparecer mesmo com as duas do mês fechadas.
+  const descricao = !fechadas.length ? 'nenhuma fatura fechada ou vencida; só abertas'
+    : abertas.length ? `falta pagar ${brl(soma)} fechado; ${abertas.map(x => x.nome).join(', ')} ainda aberta à parte`
+      : `falta pagar ${brl(soma)} em faturas`
+  return {
+    descricao,
+    confere: (r: string) => (!fechadas.length
+      ? /Nenhuma fatura vencida ou fechada/.test(r) && !/Falta pagar R\$/.test(r)
+      : r.includes(`Falta pagar ${brl(soma)}`))
+      && abertas.every(x => /Ainda abertas?/.test(r) && r.includes(x.nome)),
+  }
+}
 
 export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
@@ -1310,7 +1338,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   ] as const) {
     const st = estadoDeCaixaFuturo(hoje, 2000, perfil)
     const antes = JSON.stringify(st)
-    const r = await turn(st, frase)
+    const r = await turnoHoje(st, frase)
     out.push(result(id, r.reply, `até ${dd(alvo)}: R$ 1.300 certos, Água 50 sem confirmação, sobram R$ 700`,
       r.actions.length === 0 && JSON.stringify(st) === antes
         && r.reply.startsWith(`Até ${dd(alvo)}, deixe pelo menos R$`) && /1\.300,00/.test(r.reply)
@@ -1321,15 +1349,15 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   }
   {
     const st = estadoDeCaixaFuturo(hoje, 2000, 'autonomo')
-    const dia5 = await turn(st, 'quanto devo deixar reservado até o dia 5')
+    const dia5 = await turnoHoje(st, 'quanto devo deixar reservado até o dia 5')
     const alvo5 = (() => {
       const d = Number(hoje.slice(8, 10))
       const [y, m] = hoje.split('-').map(Number)
       return d <= 5 ? `${hoje.slice(0, 8)}05` : `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-05`
     })()
-    const semDia = await turn(st, 'quanto preciso deixar parado pras contas')
-    const dia32 = await turn(st, 'quanto preciso reservar ate dia 32')
-    const meta = await turn({ ...st, goals: [{ id: 'g-viagem', name: 'Viagem', target: 6000, saved: 4800, createdAt: hoje }] },
+    const semDia = await turnoHoje(st, 'quanto preciso deixar parado pras contas')
+    const dia32 = await turnoHoje(st, 'quanto preciso reservar ate dia 32')
+    const meta = await turnoHoje({ ...st, goals: [{ id: 'g-viagem', name: 'Viagem', target: 6000, saved: 4800, createdAt: hoje }] },
       'quanto preciso reservar pra viagem')
     out.push(result('F-reserva-ecoa-o-dia-pedido', dia5.reply, `data ${dd(alvo5)}, nunca "dia 10" fixo`,
       dia5.reply.startsWith(`Até ${dd(alvo5)}`) && !/dia 10/.test(dia5.reply)))
@@ -1346,7 +1374,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     // mais próxima é a Internet.
     for (const frase of ['qual conta ta me apertando', 'qual das contas ta pesando mais', 'qual boleto ta me apertando']) {
       const st = estadoDeCaixaFuturo(hoje, 2000, 'autonomo')
-      const r = await turn(st, frase)
+      const r = await turnoHoje(st, frase)
       out.push(result(`F-aperto-${frase.split(' ')[1]}-${frase.split(' ').slice(-1)[0]}`, r.reply,
         'atrasada primeiro; maior Aluguel 900; próxima Internet 100; cobre R$ 1.350',
         r.actions.length === 0
@@ -1356,12 +1384,12 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
           && /cobre os R\$\s1\.350,00/.test(r.reply) && !/Nubank/.test(r.reply)
           && /sem confirma[çc][ãa]o/.test(r.reply) && !deslocada.test(r.reply)))
     }
-    const curto = await turn(estadoDeCaixaFuturo(hoje, 500, 'autonomo'), 'qual conta ta me apertando')
+    const curto = await turnoHoje(estadoDeCaixaFuturo(hoje, 500, 'autonomo'), 'qual conta ta me apertando')
     out.push(result('F-aperto-saldo-nao-cobre', curto.reply, 'saldo 500 não cobre 1.350: faltam 850',
       /n[ãa]o cobre os R\$\s1\.350,00/.test(curto.reply) && /faltam R\$\s850,00/.test(curto.reply)))
     const empate = estadoDeCaixaFuturo(hoje, 2000, 'autonomo')
     empate.recurring = empate.recurring.map(r => r.id === 'aluguel' ? { ...r, amount: 100 } : r)
-    const empatou = await turn(empate, 'qual conta pesa mais')
+    const empatou = await turnoHoje(empate, 'qual conta pesa mais')
     out.push(result('F-aperto-empate-dito', empatou.reply, 'Internet e Aluguel empatam em R$ 100',
       /empatam/.test(empatou.reply) && /Internet/.test(empatou.reply) && /Aluguel/.test(empatou.reply)
       && !/a maior é/i.test(empatou.reply)))
@@ -1370,8 +1398,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       paidAt: addDays(hoje, -5), paidAmount: 300, paidVia: 'direct' as const } : i)
     ambiguo.cardPayments = [{ id: 'cx-dup', cardId: 'cx-card-inter', amount: 300, paymentDate: addDays(hoje, -4),
       paymentTime: '10:00:00', referenceMonth: addDays(hoje, -5).slice(0, 7), fromBalance: true }]
-    const reservaAmbigua = await turn(ambiguo, `quanto preciso deixar parado ate dia ${Number(alvo.slice(8, 10))}`)
-    const apertoAmbiguo = await turn(ambiguo, 'qual conta ta me apertando')
+    const reservaAmbigua = await turnoHoje(ambiguo, `quanto preciso deixar parado ate dia ${Number(alvo.slice(8, 10))}`)
+    const apertoAmbiguo = await turnoHoje(ambiguo, 'qual conta ta me apertando')
     out.push(result('F-caixa-futuro-saldo-legado-ambiguo', { reservaAmbigua: reservaAmbigua.reply, apertoAmbiguo: apertoAmbiguo.reply },
       'reserva recusa o número; aperto não afirma cobertura pelo saldo',
       /n[ãa]o consigo confirmar seu saldo/i.test(reservaAmbigua.reply) && !/deixe pelo menos/.test(reservaAmbigua.reply)
@@ -1382,9 +1410,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     // e contradiziam a reserva no mesmo aparelho.
     const n = Number(alvo.slice(8, 10))
     const estado = estadoDeCaixaFuturo(hoje, 2000, 'autonomo')
-    const vence = await turn(estado, `quais contas vencem ate dia ${n}`)
-    const cobre = await turn(estado, `minhas contas cobrem ate dia ${n}?`)
-    const reserva = await turn(estado, `quanto preciso deixar parado ate dia ${n}`)
+    const vence = await turnoHoje(estado, `quais contas vencem ate dia ${n}`)
+    const cobre = await turnoHoje(estado, `minhas contas cobrem ate dia ${n}?`)
+    const reserva = await turnoHoje(estado, `quanto preciso deixar parado ate dia ${n}`)
     const totalDe = (s: string) => (s.match(/R\$\s([\d.]+,\d{2})/) || [])[1]
     out.push(result('F-vencimentos-coerentes', { vence: vence.reply, cobre: cobre.reply, reserva: reserva.reply },
       'R$ 1.300,00 nas três, com a fatura atrasada e sem a Água sem confirmação',
@@ -1392,15 +1420,15 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && /deixe pelo menos R\$\s1\.300,00/.test(reserva.reply)
         && [vence, cobre].every(r => /Fatura Inter/.test(r.reply) && /sem confirma[çc][ãa]o — [ÁA]gua/.test(r.reply))
         && cobre.reply.startsWith('Sim.') && /sobram R\$\s700,00/.test(cobre.reply)))
-    const curtoCobre = await turn(estadoDeCaixaFuturo(hoje, 500, 'autonomo'), `minhas contas cobrem ate dia ${n}?`)
+    const curtoCobre = await turnoHoje(estadoDeCaixaFuturo(hoje, 500, 'autonomo'), `minhas contas cobrem ate dia ${n}?`)
     out.push(result('F-cobre-nao', curtoCobre.reply, 'Não; faltam R$ 800',
       curtoCobre.reply.startsWith('Não.') && /faltam R\$\s800,00/.test(curtoCobre.reply)))
-    const semana = await turn(estado, 'o que vence essa semana')
+    const semana = await turnoHoje(estado, 'o que vence essa semana')
     out.push(result('F-vence-essa-semana', semana.reply, `até ${dd(addDays(hoje, 7))}, R$ 1.300`,
       semana.reply.startsWith(`Vence até ${dd(addDays(hoje, 7))}: R$`) && /1\.300,00/.test(semana.reply)))
-    const temConta = await turn(estado, 'tem conta vencendo?')
+    const temConta = await turnoHoje(estado, 'tem conta vencendo?')
     out.push(result('F-tem-conta-sim', temConta.reply, 'começa com Sim.', temConta.reply.startsWith('Sim.')))
-    const saldo = await turn(estado, 'qual meu saldo')
+    const saldo = await turnoHoje(estado, 'qual meu saldo')
     out.push(result('F-saldo-cobre-as-mesmas-obrigacoes', saldo.reply, 'R$ 2.000 cobre R$ 1.300 (fatura atrasada incluída) e sobram R$ 700',
       /cobre os R\$\s1\.300,00/i.test(saldo.reply) && /sobram R\$\s700,00/.test(saldo.reply)))
   }
@@ -1462,9 +1490,13 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
     const hojeOntem = await turnoHoje(st, 'como foi hoje comparado com ontem')
     const ontem = addDays(hoje, -1)
-    out.push(result('H-como-foi-hoje-ontem', hojeOntem.reply, 'resultado de hoje contra o de ontem',
-      /^Resultado hoje/.test(limpa(hojeOntem.reply)) && limpa(hojeOntem.reply).includes(brl(soma(hoje, hoje)))
-        && limpa(hojeOntem.reply).includes(brl(soma(ontem, ontem)))))
+    const temHoje = st.transactions.some(t => t.date === hoje)
+    const temOntem = st.transactions.some(t => t.date === ontem)
+    out.push(result('H-como-foi-hoje-ontem', hojeOntem.reply, temHoje ? 'resultado de hoje contra o de ontem' : 'sem lançamento hoje: diz isso, sem número',
+      temHoje
+        ? /^Resultado hoje/.test(limpa(hojeOntem.reply)) && limpa(hojeOntem.reply).includes(brl(soma(hoje, hoje)))
+          && (temOntem ? limpa(hojeOntem.reply).includes(brl(soma(ontem, ontem))) : /Ontem não há lançamentos/.test(hojeOntem.reply))
+        : /hoje/.test(hojeOntem.reply) && !/R\$/.test(hojeOntem.reply)))
     const gasolina = await turnoHoje(st, 'gasolina comparado com o mes passado')
     const inicioMes = `${hoje.slice(0, 8)}01`
     out.push(result('H-sujeito-sem-preposicao', gasolina.reply, 'gasto com gasolina, não o gasto total',
@@ -1486,13 +1518,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const dia = Number(hoje.slice(8, 10))
     const [y, m] = hoje.split('-').map(Number)
     const inicioAnt = `${m === 1 ? y - 1 : y}-${String(m === 1 ? 12 : m - 1).padStart(2, '0')}-01`
-    const fimAnt = `${inicioAnt.slice(0, 8)}${String(Math.min(dia, new Date(m === 1 ? y - 1 : y, m === 1 ? 12 : m - 1, 0).getDate())).padStart(2, '0')}`
+    // No último dia do mês o mês principal está completo, e o comparável é o
+    // mês anterior INTEIRO (`previousPeriod`), não o mesmo pedaço.
+    const ultimoDiaDoMes = new Date(y, m, 0).getDate()
+    const diaCorte = dia === ultimoDiaDoMes ? 31 : dia
+    const fimAnt = `${inicioAnt.slice(0, 8)}${String(Math.min(diaCorte, new Date(m === 1 ? y - 1 : y, m === 1 ? 12 : m - 1, 0).getDate())).padStart(2, '0')}`
     const kmEntre = (from: string, to: string) => st.workSessions.filter(w => w.date >= from && w.date <= to).reduce((a, w) => a + w.km, 0)
     const porKm = (from: string, to: string) => soma(from, to, 'expense') / Math.max(kmEntre(from, to), 1)
     const custoKm = await turnoHoje(st, 'meu custo por km piorou?')
-    const subiuKm = porKm(inicioMes, hoje) > porKm(inicioAnt, fimAnt)
-    out.push(result('J-sim-nao-custo-por-km', custoKm.reply, subiuKm ? 'Sim, piorou.' : 'Não, melhorou.',
-      limpa(custoKm.reply).startsWith(subiuKm ? 'Sim, piorou.' : 'Não, melhorou.')))
+    const c2 = (v: number) => Math.round(v * 100) / 100
+    const igualKm = c2(porKm(inicioMes, hoje)) === c2(porKm(inicioAnt, fimAnt))
+    const subiuKm = c2(porKm(inicioMes, hoje)) > c2(porKm(inicioAnt, fimAnt))
+    const leadKm = igualKm ? 'Não, ficou igual.' : subiuKm ? 'Sim, piorou.' : 'Não, melhorou.'
+    out.push(result('J-sim-nao-custo-por-km', custoKm.reply, leadKm, limpa(custoKm.reply).startsWith(leadKm)))
     for (const [id, frase] of [
       ['J-sem-interrogacao-nao-ganha-lead', 'comparado com a semana passada'],
       ['J-pergunta-aberta-nao-ganha-lead', 'quanto gastei a mais que semana passada?'],
@@ -1529,21 +1567,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       .map(id => ({ id, nome: st.categories.find(c => c.id === id)?.name || id, d: (agora.get(id) || 0) - (antes.get(id) || 0) }))
     const subiu = [...deltas].sort((a, b) => b.d - a.d)[0]
     const caiu = [...deltas].sort((a, b) => a.d - b.d)[0]
+    // Dia 1º sem gasto ainda: não há ranking possível, e o app diz que não há
+    // base (regra 43) em vez de coroar uma categoria com R$ 0,00.
+    const semGastoNoMes = agora.size === 0
+    const semBase = (r: string) => /Não tenho nenhum lançamento/.test(r) && !/foi o que mais/.test(r)
     for (const frase of ['tem alguma coisa q eu to gastando mt mais q antes?', 'qual despesa esta mais fora do meu padrao', 'o que aumentou mais esse mes']) {
       const r = await turnoHoje(st, frase)
       const depois = r.reply.split('Depois:')[1] || ''
-      out.push(result(`K-subiu-${frase.split(' ').slice(2, 4).join('-')}`, r.reply, `${subiu.nome} foi o que mais subiu; lista só com altas`,
-        subiu.d > 0 && r.reply.includes(`${subiu.nome} foi o que mais subiu comparado com`) && !/−R\$/.test(depois)
-          && !/padrao|padrão/i.test(r.reply) && (!/^tem/.test(frase) || r.reply.startsWith('Sim.'))))
+      out.push(result(`K-subiu-${frase.split(' ').slice(2, 4).join('-')}`, r.reply,
+        semGastoNoMes ? 'mês sem gasto: sem ranking, diz que não há base' : `${subiu.nome} foi o que mais subiu; lista só com altas`,
+        semGastoNoMes ? semBase(r.reply) && r.actions.length === 0
+          : subiu.d > 0 && r.reply.includes(`${subiu.nome} foi o que mais subiu comparado com`) && !/−R\$/.test(depois)
+            && !/padrao|padrão/i.test(r.reply) && (!/^tem/.test(frase) || r.reply.startsWith('Sim.'))))
     }
     const r = await turnoHoje(st, 'qual categoria caiu mais')
-    out.push(result('K-caiu-lista-so-quedas', r.reply, `${caiu.nome} foi o que mais caiu; lista só com quedas`,
-      r.reply.includes(`${caiu.nome} foi o que mais caiu comparado com`) && !/\+R\$/.test(r.reply.split('Depois:')[1] || '')))
+    out.push(result('K-caiu-lista-so-quedas', r.reply, semGastoNoMes ? 'mês sem gasto: sem ranking' : `${caiu.nome} foi o que mais caiu; lista só com quedas`,
+      semGastoNoMes ? semBase(r.reply)
+        : r.reply.includes(`${caiu.nome} foi o que mais caiu comparado com`) && !/\+R\$/.test(r.reply.split('Depois:')[1] || '')))
     const totalAgora = [...agora.values()].reduce((a, v) => a + v, 0)
     const totalAntes = [...antes.values()].reduce((a, v) => a + v, 0)
     const normal = await turnoHoje(st, 'gastei fora do normal esse mes?')
-    out.push(result('K-fora-do-normal-sim-ou-nao', normal.reply, totalAgora > totalAntes ? 'Sim, subiu.' : 'Não, caiu.',
-      normal.reply.startsWith(totalAgora > totalAntes ? 'Sim, subiu.' : 'Não, caiu.')))
+    out.push(result('K-fora-do-normal-sim-ou-nao', normal.reply, semGastoNoMes ? 'mês sem gasto: sem veredito inventado' : totalAgora > totalAntes ? 'Sim, subiu.' : 'Não, caiu.',
+      semGastoNoMes ? semBase(normal.reply) : normal.reply.startsWith(totalAgora > totalAntes ? 'Sim, subiu.' : 'Não, caiu.')))
   }
 
   // Continuação de simulação: "dá ruim?", "volta" e "qual mês fica pior"
@@ -1956,7 +2001,11 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       amount: 200, dueDate: addDays(sofa, 30 * n), status: 'pending' }))] as AppState['installments']
     const fimDoMes = toISOdate(new Date(fromISO(hoje).getFullYear(), fromISO(hoje).getMonth() + 1, 0))
     // Literal: Inter 300 vencida há 5 dias, Internet 100 amanhã, Aluguel 900 em 3 dias; Água 50 sem confirmação à parte.
-    const esperado = [[-5, 300], [1, 100], [3, 900]].filter(([d]) => addDays(hoje, d) <= fimDoMes).reduce((a, [, v]) => a + v, 0)
+    // A Água (dia de hoje−15, mensal) volta a vencer dentro do mês em parte do
+    // calendário — aí ela entra no "falta pagar" como qualquer conta do mês.
+    const agua = st.recurring.find(r => r.id === 'agua')!
+    const aguaNoMes = occurrencesBetween(agua, addDays(hoje, 1), fimDoMes, hoje).length * 50
+    const esperado = [[-5, 300], [1, 100], [3, 900]].filter(([d]) => addDays(hoje, d) <= fimDoMes).reduce((a, [, v]) => a + v, 0) + aguaNoMes
     for (const frase of ['quanto falta pagar esse mes', 'quanto falta de conta esse mes?', 'quanto ainda tenho de conta pra pagar esse mes']) {
       const r = await turnoHoje(st, frase)
       const texto = limpa(r.reply)
@@ -2290,8 +2339,10 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const card = st.cards.find(c => c.name === nome)!
       const inv = cardInvoice(st, card, hoje.slice(0, 7))
       const r = (await turnoHoje(st, frase)).reply
-      out.push(result(`FS-${nome}`, r, `situação ${inv.status}`,
-        palavra[inv.status].test(r) && (inv.status === 'aberta' || !/previs/i.test(r))))
+      // Fechamento num mês e vencimento no seguinte: na virada, a fatura que
+      // vence neste mês está vazia e a compra foi para a próxima.
+      out.push(result(`FS-${nome}`, r, inv.total > 0 ? `situação ${inv.status}` : 'fatura do mês vazia: R$ 0,00',
+        inv.total > 0 ? palavra[inv.status].test(r) && (inv.status === 'aberta' || !/previs/i.test(r)) : /R\$\s0,00/.test(r)))
     }
     // Parcela marcada como paga SEM data (backup antigo): o caixa e a resposta
     // de fatura já a tratam como quitada; a consulta não pode chamá-la de atrasada.
@@ -2334,12 +2385,15 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       ...mot.workSessions.filter(w => w.date >= ini && w.date <= ontem).map(w => w.date)]).size
     const hojeLucro = r2(lucro(hoje, hoje))
     const media = r2(lucro(ini, ontem) / dias)
+    const nadaHoje = !mot.transactions.some(x => x.date === hoje) && !mot.workSessions.some(w => w.date === hoje)
     const como = limpa((await turnoHoje(mot, 'como foi hoje')).reply)
-    out.push(result('DD-como-foi-hoje', como, `lucro ${brl(hojeLucro)} contra média ${brl(media)}`,
-      como.includes(brl(hojeLucro)) && como.includes(brl(media)) && !/Posso te ajudar/.test(como)))
+    out.push(result('DD-como-foi-hoje', como, nadaHoje ? 'dia sem registro: pede o registro, sem número' : `lucro ${brl(hojeLucro)} contra média ${brl(media)}`,
+      nadaHoje ? /Hoje ainda não tem nada registrado/.test(como) && !/R\$/.test(como)
+        : como.includes(brl(hojeLucro)) && como.includes(brl(media)) && !/Posso te ajudar/.test(como)))
     const bom = limpa((await turnoHoje(mot, 'foi bom?')).reply)
-    out.push(result('DD-foi-bom', bom, hojeLucro >= media ? 'Sim, acima da média' : 'abaixo da média',
-      (hojeLucro >= media ? /^Sim\b/ : /^N[ãa]o\b|^Abaixo|^Foi mais fraco/).test(bom) && bom.includes(brl(media))))
+    out.push(result('DD-foi-bom', bom, nadaHoje ? 'dia sem registro' : hojeLucro >= media ? 'Sim, acima da média' : 'abaixo da média',
+      nadaHoje ? /Hoje ainda não tem nada registrado/.test(bom)
+        : (hojeLucro >= media ? /^Sim\b/ : /^N[ãa]o\b|^Abaixo|^Foi mais fraco/).test(bom) && bom.includes(brl(media))))
   }
 
   // Registro e "como foi?" juntos: "hj deu 300 uber como foi" virava "não
@@ -2525,8 +2579,11 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('CP-diferenca-sem-jargao', dif, `diferença de ${brl(Math.abs(esteMes - passado))}, sem "período principal"`,
       dif.includes(brl(Math.abs(esteMes - passado))) && !/per[íi]odo principal/i.test(dif)))
     const r4 = limpa((await turnoHoje(rico, 'e no ano?', r3.focus)).reply)
-    out.push(result('CP-ano-sem-base-para-comparar', r4, 'ano anterior sem lançamento: diz que não há o que comparar',
-      /n[ãa]o h[áa] lan[çc]amentos? para comparar/i.test(r4) && !/R\$ 0,00/.test(r4)))
+    const anoAnterior = String(h.getFullYear() - 1)
+    const obraAnoAnterior = rico.transactions.some(x => x.type === 'expense' && x.category === 'obra' && x.date.startsWith(anoAnterior))
+    out.push(result('CP-ano-sem-base-para-comparar', r4, obraAnoAnterior ? `compara com ${anoAnterior}, sem R$ 0,00 inventado` : 'ano anterior sem lançamento: diz que não há o que comparar',
+      obraAnoAnterior ? new RegExp(`Em ${anoAnterior}: R\\$`).test(r4) && !/n[ãa]o h[áa] lan[çc]amentos? para comparar/i.test(r4)
+        : /n[ãa]o h[áa] lan[çc]amentos? para comparar/i.test(r4) && !/R\$ 0,00/.test(r4)))
   }
 
   // Elipse com o nome de algo CADASTRADO: "e a internet?" (conta fixa) e "e a
@@ -2549,10 +2606,13 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const rico = autonomoRico(hoje)
     const mesAtual = monthShortLabel(fromISO(hoje))
     const ultimoDia = new Date(fromISO(hoje).getFullYear(), fromISO(hoje).getMonth() + 1, 0).getDate() === fromISO(hoje).getDate()
+    // No dia 1º o mês corrente ainda não tem gasto nenhum: não há o que deixar
+    // de fora, e o aviso de "incompleto" não tem a que se referir.
+    const mesAtualTemGasto = rico.transactions.some(t => t.type === 'expense' && t.date.slice(0, 7) === hoje.slice(0, 7) && t.date <= hoje)
     for (const frase of ['qual foi meu pior mes', 'qual mes eu gastei mais']) {
       const r = (await turnoHoje(rico, frase)).reply
-      out.push(result(`PM-${frase.replace(/\W+/g, '-')}`, r, `${mesAtual} fora do ranking, dito`,
-        ultimoDia || (!r.includes(`• ${mesAtual}:`) && !r.startsWith(`O menor foi ${mesAtual}`) && /incomplet/.test(r))))
+      out.push(result(`PM-${frase.replace(/\W+/g, '-')}`, r, mesAtualTemGasto ? `${mesAtual} fora do ranking, dito` : `${mesAtual} sem gasto: fora do ranking`,
+        ultimoDia || (!r.includes(`• ${mesAtual}:`) && !r.startsWith(`O menor foi ${mesAtual}`) && (!mesAtualTemGasto || /incomplet/.test(r)))))
     }
   }
 
@@ -2600,9 +2660,15 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     ]
     for (const [frase, itens] of casos) {
       const r = await turnoHoje(rico, frase)
-      const ok = itens.every(([kind, amount, d]) => r.actions.some(a => a.kind === kind && a.amount === amount && a.date === dia(d)))
-        && r.actions.filter(a => a.kind === 'income' || a.kind === 'expense').length === itens.length
-      out.push(result(`DT-${frase.replace(/\W+/g, '-')}`, r.actions, itens.map(([k, v, d]) => `${k} ${v} em ${dia(d)}`).join('; '), ok))
+      // Dia que ainda não chegou neste mês é ambíguo (mês passado ou previsão):
+      // o app PERGUNTA em vez de chutar — e os itens continuam na proposta.
+      const aindaNaoChegou = itens.some(([, , d]) => d > h.getDate())
+      const ok = aindaNaoChegou
+        ? /ainda n[ãa]o chegou/.test(r.reply) && r.actions.filter(a => a.kind === 'income' || a.kind === 'expense').length === itens.length
+        : itens.every(([kind, amount, d]) => r.actions.some(a => a.kind === kind && a.amount === amount && a.date === dia(d)))
+          && r.actions.filter(a => a.kind === 'income' || a.kind === 'expense').length === itens.length
+      out.push(result(`DT-${frase.replace(/\W+/g, '-')}`, { reply: r.reply, actions: r.actions },
+        aindaNaoChegou ? 'dia ainda não chegou: pergunta a data, itens preservados' : itens.map(([k, v, d]) => `${k} ${v} em ${dia(d)}`).join('; '), ok))
     }
   }
 
@@ -2826,8 +2892,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     for (const [id, msg] of [['RV-guardei-na-reserva', 'quanto guardei na reserva'], ['RV-mandei-pra-reserva', 'quanto mandei pra reserva'],
       ['RV-coloquei-na-reserva', 'quanto coloquei na reserva esse mes']]) {
       const r = limpa((await turnoHoje(rico, msg)).reply)
-      out.push(result(id, r, `${fmt(doMes)} guardados no mês`,
-        doMes > 0 && r.includes(fmt(doMes)) && !/Não tenho nenhum lançamento|Total gasto/.test(r)))
+      out.push(result(id, r, doMes > 0 ? `${fmt(doMes)} guardados no mês` : 'sem depósito até hoje: diz que não há lançamento, nunca "Total gasto"',
+        doMes > 0 ? r.includes(fmt(doMes)) && !/Não tenho nenhum lançamento|Total gasto/.test(r)
+          : /Não tenho nenhum lançamento|R\$ 0,00/.test(r) && !/Total gasto/.test(r)))
     }
   }
 
@@ -2904,8 +2971,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('FL-pagar-de-cartao', cartao, `faturas de ${nomes[daqui2.getMonth()]}: ${fmt(pendentesEm(daqui2))}`,
       cartao.includes(fmt(pendentesEm(daqui2))) && !/Não tenho|"cartao"/.test(cartao)))
     const fatura = limpa((await turnoHoje(rico, 'quanto tenho de fatura pra pagar')).reply)
-    out.push(result('FL-fatura-pra-pagar', fatura, 'falta pagar R$ 800,00 em faturas, nunca "cadastre um cartão"',
-      /Falta pagar R\$ 800,00/.test(fatura) && !/Cadastre|Não tenho|para pagar|Situação dos seus cartões/.test(fatura)))
+    const esperadoFL = faturasAPagarEsperadas(rico, hoje)
+    out.push(result('FL-fatura-pra-pagar', fatura, `${esperadoFL.descricao}, nunca "cadastre um cartão"`,
+      esperadoFL.confere(fatura) && !/Cadastre|Não tenho|para pagar|Situação dos seus cartões/.test(fatura)))
   }
 
   // "Fiz 12 corridas e (deu) 260": para o motorista, o valor depois das
@@ -3219,9 +3287,10 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   {
     const limpa = (s: string) => s.replace(/ /g, ' ')
     const rico = autonomoRico(hoje)
+    const esperadoFV = faturasAPagarEsperadas(rico, hoje)
     for (const [id, msg] of [['FV-quanto-de-fatura-vence', 'quanto de fatura vence esse mes'], ['FV-quanto-vence-de-fatura', 'quanto vence de fatura esse mes']]) {
       const r = limpa((await turnoHoje(rico, msg)).reply)
-      out.push(result(id, r, 'R$ 800,00 em faturas a pagar', /R\$ 800,00/.test(r) && !/Situação dos seus cartões/.test(r)))
+      out.push(result(id, r, esperadoFV.descricao, esperadoFV.confere(r) && !/Situação dos seus cartões/.test(r)))
     }
   }
 
@@ -3913,6 +3982,48 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       'conta fixa bloqueada; despesa independente de 30 continua proposta',
       other.actions.length === 1 && other.actions[0].kind === 'expense'
         && other.actions[0].amount === 30 && /internet/i.test(other.reply)))
+  }
+
+  // "Até dia N" é PRAZO, não fato. No dia 12, "quanto preciso deixar parado
+  // até dia 22" perguntava "o dia 22 deste mês ainda não chegou — qual data?":
+  // a regra do "dia N" seco, feita para registro, engolia a pergunta antes do
+  // roteador de caixa, e a resposta só saía nos dias do mês em que o dia já
+  // tinha passado. As leituras abaixo têm data fixa; as últimas passam pelo
+  // orquestrador com o relógio dos testes.
+  {
+    const leituras: [string, string, string, string][] = [
+      ['DL-ate-dia-futuro-no-mes', 'até dia 22', '2026-11-12', 'future:2026-11-22'],
+      ['DL-ate-dia-hoje', 'até dia 12', '2026-11-12', 'date:2026-11-12'],
+      ['DL-ate-dia-ja-passou', 'até dia 5', '2026-11-12', 'future:2026-12-05'],
+      ['DL-pro-dia', 'pro dia 25', '2026-11-12', 'future:2026-11-25'],
+      ['DL-para-o-dia', 'para o dia 20', '2026-11-12', 'future:2026-11-20'],
+      ['DL-antes-do-dia', 'antes do dia 30', '2026-11-12', 'future:2026-11-30'],
+      ['DL-ate-dia-31-em-novembro', 'até dia 31', '2026-11-12', 'future:2026-11-30'],
+      ['DL-ate-dia-virada-de-ano', 'até dia 5', '2026-12-20', 'future:2027-01-05'],
+      ['DL-dia-seco-continua-ambiguo', 'gastei 50 dia 22', '2026-11-12', 'ambiguous'],
+      ['DL-dia-com-mes-nao-e-prazo', 'até dia 22 de outubro', '2026-11-12', 'date:2026-10-22'],
+    ]
+    for (const [id, texto, dia, esperado] of leituras) {
+      const d = findDate(texto, dia)
+      const atual = !d ? 'null' : d.kind === 'date' || d.kind === 'future' ? `${d.kind}:${d.date}` : d.kind
+      out.push(result(id, atual, esperado, atual === esperado))
+    }
+    const hojeN = Number(hoje.slice(8, 10))
+    const futuroNoMes = hojeN <= 20 ? 25 : hojeN < 28 ? 28 : null
+    if (futuroNoMes) {
+      const st = estadoDeCaixaFuturo(hoje, 2000, 'autonomo')
+      const alvoIso = `${hoje.slice(0, 8)}${String(futuroNoMes).padStart(2, '0')}`
+      for (const [id, frase] of [
+        ['DL-orquestrador-deixar-parado', `quanto preciso deixar parado ate dia ${futuroNoMes}`],
+        ['DL-orquestrador-cobrem', `minhas contas cobrem ate dia ${futuroNoMes}?`],
+        ['DL-orquestrador-vencem', `quais contas vencem ate dia ${futuroNoMes}`],
+      ] as const) {
+        const r = await turnoHoje(st, frase)
+        out.push(result(id, r.reply, `fala de ${alvoIso.slice(8, 10)}/${alvoIso.slice(5, 7)}, sem perguntar a data`,
+          r.actions.length === 0 && r.reply.includes(`${alvoIso.slice(8, 10)}/${alvoIso.slice(5, 7)}`)
+            && !/ainda n[ãa]o chegou|quis dizer qual data/.test(r.reply)))
+      }
+    }
   }
 
   return out

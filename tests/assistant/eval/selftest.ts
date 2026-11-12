@@ -24,7 +24,8 @@ import { orchestrate, remoteNeedsAggregates } from '../../../src/assistant/orche
 import { isQueryFailure, validateQueryPlan } from '../../../src/assistant/query/validate'
 import { runScenario } from '../../../src/assistant/scenario/engine'
 import { buildAiContext, planningContext } from '../../../src/services/ai'
-import { addDays, todayISO } from '../../../src/utils/format'
+import { addDays, fmtBRL, todayISO } from '../../../src/utils/format'
+import { savedThisMonth } from '../../../src/services/calc'
 import { buildState } from '../harness'
 import { comparaCenario, comparaPlano, planoDoOuro, resolveData } from './canonical'
 import { acao, CASOS_CHAT_A } from './corpus-chat-a'
@@ -252,8 +253,14 @@ export async function runEvalSelfTest(opts: { rotas?: boolean } = {}): Promise<R
   confere('chat: contaminação de perfil', tem(r, 'contaminacao-perfil') ? null : 'não detectou')
   r = pontua('c-47', { reply: 'Você guardou R$ 650,00 este mês.' })
   confere('chat: valor inventado', tem(r, 'alucinacao-numerica') ? null : 'R$ 650,00 passou')
-  r = pontua('c-47', { reply: 'Ainda não: você guardou R$ 500,00 de R$ 800,00 (63%).' })
-  confere('chat: valor do contexto não é alucinação', r.perigos.length ? JSON.stringify(r.perigos) : r.util ? null : 'resposta certa não contou como útil')
+  {
+    // O guardado do mês vem do MESMO cálculo que alimenta o contexto: no
+    // fixture, o depósito do mês cai no dia 13 e, antes disso, ainda não conta.
+    const guardado = savedThisMonth(est('autonomo'), hoje)
+    const pct = Math.round((guardado / 800) * 100)
+    r = pontua('c-47', { reply: `Ainda não: você guardou ${fmtBRL(guardado)} de R$ 800,00 (${pct}%).` })
+    confere('chat: valor do contexto não é alucinação', r.perigos.length ? JSON.stringify(r.perigos) : r.util ? null : 'resposta certa não contou como útil')
+  }
   r = pontua('c-47', { reply: 'Você já bateu a meta de R$ 800,00.' })
   confere('chat: fato errado', r.util === false && r.entidadesInventadas.length ? null : 'meta batida passou')
   r = pontua('c-38', { mode: 'propose_actions', reply: 'Confira.', actions: [{ kind: 'income', amount: 900, category: 'aluguel', origin: 'Casa 1' }] })
