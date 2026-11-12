@@ -5648,3 +5648,49 @@ semânticos, 4.088 + 3.800 metamórficos, 1.416 fuzz, 151/151 invariantes e
 468/468 avaliações remotas offline. Typechecks frontend/API e build verdes.
 Sem chamada paga, reset, push, merge, deploy ou APK. V2 segue NOT READY para
 merge/deploy até auditoria independente.
+
+## 12/11/2026 — Retomada no Linux: relógio dos testes e defeitos de calendário
+
+Estado encontrado: a branch só existia no disco do Windows (HEAD `9bc0457`,
+167 commits à frente da `main`, nunca enviada); clonada para `~/work/assistfin`.
+A baseline de 28/10 NÃO se reproduzia em 12/11: 18 regressões adversariais
+vermelhas e 1 RUIM na rubrica, porque o roteador antigo lê o relógio real e os
+oráculos foram escritos para o dia 28. Rodando a mesma suíte em sete datas,
+apareceram defeitos reais do app e oráculos presos ao calendário.
+
+Defeitos reais corrigidos (cada um com regressão de data fixa):
+- "Quanto preciso deixar parado até dia 22" no dia 12 perguntava "o dia 22
+  deste mês ainda não chegou?" — a regra do "dia N" seco engolia o prazo antes
+  do roteador de caixa; só funcionava quando o dia já tinha passado. `dates.ts`
+  lê "até/pro/para o/antes do dia N" como PRAZO (próximo dia N).
+- "Meu salário cai dia 5" nos dias 1–4 virava a mesma pergunta de data:
+  recorrência não tem data a esclarecer (`clauses.ts`).
+- Média mensal no último dia do mês contava o mês corrente como completo
+  (`runQuery` recebe `today`; o mês de hoje nunca fechou).
+- `savedThisMonth` contava depósito com data futura como "guardado de verdade".
+- "Vale a pena rodar domingo?" contava um domingo só com troca de óleo como dia
+  trabalhado de lucro negativo; agora dia trabalhado exige entrada ou registro
+  de trabalho.
+- Consulta por nome sem período ("quanto gastei com troca de óleo") dizia só
+  "nada este mês"; agora diz também o último lançamento fora do período
+  (`period.implicit`, só quando o período foi assumido; o número continua zero).
+
+Suíte: `tests/clock.ts` congela o relógio (`ASSISTFIN_TODAY`, padrão
+2026-09-15; `real` usa a máquina) e `npm run test:calendario` roda a bateria
+em seis datas. Oráculos que dependiam do dia (contas do mês, faturas abertas x
+fechadas, domingo sem registro, dia 1º sem gasto, ano anterior com dado) agora
+calculam o esperado a partir do fixture e da data. Limitação conhecida: no dia
+1º a bateria adversarial ainda tem ~40 oráculos degenerados (fixture sem gasto
+no mês) e não entra na matriz.
+
+Gates em 12/11 (relógio 2026-09-15): 666/666 corpus, 99/99, 50/50, 654/654
+adversariais, 4.088 + 3.800 metamórficos, 1.416 fuzz, 151/151 invariantes,
+468/468 offline; typecheck, typecheck:api, build. Sem push, merge, deploy, APK
+ou chamada paga. Continua **NOT READY** até auditoria independente.
+
+Próxima prioridade (não iniciada): ação local `recurring-confirm` — "paguei
+120 de luz" com conta fixa em aberto deve PROPOR a confirmação da ocorrência
+(valor dito, vencimento certo) em vez de recusar e mandar para a Home; a
+rubrica marca essa recusa como RUIM ("o lançamento sumiu"). Depois: auditoria
+independente com as frases da missão (metas por semana, corrida vale a pena,
+cenários de combustível +12%).
