@@ -302,6 +302,25 @@ const RULES: Rule[] = [
     },
   },
   {
+    // "até dia 22", "pro dia 10", "para o dia 5", "antes do dia 20": um PRAZO,
+    // nunca um fato. É o próximo dia N — hoje mesmo, se for hoje; este mês, se
+    // ainda não passou; senão o mês que vem. A regra do "dia N" seco, logo
+    // abaixo, perguntava "o dia 22 deste mês ainda não chegou?" para quem
+    // queria saber quanto deixar na conta até lá, e a pergunta só funcionava
+    // nos dias do mês em que o dia já tinha passado.
+    re: /\b(?:at[ée]|pr[ao]|para|antes\s+d[oe])\s+(?:o\s+)?dia\s+(\d{1,2})\b(?!\s*(?:de\s|d[oe]\s|\/))/i,
+    build: (m, t) => {
+      const day = Number(m[1])
+      if (day < 1 || day > 31) return invalidDate(m[0])
+      const d = fromISO(t)
+      const thisMonth = toISO(dateForDayOfMonth(d.getFullYear(), d.getMonth(), day))
+      const iso = thisMonth >= t ? thisMonth : toISO(dateForDayOfMonth(d.getFullYear(), d.getMonth() + 1, day))
+      return iso === t
+        ? { kind: 'date', date: iso, label: brDate(iso) }
+        : { kind: 'future', date: iso, label: brDate(iso) }
+    },
+  },
+  {
     // "dia 5" seco — a leitura depende de onde estamos no mês.
     re: /\bdia\s+(\d{1,2})\b(?!\s*(?:de\s|d[oe]\s|\/))/i,
     build: (m, t) => {

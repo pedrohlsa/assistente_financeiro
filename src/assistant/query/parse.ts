@@ -1284,6 +1284,11 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     label: rotulo(metrica.valor, repeteCartao || incompleto || naReserva ? undefined : alvo?.valor, filter, state, source, field),
   }
 
+  // Período assumido, não dito: a resposta vazia pode apontar o último
+  // lançamento fora dele. Comparação e agrupamento já ampliam a janela e não
+  // precisam disso.
+  if (!periodoExplicito && !comparePeriod && group === 'none') plan.period = { ...plan.period, implicit: true }
+
   const confidence: PlannedQuery['confidence'] =
     (periodoExplicito || !!comparePeriod || group !== 'none' || !!excluir || !!excluirLista
       || metric === 'share' || metric === 'median'

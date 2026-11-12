@@ -1721,7 +1721,7 @@ function respostaDePlano(s: AppState, t: string, plano: PlanoDeGuardar, driverMo
         : 'Você ainda não cadastrou objetivo mensal. Dá para definir em Mais → Configurações.' }
     }
     if (alvo <= 0) return { text: 'Você ainda não definiu quanto quer guardar por mês. Dá para definir em Mais → Configurações, em "Quanto deseja guardar por mês".' }
-    const guardado = savedThisMonth(s)
+    const guardado = savedThisMonth(s, hoje)
     return { text: `Sua meta é guardar ${fmtBRL(alvo)} por mês. Este mês você já guardou ${fmtBRL(guardado)}${guardado >= alvo - 0.009 ? ' — meta batida.' : `; faltam ${fmtBRL(round2(alvo - guardado))}.`}` }
   }
   if (plano.kind === 'valor') {
@@ -1772,9 +1772,16 @@ const NOMES_DA_SEMANA: { um: string; varios: string; feminino: boolean }[] = [
 function respostaDoDiaDaSemana(s: AppState, alvo: number): AiReply {
   const hoje = todayISO()
   const ini = addDays(hoje, -90)
+  // Dia TRABALHADO é dia com entrada ou com registro de trabalho. Um domingo
+  // em que só houve a troca de óleo não é "domingo rendendo -R$ 280": o custo
+  // é real, o dia de trabalho não existiu.
+  const trabalhados = new Set<string>()
+  for (const x of s.transactions) if (x.type === 'income' && x.date >= ini && x.date < hoje) trabalhados.add(x.date)
+  for (const w of s.workSessions || []) if (w.date >= ini && w.date < hoje && ((w.km || 0) > 0 || (w.hours || 0) > 0 || (w.trips || 0) > 0)) trabalhados.add(w.date)
   const porDia = new Map<string, number>()
   for (const x of s.transactions) {
     if (x.date < ini || x.date >= hoje || (x.type !== 'income' && x.type !== 'expense')) continue
+    if (!trabalhados.has(x.date)) continue
     porDia.set(x.date, (porDia.get(x.date) || 0) + (x.type === 'income' ? x.amount : -x.amount))
   }
   const media = (xs: number[]) => xs.length ? round2(xs.reduce((a, v) => a + v, 0) / xs.length) : 0

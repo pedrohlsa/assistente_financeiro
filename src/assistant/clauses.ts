@@ -800,7 +800,10 @@ export function analyzeMessage(
     const primary = future && past ? past : resolved[0]
     let temporal: TemporalSignal | undefined
     if (primary && primary.kind === 'date') { date = primary.date; dLabel = primary.label }
-    else if (primary && primary.kind === 'ambiguous') dateAmbiguity = { question: primary.question, options: primary.options }
+    // "Meu salário cai dia 5" no dia 1º: o "dia 5" é o DIA DA RECORRÊNCIA, não
+    // uma data a esclarecer. Perguntar "o dia 5 deste mês ainda não chegou?"
+    // engolia a orientação de cadastrar a conta nos primeiros dias de cada mês.
+    else if (primary && primary.kind === 'ambiguous' && !looksRecurring(part.text)) dateAmbiguity = { question: primary.question, options: primary.options }
 
     if (invalid) {
       temporal = {

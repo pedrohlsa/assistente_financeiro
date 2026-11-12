@@ -235,11 +235,11 @@ export interface MonthlySavingGoal {
  * sobra: dizer que a meta foi batida porque sobrou dinheiro seria afirmar que o
  * usuário guardou algo que continua disponível para gastar.
  */
-export function monthlySavingGoal(s: AppState): MonthlySavingGoal {
+export function monthlySavingGoal(s: AppState, today = todayISO()): MonthlySavingGoal {
   const m = monthStats(s)
   const target = Math.max(s.settings.monthlyProfitTarget || 0, 0)
   const net = m.income - m.expense
-  const saved = savedThisMonth(s)
+  const saved = savedThisMonth(s, today)
   const installmentsDue = installmentsThisMonth(s)
   return {
     target, income: m.income, expense: m.expense, net,
@@ -259,10 +259,12 @@ export function monthlySavingGoal(s: AppState): MonthlySavingGoal {
 }
 
 /** Quanto o usuário REALMENTE transferiu para reserva neste mês (14.3). */
-export function savedThisMonth(s: AppState): number {
-  const t = todayISO()
+export function savedThisMonth(s: AppState, today = todayISO()): number {
+  // Depósito com data futura ainda não aconteceu: "guardado de verdade" é o
+  // que já saiu da conta até hoje (regra 21), a mesma leitura de
+  // `currentBalance`, que também ignora movimento datado para a frente.
   return s.transactions
-    .filter(x => x.type === 'saving' && monthKey(x.date) === monthKey(t))
+    .filter(x => x.type === 'saving' && monthKey(x.date) === monthKey(today) && x.date <= today)
     .reduce((a, x) => a + x.amount, 0)
 }
 

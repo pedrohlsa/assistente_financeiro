@@ -1784,7 +1784,7 @@ Confirmar?`,
       // chat, como qualquer plano recusado.
       const modalidade = modalidadeExplicita(mensagem, today)
       if (!isQueryFailure(v) && !(modalidade && planoContradizModalidade(v.plan, modalidade))) {
-        const r = runQuery(input.state, v.plan)
+        const r = runQuery(input.state, v.plan, today)
         return {
           draft: null,
           keepPending: true,

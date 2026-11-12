@@ -98,6 +98,12 @@ export interface QueryPeriod {
   grain: PeriodGrain
   /** O período inteiro está no futuro — resultado é PREVISÃO, nunca realizado. */
   future?: boolean
+  /**
+   * O usuário NÃO disse período: o planejador local assumiu "este mês". Só
+   * muda o que a resposta diz quando não há dado — "nada este mês; a última
+   * foi em 23/10" — nunca o número. O planejador remoto não marca isto.
+   */
+  implicit?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -290,4 +296,10 @@ export interface AssistantQueryResult {
   facts: AssistantFact[]
   /** Linhas de exemplo, já filtradas — para "quais dados você usou?". */
   samples: QueryRow[]
+  /**
+   * Sem linha no período IMPLÍCITO, mas com linhas antes dele: a mais recente,
+   * para a resposta não deixar "nada este mês" parecer "nunca". Só é
+   * preenchido quando `plan.period.implicit` e a fonte é de lançamentos.
+   */
+  lastOutside?: { date: string; value: number; label: string; count: number }
 }

@@ -11,7 +11,7 @@
 
 import type { AppState, TxType } from '../../models/types'
 import { catById } from '../../data/categories'
-import { fromISO, monthKey, monthShortLabel, toISO } from '../../utils/format'
+import { addDays, fromISO, monthKey, monthShortLabel, todayISO, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase, weekdayName } from '../../utils/text'
 import {
   activeCards, cardById, cardInvoice, cardOutstanding, invoiceOpenAmount, planProgress,
@@ -545,7 +545,11 @@ const factId = (() => {
  * `caveats`, porque um erro não tratado no meio de uma pergunta é pior para o
  * usuário do que um "não consegui responder isso".
  */
-export function runQuery(state: AppState, plan: AssistantQueryPlan): AssistantQueryResult {
+/**
+ * `today` só decide o que ainda NÃO fechou (o mês corrente numa média mensal).
+ * Nenhuma linha é lida ou descartada por ele: o período do plano manda.
+ */
+export function runQuery(state: AppState, plan: AssistantQueryPlan, today = todayISO()): AssistantQueryResult {
   const unit = unidadeDe(plan)
   // A meta só armazena o acumulado atual. Data de criação não é data dos
   // depósitos, e o journal limitado não substitui um histórico completo.
@@ -633,16 +637,20 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan): AssistantQu
   // corrente ainda não fechou, e os meses antes do primeiro registro não são
   // zero, são falta de histórico.
   if (plan.metric === 'avg' && plan.group === 'month' && !plan.comparePeriod) {
-    // O mês que o período corta no meio (termina antes do último dia) não fechou.
+    // Mês que ainda não fechou: o corrente (hoje está dentro dele, mesmo no
+    // dia 30 — o dia não acabou) e o que o período corta no meio. No último dia
+    // do mês a regra antiga achava que ele já tinha fechado e a média caía.
     const fim = fromISO(plan.period.to)
-    const mesAtual = new Date(fim.getFullYear(), fim.getMonth() + 1, 0).getDate() === fim.getDate()
-      ? '9999-99' : monthKey(plan.period.to)
+    const cortado = new Date(fim.getFullYear(), fim.getMonth() + 1, 0).getDate() === fim.getDate()
+      ? null : monthKey(plan.period.to)
+    const mesDeHoje = monthKey(today)
+    const naoFechou = (k: string) => k === cortado || k >= mesDeHoje
     for (const g of groups) {
       const soma = ag.groups.get(g.key)?.valores.reduce((a, b) => a + b, 0) ?? 0
       g.value = r2(soma)
     }
     const comDado = [...ag.groups.keys()].sort()
-    const fechados = comDado.filter(k => k < mesAtual)
+    const fechados = comDado.filter(k => !naoFechou(k))
     const usados = (fechados.length ? fechados : comDado)
     if (usados.length) {
       const meses: string[] = []
@@ -652,7 +660,7 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan): AssistantQu
       const nome = (k: string) => monthShortLabel(fromISO(`${k}-01`))
       caveats.push(meses.length === 1
         ? `Média de 1 mês completo (${nome(meses[0])}).`
-        : `Média de ${meses.length} meses completos (${nome(meses[0])} a ${nome(meses[meses.length - 1])})${fechados.length && comDado.includes(mesAtual) ? '; o mês atual ainda não fechou e fica fora' : ''}.`)
+        : `Média de ${meses.length} meses completos (${nome(meses[0])} a ${nome(meses[meses.length - 1])})${fechados.length && comDado.some(naoFechou) ? '; o mês atual ainda não fechou e fica fora' : ''}.`)
     }
   }
 
@@ -718,8 +726,24 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan): AssistantQu
   const datas = rows.map(row => row.date).filter(Boolean).sort()
   const facts = montaFatos(plan, total, limitados, compareTotal, rows.length, unit, state)
 
+  // "Quanto gastei com troca de óleo" sem período é "este mês" por padrão; a
+  // troca foi há 20 dias e a resposta era só "não tenho lançamento este mês",
+  // que soa como "nunca". Só quando o período foi ASSUMIDO, só lançamentos, e
+  // só um FATO a mais (a última ocorrência) — o número do período continua zero.
+  let lastOutside: AssistantQueryResult['lastOutside']
+  if (rows.length === 0 && plan.period.implicit && plan.source === 'transactions' && !plan.comparePeriod
+    && (plan.filter.text || plan.filter.categories?.length || plan.filter.origin || plan.filter.origins?.length)) {
+    const antes = agrega(state, plan, { from: '2000-01-01', to: addDays(plan.period.from, -1) }).rows
+      .filter(row => !row.estimated && row.date <= today)
+    if (antes.length) {
+      const ultima = antes.reduce((a, b) => (b.date > a.date ? b : a))
+      lastOutside = { date: ultima.date, value: r2(ultima.value), label: ultima.label, count: antes.length }
+    }
+  }
+
   return {
     plan,
+    ...(lastOutside ? { lastOutside } : {}),
     total: r2(total),
     count: rows.length,
     groups: limitados,

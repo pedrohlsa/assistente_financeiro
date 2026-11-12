@@ -192,6 +192,12 @@ export function composeAnswer(r: AssistantQueryResult): string {
     }
     const base = FONTE_VAZIA[p.source] || 'Não tenho dados para isso'
     const alvo = p.filter.text ? ` com "${p.filter.text}"` : ''
+    if (r.lastOutside) {
+      // O período foi assumido, não dito: "nada este mês" não é "nunca".
+      const u = r.lastOutside
+      const quantos = u.count > 1 ? ` São ${u.count} lançamentos assim antes deste período.` : ''
+      return `${base}${alvo} ${periodo}. O último foi em ${brDate(u.date)}: ${formatValue(u.value, r.unit)} (${u.label}).${quantos}`
+    }
     return `${base}${alvo} ${periodo}. ${COMO_REGISTRAR[p.source] || ''}`.trim()
   }
 

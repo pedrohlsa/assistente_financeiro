@@ -122,6 +122,7 @@ function validatePeriod(raw: any, todayIso: string): QueryPeriod | QueryErrorCod
     from, to, grain,
     label: strOf(raw.label, 60) || `${from} a ${to}`,
     future: from > todayIso,
+    ...(raw.implicit === true ? { implicit: true } : {}),
   }
 }
 

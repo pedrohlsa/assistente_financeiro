@@ -65,7 +65,7 @@ export function runPlannedQuery(
     return null
   }
 
-  let result = runQuery(state, v.plan)
+  let result = runQuery(state, v.plan, hoje)
   let plan = v.plan
 
   if (result.empty && planned.fallbackCategory && plan.filter.text) {
@@ -75,7 +75,7 @@ export function runPlannedQuery(
     }
     const v2 = validateQueryPlan(alternativo, state, hoje)
     if (!isQueryFailure(v2)) {
-      const r2 = runQuery(state, v2.plan)
+      const r2 = runQuery(state, v2.plan, hoje)
       if (!r2.empty) { result = r2; plan = v2.plan }
     }
   }
