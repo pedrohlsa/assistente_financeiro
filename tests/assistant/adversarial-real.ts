@@ -4,7 +4,7 @@ import type { AppState } from '../../src/models/types'
 import { orchestrate } from '../../src/assistant/orchestrator'
 import { segment } from '../../src/assistant/clauses'
 import { findDate } from '../../src/assistant/dates'
-import { balanceOutlook, balanceOutlookText, currentBalance, monthlyProjections, occurrencesBetween, pendingRecurrings } from '../../src/services/calc'
+import { balanceOutlook, balanceOutlookText, currentBalance, kmCost, monthlyProjections, occurrencesBetween, pendingRecurrings } from '../../src/services/calc'
 import { cardInvoice, cardOutstanding, cardsOverview, futureInstallmentPaymentDate, invoiceOpenAmount, planProgress } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
 import { isRevertFailure, revertBatchPure } from '../../src/assistant/journal'
@@ -4050,6 +4050,108 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
           r.actions.length === 0 && r.reply.includes(`${alvoIso.slice(8, 10)}/${alvoIso.slice(5, 7)}`)
             && !/ainda n[ãa]o chegou|quis dizer qual data/.test(r.reply)))
       }
+    }
+  }
+
+  // ---- Auditoria de 12/11/2026 com as frases da missão -------------------
+  // Cada caso abaixo foi lido na resposta real antes da correção (sonda
+  // offline): correção que editava OUTRO lançamento, hipótese que virava fato,
+  // custo de combustível respondido com receita, depósito lido do número
+  // errado, aritmética declarada tratada como registro, gíria sem rota,
+  // intensificador virando filtro e follow-ups que perdiam o assunto.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/\u00a0/g, ' ')
+    const limpa = (x: string) => x.replace(/\u00a0/g, ' ')
+
+    // Correção falada nomeia o lançamento: com Cimento e Feira de R$ 180, a
+    // frase "a feira foi 150, não 180" corrige a FEIRA; sem feira, não corrige nada.
+    {
+      const st = buildState({ profile: 'autonomo', transactions: [
+        { id: 'mi-cimento', type: 'expense', amount: 180, category: 'obra', description: 'Cimento', date: addDays(hoje, -40) },
+        { id: 'mi-feira', type: 'expense', amount: 180, category: 'alimentacao', description: 'Feira', date: addDays(hoje, -1) },
+      ] })
+      const r = await turnoHoje(st, 'na verdade a feira foi 150, não 180')
+      out.push(result('MI-correcao-pelo-sujeito', { reply: r.reply, actions: r.actions }, 'edit-transaction em mi-feira, nunca em mi-cimento',
+        r.actions.length === 1 && r.actions[0].kind === 'edit-transaction' && r.actions[0].transactionId === 'mi-feira' && r.actions[0].amount === 150))
+      const soCimento = { ...st, transactions: st.transactions.filter(t => t.id !== 'mi-feira') }
+      const r2 = await turnoHoje(soCimento, 'na verdade a feira foi 150, não 180')
+      out.push(result('MI-correcao-sem-alvo-nao-chuta', { reply: r2.reply, actions: r2.actions }, 'sem feira: nenhuma ação, diz que não achou',
+        r2.actions.length === 0 && /n[ãa]o achei/i.test(r2.reply) && /feira/i.test(r2.reply)))
+    }
+
+    // Hipótese sobre uma coisa que não é "eu" nunca vira fato.
+    {
+      const mot = motoristaRico(hoje)
+      const r = await turnoHoje(mot, 'Se a gasolina aumentar 12% e eu rodar 20% mais quilômetros, qual seria meu lucro estimado?')
+      out.push(result('MI-hipotese-percentual-nao-vira-fato', r.reply, 'diz que é hipótese; nenhum "(dado real)"',
+        r.actions.length === 0 && /hip[óo]tese|simula/i.test(r.reply) && !/dado real/.test(r.reply)))
+    }
+
+    // "Quanto devo gastar de combustível" é custo, não ganho por km.
+    {
+      const mot = motoristaRico(hoje)
+      const custo = kmCost(mot)
+      const r = await turnoHoje(mot, 'Se eu rodar mais 100 km hoje, quanto devo gastar de combustível?')
+      out.push(result('MI-km-a-mais-pede-combustivel', r.reply, custo.fuelPerKm > 0 ? `combustível ≈ ${brl(custo.fuelPerKm * 100)}` : 'sem consumo/preço: pede o abastecimento',
+        r.actions.length === 0 && /combust[íi]vel/i.test(r.reply) && !/ritmo real/i.test(r.reply)
+          && (custo.fuelPerKm > 0 ? limpa(r.reply).includes(brl(Math.round(custo.fuelPerKm * 100 * 100) / 100)) : /consumo/i.test(r.reply))))
+    }
+
+    // O depósito é o número junto do verbo, não o acumulado dito antes.
+    {
+      const rico = autonomoRico(hoje)
+      const r = await turnoHoje(rico, 'Já tenho R$ 4.800 na viagem. Se eu guardar R$ 350 por mês, quando termino?')
+      out.push(result('MI-guardar-valor-junto-do-verbo', r.reply, 'R$ 350,00 por mês e 4 meses (faltam R$ 1.200)',
+        /R\$\s350,00 por m[êe]s/.test(r.reply) && /\b4 meses\b/.test(r.reply) && !/4\.800,00 por m/.test(r.reply)))
+    }
+
+    // Aritmética com os números da frase: nem registro, nem "ainda não aconteceu".
+    {
+      const st = buildState({ profile: 'autonomo', balance: 5000 })
+      const r = await turnoHoje(st, 'Tenho R$ 1.800 hoje. Preciso pagar R$ 950 de aluguel, R$ 320 de energia e quero guardar R$ 400. Quanto ainda preciso ganhar?')
+      out.push(result('MI-conta-declarada-sobra', { reply: r.reply, actions: r.actions }, 'sobram R$ 130,00; sem ação; não usa o saldo do app (5.000)',
+        r.actions.length === 0 && /sobram R\$\s130,00/.test(r.reply) && !/5\.000,00/.test(r.reply) && !/ainda n[ãa]o aconteceu/.test(r.reply)))
+      const r2 = await turnoHoje(st, 'tenho 1000 hoje, preciso pagar 950 de aluguel e 320 de luz. quanto falta ganhar?')
+      out.push(result('MI-conta-declarada-falta', { reply: r2.reply, actions: r2.actions }, 'faltam R$ 270,00',
+        r2.actions.length === 0 && /Faltam R\$\s270,00/.test(r2.reply)))
+      const soSaldo = await turnoHoje(st, 'tenho 1800 hoje')
+      out.push(result('MI-conta-declarada-nao-sequestra-saldo', soSaldo.actions, 'só "tenho 1800 hoje" não é a conta declarada',
+        !/Usei só os valores que você disse/.test(soSaldo.reply)))
+    }
+
+    // "Por semana" responde em semanas.
+    {
+      const st = buildState({ profile: 'autonomo' })
+      const r = await turnoHoje(st, 'Quero ter R$ 6.000 guardados até março. Quanto preciso separar por semana?')
+      out.push(result('MI-meta-por-semana', r.reply, 'N semanas e valor por semana', /\d+ semanas, de R\$\s[\d.,]+ por semana/.test(r.reply)))
+    }
+
+    // Gíria de aperto tem a mesma rota de "tô no vermelho", com o que vence.
+    for (const [perfil, st] of [['autonomo', autonomoRico(hoje)], ['driver', motoristaRico(hoje)]] as const) {
+      const r = await turnoHoje(st, 'Cara, tô ferrado esse mês?')
+      out.push(result(`MI-to-ferrado-${perfil}`, r.reply, 'Sim/Não na frente, entradas e saídas, compromissos',
+        /^(?:Sim|Não) — /.test(r.reply) && /entraram R\$/.test(r.reply) && /Compromissos vencidos/.test(r.reply) && !/Posso te ajudar/.test(r.reply)))
+    }
+
+    // Intensificador não é nome de nada.
+    {
+      const r = await turnoHoje(motoristaRico(hoje), 'Quanto estou ganhando por hora de verdade?')
+      out.push(result('MI-de-verdade-nao-e-filtro', r.reply, 'R$/hora, sem "verdade"', /\/hora/.test(r.reply) && !/"verdade"/.test(r.reply)))
+    }
+
+    // Conversa da missão: gasolina esta semana → e na passada → sem contar terça → compara com alimentação.
+    {
+      const mot = motoristaRico(hoje)
+      const t1 = await turnoHoje(mot, 'Quanto eu gastei com gasolina esta semana?')
+      const t2 = await turnoHoje(mot, 'E na passada?', t1.focus)
+      const t3 = await turnoHoje(mot, 'Sem contar terça.', t2.focus)
+      const t4 = await turnoHoje(mot, 'Agora compara com alimentação.', t3.focus)
+      out.push(result('MI-conversa-e-na-passada', t2.reply, 'gasolina no período anterior, sem filtro "passada"',
+        /Gasolina/.test(t2.reply) && /anterior|passad/.test(t2.reply) && !/"passada"/.test(t2.reply)))
+      out.push(result('MI-conversa-sem-contar-terca', t3.reply, 'continua gasolina; nada de vencimentos',
+        /Gasolina/.test(t3.reply) && !/vence/.test(t3.reply)))
+      out.push(result('MI-conversa-compara-com-alimentacao', t4.reply, 'os dois assuntos lado a lado',
+        /Gasolina/.test(t4.reply) && /Alimenta[çc][ãa]o/.test(t4.reply)))
     }
   }
 

@@ -14,7 +14,7 @@ import { addDays, fmtBRL, fmtNum, fromISO, monthKey, todayISO, toISO } from '../
 import { normalizeName, sentenceCase } from '../../utils/text'
 import {
   cashObligationsUntil, currentBalance, dailyGoal, monthlyProjections, monthlySavingGoal, periodStats,
-  representedRecurringExpenseMonths, todayStats,
+  representedRecurringExpenseMonths, todayStats, kmCost,
 } from '../../services/calc'
 import {
   activeCards, cardById, currentInvoice, nextInvoiceDueDate, splitInstallmentAmounts, hasAmbiguousLegacyCardBalance,
@@ -540,6 +540,19 @@ function simulaCenario(
           facts.push(fato('Lucro de hoje até agora', todayStats(state).profit, 'BRL', 'lançamentos de hoje'))
         }
         caveats.push(`Estimativa no SEU ritmo dos últimos 30 dias (${st.days} dias com registro). Dia bom e dia ruim mudam isso.`)
+        return { plan, facts, months: [], caveats, empty: false }
+      }
+      if (plan.extraKm && plan.fuelOnly) {
+        // Custo de combustível dos km a mais: preço por litro ÷ consumo, os
+        // mesmos números do custo por km do app. Sem consumo ou preço, cala.
+        const custo = kmCost(state)
+        if (custo.fuelPerKm <= 0) {
+          return vazio(plan, caveats, 'Para estimar o combustível preciso do seu consumo (km/L) e do preço por litro: registre um abastecimento com litros e valor, ou preencha os dois em Veículo.')
+        }
+        facts.push(fato('Custo de combustível por km', custo.fuelPerKm, 'per-km', 'preço por litro ÷ consumo registrados'))
+        facts.push(fato('Km a mais', plan.extraKm, 'km', 'informado na pergunta'))
+        facts.push(fato('Combustível estimado', custo.fuelPerKm * plan.extraKm, 'BRL', 'custo por km × km'))
+        caveats.push('Só o combustível: desgaste, manutenção e tempo não entram nesta conta.')
         return { plan, facts, months: [], caveats, empty: false }
       }
       if (plan.extraKm) {

@@ -15,8 +15,7 @@ import { buildCapabilities } from '../assistant/capabilities'
 import type { OrchestratorInput } from '../assistant/orchestrator'
 import type { RemoteConversationContext } from '../assistant/conversation/remoteContext'
 import {
-  addDays, dueLabel, fmtBRL, fmtNum, fromISO, monthKey, todayISO, toISO, daysInMonth, parseMoney,
-} from '../utils/format'
+  addDays, dueLabel, fmtBRL, fmtNum, fromISO, monthKey, todayISO, toISO, daysInMonth, parseMoney, daysBetween } from '../utils/format'
 import { promptSafe, sentenceCase } from '../utils/text'
 import { MAX_COMPOSE_FACTS } from '../assistant/grounding'
 import { MARGEM_EMPATE } from '../assistant/query/answer'
@@ -1139,7 +1138,10 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // "to no lucro esse mes?" / "quanto sobrou"
   // "Tô gastando mais do que ganho?" é a pergunta mais direta sobre a saúde do
   // mês, e é a mesma conta do "tô no lucro" com o sinal invertido.
-  if (/(?:t[oô]|estou|to)\s+no\s+lucro|(?:t[oô]|estou)\s+no\s+(?:azul|vermelho)|quanto\s+sobrou\s*\??$|sobrou\s+quanto/.test(t)
+  // "Tô ferrado esse mês?" é a mesma pergunta de "tô no vermelho?", dita como
+  // se diz; caía no menu de ajuda. O aperto também mostra o que vence.
+  const aperto = /(?:t[oô]|estou|to|tou)\s+(?:ferrad[oa]|fudid[oa]|lascad[oa]|quebrad[oa]|apertad[oa]|enrolad[oa]|no\s+sufoco|no\s+aperto|mal\s+de\s+grana|zerad[oa])\b/.test(t)
+  if (aperto || /(?:t[oô]|estou|to)\s+no\s+lucro|(?:t[oô]|estou)\s+no\s+(?:azul|vermelho)|quanto\s+sobrou\s*\??$|sobrou\s+quanto/.test(t)
     || /(?:gastando|gasto|gastei)\s+mais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:ganho|ganhei|recebo|recebi|entra|faturo)/.test(t)) {
     const p = /semana/.test(t) ? periodFromText(t) : { from: todayISO().slice(0, 8) + '01', to: todayISO(), label: 'este mês' }
     if (!p) return ajudaGenerica(driverMode)
@@ -1155,7 +1157,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
     // - "tô no lucro?" e "tô no vermelho?" pedem sim/não com polaridade
     //   OPOSTA. Um "Sim" fixo respondia "sim, você está no vermelho" para quem
     //   tinha sobra — a resposta certa com o número certo, e ainda assim errada.
-    const perguntaNegativa = /vermelho|preju|no\s+negativo|gastando\s+mais|gasto\s+mais|gastei\s+mais/.test(t)
+    const perguntaNegativa = aperto || /vermelho|preju|no\s+negativo|gastando\s+mais|gasto\s+mais|gastei\s+mais/.test(t)
     const perguntaSimNao = perguntaNegativa || /lucro|azul/.test(t)
     const positivo = saldo > 0
     const prefixo = !perguntaSimNao || saldo === 0
@@ -1169,7 +1171,10 @@ function resolveLocal(s: AppState, input: string): AiReply {
       : saldo === 0
         ? `: não sobrou nada (dado real).`
         : `, um déficit de ${fmtBRL(-saldo)} (dado real).`
-    return { text: prefixo + corpo + fecho }
+    // Quem pergunta se está ferrado quer saber do que ainda vem: o saldo
+    // contra os vencimentos próximos, pela mesma conta da Home.
+    const proximos = aperto && !hasAmbiguousLegacyCardBalance(s) ? `\n\n${balanceOutlookText(balanceOutlook(s, 7))}` : ''
+    return { text: prefixo + corpo + fecho + proximos }
   }
 
   // "qual foi meu maior gasto"
@@ -1728,6 +1733,15 @@ function respostaDePlano(s: AppState, t: string, plano: PlanoDeGuardar, driverMo
     const meses = mesesAtePrazo(t, hoje)
     if (!meses) {
       return { text: `Para juntar ${fmtBRL(plano.valor)}: em 6 meses são ${fmtBRL(porMesAcima(plano.valor, 6))} por mês; em 12, ${fmtBRL(porMesAcima(plano.valor, 12))}. Até quando você quer juntar?` }
+    }
+    // "Quanto preciso separar POR SEMANA": a conta é em semanas até o fim do
+    // último mês dito, não em meses — e responder em meses ignorava a pergunta.
+    if (/\bpor\s+semana\b|\bsemanal(?:mente)?\b|\bcada\s+semana\b|\btoda\s+semana\b/.test(t)) {
+      const ultimo = meses[meses.length - 1]
+      const [ay, am] = ultimo.split('-').map(Number)
+      const fim = toISO(new Date(ay, am, 0))
+      const semanas = Math.max(1, Math.ceil(daysBetween(hoje, fim) / 7))
+      return { text: `Para juntar ${fmtBRL(plano.valor)} até ${diaMes(fim)}, contando de agora e sem o que você já tem guardado: são ${semanas} semanas, de ${fmtBRL(porMesAcima(plano.valor, semanas))} por semana (${fmtBRL(porMesAcima(plano.valor, meses.length))} por mês).` }
     }
     return { text: `Para juntar ${fmtBRL(plano.valor)}, contando de agora e sem o que você já tem guardado: ${depositosAte(meses).replace(/^É|^São/, m => m.toLowerCase())}, de ${fmtBRL(porMesAcima(plano.valor, meses.length))} por mês.` }
   }

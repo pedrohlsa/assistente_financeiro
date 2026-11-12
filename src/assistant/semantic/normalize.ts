@@ -407,6 +407,9 @@ export function clampMessage(message: string): ClampedMessage {
 
 export function stripFillers(message: string): { text: string; changed: boolean } {
   const text = message
+    // "Quanto ganho por hora DE VERDADE": intensificador, não nome de nada —
+    // virava filtro de texto e a resposta era "não tenho lançamento com verdade".
+    .replace(/\b(?:de\s+verdade|na\s+real|realmente|de\s+fato)\b/gi, ' ')
     .replace(RE_MULETA_LIVRE, '')
     .replace(RE_MULETA_POS_VERBO, '')
     .replace(RE_MULETA_POS_ARTIGO, '')

@@ -23,6 +23,8 @@ import { activeCards } from '../../services/cards'
 import { usableCategories } from '../../data/categories'
 import { normalizeNumberWords } from '../numbers'
 import { parsePeriod, previousPeriod } from '../query/period'
+import { runQuery } from '../query/engine'
+import { validateQueryPlan, isQueryFailure } from '../query/validate'
 import { ehResiduo, planQuery } from '../query/parse'
 import type { PlannedQuery } from '../query/parse'
 import type { AssistantQueryPlan, AssistantQueryResult, FactUnit, QueryPeriod } from '../query/types'
@@ -765,6 +767,54 @@ function refinaConsulta(
       order: agrupamento.order, limit: 6,
       period: agrupamento.janela ? agrupamento.janela(today) : base.period,
     }, agrupamento.rotulo)
+  }
+
+  // ---- elipse de período: "e na passada?", "e a anterior?" -----------------
+  // "Semana" ficou implícita: o período em foco anda um passo para trás no
+  // mesmo grão. "Retrasada" anda dois.
+  const elipse = t.match(/^(?:e\s+)?(?:n[ao]|[ao]|d[ao])\s+(passad[ao]|anterior|retrasad[ao])\s*[?.!]*$/)
+  if (elipse) {
+    const um = previousPeriod(base.period)
+    const alvo = /retrasad/.test(elipse[1]) ? previousPeriod(um) : um
+    return planned({ ...base, period: alvo, comparePeriod: base.comparePeriod ? previousPeriod(alvo) : undefined }, `período ${alvo.label}`)
+  }
+
+  // ---- "sem contar terça": tira um dia da semana do recorte ----------------
+  const semDia = t.match(/^(?:e\s+)?(?:sem\s+(?:contar\s+)?|tirando\s+|fora\s+|menos\s+|exceto\s+)(?:a\s+|o\s+|as\s+|os\s+)?(segunda|terca|quarta|quinta|sexta|sabado|domingo)(?:s|-feira|s-feiras|\s+feira)?\s*[?.!]*$/)
+  if (semDia) {
+    const idx = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'].indexOf(semDia[1])
+    const atuais = base.filter.weekdays?.length ? base.filter.weekdays : [0, 1, 2, 3, 4, 5, 6]
+    const restantes = atuais.filter(d => d !== idx)
+    if (!restantes.length) return { kind: 'explain', text: 'Tirando esse dia não sobra nenhum dia no recorte.' }
+    return planned({ ...base, filter: { ...base.filter, weekdays: restantes } }, `sem ${semDia[1]}`)
+  }
+
+  // ---- "agora compara com alimentação": outra categoria, mesmo recorte -----
+  // A DSL compara PERÍODOS; duas categorias lado a lado são duas consultas
+  // iguais com o filtro trocado, respondidas juntas. Período dito ("compara
+  // com setembro") continua sendo tratado adiante.
+  const comparaCom = t.match(/^(?:e\s+|agora\s+)?compar[ao](?:r|ndo)?\s+(?:isso\s+)?com\s+(?:a\s+|o\s+|as\s+|os\s+)?(.+?)\s*[?.!]*$/)
+  if (comparaCom && !parsePeriod(comparaCom[1], today) && base.source === 'transactions' && base.metric === 'sum' && base.group === 'none') {
+    const outra = planQuery(state, `quanto gastei com ${comparaCom[1]}`, { today })
+    const categorias = outra?.plan.filter.categories
+    if (categorias?.length && !outra?.incompleto) {
+      const planoA = validateQueryPlan({ ...base, comparePeriod: undefined }, state, today)
+      const planoB = validateQueryPlan({ ...base, comparePeriod: undefined, filter: { ...base.filter, categories: categorias, text: undefined }, label: undefined }, state, today)
+      if (!isQueryFailure(planoA) && !isQueryFailure(planoB)) {
+        const ra = runQuery(state, planoA.plan, today)
+        const rb = runQuery(state, planoB.plan, today)
+        const nomeA = base.filter.categories?.map(id => state.categories.find(c => c.id === id)?.name || id).join(', ')
+          || (base.filter.text ? sentenceCase(base.filter.text) : 'o assunto anterior')
+        const nomeB = categorias.map(id => state.categories.find(c => c.id === id)?.name || id).join(', ')
+        const dif = Math.round((ra.total - rb.total) * 100) / 100
+        const selo = ra.estimated || rb.estimated ? ' (previsão)' : ' (dado real)'
+        const comparacao = ra.empty && rb.empty
+          ? `Não tenho lançamento nem de ${nomeA} nem de ${nomeB} ${base.period.label}.`
+          : `${nomeA}: ${fmtBRL(ra.total)} · ${nomeB}: ${fmtBRL(rb.total)} ${base.period.label}${selo}. `
+            + (dif === 0 ? 'Empataram.' : `${dif > 0 ? nomeA : nomeB} fica ${fmtBRL(Math.abs(dif))} acima.`)
+        return { kind: 'explain', text: comparacao }
+      }
+    }
   }
 
   // ---- outro período: "e mês passado?", "e em outubro?" -----------------

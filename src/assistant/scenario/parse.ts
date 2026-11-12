@@ -42,6 +42,10 @@ const HIPOTESE = [
   // "Vale a pena ficar mais 3 horas?" é a mesma hipótese do "se eu ficar mais
   // 3h", sem o "se" — caía em "não tenho certeza do que registrar".
   /\b(?:vale\s+a\s+pena|compensa)\s+(?:eu\s+)?(?:ficar|rodar|trabalhar|fazer)\s+mais\b/,
+  // "Se a gasolina aumentar 12%", "se o aluguel subir": hipótese sobre uma
+  // coisa que não é "eu". Sem este marcador a frase ia à consulta e voltava
+  // como fato ("Resultado este mês: R$ 3.439,90 (dado real)").
+  /\bse\s+(?:a|o|as|os|meu|minha|meus|minhas)\s+[\w\s]{2,30}?\s(?:aumentar|aumentasse|aumentarem|subir|subisse|subirem|cair|caisse|cairem|baixar|baixasse|dobrar|dobrasse|diminuir|diminuisse|ficar|ficasse|ficarem|custar|custasse|encarecer)\b/,
 ]
 
 export const looksLikeScenario = (input: string): boolean => {
@@ -165,7 +169,7 @@ function firstSavingMonth(t: string, hoje: string): string | undefined {
 const PARAR_GASTO = /\b(?:parar|pare|parasse|parando|cortar|corte|cortasse|tirar|tirasse|cancelar|cancelasse|cancelo|deixar\s+de\s+gastar|nao\s+gastar\s+mais|parar\s+de\s+gastar)\b/
 
 function planSingleScenario(
-  state: AppState, input: string, opts: { today?: string; focusCategory?: string } = {},
+  state: AppState, input: string, opts: { today?: string; focusCategory?: string; fullText?: string } = {},
   fragment = false,
 ): AssistantScenarioPlan | null {
   if (!fragment && !looksLikeScenario(input)) return null
@@ -195,7 +199,17 @@ function planSingleScenario(
     }
     const km = t.match(new RegExp(String.raw`\bmais\s+${NUM}\s*km\b`))
       || t.match(new RegExp(String.raw`\brodar\s+(?:mais\s+)?${NUM}\s*km\b`))
-    if (km) return base('extra-work', { extraKm: parseMoney(km[1]) }, `mais ${km[1]} km`)
+    if (km) {
+      // "Quanto devo gastar de combustível?" pede o CUSTO dos km, não o ganho:
+      // responder com a receita por km dava um número certo sobre outra conta.
+      // A pergunta pode estar na outra metade da frase ("se eu rodar mais 100
+      // km, quanto devo gastar de combustível?"): a leitura olha a frase inteira.
+      const inteira = opts.fullText ? semAcento(opts.fullText) : t
+      const combustivel = /\b(?:combustivel|gasolina|etanol|alcool|gnv|abastec\w*)\b/.test(inteira)
+        || /\b(?:gastar|custar|custo|gasto)\b/.test(inteira) && !/\b(?:ganh\w+|fatur\w+|render|rende|lucr\w+)\b/.test(inteira)
+      return base('extra-work', { extraKm: parseMoney(km[1]), ...(combustivel ? { fuelOnly: true } : {}) },
+        combustivel ? `combustível para mais ${km[1]} km` : `mais ${km[1]} km`)
+    }
   }
 
   // ---- parar um tipo de gasto --------------------------------------------
@@ -278,7 +292,10 @@ function planSingleScenario(
   }
 
   if (/\bguardar?\b|\bguardando\b|\bguardasse\b|\bpoupar\b|\bseparar\b|\bjuntar\b/.test(t)) {
-    const valor = lerValor(t)
+    // O valor é o que acompanha o verbo: em "já tenho 4.800 na viagem, se eu
+    // guardar 350 por mês", o primeiro número da frase é o acumulado, não o depósito.
+    const juntoDoVerbo = t.match(new RegExp(String.raw`\b(?:guardar|guardando|guardasse|poupar|poupasse|separar|separasse|juntar|juntasse)\s+(?:r\$\s*)?${NUM}`))
+    const valor = juntoDoVerbo ? parseMoney(juntoDoVerbo[1]) : lerValor(t)
     if (Number.isFinite(valor) && valor > 0) {
       const meta = (state.goals || []).find(g => !g.done && normalizeName(g.name).length > 2
         && t.includes(normalizeName(g.name).split(' ')[0]))
@@ -341,7 +358,7 @@ export function planScenario(
   if (!looksLikeScenario(input)) return null
   const partes = input.split(/,(?=\s*[a-zA-ZÀ-ÿ])|\s+(?:e\s+|depois\s+)(?=(?:eu\s+)?(?:ainda\s+|tamb[eé]m\s+)?(?:continuar\s+guardando|pagar|quitar|guardar|poupar|reduzir|diminuir|baixar|parar|cortar|investir|aplicar|ajudar|comprar|gastar)\b)/i)
     .map(p => p.trim()).filter(Boolean)
-  const planned = partes.map(p => ({ fragment: p, plan: planSingleScenario(state, p, opts, true) }))
+  const planned = partes.map(p => ({ fragment: p, plan: planSingleScenario(state, p, { ...opts, fullText: input }, true) }))
   const steps = planned.map(p => p.plan).filter((p): p is AssistantScenarioPlan => !!p)
   const unsupportedFragments = planned.filter(p => !p.plan && /\d|\binvestir\b|\baplicar\b/i.test(normalizeNumberWords(p.fragment).text))
     .map(p => p.fragment)

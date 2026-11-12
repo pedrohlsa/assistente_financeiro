@@ -43,7 +43,7 @@ import { applyCorrection, parseCorrection } from './corrections'
 import type { CorrectionPlan } from './corrections'
 import { findGoalByName, planAssistantActions } from './execute'
 import { askAssistant, normalizeQuestion, respostaDeMetaCitada } from '../services/ai'
-import { perguntaDeFatura, perguntaNominal } from './cashQuestions'
+import { contaDeclarada, perguntaDeFatura, perguntaNominal, respostaDaContaDeclarada } from './cashQuestions'
 import { buildCapabilities } from './capabilities'
 import { describeAction, META_OUTRA } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
@@ -1530,6 +1530,23 @@ Confirmar?`,
   let turno = buildTurnPlan(input.state, input.message, { today })
   let mensagem = input.message
   let reparo: RepairedText | null = null
+
+  // Conta feita só com os números DA FRASE ("tenho 1.800, preciso pagar 950 de
+  // aluguel… quanto ainda preciso ganhar?"): nenhum lançamento, nenhuma
+  // intenção a registrar — uma aritmética, respondida como tal, antes que
+  // "quanto falta" vire consulta de parcelas ou "preciso pagar" vire plano.
+  if (!input.pending?.length) {
+    const declarada = contaDeclarada(mensagem.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase())
+    if (declarada) {
+      return {
+        draft: null, focus: input.focus,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local',
+          actions: [], unresolved: [], reply: respostaDaContaDeclarada(declarada),
+        },
+      }
+    }
+  }
 
   // ---- 10a) Erro de digitação no vocabulário ESTRUTURAL ------------------
   // "gsatei 190 de cimento ontem" não casava verbo nenhum, e o resto da frase —

@@ -151,6 +151,14 @@ export function composeScenario(r: AssistantScenarioResult): string {
     }
 
     case 'extra-work': {
+      if (p.fuelOnly) {
+        const comb = r.facts.find(f => f.label === 'Combustível estimado')
+        const porKm = r.facts.find(f => f.label === 'Custo de combustível por km')
+        if (comb && porKm) {
+          linhas.push(`Para rodar mais ${fmtNum(p.extraKm || 0)} km, o combustível deve ficar em uns ${fmtBRL(comb.value)} (${formatValue(porKm.value, porKm.unit)}, pelo seu consumo e preço registrados).`)
+        }
+        break
+      }
       const estimativa = r.facts.find(f => f.label.startsWith('Estimativa'))
       const ritmo = r.facts.find(f => f.label.startsWith('Seu lucro por'))
       const meta = r.facts.find(f => f.label === 'Meta de hoje')

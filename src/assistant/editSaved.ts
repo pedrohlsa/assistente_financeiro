@@ -26,7 +26,11 @@ export interface EditRequest {
   field: EditableTxField
   value: string | number
   /** Pistas ditas na frase para localizar o lançamento. */
-  hints: { date?: string; from?: string; to?: string; amount?: number; text?: string }
+  hints: {
+    date?: string; from?: string; to?: string; amount?: number; text?: string
+    /** O nome veio do SUJEITO da frase ("a FEIRA foi 150"): sem lançamento com esse nome, não há candidato. */
+    textRequired?: boolean
+  }
   /** Reconhecido sem substantivo genérico: só vale se achar o lançamento. */
   loose?: boolean
   /**
@@ -208,6 +212,17 @@ export function parseSpokenCorrection(
   else if (quando?.kind === 'period') { hints.from = quando.from; hints.to = quando.to }
   const apelido = apelidoCitado(t)
   if (apelido) hints.text = apelido
+  // "A FEIRA foi 150, não 180": o sujeito nomeia o lançamento. Sem lê-lo, só o
+  // valor identificava — e um "Cimento" de três meses atrás com os mesmos
+  // R$ 180 era corrigido no lugar da feira.
+  if (!apelido) {
+    const sujeito = t.match(/^\s*(?:na\s+(?:verdade|real)\s*,?\s*)?(?:o|a|os|as|aquele|aquela|esse|essa|este|esta)\s+((?!(?:de|do|da|dos|das|que|ontem|hoje|anteontem|ultimo|último|primeiro|outro|outra|mesmo|mesma)\b)[a-zà-ú][\wà-ú]*(?:\s+(?!(?:de|do|da|foi|era|custou|deu|que)\b)[\wà-ú]+){0,2})\s+(?:de\s+(?:ontem|hoje|anteontem|sabado|sábado|domingo|segunda|terca|terça|quarta|quinta|sexta)\s+)?(?:foi|era|custou|deu)\b/i)
+    const nome = sujeito?.[1]?.trim()
+    if (nome && !/^(?:gasto|despesa|lancamento|lançamento|receita|valor|compra|conta|total|entrada|saida|saída|ultimo|último|primeiro|outro|outra)$/i.test(nome)) {
+      hints.text = nome
+      hints.textRequired = true
+    }
+  }
 
   const cat = t.match(CATEGORIA_TROCADA)
   if (cat) {
@@ -291,7 +306,7 @@ export function findEditCandidates(state: AppState, req: EditRequest, today: str
     })
     // Sem nenhum casamento, o texto não estreita nada — mas num pedido `loose`
     // é ele que autoriza a correção, então ali a lista fica vazia de propósito.
-    if (casa.length || req.loose) lista = casa
+    if (casa.length || req.loose || req.hints.textRequired) lista = casa
   }
   return lista
 }

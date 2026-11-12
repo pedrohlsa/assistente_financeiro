@@ -54,6 +54,8 @@ export interface AssistantScenarioPlan {
   when?: string
   hoursPerDay?: number
   extraKm?: number
+  /** "Quanto devo gastar de combustível": o custo dos km a mais, não o ganho. */
+  fuelOnly?: boolean
   /** Quantos dias a mais de trabalho a hipótese cobre. */
   days?: number
   /** Fração de um resultado anterior: 0,5 = metade. */
