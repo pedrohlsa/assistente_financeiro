@@ -342,6 +342,15 @@ export function segment(text: string): { text: string; start: number; end: numbe
   for (const m of text.matchAll(new RegExp(String.raw`\s+e\s+(?=(?:${COMMAND_VERBS})\b)`, 'gi'))) {
     push((m.index || 0) + m[0].length)
   }
+  // Duas PERGUNTAS na mesma frase: "quanto gastei com combustível…, e quanto
+  // isso representa do faturamento?". Juntas, o planejador lia uma consulta
+  // só, com a segunda metade virando filtro, e respondia "não tenho lançamento"
+  // para um número que existia. Cada pergunta é uma cláusula.
+  if (/\b(?:quanto|quantos|quantas|qual|quais|quando|onde|como)\b/i.test(text)) {
+    for (const m of text.matchAll(/[,;]?\s+e\s+(?=(?:quanto|quantos|quantas|qual|quais|quando|onde|como|por\s+que|pq)\b)/gi)) {
+      if (/\b(?:quanto|quantos|quantas|qual|quais|quando|onde|como)\b/i.test(text.slice(0, m.index))) push((m.index || 0) + m[0].length)
+    }
+  }
   // A âncora de saldo não começa com verbo de comando. Sem esta divisão,
   // parseClause encontra o saldo e retorna antes de registrar a movimentação
   // que o usuário acabou de declarar na mesma frase.
@@ -1134,7 +1143,10 @@ export function analyzeMessage(
   // compara com os valores das ações. Correção, intenção e dúvida já têm classe.
   for (let i = 0; i < clauses.length; i++) {
     const c = clauses[i]
-    if (clauses[i + 1] && /^\s*(?:quer\s+dizer|na\s+verdade|corrigindo)\b/i.test(clauses[i + 1].text)) continue
+    // "Gastei 120 no mercado, não, pera, foram 102": o 120 foi substituído pela
+    // correção seguinte; perguntar "o que aconteceu com os R$ 120" é ruído.
+    // O marcador é o MESMO da correção intramensagem, não uma lista à parte.
+    if (clauses[i + 1] && (clauses[i + 1].intent === 'correction' || startsWithCorrection.test(clauses[i + 1].text))) continue
     const missing = unaccountedMoney(c)
     if (!missing.length) continue
     const values = missing.map(v => `R$ ${v.toFixed(2).replace('.', ',')}`).join(', ')

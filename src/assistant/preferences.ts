@@ -124,7 +124,19 @@ export function parsePreferenceCommand(state: AppState, text: string, now = new 
     m = raw.match(/^(.+?)\s+(?:coloca|coloque|considera|considere)\s+em\s+(.+?)\s*[.!?]?$/i)
     if (m) { kind = 'category-mapping'; trigger = m[1]; value = categoryId(state, m[2]) || '' }
   }
-  if (!m) return undefined
+  if (!m) {
+    // "Considera sempre uma reserva de 300", "prefiro analisar meus ganhos
+    // líquidos", "não usa projeções otimistas": preferências de ANÁLISE, que
+    // o app ainda não guarda. Responder o menu de ajuda — ou pior, tratar a
+    // instrução como pergunta — esconde a limitação; ela é dita, com o que
+    // dá para fazer no lugar.
+    const instrucao = /^(?:(?:sempre|nunca|a\s+partir\s+de\s+agora|de\s+agora\s+em\s+diante)\s+)?(?:considera|considere|leva\s+em\s+conta|leve\s+em\s+conta|conta\s+sempre|prefiro|prefira|prefiria|nao\s+(?:usa|use|utilize|considera|considere|mostra|mostre)|usa\s+sempre|use\s+sempre|passa\s+a|passe\s+a|quero\s+que\s+voce\s+(?:sempre\s+)?(?:considere|use|mostre|calcule|analise))\b/.test(norm)
+      && !/\b(?:gastei|paguei|recebi|ganhei|comprei|guardei)\b/.test(norm)
+    if (!instrucao) return undefined
+    return { reply: 'Entendi a preferência, mas ainda não guardo esse tipo de ajuste de análise — por isso não vou fingir que apliquei. '
+      + 'O que eu sei aprender hoje: "quando eu falar X é Y" (apelido), "X é minha Casa 1" (origem) e "X coloca em categoria". '
+      + 'Para a conta de agora, inclua o ajuste na própria pergunta — por exemplo, "quanto posso gastar deixando 300 de reserva?" ou "quanto sobrou líquido este mês?".' }
+  }
   if (!safeVocabulary(trigger, value, kind)) {
     return { reply: 'Não salvei isso. Preferências podem ensinar nomes e categorias, mas nunca trocar valores, datas ou regras financeiras.' }
   }

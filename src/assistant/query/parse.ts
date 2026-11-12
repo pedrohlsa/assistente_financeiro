@@ -1104,6 +1104,12 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   let fallbackCategory: string | undefined
   let incompleto: string | undefined = previsaoNoPassado ? 'recebimento futuro em período que já terminou'
     : periodoVago ? 'últimos meses — quantos meses?' : undefined
+  // "Quanto ISSO representa do meu faturamento": "isso" é o resultado de outra
+  // pergunta, que o planejador não tem. Sem esta trava a proporção saía como
+  // "participação na Uber", um número certo sobre outra conta.
+  if (metric === 'share' && /\b(?:isso|disso|aquilo|esse\s+valor|desse\s+valor|esse\s+total|desse\s+total)\b/.test(t0)) {
+    incompleto = 'isso — o valor de outra pergunta'
+  }
   // "No CARTÃO nubank": com o cartão já reconhecido, a palavra repete o que foi
   // lido e não filtra nada. Virava texto de busca "cartao", e o app mandava
   // cadastrar um cartão que existe.

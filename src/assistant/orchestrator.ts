@@ -33,6 +33,7 @@ import { classifyLocalDecision } from './semantic/confidence'
 import { modalidadeExplicita, planoContradizModalidade } from './semantic/modality'
 import { semAlegacaoDeExecucao } from './claims'
 import { composeAnswer, explainQueryResult, isQueryFailure, runQuery, validateQueryPlan } from './query'
+import { planQuery } from './query/parse'
 import { rememberQuery } from './conversation'
 import type { RepairedText } from './semantic/normalize'
 import type { ConversationFocus } from './conversation'
@@ -998,6 +999,25 @@ function confirmacaoDeContaFixaSemValor(
       + `a proposta confirma ${tipo === 'income' ? 'esse recebimento' : 'esse pagamento'} com o valor cadastrado (${fmtBRL(p.rec.amount)}). `
       + 'Se foi outro valor, me diga o valor.',
   }
+}
+
+const INTENCAO_DE_REDUZIR = /\b(?:quero|queria|preciso|pretendo|vou\s+tentar|tenho\s+que|t[oô]\s+tentando|estou\s+tentando)\s+(?:diminuir|reduzir|cortar|baixar|economizar|gastar\s+menos)\b/i
+
+function respostaDeIntencaoDeReduzir(state: AppState, mensagem: string, today: string): string {
+  const base = 'Entendi a intenção — não registrei nada.'
+  const alvo = mensagem.match(/\b(?:diminuir|reduzir|cortar|baixar|economizar|gastar\s+menos)\s+(?:os\s+|meus\s+|minhas\s+|as\s+|o\s+|a\s+|em\s+|com\s+|de\s+)?(?:gastos?\s+(?:com|de|em)\s+|despesas?\s+(?:com|de|em)\s+|custos?\s+(?:com|de)\s+)?([a-zà-ú][\wà-ú ]{2,30}?)(?=[,.!?]|\s+(?:mas|por[ée]m|sem|e)\b|$)/i)
+  const nome = alvo?.[1]?.trim()
+  if (!nome) return `${base} Me diga com o quê você quer gastar menos que eu mostro quanto tem saído.`
+  const plano = planQuery(state, `quanto gastei com ${nome} nos ultimos 30 dias`, { today })
+  const v = plano && !plano.incompleto ? validateQueryPlan(plano.plan, state, today) : null
+  if (!v || isQueryFailure(v)) {
+    return `${base} Não reconheci "${nome}" como categoria ou nome de lançamento; diga o nome como aparece nos seus registros que eu mostro quanto tem saído.`
+  }
+  const r = runQuery(state, v.plan, today)
+  const historico = r.empty
+    ? `Nos últimos 30 dias não encontrei lançamentos de ${nome}.`
+    : `Nos últimos 30 dias, ${sentenceCase(nome)} somou ${fmtBRL(r.total)} (${r.count} ${r.count === 1 ? 'lançamento' : 'lançamentos'}, dado real).`
+  return `${base} ${historico} Para ver o efeito de um corte, pergunte por exemplo "e se eu reduzir ${nome} em 100 por mês?".`
 }
 
 export async function orchestrate(entradaBruta: OrchestratorInput): Promise<OrchestratorOutput> {
@@ -2095,6 +2115,11 @@ Confirmar?`,
       // "Não registrei nada" respondia um pedido de APAGAR como se fosse negação.
       reply = 'Por aqui eu não apago lançamentos salvos. Para remover, abra Movimentações e apague o lançamento. '
         + 'Se foi o último registro feito por mim, diga "desfaz o último".'
+    } else if (INTENCAO_DE_REDUZIR.test(mensagem)) {
+      // "Quero diminuir meus gastos com gasolina, mas sem mudar minha meta":
+      // intenção, não negação. Lida como "isso não aconteceu" soava como se o
+      // app tivesse desentendido. O útil é mostrar quanto tem saído.
+      reply = respostaDeIntencaoDeReduzir(input.state, mensagem, today)
     } else if (negadas.length) {
       // O usuário disse que NÃO fez o lançamento. Confirmar isso em voz alta é
       // parte da correção — e nada pode sugerir registro.

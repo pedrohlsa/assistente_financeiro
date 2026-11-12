@@ -4153,6 +4153,48 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('MI-conversa-compara-com-alimentacao', t4.reply, 'os dois assuntos lado a lado',
         /Gasolina/.test(t4.reply) && /Alimenta[çc][ãa]o/.test(t4.reply)))
     }
+
+    // Correção dentro da frase não deixa resíduo: o 120 foi substituído.
+    {
+      const r = await turnoHoje(motoristaRico(hoje), 'Gastei 120 no mercado, não, pera, foram 102.')
+      out.push(result('MI-correcao-intra-sem-residuo', { reply: r.reply, actions: r.actions }, 'uma despesa de 102, sem perguntar pelos 120',
+        r.actions.length === 1 && r.actions[0].kind === 'expense' && r.actions[0].amount === 102 && !/mencionou R\$\s120/.test(r.reply)))
+    }
+
+    // "Fiz 350 DE uber": a plataforma depois de "de" fica na receita.
+    {
+      const r = await turnoHoje(motoristaRico(hoje), 'ontem fiz 350 de uber e 180 na 99')
+      const descs = r.actions.filter(a => a.kind === 'income').map((a: any) => `${a.amount}:${a.description}`).sort().join(',')
+      out.push(result('MI-fiz-de-uber', descs, '180:99,350:Uber', descs === '180:99,350:Uber'))
+    }
+
+    // Duas perguntas na mesma frase: a primeira é respondida; "quanto ISSO
+    // representa" é o valor de outra pergunta e é dito como não lido — nunca
+    // uma "participação na Uber" sobre outra conta.
+    {
+      const r = await turnoHoje(motoristaRico(hoje), 'Quanto gastei de combustível nos últimos 30 dias, sem contar a despesa de manutenção, e quanto isso representa do meu faturamento na Uber?')
+      out.push(result('MI-pergunta-composta', r.reply, 'total de combustível nos últimos 30 dias; segunda metade declarada não lida',
+        /Combust[íi]vel[^\n]*nos últimos 30 dias: R\$/.test(r.reply) && !/Não tenho nenhum lançamento/.test(r.reply)
+          && !/Participação na Uber/.test(r.reply) && /segunda parte[^\n]*n[ãa]o respondi/i.test(r.reply)))
+    }
+
+    // Preferência de análise que o app não guarda: dita, nunca o menu nem a resposta à pergunta embutida.
+    for (const [id, frase] of [
+      ['MI-preferencia-reserva', 'Considera sempre uma reserva de emergência de R$ 300 antes de me dizer quanto posso gastar.'],
+      ['MI-preferencia-liquido', 'Prefiro analisar meus ganhos líquidos.'],
+      ['MI-preferencia-otimista', 'Não usa projeções otimistas.'],
+    ] as const) {
+      const r = await turnoHoje(autonomoRico(hoje), frase)
+      out.push(result(id, r.reply, 'diz que ainda não guarda esse tipo de preferência',
+        r.actions.length === 0 && /ainda não guardo/.test(r.reply) && !/Posso te ajudar|Dá uns/.test(r.reply)))
+    }
+
+    // Intenção de gastar menos: histórico do assunto, não "isso não aconteceu".
+    {
+      const r = await turnoHoje(motoristaRico(hoje), 'Quero diminuir meus gastos com gasolina, mas sem mudar minha meta diária.')
+      out.push(result('MI-intencao-de-reduzir', r.reply, 'entende a intenção e mostra o combustível dos últimos 30 dias',
+        r.actions.length === 0 && /Entendi a intenção/.test(r.reply) && /R\$/.test(r.reply) && !/não aconteceu/.test(r.reply)))
+    }
   }
 
   return out

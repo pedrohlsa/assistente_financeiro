@@ -972,7 +972,7 @@ function parseClause(input: string): ParsedAction[] {
     const incRe = new RegExp(
       // "Caiu" é o verbo mais natural para salário e pagamento que chega na
       // conta — sem ele, "caiu 500 na conta hoje" não registrava nada.
-      String.raw`(?:\b(?:ganhei|recebi|faturei|lucrei|entrou|caiu|cairam|pingou|fiz)\s*(?:mais\s+)?|\bmais\s+)(?:r\$)?\s*${NUM}\s*${MOEDA}?(?:\s+(?:(?:d[ao]|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(uber|99|indriver|corrida(?:\s+privada)?))?`,
+      String.raw`(?:\b(?:ganhei|recebi|faturei|lucrei|entrou|caiu|cairam|pingou|fiz)\s*(?:mais\s+)?|\bmais\s+)(?:r\$)?\s*${NUM}\s*${MOEDA}?(?:\s+(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(uber|99|indriver|corrida(?:\s+privada)?))?`,
       'gi',
     )
     for (const inc of text.matchAll(incRe)) {
@@ -984,7 +984,7 @@ function parseClause(input: string): ParsedAction[] {
       // uma despesa de 190 e uma receita fantasma de 190.
       if (/^mais\b/i.test(inc[0]) && /\b(?:gastei|paguei|comprei|torrei|coloquei|botei|abasteci|juntei|guardei|separei|depositei)\b/i.test(text.slice(0, at))) continue
       const afterAmount = text.slice(at + inc[0].length)
-      const nearbyPlatform = afterAmount.match(/^\s*(?:(?:d[ao]|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(uber|99|indriver|corrida(?:\s+privada)?)/i)
+      const nearbyPlatform = afterAmount.match(/^\s*(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(uber|99|indriver|corrida(?:\s+privada)?)/i)
       const platform = (inc[2] || nearbyPlatform?.[1] || '').trim().toLowerCase()
       const description = platform === 'uber' ? 'Uber'
         : platform === '99' ? '99'

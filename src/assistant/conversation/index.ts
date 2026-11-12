@@ -187,7 +187,13 @@ function respondeConversa(
   }
 
   // ---- 3) consulta -------------------------------------------------------
-  const planned = planQuery(state, message, { today: hoje })
+  // "Quanto gastei com combustível…, e quanto ISSO representa do faturamento?":
+  // a segunda pergunta fala do resultado da primeira, que ainda não existe.
+  // Planejar a frase inteira lia as duas como uma e respondia "não tenho
+  // lançamento" para um número que existe. A primeira é respondida; a segunda
+  // é dita como não respondida — nunca descartada em silêncio.
+  const duas = duasPerguntas(message)
+  const planned = planQuery(state, duas ? duas.primeira : message, { today: hoje })
   if (planned?.clarification) {
     return {
       reply: planned.clarification.question,
@@ -237,9 +243,29 @@ function respondeConversa(
     return { reply: '', kind: 'incomplete', residuo: planned.incompleto, focus: focus || { updatedAt: agora } }
   }
   const q = planned ? runPlannedQuery(state, planned, { today: hoje }) : null
-  if (q) return daConsulta(focus, q, agora)
+  if (q) {
+    const resposta = daConsulta(focus, q, agora)
+    if (duas) {
+      resposta.reply += `\n\nA segunda parte — "${duas.segunda}" — eu não respondi: ela usa o resultado da primeira, `
+        + 'e isso eu ainda não encadeio. Pergunte em seguida, por extenso: por exemplo, "quanto o combustível representa do meu faturamento?".'
+    }
+    return resposta
+  }
 
   return null
+}
+
+/**
+ * Frase com DUAS perguntas em que a segunda aponta para o resultado da
+ * primeira ("…, e quanto isso representa…"). Só esse caso: duas perguntas
+ * independentes continuam indo inteiras ao planejador.
+ */
+function duasPerguntas(message: string): { primeira: string; segunda: string } | null {
+  const m = message.match(/^(.*?\b(?:quanto|quantos|quantas|qual|quais|quando|onde|como)\b.+?)[,;]?\s+e\s+((?:quanto|quantos|quantas|qual|quais|quando|onde|como|por\s+que|pq)\b.+)$/i)
+  if (!m) return null
+  const segunda = m[2].trim()
+  if (!/\b(?:isso|disso|aquilo|esse\s+valor|desse\s+valor|esse\s+total|desse\s+total)\b/i.test(segunda)) return null
+  return { primeira: m[1].trim().replace(/[,;]$/, ''), segunda: segunda.replace(/[?.!]+$/, '') }
 }
 
 function aplicaFollowUp(
