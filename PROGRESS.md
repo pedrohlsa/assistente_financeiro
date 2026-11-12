@@ -5688,9 +5688,49 @@ adversariais, 4.088 + 3.800 metamórficos, 1.416 fuzz, 151/151 invariantes,
 468/468 offline; typecheck, typecheck:api, build. Sem push, merge, deploy, APK
 ou chamada paga. Continua **NOT READY** até auditoria independente.
 
-Próxima prioridade (não iniciada): ação local `recurring-confirm` — "paguei
-120 de luz" com conta fixa em aberto deve PROPOR a confirmação da ocorrência
-(valor dito, vencimento certo) em vez de recusar e mandar para a Home; a
-rubrica marca essa recusa como RUIM ("o lançamento sumiu"). Depois: auditoria
-independente com as frases da missão (metas por semana, corrida vale a pena,
-cenários de combustível +12%).
+## 12/11/2026 — Conta fixa pelo chat e auditoria com as frases da missão
+
+`recurring-confirm` (regra 65): "paguei 120 de luz" com Luz em aberto propõe a
+confirmação da ocorrência; "paguei a luz" usa o valor cadastrado; segunda
+confirmação recusada; desfazer reabre; despesa avulsa antiga continua recusada
+no executor. A RUIM da rubrica sumiu (0 perigosa, 0 ruim).
+
+Auditoria independente: as frases do prompt da missão, pelo orquestrador real,
+offline, lidas uma a uma (sonda no scratchpad, fora do repositório). Cada
+achado virou caso `MI-` em `adversarial-real.ts`, vermelho antes da correção:
+- correção falada "a feira foi 150, não 180" editava um Cimento de agosto
+  (casava só pelo valor) — o sujeito nomeia o lançamento; sem ele, não corrige;
+- "se a gasolina aumentar 12% e eu rodar 20% mais km" virava "Resultado este
+  mês (dado real)" — hipótese sem "eu" é hipótese;
+- "se eu rodar mais 100 km, quanto devo gastar de combustível" respondia com
+  receita/km — agora custo pelo consumo e preço registrados;
+- "já tenho 4.800 na viagem, se eu guardar 350 por mês" lia 4.800 — o valor
+  é o que acompanha o verbo;
+- "tenho 1.800 hoje, preciso pagar 950… quanto ainda preciso ganhar?" era
+  "isso ainda não aconteceu" — conta declarada, com a origem dos números;
+- "quanto preciso separar por semana" respondia por mês;
+- "cara, tô ferrado esse mês?" caía no menu — rota do "tô no vermelho" mais
+  os compromissos próximos;
+- "por hora de verdade" virava filtro "verdade";
+- "e na passada?", "sem contar terça", "agora compara com alimentação"
+  perdiam o assunto — elipse de período, exclusão de dia da semana e duas
+  categorias lado a lado;
+- "quanto gastei com combustível…, e quanto isso representa" respondia "não
+  tenho lançamento" — a primeira é respondida, a segunda dita como não lida;
+- preferências de análise ("considera sempre uma reserva de 300", "prefiro
+  líquido") eram respondidas como pergunta ou menu — ditas como não guardadas;
+- "quero diminuir meus gastos com gasolina" era "isso não aconteceu";
+- "fiz 350 de uber" perdia a plataforma; "gastei 120…, não, pera, foram 102"
+  perguntava pelos 120.
+
+Lidos e deixados como estão, com registro: "fiz 250 na 99" infere 1 viagem
+(decisão de produto pendente desde 28/10); "recebi 500, mas 100 eram
+reembolso" propõe 500 e pergunta pelos 100; "se eu trabalhar mais dois dias por
+semana" e "se eu adiar a compra em dois meses" são declarados não simuláveis;
+"quanto meu carro custa por km" responde o gasto registrado ÷ km do mês, não
+o `kmCost` completo.
+
+Gates: 666/666, 99/99, 50/50, 679/679 adversariais, metamórficos, fuzz,
+151/151 invariantes, 468/468 offline, typechecks, test:money, build, rubrica e
+`test:calendario` (seis datas) verdes. Commits locais; sem push, merge, deploy,
+APK ou chamada paga. NOT READY até auditoria independente.

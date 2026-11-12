@@ -628,3 +628,44 @@ autorização explícita.
     valor seguido de data, e a primeira versão apagava nove lançamentos
     legítimos do corpus temporal. Invariantes 108–113 e o corpus
     `tests/assistant/cases-roteamento.ts`.
+63. **O relógio dos testes é congelado, e a suíte roda em mais de uma data.**
+    O roteador antigo lê o relógio real; o orquestrador recebe `today`. Sem
+    `tests/clock.ts` (importado ANTES de tudo pelos runners), os dois
+    discordavam dentro do mesmo turno e a bateria "verde" de 28/10 ficou com
+    18 vermelhos em 12/11. `ASSISTFIN_TODAY` escolhe a data (padrão
+    2026-09-15; `real` usa a máquina) e `npm run test:calendario` roda a
+    bateria em seis datas — foi assim que apareceram "até dia N", "cai dia
+    5" no dia 1º e a média mensal no último dia do mês. Oráculo que só vale
+    num dia do mês é oráculo errado: o esperado sai do fixture e da data,
+    nunca de um número que era verdade na terça em que foi escrito. Dia 1º
+    continua fora da matriz: os fixtures ricos não têm gasto no mês, e ~35
+    oráculos ficam degenerados ali (limitação conhecida, não escondida).
+64. **"Até dia N" é prazo; "dia N" seco é fato; "cai dia N" é recorrência.**
+    Três leituras do mesmo "dia 22", em `dates.ts` e `clauses.ts`: com
+    "até/pro/para o/antes do" é o PRÓXIMO dia N (hoje, este mês ou o
+    seguinte) e nunca pergunta "o dia 22 deste mês ainda não chegou?"; seco,
+    num registro, ainda não chegado, é ambíguo e PERGUNTA; numa frase de
+    recorrência (`looksRecurring`) é o dia do vencimento e não é data
+    nenhuma. Antes, a pergunta de caixa só funcionava nos dias do mês em que
+    o dia pedido já tinha passado. Bloco `DL-` em `adversarial-real.ts`.
+65. **Conta fixa em aberto se CONFIRMA pelo chat, nunca vira despesa avulsa.**
+    "Paguei 120 de luz" com Luz pendente propõe `recurring-confirm` — a mesma
+    operação do card da Home (movimentação realizada + ocorrência resolvida,
+    chave `recurringId` + data), com o valor dito e o cadastrado citado quando
+    diferem; "paguei a luz" sem valor usa o cadastrado em vez de perguntar
+    "qual foi o valor?". Local-only (`remoteAllowed: false`): o remoto não
+    conhece ids. Confirmar a mesma ocorrência duas vezes é recusado
+    (`occurrence-resolved`); desfazer reabre a ocorrência; a despesa avulsa
+    antiga continua recusada pelo executor. A recusa anterior ("confirme pela
+    tela inicial") era RUIM na rubrica: o lançamento sumia.
+66. **Pergunta com os números NA FRASE é aritmética, e hipótese sobre outra
+    coisa é hipótese.** "Tenho 1.800 hoje, preciso pagar 950 de aluguel e 320
+    de luz, quero guardar 400 — quanto ainda preciso ganhar?" não fala dos
+    lançamentos: `contaDeclarada()` responde a conta, diz que usou só a frase
+    e não registra nada (antes: "isso ainda não aconteceu"). "Se a gasolina
+    aumentar 12%" é hipótese mesmo sem "eu" e nunca vira "Resultado este mês
+    (dado real)". "Quanto ISSO representa" é o valor de outra pergunta: a
+    primeira é respondida e a segunda é dita como não respondida. A correção
+    falada nomeia o lançamento pelo SUJEITO ("a FEIRA foi 150, não 180") e,
+    sem lançamento com esse nome, não corrige nada — pelo valor sozinho, um
+    Cimento de três meses atrás era corrigido no lugar da feira. Bloco `MI-`.

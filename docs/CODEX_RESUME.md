@@ -1,5 +1,14 @@
 # Retomada autônoma — AssistFin
 
+> **12/11/2026 — retomada no Linux.** O projeto agora também vive em
+> `~/work/assistfin` (clone da `main` do GitHub + branch
+> `feat/assistant-intelligence-v2` trazida do disco do Windows, nunca enviada).
+> Node 22 via nvm (`source ~/.nvm/nvm.sh`). Suíte com relógio congelado:
+> `npm test` (padrão 2026-09-15), `ASSISTFIN_TODAY=AAAA-MM-DD npm test`,
+> `npm run test:calendario`. O estado atual está no checkpoint de 12/11 em
+> CONTEXTO.md e nas duas últimas seções de PROGRESS.md. O restante deste
+> arquivo é o checkpoint de 28/10 (Windows).
+
 Checkpoint de 28/10/2026. Leia este arquivo primeiro, depois CLAUDE.md,
 o checkpoint de CONTEXTO.md e as últimas seções de PROGRESS.md.
 

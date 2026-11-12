@@ -6,7 +6,41 @@ o histórico de rodadas fica no [PROGRESS.md](PROGRESS.md). As seções antigas
 abaixo preservam decisões de sua época; este checkpoint prevalece onde houver
 divergência temporal. O código e os testes prevalecem sobre a documentação.
 
-## Checkpoint vigente — 28/10/2026
+## Checkpoint vigente — 12/11/2026 (retomada no Linux)
+
+- A branch `feat/assistant-intelligence-v2` só existia no disco do Windows
+  (`D:\Claude\AssistFin`, HEAD `9bc0457`); foi clonada para `~/work/assistfin`
+  no Linux e continua sem push. No GitHub há só `main` e
+  `feat/assistant-orchestrator`.
+- A baseline de 28/10 NÃO se reproduzia em 12/11: 18 adversariais vermelhos e
+  1 RUIM na rubrica, por relógio real × `today` injetado. Agora o relógio dos
+  testes é congelado (`tests/clock.ts`, `ASSISTFIN_TODAY`) e
+  `npm run test:calendario` roda a bateria em seis datas (regra 63).
+- Defeitos reais corrigidos nesta retomada: "até dia N" antes do dia N; "cai
+  dia 5" nos dias 1–4; média mensal no último dia do mês; depósito futuro
+  contado como guardado; domingo só com despesa contado como dia trabalhado;
+  conta fixa paga pelo chat (`recurring-confirm`, regra 65); correção falada
+  editando outro lançamento pelo valor; hipótese com porcentagem virando fato;
+  custo de combustível respondido com receita/km; depósito lido do número
+  errado; aritmética declarada tratada como registro; "por semana" respondido
+  por mês; "tô ferrado?" no menu; "de verdade" como filtro; follow-ups "e na
+  passada?", "sem contar terça", "compara com alimentação"; duas perguntas na
+  mesma frase; preferências de análise (ditas como não guardadas); intenção
+  de gastar menos; "fiz 350 de uber"; resíduo após correção intramensagem.
+- Baseline em 12/11 (relógio 2026-09-15): 666/666 corpus, 99/99, 50/50,
+  679/679 adversariais, 4.088 + 3.800 metamórficos, 1.416 fuzz, 151/151
+  invariantes, 468/468 offline; typecheck, typecheck:api, test:money, build,
+  rubrica (0 perigosa, 0 ruim) e `test:calendario` verdes. Sem push, merge,
+  deploy, APK ou chamada paga. **NOT READY** até auditoria independente.
+- Limitações conhecidas que seguem abertas: cenários com porcentagem e
+  "mais N dias por semana" só são declarados como não simuláveis; preferências
+  de análise (reserva mínima, líquido, sem projeção otimista) não são
+  guardadas; "quanto isso representa" não encadeia com a pergunta anterior;
+  "Já tenho X na meta" não sobrescreve o acumulado cadastrado; fatura com
+  vencimento no mês seguinte não aparece em "gastei no cartão esse mês";
+  dia 1º fora da matriz de datas.
+
+## Checkpoint anterior — 28/10/2026
 
 - Trabalho local: `feat/assistant-intelligence-v2`, último lote retomado de `a4afa92`. Em 27-28/10/2026,
   mais de 120 commits locais depois de `c3648de` corrigiram respostas lidas como usuário
