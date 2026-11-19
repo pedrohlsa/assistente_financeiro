@@ -18,7 +18,7 @@ import type {
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, errorMessage, isValidationFailure, validateAction } from './contracts'
-import { PEDE_APAGAR, analyzeMessage, contestsProposal, declaresIntention, looksLikeQuestion, looksLikeRetraction, looksPast, looksRecurring } from './clauses'
+import { PEDE_APAGAR, analyzeMessage, contestsProposal, declaresIntention, isRefundInflow, looksLikeQuestion, looksLikeRetraction, looksPast, looksRecurring } from './clauses'
 import { categoryDilemma, outOfPatternWarning, withLearnedCategory } from './learning'
 import { explainRequest } from './explain'
 import { answerConversation, isFocusFresh, looksLikeFollowUp } from './conversation'
@@ -579,7 +579,7 @@ function runLocal(
 
       // O vocabulário do usuário entra ANTES da validação: a categoria que ele
       // mesmo usa precisa passar pelas mesmas regras de qualquer outra.
-      action = withLearnedCategory(input.state, action, today, input.message)
+      if (!isRefundInflow(action)) action = withLearnedCategory(input.state, action, today, input.message)
 
       const res = validateAction(action, caps, today)
       if (isValidationFailure(res)) {
@@ -590,7 +590,7 @@ function runLocal(
       // Quiosque tanto em Lazer quanto em Compras. Escolher seria sortear;
       // ignorar as duas jogaria fora o que ele já disse. A saída é a mesma do
       // resto do app — perguntar, com as opções carregando a proposta pronta.
-      const dilema = categoryDilemma(input.state, res.action, today)
+      const dilema = isRefundInflow(res.action) ? undefined : categoryDilemma(input.state, res.action, today)
       if (dilema) dilemas.push({ actionId: '', ...dilema })
 
       // A proposta mostra a categoria que SERÁ gravada, não um campo vazio que

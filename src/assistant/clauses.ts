@@ -11,7 +11,7 @@ import { gruposDeCorrida, looksRecurring, parseNaturalFull } from '../services/n
 import { findAllDates, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
-import { MESES_PT_BR, parseMoney, todayISO } from '../utils/format'
+import { fmtBRL, MESES_PT_BR, parseMoney, todayISO } from '../utils/format'
 import { normalizeName } from '../utils/text'
 import { suspicionReasons } from './semantic/confidence'
 import type { SuspicionReason } from './semantic/confidence'
@@ -161,7 +161,7 @@ const NEGATED_VERBS =
   // Qualquer verbo de dinheiro no passado pode ser NEGADO. A lista acima
   // esquecia troquei, instalei, vendi, depositei e outros — e "nao troquei o
   // oleo por 280" registrava a manutencao mesmo assim.
-  + '|troquei|instalei|vendi|depositei|investi|apliquei|parcelei|passei|tirei|retirei|faturei|lucrei|andei|dirigi|percorri|entrou|caiu|sobrou|custou'
+  + '|troquei|instalei|vendi|depositei|investi|apliquei|parcelei|passei|tirei|retirei|faturei|lucrei|andei|dirigi|percorri|entrou|caiu|sobrou|custou|reembolsaram|reembolsou'
 
 /**
  * A vírgula depois do "não" é o jeito mais comum de negar em fala real: "não,
@@ -183,7 +183,7 @@ export const looksNegated = (t: string): boolean => NEGATED_STATEMENT.test(t)
  * respostas diferentes, e nenhuma delas é gravar na data de hoje.
  */
 const PAST_MONEY_VERBS =
-  'gastei|gastou|gastamos|paguei|pagou|pagamos|recebi|recebeu|recebemos|ganhei|ganhou|ganhamos|comprei|comprou|compramos|parcelei|passei|abasteci|coloquei|botei|guardei|separei|depositei|investi|apliquei|tirei|retirei|vendi|faturei|lucrei|rodei|andei|dirigi|percorri|trabalhei|fiz|fizemos|troquei|instalei|entrou|caiu|sobrou'
+  'gastei|gastou|gastamos|paguei|pagou|pagamos|recebi|recebeu|recebemos|ganhei|ganhou|ganhamos|comprei|comprou|compramos|parcelei|passei|abasteci|coloquei|botei|guardei|separei|depositei|investi|apliquei|tirei|retirei|vendi|faturei|lucrei|rodei|andei|dirigi|percorri|trabalhei|fiz|fizemos|troquei|instalei|entrou|caiu|sobrou|reembolsaram|reembolsou'
 
 const PAST_STATEMENT = new RegExp(String.raw`\b(?:${PAST_MONEY_VERBS})\b`, 'i')
 
@@ -612,15 +612,130 @@ function parseFirstAmount(text: string): number {
  * saem (o trabalho sem km nem horas sai junto).
  */
 const QUANTIDADE_DE_VIAGENS = /\b\d+\s+(?:corridas|viagens|corrida|viagem)\b/i
+function semViagemInferida(actions: ParsedAction[], text: string): ParsedAction[] {
+  if (QUANTIDADE_DE_VIAGENS.test(text)) return actions
+  return actions.flatMap(a => {
+    if (a.kind !== 'work' || !a.trips) return [a]
+    const { trips: _inferida, ...resto } = a
+    return resto.km || resto.hours ? [resto] : []
+  })
+}
+
 function semViagemInferidaComQuantidadeDita(clauses: AnalyzedClause[]): void {
   if (!clauses.some(c => QUANTIDADE_DE_VIAGENS.test(c.text) && c.actions.some(a => a.kind === 'work' && a.trips))) return
-  for (const c of clauses) {
-    if (QUANTIDADE_DE_VIAGENS.test(c.text)) continue
-    c.actions = c.actions.flatMap(a => {
-      if (a.kind !== 'work' || !a.trips) return [a]
-      const { trips: _inferida, ...resto } = a
-      return resto.km || resto.hours ? [resto] : []
-    })
+  for (const c of clauses) c.actions = semViagemInferida(c.actions, c.text)
+}
+
+type IncomeAction = Extract<ParsedAction, { kind: 'income' }>
+const VALOR_REEMBOLSO = String.raw`(?:r\$\s*)?([-+]?\d+(?:[.,]\d+)*)(?:\s+(?:real|reais))?`
+const RECEBI_REEMBOLSO = [
+  new RegExp(String.raw`^(?:eu\s+)?(?:recebi|recebemos)\s+(?:mais\s+)?${VALOR_REEMBOLSO}\s+de\s+reembolso\b`, 'i'),
+  new RegExp(String.raw`^(?:me\s+)?reembolsaram\s+${VALOR_REEMBOLSO}\b`, 'i'),
+  new RegExp(String.raw`^(?:o\s+)?reembolso\s+de\s+${VALOR_REEMBOLSO}(?:\s+(?<referencia>d[aeo]s?\s+[^\d?!;,.]+?))?\s+(?:caiu|entrou)(?:\s+na\s+conta)?[.!]*$`, 'i'),
+]
+const REEMBOLSO_ADICIONAL = new RegExp(String.raw`(?:,\s*mais\s+|\be\s+(?:mais\s+)?)${VALOR_REEMBOLSO}\s+de\s+reembolso\b`, 'i')
+const REEMBOLSO_INCLUIDO = new RegExp(String.raw`(?:\b(?:sendo|dos\s+quais|dess[ea]s?)\s+${VALOR_REEMBOLSO}\s+(?:(?:foi|foram|era|eram)\s+)?(?:de\s+)?reembolso|(?:[,;]\s*|\b(?:mas|porem|so\s+que)\s+)${VALOR_REEMBOLSO}\s+(?:foi|foram|era|eram)\s+(?:de\s+)?reembolso)\b`)
+const PEDIU_REEMBOLSO = /\b(?:pedi|pedimos|solicitei|solicitamos)\s+(?:um\s+|o\s+)?reembolso\b/i
+const REEMBOLSO_HIPOTETICO = /\bse\s+(?:(?:me\s+|nos\s+)?reembols(?:ar|arem|asse|assem)|(?:(?:eu|a\s+gente)\s+)?receber\s+[^\d.!?]{0,20}(?:r\$\s*)?\d[\d.,]*\s+de\s+reembolso|(?:o\s+)?reembolso\b[^.!?]*\b(?:cair|entrar))\b/i
+const REEMBOLSO_PENDENTE = /^(?:o\s+)?reembolso\b[^.!?]*\b(?:n[aã]o\s+(?:entrou|caiu)|ainda\s+vai\s+(?:entrar|cair)|pendente)\b/i
+const AINDA_NAO_CAIU = /^(?:(?:mas|porem|so\s+que)\s+)?(?:ainda\s+)?nao\s+(?:caiu|entrou)(?:\s+na\s+conta)?[.!?]*$/
+const ESCLARECE_REEMBOLSO_PENDENTE = 'O reembolso já entrou? Se caiu, me diga o valor recebido e a data para preparar o lançamento.'
+
+function entradaDeReembolso(amount: number, detalhe = ''): IncomeAction {
+  return { kind: 'income', category: 'outros-in', amount, description: detalhe ? `Reembolso ${detalhe}` : 'Reembolso' }
+}
+
+export function isRefundInflow(action: ParsedAction): boolean {
+  return action.kind === 'income' && action.category === 'outros-in' && /^reembolso\b/i.test(action.description || '')
+}
+
+function reembolsoRecebido(match: RegExpMatchArray, frase: string): IncomeAction | undefined {
+  const detalhe = match.groups?.referencia || frase.slice((match.index ?? 0) + match[0].length).replace(/[.!]+$/, '').trim()
+  if (detalhe && !/^(?:d[aeo]s?|por|referente\s+a)\s+[^\d?!;,]+$/i.test(detalhe)) return undefined
+  if (/\b(?:n[aã]o|mas|recebi|gastei|paguei)\b/i.test(detalhe)) return undefined
+  const valor = parseMoney(match[1])
+  return valor > 0 ? entradaDeReembolso(valor, detalhe) : undefined
+}
+
+/** Resolve reembolsos cuja composição ou situação é explicada em outra cláusula. */
+function esclareceReembolsos(clauses: AnalyzedClause[], original: string, today: string): void {
+  if (!/\breembols\w*\b/i.test(original)) return
+  for (let i = 0; i < clauses.length; i++) {
+    const registro = clauses[i]
+    const outra = clauses[i + 1]
+    if (outra && !outra.actions.length && AINDA_NAO_CAIU.test(normalizeName(outra.text))
+      && registro.actions.some(isRefundInflow)) {
+      registro.actions = registro.actions.filter(a => !isRefundInflow(a))
+      registro.ambiguity = { question: ESCLARECE_REEMBOLSO_PENDENTE, options: [] }
+      outra.handled = true
+    }
+    if (registro.intent !== 'record' || !/\b(?:recebi|recebemos|ganhei)\b/i.test(registro.text)) continue
+    const entradas = (registro.temporal?.actions.length ? registro.temporal.actions : registro.actions)
+      .filter((a): a is IncomeAction => a.kind === 'income')
+    if (!entradas.length) continue
+
+    const textoDoRegistro = normalizeName(normalizeNumberWords(registro.text).text)
+    const mesmoTrecho = textoDoRegistro.match(REEMBOLSO_INCLUIDO)
+    const continua = !mesmoTrecho && outra && outra.start >= registro.end && !outra.actions.length && /\breembolso\b/i.test(outra.text)
+    const textoCompleto = continua ? normalizeName(normalizeNumberWords(original.slice(registro.start, outra.end)).text) : textoDoRegistro
+    const leitura = mesmoTrecho || textoCompleto.match(REEMBOLSO_INCLUIDO)
+    if (!leitura) continue
+
+    const renda = entradas[0]
+    const reembolso = parseMoney(leitura[1] || leitura[2])
+    registro.actions = semViagemInferida(registro.actions.filter(a => a.kind !== 'income'), registro.text)
+    if (continua) {
+      outra.handled = true
+      outra.intent = 'unknown'
+      outra.ambiguity = undefined
+    }
+
+    const datas = findAllDates(textoCompleto, today)
+    const dataIncerta = registro.dateAmbiguity || registro.temporal || (continua && outra.dateAmbiguity)
+      || datas.some(d => d.kind !== 'date' || d.date !== registro.date)
+    const depois = textoCompleto.slice((leitura.index ?? 0) + leitura[0].length)
+    const pendente = /\b(?:pendente|a\s+receber|ainda\s+(?:vai|deve)\s+(?:cair|entrar)|nao\s+(?:entrou|caiu))\b/.test(depois)
+    const proxima = clauses[i + (continua ? 2 : 1)]
+    const corrigiuNaProxima = !!proxima && looksLikeRetraction(proxima.text) && /\breembolso\b/i.test(proxima.text)
+    const corrigiu = looksLikeRetraction(depois) || corrigiuNaProxima
+    if (corrigiuNaProxima) {
+      proxima.actions = []
+      proxima.ambiguity = undefined
+      proxima.handled = true
+      proxima.intent = 'clarification'
+    }
+    if (registro.temporal) {
+      registro.temporal.actions = semViagemInferida(registro.temporal.actions.filter(a => a.kind !== 'income'), registro.text)
+      if (!registro.temporal.actions.length) registro.temporal = undefined
+    }
+    const valorTotal = fmtBRL(renda.amount)
+    const valorReembolso = fmtBRL(reembolso)
+    let question: string | undefined
+    if (dataIncerta) question = 'Em que dia entrou o valor com reembolso? Diga a data exata, o total recebido e quanto desse total foi reembolso.'
+    else if (corrigiu) question = 'Qual foi o total que entrou após a correção e quanto dele era reembolso?'
+    else if (pendente) question = 'Qual valor já entrou? Você mencionou um reembolso pendente. Me diga se alguma parte dele foi recebida.'
+    else if (entradas.length > 1) question = `Qual das entradas inclui os ${valorReembolso} de reembolso? Diga o valor e a origem de cada entrada.`
+    else if (!(reembolso > 0) || reembolso > renda.amount) {
+      question = `Você informou ${valorTotal} recebidos e ${valorReembolso} de reembolso. Qual foi o total que entrou e quanto dele era reembolso?`
+    }
+    if (question) {
+      registro.ambiguity = { options: [], question }
+      continue
+    }
+
+    const restante = Math.round((renda.amount - reembolso) * 100) / 100
+    const devolucao = { ...entradaDeReembolso(reembolso), date: renda.date }
+    const actions = restante > 0 ? [{ ...renda, amount: restante }, devolucao] : [devolucao]
+    registro.ambiguity = {
+      field: 'financial-event',
+      question: restante > 0
+        ? `Dos ${valorTotal} que entraram, posso preparar ${fmtBRL(restante)} como receita e ${valorReembolso} como reembolso na categoria Outros?`
+        : `Posso preparar os ${valorTotal} que entraram como reembolso na categoria Outros?`,
+      options: [
+        { label: 'Sim', actions },
+        { label: 'Não', actions: [], reply: 'Qual foi o total recebido e quanto dele era reembolso?' },
+      ],
+    }
   }
 }
 
@@ -778,15 +893,25 @@ export function analyzeMessage(
     // perguntava "esses R$ 150 foram ganho ou gasto?" para uma conta de luz.
     const dayHint = !looksRecurring(part.text)
       && [...datesOriginal, ...datesParser].some(d => d.kind === 'date')
-    const parsed = parseNaturalFull(semData || forParser, { driver: opts?.driver, dayHint, inheritedKind })
+    const fala = semData || forParser
+    const primeiroReembolso = RECEBI_REEMBOLSO.map(re => fala.match(re)).find(Boolean)
+    const maisReembolso = primeiroReembolso ? null : fala.match(REEMBOLSO_ADICIONAL)
+    const mencaoReembolso = primeiroReembolso || maisReembolso
+    const reembolso = mencaoReembolso && reembolsoRecebido(mencaoReembolso, fala)
+    const antesDoReembolso = reembolso && maisReembolso ? fala.slice(0, maisReembolso.index).trim() : fala
+    const parsed = parseNaturalFull(antesDoReembolso, { driver: opts?.driver, dayHint, inheritedKind })
+    const direcaoIncerta = !!(maisReembolso && reembolso && !parsed.actions.some(a => a.kind === 'income'))
     // "Furou o pneu, foi mais 30" descreve um custo, não outra corrida
     // concluída. O verbo "foi" isolado é ambíguo no perfil motorista.
     const tireIncident = /\b(?:furando|furou|furei)\s+(?:o\s+)?pneu\b/i.test(part.text)
     const tireCost = tireIncident ? parseFirstAmount(part.text) : NaN
     const actions0: ParsedAction[] = tireIncident && tireCost > 0
       ? [{ kind: 'expense', amount: tireCost, category: 'manutencao', description: 'Pneu' }]
-      : parsed.actions
-    let ambiguity: AnalyzedClause['ambiguity'] = parsed.ambiguity
+      : reembolso && !direcaoIncerta ? primeiroReembolso ? [reembolso] : [...parsed.actions, reembolso] : parsed.actions
+    let ambiguity: AnalyzedClause['ambiguity'] = primeiroReembolso && reembolso ? undefined : parsed.ambiguity
+    if (!ambiguity && direcaoIncerta && reembolso) {
+      ambiguity = { question: `O reembolso de ${fmtBRL(reembolso.amount)} entrou ou saiu da sua conta?`, options: [] }
+    }
 
     // O verbo herdado só vale para a PRÓXIMA metade se esta metade disse uma
     // coisa só: "ganhei 200 e gastei 50" não deixa contexto, deixa confusão.
@@ -946,6 +1071,13 @@ export function analyzeMessage(
         ] : [] }
     }
 
+    const aguardaReembolso = PEDIU_REEMBOLSO.test(part.text) || REEMBOLSO_HIPOTETICO.test(part.text)
+      || REEMBOLSO_PENDENTE.test(part.text) || /^(?:o\s+)?reembolso\b.*\?\s*$/i.test(part.text)
+    if (aguardaReembolso) {
+      actions = []
+      ambiguity = { question: ESCLARECE_REEMBOLSO_PENDENTE, options: [] }
+    }
+
     // Leitura local de BAIXA confiança não fecha a cláusula. O número do período
     // lido como valor, a magnitude perdida, a meta lida como despesa e o
     // movimento de dinheiro dentro de uma pergunta sem fato: a ação sai, e a
@@ -1005,6 +1137,7 @@ export function analyzeMessage(
 
     let intent: AssistantIntent
     if (isConversation) intent = 'conversation'
+    else if (aguardaReembolso) intent = 'record'
     else if (negated) intent = 'correction'
     else if (isCorrection && !actions.length) intent = 'correction'
     else if (actions.length && !isQuestion) intent = 'record'
@@ -1064,6 +1197,8 @@ export function analyzeMessage(
     clause.handled = true
   }
 
+  esclareceReembolsos(clauses, original, today)
+
   // A quantidade dita vale antes de fundir: depois, a viagem inferida já está
   // somada às ditas.
   semViagemInferidaComQuantidadeDita(clauses)
@@ -1117,7 +1252,7 @@ export function analyzeMessage(
   const startsWithCorrection = new RegExp(String.raw`^\s*${INTRA_CORRECTION}`, 'i')
   for (let i = 1; i < clauses.length; i++) {
     const c = clauses[i]
-    if (!startsWithCorrection.test(c.text)) continue
+    if (c.intent === 'clarification' || !startsWithCorrection.test(c.text)) continue
     // O alvo da correção é o PRIMEIRO valor após o marcador. Uma ação posterior
     // ("e 30 no pneu") nunca pode virar o valor corrigido do combustível.
     const novo = parseFirstAmount(c.text)

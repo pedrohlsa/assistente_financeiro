@@ -72,7 +72,7 @@ function classifica(c: AnalyzedClause, state: AppState): TurnBlockType {
   if (c.intent === 'conversation') return 'conversation'
   if (c.intent === 'clarification') return 'clarification'
   if (looksLikeScenario(c.text)) return 'scenario'
-  if (c.intent === 'record' && c.actions.length) return 'record'
+  if (c.intent === 'record' && (c.actions.length || c.ambiguity)) return 'record'
   // Sinal temporal segurando ações (data futura, período sem dia) continua
   // sendo registro: o que falta é a decisão do usuário, não a compreensão.
   if (c.temporal?.actions?.length) return 'record'

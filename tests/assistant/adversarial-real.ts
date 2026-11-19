@@ -585,6 +585,92 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     refundYes.response.mode === 'propose_actions'
       && refundYes.response.actions.some(a => a.action.kind === 'income' && a.action.amount === 70)
       && refundYes.response.actions.some(a => a.action.kind === 'expense' && a.action.amount === 20)))
+  {
+    const perfil = buildState({ profile: 'driver', balance: 900 })
+    perfil.settings.balanceAsOf = addDays(TODAY, -2)
+    let chamadasRemotas = 0
+    const falar = (message: string, pending?: Awaited<ReturnType<typeof orchestrate>>['response']) => orchestrate({
+      state: perfil, message, today: TODAY, remoteEnabled: true,
+      askRemote: async () => { chamadasRemotas++; return null },
+      pending: pending?.actions,
+      pendingClarification: pending?.mode === 'clarify' ? pending.clarification : undefined,
+    })
+    const consultas = await Promise.all([
+      'Ontem recebi 500 da Uber, mas 100 eram reembolso',
+      'Ontem recebi 500 da Uber, sendo 100 de reembolso',
+      'Ontem recebi 500, 100 foi reembolso',
+      'Ontem recebi 500, dos quais 100 eram reembolso',
+    ].map(mensagem => falar(mensagem)))
+    const aceito = await falar('sim', consultas[0].response)
+    const propostas = aceito.response.actions.map(a => a.action)
+    const aplicado = applyBatchPure(perfil, aceito.response.actions, { now: { date: TODAY, time: '12:00' } })
+    out.push(result('RE-parcial-confirmado-soma-o-caixa-uma-vez', { consultas: consultas.map(r => r.response.reply), propostas },
+      '500 recebidos ontem, em 400 de receita e 100 de reembolso, sem viagem e sem chamada remota',
+      chamadasRemotas === 0 && consultas.every(r => r.response.mode === 'clarify' && r.response.actions.length === 0
+        && /R\$\s500,00.*R\$\s400,00.*R\$\s100,00/.test(r.response.reply))
+      && aceito.response.mode === 'propose_actions' && propostas.length === 2 && perfil.transactions.length === 0
+      && propostas.some(a => a.kind === 'income' && a.amount === 400 && a.description === 'Uber' && a.date === addDays(TODAY, -1))
+      && propostas.some(a => a.kind === 'income' && a.amount === 100 && a.category === 'outros-in' && a.date === addDays(TODAY, -1))
+      && aplicado.applied && aplicado.state.transactions.length === 2 && currentBalance(aplicado.state, TODAY) === 1400))
+
+    const misto = await falar('Recebi 500, dos quais 100 eram reembolso, gastei 36 no mercado e fiz 3 viagens')
+    const negado = await falar('não', misto.response)
+    const comMisto = await falar('sim', misto.response)
+    out.push(result('RE-preserva-gasto-e-viagens-ditas', { misto: misto.response, negado: negado.response, aceito: comMisto.response.actions },
+      'pendência conserva mercado de 36 e 3 viagens, e a aceitação acrescenta só as duas entradas',
+      misto.response.mode === 'clarify' && misto.response.actions.length === 2
+      && misto.response.actions.some(a => a.action.kind === 'expense' && a.action.amount === 36)
+      && misto.response.actions.some(a => a.action.kind === 'work' && a.action.trips === 3)
+      && comMisto.response.actions.length === 4 && negado.keepPending && negado.response.actions.length === 0))
+
+    const incertos = await Promise.all([
+      'Recebi 500, mas 600 eram reembolso', 'Recebi 500, mas -100 eram reembolso',
+      `Recebi 500 em ${addDays(TODAY, 7).split('-').reverse().join('/')}, sendo 100 de reembolso`,
+      'Recebi 500, sendo 100 de reembolso, na verdade foram 120 de reembolso',
+      'Recebi 500 hoje, sendo 100 de reembolso ontem',
+      'Recebi 500 da Uber e 350 da 99, sendo 100 de reembolso',
+      'Recebi 500, mas 100 eram reembolso pendente',
+    ].map(mensagem => falar(mensagem)))
+    const integral = await falar('Recebi 500, sendo 500 de reembolso')
+    const aceitaIntegral = await falar('sim', integral.response)
+    out.push(result('RE-valores-e-data-tem-que-ser-compativeis', { incertos: incertos.map(r => r.response), integral: aceitaIntegral.response },
+      'reembolso maior ou negativo e data futura seguram o registro; se todo o valor é reembolso, gera uma entrada de 500',
+      incertos.every(r => r.response.mode === 'clarify' && !r.response.actions.length && !r.response.clarification.options.length)
+      && aceitaIntegral.response.actions.length === 1
+      && aceitaIntegral.response.actions.some(a => a.action.kind === 'income' && a.action.amount === 500 && a.action.category === 'outros-in')))
+
+    const avulsos = await Promise.all([
+      'Me reembolsaram 100 do pneu', 'Reembolso de 100 caiu na conta', 'Recebi hoje 100 de reembolso',
+      'O reembolso de 100 do pneu caiu na conta',
+    ].map(mensagem => falar(mensagem)))
+    const salario = await falar('Recebi 500 de salário e mais 100 de reembolso')
+    const doisRecebimentos = await falar('Recebi 500 e recebi mais 100 de reembolso')
+    const acoesDoisRecebimentos = doisRecebimentos.response.actions.map(a => a.action)
+    const naoEntra = await falar('Não me reembolsaram 100 do pneu')
+    out.push(result('RE-avulso-entra-em-outros', { avulsos: avulsos.map(r => r.response.actions), salario: salario.response.actions, doisRecebimentos: doisRecebimentos.response.actions },
+      'reembolso é entrada em Outros; salário e outros recebimentos adicionais mantêm o próprio valor',
+      avulsos.every(r => r.response.actions.length === 1 && r.response.actions.some(a => a.action.kind === 'income'
+        && a.action.category === 'outros-in' && a.action.amount === 100 && a.action.description?.startsWith('Reembolso')))
+      && salario.response.actions.length === 2 && salario.response.actions.some(a => a.action.kind === 'income' && a.action.category === 'salario' && a.action.amount === 500)
+      && salario.response.actions.some(a => a.action.kind === 'income' && a.action.category === 'outros-in' && a.action.amount === 100)
+      && acoesDoisRecebimentos.some(a => a.kind === 'income' && a.category === 'outros-in' && a.amount === 100)
+      && acoesDoisRecebimentos.every(a => a.kind !== 'work' || a.trips === 1)
+      && !naoEntra.response.actions.length))
+
+    const naoRecebidos = await Promise.all([
+      'Pedi reembolso de 100 do pneu', 'Se me reembolsarem 100 do pneu, quanto sobra?',
+      'Me reembolsaram 100 do pneu, mas ainda não caiu na conta', 'Reembolso de 100 ainda não caiu na conta',
+      'O reembolso de 100 do pneu caiu na conta?',
+    ].map(mensagem => falar(mensagem)))
+    const pergunta = await falar('Recebi R$ 1.200,50, sendo R$ 120,25 de reembolso. Qual é meu saldo?')
+    const centavos = await falar('sim', pergunta.response)
+    out.push(result('RE-hipotese-e-pergunta-preservam-confirmacao', { naoRecebidos: naoRecebidos.map(r => r.response), pergunta: pergunta.response },
+      'pedido e hipótese não geram ação, e a pergunta de saldo mantém a escolha com os dois valores exatos',
+      naoRecebidos.every(r => !r.response.actions.length && /O reembolso já entrou/.test(r.response.reply))
+      && pergunta.response.mode === 'clarify' && pergunta.response.actions.length === 0
+      && /R\$\s1\.080,25.*R\$\s120,25/.test(pergunta.response.reply)
+      && centavos.response.actions.map(a => a.action).filter(a => a.kind === 'income').reduce((soma, a) => soma + a.amount, 0) === 1200.5))
+  }
   const invalidChoice = await orchestrate({ state: buildState(), message: 'sim', today: TODAY, remoteEnabled: false,
     pendingClarification: { question: 'Registrar?', field: 'financial-event',
       options: [{ label: 'Sim', value: 'sim', actions: [{ kind: 'expense', amount: -10, category: 'alimentacao' }] }] } })
