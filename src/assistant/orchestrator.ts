@@ -13,7 +13,7 @@ import { lastReversibleBatch } from './journal'
 import { editActionFor, findEditCandidates, parseEditRequest, parseSpokenCorrection } from './editSaved'
 import type { EditableTxField } from './editSaved'
 import { editBlockReason, findCardByName } from './execute'
-import { explicitInvoicePaymentIssue } from './invoicePayment'
+import { invoicePaymentIssue } from './invoicePayment'
 import type {
   AssistantCandidateAction, AssistantCapabilities, AssistantClarification,
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
@@ -50,9 +50,9 @@ import { buildCapabilities } from './capabilities'
 import { describeAction, META_OUTRA } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
 import { catById, usableCategories } from '../data/categories'
-import { addDays, fmtBRL, todayISO, uid } from '../utils/format'
+import { addDays, fmtBRL, MESES_PT_BR, todayISO, uid } from '../utils/format'
 import { matchRecurringPayment, occurrenceRecord, occurrencesBetween, recurringActiveOn } from '../services/calc'
-import { cardInvoice, unpaidPriorInvoiceMonth } from '../services/cards'
+import { cardInvoice, futureInvoicePaymentDate, invoiceOpenAmount, unpaidPriorInvoiceMonth } from '../services/cards'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { brDate, dateLabel, findAllDates, findDate, previousYearOf, resolveDayInWindow } from './dates'
 import { applyPreferenceAliases, parsePreferenceCommand } from './preferences'
@@ -795,7 +795,10 @@ function perguntaComAssunto(pergunta: string, candidates: AssistantCandidateActi
   if (alvos.length !== 1) return pergunta
   const [a] = alvos
   if (a.kind === 'goal-deposit' && a.name) return `quanto falta para a meta ${a.name}`
-  if (a.kind === 'card-payment' && a.cardName) return `quanto falta pagar da fatura do ${a.cardName}`
+  if (a.kind === 'card-payment' && a.cardName) {
+    const referencia = a.referenceMonth ? ` de ${MESES_PT_BR[Number(a.referenceMonth.slice(5)) - 1]} de ${a.referenceMonth.slice(0, 4)}` : ''
+    return `quanto falta pagar da fatura do ${a.cardName}${referencia}`
+  }
   return pergunta
 }
 
@@ -1092,39 +1095,6 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (nominal) input = { ...input, message: nominal }
   const caps = buildCapabilities(input.state)
   const today = input.today || todayISO()
-
-  // CardPayment no contrato do chat só tem cartão/valor: data e referência
-  // explícitas seriam descartadas e a confirmação pagaria outra fatura.
-  const paymentText = normalizeQuestion(input.message)
-  if (/\bfaturas?\b/.test(paymentText) && /\b(?:paguei|pagamos|quitei|quitamos)\b/.test(paymentText)) {
-    const paymentClauses = analyzeMessage(input.message, { driver: caps.isDriver, today }).clauses
-    const unsupported = paymentClauses.some(c => {
-      const text = normalizeQuestion(c.text)
-      if (!/\bfaturas?\b/.test(text) || !/\b(?:paguei|pagamos|quitei|quitamos)\b/.test(text) || looksLikeQuestion(c.text)) return false
-      const date = findDate(c.text, today)
-      const explicitMonth = /\bfaturas?\b[^.!?]*\b(?:de|do|da|referente\s+a|referencia)\s+(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|\d{1,2}[/-]\d{4})\b/.test(text)
-        || /\bfaturas?\b[^.!?]*\b(?:mes\s+passado|mes\s+que\s+vem|proximo\s+mes|mes\s+anterior)\b/.test(text)
-      return explicitMonth || !!date && (date.kind !== 'date' || date.date !== today)
-    })
-    if (unsupported) return {
-      draft: null, focus: input.focus,
-      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
-        reply: 'O chat ainda não mantém a data de pagamento ou o mês de referência que você informou para a fatura. Não propus nenhum registro desta mensagem. Em Mais → Cartões e parcelamentos, confira a fatura exibida e a data antes de registrar; se a referência for outra, não use essa fatura. Outros lançamentos podem ser enviados separadamente.' },
-    }
-    const ambiguousInvoice = paymentClauses.some(c => c.actions.some(a => {
-      if (a.kind !== 'card-payment') return false
-      const cards = input.state.cards.filter(card => !card.archived)
-      const name = normalizeName(a.cardName)
-      const card = name ? cards.find(card => normalizeName(card.name) === name)
-        : cards.length === 1 ? cards[0] : undefined
-      return !!card && !!unpaidPriorInvoiceMonth(input.state, card, today.slice(0, 7))
-    }))
-    if (ambiguousInvoice) return {
-      draft: null, focus: input.focus,
-      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
-        reply: 'Há uma fatura anterior desse cartão ainda pendente. O chat não consegue escolher com segurança o mês de referência do pagamento, então não propus nenhum registro. Em Mais → Cartões e parcelamentos, confira a fatura e registre o pagamento no mês correto.' },
-    }
-  }
 
   // ---- 0) A mensagem escolhe uma opção que o assistente ofereceu? --------
   // "GNV" logo depois de "gás de cozinha ou GNV?" precisa recuperar o valor e
@@ -1871,14 +1841,27 @@ Confirmar?`,
       if (action.kind !== 'card-payment') return true
       const card = findCardByName(input.state, action.cardName)
       if (!card) return true
-      const mk = today.slice(0, 7)
+      const paidOn = action.date || today
+      const mk = action.referenceMonth || today.slice(0, 7)
+      if (!action.referenceMonth && (paidOn.slice(0, 7) !== mk || unpaidPriorInvoiceMonth(input.state, card, mk, today))) {
+        notasDeFatura.add(`Qual foi o mês de vencimento da fatura do ${card.name}? Informe o mês e o ano para eu preparar o pagamento na fatura certa.`)
+        return false
+      }
       const invoice = cardInvoice(input.state, card, mk, today)
-      const issue = explicitInvoicePaymentIssue(input.state, invoice, today, action.amount)
+      if (futureInvoicePaymentDate(input.state, card, mk, today)) {
+        notasDeFatura.add(`Já existe um pagamento com data futura para essa fatura do ${card.name}. Confira o registro na tela de Cartões e parcelamentos.`)
+        return false
+      }
+      const issue = invoicePaymentIssue(input.state, invoice, paidOn, today, action.amount)
       if (issue) {
         notasDeFatura.add(issue.detail)
         return false
       }
-      const key = JSON.stringify([card.id, mk, today, action.amount ?? invoice.pending])
+      if ((action.referenceMonth || paidOn !== today) && invoiceOpenAmount(input.state, invoice, today) <= 0.009) {
+        notasDeFatura.add(`Não há valor pendente na fatura do ${card.name} com vencimento em ${mk.slice(5)}/${mk.slice(0, 4)}. Confira o mês em Cartões e parcelamentos.`)
+        return false
+      }
+      const key = JSON.stringify([card.id, mk, paidOn, action.amount ?? invoice.pending])
       if (vistos.has(key)) {
         notasDeFatura.add(`O mesmo pagamento da fatura do ${card.name} aparece duas vezes. Compare com o extrato se foram transferências separadas.`)
         return false

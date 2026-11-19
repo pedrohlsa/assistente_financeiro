@@ -648,18 +648,19 @@ function parseCardClause(text: string): ParsedAction[] {
   // Pergunta nunca paga fatura (regra 33): "quanto falta pagar da fatura do
   // inter" virava proposta de pagamento — sem valor, a guarda de "pergunta com
   // valor" não via — e a resposta saía calculada como se tivesse sido pago.
-  if (/fatura/.test(text) && /(paguei|pagar|quitei|quitar)/.test(text) && !PERGUNTA_EM_QUALQUER_LUGAR.test(text)) {
-    const amountBefore = text.match(new RegExp(String.raw`(?:paguei|pagar|quitei)\s*(?:r\$)?\s*${NUM}`, 'i'))
+  if (/\bfaturas?\b/.test(text) && /\b(?:paguei|pagamos|pagar|quitei|quitamos|quitar)\b/.test(text) && !PERGUNTA_EM_QUALQUER_LUGAR.test(text)) {
+    const amountBefore = text.match(new RegExp(String.raw`(?:paguei|pagamos|pagar|quitei|quitamos)\s*(?:r\$)?\s*${NUM}`, 'i'))
+    const amountOfBill = amountBefore ? null : text.match(new RegExp(String.raw`\bfatura\s+de\s+(?:r\$\s*)?${NUM}(?![\d.,/-])`, 'i'))
     // O valor também pode vir depois do nome do cartão. Removê-lo antes de
     // procurar o cartão evita interpretar "Inter R$ 200" como "Inter R".
-    const amountAfter = amountBefore ? null : text.match(new RegExp(String.raw`\s+(?:r\$\s*)?${NUM}(?:\s+reais)?\s*$`, 'i'))
+    const amountAfter = amountBefore || amountOfBill ? null : text.match(new RegExp(String.raw`\s+(?:r\$\s*)?${NUM}(?:\s+reais)?\s*$`, 'i'))
     const cardText = amountAfter ? text.slice(0, amountAfter.index) : text
     const cardName = matchCardName(cardText)
     // Um número solto após outra informação ("conta 1234", "final 1234")
     // não autoriza tratá-lo como pagamento parcial nem como fatura inteira.
     if (amountAfter && !cardText.trim().toLowerCase().endsWith((cardName || 'fatura').toLowerCase())) return []
-    return [{ kind: 'card-payment', cardName,
-      amount: amountBefore ? parseNum(amountBefore[1]) : amountAfter ? parseNum(amountAfter[1]) : undefined }]
+    const amount = amountBefore || amountOfBill || amountAfter
+    return [{ kind: 'card-payment', cardName, amount: amount ? parseNum(amount[1]) : undefined }]
   }
 
   // "tenho uma assinatura de 39,90 no cartão".
@@ -1424,6 +1425,8 @@ export function describeActionDetailed(a: ParsedAction, opts?: { fee?: number; c
     case 'card-payment':
       lines.push('Pagamento de fatura')
       lines.push(`Cartão: ${a.cardName || 'não informado'}`)
+      if (a.referenceMonth) lines.push(`Mês de vencimento: ${a.referenceMonth.split('-').reverse().join('/')}`)
+      if (a.date) lines.push(`Data do pagamento: ${a.date.split('-').reverse().join('/')}`)
       lines.push(a.amount ? `Valor: ${money(a.amount)} (pagamento parcial se for menor que a fatura)` : 'Valor: todo o pendente da fatura')
       lines.push('Não gera despesa nova — as compras já foram contadas como parcelas.')
       break
@@ -1488,7 +1491,7 @@ export function describeAction(a: ParsedAction, categoryName?: (id: string) => s
     case 'financed-cash-inflow':
       return `Entrada financiada: recebeu ${fmtBRL(a.netReceived)} e deve ${fmtBRL(a.total)} em ${a.installments}x`
     case 'card-payment':
-      return `Pagar fatura${a.cardName ? ` do ${a.cardName}` : ''}${a.amount ? ` — ${fmtBRL(a.amount)}` : ' (valor pendente)'}`
+      return `Pagar fatura${a.cardName ? ` do ${a.cardName}` : ''}${a.referenceMonth ? ` de ${a.referenceMonth.split('-').reverse().join('/')}` : ''}${a.amount ? ` — ${fmtBRL(a.amount)}` : ' (valor pendente)'}`
     case 'card-charge':
       return `Assinatura${a.description ? ` ${a.description}` : ''} de ${fmtBRL(a.amount)}/mês${a.cardName ? ` no ${a.cardName}` : ''}`
     case 'reset': return 'Apagar TODOS os dados do app'

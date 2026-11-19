@@ -69,13 +69,13 @@ export type QueryField =
   | 'amount' | 'km' | 'hours' | 'trips' | 'liters'
   | 'target' | 'saved' | 'remaining' | 'pct' | 'remainingCount'
   | 'incomes' | 'bills' | 'installments' | 'net' | 'balance'
-  | 'total' | 'paid'
+  | 'total' | 'paid' | 'pending'
 
 export const FIELDS_BY_SOURCE: Record<QuerySource, QueryField[]> = {
   transactions: ['amount'],
   recurring: ['amount'],
   installments: ['amount'],
-  invoices: ['amount', 'paid', 'total'],
+  invoices: ['amount', 'paid', 'total', 'pending'],
   plans: ['amount', 'remaining', 'total', 'paid', 'remainingCount'],
   goals: ['amount', 'target', 'saved', 'remaining', 'pct'],
   work: ['km', 'hours', 'trips'],

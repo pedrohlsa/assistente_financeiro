@@ -48,7 +48,7 @@ const plataformaDe = (texto?: string): string | undefined => {
   return undefined
 }
 
-function rowsOf(state: AppState, plan: AssistantQueryPlan): QueryRow[] {
+function rowsOf(state: AppState, plan: AssistantQueryPlan, today: string): QueryRow[] {
   const { from, to } = plan.period
   const out: QueryRow[] = []
 
@@ -116,11 +116,11 @@ function rowsOf(state: AppState, plan: AssistantQueryPlan): QueryRow[] {
         if (!mesesVistos.has(mk)) {
           mesesVistos.add(mk)
           for (const c of activeCards(state)) {
-            const inv = cardInvoice(state, c, mk)
+            const inv = cardInvoice(state, c, mk, today)
             // O pendente é o do caixa: parcela marcada como paga (mesmo sem
             // data) não deixa a fatura "atrasada" aqui e quitada na resposta
             // de fatura.
-            const aberto = invoiceOpenAmount(state, inv)
+            const aberto = invoiceOpenAmount(state, inv, today)
             const status = inv.total > 0 && aberto <= 0.009 && inv.status !== 'aberta' ? 'paga' : inv.status
             out.push({
               id: `${c.id}@${mk}`, date: inv.dueDate, value: r2(inv.total),
@@ -484,9 +484,9 @@ function unidadeDe(plan: AssistantQueryPlan): FactUnit {
 
 interface Agregado { total: number; count: number; groups: Map<string, { label: string; valores: number[]; rows: QueryRow[] }> }
 
-function agrega(state: AppState, plan: AssistantQueryPlan, periodo: { from: string; to: string }): { ag: Agregado; rows: QueryRow[] } {
+function agrega(state: AppState, plan: AssistantQueryPlan, periodo: { from: string; to: string }, today: string): { ag: Agregado; rows: QueryRow[] } {
   const planoNoPeriodo: AssistantQueryPlan = { ...plan, period: { ...plan.period, ...periodo } }
-  const brutas = rowsOf(state, planoNoPeriodo)
+  const brutas = rowsOf(state, planoNoPeriodo, today)
   const rows = brutas.filter(row => passa(row, planoNoPeriodo, state))
 
   const groups = new Map<string, { label: string; valores: number[]; rows: QueryRow[] }>()
@@ -518,7 +518,7 @@ function agrega(state: AppState, plan: AssistantQueryPlan, periodo: { from: stri
  * ENTRADAS eu consegui guardar" compara `saving` com `income`. Usar o mesmo
  * tipo dos dois lados devolveria sempre 100%.
  */
-function baseParaShare(state: AppState, plan: AssistantQueryPlan): number {
+function baseParaShare(state: AppState, plan: AssistantQueryPlan, today: string): number {
   const tipoBase = plan.shareBase === 'income' ? (['income'] as any)
     : plan.shareBase === 'expense' ? (['expense'] as any)
       : plan.filter.txType
@@ -532,7 +532,7 @@ function baseParaShare(state: AppState, plan: AssistantQueryPlan): number {
       plannedOnly: plan.filter.plannedOnly,
     },
   }
-  return agrega(state, limpo, plan.period).ag.total
+  return agrega(state, limpo, plan.period, today).ag.total
 }
 
 const factId = (() => {
@@ -564,7 +564,7 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
       sample: { rows: 0, from: plan.period.from, to: plan.period.to }, facts: [], samples: [],
       caveats: [`Não tenho quilometragem de trabalho registrada ${plan.period.label} para calcular o valor por km.`] }
   }
-  const { ag, rows } = agrega(state, plan, plan.period)
+  const { ag, rows } = agrega(state, plan, plan.period, today)
   const caveats: string[] = []
 
   let total = ag.total
@@ -586,7 +586,7 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
       : `Dividido pelos ${dias} dias corridos do período, com ou sem lançamento.`)
   }
   if (plan.metric === 'share') {
-    base = baseParaShare(state, plan)
+    base = baseParaShare(state, plan, today)
     total = base > 0 ? (ag.total / base) * 100 : 0
     if (base <= 0) caveats.push('Não tenho o total do período para calcular a proporção.')
   }
@@ -597,7 +597,7 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
   if (plan.comparePeriod && plan.metric === 'per-km' && semKm(plan.comparePeriod)) {
     caveats.push(`Não tenho quilometragem de trabalho registrada ${plan.comparePeriod.label} para comparar.`)
   } else if (plan.comparePeriod) {
-    const c = agrega(state, plan, plan.comparePeriod)
+    const c = agrega(state, plan, plan.comparePeriod, today)
     compareCount = c.rows.length
     compareTotal = plan.metric === 'share'
       ? (base > 0 ? (c.ag.total / base) * 100 : 0)
@@ -629,7 +629,7 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
   if (compareGroups) {
     for (const [key, valorAnterior] of compareGroups) {
       if (ag.groups.has(key)) continue
-      const c = agrega(state, plan, plan.comparePeriod!)
+      const c = agrega(state, plan, plan.comparePeriod!, today)
       const g = c.ag.groups.get(key)
       groups.push({
         key, label: g?.label || key, value: 0, count: 0,
@@ -748,7 +748,7 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
   let lastOutside: AssistantQueryResult['lastOutside']
   if (rows.length === 0 && plan.period.implicit && plan.source === 'transactions' && !plan.comparePeriod
     && (plan.filter.text || plan.filter.categories?.length || plan.filter.origin || plan.filter.origins?.length)) {
-    const antes = agrega(state, plan, { from: '2000-01-01', to: addDays(plan.period.from, -1) }).rows
+    const antes = agrega(state, plan, { from: '2000-01-01', to: addDays(plan.period.from, -1) }, today).rows
       .filter(row => !row.estimated && row.date <= today)
     if (antes.length) {
       const ultima = antes.reduce((a, b) => (b.date > a.date ? b : a))

@@ -8,11 +8,12 @@ import { balanceOutlook, balanceOutlookText, currentBalance, kmCost, monthlyProj
 import { cardInvoice, cardOutstanding, cardsOverview, futureInstallmentPaymentDate, invoiceOpenAmount, planProgress } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
 import { buildCapabilities } from '../../src/assistant/capabilities'
+import { isValidationFailure, validateAction } from '../../src/assistant/contracts'
 import { editableFieldsFor } from '../../src/assistant/proposalEdit'
 import { isRevertFailure, revertBatchPure } from '../../src/assistant/journal'
 import { applyPreferenceAliases } from '../../src/assistant/preferences'
 import { hydrateForTest, reducer } from '../../src/store/store'
-import { addDays, fmtBRL, fromISO, monthShortLabel, nowPaymentTime, nowStamp, todayISO, toISO as toISOdate } from '../../src/utils/format'
+import { addDays, fmtBRL, fromISO, MESES_PT_BR, monthShortLabel, nowPaymentTime, nowStamp, todayISO, toISO as toISOdate } from '../../src/utils/format'
 import { autonomoRico, motoristaRico } from '../fixtures/richState'
 import { buildState } from './harness'
 
@@ -4048,6 +4049,94 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && cardInvoice(st, st.cards[0], hoje.slice(0, 7)).pending === 200
         && proposed.actions.length === 0 && /fatura|m[eê]s|refer[eê]ncia/i.test(proposed.reply)
         && !execution.applied && execution.state === st))
+
+    const antiga = mesAnterior.slice(0, 7)
+    const atual = hoje.slice(0, 7)
+    const pagamento = addDays(hoje, -1)
+    const nomeMesAnterior = `${MESES_PT_BR[Number(antiga.slice(5)) - 1]} de ${antiga.slice(0, 4)}`
+    const mesNumerico = antiga.split('-').reverse().join('/')
+    st.settings.balanceAsOf = addDays(hoje, -90)
+    for (const frase of [
+      `paguei 80 da fatura do Inter de ${nomeMesAnterior} ontem`,
+      `pagamos 80 da fatura do Inter de ${nomeMesAnterior} ontem`,
+      `paguei a fatura de ${mesNumerico} do Inter 80 reais ontem`,
+      `paguei 80 da fatura do Inter do mês passado em ${pagamento.split('-').reverse().join('/')}`,
+    ]) {
+      const proposta = await turnoHoje(st, frase)
+      const aplicado = applyBatchPure(st, proposta.actions.map((action, i) => ({ id: `fref-${i}`, action })),
+        { now: { date: hoje, time: '14:00' } })
+      const salvo = aplicado.state.cardPayments[0]
+      out.push(result(`FREF-data-e-vencimento-${frase}`, { proposta, salvo },
+        `salva R$ 80 em ${pagamento} para a fatura ${antiga}; a fatura atual fica em 200`,
+        proposta.actions.length === 1 && proposta.reply.includes(mesNumerico)
+          && aplicado.applied && salvo?.paymentDate === pagamento && salvo?.referenceMonth === antiga
+          && salvo?.paymentTime === undefined && salvo.amount === 80 && currentBalance(aplicado.state) === 920
+          && cardInvoice(aplicado.state, st.cards[0], antiga).pending === 220
+          && cardInvoice(aplicado.state, st.cards[0], atual).pending === 200))
+    }
+    const invalida = await turnoHoje(st, `paguei 80 da fatura do Inter de 13/${hoje.slice(0, 4)} e gastei 50 no mercado`)
+    const futuro = await turnoHoje(st, `paguei 80 da fatura do Inter de ${mesNumerico} amanhã e gastei 50 no mercado`)
+    const doisMeses = await turnoHoje(st, `paguei 80 da fatura do Inter de ${mesNumerico} e de ${atual.split('-').reverse().join('/')}`)
+    const negado = await turnoHoje(st, `não pagamos 80 da fatura do Inter de ${mesNumerico}`)
+    out.push(result('FREF-referencia-e-data-incertas-nao-travam-outro-gasto', { invalida, futuro, doisMeses },
+      'mês inválido, data futura ou dois meses nunca criam pagamento; o mercado é preservado',
+      [invalida, futuro].every(r => r.actions.length === 1 && r.actions[0].kind === 'expense' && r.actions[0].amount === 50)
+        && doisMeses.actions.length === 0 && /mês e o ano de vencimento/.test(doisMeses.reply)
+        && negado.actions.length === 0 && /isso não aconteceu/.test(negado.reply)))
+
+    const saldoDaAntiga = await turnoHoje(st, 'quanto falta pagar da fatura do Inter no mês passado?')
+    const saldoDaAtual = await turnoHoje(st, 'quanto falta pagar da fatura do Inter deste mês?')
+    const saldoSeConfirmar = await turnoHoje(st, `paguei 80 da fatura do Inter de ${nomeMesAnterior}, quanto falta?`)
+    out.push(result('FREF-quanto-falta-usa-o-vencimento-selecionado', [saldoDaAntiga.reply, saldoDaAtual.reply, saldoSeConfirmar.reply],
+      'fatura antiga 300 e atual 200; a prévia desconta os 80 só da antiga',
+      /Pendente nas faturas.*R\$\s300,00/.test(saldoDaAntiga.reply)
+        && /Pendente nas faturas.*R\$\s200,00/.test(saldoDaAtual.reply)
+        && /Se você confirmar/.test(saldoSeConfirmar.reply) && /Pendente nas faturas.*R\$\s220,00/.test(saldoSeConfirmar.reply)
+        && !/R\$\s200,00/.test(saldoSeConfirmar.reply) && saldoSeConfirmar.actions.length === 1))
+
+    const nextDue = toISOdate(new Date(d.getFullYear(), d.getMonth() + 1, 10))
+    const nextRef = nextDue.slice(0, 7)
+    const adiantavel: AppState = { ...st,
+      installmentPlans: [...st.installmentPlans, { ...st.installmentPlans[0], id: 'reference-next',
+        description: 'Próxima', totalAmount: 150, firstDueDate: nextDue }],
+      installments: [...st.installments, { ...st.installments[0], id: 'reference-next-1', planId: 'reference-next',
+        amount: 150, dueDate: nextDue }],
+    }
+    const antecipacao = await turnoHoje(adiantavel, 'Antecipei 80 da fatura do Inter do mês que vem')
+    const aguardando = applyBatchPure(adiantavel, antecipacao.actions.map((action, i) => ({ id: `antecipacao-${i}`, action })),
+      { now: { date: hoje, time: '14:00' } })
+    out.push(result('FREF-distingue-antecipacao-de-data-futura', { antecipacao, payment: aguardando.state.cardPayments[0] },
+      'R$ 80 de hoje são inscritos no mês que vem, sem tocar a fatura de hoje',
+      antecipacao.actions.length === 1 && aguardando.applied && aguardando.state.cardPayments[0]?.paymentDate === hoje
+        && aguardando.state.cardPayments[0]?.referenceMonth === nextRef
+        && cardInvoice(aguardando.state, st.cards[0], nextRef).pending === 70
+        && cardInvoice(aguardando.state, st.cards[0], atual).pending === 200))
+
+    const caps = buildCapabilities(st)
+    const control = validateAction({ kind: 'card-payment', cardName: 'Inter', amount: 80 }, caps, hoje, { allowRemoteOnly: true })
+    const explicit = { kind: 'card-payment' as const, cardName: 'Inter', amount: 80, date: pagamento, referenceMonth: antiga }
+    const remoteDate = validateAction({ ...explicit, referenceMonth: undefined }, caps, hoje, { allowRemoteOnly: true })
+    const remoteMonth = validateAction({ ...explicit, date: undefined }, caps, hoje, { allowRemoteOnly: true })
+    const localFields = validateAction(explicit, caps, hoje)
+    const invalidFields = validateAction({ ...explicit, referenceMonth: `${hoje.slice(0, 4)}-13` }, caps, hoje)
+    out.push(result('FREF-data-e-referencia-sao-locais', { localFields, invalidFields, remoteDate, remoteMonth, control },
+      'o contrato local mantém data e referência válidas; remoto continua aceitando só cartão e valor',
+      !isValidationFailure(localFields) && !isValidationFailure(control) && isValidationFailure(invalidFields)
+        && isValidationFailure(remoteDate) && isValidationFailure(remoteMonth)))
+
+    const historico: AppState = { ...st, cardPayments: [{ id: 'later-partial', cardId: 'card0', amount: 220,
+      paymentDate: hoje, referenceMonth: antiga, fromBalance: true, settledInstallmentIds: [] }] }
+    const semValor = await turnoHoje(historico, `paguei a fatura do Inter de ${mesNumerico} ontem`)
+    const atrasada = applyBatchPure(historico, [{ id: 'pay-previous-part', action: explicit }],
+      { now: { date: hoje, time: '14:00' } })
+    out.push(result('FREF-registro-retroativo-respeita-pagamento-posterior', { semValor, atrasada: atrasada.results },
+      'sem valor explícito pede o valor pago; ao salvar R$ 80 de ontem, a quitação de R$ 300 só aconteceu hoje',
+      semValor.actions.length === 0 && /Qual foi o valor pago/.test(semValor.reply) && atrasada.applied
+        && atrasada.state.cardPayments[0]?.paymentDate === pagamento
+        && atrasada.state.installments.find(i => i.id === 'reference-old-1')?.paidAt === hoje
+        && cardInvoice(atrasada.state, st.cards[0], antiga, pagamento).paid === 80
+        && cardInvoice(atrasada.state, st.cards[0], antiga).pending === 0
+        && currentBalance(atrasada.state) === 700))
   }
 
   {
@@ -4080,9 +4169,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const r = await orchestrate({ state: st, message: phrase, today: hoje, remoteEnabled: true,
         askRemote: async () => { remoteCalls++; return { reply: 'Registrei!', mode: 'propose_actions',
           actions: [{ kind: 'card-payment', cardName: 'Inter', amount: 200 }], rejected: [] } } })
-      out.push(result(`FREF-nao-descarta-${phrase}`, r.response, 'sem proposta que perderia data/mês; explica limitação localmente',
-        r.response.actions.length === 0 && remoteCalls === 0 && /chat/.test(r.response.reply)
-          && /data|refer[eê]ncia/.test(r.response.reply) && /Cart[õo]es e parcelamentos/i.test(r.response.reply)))
+      out.push(result(`FREF-nao-descarta-${phrase}`, r.response, 'sem fatura para a referência; não registra e não pede ao remoto',
+        r.response.actions.length === 0 && remoteCalls === 0 && /valor pendente|mês de vencimento/.test(r.response.reply)))
     }
     const ordinary = await turnoHoje(st, 'paguei 200 da fatura do Inter hoje')
     out.push(result('FREF-pagamento-hoje-preservado', ordinary, 'pagamento simples de hoje continua proposto200',

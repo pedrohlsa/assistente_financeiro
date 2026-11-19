@@ -15,6 +15,7 @@ import { fmtBRL, MESES_PT_BR, parseMoney, todayISO } from '../utils/format'
 import { normalizeName } from '../utils/text'
 import { suspicionReasons } from './semantic/confidence'
 import type { SuspicionReason } from './semantic/confidence'
+import { isInvoicePaymentStatement, readInvoiceReference } from './invoicePayment'
 
 export interface AnalyzedClause {
   id: string
@@ -157,7 +158,7 @@ const CORRECTION_PATTERNS: RegExp[] = [
  * mais perigoso possível num app de dinheiro.
  */
 const NEGATED_VERBS =
-  'gastei|gastou|paguei|pagou|recebi|recebeu|ganhei|ganhou|comprei|comprou|guardar|guardei|separei|abasteci|coloquei|botei|rodei|trabalhei|fiz|foi|era|quero|vou|registra|registre|salva|salve'
+  'gastei|gastou|paguei|pagou|pagamos|quitei|quitamos|antecipei|adiantei|recebi|recebeu|ganhei|ganhou|comprei|comprou|guardar|guardei|separei|abasteci|coloquei|botei|rodei|trabalhei|fiz|foi|era|quero|vou|registra|registre|salva|salve'
   // Qualquer verbo de dinheiro no passado pode ser NEGADO. A lista acima
   // esquecia troquei, instalei, vendi, depositei e outros — e "nao troquei o
   // oleo por 280" registrava a manutencao mesmo assim.
@@ -183,7 +184,7 @@ export const looksNegated = (t: string): boolean => NEGATED_STATEMENT.test(t)
  * respostas diferentes, e nenhuma delas é gravar na data de hoje.
  */
 const PAST_MONEY_VERBS =
-  'gastei|gastou|gastamos|paguei|pagou|pagamos|recebi|recebeu|recebemos|ganhei|ganhou|ganhamos|comprei|comprou|compramos|parcelei|passei|abasteci|coloquei|botei|guardei|separei|depositei|investi|apliquei|tirei|retirei|vendi|faturei|lucrei|rodei|andei|dirigi|percorri|trabalhei|fiz|fizemos|troquei|instalei|entrou|caiu|sobrou|reembolsaram|reembolsou'
+  'gastei|gastou|gastamos|paguei|pagou|pagamos|quitei|quitamos|antecipei|adiantei|recebi|recebeu|recebemos|ganhei|ganhou|ganhamos|comprei|comprou|compramos|parcelei|passei|abasteci|coloquei|botei|guardei|separei|depositei|investi|apliquei|tirei|retirei|vendi|faturei|lucrei|rodei|andei|dirigi|percorri|trabalhei|fiz|fizemos|troquei|instalei|entrou|caiu|sobrou|reembolsaram|reembolsou'
 
 const PAST_STATEMENT = new RegExp(String.raw`\b(?:${PAST_MONEY_VERBS})\b`, 'i')
 
@@ -565,7 +566,7 @@ function moveFuturoReferido(clauses: AnalyzedClause[], today: string): void {
 // Análise
 // ---------------------------------------------------------------------------
 
-const DATABLE = new Set(['income', 'expense', 'saving', 'work', 'fuel', 'maintenance'])
+const DATABLE = new Set(['income', 'expense', 'saving', 'work', 'fuel', 'maintenance', 'card-payment'])
 const ORIGINABLE = new Set(['income', 'expense'])
 
 // Predicados explícitos: sob `strict: false` o TypeScript não estreita união
@@ -824,16 +825,19 @@ export function analyzeMessage(
 
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i]
-    const forParser = aligned ? normalizedParts[i].text : normalized
+    const forParserRaw = aligned ? normalizedParts[i].text : normalized
+    const invoiceOriginal = readInvoiceReference(part.text, today)
+    const invoiceParser = forParserRaw === part.text ? invoiceOriginal : readInvoiceReference(forParserRaw, today)
+    const forParser = invoiceParser.paymentText
     const id = clauseId()
 
     // TODAS as expressões de data são retiradas ANTES de o parser rodar. Só a
     // primeira era retirada, e a que sobrava no texto virava número e descrição
     // do lançamento: "ontem gastei 50 e daqui a 3 dias pago mais 100" criava uma
     // despesa fantasma de R$ 3,00, datada de ontem.
-    let datesOriginal = findAllDates(part.text, today)
+    let datesOriginal = findAllDates(invoiceOriginal.paymentText, today)
     let datesParser = findAllDates(forParser, today)
-    let hintOriginal = datesOriginal.length ? null : findUnresolvedTemporalHint(part.text)
+    let hintOriginal = datesOriginal.length ? null : findUnresolvedTemporalHint(invoiceOriginal.paymentText)
     let hintParser = datesParser.length ? null : findUnresolvedTemporalHint(forParser)
 
     // "em 6 meses" em "quero comprar um celular de 5000 em 6 meses" é o PRAZO
@@ -883,6 +887,7 @@ export function analyzeMessage(
     }
     // Conector órfão deixado pelo recorte ("gastei 40 e") não é descrição.
     semData = semData.replace(/\s{2,}/g, ' ').replace(/[\s,;]*\b(?:e|mas|por[ée]m)\s*$/i, '').trim()
+    if (isInvoicePaymentStatement(forParser)) semData = semData.replace(/\s+(?:em|no\s+dia|na\s+data)\s*$/i, '').trim()
 
     // A expressão de dia foi RETIRADA do texto acima. O parser precisa saber que
     // ela existia: "deu 200 hoje" chega como "deu 200", e é justamente o "hoje"
@@ -893,7 +898,8 @@ export function analyzeMessage(
     // perguntava "esses R$ 150 foram ganho ou gasto?" para uma conta de luz.
     const dayHint = !looksRecurring(part.text)
       && [...datesOriginal, ...datesParser].some(d => d.kind === 'date')
-    const fala = semData || forParser
+    const lida = semData || forParser
+    const fala = invoiceParser.referenceMonth ? lida.replace(/\b(?:antecipei|adiantei)\b/i, 'paguei') : lida
     const primeiroReembolso = RECEBI_REEMBOLSO.map(re => fala.match(re)).find(Boolean)
     const maisReembolso = primeiroReembolso ? null : fala.match(REEMBOLSO_ADICIONAL)
     const mencaoReembolso = primeiroReembolso || maisReembolso
@@ -982,6 +988,7 @@ export function analyzeMessage(
     actions = actions.map(a => {
       const next: any = { ...a }
       if (date && DATABLE.has(a.kind)) next.date = date
+      if (a.kind === 'card-payment' && invoiceParser.referenceMonth) next.referenceMonth = invoiceParser.referenceMonth
       if (ORIGINABLE.has(a.kind) && !next.origin && origins.length) {
         const at = amountPosition(part.text, next.amount)
         const perto = at >= 0
@@ -1078,6 +1085,17 @@ export function analyzeMessage(
       ambiguity = { question: ESCLARECE_REEMBOLSO_PENDENTE, options: [] }
     }
 
+    const datasDitas = resolved.filter(d => d.kind === 'date' || d.kind === 'future').map(d => d.date)
+    const faleFatura = actions.some(a => a.kind === 'card-payment')
+    const duvidaFatura = faleFatura && (invoiceParser.referenceQuestion
+      || (dateAmbiguity || new Set(datasDitas).size > 1 ? 'Qual foi a data exata em que você pagou a fatura?' : undefined))
+    if (duvidaFatura) {
+      actions = actions.filter(a => a.kind !== 'card-payment')
+      temporal = undefined
+      dateAmbiguity = undefined
+      ambiguity = { question: duvidaFatura, options: [] }
+    }
+
     // Leitura local de BAIXA confiança não fecha a cláusula. O número do período
     // lido como valor, a magnitude perdida, a meta lida como despesa e o
     // movimento de dinheiro dentro de uma pergunta sem fato: a ação sai, e a
@@ -1137,7 +1155,7 @@ export function analyzeMessage(
 
     let intent: AssistantIntent
     if (isConversation) intent = 'conversation'
-    else if (aguardaReembolso) intent = 'record'
+    else if (aguardaReembolso || duvidaFatura) intent = 'record'
     else if (negated) intent = 'correction'
     else if (isCorrection && !actions.length) intent = 'correction'
     else if (actions.length && !isQuestion) intent = 'record'

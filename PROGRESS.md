@@ -5797,3 +5797,18 @@ APK ou chamada paga. NOT READY até auditoria independente.
   no primeiro dia do ano e em 29 de fevereiro passaram, assim como os
   typechecks, o teste de dinheiro, o build e a rubrica. No Chrome, o
   desfazer reverteu as duas entradas do mesmo lote de reembolso.
+
+## 19/11/2026 — Pagamento de faturas pelo chat
+
+- O chat verifica o pagamento pelo cartão, vencimento, data e valor.
+  Repetições e valores acima do saldo pendente ficam bloqueados na
+  proposta e na execução. O fluxo manual tem sua própria confirmação
+  de pagamento acima do pendente.
+- Mês de vencimento e data do pagamento são tratados separadamente.
+  A consulta de quanto falta usa a fatura citada e mostra o saldo após
+  a confirmação quando a mensagem também inclui um pagamento.
+  Pagamentos retroativos preservam a ordem de quitação das parcelas.
+- No Chrome, um pagamento retroativo para uma fatura anterior manteve
+  a fatura atual intacta. Repetir a mesma mensagem após recarregar não
+  abriu outra proposta. A suíte passou com 738/738 regressões reais.
+  Typechecks, build e rubrica local passaram. A branch permanece NOT READY.

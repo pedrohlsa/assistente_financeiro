@@ -166,7 +166,7 @@ export function futureInvoicePaymentDate(s: AppState, card: CreditCard, mk: stri
 }
 
 /** Mês anterior ainda aberto: chat sem referência não pode escolher outra fatura. */
-export function unpaidPriorInvoiceMonth(s: AppState, card: CreditCard, mk: string): string | undefined {
+export function unpaidPriorInvoiceMonth(s: AppState, card: CreditCard, mk: string, asOf = todayISO()): string | undefined {
   const [year, month] = mk.split('-').map(Number)
   const months = new Set<string>()
   for (let back = 1; back <= 24; back++) months.add(monthKey(toISO(new Date(year, month - 1 - back, 1))))
@@ -175,7 +175,7 @@ export function unpaidPriorInvoiceMonth(s: AppState, card: CreditCard, mk: strin
   }
   if (card.initialInvoiceBalance) months.add(monthKey(nextInvoiceDueDate(card, card.createdAt)))
   return [...months].filter(m => m < mk).sort().reverse().find(m =>
-    invoiceOpenAmount(s, cardInvoice(s, card, m)) > 0.009)
+    invoiceOpenAmount(s, cardInvoice(s, card, m, asOf), asOf) > 0.009)
 }
 
 /** Parte realmente quitada até a data, inclusive em backups com pagamento futuro. */
@@ -269,11 +269,11 @@ export interface CardInvoice {
  * Uma parcela já quitada diretamente não pode impedir o desfazer desse
  * pagamento por causa de outra obrigação paga na mesma fatura.
  */
-export function settleableInstallmentIds(s: AppState, invoice: CardInvoice): string[] {
+export function settleableInstallmentIds(s: AppState, invoice: CardInvoice, asOf = todayISO()): string[] {
   return invoice.items.filter(item => item.kind === 'installment' && item.planId)
     .map(item => (s.installments || []).find(i => i.planId === item.planId
       && i.number === item.installmentNumber))
-    .filter((i): i is Installment => !!i && directInstallmentPaidAmount(s, i) < i.amount - 0.009)
+    .filter((i): i is Installment => !!i && directInstallmentPaidAmount(s, i, asOf) < i.amount - 0.009)
     .map(i => i.id)
 }
 
@@ -284,13 +284,13 @@ export function settleableInstallmentIds(s: AppState, invoice: CardInvoice): str
  * o que segue pendente pelo STATUS de cada item. Caixa, resposta de fatura e
  * consulta usam este mesmo número.
  */
-export function invoiceOpenAmount(s: AppState, inv: CardInvoice): number {
+export function invoiceOpenAmount(s: AppState, inv: CardInvoice, asOf = todayISO()): number {
   const byNumber = new Map((s.installments || []).map(i => [`${i.planId}#${i.number}`, i]))
   const porStatus = inv.items.reduce((sum, it) => {
     if (it.kind !== 'installment') return sum + it.amount
     const inst = byNumber.get(`${it.planId}#${it.installmentNumber}`)
     if (!inst) return sum
-    return sum + it.amount - installmentPaidAsOf(s, inst)
+    return sum + it.amount - installmentPaidAsOf(s, inst, asOf)
   }, 0)
   return Math.round(Math.max(Math.min(inv.pending, porStatus), 0) * 100) / 100
 }

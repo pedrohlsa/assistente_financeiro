@@ -363,7 +363,7 @@ export function validateQueryPlan(
       source, field, period, comparePeriod, filter,
       metric: metric as QueryMetric,
       group, order, limit, shareBase,
-      ...(raw.showCardPurchases === true && source === 'invoices' && field !== 'paid'
+      ...(raw.showCardPurchases === true && source === 'invoices' && (field === 'amount' || field === 'total')
         && metric === 'sum' && group === 'none' && !comparePeriod ? { showCardPurchases: true } : {}),
       label: strOf(raw.label, 80),
     },

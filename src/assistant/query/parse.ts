@@ -140,14 +140,19 @@ const NAO_E_CONSULTA = [
   /\bmeta\s+(?:de\s+hoje|do\s+dia|diaria|de\s+amanha|do\s+mes|deste\s+mes|desse\s+mes|mensal)\b/,
 ]
 
+const faltaDaFatura = (t: string): RegExpMatchArray | null => /\bfaturas?\b/.test(t)
+  ? t.match(/\bfaltam?(?:\s+(?:pagar|quitar))?\b|\bpendentes?\b|\bem\s+aberto\b/) : null
+
 export function looksLikeDataQuestion(input: string): boolean {
   const t = normalizeQuery(input)
   if (NAO_E_CONSULTA.some(re => re.test(t))) return false
   // Caixa FUTURO: a DSL soma o passado, e estas perguntas olham o que ainda
   // vai vencer. O roteador antigo responde com `cashObligationsUntil()`.
-  // Situação da fatura de agora ("quanto falta pagar da fatura") é o pendente
-  // dela, não a dívida parcelada que a DSL somava.
-  if (pedeReservaDeCaixa(t) || pedeContaQueAperta(t) || pedeTotalGuardado(t) || perguntaDeFatura(t) || pedeAntecipacaoDeFatura(t)
+  const fatura = perguntaDeFatura(t)
+  const faturaDaJanela = fatura === 'falta' && !!parsePeriod(t)
+  // O resumo da fatura de agora inclui os vencidos. Com período informado,
+  // o plano restringe o pendente às faturas que venceram naquele recorte.
+  if (pedeReservaDeCaixa(t) || pedeContaQueAperta(t) || pedeTotalGuardado(t) || (fatura && !faturaDaJanela) || pedeAntecipacaoDeFatura(t)
     || pedeContasAPagar(t) || planoDeGuardar(t) || perguntaDeManutencao(t)
     || pedeContasFixas(t) || pedeSobraSemCombustivel(t) || pedeLimite(t)
     || pedeFimDoParcelamento(t) || pedeMaiorParcela(t) || pedeDividaTotal(t) || pedeListaDeParcelamentos(t)
@@ -314,6 +319,7 @@ function lerFonte(t: string, driver: boolean, metas: string[] = []): { valor: Fo
     const comMeta = t.match(new RegExp(String.raw`\b(?:(?:minha|a)\s+)?metas?\s+(?:d[aeo]s?\s+)?${escapaRegex(meta)}\b`))
     return { valor: { source: 'goals', field: 'remaining' }, matched: comMeta?.[0] || meta }
   }
+  if (faltaDaFatura(t)) return { valor: { source: 'invoices', field: 'pending' }, matched: t.match(/\bfaturas?\b/)![0] }
 
   const tabela: [RegExp, FonteLida][] = [
     [/\bquantas?\s+parcelas\s+(?:faltam?|restam?|ainda)\b/, { source: 'installments' }],
@@ -800,6 +806,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   rest.consome(metrica.matched)
   if (metrica.matched) recognized.push(metrica.matched.trim())
   if (fonteLida) { rest.consome(fonteLida.matched); recognized.push(fonteLida.matched.trim()) }
+  if (fonteLida?.valor.field === 'pending') rest.consome(faltaDaFatura(base)?.[0] || '')
   if (grupoLido) { rest.consome(grupoLido.matched); recognized.push(grupoLido.matched.trim()) }
 
   let source: QuerySource = fonteLida?.valor.source || 'transactions'
@@ -901,6 +908,10 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     period = lido?.period || periodoComparadoDireto!
     if (lido && (source === 'invoices' || source === 'installments')) period = mesAFrente(lido, t0, hoje) || period
     else if (lido && source === 'transactions') period = mesAFrente(lido, t0, hoje, true) || period
+    if (source === 'invoices' && fonteLida?.valor.field === 'pending' && lido?.matched === 'este mês') {
+      const dia = fromISO(hoje)
+      period = { ...period, to: toISO(new Date(dia.getFullYear(), dia.getMonth() + 1, 0)) }
+    }
     periodoExplicito = true
     if (lido) { rest.consome(lido.span ?? lido.matched); recognized.push(lido.matched) }
     // “Caiu ou subiu desde junho?” pede a série desde o marco dito, não uma
@@ -1285,7 +1296,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     group, order,
     limit: metrica.valor.limit || (group === 'none' ? 1 : 8),
     shareBase,
-    ...(source === 'invoices' && field !== 'paid' && metric === 'sum' && group === 'none'
+    ...(source === 'invoices' && (field === 'amount' || field === 'total') && metric === 'sum' && group === 'none'
       && !comparePeriod && /\b(?:gastei|gastos?|comprei|compras?)\b/.test(t0) ? { showCardPurchases: true } : {}),
     // Sobra repetida ou não entendida não é assunto: "Faturas - cartao do
     // Nubank" repetia no rótulo a palavra que o filtro já tinha descartado.
@@ -1390,7 +1401,7 @@ function alemDoAntigo(plan: AssistantQueryPlan, periodoDito: boolean, porLancame
   if (plan.source === 'plans' || plan.source === 'projections') return true
   if (plan.source === 'recurring' && plan.filter.plannedOnly) return true
   // O que foi PAGO nas faturas: o roteador antigo só tem o resumo dos cartões.
-  if (plan.source === 'invoices' && plan.field === 'paid') return true
+  if (plan.source === 'invoices' && (plan.field === 'paid' || plan.field === 'pending')) return true
   // (C) Pergunta sobre UM cartão. O roteador antigo responde o mês inteiro —
   // certo como número, errado como resposta, e sem deixar o cartão no foco.
   if (f.cardNames?.length) return true
@@ -1444,6 +1455,7 @@ function rotulo(
     : field === 'pct' ? 'Progresso das metas'
       : source === 'plans' && field === 'paid' ? 'Já pago'
         : source === 'invoices' && field === 'paid' ? 'Pago nas faturas'
+        : source === 'invoices' && field === 'pending' ? 'Pendente nas faturas'
         : source === 'plans' && field === 'total' ? 'Valor total'
           // "Falta pagar: 8" parecia R$ 8; é a QUANTIDADE de parcelas.
           : source === 'plans' && field === 'remainingCount' ? 'Parcelas restantes'

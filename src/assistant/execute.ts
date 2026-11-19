@@ -15,13 +15,14 @@ import type {
 import type { ActionExecutionResult, AssistantErrorCode } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, errorMessage, isPlausibleDate } from './contracts'
 import { JOURNAL_LIMIT, diffForJournal, isRevertFailure, revertBatchPure } from './journal'
-import { explicitInvoicePaymentIssue } from './invoicePayment'
+import { invoicePaymentIssue } from './invoicePayment'
 import { addDays, monthKey, nowPaymentTime, nowStamp, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
 import { isOccurrenceResolved, matchRecurringPayment, nextCashEventTime, occurrencesBetween } from '../services/calc'
 import { buildInstallments, cardInvoice, directInstallmentPaidAmount, futureInvoicePaymentDate,
-  settleableInstallmentIds, suggestedFirstDueDate, unpaidPriorInvoiceMonth } from '../services/cards'
+  invoiceOpenAmount, settleableInstallmentIds, suggestedFirstDueDate, unpaidPriorInvoiceMonth,
+  validPaymentDate } from '../services/cards'
 
 // ---------------------------------------------------------------------------
 // Resolvedores de referência (moram aqui para o store poder ser puro)
@@ -339,27 +340,38 @@ export function applyActionPure(
         if (action.cardName) return { state, result: fail(actionId, 'card-not-found', `"${action.cardName}"`) }
         return { state, result: fail(actionId, 'card-ambiguous') }
       }
-      const mk = monthKey(date)
+      const paymentDate = action.date ?? date
+      if (!validPaymentDate(paymentDate, date)) {
+        return { state, result: fail(actionId, paymentDate > date ? 'future-date' : 'invalid-date', paymentDate) }
+      }
+      const mk = action.referenceMonth ?? monthKey(date)
+      if (!isPlausibleDate(`${mk}-01`, date)) return { state, result: fail(actionId, 'invalid-date', mk) }
       if (futureInvoicePaymentDate(state, card, mk, date)) return {
         state, result: fail(actionId, 'invoice-conflict', `${card.name}: há pagamento com data futura.`, false),
       }
-      if (unpaidPriorInvoiceMonth(state, card, mk)) return {
-        state, result: fail(actionId, 'invoice-conflict', `${card.name}: há fatura anterior pendente.`, false),
+      if (!action.referenceMonth && (monthKey(paymentDate) !== mk || unpaidPriorInvoiceMonth(state, card, mk, date))) return {
+        state, result: fail(actionId, 'invoice-conflict', `Confirme o mês de vencimento da fatura do ${card.name}.`, false),
       }
       const invoice = cardInvoice(state, card, mk, date)
       if (invoice.paid > invoice.total + 0.009) return {
         state, result: fail(actionId, 'invoice-conflict', `${card.name}.`, false),
       }
-      const issue = explicitInvoicePaymentIssue(state, invoice, date, action.amount)
+      const issue = invoicePaymentIssue(state, invoice, paymentDate, date, action.amount)
       if (issue) return { state, result: fail(actionId, issue.code, issue.detail, false) }
-      if (invoice.pending <= 0.009) return { state, result: fail(actionId, 'invoice-empty', `${card.name}.`, false) }
+      const open = invoiceOpenAmount(state, invoice, date)
+      if (open <= 0.009) return { state, result: fail(actionId, 'invoice-empty', `${card.name}.`, false) }
+      if (open < invoice.pending - 0.009) return {
+        state, result: fail(actionId, 'invoice-conflict', `${card.name}: a fatura tem parcelas antigas sem comprovação de pagamento.`, false),
+      }
       const amount = action.amount ?? invoice.pending
       if (!(amount > 0)) return { state, result: fail(actionId, 'invoice-empty', `${card.name}.`, false) }
       const fullyPaid = amount >= invoice.pending - 0.009
-      const settle = new Set(fullyPaid ? settleableInstallmentIds(state, invoice) : [])
+      const settle = new Set(fullyPaid ? settleableInstallmentIds(state, invoice, date) : [])
+      const paidAt = state.cardPayments.reduce((latest, p) => p.cardId === card.id && p.referenceMonth === mk
+        && p.paymentDate > latest && p.paymentDate <= date ? p.paymentDate : latest, paymentDate)
       const payment = {
-        id: gen(), cardId: card.id, amount, paymentDate: date,
-        paymentTime: opts.now?.time || opts.stamp?.slice(11) || nowPaymentTime(),
+        id: gen(), cardId: card.id, amount, paymentDate,
+        paymentTime: paymentDate === date ? time : undefined,
         referenceMonth: mk, fromBalance: true, settledInstallmentIds: [...settle],
       }
       return {
@@ -368,9 +380,9 @@ export function applyActionPure(
           cardPayments: [payment, ...state.cardPayments],
           installments: settle.size
             ? state.installments.map(i => (settle.has(i.id)
-              ? directInstallmentPaidAmount(state, i) > 0
+              ? directInstallmentPaidAmount(state, i, date) > 0
                 ? { ...i, status: 'paid' as const, paidVia: 'direct' as const } // mantém a parte paga fora da fatura
-                : { ...i, status: 'paid' as const, paidAt: date, paidAmount: i.amount, paidVia: 'invoice' as const }
+                : { ...i, status: 'paid' as const, paidAt, paidAmount: i.amount, paidVia: 'invoice' as const }
               : i))
             : state.installments,
         },

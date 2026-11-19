@@ -670,7 +670,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
     if (!ov.hasData) {
       return { text: 'Você ainda não cadastrou cartões nem parcelamentos. Você pode adicionar em Mais → Cartões e parcelamentos.' }
     }
-    if (pedeAntecipacaoDeFatura(t)) return { text: 'O chat ainda não permite escolher o mês de referência de uma fatura antecipada. Em Mais → Cartões e parcelamentos, confira o cartão e o vencimento da fatura exibida antes de usar "Pagar fatura". Se ela não for a que você pagou, não registre em outra referência.' }
+    if (pedeAntecipacaoDeFatura(t)) return { text: 'Para preparar uma antecipação no chat, diga qual cartão você já pagou, o valor e o mês de vencimento da fatura. Em Mais → Cartões e parcelamentos, você pode conferir a fatura desse mês.' }
     const sobreFatura = perguntaDeFatura(t)
     if (sobreFatura && activeCards(s).length) return respostaDaFatura(s, t, sobreFatura)
     // Antecipar parcela não tem ação no chat; a tela tem ("Antecipar 1/2").

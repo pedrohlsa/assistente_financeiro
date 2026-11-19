@@ -48,7 +48,7 @@ export const retiraDaReserva = (t: string): boolean =>
 
 export type PerguntaDeFatura = 'falta' | 'paga' | 'atrasada' | 'vence' | 'fecha' | 'valor' | 'pagamentos'
 
-/** Antecipação exige escolher a referência, ausente no contrato atual do chat. */
+/** Antecipação: o chat precisa do mês da fatura e de um relato já realizado. */
 export const pedeAntecipacaoDeFatura = (t: string): boolean =>
   /\bfaturas?\b/.test(t) && /\bantecip\w*\b|\badiantei\b|\badiantar\b/.test(t)
 

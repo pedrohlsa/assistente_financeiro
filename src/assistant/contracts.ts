@@ -48,6 +48,8 @@ export interface ActionFieldSpec {
   required?: boolean
   /** A identidade de um registro selecionado fica fixa durante a edição. */
   editable?: false
+  /** Campo resolvido localmente, a partir da mensagem e dos registros do aparelho. */
+  localOnly?: boolean
   /** Categoria precisa existir E ser deste tipo. */
   categoryOf?: 'income' | 'expense'
   min?: number
@@ -216,6 +218,8 @@ export const ACTION_CATALOG: ActionSpec[] = [
     fields: [
       textField('cardName', 'nome do cartão'),
       { name: 'amount', type: 'money', required: false, min: 0.01, max: 99_999_999, describe: 'valor pago. Omitir = pagar todo o pendente' },
+      { ...dateField, localOnly: true },
+      { ...textField('referenceMonth', 'mês de vencimento da fatura no formato YYYY-MM', 7), localOnly: true, editable: false },
     ],
     promptHint: 'pagar fatura NÃO é despesa nova',
   },
@@ -549,6 +553,7 @@ export function validateAction(
       if (f.required) return { ok: false, code: 'missing-field', detail: f.name }
       continue
     }
+    if (opts?.allowRemoteOnly && f.localOnly) return { ok: false, code: 'unsupported-action', detail: f.name }
     switch (f.type) {
       case 'money': {
         if (!isFiniteNum(v)) return { ok: false, code: 'invalid-amount', detail: f.name }
@@ -606,6 +611,9 @@ export function validateAction(
   // Invariantes entre campos.
   if (out.kind === 'financed-cash-inflow' && out.netReceived > out.total) {
     return { ok: false, code: 'conflict', detail: 'recebido maior que a dívida' }
+  }
+  if (out.kind === 'card-payment' && out.referenceMonth && !isPlausibleDate(`${out.referenceMonth}-01`, todayIso)) {
+    return { ok: false, code: 'invalid-date', detail: out.referenceMonth }
   }
 
   return { ok: true, action: out as ParsedAction }
@@ -702,10 +710,11 @@ export function buildActionSchemaDoc(caps: Pick<AssistantCapabilities, 'isDriver
   for (const spec of ACTION_CATALOG) {
     if (!spec.remoteAllowed) continue
     if (spec.driverOnly && !caps.isDriver) continue
-    const fields = spec.fields
+    const remoteFields = spec.fields.filter(f => !f.localOnly)
+    const fields = remoteFields
       .map(f => `"${f.name}":${f.type === 'text' || f.type === 'date' ? 'string' : 'number'}${f.required ? '' : ' opcional'}`)
       .join(', ')
-    const detail = spec.fields.map(f => `${f.name} = ${f.describe}`).join('; ')
+    const detail = remoteFields.map(f => `${f.name} = ${f.describe}`).join('; ')
     lines.push(`- {"kind":"${spec.kind}", ${fields}} — ${spec.label}. ${detail}.${spec.promptHint ? ` ${spec.promptHint}.` : ''}`)
   }
   return lines.join('\n')
