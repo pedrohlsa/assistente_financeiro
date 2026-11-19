@@ -296,7 +296,7 @@ export function invoiceOpenAmount(s: AppState, inv: CardInvoice): number {
 }
 
 /** Fatura de um cartão no mês de referência ('YYYY-MM' do vencimento). */
-export function cardInvoice(s: AppState, card: CreditCard, mk: string): CardInvoice {
+export function cardInvoice(s: AppState, card: CreditCard, mk: string, asOf = todayISO()): CardInvoice {
   const [y, m] = mk.split('-').map(Number)
   const due = clampDay(y, m - 1, card.dueDay)
   // o fechamento acontece antes do vencimento (mesmo mês se o dia for menor)
@@ -309,7 +309,7 @@ export function cardInvoice(s: AppState, card: CreditCard, mk: string): CardInvo
   for (const i of installmentsInMonth(s, mk)) {
     const plan = planById(s, i.planId)
     if (!plan || plan.cardId !== card.id) continue
-    directPaid += directInstallmentPaidAmount(s, i)
+    directPaid += directInstallmentPaidAmount(s, i, asOf)
     items.push({
       label: plan.description, amount: i.amount, kind: 'installment',
       planId: plan.id, installmentNumber: i.number, installmentTotal: i.total, dueDate: i.dueDate,
@@ -330,11 +330,11 @@ export function cardInvoice(s: AppState, card: CreditCard, mk: string): CardInvo
 
   const total = round2(items.reduce((a, i) => a + i.amount, 0))
   const paid = round2(directPaid + (s.cardPayments || [])
-    .filter(p => p.cardId === card.id && p.referenceMonth === mk && p.paymentDate <= todayISO())
+    .filter(p => p.cardId === card.id && p.referenceMonth === mk && p.paymentDate <= asOf)
     .reduce((a, p) => a + p.amount, 0))
   const pending = round2(Math.max(total - paid, 0))
 
-  const t = todayISO()
+  const t = asOf
   let status: InvoiceStatus
   if (total > 0 && pending <= 0.009) status = 'paga'
   else if (paid > 0.009) status = pending > 0 && t > toISO(due) ? 'atrasada' : 'parcial'

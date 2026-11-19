@@ -12,7 +12,8 @@ import type { AppState, AssistantJournalEntry, ParsedAction, Transaction } from 
 import { lastReversibleBatch } from './journal'
 import { editActionFor, findEditCandidates, parseEditRequest, parseSpokenCorrection } from './editSaved'
 import type { EditableTxField } from './editSaved'
-import { editBlockReason } from './execute'
+import { editBlockReason, findCardByName } from './execute'
+import { explicitInvoicePaymentIssue } from './invoicePayment'
 import type {
   AssistantCandidateAction, AssistantCapabilities, AssistantClarification,
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
@@ -51,7 +52,7 @@ import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../servi
 import { catById, usableCategories } from '../data/categories'
 import { addDays, fmtBRL, todayISO, uid } from '../utils/format'
 import { matchRecurringPayment, occurrenceRecord, occurrencesBetween, recurringActiveOn } from '../services/calc'
-import { unpaidPriorInvoiceMonth } from '../services/cards'
+import { cardInvoice, unpaidPriorInvoiceMonth } from '../services/cards'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { brDate, dateLabel, findAllDates, findDate, previousYearOf, resolveDayInWindow } from './dates'
 import { applyPreferenceAliases, parsePreferenceCommand } from './preferences'
@@ -1863,6 +1864,29 @@ Confirmar?`,
   const recurringKey = (action: RecurringConfirmation) => JSON.stringify([action.recurringId, action.occurrenceDate])
   let notasDeContaFixa: { text: string; paymentKey?: string }[] = []
   const escolhasDeContaFixa: AssistantClarification[] = []
+  const notasDeFatura = new Set<string>()
+  const resolveInvoicePayments = (proposals: AssistantCandidateAction[]) => {
+    const vistos = new Set<string>()
+    return proposals.filter(({ action }) => {
+      if (action.kind !== 'card-payment') return true
+      const card = findCardByName(input.state, action.cardName)
+      if (!card) return true
+      const mk = today.slice(0, 7)
+      const invoice = cardInvoice(input.state, card, mk, today)
+      const issue = explicitInvoicePaymentIssue(input.state, invoice, today, action.amount)
+      if (issue) {
+        notasDeFatura.add(issue.detail)
+        return false
+      }
+      const key = JSON.stringify([card.id, mk, today, action.amount ?? invoice.pending])
+      if (vistos.has(key)) {
+        notasDeFatura.add(`O mesmo pagamento da fatura do ${card.name} aparece duas vezes. Compare com o extrato se foram transferências separadas.`)
+        return false
+      }
+      vistos.add(key)
+      return true
+    })
+  }
   const addFixedBillResolution = (resolution: RecurringResolution) => {
     if ('clarification' in resolution) {
       const options = JSON.stringify(resolution.clarification.options)
@@ -1926,7 +1950,7 @@ Confirmar?`,
       }
     }
   }
-  candidates = resolveFixedBills(candidates)
+  candidates = resolveInvoicePayments(resolveFixedBills(candidates))
 
   if (!candidates.length && !clarification) {
     const payment = recurringStatementWithoutAmount(mensagem, today)
@@ -1940,7 +1964,7 @@ Confirmar?`,
   }
 
   // ---- 13) Intenção incompleta vira rascunho ------------------------------
-  if (!candidates.length && !clarification && !notasDeContaFixa.length) {
+  if (!candidates.length && !clarification && !notasDeContaFixa.length && !notasDeFatura.size) {
     const incomplete = detectIncomplete(mensagem, caps, today)
     if (incomplete) {
       const d = newDraft(incomplete, input.message, caps)
@@ -1975,7 +1999,7 @@ Confirmar?`,
   // Hipótese não é consulta: mandá-la ao planejador de CONSULTA pediria um
   // plano factual para um mundo que não existe. Ela vai ao chat, no passo 16.
   if (!candidates.length && !clarification && !local_answers.text && !hipoteseSemPlano
-    && !notasDeContaFixa.length && unresolved.length && input.remoteEnabled && input.planRemoteQuery) {
+    && !notasDeContaFixa.length && !notasDeFatura.size && unresolved.length && input.remoteEnabled && input.planRemoteQuery) {
     const bruto = await input.planRemoteQuery({ state: input.state, message: mensagem })
     if (bruto) {
       const v = validateQueryPlan(bruto, input.state, today)
@@ -2007,7 +2031,7 @@ Confirmar?`,
     // aberto. Reenviar a frase inteira convidava o modelo a propor de novo o que
     // já está na tela — a reconciliação por campo segurava a duplicata, mas o
     // modelo nem precisa ver o trecho resolvido.
-    const textoRemoto = candidates.length || notasDeContaFixa.length
+    const textoRemoto = candidates.length || notasDeContaFixa.length || notasDeFatura.size
       ? unresolved.map(u => u.text).join('\n') : input.message
     // A conversa vai como ESTRUTURA: o que estava em foco, o que está na tela e o
     // que já foi resolvido neste turno — nunca as mensagens anteriores.
@@ -2076,7 +2100,7 @@ Confirmar?`,
 
   candidates = candidates.slice(0, MAX_ACTIONS_PER_BATCH)
 
-  if (engine !== 'local') candidates = resolveFixedBills(candidates)
+  if (engine !== 'local') candidates = resolveInvoicePayments(resolveFixedBills(candidates))
   if (escolhasDeContaFixa.length > 1) {
     if (clarification === escolhasDeContaFixa[0]) clarification = undefined
     notasDeContaFixa.push({ text: 'Há pagamentos com mais de uma ocorrência possível. Informe separadamente a origem ou o vencimento de cada conta fixa.' })
@@ -2125,7 +2149,7 @@ Confirmar?`,
   // do modelo não pode dizer "anotei/registrei" com a ação ainda na tela.
   const remotoSemAlegacao = remoteReply ? semAlegacaoDeExecucao(remoteReply, candidates.length ? 'pendente' : 'nada-proposto') : ''
   const answerPart = [local_answers.text, remotoSemAlegacao, cenarioJunto?.reply, hypo, planNote, intentionNote, remoteNote,
-    ...new Set(notasDeContaFixa.map(nota => nota.text))]
+    ...new Set(notasDeContaFixa.map(nota => nota.text)), ...notasDeFatura]
     .filter(Boolean).join('\n\n')
   const rejectedAll = [...local.rejected, ...remoteRejected]
 
@@ -2146,6 +2170,7 @@ Confirmar?`,
     reply = [
       candidates.length ? proposalText(candidates, input.state) : '',
       ...new Set(notasDeContaFixa.map(nota => nota.text)),
+      ...notasDeFatura,
       clarification.question,
     ].filter(Boolean).join('\n\n')
   } else if (candidates.length && answerPart) {

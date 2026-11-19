@@ -383,6 +383,7 @@ export function reducer(s: AppState, a: Action): AppState {
       return { ...s, installments: s.installments.map(i => i.id === a.id ? { ...i, ...a.patch } : i) }
     case 'addCardPayment': {
       if (!validPaymentDate(a.payment.paymentDate)) return s
+      if (s.cardPayments.some(p => p.id === a.payment.id)) return s
       const card = s.cards.find(c => c.id === a.payment.cardId)
       if (card && futureInvoicePaymentDate(s, card, a.payment.referenceMonth)) return s
       // Quitar a fatura marca as parcelas dela como pagas — a despesa já foi

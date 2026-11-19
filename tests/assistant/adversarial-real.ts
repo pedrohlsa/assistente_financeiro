@@ -4115,6 +4115,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const accountNumber = await turnoHoje(st, 'paguei a fatura do Inter conta 1234')
     out.push(result('FAMT-numero-de-conta-nao-e-valor', accountNumber,
       'número de conta depois do cartão não vira valor de pagamento', accountNumber.actions.length === 0))
+
+    const overpay = await turnoHoje(st, 'Paguei 350 da fatura do Inter e gastei 15 no mercado')
+    const bypass = applyBatchPure(st, [{ id: 'overpay', action: { kind: 'card-payment', cardName: 'Inter', amount: 350 } }],
+      { now: { date: hoje, time: '14:00' } })
+    out.push(result('FAMT-excesso-exige-conferencia', { overpay, bypass: bypass.results },
+      'o valor acima do pendente fica para verificar; a despesa separada continua proposta',
+      overpay.actions.length === 1 && overpay.actions.some(a => a.kind === 'expense' && a.amount === 15)
+        && /supera os R\$\s300,00 pendentes/.test(overpay.reply) && !bypass.applied && bypass.state === st))
+
+    const mesmaFala = await turnoHoje(st, 'paguei 80 da fatura do Inter e paguei 80 da fatura do Inter')
+    const first = applyBatchPure(st, [{ id: 'first-payment', action: { kind: 'card-payment', cardName: 'Inter', amount: 80 } }],
+      { now: { date: hoje, time: '14:00' } })
+    const again = await turnoHoje(first.state, 'paguei 80 da fatura do Inter')
+    const retry = applyBatchPure(first.state, [{ id: 'repeat-payment', action: { kind: 'card-payment', cardName: 'Inter', amount: 80 } }],
+      { now: { date: hoje, time: '14:01' } })
+    const duplicateId = reducer(first.state, { type: 'addCardPayment', payment: first.state.cardPayments[0], settleInstallmentIds: [] })
+    out.push(result('FAMT-mesma-fatura-valor-data-duplicados', { mesmaFala, again, retry: retry.results },
+      'uma ação no lote repetido; o mesmo pagamento no mesmo dia não sai novamente pelo chat',
+      mesmaFala.actions.length === 1 && /duas vezes/.test(mesmaFala.reply) && first.applied
+        && again.actions.length === 0 && /Já existe um pagamento/.test(again.reply)
+        && !retry.applied && retry.state === first.state && duplicateId === first.state
+        && currentBalance(first.state) === 920 && cardInvoice(first.state, st.cards[0], hoje.slice(0, 7)).pending === 220))
   }
 
   {

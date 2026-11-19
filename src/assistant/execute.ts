@@ -15,6 +15,7 @@ import type {
 import type { ActionExecutionResult, AssistantErrorCode } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, errorMessage, isPlausibleDate } from './contracts'
 import { JOURNAL_LIMIT, diffForJournal, isRevertFailure, revertBatchPure } from './journal'
+import { explicitInvoicePaymentIssue } from './invoicePayment'
 import { addDays, monthKey, nowPaymentTime, nowStamp, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
@@ -339,16 +340,18 @@ export function applyActionPure(
         return { state, result: fail(actionId, 'card-ambiguous') }
       }
       const mk = monthKey(date)
-      if (futureInvoicePaymentDate(state, card, mk)) return {
+      if (futureInvoicePaymentDate(state, card, mk, date)) return {
         state, result: fail(actionId, 'invoice-conflict', `${card.name}: há pagamento com data futura.`, false),
       }
       if (unpaidPriorInvoiceMonth(state, card, mk)) return {
         state, result: fail(actionId, 'invoice-conflict', `${card.name}: há fatura anterior pendente.`, false),
       }
-      const invoice = cardInvoice(state, card, mk)
+      const invoice = cardInvoice(state, card, mk, date)
       if (invoice.paid > invoice.total + 0.009) return {
         state, result: fail(actionId, 'invoice-conflict', `${card.name}.`, false),
       }
+      const issue = explicitInvoicePaymentIssue(state, invoice, date, action.amount)
+      if (issue) return { state, result: fail(actionId, issue.code, issue.detail, false) }
       if (invoice.pending <= 0.009) return { state, result: fail(actionId, 'invoice-empty', `${card.name}.`, false) }
       const amount = action.amount ?? invoice.pending
       if (!(amount > 0)) return { state, result: fail(actionId, 'invoice-empty', `${card.name}.`, false) }
