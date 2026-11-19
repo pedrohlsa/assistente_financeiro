@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import { parseNaturalFull } from '../src/services/nlp'
 import { askAssistant } from '../src/services/ai'
-import { kmCost } from '../src/services/calc'
+import { currentBalance, kmCost } from '../src/services/calc'
 import { plainChatText } from '../src/utils/text'
-import { AppState } from '../src/models/types'
+import { AppState, Transaction } from '../src/models/types'
 import { DEFAULT_CATEGORIES } from '../src/data/categories'
 import { runNavigationTests } from '../tests/navigation'
 import { createDeferredSave } from '../src/store/persistence'
+import { hydrateForTest, reducer } from '../src/store/store'
 
 const state = (): AppState => ({
   settings: {
@@ -95,6 +96,37 @@ const state = (): AppState => ({
 }
 
 const navChecks = runNavigationTests()
+
+{
+  const original = state()
+  original.settings.balanceAsOf = '2026-09-01'
+  const minha: Transaction = { id: 'local', type: 'income', date: '2026-09-10', amount: 50, category: 'outros-in' }
+  const nova: Transaction = { ...minha, id: 'do-backup', amount: 100 }
+  original.transactions = [minha]
+  const backup = {
+    ...original,
+    transactions: [{ ...minha, amount: 999 }, nova, { ...nova, amount: 200 }, null] as unknown as Transaction[],
+    workSessions: 'lista inválida' as unknown as AppState['workSessions'],
+    chat: [null, {
+      id: 'chat-backup', role: 'assistant', text: 'Confirmar a despesa?', time: '12:00',
+      proposal: [{ id: 'despesa-antiga', action: { kind: 'expense', amount: 200, category: 'casa' } }],
+      clarification: { question: 'Escolha erro antigo', options: [{ label: 'Sim', value: 'sim' }] },
+    }] as unknown as AppState['chat'],
+  }
+  const merged = reducer(original, { type: 'mergeState', state: backup })
+  assert.deepEqual(merged.transactions, [minha, nova], 'a mescla mantém o item local e insere cada ID novo uma vez')
+  assert.equal(currentBalance(merged, '2026-09-15'), 150)
+  assert.deepEqual(reducer(merged, { type: 'mergeState', state: backup }).transactions, merged.transactions)
+
+  const recovered = hydrateForTest(backup)
+  const restored = reducer(original, { type: 'hydrate', state: backup })
+  assert.deepEqual(restored, recovered, 'restauração e recarga passam pela mesma limpeza')
+  assert.deepEqual(restored.transactions.map(t => [t.id, t.amount]), [['local', 999], ['do-backup', 100]])
+  assert.equal(restored.chat.length, 1)
+  assert.equal(restored.chat[0].text, 'Confirmar a despesa?')
+  assert.equal(restored.chat[0].proposal, undefined)
+  assert.equal(restored.chat[0].clarification, undefined)
+}
 
 {
   const disk: Array<{ amount: number }> = []

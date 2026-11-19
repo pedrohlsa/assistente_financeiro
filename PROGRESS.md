@@ -5776,3 +5776,24 @@ APK ou chamada paga. NOT READY até auditoria independente.
   importação inválida, cancelamento, mescla sem duplicidade e restauração
   após confirmação. O pagamento legado com data futura ficou bloqueado
   após importar pela tela de Configurações.
+
+## 19/11/2026 — Reembolsos e restauração de backups
+
+- Reembolsos recebidos ficam em Outros e não criam viagens no perfil
+  motorista. Se parte de uma entrada é reembolso, o chat confirma a
+  composição antes de propor as duas movimentações. O caixa recebe o
+  valor total uma vez. Data incerta, valor incompatível, mais de uma
+  origem possível e recebimento pendente pedem esclarecimento.
+- Para distinguir a devolução no histórico, a entrada traz a descrição
+  Reembolso. Continua sendo uma entrada nos totais gerais. Vincular um
+  reembolso à despesa original depende de uma definição contábil do app.
+- Mesclar um backup insere cada ID novo uma vez e conserva a versão já
+  presente quando há conflito. Recarga e restauração preservam o texto
+  das conversas antigas e descartam propostas e escolhas pendentes.
+  No Chrome, o backup fictício com ID repetido e linha nula foi importado
+  e restaurado sem duplicidade e sem reativar botões antigos do chat.
+- A suíte passou com 727/727 regressões adversariais no relógio padrão
+  e na data da máquina. A matriz de oito datas e duas execuções extras
+  no primeiro dia do ano e em 29 de fevereiro passaram, assim como os
+  typechecks, o teste de dinheiro, o build e a rubrica. No Chrome, o
+  desfazer reverteu as duas entradas do mesmo lote de reembolso.

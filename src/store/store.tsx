@@ -45,6 +45,22 @@ const initialState: AppState = {
   assistantPreferences: [],
 }
 
+/** Mantém a primeira ocorrência de cada ID na ordem em que veio do disco. */
+function savedObjects<T>(value: unknown): T[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  return value.filter(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return false
+    const id = item.id
+    // Estados antigos podem ter objetos sem ID. Só deduplicar quando a
+    // identidade é conhecida evita apagar linhas legadas por engano.
+    if (typeof id !== 'string' || !id.trim()) return true
+    if (seen.has(id)) return false
+    seen.add(id)
+    return true
+  })
+}
+
 /**
  * Garante que todo array esperado existe, mesmo em estados salvos antes de uma
  * funcionalidade existir. Vale tanto para o localStorage quanto para um backup
@@ -59,35 +75,33 @@ function normalizeState(raw: any): AppState {
   // filtro solto.
   const arr = <T,>(v: any, fallback: T[] = []): T[] =>
     (Array.isArray(v) ? v.filter(x => x !== null && x !== undefined) : fallback)
-  const objs = <T,>(v: any): T[] =>
-    (Array.isArray(v) ? v.filter(x => !!x && typeof x === 'object') : [])
   return {
     ...initialState,
     ...raw,
     settings: { ...defaultSettings, ...(raw?.settings || {}) },
-    transactions: objs(raw?.transactions),
+    transactions: savedObjects(raw?.transactions),
     // Fusão, não substituição: quem já usava o app recebe as categorias padrão
     // novas sem perder as personalizadas nem o estado "arquivada".
     categories: mergeDefaultCategories(raw?.categories),
-    workSessions: objs(raw?.workSessions),
-    fuelRecords: objs(raw?.fuelRecords),
-    maintenance: objs(raw?.maintenance),
-    goals: objs(raw?.goals),
-    deficits: objs(raw?.deficits),
-    recurring: objs(raw?.recurring),
-    budgets: objs(raw?.budgets),
-    chat: objs(raw?.chat),
+    workSessions: savedObjects(raw?.workSessions),
+    fuelRecords: savedObjects(raw?.fuelRecords),
+    maintenance: savedObjects(raw?.maintenance),
+    goals: savedObjects(raw?.goals),
+    deficits: savedObjects(raw?.deficits),
+    recurring: savedObjects(raw?.recurring),
+    budgets: savedObjects(raw?.budgets),
+    chat: savedObjects(raw?.chat),
     dismissedDeficitDates: arr(raw?.dismissedDeficitDates),
     // Backup anterior a esta versão não tem journal: o array nasce vazio e os
     // lotes antigos ficam sem entrada — o undo recusa em vez de adivinhar.
-    assistantJournal: objs(raw?.assistantJournal),
+    assistantJournal: savedObjects(raw?.assistantJournal),
     assistantPreferences: mergePreferenceLists([], raw?.assistantPreferences),
     vehicle: raw?.vehicle ?? null,
-    cards: objs(raw?.cards),
-    installmentPlans: objs(raw?.installmentPlans),
-    installments: objs(raw?.installments),
-    cardPayments: objs(raw?.cardPayments),
-    cardCharges: objs(raw?.cardCharges),
+    cards: savedObjects(raw?.cards),
+    installmentPlans: savedObjects(raw?.installmentPlans),
+    installments: savedObjects(raw?.installments),
+    cardPayments: savedObjects(raw?.cardPayments),
+    cardCharges: savedObjects(raw?.cardCharges),
   }
 }
 
@@ -103,13 +117,12 @@ function normalizeState(raw: any): AppState {
  * Exportada para o teste conseguir provar isso sem abrir o navegador.
  */
 export function hydrateForTest(parsed: any): AppState {
-  const chat = Array.isArray(parsed?.chat)
-    ? parsed.chat.map((m: ChatMessage) =>
-        (m.pending || m.choices || m.proposal || m.clarification || m.preferenceProposal)
-          ? { ...m, pending: undefined, choices: undefined, proposal: undefined, clarification: undefined, preferenceProposal: undefined }
-          : m)
-    : []
-  return normalizeState({ ...parsed, chat })
+  const state = normalizeState(parsed)
+  const chat = state.chat.map(m =>
+    (m.pending || m.choices || m.proposal || m.clarification || m.preferenceProposal)
+      ? { ...m, pending: undefined, choices: undefined, proposal: undefined, clarification: undefined, preferenceProposal: undefined }
+      : m)
+  return { ...state, chat }
 }
 
 type Action =
@@ -176,7 +189,7 @@ type Action =
 export function reducer(s: AppState, a: Action): AppState {
   switch (a.type) {
     // Backup antigo (sem cartões/parcelas) precisa ser normalizado, senão o app quebra.
-    case 'hydrate': return normalizeState(a.state)
+    case 'hydrate': return hydrateForTest(a.state)
     case 'settings': {
       const stamp = a.patch.balanceAsOf
       const balanceAsOf = stamp?.includes('T')
@@ -256,9 +269,9 @@ export function reducer(s: AppState, a: Action): AppState {
     case 'mergeState': {
       // Importação "Mesclar": junta sem apagar, deduplicando por id (14.10).
       const byId = <T extends { id: string }>(cur: T[], inc?: T[]) => {
-        if (!inc?.length) return cur
         const seen = new Set(cur.map(x => x.id))
-        return [...cur, ...inc.filter(x => !seen.has(x.id))]
+        const added = savedObjects<T>(inc).filter(x => typeof x.id === 'string' && x.id.trim() && !seen.has(x.id))
+        return added.length ? [...cur, ...added] : cur
       }
       return {
         ...s,
