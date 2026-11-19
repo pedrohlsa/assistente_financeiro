@@ -26,6 +26,15 @@ export type ScenarioKind =
   | 'reduce'          // "reduzir alimentação em 300 por mês"
   | 'save-share'      // "guardar metade do que sobrar"
 
+export interface DrivingScenario {
+  metric: 'profit' | 'fuel-cost' | 'fuel-volume' | 'maintenance'
+  /** Variações relativas: 0,20 significa 20% a mais. */
+  distanceChange?: number
+  fuelPriceChange?: number
+  fuelPricePerLiter?: number
+  extraDaysPerWeek?: number
+}
+
 export interface AssistantScenarioPlan {
   version: typeof SCENARIO_DSL_VERSION
   kind: ScenarioKind
@@ -34,6 +43,8 @@ export interface AssistantScenarioPlan {
   installments?: number
   /** Entrada dada na compra — sai do bolso hoje e reduz o financiado. */
   downPayment?: number
+  /** Meses entre hoje e a data da compra simulada. */
+  purchaseDelayMonths?: number
   cardName?: string
   /** Horizonte em meses para projetar. */
   months?: number
@@ -44,6 +55,8 @@ export interface AssistantScenarioPlan {
   /** Partes materiais que não entraram na conta, nunca descartadas em silêncio. */
   unsupportedFragments?: string[]
   goalName?: string
+  /** Acumulado da meta informado para a simulação. */
+  declaredGoalSaved?: number
   /** Fonte que deixaria de pagar ("Casa 1"). */
   origin?: string
   category?: string
@@ -54,6 +67,7 @@ export interface AssistantScenarioPlan {
   when?: string
   hoursPerDay?: number
   extraKm?: number
+  driving?: DrivingScenario
   /** "Quanto devo gastar de combustível": o custo dos km a mais, não o ganho. */
   fuelOnly?: boolean
   /** Quantos dias a mais de trabalho a hipótese cobre. */

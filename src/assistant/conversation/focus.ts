@@ -29,6 +29,7 @@ import { ehResiduo, planQuery } from '../query/parse'
 import type { PlannedQuery } from '../query/parse'
 import type { AssistantQueryPlan, AssistantQueryResult, FactUnit, QueryPeriod } from '../query/types'
 import type { AssistantScenarioPlan, AssistantScenarioResult } from '../scenario/types'
+import { parsePurchaseDelay } from '../scenario/parse'
 import type { ChangeAnalysis } from '../drivers'
 import type { ChangeScope } from '../drivers/engine'
 
@@ -211,7 +212,7 @@ const CONTINUACAO = [
   // "De onde SAIU isso" pergunta pela conta anterior; "de onde VEM meu
   // dinheiro" e uma pergunta nova. So a primeira e continuacao.
   /^de\s+onde\s+(?:voce\s+)?(?:tirou|saiu|veio\s+(?:esse|essa|isso))/,
-  /^volta\b/, /^e\s+se\b/, /^mesma\s+coisa\b/,
+  /^volta\b/, /^e\s+se\b/, /^mesma\s+coisa\b/, /^(?:se\s+(?:eu\s+)?)?adiar\s+a\s+compra\b/,
   /^ate\b/,
   /^e\s+(?:qual\s+foi\s+)?o\s+segundo\b/, /^isso\b/,
   // "Onde?" SOZINHO, logo depois de um total: onde foi parar aquele dinheiro.
@@ -449,6 +450,12 @@ const NUM = String.raw`(\d+(?:[.,]\d+)*)`
 function refinaCenario(focus: ConversationFocus, t: string, today: string): AssistantScenarioPlan | null {
   const base = focus.lastScenarioPlan!
 
+  const atraso = base.kind === 'purchase' && parsePurchaseDelay(t)
+  if (atraso && !/\d+\s*(?:x\b|vezes\b|parcelas\b)/.test(t)) {
+    const purchaseDelayMonths = atraso.months + (atraso.additional ? base.purchaseDelayMonths || 0 : 0)
+    return { ...base, purchaseDelayMonths, months: Math.max(base.months || 6, Math.min(12, purchaseDelayMonths + 3)) }
+  }
+
   // Horizonte é um refinamento do cenário já calculado. Propaga para todos os
   // passos para não deixar um subcenário preso no padrão de seis meses.
   const ateMes = t.match(/^(?:e\s+)?ate\s+(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\s*\??$/)
@@ -521,11 +528,13 @@ function refinaCenario(focus: ConversationFocus, t: string, today: string): Assi
   // "e mais 3 horas?" / "e mais 80 km?"
   const horas = t.match(new RegExp(String.raw`\bmais\s+${NUM}\s*(?:h|horas?)\b`))
   if (horas && base.kind === 'extra-work') {
-    return { ...base, hoursPerDay: Number(horas[1].replace(',', '.')), extraKm: undefined, label: `mais ${horas[1]}h` }
+    return { ...base, hoursPerDay: Number(horas[1].replace(',', '.')), extraKm: undefined,
+      driving: undefined, fuelOnly: undefined, label: `mais ${horas[1]}h` }
   }
   const km = t.match(new RegExp(String.raw`\bmais\s+${NUM}\s*km\b`))
   if (km && base.kind === 'extra-work') {
-    return { ...base, extraKm: Number(km[1].replace(',', '.')), hoursPerDay: undefined, label: `mais ${km[1]} km` }
+    const driving = base.driving ? { ...base.driving, distanceChange: undefined, extraDaysPerWeek: undefined } : undefined
+    return { ...base, extraKm: Number(km[1].replace(',', '.')), hoursPerDay: undefined, driving, label: `mais ${km[1]} km` }
   }
 
   return null

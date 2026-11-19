@@ -13,12 +13,12 @@ import type {
   FinancialGoal, CreditCard,
 } from '../models/types'
 import type { ActionExecutionResult, AssistantErrorCode } from './contracts'
-import { ASSISTANT_CONTRACT_VERSION, errorMessage } from './contracts'
+import { ASSISTANT_CONTRACT_VERSION, errorMessage, isPlausibleDate } from './contracts'
 import { JOURNAL_LIMIT, diffForJournal, isRevertFailure, revertBatchPure } from './journal'
 import { addDays, monthKey, nowPaymentTime, nowStamp, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
-import { isOccurrenceResolved, nextCashEventTime, pendingExpenseByName } from '../services/calc'
+import { isOccurrenceResolved, matchRecurringPayment, nextCashEventTime, occurrencesBetween } from '../services/calc'
 import { buildInstallments, cardInvoice, directInstallmentPaidAmount, futureInvoicePaymentDate,
   settleableInstallmentIds, suggestedFirstDueDate, unpaidPriorInvoiceMonth } from '../services/cards'
 
@@ -143,9 +143,9 @@ export function applyActionPure(
       return { state: withTx(t), result: { ok: true, actionId, entityId: t.id } }
     }
     case 'expense': {
-      const pending = pendingExpenseByName(state, action.description, date)
-      if (pending) return { state, result: fail(actionId, 'recurring-conflict',
-        `${pending.rec.name}: confirme o pagamento pela tela inicial.`, false) }
+      const fixed = matchRecurringPayment(state, action, date)
+      if (fixed) return { state, result: fail(actionId,
+        fixed.alreadyPaid && !fixed.pending.length ? 'occurrence-resolved' : 'recurring-conflict', action.description, false) }
       const t = tx({
         type: 'expense', amount: action.amount,
         category: action.category || 'outros-out',
@@ -397,7 +397,16 @@ export function applyActionPure(
       if (isOccurrenceResolved(rec, occ) || state.transactions.some(x => x.recurringId === rec.id && x.occurrenceDate === occ)) {
         return { state, result: fail(actionId, 'occurrence-resolved', rec.name, false) }
       }
+      if (!isPlausibleDate(occ, date) || occ > date || !occurrencesBetween(rec, occ, occ, date).length) {
+        return { state, result: fail(actionId, 'occurrence-invalid', rec.name, false) }
+      }
+      if (action.date && (!isPlausibleDate(action.date, date) || action.date > date)) {
+        return { state, result: fail(actionId, action.date > date ? 'future-date' : 'invalid-date', action.date) }
+      }
       const amount = action.amount ?? rec.amount
+      if (!Number.isFinite(amount) || amount < 0.01 || amount > 99_999_999) {
+        return { state, result: fail(actionId, 'invalid-amount', rec.name) }
+      }
       const t = tx({
         type: rec.kind === 'income' ? 'income' : 'expense', amount, category: rec.category,
         description: rec.name, origin: rec.origin, recurringId: rec.id, occurrenceDate: occ,

@@ -132,7 +132,7 @@ function validatePeriod(raw: any, todayIso: string): QueryPeriod | QueryErrorCod
  * fora: `null` neles continua recusado. Nenhum campo deste contrato dá a `null`
  * um sentido próprio — "não há plano" é `source: 'none'`, uma string.
  */
-const PLANO_OPCIONAIS = ['version', 'field', 'metric', 'group', 'order', 'comparePeriod', 'filter', 'limit', 'shareBase', 'label'] as const
+const PLANO_OPCIONAIS = ['version', 'field', 'metric', 'group', 'order', 'comparePeriod', 'filter', 'limit', 'shareBase', 'label', 'showCardPurchases'] as const
 /** Todo filtro é opcional: `null` é "sem essa restrição". */
 const FILTRO_OPCIONAIS = [
   'categories', 'excludeCategories', 'txType', 'cardNames', 'excludeCardNames', 'goalName', 'text', 'excludeText', 'excludeTexts',
@@ -363,6 +363,8 @@ export function validateQueryPlan(
       source, field, period, comparePeriod, filter,
       metric: metric as QueryMetric,
       group, order, limit, shareBase,
+      ...(raw.showCardPurchases === true && source === 'invoices' && field !== 'paid'
+        && metric === 'sum' && group === 'none' && !comparePeriod ? { showCardPurchases: true } : {}),
       label: strOf(raw.label, 80),
     },
   }

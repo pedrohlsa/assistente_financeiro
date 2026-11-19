@@ -1573,6 +1573,9 @@ function respostaDaFatura(s: AppState, t: string, tipo: PerguntaDeFatura): AiRep
         const total = round2(devidas.reduce((a, d) => a + d.valor, 0))
         const aberta = notaDaAberta(f)
         if (!devidas.length) {
+          if (aberta && citados.length === 1 && !/\b(?:vencid[ao]s?|fechad[ao]s?)\b/.test(t)) {
+            return { text: `Falta pagar ${fmtBRL(f.aPagar)} da fatura do ${f.nome}, que ainda está aberta. O valor pode mudar até ${dataCompleta(f.proxima.closingDate)}, quando ela fecha.` }
+          }
           const paga = fechadaPaga ? `a fatura do ${f.nome} que vence ${venceEm(f.proxima.dueDate)} já está paga.`
             : ultimaPaga ? `a fatura do ${f.nome} que venceu em ${dataCompleta(f.ultima.dueDate)} está paga.`
               : `não há fatura vencida ou fechada para pagar no ${f.nome}.`

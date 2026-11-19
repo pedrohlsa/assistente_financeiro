@@ -14,9 +14,10 @@ import { activeCards } from '../../services/cards'
 import { usableCategories, CATEGORY_KEYWORDS } from '../../data/categories'
 import { normalizeNumberWords } from '../numbers'
 import { SCENARIO_DSL_VERSION } from './types'
-import type { AssistantScenarioPlan, ScenarioKind } from './types'
+import type { AssistantScenarioPlan, DrivingScenario, ScenarioKind } from './types'
 
 const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+const normalizaCenario = (s: string) => semAcento(normalizeNumberWords(s.replace(/\bpor\s+cento\b/gi, '%')).text)
 
 /**
  * Marcadores de hipótese. Deliberadamente amplos: uma frase hipotética que o
@@ -45,6 +46,7 @@ const HIPOTESE = [
   // "Se a gasolina aumentar 12%", "se o aluguel subir": hipótese sobre uma
   // coisa que não é "eu". Sem este marcador a frase ia à consulta e voltava
   // como fato ("Resultado este mês: R$ 3.439,90 (dado real)").
+  /\bse\s+(?:a|o)\s+(?:gasolina|combustivel|etanol|diesel)\s*[+-]\s*\d/,
   /\bse\s+(?:a|o|as|os|meu|minha|meus|minhas)\s+[\w\s]{2,30}?\s(?:aumentar|aumentasse|aumentarem|subir|subisse|subirem|cair|caisse|cairem|baixar|baixasse|dobrar|dobrasse|diminuir|diminuisse|ficar|ficasse|ficarem|custar|custasse|encarecer)\b/,
 ]
 
@@ -168,6 +170,58 @@ function firstSavingMonth(t: string, hoje: string): string | undefined {
 /** Parar um tipo de gasto: "parar a obra", "cortar o lazer", "não gastar mais com mercado". */
 const PARAR_GASTO = /\b(?:parar|pare|parasse|parando|cortar|corte|cortasse|tirar|tirasse|cancelar|cancelasse|cancelo|deixar\s+de\s+gastar|nao\s+gastar\s+mais|parar\s+de\s+gastar)\b/
 
+const FUEL = String.raw`(?:combustivel|gasolina|etanol|alcool|gnv|diesel)`
+const PERCENT = String.raw`${NUM}\s*(?:%|por\s+cento\b)`
+const DRIVE = String.raw`(?:rodar|andar|dirigir|trabalhar|fazer)`
+
+function drivingAdjustments(t: string): Omit<DrivingScenario, 'metric'> {
+  const kmBefore = t.match(new RegExp(String.raw`\b${DRIVE}\s+(mais|menos)\s+${PERCENT}`))
+  const kmAfter = t.match(new RegExp(String.raw`\b${DRIVE}\s+${PERCENT}\s+(?:a\s+)?(mais|menos)\b`))
+  const kmNumber = kmBefore?.[2] || kmAfter?.[1]
+  const kmDirection = kmBefore?.[1] || kmAfter?.[2]
+
+  const fuelVerb = t.match(new RegExp(String.raw`\b${FUEL}\s+(aument\w*|sub\w*|encarec\w*|cair|caisse|baix\w*|diminu\w*|reduz\w*|barate\w*)\s+(?:em\s+)?${PERCENT}`))
+  const fuelAdjective = t.match(new RegExp(String.raw`\b${FUEL}\s+(?:(?:ficar|ficasse|estiver|for)\s+)?${PERCENT}\s+mais\s+(car[oa]|barat[oa])\b`))
+  const fuelSign = t.match(new RegExp(String.raw`\b${FUEL}\s*([+-])\s*${PERCENT}`))
+  const fuelNumber = fuelVerb?.[2] || fuelAdjective?.[1] || fuelSign?.[2]
+  const fuelDown = fuelSign?.[1] === '-' || /^(?:cai|baix|diminu|reduz|barat)/.test(fuelVerb?.[1] || fuelAdjective?.[2] || '')
+  const fuelPrice = t.match(new RegExp(String.raw`\b${FUEL}\s+(?:(?:for|ficar|custar|passar|subir|cair|aumentar|baixar)\s+)?(?:de\s+(?:r\$\s*)?\d+(?:[.,]\d+)*\s+para\s+|(?:a|por|para)\s+)?(?:r\$\s*)?${NUM}\s*(?:reais?\s+)?(?:/\s*l\b|(?:o|por)\s+litro\b)`))
+
+  const daysBefore = t.match(new RegExp(String.raw`\b${DRIVE}\s+mais\s+(\d+)\s+dias?\s+(?:por|a\s+cada)\s+semana\b`))
+  const daysAfter = t.match(new RegExp(String.raw`\b${DRIVE}\s+(\d+)\s+dias?\s+a\s+mais\s+(?:por|a\s+cada)\s+semana\b`))
+  const days = daysBefore?.[1] || daysAfter?.[1]
+  return {
+    distanceChange: kmNumber ? parseMoney(kmNumber) / 100 * (kmDirection === 'menos' ? -1 : 1) : undefined,
+    fuelPriceChange: fuelNumber ? parseMoney(fuelNumber) / 100 * (fuelDown ? -1 : 1) : undefined,
+    fuelPricePerLiter: fuelPrice ? parseMoney(fuelPrice[1]) : undefined,
+    extraDaysPerWeek: days ? Number(days) : undefined,
+  }
+}
+
+const absoluteKm = (t: string) => t.match(new RegExp(String.raw`\bmais\s+${NUM}\s*(?:km|quilometros?)\b`))
+  || t.match(new RegExp(String.raw`\b(?:rodar|andar|dirigir)\s+${NUM}\s*(?:km|quilometros?)\s+a\s+mais\b`))
+  || t.match(new RegExp(String.raw`\brodar\s+${NUM}\s*(?:km|quilometros?)\b`))
+
+export function parsePurchaseDelay(text: string): { months: number; additional: boolean } | undefined {
+  const t = normalizaCenario(text)
+  const m = t.match(/\b(?:adiar|adiasse|atrasar|atrasasse|postergar|postergasse)\b[^?!;]{0,95}?(?:(?:por|em|pra|para)\s+(?:daqui\s+a\s+)?|mais\s+)(\d+)\s+mes(?:es)?\b/)
+  return m ? { months: Number(m[1]), additional: /\bmais\s+\d+\s+mes/.test(m[0]) } : undefined
+}
+
+/** Valores declarados junto de uma meta conhecida ("já tenho 2.000 na viagem"). */
+function declaredGoalSavings(state: AppState, text: string): { name: string; amount: number } | undefined {
+  const metas = (state.goals || []).filter(g => !g.done).sort((a, b) => b.name.length - a.name.length)
+  for (const meta of metas) {
+    const nome = normalizeName(meta.name)
+    if (nome.length < 3) continue
+    const literal = nome.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const m = text.match(new RegExp(String.raw`\b(?:(nao|nem|nunca)\s+(?:mais\s+)?)?(?:ja\s+)?tenho\s+(?:r\$\s*)?${NUM}\s*(?:reais?\s+)?(?:guardad[oa]s?\s+)?(?:n[oa]|para\s+[oa]|pr[oa])\s+(?:meta\s+(?:d[aeo]\s+)?)?${literal}(?=$|[\s,.!?;])`))
+    const amount = m && !m[1] ? parseMoney(m[2]) : NaN
+    if (amount >= 0 && Number.isSafeInteger(Math.round(amount * 100))) return { name: meta.name, amount }
+  }
+  return undefined
+}
+
 function planSingleScenario(
   state: AppState, input: string, opts: { today?: string; focusCategory?: string; fullText?: string } = {},
   fragment = false,
@@ -175,7 +229,7 @@ function planSingleScenario(
   if (!fragment && !looksLikeScenario(input)) return null
   // Números por extenso viram algarismos antes dos regex, igual ao parser de
   // registro — "quatro mil em dez vezes" é a mesma frase.
-  const t = semAcento(normalizeNumberWords(input).text)
+  const t = normalizaCenario(input)
     .replace(/\b(\d+(?:[.,]\d+)?)\s*k\b/g, (_, n: string) => String(parseMoney(n) * 1000))
   const driver = isDriver(state.settings)
 
@@ -197,18 +251,45 @@ function planSingleScenario(
       return base('extra-work', { hoursPerDay: parseMoney(horas[1]), days: dias },
         `mais ${horas[1]}h ${porDia ? 'por dia' : 'hoje'}`)
     }
-    const km = t.match(new RegExp(String.raw`\bmais\s+${NUM}\s*km\b`))
-      || t.match(new RegExp(String.raw`\brodar\s+(?:mais\s+)?${NUM}\s*km\b`))
-    if (km) {
-      // "Quanto devo gastar de combustível?" pede o CUSTO dos km, não o ganho:
-      // responder com a receita por km dava um número certo sobre outra conta.
-      // A pergunta pode estar na outra metade da frase ("se eu rodar mais 100
-      // km, quanto devo gastar de combustível?"): a leitura olha a frase inteira.
-      const inteira = opts.fullText ? semAcento(opts.fullText) : t
-      const combustivel = /\b(?:combustivel|gasolina|etanol|alcool|gnv|abastec\w*)\b/.test(inteira)
-        || /\b(?:gastar|custar|custo|gasto)\b/.test(inteira) && !/\b(?:ganh\w+|fatur\w+|render|rende|lucr\w+)\b/.test(inteira)
-      return base('extra-work', { extraKm: parseMoney(km[1]), ...(combustivel ? { fuelOnly: true } : {}) },
-        combustivel ? `combustível para mais ${km[1]} km` : `mais ${km[1]} km`)
+    const km = absoluteKm(t)
+    const ownChanges = drivingAdjustments(t)
+    if (km || Object.values(ownChanges).some(v => v !== undefined)) {
+      const inteira = opts.fullText ? normalizaCenario(opts.fullText) : t
+      const firstQuestion = inteira.search(/\b(?:quanto[sa]?|quantas|qual|quais)\b/)
+      const pergunta = firstQuestion >= 0 ? inteira.slice(firstQuestion) : inteira
+      const ganho = /\b(?:ganh\w*|fatur\w*|render|rende|lucr\w*|sobr\w*)\b/.test(pergunta)
+      const custo = /\b(?:gastar|custar|custa|custo|gasto|preco)\b/.test(pergunta)
+      const combustivel = new RegExp(String.raw`\b${FUEL}\b`).test(pergunta)
+      const manutencao = /\b(?:manutencao|desgaste|pneus?|revisao)\b/.test(pergunta)
+      const litros = /\bquantos\s+litros\b|\bconsumo\s+em\s+litros\b/.test(pergunta)
+      const adjustments = drivingAdjustments(inteira)
+      const qtdPercentuais = [...inteira.matchAll(/\d\s*(?:%|por\s+cento\b)/g)].length
+      const reconhecidos = Number(adjustments.distanceChange !== undefined) + Number(adjustments.fuelPriceChange !== undefined)
+      const kmTotal = km || absoluteKm(inteira)
+      const extraKm = kmTotal ? parseMoney(kmTotal[1]) : undefined
+      const fuelOnly = combustivel && !ganho && !manutencao
+      const metric: DrivingScenario['metric'] = litros ? 'fuel-volume'
+        : manutencao ? 'maintenance' : fuelOnly || (!ganho && custo && adjustments.fuelPriceChange !== undefined)
+          ? 'fuel-cost' : 'profit'
+      const precoSemUnidade = new RegExp(String.raw`\b${FUEL}\s+(?:(?:for|ficar|custar|passar|subir|cair|aumentar|baixar)\s+)?(?:para\s+|a\s+|por\s+)?r\$\s*\d`).test(inteira)
+        && adjustments.fuelPricePerLiter === undefined
+      const planningIssue = qtdPercentuais > reconhecidos
+        ? 'Ainda não consigo combinar todos os percentuais informados nessa simulação.'
+        : precoSemUnidade && !litros && !manutencao
+          ? 'Qual preço por litro você quer usar na simulação?'
+        : (manutencao && (combustivel || ganho)) || (ganho && custo)
+          ? 'Posso estimar esses valores separadamente. Qual você quer primeiro?'
+          : custo && !combustivel && !manutencao && metric === 'profit'
+            ? 'Qual custo você quer estimar para esses km: combustível ou manutenção?'
+            : undefined
+      const driving = litros || manutencao || Object.values(adjustments).some(v => v !== undefined)
+        ? { ...adjustments, metric }
+        : undefined
+      const label = driving ? 'mudança na rodagem do motorista'
+        : fuelOnly ? `combustível para mais ${kmTotal?.[1]} km` : `mais ${kmTotal?.[1]} km`
+      return base('extra-work', {
+        extraKm, driving, planningIssue, ...(fuelOnly && !driving ? { fuelOnly: true } : {}),
+      }, label)
     }
   }
 
@@ -297,10 +378,16 @@ function planSingleScenario(
     const juntoDoVerbo = t.match(new RegExp(String.raw`\b(?:guardar|guardando|guardasse|poupar|poupasse|separar|separasse|juntar|juntasse)\s+(?:r\$\s*)?${NUM}`))
     const valor = juntoDoVerbo ? parseMoney(juntoDoVerbo[1]) : lerValor(t)
     if (Number.isFinite(valor) && valor > 0) {
-      const meta = (state.goals || []).find(g => !g.done && normalizeName(g.name).length > 2
-        && t.includes(normalizeName(g.name).split(' ')[0]))
+      const declarada = declaredGoalSavings(state, opts.fullText ? normalizaCenario(opts.fullText) : t)
+      const deposito = juntoDoVerbo ? t.slice(juntoDoVerbo.index) : t
+      const metas = (state.goals || []).filter(g => !g.done && normalizeName(g.name).length > 2)
+      const alvos = metas.filter(g => deposito.includes(normalizeName(g.name)))
+      const meta = alvos.length ? alvos.sort((a, b) => b.name.length - a.name.length)[0] : undefined
+      const goalName = meta?.name || declarada?.name
+        || metas.find(g => t.includes(normalizeName(g.name).split(' ')[0]))?.name
       const explicitWindow = /\b(?:a\s+partir\s+de|ate\s+(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)|durante\s+\d+\s+mes|por\s+\d+\s+mes)/.test(t)
-      return base('save', { amount: valor, goalName: meta?.name,
+      return base('save', { amount: valor, goalName,
+        declaredGoalSaved: declarada?.name === goalName ? declarada?.amount : undefined,
         months: explicitWindow ? horizonte(t, opts.today || todayISO()) : 12,
         startMonth: firstSavingMonth(t, opts.today || todayISO()) }, `guardar ${valor} por mês`)
     }
@@ -312,6 +399,7 @@ function planSingleScenario(
     ? { total: parseMoney(financiada[1]) + parseMoney(financiada[2]), installments: Number(financiada[3]), financed: parseMoney(financiada[2]), entry: parseMoney(financiada[1]) }
     : lerCompra(t)
   if (compra) {
+    const atraso = parsePurchaseDelay(opts.fullText || t)
     const entrada = financiada || t.match(new RegExp(String.raw`\b(?:der|dar|dando|com|de)\s+${NUM}\s*(?:reais\s*)?de\s+entrada\b`))
       || t.match(new RegExp(String.raw`\bentrada\s+de\s+(?:r\$\s*)?${NUM}`))
     // Entrada do tamanho do preço, ou maior, não descreve compra parcelada
@@ -321,6 +409,8 @@ function planSingleScenario(
       amount: compra.total,
       installments: compra.installments,
       downPayment: entrada ? parseMoney(entrada[1]) : undefined,
+      purchaseDelayMonths: atraso?.months,
+      ...(atraso ? { months: Math.max(6, Math.min(12, atraso.months + 3)) } : {}),
       cardName: cartaoDe(state, t),
       category: categoriaDe(state, t),
       description: descricaoDe(t),
@@ -360,7 +450,13 @@ export function planScenario(
     .map(p => p.trim()).filter(Boolean)
   const planned = partes.map(p => ({ fragment: p, plan: planSingleScenario(state, p, { ...opts, fullText: input }, true) }))
   const steps = planned.map(p => p.plan).filter((p): p is AssistantScenarioPlan => !!p)
-  const unsupportedFragments = planned.filter(p => !p.plan && /\d|\binvestir\b|\baplicar\b/i.test(normalizeNumberWords(p.fragment).text))
+  // Variação do combustível e da distância podem vir em cláusulas separadas.
+  // O plano de rodagem já leu as duas condições e precisa ser aplicado uma vez.
+  const drivingStep = steps.find(p => p.driving)
+  const separateSteps = drivingStep ? steps.filter(p => !p.driving || p === drivingStep) : steps
+  const unsupportedFragments = planned.filter(p => !p.plan && /\d|\binvestir\b|\baplicar\b/i.test(normalizeNumberWords(p.fragment).text)
+    && !separateSteps.some(step => step.declaredGoalSaved !== undefined
+      && declaredGoalSavings(state, normalizaCenario(p.fragment))?.name === step.goalName))
     .map(p => p.fragment)
   const normalized = semAcento(normalizeNumberWords(input).text)
   const planningIssue = horizonProblem(normalized, opts.today || todayISO())
@@ -372,20 +468,20 @@ export function planScenario(
   })()
   const issue = planningIssue || (startMonth && startMonth > endMonth
     ? 'O início da reserva fica depois do horizonte final; me diga outras datas.' : undefined)
-  if (steps.length > 1) {
+  if (separateSteps.length > 1) {
     const months = horizonte(normalized, opts.today || todayISO())
     return {
       version: SCENARIO_DSL_VERSION,
       kind: 'compound',
-      steps: steps.map(step => ({ ...step, months })),
+      steps: separateSteps.map(step => ({ ...step, months })),
       months,
       planningIssue: issue,
       unsupportedFragments,
-      label: `cenário com ${steps.length} mudanças`,
+      label: `cenário com ${separateSteps.length} mudanças`,
     }
   }
-  const plan = steps[0] || planSingleScenario(state, input, opts)
-  return plan ? { ...plan, planningIssue: issue, unsupportedFragments } : null
+  const plan = separateSteps[0] || planSingleScenario(state, input, opts)
+  return plan ? { ...plan, planningIssue: issue || plan.planningIssue, unsupportedFragments } : null
 }
 
 /** O objeto da compra, quando a frase o nomeia ("um pc de 4000 em 10x"). */

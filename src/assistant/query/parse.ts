@@ -1285,6 +1285,8 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     group, order,
     limit: metrica.valor.limit || (group === 'none' ? 1 : 8),
     shareBase,
+    ...(source === 'invoices' && field !== 'paid' && metric === 'sum' && group === 'none'
+      && !comparePeriod && /\b(?:gastei|gastos?|comprei|compras?)\b/.test(t0) ? { showCardPurchases: true } : {}),
     // Sobra repetida ou não entendida não é assunto: "Faturas - cartao do
     // Nubank" repetia no rótulo a palavra que o filtro já tinha descartado.
     label: rotulo(metrica.valor, repeteCartao || incompleto || naReserva ? undefined : alvo?.valor, filter, state, source, field),
@@ -1304,7 +1306,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
 
   return {
     plan, confidence, recognized, fallbackCategory,
-    beyondLegacy: alemDoAntigo(plan, !!lido || !!periodoComparadoDireto,
+    beyondLegacy: plan.showCardPurchases || alemDoAntigo(plan, !!lido || !!periodoComparadoDireto,
       /\bpor\s+lancamentos?\b/.test(t0)),
     ...(periodoVago ? {
       clarification: {

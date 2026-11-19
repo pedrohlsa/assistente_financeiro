@@ -180,11 +180,22 @@ const DISSE_ANTIGO_ERA_NOVO = new RegExp(String.raw`\b[oa]\s+${VALOR}\s+que\s+eu
 const CATEGORIA_TROCADA = new RegExp(String.raw`\b${COPULA}\s+(?:de|d[oa])\s+([a-zà-úçãõ][\wçãõáéíóúâê]*)\s*,?\s*(?:e\s+)?${NAO}\s+(?:de|d[oa])\s+([a-zà-úçãõ][\wçãõáéíóúâê]*)`, 'i')
 const CONTESTA_SEM_ALVO = new RegExp(String.raw`^\s*${NAO}\s*[,!.]?\s+${COPULA}\s+${VALOR}(?:\s+mesmo)?\s*[.!]?\s*$`, 'i')
 
-/** O apelido depois de "aquele do ...": "mercado", "lanche". Datas e palavras de tempo não contam. */
-function apelidoCitado(t: string): string | undefined {
-  const m = t.match(/\b(?:aquel[ea]|ess[ea]|est[ea]|[oa])\s+(?:gasto\s+|despesa\s+|receita\s+|lan[çc]amento\s+|compra\s+)?(?:d[oae])\s+([a-zà-úçãõ][\wçãõáéíóúâê]*)/i)
-  const nome = m?.[1]?.toLowerCase()
-  if (!nome || /^(?:ontem|hoje|anteontem|semana|m[eê]s|dia|manh[ãa]|tarde|noite)$/.test(nome)) return undefined
+const COPULA_COM_VALOR = new RegExp(String.raw`\b${COPULA}\s+${VALOR}`, 'i')
+const INICIO_CORRECAO = /^\s*(?:e\s+)?(?:na\s+(?:verdade|real)\b\s*,?\s*)?/i
+const ARTIGO_CORRECAO = /^(?:(?:o|a|os|as|aquele|aquela|esse|essa|este|esta|meu|minha)\s+)+/i
+
+function nomeDaCorrecao(prefixo: string, today: string): string | undefined {
+  const sujeito = prefixo.replace(INICIO_CORRECAO, '').trim().replace(ARTIGO_CORRECAO, '')
+    .replace(/[,;:.!?]+$/, '').trim().replace(/^["'“‘]+|["'”’]+$/g, '').trim()
+  if (!/^[a-zà-ú]/i.test(sujeito) || /\b(?:nao|não|nem)\s*$/i.test(sujeito)) return undefined
+  const data = findDate(sujeito, today)
+  const semData = data
+    ? sujeito.slice(0, data.start) + ' ' + sujeito.slice(data.end)
+    : sujeito
+  const nome = semData.trim()
+    .replace(new RegExp(String.raw`^(?:${SUBSTANTIVO}|valor|conta|entrada|sa[íi]da)\s+d[aeo]\s+`, 'i'), '')
+    .replace(/^(?:de|do|da)\s+/i, '').replace(/\s+(?:de|do|da)$/i, '').trim()
+  if (!nome || /^(?:de|do|da|gasto|despesa|lan[çc]amento|receita|valor|compra|conta|total|entrada|sa[íi]da|[úu]ltim[oa]|primeir[oa]|outr[oa]|mesm[oa]|aquel[ea]|ess[ea]|est[ea]|me[uo]|minha)$/i.test(nome)) return undefined
   return nome
 }
 
@@ -210,21 +221,15 @@ export function parseSpokenCorrection(
   const quando = findDate(t, today)
   if (quando?.kind === 'date') hints.date = quando.date
   else if (quando?.kind === 'period') { hints.from = quando.from; hints.to = quando.to }
-  const apelido = apelidoCitado(t)
-  if (apelido) hints.text = apelido
-  // "A FEIRA foi 150, não 180": o sujeito nomeia o lançamento. Sem lê-lo, só o
-  // valor identificava — e um "Cimento" de três meses atrás com os mesmos
-  // R$ 180 era corrigido no lugar da feira.
-  if (!apelido) {
-    const sujeito = t.match(/^\s*(?:na\s+(?:verdade|real)\s*,?\s*)?(?:o|a|os|as|aquele|aquela|esse|essa|este|esta)\s+((?!(?:de|do|da|dos|das|que|ontem|hoje|anteontem|ultimo|último|primeiro|outro|outra|mesmo|mesma)\b)[a-zà-ú][\wà-ú]*(?:\s+(?!(?:de|do|da|foi|era|custou|deu|que)\b)[\wà-ú]+){0,2})\s+(?:de\s+(?:ontem|hoje|anteontem|sabado|sábado|domingo|segunda|terca|terça|quarta|quinta|sexta)\s+)?(?:foi|era|custou|deu)\b/i)
-    const nome = sujeito?.[1]?.trim()
-    if (nome && !/^(?:gasto|despesa|lancamento|lançamento|receita|valor|compra|conta|total|entrada|saida|saída|ultimo|último|primeiro|outro|outra)$/i.test(nome)) {
-      hints.text = nome
-      hints.textRequired = true
-    }
+  const novoNao = t.match(NOVO_E_NAO_ANTIGO)
+  const cat = t.match(CATEGORIA_TROCADA)
+  const troca = novoNao || cat || t.match(COPULA_COM_VALOR)
+  const nome = troca ? nomeDaCorrecao(t.slice(0, troca.index), today) : undefined
+  if (nome) {
+    hints.text = nome
+    hints.textRequired = true
   }
 
-  const cat = t.match(CATEGORIA_TROCADA)
   if (cat) {
     const alvo = normalizeName(cat[1])
     const categoria = caps.categories.find(c => normalizeName(c.id) === alvo || normalizeName(c.name) === alvo)
@@ -239,7 +244,6 @@ export function parseSpokenCorrection(
     return { field: 'category', value: categoria.id, hints }
   }
 
-  const novoNao = t.match(NOVO_E_NAO_ANTIGO)
   if (novoNao) {
     const novo = valorDe(novoNao[1])
     const antigo = valorDe(novoNao[2])
@@ -302,6 +306,7 @@ export function findEditCandidates(state: AppState, req: EditRequest, today: str
     const casa = lista.filter(t => {
       const desc = normalizeName(t.description || '')
       const cat = normalizeName(t.category || '')
+      if (req.hints.textRequired) return cat === alvo || ` ${desc} `.includes(` ${alvo} `)
       return (desc && (desc.includes(alvo) || alvo.includes(desc))) || cat === alvo
     })
     // Sem nenhum casamento, o texto não estreita nada — mas num pedido `loose`

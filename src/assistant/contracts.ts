@@ -46,6 +46,8 @@ export interface ActionFieldSpec {
   name: string
   type: FieldType
   required?: boolean
+  /** A identidade de um registro selecionado fica fixa durante a edição. */
+  editable?: false
   /** Categoria precisa existir E ser deste tipo. */
   categoryOf?: 'income' | 'expense'
   min?: number
@@ -250,10 +252,10 @@ export const ACTION_CATALOG: ActionSpec[] = [
     // remota não conhece ids de recorrência e não propõe isto.
     remoteAllowed: false,
     fields: [
-      { name: 'recurringId', type: 'text', required: true, maxLength: 40, describe: 'id da conta fixa' },
-      { name: 'occurrenceDate', type: 'date', required: true, describe: 'vencimento da ocorrência confirmada, YYYY-MM-DD' },
+      { name: 'recurringId', type: 'text', required: true, editable: false, maxLength: 40, describe: 'id da conta fixa' },
+      { name: 'occurrenceDate', type: 'date', required: true, editable: false, notFuture: true, describe: 'vencimento da ocorrência confirmada, YYYY-MM-DD' },
       { name: 'amount', type: 'money', required: false, min: 0.01, max: 99_999_999, describe: 'valor pago, se diferente do cadastrado' },
-      textField('description', 'nome da conta fixa, só para exibição'),
+      { ...textField('description', 'nome da conta fixa, só para exibição'), editable: false },
       dateField,
     ],
   },
@@ -295,7 +297,7 @@ export type AssistantErrorCode =
   | 'unsupported-action' | 'conflict' | 'text-too-long' | 'unknown-field'
   | 'batch-not-found' | 'batch-not-reversible' | 'already-undone'
   | 'transaction-not-found' | 'edit-not-allowed'
-  | 'recurring-not-found' | 'occurrence-resolved'
+  | 'recurring-not-found' | 'occurrence-resolved' | 'occurrence-invalid'
 
 /** Mensagem em pt-BR para o usuário. NUNCA "não encontrei a meta" para tudo. */
 export const ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
@@ -313,6 +315,7 @@ export const ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
   'recurring-conflict': 'Essa conta fixa tem um vencimento sem confirmação.',
   'recurring-not-found': 'Não encontrei essa conta fixa.',
   'occurrence-resolved': 'Esse vencimento da conta fixa já foi confirmado.',
+  'occurrence-invalid': 'Esse vencimento não está no calendário da conta fixa ou ainda não chegou.',
   'missing-field': 'Falta uma informação obrigatória.',
   'profile-forbidden': 'Esse tipo de registro não existe no seu perfil.',
   'invoice-empty': 'Essa fatura não tem valor pendente.',

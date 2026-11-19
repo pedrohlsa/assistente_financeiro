@@ -79,8 +79,14 @@ function linhasPorTempo(r: AssistantQueryResult, selo: string): string[] {
   const diaMes = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
   const recorte = (g: QueryGroupResult): string => {
     const [ini, fim] = intervaloDoGrupo(p.group, g.key)
-    if (ini < p.period.from) return ` (desde ${diaMes(p.period.from)})`
-    if (fim > p.period.to) return ` (até ${diaMes(p.period.to)})`
+    const cortaInicio = ini < p.period.from
+    const cortaFim = fim > p.period.to
+    if (cortaInicio && cortaFim) {
+      return p.period.from === p.period.to ? ` (só ${diaMes(p.period.from)})`
+        : ` (de ${diaMes(p.period.from)} a ${diaMes(p.period.to)})`
+    }
+    if (cortaInicio) return ` (desde ${diaMes(p.period.from)})`
+    if (cortaFim) return ` (até ${diaMes(p.period.to)})`
     return ''
   }
   const limite = p.group === 'month' ? 12 : p.group === 'week' ? 8 : 10
@@ -93,7 +99,8 @@ function linhasPorTempo(r: AssistantQueryResult, selo: string): string[] {
   const fora = r.groups.length - inteiros.length
   const [o, os, incompleto] = t.feminino ? ['a', 'as', 'incompleta'] : ['o', 'os', 'incompleto']
   const semIncompletos = fora === 1 ? ` (sem ${o} ${t.um} ${incompleto})` : fora > 1 ? ` (sem ${os} ${fora} ${incompleto}s)` : ''
-  out.push(`Soma d${os} ${r.groups.length} ${t.varios}: ${formatValue(r.total, r.unit)}`
+  const nomeTotal = r.groups.length === 1 ? `Total d${o} ${t.um}` : `Soma d${os} ${r.groups.length} ${t.varios}`
+  out.push(`${nomeTotal}: ${formatValue(r.total, r.unit)}`
     + (media !== undefined ? ` · média de ${formatValue(Math.round(media * 100) / 100, r.unit)} por ${t.um}${semIncompletos}` : '')
     + '.')
   return out
@@ -185,8 +192,16 @@ export function composeAnswer(r: AssistantQueryResult): string {
   const p = r.plan
   const periodo = p.period.label
 
+  const compras = r.cardPurchases
+  const nomeCartao = p.filter.cardNames?.join(', ')
+  const comprasLinha = compras
+    ? `Compras registradas ${nomeCartao ? `no cartão ${nomeCartao}` : 'nos cartões'} ${periodo}: ${fmtBRL(compras.total)} (${compras.count} ${plural(compras.count, 'compra', 'compras')}, pela data da compra).`
+    : ''
+
   if (r.empty) {
-    if (p.source === 'goals' && p.field === 'saved' && r.caveats.length) return r.caveats.join('\n\n')
+    if (comprasLinha) return `${comprasLinha}\n\nNão encontrei faturas com vencimento ${periodo}.`
+    if ((p.source === 'goals' && p.field === 'saved' || p.metric === 'avg' && p.group === 'month')
+      && r.caveats.length) return r.caveats.join('\n\n')
     if (p.source === 'recurring' && p.filter.plannedOnly && p.filter.txType?.[0] === 'income') {
       return `Não há entradas recorrentes previstas em aberto ${periodo}. Cadastre as entradas em Planejamento para eu calcular essa previsão.`
     }
@@ -201,7 +216,7 @@ export function composeAnswer(r: AssistantQueryResult): string {
     return `${base}${alvo} ${periodo}. ${COMO_REGISTRAR[p.source] || ''}`.trim()
   }
 
-  const linhas: string[] = []
+  const linhas: string[] = comprasLinha ? [comprasLinha] : []
   const selo = r.estimated ? ' (previsão)' : ' (dado real)'
   const top = r.groups[0]
   const rankeado = p.group !== 'none' && !!top
@@ -221,7 +236,7 @@ export function composeAnswer(r: AssistantQueryResult): string {
     if (resto.length) {
       linhas.push(['Depois:', ...resto.map(g => `• ${g.label}: ${formatValue(g.value, r.unit)}${sufixoGrupo(g, r)}`)].join('\n'))
     }
-  } else if (TEMPO[p.group] && (p.metric === 'sum' || p.metric === 'net') && r.groups.length > 1) {
+  } else if (TEMPO[p.group] && (p.metric === 'sum' || p.metric === 'net') && r.groups.length > 0) {
     linhas.push(...linhasPorTempo(r, selo))
   } else {
     linhas.push(`${cabecalho(r)}: ${formatValue(r.total, r.unit)}${selo}.`)
@@ -397,6 +412,10 @@ export function explainQueryResult(r: AssistantQueryResult): string {
 
   partes.push(`${conta[p.metric] || 'Calculei sobre'} ${r.count} ${plural(r.count, 'registro', 'registros')} `
     + `de ${oQue[p.source] || p.source}, ${p.period.label} (${brDate(p.period.from)} a ${brDate(p.period.to)}).`)
+
+  if (r.cardPurchases) {
+    partes.push(`As compras foram somadas pela data da compra. São ${r.cardPurchases.count} ${plural(r.cardPurchases.count, 'registro', 'registros')}, totalizando ${fmtBRL(r.cardPurchases.total)}.`)
+  }
 
   const filtros: string[] = []
   if (p.filter.txType?.length) filtros.push(p.filter.txType.map(nomeTipo).join(' e '))

@@ -44,16 +44,16 @@ import { applyCorrection, parseCorrection } from './corrections'
 import type { CorrectionPlan } from './corrections'
 import { findGoalByName, planAssistantActions } from './execute'
 import { askAssistant, normalizeQuestion, respostaDeMetaCitada } from '../services/ai'
-import { contaDeclarada, perguntaDeFatura, perguntaNominal, respostaDaContaDeclarada } from './cashQuestions'
+import { contaDeclarada, perguntaDeFatura, perguntaNominal } from './cashQuestions'
 import { buildCapabilities } from './capabilities'
 import { describeAction, META_OUTRA } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
 import { catById, usableCategories } from '../data/categories'
 import { addDays, fmtBRL, todayISO, uid } from '../utils/format'
-import { occurrenceRecord, occurrencesBetween, recurringActiveOn, pendingExpenseByName, pendingRecurrings } from '../services/calc'
+import { matchRecurringPayment, occurrenceRecord, occurrencesBetween, recurringActiveOn } from '../services/calc'
 import { unpaidPriorInvoiceMonth } from '../services/cards'
 import { normalizeName, sentenceCase } from '../utils/text'
-import { brDate, dateLabel, findDate, previousYearOf, resolveDayInWindow } from './dates'
+import { brDate, dateLabel, findAllDates, findDate, previousYearOf, resolveDayInWindow } from './dates'
 import { applyPreferenceAliases, parsePreferenceCommand } from './preferences'
 import type { PreferenceMutation } from './preferences'
 
@@ -967,37 +967,78 @@ export function remoteNeedsAggregates(texto: string): boolean {
   return !registro
 }
 
-/**
- * "Paguei a luz" / "recebi o aluguel" SEM valor: não há lançamento para
- * converter, mas há a conta em aberto com o valor cadastrado. Só quando a
- * frase é isso e nada mais, não é pergunta, e só com UMA conta daquele nome —
- * duas perguntariam, nunca chutam. Sem conta pendente devolve `null` e a
- * frase segue o caminho normal (o rascunho pergunta o valor).
- */
-function confirmacaoDeContaFixaSemValor(
-  state: AppState, mensagem: string, caps: AssistantCapabilities, today: string,
-): { action: ParsedAction; nota: string } | null {
-  if (looksLikeQuestion(mensagem)) return null
-  const texto = mensagem.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-  const m = texto.match(/^\s*(?:ja\s+|hoje\s+|ontem\s+|anteontem\s+)?(paguei|quitei|recebi)\s+(?:a\s+|o\s+|as\s+|os\s+)?(?:conta\s+d[aeo]\s+|boleto\s+d[aeo]\s+)?([a-z0-9][a-z0-9 ]{1,40}?)\s*(?:hoje|ontem|anteontem|agora|ja)?\s*[.!]*\s*$/)
-  if (!m) return null
-  const tipo = m[1] === 'recebi' ? 'income' : 'expense'
-  const nome = normalizeName(m[2])
-  const iguais = pendingRecurrings(state, today, true).filter(p => p.kind === tipo && normalizeName(p.rec.name) === nome)
-  if (iguais.length !== 1) return null
-  const p = iguais[0]
-  const dita = findDate(mensagem, today)
-  const action: ParsedAction = {
-    kind: 'recurring-confirm', recurringId: p.rec.id, occurrenceDate: p.dueDate, description: p.rec.name,
-    ...(dita && dita.kind === 'date' && dita.date !== today ? { date: dita.date } : {}),
+type RecurringStatement = {
+  kind: 'expense' | 'income'
+  description?: string
+  amount?: number
+  date?: string
+  origin?: string
+}
+
+type RecurringResolution =
+  | { action: ParsedAction; note: string }
+  | { clarification: AssistantClarification }
+  | { note: string }
+
+function resolveRecurringStatement(
+  state: AppState, payment: RecurringStatement, text: string, caps: AssistantCapabilities, today: string,
+): RecurringResolution | null {
+  const reference = text.match(/(?:[,;]\s*|\s+(?:com\s+)?)vencimento\s+(?:d[eo]\s+)?(.+)$/i)
+  const due = reference && findDate(reference[1], today)
+  const occurrenceDate = due && (due.kind === 'date' || due.kind === 'future') ? due.date : undefined
+  const description = reference ? payment.description?.replace(/\s+(?:com\s+)?vencimento.*$/i, '') : payment.description
+  const matches = matchRecurringPayment(state, { ...payment, description }, today, occurrenceDate)
+  if (!matches) return null
+  if (reference && !occurrenceDate) return { note: 'Qual é a data de vencimento dessa conta fixa? Informe dia, mês e ano.' }
+  if (matches.conflictingReference) return { note: 'O mês informado é diferente do mês do vencimento. Qual ocorrência você pagou?' }
+  if (matches.alreadyPaid) {
+    return { note: 'Já encontrei um registro para essa conta fixa. Se você pagou outra ocorrência, diga o vencimento ou a origem dessa conta.' }
   }
-  const v = validateAction(action, caps, today)
-  if (isValidationFailure(v)) return null
+  if (!matches.pending.length) return { note: 'Não encontrei vencimento em aberto para essa conta fixa no período informado.' }
+
+  const paid = reference ? findDate(text.slice(0, reference.index), today) : null
+  const date = reference ? (paid?.kind === 'date' ? paid.date : undefined) : payment.date
+  const actions = matches.pending.flatMap(p => {
+    const validation = validateAction({
+      kind: 'recurring-confirm', recurringId: p.rec.id, occurrenceDate: p.dueDate,
+      amount: payment.amount ?? p.rec.amount, description: p.rec.name, ...(date ? { date } : {}),
+    }, caps, today)
+    return isValidationFailure(validation) ? [] : [{ action: validation.action, pending: p }]
+  })
+  if (actions.length !== matches.pending.length) {
+    return { note: 'Uma conta fixa encontrada tem dados inválidos. Confira o cadastro no Planejamento antes de confirmar.' }
+  }
+  if (actions.length > 1) return {
+    clarification: {
+      question: `Encontrei mais de um vencimento para "${sentenceCase(description)}". Qual ocorrência foi ${payment.kind === 'income' ? 'recebida' : 'paga'}?`,
+      field: 'recurring-occurrence',
+      options: actions.map(({ action, pending: p }, i) => ({
+        value: String(i + 1),
+        label: `${i + 1}. ${sentenceCase(p.rec.name)}${p.rec.origin ? ` · ${p.rec.origin}` : ''} · ${brDate(p.dueDate)} · ${fmtBRL(p.rec.amount)}`,
+        actions: [action],
+      })),
+    },
+  }
+  const [{ action, pending: p }] = actions
+  const valueNote = payment.amount === undefined ? ` com o valor cadastrado (${fmtBRL(p.rec.amount)})`
+    : Math.abs(payment.amount - p.rec.amount) > 0.009
+      ? ` com ${fmtBRL(payment.amount)} (cadastrado: ${fmtBRL(p.rec.amount)})`
+      : ''
   return {
-    action: v.action,
-    nota: `${sentenceCase(p.rec.name)} é conta fixa com vencimento de ${brDate(p.dueDate)} em aberto: `
-      + `a proposta confirma ${tipo === 'income' ? 'esse recebimento' : 'esse pagamento'} com o valor cadastrado (${fmtBRL(p.rec.amount)}). `
-      + 'Se foi outro valor, me diga o valor.',
+    action,
+    note: `${sentenceCase(p.rec.name)} é conta fixa com vencimento de ${brDate(p.dueDate)} em aberto. A proposta confirma ${payment.kind === 'income' ? 'esse recebimento' : 'esse pagamento'}${valueNote}.`,
+  }
+}
+
+function recurringStatementWithoutAmount(message: string, today: string): RecurringStatement | null {
+  if (looksLikeQuestion(message)) return null
+  const m = normalizeName(message).match(/^(?:ja\s+|hoje\s+|ontem\s+|anteontem\s+)?(paguei|quitei|recebi)\s+(?:[ao]s?\s+)?(?:(?:conta|boleto)\s+d[aeo]\s+)?([a-z0-9][a-z0-9 ]*?)(?:\s+(?:hoje|ontem|anteontem|agora|ja))?[.!]*$/)
+  if (!m || !/[a-z]/.test(m[2])) return null
+  const date = findDate(message, today)
+  return {
+    kind: m[1] === 'recebi' ? 'income' : 'expense',
+    description: m[2],
+    ...(date?.kind === 'date' && date.date !== today ? { date: date.date } : {}),
   }
 }
 
@@ -1090,11 +1131,12 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (pc?.options?.length) {
     const said = normalizeName(input.message)
     const financialEvent = pc.field === 'financial-event'
+    const fixedBillChoice = pc.field === 'recurring-occurrence'
     // Para dinheiro, só uma resposta inequívoca aceita a ação antiga. "assim"
     // contém "sim", e "sim, mandei só 10" altera o valor da proposta.
     const simpleAnswer = said.replace(/[.!?]+$/g, '').trim()
     const negativeAnswer = financialEvent && /^(?:nao|nem)(?:\b|$)/.test(simpleAnswer)
-    const hit = pc.options.find(o => financialEvent
+    const hit = pc.options.find(o => financialEvent || fixedBillChoice
       ? (normalizeName(o.label) === simpleAnswer || normalizeName(o.value) === simpleAnswer
         || (negativeAnswer && normalizeName(o.label) === 'nao'))
       : (normalizeName(o.label) === said || normalizeName(o.value) === said ||
@@ -1117,7 +1159,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
           }
           validated.push(checked.action)
         }
-        const previous = pc.field === 'financial-event' ? input.pending || [] : []
+        const previous = financialEvent || fixedBillChoice ? input.pending || [] : []
         const cands = [...previous, ...validated.map(a => candidate(a, 'local'))]
         return {
           draft: null,
@@ -1551,20 +1593,27 @@ Confirmar?`,
   let mensagem = input.message
   let reparo: RepairedText | null = null
 
-  // Conta feita só com os números DA FRASE ("tenho 1.800, preciso pagar 950 de
-  // aluguel… quanto ainda preciso ganhar?"): nenhum lançamento, nenhuma
-  // intenção a registrar — uma aritmética, respondida como tal, antes que
-  // "quanto falta" vire consulta de parcelas ou "preciso pagar" vire plano.
-  if (!input.pending?.length) {
-    const declarada = contaDeclarada(mensagem.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase())
-    if (declarada) {
+  const declarada = contaDeclarada(mensagem)
+  if (declarada) {
+    const { reply } = declarada
+    if (!declarada.restante) {
       return {
-        draft: null, focus: input.focus,
-        response: {
-          version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local',
-          actions: [], unresolved: [], reply: respostaDaContaDeclarada(declarada),
-        },
+        draft: null, focus: input.focus, keepPending: true,
+        response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply },
       }
+    }
+    // A aritmética cobre apenas o trecho que traz o saldo, as contas e a pergunta.
+    const outro = await orchestrate({ ...input, message: declarada.restante })
+    const response = outro.response
+    return {
+      ...outro,
+      response: {
+        ...response,
+        ...(response.mode === 'propose_actions' ? { mode: 'answer_and_actions' as const } : {}),
+        reply: `${reply}
+
+${response.reply}`,
+      },
     }
   }
 
@@ -1808,18 +1857,89 @@ Confirmar?`,
   let remoteReply = ''
   let remoteRejected: LocalPass['rejected'] = []
 
-  // ---- 13) Intenção incompleta vira rascunho ------------------------------
-  // Antes de perguntar "qual foi o valor?": se a frase nomeia uma conta fixa
-  // em aberto, o valor já está cadastrado e a proposta é confirmar a ocorrência.
-  const notasDeContaFixa: string[] = []
-  if (!candidates.length && !clarification) {
-    const fixa = confirmacaoDeContaFixaSemValor(input.state, mensagem, caps, today)
-    if (fixa) {
-      candidates.push(candidate(fixa.action, 'local', undefined, 'high'))
-      notasDeContaFixa.push(fixa.nota)
+  // Uma recorrência ambígua precisa de uma escolha antes de virar proposta.
+  type RecurringConfirmation = Extract<ParsedAction, { kind: 'recurring-confirm' }>
+  const recurringKey = (action: RecurringConfirmation) => JSON.stringify([action.recurringId, action.occurrenceDate])
+  let notasDeContaFixa: { text: string; paymentKey?: string }[] = []
+  const escolhasDeContaFixa: AssistantClarification[] = []
+  const addFixedBillResolution = (resolution: RecurringResolution) => {
+    if ('clarification' in resolution) {
+      const options = JSON.stringify(resolution.clarification.options)
+      if (!escolhasDeContaFixa.some(c => JSON.stringify(c.options) === options)) escolhasDeContaFixa.push(resolution.clarification)
+    } else {
+      const action = 'action' in resolution ? resolution.action : undefined
+      notasDeContaFixa.push({ text: resolution.note, paymentKey: action?.kind === 'recurring-confirm' ? recurringKey(action) : undefined })
     }
   }
+
+  const resolveFixedBills = (proposals: AssistantCandidateAction[]) => {
+    const resolved = proposals.flatMap(c => {
+      if (c.action.kind !== 'expense') return [c]
+      const clause = analysis.clauses.find(part => part.id === c.clauseId)
+      const fixed = resolveRecurringStatement(input.state, c.action, clause?.text || '', caps, today)
+      if (!fixed) return [c]
+      if (c.clauseId) unresolved = unresolved.filter(u => u.clauseId !== c.clauseId)
+      addFixedBillResolution(fixed)
+      return 'action' in fixed ? [{ ...c, action: fixed.action }] : []
+    })
+    if (escolhasDeContaFixa.length === 1 && !clarification) clarification = escolhasDeContaFixa[0]
+    // Uma repetição idêntica vira uma só proposta. Se valor ou data divergem,
+    // pergunte antes de usar qualquer uma na projeção ou na confirmação.
+    const recurringByKey = new Map<string, RecurringConfirmation>()
+    const differingPayments = new Set<string>()
+    const unique = resolved.filter(({ action }) => {
+      if (action.kind !== 'recurring-confirm') return true
+      const key = recurringKey(action)
+      const first = recurringByKey.get(key)
+      if (first) {
+        if (first.amount !== action.amount || (first.date || today) !== (action.date || today)) differingPayments.add(key)
+        return false
+      }
+      recurringByKey.set(key, action)
+      return true
+    })
+    if (!differingPayments.size) return unique
+    notasDeContaFixa = notasDeContaFixa.filter(nota => !nota.paymentKey || !differingPayments.has(nota.paymentKey))
+    notasDeContaFixa.push({ text: 'Você informou pagamentos diferentes para o mesmo vencimento. Qual foi o valor e a data do pagamento?' })
+    return unique.filter(({ action }) => action.kind !== 'recurring-confirm' || !differingPayments.has(recurringKey(action)))
+  }
+
+  // "Do mês passado" qualifica a conta, enquanto "paguei mês passado"
+  // continua sendo uma data de pagamento que precisa do dia exato.
+  if (clarification?.field === 'date' && clarification.dateWindow) {
+    const periods = analysis.clauses.filter(c => c.temporal && !c.temporal.plan)
+    const part = periods.length === 1 ? periods[0] : undefined
+    const [payment] = part?.temporal?.actions || []
+    if (payment?.kind === 'expense' && part?.temporal?.actions?.length === 1
+      && /\b(?:do|referente\s+ao)\s+mes\s+passado\b/i.test(normalizeName(part.text))) {
+      const dataPaga = findAllDates(part.text, today).find(d => d.kind === 'date')
+      const fixed = resolveRecurringStatement(input.state, {
+        ...payment, description: `${payment.description || ''} do mês passado`,
+        ...(dataPaga?.kind === 'date' ? { date: dataPaga.date } : {}),
+      }, part.text, caps, today)
+      if (fixed) {
+        clarification = 'clarification' in fixed ? fixed.clarification : undefined
+        addFixedBillResolution(fixed)
+        if ('action' in fixed) candidates.push(candidate(fixed.action, 'local', part.id))
+        unresolved = unresolved.filter(u => u.clauseId !== part.id)
+      }
+    }
+  }
+  candidates = resolveFixedBills(candidates)
+
   if (!candidates.length && !clarification) {
+    const payment = recurringStatementWithoutAmount(mensagem, today)
+    const fixed = payment && resolveRecurringStatement(input.state, payment, mensagem, caps, today)
+    if (fixed) {
+      addFixedBillResolution(fixed)
+      if ('action' in fixed) candidates.push(candidate(fixed.action, 'local'))
+      if ('clarification' in fixed) clarification = fixed.clarification
+      unresolved = []
+    }
+  }
+
+  // ---- 13) Intenção incompleta vira rascunho ------------------------------
+  if (!candidates.length && !clarification && !notasDeContaFixa.length) {
     const incomplete = detectIncomplete(mensagem, caps, today)
     if (incomplete) {
       const d = newDraft(incomplete, input.message, caps)
@@ -1854,7 +1974,7 @@ Confirmar?`,
   // Hipótese não é consulta: mandá-la ao planejador de CONSULTA pediria um
   // plano factual para um mundo que não existe. Ela vai ao chat, no passo 16.
   if (!candidates.length && !clarification && !local_answers.text && !hipoteseSemPlano
-    && unresolved.length && input.remoteEnabled && input.planRemoteQuery) {
+    && !notasDeContaFixa.length && unresolved.length && input.remoteEnabled && input.planRemoteQuery) {
     const bruto = await input.planRemoteQuery({ state: input.state, message: mensagem })
     if (bruto) {
       const v = validateQueryPlan(bruto, input.state, today)
@@ -1886,7 +2006,8 @@ Confirmar?`,
     // aberto. Reenviar a frase inteira convidava o modelo a propor de novo o que
     // já está na tela — a reconciliação por campo segurava a duplicata, mas o
     // modelo nem precisa ver o trecho resolvido.
-    const textoRemoto = candidates.length ? unresolved.map(u => u.text).join('\n') : input.message
+    const textoRemoto = candidates.length || notasDeContaFixa.length
+      ? unresolved.map(u => u.text).join('\n') : input.message
     // A conversa vai como ESTRUTURA: o que estava em foco, o que está na tela e o
     // que já foi resolvido neste turno — nunca as mensagens anteriores.
     const relacao: RemoteTurnRelation | undefined =
@@ -1954,28 +2075,13 @@ Confirmar?`,
 
   candidates = candidates.slice(0, MAX_ACTIONS_PER_BATCH)
 
-  // Despesa comum não traz recurringId/occurrenceDate. Com conta de mesmo nome
-  // em aberto, confirmar aqui e na Home criaria duas saídas reais. A proposta
-  // vira a CONFIRMAÇÃO daquela ocorrência (o mesmo que o card da Home faz), com
-  // o valor dito pelo usuário. O executor continua recusando a despesa avulsa
-  // para propostas antigas ou vindas de outra rota.
-  const blockedRecurring: string[] = [...notasDeContaFixa]
-  candidates = candidates.map(c => {
-    if (c.action.kind !== 'expense') return c
-    const pending = pendingExpenseByName(input.state, c.action.description, today)
-    if (!pending) return c
-    const pago = c.action.amount
-    const cadastrado = pending.rec.amount
-    const difere = Math.abs(pago - cadastrado) > 0.009
-    blockedRecurring.push(`${sentenceCase(pending.rec.name)} é conta fixa com vencimento de ${brDate(pending.dueDate)} em aberto: `
-      + `a proposta confirma esse pagamento${difere ? ` com ${fmtBRL(pago)} (cadastrado: ${fmtBRL(cadastrado)})` : ''}, `
-      + 'em vez de criar uma despesa avulsa — assim não conta duas vezes.')
-    const action: ParsedAction = {
-      kind: 'recurring-confirm', recurringId: pending.rec.id, occurrenceDate: pending.dueDate,
-      amount: pago, description: pending.rec.name, ...(c.action.date ? { date: c.action.date } : {}),
-    }
-    return { ...c, action }
-  })
+  if (engine !== 'local') candidates = resolveFixedBills(candidates)
+  if (escolhasDeContaFixa.length > 1) {
+    if (clarification === escolhasDeContaFixa[0]) clarification = undefined
+    notasDeContaFixa.push({ text: 'Há pagamentos com mais de uma ocorrência possível. Informe separadamente a origem ou o vencimento de cada conta fixa.' })
+  } else if (escolhasDeContaFixa.length && clarification !== escolhasDeContaFixa[0]) {
+    notasDeContaFixa.push({ text: escolhasDeContaFixa[0].question })
+  }
 
   // ---- 17) Avisos de duplicidade (contra o estado E dentro do lote) -------
   const batchSeen = new Map<string, number>()
@@ -2018,7 +2124,7 @@ Confirmar?`,
   // do modelo não pode dizer "anotei/registrei" com a ação ainda na tela.
   const remotoSemAlegacao = remoteReply ? semAlegacaoDeExecucao(remoteReply, candidates.length ? 'pendente' : 'nada-proposto') : ''
   const answerPart = [local_answers.text, remotoSemAlegacao, cenarioJunto?.reply, hypo, planNote, intentionNote, remoteNote,
-    ...new Set(blockedRecurring)]
+    ...new Set(notasDeContaFixa.map(nota => nota.text))]
     .filter(Boolean).join('\n\n')
   const rejectedAll = [...local.rejected, ...remoteRejected]
 
@@ -2036,9 +2142,11 @@ Confirmar?`,
 
   if (clarification) {
     mode = 'clarify'
-    reply = candidates.length
-      ? `${proposalText(candidates, input.state)}\n\n${clarification.question}`
-      : clarification.question
+    reply = [
+      candidates.length ? proposalText(candidates, input.state) : '',
+      ...new Set(notasDeContaFixa.map(nota => nota.text)),
+      clarification.question,
+    ].filter(Boolean).join('\n\n')
   } else if (candidates.length && answerPart) {
     mode = 'answer_and_actions'
     reply = `${proposalText(candidates, input.state)}${sobraComValor(unresolved)}\n\n${answerPart}\n\nConfirmar os registros?`

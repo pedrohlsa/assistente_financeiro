@@ -5734,3 +5734,29 @@ Gates: 666/666, 99/99, 50/50, 679/679 adversariais, metamórficos, fuzz,
 151/151 invariantes, 468/468 offline, typechecks, test:money, build, rubrica e
 `test:calendario` (seis datas) verdes. Commits locais; sem push, merge, deploy,
 APK ou chamada paga. NOT READY até auditoria independente.
+
+## 19/11/2026 — Revisão das confirmações e cobertura de cenários
+
+- Contas fixas pedem seleção quando há mais de uma ocorrência candidata.
+  A proposta preserva a identidade do vencimento e valida a data no
+  executor. Repetir uma conta atrasada no dia seguinte ficou protegido.
+  Duas descrições do mesmo pagamento no lote viram uma proposta. Valores
+  divergentes pedem esclarecimento.
+- Planejamento com valores declarados mantém a proposta de uma operação
+  independente. Saldo negado ou conta sem valor pede esclarecimento.
+  Correções faladas com nome composto, sem artigo ou entre aspas exigem
+  a correspondência com o lançamento.
+- Cenários locais incluem mudanças percentuais de combustível e km, preço
+  informado por litro, volume de combustível, manutenção cadastrada e
+  dias adicionais por semana. A amostra e as hipóteses são apresentadas na
+  resposta. Adiar uma compra desloca entrada e parcelas. Um valor de meta
+  informado para a simulação fica isolado do acumulado salvo.
+- Consultas encadeiam proporções sobre totais realizados, separam compras
+  registradas e faturas pelo vencimento e calculam média mensal apenas
+  com meses completos. A fatura aberta informa o saldo pendente quando o
+  usuário pergunta o que falta pagar daquele cartão.
+- Matriz de oito datas com movimento no dia 1º, tanto em domingo quanto
+  em dia útil. Smoke no Chrome com dados fictícios cobriu confirmação,
+  edição, recarga, atraso, orçamento, cenários e um pagamento legado
+  com data futura. A revisão independente, o remoto real e o APK seguem
+  pendentes. A branch permanece NOT READY.

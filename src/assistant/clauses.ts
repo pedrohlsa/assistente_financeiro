@@ -11,7 +11,7 @@ import { gruposDeCorrida, looksRecurring, parseNaturalFull } from '../services/n
 import { findAllDates, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
-import { parseMoney, todayISO } from '../utils/format'
+import { MESES_PT_BR, parseMoney, todayISO } from '../utils/format'
 import { normalizeName } from '../utils/text'
 import { suspicionReasons } from './semantic/confidence'
 import type { SuspicionReason } from './semantic/confidence'
@@ -624,6 +624,8 @@ function semViagemInferidaComQuantidadeDita(clauses: AnalyzedClause[]): void {
   }
 }
 
+const ANO_DE_COMPETENCIA = new RegExp(String.raw`\b(?:${MESES_PT_BR.map(normalizeName).join('|')})\s+de\s*$`, 'i')
+
 function unaccountedMoney(clause: AnalyzedClause): number[] {
   if (clause.ambiguity || clause.temporal || clause.intention || clause.intent === 'question'
     || clause.intent === 'conversation' || clause.intent === 'correction'
@@ -651,7 +653,8 @@ function unaccountedMoney(clause: AnalyzedClause): number[] {
     const after = normalized.slice(at + m[0].length, at + m[0].length + 24)
     // "Na 99", "pela 99": é a plataforma, não R$ 99,00.
     const plataforma99 = m[0] === '99' && /\b(?:na|no|pela|pelo|da|do|de|a)\s*$/i.test(before) && !/^\s*(?:reais|real|conto|contos|pila)\b/i.test(after)
-    if (plataforma99 || /[\-/]$/.test(before) || /^[\-/]/.test(after)
+    const anoDeCompetencia = /^(?:19|20)\d{2}$/.test(m[0]) && ANO_DE_COMPETENCIA.test(normalizeName(before))
+    if (plataforma99 || anoDeCompetencia || /[\-/]$/.test(before) || /^[\-/]/.test(after)
       || /\b(?:dia|casa|apto|apartamento|numero|número|aro|tamanho|placa|modelo)\s*$/i.test(before)
       || /^\s*(?:x|vezes|parcelas?|km|quil[oô]metros?|litros?|horas?|viagens?|corridas?|dias?|semanas?|meses?|anos?|%|k\b)/i.test(after)) continue
     const amount = parseMoney(m[0])

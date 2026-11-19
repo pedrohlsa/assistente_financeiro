@@ -37,7 +37,6 @@ const LABELS: Record<string, string> = {
   pricePerLiter: 'Preço por litro', odometer: 'Hodômetro',
   installments: 'Parcelas', firstDueDate: 'Primeiro vencimento',
   source: 'Intermediário', date: 'Data',
-  recurringId: 'Conta fixa (id)', occurrenceDate: 'Vencimento confirmado',
 }
 
 /** Metas existentes viram lista: `goal-update` e `goal-deposit` exigem uma. */
@@ -69,14 +68,14 @@ function optionsFor(kind: string, f: ActionFieldSpec, caps: AssistantCapabilitie
 }
 
 /**
- * Todos os campos que o catálogo declara para esta ação, na ordem do catálogo.
+ * Campos que o catálogo permite editar, na ordem em que foram declarados.
  * Campo ausente na ação também aparece — é assim que o usuário CORRIGE o que o
  * parser não pegou (uma origem que ficou de fora, um prazo que faltou).
  */
 export function editableFieldsFor(action: ParsedAction, caps: AssistantCapabilities): EditableField[] {
   const spec = actionSpec(action.kind)
   if (!spec) return []
-  return spec.fields.map(f => {
+  return spec.fields.filter(f => f.editable !== false).map(f => {
     const campo: EditableField = {
       name: f.name,
       label: LABELS[f.name] || f.name,

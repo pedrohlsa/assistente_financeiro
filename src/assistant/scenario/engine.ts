@@ -9,19 +9,20 @@
 // versões da verdade, e a divergência só apareceria depois que o usuário
 // tivesse comprado.
 
-import type { AppState, Installment, InstallmentPlan, Transaction } from '../../models/types'
-import { addDays, fmtBRL, fmtNum, fromISO, monthKey, todayISO, toISO } from '../../utils/format'
+import type { AppState, InstallmentPlan, Transaction } from '../../models/types'
+import { addDays, dateForDayOfMonth, fmtBRL, fmtNum, fromISO, monthKey, todayISO, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase } from '../../utils/text'
 import {
   cashObligationsUntil, currentBalance, dailyGoal, monthlyProjections, monthlySavingGoal, periodStats,
-  representedRecurringExpenseMonths, todayStats, kmCost,
+  representedRecurringExpenseMonths, todayStats, fuelCostBasis, kmCost,
 } from '../../services/calc'
 import {
-  activeCards, cardById, currentInvoice, nextInvoiceDueDate, splitInstallmentAmounts, hasAmbiguousLegacyCardBalance,
+  activeCards, buildInstallments, cardById, currentInvoice, nextInvoiceDueDate, splitInstallmentAmounts, hasAmbiguousLegacyCardBalance,
 } from '../../services/cards'
 import { isDriver } from '../../services/profile'
+import { brDate } from '../dates'
 import type { AssistantFact } from '../query/types'
-import type { AssistantScenarioPlan, AssistantScenarioResult, ScenarioMonth } from './types'
+import type { AssistantScenarioPlan, AssistantScenarioResult, DrivingScenario, ScenarioMonth } from './types'
 
 const r2 = (v: number) => Math.round(v * 100) / 100
 
@@ -49,13 +50,13 @@ function comDespesa(state: AppState, amount: number, category: string, hoje: str
 /**
  * Cópia do estado com uma compra parcelada hipotética.
  *
- * Reaproveita a construção real das parcelas. A entrada, quando existe, sai do
- * caixa HOJE (vira despesa simulada) e reduz o valor financiado — que é
- * exatamente o que acontece na vida.
+ * Reaproveita a construção real das parcelas. Uma entrada futura é descontada
+ * da projeção no mês da compra. Se for hoje, vale como despesa na cópia.
  */
 function comCompra(
   state: AppState, plan: AssistantScenarioPlan, hoje: string,
-): { state: AppState; parcela: number; financiado: number; cardNome?: string; porMes: (mk: string) => number } {
+): { state: AppState; parcela: number; financiado: number; cardNome?: string; porMes: (mk: string) => number;
+  compraEm: string; primeiro: string; entrada: number } {
   const total = plan.amount || 0
   const entrada = Math.min(plan.downPayment || 0, total)
   const financiado = r2(total - entrada)
@@ -65,52 +66,60 @@ function comCompra(
     ? activeCards(state).find(c => normalizeName(c.name).includes(normalizeName(plan.cardName!)))
     : (activeCards(state).length === 1 ? activeCards(state)[0] : undefined)
 
-  const primeiro = card ? nextInvoiceDueDate(card, hoje) : addDays(hoje, 30)
-  const valores = splitInstallmentAmounts(financiado, n)
+  const d = fromISO(hoje)
+  const compraEm = toISO(dateForDayOfMonth(d.getFullYear(), d.getMonth() + (plan.purchaseDelayMonths || 0), d.getDate()))
+  const primeiro = card ? nextInvoiceDueDate(card, compraEm) : addDays(compraEm, 30)
 
   const planoSim: InstallmentPlan = {
     id: `sim-plan-${fid()}`, description: plan.description || 'Compra simulada',
     cardId: card?.id, totalAmount: financiado, installmentCount: n,
-    firstDueDate: primeiro, purchaseDate: hoje, status: 'active',
-    operationType: 'card-purchase', createdAt: hoje,
+    firstDueDate: primeiro, purchaseDate: compraEm, status: 'active',
+    operationType: 'card-purchase', createdAt: compraEm,
   }
-  const d = fromISO(primeiro)
-  const parcelasSim: Installment[] = valores.map((valor, i) => ({
-    id: `sim-inst-${planoSim.id}-${i}`, planId: planoSim.id, number: i + 1,
-    total: n, amount: valor,
-    dueDate: toISO(new Date(d.getFullYear(), d.getMonth() + i, Math.min(d.getDate(), 28))),
-    status: 'pending',
-  }))
+  const parcelasSim = buildInstallments(planoSim, () => `sim-inst-${fid()}`)
 
   let projetado: AppState = {
     ...state,
     installmentPlans: [...(state.installmentPlans || []), planoSim],
     installments: [...(state.installments || []), ...parcelasSim],
   }
-  if (entrada > 0) projetado = comDespesa(projetado, entrada, plan.category || 'outros-out', hoje)
+  if (entrada > 0 && compraEm === hoje) projetado = comDespesa(projetado, entrada, plan.category || 'outros-out', hoje)
 
   // Parcela que cai em CADA mês, pelo calendário simulado. A linha de outubro
   // dizia "com a parcela de R$ 400" para uma compra cuja primeira parcela vence
   // em novembro — o saldo estava certo, o texto não.
   const porMes = (mk: string) => r2(parcelasSim.filter(i => monthKey(i.dueDate) === mk).reduce((a, i) => a + i.amount, 0))
-  return { state: projetado, parcela: valores[0], financiado, cardNome: card?.name, porMes }
+  return { state: projetado, parcela: parcelasSim[0].amount, financiado, cardNome: card?.name, porMes, compraEm, primeiro, entrada }
 }
 
 /** Projeção mês a mês antes e depois, com o mês mais apertado. */
-function compara(state: AppState, projetado: AppState, meses: number, extraPorMes: (mk: string) => number, hoje = todayISO()): ScenarioMonth[] {
+function comparaCompra(state: AppState, compra: ReturnType<typeof comCompra>, meses: number, hoje: string): ScenarioMonth[] {
   const antes = monthlyProjections(state, meses, hoje)
-  const depois = monthlyProjections(projetado, meses, hoje)
+  const depois = monthlyProjections(compra.state, meses, hoje)
   const porMes = new Map(antes.map(m => [m.monthKey, m]))
   return depois.map(m => {
-    const a = porMes.get(m.monthKey)
+    const antes = porMes.get(m.monthKey)?.runningBalance ?? m.runningBalance
+    const entradaFutura = compra.compraEm > hoje && m.monthKey >= monthKey(compra.compraEm) ? compra.entrada : 0
+    const saldo = m.runningBalance - entradaFutura
     return {
       monthKey: m.monthKey, label: m.label,
-      before: r2(a?.runningBalance ?? m.runningBalance),
-      after: r2(m.runningBalance),
-      delta: r2(m.runningBalance - (a?.runningBalance ?? m.runningBalance)),
-      added: r2(extraPorMes(m.monthKey)),
+      before: r2(antes), after: r2(saldo), delta: r2(saldo - antes),
+      added: compra.porMes(m.monthKey),
     }
   })
+}
+
+function problemaDoAdiamento(plan: AssistantScenarioPlan): string | undefined {
+  const atraso = plan.purchaseDelayMonths
+  if (atraso !== undefined && (!Number.isInteger(atraso) || atraso < 0 || atraso >= 12)) {
+    return 'A projeção cobre até 12 meses a partir deste mês. Informe uma data de compra dentro desse intervalo.'
+  }
+  return undefined
+}
+
+function notaDaCompraAdiada(compra: ReturnType<typeof comCompra>): string {
+  return `Compra prevista para ${brDate(compra.compraEm)}. Primeira parcela em ${brDate(compra.primeiro)}.`
+    + (compra.entrada ? ` Entrada de ${fmtBRL(compra.entrada)} em ${brDate(compra.compraEm)}.` : '')
 }
 
 /** Média mensal usada por `cut`, isolada para composto e cenário simples usarem a mesma conta. */
@@ -196,12 +205,16 @@ function runCompoundMonths(
       continue
     }
     if (step.kind === 'purchase') {
+      const problema = problemaDoAdiamento(step)
+      if (problema) { incomplete = true; caveats.push(problema); continue }
       const before = monthlyProjections(projectedState, meses, hoje)
       const purchase = comCompra(projectedState, step, hoje)
       projectedState = purchase.state
       const after = monthlyProjections(projectedState, meses, hoje)
       after.forEach((m, i) => { effects[i] += m.net - (before[i]?.net || 0) })
-      if (effects.length) effects[0] -= Math.max(step.downPayment || 0, 0)
+      const mesDaEntrada = after.findIndex(m => m.monthKey === monthKey(purchase.compraEm))
+      if (mesDaEntrada >= 0) effects[mesDaEntrada] -= purchase.entrada
+      if (step.purchaseDelayMonths) caveats.push(notaDaCompraAdiada(purchase))
       facts.push(fato(`Parcela em ${step.installments || 1}x`, purchase.parcela, 'BRL', 'parcelas reais no calendário projetado'))
       continue
     }
@@ -293,6 +306,119 @@ export function runScenario(
   return { ...r, feasible: undefined, caveats: [...r.caveats.filter(c => !/ainda não informou seu saldo/.test(c)), aviso] }
 }
 
+function simulaRodagem(
+  state: AppState, plan: AssistantScenarioPlan, driving: DrivingScenario, hoje: string, caveats: string[],
+): AssistantScenarioResult {
+  const { metric, distanceChange, fuelPriceChange, fuelPricePerLiter, extraDaysPerWeek } = driving
+  const kmAvulsos = plan.extraKm ?? 0
+  if (!Number.isFinite(kmAvulsos) || kmAvulsos < 0
+    || (distanceChange !== undefined && (!Number.isFinite(distanceChange) || distanceChange < -1))
+    || (fuelPriceChange !== undefined && (!Number.isFinite(fuelPriceChange) || fuelPriceChange < -1))
+    || (fuelPricePerLiter !== undefined && (!Number.isFinite(fuelPricePerLiter) || fuelPricePerLiter < 0))) {
+    return vazio(plan, caveats, 'Confira os números informados. Distância e preço por litro não podem ficar abaixo de zero.')
+  }
+  if (distanceChange !== undefined && kmAvulsos) {
+    return vazio(plan, caveats, 'Você quer mudar a distância em km ou pela porcentagem? Informe um dos dois.')
+  }
+  if (fuelPriceChange !== undefined && fuelPricePerLiter !== undefined) {
+    return vazio(plan, caveats, 'Você quer usar o preço por litro informado ou calcular o preço pela porcentagem?')
+  }
+
+  const semanal = extraDaysPerWeek !== undefined
+  const jan = semanal ? 28 : 30
+  const divisor = semanal ? 4 : 1
+  const ini = addDays(hoje, 1 - jan)
+  const noPeriodo = (t: { date: string }) => t.date >= ini && t.date <= hoje
+  const st = periodStats(state, ini, hoje)
+  const corridas = state.transactions.filter(t => noPeriodo(t) && t.type === 'income' && t.category === 'corridas')
+  const trabalho = state.workSessions.filter(noPeriodo)
+  const diasRodados = new Set(trabalho.filter(w => w.km > 0).map(w => w.date))
+  const diasComReceita = new Set(corridas.filter(t => t.amount > 0).map(t => t.date))
+  const diasTrabalhados = new Set([...diasComReceita, ...trabalho.filter(w => w.km > 0 || w.hours > 0 || w.trips > 0).map(w => w.date)])
+  const somenteDistanciaDita = kmAvulsos > 0 && !semanal && distanceChange === undefined && metric !== 'profit'
+  if (!somenteDistanciaDita && (!(st.km > 0) || diasRodados.size < 3)) {
+    return vazio(plan, caveats, `Preciso de quilometragem em pelo menos 3 dias nos últimos ${jan} dias para estimar seu ritmo.`)
+  }
+  if (semanal && (extraDaysPerWeek <= 0 || !Number.isInteger(extraDaysPerWeek)
+    || diasTrabalhados.size / 4 + extraDaysPerWeek > 7)) {
+    return vazio(plan, caveats, 'Esse acréscimo não cabe em uma semana com seu ritmo registrado. Informe quantos dias extras cabem, até o limite de sete dias no total.')
+  }
+  const kmBase = somenteDistanciaDita ? kmAvulsos : st.km / divisor
+  const kmExtras = semanal ? (st.km / diasRodados.size) * extraDaysPerWeek : 0
+  const km = somenteDistanciaDita ? kmAvulsos : kmBase * (1 + (distanceChange ?? 0)) + kmAvulsos + kmExtras
+  const facts = [fato('Rodagem estimada', km, 'km', somenteDistanciaDita ? 'distância informada na pergunta' : 'quilometragem registrada e ajuste informado', diasRodados.size || 1)]
+  if (!somenteDistanciaDita) {
+    facts.push(fato('Rodagem de referência', kmBase, 'km', `últimos ${jan} dias`, diasRodados.size))
+    caveats.push(`Base dos últimos ${jan} dias com ${diasRodados.size} dias de quilometragem registrada${semanal ? ', dividida por quatro para comparar por semana' : ''}.`)
+  }
+  if (semanal) caveats.push(`Cada dia extra usa sua média de km por dia com rodagem. Simulei ${extraDaysPerWeek} ${extraDaysPerWeek === 1 ? 'dia a mais por semana' : 'dias a mais por semana'}.`)
+
+  const { kmPerLiter, pricePerLiter } = fuelCostBasis(state, hoje)
+  const positive = (v: number) => Number.isFinite(v) && v > 0
+  const price = fuelPricePerLiter ?? pricePerLiter * (1 + (fuelPriceChange ?? 0))
+  const litros = km / kmPerLiter
+  const litrosBase = kmBase / kmPerLiter
+  let estimativa: number
+  let referencia: number | undefined
+  let unit: AssistantFact['unit'] = 'BRL'
+  let formula: string
+  if (metric === 'maintenance') {
+    const registrado = { ...state, maintenance: state.maintenance.filter(m => m.date <= hoje) }
+    const custo = kmCost(registrado).maintenancePerKm
+    if (!positive(custo)) return vazio(plan, caveats, 'Para estimar manutenção, cadastre o custo e a vida útil em km das peças em Veículo.')
+    estimativa = km * custo
+    formula = 'km estimados × custo de manutenção cadastrado por km'
+    if (!somenteDistanciaDita) referencia = kmBase * custo
+    caveats.push('É uma provisão de desgaste das peças cadastradas. Reparos imprevistos, combustível e tempo ficam fora.')
+  } else {
+    if (!positive(kmPerLiter)) return vazio(plan, caveats, 'Para estimar combustível, registre o consumo do veículo em km/L.')
+    if (metric === 'fuel-volume') {
+      unit = 'liters'
+      formula = 'km estimados ÷ consumo registrado (km/L)'
+      estimativa = litros
+      if (!somenteDistanciaDita) referencia = litrosBase
+    } else {
+      if (fuelPricePerLiter === undefined && !positive(pricePerLiter)) {
+        return vazio(plan, caveats, 'Para estimar o gasto, registre o preço do combustível ou informe o preço por litro que quer simular.')
+      }
+      if (fuelPriceChange !== undefined || fuelPricePerLiter !== undefined) {
+        caveats.push(`Usei ${fmtBRL(price)} por litro na simulação${positive(pricePerLiter) ? `, com ${fmtBRL(pricePerLiter)} por litro de referência` : ''}.`)
+      }
+      if (metric === 'fuel-cost') {
+        estimativa = litros * price
+        formula = 'litros estimados × preço por litro'
+        if (positive(pricePerLiter) && (!somenteDistanciaDita || fuelPriceChange !== undefined || fuelPricePerLiter !== undefined)) {
+          referencia = litrosBase * pricePerLiter
+        }
+        caveats.push('A conta cobre apenas o combustível.')
+      } else {
+        const variacaoKm = km - kmBase
+        const diasComAmbos = new Set([...diasComReceita].filter(d => diasRodados.has(d)))
+        const receitaCorridas = corridas.filter(t => diasComAmbos.has(t.date)).reduce((a, t) => a + t.amount, 0)
+        const kmCorrespondentes = trabalho.filter(w => diasComAmbos.has(w.date)).reduce((a, w) => a + w.km, 0)
+        if (variacaoKm !== 0 && (!positive(receitaCorridas) || !positive(kmCorrespondentes) || diasComAmbos.size < 3)) {
+          return vazio(plan, caveats, 'Preciso de pelo menos 3 dias com receita de corridas e quilometragem registrados no mesmo dia para estimar quanto a mudança de rodagem rende.')
+        }
+        const custoForaCombustivel = (st.expense - state.transactions.filter(t =>
+          noPeriodo(t) && t.type === 'expense' && t.category === 'combustivel').reduce((a, t) => a + t.amount, 0)) / divisor
+        const receitaBase = st.income / divisor
+        const receita = receitaBase + (variacaoKm === 0 ? 0 : receitaCorridas / kmCorrespondentes * variacaoKm)
+        estimativa = receita - custoForaCombustivel - litros * price
+        formula = 'receita estimada menos combustível e outras despesas registradas'
+        if (positive(pricePerLiter)) referencia = receitaBase - custoForaCombustivel - litrosBase * pricePerLiter
+        caveats.push('Ajustei a receita de corridas pelo mesmo faturamento por km da amostra e mantive as demais receitas e despesas registradas no nível de referência.')
+        caveats.push('O combustível é estimado pelo consumo e preço por litro na base e no cenário. Variações de demanda e despesas futuras fora dos registros não entram.')
+      }
+    }
+  }
+  if (!Number.isFinite(estimativa) || (referencia !== undefined && !Number.isFinite(referencia))) {
+    return vazio(plan, caveats, 'Os valores informados excedem o que consigo calcular. Confira a distância e os preços.')
+  }
+  facts.push(fato('Estimativa', estimativa, unit, formula, diasRodados.size || 1))
+  if (referencia !== undefined) facts.push(fato('Referência', referencia, unit, 'mesma conta sem a mudança informada', diasRodados.size || 1))
+  return { plan, facts, months: [], caveats, empty: false }
+}
+
 function simulaCenario(
   state: AppState,
   plan: AssistantScenarioPlan,
@@ -367,8 +493,14 @@ function simulaCenario(
       if (!(total > 0) || !(n > 0)) {
         return vazio(plan, caveats, 'Me diga o valor total e em quantas vezes que eu simulo.')
       }
-      const { state: projetado, parcela, financiado, cardNome, porMes } = comCompra(state, plan, hoje)
-      const linhas = compara(state, projetado, meses, porMes, hoje)
+      const problema = problemaDoAdiamento(plan)
+      if (problema) return vazio(plan, caveats, problema)
+      const compra = comCompra(state, plan, hoje)
+      const { parcela, financiado, cardNome } = compra
+      const linhas = comparaCompra(state, compra, meses, hoje)
+      const primeiraNoHorizonte = linhas.some(m => m.monthKey === monthKey(compra.primeiro))
+      if (plan.purchaseDelayMonths) caveats.push(notaDaCompraAdiada(compra))
+      if (!primeiraNoHorizonte) caveats.push('A primeira parcela fica fora do período mostrado.')
       const apertado = [...linhas].sort((a, b) => a.after - b.after)[0]
 
       facts.push(fato('Valor da compra', total, 'BRL', 'informado na pergunta'))
@@ -387,11 +519,11 @@ function simulaCenario(
       if (apertado) facts.push(fato(`Saldo estimado no mês mais apertado (${apertado.label})`, apertado.after, 'BRL', 'projeção'))
 
       if (!cardNome && plan.cardName) caveats.push(`Não encontrei o cartão "${plan.cardName}" — simulei sem vincular a nenhum.`)
-      if (!activeCards(state).length) caveats.push('Você não tem cartão cadastrado; usei o primeiro vencimento em 30 dias.')
+      if (!activeCards(state).length) caveats.push('Você não tem cartão cadastrado; usei o primeiro vencimento 30 dias após a compra.')
       if (!linhas.some(m => m.before !== 0)) {
         caveats.push('Sem contas fixas nem saldo informado, a projeção mostra só o peso da parcela.')
       }
-      return { plan, facts, months: linhas, tightest: apertado, feasible: apertado ? apertado.after >= 0 : undefined, caveats, empty: false }
+      return { plan, facts, months: linhas, tightest: apertado, feasible: apertado && primeiraNoHorizonte ? apertado.after >= 0 : undefined, caveats, empty: false }
     }
 
     // --------------------------------------------------------------- guardar
@@ -404,21 +536,27 @@ function simulaCenario(
       caveats.push(...combined.caveats)
       const metas = (state.goals || []).filter(g => !g.done)
       const alvo = plan.goalName
-        ? metas.find(g => normalizeName(g.name).includes(normalizeName(plan.goalName!)))
+        ? metas.find(g => normalizeName(g.name) === normalizeName(plan.goalName))
+          || metas.find(g => normalizeName(g.name).includes(normalizeName(plan.goalName)))
         : metas[0]
       if (!alvo) {
         facts.push(fato('Guardando por mês', porMes, 'BRL', 'informado na pergunta'))
         caveats.push('Você não tem meta de compra cadastrada, então não dá para dizer quando ela seria batida.')
         return { plan, facts, months: combined.months, caveats, empty: false }
       }
-      const falta = Math.max(alvo.target - alvo.saved, 0)
+      const guardado = plan.declaredGoalSaved ?? alvo.saved
+      const falta = Math.max(alvo.target - guardado, 0)
+      if (plan.declaredGoalSaved !== undefined) {
+        facts.push(fato('Já guardado informado', guardado, 'BRL', 'valor informado para a simulação'))
+        caveats.push(`Usei ${fmtBRL(guardado)} como acumulado inicial para esta simulação.`)
+      }
       const mesesNecessarios = Math.ceil(falta / porMes)
       const inicio = plan.startMonth ? fromISO(`${plan.startMonth}-01`) : fromISO(hoje)
       const quando = new Date(inicio.getFullYear(), inicio.getMonth() + mesesNecessarios - 1, 1)
       facts.push(fato(`Falta para a meta ${alvo.name}`, falta, 'BRL', 'meta menos o já guardado'))
       facts.push(fato('Guardando por mês', porMes, 'BRL', 'informado na pergunta'))
       facts.push(fato('Meses até bater a meta', mesesNecessarios, 'count', 'divisão'))
-      caveats.push(`Nesse ritmo, por volta de ${quando.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}.`)
+      if (mesesNecessarios > 0) caveats.push(`Nesse ritmo, por volta de ${quando.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}.`)
       return { plan, facts, months: combined.months, feasible: true, caveats, empty: false }
     }
 
@@ -521,6 +659,7 @@ function simulaCenario(
     // ------------------------------------------------- horas/km a mais
     case 'extra-work': {
       if (!isDriver(state.settings)) return vazio(plan, caveats, 'Essa simulação só existe no perfil de motorista.')
+      if (plan.driving) return simulaRodagem(state, plan, plan.driving, hoje, caveats)
       const st = periodStats(state, addDays(hoje, -29), hoje)
       if (plan.hoursPerDay) {
         if (st.hours <= 0) {

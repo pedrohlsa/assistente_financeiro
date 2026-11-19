@@ -45,6 +45,7 @@ const tx = (
  * um teste que só compara com o que o código produziu não prova nada.
  */
 export function autonomoRico(hoje = TODAY): AppState {
+  const primeiroDia = hoje.endsWith('-01')
   const t: Transaction[] = []
   let n = 0
   const add = (
@@ -54,9 +55,9 @@ export function autonomoRico(hoje = TODAY): AppState {
 
   // Aluguéis: Casa 1 = 1800/mês, Casa 2 = 1200/mês, nos 6 meses.
   for (let m = 0; m < 6; m++) {
-    const dia = iso(monthStart(hoje, m), 4)
-    add('income', 1800, 'aluguel', dia, 'Aluguel', 'Casa 1')
-    add('income', 1200, 'aluguel', iso(monthStart(hoje, m), 6), 'Aluguel', 'Casa 2')
+    const inicio = monthStart(hoje, m)
+    add('income', 1800, 'aluguel', primeiroDia && m === 0 ? inicio : iso(inicio, 4), 'Aluguel', 'Casa 1')
+    add('income', 1200, 'aluguel', primeiroDia && m === 0 ? inicio : iso(inicio, 6), 'Aluguel', 'Casa 2')
   }
   // Serviço avulso só em dois meses.
   add('income', 900, 'freelance', iso(monthStart(hoje, 1), 10), 'Projeto elétrico')
@@ -73,13 +74,13 @@ export function autonomoRico(hoje = TODAY): AppState {
   ]
   const obraDesc = ['Cimento', 'Areia', 'Tijolo', 'Ferro', 'Telha']
   obraPorMes.forEach((valores, m) => {
-    valores.forEach((v, i) => add('expense', v, 'obra', iso(monthStart(hoje, m), 3 + i * 5), obraDesc[i % obraDesc.length]))
+    valores.forEach((v, i) => add('expense', v, 'obra', iso(monthStart(hoje, m), primeiroDia && m === 0 && i === 0 ? 0 : 3 + i * 5), obraDesc[i % obraDesc.length]))
   })
 
   // ALIMENTAÇÃO: cai. Mês atual 380, anterior 640.
   const alimPorMes = [[200, 180], [340, 300], [310, 290], [280, 270], [250, 240], [230, 220]]
   alimPorMes.forEach((valores, m) => {
-    valores.forEach((v, i) => add('expense', v, 'alimentacao', iso(monthStart(hoje, m), 8 + i * 9), i === 0 ? 'Mercado' : 'Feira'))
+    valores.forEach((v, i) => add('expense', v, 'alimentacao', iso(monthStart(hoje, m), primeiroDia && m === 0 && i === 0 ? 0 : 8 + i * 9), i === 0 ? 'Mercado' : 'Feira'))
   })
 
   // Um gasto grande e isolado, para "qual foi meu maior gasto".
@@ -96,7 +97,7 @@ export function autonomoRico(hoje = TODAY): AppState {
     const dia = addDays(monthStart(hoje, 0), d)
     if (dia > hoje) break
     const wd = fromISO(dia).getDay()
-    if (wd === 6) add('expense', 120, 'lazer', dia, 'Bar')
+    if (wd === 6 || (primeiroDia && d === 0)) add('expense', 120, 'lazer', dia, 'Bar')
   }
   void inicio
 
@@ -181,7 +182,7 @@ export function motoristaRico(hoje = TODAY): AppState {
   for (let d = 39; d >= 0; d--) {
     const dia = addDays(hoje, -d)
     const wd = fromISO(dia).getDay()
-    if (wd === 0) continue // domingo de folga
+    if (wd === 0 && !(d === 0 && hoje.endsWith('-01'))) continue // folga, salvo um plantão no primeiro dia
     const forte = wd === 5 || wd === 6
     const baseUber = Math.round((forte ? 260 : 190) + r() * 60)
     const base99 = Math.round((forte ? 180 : 130) + r() * 50)

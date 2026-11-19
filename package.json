@@ -10,7 +10,7 @@
     "test": "tsx scripts/test-app.mts && tsx scripts/test-assistant.mts",
     "test:core": "tsx scripts/test-app.mts",
     "test:assistant": "tsx scripts/test-assistant.mts",
-    "test:calendario": "for d in 2026-11-12 2026-10-28 2026-11-21 2026-11-30 2026-12-31 2027-02-28; do echo \"## ASSISTFIN_TODAY=$d\"; ASSISTFIN_TODAY=$d tsx scripts/test-assistant.mts || exit 1; done",
+    "test:calendario": "for d in 2026-11-12 2026-10-28 2026-11-21 2026-11-30 2026-12-31 2027-02-28 2026-11-01 2026-12-01; do echo \"## ASSISTFIN_TODAY=$d\"; ASSISTFIN_TODAY=$d tsx scripts/test-assistant.mts || exit 1; done",
     "test:assistant:remote": "tsx scripts/test-assistant-remote.mts",
     "test:money": "node --experimental-strip-types scripts/test-money.mjs",
     "typecheck": "node node_modules/typescript/bin/tsc --noEmit",

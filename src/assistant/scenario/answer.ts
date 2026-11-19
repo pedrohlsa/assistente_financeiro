@@ -85,8 +85,10 @@ export function composeScenario(r: AssistantScenarioResult): string {
       const acumulado = valor('Reserva acumulada no horizonte')
       const ultimo = r.months[r.months.length - 1]
       if (falta && meses !== undefined) {
-        linhas.push(`Guardando ${fmtBRL(p.amount || 0)} por mês, faltam ${fmtNum(meses, 0)} ${meses === 1 ? 'mês' : 'meses'} `
-          + `para ${falta.label.replace('Falta para a meta ', '')} — ainda faltam ${fmtBRL(falta.value)}.`)
+        const nomeMeta = falta.label.replace('Falta para a meta ', '')
+        linhas.push(meses === 0 ? `Com o valor inicial da simulação, você já alcança a meta ${nomeMeta}.`
+          : `Guardando ${fmtBRL(p.amount || 0)} por mês, faltam ${fmtNum(meses, 0)} ${meses === 1 ? 'mês' : 'meses'} `
+            + `para ${nomeMeta} — ainda faltam ${fmtBRL(falta.value)}.`)
       } else {
         linhas.push(`Guardando ${fmtBRL(p.amount || 0)} por mês, você teria ${fmtBRL(acumulado ?? 0)} até ${ultimo?.label || 'o fim do período'}.`)
       }
@@ -151,6 +153,29 @@ export function composeScenario(r: AssistantScenarioResult): string {
     }
 
     case 'extra-work': {
+      if (p.driving) {
+        const estimativa = r.facts.find(f => f.label === 'Estimativa')
+        const referencia = r.facts.find(f => f.label === 'Referência')
+        const rodagem = valor('Rodagem estimada')
+        if (estimativa && rodagem !== undefined) {
+          const nome = {
+            profit: 'Lucro estimado',
+            'fuel-cost': 'Gasto estimado de combustível',
+            'fuel-volume': 'Volume estimado de combustível',
+            maintenance: 'Provisão estimada de manutenção',
+          }[p.driving.metric]
+          const kilometros = `${fmtNum(rodagem)} km`
+          const janela = p.driving.extraDaysPerWeek ? ' por semana' : ''
+          linhas.push(`${nome}${janela} para ${kilometros}: ${formatValue(estimativa.value, estimativa.unit)}.`)
+          if (referencia) {
+            const diferenca = estimativa.value - referencia.value
+            const variacao = Math.abs(diferenca) > 0.005
+              ? ` (${formatValue(Math.abs(diferenca), estimativa.unit)} a ${diferenca > 0 ? 'mais' : 'menos'})` : ''
+            linhas.push(`Referência sem a mudança: ${formatValue(referencia.value, referencia.unit)}${variacao}.`)
+          }
+        }
+        break
+      }
       if (p.fuelOnly) {
         const comb = r.facts.find(f => f.label === 'Combustível estimado')
         const porKm = r.facts.find(f => f.label === 'Custo de combustível por km')
@@ -203,7 +228,7 @@ function descricaoPasso(p: NonNullable<AssistantScenarioResult['plan']['steps']>
         : `guardar ${pct}% do que sobrar depois das mudanças anteriores`
     }
     case 'spend': return `gastar ${fmtBRL(p.amount || 0)}`
-    case 'extra-work': return p.hoursPerDay ? `trabalhar mais ${p.hoursPerDay}h por dia` : `rodar mais ${p.extraKm || 0} km`
+    case 'extra-work': return p.driving ? p.label : p.hoursPerDay ? `trabalhar mais ${p.hoursPerDay}h por dia` : `rodar mais ${p.extraKm || 0} km`
     case 'compound': return p.label
   }
 }

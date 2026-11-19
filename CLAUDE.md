@@ -634,12 +634,10 @@ autorização explícita.
     discordavam dentro do mesmo turno e a bateria "verde" de 28/10 ficou com
     18 vermelhos em 12/11. `ASSISTFIN_TODAY` escolhe a data (padrão
     2026-09-15; `real` usa a máquina) e `npm run test:calendario` roda a
-    bateria em seis datas — foi assim que apareceram "até dia N", "cai dia
-    5" no dia 1º e a média mensal no último dia do mês. Oráculo que só vale
-    num dia do mês é oráculo errado: o esperado sai do fixture e da data,
-    nunca de um número que era verdade na terça em que foi escrito. Dia 1º
-    continua fora da matriz: os fixtures ricos não têm gasto no mês, e ~35
-    oráculos ficam degenerados ali (limitação conhecida, não escondida).
+    bateria em oito datas, com dia 1º em um domingo e em um dia útil. Os
+    fixtures desses dias têm movimento para exercitar o novo mês. Para
+    períodos sem dados, o oráculo espera uma resposta que indique a ausência
+    de registros.
 64. **"Até dia N" é prazo; "dia N" seco é fato; "cai dia N" é recorrência.**
     Três leituras do mesmo "dia 22", em `dates.ts` e `clauses.ts`: com
     "até/pro/para o/antes do" é o PRÓXIMO dia N (hoje, este mês ou o
@@ -655,17 +653,20 @@ autorização explícita.
     diferem; "paguei a luz" sem valor usa o cadastrado em vez de perguntar
     "qual foi o valor?". Local-only (`remoteAllowed: false`): o remoto não
     conhece ids. Confirmar a mesma ocorrência duas vezes é recusado
-    (`occurrence-resolved`); desfazer reabre a ocorrência; a despesa avulsa
-    antiga continua recusada pelo executor. A recusa anterior ("confirme pela
-    tela inicial") era RUIM na rubrica: o lançamento sumia.
+    (`occurrence-resolved`). Desfazer reabre a ocorrência. Com mais de um
+    vencimento ou conta homônima, o chat pede a escolha. A edição preserva
+    a identidade do vencimento e o executor confirma a data pelo calendário
+    da recorrência. A repetição usa a data do desembolso registrado para
+    reconhecer também contas atrasadas pagas em outro mês.
 66. **Pergunta com os números NA FRASE é aritmética, e hipótese sobre outra
     coisa é hipótese.** "Tenho 1.800 hoje, preciso pagar 950 de aluguel e 320
     de luz, quero guardar 400 — quanto ainda preciso ganhar?" não fala dos
     lançamentos: `contaDeclarada()` responde a conta, diz que usou só a frase
     e não registra nada (antes: "isso ainda não aconteceu"). "Se a gasolina
     aumentar 12%" é hipótese mesmo sem "eu" e nunca vira "Resultado este mês
-    (dado real)". "Quanto ISSO representa" é o valor de outra pergunta: a
-    primeira é respondida e a segunda é dita como não respondida. A correção
-    falada nomeia o lançamento pelo SUJEITO ("a FEIRA foi 150, não 180") e,
-    sem lançamento com esse nome, não corrige nada — pelo valor sozinho, um
-    Cimento de três meses atrás era corrigido no lugar da feira. Bloco `MI-`.
+    (dado real)". A aritmética só calcula com o saldo afirmado e os valores
+    compreendidos. Outros fatos na mensagem preservam sua própria proposta.
+    "Quanto isso representa" usa o total realizado já mostrado e executa
+    uma consulta separada para o denominador. A correção falada exige uma
+    correspondência para o nome informado, incluindo nomes compostos ou
+    entre aspas. Bloco `MI-`.

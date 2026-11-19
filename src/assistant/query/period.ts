@@ -9,13 +9,9 @@
 // resposta certa quase sempre é usar o padrão EXPLÍCITO ("este mês") e dizer
 // qual período foi usado.
 
-import { addDays, fromISO, monthKey, toISO, todayISO } from '../../utils/format'
+import { addDays, fromISO, MESES_PT_BR as MESES, monthKey, toISO, todayISO } from '../../utils/format'
 import type { PeriodGrain, QueryPeriod } from './types'
 
-const MESES = [
-  'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
-  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
-]
 const MES_RE = 'janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro'
 
 // MAPA, nao objeto: leitura por colchete anda pela cadeia de prototipo, e

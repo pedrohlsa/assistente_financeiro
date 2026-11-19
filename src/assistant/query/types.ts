@@ -213,6 +213,8 @@ export interface AssistantQueryPlan {
    * aritmética e sem sentido nenhum.
    */
   shareBase?: 'income' | 'expense' | 'same'
+  /** Mostra as compras pela data da operação ao lado das faturas do período. */
+  showCardPurchases?: boolean
   /** Rótulo humano do que se está medindo ("Gasto com obra"). */
   label?: string
 }
@@ -302,4 +304,5 @@ export interface AssistantQueryResult {
    * preenchido quando `plan.period.implicit` e a fonte é de lançamentos.
    */
   lastOutside?: { date: string; value: number; label: string; count: number }
+  cardPurchases?: { total: number; count: number }
 }

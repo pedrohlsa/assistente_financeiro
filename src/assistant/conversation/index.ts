@@ -13,16 +13,17 @@
 // Nada daqui produz ação. Consulta e cenário são sempre RESPOSTA.
 
 import type { AppState } from '../../models/types'
-import { fmtBRL, todayISO } from '../../utils/format'
+import { fmtBRL, fmtNum, todayISO } from '../../utils/format'
 import { normalizeName, sentenceCase } from '../../utils/text'
 import { planQuery, runPlannedQuery } from '../query'
 import { leadSimNao } from '../query/answer'
 import { normalizeQuery } from '../query/parse'
 import { parsePeriod, previousPeriod } from '../query/period'
 import type { QueryAnswer } from '../query'
+import type { AssistantQueryPlan } from '../query/types'
 import { answerScenario, rerunScenario } from '../scenario'
 import type { ScenarioAnswer } from '../scenario'
-import { looksLikeScenario } from '../scenario/parse'
+import { looksLikeScenario, parsePurchaseDelay } from '../scenario/parse'
 import { analyzeChanges, answerChangeQuestion, changeScopeClarification, composeChangeExplanation, expenseCategoryInQuestion } from '../drivers'
 import {
   isFocusFresh, rememberDriver, rememberQuery, rememberScenario, resolveFollowUp, looksLikeFollowUp,
@@ -157,6 +158,11 @@ function respondeConversa(
     }
   }
 
+  if (isFocusFresh(focus, agora) && focus?.last === 'query' && focus.lastQueryPlan && focus.lastQuery) {
+    const reply = proporcaoSobreResultado(state, message, focus.lastQueryPlan, focus.lastQuery, hoje)
+    if (reply) return { reply, kind: 'explain', focus: { ...focus, updatedAt: agora }, confidence: 'high' }
+  }
+
   // ---- 1) continuação ----------------------------------------------------
   if (isFocusFresh(focus, agora) && looksLikeFollowUp(message)) {
     const fu = resolveFollowUp(state, focus, message, hoje)
@@ -180,18 +186,19 @@ function respondeConversa(
     const focusCategory = isFocusFresh(focus, agora) ? focus?.lastQueryPlan?.filter?.categories?.[0] : undefined
     const cen = answerScenario(state, message, { today: hoje, focusCategory })
     if (cen) return doCenario(focus, cen, agora)
+    if (parsePurchaseDelay(message)) {
+      const question = 'Qual compra você quer adiar? Me diga o valor, a entrada se houver e em quantas parcelas.'
+      return { reply: question, kind: 'clarify', clarification: { question, options: [] },
+        focus: { ...focus, updatedAt: agora }, confidence: 'high' }
+    }
     // Hipótese reconhecida mas sem plano: NÃO cair na consulta. Responder com
     // número real a uma frase começada por "se eu" é transformar hipótese em
     // fato — exatamente o que este módulo existe para impedir.
     return null
   }
 
-  // ---- 3) consulta -------------------------------------------------------
-  // "Quanto gastei com combustível…, e quanto ISSO representa do faturamento?":
-  // a segunda pergunta fala do resultado da primeira, que ainda não existe.
-  // Planejar a frase inteira lia as duas como uma e respondia "não tenho
-  // lançamento" para um número que existe. A primeira é respondida; a segunda
-  // é dita como não respondida — nunca descartada em silêncio.
+  // A segunda pergunta pode usar o resultado conferido da primeira. Só o
+  // denominador precisa virar outro plano.
   const duas = duasPerguntas(message)
   const planned = planQuery(state, duas ? duas.primeira : message, { today: hoje })
   if (planned?.clarification) {
@@ -246,13 +253,53 @@ function respondeConversa(
   if (q) {
     const resposta = daConsulta(focus, q, agora)
     if (duas) {
-      resposta.reply += `\n\nA segunda parte — "${duas.segunda}" — eu não respondi: ela usa o resultado da primeira, `
-        + 'e isso eu ainda não encadeio. Pergunte em seguida, por extenso: por exemplo, "quanto o combustível representa do meu faturamento?".'
+      const proporcao = proporcaoSobreResultado(state, duas.segunda, q.plan, q.result, hoje)
+      resposta.reply += `\n\n${proporcao || `Para responder “${duas.segunda}”, preciso saber qual total você quer usar como comparação.`}`
+      resposta.beyondLegacy = true
     }
     return resposta
   }
 
   return null
+}
+
+/**
+ * Proporção entre dois recortes que podem ter tipos e filtros diferentes.
+ * O numerador é o total que já foi mostrado. O denominador é outra soma
+ * validada pela DSL, sem reaproveitar o filtro de gasto do numerador.
+ */
+function proporcaoSobreResultado(
+  state: AppState, message: string, numerador: AssistantQueryPlan,
+  total: Pick<QueryAnswer['result'], 'total' | 'unit' | 'empty'>, hoje: string,
+): string | null {
+  const t = normalizeName(message).replace(/[?.!]+$/, '').trim()
+  const m = t.match(/^(?:e\s+)?(?:quanto|quantos\s+por\s+cento|qual\s+percentual)\s+(?:isso|esse\s+(?:valor|total)|aquilo)\s+(?:representa|corresponde)\s+(?:d[oa]s?)\s+(?:(?:meu|minha|meus|minhas|seu|sua|seus|suas)\s+)?(faturamento|renda|receitas?|entradas?|ganhos?|despesas?|gastos?)\b(.*)$/)
+  if (!m) return null
+
+  const resto = m[2].trim()
+  const periodoInformado = parsePeriod(resto, hoje)
+  const periodo = periodoInformado?.period || numerador.period
+  const recorte = periodoInformado ? resto.replace(periodoInformado.span || periodoInformado.matched, ' ').trim() : resto
+  if (recorte && !/^(?:na|no|da|do|pela|pelo|via)\s+(?:uber|99|indrive|indriver)$/.test(recorte)) {
+    return 'Qual total você quer usar como comparação? Posso usar as entradas, os gastos ou o faturamento de uma plataforma.'
+  }
+  if (total.unit !== 'BRL' || total.empty || !Number.isFinite(total.total) || total.total < 0
+    || numerador.metric !== 'sum' || numerador.group !== 'none' || numerador.comparePeriod
+    || numerador.period.to > hoje || numerador.filter.plannedOnly || numerador.source !== 'transactions') {
+    return 'Preciso de um total em reais de lançamentos realizados para calcular essa proporção.'
+  }
+  if (periodo.to > hoje) return 'Para calcular essa proporção, informe um período que já tenha ocorrido.'
+  const despesa = /^(?:despesa|gasto)/.test(m[1])
+  const planned = planQuery(state, `quanto ${despesa ? 'gastei' : 'recebi'} ${recorte}`.trim(), { today: hoje })
+  const base = planned && !planned.incompleto && (!recorte || planned.plan.filter.platform)
+    ? runPlannedQuery(state, { ...planned, plan: { ...planned.plan, period: { ...periodo, implicit: false } } }, { today: hoje })
+    : null
+  if (!base || base.result.empty || !(base.result.total > 0)) {
+    return `Não encontrei um total disponível ${periodo.label} para usar como base da proporção.`
+  }
+  const pct = total.total / base.result.total * 100
+  const rotulo = (base.plan.label || 'total de referência').toLowerCase().replace(/\b(uber|indrive)\b/g, w => w === 'uber' ? 'Uber' : 'inDrive')
+  return `${fmtBRL(total.total)} representam ${fmtNum(pct, 2)}% de ${fmtBRL(base.result.total)} (${rotulo} ${periodo.label}).`
 }
 
 /**

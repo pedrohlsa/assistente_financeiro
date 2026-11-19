@@ -727,19 +727,20 @@ export async function runProperties(): Promise<PropertyReport> {
     return null
   })
 
-  // --- 41. Todo campo do catálogo é editável na proposta ----------------
+  // --- 41. A edição obedece ao catálogo --------------------------------
   // A folha de edição era uma lista escrita à mão e ficou para trás do
   // catálogo: `name`, `months`, `item`, `lifeKm`, `pricePerLiter`,
   // `firstDueDate`, `source` e o `value` do hodômetro não apareciam — e a ação
   // de hodômetro não tinha NENHUM campo editável.
-  check(r, 'todo campo do catálogo é editável na proposta', () => {
+  check(r, 'a edição mostra apenas os campos editáveis do catálogo', () => {
     const caps = buildCapabilities(buildState({ profile: 'driver', cards: [{ name: 'Nubank' }], goals: [{ name: 'Bike', target: 2000 }] }))
     for (const spec of ACTION_CATALOG) {
       if (spec.kind === 'reset') continue
       const acao: any = { kind: spec.kind, ...AMOSTRA[spec.kind] }
       const campos = editableFieldsFor(acao, caps).map(f => f.name)
       for (const f of spec.fields) {
-        if (!campos.includes(f.name)) return `${spec.kind}.${f.name} não aparece na edição`
+        if (!campos.includes(f.name) && f.editable !== false) return `${spec.kind}.${f.name} não aparece na edição`
+        if (campos.includes(f.name) && f.editable === false) return `${spec.kind}.${f.name} está editável indevidamente`
       }
       const extras = campos.filter(n => !spec.fields.some(f => f.name === n))
       if (extras.length) return `${spec.kind} oferece campo fora do catálogo: ${extras.join(', ')}`

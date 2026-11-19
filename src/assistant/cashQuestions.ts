@@ -12,6 +12,7 @@
 // "pra"/"pro" → "para" — as duas normalizações do app fazem isso.
 
 import { addDays, dateForDayOfMonth, fmtBRL, fromISO, parseMoney, toISO } from '../utils/format'
+import { looksPast, segment } from './clauses'
 
 const MESES = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho',
   'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
@@ -366,7 +367,7 @@ export function alvoDaReserva(t: string, hoje: string): AlvoDaReserva {
 // não aconteceu, não registrei nada". A conta é determinística, somente leitura
 // e diz de onde veio cada número.
 
-export interface ContaDeclarada {
+interface ContaDeclarada {
   saldo: number
   pagamentos: { nome: string; valor: number }[]
   guardar?: number
@@ -374,42 +375,79 @@ export interface ContaDeclarada {
   pergunta: 'ganhar' | 'sobra'
 }
 
-const DINHEIRO = String.raw`(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)\s*(?:reais|real|pila|conto)?`
+const DINHEIRO = String.raw`(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?!\d|[.,]\d)(?:\s+(?:reais?|pila|conto)\b)?`
+const SALDO_DECLARADO = new RegExp(String.raw`\b(?:(nao|nem|nunca)\s+(?:mais\s+)?)?(?:tenho|estou\s+com|to\s+com|tou\s+com|sobrou|sobraram|tem)\s+${DINHEIRO}(?:\s+(?:hoje|agora|na\s+conta|em\s+caixa|em\s+conta|guardad[oa]s?|disponive\w*|no\s+banco|no\s+bolso))?`, 'g')
+const COMPROMISSO_DECLARADO = /^[\s,.;:]*(?:e\s+)?(?:(?:eu\s+)?(?:preciso|tenho\s+que|devo|quero|vou)|para|pra|pro)\s+(?:pagar|quitar|cobrir)\s+/
+const PAGAMENTO_DECLARADO = new RegExp(String.raw`^${DINHEIRO}(?:\s+(?:de|do|da|no|na|em|com|pro|pra|para(?:\s+[oa])?)\s+([a-z][a-z0-9 .-]*))?$`)
+const RESERVA_DECLARADA = new RegExp(String.raw`(?:^|[\s,.;])(?:(?:e\s+)?(?:quero|queria|preciso|pretendo|vou)\s+|e\s+)(?:guardar|separar|poupar|juntar|reservar)\s+${DINHEIRO}$`)
+const PERGUNTA_GANHAR = /\bquanto\s+(?:ainda\s+|mais\s+|eu\s+)*(?:preciso|tenho\s+que|falta|devo|teria\s+que)\s+(?:eu\s+)?(?:ganhar|fazer|faturar|receber|conseguir|tirar|levantar)\b/
+const PERGUNTA_SOBRA = /\bquanto\s+(?:me\s+)?(?:sobra|sobraria|fica|ficaria|resta|restaria)\b|\bda\s+(?:pra|para)\s+(?:pagar|fechar)\b|\bconsigo\s+(?:pagar|fechar)\b|\bfecha\b/
 
-/** Lê a frase inteira (já em minúsculas e sem acento) ou devolve `null`. */
-export function contaDeclarada(t: string): ContaDeclarada | null {
-  const pergunta = /\bquanto\s+(?:ainda\s+|mais\s+|eu\s+)*(?:preciso|tenho\s+que|falta|devo|teria\s+que)\s+(?:eu\s+)?(?:ganhar|fazer|faturar|receber|conseguir|tirar|levantar)\b/.test(t) ? 'ganhar'
-    : /\bquanto\s+(?:me\s+)?(?:sobra|sobraria|fica|ficaria|resta|restaria)\b|\bda\s+(?:pra|para)\s+(?:pagar|fechar)\b|\bconsigo\s+(?:pagar|fechar)\b|\bfecha\b/.test(t) ? 'sobra'
-      : null
-  if (!pergunta) return null
-  const saldoM = t.match(new RegExp(String.raw`\b(?:tenho|estou\s+com|to\s+com|tou\s+com|sobrou|sobraram|tem)\s+${DINHEIRO}\s*(?:hoje|agora|na\s+conta|em\s+caixa|em\s+conta|guardad[oa]s?|disponive\w*|no\s+banco|no\s+bolso)?\b`))
-  if (!saldoM) return null
-  const saldo = parseMoney(saldoM[1])
-  if (!Number.isFinite(saldo) || saldo <= 0) return null
+/** Separa a conta das outras instruções na mensagem, preservando o texto original delas. */
+export function contaDeclarada(message: string): { reply: string; restante: string } | null {
+  const original = message.normalize('NFC')
+  const t = original.toLowerCase().replace(/[à-ÿ]/g, c => c.normalize('NFD').replace(/[\u0300-\u036f]/g, ''))
+  for (const saldoM of t.matchAll(SALDO_DECLARADO)) {
+    const saldo = parseMoney(saldoM[2])
+    const aposSaldo = saldoM.index + saldoM[0].length
+    const complemento = t.slice(aposSaldo)
+    const direto = complemento.match(COMPROMISSO_DECLARADO)
+    const partes = direto ? [] : segment(original.slice(aposSaldo))
+    const separador = /^[.!;]\s/.test(complemento)
+      ? partes.findIndex(p => p.start > 0 && COMPROMISSO_DECLARADO.test(complemento.slice(p.start)))
+      : -1
+    const intercaladas = separador > 0 ? partes.slice(0, separador).filter(p => /[a-zà-ú]/i.test(p.text)) : []
+    const intercalado = intercaladas.length > 0 && intercaladas.every(p => looksPast(p.text) && !p.text.includes('?'))
+    const onde = intercalado ? partes[separador].start : 0
+    const compromisso = direto || (onde ? complemento.slice(onde).match(COMPROMISSO_DECLARADO) : null)
+    if (!compromisso) continue
+    const inicio = aposSaldo + onde + compromisso[0].length
+    const trecho = t.slice(inicio)
+    const perguntaGanhar = trecho.match(PERGUNTA_GANHAR)
+    const perguntaSobra = trecho.match(PERGUNTA_SOBRA)
+    const pergunta = perguntaGanhar && (!perguntaSobra || perguntaGanhar.index! < perguntaSobra.index!)
+      ? perguntaGanhar : perguntaSobra
+    if (!pergunta) continue
 
-  // Os pagamentos vêm depois de "pagar", separados por vírgula ou "e", até a
-  // próxima oração ("quero guardar", "quanto …").
-  const trechoPagar = t.match(/\b(?:pagar|quitar|cobrir)\s+(.+?)(?=\s*(?:[.;]|\b(?:e\s+)?(?:quero|queria|preciso|pretendo|vou)\s+(?:guardar|separar|poupar|juntar)|\bquanto\b|$))/)
-  const pagamentos: ContaDeclarada['pagamentos'] = []
-  if (trechoPagar) {
-    const re = new RegExp(String.raw`${DINHEIRO}\s*(?:(?:de|do|da|no|na|em|com|pro|pra|para\s+o|para\s+a|para)\s+([a-z][a-z ]{1,30}?))?(?=\s*(?:,|\be\b|$|\.|;))`, 'g')
-    let m: RegExpExecArray | null
-    while ((m = re.exec(trechoPagar[1])) !== null) {
-      const valor = parseMoney(m[1])
-      if (!Number.isFinite(valor) || valor <= 0) continue
-      pagamentos.push({ nome: (m[2] || '').trim() || 'conta', valor })
+    const inicioPergunta = inicio + pergunta.index!
+    const [trechoPergunta] = segment(original.slice(inicioPergunta))
+    const fim = inicioPergunta + trechoPergunta.end
+    const antes = original.slice(0, saldoM.index).replace(/(?:\s+e)?[\s,;]+$/i, '')
+    const depois = original.slice(fim).replace(/^[\s,;]+/, '')
+    const fatosIntercalados = intercalado ? intercaladas.map(p => p.text).join(' ') : ''
+    const restante = [antes, fatosIntercalados, depois].filter(Boolean).join(' ')
+
+    if (saldoM[1] || !valorContavel(saldo)) {
+      return { reply: 'Quanto você tem disponível agora? Preciso desse valor para calcular a sobra.', restante }
     }
+    let textoPagamentos = trecho.slice(0, pergunta.index).replace(/[\s,.;]+$/, '')
+    const reserva = textoPagamentos.match(RESERVA_DECLARADA)
+    if (reserva) textoPagamentos = textoPagamentos.slice(0, reserva.index).replace(/[\s,.;]+$/, '')
+    const grupos = textoPagamentos.split(/,(?!\d)|\s+e\s+(?=(?:r\$\s*)?\d|[oa]s?\s+[a-z])/)
+    const pagamentos = grupos.map(item => {
+      const m = item.trim().replace(/^e\s+/, '').match(PAGAMENTO_DECLARADO)
+      const valor = m ? parseMoney(m[1]) : NaN
+      return valorContavel(valor) ? { nome: m?.[2] || 'conta', valor } : null
+    })
+    const guardar = reserva ? parseMoney(reserva[1]) : undefined
+    const total = pagamentos.reduce((soma, item) => soma + (item?.valor || 0), guardar || 0)
+    if (pagamentos.some(p => p === null) || (guardar !== undefined && !valorContavel(guardar)) || !valorContavel(total)) {
+      return { reply: 'Para calcular a sobra, me diga o valor de cada conta e quanto pretende guardar, se houver reserva.', restante }
+    }
+    const conta: ContaDeclarada = {
+      saldo, pagamentos: pagamentos.filter(p => p !== null), guardar,
+      pergunta: pergunta === perguntaGanhar ? 'ganhar' : 'sobra',
+    }
+    return { reply: respostaDaContaDeclarada(conta), restante }
   }
-  if (!pagamentos.length) return null
-  const guardarM = t.match(new RegExp(String.raw`\b(?:guardar|separar|poupar|juntar|reservar)\s+${DINHEIRO}`))
-  const guardar = guardarM ? parseMoney(guardarM[1]) : undefined
-  return { saldo, pagamentos, ...(guardar && Number.isFinite(guardar) && guardar > 0 ? { guardar } : {}), pergunta }
+  return null
 }
 
+const valorContavel = (valor: number): boolean => valor >= 0 && Number.isSafeInteger(Math.round(valor * 100))
 const r2 = (v: number) => Math.round(v * 100) / 100
 
 /** Resposta pronta: a conta, item a item, e a origem dos números. */
-export function respostaDaContaDeclarada(c: ContaDeclarada): string {
+function respostaDaContaDeclarada(c: ContaDeclarada): string {
   const totalPagar = r2(c.pagamentos.reduce((a, p) => a + p.valor, 0))
   const aposPagar = r2(c.saldo - totalPagar)
   const sobra = r2(aposPagar - (c.guardar || 0))
@@ -422,5 +460,5 @@ export function respostaDaContaDeclarada(c: ContaDeclarada): string {
       ? `Não precisa ganhar mais para isso: ${sobra > 0 ? `sobram ${fmtBRL(sobra)}` : 'fecha exato, sem sobra'}.`
       : `Dá: ${sobra > 0 ? `sobram ${fmtBRL(sobra)}` : 'fecha exato, sem sobra'}.`)
     : `Faltam ${fmtBRL(Math.abs(sobra))} para ${c.guardar ? 'pagar tudo e ainda guardar o que você quer' : 'pagar tudo'}.`
-  return `${veredito}\n\nA conta: ${conta}\n\nUsei só os valores que você disse agora — não olhei seus lançamentos e não registrei nada.`
+  return `${veredito}\n\nA conta: ${conta}\n\nUsei só os valores que você disse para esta conta.`
 }

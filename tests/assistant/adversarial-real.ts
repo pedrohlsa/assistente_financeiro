@@ -7,6 +7,8 @@ import { findDate } from '../../src/assistant/dates'
 import { balanceOutlook, balanceOutlookText, currentBalance, kmCost, monthlyProjections, occurrencesBetween, pendingRecurrings } from '../../src/services/calc'
 import { cardInvoice, cardOutstanding, cardsOverview, futureInstallmentPaymentDate, invoiceOpenAmount, planProgress } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
+import { buildCapabilities } from '../../src/assistant/capabilities'
+import { editableFieldsFor } from '../../src/assistant/proposalEdit'
 import { isRevertFailure, revertBatchPure } from '../../src/assistant/journal'
 import { applyPreferenceAliases } from '../../src/assistant/preferences'
 import { hydrateForTest, reducer } from '../../src/store/store'
@@ -1582,9 +1584,12 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
             && !/padrao|padrão/i.test(r.reply) && (!/^tem/.test(frase) || r.reply.startsWith('Sim.'))))
     }
     const r = await turnoHoje(st, 'qual categoria caiu mais')
-    out.push(result('K-caiu-lista-so-quedas', r.reply, semGastoNoMes ? 'mês sem gasto: sem ranking' : `${caiu.nome} foi o que mais caiu; lista só com quedas`,
+    const esperadaQueda = semGastoNoMes ? 'mês sem gasto: sem ranking'
+      : caiu.d < 0 ? `${caiu.nome} foi o que mais caiu; lista só com quedas` : 'nenhuma categoria caiu'
+    out.push(result('K-caiu-lista-so-quedas', r.reply, esperadaQueda,
       semGastoNoMes ? semBase(r.reply)
-        : r.reply.includes(`${caiu.nome} foi o que mais caiu comparado com`) && !/\+R\$/.test(r.reply.split('Depois:')[1] || '')))
+        : caiu.d < 0 ? r.reply.includes(`${caiu.nome} foi o que mais caiu comparado com`) && !/\+R\$/.test(r.reply.split('Depois:')[1] || '')
+          : /^Nada caiu/.test(r.reply)))
     const totalAgora = [...agora.values()].reduce((a, v) => a + v, 0)
     const totalAntes = [...antes.values()].reduce((a, v) => a + v, 0)
     const normal = await turnoHoje(st, 'gastei fora do normal esse mes?')
@@ -1723,6 +1728,12 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const r = await turn(st, 'quanto eu ganho por mes em media')
     out.push(result('Q-media-mensal-de-totais', r.reply, 'R$ 2.000,00 = (1.000 + 2.000 + 3.000) / 3; setembro aberto fica fora',
       /^M[ée]dia por m[êe]s: R\$\s2\.000,00/.test(r.reply) && /3 meses completos/.test(r.reply) && !/por lan[çc]amento/.test(r.reply)))
+    const atual = buildState({ profile: 'autonomo', transactions: [
+      { id: 'm-atual', type: 'income', amount: 610, category: 'outros-in', date: hoje },
+    ] })
+    const semBase = await turnoHoje(atual, 'quanto eu ganho por mes em media')
+    out.push(result('Q-media-mensal-sem-mes-completo', semBase.reply, 'avisa que ainda não há mês completo',
+      /não há um mês completo/i.test(semBase.reply) && !/R\$\s610,00/.test(semBase.reply)))
     const rico = autonomoRico(hoje)
     const mesAtual = hoje.slice(0, 7)
     const inicio = (() => { const d = fromISO(hoje); return toISOdate(new Date(d.getFullYear(), d.getMonth() - 5, 1)) })()
@@ -2051,8 +2062,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && agua50.actions[0].occurrenceDate === agua && /conta fixa/i.test(agua50.reply) && agua50.reply.includes(data(agua))))
     const mercado = await turnoHoje(st, 'paguei 50 no mercado')
     out.push(result('CF-sem-conta-fixa-sem-aviso', mercado.reply, 'sem aviso de conta fixa', !/conta fixa/i.test(mercado.reply)))
-    const luzPaga = await turnoHoje(st, 'paguei a luz de 150')
-    out.push(result('CF-conta-confirmada-sem-aviso', luzPaga.reply, 'Luz já confirmada: sem aviso', !/conta fixa/i.test(luzPaga.reply)))
+    const luzPaga = await turnoHoje(st, `paguei 150 da luz, vencimento ${data(luz)}`)
+    out.push(result('CF-conta-confirmada-sem-duplicar', luzPaga, 'Luz já confirmada: sem nova proposta',
+      luzPaga.actions.length === 0 && /já encontrei um registro/i.test(luzPaga.reply)))
   }
 
   // "Quanto PRECISO guardar por mês" é plano, não histórico: "pro notebook"
@@ -2110,14 +2122,14 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     // dali em diante — a linha precisa dizer isso.
     const comecaNoDomingo = fromISO(`${hoje.slice(0, 8)}01`).getDay() === 0
     out.push(result('GT-semana-parcial-marcada', semana.reply, 'primeira semana marcada "desde 01/mm"; soma no fim',
-      (comecaNoDomingo || new RegExp(`\\(desde 01/${hoje.slice(5, 7)}\\)`).test(semana.reply)) && /Soma das \d+ semanas/.test(limpa(semana.reply))))
+      (comecaNoDomingo || new RegExp(`\\((?:desde|só) 01/${hoje.slice(5, 7)}\\)`).test(semana.reply)) && /(?:Soma das \d+ semanas|Total da semana)/.test(limpa(semana.reply))))
   }
 
   // "Em cada mês" e "mês por mês" pedem a lista por mês — respondiam só o mês atual.
   {
     const rico = autonomoRico(hoje)
     for (const [frase, soma] of [['quanto gastei em cada mes', /Soma dos \d+ meses/], ['quanto recebi mes por mes', /Soma dos \d+ meses/],
-      ['quanto gastei em cada semana desse mes', /Soma das \d+ semanas/]] as [string, RegExp][]) {
+      ['quanto gastei em cada semana desse mes', /(?:Soma das \d+ semanas|Total da semana)/]] as [string, RegExp][]) {
       const r = await turnoHoje(rico, frase)
       out.push(result(`GT-${frase.replace(/\W+/g, '-')}`, r.reply, 'lista por período com a soma no fim', soma.test(r.reply.replace(/ /g, ' '))))
     }
@@ -2140,7 +2152,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const semanas = await turnoHoje(rico, 'quanto gastei em cada semana desse mes')
     const mesPassado = toISOdate(new Date(fromISO(hoje).getFullYear(), fromISO(hoje).getMonth() - 1, 15)).slice(5, 7)
     out.push(result('DP-semanas-desse-mes', semanas.reply, 'só as semanas deste mês',
-      /Soma das \d+ semanas/.test(limpa(semanas.reply)) && !new RegExp(`semana de \\d{2}/${mesPassado}(?! \\(desde)`).test(semanas.reply)
+      /(?:Soma das \d+ semanas|Total da semana)/.test(limpa(semanas.reply)) && !new RegExp(`semana de \\d{2}/${mesPassado}(?! \\((?:desde|só))`).test(semanas.reply)
         && !/últimas 12 semanas/.test(semanas.reply)))
   }
 
@@ -2194,7 +2206,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('SC-total-depois-da-gasolina', total, `${brl(r2(entradas - combustivel))} no mês`, total.includes(brl(r2(entradas - combustivel)))))
     const rotulo = limpa((await turnoHoje(mot, 'quanto sobra por dia')).reply)
     out.push(result('SC-rotulo-por-dia', rotulo, 'diz que é líquido e que divide pelos dias corridos',
-      /L[íi]quido por dia/.test(rotulo) && new RegExp(`${dias} dias corridos`).test(rotulo)))
+      /L[íi]quido por dia/.test(rotulo) && rotulo.includes(dias === 1 ? '1 dia corrido' : `${dias} dias corridos`)))
   }
 
   // "Tirando cimento" tira o CIMENTO, não a categoria Obra inteira (areia e
@@ -2237,7 +2249,10 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     ]
     for (const [id, frase, valor] of casos) {
       const r = limpa((await turnoHoje(rico, frase)).reply)
-      out.push(result(id, r, `${brl(valor)} por dia`, r.includes(brl(valor)) && /dias corridos/.test(r) && !/por lan[çc]amento/.test(r)))
+      const semGasto = valor === 0
+      out.push(result(id, r, semGasto ? 'sem despesa registrada no período' : `${brl(valor)} por dia`,
+        semGasto ? /não tenho nenhum lançamento/i.test(r)
+          : r.includes(brl(valor)) && /dias? corridos?/.test(r) && !/por lan[çc]amento/.test(r)))
     }
   }
 
@@ -2346,6 +2361,29 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result(`FS-${nome}`, r, inv.total > 0 ? `situação ${inv.status}` : 'fatura do mês vazia: R$ 0,00',
         inv.total > 0 ? palavra[inv.status].test(r) && (inv.status === 'aberta' || !/previs/i.test(r)) : /R\$\s0,00/.test(r)))
     }
+    const compras = buildState({ profile: 'autonomo', cards: [{ name: 'Inter', limit: 5000, closingDay: 5, dueDay: 15 }] })
+    const atual = `${hoje.slice(0, 7)}-01`
+    const antes = addDays(atual, -1)
+    const proximo = toISOdate(new Date(fromISO(hoje).getFullYear(), fromISO(hoje).getMonth() + 1, 15))
+    const compra = { id: 'tv', description: 'TV', cardId: compras.cards[0].id, totalAmount: 1200, installmentCount: 1,
+      firstDueDate: proximo, purchaseDate: hoje, status: 'active' as const, operationType: 'card-purchase' as const, createdAt: hoje }
+    compras.installmentPlans = [
+      compra,
+      { ...compra, id: 'mesa', description: 'Mesa', purchaseDate: antes, firstDueDate: `${hoje.slice(0, 7)}-15`, totalAmount: 250 },
+      { ...compra, id: 'financiado', operationType: 'financed-cash-inflow', totalAmount: 600 },
+      { ...compra, id: 'cancelada', status: 'cancelled', totalAmount: 300 },
+      { ...compra, id: 'futura', purchaseDate: addDays(hoje, 1), totalAmount: 900 },
+    ]
+    compras.installments = [
+      { id: 'tv-p1', planId: 'tv', number: 1, total: 1, amount: 1200, dueDate: proximo, status: 'pending' },
+      { id: 'mesa-p1', planId: 'mesa', number: 1, total: 1, amount: 250, dueDate: `${hoje.slice(0, 7)}-15`, status: 'pending' },
+    ]
+    const gasto = await turnoHoje(compras, 'quanto gastei no cartao inter esse mes')
+    out.push(result('FS-compras-do-mes-e-fatura-pelo-vencimento', gasto.reply,
+      'R$ 1.200 pela compra deste mês e R$ 250 em fatura que vence neste mês',
+      /Compras registradas no cartão Inter este mês: R\$\s1\.200,00/.test(gasto.reply)
+        && /fatura[^\n]*R\$\s250,00|R\$\s250,00[^\n]*fatura/i.test(gasto.reply) && gasto.actions.length === 0))
+
     // Parcela marcada como paga SEM data (backup antigo): o caixa e a resposta
     // de fatura já a tratam como quitada; a consulta não pode chamá-la de atrasada.
     const caixa = estadoDeCaixaFuturo(hoje, 1000, 'autonomo')
@@ -2477,7 +2515,11 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const r = limpa((await turnoHoje(rico, frase)).reply)
       out.push(result(`NM-${frase.replace(/\W+/g, '-')}`, r, brl(valor), r.includes(brl(valor)) && !/Posso te ajudar/.test(r)))
     }
-    const registro = await turnoHoje(rico, 'gasto 50 de luz')
+    const comUmaLuz = { ...rico, recurring: [{
+      id: 'luz-nominal', name: 'Luz', amount: 180, category: 'casa', kind: 'expense' as const,
+      frequency: 'monthly' as const, active: true, dueDay: Number(hoje.slice(8)), startDate: hoje,
+    }] }
+    const registro = await turnoHoje(comUmaLuz, 'gasto 50 de luz')
     out.push(result('NM-com-valor-conta-fixa', registro, 'Luz pendente vira confirmação com R$ 50 (cadastrado R$ 180 citado)',
       registro.actions.length === 1 && registro.actions[0].kind === 'recurring-confirm' && registro.actions[0].amount === 50
         && /cadastrado: R\$\s180,00/.test(registro.reply)))
@@ -4004,6 +4046,108 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       'adiar o aviso não permite duplicar pelo chat: a proposta é a confirmação, nunca a avulsa',
       whileSnoozed.actions.length === 1 && whileSnoozed.actions[0].kind === 'recurring-confirm' && !forcedSnoozed.applied))
 
+    const repetida = await turnoHoje(viaChat.state, 'paguei 120 da internet')
+    const antiga = applyBatchPure(viaChat.state, [{ id: 'avulsa-antiga', action: {
+      kind: 'expense', amount: 120, description: 'Internet', category: 'casa',
+    } }], { now: { date: hoje, time: '15:00' } })
+    const distinta = await turnoHoje(viaChat.state, 'paguei 40 de instalação da internet')
+    out.push(result('RCUR-nova-mensagem-nao-duplica', { repetida, antiga: antiga.results, distinta },
+      'repetição não vira nova despesa; proposta avulsa antiga é recusada; instalação separada continua possível',
+      repetida.actions.length === 0 && /já encontrei um registro/i.test(repetida.reply)
+        && !antiga.applied && currentBalance(antiga.state) === 880
+        && distinta.actions.some(a => a.kind === 'expense' && a.amount === 40)))
+
+    const vencimentoAnterior = addDays(`${hoje.slice(0, 7)}-01`, -1)
+    const quitada = { ...viaChat.state,
+      recurring: [{ ...st.recurring[0], startDate: vencimentoAnterior,
+        occurrences: [{ date: vencimentoAnterior, status: 'confirmed' as const, txId: viaChat.state.transactions[0].id, amount: 120 }] }],
+      transactions: viaChat.state.transactions.map(t => ({ ...t, occurrenceDate: vencimentoAnterior })),
+    }
+    const diaSeguinte = addDays(hoje, 1)
+    const repetidaAtrasada = await orchestrate({ state: quitada, message: 'Paguei 120 da internet',
+      today: diaSeguinte, remoteEnabled: false })
+    const origemInserida = applyBatchPure(st, [{ id: 'avulsa-com-origem', action: {
+      kind: 'expense', amount: 120, description: 'Internet', category: 'casa', origin: 'Casa 2',
+    } }], { now: { date: hoje, time: '15:00' } })
+    out.push(result('RCUR-atrasada-nao-duplica-no-dia-seguinte', repetidaAtrasada.response,
+      'pagamento recente vinculado a vencimento anterior impede repetir como avulsa',
+      repetidaAtrasada.response.actions.length === 0 && /já encontrei um registro/i.test(repetidaAtrasada.response.reply)))
+    out.push(result('RCUR-origem-ausente-nao-e-origem-diferente', origemInserida.results,
+      'executor recusa despesa sem vínculo quando só a proposta tem origem e há conta homônima em aberto',
+      !origemInserida.applied && origemInserida.state === st))
+
+    const mesmoTurno = await turnoHoje(st, 'Paguei 120 da internet. Paguei 120 da internet. Gastei 30 no mercado.')
+    const aplicado = applyBatchPure(st, mesmoTurno.actions.map((action, i) => ({ id: `repetida-${i}`, action })),
+      { now: { date: hoje, time: '15:00' } })
+    out.push(result('RCUR-repeticao-na-mesma-mensagem-nao-invalida-lote', { mesmoTurno, resultados: aplicado.results },
+      'um pagamento da ocorrência e uma despesa avulsa válidos no lote',
+      mesmoTurno.actions.filter(a => a.kind === 'recurring-confirm').length === 1 && aplicado.applied
+        && aplicado.state.transactions.length === 2 && currentBalance(aplicado.state) === 850))
+
+    const divergente = await turnoHoje(st, 'Paguei 120 da internet. Paguei 150 da internet. Gastei 30 no mercado.')
+    out.push(result('RCUR-dois-valores-mesma-ocorrencia-pede-esclarecer', divergente,
+      'pergunta o valor que divergiu e mantém apenas a despesa independente',
+      divergente.actions.length === 1 && divergente.actions[0].kind === 'expense' && divergente.actions[0].amount === 30
+        && /pagamentos diferentes/.test(divergente.reply) && !/a proposta confirma/i.test(divergente.reply)))
+
+    const confirm = proposed.actions.find(a => a.kind === 'recurring-confirm')
+    if (confirm) {
+      const campos = editableFieldsFor(confirm, buildCapabilities(st)).map(f => f.name)
+      const forged = applyBatchPure(st, [{ id: 'data-incorreta', action: {
+        ...confirm, occurrenceDate: addDays(hoje, -1),
+      } }], { now: { date: hoje, time: '15:00' } })
+      out.push(result('RCUR-vencimento-invalido-recusado', { campos, results: forged.results },
+        'só valor e data de pagamento editáveis; executor recusa dia fora da recorrência',
+        campos.length === 2 && campos.includes('amount') && campos.includes('date') && !forged.applied
+          && forged.state === st && forged.results.some(r => 'code' in r && r.code === 'occurrence-invalid')))
+    } else {
+      out.push(result('RCUR-vencimento-invalido-recusado', proposed, 'proposta de recorrência', false))
+    }
+
+    const homonimas = { ...st, recurring: [...st.recurring, { ...st.recurring[0], id: 'internet-2', origin: 'Casa 2', amount: 190 }] }
+    const duvida = await orchestrate({ state: homonimas, message: 'Paguei 190 da internet e 30 no mercado', today: hoje, remoteEnabled: false })
+    const opcoes = duvida.response.mode === 'clarify' ? duvida.response.clarification.options : undefined
+    const seletor = opcoes?.find(o => o.label.includes('Casa 2'))
+    const escolha = seletor && duvida.response.mode === 'clarify' ? await orchestrate({
+      state: homonimas, message: seletor.label, pending: duvida.response.actions, pendingClarification: duvida.response.clarification,
+      today: hoje, remoteEnabled: false,
+    }) : undefined
+    const comOrigem = await turnoHoje(homonimas, 'Paguei a internet da Casa 2')
+    out.push(result('RCUR-homonimas-precisam-de-escolha', { duvida: duvida.response, escolha: escolha?.response, comOrigem },
+      'escolher a Casa 2 prepara somente essa conta por R$ 190 e preserva o mercado',
+      opcoes?.length === 2 && duvida.response.actions.length === 1 && escolha?.response.mode === 'propose_actions'
+        && escolha.response.actions.some(({ action }) => action.kind === 'recurring-confirm' && action.recurringId === 'internet-2' && action.amount === 190)
+        && escolha.response.actions.some(({ action }) => action.kind === 'expense' && action.amount === 30)
+        && comOrigem.actions.some(a => a.kind === 'recurring-confirm' && a.recurringId === 'internet-2' && a.amount === 190)))
+
+    const vencimentos = { ...st, recurring: [{ ...st.recurring[0], startDate: `${addDays(`${hoje.slice(0, 7)}-01`, -1).slice(0, 7)}-01` }] }
+    const semMes = await turnoHoje(vencimentos, 'Paguei 120 da internet hoje')
+    const desteMes = await turnoHoje(vencimentos, 'Paguei 120 da internet deste mês')
+    const doMesPassado = await turnoHoje(vencimentos, 'Paguei 120 da internet do mês passado')
+    const pendentes = pendingRecurrings(vencimentos, hoje)
+    out.push(result('RCUR-referencia-de-mes-escolhe-vencimento', { semMes, desteMes, doMesPassado },
+      'dia do pagamento não escolhe a competência; qualificadores deste mês e do mês passado selecionam cada vencimento',
+      pendentes.length === 2 && semMes.actions.length === 0 && /qual ocorrência/i.test(semMes.reply)
+        && desteMes.actions.some(a => a.kind === 'recurring-confirm' && a.occurrenceDate === pendentes[1].dueDate && a.amount === 120)
+        && doMesPassado.actions.some(a => a.kind === 'recurring-confirm' && a.occurrenceDate === pendentes[0].dueDate && a.amount === 120)))
+
+    const setembro = '2026-09-15'
+    const fixas = { ...st, recurring: [{ ...st.recurring[0], startDate: '2026-08-05' }] }
+    const nomeado = await turn(fixas, 'Paguei 120 da internet referente a setembro de 2026')
+    const antigo = await turn(fixas, 'Paguei a internet de agosto')
+    const conflito = await turn(fixas, 'Paguei 120 da internet deste mês com vencimento 05/08')
+    const pagoOntem = await turn(fixas, 'Paguei 120 da internet do mês passado ontem')
+    const referenciada = applyBatchPure(fixas, [{ id: 'avulsa-competencia', action: {
+      kind: 'expense', description: 'Internet de setembro de 2026', category: 'casa', amount: 120,
+    } }], { now: { date: setembro, time: '15:00' } })
+    out.push(result('RCUR-competencia-por-nome-e-vencimento-conflitante', { nomeado, antigo, conflito, pagoOntem, referenciada: referenciada.applied },
+      'competência nomeada seleciona a ocorrência, dia do pagamento fica separado e referências conflitantes pedem escolha',
+      nomeado.mode !== 'clarify' && nomeado.actions.some(a => a.kind === 'recurring-confirm' && a.occurrenceDate === '2026-09-05')
+        && antigo.actions.some(a => a.kind === 'recurring-confirm' && a.occurrenceDate === '2026-08-05' && a.amount === 120)
+        && conflito.actions.length === 0 && /mês informado é diferente/.test(conflito.reply)
+        && pagoOntem.actions.some(a => a.kind === 'recurring-confirm' && a.occurrenceDate === '2026-08-05' && a.date === '2026-09-14')
+        && !referenciada.applied))
+
     const other = await turnoHoje(st, 'paguei 120 da internet e 30 no mercado')
     out.push(result('RCUR-outra-despesa-do-lote-preservada', other,
       'conta fixa vira confirmação; despesa independente de 30 continua proposta',
@@ -4074,6 +4218,27 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('MI-correcao-pelo-sujeito', { reply: r.reply, actions: r.actions }, 'edit-transaction em mi-feira, nunca em mi-cimento',
         r.actions.length === 1 && r.actions[0].kind === 'edit-transaction' && r.actions[0].transactionId === 'mi-feira' && r.actions[0].amount === 150))
       const soCimento = { ...st, transactions: st.transactions.filter(t => t.id !== 'mi-feira') }
+      const frase = 'Na verdade a compra de material escolar foi 150, não 180'
+      const semMaterial = await turnoHoje(soCimento, frase)
+      const comMaterial = await turnoHoje({ ...soCimento, transactions: [...soCimento.transactions, {
+        ...soCimento.transactions[0], id: 'material', description: 'Material escolar',
+      }] }, frase)
+      out.push(result('MI-correcao-com-nome-composto', { semMaterial, comMaterial },
+        'o conector "de" preserva o nome composto; ausência do alvo impede corrigir Cimento',
+        semMaterial.actions.length === 0
+          && comMaterial.actions.some(a => a.kind === 'edit-transaction' && a.transactionId === 'material' && a.amount === 150)))
+      const formas = [
+        'Na verdade compra de material escolar foi 150, não 180',
+        'Na verdade a "feira de rua" foi 150, não 180',
+        'Na verdade o material e ferramenta foi 150, não 180',
+      ]
+      const historico = { ...soCimento, transactions: [...soCimento.transactions, {
+        ...soCimento.transactions[0], id: 'material-eletrico', description: 'Material elétrico',
+      }] }
+      const correcoes = await Promise.all(formas.map(text => turnoHoje(historico, text)))
+      out.push(result('MI-correcao-preserva-o-nome-inteiro', correcoes,
+        'sem correspondência para nome sem artigo, entre aspas ou com conjunção, nenhuma edição é proposta',
+        correcoes.every(r => r.actions.length === 0 && /não achei/i.test(r.reply))))
       const r2 = await turnoHoje(soCimento, 'na verdade a feira foi 150, não 180')
       out.push(result('MI-correcao-sem-alvo-nao-chuta', { reply: r2.reply, actions: r2.actions }, 'sem feira: nenhuma ação, diz que não achou',
         r2.actions.length === 0 && /n[ãa]o achei/i.test(r2.reply) && /feira/i.test(r2.reply)))
@@ -4097,12 +4262,78 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
           && (custo.fuelPerKm > 0 ? limpa(r.reply).includes(brl(Math.round(custo.fuelPerKm * 100 * 100) / 100)) : /consumo/i.test(r.reply))))
     }
 
+    // Os valores esperados são calculados a partir dos valores fixos do
+    // fixture, com 300 km, R$ 600 de corridas e consumo de 10 km/L.
+    {
+      const dias = [addDays(hoje, -3), addDays(hoje, -2), addDays(hoje, -1)]
+      const st = buildState({ profile: 'driver', transactions: [
+        ...dias.map((date, i) => ({ id: `rodagem-r${i}`, type: 'income' as const, amount: 200, category: 'corridas', date })),
+        { id: 'rodagem-c', type: 'expense', amount: 100, category: 'combustivel', date: dias[0] },
+        { id: 'rodagem-m', type: 'expense', amount: 50, category: 'manutencao', date: dias[0] },
+      ] })
+      st.settings.kmPerLiter = 10
+      st.settings.fuelPricePerLiter = 5
+      st.workSessions = dias.map((date, i) => ({ id: `rodagem-w${i}`, date, km: 100, hours: 6, trips: 10 }))
+      st.maintenance = [{ id: 'desgaste', date: dias[0], name: 'Peça', cost: 1000, lifeKm: 5000, kmInstalled: 5000 }]
+      const casos: [string, string, RegExp, RegExp?][] = [
+        ['percentuais', 'Se a gasolina aumentar 20%, e eu rodar 10% mais quilômetros, qual seria meu lucro?', /Lucro estimado para 330 km: R\$\s412,00/, /R\$\s400,00.*R\$\s12,00 a mais/],
+        ['preco-por-cento', 'Se eu rodar mais 100 km com a gasolina doze por cento mais cara, quanto vou gastar de combustível?', /100 km: R\$\s56,00/, /R\$\s50,00.*R\$\s6,00 a mais/],
+        ['preco-por-litro', 'Se eu rodar mais 100 km e a gasolina for de 5 para 9 reais o litro, quanto vou gastar de combustível?', /100 km: R\$\s90,00/, /R\$\s9,00 por litro/],
+        ['novo-preco-dado', 'Se eu rodar mais 100 km e a gasolina subir para R$ 9 por litro, quanto vou gastar de combustível?', /100 km: R\$\s90,00/],
+        ['preco-sem-unidade', 'Se eu rodar mais 100 km com a gasolina a R$ 9, quanto vou gastar de combustível?', /qual preço por litro/i],
+        ['litros', 'Se eu rodar mais 100 km, quantos litros de gasolina vou gastar?', /100 km: 10(?:,0)? L/],
+        ['manutencao', 'Se eu rodar mais 100 km, quanto vai custar a manutenção?', /100 km: R\$\s20,00/, /provisão de desgaste/],
+        ['dias', 'Se eu trabalhar mais dois dias por semana, quanto aumenta meu lucro?', /Lucro estimado por semana para 275 km: R\$\s400,00/, /R\$\s100,00.*R\$\s300,00 a mais/],
+        ['semana-impossivel', 'Se eu trabalhar mais sete dias por semana, quanto aumenta meu lucro?', /não cabe em uma semana/],
+      ]
+      for (const [id, text, valor, detalhe] of casos) {
+        const r = await turnoHoje(st, text)
+        out.push(result(`MI-rodagem-${id}`, r.reply, `${valor}${detalhe ? ` e ${detalhe}` : ''}`,
+          r.actions.length === 0 && valor.test(r.reply) && (!detalhe || detalhe.test(r.reply))
+          && /Simulação — nada foi registrado/.test(r.reply)))
+      }
+      const vazio = await turnoHoje(buildState({ profile: 'driver' }),
+        'Se a gasolina aumentar 20% e eu rodar 10% mais km, qual seria meu lucro?')
+      out.push(result('MI-rodagem-sem-historico', vazio.reply, 'pede registros antes de estimar lucro sem base',
+        vazio.actions.length === 0 && /quilometragem em pelo menos 3 dias/.test(vazio.reply) && !/R\$/.test(vazio.reply)))
+    }
+
+    {
+      const st = buildState({ profile: 'autonomo', balance: 1000, cards: [
+        { name: 'Inter', limit: 5000, closingDay: 10, dueDay: 25 },
+      ] })
+      st.settings.balanceAsOf = '2026-09-01'
+      const compra = await turn(st, 'Se eu der R$ 200 de entrada e financiar R$ 1.000 em 4x no Inter, como fica a compra?')
+      const adiada = await turn(st, 'E se eu adiar a compra por dois meses?', compra.focus)
+      const linhas = adiada.focus?.lastScenario?.months || []
+      out.push(result('MI-adiar-compra-desloca-entrada-e-fatura', { compra: compra.reply, adiada: adiada.reply, linhas },
+        'setembro e outubro sem saída; entrada de R$ 200 em novembro e primeira parcela de R$ 250 em dezembro',
+        adiada.actions.length === 0 && /15\/11\/2026.*25\/12\/2026/.test(adiada.reply)
+          && linhas[0]?.after === 1000 && linhas[1]?.after === 1000 && linhas[2]?.after === 800 && linhas[3]?.after === 550))
+      const semCompra = await turn(st, 'Se eu adiar a compra em dois meses, como fica?')
+      out.push(result('MI-adiar-compra-sem-alvo-pede-dados', semCompra, 'pede qual compra se não há simulação anterior',
+        semCompra.actions.length === 0 && /qual compra você quer adiar/i.test(semCompra.reply)))
+    }
+
     // O depósito é o número junto do verbo, não o acumulado dito antes.
     {
       const rico = autonomoRico(hoje)
       const r = await turnoHoje(rico, 'Já tenho R$ 4.800 na viagem. Se eu guardar R$ 350 por mês, quando termino?')
       out.push(result('MI-guardar-valor-junto-do-verbo', r.reply, 'R$ 350,00 por mês e 4 meses (faltam R$ 1.200)',
         /R\$\s350,00 por m[êe]s/.test(r.reply) && /\b4 meses\b/.test(r.reply) && !/4\.800,00 por m/.test(r.reply)))
+    }
+
+    {
+      const rico = autonomoRico(hoje)
+      const declarado = await turnoHoje(rico, 'Já tenho R$ 2.000 na viagem, se eu guardar R$ 500 por mês, quando termino?')
+      const outraMeta = await turnoHoje(rico, 'Já tenho R$ 2.000 na viagem. Se eu guardar R$ 500 por mês para o Notebook, quando termino?')
+      const completa = await turnoHoje(rico, 'Já tenho R$ 6.000 na viagem. Se eu guardar R$ 500 por mês, quando termino?')
+      out.push(result('MI-meta-usa-acumulado-informado', { declarado, outraMeta, completa },
+        'Viagem usa o valor da pergunta, Notebook usa seu próprio acumulado e meta atingida não cita mês anterior',
+        declarado.actions.length === 0 && /8 meses.*Viagem.*4\.000,00/.test(declarado.reply)
+          && /2\.000,00 como acumulado inicial/.test(declarado.reply) && !/não incluí/i.test(declarado.reply)
+          && /6 meses.*Notebook.*2\.800,00/.test(outraMeta.reply) && !/2\.000,00 como acumulado inicial/.test(outraMeta.reply)
+          && /já alcança a meta Viagem/.test(completa.reply) && !/por volta de/.test(completa.reply)))
     }
 
     // Aritmética com os números da frase: nem registro, nem "ainda não aconteceu".
@@ -4114,6 +4345,27 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const r2 = await turnoHoje(st, 'tenho 1000 hoje, preciso pagar 950 de aluguel e 320 de luz. quanto falta ganhar?')
       out.push(result('MI-conta-declarada-falta', { reply: r2.reply, actions: r2.actions }, 'faltam R$ 270,00',
         r2.actions.length === 0 && /Faltam R\$\s270,00/.test(r2.reply)))
+      const milhar = await turnoHoje(st, 'Tenho 1800 hoje, preciso pagar 1.250 de aluguel e 320 de energia. Quanto sobra?')
+      const misto = await turnoHoje(st, 'Gastei 100 no mercado. Tenho 1800 hoje, preciso pagar 950 de aluguel e 320 de energia. Quanto sobra?')
+      out.push(result('MI-conta-declarada-com-milhar', milhar,
+        'saldo R$ 230, com aluguel R$ 1.250 e energia R$ 320',
+        milhar.actions.length === 0 && /sobram R\$\s230,00/.test(milhar.reply) && /1\.250,00.*320,00/.test(milhar.reply)))
+      out.push(result('MI-conta-declarada-preserva-registro', misto, 'sobra declarada de R$ 530 mais proposta de R$ 100 no mercado',
+        /sobram R\$\s530,00/.test(misto.reply) && misto.actions.length === 1
+          && misto.actions.some(a => a.kind === 'expense' && a.amount === 100 && /mercado/i.test(a.description || ''))))
+      const reservado = await turnoHoje(st, 'Tenho 1800 para pagar 950 de aluguel e 320 da Casa 2. Quanto sobra?')
+      const negado = await turnoHoje(st, 'Não tenho 1800 hoje, preciso pagar 950 de aluguel e 320 de energia. Quanto sobra?')
+      const incompleto = await turnoHoje(st, 'Tenho 1800 hoje, preciso pagar 1250 de aluguel e a energia. Quanto sobra?')
+      out.push(result('MI-dinheiro-para-pagar-e-orcamento', reservado, 'sobra de R$ 530 e nenhuma proposta de despesa',
+        reservado.actions.length === 0 && /sobram R\$\s530,00/.test(reservado.reply)))
+      out.push(result('MI-conta-declarada-saldo-negado', negado, 'pede saldo disponível sem concluir que sobrou dinheiro',
+        negado.actions.length === 0 && /quanto você tem disponível/i.test(negado.reply) && !/sobram R\$/.test(negado.reply)))
+      out.push(result('MI-conta-declarada-compromisso-sem-valor', incompleto, 'pede o valor de cada conta antes de calcular sobra',
+        incompleto.actions.length === 0 && /valor de cada conta/i.test(incompleto.reply) && !/sobram R\$/.test(incompleto.reply)))
+      const noMeio = await turnoHoje(st, 'Tenho 1800 hoje. Gastei 100 no mercado ontem. Preciso pagar 950 de aluguel e 320 de energia. Quanto sobra?')
+      out.push(result('MI-conta-declarada-com-gasto-no-meio', noMeio, 'R$ 530 de sobra e proposta de despesa de ontem',
+        /sobram R\$\s530,00/.test(noMeio.reply) && noMeio.actions.length === 1
+          && noMeio.actions.some(a => a.kind === 'expense' && a.amount === 100 && a.date === addDays(hoje, -1))))
       const soSaldo = await turnoHoje(st, 'tenho 1800 hoje')
       out.push(result('MI-conta-declarada-nao-sequestra-saldo', soSaldo.actions, 'só "tenho 1800 hoje" não é a conta declarada',
         !/Usei só os valores que você disse/.test(soSaldo.reply)))
@@ -4168,14 +4420,30 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('MI-fiz-de-uber', descs, '180:99,350:Uber', descs === '180:99,350:Uber'))
     }
 
-    // Duas perguntas na mesma frase: a primeira é respondida; "quanto ISSO
-    // representa" é o valor de outra pergunta e é dito como não lido — nunca
-    // uma "participação na Uber" sobre outra conta.
+    // A proporção usa o total da primeira pergunta e o faturamento da Uber
+    // no mesmo período. Um denominador ausente não vira 0% ou infinito.
     {
-      const r = await turnoHoje(motoristaRico(hoje), 'Quanto gastei de combustível nos últimos 30 dias, sem contar a despesa de manutenção, e quanto isso representa do meu faturamento na Uber?')
-      out.push(result('MI-pergunta-composta', r.reply, 'total de combustível nos últimos 30 dias; segunda metade declarada não lida',
-        /Combust[íi]vel[^\n]*nos últimos 30 dias: R\$/.test(r.reply) && !/Não tenho nenhum lançamento/.test(r.reply)
-          && !/Participação na Uber/.test(r.reply) && /segunda parte[^\n]*n[ãa]o respondi/i.test(r.reply)))
+      const st = motoristaRico(hoje)
+      const limite = addDays(hoje, -29)
+      const despesas = st.transactions.filter(t => t.type === 'expense' && t.category === 'combustivel' && t.date >= limite && t.date <= hoje)
+      const uber = st.transactions.filter(t => t.type === 'income' && t.description === 'Uber' && t.date >= limite && t.date <= hoje)
+      const total = (items: typeof uber) => items.reduce((sum, t) => sum + t.amount, 0)
+      const proporcao = (total(despesas) / total(uber) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })
+      const primeira = 'Quanto gastei de combustível nos últimos 30 dias, sem contar a despesa de manutenção'
+      const segunda = 'quanto isso representa do meu faturamento na Uber?'
+      const composta = await turnoHoje(st, `${primeira}, e ${segunda}`)
+      const inicial = await turnoHoje(st, `${primeira}?`)
+      const continuacao = await turnoHoje(st, segunda, inicial.focus)
+      out.push(result('MI-pergunta-composta', composta.reply, `total de combustível e ${proporcao}% do faturamento na Uber`,
+        /Combust[íi]vel[^\n]*nos últimos 30 dias: R\$/.test(composta.reply)
+          && composta.reply.includes(`${proporcao}%`) && composta.reply.includes(fmtBRL(total(uber)))
+          && /total recebido na Uber nos últimos 30 dias/i.test(composta.reply) && composta.actions.length === 0))
+      out.push(result('MI-proporcao-em-outro-turno', continuacao.reply, `${proporcao}% sobre o mesmo período`,
+        continuacao.reply.includes(`${proporcao}%`) && /Uber nos últimos 30 dias/.test(continuacao.reply) && continuacao.actions.length === 0))
+      const semUber = { ...st, transactions: st.transactions.filter(t => t.description !== 'Uber') }
+      const semBase = await turnoHoje(semUber, `${primeira}, e ${segunda}`)
+      out.push(result('MI-proporcao-sem-denominador', semBase.reply, 'explica a falta do denominador sem inventar proporção',
+        /não encontrei um total disponível/i.test(semBase.reply) && !/\d\s*%/.test(semBase.reply) && semBase.actions.length === 0))
     }
 
     // Preferência de análise que o app não guarda: dita, nunca o menu nem a resposta à pergunta embutida.

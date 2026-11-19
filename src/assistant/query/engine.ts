@@ -576,7 +576,8 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
   // número muda muito conforme o divisor — a resposta diz qual foi.
   if (plan.metric === 'per-day') {
     const dias = Math.round((fromISO(plan.period.to).getTime() - fromISO(plan.period.from).getTime()) / 86400000) + 1
-    if (dias > 1) caveats.push(`Dividido pelos ${dias} dias corridos do período, com ou sem lançamento.`)
+    caveats.push(dias === 1 ? 'O período tem 1 dia corrido.'
+      : `Dividido pelos ${dias} dias corridos do período, com ou sem lançamento.`)
   }
   if (plan.metric === 'share') {
     base = baseParaShare(state, plan)
@@ -643,24 +644,30 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
     const fim = fromISO(plan.period.to)
     const cortado = new Date(fim.getFullYear(), fim.getMonth() + 1, 0).getDate() === fim.getDate()
       ? null : monthKey(plan.period.to)
+    const inicioCortado = plan.period.from.endsWith('-01') ? null : monthKey(plan.period.from)
     const mesDeHoje = monthKey(today)
-    const naoFechou = (k: string) => k === cortado || k >= mesDeHoje
+    const naoFechou = (k: string) => k === inicioCortado || k === cortado || k >= mesDeHoje
     for (const g of groups) {
       const soma = ag.groups.get(g.key)?.valores.reduce((a, b) => a + b, 0) ?? 0
       g.value = r2(soma)
     }
     const comDado = [...ag.groups.keys()].sort()
     const fechados = comDado.filter(k => !naoFechou(k))
-    const usados = (fechados.length ? fechados : comDado)
-    if (usados.length) {
+    if (comDado.length && !fechados.length) {
+      return { plan, unit, total: 0, count: 0, groups: [], estimated: false, empty: true,
+        sample: { rows: 0, from: plan.period.from, to: plan.period.to }, facts: [], samples: [],
+        caveats: ['Ainda não há um mês completo com lançamentos nesse período para calcular a média mensal.'] }
+    }
+    if (fechados.length) {
       const meses: string[] = []
-      for (let k = usados[0]; k <= usados[usados.length - 1]; k = monthKey(toISO(new Date(Number(k.slice(0, 4)), Number(k.slice(5, 7)), 1)))) meses.push(k)
+      for (let k = fechados[0]; k <= fechados[fechados.length - 1]; k = monthKey(toISO(new Date(Number(k.slice(0, 4)), Number(k.slice(5, 7)), 1)))) meses.push(k)
       const soma = meses.reduce((a, k) => a + (ag.groups.get(k)?.valores.reduce((x, y) => x + y, 0) ?? 0), 0)
       total = soma / meses.length
       const nome = (k: string) => monthShortLabel(fromISO(`${k}-01`))
       caveats.push(meses.length === 1
         ? `Média de 1 mês completo (${nome(meses[0])}).`
-        : `Média de ${meses.length} meses completos (${nome(meses[0])} a ${nome(meses[meses.length - 1])})${fechados.length && comDado.some(naoFechou) ? '; o mês atual ainda não fechou e fica fora' : ''}.`)
+        : `Média de ${meses.length} meses completos (${nome(meses[0])} a ${nome(meses[meses.length - 1])}).`)
+      if (comDado.some(naoFechou)) caveats.push('Os meses parciais ficaram fora da média.')
     }
   }
 
@@ -741,9 +748,27 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
     }
   }
 
+  let cardPurchases: AssistantQueryResult['cardPurchases']
+  if (plan.showCardPurchases && plan.source === 'invoices' && plan.metric === 'sum'
+    && plan.group === 'none' && !plan.comparePeriod && !plan.period.future
+    && Object.keys(plan.filter).every(k => k === 'cardNames' || k === 'excludeCardNames')) {
+    const incluidos = plan.filter.cardNames?.map(normalizeName) || []
+    const excluidos = plan.filter.excludeCardNames?.map(normalizeName) || []
+    const cartoes = new Set(activeCards(state).filter(c => {
+      const nome = normalizeName(c.name)
+      return (!incluidos.length || incluidos.includes(nome)) && !excluidos.includes(nome)
+    }).map(c => c.id))
+    const compras = state.installmentPlans.filter(p => p.cardId && cartoes.has(p.cardId)
+      && (!p.operationType || p.operationType === 'card-purchase') && p.status !== 'cancelled'
+      && p.purchaseDate >= plan.period.from && p.purchaseDate <= plan.period.to && p.purchaseDate <= today
+      && Number.isFinite(p.totalAmount) && p.totalAmount > 0)
+    cardPurchases = { total: r2(compras.reduce((total, p) => total + p.totalAmount, 0)), count: compras.length }
+  }
+
   return {
     plan,
     ...(lastOutside ? { lastOutside } : {}),
+    ...(cardPurchases ? { cardPurchases } : {}),
     total: r2(total),
     count: rows.length,
     groups: limitados,

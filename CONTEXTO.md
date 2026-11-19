@@ -6,7 +6,27 @@ o histórico de rodadas fica no [PROGRESS.md](PROGRESS.md). As seções antigas
 abaixo preservam decisões de sua época; este checkpoint prevalece onde houver
 divergência temporal. O código e os testes prevalecem sobre a documentação.
 
-## Checkpoint vigente — 12/11/2026 (retomada no Linux)
+## Checkpoint vigente — 19/11/2026
+
+- Revisão local de `feat/assistant-intelligence-v2` após o handoff de 12/11.
+  Pagamentos repetidos de contas atrasadas, contas homônimas, edição da
+  ocorrência e orçamento confundido com despesa têm regressões específicas.
+- O motor de cenários usa variações de distância e preço de combustível,
+  dias extras por semana e provisão de manutenção com a base cadastrada.
+  A meta pode usar o acumulado declarado para a simulação. Adiar uma
+  compra remarca a entrada e a primeira parcela no calendário.
+- A consulta encadeia proporções com denominador de entradas, despesas
+  ou faturamento de uma plataforma. A consulta simples de gasto no cartão
+  distingue as compras pela data registrada da fatura pelo vencimento.
+- A matriz cobre oito datas, incluindo dois primeiros dias do mês.
+  O navegador foi exercitado localmente com dados fictícios, incluindo
+  reidratação de pagamento legado com data futura.
+- **NOT READY para merge/deploy.** Falta uma revisão independente deste
+  diff. DeepSeek real, APK e dados legados reais seguem fora da validação.
+  Preferências de análise persistentes, inferência de viagem da 99 e
+  classificação de reembolsos continuam como decisões de produto.
+
+## Checkpoint anterior — 12/11/2026 (retomada no Linux)
 
 - A branch `feat/assistant-intelligence-v2` só existia no disco do Windows
   (`D:\Claude\AssistFin`, HEAD `9bc0457`); foi clonada para `~/work/assistfin`

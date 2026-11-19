@@ -1,6 +1,6 @@
 // Motor de cálculos financeiros — todos os números do app saem daqui.
 import { AppState, Insight, IntervalUnit, RecurrenceOccurrence, RecurringExpense, Transaction } from '../models/types'
-import { addDays, dateForDayOfMonth, daysInMonth, dueLabel, fmtBRL, fmtNum, fromISO, monthKey, monthShortLabel, stampOf, todayISO, toISO } from '../utils/format'
+import { addDays, dateForDayOfMonth, daysInMonth, dueLabel, fmtBRL, fmtNum, fromISO, MESES_PT_BR, monthKey, monthShortLabel, stampOf, todayISO, toISO } from '../utils/format'
 import { normalizeName, sentenceCase, weekdayName } from '../utils/text'
 import { installmentsThisMonth, monthlyCommitments, installmentsInMonth, chargesInMonth, activeCards, cardInvoice, directInstallmentPaidAmount, invoiceOpenAmount, hasAmbiguousLegacyCardBalance } from './cards'
 
@@ -464,11 +464,75 @@ export function pendingRecurrings(s: AppState, t = todayISO(), includeSnoozed = 
   return out.sort((a, b) => a.dueDate.localeCompare(b.dueDate))
 }
 
-/** Nome igual ao de uma conta fixa em aberto: o chat não tem chave de ocorrência. */
-export function pendingExpenseByName(s: AppState, description: string | undefined, t = todayISO()): PendingRecurring | undefined {
-  const name = normalizeName(description)
-  if (!name) return undefined
-  return pendingRecurrings(s, t, true).find(p => p.kind === 'expense' && normalizeName(p.rec.name) === name)
+const mesesPorNome = MESES_PT_BR.map(normalizeName)
+const nomeDaCompetencia = new RegExp(String.raw`\s+(?:de|referente\s+(?:a|ao|a\s+mes\s+de))\s+(${mesesPorNome.join('|')})(?:\s+de\s+(\d{4}))?$`)
+
+/**
+ * Consulta a recorrência citada numa movimentação. Uma data de pagamento não
+ * escolhe o vencimento. Uma referência explícita, como "luz deste mês", escolhe
+ * o mês da ocorrência, inclusive quando ela já foi resolvida.
+ */
+export function matchRecurringPayment(
+  s: AppState,
+  payment: { description?: string; kind: 'income' | 'expense'; amount?: number; origin?: string; date?: string },
+  today: string,
+  dueDate?: string,
+): { pending: PendingRecurring[]; alreadyPaid: boolean; conflictingReference?: boolean } | null {
+  const name = normalizeName(payment.description)
+  if (!name) return null
+  const origin = normalizeName(payment.origin)
+  const matches = (description: string) => s.recurring.filter(r => {
+    const registeredOrigin = normalizeName(r.origin)
+    if ((r.kind || 'expense') !== payment.kind || (origin && registeredOrigin && origin !== registeredOrigin)) return false
+    const registered = normalizeName(r.name)
+    return description === registered || (!!registeredOrigin && ['da', 'do', 'de', 'na', 'no']
+      .some(link => description === `${registered} ${link} ${registeredOrigin}`))
+  })
+  let accounts = matches(name)
+  let reference: string | undefined
+  if (!accounts.length) {
+    const month = name.match(/\s+(?:deste|desse|neste|nesse)\s+mes$|\s+(?:do\s+mes\s+(?:passado|anterior)|d[eo]\s+mes\s+atual)$/)
+    if (month) {
+      accounts = matches(name.slice(0, month.index))
+      reference = /passado|anterior/.test(month[0]) ? monthKey(addDays(`${monthKey(today)}-01`, -1)) : monthKey(today)
+    } else {
+      const named = name.match(nomeDaCompetencia)
+      if (named) {
+        accounts = matches(name.slice(0, named.index))
+        const [ano, mes] = today.split('-').map(Number)
+        const escolhido = mesesPorNome.indexOf(named[1]) + 1
+        const anoEscolhido = named[2] || String(escolhido <= mes ? ano : ano - 1)
+        reference = `${anoEscolhido}-${String(escolhido).padStart(2, '0')}`
+      }
+    }
+  }
+  if (!accounts.length) return null
+  if (dueDate && reference && monthKey(dueDate) !== reference) {
+    return { pending: [], alreadyPaid: false, conflictingReference: true }
+  }
+
+  const fromOrigin = origin ? accounts.filter(r => normalizeName(r.origin) === origin) : []
+  if (fromOrigin.length) accounts = fromOrigin
+  const ids = new Set(accounts.map(r => r.id))
+  const references = (occ: string) => dueDate ? occ === dueDate : !reference || monthKey(occ) === reference
+  const explicit = !!(dueDate || reference)
+  const pending = pendingRecurrings(s, today, true).filter(p => ids.has(p.rec.id) && references(p.dueDate))
+  const earliestRepeat = addDays(today, pending.length ? -1 : -PENDING_LOOKBACK_DAYS)
+  const alreadyPaid = s.transactions.some(t => {
+    if (t.type !== payment.kind || !t.recurringId || !ids.has(t.recurringId) || !t.occurrenceDate
+      || !references(t.occurrenceDate) || t.date > today) return false
+    if (explicit) return true
+    const matchesAmount = payment.amount === undefined || Math.abs(payment.amount - t.amount) < 0.005
+    // O desembolso pode ter sido neste mês para uma conta antiga. Para um
+    // relato sem data, a proximidade é medida pelo pagamento registrado.
+    const samePayment = payment.date ? t.date === payment.date : t.date >= earliestRepeat
+    return matchesAmount && samePayment
+  }) || (explicit && accounts.some(r => {
+    if (dueDate) return dueDate <= today && occurrenceRecord(r, dueDate)?.status === 'confirmed'
+    if (!r.occurrences?.length) return !!reference && r.handledMonths?.includes(reference)
+    return r.occurrences.some(o => o.status === 'confirmed' && o.date <= today && references(o.date))
+  }))
+  return pending.length || alreadyPaid || explicit ? { pending, alreadyPaid } : null
 }
 
 // ---------- CUSTO REAL POR KM (seção 23) ----------
@@ -482,11 +546,18 @@ export interface KmCost {
   comfort: number
 }
 
+export function fuelCostBasis(s: AppState, asOf?: string): { kmPerLiter: number; pricePerLiter: number } {
+  const recorded = asOf ? { ...s, fuelRecords: s.fuelRecords.filter(f => f.date <= asOf) } : s
+  return {
+    kmPerLiter: fuelEfficiency(recorded) || s.settings.kmPerLiter || 0,
+    pricePerLiter: lastFuelPrice(recorded) || s.settings.fuelPricePerLiter || 0,
+  }
+}
+
 export function kmCost(s: AppState): KmCost {
   // Sem dados do usuário, permanece zero: nunca inventa consumo ou preço.
-  const kml = fuelEfficiency(s) || s.settings.kmPerLiter || 0
-  const price = lastFuelPrice(s) || s.settings.fuelPricePerLiter || 0
-  const fuelPerKm = kml > 0 && price > 0 ? price / kml : 0
+  const { kmPerLiter, pricePerLiter } = fuelCostBasis(s)
+  const fuelPerKm = kmPerLiter > 0 && pricePerLiter > 0 ? pricePerLiter / kmPerLiter : 0
 
   const maintenancePerKm = s.maintenance.reduce((a, m) => a + (m.lifeKm > 0 ? m.cost / m.lifeKm : 0), 0)
 

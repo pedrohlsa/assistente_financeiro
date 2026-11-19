@@ -60,6 +60,11 @@ export const nowStamp = () => {
 /** Mesmo formato de `nowStamp`, montado a partir de uma transação. */
 export const stampOf = (date: string, time?: string) => `${date}T${time || '00:00'}`
 
+export const MESES_PT_BR: readonly string[] = [
+  'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
+]
+
 /**
  * Rótulo curto de mês: "set/2026", "dez/2026".
  *
