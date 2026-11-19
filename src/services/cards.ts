@@ -165,8 +165,7 @@ export function futureInvoicePaymentDate(s: AppState, card: CreditCard, mk: stri
   return dates.sort()[0]
 }
 
-/** Mês anterior ainda aberto: chat sem referência não pode escolher outra fatura. */
-export function unpaidPriorInvoiceMonth(s: AppState, card: CreditCard, mk: string, asOf = todayISO()): string | undefined {
+export function unpaidPriorInvoiceMonths(s: AppState, card: CreditCard, mk: string, asOf = todayISO()): string[] {
   const [year, month] = mk.split('-').map(Number)
   const months = new Set<string>()
   for (let back = 1; back <= 24; back++) months.add(monthKey(toISO(new Date(year, month - 1 - back, 1))))
@@ -174,7 +173,7 @@ export function unpaidPriorInvoiceMonth(s: AppState, card: CreditCard, mk: strin
     if (planById(s, i.planId)?.cardId === card.id && monthKey(i.dueDate) < mk) months.add(monthKey(i.dueDate))
   }
   if (card.initialInvoiceBalance) months.add(monthKey(nextInvoiceDueDate(card, card.createdAt)))
-  return [...months].filter(m => m < mk).sort().reverse().find(m =>
+  return [...months].filter(m => m < mk).sort().reverse().filter(m =>
     invoiceOpenAmount(s, cardInvoice(s, card, m, asOf), asOf) > 0.009)
 }
 

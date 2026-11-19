@@ -15,13 +15,13 @@ import type {
 import type { ActionExecutionResult, AssistantErrorCode } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, errorMessage, isPlausibleDate } from './contracts'
 import { JOURNAL_LIMIT, diffForJournal, isRevertFailure, revertBatchPure } from './journal'
-import { invoicePaymentIssue } from './invoicePayment'
+import { findInvoicePaymentCards, invoicePaymentIssue } from './invoicePayment'
 import { addDays, monthKey, nowPaymentTime, nowStamp, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
 import { isOccurrenceResolved, matchRecurringPayment, nextCashEventTime, occurrencesBetween } from '../services/calc'
 import { buildInstallments, cardInvoice, directInstallmentPaidAmount, futureInvoicePaymentDate,
-  invoiceOpenAmount, settleableInstallmentIds, suggestedFirstDueDate, unpaidPriorInvoiceMonth,
+  invoiceOpenAmount, settleableInstallmentIds, suggestedFirstDueDate, unpaidPriorInvoiceMonths,
   validPaymentDate } from '../services/cards'
 
 // ---------------------------------------------------------------------------
@@ -333,13 +333,13 @@ export function applyActionPure(
       }
     }
     case 'card-payment': {
-      const active = (state.cards || []).filter(c => !c.archived)
-      const card = findCardByName(state, action.cardName)
-      if (!card) {
-        if (!active.length) return { state, result: fail(actionId, 'card-not-found', 'Você ainda não cadastrou cartões.') }
-        if (action.cardName) return { state, result: fail(actionId, 'card-not-found', `"${action.cardName}"`) }
-        return { state, result: fail(actionId, 'card-ambiguous') }
+      const cards = findInvoicePaymentCards(state, action)
+      if (cards.length !== 1) {
+        if (cards.length > 1) return { state, result: fail(actionId, 'card-ambiguous') }
+        const detail = action.cardName ? `"${action.cardName}"` : 'Você ainda não cadastrou cartões.'
+        return { state, result: fail(actionId, 'card-not-found', detail) }
       }
+      const [card] = cards
       const paymentDate = action.date ?? date
       if (!validPaymentDate(paymentDate, date)) {
         return { state, result: fail(actionId, paymentDate > date ? 'future-date' : 'invalid-date', paymentDate) }
@@ -349,7 +349,7 @@ export function applyActionPure(
       if (futureInvoicePaymentDate(state, card, mk, date)) return {
         state, result: fail(actionId, 'invoice-conflict', `${card.name}: há pagamento com data futura.`, false),
       }
-      if (!action.referenceMonth && (monthKey(paymentDate) !== mk || unpaidPriorInvoiceMonth(state, card, mk, date))) return {
+      if (!action.referenceMonth && (monthKey(paymentDate) !== mk || unpaidPriorInvoiceMonths(state, card, mk, date).length)) return {
         state, result: fail(actionId, 'invoice-conflict', `Confirme o mês de vencimento da fatura do ${card.name}.`, false),
       }
       const invoice = cardInvoice(state, card, mk, date)

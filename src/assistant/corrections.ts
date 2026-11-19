@@ -361,7 +361,14 @@ export function applyCorrection(
   if (plan.cancelAll) return []
   let out = pending.filter(p => !plan.remove.includes(p.id))
   for (const e of plan.edits) {
-    out = out.map(p => (p.id === e.id ? { ...p, action: { ...(p.action as any), [e.field]: e.value } } : p))
+    out = out.map(p => {
+      if (p.id !== e.id) return p
+      if (p.action.kind === 'card-payment' && e.field === 'cardName') {
+        const { cardId, ...payment } = p.action
+        return { ...p, action: { ...payment, cardName: e.value } }
+      }
+      return { ...p, action: { ...p.action, [e.field]: e.value } }
+    })
   }
   return out
 }

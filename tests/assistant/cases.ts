@@ -344,7 +344,8 @@ export const CASES: AssistantCase[] = [
     expectActions: [{ kind: 'expense', amount: 79, category: 'casa' }] },
   { id: 'amb-03', group: 'ambiguidade', ...driver, messages: ['coloquei 79 de GNV'],
     expectActions: [{ kind: 'fuel', amount: 79 }] },
-  { id: 'amb-04', group: 'ambiguidade', ...other, state: twoCards,
+  { id: 'amb-04', group: 'ambiguidade', ...other,
+    state: { cards: twoCards.cards.map(c => ({ ...c, initialInvoiceBalance: 200, closingDay: 20, dueDay: 25 })) },
     messages: ['paguei a fatura'], expectMode: 'clarify', expectClarification: /cart[ãa]o/i },
 
   // ======================= 14. CORREÇÕES =======================

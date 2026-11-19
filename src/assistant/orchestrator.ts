@@ -12,8 +12,8 @@ import type { AppState, AssistantJournalEntry, ParsedAction, Transaction } from 
 import { lastReversibleBatch } from './journal'
 import { editActionFor, findEditCandidates, parseEditRequest, parseSpokenCorrection } from './editSaved'
 import type { EditableTxField } from './editSaved'
-import { editBlockReason, findCardByName } from './execute'
-import { invoicePaymentIssue } from './invoicePayment'
+import { editBlockReason } from './execute'
+import { matchInvoiceChoice, prepareInvoicePayments } from './invoicePayment'
 import type {
   AssistantCandidateAction, AssistantCapabilities, AssistantClarification,
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
@@ -52,7 +52,6 @@ import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../servi
 import { catById, usableCategories } from '../data/categories'
 import { addDays, fmtBRL, MESES_PT_BR, todayISO, uid } from '../utils/format'
 import { matchRecurringPayment, occurrenceRecord, occurrencesBetween, recurringActiveOn } from '../services/calc'
-import { cardInvoice, futureInvoicePaymentDate, invoiceOpenAmount, unpaidPriorInvoiceMonth } from '../services/cards'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { brDate, dateLabel, findAllDates, findDate, previousYearOf, resolveDayInWindow } from './dates'
 import { applyPreferenceAliases, parsePreferenceCommand } from './preferences'
@@ -626,6 +625,7 @@ function runLocal(
   // não vira ação executável — vira pergunta específica.
   for (const c of candidates) {
     const a: any = c.action
+    if (c.action.kind === 'card-payment') continue
     // `'cardName' in a` não serve: a validação remove campos ausentes, então a
     // chave simplesmente não existe. Quem sabe se a ação ACEITA cartão é o
     // catálogo.
@@ -894,6 +894,28 @@ function proposalText(candidates: AssistantCandidateAction[], state: AppState): 
   return `Entendi isso:\n\n${lines.join('\n')}`
 }
 
+function proposeClarifiedActions(
+  state: AppState, actions: ParsedAction[], today: string, previous: AssistantCandidateAction[] = [],
+): OrchestratorOutput {
+  return preparedActionResponse(state, prepareInvoicePayments(state, actions.map(a => candidate(a, 'local')), today), previous)
+}
+
+function preparedActionResponse(
+  state: AppState, prepared: ReturnType<typeof prepareInvoicePayments>,
+  previous: AssistantCandidateAction[] = [], correction?: string,
+): OrchestratorOutput {
+  const candidates = [...previous, ...prepared.actions]
+  const reply = [correction, candidates.length ? proposalText(candidates, state) : '', ...prepared.notes,
+    prepared.clarification?.question || (candidates.length ? 'Confirmar?' : '')].filter(Boolean).join('\n\n')
+  const response = { version: ASSISTANT_CONTRACT_VERSION, engine: 'local' as const, actions: candidates, unresolved: [], reply }
+  return {
+    draft: null,
+    correctedPending: previous.length || correction !== undefined ? candidates : undefined,
+    response: prepared.clarification ? { ...response, mode: 'clarify', clarification: prepared.clarification }
+      : candidates.length ? { ...response, mode: 'propose_actions' } : { ...response, mode: 'answer', actions: [] },
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Orquestração
 // ---------------------------------------------------------------------------
@@ -1104,11 +1126,12 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const said = normalizeName(input.message)
     const financialEvent = pc.field === 'financial-event'
     const fixedBillChoice = pc.field === 'recurring-occurrence'
+    const invoiceChoice = pc.field === 'invoice-reference'
     // Para dinheiro, só uma resposta inequívoca aceita a ação antiga. "assim"
     // contém "sim", e "sim, mandei só 10" altera o valor da proposta.
     const simpleAnswer = said.replace(/[.!?]+$/g, '').trim()
     const negativeAnswer = financialEvent && /^(?:nao|nem)(?:\b|$)/.test(simpleAnswer)
-    const hit = pc.options.find(o => financialEvent || fixedBillChoice
+    const hit = invoiceChoice ? matchInvoiceChoice(pc.options, input.message) : pc.options.find(o => financialEvent || fixedBillChoice
       ? (normalizeName(o.label) === simpleAnswer || normalizeName(o.value) === simpleAnswer
         || (negativeAnswer && normalizeName(o.label) === 'nao'))
       : (normalizeName(o.label) === said || normalizeName(o.value) === said ||
@@ -1131,17 +1154,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
           }
           validated.push(checked.action)
         }
-        const previous = financialEvent || fixedBillChoice ? input.pending || [] : []
-        const cands = [...previous, ...validated.map(a => candidate(a, 'local'))]
-        return {
-          draft: null,
-          correctedPending: previous.length ? cands : undefined,
-          response: {
-            version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
-            actions: cands, unresolved: [],
-            reply: `${proposalText(cands, input.state)}\n\nConfirmar?`,
-          },
-        }
+        const previous = financialEvent || fixedBillChoice || invoiceChoice ? input.pending || [] : []
+        return proposeClarifiedActions(input.state, validated, today, previous)
       }
       // Escolha que significa NÃO REGISTRAR ("é um plano"): a explicação já vem
       // pronta na opção, para o usuário não ficar sem saber por que nada foi
@@ -1169,6 +1183,16 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
         },
       }
     }
+    if (invoiceChoice && !looksPast(input.message) && !looksLikeQuestion(input.message)) {
+      return {
+        draft: null, keepPending: true,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
+          actions: [], unresolved: [], clarification: pc,
+          reply: `Escolha uma das faturas abaixo. Se o valor ou a data mudou, diga o pagamento em uma frase completa. ${pc.question}`,
+        },
+      }
+    }
   }
 
   // ---- 1) A mensagem responde "que dia foi?" dentro de um período? ------
@@ -1177,15 +1201,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (pc?.field === 'date' && pc.dateWindow && pc.pendingActions?.length) {
     const iso = resolveDayInWindow(input.message, pc.dateWindow, today)
     if (iso) {
-      const cands = withDate(pc.pendingActions, iso).map(a => candidate(a, 'local'))
-      return {
-        draft: null,
-        response: {
-          version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
-          actions: cands, unresolved: [],
-          reply: `${proposalText(cands, input.state)}\n\nConfirmar?`,
-        },
-      }
+      return proposeClarifiedActions(input.state, withDate(pc.pendingActions, iso), today)
     }
     // Resposta inválida ou fora da janela: a pergunta continua aberta. Cair no
     // fluxo comum descartava `pendingClarification`; pior, uma data completa de
@@ -1210,15 +1226,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (pc?.field === 'date' && !pc.dateWindow && pc.pendingActions?.length) {
     const corrected = findDate(input.message, today)
     if (corrected?.kind === 'date') {
-      const cands = withDate(pc.pendingActions, corrected.date).map(a => candidate(a, 'local'))
-      return {
-        draft: null,
-        response: {
-          version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
-          actions: cands, unresolved: [],
-          reply: `${proposalText(cands, input.state)}\n\nConfirmar?`,
-        },
-      }
+      return proposeClarifiedActions(input.state, withDate(pc.pendingActions, corrected.date), today)
     }
     if (corrected?.kind === 'future') {
       const clarification = temporalClarification({
@@ -1335,6 +1343,9 @@ Confirmar?`,
             unresolved: [], reply: plan.summary.join(' ') || 'Ok, descartei a proposta.',
           },
         }
+      }
+      if (next.some(c => c.action.kind === 'card-payment')) {
+        return preparedActionResponse(input.state, prepareInvoicePayments(input.state, next, today), [], plan.summary.join(' '))
       }
       return {
         draft: null, correctedPending: next,
@@ -1836,39 +1847,13 @@ Confirmar?`,
   const escolhasDeContaFixa: AssistantClarification[] = []
   const notasDeFatura = new Set<string>()
   const resolveInvoicePayments = (proposals: AssistantCandidateAction[]) => {
-    const vistos = new Set<string>()
-    return proposals.filter(({ action }) => {
-      if (action.kind !== 'card-payment') return true
-      const card = findCardByName(input.state, action.cardName)
-      if (!card) return true
-      const paidOn = action.date || today
-      const mk = action.referenceMonth || today.slice(0, 7)
-      if (!action.referenceMonth && (paidOn.slice(0, 7) !== mk || unpaidPriorInvoiceMonth(input.state, card, mk, today))) {
-        notasDeFatura.add(`Qual foi o mês de vencimento da fatura do ${card.name}? Informe o mês e o ano para eu preparar o pagamento na fatura certa.`)
-        return false
-      }
-      const invoice = cardInvoice(input.state, card, mk, today)
-      if (futureInvoicePaymentDate(input.state, card, mk, today)) {
-        notasDeFatura.add(`Já existe um pagamento com data futura para essa fatura do ${card.name}. Confira o registro na tela de Cartões e parcelamentos.`)
-        return false
-      }
-      const issue = invoicePaymentIssue(input.state, invoice, paidOn, today, action.amount)
-      if (issue) {
-        notasDeFatura.add(issue.detail)
-        return false
-      }
-      if ((action.referenceMonth || paidOn !== today) && invoiceOpenAmount(input.state, invoice, today) <= 0.009) {
-        notasDeFatura.add(`Não há valor pendente na fatura do ${card.name} com vencimento em ${mk.slice(5)}/${mk.slice(0, 4)}. Confira o mês em Cartões e parcelamentos.`)
-        return false
-      }
-      const key = JSON.stringify([card.id, mk, paidOn, action.amount ?? invoice.pending])
-      if (vistos.has(key)) {
-        notasDeFatura.add(`O mesmo pagamento da fatura do ${card.name} aparece duas vezes. Compare com o extrato se foram transferências separadas.`)
-        return false
-      }
-      vistos.add(key)
-      return true
-    })
+    const resolved = prepareInvoicePayments(input.state, proposals, today)
+    for (const note of resolved.notes) notasDeFatura.add(note)
+    if (resolved.clarification) {
+      if (!clarification) clarification = resolved.clarification
+      else notasDeFatura.add(resolved.clarification.question)
+    }
+    return resolved.actions
   }
   const addFixedBillResolution = (resolution: RecurringResolution) => {
     if ('clarification' in resolution) {

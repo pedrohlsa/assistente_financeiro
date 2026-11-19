@@ -75,7 +75,7 @@ function optionsFor(kind: string, f: ActionFieldSpec, caps: AssistantCapabilitie
 export function editableFieldsFor(action: ParsedAction, caps: AssistantCapabilities): EditableField[] {
   const spec = actionSpec(action.kind)
   if (!spec) return []
-  return spec.fields.filter(f => f.editable !== false).map(f => {
+  return spec.fields.filter(f => f.editable !== false && !(action.kind === 'card-payment' && action.cardId && f.name === 'cardName')).map(f => {
     const campo: EditableField = {
       name: f.name,
       label: LABELS[f.name] || f.name,

@@ -17,7 +17,7 @@ export const TODAY = '2026-07-15' // quarta-feira
 export interface CaseState {
   profile?: ProfileId
   balance?: number
-  cards?: { name: string; limit?: number; closingDay?: number; dueDay?: number }[]
+  cards?: { name: string; limit?: number; closingDay?: number; dueDay?: number; initialInvoiceBalance?: number }[]
   goals?: { name: string; target: number; saved?: number }[]
   /** `id` explícito quando o caso precisa referenciá-lo (journal do undo). */
   transactions?: Partial<ParsedAction & { id: string; type: string; amount: number; category: string; date: string }>[]
@@ -83,6 +83,7 @@ export function buildState(cs: CaseState = {}): AppState {
     cards: (cs.cards || []).map((c, i) => ({
       id: `card${i}`, name: c.name, limit: c.limit ?? 5000,
       closingDay: c.closingDay ?? 1, dueDay: c.dueDay ?? 10, createdAt: TODAY,
+      initialInvoiceBalance: c.initialInvoiceBalance,
     })),
     installmentPlans: [], installments: [], cardPayments: [], cardCharges: [],
     assistantJournal: cs.journal || [],

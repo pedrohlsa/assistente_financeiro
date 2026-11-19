@@ -5812,3 +5812,18 @@ APK ou chamada paga. NOT READY até auditoria independente.
   a fatura atual intacta. Repetir a mesma mensagem após recarregar não
   abriu outra proposta. A suíte passou com 738/738 regressões reais.
   Typechecks, build e rubrica local passaram. A branch permanece NOT READY.
+
+## 19/11/2026 — Escolha da fatura no chat
+
+- Quando há mais de um vencimento ou cartão possível, o chat oferece
+  as faturas abertas com mês, ano e saldo. Cartões de mesmo nome mostram
+  o final cadastrado. A escolha mantém a data e o valor informados e
+  prepara uma proposta para confirmação.
+- A execução confere o ID do cartão e o vencimento da proposta. Cartão
+  arquivado e valor atualizado acima do pendente bloqueiam o registro.
+  Corrigir o cartão troca a vinculação e revalida a mesma referência.
+- No Chrome, escolhi uma fatura antiga junto de um gasto de mercado e
+  confirmei os dois. Em outro perfil de teste, a opção de final 5678
+  registrou o pagamento no segundo cartão de mesmo nome. A suíte passou
+  com 741/741 regressões reais no relógio padrão. Typechecks, build,
+  matriz de oito datas e rubrica passaram. A branch permanece NOT READY.

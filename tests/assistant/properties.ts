@@ -2278,7 +2278,8 @@ export async function runProperties(): Promise<PropertyReport> {
   // efeito embutido na opção era perdido — só aparecia no navegador.
   check(r, 'Chat devolve a pergunta pendente ao orquestrador', () => {
     const src = readFileSync(new URL('../../src/screens/Chat.tsx', import.meta.url), 'utf8')
-    if (!/pendingClarification:\s*clarificationRef\.current/.test(src)) {
+    if (!/const previousClarification = clarificationRef\.current/.test(src)
+      || !/pendingClarification:\s*previousClarification\?\.value/.test(src)) {
       return 'Chat.tsx não passa pendingClarification para orchestrate'
     }
     if (!/clarificationRef\.current\s*=\s*out\.response\.mode === 'clarify'/.test(src)) {

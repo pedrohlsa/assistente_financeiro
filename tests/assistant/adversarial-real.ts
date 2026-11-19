@@ -2084,7 +2084,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       ['X-falta-meta', 'guardei 200 na meta notebook, quanto falta?', `Notebook: faltam ${brl(2600)}, marcado`,
         (r, a) => /Notebook/.test(r) && r.includes(brl(2600)) && marcado(r) && registrou(a, 'goal-deposit', 200)],
       ['X-falta-fatura', 'paguei 200 da fatura do inter, quanto falta?', `falta ${brl(200)} da fatura do Inter, marcado`,
-        (r, a) => /Falta pagar R\$ 200,00 da fatura do Inter/.test(r) && marcado(r) && registrou(a, 'card-payment', 200)],
+        (r, a) => /Pendente nas faturas do Inter.*R\$\s200,00/.test(r) && marcado(r) && registrou(a, 'card-payment', 200)],
       ['X-nao-afetada-sem-marca', 'gastei 50 no mercado, quando vence a fatura do nubank?', 'vencimento sem marca de hipótese',
         (r, a) => /vence/.test(r) && !/se voc[êe] confirmar/i.test(r.split('Confirmar')[0].replace(/Se você confirmar, saem[^.]*\./, '')) && registrou(a, 'expense', 50)],
     ]
@@ -4056,6 +4056,66 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const nomeMesAnterior = `${MESES_PT_BR[Number(antiga.slice(5)) - 1]} de ${antiga.slice(0, 4)}`
     const mesNumerico = antiga.split('-').reverse().join('/')
     st.settings.balanceAsOf = addDays(hoje, -90)
+    const escolha = await orchestrate({ state: st, message: 'Paguei 80 da fatura do Inter e gastei 50 no mercado',
+      today: hoje, remoteEnabled: false })
+    const pendencia = escolha.response.mode === 'clarify' ? escolha.response.clarification : undefined
+    const options = pendencia?.options || []
+    const escolhido = await orchestrate({ state: st, message: mesNumerico, today: addDays(hoje, 1), remoteEnabled: false,
+      pending: escolha.response.actions, pendingClarification: pendencia })
+    const trocouValor = await orchestrate({ state: st, message: `${mesNumerico}, mas foram só 20`,
+      today: hoje, remoteEnabled: false, pending: escolha.response.actions, pendingClarification: pendencia })
+    const comEscolha = escolhido.response.actions.map(({ id, action }) => ({ id, action }))
+    const confirmado = applyBatchPure(st, comEscolha, { now: { date: addDays(hoje, 1), time: '14:00' } })
+    out.push(result('FESC-opcoes-preservam-data-valor-e-outro-gasto', { options, escolhido: escolhido.response, trocouValor: trocouValor.response },
+      'escolher mês paga R$ 80 na data original, conserva o mercado de R$ 50 e pede confirmação; mudar o valor deixa a escolha em aberto',
+      options.length === 2 && trocouValor.response.mode === 'clarify' && trocouValor.response.actions.length === 0 && trocouValor.keepPending
+        && escolhido.response.mode === 'propose_actions' && comEscolha.length === 2 && escolhido.correctedPending?.length === 2
+        && confirmado.applied && confirmado.state.cardPayments[0]?.paymentDate === hoje
+        && confirmado.state.cardPayments[0]?.amount === 80 && confirmado.state.cardPayments[0]?.referenceMonth === antiga
+        && confirmado.state.transactions.some(t => t.amount === 50 && t.type === 'expense')
+        && cardInvoice(confirmado.state, st.cards[0], atual).pending === 200
+        && cardInvoice(confirmado.state, st.cards[0], antiga).pending === 220))
+
+    const cartoesMesmoNome: AppState = { ...st, cards: [{ ...st.cards[0], lastFourDigits: '1234' },
+      { ...st.cards[0], id: 'inter-2', lastFourDigits: '5678' }],
+    installmentPlans: [...st.installmentPlans, { ...st.installmentPlans[0], id: 'inter-2-plan', cardId: 'inter-2' }],
+    installments: [...st.installments, { ...st.installments[0], id: 'inter-2-installment', planId: 'inter-2-plan' }],
+    }
+    const { response: mesmaFatura } = await orchestrate({ state: cartoesMesmoNome, message: `Paguei 80 da fatura do Inter de ${mesNumerico}`,
+      today: hoje, remoteEnabled: false })
+    const referencia = mesmaFatura.mode === 'clarify' ? mesmaFatura.clarification : undefined
+    const final5678 = referencia?.options?.find(o => /5678/.test(o.label))
+    const clicked = final5678 && await orchestrate({ state: cartoesMesmoNome, message: final5678.value,
+      today: hoje, remoteEnabled: false, pendingClarification: referencia })
+    const picked = clicked ? clicked.response.actions[0]?.action : undefined
+    const semIdentidade = applyBatchPure(cartoesMesmoNome,
+      [{ id: 'ambiguous-card-id', action: { kind: 'card-payment', cardName: 'Inter', referenceMonth: antiga, amount: 80 } }],
+      { now: { date: hoje, time: '14:00' } })
+    const arquivado: AppState = { ...cartoesMesmoNome, cards: cartoesMesmoNome.cards.map(c => c.id === 'inter-2' ? { ...c, archived: true } : c) }
+    const atrasou = final5678 && await orchestrate({ state: arquivado, message: final5678.value,
+      today: hoje, remoteEnabled: false, pendingClarification: referencia })
+    const campos = picked ? editableFieldsFor(picked, buildCapabilities(cartoesMesmoNome)).map(f => f.name) : []
+    out.push(result('FESC-cartoes-homonimos-exigem-identidade-e-revalidacao', { mesmaFatura, picked, atrasou, campos },
+      'duas opções de mesmo nome exibem os finais; o ID escolhido fica fixo e o cartão arquivado bloqueia a proposta',
+      referencia?.options?.length === 2 && picked?.kind === 'card-payment' && picked.cardId === 'inter-2'
+        && picked.referenceMonth === antiga && !campos.includes('cardName') && !campos.includes('cardId')
+        && campos.includes('amount') && campos.includes('date') && !semIdentidade.applied
+        && !!atrasou && atrasou.response.actions.length === 0 && /arquivado/.test(atrasou.response.reply)))
+    const doisBancos: AppState = { ...cartoesMesmoNome,
+      cards: cartoesMesmoNome.cards.map(c => c.id === 'inter-2' ? { ...c, name: 'Nubank' } : c) }
+    const primeiro = await orchestrate({ state: doisBancos, message: `Paguei 80 da fatura do Inter de ${mesNumerico}`,
+      today: hoje, remoteEnabled: false })
+    const corrige = (message: string) => orchestrate({ state: doisBancos, message,
+      pending: primeiro.response.actions, today: hoje, remoteEnabled: false })
+    const outroBanco = await corrige('na verdade foi no Nubank')
+    const excesso = await corrige('na verdade foram 350')
+    const outro = outroBanco.response.actions[0]?.action
+    out.push(result('FESC-correcao-revalida-id-e-valor', { outroBanco: outroBanco.response, excesso: excesso.response },
+      'novo cartão conserva a referência e troca o ID; valor acima do pendente descarta a proposta anterior',
+      outro?.kind === 'card-payment' && outro.cardId === 'inter-2' && outro.referenceMonth === antiga
+        && outroBanco.correctedPending?.[0]?.action === outro && excesso.correctedPending?.length === 0
+        && excesso.response.actions.length === 0 && /supera/.test(excesso.response.reply)))
+
     for (const frase of [
       `paguei 80 da fatura do Inter de ${nomeMesAnterior} ontem`,
       `pagamos 80 da fatura do Inter de ${nomeMesAnterior} ontem`,
@@ -4117,12 +4177,13 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const explicit = { kind: 'card-payment' as const, cardName: 'Inter', amount: 80, date: pagamento, referenceMonth: antiga }
     const remoteDate = validateAction({ ...explicit, referenceMonth: undefined }, caps, hoje, { allowRemoteOnly: true })
     const remoteMonth = validateAction({ ...explicit, date: undefined }, caps, hoje, { allowRemoteOnly: true })
+    const remoteId = validateAction({ ...explicit, date: undefined, referenceMonth: undefined, cardId: 'card0' }, caps, hoje, { allowRemoteOnly: true })
     const localFields = validateAction(explicit, caps, hoje)
     const invalidFields = validateAction({ ...explicit, referenceMonth: `${hoje.slice(0, 4)}-13` }, caps, hoje)
-    out.push(result('FREF-data-e-referencia-sao-locais', { localFields, invalidFields, remoteDate, remoteMonth, control },
+    out.push(result('FREF-data-e-referencia-sao-locais', { localFields, invalidFields, remoteDate, remoteMonth, remoteId, control },
       'o contrato local mantém data e referência válidas; remoto continua aceitando só cartão e valor',
       !isValidationFailure(localFields) && !isValidationFailure(control) && isValidationFailure(invalidFields)
-        && isValidationFailure(remoteDate) && isValidationFailure(remoteMonth)))
+        && isValidationFailure(remoteDate) && isValidationFailure(remoteMonth) && isValidationFailure(remoteId)))
 
     const historico: AppState = { ...st, cardPayments: [{ id: 'later-partial', cardId: 'card0', amount: 220,
       paymentDate: hoje, referenceMonth: antiga, fromBalance: true, settledInstallmentIds: [] }] }

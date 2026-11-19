@@ -53,7 +53,7 @@ export default function Chat() {
    * cada opção nunca era aplicado: clicar num botão mandava o rótulo como texto
    * solto e o usuário recebia a mensagem genérica de ajuda.
    */
-  const clarificationRef = useRef<AssistantClarification | null>(null)
+  const clarificationRef = useRef<{ msgId: string; value: AssistantClarification } | null>(null)
   /**
    * Foco conversacional. Fica em memoria pelo mesmo motivo do rascunho: "e mes
    * passado?" so faz sentido enquanto a conversa esta acontecendo, e uma
@@ -64,10 +64,12 @@ export default function Chat() {
 
   const caps = buildCapabilities(state)
 
-  const send = async (text: string) => {
+  const send = async (text: string, displayText = text) => {
     const t = text.trim()
     if (!t || thinking) return
-    dispatch({ type: 'chat', msg: { id: uid(), role: 'user', text: t, time: nowTime() } })
+    const previousClarification = clarificationRef.current
+    if (previousClarification) dispatch({ type: 'chatClearClarification', id: previousClarification.msgId })
+    dispatch({ type: 'chat', msg: { id: uid(), role: 'user', text: displayText.trim(), time: nowTime() } })
     setInput('')
     setThinking(true)
 
@@ -82,7 +84,7 @@ export default function Chat() {
       pending: pendingRef.current?.actions.map(p => ({
         id: p.id, action: p.action, engine: p.engine || 'local', confidence: p.confidence || 'high',
       })),
-      pendingClarification: clarificationRef.current || undefined,
+      pendingClarification: previousClarification?.value,
       focus: focusRef.current,
       remoteEnabled: state.settings.remoteAi !== false,
       ...remoteBridge(),
@@ -139,7 +141,7 @@ export default function Chat() {
     // "não, foi 80") ainda se refere a ela.
     if (proposal) pendingRef.current = { msgId, actions: proposal }
     else if (!out.keepPending) pendingRef.current = null
-    clarificationRef.current = out.response.mode === 'clarify' ? out.response.clarification : null
+    clarificationRef.current = out.response.mode === 'clarify' ? { msgId, value: out.response.clarification } : null
   }
 
   // pergunta vinda da Home
@@ -234,7 +236,7 @@ export default function Chat() {
   const cancel = (msgId: string) => {
     dispatch({ type: 'chatResolve', id: msgId })
     if (pendingRef.current?.msgId === msgId) pendingRef.current = null
-    clarificationRef.current = null
+    if (clarificationRef.current?.msgId === msgId) clarificationRef.current = null
     dispatch({ type: 'chat', msg: { id: uid(), role: 'assistant', text: 'Ok, descartei. Pode reformular se quiser.', time: nowTime() } })
   }
 
@@ -250,9 +252,9 @@ export default function Chat() {
   }
 
   const chooseClarification = (msgId: string, value: string, label: string) => {
-    const hasProposal = state.chat.some(m => m.id === msgId && !!m.proposal?.length)
-    dispatch({ type: hasProposal ? 'chatClearClarification' : 'chatResolve', id: msgId })
-    send(label || value)
+    const current = clarificationRef.current
+    if (current?.msgId !== msgId) return
+    send(current.value.field === 'invoice-reference' ? value : label || value, label || value)
   }
 
   // ---------- Voz ----------
