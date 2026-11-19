@@ -158,7 +158,8 @@ function respondeConversa(
     }
   }
 
-  if (isFocusFresh(focus, agora) && focus?.last === 'query' && focus.lastQueryPlan && focus.lastQuery) {
+  if (isFocusFresh(focus, agora) && focus?.last === 'query' && focus.lastQueryPlan && focus.lastQuery
+    && !focus.lastComparisonExplanation) {
     const reply = proporcaoSobreResultado(state, message, focus.lastQueryPlan, focus.lastQuery, hoje)
     if (reply) return { reply, kind: 'explain', focus: { ...focus, updatedAt: agora }, confidence: 'high' }
   }
@@ -320,7 +321,8 @@ function aplicaFollowUp(
 ): ConversationAnswer | null {
   switch (fu.kind) {
     case 'explain':
-      return { reply: fu.text, kind: 'explain', focus: { ...focus, updatedAt: agora }, confidence: 'high' }
+      return { reply: fu.text, kind: 'explain',
+        focus: { ...focus, updatedAt: agora, lastComparisonExplanation: fu.comparisonExplanation }, confidence: 'high' }
     case 'ambiguous':
       return {
         reply: fu.question, kind: 'clarify', focus: { ...focus, updatedAt: agora },

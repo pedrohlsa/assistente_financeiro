@@ -365,8 +365,8 @@ function lerGrupo(t: string, driver: boolean): { valor: QueryGroup; matched: str
     [/\bcomeco\s+ou\s+(?:no\s+)?(?:fim|final)(?:\s+d[oa]\s+mes)?\b|\b(?:fim|final)\s+ou\s+(?:no\s+)?comeco(?:\s+d[oa]\s+mes)?\b/, 'month-half'],
     [/\bpor\s+categoria\b|\bqual\s+categoria\b|\bque\s+categoria\b|\bem\s+que\s+categoria\b|\bcategorias?\b/, 'category'],
     // "Em cada mês" pede a lista: sem a forma, a pergunta virava o total deste mês.
-    [/\bqual\s+mes\b|\bque\s+mes\b|\bpor\s+mes\b|\bmes\s+a\s+mes\b|\b(?:em\s+)?cada\s+mes\b|\bmes\s+mais\b|\bmelhor\s+mes\b|\bpior\s+mes\b|\bmeses\s+(?:eu\s+)?(?:tenho|vou)\b/, 'month'],
-    [/\bqual\s+semana\b|\bpor\s+semana\b|\b(?:em\s+)?cada\s+semana\b|\bsemana\s+a\s+semana\b|\bmelhor\s+semana\b|\bpior\s+semana\b|\bsemana\s+(?:que\s+)?(?:eu\s+)?mais\b/, 'week'],
+    [/\b(?:em\s+)?qual\s+mes\b|\bque\s+mes\b|\bpor\s+mes\b|\bmes\s+a\s+mes\b|\b(?:em\s+)?cada\s+mes\b|\bmes\s+mais\b|\bmelhor\s+mes\b|\bpior\s+mes\b|\bmeses\s+(?:eu\s+)?(?:tenho|vou)\b/, 'month'],
+    [/\b(?:em\s+)?qual\s+semana\b|\bpor\s+semana\b|\b(?:em\s+)?cada\s+semana\b|\bsemana\s+a\s+semana\b|\bmelhor\s+semana\b|\bpior\s+semana\b|\bsemana\s+(?:que\s+)?(?:eu\s+)?mais\b/, 'week'],
     [/\bqual\s+dia\b|\bmelhor\s+dia\b|\bpior\s+dia\b|\bdia\s+que\s+(?:eu\s+)?mais\b/, 'day'],
     [/\bqual\s+cartao\b|\bpor\s+cartao\b|\bcartao\s+(?:esta|mais)\b|\bqual\s+(?:dos\s+)?(?:meus\s+)?cartoes\b/, 'card'],
     [/\bqual\s+(?:casa|imovel|cliente|origem|fonte)\b|\bpor\s+(?:origem|imovel|cliente)\b/, 'origin'],

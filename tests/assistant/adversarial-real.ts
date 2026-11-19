@@ -633,10 +633,25 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const qThis = await turn(q, 'quanto gastei este mês')
   const qLast = await turn(q, 'e mês passado?', qThis.focus)
   const qWorse = await turn(q, 'qual foi pior', qLast.focus)
+  const motivoComparacao = await turn(q, 'por quê?', qWorse.focus)
+  const valorAtual = qLast.focus?.lastQuery?.total
+  const valorAnterior = qLast.focus?.previousQuery?.total
+  const valoresNoMotivo = valorAtual !== undefined && valorAnterior !== undefined
+    && motivoComparacao.reply.includes(fmtBRL(valorAtual)) && motivoComparacao.reply.includes(fmtBRL(valorAnterior))
+    && motivoComparacao.reply.includes(fmtBRL(Math.abs(valorAtual - valorAnterior)))
+  out.push(result('PQ-explica-os-dois-periodos-comparados', motivoComparacao.reply,
+    'o porquê explica os dois totais e a diferença no mesmo recorte',
+    valoresNoMotivo && /no mesmo recorte/i.test(motivoComparacao.reply) && motivoComparacao.actions.length === 0))
+
   out.push(result('Q-pior-mes', qWorse, 'agosto R$ 500 foi pior que setembro R$ 100 em gastos',
     /agosto(?: de \d{4})? foi pior[^\n]*R\$\s*500,00[^\n]*R\$\s*100,00[^\n]*setembro/i
       .test(qWorse.reply.replace(/\u00a0/g, ' '))
       && !/500,00[^\n]*a menos/i.test(qWorse.reply)))
+  const qVazio = await turn(q, 'e em janeiro de 2024?', qLast.focus)
+  const semComparacao = await turn(q, 'qual foi melhor?', qVazio.focus)
+  out.push(result('Q-pior-melhor-sem-base-nao-escolhe', semComparacao.reply, 'período vazio não vira vencedor com gasto zero',
+    /não consigo comparar|não há lançamentos/i.test(semComparacao.reply) && !/foi melhor|empataram/i.test(semComparacao.reply)))
+
   const cardContext = buildState({ cards: [{ name: 'Nubank' }] })
   const oldScenario = await orchestrate({ state: cardContext, message: 'Se eu comprar algo de 100 em 10x',
     today: TODAY, remoteEnabled: false })
@@ -2332,6 +2347,27 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         !!topo && r2.toLowerCase().includes(topo.label.toLowerCase()) && /Reforma do telhado/i.test(r2) && /R\$ 2\.400,00/.test(r2)
           && !/^Subtra[íi]|^Somei/.test(r2)))
     }
+  }
+
+  {
+    const rico = autonomoRico(hoje)
+    const seleciona = await turnoHoje(rico, 'Em qual mês eu gastei mais com obra?')
+    const selecionado = seleciona.focus?.lastQuery?.groups[0]
+    const motivo = await turnoHoje(rico, 'Por quê?', seleciona.focus)
+    out.push(result('PQ-ranking-mantem-o-filtro-de-categoria', { selecionado, reply: motivo.reply },
+      'explica os gastos com obra do mês selecionado, sem incluir a reforma que está na categoria Casa',
+      !!selecionado && motivo.reply.includes(fmtBRL(selecionado.value)) && /Obra/.test(motivo.reply) && !/Reforma do telhado/i.test(motivo.reply)))
+  }
+
+  {
+    const st = motoristaRico(hoje)
+    const melhor = await turnoHoje(st, 'Qual foi minha melhor semana?')
+    const topo = melhor.focus?.lastQuery?.groups[0]
+    const motivo = await turnoHoje(st, 'Por quê?', melhor.focus)
+    out.push(result('PQ-explica-a-semana-vencedora', { topo, reply: motivo.reply },
+      'explica entradas e saídas da semana selecionada, sem trocar pelo período agregado',
+      !!topo && motivo.reply.toLowerCase().includes(topo.label.toLowerCase())
+        && /entradas de R\$.*saídas de R\$/i.test(motivo.reply) && !/nas últimas 12 semanas/.test(motivo.reply)))
   }
 
   // Continuidade da fatura: "quanto tá a fatura do nubank" → "e o inter?"

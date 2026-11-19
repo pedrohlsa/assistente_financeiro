@@ -41,6 +41,7 @@ export interface QuerySummary {
   total: number
   /** Segundo número mostrado na última resposta, quando ela comparou períodos. */
   compareTotal?: number
+  compareCount?: number
   unit: FactUnit
   period: QueryPeriod
   groups: { key: string; label: string; value: number; delta?: number }[]
@@ -70,6 +71,8 @@ export interface ConversationFocus {
   pendingDriverClarification?: ChangeScope
   lastQueryPlan?: AssistantQueryPlan
   lastQuery?: QuerySummary
+  /** Explicação do último veredito comparativo, para o "por quê?". */
+  lastComparisonExplanation?: string
   /**
    * Plano da consulta ANTERIOR. É ele que "qual a diferença?" e "compara os
    * dois" precisam: os dois períodos que o usuário acabou de ver, não o
@@ -103,7 +106,7 @@ export function rememberDriver(
   prev: ConversationFocus | undefined, analysis: ChangeAnalysis, explain: string, now = Date.now(),
 ): ConversationFocus {
   return { ...prev, pendingQueryClarification: undefined, pendingDriverClarification: undefined,
-    lastDriver: { analysis, explain }, last: 'driver', updatedAt: now }
+    lastDriver: { analysis, explain }, lastComparisonExplanation: undefined, last: 'driver', updatedAt: now }
 }
 
 export const isFocusFresh = (f?: ConversationFocus, now = Date.now()): boolean =>
@@ -121,6 +124,7 @@ export function rememberQuery(
     pendingQueryClarification: undefined,
     pendingDriverClarification: undefined,
     lastQueryPlan: plan,
+    lastComparisonExplanation: undefined,
     // Só guarda como "anterior" quando o período mudou de verdade: refinar um
     // filtro sobre o mesmo mês não cria um segundo período para comparar.
     previousQueryPlan: prev?.lastQueryPlan && prev.lastQueryPlan.period.from !== plan.period.from
@@ -139,6 +143,7 @@ export function rememberQuery(
       label: plan.label || 'Total',
       total: result.total,
       compareTotal: result.compareTotal,
+      compareCount: result.compareCount,
       unit: result.unit,
       period: plan.period,
       groups: result.groups.slice(0, 8).map(g => ({ key: g.key, label: g.label, value: g.value, delta: g.delta })),
@@ -174,6 +179,7 @@ export function rememberScenario(
     pendingQueryClarification: undefined,
     pendingDriverClarification: undefined,
     lastScenarioPlan: plan,
+    lastComparisonExplanation: undefined,
     lastScenario: {
       label: plan.label,
       facts: result.facts.map(f => ({ label: f.label, value: f.value, unit: f.unit })),
@@ -255,7 +261,7 @@ export const looksLikeFollowUp = (message: string): boolean => {
 export type FollowUp =
   | { kind: 'query'; planned: PlannedQuery }
   | { kind: 'scenario'; plan: AssistantScenarioPlan }
-  | { kind: 'explain'; text: string }
+  | { kind: 'explain'; text: string; comparisonExplanation?: string }
   | { kind: 'ambiguous'; question: string; options: { label: string; value: string }[] }
   /** O refino acrescentaria um filtro feito de pedaço de pergunta não entendido. */
   | { kind: 'incomplete'; residuo: string }
@@ -265,30 +271,37 @@ const PEDE_EXPLICACAO = /^(?:por\s*que|pq|como\s+(?:voce\s+)?(?:chegou|calculou|
 const MESES_DO_ANO = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
 
 /**
- * O que pesou no mês que encabeçou o ranking por mês: entradas e saídas dele,
- * as três categorias de saída maiores (com o lançamento que domina cada uma) e
- * a média de saídas dos outros meses inteiros. Só para ranking de lançamentos;
- * o resto continua com a metodologia.
+ * O que pesou no período em destaque no ranking de lançamentos e, para
+ * meses, a média de saídas dos outros meses inteiros.
  */
-function porQueDoMes(state: AppState, focus: ConversationFocus): string | null {
+function porQueDoPeriodo(state: AppState, focus: ConversationFocus, hoje: string): string | null {
   const plan = focus.lastQueryPlan
   const q = focus.lastQuery
-  if (!plan || !q || plan.group !== 'month' || plan.source !== 'transactions' || !q.groups.length) return null
+  if (!plan || !q || plan.comparePeriod || (plan.group !== 'month' && plan.group !== 'week')
+    || plan.source !== 'transactions' || (plan.metric !== 'sum' && plan.metric !== 'net') || !q.groups.length) return null
   if (!plan.order || !/^value-/.test(plan.order)) return null
   const tipos = plan.filter.txType || []
-  const liquido = tipos.includes('income') && tipos.includes('expense')
+  const liquido = plan.metric === 'net' || tipos.includes('income') && tipos.includes('expense')
   if (!liquido && !(tipos.length === 1 && tipos[0] === 'expense')) return null
-  const intervalo = (key: string): [string, string] => {
-    const [y, m] = key.split('-').map(Number)
-    return [`${key}-01`, toISO(new Date(y, m, 0))]
+
+  const group = plan.group
+  const janela = (g: QuerySummary['groups'][number]): QueryPeriod => {
+    const [y, m] = g.key.split('-').map(Number)
+    const ini = group === 'month' ? `${g.key}-01` : g.key
+    const fim = group === 'month' ? toISO(new Date(y, m, 0)) : addDays(g.key, 6)
+    return {
+      from: ini >= plan.period.from ? ini : plan.period.from,
+      to: [fim, plan.period.to, hoje].sort()[0], label: g.label, grain: group,
+    }
   }
   const top = q.groups[0]
-  const [ini, fim] = intervalo(top.key)
-  const doMes = (state.transactions || []).filter(x => x.date >= ini && x.date <= fim)
-  const soma = (xs: typeof doMes) => Math.round(xs.reduce((a, x) => a + x.amount, 0) * 100) / 100
-  const entradas = soma(doMes.filter(x => x.type === 'income'))
-  const saidas = doMes.filter(x => x.type === 'expense')
-  const totalSaidas = soma(saidas)
+  const recorte: AssistantQueryPlan = {
+    ...plan, period: janela(top), metric: 'sum', group: 'none', comparePeriod: undefined, order: undefined, limit: 1,
+  }
+  const entradas = liquido
+    ? runQuery(state, { ...recorte, filter: { ...recorte.filter, txType: ['income'] } }, hoje).total : 0
+  const planoSaidas: AssistantQueryPlan = { ...recorte, filter: { ...recorte.filter, txType: ['expense'] } }
+  const { total: totalSaidas, groups: pesos } = runQuery(state, { ...planoSaidas, group: 'category', order: 'value-desc', limit: 3 }, hoje)
   const nome = sentenceCase(top.label)
   const lead = liquido
     ? plan.order === 'value-asc'
@@ -297,26 +310,24 @@ function porQueDoMes(state: AppState, focus: ConversationFocus): string | null {
         : `Em ${top.label} sobrou menos: entradas de ${fmtBRL(entradas)} e saídas de ${fmtBRL(totalSaidas)}.`
       : `Em ${top.label} sobrou mais: entradas de ${fmtBRL(entradas)} e saídas de ${fmtBRL(totalSaidas)}.`
     : plan.order === 'value-desc' ? `${nome} teve as maiores saídas: ${fmtBRL(totalSaidas)}.` : `${nome} teve as menores saídas: ${fmtBRL(totalSaidas)}.`
-  const porCategoria = new Map<string, typeof saidas>()
-  for (const x of saidas) porCategoria.set(x.category || '—', [...(porCategoria.get(x.category || '—') || []), x])
-  const pesos = [...porCategoria].map(([cat, xs]) => ({ cat, xs, total: soma(xs) })).sort((a, b) => b.total - a.total).slice(0, 3)
-  const linhas = pesos.map(({ cat, xs, total }) => {
-    const nomeCat = (state.categories || []).find(c => c.id === cat)?.name || 'Sem categoria'
-    const maior = [...xs].sort((a, b) => b.amount - a.amount)[0]
-    const destaque = xs.length > 1 && maior?.description && maior.amount >= total * 0.5
-      ? ` (${sentenceCase(maior.description)}: ${fmtBRL(maior.amount)})`
-      : xs.length === 1 && maior?.description ? ` (${sentenceCase(maior.description)})` : ''
-    return `• ${nomeCat}: ${fmtBRL(total)}${destaque}`
+  const linhas = pesos.map(peso => {
+    if (peso.key === '—') return `• ${peso.label}: ${fmtBRL(peso.value)}`
+    const detalhes = runQuery(state, {
+      ...planoSaidas, metric: 'max', group: 'description', order: 'value-desc', limit: 1,
+      filter: { ...planoSaidas.filter, categories: [peso.key] },
+    }, hoje)
+    const maior = detalhes.groups[0]
+    const destaque = maior && maior.value >= peso.value * 0.5
+      ? ` (${sentenceCase(maior.label)}${peso.count > 1 ? `: ${fmtBRL(maior.value)}` : ''})` : ''
+    return `• ${peso.label}: ${fmtBRL(peso.value)}${destaque}`
   })
-  const outros = q.groups.slice(1).filter(g => intervalo(g.key)[1] <= q.period.to)
-  const mediaOutros = outros.length
-    ? outros.reduce((a, g) => {
-      const [i, f] = intervalo(g.key)
-      return a + soma((state.transactions || []).filter(x => x.type === 'expense' && x.date >= i && x.date <= f))
-    }, 0) / outros.length
+  const mesesCompletos = group === 'month' ? q.groups.slice(1).map(janela)
+    .filter(p => p.from.endsWith('-01') && p.to < hoje && addDays(p.to, 1).endsWith('-01')) : []
+  const mediaOutros = mesesCompletos.length
+    ? mesesCompletos.reduce((soma, period) => soma + runQuery(state, { ...planoSaidas, period }, hoje).total, 0) / mesesCompletos.length
     : undefined
   return [lead, linhas.length ? `O que mais pesou nas saídas:\n${linhas.join('\n')}` : '',
-    mediaOutros !== undefined ? `Nos outros meses inteiros, as saídas ficaram em média em ${fmtBRL(Math.round(mediaOutros * 100) / 100)}.` : '']
+    mediaOutros !== undefined ? `Nos outros meses inteiros, as saídas ficaram em média em ${fmtBRL(mediaOutros)}.` : '']
     .filter(Boolean).join('\n\n')
 }
 
@@ -359,10 +370,13 @@ export function resolveFollowUp(
 
   // ---- "por quê?" / "como chegou nisso?" --------------------------------
   if (PEDE_EXPLICACAO.test(t)) {
+    if (focus.lastComparisonExplanation) {
+      return { kind: 'explain', text: focus.lastComparisonExplanation, comparisonExplanation: focus.lastComparisonExplanation }
+    }
     // "Pq?" depois de "qual foi meu pior mês" quer o que pesou NAQUELE mês;
     // a metodologia ("subtraí as saídas das entradas de 46 registros") não diz.
-    const doMes = focus.last === 'query' ? porQueDoMes(state, focus) : null
-    if (doMes) return { kind: 'explain', text: doMes }
+    const doPeriodo = focus.last === 'query' ? porQueDoPeriodo(state, focus, today) : null
+    if (doPeriodo) return { kind: 'explain', text: doPeriodo }
     const texto = focus.last === 'scenario' ? focus.lastScenario?.explain
       : focus.last === 'driver' ? focus.lastDriver?.explain
         : focus.lastQuery?.explain
@@ -634,7 +648,7 @@ function refinaConsulta(
     // A última resposta pode já ter mostrado DOIS períodos. Nesse caso o
     // comparativo visível vence uma consulta ainda mais antiga da conversa.
     const comparado = atual?.compareTotal !== undefined && base.comparePeriod
-      ? { ...atual, total: atual.compareTotal, period: base.comparePeriod }
+      ? { ...atual, total: atual.compareTotal, period: base.comparePeriod, empty: atual.compareCount === 0 }
       : mesmoRecorte ? anterior : undefined
     if (comparado && atual && base.metric === 'sum'
       && tipo?.length === 1 && (tipo[0] === 'expense' || tipo[0] === 'income')) {
@@ -649,10 +663,21 @@ function refinaConsulta(
         ? fromISO(q.period.from).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
         : q.period.label
       const medida = maiorPior ? 'gastos' : 'receitas'
-      if (atual.total === comparado.total) return { kind: 'explain', text:
-        `Empataram em ${medida}: ${nome(atual)} e ${nome(comparado)} tiveram ${fmtBRL(atual.total)}.` }
-      return { kind: 'explain', text:
-        `${nome(vencedor)} foi ${querPior ? 'pior' : 'melhor'} em ${medida}: ${fmtBRL(vencedor.total)}, contra ${fmtBRL(perdedor.total)} em ${nome(perdedor)}.` }
+      if (comparado.empty || atual.empty) {
+        const ausente = comparado.empty ? comparado : atual
+        const text = `Ainda não consigo comparar. Não há registros para ${nome(ausente)} nesse recorte.`
+        return { kind: 'explain', text, comparisonExplanation: text }
+      }
+      if (atual.total === comparado.total) {
+        const text = `Empataram em ${medida}: ${nome(atual)} e ${nome(comparado)} tiveram ${fmtBRL(atual.total)}.`
+        return { kind: 'explain', text, comparisonExplanation: text }
+      }
+      const dif = fmtBRL(Math.abs(vencedor.total - perdedor.total))
+      const direcao = vencedor.total > perdedor.total ? 'a mais' : 'a menos'
+      return { kind: 'explain',
+        text: `${nome(vencedor)} foi ${querPior ? 'pior' : 'melhor'} em ${medida}: ${fmtBRL(vencedor.total)}, contra ${fmtBRL(perdedor.total)} em ${nome(perdedor)}.`,
+        comparisonExplanation: `No mesmo recorte, ${nome(vencedor)} teve ${fmtBRL(vencedor.total)} em ${medida}, ${dif} ${direcao} que os ${fmtBRL(perdedor.total)} de ${nome(perdedor)}. Usei só os registros desses dois períodos.`,
+      }
     }
     const cmp = focus.previousQueryPlan?.period || base.comparePeriod || previousPeriod(base.period)
     return planned({ ...base, comparePeriod: cmp }, `comparação com ${cmp.label}`)

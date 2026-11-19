@@ -5760,3 +5760,7 @@ APK ou chamada paga. NOT READY até auditoria independente.
   edição, recarga, atraso, orçamento, cenários e um pagamento legado
   com data futura. A revisão independente, o remoto real e o APK seguem
   pendentes. A branch permanece NOT READY.
+- Depois de comparar dois meses, "por quê?" usa os dois valores e a
+  diferença. Para rankings, explica o mês ou a semana em destaque e aplica
+  os filtros da pergunta, inclusive em "em qual mês eu gastei mais com
+  obra?". Um período sem registros não é tratado como vencedor.
