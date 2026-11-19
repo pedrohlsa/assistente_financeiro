@@ -33,6 +33,7 @@ import {
 import type { PerguntaDeConta, PerguntaDeFatura, PlanoDeGuardar } from '../assistant/cashQuestions'
 import { describeAction, parseNaturalFull } from './nlp'
 import { driverInsight } from '../assistant/driverInsights'
+import { answerVehicleCost } from '../assistant/vehicleCost'
 import { adaptiveEnabled, buildPersonalModel } from '../assistant/personalModel'
 import { catById } from '../data/categories'
 import { isDriver } from './profile'
@@ -1244,18 +1245,8 @@ function resolveLocal(s: AppState, input: string): AiReply {
     }
   }
 
-  // "quanto meu carro custa por km"
-  if (driverMode && /custa por km|custo por km|custo.*km|por km.*custo|sai o km|km sai|quanto.*km.*(?:carro|veiculo|moto)|(?:carro|veiculo|moto).*por km/.test(t)) {
-    const kc = kmCost(s)
-    if (kc.total <= 0) {
-      return { text: 'Os custos do veículo ainda estão zerados. Registre abastecimentos com valor, litros e hodômetro; informe manutenções e custos fixos quando souber. Aí eu calculo sem inventar médias.' }
-    }
-    return {
-      text: `Custo real do seu veículo (estimativa com base nos seus registros):\n\n` +
-        `• Combustível: ${fmtBRL(kc.fuelPerKm)}/km\n• Manutenção: ${fmtBRL(kc.maintenancePerKm)}/km\n• Custos fixos: ${fmtBRL(kc.fixedPerKm)}/km\n\n` +
-        `Custo operacional: ${fmtBRL(kc.operational)}/km\nCusto total: ${fmtBRL(kc.total)}/km\n\nValor mínimo recomendado: ${fmtBRL(kc.minRecommended)}/km\nMeta confortável: ${fmtBRL(kc.comfort)}/km`,
-    }
-  }
+  const custoVeiculo = answerVehicleCost(s, t)
+  if (custoVeiculo) return { text: custoVeiculo.text }
 
   // "quanto tô fazendo por hora" / "quanto por viagem" — as duas métricas que
   // o motorista mais olha, e as duas caíam no texto genérico de ajuda.

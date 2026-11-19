@@ -1306,7 +1306,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
 
   return {
     plan, confidence, recognized, fallbackCategory,
-    beyondLegacy: plan.showCardPurchases || alemDoAntigo(plan, !!lido || !!periodoComparadoDireto,
+    beyondLegacy: plan.showCardPurchases || (driver && plan.metric === 'per-km' && !!lido) || alemDoAntigo(plan, !!lido || !!periodoComparadoDireto,
       /\bpor\s+lancamentos?\b/.test(t0)),
     ...(periodoVago ? {
       clarification: {

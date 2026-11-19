@@ -293,6 +293,7 @@ export interface AssistantQueryResult {
   sample: { rows: number; from: string; to: string }
   /** Sem base para responder. O app CALA e diz o que falta (regra 43). */
   empty: boolean
+  missingDistance?: boolean
   /** O que estes dados NÃO permitem afirmar. Vai para a resposta. */
   caveats: string[]
   facts: AssistantFact[]

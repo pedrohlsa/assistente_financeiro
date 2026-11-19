@@ -30,6 +30,7 @@ import type { PlannedQuery } from '../query/parse'
 import type { AssistantQueryPlan, AssistantQueryResult, FactUnit, QueryPeriod } from '../query/types'
 import type { AssistantScenarioPlan, AssistantScenarioResult } from '../scenario/types'
 import { parsePurchaseDelay } from '../scenario/parse'
+import { answerVehicleCost } from '../vehicleCost'
 import type { ChangeAnalysis } from '../drivers'
 import type { ChangeScope } from '../drivers/engine'
 
@@ -71,8 +72,8 @@ export interface ConversationFocus {
   pendingDriverClarification?: ChangeScope
   lastQueryPlan?: AssistantQueryPlan
   lastQuery?: QuerySummary
-  /** Explicação do último veredito comparativo, para o "por quê?". */
-  lastComparisonExplanation?: string
+  /** Explicação de uma resposta direta para o "por quê?". */
+  lastAnswerExplanation?: string
   /**
    * Plano da consulta ANTERIOR. É ele que "qual a diferença?" e "compara os
    * dois" precisam: os dois períodos que o usuário acabou de ver, não o
@@ -88,8 +89,8 @@ export interface ConversationFocus {
   /** Pilha curta para "volta pro cenário anterior". */
   scenarioHistory?: AssistantScenarioPlan[]
   lastDriver?: DriverSummary
-  /** O último assunto foi consulta ou cenário? Decide quem o follow-up refina. */
-  last?: 'query' | 'scenario' | 'driver'
+  /** Assunto mais recente, para resolver referências de continuação. */
+  last?: 'query' | 'scenario' | 'driver' | 'vehicle'
   /** Entidades citadas — matéria-prima da elipse ("e o outro?"). */
   entities?: { cards?: string[]; categories?: string[]; goals?: string[]; origins?: string[] }
   /**
@@ -106,7 +107,7 @@ export function rememberDriver(
   prev: ConversationFocus | undefined, analysis: ChangeAnalysis, explain: string, now = Date.now(),
 ): ConversationFocus {
   return { ...prev, pendingQueryClarification: undefined, pendingDriverClarification: undefined,
-    lastDriver: { analysis, explain }, lastComparisonExplanation: undefined, last: 'driver', updatedAt: now }
+    lastDriver: { analysis, explain }, lastAnswerExplanation: undefined, last: 'driver', updatedAt: now }
 }
 
 export const isFocusFresh = (f?: ConversationFocus, now = Date.now()): boolean =>
@@ -124,7 +125,7 @@ export function rememberQuery(
     pendingQueryClarification: undefined,
     pendingDriverClarification: undefined,
     lastQueryPlan: plan,
-    lastComparisonExplanation: undefined,
+    lastAnswerExplanation: undefined,
     // Só guarda como "anterior" quando o período mudou de verdade: refinar um
     // filtro sobre o mesmo mês não cria um segundo período para comparar.
     previousQueryPlan: prev?.lastQueryPlan && prev.lastQueryPlan.period.from !== plan.period.from
@@ -179,7 +180,7 @@ export function rememberScenario(
     pendingQueryClarification: undefined,
     pendingDriverClarification: undefined,
     lastScenarioPlan: plan,
-    lastComparisonExplanation: undefined,
+    lastAnswerExplanation: undefined,
     lastScenario: {
       label: plan.label,
       facts: result.facts.map(f => ({ label: f.label, value: f.value, unit: f.unit })),
@@ -261,7 +262,7 @@ export const looksLikeFollowUp = (message: string): boolean => {
 export type FollowUp =
   | { kind: 'query'; planned: PlannedQuery }
   | { kind: 'scenario'; plan: AssistantScenarioPlan }
-  | { kind: 'explain'; text: string; comparisonExplanation?: string }
+  | { kind: 'explain'; text: string; followUpExplanation?: string }
   | { kind: 'ambiguous'; question: string; options: { label: string; value: string }[] }
   /** O refino acrescentaria um filtro feito de pedaço de pergunta não entendido. */
   | { kind: 'incomplete'; residuo: string }
@@ -370,8 +371,8 @@ export function resolveFollowUp(
 
   // ---- "por quê?" / "como chegou nisso?" --------------------------------
   if (PEDE_EXPLICACAO.test(t)) {
-    if (focus.lastComparisonExplanation) {
-      return { kind: 'explain', text: focus.lastComparisonExplanation, comparisonExplanation: focus.lastComparisonExplanation }
+    if (focus.lastAnswerExplanation) {
+      return { kind: 'explain', text: focus.lastAnswerExplanation, followUpExplanation: focus.lastAnswerExplanation }
     }
     // "Pq?" depois de "qual foi meu pior mês" quer o que pesou NAQUELE mês;
     // a metodologia ("subtraí as saídas das entradas de 46 registros") não diz.
@@ -381,6 +382,12 @@ export function resolveFollowUp(
       : focus.last === 'driver' ? focus.lastDriver?.explain
         : focus.lastQuery?.explain
     return texto ? { kind: 'explain', text: texto } : null
+  }
+
+  if (focus.last === 'vehicle') {
+    const periodo = t.replace(/^(?:e|agora|entao)\s+/, '')
+    const custo = periodo !== t && answerVehicleCost(state, `quanto meu carro custou por km ${periodo}`, today)
+    if (custo) return { kind: 'explain', text: custo.text, followUpExplanation: custo.explanation }
   }
 
   // ---- cenário ----------------------------------------------------------
@@ -666,17 +673,17 @@ function refinaConsulta(
       if (comparado.empty || atual.empty) {
         const ausente = comparado.empty ? comparado : atual
         const text = `Ainda não consigo comparar. Não há registros para ${nome(ausente)} nesse recorte.`
-        return { kind: 'explain', text, comparisonExplanation: text }
+        return { kind: 'explain', text, followUpExplanation: text }
       }
       if (atual.total === comparado.total) {
         const text = `Empataram em ${medida}: ${nome(atual)} e ${nome(comparado)} tiveram ${fmtBRL(atual.total)}.`
-        return { kind: 'explain', text, comparisonExplanation: text }
+        return { kind: 'explain', text, followUpExplanation: text }
       }
       const dif = fmtBRL(Math.abs(vencedor.total - perdedor.total))
       const direcao = vencedor.total > perdedor.total ? 'a mais' : 'a menos'
       return { kind: 'explain',
         text: `${nome(vencedor)} foi ${querPior ? 'pior' : 'melhor'} em ${medida}: ${fmtBRL(vencedor.total)}, contra ${fmtBRL(perdedor.total)} em ${nome(perdedor)}.`,
-        comparisonExplanation: `No mesmo recorte, ${nome(vencedor)} teve ${fmtBRL(vencedor.total)} em ${medida}, ${dif} ${direcao} que os ${fmtBRL(perdedor.total)} de ${nome(perdedor)}. Usei só os registros desses dois períodos.`,
+        followUpExplanation: `No mesmo recorte, ${nome(vencedor)} teve ${fmtBRL(vencedor.total)} em ${medida}, ${dif} ${direcao} que os ${fmtBRL(perdedor.total)} de ${nome(perdedor)}. Usei só os registros desses dois períodos.`,
       }
     }
     const cmp = focus.previousQueryPlan?.period || base.comparePeriod || previousPeriod(base.period)

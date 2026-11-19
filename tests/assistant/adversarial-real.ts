@@ -1548,7 +1548,12 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const igualKm = c2(porKm(inicioMes, hoje)) === c2(porKm(inicioAnt, fimAnt))
     const subiuKm = c2(porKm(inicioMes, hoje)) > c2(porKm(inicioAnt, fimAnt))
     const leadKm = igualKm ? 'Não, ficou igual.' : subiuKm ? 'Sim, piorou.' : 'Não, melhorou.'
-    out.push(result('J-sim-nao-custo-por-km', custoKm.reply, leadKm, limpa(custoKm.reply).startsWith(leadKm)))
+    const semKm = kmEntre(inicioMes, hoje) <= 0 || kmEntre(inicioAnt, fimAnt) <= 0
+    const semGastoComparavel = !st.transactions.some(t => t.type === 'expense' && t.date >= inicioAnt && t.date <= fimAnt)
+    out.push(result('J-sim-nao-custo-por-km', custoKm.reply, semKm || semGastoComparavel ? 'diz o que falta sem dar veredito' : leadKm,
+      semKm || semGastoComparavel
+        ? /Não tenho quilometragem|não há lançamentos para comparar/.test(custoKm.reply) && !/^(?:Sim|Não,)/.test(custoKm.reply)
+        : limpa(custoKm.reply).startsWith(leadKm)))
     for (const [id, frase] of [
       ['J-sem-interrogacao-nao-ganha-lead', 'comparado com a semana passada'],
       ['J-pergunta-aberta-nao-ganha-lead', 'quanto gastei a mais que semana passada?'],
@@ -1608,8 +1613,12 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const totalAgora = [...agora.values()].reduce((a, v) => a + v, 0)
     const totalAntes = [...antes.values()].reduce((a, v) => a + v, 0)
     const normal = await turnoHoje(st, 'gastei fora do normal esse mes?')
-    out.push(result('K-fora-do-normal-sim-ou-nao', normal.reply, semGastoNoMes ? 'mês sem gasto: sem veredito inventado' : totalAgora > totalAntes ? 'Sim, subiu.' : 'Não, caiu.',
-      semGastoNoMes ? semBase(normal.reply) : normal.reply.startsWith(totalAgora > totalAntes ? 'Sim, subiu.' : 'Não, caiu.')))
+    const leadGasto = totalAgora === totalAntes ? 'Não, ficou igual.' : totalAgora > totalAntes ? 'Sim, subiu.' : 'Não, caiu.'
+    out.push(result('K-fora-do-normal-sim-ou-nao', normal.reply,
+      semGastoNoMes || !antes.size ? 'período sem lançamentos comparáveis, sem veredito' : leadGasto,
+      semGastoNoMes ? semBase(normal.reply) : !antes.size
+        ? /não há lançamentos para comparar/.test(normal.reply) && !/^(?:Sim|Não,)/.test(normal.reply)
+        : normal.reply.startsWith(leadGasto)))
   }
 
   // Continuação de simulação: "dá ruim?", "volta" e "qual mês fica pior"
@@ -4296,6 +4305,57 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('MI-km-a-mais-pede-combustivel', r.reply, custo.fuelPerKm > 0 ? `combustível ≈ ${brl(custo.fuelPerKm * 100)}` : 'sem consumo/preço: pede o abastecimento',
         r.actions.length === 0 && /combust[íi]vel/i.test(r.reply) && !/ritmo real/i.test(r.reply)
           && (custo.fuelPerKm > 0 ? limpa(r.reply).includes(brl(Math.round(custo.fuelPerKm * 100 * 100) / 100)) : /consumo/i.test(r.reply))))
+    }
+
+    {
+      const diaAnterior = `${addDays(`${hoje.slice(0, 7)}-01`, -1).slice(0, 7)}-01`
+      const st = buildState({ profile: 'driver', transactions: [
+        { id: 'km-hoje-carro', type: 'expense', amount: 50, category: 'combustivel', date: hoje },
+        { id: 'km-hoje-comida', type: 'expense', amount: 150, category: 'alimentacao', date: hoje },
+        { id: 'km-anterior-carro', type: 'expense', amount: 100, category: 'combustivel', date: diaAnterior },
+        { id: 'km-anterior-pedagio', type: 'expense', amount: 50, category: 'pedagio', date: diaAnterior },
+        { id: 'km-anterior-casa', type: 'expense', amount: 400, category: 'casa', date: diaAnterior },
+      ] })
+      st.settings.kmPerLiter = 10
+      st.settings.fuelPricePerLiter = 5
+      st.settings.fixedMonthlyCosts = 50
+      st.fuelRecords = []
+      st.maintenance = [{ id: 'km-peca', name: 'Peça', cost: 200, lifeKm: 1000, kmInstalled: 10000, date: diaAnterior }]
+      st.workSessions = [
+        { id: 'km-trabalho-atual', date: hoje, km: 100, hours: 6, trips: 10 },
+        { id: 'km-trabalho-anterior', date: diaAnterior, km: 100, hours: 6, trips: 10 },
+      ]
+
+      const historico = await turnoHoje(st, 'Quanto meu carro custou por km no mês passado?')
+      out.push(result('VK-periodo-consulta-gastos-registrados', historico.reply,
+        'R$ 1,50/km de R$ 150 em despesas do veículo ÷ 100 km, sem o gasto da casa',
+        /mês passado.*R\$\s1,50\/km.*R\$\s150,00.*100 km/.test(historico.reply) && historico.actions.length === 0))
+
+      const geral = await turnoHoje(st, 'Quanto gastei por km este mês?')
+      out.push(result('VK-gasto-geral-informa-a-unidade', geral.reply, 'R$ 2,00/km de todas as despesas realizadas',
+        /este mês.*R\$\s2,00\/km.*dado real/.test(geral.reply) && geral.actions.length === 0))
+
+      const respostas = await Promise.all([
+        'Quanto meu carro custa por km?', 'Qual é o custo do meu carro por quilômetro?',
+        'Quanto sai o km do veículo?', 'Qual o custo por km da minha moto?',
+      ].map(frase => turnoHoje(st, frase, geral.focus)))
+      const porQue = await turnoHoje(st, 'Por quê?', respostas[1].focus)
+      out.push(result('VK-estimativa-bate-com-veiculo-e-explica', { replies: respostas.map(r => r.reply), porQue: porQue.reply },
+        'R$ 1,20/km de R$ 0,50 de combustível, R$ 0,20 de manutenção e R$ 0,50 de fixos; o por quê explica a estimação',
+        respostas.every(r => r.actions.length === 0 && /R\$\s1,20\/km/.test(r.reply)
+          && /Combustível: R\$\s0,50\/km/.test(r.reply) && /Manutenção: R\$\s0,20\/km/.test(r.reply)
+          && /Custos fixos: R\$\s0,50\/km/.test(r.reply)) && /cálculo da tela Veículo/.test(porQue.reply)))
+      const anterior = await turnoHoje(st, 'E no mês passado?', porQue.focus)
+      out.push(result('VK-continua-no-veiculo', anterior.reply, historico.reply,
+        anterior.reply === historico.reply && anterior.actions.length === 0))
+
+      const semKm = await turnoHoje({ ...st, workSessions: [] }, 'Quanto gastei por km este mês?')
+      const semKmAnterior = await turnoHoje({ ...st, workSessions: st.workSessions.slice(0, 1) }, 'Meu custo por km piorou?')
+      out.push(result('VK-sem-distancia-nao-mostra-zero-ou-veredito', [semKm.reply, semKmAnterior.reply],
+        'sem km, pede dados; na comparação mostra só o gasto atual e explica o que falta',
+        /^Não tenho quilometragem/.test(semKm.reply) && !/R\$/.test(semKm.reply)
+          && /R\$\s2,00\/km/.test(semKmAnterior.reply) && /quilometragem.*para comparar/.test(semKmAnterior.reply)
+          && !/^(?:Sim|Não,)|R\$\s0,00\/km/.test(semKmAnterior.reply)))
     }
 
     // Os valores esperados são calculados a partir dos valores fixos do

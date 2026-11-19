@@ -5764,3 +5764,15 @@ APK ou chamada paga. NOT READY até auditoria independente.
   diferença. Para rankings, explica o mês ou a semana em destaque e aplica
   os filtros da pergunta, inclusive em "em qual mês eu gastei mais com
   obra?". Um período sem registros não é tratado como vencedor.
+- O custo atual por km no chat usa o mesmo cálculo da tela Veículo, com
+  combustível, desgaste e fixos. Uma pergunta que dá o período divide o
+  gasto realizado pelas distâncias registradas no mesmo período. A falta
+  de km impede o cálculo ou a comparação, inclusive em "meu custo por km
+  piorou?".
+- A suíte comum e a execução na data da máquina passaram com 722/722
+  regressões adversariais. A matriz de oito datas em America/Sao_Paulo,
+  os typechecks, o teste de dinheiro, o build e a rubrica passaram
+  (zero PERIGOSA e zero RUIM). No Chrome, um backup sintético validou
+  importação inválida, cancelamento, mescla sem duplicidade e restauração
+  após confirmação. O pagamento legado com data futura ficou bloqueado
+  após importar pela tela de Configurações.

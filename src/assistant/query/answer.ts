@@ -200,7 +200,7 @@ export function composeAnswer(r: AssistantQueryResult): string {
 
   if (r.empty) {
     if (comprasLinha) return `${comprasLinha}\n\nNão encontrei faturas com vencimento ${periodo}.`
-    if ((p.source === 'goals' && p.field === 'saved' || p.metric === 'avg' && p.group === 'month')
+    if ((r.missingDistance || p.source === 'goals' && p.field === 'saved' || p.metric === 'avg' && p.group === 'month')
       && r.caveats.length) return r.caveats.join('\n\n')
     if (p.source === 'recurring' && p.filter.plannedOnly && p.filter.txType?.[0] === 'income') {
       return `Não há entradas recorrentes previstas em aberto ${periodo}. Cadastre as entradas em Planejamento para eu calcular essa previsão.`
@@ -394,6 +394,7 @@ const maiuscula = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s)
  * fatos. Nunca uma metodologia inventada (regra da fase 15).
  */
 export function explainQueryResult(r: AssistantQueryResult): string {
+  if (r.missingDistance) return r.caveats.join('\n\n')
   const p = r.plan
   const partes: string[] = []
   const oQue: Record<string, string> = {
@@ -431,7 +432,7 @@ export function explainQueryResult(r: AssistantQueryResult): string {
   if (p.filter.monthHalf) filtros.push(p.filter.monthHalf === 'first' ? 'só a primeira metade do mês' : 'só a segunda metade do mês')
   if (filtros.length) partes.push(`Filtros: ${filtros.join('; ')}.`)
 
-  if (p.comparePeriod) {
+  if (p.comparePeriod && r.compareTotal !== undefined && (r.compareCount !== 0 || p.group !== 'none')) {
     partes.push(`Comparei com ${p.comparePeriod.label} (${brDate(p.comparePeriod.from)} a ${brDate(p.comparePeriod.to)}).`)
   }
 

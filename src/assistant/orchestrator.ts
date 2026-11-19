@@ -759,6 +759,7 @@ function respostaLocal(
   state: AppState, pergunta: string, today: string, usaConsulta: boolean,
 ): { text: string; focus?: ConversationFocus } | null {
   const conv = usaConsulta ? answerConversation(state, pergunta, { today }) : null
+  if (conv?.kind === 'explain' && conv.focus.last === 'vehicle') return { text: conv.reply, focus: conv.focus }
   const consulta = conv?.kind === 'query' ? conv : null
   if (consulta?.beyondLegacy) return { text: consulta.reply, focus: consulta.focus }
   const r = askAssistant(state, pergunta)

@@ -25,6 +25,7 @@ import { answerScenario, rerunScenario } from '../scenario'
 import type { ScenarioAnswer } from '../scenario'
 import { looksLikeScenario, parsePurchaseDelay } from '../scenario/parse'
 import { analyzeChanges, answerChangeQuestion, changeScopeClarification, composeChangeExplanation, expenseCategoryInQuestion } from '../drivers'
+import { answerVehicleCost } from '../vehicleCost'
 import {
   isFocusFresh, rememberDriver, rememberQuery, rememberScenario, resolveFollowUp, looksLikeFollowUp,
 } from './focus'
@@ -71,8 +72,9 @@ export function answerConversation(
   // caminho que tenha terminado numa comparação: consulta nova ou refino.
   const plan = out?.kind === 'query' ? out.focus?.lastQueryPlan : undefined
   const q = out?.kind === 'query' ? out.focus?.lastQuery : undefined
-  if (out && plan && q) {
-    const lead = leadSimNao(normalizeQuery(message), plan, q.total, q.compareTotal, q.groups?.[0]?.delta)
+  if (out && plan && q && !q.empty) {
+    const anterior = q.compareCount === 0 ? undefined : q.compareTotal
+    const lead = leadSimNao(normalizeQuery(message), plan, q.total, anterior, q.groups?.[0]?.delta)
     if (lead && !/^(?:sim|n[ãa]o)\b/i.test(out.reply)) return { ...out, reply: `${lead}${out.reply}` }
   }
   const cenario = out?.kind === 'scenario' ? out.focus?.lastScenario : undefined
@@ -159,7 +161,7 @@ function respondeConversa(
   }
 
   if (isFocusFresh(focus, agora) && focus?.last === 'query' && focus.lastQueryPlan && focus.lastQuery
-    && !focus.lastComparisonExplanation) {
+    && !focus.lastAnswerExplanation) {
     const reply = proporcaoSobreResultado(state, message, focus.lastQueryPlan, focus.lastQuery, hoje)
     if (reply) return { reply, kind: 'explain', focus: { ...focus, updatedAt: agora }, confidence: 'high' }
   }
@@ -196,6 +198,13 @@ function respondeConversa(
     // número real a uma frase começada por "se eu" é transformar hipótese em
     // fato — exatamente o que este módulo existe para impedir.
     return null
+  }
+
+  const custoVeiculo = answerVehicleCost(state, normalizeQuery(message), hoje)
+  if (custoVeiculo) {
+    return { reply: custoVeiculo.text, kind: 'explain', confidence: 'high',
+      focus: { last: 'vehicle', lastAnswerExplanation: custoVeiculo.explanation, updatedAt: agora,
+        lastScenario: focus?.lastScenario, lastScenarioPlan: focus?.lastScenarioPlan, scenarioHistory: focus?.scenarioHistory } }
   }
 
   // A segunda pergunta pode usar o resultado conferido da primeira. Só o
@@ -322,7 +331,7 @@ function aplicaFollowUp(
   switch (fu.kind) {
     case 'explain':
       return { reply: fu.text, kind: 'explain',
-        focus: { ...focus, updatedAt: agora, lastComparisonExplanation: fu.comparisonExplanation }, confidence: 'high' }
+        focus: { ...focus, updatedAt: agora, lastAnswerExplanation: fu.followUpExplanation }, confidence: 'high' }
     case 'ambiguous':
       return {
         reply: fu.question, kind: 'clarify', focus: { ...focus, updatedAt: agora },

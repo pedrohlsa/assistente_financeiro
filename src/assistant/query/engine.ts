@@ -558,6 +558,12 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
       sample: { rows: 0, from: plan.period.from, to: plan.period.to }, facts: [], samples: [],
       caveats: [`Não consigo calcular os depósitos nas metas ${plan.period.label}: o app guarda o total acumulado atual, sem histórico completo da data de cada depósito.`] }
   }
+  const semKm = ({ from, to }: AssistantQueryPlan['period']) => quantidadeTrabalho(state, from, to).km <= 0
+  if (plan.metric === 'per-km' && semKm(plan.period)) {
+    return { plan, unit, total: 0, count: 0, groups: [], estimated: false, empty: true, missingDistance: true,
+      sample: { rows: 0, from: plan.period.from, to: plan.period.to }, facts: [], samples: [],
+      caveats: [`Não tenho quilometragem de trabalho registrada ${plan.period.label} para calcular o valor por km.`] }
+  }
   const { ag, rows } = agrega(state, plan, plan.period)
   const caveats: string[] = []
 
@@ -588,7 +594,9 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
   let compareTotal: number | undefined
   let compareGroups: Map<string, number> | undefined
   let compareCount: number | undefined
-  if (plan.comparePeriod) {
+  if (plan.comparePeriod && plan.metric === 'per-km' && semKm(plan.comparePeriod)) {
+    caveats.push(`Não tenho quilometragem de trabalho registrada ${plan.comparePeriod.label} para comparar.`)
+  } else if (plan.comparePeriod) {
     const c = agrega(state, plan, plan.comparePeriod)
     compareCount = c.rows.length
     compareTotal = plan.metric === 'share'
@@ -724,9 +732,9 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
       caveats.push('Nenhuma despesa está vinculada a essa origem, então não dá para afirmar o resultado líquido dela.')
     }
   }
-  if (plan.metric === 'per-km' || plan.metric === 'per-hour' || plan.metric === 'per-trip') {
+  if (plan.metric === 'per-hour' || plan.metric === 'per-trip') {
     const q = quantidadeTrabalho(state, plan.period.from, plan.period.to)
-    const alvo = plan.metric === 'per-km' ? q.km : plan.metric === 'per-hour' ? q.hours : q.trips
+    const alvo = plan.metric === 'per-hour' ? q.hours : q.trips
     if (alvo <= 0) caveats.push('Não tenho km, horas ou viagens registrados no período para essa conta.')
   }
 
