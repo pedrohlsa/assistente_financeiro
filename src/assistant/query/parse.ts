@@ -1141,7 +1141,12 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     incompleto = alvo.literal
   } else if (alvo) {
     rest.consome(alvo.matched)
-    const cat = resolverCategoria(state, alvo.valor, tipoAlvo, /^(?:no|na|nos|nas)\s/.test(alvo.matched.trim()))
+    // Nome de CONTA FIXA cadastrada é entidade, não palavra de categoria:
+    // "quanto gastei de luz esse ano" respondia o total de Casa (a reforma do
+    // telhado) porque "luz" está na lista genérica de Casa. Os pagamentos
+    // confirmados da conta levam o nome dela na descrição.
+    const contaFixa = (state.recurring || []).some(r => r && r.kind !== 'income' && normalizeName(r.name) === normalizeName(alvo.valor))
+    const cat = contaFixa ? undefined : resolverCategoria(state, alvo.valor, tipoAlvo, /^(?:no|na|nos|nas)\s/.test(alvo.matched.trim()))
     if (cat) {
       filter.categories = [cat]
       recognized.push(`categoria ${alvo.valor}`)
@@ -1399,6 +1404,9 @@ function alemDoAntigo(plan: AssistantQueryPlan, periodoDito: boolean, porLancame
   const f = plan.filter
   if (f.excludeCategories?.length || f.excludeText || f.excludeTexts?.length || f.excludeCardNames?.length) return true
   if (f.weekdays?.length || f.monthHalf || f.origin || f.origins?.length) return true
+  // Plataforma dita ("essa semana NA 99"): o roteador antigo somava todas as
+  // plataformas e respondia o faturamento inteiro como se fosse só da 99.
+  if (f.platform) return true
   if (plan.metric === 'share' || plan.metric === 'median') return true
   // O roteador antigo trata "média por lançamento" como nome de despesa.
   // Hábito de um item nomeado continua com ele (ex.: suco por dia).

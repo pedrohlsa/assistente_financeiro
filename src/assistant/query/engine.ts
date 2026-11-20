@@ -776,6 +776,15 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
     cardPurchases = { total: r2(compras.reduce((total, p) => total + p.totalAmount, 0)), count: compras.length }
   }
 
+  // Nome de conta fixa sem pagamento confirmado no período: "não tenho
+  // lançamento de luz" sozinho parece que a conta não existe.
+  if (rows.length === 0 && plan.source === 'transactions' && plan.filter.text) {
+    const conta = (state.recurring || []).find(r => r && r.kind !== 'income' && normalizeName(r.name) === normalizeName(plan.filter.text!))
+    if (conta) {
+      caveats.push(`${sentenceCase(conta.name)} é conta fixa de R$ ${(Number(conta.amount) || 0).toFixed(2).replace('.', ',')} e nenhum pagamento dela foi confirmado nesse período. Se já pagou, diga "paguei a ${normalizeName(conta.name)}" ou confirme na tela inicial.`)
+    }
+  }
+
   return {
     plan,
     ...(lastOutside ? { lastOutside } : {}),

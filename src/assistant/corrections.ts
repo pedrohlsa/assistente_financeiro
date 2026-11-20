@@ -597,7 +597,9 @@ export function parseCorrection(
   // Origem: "e era da casa 2", "foi do cliente João", "veio da Empresa X". Caía
   // na negação ("isso não aconteceu") e a proposta sumia. Só origem explícita
   // (`extractOrigins`): substantivo de fonte + identificador, ou nome próprio.
-  if (!touched && /^(?:e\s+)?(?:era|foi|e|é|veio|vem|vieram)\s+d[ao]s?\s/.test(t)) {
+  // A resposta curta "da casa 3", "do cliente João" (sem verbo) completa a
+  // proposta na tela do mesmo jeito: caía no menu de ajuda.
+  if (!touched && /^(?:e\s+)?(?:(?:era|foi|e|é|veio|vem|vieram)\s+)?d[ao]s?\s/.test(t)) {
     const origem = extractOrigins(message.trim())[0]?.value
     const target = origem ? resolveTarget(t, remaining) : null
     const p = target && 'id' in target ? remaining.find(x => x.id === target.id) : undefined

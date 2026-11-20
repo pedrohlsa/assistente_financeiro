@@ -6045,6 +6045,37 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       litros.actions.length === 1 && litros.actions[0].kind === 'fuel'))
   }
 
+  // Segunda sonda: continuação curta, plataforma na pergunta e nome de conta fixa.
+  {
+    // "da casa 3" sozinho completa a origem da proposta na tela.
+    const st = buildState({ profile: 'autonomo' })
+    const t1 = await orchestrate({ state: st, message: 'recebi 800 do aluguel', today: hoje, remoteEnabled: false })
+    const t2 = await orchestrate({ state: st, message: 'da casa 3', today: hoje, remoteEnabled: false, pending: t1.response.actions, focus: t1.focus })
+    out.push(result('MQ-origem-curta-completa-proposta', t2.response.actions.map(a => a.action), 'receita de 800 com origem Casa 3',
+      t2.response.actions.length === 1 && (t2.response.actions[0].action as any).origin === 'Casa 3' && (t2.response.actions[0].action as any).amount === 800))
+
+    // Plataforma dita na pergunta filtra a resposta.
+    const mot = motoristaRico(hoje)
+    const sete = addDays(hoje, -6)
+    const da99 = mot.transactions.filter(t => t.type === 'income' && t.date >= sete && t.date <= hoje && /\b99\b/.test(t.description || ''))
+      .reduce((a, t) => a + t.amount, 0)
+    const todas = mot.transactions.filter(t => t.type === 'income' && t.date >= sete && t.date <= hoje).reduce((a, t) => a + t.amount, 0)
+    const na99 = (await turnoHoje(mot, 'quanto eu fiz essa semana na 99')).reply.replace(/\u00a0/g, ' ')
+    const brl = (v: number) => fmtBRL(v).replace(/\u00a0/g, ' ')
+    out.push(result('MQ-plataforma-na-pergunta', na99, `${brl(da99)} só da 99, nunca ${brl(todas)}`,
+      da99 > 0 && da99 !== todas && na99.includes(brl(da99)) && !na99.includes(brl(todas))))
+
+    // Nome de conta fixa não vira a categoria inteira.
+    const rico = autonomoRico(hoje)
+    const luz = (await turnoHoje(rico, 'gastei quanto de luz esse ano')).reply
+    const casaAno = rico.transactions.filter(t => t.type === 'expense' && t.category === 'casa' && t.date.startsWith(hoje.slice(0, 4)) && t.date <= hoje)
+      .reduce((a, t) => a + t.amount, 0)
+    out.push(result('MQ-conta-fixa-nao-e-categoria', luz, 'sem o total de Casa; diz que Luz é conta fixa sem pagamento confirmado',
+      (casaAno === 0 || !luz.replace(/\u00a0/g, ' ').includes(brl(casaAno))) && /Luz é conta fixa/.test(luz)))
+    const gasolina = (await turnoHoje(mot, 'quanto gastei de gasolina esse mês')).reply
+    out.push(result('MQ-palavra-de-categoria-continua', gasolina, 'combustível do mês, como antes', /Combust[íi]vel|Gasolina/.test(gasolina) && /R\$/.test(gasolina)))
+  }
+
   return out
 }
 

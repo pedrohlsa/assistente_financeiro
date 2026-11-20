@@ -213,6 +213,8 @@ export function composeAnswer(r: AssistantQueryResult): string {
       const quantos = u.count > 1 ? ` São ${u.count} lançamentos assim antes deste período.` : ''
       return `${base}${alvo} ${periodo}. O último foi em ${brDate(u.date)}: ${formatValue(u.value, r.unit)} (${u.label}).${quantos}`
     }
+    const fixa = r.caveats.find(c => /é conta fixa de R\$/.test(c))
+    if (fixa) return `${base}${alvo} ${periodo}. ${fixa}`
     return `${base}${alvo} ${periodo}. ${COMO_REGISTRAR[p.source] || ''}`.trim()
   }
 
