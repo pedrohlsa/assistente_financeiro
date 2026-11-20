@@ -54,6 +54,17 @@ export default function Chat() {
    * solto e o usuário recebia a mensagem genérica de ajuda.
    */
   const clarificationRef = useRef<{ msgId: string; value: AssistantClarification } | null>(null)
+  const restoredContext = useRef(false)
+  if (!restoredContext.current) {
+    // Voltar de outra tela mantém os cartões visíveis da mesma sessão.
+    // Na inicialização do app, a reidratação já removeu os cartões antigos.
+    const recent = state.chat.slice().reverse()
+    const proposal = recent.find(m => m.proposal?.some(p => !p.outcome?.ok))
+    const clarification = recent.find(m => m.clarification)
+    if (proposal) pendingRef.current = { msgId: proposal.id, actions: proposal.proposal.filter(p => !p.outcome?.ok) }
+    if (clarification) clarificationRef.current = { msgId: clarification.id, value: clarification.clarification }
+    restoredContext.current = true
+  }
   /**
    * Foco conversacional. Fica em memoria pelo mesmo motivo do rascunho: "e mes
    * passado?" so faz sentido enquanto a conversa esta acontecendo, e uma

@@ -6218,3 +6218,11 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - O Chrome confirmou os dois Pix corrigidos, o gasto independente
   e a ausência de registro na negativa. Suíte com 797/797 regressões,
   151 invariantes, avaliação remota offline, typechecks e build.
+
+## 20/11/2026 — Continuidade ao voltar à tela do chat
+
+- Ao voltar de Movimentações na mesma sessão, correções e respostas
+  curtas voltam a apontar para a proposta e a pergunta ainda visíveis.
+- O Chrome confirmou o gasto de R$ 75 após trocar de tela duas vezes.
+  No recarregamento completo, a proposta pendente foi descartada,
+  conforme a regra de reidratação, e o gasto já confirmado foi mantido.
