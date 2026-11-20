@@ -31,7 +31,7 @@ export interface AnalyzedClause {
   date?: string
   dateLabel?: string
   /** Pergunta de desambiguação levantada pelo parser (ex.: gás). */
-  ambiguity?: { question: string; field?: string; options: { label: string; actions: ParsedAction[]; reply?: string }[] }
+  ambiguity?: { question: string; field?: string; pendingActions?: ParsedAction[]; options: { label: string; actions: ParsedAction[]; reply?: string }[] }
   /** Data ambígua: precisa de escolha antes de virar lançamento. */
   dateAmbiguity?: { question: string; options: { label: string; value: string }[] }
   /**
@@ -48,6 +48,7 @@ export interface AnalyzedClause {
   intention?: boolean
   /** O trecho descreve um fato que quase aconteceu ou um plano abandonado. */
   unrealized?: boolean
+  approximateAmount?: boolean
   /**
    * Leituras locais DESCARTADAS por baixa confiança (ver semantic/confidence.ts).
    * A cláusula que as tinha fica em aberto — é isso que deixa a consulta local e
@@ -684,6 +685,30 @@ function alternativeAmounts(text: string, driver: boolean | undefined, date?: st
   return { field: 'amount-choice', question: options.length === 2 ? 'Qual dos dois valores foi o valor exato?' : 'Qual foi o valor exato?',
     options: options.length === 2 ? options : [] }
 }
+
+function incompleteAmount(text: string, driver: boolean | undefined, date?: string, origin?: string): AnalyzedClause['ambiguity'] {
+  const tail = /(?<![\w.,])(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?\s+e\s+(?:poucos?|alguns\s+(?:quebrados|trocados|centavos)|uns\s+(?:quebrados|trocados|(?:\d+\s+)?centavos))\b/i
+  const bound = /\b(?:quase|mais\s+de|menos\s+de|pelo\s+menos|no\s+m[áa]ximo)\s+(?:r\$\s*)?\d+(?:[.,]\d+)*(?![\d.,])/i
+  const match = text.match(tail) || text.match(bound)
+  if (!match || !new RegExp(String.raw`\b(?:${PAST_MONEY_VERBS})\s*$`, 'i').test(text.slice(0, match.index))) return undefined
+  const suffix = text.slice(match.index + match[0].length)
+  if (/^\s+(?:km|quil[oô]metros?|parcelas?|vezes|litros?|horas?|dias?|viagens?|corridas?)\b/i.test(suffix)) return undefined
+  const placeholder = parseFirstAmount(match[0])
+  const sample = `${text.slice(0, match.index)}${placeholder.toFixed(2).replace('.', ',')}${suffix}`
+  const parsed = parseNaturalFull(sample, { driver })
+  const cash = parsed.actions.filter(a => a.kind !== 'work')
+  const [action] = cash
+  if (parsed.ambiguity || cash.length !== 1 || !(action.kind === 'income' || action.kind === 'expense' || action.kind === 'saving')
+    || action.amount !== placeholder) {
+    return { question: 'Qual foi o valor exato? Diga também o que aconteceu para eu preparar o lançamento certo.', options: [] }
+  }
+  const pendingActions = parsed.actions.map(a => ({ ...a,
+    ...(date && DATABLE.has(a.kind) ? { date } : {}), ...(origin && ORIGINABLE.has(a.kind) ? { origin } : {}),
+  }))
+  return { field: 'exact-amount', question: 'Qual foi o valor exato, incluindo os centavos?', options: [], pendingActions }
+}
+
+const APPROXIMATE_AMOUNT = /\b(?:uns|umas|mais\s+ou\s+menos|cerca\s+de|por\s+volta\s+de|aproximadamente)\s+(?:r\$\s*)?\d/i
 
 /** Um número numa origem (Casa 2) ou numa data não substitui o valor do registro. */
 function revisedAction(action: ParsedAction, body: string, today: string): ParsedAction | undefined {
@@ -1341,8 +1366,10 @@ export function analyzeMessage(
       temporal = undefined
     }
 
+    const singleOrigin = origins.length === 1 ? origins[0].value : undefined
     const amountChoice = passado && !negated && !unrealized && !isQuestion && !isConversation
-      ? alternativeAmounts(semData, opts?.driver, date, origins.length === 1 ? origins[0].value : undefined) : undefined
+      ? alternativeAmounts(semData, opts?.driver, date, singleOrigin) || incompleteAmount(semData, opts?.driver, date, singleOrigin)
+      : undefined
     if (amountChoice) {
       const dateMissing = !!temporal || !!dateAmbiguity
       actions = []
@@ -1389,6 +1416,7 @@ export function analyzeMessage(
       temporal,
       intention: intencao || undefined,
       unrealized: unrealized || undefined,
+      approximateAmount: actions.length > 0 && APPROXIMATE_AMOUNT.test(semData) || undefined,
       suspicious: suspeitas.size ? [...suspeitas] : undefined,
     })
 

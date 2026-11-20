@@ -6082,3 +6082,14 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - O Chrome confirmou a saída de R$ 95 pelo tênis, sem criar meta para a
   bota, e os R$ 37,50 do mercado. Suíte com 785/785 regressões,
   151 invariantes, typechecks, build e rubrica.
+
+## 20/11/2026 — Centavos e valores incompletos
+
+- “100 e pouco”, “quase 50” e “mais de 100” pedem o valor exato.
+  A resposta curta recupera origem, categoria e data, e mantém os outros
+  registros que já estavam na proposta. “Uns 50” vem identificado como
+  aproximado na proposta.
+- “50 e 5 centavos” vira uma única despesa de R$ 50,05. O Chrome
+  confirmou esse caso e a receita de R$ 105,50 após a resposta curta.
+- Suíte com 786/786 regressões, 151 invariantes, typechecks, build e
+  rubrica passaram.

@@ -53,6 +53,7 @@ import { catById, usableCategories } from '../data/categories'
 import { addDays, fmtBRL, MESES_PT_BR, parseMoney, todayISO, uid } from '../utils/format'
 import { matchRecurringPayment, occurrencesBetween, possibleRecurringTransactions, recurringActiveOn, recurringLinkAction } from '../services/calc'
 import { normalizeName, sentenceCase } from '../utils/text'
+import { normalizeNumberWords } from './numbers'
 import { brDate, dateInAnswer, dateLabel, findAllDates, findDate, previousYearOf, resolveDayInWindow } from './dates'
 import { applyPreferenceAliases, parsePreferenceCommand } from './preferences'
 import type { PreferenceMutation } from './preferences'
@@ -644,6 +645,7 @@ function runLocal(
         : ambiguous.ambiguity.question,
       options: ambiguities.length > 1 ? [] : ambiguous.ambiguity.options.map(o => ({ label: o.label, value: o.label, actions: o.actions, reply: o.reply })),
       field: ambiguities.length > 1 ? 'financial-events' : ambiguous.ambiguity.field || 'ambiguity',
+      pendingActions: ambiguities.length === 1 ? ambiguous.ambiguity.pendingActions : undefined,
     }
   }
 
@@ -917,6 +919,12 @@ function proposeClarifiedActions(
   state: AppState, actions: ParsedAction[], today: string, previous: AssistantCandidateAction[] = [],
 ): OrchestratorOutput {
   return preparedActionResponse(state, prepareInvoicePayments(state, actions.map(a => candidate(a, 'local')), today), previous)
+}
+
+function exactMoneyAnswer(message: string): number | undefined {
+  const normalized = normalizeName(normalizeNumberWords(message).text).replace(/[.!?]+$/g, '').trim()
+  const match = normalized.match(/^(?:(?:foi|e|deu)\s+)?(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s+(?:reais?|contos?))?(?:\s+(?:exat[oa]s?|certinh[oa]s?))?$/i)
+  return match ? parseMoney(match[1]) : undefined
 }
 
 function proposeDatedActions(input: OrchestratorInput, actions: ParsedAction[], caps: AssistantCapabilities, today: string): OrchestratorOutput {
@@ -1194,6 +1202,18 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   // "GNV" logo depois de "gás de cozinha ou GNV?" precisa recuperar o valor e
   // a descrição da mensagem anterior — o usuário não repete nada.
   const pc = input.pendingClarification
+  if (pc?.field === 'exact-amount' && pc.pendingActions?.length) {
+    const amount = exactMoneyAnswer(input.message)
+    if (amount > 0) {
+      return proposeDatedActions(input, pc.pendingActions.map(a => a.kind === 'income' || a.kind === 'expense' || a.kind === 'saving'
+        ? { ...a, amount } : a), caps, today)
+    }
+    if (!looksPast(input.message) && !looksLikeQuestion(input.message)) return {
+      draft: null, keepPending: true,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
+        actions: [], unresolved: [], clarification: pc, reply: pc.question },
+    }
+  }
   if (pc?.options?.length) {
     const said = normalizeName(input.message)
     const financialEvent = pc.field === 'financial-event'
@@ -1206,9 +1226,9 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     // contém "sim", e "sim, mandei só 10" altera o valor da proposta.
     const simpleAnswer = said.replace(/[.!?]+$/g, '').trim()
     const negativeAnswer = financialEvent && /^(?:nao|nem)(?:\b|$)/.test(simpleAnswer)
-    const amountText = amountChoice && simpleAnswer.match(/^(?:(?:foi|e)\s+)?(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s+reais?)?$/i)
+    const amount = amountChoice ? exactMoneyAnswer(input.message) : undefined
     const hit = invoiceChoice ? matchInvoiceChoice(pc.options, input.message) : pc.options.find(o => amountChoice
-      ? (normalizeName(o.label) === simpleAnswer || (!!amountText && parseMoney(amountText[1]) === parseMoney(o.label)))
+      ? (normalizeName(o.label) === simpleAnswer || (amount > 0 && amount === parseMoney(o.label)))
       : financialEvent || fixedBillChoice || fixedBillLink || dateChoice
       ? (normalizeName(o.label) === simpleAnswer || normalizeName(o.value) === simpleAnswer
         || (negativeAnswer && normalizeName(o.label) === 'nao'))
@@ -2368,6 +2388,10 @@ Confirmar?`,
   // vê o valor certo com uma palavra que não escreveu e não sabe se o app
   // entendeu ou adivinhou.
   const notaReparo = reparo ? describeRepairs(reparo) : null
+  if (candidates.some(candidate => analysis.clauses.some(c => c.id === candidate.clauseId && c.approximateAmount))) {
+    const note = 'Você informou um valor aproximado. Confira o valor na proposta antes de confirmar.'
+    reply = reply.endsWith('Confirmar?') ? `${reply.slice(0, -'Confirmar?'.length)}${note}\n\nConfirmar?` : `${reply}\n\n${note}`
+  }
   if (notaReparo && (mode === 'propose_actions' || mode === 'answer_and_actions')) {
     reply = `${notaReparo}
 

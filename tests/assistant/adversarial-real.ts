@@ -195,6 +195,25 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && almost.response.actions.length === 1 && almost.response.actions[0].action.kind === 'expense'
       && almost.response.actions[0].action.amount === 35 && calledForNegation === 0))
 
+  const amountMissing = await localSpoken('ganhei 100 e pouco do freela mas gastei exatamente 37 no mercado')
+  const stillRough = await localSpoken('mais ou menos 105', amountMissing)
+  const completed = await localSpoken('105,50', amountMissing)
+  const exactApplied = applyBatchPure(spoken, completed.response.actions.map(({ id, action }) => ({ id, action })),
+    { now: { date: spokenDate, time: '16:30' } })
+  const yesterdayPartial = await localSpoken('paguei 50 e uns quebrados na padaria ontem')
+  const resolvedYesterday = await localSpoken('foi 51,30', yesterdayPartial)
+  out.push(result('LING-centavos-incertos-aguardam-resposta-exata-sem-perder-contexto', { first: amountMissing.response,
+    rough: stillRough.response, completed: completed.response, dated: resolvedYesterday.response },
+    'R$ 100 e pouco aguarda resposta, mas R$ 37 já foram compreendidos; centavos informados preservam tipo, descrição e dia',
+    answerChoices(amountMissing)?.field === 'exact-amount' && amountMissing.response.actions.length === 1
+      && amountMissing.response.actions[0].action.kind === 'expense' && amountMissing.response.actions[0].action.amount === 37
+      && answerChoices(stillRough)?.field === 'exact-amount' && !!stillRough.keepPending && !stillRough.response.actions.length
+      && exactApplied.applied && exactApplied.state.transactions.length === 2 && currentBalance(exactApplied.state) === 1268.5
+      && exactApplied.state.transactions.some(t => t.amount === 105.5 && t.category === 'freelance')
+      && resolvedYesterday.response.actions.length === 1 && resolvedYesterday.response.actions[0].action.kind === 'expense'
+      && resolvedYesterday.response.actions[0].action.amount === 51.3 && resolvedYesterday.response.actions[0].action.description === 'Padaria'
+      && resolvedYesterday.response.actions[0].action.date === addDays(spokenDate, -1) && calledForNegation === 0))
+
   const c1 = baseline()
   c1.transactions = ['2026-06-10', '2026-07-10', '2026-08-10'].map((date, i) => ({
     id: `obra-${i}`, type: 'expense', amount: 300, category: 'obra', date, description: 'Obra', time: '10:00',

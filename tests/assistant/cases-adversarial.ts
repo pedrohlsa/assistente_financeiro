@@ -247,6 +247,12 @@ export const ADVERSARIAL: AssistantCase[] = [
     expectActions: [{ kind: 'expense', amount: 155 }] },
   { id: 'ctv-04', group: 'centavos', ...clt, messages: ['recebi mil e seiscentos e vinte e cinco'],
     expectActions: [{ kind: 'income', amount: 1625 }] },
+  { id: 'ctv-05', group: 'centavos', ...auto, messages: ['paguei 50 e 5 centavos na padaria'],
+    expectActions: [{ kind: 'expense', amount: 50.05, description: 'Padaria' }] },
+  { id: 'ctv-06', group: 'centavos', ...auto, messages: ['lancei que recebi 1.000 e 2 centavos da Casa 2'],
+    expectActions: [{ kind: 'income', amount: 1000.02, origin: 'Casa 2' }] },
+  { id: 'ctv-07', group: 'centavos', ...auto, messages: ['gastei uns 50 no mercado'],
+    expectActions: [{ kind: 'expense', amount: 50, description: 'Mercado' }], expectReply: [/valor aproximado/i] },
 
   // ===== DATA AINDA NÃO SUPORTADA — nunca usar hoje em silêncio =====
   { id: 'dtf-01', group: 'datafutura', ...other, messages: ['daqui a 3 dias vou pagar 200'],

@@ -353,6 +353,9 @@ function withCents(t: string): string {
       (_m, reais: string, jaTemCentavos: string | undefined, cents: string) =>
         `${reais}${jaTemCentavos || ','}${jaTemCentavos ? '' : pad(cents)} reais`,
     )
+    // "50 e 5 centavos" explicita uma parte inteira e uma fração.
+    .replace(/(?<![\d,.])(\d{1,3}(?:\.\d{3})+|\d+)\s+e\s+(\d{1,2})\s*centavos?\b/gi,
+      (_m, reais: string, cents: string) => `${reais},${pad(cents)} reais`)
     // "50 centavos" sozinho — sem reais na frente.
     .replace(/(?<![\d,.])(\d{1,2})\s*centavos?\b/gi, (_m, cents: string) => `0,${pad(cents)} reais`)
 }
