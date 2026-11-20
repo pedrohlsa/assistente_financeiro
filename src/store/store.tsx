@@ -210,8 +210,11 @@ export function reducer(s: AppState, a: Action): AppState {
       return { ...s, assistantPreferences: mergePreferenceLists(s.assistantPreferences || [], [a.preference]) }
     }
     case 'assistantPreferenceRemove': return { ...s, assistantPreferences: (s.assistantPreferences || []).filter(p => p.id !== a.id) }
-    case 'addTx': return { ...s, transactions: [{ ...a.tx,
-      time: a.tx.time ? nextCashEventTime(s, a.tx.date, a.tx.time) : a.tx.time }, ...s.transactions] }
+    case 'addTx': {
+      if (!validPaymentDate(a.tx.date)) return s
+      return { ...s, transactions: [{ ...a.tx,
+        time: a.tx.time ? nextCashEventTime(s, a.tx.date, a.tx.time) : a.tx.time }, ...s.transactions] }
+    }
     case 'removeTx': {
       const removed = s.transactions.find(t => t.id === a.id)
       if (!removed) return s

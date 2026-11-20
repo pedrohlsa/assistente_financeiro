@@ -110,8 +110,10 @@ export default function Transactions() {
     return [...map.entries()]
   }, [filtered])
 
-  const totalIn = filtered.filter(t => t.type === 'income').reduce((a, t) => a + t.amount, 0)
-  const totalOut = filtered.filter(t => t.type === 'expense').reduce((a, t) => a + t.amount, 0)
+  const today = todayISO()
+  const realized = filtered.filter(t => t.date <= today)
+  const totalIn = realized.filter(t => t.type === 'income').reduce((a, t) => a + t.amount, 0)
+  const totalOut = realized.filter(t => t.type === 'expense').reduce((a, t) => a + t.amount, 0)
 
   const visibleCats = showAllCats ? [...primaryCats, ...extraCats] : primaryCats
 
@@ -173,6 +175,7 @@ export default function Transactions() {
                     <div style={{ fontWeight: 650, fontSize: '0.92rem' }}>{sentenceCase(t.description) || cat.name}</div>
                     <div className="tiny">
                       {t.type === 'financed-cash-inflow' ? 'Entrada financiada (não é receita)' : cat.name}
+                      {t.date > today ? ' · Data futura' : ''}
                       {t.time ? ` · ${t.time.slice(0, 5)}` : ''}
                     </div>
                   </div>

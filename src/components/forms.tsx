@@ -5,6 +5,7 @@ import { ConfirmDialog, MoneyInput, useToast } from './ui'
 import { Budget, CategoryType, FinancialGoal, FuelRecord, IntervalUnit, MaintenanceItem, RecurringExpense, Transaction } from '../models/types'
 import { addDays, fromISO, nowPaymentTime, parseMoney, todayISO, uid, fmtBRL } from '../utils/format'
 import { describeRecurrence, occurrencesBetween } from '../services/calc'
+import { validPaymentDate } from '../services/cards'
 import { sentenceCase } from '../utils/text'
 import { guessCategory } from '../data/categories'
 import { defaultIncomeCategory, isDriver } from '../services/profile'
@@ -27,15 +28,17 @@ export function TransactionForm({ type: initialType, onDone }: { type?: Category
 
   const cats = state.categories.filter(c => c.type === type && !c.archived)
   const suggested = description ? guessCategory(description, type) : undefined
+  const today = todayISO()
+  const dateValid = validPaymentDate(date, today)
 
   const save = () => {
     const v = parseMoney(amount)
-    if (!v || v <= 0) return
+    if (!(v > 0) || !validPaymentDate(date)) return
     const tx: Transaction = {
       id: uid(), type, amount: v,
       category: category || suggested || (type === 'income' ? 'outros-in' : 'outros-out'),
       description: description || undefined, origin: origin || undefined,
-      date, time: nowPaymentTime(), paymentMethod: payment, note: note || undefined, source: 'manual',
+      date, time: date === todayISO() ? nowPaymentTime() : undefined, paymentMethod: payment, note: note || undefined, source: 'manual',
       profileAtCreation: state.settings.profile,
     }
     dispatch({ type: 'addTx', tx })
@@ -76,14 +79,19 @@ export function TransactionForm({ type: initialType, onDone }: { type?: Category
       {!showMore && <button className="link" onClick={() => setShowMore(true)}>+ data, pagamento e observação</button>}
       {showMore && (
         <div className="form-grid">
-          <div className="field"><label>Data</label><input type="date" className="input" value={date} onChange={e => setDate(e.target.value)} /></div>
+          <div className="field">
+            <label htmlFor="transaction-date">Data</label>
+            <input id="transaction-date" type="date" className="input" max={today} value={date} aria-invalid={!dateValid}
+              onChange={e => setDate(e.target.value)} />
+            {!dateValid && <p className="tiny muted">Informe uma data válida até hoje.</p>}
+          </div>
           <div className="field"><label>Pagamento</label>
             <select className="input" value={payment} onChange={e => setPayment(e.target.value)}>{PAYMENTS.map(p => <option key={p}>{p}</option>)}</select>
           </div>
           <div className="field full"><label>Observação</label><input className="input" value={note} onChange={e => setNote(e.target.value)} /></div>
         </div>
       )}
-      <button className="btn btn-primary btn-block" disabled={!parseMoney(amount)} onClick={save}>Salvar</button>
+      <button className="btn btn-primary btn-block" disabled={!(parseMoney(amount) > 0) || !dateValid} onClick={save}>Salvar</button>
     </div>
   )
 }

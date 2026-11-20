@@ -21,11 +21,12 @@ export interface PeriodStats {
 
 const inRange = (date: string, from: string, to: string) => date >= from && date <= to
 
-export function periodStats(s: AppState, from: string, to: string): PeriodStats {
-  const txs = s.transactions.filter(t => inRange(t.date, from, to))
+export function periodStats(s: AppState, from: string, to: string, today = todayISO()): PeriodStats {
+  const until = to < today ? to : today
+  const txs = s.transactions.filter(t => inRange(t.date, from, until))
   const income = txs.filter(t => t.type === 'income').reduce((a, t) => a + t.amount, 0)
   const expense = txs.filter(t => t.type === 'expense').reduce((a, t) => a + t.amount, 0)
-  const ws = s.workSessions.filter(w => inRange(w.date, from, to))
+  const ws = s.workSessions.filter(w => inRange(w.date, from, until))
   const km = ws.reduce((a, w) => a + w.km, 0)
   const trips = ws.reduce((a, w) => a + w.trips, 0)
   const hours = ws.reduce((a, w) => a + w.hours, 0)
@@ -352,14 +353,14 @@ export function representedRecurringExpenseMonths(
   })
 }
 
-function projectedInstallments(s: AppState, mk: string, from: string): number {
+function projectedInstallments(s: AppState, mk: string, from: string, today: string): number {
   const cards = activeCards(s)
   const cardIds = new Set(cards.map(c => c.id))
   const plans = new Map((s.installmentPlans || []).map(p => [p.id, p]))
   // A fatura reconcilia parcelas, assinaturas e pagamentos no mesmo lugar.
   // Somar assinatura bruta depois de quitar a fatura cobrava-a uma segunda vez.
   const invoiced = cards.reduce((sum, card) => {
-    const invoice = cardInvoice(s, card, mk)
+    const invoice = cardInvoice(s, card, mk, today)
     if (invoice.dueDate < from) return sum
     return sum + invoice.pending
   }, 0)
@@ -399,7 +400,7 @@ export function monthlyProjections(s: AppState, months = 12, today = todayISO())
       .reduce((a, r) => a + projectedRecurringAmount(s, r, from, last, today), 0)
     const bills = s.recurring.filter(r => r.kind !== 'income')
       .reduce((a, r) => a + projectedRecurringAmount(s, r, from, last, today), 0)
-    const installments = projectedInstallments(s, mk, from)
+    const installments = projectedInstallments(s, mk, from, today)
     const outflow = bills + installments
     const net = incomes - outflow
     running += net
@@ -1028,10 +1029,9 @@ export function cashObligationsUntil(s: AppState, until: string, t = todayISO())
 }
 
 // ---------- ORÇAMENTOS (seção 26) ----------
-export function budgetUsage(s: AppState, category: string): number {
-  const t = todayISO()
+export function budgetUsage(s: AppState, category: string, today = todayISO()): number {
   return s.transactions
-    .filter(tx => tx.type === 'expense' && tx.category === category && monthKey(tx.date) === monthKey(t))
+    .filter(tx => tx.type === 'expense' && tx.category === category && monthKey(tx.date) === monthKey(today) && tx.date <= today)
     .reduce((a, tx) => a + tx.amount, 0)
 }
 

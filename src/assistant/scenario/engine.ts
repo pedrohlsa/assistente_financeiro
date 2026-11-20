@@ -329,7 +329,7 @@ function simulaRodagem(
   const divisor = semanal ? 4 : 1
   const ini = addDays(hoje, 1 - jan)
   const noPeriodo = (t: { date: string }) => t.date >= ini && t.date <= hoje
-  const st = periodStats(state, ini, hoje)
+  const st = periodStats(state, ini, hoje, hoje)
   const corridas = state.transactions.filter(t => noPeriodo(t) && t.type === 'income' && t.category === 'corridas')
   const trabalho = state.workSessions.filter(noPeriodo)
   const diasRodados = new Set(trabalho.filter(w => w.km > 0).map(w => w.date))
@@ -660,7 +660,7 @@ function simulaCenario(
     case 'extra-work': {
       if (!isDriver(state.settings)) return vazio(plan, caveats, 'Essa simulação só existe no perfil de motorista.')
       if (plan.driving) return simulaRodagem(state, plan, plan.driving, hoje, caveats)
-      const st = periodStats(state, addDays(hoje, -29), hoje)
+      const st = periodStats(state, addDays(hoje, -29), hoje, hoje)
       if (plan.hoursPerDay) {
         if (st.hours <= 0) {
           return vazio(plan, caveats, 'Ainda não tenho horas registradas para calcular seu ritmo. Diga "trabalhei 8 horas" que eu passo a estimar.')

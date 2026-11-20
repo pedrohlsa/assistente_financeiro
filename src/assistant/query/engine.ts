@@ -50,12 +50,13 @@ const plataformaDe = (texto?: string): string | undefined => {
 
 function rowsOf(state: AppState, plan: AssistantQueryPlan, today: string): QueryRow[] {
   const { from, to } = plan.period
+  const realizedTo = to < today ? to : today
   const out: QueryRow[] = []
 
   switch (plan.source) {
     case 'transactions': {
       for (const t of state.transactions || []) {
-        if (!t || !inRange(t.date, from, to)) continue
+        if (!t || !inRange(t.date, from, realizedTo)) continue
         out.push({
           id: t.id, date: t.date, value: Number(t.amount) || 0,
           label: t.description || catById(state.categories, t.category).name,
@@ -187,7 +188,7 @@ function rowsOf(state: AppState, plan: AssistantQueryPlan, today: string): Query
 
     case 'work': {
       for (const w of state.workSessions || []) {
-        if (!w || !inRange(w.date, from, to)) continue
+        if (!w || !inRange(w.date, from, realizedTo)) continue
         out.push({
           id: w.id, date: w.date, value: Number(w.km) || 0, label: 'Turno',
           extra: { km: Number(w.km) || 0, hours: Number(w.hours) || 0, trips: Number(w.trips) || 0 },
@@ -198,7 +199,7 @@ function rowsOf(state: AppState, plan: AssistantQueryPlan, today: string): Query
 
     case 'fuel': {
       for (const f of state.fuelRecords || []) {
-        if (!f || !inRange(f.date, from, to)) continue
+        if (!f || !inRange(f.date, from, realizedTo)) continue
         out.push({
           id: f.id, date: f.date, value: Number(f.amount) || 0, label: f.station || 'Abastecimento',
           category: 'combustivel', txType: 'expense',
@@ -210,7 +211,7 @@ function rowsOf(state: AppState, plan: AssistantQueryPlan, today: string): Query
 
     case 'maintenance': {
       for (const m of state.maintenance || []) {
-        if (!m || !inRange(m.date, from, to)) continue
+        if (!m || !inRange(m.date, from, realizedTo)) continue
         out.push({
           id: m.id, date: m.date, value: Number(m.cost) || 0, label: m.name,
           category: 'manutencao', txType: 'expense',
@@ -222,7 +223,7 @@ function rowsOf(state: AppState, plan: AssistantQueryPlan, today: string): Query
 
     case 'projections': {
       // 14 meses cobre "e em outubro?" a partir de qualquer mês do ano.
-      for (const m of monthlyProjections(state, 14)) {
+      for (const m of monthlyProjections(state, 14, today)) {
         const dia = `${m.monthKey}-01`
         if (!inRange(dia, from.slice(0, 8) + '01', to)) continue
         out.push({
@@ -390,10 +391,11 @@ const mediana = (v: number[]): number => {
 }
 
 /** Quantidade de motorista no período — denominador de per-km/hora/viagem. */
-function quantidadeTrabalho(state: AppState, from: string, to: string) {
+function quantidadeTrabalho(state: AppState, from: string, to: string, today: string) {
   let km = 0, hours = 0, trips = 0
+  const realizedTo = to < today ? to : today
   for (const w of state.workSessions || []) {
-    if (!w || !inRange(w.date, from, to)) continue
+    if (!w || !inRange(w.date, from, realizedTo)) continue
     km += Number(w.km) || 0
     hours += Number(w.hours) || 0
     trips += Number(w.trips) || 0
@@ -420,7 +422,7 @@ function numerador(soma: number, rows: QueryRow[], plan: AssistantQueryPlan): nu
 
 function aplicaMetrica(
   valores: number[], rows: QueryRow[], plan: AssistantQueryPlan, state: AppState,
-  periodo: { from: string; to: string },
+  periodo: { from: string; to: string }, today: string,
 ): number {
   const soma = valores.reduce((a, b) => a + b, 0)
   switch (plan.metric) {
@@ -440,19 +442,21 @@ function aplicaMetrica(
       return entrada - saida
     }
     case 'per-day': {
-      const dias = Math.max(Math.round((fromISO(periodo.to).getTime() - fromISO(periodo.from).getTime()) / 86400000) + 1, 1)
+      const realizado = ['transactions', 'work', 'fuel', 'maintenance'].includes(plan.source)
+      const ate = realizado && periodo.to > today ? today : periodo.to
+      const dias = Math.max(Math.round((fromISO(ate).getTime() - fromISO(periodo.from).getTime()) / 86400000) + 1, 1)
       return numerador(soma, rows, plan) / dias
     }
     case 'per-km': {
-      const q = quantidadeTrabalho(state, periodo.from, periodo.to)
+      const q = quantidadeTrabalho(state, periodo.from, periodo.to, today)
       return q.km > 0 ? numerador(soma, rows, plan) / q.km : 0
     }
     case 'per-hour': {
-      const q = quantidadeTrabalho(state, periodo.from, periodo.to)
+      const q = quantidadeTrabalho(state, periodo.from, periodo.to, today)
       return q.hours > 0 ? numerador(soma, rows, plan) / q.hours : 0
     }
     case 'per-trip': {
-      const q = quantidadeTrabalho(state, periodo.from, periodo.to)
+      const q = quantidadeTrabalho(state, periodo.from, periodo.to, today)
       return q.trips > 0 ? numerador(soma, rows, plan) / q.trips : 0
     }
     // `share` é calculado fora: ele precisa da consulta SEM os filtros de
@@ -501,7 +505,7 @@ function agrega(state: AppState, plan: AssistantQueryPlan, periodo: { from: stri
   const todosValores = rows.map(row => valorDe(row, planoNoPeriodo))
   return {
     ag: {
-      total: aplicaMetrica(todosValores, rows, planoNoPeriodo, state, periodo),
+      total: aplicaMetrica(todosValores, rows, planoNoPeriodo, state, periodo, today),
       count: rows.length,
       groups,
     },
@@ -545,8 +549,8 @@ const factId = (() => {
  * usuário do que um "não consegui responder isso".
  */
 /**
- * `today` só decide o que ainda NÃO fechou (o mês corrente numa média mensal).
- * Nenhuma linha é lida ou descartada por ele: o período do plano manda.
+ * As fontes realizadas terminam em `today`. Projeções ainda usam o horizonte
+ * solicitado no plano.
  */
 export function runQuery(state: AppState, plan: AssistantQueryPlan, today = todayISO()): AssistantQueryResult {
   const unit = unidadeDe(plan)
@@ -557,7 +561,7 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
       sample: { rows: 0, from: plan.period.from, to: plan.period.to }, facts: [], samples: [],
       caveats: [`Não consigo calcular os depósitos nas metas ${plan.period.label}: o app guarda o total acumulado atual, sem histórico completo da data de cada depósito.`] }
   }
-  const semKm = ({ from, to }: AssistantQueryPlan['period']) => quantidadeTrabalho(state, from, to).km <= 0
+  const semKm = ({ from, to }: AssistantQueryPlan['period']) => quantidadeTrabalho(state, from, to, today).km <= 0
   if (plan.metric === 'per-km' && semKm(plan.period)) {
     return { plan, unit, total: 0, count: 0, groups: [], estimated: false, empty: true, missingDistance: true,
       sample: { rows: 0, from: plan.period.from, to: plan.period.to }, facts: [], samples: [],
@@ -602,13 +606,13 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
       ? (base > 0 ? (c.ag.total / base) * 100 : 0)
       : c.ag.total
     compareGroups = new Map([...c.ag.groups.entries()].map(([k, g]) =>
-      [k, aplicaMetrica(g.valores, g.rows, plan, state, plan.comparePeriod!)]))
+      [k, aplicaMetrica(g.valores, g.rows, plan, state, plan.comparePeriod!, today)]))
   }
 
   const groups: QueryGroupResult[] = [...ag.groups.entries()].map(([key, g]) => {
     const valor = plan.metric === 'share'
       ? (base > 0 ? (g.valores.reduce((a, b) => a + b, 0) / base) * 100 : 0)
-      : aplicaMetrica(g.valores, g.rows, plan, state, plan.period)
+      : aplicaMetrica(g.valores, g.rows, plan, state, plan.period, today)
     // Grupo que NÃO existia no período de comparação vale ZERO lá, não
     // "sem diferença": uma categoria que apareceu do nada é a maior alta
     // possível, e deixá-la sem delta a tirava do ranking de "o que aumentou".
@@ -732,7 +736,7 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
     }
   }
   if (plan.metric === 'per-hour' || plan.metric === 'per-trip') {
-    const q = quantidadeTrabalho(state, plan.period.from, plan.period.to)
+    const q = quantidadeTrabalho(state, plan.period.from, plan.period.to, today)
     const alvo = plan.metric === 'per-hour' ? q.hours : q.trips
     if (alvo <= 0) caveats.push('Não tenho km, horas ou viagens registrados no período para essa conta.')
   }

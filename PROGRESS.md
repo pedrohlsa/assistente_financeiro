@@ -5928,3 +5928,15 @@ APK ou chamada paga. NOT READY até auditoria independente.
   do mês anterior. Os totais por data foram R$ 100 neste mês e R$ 45
   no mês anterior. Suíte com 762/762 regressões reais, matriz de oito
   datas, typechecks, build e rubrica local passaram.
+
+## 19/11/2026 — Datas do caixa, orçamento e extrato
+
+- O formulário de movimentação recusa data vazia, inválida ou futura.
+  Registros retroativos sem hora informada conservam apenas a data,
+  sem mexer retroativamente num saldo já informado depois daquele dia.
+- Relatórios de valores realizados, orçamento, métricas de trabalho e
+  totais do Extrato consideram os lançamentos até hoje. Um registro
+  futuro importado permanece disponível para conferência no Extrato.
+- No Chrome, a data futura manteve Salvar desabilitado, e uma despesa
+  retroativa deixou o saldo informado em R$ 1.000. Suíte com 764/764
+  regressões reais, matriz de oito datas, typechecks, build e rubrica.

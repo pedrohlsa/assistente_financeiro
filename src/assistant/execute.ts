@@ -13,7 +13,7 @@ import type {
   FinancialGoal, CreditCard,
 } from '../models/types'
 import type { ActionExecutionResult, AssistantErrorCode } from './contracts'
-import { ASSISTANT_CONTRACT_VERSION, errorMessage, isPlausibleDate } from './contracts'
+import { ASSISTANT_CONTRACT_VERSION, actionSpec, errorMessage, isPlausibleDate } from './contracts'
 import { JOURNAL_LIMIT, diffForJournal, isRevertFailure, revertBatchPure } from './journal'
 import { findInvoicePaymentCards, invoicePaymentIssue } from './invoicePayment'
 import { addDays, monthKey, nowPaymentTime, nowStamp, todayISO, uid } from '../utils/format'
@@ -122,11 +122,17 @@ export function applyActionPure(
   const source = opts.source || 'ai'
   const profileAtCreation = state.settings.profile
   const batch = opts.batchId
+  const actionDate = 'date' in action ? action.date : undefined
+  if (actionDate !== undefined && actionSpec(action.kind)?.fields.some(f => f.name === 'date' && f.notFuture)) {
+    if (!isPlausibleDate(actionDate, date)) return { state, result: fail(actionId, 'invalid-date', String(actionDate)) }
+    if (actionDate > date) return { state, result: fail(actionId, 'future-date', actionDate) }
+  }
+  const eventDate = actionDate || date
 
   const tx = (t: Partial<Transaction> & Pick<Transaction, 'type' | 'amount' | 'category'>): Transaction => ({
     id: gen(),
-    date: (action as any).date || date,
-    time,
+    date: eventDate,
+    time: eventDate === date ? time : undefined,
     source,
     profileAtCreation,
     assistantBatchId: batch,

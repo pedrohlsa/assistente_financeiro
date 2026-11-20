@@ -4,13 +4,14 @@ import type { AppState } from '../../src/models/types'
 import { orchestrate } from '../../src/assistant/orchestrator'
 import { segment } from '../../src/assistant/clauses'
 import { findDate } from '../../src/assistant/dates'
-import { balanceOutlook, balanceOutlookText, currentBalance, kmCost, monthlyProjections, occurrencesBetween, pendingRecurrings, possibleRecurringTransactions, recurringLinkAction, transactionOccurrence, upcomingBills } from '../../src/services/calc'
+import { balanceOutlook, balanceOutlookText, budgetUsage, currentBalance, kmCost, monthlyProjections, occurrencesBetween, pendingRecurrings, periodStats, possibleRecurringTransactions, recurringLinkAction, transactionOccurrence, upcomingBills } from '../../src/services/calc'
 import { cardInvoice, cardOutstanding, cardsOverview, futureInstallmentPaymentDate, invoiceOpenAmount, planProgress } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
 import { buildCapabilities } from '../../src/assistant/capabilities'
 import { isValidationFailure, validateAction } from '../../src/assistant/contracts'
 import { editableFieldsFor } from '../../src/assistant/proposalEdit'
 import { validateQueryPlan } from '../../src/assistant/query/validate'
+import { runQuery } from '../../src/assistant/query/engine'
 import { isRevertFailure, revertBatchPure } from '../../src/assistant/journal'
 import { applyPreferenceAliases } from '../../src/assistant/preferences'
 import { hydrateForTest, reducer } from '../../src/store/store'
@@ -4337,6 +4338,33 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && fora.response.mode === 'clarify' && valor.response.mode === 'clarify'
         && heranca.actions.length === 1 && heranca.actions[0].action.kind === 'expense' && heranca.actions[0].action.amount === 9
         && /que dia/i.test(heranca.reply)))
+
+    const apos = addDays(now, 1)
+    const before = addDays(now, -1)
+    const caixa = buildState({ profile: 'driver', balance: 1000, transactions: [
+      { type: 'expense', amount: 37, date: now, category: 'casa' },
+      { type: 'expense', amount: 80, date: apos, category: 'casa' },
+    ], workSessions: [{ date: now, km: 10, hours: 1 }, { date: apos, km: 100, hours: 10 }] })
+    caixa.settings.balanceAsOf = `${before}T12:00:00.000`
+    const periodo = { from: before, to: apos, label: 'intervalo informado', grain: 'range' as const }
+    const plano = validateQueryPlan({ source: 'transactions', metric: 'per-km', period: periodo, filter: { txType: ['expense'] } }, caixa, now)
+    const porKm = plano.ok === true ? runQuery(caixa, plano.plan, now) : undefined
+    const stats = periodStats(caixa, before, apos, now)
+    const foraDaData = reducer(caixa, { type: 'addTx', tx: { ...caixa.transactions[1], id: 'future-new', date: addDays(hoje, 1) } })
+    const futuroNoLote = applyBatchPure(caixa, [{ id: 'future-local', action: { kind: 'expense', amount: 80, date: apos } }],
+      { now: { date: now, time: '15:00' } })
+    out.push(result('DATE-futuro-nao-entra-em-orcamento-relatorio-ou-caixa', { stats, porKm, saldo: currentBalance(caixa, now) },
+      'a despesa de amanhã permanece no backup; hoje só gasta 37, o orçamento consome 37 e o custo usa 10 km',
+      stats.expense === 37 && stats.km === 10 && budgetUsage(caixa, 'casa', now) === 37 && currentBalance(caixa, now) === 963
+        && porKm?.total === 3.7 && porKm.count === 1 && foraDaData === caixa && !futuroNoLote.applied && futuroNoLote.state === caixa
+        && caixa.transactions.length === 2 && periodStats(caixa, before, apos, apos).expense === 117))
+
+    const retroativo = applyBatchPure(caixa, [{ id: 'retroactive-expense', action: { kind: 'expense', amount: 25, date: before, category: 'casa' } }],
+      { now: { date: now, time: '15:00' } })
+    out.push(result('DATE-lancamento-retroativo-nao-ganha-hora-da-confirmacao', retroativo.state.transactions[0],
+      'despesa de ontem sem hora fica no extrato de ontem e não muda o saldo que já foi informado depois',
+      retroativo.applied && retroativo.state.transactions[0]?.date === before && retroativo.state.transactions[0]?.time === undefined
+        && currentBalance(retroativo.state, now) === 963 && periodStats(retroativo.state, before, before, now).expense === 25))
   }
 
   {

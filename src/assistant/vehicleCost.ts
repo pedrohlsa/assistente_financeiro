@@ -32,7 +32,7 @@ export function answerVehicleCost(s: AppState, input: string, hoje = todayISO())
     const ate = to < hoje ? to : hoje
     const expenses = s.transactions.filter(tx => tx.type === 'expense' && DESPESAS_VEICULO.has(tx.category)
       && tx.date >= from && tx.date <= ate)
-    const dados = periodStats({ ...s, transactions: expenses }, from, ate)
+    const dados = periodStats({ ...s, transactions: expenses }, from, ate, hoje)
     if (!dados.km || !expenses.length) {
       const falta = !dados.km ? 'quilometragem de trabalho' : 'despesa do veículo'
       return { text: `Não tenho ${falta} registrada ${label} para calcular o gasto por km.`, explanation }
