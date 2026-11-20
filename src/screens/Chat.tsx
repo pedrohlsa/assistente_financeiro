@@ -32,6 +32,7 @@ export default function Chat() {
   const location = useLocation() as any
   const [input, setInput] = useState('')
   const [recording, setRecording] = useState(false)
+  const voiceSession = useRef(0)
   // Botão de microfone que não faz nada é pior do que botão nenhum: some quando
   // o aparelho não tem ditado.
   const [micOk, setMicOk] = useState(true)
@@ -78,6 +79,11 @@ export default function Chat() {
   const send = async (text: string, displayText = text) => {
     const t = text.trim()
     if (!t || thinking) return
+    if (recording) {
+      voiceSession.current++
+      stopListening()
+      setRecording(false)
+    }
     const previousClarification = clarificationRef.current
     const previousProposal = pendingRef.current
     if (previousClarification) dispatch({ type: 'chatClearClarification', id: previousClarification.msgId })
@@ -179,7 +185,11 @@ export default function Chat() {
   useEffect(() => {
     let vivo = true
     speechAvailable().then(ok => { if (vivo) setMicOk(ok) })
-    return () => { vivo = false }
+    return () => {
+      vivo = false
+      voiceSession.current++
+      stopListening()
+    }
   }, [])
 
   // ---------- Confirmação ----------
@@ -279,14 +289,21 @@ export default function Chat() {
   const startVoice = async () => {
     // No APK quem ouve é o app de voz do Android; no navegador, a Web Speech
     // API. `listenOnce` esconde essa diferença — a tela só pede uma fala.
-    if (recording) { stopListening(); setRecording(false); return }
+    const session = ++voiceSession.current
+    if (recording) {
+      stopListening()
+      setRecording(false)
+      return
+    }
     setRecording(true)
     try {
       const { text, cancelled } = await listenOnce('Fale o que você quer registrar')
+      if (voiceSession.current !== session) return
       setRecording(false)
       // Desistir de falar não é erro: nada de mensagem de falha.
       if (!cancelled && text.trim()) send(text)
     } catch (e) {
+      if (voiceSession.current !== session) return
       setRecording(false)
       const motivo = e instanceof SpeechError ? e.reason : 'error'
       toast({ text: SPEECH_MESSAGES[motivo] })

@@ -6289,3 +6289,15 @@ APK ou chamada paga. NOT READY até auditoria independente.
   continua disponível para confirmação.
 - A suíte ficou em 802/802 regressões reais. Os testes com transporte
   simulado verificaram esses trechos sem enviá-los a um serviço.
+
+## 20/11/2026 — Ditado Web em partes e cancelamento
+
+- O reconhecimento Web aguarda o fim da fala e junta os resultados
+  finais. Cancelar, mandar texto enquanto o microfone está ativo ou
+  sair da tela descarta o reconhecimento pendente.
+- A suíte ganhou cinco verificações com reconhecedor simulado.
+  No Chrome, com a API simulada em pt-BR, a transcrição de duas
+  partes virou as propostas de R$ 37 e R$ 120. Cancelamento,
+  navegação e permissão negada ficaram sem mensagem ou lançamento.
+- A suíte manteve 802/802 regressões reais. O microfone físico e
+  o reconhecedor do Android ficam para teste em dispositivo.

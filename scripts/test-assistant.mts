@@ -28,6 +28,7 @@ import { VALOR_CARDINALIDADE } from '../tests/assistant/cases-valor-cardinalidad
 import { runProperties } from '../tests/assistant/properties'
 import { runCopilotProperties } from '../tests/assistant/properties-copiloto'
 import { runRemoteProperties } from '../tests/assistant/properties-remoto'
+import { runSpeechChecks } from '../tests/assistant/properties-speech'
 import { runEvalSelfTest } from '../tests/assistant/eval/selftest'
 import { runCase } from '../tests/assistant/harness'
 import type { CaseResult } from '../tests/assistant/harness'
@@ -224,6 +225,11 @@ if (todas.total) {
 // certa ou deixa passar um defeito plantado, e rota declarada que não bate com
 // o orquestrador são defeitos que só apareceriam depois de gastar.
 if (!only) {
+  const speech = await runSpeechChecks()
+  console.log('\n=== Ditado Web (reconhecedor simulado) ===')
+  console.log(speech.failures.length ? `FAIL ${speech.failures.join(', ')}` : `ok   ${speech.total}/${speech.total} verificações`)
+  if (speech.failures.length) extrasFalharam = true
+
   const avaliacao = await runEvalSelfTest()
   console.log('\n=== Avaliação remota (autoteste, sem rede) ===')
   if (avaliacao.falhas.length) {

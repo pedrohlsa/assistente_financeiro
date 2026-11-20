@@ -28,6 +28,7 @@ const isAndroid = () => Capacitor.getPlatform() === 'android'
 
 const webRecognition = (): any =>
   (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+let cancelWebSpeech: (() => void) | undefined
 
 /** Há como ditar neste aparelho? */
 export async function speechAvailable(): Promise<boolean> {
@@ -70,24 +71,49 @@ export async function listenOnce(prompt?: string): Promise<SpeechResult> {
 
   const SR = webRecognition()
   if (!SR) throw new SpeechError('unavailable')
+  stopListening()
 
   return new Promise<SpeechResult>((resolve, reject) => {
     const rec = new SR()
     rec.lang = 'pt-BR'
     rec.interimResults = false
     rec.maxAlternatives = 1
-    let entregue = false
+    let finished = false
+    let finalText = ''
 
-    rec.onresult = (e: any) => {
-      entregue = true
-      resolve({ text: e.results?.[0]?.[0]?.transcript || '', cancelled: false })
+    const finish = (result: SpeechResult | SpeechError) => {
+      if (finished) return
+      finished = true
+      if (cancelWebSpeech === cancel) cancelWebSpeech = undefined
+      rec.onresult = null
+      rec.onend = null
+      rec.onerror = null
+      if (result instanceof SpeechError) reject(result)
+      else resolve(result)
     }
-    // `onend` sem resultado é o usuário parando ou o silêncio: cancelamento.
-    rec.onend = () => { if (!entregue) resolve({ text: '', cancelled: true }) }
+    const cancel = () => {
+      finish({ text: '', cancelled: true })
+      try {
+        if (typeof rec.abort === 'function') rec.abort()
+        else rec.stop()
+      } catch { /* reconhecimento já encerrado */ }
+    }
+    cancelWebSpeech = cancel
+    rec.onresult = (e: any) => {
+      const segments: string[] = []
+      for (let i = 0; i < (e.results?.length || 0); i++) {
+        const segment = e.results[i]
+        const text = segment?.isFinal ? segment[0]?.transcript?.trim() : ''
+        if (text) segments.push(text)
+      }
+      if (segments.length) finalText = segments.join(' ')
+    }
+    // Eventos posteriores trazem a lista acumulada de trechos finais.
+    rec.onend = () => finish({ text: finalText, cancelled: !finalText })
     rec.onerror = (e: any) => {
-      entregue = true
       const code = e?.error
-      reject(new SpeechError(
+      if (code === 'aborted') { finish({ text: '', cancelled: true }); return }
+      finish(new SpeechError(
         code === 'not-allowed' || code === 'service-not-allowed' ? 'denied'
           : code === 'no-speech' ? 'no-speech'
             : 'error',
@@ -97,16 +123,14 @@ export async function listenOnce(prompt?: string): Promise<SpeechResult> {
     try {
       rec.start()
     } catch {
-      reject(new SpeechError('error'))
+      finish(new SpeechError('error'))
     }
-
-    ;(listenOnce as any)._stop = () => { try { rec.stop() } catch { /* já parou */ } }
   })
 }
 
-/** Interrompe a escuta em curso (só o navegador escuta continuamente). */
+/** Cancela a escuta no navegador sem enviar a transcrição parcial. */
 export function stopListening(): void {
-  ;(listenOnce as any)._stop?.()
+  cancelWebSpeech?.()
 }
 
 export const SPEECH_MESSAGES: Record<SpeechFailure, string> = {
