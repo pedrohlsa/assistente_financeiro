@@ -1087,6 +1087,22 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     answerChoices(semValorPix)?.options?.length === 0 && !/10,00/.test(semValorPix.response.reply)
       && answerChoices(pixAlternativo)?.field === 'date' && !pixAlternativo.response.actions.length
       && pixCerto?.kind === 'expense' && pixCerto.amount === 10.05 && pixCerto.date === addDays(TODAY, -1)))
+  const pixSameTurn = await Promise.all([
+    'minha filha pediu um Pix de 200 e eu mandei 35',
+    'me pediu Pix de R$ 25 e acabei enviando 20',
+    'ontem me pediu um Pix de 150 mas mandei só 36 hoje',
+  ].map(message => turn(buildState({ profile: 'driver' }), message)))
+  const pixDenied = await Promise.all([
+    'pediu Pix de 20 e eu não mandei', 'pediu Pix de 20 mas ainda não enviei', 'não mandei Pix de 30',
+  ].map(message => turn(buildState({ profile: 'driver' }), message)))
+  const sentPrint = await turn(buildState({ profile: 'driver' }), 'pediu Pix de 25 e mandei o print de 20')
+  out.push(result('A-pix-pedido-envio-e-negacao-no-mesmo-relato', { sent: pixSameTurn, denied: pixDenied, sentPrint },
+    'só o valor enviado entra na proposta, e enviar print ou negar envio não vira transferência',
+    pixSameTurn.every((r, index) => r.mode === 'propose_actions' && r.actions.length === 1
+      && r.actions.some(a => a.kind === 'expense' && a.amount === [35, 20, 36][index] && a.description === 'Pix enviado'))
+      && pixSameTurn[2].actions.some(a => a.kind === 'expense' && a.date === TODAY)
+      && pixDenied.every(r => !r.actions.length && r.mode !== 'clarify')
+      && sentPrint.mode === 'clarify' && !sentPrint.actions.length))
   const directMixed = buildState({ balance: 1000, cards: [{ name: 'Inter', dueDay: 20, closingDay: 5 }] })
   directMixed.settings.balanceAsOf = '2026-09-14T09:00'
   directMixed.installmentPlans = [{ id: 'mixed-plan', description: 'Compra', cardId: 'card0',

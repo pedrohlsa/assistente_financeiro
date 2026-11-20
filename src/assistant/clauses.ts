@@ -166,6 +166,7 @@ const COMPLETED_FORMS = {
   gastar: 'gastei', gastando: 'gastei', pagar: 'paguei', pagando: 'paguei',
   receber: 'recebi', recebendo: 'recebi', comprar: 'comprei', comprando: 'comprei',
   ganhar: 'ganhei', ganhando: 'ganhei', transferir: 'transferi', transferindo: 'transferi',
+  enviar: 'enviei', enviando: 'enviei', mandar: 'mandei', mandando: 'mandei',
 } as const
 const COMPLETED_MONEY = String.raw`(?:acabei|terminei)\s+(?:de\s+)?(?:${Object.keys(COMPLETED_FORMS).join('|')})`
 const RECORD_VERB = 'anot[ae]|registr[ae]|lan[cç][ae]|salv[ae]'
@@ -181,6 +182,11 @@ const REFUND_VERB = new RegExp(String.raw`\b(?:${REFUND_THIRD}|${REFUND_FIRST})\
 const THIRD_PERSON_REFUND = new RegExp(String.raw`\b(?:${REFUND_THIRD}|estorno)\b`, 'i')
 const OUTGOING_REFUND = new RegExp(String.raw`\b(?:${REFUND_FIRST})\b`, 'i')
 const REFUND_DENIED = new RegExp(String.raw`(?<![\p{L}\p{M}])(?:n[ãa]o|nem|[nñ])\s+(?:(?:me|nos)\s+)?(?:${REFUND_THIRD}|${REFUND_FIRST})\b`, 'iu')
+const PIX_REQUEST = /\b(?:pediu|pediram|solicitou|solicitaram)\b[^.;!?]*\bpix\b|\bpix\b[^.;!?]*\b(?:pediu|pediram|solicitou|solicitaram)\b/i
+const PIX_SENDING = 'mandei|enviei|transferi'
+const PIX_CONTEXT_HEAD = /^(?:(?:eu|j[áa]|ainda|n[ãa]o|nem|[nñ])\s+){0,3}(?:mandei|enviei|transferi|acabei\s+(?:de\s+)?(?:mandar|enviar|transferir|mandando|enviando|transferindo))\b/i
+const PIX_CONTEXT_DENIED = new RegExp(String.raw`^(?:(?:eu|ainda)\s+){0,2}(?:n[ãa]o|nem|[nñ])\s+(?:${PIX_SENDING})(?:\s+(?:o\s+)?pix|\s+${CASH_PAIR_VALUE})?\s*[,;.!]*$`, 'i')
+const PIX_CONTEXT_SENT = new RegExp(String.raw`^(?:(?:eu|j[áa])\s+){0,2}(?:${PIX_SENDING})\s+(?:(?:o\s+|um\s+)?pix\s+(?:de\s+)?)?(?:(?:s[oó]|apenas)\s+)?(${CASH_PAIR_VALUE})(?:\s+(?:via|por|no|pelo)\s+pix)?(?:\s+(?:para|pra|pro)\s+[\p{L}\p{M}\s]{2,45})?[,;.!]*$`, 'iu')
 const RECORD_DIRECTIVE = String.raw`(?:${RECORD_VERB})\s+(?:(?:[oa]\s+)?(?:${RECORD_TYPE})|${RECORD_NUMBER}\s+de\s+(?:${RECORD_TYPE}))`
 const EMPHATIC_PAYMENT = String.raw`foi\s+(${RECORD_NUMBER})\s+que\s+(?:eu\s+)?(gastei|paguei|recebi|ganhei)\b`
 
@@ -189,7 +195,7 @@ const NEGATED_VERBS =
   // Qualquer verbo de dinheiro no passado pode ser NEGADO. A lista acima
   // esquecia troquei, instalei, vendi, depositei e outros — e "nao troquei o
   // oleo por 280" registrava a manutencao mesmo assim.
-  + `|troquei|instalei|vendi|depositei|investi|apliquei|parcelei|passei|tirei|retirei|faturei|lucrei|andei|dirigi|percorri|saiu|entrou|caiu|sobrou|custou|${REFUND_FIRST}|${REFUND_THIRD}|${COMPLETED_MONEY}|${RECORD_VERB}`
+  + `|troquei|instalei|vendi|depositei|investi|apliquei|parcelei|passei|tirei|retirei|faturei|lucrei|andei|dirigi|percorri|saiu|entrou|caiu|sobrou|custou|${PIX_SENDING}|${REFUND_FIRST}|${REFUND_THIRD}|${COMPLETED_MONEY}|${RECORD_VERB}`
 
 /**
  * A vírgula depois do "não" é o jeito mais comum de negar em fala real: "não,
@@ -213,7 +219,7 @@ export const looksNegated = (t: string): boolean => NEGATED_STATEMENT.test(t)
  * respostas diferentes, e nenhuma delas é gravar na data de hoje.
  */
 const PAST_MONEY_VERBS =
-  'gastei|gastou|gastamos|paguei|pagou|pagamos|quitei|quitamos|antecipei|adiantei|recebi|recebeu|recebemos|ganhei|ganhou|ganhamos|comprei|comprou|compramos|parcelei|passei|abasteci|coloquei|botei|guardei|separei|depositei|investi|apliquei|tirei|retirei|vendi|faturei|lucrei|rodei|andei|dirigi|percorri|trabalhei|fiz|fizemos|troquei|instalei|entrou|caiu|sobrou|reembolsaram|reembolsou'
+  `gastei|gastou|gastamos|paguei|pagou|pagamos|quitei|quitamos|antecipei|adiantei|recebi|recebeu|recebemos|ganhei|ganhou|ganhamos|comprei|comprou|compramos|parcelei|passei|abasteci|coloquei|botei|guardei|separei|depositei|investi|apliquei|tirei|retirei|vendi|faturei|lucrei|rodei|andei|dirigi|percorri|trabalhei|fiz|fizemos|troquei|instalei|entrou|caiu|sobrou|reembolsaram|reembolsou|${PIX_SENDING}`
 
 const PAST_STATEMENT = new RegExp(String.raw`\b(?:${PAST_MONEY_VERBS}|${COMPLETED_MONEY}|${RECORD_DIRECTIVE})\b`, 'i')
 
@@ -530,8 +536,9 @@ export function segment(text: string, today = todayISO()): { text: string; start
   for (const m of text.matchAll(/(?:,\s*(?:e\s+)?|\s+e\s+)(?=\p{L})/giu)) {
     const after = m.index + m[0].length
     const left = text.slice(0, m.index).split(/[.!?;]\s+/).pop() || ''
-    if (!looksPast(left) || looksLikeQuestion(left) || looksNegated(left)) continue
     const right = text.slice(after).split(/[!?;]|,(?!\d)|\s+e\s+/i)[0]
+    if (PIX_REQUEST.test(left) && PIX_CONTEXT_HEAD.test(right)) push(after)
+    if (!looksPast(left) || looksLikeQuestion(left) || looksNegated(left)) continue
     if (cashPair(normalizeNumberWords(right).text)
       || /^(?:o\s+)?(?:sal[áa]rio|freela|freelance|comiss[ãa]o)\s+(?:entrou|caiu|pingou)\s+(?:r\$\s*)?\d/i.test(right)
       || REFUND_VERB.test(right.slice(0, 55))) push(after)
@@ -1148,6 +1155,9 @@ export function analyzeMessage(
     const isQuestion = !isConversation && looksLikeQuestion(part.text)
     const negated = looksNegated(part.text)
     const following = parts[i + 1]?.text || ''
+    const requestedPix = PIX_REQUEST.test(part.text)
+    const previousClause = clauses[clauses.length - 1]
+    const previousPix = previousClause?.ambiguity?.financialEvent === 'pix'
     const offeredRide = RIDE_OFFER.test(part.text)
     const declinedRide = offeredRide && (negated || DECLINED_RIDE.test(part.text)
       || (/\b(?:mas|e|por[ée]m)\s*$/i.test(part.text) && DECLINED_NEXT.test(following)))
@@ -1237,6 +1247,10 @@ export function analyzeMessage(
       && [...datesOriginal, ...datesParser].some(d => d.kind === 'date')
     const lida = semData || forParser
     const fala = invoiceParser.referenceMonth ? lida.replace(/\b(?:antecipei|adiantei)\b/i, 'paguei') : lida
+    const pixSent = previousPix && !requestedPix && !isQuestion && !negated ? fala.match(PIX_CONTEXT_SENT) : null
+    const sentAmount = pixSent ? parseFirstAmount(pixSent[1]) : NaN
+    const closedPix = sentAmount > 0 || (previousPix && PIX_CONTEXT_DENIED.test(fala))
+    if (closedPix) previousClause.ambiguity = undefined
     const refundMention = REFUND_VERB.test(fala) || /\b(?:estorno|reembolso)\b/i.test(fala)
     const caixaDoReembolso = REEMBOLSO_NA_CONTA.test(fala.replace(/[.!]+$/, '').trim())
     const creditoNaFatura = refundMention && !caixaDoReembolso && /\b(?:cart[ãa]o|fatura|cr[ée]dito)\b/i.test(fala)
@@ -1255,6 +1269,10 @@ export function analyzeMessage(
     const comando = canShareContext ? cashPairCommand(comandoPrincipal, linkedPair ? inheritedKind : undefined) : comandoPrincipal
     const parsed = unclearDirection ? { actions: [], ambiguity: undefined }
       : parseNaturalFull(comando, { driver: opts?.driver, dayHint, inheritedKind })
+    if (sentAmount > 0) {
+      parsed.actions = financialEventActions('pix', sentAmount, !!opts?.driver)
+      parsed.ambiguity = undefined
+    }
     const fatura = parsed.actions.find(a => a.kind === 'card-payment')
     const resolved = datesOriginal.length ? datesOriginal : datesParser
     const datasDitas = resolved.filter(d => d.kind === 'date' || d.kind === 'future').map(d => d.date)
@@ -1355,7 +1373,7 @@ export function analyzeMessage(
       date = undefined
       dateAmbiguity = undefined
     }
-    if (canShareContext && date) { inheritedDate = date; inheritedLabel = dLabel }
+    if (canShareContext && date && !requestedPix && !offeredRide) { inheritedDate = date; inheritedLabel = dLabel }
     else if (canShareContext && !date && inheritedDate && !temporal && !dateAmbiguity) { date = inheritedDate; dLabel = inheritedLabel }
     if (unclearDirection) {
       ambiguity = cashPairDirection(unclearDirection, date, !!temporal || !!dateAmbiguity)
@@ -1449,7 +1467,6 @@ export function analyzeMessage(
       intencao ||= actions.length < antes
     }
 
-    const requestedPix = /\b(?:pediu|pediram|solicitou|solicitaram)\b[^.;!?]*\bpix\b|\bpix\b[^.;!?]*\b(?:pediu|pediram|solicitou)\b/i.test(part.text)
     const refund = OUTGOING_REFUND.test(part.text)
     const thirdPartyRefund = THIRD_PERSON_REFUND.test(part.text) && !reembolso
     if (declinedRide || refundDenied) {

@@ -6259,3 +6259,12 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - Chrome confirmou a saída de R$ 30 e a entrada de R$ 10. Suíte com
   799/799 regressões reais, typechecks, build, 151 invariantes e
   avaliação remota offline. Rubrica com 0 respostas perigosas ou ruins.
+
+## 20/11/2026 — Pedido e envio de Pix no mesmo relato
+
+- “Pediu um Pix de 200 e eu mandei 35” propõe somente os R$ 35.
+  A data do pedido não é usada como data do envio, e uma negativa
+  encerra o pedido. “Mandei o print” continua sem ser confirmação.
+- O Chrome confirmou R$ 35 e manteve a base sem movimentos adicionais.
+  Suíte com 800/800 regressões reais, 151 invariantes, avaliação local,
+  typechecks e build.
