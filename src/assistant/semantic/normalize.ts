@@ -62,7 +62,7 @@ const ESTRUTURAL: string[] = [
   'janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho',
   'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
   // unidades
-  'reais', 'real', 'conto', 'contos', 'litros', 'litro', 'horas', 'hora',
+  'reais', 'real', 'conto', 'contos', 'centavo', 'centavos', 'litros', 'litro', 'horas', 'hora',
   'viagens', 'viagem', 'corridas', 'corrida', 'parcelas', 'parcela',
   'vezes', 'hodometro', 'quilometros',
   // pergunta e intenção
@@ -171,6 +171,10 @@ const PASSADO = new Set([
   'troquei', 'instalei', 'sobrou', 'entrou', 'saiu', 'custou',
 ])
 
+const ERROS_DE_RECEBIMENTO = new Map([['reci bi', 'recebi'], ['rece bi', 'recebi'], ['rebcbi', 'recebi']])
+const ANTES_DE_RELATO = /(?:^|[,:;.!?]|\b(?:e|mas|depois))\s*(?:(?:eu|j[áa]|ainda|n|ñ|n[ãa]o|nem|hoje|hj|ontem|anteontem)\s+)*$/i
+const VALOR_DE_RELATO = /^\s+(?:r\$\s*)?\d/i
+
 /**
  * Melhor candidato do dicionário, ou `null` quando não há nada perto o
  * bastante — ou quando o empate não se desfaz.
@@ -215,7 +219,7 @@ export function repairStructuralTypos(message: string, state: AppState): Repaire
 
   // A varredura é por TOKEN, com posição preservada: o texto reparado tem que
   // continuar casando com os offsets da segmentação por cláusula.
-  const text = message.replace(/[a-zA-ZÀ-ÿ]{3,}/g, (bruto, at: number) => {
+  const text = message.replace(/\brec[ei]\s+bi\b|[a-zA-ZÀ-ÿ]{3,}/gi, (bruto, at: number) => {
     const token = normalizeName(bruto)
     if (token.length < MIN_LEN) return bruto
     // Perto de dígito: "12x", "3200reais", "R$50" nunca são vocabulário.
@@ -223,12 +227,16 @@ export function repairStructuralTypos(message: string, state: AppState): Repaire
     const depois = message[at + bruto.length]
     if ((antes && /\d/.test(antes)) || (depois && /\d/.test(depois))) return bruto
     if (DICIONARIO.has(token)) return bruto
-    if (protegidas.has(token)) return bruto
+    if (token.split(' ').some(word => protegidas.has(word))) return bruto
     // Numero por extenso e VALOR, nao vocabulario: "cento", "sete", "vinte" e
     // "cinco" nunca podem ser trocados por palavra parecida.
     if (NUMBER_WORD_RE.test(token)) return bruto
 
-    const alvo = melhorCandidato(token, temValor)
+    const emRelato = ANTES_DE_RELATO.test(message.slice(0, at)) && VALOR_DE_RELATO.test(message.slice(at + bruto.length))
+    const semRepeticao = emRelato ? token.replace(/([a-z])\1+/g, '$1') : token
+    const direto = emRelato && (ERROS_DE_RECEBIMENTO.get(token)
+      || (semRepeticao !== token && PASSADO.has(semRepeticao) ? semRepeticao : null))
+    const alvo = direto || melhorCandidato(token, temValor)
     if (!alvo) return bruto
     if (/\bpix\b/i.test(message) && /^(?:andei|rodei|dirigi|percorri|trabalhei)$/.test(alvo)) return bruto
     corrections.push({ from: bruto, to: alvo, at, estrutural: ehVerboOuTempo(alvo) })
@@ -411,6 +419,9 @@ export function stripFillers(message: string): { text: string; changed: boolean 
     // virava filtro de texto e a resposta era "não tenho lançamento com verdade".
     .replace(/\b(?:de\s+verdade|realmente|de\s+fato)\b/gi, ' ')
     .replace(/\bna\s+real\b/gi, (match, offset, original) => /[,;—–]\s*$/.test(original.slice(0, offset)) ? match : ' ')
+    // “Este mês msm” termina a referência de período. Fora dela, “Mesmo”
+    // pode fazer parte do nome que o usuário deu a um lançamento.
+    .replace(/(\b(?:hoje|hj|ontem|anteontem|(?:este|esse|do|no)\s+m[eê]s|m[eê]s\s+passado|(?:esta|essa)\s+semana|semana\s+passada))\s+(?:msm|mesmo)(?=\s*[.!?]*$)/gi, '$1')
     .replace(RE_MULETA_LIVRE, '')
     .replace(RE_MULETA_POS_VERBO, '')
     .replace(RE_MULETA_POS_ARTIGO, '')

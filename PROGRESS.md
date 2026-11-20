@@ -6156,3 +6156,15 @@ APK ou chamada paga. NOT READY até auditoria independente.
   Casa 2 pelo botão e a data “ontem” depois de “não sei”.
 - O corpus incluiu mais oito casos. Suíte local, 151 invariantes,
   avaliação remota offline, typechecks e build passaram.
+
+## 20/11/2026 — Digitação truncada e origem do relato seguinte
+
+- Reconhece “rebcbi”, “reci bi” e “receebii” perto do valor em um relato
+  financeiro. “Ñ” mantém a negação. Se o verbo continuar ilegível, a
+  origem e a data do segundo valor ficam separadas da despesa entendida.
+- “Esse mês msm” mantém o filtro pelo estabelecimento. O reparo de
+  verbos preserva o nome digitado em “loja Rebcbi”.
+- O Chrome confirmou os valores de R$ 37 e R$ 120 com datas distintas,
+  descartou a receita negada e consultou o total exato de Mercado.
+  O corpus acrescentou oito casos e passou com a suíte local, 151
+  invariantes, avaliação remota offline, rubrica, typechecks e build.

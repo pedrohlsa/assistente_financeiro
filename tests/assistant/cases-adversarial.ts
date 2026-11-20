@@ -49,6 +49,9 @@ export const ADVERSARIAL: AssistantCase[] = [
     expectNoActions: true, forbidReply: [/confirmar\?/i] },
   { id: 'neg-18', group: 'negacao', ...auto, messages: ['n lança a despesa de 50 do mercado e anota que recebi 110 da Casa 2'],
     expectActions: [{ kind: 'income', amount: 110, origin: 'Casa 2' }], forbidReply: [/50,00/] },
+  { id: 'neg-19', group: 'negacao', ...auto, messages: ['gastei 37 no mercado e ñ receebii 120 da Casa 2'],
+    expectActions: [{ kind: 'expense', amount: 37, description: 'Mercado', origin: null }], forbidReply: [/120,00/] },
+  { id: 'neg-20', group: 'negacao', ...auto, messages: ['ñ paguei 50 na farmácia'], expectNoActions: true },
 
   // ===== BUG 2 — ABREVIAÇÕES DE DATA =====
   { id: 'abr-01', group: 'abreviacao', ...other, messages: ['gastei 190 de cimento hj'],
@@ -59,6 +62,20 @@ export const ADVERSARIAL: AssistantCase[] = [
     expectActions: [{ kind: 'income', amount: 50 }, { kind: 'expense', amount: 20 }, { kind: 'work', trips: 1 }] },
   { id: 'abr-04', group: 'abreviacao', ...driver, messages: ['gastei 40 de gasolina ontem pq tava vazio'],
     expectActions: [{ kind: 'fuel', amount: 40, date: '2026-07-14' }] },
+  { id: 'abr-05', group: 'abreviacao', ...auto, messages: ['rebcbi 1.234,56 da Casa 2 hj'],
+    expectActions: [{ kind: 'income', amount: 1234.56, origin: 'Casa 2', date: '2026-07-15' }] },
+  { id: 'abr-06', group: 'abreviacao', ...auto, messages: ['reci bi 120 da Casa 2 e gastei 37 no mercado'],
+    expectActions: [{ kind: 'income', amount: 120, origin: 'Casa 2' }, { kind: 'expense', amount: 37, origin: null }] },
+  { id: 'abr-07', group: 'abreviacao', ...auto, messages: ['gastei 37 no mercado e receebii 120 da Casa 2 ontem'],
+    expectActions: [{ kind: 'expense', amount: 37, origin: null, date: null }, { kind: 'income', amount: 120, origin: 'Casa 2', date: '2026-07-14' }] },
+  { id: 'abr-08', group: 'abreviacao', ...auto, messages: ['gastei 37 no mercado e recxbbii 120 da Casa 2 ontem'],
+    expectActions: [{ kind: 'expense', amount: 37, origin: null, date: null }], expectReply: [/recxbbii/i] },
+  { id: 'abr-09', group: 'abreviacao', ...auto, messages: ['gastei 12 na loja Rebcbi'],
+    expectActions: [{ kind: 'expense', amount: 12, description: 'Loja Rebcbi' }] },
+  { id: 'abr-10', group: 'abreviacao', ...auto, state: { transactions: [
+    { id: 'mercado', type: 'expense', amount: 185, category: 'alimentacao', description: 'Mercado', date: '2026-07-10' },
+  ] }, messages: ['qnt q eu gastie no mercado esse mês msm'], expectNoActions: true,
+    expectReply: [/185,00/], forbidReply: [/mercado mesmo/i] },
 
   // ===== BUG 3 — DESCRIÇÃO ENGOLINDO A PERGUNTA =====
   { id: 'dsc-01', group: 'descricao', ...other, messages: ['gastei 80 de mercado quanto sobrou'],

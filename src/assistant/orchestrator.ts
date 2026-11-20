@@ -1835,8 +1835,10 @@ ${response.reply}`,
       // "rceebi 1800 e gastei 150 de areia" registrava só a despesa e a receita
       // sumia em silêncio. Coberta parcial é sinal de que o reparo tem o que
       // destravar, mesmo com um fato já reconhecido.
-      const parcial = tentativa.corrections.some(c => c.estrutural) && turno.coverage < 0.999
-      const podeRecuperarNegacao = tentativa.corrections.some(c => c.estrutural) && /\b(?:n|n[ãa]o|nem|nunca|jamais)\b/i.test(mensagem)
+      const parcial = tentativa.corrections.some(c => c.estrutural)
+        && (turno.coverage < 0.999 || turno.blocks.some(b => b.clause.ambiguity && b.actions.length > 0))
+      const podeRecuperarNegacao = tentativa.corrections.some(c => c.estrutural)
+        && /\b(?:n|n[ãa]o|nem|nunca|jamais)\b|(?<![\p{L}\p{M}])ñ(?=\s)/iu.test(mensagem)
       if (!hasBlock(turno, 'record') || degradado || parcial || podeRecuperarNegacao) {
         const outro = buildTurnPlan(input.state, tentativa.text, { today })
         const recuperouNegacao = podeRecuperarNegacao

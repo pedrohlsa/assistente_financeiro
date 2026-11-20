@@ -187,7 +187,7 @@ const NEGATED_VERBS =
  * ("nem gastei isso").
  */
 const NEGATION_HEAD = String.raw`(?:n[ãa]o|nem|nunca|jamais)\b[\s,;!]*(?:\S+[\s,]+){0,3}?(?:${NEGATED_VERBS})(?![a-zà-ú])`
-const SHORT_NEGATION_HEAD = String.raw`n\s+(?:(?:eu|ainda)\s+){0,2}(?:${NEGATED_VERBS})(?![a-zà-ú])`
+const SHORT_NEGATION_HEAD = String.raw`[nñ]\s+(?:(?:eu|ainda)\s+){0,2}(?:${NEGATED_VERBS})(?![a-zà-ú])`
 const NEGATED_STATEMENT = new RegExp(
   String.raw`^\s*(?:(?:mas|e|ah|olha|eu|ainda)\b[\s,]+){0,3}(?:${NEGATION_HEAD}|${SHORT_NEGATION_HEAD})`,
   'i',
@@ -475,6 +475,14 @@ export function segment(text: string, today = todayISO()): { text: string; start
   // cimento" era cortado no meio e a descrição se perdia.
   for (const m of text.matchAll(new RegExp(String.raw`[,;]?\s+${CONNECTORS}(?=(?:${COMMAND_VERBS})\b)`, 'gi'))) {
     push((m.index || 0) + m[0].length)
+  }
+  // O verbo seguinte pode estar ilegível. Quando há outro valor seguido de
+  // uma origem explícita, a fonte à direita não pertence ao primeiro relato.
+  for (const m of text.matchAll(/[,;]?\s+e\s+(?=(?:(?:[nñ]|n[ãa]o|nem)\s+)?[\p{L}\p{M}]{4,}\s+(?:r\$\s*)?\d+(?:[.,]\d+)*\s+d[ao]s?\s)/giu)) {
+    const after = m.index + m[0].length
+    const start = Math.max(...[...cuts].filter(cut => cut <= m.index))
+    const tail = text.slice(after).split(/[,;!?]|\s+e\s+/i)[0]
+    if (looksPast(text.slice(start, m.index)) && extractOrigins(tail).length) push(after)
   }
   // "mas", "porém" e "só que" separam registro de pergunta.
   for (const m of text.matchAll(/[,;]?\s+(?:mas|por[ée]m|s[óo]\s+que)\s+/gi)) {
