@@ -6,7 +6,7 @@
 // permite dizer "entendi esta parte, não entendi aquela" em vez de chutar.
 
 import type { ParsedAction } from '../models/types'
-import type { AssistantConfidence, AssistantIntent } from './contracts'
+import type { AssistantConfidence, AssistantIntent, FinancialEvent } from './contracts'
 import { cleanDescription, gruposDeCorrida, looksRecurring, parseNaturalFull } from '../services/nlp'
 import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
@@ -31,7 +31,7 @@ export interface AnalyzedClause {
   date?: string
   dateLabel?: string
   /** Pergunta de desambiguação levantada pelo parser (ex.: gás). */
-  ambiguity?: { question: string; field?: string; pendingActions?: ParsedAction[]; queryTemplate?: string;
+  ambiguity?: { question: string; field?: string; pendingActions?: ParsedAction[]; queryTemplate?: string; financialEvent?: FinancialEvent;
     options: { label: string; value?: string; actions: ParsedAction[]; reply?: string }[] }
   /** Data ambígua: precisa de escolha antes de virar lançamento. */
   dateAmbiguity?: { question: string; options: { label: string; value: string }[] }
@@ -672,6 +672,15 @@ function amountPosition(text: string, amount?: number): number {
 function parseFirstAmount(text: string): number {
   const m = text.match(/(\d+(?:[.,]\d+)*)/)
   return m ? parseMoney(m[1]) : NaN
+}
+
+export function financialEventActions(event: FinancialEvent, amount: number, driver: boolean): ParsedAction[] {
+  if (!(amount > 0)) return []
+  if (event === 'ride') return [
+    { kind: 'income', amount, category: driver ? 'corridas' : undefined, description: 'Corrida' },
+    ...(driver ? [{ kind: 'work' as const, trips: 1 }] : []),
+  ]
+  return [{ kind: 'expense', amount, category: 'outros-out', description: event === 'pix' ? 'Pix enviado' : 'Devolução' }]
 }
 
 const SHORT_WEEKDAYS: Record<string, string> = { seg: 'segunda', ter: 'terça', qua: 'quarta', qui: 'quinta', sex: 'sexta', sab: 'sábado', dom: 'domingo' }
@@ -1337,19 +1346,14 @@ export function analyzeMessage(
     const refund = /\b(?:devolvi|devolveu|estornei|estornou)\b/i.test(part.text)
     if (requestedPix || offeredRide || refund) {
       actions = []
+      const event: FinancialEvent = requestedPix ? 'pix' : offeredRide ? 'ride' : 'refund'
       const value = requestedPix
-        ? parseFirstAmount(part.text.match(/\bpix\b[^.;!?]*?\b(?:de|no\s+valor\s+de)\s*(?:r\$\s*)?\d+(?:[.,]\d+)*/i)?.[0] || part.text)
+        ? parseFirstAmount(semData.match(/\bpix\s+(?:(?:de|no\s+valor\s+de)\s+)?(?:r\$\s*)?\d+(?:[.,]\d+)*/i)?.[0] || '')
         : refund ? parseFirstAmount(part.text.match(/\b(?:devolvi|devolveu|estornei|estornou)\b[^.;!?]*?\d+(?:[.,]\d+)*/i)?.[0] || part.text)
           : parseFirstAmount(part.text)
       const amount = Number.isFinite(value) ? `R$ ${value.toFixed(2).replace('.', ',')}` : ''
-      const yesActions: ParsedAction[] = value > 0
-        ? requestedPix ? [{ kind: 'expense', amount: value, category: 'outros-out', description: 'Pix enviado' }]
-          : offeredRide ? [
-            { kind: 'income', amount: value, category: opts?.driver ? 'corridas' : undefined, description: 'Corrida' },
-            ...(opts?.driver ? [{ kind: 'work' as const, trips: 1 }] : []),
-          ] : [{ kind: 'expense', amount: value, category: 'outros-out', description: 'Devolução' }]
-        : []
-      ambiguity = { field: 'financial-event', question: requestedPix
+      const yesActions = financialEventActions(event, value, !!opts?.driver)
+      ambiguity = { field: 'financial-event', financialEvent: event, question: requestedPix
         ? `Você chegou a enviar o Pix${amount ? ` de ${amount}` : ''}? Pedido não é transferência realizada.`
         : offeredRide ? `Essa corrida${amount ? ` de ${amount}` : ''} foi concluída e paga? Uma chamada não é receita recebida.`
           : `Você devolveu${amount ? ` ${amount}` : ''} ao pagador? Posso registrar essa devolução como saída após você confirmar.`,

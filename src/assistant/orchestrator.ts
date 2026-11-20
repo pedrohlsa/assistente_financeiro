@@ -19,7 +19,7 @@ import type {
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, errorMessage, isValidationFailure, validateAction } from './contracts'
-import { PEDE_APAGAR, analyzeMessage, contestsProposal, datesMentioned, declaresIntention, isRefundInflow, looksLikeQuestion, looksLikeRetraction, looksNegated, looksPast, looksRecurring, weekdayChoiceWord } from './clauses'
+import { PEDE_APAGAR, analyzeMessage, contestsProposal, datesMentioned, declaresIntention, financialEventActions, isRefundInflow, looksLikeQuestion, looksLikeRetraction, looksNegated, looksPast, looksRecurring, weekdayChoiceWord } from './clauses'
 import { categoryDilemma, outOfPatternWarning, withLearnedCategory } from './learning'
 import { explainRequest } from './explain'
 import { answerConversation, isFocusFresh, looksLikeFollowUp } from './conversation'
@@ -648,6 +648,7 @@ function runLocal(
       field: ambiguities.length > 1 ? 'financial-events' : ambiguous.ambiguity.field || 'ambiguity',
       pendingActions: ambiguities.length === 1 ? ambiguous.ambiguity.pendingActions : undefined,
       queryTemplate: ambiguities.length === 1 ? ambiguous.ambiguity.queryTemplate : undefined,
+      financialEvent: ambiguities.length === 1 ? ambiguous.ambiguity.financialEvent : undefined,
     }
   }
 
@@ -978,6 +979,65 @@ function exactMoneyAnswer(message: string): number | undefined {
   return match ? parseMoney(match[1]) : undefined
 }
 
+function answerFinancialEvent(input: OrchestratorInput, question: AssistantClarification, caps: AssistantCapabilities, today: string): OrchestratorOutput {
+  const event = question.financialEvent
+  const said = normalizeName(normalizeNumberWords(input.message).text).replace(/[.!]+$/, '').trim()
+  const answer = { version: ASSISTANT_CONTRACT_VERSION, engine: 'local' as const, actions: [] as [], unresolved: [] }
+  const denied: OrchestratorOutput = {
+    draft: null, keepPending: true,
+    response: { ...answer, mode: 'answer', reply: 'Certo, não vou registrar esse valor como realizado.' },
+  }
+  const prompt = (clarification: AssistantClarification): OrchestratorOutput => ({
+    draft: null, keepPending: true,
+    response: { ...answer, mode: 'clarify', clarification, reply: clarification.question },
+  })
+  const verbs = event === 'pix' ? 'mandei|enviei|transferi|paguei' : event === 'ride'
+    ? 'recebi|me\\s+pagaram|foi\\s+paga|(?:terminei|conclui)\\s+e\\s+recebi' : 'devolvi|estornei'
+  const eventVerb = new RegExp(String.raw`^(?:(?:eu|ja)\s+){0,2}(?:${verbs})\b`)
+  const correction = said.match(/^(?:nao|n)(?:\s+(?:foi|era)\s+(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?)?\s*,\s*(?:(?:na verdade|na real)\s*,?\s+)?(.+)$/)
+  const deniesAmount = /^(?:nao|n)\s+(?:foi|era)\s+(?:r\$\s*)?\d/.test(said)
+  if (/^(?:nao|nem|n)\b/.test(said) && !eventVerb.test(correction?.[1] || '')) return deniesAmount ? prompt(question) : denied
+
+  const statement = correction && eventVerb.test(correction[1]) ? correction[1] : said
+  const yes = statement.match(/^(?:sim|isso mesmo)(?:\s*,\s*|\s+|$)/)
+  const head = yes ? statement.slice(yes[0].length).replace(/^mas\s+/, '') : statement
+  if (yes && new RegExp(String.raw`^(?:(?:ainda|eu)\s+)?(?:nao|n|nem)\s+(?:${verbs})\b`).test(head)) return denied
+  const verb = head.match(eventVerb)
+  if (!yes && !verb) {
+    const query = looksLikeDataQuestion(input.message) ? respostaLocal(input.state, input.message, today, true) : null
+    return query ? { draft: null, keepPending: true, focus: query.focus || input.focus,
+      response: { ...answer, mode: 'clarify', clarification: question, reply: `${query.text}\n\n${question.question}` } }
+      : prompt(question)
+  }
+  if (input.message.trimEnd().endsWith('?')) return prompt(question)
+  const detail = head.slice(verb?.[0].length ?? 0).trim().replace(event === 'pix' ? /^(?:o\s+)?pix\b\s*/ : /^a\s+corrida\b\s*/, '')
+  const dates = findAllDates(detail, today)
+  const [date] = dates
+  if (dates.length > 1) return prompt({ ...question, question: 'Qual foi a data exata em que aconteceu? Diga também o valor.' })
+  const magnitude = (date ? `${detail.slice(0, date.start)} ${detail.slice(date.end)}` : detail)
+    .trim().replace(/^(?:de|por|so|apenas)\s+/, '').replace(/[,\s]+$/, '').trim()
+  const original = question.options?.find(o => normalizeName(o.label) === 'sim')?.actions?.find(a => a.kind === 'expense' || a.kind === 'income')
+  const amount = magnitude ? exactMoneyAnswer(magnitude) : original?.amount
+  if (!(amount > 0)) return prompt({ ...question, question: `Qual foi o valor exato? ${question.question}` })
+
+  const actions = financialEventActions(event, amount, caps.isDriver)
+  if (date && date.kind !== 'date') return prompt({
+    field: date.kind === 'ambiguous' ? 'date-choice' : 'date',
+    question: date.kind === 'future' ? `A data ${date.label} ainda não chegou. Em que dia aconteceu?`
+      : 'question' in date ? date.question : 'Em qual dia desse período aconteceu?',
+    options: date.kind === 'ambiguous' ? date.options : undefined,
+    dateWindow: date.kind === 'period' ? { from: date.from, to: date.to } : undefined,
+    pendingActions: actions,
+  })
+  const validated: ParsedAction[] = []
+  for (const action of date?.kind === 'date' ? withDate(actions, date.date) : actions) {
+    const check = validateAction(action, caps, today)
+    if (isValidationFailure(check)) return prompt({ ...question, question: `Confira o valor informado. ${question.question}` })
+    validated.push(check.action)
+  }
+  return proposeClarifiedActions(input.state, validated, today, input.pending)
+}
+
 function pendingCorrectionAnswer(choice: AssistantClarification, message: string, today: string): string | undefined {
   if (choice.field === 'pending-correction-amount') {
     const amount = exactMoneyAnswer(message)
@@ -1266,6 +1326,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   // "GNV" logo depois de "gás de cozinha ou GNV?" precisa recuperar o valor e
   // a descrição da mensagem anterior — o usuário não repete nada.
   const pc = input.pendingClarification
+  if (pc?.field === 'financial-event' && pc.financialEvent) return answerFinancialEvent(input, pc, caps, today)
   if (pc?.field === 'query-range-end' && pc.dateWindow && pc.queryTemplate) {
     const said = input.message.replace(/^\s*at[ée]\s+/i, '')
     const date = dateInAnswer(weekdayChoiceWord(said), today)

@@ -6205,3 +6205,16 @@ APK ou chamada paga. NOT READY até auditoria independente.
   confirmou uma única gravação de cada item depois. Em outro lote,
   confirmou o almoço de R$ 33 e depois o café corrigido para R$ 15.
   A suíte completa manteve 792/792 regressões reais.
+
+## 20/11/2026 — Continuação de Pix, corrida e devolução
+
+- “Sim, mandei só 10 ontem” usa o valor e a data afirmados. “Não foi
+  15, mandei 9” corrige o valor, e “ñ” ou “sim, mas não mandei” encerra
+  a pergunta sem criar despesa.
+- “Me pediram um Pix dia 10” trata o dia como data do pedido. Se a
+  data informada para o envio ainda não chegou, o chat guarda os
+  centavos e pede a data do pagamento. Consultas independentes também
+  preservam a pergunta de confirmação.
+- O Chrome confirmou os dois Pix corrigidos, o gasto independente
+  e a ausência de registro na negativa. Suíte com 797/797 regressões,
+  151 invariantes, avaliação remota offline, typechecks e build.

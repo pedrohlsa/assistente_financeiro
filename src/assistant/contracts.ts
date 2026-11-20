@@ -393,6 +393,8 @@ export interface AssistantClarificationOption {
   reply?: string
 }
 
+export type FinancialEvent = 'pix' | 'ride' | 'refund'
+
 export interface AssistantClarification {
   /** Pergunta única, curta. */
   question: string
@@ -408,6 +410,8 @@ export interface AssistantClarification {
   dateWindow?: { from: string; to: string }
   /** Consulta original com o dia a preencher após a escolha na conversa. */
   queryTemplate?: string
+  /** Relato local que precisa de confirmação de pagamento ou recebimento. */
+  financialEvent?: FinancialEvent
   /** Ações que só serão propostas depois da resposta. Nada foi registrado. */
   pendingActions?: ParsedAction[]
 }

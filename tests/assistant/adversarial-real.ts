@@ -1026,17 +1026,34 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   }
   const pixClarify = (await orchestrate({ state: buildState(), message: 'Minha filha pediu um Pix de 15',
     today: TODAY, remoteEnabled: false })).response
-  for (const [id, answerText] of [
-    ['A-pix-assim', 'não, assim que receber eu mando'],
-    ['A-pix-valor', 'sim mas mandei só 10'],
-    ['A-pix-data', 'sim, ontem'],
+  for (const [id, answerText, amount, date] of [
+    ['A-pix-assim', 'não, assim que receber eu mando', null, null],
+    ['A-pix-valor', 'sim mas mandei só 10', 10, undefined],
+    ['A-pix-data', 'sim, ontem', 15, addDays(TODAY, -1)],
+    ['A-pix-n-curto', 'ñ', null, null],
+    ['A-pix-sem-prova', 'sim?', null, null],
+    ['A-pix-negacao-final', 'sim, mas não mandei', null, null],
+    ['A-pix-reformulacao', 'não foi 15, mandei 9', 9, undefined],
   ] as const) {
     const answer = await orchestrate({ state: buildState(), message: answerText, today: TODAY,
       remoteEnabled: false,
       pendingClarification: pixClarify.mode === 'clarify' ? pixClarify.clarification : undefined })
-    out.push(result(id, answer.response, 'não propor Pix antigo de R$ 15 hoje',
-      answer.response.actions.length === 0))
+    const [action] = answer.response.actions.map(item => item.action)
+    out.push(result(id, answer.response, 'usa o valor e a data afirmados e espera quando o envio não foi confirmado', amount === null
+      ? answer.response.actions.length === 0
+      : answer.response.actions.length === 1 && action?.kind === 'expense' && action.amount === amount && action.date === date))
   }
+  const semValorPix = await orchestrate({ state: buildState(), message: 'me pediram um Pix dia 10', today: TODAY, remoteEnabled: false })
+  const pixAlternativo = await orchestrate({ state: buildState(), message: 'mandei 10 e 5 centavos amanhã', today: TODAY, remoteEnabled: false,
+    pendingClarification: answerChoices(semValorPix) })
+  const pixDiaCerto = await orchestrate({ state: buildState(), message: 'foi ontem', today: TODAY, remoteEnabled: false,
+    pendingClarification: answerChoices(pixAlternativo) })
+  const [pixCerto] = pixDiaCerto.response.actions.map(item => item.action)
+  out.push(result('A-pix-dia-do-pedido-nao-vira-valor-e-data-corrigida', { original: semValorPix.response, future: pixAlternativo.response, final: pixDiaCerto.response },
+    'pedido sem valor abre pergunta; corrige data futura e mantém os R$ 10,05 enviados',
+    answerChoices(semValorPix)?.options?.length === 0 && !/10,00/.test(semValorPix.response.reply)
+      && answerChoices(pixAlternativo)?.field === 'date' && !pixAlternativo.response.actions.length
+      && pixCerto?.kind === 'expense' && pixCerto.amount === 10.05 && pixCerto.date === addDays(TODAY, -1)))
   const directMixed = buildState({ balance: 1000, cards: [{ name: 'Inter', dueDay: 20, closingDay: 5 }] })
   directMixed.settings.balanceAsOf = '2026-09-14T09:00'
   directMixed.installmentPlans = [{ id: 'mixed-plan', description: 'Compra', cardId: 'card0',
