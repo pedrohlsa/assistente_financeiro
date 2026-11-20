@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react'
 import { useStore } from '../store/store'
 import { isDriver } from '../services/profile'
 import { transactionOccurrence } from '../services/calc'
+import { financingForTransaction } from '../services/cards'
 import { catById } from '../data/categories'
 import { addDays, fmtBRL, fmtDateLong, fromISO, todayISO } from '../utils/format'
 import { sentenceCase } from '../utils/text'
@@ -212,9 +213,11 @@ function TransactionDetail({ tx, onClose, onRemove }: {
   onRemove: (tx: Transaction) => void
 }) {
   const { state } = useStore()
+  const navigate = useNavigate()
   const [confirming, setConfirming] = useState(false)
   if (!tx) return null
   const cat = catById(state.categories, tx.category)
+  const financing = financingForTransaction(state, tx)
   const occurrence = transactionOccurrence(state, tx)
   const conta = occurrence && state.recurring.find(r => r.id === occurrence.recurringId)
   const aviso = conta && occurrence ? ` O vencimento de ${fmtDateLong(occurrence.date)} da conta ${conta.name} pode voltar para as pendências.` : ''
@@ -241,9 +244,16 @@ function TransactionDetail({ tx, onClose, onRemove }: {
             </div>
           ))}
         </div>
-        <button className="btn btn-danger-soft btn-block" style={{ marginTop: 18 }} onClick={() => setConfirming(true)}>
-          Remover movimentação
-        </button>
+        {financing ? (
+          <div style={{ marginTop: 18 }}>
+            <p className="tiny">Esta entrada faz parte de um financiamento. A exclusão é feita junto do parcelamento.</p>
+            <button className="btn btn-soft btn-block" onClick={() => navigate('/cartoes')}>Abrir Cartões e parcelamentos</button>
+          </div>
+        ) : (
+          <button className="btn btn-danger-soft btn-block" style={{ marginTop: 18 }} onClick={() => setConfirming(true)}>
+            Remover movimentação
+          </button>
+        )}
       </Sheet>
       <ConfirmDialog
         open={confirming}

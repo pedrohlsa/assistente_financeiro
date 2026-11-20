@@ -9,7 +9,7 @@
 // 3. Por isso nenhum cálculo daqui entra em periodStats/monthStats: os números
 //    de receita e despesa do app continuam exatamente como eram.
 import {
-  AppState, CreditCard, Installment, InstallmentPlan, RecurringCardCharge,
+  AppState, CreditCard, Installment, InstallmentPlan, RecurringCardCharge, Transaction,
 } from '../models/types'
 import { addDays, dateForDayOfMonth, fromISO, monthKey, todayISO, toISO } from '../utils/format'
 
@@ -95,6 +95,59 @@ export const planInstallments = (s: AppState, planId: string): Installment[] =>
   (s.installments || []).filter(i => i.planId === planId).sort((a, b) => a.number - b.number)
 
 export const planById = (s: AppState, id: string) => (s.installmentPlans || []).find(p => p.id === id)
+
+function matchesLegacyFinancing(plan: InstallmentPlan, tx: Transaction): boolean {
+  return plan.operationType === 'financed-cash-inflow' && tx.type === 'financed-cash-inflow' && !tx.financedPlanId
+    && tx.date === plan.purchaseDate && Math.abs(tx.amount - (plan.netReceived ?? NaN)) < 0.005
+    && (!plan.assistantBatchId || tx.assistantBatchId === plan.assistantBatchId)
+}
+
+export function financingForTransaction(s: AppState, tx: Transaction): InstallmentPlan | undefined {
+  if (tx.type !== 'financed-cash-inflow') return undefined
+  if (tx.financedPlanId) {
+    const plan = planById(s, tx.financedPlanId)
+    return plan?.operationType === 'financed-cash-inflow' ? plan : undefined
+  }
+  return s.installmentPlans.find(plan => matchesLegacyFinancing(plan, tx))
+}
+
+type PlanRemoval =
+  | { allowed: true; receipt?: Transaction }
+  | { allowed: false; message: string; legacyOptions?: Transaction[] }
+
+export function checkPlanRemoval(s: AppState, plan: InstallmentPlan, legacyReceiptId?: string): PlanRemoval {
+  const installments = planInstallments(s, plan.id)
+  if (plan.cardId && installments.length) {
+    const ids = new Set(installments.map(i => i.id))
+    const months = new Set(installments.map(i => monthKey(i.dueDate)))
+    if (s.cardPayments.some(p => p.cardId === plan.cardId
+      && (months.has(p.referenceMonth) || p.settledInstallmentIds?.some(id => ids.has(id))))) {
+      return { allowed: false, message: 'Há pagamentos nas faturas deste parcelamento. Confira esses pagamentos antes de excluir o plano.' }
+    }
+  }
+  if (plan.operationType !== 'financed-cash-inflow') return { allowed: true }
+  if (installments.some(i => i.status === 'paid' || i.paidAt || (i.paidAmount || 0) > 0 || i.directPayments?.length)) {
+    return { allowed: false, message: 'Há pagamentos registrados neste financiamento. Confira as parcelas antes de excluir a operação.' }
+  }
+  const linked = s.transactions.filter(t => t.financedPlanId === plan.id)
+  if (linked.length) {
+    const [receipt] = linked
+    return linked.length === 1 && receipt.type === 'financed-cash-inflow' && receipt.date === plan.purchaseDate
+      && Math.abs(receipt.amount - (plan.netReceived ?? NaN)) < 0.005
+      && s.transactions.filter(t => t.id === receipt.id).length === 1
+      ? { allowed: true, receipt }
+      : { allowed: false, message: 'O lançamento vinculado não confere com o financiamento. Revise o valor e a data nos registros.' }
+  }
+  const legacyOptions = s.transactions.filter(t => matchesLegacyFinancing(plan, t))
+  if (legacyReceiptId) {
+    const receipt = legacyOptions.find(t => t.id === legacyReceiptId)
+    return receipt && s.transactions.filter(t => t.id === receipt.id).length === 1 ? { allowed: true, receipt }
+      : { allowed: false, message: 'A entrada escolhida mudou. Abra o parcelamento e confira o lançamento novamente.' }
+  }
+  return legacyOptions.length
+    ? { allowed: false, message: 'Qual entrada do extrato pertence a este financiamento?', legacyOptions }
+    : { allowed: true }
+}
 
 /** Parcelamentos que ainda geram obrigação (não quitados nem cancelados). */
 /**

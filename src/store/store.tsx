@@ -16,7 +16,7 @@ import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
 import { nextCashEventTime, recurringOccurrenceState, transactionOccurrence } from '../services/calc'
 import type { TransactionOccurrence } from '../services/calc'
-import { cardInvoice, currentInvoice, directInstallmentPaidAmount, futureInvoicePaymentDate,
+import { cardInvoice, checkPlanRemoval, currentInvoice, directInstallmentPaidAmount, financingForTransaction, futureInvoicePaymentDate,
   installmentLinkedToCardPayment, validPaymentDate } from '../services/cards'
 import { applyActionPure, applyBatchPure } from '../assistant/execute'
 import type { BatchItem } from '../assistant/execute'
@@ -166,7 +166,7 @@ type Action =
   | { type: 'addPlan'; plan: InstallmentPlan; installments: Installment[]; cashInflow?: Transaction }
   | { type: 'updatePlan'; id: string; patch: Partial<InstallmentPlan> }
   /** Remove o plano e TODAS as suas parcelas (histórico incluído). */
-  | { type: 'removePlan'; id: string }
+  | { type: 'removePlan'; id: string; legacyReceiptId?: string }
   /** Cancela apenas as parcelas ainda não pagas — preserva o histórico. */
   | { type: 'cancelFutureInstallments'; planId: string }
   | { type: 'payInstallment'; id: string; paidAt: string; paidTime?: string; paidAmount?: number }
@@ -218,6 +218,7 @@ export function reducer(s: AppState, a: Action): AppState {
     case 'removeTx': {
       const removed = s.transactions.find(t => t.id === a.id)
       if (!removed) return s
+      if (financingForTransaction(s, removed)) return s
       const transactions = s.transactions.filter(t => t.id !== a.id)
       const link = transactionOccurrence(s, removed)
       if (!link?.record) return { ...s, transactions }
@@ -365,17 +366,25 @@ export function reducer(s: AppState, a: Action): AppState {
           || inflow.amount !== a.plan.netReceived || !(inflow.amount > 0) || inflow.amount > a.plan.totalAmount) return s
       } else if (inflow) return s
       const transactions = inflow ? [{ ...inflow,
+        financedPlanId: a.plan.id,
         time: inflow.time ? nextCashEventTime(s, inflow.date, inflow.time) : undefined }, ...s.transactions] : s.transactions
       return { ...s, transactions, installmentPlans: [a.plan, ...s.installmentPlans], installments: [...s.installments, ...a.installments] }
     }
     case 'updatePlan':
       return { ...s, installmentPlans: s.installmentPlans.map(p => p.id === a.id ? { ...p, ...a.patch } : p) }
-    case 'removePlan':
+    case 'removePlan': {
+      const plan = s.installmentPlans.find(p => p.id === a.id)
+      if (!plan) return s
+      const removal = checkPlanRemoval(s, plan, a.legacyReceiptId)
+      if (removal.allowed === false) return s
+      const receiptId = removal.receipt?.id
       return {
         ...s,
         installmentPlans: s.installmentPlans.filter(p => p.id !== a.id),
         installments: s.installments.filter(i => i.planId !== a.id),
+        transactions: receiptId ? s.transactions.filter(t => t.id !== receiptId) : s.transactions,
       }
+    }
     case 'cancelFutureInstallments':
       return {
         ...s,

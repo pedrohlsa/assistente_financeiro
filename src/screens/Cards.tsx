@@ -12,7 +12,7 @@ import {
   CardChargeForm, CardForm, CardPaymentForm, FinancedInflowForm, PurchaseForm, StandalonePlanForm,
 } from '../components/cardForms'
 import {
-  cardInvoice, cardLimits, cardsOverview, commitmentTimeline, currentInvoice,
+  cardInvoice, cardLimits, cardsOverview, checkPlanRemoval, commitmentTimeline, currentInvoice,
   planProgress, upcomingInvoices, planInstallments, splitInstallmentAmounts, installmentLinkedToCardPayment,
   futureInstallmentPaymentDate, validPaymentDate,
 } from '../services/cards'
@@ -480,12 +480,20 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
   stateRef.current = state
   const toast = useToast()
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [legacyReceiptId, setLegacyReceiptId] = useState('')
   const [confirmAction, setConfirmAction] = useState<'settle' | 'cancel-future' | null>(null)
   const [partial, setPartial] = useState<Installment | null>(null)
   const plan = pp.plan
   const cat = plan.categoryId ? catById(state.categories, plan.categoryId) : undefined
   const t = todayISO()
   const futurePaid = pp.installments.some(i => !!futureInstallmentPaymentDate(state, i, t))
+  const removalStart = confirmDelete ? checkPlanRemoval(state, plan) : undefined
+  const removal = confirmDelete && legacyReceiptId ? checkPlanRemoval(state, plan, legacyReceiptId) : removalStart
+  const receipts = removalStart?.allowed === false ? removalStart.legacyOptions?.map(tx => ({
+    id: tx.id, label: [fmtDateShort(tx.date), tx.time?.slice(0, 8), fmtBRL(tx.amount),
+      tx.source === 'manual' ? 'Formulário' : tx.source === 'ai' ? 'Assistente' : undefined, tx.origin, tx.note].filter(Boolean).join(' · '),
+  })) : undefined
+  const identifiableReceipts = receipts?.filter(option => receipts.filter(other => other.label === option.label).length === 1)
 
   const statusLabel = plan.status === 'cancelled' ? 'Cancelado'
     : futurePaid ? 'Pagamento futuro'
@@ -659,20 +667,35 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
             {pp.remainingCount > 0 && (
               <button className="btn btn-soft btn-sm" onClick={() => setConfirmAction('cancel-future')}>Cancelar futuras</button>
             )}
-            <button className="btn btn-danger-soft btn-sm" onClick={() => setConfirmDelete(true)}>Excluir</button>
+            <button className="btn btn-danger-soft btn-sm" onClick={() => { setLegacyReceiptId(''); setConfirmDelete(true) }}>Excluir</button>
           </div>
 
           {confirmDelete && (
             <div className="card" style={{ borderColor: 'var(--danger)', borderWidth: 1.5, marginTop: 10 }}>
               <h3>Excluir "{plan.description}"?</h3>
+              {identifiableReceipts?.length ? (
+                <div className="field" style={{ margin: '6px 0 10px' }}>
+                  <label>Qual entrada do extrato pertence a este financiamento?</label>
+                  <select className="input" value={legacyReceiptId} onChange={e => setLegacyReceiptId(e.target.value)}>
+                    <option value="">Selecione o lançamento</option>
+                    {identifiableReceipts.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
+                  </select>
+                  <span className="tiny">Se a entrada já estava incluída no saldo informado, confira o saldo depois da exclusão.</span>
+                </div>
+              ) : null}
               <p className="tiny" style={{ margin: '6px 0 10px' }}>
-                Isso apaga o parcelamento e <strong>todas as {plan.installmentCount} parcelas</strong>, inclusive
-                as {pp.paidCount} já paga(s) — o histórico não poderá ser recuperado.
-                Se você só quer parar as cobranças futuras, use "Cancelar futuras".
+                {removal?.allowed === true ? (
+                  <>Isso exclui o parcelamento e todas as {plan.installmentCount} parcelas
+                    {removal.receipt ? ` junto da entrada de ${fmtBRL(removal.receipt.amount)} no extrato` : ''}.
+                    A exclusão é permanente.</>
+                ) : receipts?.length && !identifiableReceipts?.length
+                  ? 'Os lançamentos do extrato têm os mesmos dados e não podem ser distinguidos aqui.'
+                  : removal?.allowed === false && removal.message}
               </p>
               <div className="suggestion-row">
-                <button className="btn btn-danger-soft btn-sm" onClick={() => {
-                  dispatch({ type: 'removePlan', id: plan.id })
+                <button className="btn btn-danger-soft btn-sm" disabled={removal?.allowed !== true} onClick={() => {
+                  if (checkPlanRemoval(stateRef.current, plan, legacyReceiptId).allowed === false) return
+                  dispatch({ type: 'removePlan', id: plan.id, legacyReceiptId: legacyReceiptId || undefined })
                   toast({ text: 'Parcelamento excluído.' })
                 }}>Excluir tudo</button>
                 <button className="btn btn-soft btn-sm" onClick={() => {

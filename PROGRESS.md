@@ -5971,3 +5971,15 @@ APK ou chamada paga. NOT READY até auditoria independente.
   o histórico guarda a quitação sem a data. O Chrome confirmou que
   o vencimento de amanhã deixou de aparecer como data do pagamento.
   Typecheck e build passaram.
+
+## 20/11/2026 — Exclusão de uma entrada financiada
+
+- O formulário e o chat vinculam a entrada do extrato ao plano. A
+  exclusão pelo detalhe do plano remove os dois juntos. Pagamentos
+  registrados no financiamento ou nas faturas impedem a exclusão
+  até a conferência desses lançamentos.
+- Financiamento antigo sem vínculo pede escolher o lançamento que
+  corresponde à operação. O Chrome confirmou que a outra entrada
+  de mesmo valor ficou no extrato.
+- Suíte com 768/768 regressões reais, matriz de oito datas, typechecks,
+  build e rubrica passaram. A branch permanece NOT READY.

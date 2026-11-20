@@ -29,6 +29,8 @@ export interface Transaction {
   paymentMethod?: string
   note?: string
   recurringId?: string
+  /** Plano que gerou esta entrada financiada. Ausente em históricos antigos. */
+  financedPlanId?: string
   /**
    * Data da ocorrência que originou este lançamento. Junto com `recurringId`
    * forma a chave única que impede confirmar duas vezes o mesmo período.

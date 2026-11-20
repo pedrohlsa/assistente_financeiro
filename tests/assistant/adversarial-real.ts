@@ -4392,6 +4392,40 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       'quitar uma parcela histórica reduz a dívida de 100 para 50; não cria um dia de pagamento nem muda o saldo',
       parcelas[0].status === 'paid' && parcelas[0].paidAmount === 50 && !parcelas[0].paidAt && parcelas[1].status === 'pending'
         && currentBalance(acordado) === 1000 && planProgress(acordado, planoHistorico).remainingAmount === 50))
+
+    const peloChat = applyBatchPure(receita, [{ id: 'financiamento-chat', action: { kind: 'financed-cash-inflow',
+      total: 100, netReceived: 80, installments: 2, cardName: 'Inter' } }], { now: { date: hoje, time: '15:10' } })
+    const posRecarga = hydrateForTest(JSON.parse(JSON.stringify(valido)))
+    const apagarEntrada = reducer(posRecarga, { type: 'removeTx', id: registro.cashInflow.id })
+    const apagarOperacao = reducer(posRecarga, { type: 'removePlan', id: compra.id })
+    const apagarChat = reducer(peloChat.state, { type: 'removePlan', id: peloChat.state.installmentPlans[0]?.id })
+    const parcelaPaga = reducer(valido, { type: 'payInstallment', id: registro.installments[0].id, paidAt: hoje })
+    const faturaComBaixa: AppState = { ...valido, cardPayments: [{ id: 'invoice-dependence', cardId: 'card0',
+      amount: 20, referenceMonth: compra.firstDueDate.slice(0, 7), paymentDate: hoje, fromBalance: true }] }
+    out.push(result('FIN-excluir-operacao-mantem-caixa-e-divida-coerentes', { apagarEntrada: apagarEntrada === posRecarga,
+      caixaReduzido: currentBalance(apagarOperacao), caixaChat: currentBalance(apagarChat) },
+      'financiamentos novos têm vínculo nos dois fluxos; remover o plano elimina a entrada e só libera se não houver parcelas ou fatura pagas',
+      posRecarga.transactions[0]?.financedPlanId === compra.id && apagarEntrada === posRecarga
+        && peloChat.applied && peloChat.state.transactions[0]?.financedPlanId === peloChat.state.installmentPlans[0]?.id
+        && [apagarOperacao, apagarChat].every(s => !s.transactions.length && !s.installments.length
+          && !s.installmentPlans.length && currentBalance(s) === 1000)
+        && parcelaPaga !== valido && reducer(parcelaPaga, { type: 'removePlan', id: compra.id }) === parcelaPaga
+        && reducer(faturaComBaixa, { type: 'removePlan', id: compra.id }) === faturaComBaixa))
+
+    const legadoFinanceiro: AppState = { ...valido, transactions: [
+      { ...registro.cashInflow, id: 'fin-legado-1' }, { ...registro.cashInflow, id: 'fin-legado-2', time: '16:50' },
+      { ...registro.cashInflow, id: 'sem-match', date: addDays(hoje, -1) },
+    ] }
+    const semEscolha = reducer(legadoFinanceiro, { type: 'removePlan', id: compra.id })
+    const errada = reducer(legadoFinanceiro, { type: 'removePlan', id: compra.id, legacyReceiptId: 'sem-match' })
+    const certa = reducer(legadoFinanceiro, { type: 'removePlan', id: compra.id, legacyReceiptId: 'fin-legado-2' })
+    out.push(result('FIN-excluir-legado-exige-vinculo-confirmado', { semEscolha: semEscolha === legadoFinanceiro,
+      restantes: certa.transactions.map(t => t.id) },
+      'com duas entradas legadas, excluir só depois da escolha explícita e manter intactos os outros lançamentos',
+      semEscolha === legadoFinanceiro && errada === legadoFinanceiro
+        && reducer(legadoFinanceiro, { type: 'removeTx', id: 'fin-legado-1' }) === legadoFinanceiro
+        && certa.transactions.map(t => t.id).join(',') === 'fin-legado-1,sem-match'
+        && !certa.installmentPlans.length && !certa.installments.length))
   }
 
   {

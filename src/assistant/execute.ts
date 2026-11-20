@@ -326,7 +326,7 @@ export function applyActionPure(
       // todos os somatórios de income.
       const t = tx({
         type: 'financed-cash-inflow', amount: action.netReceived, category: 'outros-in',
-        description: 'Entrada financiada pelo cartão',
+        description: 'Entrada financiada pelo cartão', financedPlanId: plan.id,
       })
       return {
         state: {
