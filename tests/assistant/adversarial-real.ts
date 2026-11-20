@@ -4155,6 +4155,23 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && /Se você confirmar/.test(saldoSeConfirmar.reply) && /Pendente nas faturas.*R\$\s220,00/.test(saldoSeConfirmar.reply)
         && !/R\$\s200,00/.test(saldoSeConfirmar.reply) && saldoSeConfirmar.actions.length === 1))
 
+    const extra = await turnoHoje(st, `Paguei 80 da fatura do Inter de ${mesNumerico} e cinquenta no mercado ontem`)
+    const mais = await turnoHoje(st, `Paguei 80 da fatura do Inter de ${mesNumerico} e R$ 50 no mercado e 20 na padaria`)
+    const juros = await turnoHoje(st, `Paguei 80 da fatura do Inter de ${mesNumerico} e 50 de juros`)
+    const duvida = await turnoHoje(st, `Paguei a fatura do Inter de ${mesNumerico} e 50 na mesma fatura`)
+    const negacao = await turnoHoje(st, `Não paguei 80 da fatura do Inter de ${mesNumerico} e 50 no mercado`)
+    out.push(result('FREF-pagamento-e-despesa-eliptica', { extra, mais, juros, duvida, negacao },
+      'mercado e padaria entram como despesas independentes sem atribuir o cartão como origem; juros e valores incertos pedem esclarecimento',
+      extra.actions.length === 2 && extra.actions.some(a => a.kind === 'card-payment' && a.referenceMonth === antiga && a.date === pagamento)
+        && extra.actions.some(a => a.kind === 'expense' && a.amount === 50 && a.date === pagamento && !a.origin)
+        && mais.actions.length === 3 && mais.actions.filter(a => a.kind === 'expense' && !a.origin).map(a => a.amount).join(',') === '50,20'
+        && juros.actions.length === 1 && juros.actions[0].kind === 'card-payment' && /R\$ 50,00.*O que aconteceu/.test(juros.reply)
+        && duvida.actions.length === 0 && /Qual foi o valor/.test(duvida.reply) && negacao.actions.length === 0))
+    const diasDiferentes = await turnoHoje(st, `Paguei 80 da fatura do Inter de ${mesNumerico} em ${pagamento.split('-').reverse().join('/')} e 50 no mercado em ${addDays(hoje, -2).split('-').reverse().join('/')}`)
+    out.push(result('FREF-datas-concorrentes-nao-datam-despesa-no-chute', diasDiferentes,
+      'mediante duas datas na mesma cláusula, pede o dia de cada pagamento antes de propor qualquer um',
+      diasDiferentes.actions.length === 0 && /data do pagamento da fatura.*data do outro lançamento/.test(diasDiferentes.reply)))
+
     const nextDue = toISOdate(new Date(d.getFullYear(), d.getMonth() + 1, 10))
     const nextRef = nextDue.slice(0, 7)
     const adiantavel: AppState = { ...st,

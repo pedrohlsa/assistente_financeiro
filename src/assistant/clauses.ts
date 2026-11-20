@@ -741,13 +741,25 @@ function esclareceReembolsos(clauses: AnalyzedClause[], original: string, today:
 }
 
 const ANO_DE_COMPETENCIA = new RegExp(String.raw`\b(?:${MESES_PT_BR.map(normalizeName).join('|')})\s+de\s*$`, 'i')
+const INVOICE_EXTRA_AMOUNT = /\s+e\s+(?:mais\s+)?((?:r\$\s*)?\d+(?:[.,]\d+)*)(?:\s+reais?)?\s+(?=(?:no|na|em|de|do|da)\s+[a-zà-ú])/gi
+const INVOICE_CONTEXT = /\b(?:faturas?|cart[aã]o|cr[eé]dito|parcelas?|juros|tarifas?|descontos?|pix)\b/i
 
 function unaccountedMoney(clause: AnalyzedClause): number[] {
   if (clause.ambiguity || clause.temporal || clause.intention || clause.intent === 'question'
     || clause.intent === 'conversation' || clause.intent === 'correction'
     || /\bse\s+eu\b|\b(?:supondo|imagina)\b|%/.test(clause.text)) return []
-  if (clause.actions.some(a => !['income', 'expense', 'fuel', 'maintenance', 'saving', 'work'].includes(a.kind))) return []
   const normalized = normalizeNumberWords(clause.text).text
+  if (clause.actions.some(a => a.kind === 'card-payment')) {
+    const amounts = clause.actions.filter(a => a.kind === 'expense').map(a => a.amount)
+    return [...normalized.matchAll(INVOICE_EXTRA_AMOUNT)].flatMap(m => {
+      const amount = parseMoney(m[1])
+      const matched = amounts.findIndex(v => Math.abs(v - amount) < 0.005)
+      if (matched < 0) return amount > 0 ? [amount] : []
+      amounts.splice(matched, 1)
+      return []
+    })
+  }
+  if (clause.actions.some(a => !['income', 'expense', 'fuel', 'maintenance', 'saving', 'work'].includes(a.kind))) return []
   // Sem leitura local, a frase segue para o planejador remoto. A guarda só
   // impede que uma ação PARCIAL feche a cláusula e esconda outro valor.
   if (!clause.actions.length) return []
@@ -905,7 +917,31 @@ export function analyzeMessage(
     const mencaoReembolso = primeiroReembolso || maisReembolso
     const reembolso = mencaoReembolso && reembolsoRecebido(mencaoReembolso, fala)
     const antesDoReembolso = reembolso && maisReembolso ? fala.slice(0, maisReembolso.index).trim() : fala
-    const parsed = parseNaturalFull(antesDoReembolso, { driver: opts?.driver, dayHint, inheritedKind })
+    const extraDaFatura = isInvoicePaymentStatement(antesDoReembolso) ? [...antesDoReembolso.matchAll(INVOICE_EXTRA_AMOUNT)][0] : undefined
+    const comandoPrincipal = extraDaFatura ? antesDoReembolso.slice(0, extraDaFatura.index).trim() : antesDoReembolso
+    const parsed = parseNaturalFull(comandoPrincipal, { driver: opts?.driver, dayHint, inheritedKind })
+    const fatura = parsed.actions.find(a => a.kind === 'card-payment')
+    const resolved = datesOriginal.length ? datesOriginal : datesParser
+    const datasDitas = resolved.filter(d => d.kind === 'date' || d.kind === 'future').map(d => d.date)
+    const datasSeparadas = new Set(datasDitas).size > 1
+    let despesasDaFatura: ParsedAction[] = []
+    if (fatura && extraDaFatura) {
+      // "Paguei 80 da fatura e 50 no mercado": o verbo também governa o
+      // segundo valor quando o destino identifica uma despesa independente.
+      const extra = antesDoReembolso.slice(extraDaFatura.index)
+        .replace(/^\s*e\s+(?:mais\s+)?/i, '')
+      const despesa = !datasSeparadas && !resolved.some(d => d.kind === 'ambiguous')
+        && !INVOICE_CONTEXT.test(extra) && !/\bou\b/i.test(extra)
+        && /^(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?\s+(?:no|na|em)\s/i.test(extra)
+        ? parseNaturalFull(`paguei ${extra}`, { driver: opts?.driver, dayHint }) : undefined
+      if (despesa?.actions.length && !despesa.ambiguity && despesa.actions.every(a => a.kind === 'expense' && a.category && a.category !== 'outros-out')) {
+        despesasDaFatura = despesa.actions
+        parsed.actions.push(...despesa.actions)
+      } else if (fatura.amount === undefined && INVOICE_CONTEXT.test(extra)) {
+        parsed.actions = parsed.actions.filter(a => a !== fatura)
+        parsed.ambiguity = { question: 'Qual foi o valor que você pagou da fatura? Explique também o segundo valor que citou.', options: [] }
+      }
+    }
     const direcaoIncerta = !!(maisReembolso && reembolso && !parsed.actions.some(a => a.kind === 'income'))
     // "Furou o pneu, foi mais 30" descreve um custo, não outra corrida
     // concluída. O verbo "foi" isolado é ambíguo no perfil motorista.
@@ -932,7 +968,6 @@ export function analyzeMessage(
     // A expressão pode aparecer só no texto normalizado ("daqui a três dias"):
     // ignorar esse caso seria descartar em silêncio exatamente o que a regra
     // temporal proíbe.
-    const resolved = datesOriginal.length ? datesOriginal : datesParser
     const future = resolved.find(isFutureDate)
     const period = resolved.find(isPeriodDate)
     const invalid = resolved.find(isInvalidDate)
@@ -984,19 +1019,25 @@ export function analyzeMessage(
     // que aceitam origem e só 2 fontes). Cada ação é ligada à fonte que aparece
     // logo depois do SEU valor no texto — e nenhuma origem é inventada.
     const origins = extractOrigins(part.text)
+    const textoComValores = despesasDaFatura.length ? normalizeNumberWords(part.text).text : ''
+    const extraOriginal = [...textoComValores.matchAll(INVOICE_EXTRA_AMOUNT)][0]
+    const textoExtra = extraOriginal ? textoComValores.slice(extraOriginal.index) : ''
+    const origensDoExtra = textoExtra ? extractOrigins(textoExtra) : []
 
     actions = actions.map(a => {
       const next: any = { ...a }
       if (date && DATABLE.has(a.kind)) next.date = date
       if (a.kind === 'card-payment' && invoiceParser.referenceMonth) next.referenceMonth = invoiceParser.referenceMonth
-      if (ORIGINABLE.has(a.kind) && !next.origin && origins.length) {
-        const at = amountPosition(part.text, next.amount)
+      const isExpenseExtra = despesasDaFatura.includes(a)
+      const scopedOrigins = isExpenseExtra ? origensDoExtra : origins
+      if (ORIGINABLE.has(a.kind) && !next.origin && scopedOrigins.length) {
+        const at = amountPosition(isExpenseExtra ? textoExtra : part.text, next.amount)
         const perto = at >= 0
-          ? origins.filter(o => o.at > at).sort((x, y) => x.at - y.at)[0]
+          ? scopedOrigins.filter(o => o.at > at).sort((x, y) => x.at - y.at)[0]
           : undefined
         // Sem conseguir localizar o valor no texto, só usa a origem quando ela é
         // única — do contrário arriscaria colar a fonte errada no lançamento.
-        const pick = perto || (origins.length === 1 ? origins[0] : undefined)
+        const pick = perto || (scopedOrigins.length === 1 ? scopedOrigins[0] : undefined)
         if (pick) next.origin = pick.value
       }
       return next as ParsedAction
@@ -1085,10 +1126,11 @@ export function analyzeMessage(
       ambiguity = { question: ESCLARECE_REEMBOLSO_PENDENTE, options: [] }
     }
 
-    const datasDitas = resolved.filter(d => d.kind === 'date' || d.kind === 'future').map(d => d.date)
     const faleFatura = actions.some(a => a.kind === 'card-payment')
     const duvidaFatura = faleFatura && (invoiceParser.referenceQuestion
-      || (dateAmbiguity || new Set(datasDitas).size > 1 ? 'Qual foi a data exata em que você pagou a fatura?' : undefined))
+      || (dateAmbiguity || datasSeparadas || (extraDaFatura && resolved.some(d => d.kind === 'ambiguous'))
+        ? extraDaFatura ? 'Qual foi a data do pagamento da fatura e qual foi a data do outro lançamento?'
+          : 'Qual foi a data exata em que você pagou a fatura?' : undefined))
     if (duvidaFatura) {
       actions = actions.filter(a => a.kind !== 'card-payment')
       temporal = undefined

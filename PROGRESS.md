@@ -5881,3 +5881,13 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - No Chrome, confirmar R$ 20 deixou uma proposta anterior de R$ 300
   pendente de revisão quando o saldo caiu para R$ 280. Suíte com
   752/752 regressões reais no relógio padrão, typechecks, build e rubrica.
+
+## 19/11/2026 — Fatura e despesa na mesma frase
+
+- “Paguei 80 da fatura e cinquenta no mercado” mantém as duas ações
+  e a data comum quando informada. O nome do cartão fica na fatura.
+- Valores que podem ser juros ou outro pagamento da mesma fatura
+  pedem esclarecimento. Datas concorrentes sem vínculo claro são
+  esclarecidas antes da proposta.
+- Suíte com 754/754 regressões reais no relógio padrão, matriz de
+  oito datas, typechecks, build e rubrica local passaram.
