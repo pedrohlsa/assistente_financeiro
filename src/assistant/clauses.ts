@@ -628,7 +628,7 @@ export function segment(text: string, today = todayISO()): { text: string; start
     // O contexto em "ontem às 20h gastei..." qualifica o fato seguinte.
     if (i + 1 < sorted.length && looksPast(text.slice(end, sorted[i + 2] ?? text.length))) {
       const clock = spokenClock(slice)
-      if (clock.time || clock.invalid) {
+      if (clock.time || clock.invalid || clock.range) {
         let context = clock.remaining
         for (const date of findAllDates(context, today).reverse()) context = context.slice(0, date.start) + context.slice(date.end)
         if (!context.replace(/\b(?:agora\s+(?:h?[áa]\s+)?pouco|h[áa]\s+pouco|agorinha)\b/gi, '').replace(/[\s,]+/g, '')) continue
@@ -1737,7 +1737,7 @@ export function analyzeMessage(
     }
     if (!ambiguity && actions.some(a => a.kind === 'income' || a.kind === 'expense')) {
       const futureClock = clock.time && (!date || date === today) && today === todayISO() && clock.time > nowTime()
-      if (clock.invalid || futureClock) {
+      if (clock.invalid || clock.range || futureClock) {
         const question = futureClock ? `O horário ${clock.time} ainda não chegou hoje. Em que dia aconteceu?`
           : 'Qual foi o horário? A proposta já tem o valor e o restante dos dados.'
         ambiguity = { field: futureClock ? 'date' : 'clock-time', question, options: [], pendingActions: actions }

@@ -6367,3 +6367,12 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - O Chrome confirmou duas despesas, preservando a hora original
   da farmácia e marcando somente 10h30 na padaria.
   A suíte ficou em 814/814 regressões reais.
+
+## 20/11/2026 — Horário aproximado ou com alternativa
+
+- “Às nove ou dez”, “entre 9h e 10h” e “por volta das 9h”
+  pedem horário exato antes da proposta. R$ 50, o local e a data
+  continuam disponíveis e voltam junto com a hora informada.
+- Suíte com 820/820 regressões reais. As matrizes de linguagem
+  passaram em 640/640 casos de fala irregular e 384/384 casos de
+  horário em oito datas e quatro perfis, sem chamar o remoto.

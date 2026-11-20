@@ -100,6 +100,21 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const state = buildState({ profile: 'other' })
+    const phrases = ['às nove ou dez', 'às 9 ou 10', 'às nove ou às dez', 'entre 9h e 10h', 'das 9h às 10h', 'por volta das 9h']
+    for (const [i, phrase] of phrases.entries()) {
+      const ambiguous = await orchestrate({ state, today: TODAY, message: `ontem gastei 50 no mercado ${phrase}`, remoteEnabled: false })
+      const clarification = ambiguous.response.mode === 'clarify' ? ambiguous.response.clarification : undefined
+      const exact = await orchestrate({ state, today: TODAY, message: 'às nove e quinze', pendingClarification: clarification, remoteEnabled: false })
+      const [action] = exact.response.actions.map(a => a.action)
+      out.push(result(`LING-horario-impreciso-${i + 1}`, { ambiguous: ambiguous.response, exact: exact.response },
+        'espera pelo horário, sem trocar valor, data ou local', clarification?.field === 'clock-time' && !ambiguous.response.actions.length
+        && exact.response.mode === 'propose_actions' && exact.response.actions.length === 1 && action?.kind === 'expense'
+        && action.amount === 50 && action.description === 'Mercado' && action.date === addDays(TODAY, -1) && action.time === '09:15'))
+    }
+  }
+
+  {
     const state = buildState({ profile: 'autonomo' })
     const ask = (message: string, pending?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({
       state, message, today: TODAY, remoteEnabled: false, pending: pending?.response.actions,
