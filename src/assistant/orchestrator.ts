@@ -53,7 +53,7 @@ import { catById, usableCategories } from '../data/categories'
 import { addDays, fmtBRL, MESES_PT_BR, todayISO, uid } from '../utils/format'
 import { matchRecurringPayment, occurrencesBetween, possibleRecurringTransactions, recurringActiveOn, recurringLinkAction } from '../services/calc'
 import { normalizeName, sentenceCase } from '../utils/text'
-import { brDate, dateLabel, findAllDates, findDate, previousYearOf, resolveDayInWindow } from './dates'
+import { brDate, dateInAnswer, dateLabel, findAllDates, findDate, previousYearOf, resolveDayInWindow } from './dates'
 import { applyPreferenceAliases, parsePreferenceCommand } from './preferences'
 import type { PreferenceMutation } from './preferences'
 
@@ -333,12 +333,14 @@ function temporalClarification(t: TemporalSignal): AssistantClarification {
   // Data dita por extenso ("dia 10/08"): a leitura mais provável é o mesmo dia
   // do ano passado. Mostramos as duas datas para o usuário escolher de olho.
   if (!t.relative && t.date) {
-    const anterior = previousYearOf(t.date)
+    const yearWasSaid = /\b\d{4}\b|(?:\d{1,2}[/-]){2}\d{2}\b/.test(t.text)
+    const anterior = yearWasSaid ? undefined : previousYearOf(t.date)
     return {
-      question: `A data ${brDate(t.date)} ainda não chegou. Foi ${brDate(anterior)} ou você quer planejar para ${brDate(t.date)}?`,
-      field: 'date',
+      question: anterior ? `A data ${brDate(t.date)} ainda não chegou. Foi ${brDate(anterior)} ou você quer planejar para ${brDate(t.date)}?`
+        : `A data ${brDate(t.date)} ainda não chegou. Qual foi a data correta?`,
+      field: 'date', pendingActions: t.actions,
       options: [
-        { label: brDate(anterior), value: anterior, actions: withDate(t.actions, anterior) },
+        ...(anterior ? [{ label: brDate(anterior), value: anterior, actions: withDate(t.actions, anterior) }] : []),
         plano,
       ],
     }
@@ -346,12 +348,23 @@ function temporalClarification(t: TemporalSignal): AssistantClarification {
   const quando = t.date && !t.imprecise ? ` (${brDate(t.date)})` : ''
   return {
     question: `"${t.text}"${quando} ainda não chegou. Isso já aconteceu ou é um plano que você quer registrar quando acontecer?`,
-    field: 'date',
+    field: 'date', pendingActions: t.actions,
     options: [
       { label: 'Já aconteceu', value: 'ja-aconteceu', actions: withDate(t.actions) },
       plano,
     ],
   }
+}
+
+function actionForProfile(action: ParsedAction, caps: AssistantCapabilities): ParsedAction {
+  if (caps.isDriver) return action
+  if (action.kind === 'fuel' && action.amount > 0) {
+    return { kind: 'expense', amount: action.amount, category: 'combustivel', description: 'Combustível', date: action.date }
+  }
+  if (action.kind === 'maintenance') {
+    return { kind: 'expense', amount: action.cost, category: 'manutencao', description: `Troca de ${action.item}`, date: action.date }
+  }
+  return action
 }
 
 interface DepositoSemMeta { amount: number; name?: string }
@@ -504,7 +517,7 @@ function runLocal(
   // Ambiguidade real (gás) interrompe: pergunta primeiro, registra depois.
   const ambiguities = analysis.clauses.filter(c => c.ambiguity)
   const ambiguous = ambiguities[0]
-  const dateAmbiguous = analysis.clauses.find(c => c.dateAmbiguity)
+  const waitingForDate = new Map<AnalyzedClause, ParsedAction[]>()
 
   // A informação temporal tem PRIORIDADE sobre as outras perguntas: ela decide
   // se o lançamento existe. Perguntar o cartão antes de saber se a despesa
@@ -568,14 +581,7 @@ function runLocal(
       // estrutura de veículo do app. Em vez de descartar o lançamento (o
       // usuário gastou o dinheiro de verdade), ele vira despesa da categoria
       // correspondente. `work` e `odometer` não têm equivalente e são recusados.
-      if (!caps.isDriver) {
-        const a: any = action
-        if (a.kind === 'fuel' && a.amount > 0) {
-          action = { kind: 'expense', amount: a.amount, category: 'combustivel', description: 'Combustível', date: a.date }
-        } else if (a.kind === 'maintenance') {
-          action = { kind: 'expense', amount: a.cost, category: 'manutencao', description: `Troca de ${a.item}`, date: a.date }
-        }
-      }
+      action = actionForProfile(action, caps)
 
       // O vocabulário do usuário entra ANTES da validação: a categoria que ele
       // mesmo usa precisa passar pelas mesmas regras de qualquer outra.
@@ -598,6 +604,12 @@ function runLocal(
       const withDefaults: any = { ...res.action }
       if (withDefaults.kind === 'income' && !withDefaults.category) withDefaults.category = defaultIncomeCategory(input.state.settings)
       if (withDefaults.kind === 'expense' && !withDefaults.category) withDefaults.category = 'outros-out'
+      if (clause.dateAmbiguity) {
+        const held = waitingForDate.get(clause) || []
+        held.push(withDefaults)
+        waitingForDate.set(clause, held)
+        continue
+      }
       candidates.push(candidate(withDefaults, 'local', clause.id, clause.confidence))
     }
   }
@@ -605,6 +617,20 @@ function runLocal(
   const unresolved = analysis.unresolvedClauses
     .filter(c => c.intent !== 'conversation')
     .map(c => unresolvedOf(c, c.intent === 'question' ? 'question-unanswered' : 'not-understood'))
+
+  if (!clarification && waitingForDate.size > 0) {
+    const [[clause, actions]] = waitingForDate
+    const canDate = actions.every(a => actionSpec(a.kind)?.fields.some(f => f.name === 'date'))
+    if (waitingForDate.size === 1 && canDate && clause.dateAmbiguity) {
+      clarification = { ...clause.dateAmbiguity, field: 'date-choice', pendingActions: actions }
+    } else {
+      const waiting = [...waitingForDate.values()].flat()
+        .map(action => describeAction(action, id => input.state.categories.find(c => c.id === id)?.name))
+      clarification = { field: 'date-choice', question: canDate
+        ? `Mais de um registro ficou com data indefinida. Informe a data completa de cada um:\n${waiting.map(text => `• ${text}`).join('\n')}`
+        : 'A data desse registro ficou indefinida. Confira a data correta na tela do registro antes de salvar.' }
+    }
+  }
 
   if (semMeta.length && !clarification) clarification = goalDepositClarification(input.state, semMeta, candidates)
   if (alteracaoSemMeta.length && !clarification) clarification = goalUpdateClarification(input.state, alteracaoSemMeta[0], candidates)
@@ -656,14 +682,6 @@ function runLocal(
       }
     }
   }
-  if (!clarification && dateAmbiguous?.dateAmbiguity) {
-    clarification = {
-      question: dateAmbiguous.dateAmbiguity.question,
-      options: dateAmbiguous.dateAmbiguity.options,
-      field: 'date',
-    }
-  }
-
   // Última na fila de propósito: cartão inexistente e data ambígua são dúvidas
   // sobre O QUE ACONTECEU; esta é só sobre como ARQUIVAR. Cada opção carrega o
   // lote inteiro já com aquela categoria, então responder não repete nada.
@@ -899,6 +917,30 @@ function proposeClarifiedActions(
   state: AppState, actions: ParsedAction[], today: string, previous: AssistantCandidateAction[] = [],
 ): OrchestratorOutput {
   return preparedActionResponse(state, prepareInvoicePayments(state, actions.map(a => candidate(a, 'local')), today), previous)
+}
+
+function proposeDatedActions(input: OrchestratorInput, actions: ParsedAction[], caps: AssistantCapabilities, today: string): OrchestratorOutput {
+  const notes: string[] = []
+  const choices: AssistantClarification[] = []
+  const candidates = actions.flatMap(raw => {
+    const validated = validateAction(actionForProfile(raw, caps), caps, today)
+    if (isValidationFailure(validated)) {
+      notes.push(errorMessage(validated.code, validated.detail))
+      return []
+    }
+    const action = validated.action
+    const fixed = action.kind === 'expense' ? resolveRecurringStatement(input.state, action, '', caps, today) : null
+    if (!fixed) return [candidate(action, 'local')]
+    if ('clarification' in fixed) choices.push(fixed.clarification)
+    else notes.push(fixed.note)
+    return 'action' in fixed ? [candidate(fixed.action, 'local')] : []
+  })
+  const prepared = prepareInvoicePayments(input.state, candidates, today)
+  const choicesNow = [...choices, ...(prepared.clarification ? [prepared.clarification] : [])]
+  prepared.notes.push(...notes)
+  if (choicesNow.length > 1) prepared.notes.push('Informe separadamente as datas e os vencimentos dos registros que ainda precisam de confirmação.')
+  prepared.clarification = choicesNow.length === 1 ? choicesNow[0] : undefined
+  return preparedActionResponse(input.state, prepared, input.pending)
 }
 
 function preparedActionResponse(
@@ -1158,16 +1200,18 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const fixedBillChoice = pc.field === 'recurring-occurrence'
     const fixedBillLink = pc.field === 'recurring-link'
     const invoiceChoice = pc.field === 'invoice-reference'
+    const dateChoice = pc.field === 'date' || pc.field === 'date-choice'
     // Para dinheiro, só uma resposta inequívoca aceita a ação antiga. "assim"
     // contém "sim", e "sim, mandei só 10" altera o valor da proposta.
     const simpleAnswer = said.replace(/[.!?]+$/g, '').trim()
     const negativeAnswer = financialEvent && /^(?:nao|nem)(?:\b|$)/.test(simpleAnswer)
-    const hit = invoiceChoice ? matchInvoiceChoice(pc.options, input.message) : pc.options.find(o => financialEvent || fixedBillChoice || fixedBillLink
+    const hit = invoiceChoice ? matchInvoiceChoice(pc.options, input.message) : pc.options.find(o => financialEvent || fixedBillChoice || fixedBillLink || dateChoice
       ? (normalizeName(o.label) === simpleAnswer || normalizeName(o.value) === simpleAnswer
         || (negativeAnswer && normalizeName(o.label) === 'nao'))
       : (normalizeName(o.label) === said || normalizeName(o.value) === said ||
         (said.length > 2 && (normalizeName(o.label).includes(said) || said.includes(normalizeName(o.label))))))
     if (hit) {
+      if (dateChoice && hit.actions?.length) return proposeDatedActions(input, hit.actions, caps, today)
       if (hit.actions?.length) {
         const validated: ParsedAction[] = []
         for (const action of hit.actions) {
@@ -1204,7 +1248,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
       if (hit.reply) {
         return {
           draft: null,
-          keepPending: pc.field === 'financial-event',
+          keepPending: financialEvent || dateChoice,
           response: {
             version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local',
             actions: [], unresolved: [], reply: hit.reply,
@@ -1242,7 +1286,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (pc?.field === 'date' && pc.dateWindow && pc.pendingActions?.length) {
     const iso = resolveDayInWindow(input.message, pc.dateWindow, today)
     if (iso) {
-      return proposeClarifiedActions(input.state, withDate(pc.pendingActions, iso), today)
+      return proposeDatedActions(input, withDate(pc.pendingActions, iso), caps, today)
     }
     // Resposta inválida ou fora da janela: a pergunta continua aberta. Cair no
     // fluxo comum descartava `pendingClarification`; pior, uma data completa de
@@ -1250,7 +1294,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const from = brDate(pc.dateWindow.from)
     const to = brDate(pc.dateWindow.to)
     return {
-      draft: null,
+      draft: null, keepPending: true,
       response: {
         version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
         actions: [], unresolved: [],
@@ -1264,10 +1308,12 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   // A ação original fica guardada, mas só volta a ser proposta quando a nova
   // data for válida e já tiver acontecido. Futuro volta ao esclarecimento de
   // plano; entrada ainda inválida mantém a mesma pergunta aberta.
-  if (pc?.field === 'date' && !pc.dateWindow && pc.pendingActions?.length) {
-    const corrected = findDate(input.message, today)
+  if ((pc?.field === 'date' || pc?.field === 'date-choice') && !pc.dateWindow && pc.pendingActions?.length) {
+    const said = normalizeName(input.message).replace(/[.!?]+$/g, '').trim()
+    const option = pc.options?.find(o => normalizeName(o.label) === said || normalizeName(o.value) === said)
+    const corrected = dateInAnswer(option?.value || input.message, today)
     if (corrected?.kind === 'date') {
-      return proposeClarifiedActions(input.state, withDate(pc.pendingActions, corrected.date), today)
+      return proposeDatedActions(input, withDate(pc.pendingActions, corrected.date), caps, today)
     }
     if (corrected?.kind === 'future') {
       const clarification = temporalClarification({
@@ -1277,7 +1323,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
         conflict: true,
       })
       return {
-        draft: null,
+        draft: null, keepPending: true,
         response: {
           version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
           actions: [], unresolved: [], clarification, reply: clarification.question,
@@ -1285,7 +1331,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
       }
     }
     return {
-      draft: null,
+      draft: null, keepPending: true,
       response: {
         version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
         actions: [], unresolved: [], clarification: pc,

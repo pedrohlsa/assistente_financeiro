@@ -6,7 +6,7 @@
 // A data interpretada é sempre exibida antes da confirmação.
 
 import { addDays, fromISO, toISO, todayISO, dateForDayOfMonth } from '../utils/format'
-import { weekdayName } from '../utils/text'
+import { normalizeName, weekdayName } from '../utils/text'
 import { isPlausibleDate } from './contracts'
 
 export type DateResolution =
@@ -407,10 +407,21 @@ export function findUnresolvedTemporalHint(text: string): UnresolvedTemporalHint
   return best
 }
 
-/** Mesmo dia do ano anterior — 29/02 recua para 28/02 em vez de virar 01/03. */
-export function previousYearOf(iso: string): string {
+/** Mesmo dia do ano anterior, quando esse dia existiu. */
+export function previousYearOf(iso: string): string | undefined {
   const d = fromISO(iso)
-  return toISO(dateForDayOfMonth(d.getFullYear() - 1, d.getMonth(), d.getDate()))
+  const previous = dateForDayOfMonth(d.getFullYear() - 1, d.getMonth(), d.getDate())
+  return previous.getDate() === d.getDate() ? toISO(previous) : undefined
+}
+
+/** Aceita uma data em resposta à pergunta, sem outros valores ou negações. */
+export function dateInAnswer(answer: string, today: string): Extract<DateResolution, { kind: 'date' | 'future' }> | null {
+  const date = findDate(answer, today)
+  if (date?.kind !== 'date' && date?.kind !== 'future') return null
+  const context = normalizeName(answer.slice(0, date.start)).replace(/[,.:]+$/g, '').trim()
+  const suffix = answer.slice(date.end).trim()
+  return /^(?:na verdade[,]?\s*)?(?:(?:a data|o pagamento)\s+)?(?:(?:foi|era|e)\s*)?(?:em|no dia|na data|no|na)?$/.test(context)
+    && /^[.!?]*$/.test(suffix) ? date : null
 }
 
 /**
@@ -424,29 +435,30 @@ export function resolveDayInWindow(
   window: { from: string; to: string },
   today = todayISO(),
 ): string | null {
-  const within = (iso: string) => (iso >= window.from && iso <= window.to ? iso : null)
+  const within = (iso: string) => (iso >= window.from && iso <= window.to && iso <= today ? iso : null)
 
-  // Uma data completa é uma afirmação explícita. Se ela cair fora da janela,
-  // não podemos arrancar apenas o dia e reinterpretá-lo dentro de outro mês:
-  // "10/07" como resposta a "que dia de junho?" continua sendo julho.
-  const explicitCalendar = /\b(?:dia\s+)?\d{1,2}[\/-]\d{1,2}(?:[\/-]\d{2,4})?\b/i.test(answer)
-    || new RegExp(String.raw`\b\d{1,2}\s+de\s+(?:${MONTH_RE})(?:\s+de\s+\d{4})?\b`, 'i').test(answer)
-  const said = findDate(answer, today)
-  if (explicitCalendar) {
+  const m = answer.trim().match(/^(?:(?:foi|era)\s+)?(?:dia\s+)?(\d{1,2})[.!?]*$/i)
+  if (!m) {
+    // A data completa fora da janela continua sendo o dia e o mês que a pessoa
+    // disse. Uma resposta com valor em dinheiro também não vira um dia.
+    const said = dateInAnswer(answer, today)
     return said && said.kind === 'date' ? within(said.date) : null
   }
 
-  const m = answer.match(/\b(?:dia\s+)?(\d{1,2})\b/)
-  if (!m) return null
   const day = Number(m[1])
   if (day < 1 || day > 31) return null
-  // A janela pode atravessar dois meses ("semana passada"): tenta os dois.
-  for (const anchor of [window.from, window.to]) {
-    const d = fromISO(anchor)
-    const iso = toISO(dateForDayOfMonth(d.getFullYear(), d.getMonth(), day))
-    if (fromISO(iso).getDate() === day && within(iso)) return iso
+  const first = fromISO(window.from)
+  const last = fromISO(window.to)
+  const months = (last.getFullYear() - first.getFullYear()) * 12 + last.getMonth() - first.getMonth()
+  let found: string | null = null
+  for (let i = 0; i <= months; i++) {
+    const date = dateForDayOfMonth(first.getFullYear(), first.getMonth() + i, day)
+    const iso = toISO(date)
+    if (date.getDate() !== day || !within(iso)) continue
+    if (found) return null
+    found = iso
   }
-  return null
+  return found
 }
 
 /**

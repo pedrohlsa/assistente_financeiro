@@ -8,10 +8,10 @@
 import type { ParsedAction } from '../models/types'
 import type { AssistantConfidence, AssistantIntent } from './contracts'
 import { gruposDeCorrida, looksRecurring, parseNaturalFull } from '../services/nlp'
-import { findAllDates, findUnresolvedTemporalHint, dateLabel } from './dates'
+import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
-import { fmtBRL, MESES_PT_BR, parseMoney, todayISO } from '../utils/format'
+import { addDays, fmtBRL, MESES_PT_BR, parseMoney, todayISO } from '../utils/format'
 import { normalizeName } from '../utils/text'
 import { suspicionReasons } from './semantic/confidence'
 import type { SuspicionReason } from './semantic/confidence'
@@ -321,7 +321,7 @@ const PROTECTED: RegExp[] = [
   /comprei[^.;!?]*?\b(?:em|x)\s*\d+\s*(?:vez(?:es)?|x|parcelas?)/gi,
 ]
 
-export function segment(text: string): { text: string; start: number; end: number }[] {
+export function segment(text: string, today = todayISO()): { text: string; start: number; end: number }[] {
   const guarded: [number, number][] = []
   for (const re of PROTECTED) {
     for (const m of text.matchAll(re)) {
@@ -366,10 +366,14 @@ export function segment(text: string): { text: string; start: number; end: numbe
   // escolhia um único valor e os demais desapareciam dentro da descrição.
   for (const m of text.matchAll(/\s+(?=(?:ganhei|recebi|gastei|paguei|fiz|furando|furou|furei|tocou)\b)/gi)) {
     const prefix = text.slice(0, m.index || 0)
+    const fragment = prefix.slice(Math.max(...[...cuts].filter(cut => cut <= prefix.length)))
+    const date = /^(?:\s*(?:em|no|na)\s+)?\s*(?:dia\s+\d|\d{1,4}[/-])/i.test(fragment) ? findDate(fragment, today) : null
+    const onlyDate = date && /^\s*(?:(?:em|no|na)\s*)?$/i.test(fragment.slice(0, date.start))
+      && /^[\s,]*$/.test(fragment.slice(date.end))
     // Nunca deixe a negação no fragmento anterior: "não gastei" é uma unidade.
     // Nem a pergunta: "quanto gastei de alimentação" era cortado em "quanto" +
     // "gastei de alimentação", e nenhuma das metades tinha resposta.
-    if (/\d/.test(prefix) && !/\b(?:e|dps|n[ãa]o|nunca|jamais|nem(?:\s+sequer)?)\s*$/i.test(prefix)
+    if (!onlyDate && /\d/.test(fragment) && !/\b(?:e|dps|n[ãa]o|nunca|jamais|nem(?:\s+sequer)?)\s*$/i.test(prefix)
       && !/\b(?:quanto|quantos|quantas|qual|quais|quando|onde|como|que)\b(?:\s+[^\s\d,;.!?]+){0,3}\s*$/i.test(prefix)) {
       push((m.index || 0) + m[0].length)
     }
@@ -810,8 +814,8 @@ export function analyzeMessage(
   // todo o parser já testado em vez de duplicá-lo.
   const { text: normalized } = normalizeNumberWords(original)
 
-  const originalParts = segment(original)
-  const normalizedParts = segment(normalized)
+  const originalParts = segment(original, today)
+  const normalizedParts = segment(normalized, today)
   // Os dois textos podem ter contagens diferentes de cláusula quando a
   // conversão muda a pontuação; nesse caso analisamos o texto normalizado
   // inteiro como uma cláusula só, para nunca perder conteúdo.
@@ -1007,8 +1011,20 @@ export function analyzeMessage(
         actions: [],
       }
     }
+    const limite = resolved.length === 1 && !invalid && looksPast(part.text) && !looksLikeQuestion(part.text)
+      ? part.text.match(/\b(depois|ap[oó]s|a\s+partir|desde)\s+(?:d[eo]\s+|o\s+)?(?=(?:dia\s+)?\d)/i) : null
+    if (limite) {
+      const incluiData = /desde|partir/i.test(limite[1])
+      const from = date ? addDays(date, incluiData ? 0 : 1) : undefined
+      temporal = from && from <= today
+        ? { kind: 'period', text: part.text.slice(limite.index), label: 'período do registro', from, to: today, actions: [] }
+        : { kind: 'unknown', text: part.text.slice(limite.index), label: 'data não definida',
+          question: 'Qual foi a data exata em que esse registro aconteceu?', actions: [] }
+      date = undefined
+      dateAmbiguity = undefined
+    }
     if (date) { inheritedDate = date; inheritedLabel = dLabel }
-    else if (inheritedDate) { date = inheritedDate; dLabel = inheritedLabel }
+    else if (inheritedDate && !temporal && !dateAmbiguity) { date = inheritedDate; dLabel = inheritedLabel }
 
     // Origem por posição: "recebi 1800 da Casa 1, mais 1750 da Casa 2" tem duas
     // fontes numa cláusula só. Quando a quantidade de origens bate com a de
@@ -1128,7 +1144,7 @@ export function analyzeMessage(
 
     const faleFatura = actions.some(a => a.kind === 'card-payment')
     const duvidaFatura = faleFatura && (invoiceParser.referenceQuestion
-      || (dateAmbiguity || datasSeparadas || (extraDaFatura && resolved.some(d => d.kind === 'ambiguous'))
+      || (datasSeparadas || (extraDaFatura && resolved.some(d => d.kind === 'ambiguous'))
         ? extraDaFatura ? 'Qual foi a data do pagamento da fatura e qual foi a data do outro lançamento?'
           : 'Qual foi a data exata em que você pagou a fatura?' : undefined))
     if (duvidaFatura) {

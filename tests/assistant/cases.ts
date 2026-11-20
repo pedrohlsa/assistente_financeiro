@@ -134,7 +134,7 @@ export const CASES: AssistantCase[] = [
   { id: 'dat-08', group: 'datas', ...other, messages: ['hoje gastei 30'],
     expectActions: [{ kind: 'expense', amount: 30, date: '2026-07-15' }] },
   { id: 'dat-09', group: 'datas', ...other, messages: ['dia 25 gastei 90'],
-    expectMode: 'clarify', expectClarification: /dia 25/i },
+    expectMode: 'clarify', expectNoActions: true, expectClarification: /dia 25/i },
   { id: 'dat-10', group: 'datas', ...other, messages: ['gastei 70 na sexta passada'],
     expectActions: [{ kind: 'expense', amount: 70, date: '2026-07-10' }] },
 

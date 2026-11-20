@@ -2839,15 +2839,14 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     ]
     for (const [frase, itens] of casos) {
       const r = await turnoHoje(rico, frase)
-      // Dia que ainda não chegou neste mês é ambíguo (mês passado ou previsão):
-      // o app PERGUNTA em vez de chutar — e os itens continuam na proposta.
+      // Dia que ainda não chegou neste mês é ambíguo (mês passado ou previsão).
       const aindaNaoChegou = itens.some(([, , d]) => d > h.getDate())
-      const ok = aindaNaoChegou
-        ? /ainda n[ãa]o chegou/.test(r.reply) && r.actions.filter(a => a.kind === 'income' || a.kind === 'expense').length === itens.length
-        : itens.every(([kind, amount, d]) => r.actions.some(a => a.kind === kind && a.amount === amount && a.date === dia(d)))
-          && r.actions.filter(a => a.kind === 'income' || a.kind === 'expense').length === itens.length
+      const conhecidos = itens.filter(([, , d]) => d <= h.getDate())
+      const ok = (!aindaNaoChegou || /ainda n[ãa]o chegou|data indefinida/.test(r.reply))
+        && conhecidos.every(([kind, amount, d]) => r.actions.some(a => a.kind === kind && a.amount === amount && a.date === dia(d)))
+        && r.actions.filter(a => a.kind === 'income' || a.kind === 'expense').length === conhecidos.length
       out.push(result(`DT-${frase.replace(/\W+/g, '-')}`, { reply: r.reply, actions: r.actions },
-        aindaNaoChegou ? 'dia ainda não chegou: pergunta a data, itens preservados' : itens.map(([k, v, d]) => `${k} ${v} em ${dia(d)}`).join('; '), ok))
+        aindaNaoChegou ? 'pergunta a data e só propõe itens com dia definido' : itens.map(([k, v, d]) => `${k} ${v} em ${dia(d)}`).join('; '), ok))
     }
   }
 
@@ -4117,6 +4116,17 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       outro?.kind === 'card-payment' && outro.cardId === 'inter-2' && outro.referenceMonth === antiga
         && outroBanco.correctedPending?.[0]?.action === outro && excesso.correctedPending?.length === 0
         && excesso.response.actions.length === 0 && /supera/.test(excesso.response.reply)))
+    const dataEmAberto = await orchestrate({ state: st, message: `Paguei 80 da fatura do Inter de ${mesNumerico} dia 25`,
+      today: `${atual}-15`, remoteEnabled: false })
+    const escolhaDaData = dataEmAberto.response.mode === 'clarify' ? dataEmAberto.response.clarification : undefined
+    const dataResolvida = await orchestrate({ state: st, message: `${antiga}-25`, today: `${atual}-15`, remoteEnabled: false,
+      pendingClarification: escolhaDaData })
+    const pagamentoResolvido = dataResolvida.response.actions[0]?.action
+    out.push(result('FESC-escolha-da-data-preserva-vencimento', { dataEmAberto: dataEmAberto.response, pagamentoResolvido },
+      'escolher a data efetiva mantém o vencimento da fatura que foi informado',
+      escolhaDaData?.field === 'date-choice' && dataEmAberto.response.actions.length === 0
+        && pagamentoResolvido?.kind === 'card-payment' && pagamentoResolvido.referenceMonth === antiga
+        && pagamentoResolvido.date === `${antiga}-25` && pagamentoResolvido.amount === 80))
 
     for (const frase of [
       `paguei 80 da fatura do Inter de ${nomeMesAnterior} ontem`,
@@ -4268,6 +4278,42 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && prazo?.kind === 'future' && prazo.date === '2026-02-28'
         && mesCurto?.kind === 'ambiguous' && mesCurto.options.length === 1 && mesCurto.options[0].value === '2026-05-31'
         && fevereiro?.kind === 'ambiguous' && fevereiro.options.length === 1 && fevereiro.options[0].value === '2028-02-29'))
+
+    const pergunta = await run('Gastei 50 no mercado dia 25 e paguei 30 na padaria hoje')
+    const contestada = pergunta.mode === 'clarify' ? pergunta.clarification : undefined
+    const resolve = (message: string) => orchestrate({ state: st, message, today: now, remoteEnabled: false,
+      pending: pergunta.actions, pendingClarification: contestada })
+    const escolhida = await resolve('2026-10-25')
+    const futura = await resolve('Dia 25 deste mês (25/11/2026)')
+    const contraria = await resolve('25/10/2026 e foram só 20')
+    const absoluta = await run('Gastei 70 no mercado em 2028-02-29')
+    out.push(result('DATE-acao-aguarda-data-e-propoe-apos-escolha', { pergunta, escolhida: escolhida.response, futura: futura.response,
+      contraria: contraria.response, absoluta },
+      'só o gasto independente pode ser confirmado; data válida recupera o valor original; data futura ou valor corrigido não registram',
+      contestada?.field === 'date-choice' && pergunta.actions.length === 1 && /Padaria/.test(pergunta.reply) && !/Mercado/.test(pergunta.reply)
+        && escolhida.response.actions.length === 2 && escolhida.response.actions.some(({ action }) => action.kind === 'expense'
+          && action.amount === 50 && action.date === '2026-10-25')
+        && escolhida.correctedPending?.length === 2 && futura.response.mode === 'clarify'
+        && futura.response.actions.length === 0 && futura.keepPending && /ainda não chegou/.test(futura.response.reply)
+        && contraria.response.mode === 'clarify' && contraria.response.actions.length === 0 && contraria.keepPending
+        && absoluta.mode === 'clarify' && absoluta.actions.length === 0 && !/28\/02\/2027/.test(absoluta.reply)))
+
+    const janela = await run('Gastei 50 no mercado depois do dia 10')
+    const pcJanela = janela.mode === 'clarify' ? janela.clarification : undefined
+    const naJanela = (message: string) => orchestrate({ state: st, message, today: now, remoteEnabled: false,
+      pendingClarification: pcJanela })
+    const dentro = await naJanela('dia 14')
+    const fora = await naJanela('dia 10')
+    const valor = await naJanela('foram 15 reais')
+    const heranca = await run('Gastei 9 no mercado ontem e paguei 50 na padaria mês passado')
+    out.push(result('DATE-limite-da-janela-nao-vira-data-do-fato', { janela, dentro: dentro.response, fora: fora.response,
+      valor: valor.response, heranca },
+      'depois do dia 10 exige data a partir do dia 11, rejeita valor avulso e deixa outro registro com seu período independente',
+      janela.actions.length === 0 && pcJanela?.dateWindow?.from === '2026-11-11' && pcJanela.dateWindow.to === now
+        && dentro.response.actions[0]?.action.kind === 'expense' && dentro.response.actions[0].action.date === '2026-11-14'
+        && fora.response.mode === 'clarify' && valor.response.mode === 'clarify'
+        && heranca.actions.length === 1 && heranca.actions[0].action.kind === 'expense' && heranca.actions[0].action.amount === 9
+        && /que dia/i.test(heranca.reply)))
   }
 
   {

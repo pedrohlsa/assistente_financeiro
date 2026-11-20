@@ -5903,3 +5903,15 @@ APK ou chamada paga. NOT READY até auditoria independente.
   A suíte passou com 758/758 regressões no relógio padrão e oito datas
   na matriz. A execução bissexta em America/New_York e o pagamento com
   data ISO no Chrome passaram, assim como typechecks, build e rubrica.
+
+## 19/11/2026 — Confirmação de datas ambíguas
+
+- O chat guarda o registro enquanto pede a data. Escolher um dia válido
+  recupera valor e descrição. A opção futura segue para esclarecimento.
+  Registros independentes permanecem disponíveis para confirmação.
+- “Depois do dia 10” abre uma janela a partir do dia 11. Informar um
+  valor em reais ou escolher um dia fora da janela mantém a pergunta.
+  Uma data anterior de outro registro não substitui período indefinido.
+- O Chrome guardou R$ 50 na data selecionada e R$ 30 de padaria no dia
+  originalmente dito. A suíte padrão passou com 761/761 regressões
+  reais. A branch permanece NOT READY.

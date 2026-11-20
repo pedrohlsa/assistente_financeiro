@@ -254,7 +254,8 @@ export default function Chat() {
   const chooseClarification = (msgId: string, value: string, label: string) => {
     const current = clarificationRef.current
     if (current?.msgId !== msgId) return
-    send(current.value.field === 'invoice-reference' ? value : label || value, label || value)
+    const useValue = current.value.field === 'invoice-reference' || current.value.field === 'date-choice'
+    send(useValue ? value : label || value, label || value)
   }
 
   // ---------- Voz ----------
