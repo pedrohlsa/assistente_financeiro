@@ -60,7 +60,7 @@ export const CASOS_CHAT_A: CasoChat[] = [
         acao('expense', { amount: 320, category: 'casa' }),
       ],
     }),
-  casoChat('c-05', 'autonomo', 'linguagem', 'remota',
+  casoChat('c-05', 'autonomo', 'linguagem', 'local',
     'gastei 80 no... não, espera, foi no posto, 80 de gasolina',
     'frase interrompida e retomada; gasolina de quem NÃO é motorista é despesa comum, nunca abastecimento',
     { intencao: 'registrar', acoes: [acao('expense', { amount: 80, category: umDe('combustivel', 'outros-out') })], tiposProibidos: ['fuel'] }),

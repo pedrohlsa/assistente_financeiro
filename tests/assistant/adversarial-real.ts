@@ -118,6 +118,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && appliedSpoken.state.transactions[0].type === 'income' && appliedSpoken.state.transactions[0].origin === 'Casa 2'
       && currentBalance(appliedSpoken.state) === 1320 && spoken.transactions.length === 0))
 
+  const correctedSpoken = await orchestrate({ state: spoken, today: spokenDate, remoteEnabled: true,
+    askRemote: remoteSpy, planRemoteQuery: remoteSpy,
+    message: 'gastei 90 na farmácia ontem, ops, 75 na padaria anteontem e 20 de ônibus' })
+  const appliedCorrection = applyBatchPure(spoken, correctedSpoken.response.actions.map(({ id, action }) => ({ id, action })),
+    { now: { date: spokenDate, time: '15:00' } })
+  out.push(result('LING-correcao-muda-valor-categoria-e-dia-sem-duplicar', { response: correctedSpoken.response,
+      transactions: appliedCorrection.state.transactions },
+    'corrige o gasto de R$ 90 da farmácia para R$ 75 da padaria anteontem e preserva saída independente de R$ 20',
+    appliedCorrection.applied && appliedCorrection.state.transactions.length === 2 && calledForNegation === 0
+      && appliedCorrection.state.transactions.some(t => t.amount === 75 && t.description === 'Padaria'
+        && t.category === 'alimentacao' && t.date === addDays(spokenDate, -2))
+      && appliedCorrection.state.transactions.some(t => t.amount === 20 && t.description === 'Ônibus')
+      && !appliedCorrection.state.transactions.some(t => t.amount === 90)))
+
   const c1 = baseline()
   c1.transactions = ['2026-06-10', '2026-07-10', '2026-08-10'].map((date, i) => ({
     id: `obra-${i}`, type: 'expense', amount: 300, category: 'obra', date, description: 'Obra', time: '10:00',

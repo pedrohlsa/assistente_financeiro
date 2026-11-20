@@ -7,7 +7,7 @@
 
 import type { ParsedAction } from '../models/types'
 import type { AssistantConfidence, AssistantIntent } from './contracts'
-import { gruposDeCorrida, looksRecurring, parseNaturalFull } from '../services/nlp'
+import { cleanDescription, gruposDeCorrida, looksRecurring, parseNaturalFull } from '../services/nlp'
 import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
@@ -316,7 +316,10 @@ const CONNECTORS = '(?:e\\s+)?(?:logo\\s+)?(?:depois|em\\s+seguida|mais\\s+tarde
  * frase que falava de receita).
  */
 const INTRA_CORRECTION =
-  String.raw`(?:quer\s+dizer|na\s+verdade|ou\s+melhor|melhor\s+dizendo|digo|perd[ãa]o|desculpa|n[ãa]o\s+pera|pera[íi]?|corrigindo)`
+  String.raw`(?:(?:quer\s+dizer|na\s+verdade|ou\s+melhor|melhor\s+dizendo|digo|perd[ãa]o|desculpa|n[ãa]o[\s,]+(?:espera|pera[íi]?)|pera[íi]?|corrigindo|ops|minto|mentira|esquece\s+(?:essa|isso))(?![a-zà-ú])|n[ãa]o\s*,(?=\s*(?:foi|era)\b))`
+const CORRECTION_START = new RegExp(String.raw`^\s*(?:${INTRA_CORRECTION}|era\b)`, 'i')
+const CORRECTION_CONTRAST = /^\s*n[ãa]o\s+(?:foi|era)\s+[^.!?]+?\s+(?:foi|era)\s+([^.!?]+)[.!?]*$/i
+const CORRECTED_AMOUNT = /^(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s*(?:reais?|contos?)\b)?/i
 
 const PROTECTED: RegExp[] = [
   /(?:passei|passou|fiz)\s+(?:r\$\s*)?[\d.,]+[^.;!?]*?(?:recebi|receber|peguei|caiu)\s+(?:r\$\s*)?[\d.,]+/gi,
@@ -397,12 +400,12 @@ export function segment(text: string, today = todayISO()): { text: string; start
   // Depois de "quer dizer 45", "e 30 no pneu" é um segundo gasto — não
   // parte do valor corrigido. Não mexe em enumerações sem correção.
   for (const m of text.matchAll(/[,;]\s*e\s+(?=\d+(?:[.,]\d+)*\s+(?:no|na|de|em)\b)/gi)) {
-    if (new RegExp(INTRA_CORRECTION, 'i').test(text.slice(Math.max(0, (m.index || 0) - 70), m.index))) {
+    if (new RegExp(String.raw`${INTRA_CORRECTION}|[,;—–]\s*era\b`, 'i').test(text.slice(Math.max(0, (m.index || 0) - 70), m.index))) {
       push((m.index || 0) + m[0].length)
     }
   }
   for (const m of text.matchAll(/\s+e\s+(?=\d+(?:[.,]\d+)*\s+(?:no|na|de|em)\b)/gi)) {
-    if (new RegExp(INTRA_CORRECTION, 'i').test(text.slice(Math.max(0, (m.index || 0) - 70), m.index))) {
+    if (new RegExp(String.raw`${INTRA_CORRECTION}|[,;—–]\s*era\b`, 'i').test(text.slice(Math.max(0, (m.index || 0) - 70), m.index))) {
       push((m.index || 0) + m[0].length)
     }
   }
@@ -447,9 +450,10 @@ export function segment(text: string, today = todayISO()): { text: string; start
     push((m.index || 0) + m[0].length)
   }
   // Marcador de correção dentro da própria mensagem.
-  for (const m of text.matchAll(new RegExp(String.raw`\s+(?=${INTRA_CORRECTION})`, 'gi'))) {
-    push((m.index || 0) + m[0].length)
+  for (const m of text.matchAll(new RegExp(String.raw`\s+(${INTRA_CORRECTION})`, 'gi'))) {
+    push((m.index || 0) + m[0].length - m[1].length)
   }
+  for (const m of text.matchAll(/[,;—–]\s*(?=era\b)/gi)) push((m.index || 0) + m[0].length)
 
   const sorted = [...cuts].sort((a, b) => a - b)
   const out: { text: string; start: number; end: number }[] = []
@@ -612,6 +616,50 @@ function amountPosition(text: string, amount?: number): number {
 function parseFirstAmount(text: string): number {
   const m = text.match(/(\d+(?:[.,]\d+)*)/)
   return m ? parseMoney(m[1]) : NaN
+}
+
+/** Um número numa origem (Casa 2) ou numa data não substitui o valor do registro. */
+function revisedAction(action: ParsedAction, body: string, today: string): ParsedAction | undefined {
+  const dates = findAllDates(body, today)
+  const [date] = dates
+  if (dates.length > 1 || (date && date.kind !== 'date')) return undefined
+  const exactDate = date?.kind === 'date' ? date.date : undefined
+  const details = (date ? `${body.slice(0, date.start)} ${body.slice(date.end)}` : body).trim()
+  const payload = details.replace(/[,\s]+n[ãa]o\s+(?:r\$\s*)?\d+(?:[.,]\d+)*\s*[.!?]*$/i, '')
+  const normalized = normalizeNumberWords(payload).text
+  const value = normalized.match(CORRECTED_AMOUNT)
+  const amount = value ? parseMoney(value[1]) : undefined
+  if (value && !(amount > 0)) return undefined
+  let place = normalized.slice(value?.[0].length ?? 0).replace(/^[\s,:;]+|[\s,.!?;]+$/g, '')
+  if (/^(?:talvez|acho|mais\s+ou\s+menos|uns|umas)\b/i.test(place)) return undefined
+  if (action.kind === 'expense' || action.kind === 'income') {
+    const v = amount ?? action.amount
+    // No ditado, o mesmo valor pode voltar depois do lugar como ênfase.
+    const repeated = place.match(/,\s*(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s|$)/i)
+    if (repeated) {
+      if (Math.abs(parseMoney(repeated[1]) - v) >= 0.005) return undefined
+      place = place.slice(0, repeated.index).trim()
+    }
+    if (!place && amount === undefined && !exactDate) return undefined
+    if (!place) return { ...action, amount: v, ...(exactDate ? { date: exactDate } : {}) }
+    const origins = extractOrigins(payload)
+    if (origins.length > 1) return undefined
+    const verb = action.kind === 'expense' ? 'gastei' : 'recebi'
+    const parsed = parseNaturalFull(`${verb} ${v.toFixed(2).replace('.', ',')} ${place}`, { driver: false }).actions
+    const [replacement] = parsed
+    if (parsed.length !== 1 || replacement?.kind !== action.kind) return undefined
+    const origin = origins[0]?.value
+    if (!origin && !replacement.description && !replacement.category) return undefined
+    return { ...action, ...replacement, amount: v,
+      description: replacement.description || (origin && normalizeName(action.description) === normalizeName(action.origin) ? undefined : action.description),
+      origin: origin || (replacement.description ? undefined : action.origin), ...(exactDate ? { date: exactDate } : {}) }
+  }
+
+  if (place || exactDate || amount === undefined) return undefined
+  if ('amount' in action) return { ...action, amount }
+  if ('total' in action) return { ...action, total: amount }
+  if ('cost' in action) return { ...action, cost: amount }
+  return undefined
 }
 
 /** Números monetários ainda não representados, sem confundir data, medida e fonte. */
@@ -1327,28 +1375,50 @@ export function analyzeMessage(
     }
   }
 
-  // CORREÇÃO DENTRO DA MESMA MENSAGEM: "gastei 100 no mercado quer dizer 80".
-  // A cláusula que começa com o marcador não é um lançamento novo — carrega o
-  // valor certo do anterior. Antes disso, "recebi 1800 não pera foi 1850" criava
-  // uma receita de 1800 E uma despesa de 1850.
-  const startsWithCorrection = new RegExp(String.raw`^\s*${INTRA_CORRECTION}`, 'i')
+  // Uma correção se refere ao último registro da própria mensagem. Se faltam
+  // elementos para corrigir, o lançamento anterior espera uma resposta.
   for (let i = 1; i < clauses.length; i++) {
     const c = clauses[i]
-    if (c.intent === 'clarification' || !startsWithCorrection.test(c.text)) continue
-    // O alvo da correção é o PRIMEIRO valor após o marcador. Uma ação posterior
-    // ("e 30 no pneu") nunca pode virar o valor corrigido do combustível.
-    const novo = parseFirstAmount(c.text)
-    // Última cláusula anterior que tem ação com valor.
-    let alvo: AnalyzedClause | undefined
-    for (let j = i - 1; j >= 0; j--) if (clauses[j].actions.length) { alvo = clauses[j]; break }
-    if (alvo && novo > 0) {
-      const ult: any = alvo.actions[alvo.actions.length - 1]
-      const campo = ult.amount !== undefined ? 'amount' : ult.total !== undefined ? 'total' : ult.cost !== undefined ? 'cost' : null
-      if (campo) ult[campo] = novo
-    }
+    const marker = c.text.match(CORRECTION_START)?.[0]
+    const contrast = c.text.match(CORRECTION_CONTRAST)?.[1]
+    if (c.intent === 'clarification' || (!marker && !contrast)) continue
     c.actions = []
     c.intent = 'correction'
     c.handled = true
+    c.ambiguity = undefined
+    c.temporal = undefined
+    c.dateAmbiguity = undefined
+    const target = clauses.slice(0, i).reverse().find(prev => prev.actions.some(a => a.kind !== 'work' && a.kind !== 'odometer'))
+    if (!target) continue
+    const index = target.actions.map(a => a.kind !== 'work' && a.kind !== 'odometer').lastIndexOf(true)
+    const original = target.actions[index]
+    const body = (contrast ?? c.text.slice(marker.length)).replace(/^[\s,:;]+/, '')
+      .replace(/^(?:(?:foi|foram|era|eram)\b[\s,:;]+)+/i, '').replace(/[,;\s]+e\s*$/i, '').trim()
+    const cancel = /^esquece\b/i.test(marker || '') || (/^mentira\b/i.test(marker || '') && (!body || looksNegated(body)))
+    const revised = cancel ? undefined : revisedAction(original, body, today)
+    target.actions = target.actions.flatMap((a, at) => at === index ? revised ? [revised] : [] : [a])
+    if (!revised && original.kind === 'income') target.actions = semViagemInferida(target.actions, target.text)
+    if (revised && target.actions.length === 1 && 'date' in revised && revised.date) {
+      target.date = revised.date
+      target.dateLabel = dateLabel(revised.date, today)
+    }
+    const next = clauses[i + 1]
+    const extraExpense = next?.text.match(/^(?:r\$\s*)?\d+(?:[.,]\d+)*\s+(?:no|na|de|em)\s+([a-zà-ú-]+)[.!]*$/i)
+    if (revised?.kind === 'expense' && next && !next.actions.length && !next.ambiguity && !next.temporal && !next.dateAmbiguity
+      && /\be$/i.test(c.text) && extraExpense) {
+      const parsed = parseNaturalFull(`gastei ${next.text}`, { driver: opts?.driver })
+      const [extra] = parsed.actions
+      if (!parsed.ambiguity && parsed.actions.length === 1 && extra?.kind === 'expense') {
+        next.actions = [{ ...extra, description: extra.description || cleanDescription(extraExpense[1]),
+          ...(next.date ? { date: next.date } : {}) }]
+        next.intent = 'record'
+        next.handled = true
+      }
+    }
+    if (!revised && !cancel) {
+      c.intent = 'record'
+      c.ambiguity = { question: 'Qual é o lançamento correto? Me diga o valor, o que aconteceu e a data se ela mudou.', options: [] }
+    }
   }
 
   // FUTURO QUE APONTA PARA A OUTRA METADE: "recebi 1800 da casa 1 e 1200 da
@@ -1366,7 +1436,7 @@ export function analyzeMessage(
     // "Gastei 120 no mercado, não, pera, foram 102": o 120 foi substituído pela
     // correção seguinte; perguntar "o que aconteceu com os R$ 120" é ruído.
     // O marcador é o MESMO da correção intramensagem, não uma lista à parte.
-    if (clauses[i + 1] && (clauses[i + 1].intent === 'correction' || startsWithCorrection.test(clauses[i + 1].text))) continue
+    if (clauses[i + 1] && (clauses[i + 1].intent === 'correction' || CORRECTION_START.test(clauses[i + 1].text))) continue
     const missing = unaccountedMoney(c)
     if (!missing.length) continue
     const values = missing.map(v => `R$ ${v.toFixed(2).replace('.', ',')}`).join(', ')

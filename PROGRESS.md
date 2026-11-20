@@ -6050,3 +6050,13 @@ APK ou chamada paga. NOT READY até auditoria independente.
   O teste com o canal remoto simulado comprovou que não houve chamada.
 - Seis casos novos entre corpus e regressões, 780/780 regressões reais,
   151 invariantes, avaliação remota offline, typechecks, build e rubrica.
+
+## 20/11/2026 — Correções dentro de uma mensagem do chat
+
+- “Ops”, “não, foi”, “perdão” e “quer dizer” podem corrigir valor,
+  estabelecimento, origem ou data. Uma correção sem informação suficiente
+  espera uma resposta. “Esquece essa” retira o lançamento citado.
+- No Chrome, a confirmação gravou R$ 75 na padaria e R$ 20 de ônibus.
+  Outra conversa gravou R$ 900 da Casa 1 e manteve fora a compra retirada.
+- Nove casos novos entre corpus e regressões. Suíte com 781/781
+  regressões reais, 151 invariantes, typechecks, build e rubrica.
