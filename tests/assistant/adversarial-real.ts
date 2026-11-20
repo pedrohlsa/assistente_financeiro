@@ -6011,6 +6011,40 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // Listas faladas que perdiam dinheiro ou inventavam receita.
+  {
+    const lido = (acoes: any[]) => acoes.map(a => `${a.kind}:${a.amount ?? ''}${a.description ? ':' + a.description : ''}`).join(',')
+    // Receita fantasma: "15 no uber" numa lista de GASTOS virava receita também.
+    for (const perfil of ['autonomo', 'driver'] as const) {
+      const r = await turnoHoje(buildState({ profile: perfil }), 'gastei 30 no mercado e 20 na padaria e 15 no uber')
+      out.push(result(`ML-lista-de-gastos-sem-receita-${perfil}`, lido(r.actions), 'três despesas, nenhuma receita',
+        r.actions.filter(a => a.kind === 'expense').length === 3 && !r.actions.some(a => a.kind === 'income')))
+    }
+    const controle = await turnoHoje(buildState({ profile: 'driver' }), 'hj fiz 230 no uber e 140 na 99')
+    out.push(result('ML-receitas-justapostas-continuam', lido(controle.actions), 'duas receitas de corrida',
+      controle.actions.filter(a => a.kind === 'income').length === 2))
+    // Valor depois da contagem de corridas sem "e".
+    const corridas = await turnoHoje(buildState({ profile: 'driver' }), 'fiz 12 corridas deu 310 e rodei 180 km')
+    out.push(result('ML-corridas-deu-valor', lido(corridas.actions), 'receita 310, 12 viagens, 180 km',
+      corridas.actions.some(a => a.kind === 'income' && a.amount === 310)
+        && corridas.actions.some((a: any) => a.kind === 'work' && a.trips === 12) && corridas.actions.some((a: any) => a.kind === 'work' && a.km === 180)))
+    // Item seguido de valor.
+    const compras = await turnoHoje(buildState({ profile: 'autonomo' }), 'comprei pão 8 leite 6 e café 12')
+    out.push(result('ML-item-valor', lido(compras.actions), 'Pão 8, Leite 6, Café 12, todos em Alimentação',
+      compras.actions.length === 3 && compras.actions.reduce((t, a) => t + (a.amount || 0), 0) === 26
+        && compras.actions.every((a: any) => a.category === 'alimentacao')))
+    const umSo = await turnoHoje(buildState({ profile: 'autonomo' }), 'comprei cimento 190')
+    out.push(result('ML-item-valor-um-par-continua', lido(umSo.actions), 'uma despesa de 190', umSo.actions.length === 1 && umSo.actions[0].amount === 190))
+    // Gasto à parte depois do abastecimento.
+    const posto = await turnoHoje(buildState({ profile: 'driver' }), 'abasteci 50 reais de etanol e 30 de lanche')
+    out.push(result('ML-abasteci-e-lanche', lido(posto.actions), 'abastecimento 50 e lanche 30, sem pergunta',
+      posto.actions.some(a => a.kind === 'fuel' && (a as any).amount === 50)
+        && posto.actions.some(a => a.kind === 'expense' && a.amount === 30) && !/mencionou/.test(posto.reply)))
+    const litros = await turnoHoje(buildState({ profile: 'driver' }), 'abasteci 40 litros a 5,89')
+    out.push(result('ML-abasteci-litros-sem-despesa-extra', lido(litros.actions), 'só o abastecimento',
+      litros.actions.length === 1 && litros.actions[0].kind === 'fuel'))
+  }
+
   return out
 }
 

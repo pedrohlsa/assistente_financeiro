@@ -209,6 +209,8 @@ function splitClauses(input: string): string[] {
   return marked.split(/\n|;|\.\s/).map(s => s.trim()).filter(Boolean)
 }
 
+const VERBO_DE_GASTO_LISTA = /\b(?:gastei|gasto|paguei|comprei|torrei|abasteci|coloquei|botei|saiu|saiu|foi\s+(?:de|com)|dei)\b/gi
+
 export function parseNatural(input: string): ParsedAction[] {
   // Operações de cartão são analisadas na frase INTEIRA antes de qualquer
   // quebra: "passei 2000 em 5 vezes E RECEBI 1850" tem um verbo de comando no
@@ -521,7 +523,11 @@ export function parseNaturalFull(
     // "Fiz 12 corridas E (deu) 260": o valor depois das corridas é o que elas
     // renderam. Só as viagens entravam, e o dinheiro virava uma pergunta.
     if (!actions.some(a => a.kind === 'income') && actions.some(a => a.kind === 'work' && a.trips)) {
-      const rendeu = input.match(new RegExp(String.raw`\b(?:corridas|viagens)\b(?:\s+(?:hoje|ontem))?\s*(?:,|\be\b)\s*(?:deu|deram|rendeu|renderam|fiz|faturei|ganhei|foi|foram)?\s*(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*$`, 'i'))
+      // O separador é opcional quando há verbo de resultado ("12 corridas DEU
+      // 310"), e o valor não precisa fechar a frase: "…deu 310 e rodei 180 km"
+      // perdia a receita inteira.
+      const verboResultado = 'deu|deram|rendeu|renderam|fiz|faturei|ganhei|foi|foram|tirei|bateu'
+      const rendeu = input.match(new RegExp(String.raw`\b(?:corridas|viagens)\b(?:\s+(?:hoje|ontem))?\s*(?:(?:,|\be\b)\s*(?:${verboResultado})?|(?:${verboResultado}))\s*(?:r\$)?\s*${NUM}\s*${MOEDA}?(?=\s*$|\s*[,;.]|\s+e\b)`, 'i'))
       const valor = rendeu ? parseNum(rendeu[1]) : NaN
       if (valor > 0) actions.push({ kind: 'income', amount: valor, category: 'corridas' })
     }
@@ -973,6 +979,19 @@ function parseClause(input: string): ParsedAction[] {
   // Abastecimento lido pelos LITROS também é o lançamento da frase: sem esta
   // trava, a leitura genérica de despesa ainda criava "R$ 40,00 — Litros a 5".
   const abasteceu = !!f || actions.some(a => a.kind === 'fuel')
+  // Gasto à parte DEPOIS do abastecimento: "abasteci 50 de etanol E 30 DE
+  // LANCHE". A trava acima calava todos os leitores de despesa, e os 30 viravam
+  // a pergunta "o que aconteceu com este valor?". Só item que não é
+  // combustível, com preposição e valor próprios.
+  if (abasteceu) {
+    const depois = new RegExp(String.raw`(?:\se\s|,\s*)(?:mais\s+)?(?:r\$\s*)?${NUM}\s*(?:reais\s+)?(?:de|d[oa]|n[oa]|com|em)\s+(?!(?:gasolina|etanol|[aá]lcool|diesel|gnv|combust[ií]vel|litros?)\b)([a-zà-úçãõ][a-zà-úçãõáéíóúâê]+(?:\s+[a-zà-úçãõ][a-zà-úçãõáéíóúâê]+)?)`, 'gi')
+    for (const m of text.matchAll(depois)) {
+      const amount = parseNum(m[1])
+      if (!(amount > 0)) continue
+      const item = m[2].replace(/\s+(?:hoje|ontem|agora)$/i, '')
+      actions.push({ kind: 'expense', amount, category: guessCategory(item, 'expense') || 'outros-out', description: cleanDescription(item) })
+    }
+  }
 
   // Hodômetro é dado do veículo, NUNCA distância trabalhada.
   // Duas formas: com a unidade explícita ("estou com 220.007 km") e a coloquial
@@ -990,6 +1009,25 @@ function parseClause(input: string): ParsedAction[] {
     const fuel = actions.find(a => a.kind === 'fuel') as Extract<ParsedAction, { kind: 'fuel' }> | undefined
     if (fuel) fuel.odometer = value
     else actions.push({ kind: 'odometer', value })
+  }
+
+  // ----- lista ITEM VALOR depois de um verbo de compra: "comprei pão 8 leite
+  // 6 e café 12". O valor vem DEPOIS do nome, sem preposição, e o parser não
+  // lia nada — a frase perdia R$ 14 em silêncio. Exige pelo menos dois pares
+  // (um par só é "comprei cimento 190", que o leitor inverso já cobre) e só
+  // roda quando nenhuma despesa foi lida.
+  if (!actions.some(a => a.kind === 'expense' || a.kind === 'fuel')) {
+    const lista = text.match(/\b(?:comprei|gastei\s+com|paguei|peguei|levei)\s+(.+)$/i)
+    if (lista) {
+      const pares = [...lista[1].matchAll(new RegExp(String.raw`(?:^|,\s*|\s+e\s+|\s+)([a-zà-úçãõ][a-zà-úçãõáéíóúâê]+(?:\s+(?:de\s+)?[a-zà-úçãõ][a-zà-úçãõáéíóúâê]+)?)\s+(?:r\$\s*)?${NUM}(?:\s*(?:reais|real|conto|pila))?(?=\s*$|\s*,|\s+e\b|\s+[a-zà-ú])`, 'gi'))]
+      const validos = pares.filter(p => parseNum(p[2]) > 0 && !/^(?:uns|umas|mais|tipo|por|de|no|na|em|reais|e)$/i.test(p[1]))
+      if (validos.length >= 2) {
+        for (const p of validos) {
+          const item = p[1].replace(/^(?:um|uma|o|a)\s+/i, '')
+          actions.push({ kind: 'expense', amount: parseNum(p[2]), category: guessCategory(item, 'expense') || 'outros-out', description: cleanDescription(item) })
+        }
+      }
+    }
   }
 
   // ----- venda: "vendi a bike por 800", "vendi 3 bolos por 60". Caía na ajuda.
@@ -1049,6 +1087,14 @@ function parseClause(input: string): ParsedAction[] {
     for (const pm of text.matchAll(platRe)) {
       const amount = parseNum(pm[1])
       if (!(amount > 0)) continue
+      // Valor justaposto só é RECEITA quando o verbo que governa o trecho é de
+      // receber. Numa lista de gastos ("gastei 30 no mercado e 15 no uber") o
+      // último verbo antes do valor é de gasto: era uma receita fantasma de 15
+      // ao lado da despesa certa.
+      const antes = text.slice(0, pm.index || 0)
+      const ultimoGasto = Math.max(...[...antes.matchAll(VERBO_DE_GASTO_LISTA)].map(m => m.index ?? -1), -1)
+      const ultimoGanho = Math.max(...[...antes.matchAll(/\b(?:ganhei|recebi|faturei|lucrei|entrou|caiu|cairam|pingou|fiz|tirei|deu)\b/gi)].map(m => m.index ?? -1), -1)
+      if (ultimoGasto > ultimoGanho) continue
       const pos = posicaoDoValor(pm.index || 0, pm[1])
       if (valoresLidos.has(pos)) continue
       valoresLidos.add(pos)
