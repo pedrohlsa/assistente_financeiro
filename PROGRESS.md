@@ -6124,3 +6124,11 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - A matriz adicional de fala espontânea passou com 672/672 variações
   de data, valor, origem, negação, correção e continuação. A suíte padrão
   passou com 790/790 regressões, 151 invariantes, typechecks, build e rubrica.
+
+## 20/11/2026 — Reformulação de um valor negado
+
+- “Não foi 90, foi 75 que gastei na padaria” propõe só a despesa de
+  R$ 75. A proposta só é criada quando a segunda parte diz o que ocorreu.
+- Três casos de corpus, suíte com 790/790 regressões, 151 invariantes,
+  typechecks, build e rubrica passaram. A matriz adicional de consultas
+  passou com 64/64 casos em oito datas.

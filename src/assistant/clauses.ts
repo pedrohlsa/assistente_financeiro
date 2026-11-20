@@ -171,6 +171,7 @@ const RECORD_VERB = 'anot[ae]|registr[ae]|lan[cç][ae]|salv[ae]'
 const RECORD_TYPE = 'despesa|gasto|receita|entrada'
 const RECORD_NUMBER = String.raw`(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?`
 const RECORD_DIRECTIVE = String.raw`(?:${RECORD_VERB})\s+(?:(?:[oa]\s+)?(?:${RECORD_TYPE})|${RECORD_NUMBER}\s+de\s+(?:${RECORD_TYPE}))`
+const EMPHATIC_PAYMENT = String.raw`foi\s+(${RECORD_NUMBER})\s+que\s+(?:eu\s+)?(gastei|paguei|recebi|ganhei)\b`
 
 const NEGATED_VERBS =
   'gastei|gastou|paguei|pagou|pagamos|quitei|quitamos|antecipei|adiantei|recebi|recebeu|ganhei|ganhou|comprei|comprou|guardar|guardei|separei|abasteci|coloquei|botei|rodei|trabalhei|fiz|foi|era|quero|vou|registra|registre|registrar|salva|salve|anota|anote|anotar'
@@ -210,6 +211,7 @@ export const looksPast = (t: string): boolean => PAST_STATEMENT.test(t)
 function spokenMoney(text: string): string {
   const verbOf = (type: string) => /^(?:receita|entrada)$/i.test(type) ? 'recebi' : 'gastei'
   return text
+    .replace(new RegExp(String.raw`^\s*${EMPHATIC_PAYMENT}`, 'i'), '$2 $1')
     .replace(new RegExp(String.raw`^\s*(?:${RECORD_VERB})\s+que\s+(?:eu\s+)?(?=(?:${PAST_MONEY_VERBS}|${COMPLETED_MONEY})\b)`, 'i'), '')
     .replace(new RegExp(String.raw`^\s*(?:${RECORD_VERB})\s+(?:[oa]\s+)?(${RECORD_TYPE})\s+(?:no\s+valor\s+de\s+|de\s+)?(?=${RECORD_NUMBER})`, 'i'),
       (_m, type: string) => `${verbOf(type)} `)
@@ -370,6 +372,9 @@ export function segment(text: string, today = todayISO()): { text: string; start
 
   const cuts = new Set<number>([0])
   const push = (i: number) => { if (i > 0 && i < text.length && !inside(i)) cuts.add(i) }
+
+  const deniedAmount = text.match(new RegExp(String.raw`^\s*(?:n[ãa]o|n)\s+foi\s+${RECORD_NUMBER}[,;]\s*(?=${EMPHATIC_PAYMENT})`, 'i'))
+  if (deniedAmount) push(deniedAmount[0].length)
 
   // Fim de frase.
   for (const m of text.matchAll(/[.!?;]+\s+/g)) push((m.index || 0) + m[0].length)

@@ -148,6 +148,11 @@ export const ADVERSARIAL: AssistantCase[] = [
     expectActions: [{ kind: 'income', amount: 200, category: 'freelance' }], forbidReply: [/50,00|mercado/i] },
   { id: 'cim-13', group: 'correcaomsg', ...auto, messages: ['paguei de verdade 35 no mercado, na real 28'],
     expectActions: [{ kind: 'expense', amount: 28, description: 'Mercado' }], forbidReply: [/35,00/] },
+  { id: 'cim-14', group: 'correcaomsg', ...auto, messages: ['não foi 90, foi 75 que gastei na padaria'],
+    expectActions: [{ kind: 'expense', amount: 75, description: 'Padaria' }], forbidReply: [/90,00/] },
+  { id: 'cim-15', group: 'correcaomsg', ...auto, messages: ['n foi 90, foi 120 reais que recebi da Casa 2 ontem'],
+    expectActions: [{ kind: 'income', amount: 120, origin: 'Casa 2', date: '2026-07-14' }], forbidReply: [/90,00/] },
+  { id: 'cim-16', group: 'correcaomsg', ...auto, messages: ['não foi 90, foi 75'], expectNoActions: true },
 
   // ===== BUG 8 — "troca pro inter" =====
   { id: 'prp-01', group: 'preposicao', ...other, state: twoCards,
