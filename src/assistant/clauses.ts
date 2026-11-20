@@ -175,6 +175,12 @@ const CASH_PAIR_VALUE = String.raw`(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+(?:reais?|con
 const CASH_PAIR_PLACE = 'mercado|supermercado|padaria|farm[áa]cia|a[cç]ougue|feira|[ôo]nibus|metr[ôo]|almo[cç]o|lanche|jantar|caf[ée]|estacionamento'
 const PLACE_FIRST = new RegExp(String.raw`^(?:(?:o|a|no|na|em|com)\s+)?(${CASH_PAIR_PLACE})\s+(${CASH_PAIR_VALUE})$`, 'i')
 const ORIGIN_FIRST = new RegExp(String.raw`^(d[ao]s?)\s+(.+?)\s+(${CASH_PAIR_VALUE})(?:\s+de\s+(aluguel|comiss[ãa]o|freela|freelance|sal[áa]rio))?$`, 'i')
+const REFUND_THIRD = 'devolveu|devolveram|estornou|estornaram|reembolsou|reembolsaram'
+const REFUND_FIRST = 'devolvi|devolvemos|estornei|estornamos'
+const REFUND_VERB = new RegExp(String.raw`\b(?:${REFUND_THIRD}|${REFUND_FIRST})\b`, 'i')
+const THIRD_PERSON_REFUND = new RegExp(String.raw`\b(?:${REFUND_THIRD}|estorno)\b`, 'i')
+const OUTGOING_REFUND = new RegExp(String.raw`\b(?:${REFUND_FIRST})\b`, 'i')
+const REFUND_DENIED = new RegExp(String.raw`(?<![\p{L}\p{M}])(?:n[ãa]o|nem|[nñ])\s+(?:(?:me|nos)\s+)?(?:${REFUND_THIRD}|${REFUND_FIRST})\b`, 'iu')
 const RECORD_DIRECTIVE = String.raw`(?:${RECORD_VERB})\s+(?:(?:[oa]\s+)?(?:${RECORD_TYPE})|${RECORD_NUMBER}\s+de\s+(?:${RECORD_TYPE}))`
 const EMPHATIC_PAYMENT = String.raw`foi\s+(${RECORD_NUMBER})\s+que\s+(?:eu\s+)?(gastei|paguei|recebi|ganhei)\b`
 
@@ -183,7 +189,7 @@ const NEGATED_VERBS =
   // Qualquer verbo de dinheiro no passado pode ser NEGADO. A lista acima
   // esquecia troquei, instalei, vendi, depositei e outros — e "nao troquei o
   // oleo por 280" registrava a manutencao mesmo assim.
-  + `|troquei|instalei|vendi|depositei|investi|apliquei|parcelei|passei|tirei|retirei|faturei|lucrei|andei|dirigi|percorri|saiu|entrou|caiu|sobrou|custou|reembolsaram|reembolsou|${COMPLETED_MONEY}|${RECORD_VERB}`
+  + `|troquei|instalei|vendi|depositei|investi|apliquei|parcelei|passei|tirei|retirei|faturei|lucrei|andei|dirigi|percorri|saiu|entrou|caiu|sobrou|custou|${REFUND_FIRST}|${REFUND_THIRD}|${COMPLETED_MONEY}|${RECORD_VERB}`
 
 /**
  * A vírgula depois do "não" é o jeito mais comum de negar em fala real: "não,
@@ -527,7 +533,8 @@ export function segment(text: string, today = todayISO()): { text: string; start
     if (!looksPast(left) || looksLikeQuestion(left) || looksNegated(left)) continue
     const right = text.slice(after).split(/[!?;]|,(?!\d)|\s+e\s+/i)[0]
     if (cashPair(normalizeNumberWords(right).text)
-      || /^(?:o\s+)?(?:sal[áa]rio|freela|freelance|comiss[ãa]o)\s+(?:entrou|caiu|pingou)\s+(?:r\$\s*)?\d/i.test(right)) push(after)
+      || /^(?:o\s+)?(?:sal[áa]rio|freela|freelance|comiss[ãa]o)\s+(?:entrou|caiu|pingou)\s+(?:r\$\s*)?\d/i.test(right)
+      || REFUND_VERB.test(right.slice(0, 55))) push(after)
   }
   // O verbo seguinte pode estar ilegível. Quando há outro valor seguido de
   // uma origem explícita, a fonte à direita não pertence ao primeiro relato.
@@ -920,11 +927,19 @@ function semViagemInferidaComQuantidadeDita(clauses: AnalyzedClause[]): void {
 
 type IncomeAction = Extract<ParsedAction, { kind: 'income' }>
 const VALOR_REEMBOLSO = String.raw`(?:r\$\s*)?([-+]?\d+(?:[.,]\d+)*)(?:\s+(?:real|reais))?`
+const VALOR_DEVOLVIDO = new RegExp(String.raw`\b(?:${REFUND_FIRST})\b[^\d.;!?]{0,30}${VALOR_REEMBOLSO}\b`, 'i')
 const RECEBI_REEMBOLSO = [
   new RegExp(String.raw`^(?:eu\s+)?(?:recebi|recebemos)\s+(?:mais\s+)?${VALOR_REEMBOLSO}\s+de\s+reembolso\b`, 'i'),
   new RegExp(String.raw`^(?:me\s+)?reembolsaram\s+${VALOR_REEMBOLSO}\b`, 'i'),
   new RegExp(String.raw`^(?:o\s+)?reembolso\s+de\s+${VALOR_REEMBOLSO}(?:\s+(?<referencia>d[aeo]s?\s+[^\d?!;,.]+?))?\s+(?:caiu|entrou)(?:\s+na\s+conta)?[.!]*$`, 'i'),
 ]
+const ME_DEVOLVERAM = [
+  new RegExp(String.raw`\b(?:me|nos)\s+(?:${REFUND_THIRD})\s+${VALOR_REEMBOLSO}\b`, 'i'),
+  new RegExp(String.raw`\b(?:${REFUND_THIRD})\s+${VALOR_REEMBOLSO}\s+(?:pra|para)\s+mim\b`, 'i'),
+  new RegExp(String.raw`\b(?:${REFUND_THIRD})\s+${VALOR_REEMBOLSO}\s+na\s+(?:minha|nossa)\s+conta\b`, 'i'),
+  new RegExp(String.raw`^(?:eu\s+)?recebi\s+(?:o\s+)?estorno\s+(?:de\s+)?${VALOR_REEMBOLSO}\b`, 'i'),
+]
+const REEMBOLSO_NA_CONTA = /(?:^|\s+)(?:(?:via|por|pelo|no)\s+(?:pix|transfer[êe]ncia)|na\s+(?:(?:minha|nossa)\s+)?conta(?:\s+banc[áa]ria)?)\s*$/i
 const REEMBOLSO_ADICIONAL = new RegExp(String.raw`(?:,\s*mais\s+|\be\s+(?:mais\s+)?)${VALOR_REEMBOLSO}\s+de\s+reembolso\b`, 'i')
 const REEMBOLSO_INCLUIDO = new RegExp(String.raw`(?:\b(?:sendo|dos\s+quais|dess[ea]s?)\s+${VALOR_REEMBOLSO}\s+(?:(?:foi|foram|era|eram)\s+)?(?:de\s+)?reembolso|(?:[,;]\s*|\b(?:mas|porem|so\s+que)\s+)${VALOR_REEMBOLSO}\s+(?:foi|foram|era|eram)\s+(?:de\s+)?reembolso)\b`)
 const PEDIU_REEMBOLSO = /\b(?:pedi|pedimos|solicitei|solicitamos)\s+(?:um\s+|o\s+)?reembolso\b/i
@@ -942,7 +957,8 @@ export function isRefundInflow(action: ParsedAction): boolean {
 }
 
 function reembolsoRecebido(match: RegExpMatchArray, frase: string): IncomeAction | undefined {
-  const detalhe = match.groups?.referencia || frase.slice((match.index ?? 0) + match[0].length).replace(/[.!]+$/, '').trim()
+  const detalhe = match.groups?.referencia || frase.slice((match.index ?? 0) + match[0].length).replace(/[.!]+$/, '')
+    .trim().replace(REEMBOLSO_NA_CONTA, '').trim()
   if (detalhe && !/^(?:d[aeo]s?|por|referente\s+a)\s+[^\d?!;,]+$/i.test(detalhe)) return undefined
   if (/\b(?:n[aã]o|mas|recebi|gastei|paguei)\b/i.test(detalhe)) return undefined
   const valor = parseMoney(match[1])
@@ -1139,7 +1155,8 @@ export function analyzeMessage(
       && (looksPast(following) || ABANDONING.test(following))
     const abandonedReply = ABANDONING.test(part.text) && WISH_ABANDONED.test(parts[i - 1]?.text || '')
     const onlyPlanned = !looksPast(part.text) && /\b(?:ia|iria)\s+/i.test(part.text) && declaresIntention(part.text)
-    const unrealized = !isQuestion && (abandoned || abandonedReply || onlyPlanned || declinedRide || ALMOST_HAPPENED.test(part.text))
+    const refundDenied = REFUND_DENIED.test(part.text)
+    const unrealized = !isQuestion && (abandoned || abandonedReply || onlyPlanned || declinedRide || refundDenied || ALMOST_HAPPENED.test(part.text))
     const canShareContext = !isQuestion && !isConversation && !negated && !unrealized
     const originalMoney = spokenMoney(expandWeekdayAlternatives(part.text))
     const forParserRaw = spokenMoney(expandWeekdayAlternatives(aligned ? normalizedParts[i].text : normalized))
@@ -1220,7 +1237,12 @@ export function analyzeMessage(
       && [...datesOriginal, ...datesParser].some(d => d.kind === 'date')
     const lida = semData || forParser
     const fala = invoiceParser.referenceMonth ? lida.replace(/\b(?:antecipei|adiantei)\b/i, 'paguei') : lida
-    const primeiroReembolso = RECEBI_REEMBOLSO.map(re => fala.match(re)).find(Boolean)
+    const refundMention = REFUND_VERB.test(fala) || /\b(?:estorno|reembolso)\b/i.test(fala)
+    const caixaDoReembolso = REEMBOLSO_NA_CONTA.test(fala.replace(/[.!]+$/, '').trim())
+    const creditoNaFatura = refundMention && !caixaDoReembolso && /\b(?:cart[ãa]o|fatura|cr[ée]dito)\b/i.test(fala)
+    const devolveram = !isQuestion && !refundDenied && !creditoNaFatura && (!/\bestorn/i.test(fala) || caixaDoReembolso)
+      && !/\b(?:disse|falou|prometeu|avisou)\b/i.test(fala) ? ME_DEVOLVERAM.map(re => fala.match(re)).find(Boolean) : undefined
+    const primeiroReembolso = RECEBI_REEMBOLSO.map(re => fala.match(re)).find(Boolean) || devolveram
     const maisReembolso = primeiroReembolso ? null : fala.match(REEMBOLSO_ADICIONAL)
     const mencaoReembolso = primeiroReembolso || maisReembolso
     const reembolso = mencaoReembolso && reembolsoRecebido(mencaoReembolso, fala)
@@ -1428,16 +1450,22 @@ export function analyzeMessage(
     }
 
     const requestedPix = /\b(?:pediu|pediram|solicitou|solicitaram)\b[^.;!?]*\bpix\b|\bpix\b[^.;!?]*\b(?:pediu|pediram|solicitou)\b/i.test(part.text)
-    const refund = /\b(?:devolvi|devolveu|estornei|estornou)\b/i.test(part.text)
-    if (declinedRide) {
+    const refund = OUTGOING_REFUND.test(part.text)
+    const thirdPartyRefund = THIRD_PERSON_REFUND.test(part.text) && !reembolso
+    if (declinedRide || refundDenied) {
       actions = []
       ambiguity = undefined
+    } else if (creditoNaFatura || thirdPartyRefund) {
+      actions = []
+      ambiguity = { question: creditoNaFatura
+        ? 'O valor voltou como crédito na fatura? Se entrou na sua conta, diga o valor e a data do recebimento.'
+        : 'Quem recebeu a devolução? Diga se o dinheiro entrou na sua conta ou se foi devolvido a outra pessoa.', options: [] }
     } else if (requestedPix || offeredRide || refund) {
       actions = []
       const event: FinancialEvent = requestedPix ? 'pix' : offeredRide ? 'ride' : 'refund'
       const value = requestedPix
         ? parseFirstAmount(semData.match(/\bpix\s+(?:(?:de|no\s+valor\s+de)\s+)?(?:r\$\s*)?\d+(?:[.,]\d+)*/i)?.[0] || '')
-        : refund ? parseFirstAmount(part.text.match(/\b(?:devolvi|devolveu|estornei|estornou)\b[^.;!?]*?\d+(?:[.,]\d+)*/i)?.[0] || part.text)
+        : refund ? parseMoney(semData.match(VALOR_DEVOLVIDO)?.[1] || '')
           : offeredRideAmount(semData)
       const amount = Number.isFinite(value) ? `R$ ${value.toFixed(2).replace('.', ',')}` : ''
       const yesActions = financialEventActions(event, value, !!opts?.driver)

@@ -839,6 +839,21 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     refundYes.response.mode === 'propose_actions'
       && refundYes.response.actions.some(a => a.action.kind === 'income' && a.action.amount === 70)
       && refundYes.response.actions.some(a => a.action.kind === 'expense' && a.action.amount === 20)))
+  const refundState = buildState({ profile: 'driver', cards: [{ name: 'Inter' }], balance: 1000 })
+  refundState.settings.balanceAsOf = addDays(TODAY, -3)
+  const refundTurn = (message: string) => turn(refundState, message)
+  const cashReturn = await refundTurn('a Uber me devolveu 20 no Pix ontem')
+  const purchaseRefund = await refundTurn('paguei 30 no mercado e a loja devolveu 10 pra mim')
+  const purchaseApplied = applyBatchPure(refundState, purchaseRefund.actions.map((a, i) => ({ id: `refund-${i}`, action: a })), { now: { date: TODAY, time: '12:00' } })
+  const cardRefunds = await Promise.all(['o cartão estornou 120', 'estornaram 100 na fatura do Inter', 'me reembolsaram 35 no cartão'].map(refundTurn))
+  const ambiguousRefunds = await Promise.all(['a loja devolveu 20', 'a loja disse que me devolveu 20', 'o banco não me devolveu 20'].map(refundTurn))
+  out.push(result('H9-devolucao-confere-o-destinatario-e-o-caixa', { cash: cashReturn.actions, split: purchaseRefund.actions,
+    card: cardRefunds, uncertain: ambiguousRefunds },
+    'reembolso recebido entra no caixa sem viagem; reembolso de fatura e destinatário incerto não geram lançamento',
+    cashReturn.actions.length === 1 && cashReturn.actions.some(a => a.kind === 'income' && a.category === 'outros-in' && a.amount === 20 && a.date === addDays(TODAY, -1))
+      && purchaseApplied.applied && purchaseApplied.state.transactions.length === 2 && currentBalance(purchaseApplied.state, TODAY) === 980
+      && cardRefunds.every(r => !r.actions.length && /crédito na fatura/.test(r.reply))
+      && ambiguousRefunds.every(r => !r.actions.length)))
   {
     const perfil = buildState({ profile: 'driver', balance: 900 })
     perfil.settings.balanceAsOf = addDays(TODAY, -2)

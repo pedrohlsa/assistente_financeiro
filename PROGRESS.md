@@ -6248,3 +6248,14 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - O Chrome confirmou R$ 70 e uma viagem sem copiar os 12 km como
   distância trabalhada. Suíte com 798/798 regressões reais e os
   typechecks, build, invariantes e avaliação remota offline passaram.
+
+## 20/11/2026 — Direção e destino da devolução
+
+- “A Uber me devolveu 20 no Pix ontem” propõe um reembolso recebido
+  na data informada. “Paguei 30 no mercado e a loja devolveu 10 pra
+  mim” preserva o gasto e a entrada separadamente.
+- Estorno na fatura e devolução sem destinatário confirmado ficam
+  em esclarecimento. Uma devolução negada não cria movimentação.
+- Chrome confirmou a saída de R$ 30 e a entrada de R$ 10. Suíte com
+  799/799 regressões reais, typechecks, build, 151 invariantes e
+  avaliação remota offline. Rubrica com 0 respostas perigosas ou ruins.
