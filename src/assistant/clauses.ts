@@ -239,6 +239,30 @@ const PAST_STATEMENT = new RegExp(String.raw`\b(?:${PAST_MONEY_VERBS}|${COMPLETE
 
 export const looksPast = (t: string): boolean => PAST_STATEMENT.test(t)
 
+function quotedOrExample(text: string): string | undefined {
+  if (EXAMPLE_START.test(text)) return 'Entendi o trecho como exemplo. Para registrar um valor real, diga o que aconteceu.'
+  const spokenCommand = /\b(?:foi|era|cancela|cancelar|desfaz|desfazer|apaga|apagar|corrige|corrigir|muda|troca|registra|anota)\b/i.test(text)
+  if (REPORTED_SPEECH.test(text) && (looksPast(text) || spokenCommand)) {
+    return 'Esse trecho cita o que alguém disse. Para registrar, confirme o que aconteceu na sua conta.'
+  }
+  return undefined
+}
+
+/** Texto efetivamente dirigido ao assistente, para decidir comandos e correções. */
+export function speechForCommands(message: string, today: string): { command: string; context: string[] } {
+  if (!/\b(?:exemplo|teste|testando|falei|disse|disseram|falou|falaram|afirmou|avisou)\b/i.test(message)) {
+    return { command: message, context: [] }
+  }
+  const remaining: string[] = []
+  const context = new Set<string>()
+  for (const part of segment(message, today)) {
+    const note = quotedOrExample(part.text)
+    if (note) context.add(note)
+    else remaining.push(part.text)
+  }
+  return { command: context.size ? remaining.join(' ') : message, context: [...context] }
+}
+
 function spokenMoney(text: string): string {
   const verbOf = (type: string) => /^(?:receita|entrada)$/i.test(type) ? 'recebi' : 'gastei'
   return text
@@ -1231,11 +1255,9 @@ export function analyzeMessage(
     const paymentPending = standalonePending || PAYMENT_DENIED.test(part.text) || (receiptMention && (NAMED_PAYMENT_PENDING.test(part.text)
       || (/\b(?:mas|por[ée]m|s[oó]\s+que)\s*$/i.test(part.text) && PAYMENT_NOT_RECEIVED.test(following))))
     const localExplanation = internalTransfer ? 'O dinheiro passou entre contas próprias. Isso mantém o total em caixa.'
-      : EXAMPLE_START.test(part.text) ? 'Entendi o trecho como exemplo. Para registrar um valor real, diga o que aconteceu.'
-      : REPORTED_SPEECH.test(part.text) && looksPast(part.text) ? 'Esse trecho cita o que alguém disse. Para registrar, confirme o que aconteceu na sua conta.'
-      : paymentPending ? 'O recebimento ainda está pendente. Quando o dinheiro entrar, diga o valor e a data.'
+      : quotedOrExample(part.text) || (paymentPending ? 'O recebimento ainda está pendente. Quando o dinheiro entrar, diga o valor e a data.'
       : thirdPartyReference(part.text) ? 'Esse trecho fala da movimentação de outra pessoa. Se afetou sua conta, diga se o dinheiro entrou ou saiu e qual foi o valor.'
-      : undefined
+      : undefined)
     const unrealized = !isQuestion && (abandoned || abandonedReply || onlyPlanned || declinedRide || refundDenied || ALMOST_HAPPENED.test(part.text))
     const canShareContext = !isQuestion && !isConversation && !negated && !unrealized && !localExplanation
     const originalMoney = spokenMoney(expandWeekdayAlternatives(part.text))

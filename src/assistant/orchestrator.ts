@@ -19,7 +19,7 @@ import type {
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, errorMessage, isValidationFailure, validateAction } from './contracts'
-import { PEDE_APAGAR, analyzeMessage, contestsProposal, datesMentioned, declaresIntention, financialEventActions, isRefundInflow, looksLikeQuestion, looksLikeRetraction, looksNegated, looksPast, looksRecurring, weekdayChoiceWord } from './clauses'
+import { PEDE_APAGAR, analyzeMessage, contestsProposal, datesMentioned, declaresIntention, financialEventActions, isRefundInflow, looksLikeQuestion, looksLikeRetraction, looksNegated, looksPast, looksRecurring, speechForCommands, weekdayChoiceWord } from './clauses'
 import { categoryDilemma, outOfPatternWarning, withLearnedCategory } from './learning'
 import { explainRequest } from './explain'
 import { answerConversation, isFocusFresh, looksLikeFollowUp } from './conversation'
@@ -1321,6 +1321,15 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (nominal) input = { ...input, message: nominal }
   const caps = buildCapabilities(input.state)
   const today = input.today || todayISO()
+  const { command, context } = speechForCommands(input.message, today)
+  if (!command && context.length) {
+    const clarification = input.pendingClarification
+    const response = { version: ASSISTANT_CONTRACT_VERSION, engine: 'local' as const, actions: [] as [], unresolved: [],
+      reply: [...context, ...(clarification ? [clarification.question] : [])].join('\n\n') }
+    return { draft: input.draft || null, keepPending: true, focus: input.focus,
+      response: clarification ? { ...response, mode: 'clarify', clarification } : { ...response, mode: 'answer' },
+    }
+  }
 
   // ---- 0) A mensagem escolhe uma opção que o assistente ofereceu? --------
   // "GNV" logo depois de "gás de cozinha ou GNV?" precisa recuperar o valor e
@@ -1604,7 +1613,7 @@ Confirmar?`,
 
   // ---- 5) A mensagem corrige a proposta na tela? -------------------------
   if (input.pending?.length) {
-    const plan: CorrectionPlan | null = parseCorrection(input.message, input.pending, caps, today)
+    const plan: CorrectionPlan | null = parseCorrection(command, input.pending, caps, today)
     if (plan) {
       if (plan.ambiguous) {
         const choosingCorrection = plan.ambiguous.field?.startsWith('pending-correction')
@@ -1656,8 +1665,8 @@ Confirmar?`,
   // é PERGUNTAR — deixar a frase seguir para o parser normal criava um segundo
   // lançamento enquanto o primeiro continuava confirmável logo acima, e o
   // usuário ficava com duas propostas para a mesma compra.
-  if (input.pending?.length && (contestsProposal(input.message) || looksNegated(input.message))
-    && !UNDO_REQUEST.test(input.message) && !UNDO_SHORT.test(input.message)) {
+  if (input.pending?.length && (contestsProposal(command) || looksNegated(command))
+    && !UNDO_REQUEST.test(command) && !UNDO_SHORT.test(command)) {
     return {
       draft: null,
       keepPending: true,
@@ -1756,7 +1765,7 @@ Confirmar?`,
   // ---- 8) A mensagem pede para desfazer o último lote? ------------------
   // Depois das correções de propósito: com uma proposta na tela, "cancela
   // isso" descarta a proposta, não mexe no que já foi gravado.
-  if (UNDO_REQUEST.test(input.message) || UNDO_SHORT.test(input.message)) {
+  if (UNDO_REQUEST.test(command) || UNDO_SHORT.test(command)) {
     const alvo = lastReversibleBatch(input.state)
     if (alvo) {
       const preview = revertBatchPure(input.state, alvo.batchId, alvo.createdAt)
@@ -1801,8 +1810,8 @@ Confirmar?`,
     // A forma declarativa ("aquele foi 90 e não 80") é a mesma correção dita do
     // jeito que se fala. Sem ela a frase caía no parser de registro e virava um
     // lançamento NOVO ao lado do errado.
-    const pedido = parseEditRequest(input.message, caps, today)
-      ?? parseSpokenCorrection(input.message, caps, today)
+    const pedido = parseEditRequest(command, caps, today)
+      ?? parseSpokenCorrection(command, caps, today)
     const candidatos = pedido ? findEditCandidates(input.state, pedido, today) : []
     // Pedido reconhecido só pelo verbo e sem nenhum lançamento que combine:
     // com um apelido citado ("muda o CINEMA para 80") vale dizer que não achou
@@ -2474,7 +2483,7 @@ Confirmar?`,
   } else if (answerPart) {
     mode = 'answer'
     reply = answerPart
-  } else if (pedeParaQuebrarRegra(mensagem)) {
+  } else if (pedeParaQuebrarRegra(context.length ? command : mensagem)) {
     // O texto genérico de ajuda funcionava como recusa por acidente: ele não
     // registrava nada, mas também não dizia NÃO. Quem tenta isso merece uma
     // resposta clara, e quem lê o log do app também.

@@ -6314,3 +6314,12 @@ APK ou chamada paga. NOT READY até auditoria independente.
   Suíte com 803/803 regressões reais, 151 invariantes e cinco testes
   de ditado. Matriz adicional com 640/640 casos em oito datas e
   quatro perfis, sem acionar o transporte remoto simulado.
+
+## 20/11/2026 — Comandos citados com proposta aberta
+
+- “Exemplo: cancela” e “o gerente falou ‘cancela’” preservam a
+  proposta. Uma instrução afirmada em outra frase ainda pode
+  corrigi-la. Uma pergunta já aberta continua disponível.
+- O Chrome confirmou o gasto corrigido para R$ 75 depois das citações.
+  O exemplo de desfazer preservou o lançamento salvo. Suíte com
+  803/803 regressões reais e 30 casos de correção de proposta.

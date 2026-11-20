@@ -241,6 +241,14 @@ export const ADVERSARIAL: AssistantCase[] = [
     expectMode: 'answer', expectNoActions: true, expectReply: [/descartei a proposta/i] },
   { id: 'ctp-26', group: 'correcaoproposta', ...auto, messages: ['gastei 90 na farmácia e recebi 50 de aluguel', 'não gastei nada'],
     expectActions: [{ kind: 'income', amount: 50, category: 'aluguel' }] },
+  { id: 'ctp-27', group: 'correcaoproposta', ...auto, messages: ['gastei 90 na farmácia', 'o gerente falou “cancela a proposta”', 'foi 75'],
+    expectActions: [{ kind: 'expense', amount: 75, description: 'Farmácia' }] },
+  { id: 'ctp-28', group: 'correcaoproposta', ...auto, messages: ['gastei 90 na farmácia', 'exemplo: muda o valor para 80'],
+    expectNoActions: true, expectReply: [/exemplo/i] },
+  { id: 'ctp-29', group: 'correcaoproposta', ...auto, messages: ['gastei 90 na farmácia', 'exemplo: cancela. De verdade corrige o valor para 75'],
+    expectActions: [{ kind: 'expense', amount: 75, description: 'Farmácia' }] },
+  { id: 'ctp-30', group: 'correcaoproposta', ...auto, messages: ['gastei 90 na farmácia', 'era ontem ou anteontem', 'o gerente falou “cancela”', 'foi ontem'],
+    expectActions: [{ kind: 'expense', amount: 90, description: 'Farmácia', date: '2026-07-14' }] },
 
   // ===== BUG 8 — "troca pro inter" =====
   { id: 'prp-01', group: 'preposicao', ...other, state: twoCards,
