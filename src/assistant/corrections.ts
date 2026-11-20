@@ -110,11 +110,71 @@ const describe = (a: ParsedAction): string => {
   return v !== undefined ? `${label} de ${fmtBRL(v)}` : label
 }
 
+function correctionLabel(candidate: AssistantCandidateAction, index: number): string {
+  const { action } = candidate
+  const detail = ('description' in action && action.description) || ('origin' in action && action.origin)
+  return `${index + 1}. ${describe(action)}${detail ? ` · ${detail}` : ''}`
+}
+
+const DENIED_KINDS = new Map<string, ParsedAction['kind'][]>([
+  ['gastei', ['expense', 'fuel', 'maintenance']], ['paguei', ['expense', 'card-payment', 'recurring-confirm']],
+  ['recebi', ['income']], ['ganhei', ['income']], ['comprei', ['expense', 'card-purchase']],
+  ['abasteci', ['fuel']], ['guardei', ['saving', 'goal-deposit']],
+])
+const JUST_A_PLAN = /^(?:(?:nao|n)\s*,?\s*)?(?:(?:(?:isso\s+tudo\s+)?(?:foi|era)\s+)?(?:so|apenas)\s+(?:(?:um|uma)\s+)?(?:orcamento|simulacao|cotacao|teste|exemplo|previsao)|(?:nao|nem|n)\s+aconteceu)[.!]*$/
+const DENIED_EVENT = new RegExp(String.raw`^(?:eu\s+|ainda\s+){0,2}(?:nao|nem|n)\s*,?\s*(?:eu\s+)?(${[...DENIED_KINDS.keys()].join('|')})\b\s*(.*?)\s*[.!]*$`)
+
+function withdrawDeniedProposal(message: string, pending: AssistantCandidateAction[], today: string, plan: CorrectionPlan): CorrectionPlan | null {
+  const text = normalizeName(message)
+  const justAPlan = JUST_A_PLAN.test(text)
+  const denial = text.match(DENIED_EVENT)
+  if (!justAPlan && !denial) return null
+
+  let targets = pending
+  let all = /^isso\s+tudo\b/.test(text)
+  if (denial) {
+    const [, verb, original] = denial
+    const date = findDate(original, today)
+    if (date && date.kind !== 'date') return null
+    const body = (date ? `${original.slice(0, date.start)} ${original.slice(date.end)}` : original).trim()
+    const amount = body.match(MONEY_START)
+    const value = amount ? parseMoney(amount[1]) : undefined
+    const detail = body.slice(amount?.[0].length ?? 0).trim()
+    const reference = detail.match(/^(?:nada\s+)?(?:na|no|nas|nos|em|de|da|do|com|por)\s+(.+)$/)?.[1]
+    if (detail && !reference && !/^(?:nada|isso|esse valor|essa quantia)$/.test(detail)) return null
+    all = detail === 'nada' && value === undefined
+    targets = pending.filter(({ action }) => {
+      if (!DENIED_KINDS.get(verb)?.includes(action.kind)) return false
+      if (value !== undefined && !(Math.abs((amountOf(action) ?? NaN) - value) < 0.005)) return false
+      if (date && date.kind === 'date' && ('date' in action ? action.date || today : today) !== date.date) return false
+      if (!reference) return true
+      const details = [('description' in action && action.description), ('origin' in action && action.origin),
+        ('item' in action && action.item), ('cardName' in action && action.cardName)]
+      return details.some(value => value && normalizeName(value) === reference)
+        || (action.kind === 'fuel' && /^(?:gasolina|etanol|diesel|gnv|combustivel)$/.test(reference))
+    })
+  }
+  if (!targets.length) return null
+  if (!all && targets.length > 1) {
+    plan.ambiguous = {
+      field: 'pending-correction', question: 'Qual lançamento você quer retirar da proposta?',
+      options: targets.map((target, index) => ({ value: String(index + 1), label: correctionLabel(target, index),
+        actions: pending.filter(p => p.id !== target.id).map(p => p.action) })),
+    }
+    return plan
+  }
+  plan.remove = targets.map(p => p.id)
+  plan.summary.push(targets.length === pending.length ? 'Descartei a proposta.' : 'Retirei da proposta o que não aconteceu.')
+  return plan
+}
+
 /** Separa o que foi negado do que efetivamente deve entrar na proposta. */
-function contrast(message: string): { rejected: string; affirmed: string } | undefined {
-  const front = message.match(/^\s*(?:n[ãa]o|n)\s+(?:foi|era|fui)\s+(.+?)(?:\s*[,;.!—–]\s*|\s+)\s*(?:mas\s+)?(?:foi|era|fui)\s+(.+)$/i)
+function contrast(message: string): { rejected: string; affirmed: string; kind?: 'income' | 'expense' } | undefined {
+  const repeated = message.match(/^\s*(?:n[ãa]o|[nñ])\s+(gastei|paguei|recebi|ganhei)\s+(.+?)(?:\s*[,;]\s*(?:mas\s+)?|\s+mas\s+)\1\s+(.+)$/i)
+  if (repeated) return { rejected: repeated[2], affirmed: repeated[3], kind: /^(?:recebi|ganhei)$/i.test(repeated[1]) ? 'income' : 'expense' }
+  const front = message.match(/^\s*(?:n[ãa]o|[nñ])\s+(?:foi|era|fui)\s+(.+?)(?:\s*[,;.!—–]\s*|\s+)\s*(?:mas\s+)?(?:foi|era|fui)\s+(.+)$/i)
   if (front) return { rejected: front[1], affirmed: front[2] }
-  const back = message.match(/^\s*(?:foi|era|fui)\s+(.+?)(?:\s*[,;.!—–]\s*|\s+(?:e\s+)?)\s*(?:n[ãa]o|n)\s+(?:(?:foi|era|fui)\s+)?(.+)$/i)
+  const back = message.match(/^\s*(?:foi|era|fui)\s+(.+?)(?:\s*[,;.!—–]\s*|\s+(?:e\s+)?)\s*(?:n[ãa]o|[nñ])\s+(?:(?:foi|era|fui)\s+)?(.+)$/i)
   if (back) return { rejected: back[2], affirmed: back[1] }
   return undefined
 }
@@ -215,10 +275,12 @@ function parseContrastCorrection(
 ): CorrectionPlan | null {
   const parts = contrast(message)
   if (!parts || looksLikeQuestion(message)) return null
-  const { rejected, affirmed } = parts
+  const { rejected, affirmed, kind } = parts
+  const matchingKind = kind ? pending.filter(p => p.action.kind === kind) : pending
+  if (!matchingKind.length) return null
   const amount = rejected.match(MONEY_START)
   const oldValue = amount ? parseMoney(amount[1]) : undefined
-  const amountHits = oldValue === undefined ? pending : pending.filter(p => Math.abs((amountOf(p.action) ?? NaN) - oldValue) < 0.005)
+  const amountHits = oldValue === undefined ? matchingKind : matchingKind.filter(p => Math.abs((amountOf(p.action) ?? NaN) - oldValue) < 0.005)
   if (oldValue !== undefined && !amountHits.length) {
     plan.ambiguous = { question: `Não há proposta de ${fmtBRL(oldValue)} nesta conversa. Qual lançamento você quer corrigir?` }
     return plan
@@ -253,14 +315,8 @@ function parseContrastCorrection(
     plan.ambiguous = {
       field: 'pending-correction',
       question: 'Qual lançamento você quer corrigir?',
-      options: edits.map((edit, i) => {
-        const { action } = targets[i]
-        const detail = ('description' in action && action.description) || ('origin' in action && action.origin)
-        return {
-          value: String(i + 1), label: `${i + 1}. ${describe(action)}${detail ? ` · ${detail}` : ''}`,
-          actions: pending.map(p => p.id === edit.id ? edit.action : p.action),
-        }
-      }),
+      options: edits.map((edit, i) => ({ value: String(i + 1), label: correctionLabel(targets[i], i),
+        actions: pending.map(p => p.id === edit.id ? edit.action : p.action) })),
     }
     return plan
   }
@@ -293,7 +349,9 @@ export function parseCorrection(
   const plan: CorrectionPlan = { remove: [], edits: [], cancelAll: false, summary: [] }
   const contrasted = parseContrastCorrection(norm, pending, caps, today, plan)
   if (contrasted) return contrasted
-  if (/^\s*(?:n[ãa]o|n)\s+(?:foi|era|fui)\b/i.test(t)) return null
+  const withdrawn = withdrawDeniedProposal(norm, pending, today, plan)
+  if (withdrawn) return withdrawn
+  if (/^\s*(?:n[ãa]o|[nñ])\s+(?:foi|era|fui)\b/i.test(t)) return null
   const repair = norm.match(/^\s*(?:(?:na\s+(?:real|verdade)|ou\s+melhor|quer\s+dizer|ops)[\s,:]+)?(?:foi|era|veio|troca\s+o\s+valor\s+(?:pra|para))\s+(.+)$/i)
   if (repair && !looksLikeQuestion(norm.replace(/\?+$/, ''))) {
     const target = resolveTarget(norm, pending)

@@ -186,6 +186,10 @@ const REFUND_DENIED = new RegExp(String.raw`(?<![\p{L}\p{M}])(?:n[ãa]o|nem|[nñ
 const PIX_REQUEST = /\b(?:pediu|pediram|solicitou|solicitaram)\b[^.;!?]*\bpix\b|\bpix\b[^.;!?]*\b(?:pediu|pediram|solicitou|solicitaram)\b/i
 const PIX_SENDING = 'mandei|enviei|transferi'
 const PIX_INCOMING = 'mandaram|enviaram|transferiram|mandou|enviou|transferiu'
+const RECIPIENT_OF_PAYMENT = new RegExp(String.raw`\b(?:me|nos)\s+(?:pagou|pagaram|${PIX_INCOMING})\b`, 'i')
+const PAYMENT_NOT_RECEIVED = /^(?:(?:o\s+)?(?:pix|dinheiro|pagamento)\s+)?(?:ainda\s+)?(?:n[ãa]o|nem|[nñ])\s+(?:caiu|entrou|foi\s+creditado)\b/i
+const NAMED_PAYMENT_PENDING = /\b(?:pix|dinheiro|pagamento)\s+(?:ainda\s+)?n[ãa]o\s+(?:caiu|entrou|foi\s+creditado)\b/i
+const PAYMENT_DENIED = /(?<![\p{L}\p{M}])(?:n[ãa]o|nem|[nñ])\s+(?:me|nos)\s+(?:pagou|pagaram)\b/iu
 const OWN_ACCOUNTS = /\bentre\s+(?:as\s+)?(?:(?:minhas|nossas)\s+(?:duas\s+)?contas|contas\s+pr[óo]prias)\b|\b(?:da|de)\s+(?:minha|nossa)\s+conta\b[^.;!?]{0,55}\b(?:para|pra)\s+(?:a\s+)?(?:minha|nossa)\s+conta\b/i
 const EXAMPLE_CUE = String.raw`(?:(?:por\s+)?exemplo|(?:s[oó]\s+)?(?:um\s+)?teste|(?:t[oô]|estou)\s+testando|isso\s+[ée]\s+s[oó]\s+(?:um\s+)?exemplo)\s*[:,—–-]\s*`
 const EXAMPLE_START = new RegExp(String.raw`^\s*${EXAMPLE_CUE}`, 'i')
@@ -553,7 +557,7 @@ export function segment(text: string, today = todayISO()): { text: string; start
     if (!looksPast(left) || looksLikeQuestion(left) || looksNegated(left)) continue
     if (cashPair(normalizeNumberWords(right).text)
       || /^(?:o\s+)?(?:sal[áa]rio|freela|freelance|comiss[ãa]o)\s+(?:entrou|caiu|pingou)\s+(?:r\$\s*)?\d/i.test(right)
-      || thirdPartyReference(right) || REFUND_VERB.test(right.slice(0, 55))) push(after)
+      || thirdPartyReference(right) || REFUND_VERB.test(right.slice(0, 55)) || RECIPIENT_OF_PAYMENT.test(right.slice(0, 55))) push(after)
   }
   // O verbo seguinte pode estar ilegível. Quando há outro valor seguido de
   // uma origem explícita, a fonte à direita não pertence ao primeiro relato.
@@ -753,27 +757,45 @@ function parseFirstAmount(text: string): number {
   return m ? parseMoney(m[1]) : NaN
 }
 
-const PIX_INFLOW_HEAD = String.raw`(?:(?:eu|j[áa])\s+){0,2}(?:recebi|me\s+(?:${PIX_INCOMING}))`
+const PIX_INFLOW_HEAD = String.raw`(?:(?:eu|j[áa])\s+){0,2}(?:recebi|(?:me|nos)\s+(?:${PIX_INCOMING}))`
 const PIX_AMOUNT_BOUND = String.raw`(?:(quase|mais\s+de|menos\s+de|pelo\s+menos|no\s+m[áa]ximo)\s+)?(${CASH_PAIR_VALUE})(?!\d|[.,]\d)`
 const RECEIVED_BY_PIX = [
   new RegExp(String.raw`^${PIX_INFLOW_HEAD}\s+(?:(?:um|o)\s+)?pix\s+(?:(?:de|no\s+valor\s+de)\s+)?${PIX_AMOUNT_BOUND}`, 'i'),
   new RegExp(String.raw`^${PIX_INFLOW_HEAD}\s+${PIX_AMOUNT_BOUND}\s+(?:via|por|no|pelo)\s+pix\b`, 'i'),
 ]
+const PAID_TO_ME = new RegExp(String.raw`^(?:me|nos)\s+(?:pagou|pagaram)\s+${PIX_AMOUNT_BOUND}`, 'i')
 
-function readReceivedPix(text: string): { action: IncomeAction; uncertain: boolean; creditSource: boolean } | undefined {
-  const received = RECEIVED_BY_PIX.map(re => text.match(re)).find(Boolean)
+function actualPayer(text: string): { body: string; origin?: string } {
+  const verb = text.match(RECIPIENT_OF_PAYMENT)
+  if (!verb?.index) return { body: text }
+  const subject = text.slice(0, verb.index).trim().replace(/^(?:o|a|meu|minha|nosso|nossa)\s+/i, '')
+  const generic = subject.match(/^(cliente|patr[ãa]o|empresa|inquilin[oa]|m[ãa]e|pai|irm[ãa]o|irm[ãa])(?:\s+([\p{Lu}\d][\p{L}\p{M}\d-]*(?:\s+[\p{Lu}][\p{L}\p{M}]+)*))?$/u)
+  if (generic) return { body: text.slice(verb.index), origin: generic[2] ? `${cleanDescription(generic[1])} ${generic[2]}` : undefined }
+  if (/^[\p{Lu}][\p{L}\p{M}]+(?:\s+[\p{Lu}][\p{L}\p{M}]+){0,3}$/u.test(subject)) {
+    return { body: text.slice(verb.index), origin: subject }
+  }
+  return { body: text }
+}
+
+function readReceivedPayment(text: string): { action: IncomeAction; uncertain: boolean; creditSource: boolean; pix: boolean } | undefined {
+  const payer = actualPayer(text)
+  const viaPix = RECEIVED_BY_PIX.map(re => payer.body.match(re)).find(Boolean)
+  const received = viaPix || payer.body.match(PAID_TO_ME)
   const amount = received ? parseFirstAmount(received[2]) : NaN
   if (!(amount > 0)) return undefined
-  const detail = text.slice(received[0].length).trim()
-  const uncertainty = /^(?:[,\s]*ou\s+(?:talvez\s+)?(?:r\$\s*)?\d|e\s+(?:poucos?|uns\s+(?:quebrados|trocados|centavos)|alguns\s+centavos)\b)/i.test(detail)
-  const source = extractOrigins(detail)[0]?.value || detail.match(/^de\s+([\p{Lu}][\p{L}\p{M}]+(?:\s+[\p{Lu}][\p{L}\p{M}]+)*)/u)?.[1]
+  const tail = payer.body.slice(received[0].length).trim()
+  const uncertainty = /^(?:[,\s]*ou\s+(?:talvez\s+)?(?:r\$\s*)?\d|e\s+(?:poucos?|uns\s+(?:quebrados|trocados|centavos)|alguns\s+centavos)\b)/i.test(tail)
+  const detail = tail.split(/(?:^|\s+)(?:e\s+(?:mais\s+)?|mais\s+)(?=(?:r\$\s*)?\d)/i)[0]
+  const source = extractOrigins(detail)[0]?.value || detail.match(/^de\s+([\p{Lu}][\p{L}\p{M}]+(?:\s+[\p{Lu}][\p{L}\p{M}]+)*)/u)?.[1] || payer.origin
   const incomeType = /\b(?:sal[áa]rio|aluguel|freela|freelance|comiss[ãa]o|vendas?|corridas?|uber|indrive|da\s+99)\b/i.test(detail)
     ? guessCategory(detail, 'income') : undefined
   const isRefund = /\breembolso\b/i.test(detail)
   return {
-    action: { kind: 'income', amount, category: incomeType || 'outros-in', description: isRefund ? 'Reembolso' : 'Pix recebido', ...(source ? { origin: source } : {}) },
+    action: { kind: 'income', amount, category: isRefund ? 'outros-in' : incomeType || 'outros-in',
+      description: isRefund ? 'Reembolso' : viaPix ? 'Pix recebido' : 'Pagamento recebido', ...(source ? { origin: source } : {}) },
     uncertain: !!received[1] || uncertainty,
     creditSource: /\b(?:do\s+cart[ãa]o|limite\s+do\s+cart[ãa]o|no\s+cr[ée]dito|empr[ée]stimo)\b/i.test(detail),
+    pix: !!viaPix,
   }
 }
 
@@ -1204,9 +1226,14 @@ export function analyzeMessage(
     const refundDenied = REFUND_DENIED.test(part.text)
     const internalTransfer = !isQuestion && !negated && looksPast(part.text)
       && /\b(?:pix|transferi)\b/i.test(part.text) && OWN_ACCOUNTS.test(part.text)
+    const receiptMention = RECIPIENT_OF_PAYMENT.test(part.text) || /\brecebi\b[^.;!?]*\bpix\b/i.test(part.text)
+    const standalonePending = /^(?:o\s+)?(?:pix|dinheiro|pagamento)\s+/i.test(part.text) && PAYMENT_NOT_RECEIVED.test(part.text)
+    const paymentPending = standalonePending || PAYMENT_DENIED.test(part.text) || (receiptMention && (NAMED_PAYMENT_PENDING.test(part.text)
+      || (/\b(?:mas|por[ée]m|s[oó]\s+que)\s*$/i.test(part.text) && PAYMENT_NOT_RECEIVED.test(following))))
     const localExplanation = internalTransfer ? 'O dinheiro passou entre contas próprias. Isso mantém o total em caixa.'
       : EXAMPLE_START.test(part.text) ? 'Entendi o trecho como exemplo. Para registrar um valor real, diga o que aconteceu.'
       : REPORTED_SPEECH.test(part.text) && looksPast(part.text) ? 'Esse trecho cita o que alguém disse. Para registrar, confirme o que aconteceu na sua conta.'
+      : paymentPending ? 'O recebimento ainda está pendente. Quando o dinheiro entrar, diga o valor e a data.'
       : thirdPartyReference(part.text) ? 'Esse trecho fala da movimentação de outra pessoa. Se afetou sua conta, diga se o dinheiro entrou ou saiu e qual foi o valor.'
       : undefined
     const unrealized = !isQuestion && (abandoned || abandonedReply || onlyPlanned || declinedRide || refundDenied || ALMOST_HAPPENED.test(part.text))
@@ -1294,7 +1321,7 @@ export function analyzeMessage(
     const sentAmount = pixSent ? parseFirstAmount(pixSent[1]) : NaN
     const closedPix = sentAmount > 0 || (previousPix && PIX_CONTEXT_DENIED.test(fala))
     if (closedPix) previousClause.ambiguity = undefined
-    const pixInflow = !requestedPix && !isQuestion && !negated && !internalTransfer ? readReceivedPix(fala) : undefined
+    const receivedPayment = !requestedPix && !isQuestion && !negated && !localExplanation ? readReceivedPayment(fala) : undefined
     const refundMention = REFUND_VERB.test(fala) || /\b(?:estorno|reembolso)\b/i.test(fala)
     const caixaDoReembolso = REEMBOLSO_NA_CONTA.test(fala.replace(/[.!]+$/, '').trim())
     const creditoNaFatura = refundMention && !caixaDoReembolso && /\b(?:cart[ãa]o|fatura|cr[ée]dito)\b/i.test(fala)
@@ -1317,8 +1344,8 @@ export function analyzeMessage(
       parsed.actions = financialEventActions('pix', sentAmount, !!opts?.driver)
       parsed.ambiguity = undefined
     }
-    if (pixInflow) {
-      parsed.actions = pixInflow.uncertain || pixInflow.creditSource ? [] : [pixInflow.action]
+    if (receivedPayment) {
+      parsed.actions = receivedPayment.uncertain || receivedPayment.creditSource ? [] : [receivedPayment.action]
       parsed.ambiguity = undefined
     }
     const fatura = parsed.actions.find(a => a.kind === 'card-payment')
@@ -1428,13 +1455,14 @@ export function analyzeMessage(
       temporal = undefined
       dateAmbiguity = undefined
     }
-    if (pixInflow?.creditSource) {
-      ambiguity = { question: 'Esse Pix foi um pagamento recebido ou uma transferência de crédito? Diga a origem do dinheiro para eu classificar.', options: [] }
-    } else if (pixInflow?.uncertain) {
+    if (receivedPayment?.creditSource) {
+      ambiguity = { question: 'O dinheiro entrou como pagamento recebido ou como crédito emprestado? Diga a origem para eu classificar.', options: [] }
+    } else if (receivedPayment?.uncertain) {
       const dateMissing = !!temporal || !!dateAmbiguity
+      const source = receivedPayment.pix ? 'Pix' : 'pagamento'
       ambiguity = { field: 'exact-amount', options: [],
-        question: dateMissing ? 'Qual foi o valor exato do Pix e em que dia ele entrou?' : 'Qual foi o valor exato do Pix recebido?',
-        pendingActions: dateMissing ? undefined : [{ ...pixInflow.action, date }],
+        question: dateMissing ? `Qual foi o valor exato do ${source} e em que dia ele entrou?` : `Qual foi o valor exato do ${source} recebido?`,
+        pendingActions: dateMissing ? undefined : [{ ...receivedPayment.action, date }],
       }
       temporal = undefined
       dateAmbiguity = undefined

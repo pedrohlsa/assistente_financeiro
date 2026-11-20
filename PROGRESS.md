@@ -6301,3 +6301,16 @@ APK ou chamada paga. NOT READY até auditoria independente.
   navegação e permissão negada ficaram sem mensagem ou lançamento.
 - A suíte manteve 802/802 regressões reais. O microfone físico e
   o reconhecedor do Android ficam para teste em dispositivo.
+
+## 20/11/2026 — Recebimento explícito e retirada de propostas negadas
+
+- “O cliente me pagou 200 ontem” e “o João me mandou um Pix” viram
+  entradas com os dados ditos. “O Pix não caiu” conserva a pendência.
+- “Foi só orçamento” retira a proposta. Uma negativa com valor e
+  lugar retira o item correspondente. Empate pede a escolha e uma
+  negativa sobre outro gasto preserva a proposta aberta.
+- O Chrome verificou pagador, origem, recebimento pendente, retirada
+  do orçamento, escolha entre valores iguais e correção restante.
+  Suíte com 803/803 regressões reais, 151 invariantes e cinco testes
+  de ditado. Matriz adicional com 640/640 casos em oito datas e
+  quatro perfis, sem acionar o transporte remoto simulado.

@@ -349,6 +349,23 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && exampleThenReal.response.actions.length === 1 && exampleThenReal.response.actions.map(a => a.action).some(a => a.kind === 'expense' && a.amount === 22)
       && calledForNegation === 0 && quotedState.transactions.length === 0))
 
+  const paidMe = await hear('o cliente me pagou 200 ontem')
+  const namedPix = await hear('o João me mandou um Pix de 40 ontem')
+  const namedRent = await hear('o cliente João me pagou 230 de aluguel e gastei 20 na padaria')
+  const didNotArrive = await hear('o cliente me pagou 200 mas o Pix não caiu')
+  const notPaid = await hear('o cliente não me pagou 200')
+  out.push(result('LING-pagamento-dirigido-ao-usuario-ou-pendente', { received: paidMe.response, pix: namedPix.response,
+    rent: namedRent.response, pending: didNotArrive.response, denied: notPaid.response },
+    'pagamento para mim vira entrada; recebedor, data e origem ficam explícitos; pendência não vira saldo',
+    paidMe.response.actions.length === 1 && paidMe.response.actions.map(a => a.action)
+      .some(a => a.kind === 'income' && a.amount === 200 && a.date === addDays(TODAY, -1))
+      && namedPix.response.actions.length === 1 && namedPix.response.actions.map(a => a.action)
+        .some(a => a.kind === 'income' && a.amount === 40 && a.origin === 'João' && a.date === addDays(TODAY, -1))
+      && namedRent.response.actions.length === 2 && namedRent.response.actions.map(a => a.action)
+        .some(a => a.kind === 'income' && a.amount === 230 && a.origin === 'Cliente João' && a.category === 'aluguel')
+      && !didNotArrive.response.actions.length && /recebimento ainda está pendente/.test(didNotArrive.response.reply)
+      && !notPaid.response.actions.length && calledForNegation === 0))
+
   const c1 = baseline()
   c1.transactions = ['2026-06-10', '2026-07-10', '2026-08-10'].map((date, i) => ({
     id: `obra-${i}`, type: 'expense', amount: 300, category: 'obra', date, description: 'Obra', time: '10:00',

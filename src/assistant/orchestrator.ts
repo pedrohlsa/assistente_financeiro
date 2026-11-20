@@ -1326,6 +1326,11 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   // "GNV" logo depois de "gás de cozinha ou GNV?" precisa recuperar o valor e
   // a descrição da mensagem anterior — o usuário não repete nada.
   const pc = input.pendingClarification
+  if (pc?.field?.startsWith('pending-correction') && /^(?:cancela(?:r)?|esquece|deixa pra la)[.!]*$/.test(normalizeName(input.message))) {
+    return { draft: null,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply: 'Descartei a proposta.' },
+    }
+  }
   if (pc?.field === 'financial-event' && pc.financialEvent) return answerFinancialEvent(input, pc, caps, today)
   if (pc?.field === 'query-range-end' && pc.dateWindow && pc.queryTemplate) {
     const said = input.message.replace(/^\s*at[ée]\s+/i, '')
@@ -1651,7 +1656,7 @@ Confirmar?`,
   // é PERGUNTAR — deixar a frase seguir para o parser normal criava um segundo
   // lançamento enquanto o primeiro continuava confirmável logo acima, e o
   // usuário ficava com duas propostas para a mesma compra.
-  if (input.pending?.length && contestsProposal(input.message)
+  if (input.pending?.length && (contestsProposal(input.message) || looksNegated(input.message))
     && !UNDO_REQUEST.test(input.message) && !UNDO_SHORT.test(input.message)) {
     return {
       draft: null,
@@ -2058,6 +2063,8 @@ Confirmar?`,
   }
 
   // ---- 11) Consulta, cenário e continuação ------------------------------
+  const localNotes = [...new Set(turno.analysis.clauses.flatMap(c => c.localExplanation ? [c.localExplanation] : []))].join('\n\n')
+  const onlyLocalContext = !!localNotes && turno.analysis.clauses.every(c => c.intent === 'conversation')
   const temFato = hasBlock(turno, 'record')
   const consultaPedeDia = turno.analysis.clauses.some(c => c.ambiguity?.field === 'query-date')
   const groupedDays = !temFato && !consultaPedeDia && hasBlock(turno, 'query') && !hasBlock(turno, 'scenario')
@@ -2081,7 +2088,7 @@ Confirmar?`,
   const cenarioJunto = temFato && hasBlock(turno, 'scenario')
     ? answerConversation(input.state, mensagem, { today, focus: input.focus })
     : null
-  const conversa = temFato || consultaPedeDia ? null : answerConversation(input.state, mensagem, {
+  const conversa = temFato || consultaPedeDia || onlyLocalContext ? null : answerConversation(input.state, mensagem, {
     today, focus: input.focus,
   })
   // Consulta INCOMPLETA nunca é assumida aqui, nem como continuação: não há
@@ -2097,7 +2104,7 @@ Confirmar?`,
   if (conversa && assumeAgora) {
     const base = {
       version: ASSISTANT_CONTRACT_VERSION, engine: 'local' as const,
-      unresolved: [], reply: conversa.reply,
+      unresolved: [], reply: localNotes ? `${localNotes}\n\n${conversa.reply}` : conversa.reply,
     }
     return {
       draft: null,
@@ -2439,7 +2446,6 @@ Confirmar?`,
   const rejectedAll = [...local.rejected, ...remoteRejected]
 
   let reply: string
-  const localNotes = [...new Set(analysis.clauses.flatMap(c => c.localExplanation ? [c.localExplanation] : []))].join('\n\n')
   let mode: AssistantResponse['mode']
   /** Foco devolvido ao chamador. So muda quando a consulta de fato respondeu. */
   // Pergunta respondida pelo roteador antigo no passo 14: o PLANO fica no foco
@@ -2625,7 +2631,7 @@ ${reply}`
   if (mode === 'answer' && perguntaDeFatura(normalizeQuestion(mensagem)) && cartoesNaFrase(input.state, normalizeName(mensagem)).length === 1) {
     focoFinal = { ...(focoFinal || {}), lastInvoiceQuestion: mensagem, updatedAt: Date.now() }
   }
-  return { draft: null, response, focus: focoFinal }
+  return { draft: null, response, focus: focoFinal, keepPending: mode === 'answer' && !!localNotes }
 }
 
 /**
