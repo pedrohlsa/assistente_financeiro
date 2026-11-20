@@ -6179,6 +6179,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       ['MC-dois-itens-nao-chuta', 'autonomo', 'gastei 50 no mercado e 30 na farmácia', 'no posto', a => !a.some(x => x.description === 'Posto')],
       ['MC-e-hoje-herda-o-sentido', 'driver', 'ontem fiz 280', 'e hoje 320', a => a.some(x => x.kind === 'income' && x.amount === 280 && x.date === addDays(hoje, -1))
         && a.some(x => x.kind === 'income' && x.amount === 320 && (x.date || hoje) === hoje)],
+      ['MC-trabalho-do-mesmo-dia-junta', 'driver', 'rodei 150 km', 'e fiz 10 corridas', a => a.length === 1 && a[0].kind === 'work' && a[0].km === 150 && a[0].trips === 10],
       ['MC-e-valor-ontem', 'autonomo', 'gastei 40 no mercado', 'e 25 ontem', a => a.some(x => x.kind === 'expense' && x.amount === 40)
         && a.some(x => x.kind === 'expense' && x.amount === 25 && x.date === addDays(hoje, -1))],
     ]

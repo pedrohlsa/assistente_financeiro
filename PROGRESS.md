@@ -6416,14 +6416,16 @@ Defeitos novos achados pelas sondas e corrigidos:
 - Complemento curto da proposta: "foi na uber", "de salário", "no posto",
   "foi janta", "foram 18 litros", "não, foi 250", "da casa 3", "e hoje 320".
 
-Gates (relógio 2026-09-15): 733/733 corpus, 99/99, 50/50, 898/898
+Gates (relógio 2026-09-15): 733/733 corpus, 99/99, 50/50, 899/899
 adversariais, 4.088 + 3.800 metamórficos, 1.416 fuzz, 151/151 invariantes,
 5/5 ditado, 468 offline; typecheck, typecheck:api, test:money, build,
 rubrica (0 perigosa, 0 ruim) e `test:calendario` (oito datas). Sem push,
 merge, deploy, APK ou DeepSeek. **NOT READY** até auditoria independente.
 
-Abertos e não atacados: "paguei a taxa da 99 de 1 real" cai no menu; "e fiz
-10 corridas" depois de "rodei 150 km" cria um segundo registro de trabalho
-em vez de juntar; "qual dia eu mais ganho" responde a data, não o dia da
-semana; voz real, Android e DeepSeek continuam sem validação.
+Também: "rodei 150 km" seguido de "e fiz 10 corridas" agora junta o mesmo
+dia num registro de trabalho só.
+
+Abertos e não atacados: "paguei a taxa da 99 de 1 real" cai no menu; "qual
+dia eu mais ganho" responde a data, não o dia da semana; voz real, Android e
+DeepSeek continuam sem validação.
 

@@ -1795,7 +1795,18 @@ Confirmar?`,
   if (acrescimo) {
     const novo = await orchestrate({ ...input, message: acrescimo, pending: undefined })
     if (novo.response.mode === 'propose_actions' && novo.response.actions.length) {
-      const todos = [...input.pending!, ...novo.response.actions]
+      // "Rodei 150 km" → "e fiz 10 corridas": o mesmo dia de trabalho. Dois
+      // registros separados dividiam km e viagens em sessões diferentes.
+      const todos = [...input.pending!]
+      for (const c of novo.response.actions) {
+        const a: any = c.action
+        const mesmoDia = a.kind === 'work' ? todos.find(x => x.action.kind === 'work' && ((x.action as any).date || '') === (a.date || '')) : undefined
+        if (mesmoDia) {
+          const b: any = mesmoDia.action
+          const soma = (k: string) => ((b[k] || 0) + (a[k] || 0)) || undefined
+          todos[todos.indexOf(mesmoDia)] = { ...mesmoDia, action: { ...b, km: soma('km'), trips: soma('trips'), hours: soma('hours') } as any }
+        } else todos.push(c)
+      }
       if (todos.length > MAX_ACTIONS_PER_BATCH) return {
         draft: null, keepPending: true,
         response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
