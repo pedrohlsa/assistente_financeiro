@@ -256,6 +256,29 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && mixedQuery.response.actions.length === 1 && chooseMonday.keepPending && chooseMonday.focus?.lastQuery?.total === 25
       && !chooseMonday.response.actions.length && calledForNegation === 0 && weekdayState.transactions.length === 5))
 
+  const mixedState = buildState({ profile: 'autonomo', balance: 1000, transactions: [
+    { type: 'expense', category: 'casa', description: 'Água', amount: 100, date: spokenDate },
+    { type: 'expense', category: 'alimentacao', description: 'Padaria', amount: 50, date: spokenDate },
+  ] })
+  mixedState.settings.balanceAsOf = `${addDays(spokenDate, -1)}T10:00`
+  const mixedPrompt = await orchestrate({ state: mixedState, today: spokenDate, remoteEnabled: true,
+    askRemote: remoteSpy, planRemoteQuery: remoteSpy, message: 'me lembra quanto eu gastei este mês e anota que paguei 25 na padaria' })
+  const mixedApplied = applyBatchPure(mixedState, mixedPrompt.response.actions.map(({ id, action }) => ({ id, action })),
+    { now: { date: spokenDate, time: '16:00' } })
+  const separateDate = await weekdayQuery('quanto gastei na padaria dia 03 ou dia 04? e anota 50 de gasto de ônibus')
+  const separateApplied = applyBatchPure(weekdayState, separateDate.response.actions.map(({ id, action }) => ({ id, action })),
+    { now: { date: friday, time: '16:00' } })
+  out.push(result('LING-pergunta-e-comando-independentes-na-mesma-mensagem', { proposal: mixedPrompt.response,
+    cash: currentBalance(mixedApplied.state), alternateDate: separateDate.response },
+    'consulta mensal inclui todas as categorias, e a data de uma pergunta não muda a do novo lançamento',
+    mixedPrompt.response.actions.length === 1 && mixedPrompt.response.actions[0].action.kind === 'expense'
+      && mixedPrompt.response.actions[0].action.amount === 25 && mixedPrompt.response.actions[0].action.description === 'Padaria'
+      && /175,00/.test(mixedPrompt.response.reply) && /Se você confirmar/.test(mixedPrompt.response.reply)
+      && mixedApplied.applied && currentBalance(mixedApplied.state) === 825 && mixedState.transactions.length === 2
+      && answerChoices(separateDate)?.field === 'query-date' && separateApplied.applied
+      && separateApplied.state.transactions.some(t => t.description === 'Ônibus' && t.amount === 50 && t.date === friday)
+      && calledForNegation === 0))
+
   const c1 = baseline()
   c1.transactions = ['2026-06-10', '2026-07-10', '2026-08-10'].map((date, i) => ({
     id: `obra-${i}`, type: 'expense', amount: 300, category: 'obra', date, description: 'Obra', time: '10:00',

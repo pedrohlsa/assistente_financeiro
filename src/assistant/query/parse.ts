@@ -94,7 +94,7 @@ const ABREV: [RegExp, string][] = [
 ]
 
 export function normalizeQuery(input: string): string {
-  let t = semAcento(input).trim()
+  let t = semAcento(input).trim().replace(/^(?:me\s+)?(?:lembra|diz|fala|conta|mostra)\s+(?=(?:quanto|qnt[oa]?|qto|quando|qual|quais|como|onde)\b)/i, '')
   for (const [re, sub] of ABREV) t = t.replace(re, sub)
   return t.replace(/\s{2,}/g, ' ')
 }

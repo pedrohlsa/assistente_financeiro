@@ -37,7 +37,7 @@ export const ADVERSARIAL: AssistantCase[] = [
     expectActions: [{ kind: 'expense', amount: 37, category: 'alimentacao', description: 'Mercado' }],
     forbidReply: [/receita de/i, /não registrei esta parte/i] },
   { id: 'neg-13', group: 'negacao', ...auto, messages: ['não anota o mercado de 30 mas registra a despesa de 15 da farmácia'],
-    expectActions: [{ kind: 'expense', amount: 15 }], forbidReply: [/30,00/] },
+    expectActions: [{ kind: 'expense', amount: 15, description: 'Farmácia' }], forbidReply: [/30,00/] },
   { id: 'neg-14', group: 'negacao', ...auto, messages: ['gastei 29 ontem e 31 hj no mercado e não recebi o aluguel'],
     expectActions: [{ kind: 'expense', amount: 29, date: '2026-07-14' },
       { kind: 'expense', amount: 31, date: '2026-07-15', description: 'Mercado' }] },
@@ -47,6 +47,8 @@ export const ADVERSARIAL: AssistantCase[] = [
     expectActions: [{ kind: 'expense', amount: 30, description: 'Metrô' }], forbidReply: [/56,00/] },
   { id: 'neg-17', group: 'negacao', ...auto, messages: ['não terminei de pagar 50 no posto'],
     expectNoActions: true, forbidReply: [/confirmar\?/i] },
+  { id: 'neg-18', group: 'negacao', ...auto, messages: ['n lança a despesa de 50 do mercado e anota que recebi 110 da Casa 2'],
+    expectActions: [{ kind: 'income', amount: 110, origin: 'Casa 2' }], forbidReply: [/50,00/] },
 
   // ===== BUG 2 — ABREVIAÇÕES DE DATA =====
   { id: 'abr-01', group: 'abreviacao', ...other, messages: ['gastei 190 de cimento hj'],

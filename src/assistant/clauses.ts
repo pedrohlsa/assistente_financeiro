@@ -167,13 +167,17 @@ const COMPLETED_FORMS = {
   ganhar: 'ganhei', ganhando: 'ganhei', transferir: 'transferi', transferindo: 'transferi',
 } as const
 const COMPLETED_MONEY = String.raw`(?:acabei|terminei)\s+(?:de\s+)?(?:${Object.keys(COMPLETED_FORMS).join('|')})`
+const RECORD_VERB = 'anot[ae]|registr[ae]|lan[cç][ae]|salv[ae]'
+const RECORD_TYPE = 'despesa|gasto|receita|entrada'
+const RECORD_NUMBER = String.raw`(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?`
+const RECORD_DIRECTIVE = String.raw`(?:${RECORD_VERB})\s+(?:(?:[oa]\s+)?(?:${RECORD_TYPE})|${RECORD_NUMBER}\s+de\s+(?:${RECORD_TYPE}))`
 
 const NEGATED_VERBS =
   'gastei|gastou|paguei|pagou|pagamos|quitei|quitamos|antecipei|adiantei|recebi|recebeu|ganhei|ganhou|comprei|comprou|guardar|guardei|separei|abasteci|coloquei|botei|rodei|trabalhei|fiz|foi|era|quero|vou|registra|registre|registrar|salva|salve|anota|anote|anotar'
   // Qualquer verbo de dinheiro no passado pode ser NEGADO. A lista acima
   // esquecia troquei, instalei, vendi, depositei e outros — e "nao troquei o
   // oleo por 280" registrava a manutencao mesmo assim.
-  + `|troquei|instalei|vendi|depositei|investi|apliquei|parcelei|passei|tirei|retirei|faturei|lucrei|andei|dirigi|percorri|saiu|entrou|caiu|sobrou|custou|reembolsaram|reembolsou|${COMPLETED_MONEY}`
+  + `|troquei|instalei|vendi|depositei|investi|apliquei|parcelei|passei|tirei|retirei|faturei|lucrei|andei|dirigi|percorri|saiu|entrou|caiu|sobrou|custou|reembolsaram|reembolsou|${COMPLETED_MONEY}|${RECORD_VERB}`
 
 /**
  * A vírgula depois do "não" é o jeito mais comum de negar em fala real: "não,
@@ -199,12 +203,18 @@ export const looksNegated = (t: string): boolean => NEGATED_STATEMENT.test(t)
 const PAST_MONEY_VERBS =
   'gastei|gastou|gastamos|paguei|pagou|pagamos|quitei|quitamos|antecipei|adiantei|recebi|recebeu|recebemos|ganhei|ganhou|ganhamos|comprei|comprou|compramos|parcelei|passei|abasteci|coloquei|botei|guardei|separei|depositei|investi|apliquei|tirei|retirei|vendi|faturei|lucrei|rodei|andei|dirigi|percorri|trabalhei|fiz|fizemos|troquei|instalei|entrou|caiu|sobrou|reembolsaram|reembolsou'
 
-const PAST_STATEMENT = new RegExp(String.raw`\b(?:${PAST_MONEY_VERBS}|${COMPLETED_MONEY})\b`, 'i')
+const PAST_STATEMENT = new RegExp(String.raw`\b(?:${PAST_MONEY_VERBS}|${COMPLETED_MONEY}|${RECORD_DIRECTIVE})\b`, 'i')
 
 export const looksPast = (t: string): boolean => PAST_STATEMENT.test(t)
 
 function spokenMoney(text: string): string {
+  const verbOf = (type: string) => /^(?:receita|entrada)$/i.test(type) ? 'recebi' : 'gastei'
   return text
+    .replace(new RegExp(String.raw`^\s*(?:${RECORD_VERB})\s+que\s+(?:eu\s+)?(?=(?:${PAST_MONEY_VERBS}|${COMPLETED_MONEY})\b)`, 'i'), '')
+    .replace(new RegExp(String.raw`^\s*(?:${RECORD_VERB})\s+(?:[oa]\s+)?(${RECORD_TYPE})\s+(?:no\s+valor\s+de\s+|de\s+)?(?=${RECORD_NUMBER})`, 'i'),
+      (_m, type: string) => `${verbOf(type)} `)
+    .replace(new RegExp(String.raw`^\s*(?:${RECORD_VERB})\s+(${RECORD_NUMBER})\s+de\s+(${RECORD_TYPE})\b`, 'i'),
+      (_m, value: string, type: string) => `${verbOf(type)} ${value}`)
     .replace(new RegExp(String.raw`\b(?:acabei|terminei)\s+(?:de\s+)?(${Object.keys(COMPLETED_FORMS).join('|')})\b`, 'gi'),
       (_m, form: keyof typeof COMPLETED_FORMS) => COMPLETED_FORMS[form.toLowerCase()])
     .replace(new RegExp(String.raw`\b(${PAST_MONEY_VERBS})\s+(?:exatamente|precisamente|certinh[oa]s?)\s+(?=(?:r\$\s*)?\d)`, 'gi'), '$1 ')
@@ -313,7 +323,7 @@ export const PEDE_APAGAR = /^\s*(?:por\s+favor\s+)?(?:apaga|apague|apagar|exclui
 // ---------------------------------------------------------------------------
 
 const COMMAND_VERBS =
-  `ganhei|ganhou|recebi|recebeu|faturei|lucrei|entrou|caiu|gastei|gastou|paguei|pagou|comprei|comprou|parcelei|passei|troquei|instalei|abasteci|coloquei|botei|rodei|andei|dirigi|percorri|trabalhei|quero|queria|vou|vamos|vai|pretendo|fiz|guardei|guarda|guardar|separei|separa|separar|depositei|investi|tirei|retirei|sobrou|sobra|vendi|apliquei|${COMPLETED_MONEY}`
+  `ganhei|ganhou|recebi|recebeu|faturei|lucrei|entrou|caiu|gastei|gastou|paguei|pagou|comprei|comprou|parcelei|passei|troquei|instalei|abasteci|coloquei|botei|rodei|andei|dirigi|percorri|trabalhei|quero|queria|vou|vamos|vai|pretendo|fiz|guardei|guarda|guardar|separei|separa|separar|depositei|investi|tirei|retirei|sobrou|sobra|vendi|apliquei|${COMPLETED_MONEY}|${RECORD_DIRECTIVE}|(?:${RECORD_VERB})\\s+que\\s+(?:eu\\s+)?(?:${PAST_MONEY_VERBS}|${COMPLETED_MONEY})`
 
 const WISH_ABANDONED = /\b(?:queria\s+comprar|pensei\s+que|achei\s+que)\b/i
 const ABANDONING = /^\s*(?:eu\s+)?(?:desisti|deixei\s+pra\s+l[áa]|mudei\s+de\s+ideia)\b/i
@@ -476,6 +486,7 @@ export function segment(text: string, today = todayISO()): { text: string; start
     // O espaço entre "e" e "quanto" não é outro corte: o "e" ficava sozinho.
     if (/\be$/i.test(text.slice(0, m.index || 0))) continue
     const prior = expandWeekdayAlternatives(text.slice(Math.max(...[...cuts].filter(cut => cut <= m.index)), m.index))
+    if (/^\s*(?:me\s+)?(?:lembra|diz|fala|conta|mostra)\s*$/i.test(prior)) continue
     const dates = /\bou\b/i.test(prior) ? alternativeDates(prior, datesMentioned(prior, today)) : undefined
     if (dates && /^\s*(?:(?:no|na|em)\s*)?[,; ]*$/i.test(prior.slice(0, dates.start) + prior.slice(dates.end))) continue
     push((m.index || 0) + m[0].length)
@@ -1009,6 +1020,16 @@ export function analyzeMessage(
 
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i]
+    const isConversation = looksLikeConversation(part.text)
+    const isQuestion = !isConversation && looksLikeQuestion(part.text)
+    const negated = looksNegated(part.text)
+    const following = parts[i + 1]?.text || ''
+    const abandoned = /\b(?:mas|por[ée]m|s[óo]\s+que)\s*$/i.test(part.text) && WISH_ABANDONED.test(part.text)
+      && (looksPast(following) || ABANDONING.test(following))
+    const abandonedReply = ABANDONING.test(part.text) && WISH_ABANDONED.test(parts[i - 1]?.text || '')
+    const onlyPlanned = !looksPast(part.text) && /\b(?:ia|iria)\s+/i.test(part.text) && declaresIntention(part.text)
+    const unrealized = !isQuestion && (abandoned || abandonedReply || onlyPlanned || ALMOST_HAPPENED.test(part.text))
+    const canShareContext = !isQuestion && !isConversation && !negated && !unrealized
     const originalMoney = spokenMoney(expandWeekdayAlternatives(part.text))
     const forParserRaw = spokenMoney(expandWeekdayAlternatives(aligned ? normalizedParts[i].text : normalized))
     const invoiceOriginal = readInvoiceReference(originalMoney, today)
@@ -1133,7 +1154,7 @@ export function analyzeMessage(
     // O verbo herdado só vale para a PRÓXIMA metade se esta metade disse uma
     // coisa só: "ganhei 200 e gastei 50" não deixa contexto, deixa confusão.
     const kindsDinheiro = actions0.filter(a => a.kind === 'income' || a.kind === 'expense')
-    if (kindsDinheiro.length && new Set(kindsDinheiro.map(a => a.kind)).size === 1) {
+    if (canShareContext && kindsDinheiro.length && new Set(kindsDinheiro.map(a => a.kind)).size === 1) {
       inheritedKind = kindsDinheiro[0].kind as 'income' | 'expense'
     }
     let actions = actions0
@@ -1195,8 +1216,8 @@ export function analyzeMessage(
       date = undefined
       dateAmbiguity = undefined
     }
-    if (date) { inheritedDate = date; inheritedLabel = dLabel }
-    else if (inheritedDate && !temporal && !dateAmbiguity) { date = inheritedDate; dLabel = inheritedLabel }
+    if (canShareContext && date) { inheritedDate = date; inheritedLabel = dLabel }
+    else if (canShareContext && !date && inheritedDate && !temporal && !dateAmbiguity) { date = inheritedDate; dLabel = inheritedLabel }
 
     // Origem por posição: "recebi 1800 da Casa 1, mais 1750 da Casa 2" tem duas
     // fontes numa cláusula só. Quando a quantidade de origens bate com a de
@@ -1231,8 +1252,6 @@ export function analyzeMessage(
       return next as ParsedAction
     })
 
-    const isConversation = looksLikeConversation(part.text)
-    const isQuestion = !isConversation && looksLikeQuestion(part.text)
     const queryDates = isQuestion && dateAlternatives ? dateAlternatives : undefined
 
     // Pergunta de ANÁLISE cita valores para serem avaliados, não registrados:
@@ -1247,15 +1266,7 @@ export function analyzeMessage(
 
     // Relato NEGADO nunca vira lançamento: "não gastei 100" propunha registrar
     // a despesa de 100 — o erro mais perigoso possível num app de dinheiro.
-    const negated = looksNegated(part.text)
     if (negated) actions = []
-
-    const following = parts[i + 1]?.text || ''
-    const abandoned = /\b(?:mas|por[ée]m|s[óo]\s+que)\s*$/i.test(part.text) && WISH_ABANDONED.test(part.text)
-      && (looksPast(following) || ABANDONING.test(following))
-    const abandonedReply = ABANDONING.test(part.text) && WISH_ABANDONED.test(parts[i - 1]?.text || '')
-    const onlyPlanned = !looksPast(part.text) && /\b(?:ia|iria)\s+/i.test(part.text) && declaresIntention(part.text)
-    const unrealized = !isQuestion && (abandoned || abandonedReply || onlyPlanned || ALMOST_HAPPENED.test(part.text))
     if (unrealized) {
       actions = []
       ambiguity = undefined

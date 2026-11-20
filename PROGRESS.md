@@ -6104,3 +6104,14 @@ APK ou chamada paga. NOT READY até auditoria independente.
   na comparação e R$ 35 na padaria após escolher terça.
 - Suíte com 788/788 regressões, 151 invariantes, avaliação remota
   offline, typechecks, build e rubrica passaram.
+
+## 20/11/2026 — Perguntar e registrar na mesma frase
+
+- A consulta e o comando “anota”, “registra” ou “lança” ficam em
+  cláusulas próprias. Categoria e data da consulta não são herdadas pela
+  despesa que o usuário pediu para registrar.
+- No Chrome, “me lembra quanto eu gastei este mês e anota que paguei 25
+  na padaria” mostrou o total condicional de R$ 175. Consultar o dia 3
+  em outra mensagem não mudou a data da nova despesa de ônibus.
+- Suíte com 789/789 regressões, 151 invariantes, typechecks,
+  build e rubrica passaram.
