@@ -8,7 +8,7 @@ import type { ParsedAction } from '../models/types'
 import { validateAction, type AssistantCandidateAction, type AssistantCapabilities, type AssistantClarification } from './contracts'
 import { fmtBRL, parseMoney, todayISO } from '../utils/format'
 import { normalizeNumberWords } from './numbers'
-import { findDate } from './dates'
+import { brDate, dateInAnswer, findDate } from './dates'
 import { extractOrigins, looksLikeQuestion, revisedAction } from './clauses'
 import { normalizeName } from '../utils/text'
 import { guessCategory } from '../data/categories'
@@ -133,8 +133,13 @@ function reviseContrast(action: ParsedAction, text: string, caps: AssistantCapab
     return updated && 'cardName' in updated ? { ...updated, cardName } : undefined
   }
 
-  const amount = affirmed.match(MONEY_START)
   const date = findDate(affirmed, today)
+  if (date?.kind === 'date' && affirmed.slice(date.end).trim() === ''
+    && /^(?:(?:no|na|em)\s+)?$/i.test(affirmed.slice(0, date.start))) {
+    return revisedAction(action, date.text, today)
+  }
+
+  const amount = affirmed.match(MONEY_START)
   let details = affirmed.slice(amount?.[0].length ?? 0).trim()
   const restatement = details.match(/^que\s+(?:eu\s+)?(gastei|paguei|recebi|ganhei)\b/i)
   if (restatement) {
@@ -142,10 +147,8 @@ function reviseContrast(action: ParsedAction, text: string, caps: AssistantCapab
     if (kind !== action.kind) return undefined
     details = details.slice(restatement[0].length).trim()
   }
-  const rest = date && date.kind === 'date' ? affirmed.slice(date.end).trim() : null
-  const onlyDate = rest === '' && /^(?:(?:no|na|em)\s+)?$/i.test(affirmed.slice(0, date?.start))
   const place = /^(?:n[oa]s?|em|d[ao]s?)\s+\S/i.test(details)
-  if (!onlyDate && !place && (!amount || details && !date)) return undefined
+  if (!place && (!amount || details && !date)) return undefined
   if (/\bou\b|(?:[,;]|\be)\s*(?:r\$\s*)?\d/i.test(details)) return undefined
 
   const body = [amount?.[0], details].filter(Boolean).join(' ')
@@ -154,6 +157,57 @@ function reviseContrast(action: ParsedAction, text: string, caps: AssistantCapab
     return { ...updated, origin: updated.origin ?? action.origin, category: updated.category ?? action.category }
   }
   return updated
+}
+
+function revisionChoices(
+  text: string, targets: AssistantCandidateAction[], pending: AssistantCandidateAction[], caps: AssistantCapabilities, today: string,
+): AssistantClarification | undefined {
+  const parts = text.trim().replace(/[.!?]+$/, '').split(/(?:\s*,\s*|\s+)ou\s+(?:talvez\s+)?/i)
+  if (parts.length < 2) return undefined
+  const dayList = /^dia\s+\d{1,2}$/i.test(parts[0])
+  const amounts = parts.map(part => part.match(MONEY_START))
+  const dates = parts.map(part => dateInAnswer(dayList && /^\d{1,2}$/.test(part) ? `dia ${part}` : part, today))
+  const origins = parts.map(part => /^d[ao]s?\s/i.test(part) ? extractOrigins(part)[0]?.value : undefined)
+  const isDate = dates.every(Boolean)
+  const isAmount = amounts.every(Boolean) && !isDate
+  const isOrigin = origins.every(Boolean)
+  const [target] = targets
+  if (!isAmount && !isDate && !isOrigin) return undefined
+  if (targets.length !== 1 || (target.action.kind === 'recurring-confirm' && target.action.transactionId)) {
+    return { question: 'Qual lançamento você quer corrigir? Diga também o dado exato que devo usar.' }
+  }
+
+  let field: string
+  let question: string
+  let choices: { text: string; value: string; label: string }[]
+  if (isAmount) {
+    field = 'pending-correction-amount'
+    question = 'Qual foi o valor exato?'
+    const detail = parts.every((part, i) => i === parts.length - 1 || part === amounts[i]?.[0])
+      ? parts[parts.length - 1].slice(amounts[parts.length - 1]?.[0].length) : ''
+    choices = amounts.flatMap((match, i) => {
+      if (!match) return []
+      const amount = parseMoney(match[1])
+      return [{ text: parts[i] === match[0] ? parts[i] + detail : parts[i], value: String(amount), label: fmtBRL(amount) }]
+    })
+  } else if (isDate) {
+    field = 'pending-correction-date'
+    question = 'Em qual dessas datas aconteceu?'
+    choices = dates.flatMap(date => date?.kind === 'date' ? [{ text: date.date, value: date.date, label: brDate(date.date) }] : [])
+  } else {
+    field = 'pending-correction-origin'
+    question = 'Qual foi a origem?'
+    choices = origins.flatMap((name, i) => name ? [{ text: parts[i], value: name, label: name }] : [])
+  }
+
+  const options = choices.flatMap(choice => {
+    const revision = reviseContrast(target.action, choice.text, caps, today)
+    const checked = revision && validateAction(revision, caps, today)
+    return checked?.ok ? [{ value: choice.value, label: choice.label,
+      actions: pending.map(p => p.id === target.id ? checked.action : p.action) }] : []
+  })
+  const unique = [...new Map(options.map(option => [option.value, option])).values()]
+  return options.length === parts.length && unique.length > 1 ? { field, question, options: unique } : { question }
 }
 
 function parseContrastCorrection(
@@ -177,6 +231,11 @@ function parseContrastCorrection(
   const pool = onDate.length ? onDate : amountHits
   const target = resolveTarget(rejected, pool)
   const targets = !target ? pool : 'id' in target ? pool.filter(p => p.id === target.id) : target.ambiguousAmong
+  const alternatives = revisionChoices(affirmed, targets, pending, caps, today)
+  if (alternatives) {
+    plan.ambiguous = alternatives
+    return plan
+  }
   const edits = targets.flatMap(p => {
     const revision = reviseContrast(p.action, affirmed, caps, today)
     const checked = revision && validateAction(revision, caps, today)
@@ -235,6 +294,16 @@ export function parseCorrection(
   const contrasted = parseContrastCorrection(norm, pending, caps, today, plan)
   if (contrasted) return contrasted
   if (/^\s*(?:n[ãa]o|n)\s+(?:foi|era|fui)\b/i.test(t)) return null
+  const repair = norm.match(/^\s*(?:(?:na\s+(?:real|verdade)|ou\s+melhor|quer\s+dizer|ops)[\s,:]+)?(?:foi|era|veio|troca\s+o\s+valor\s+(?:pra|para))\s+(.+)$/i)
+  if (repair && !looksLikeQuestion(norm.replace(/\?+$/, ''))) {
+    const target = resolveTarget(norm, pending)
+    const targets = target && 'id' in target ? pending.filter(p => p.id === target.id) : pending
+    const alternatives = revisionChoices(repair[1], targets, pending, caps, today)
+    if (alternatives) {
+      plan.ambiguous = alternatives
+      return plan
+    }
+  }
 
   // Cancelar tudo.
   if (/\b(?:cancela|cancelar|esquece|esquecer|deixa\s+pra\s+l[áa]|n[ãa]o\s+registra\s+(?:nada|isso\s+tudo))\b/.test(t)

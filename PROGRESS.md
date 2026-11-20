@@ -6145,3 +6145,14 @@ APK ou chamada paga. NOT READY até auditoria independente.
   Também confirmou correção de origem sem perder a categoria.
 - 11 novos casos no corpus, suíte local completa, 151 invariantes,
   avaliação remota offline, typechecks, build e rubrica.
+
+## 20/11/2026 — Opções na correção de uma proposta
+
+- Se o usuário corrige um valor, uma data ou uma origem com “ou”, a
+  proposta fica suspensa até ele escolher. Uma resposta inconclusiva
+  mantém a pergunta disponível. A parte em comum, como “na padaria”, é
+  preservada para os valores alternativos.
+- O Chrome confirmou a escolha de R$ 80 por mensagem, a escolha da
+  Casa 2 pelo botão e a data “ontem” depois de “não sei”.
+- O corpus incluiu mais oito casos. Suíte local, 151 invariantes,
+  avaliação remota offline, typechecks e build passaram.

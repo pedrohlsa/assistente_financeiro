@@ -955,6 +955,19 @@ function exactMoneyAnswer(message: string): number | undefined {
   return match ? parseMoney(match[1]) : undefined
 }
 
+function pendingCorrectionAnswer(choice: AssistantClarification, message: string, today: string): string | undefined {
+  if (choice.field === 'pending-correction-amount') {
+    const amount = exactMoneyAnswer(message)
+    return amount === undefined ? undefined : String(amount)
+  }
+  if (choice.field === 'pending-correction-date') return dateInAnswer(weekdayChoiceWord(message), today)?.date
+  const said = normalizeName(message).replace(/[.!?]+$/, '').trim()
+  if (choice.field === 'pending-correction-origin') return said.replace(/^(?:(?:foi|era|veio)\s+)?(?:d[ao]s?\s+)?/, '')
+  const reference = said.replace(/^(?:foi\s+)?(?:[ao]\s+)?(?:d[aeo]\s+)?/, '')
+  const matches = choice.options?.filter(({ label }) => normalizeName(label.split(' · ')[1]) === reference)
+  return matches?.length === 1 ? matches[0].value : undefined
+}
+
 function proposeDatedActions(input: OrchestratorInput, actions: ParsedAction[], caps: AssistantCapabilities, today: string): OrchestratorOutput {
   const notes: string[] = []
   const choices: AssistantClarification[] = []
@@ -1270,16 +1283,18 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const invoiceChoice = pc.field === 'invoice-reference'
     const dateChoice = pc.field === 'date' || pc.field === 'date-choice'
     const amountChoice = pc.field === 'amount-choice'
-    const pendingCorrection = pc.field === 'pending-correction'
+    const pendingCorrection = pc.field?.startsWith('pending-correction')
     // Para dinheiro, só uma resposta inequívoca aceita a ação antiga. "assim"
     // contém "sim", e "sim, mandei só 10" altera o valor da proposta.
     const simpleAnswer = said.replace(/[.!?]+$/g, '').trim()
     const negativeAnswer = financialEvent && /^(?:nao|nem)(?:\b|$)/.test(simpleAnswer)
     const amount = amountChoice ? exactMoneyAnswer(input.message) : undefined
+    const correctionChoice = pendingCorrection ? pendingCorrectionAnswer(pc, input.message, today) : undefined
     const hit = invoiceChoice ? matchInvoiceChoice(pc.options, input.message) : pc.options.find(o => amountChoice
       ? (normalizeName(o.label) === simpleAnswer || (amount > 0 && amount === parseMoney(o.label)))
       : financialEvent || fixedBillChoice || fixedBillLink || dateChoice || pendingCorrection
       ? (normalizeName(o.label) === simpleAnswer || normalizeName(o.value) === simpleAnswer
+        || (correctionChoice !== undefined && normalizeName(o.value) === correctionChoice)
         || (negativeAnswer && normalizeName(o.label) === 'nao'))
       : (normalizeName(o.label) === said || normalizeName(o.value) === said ||
         (said.length > 2 && (normalizeName(o.label).includes(said) || said.includes(normalizeName(o.label))))))
@@ -1484,7 +1499,7 @@ Confirmar?`,
     const plan: CorrectionPlan | null = parseCorrection(input.message, input.pending, caps, today)
     if (plan) {
       if (plan.ambiguous) {
-        const choosingCorrection = plan.ambiguous.field === 'pending-correction'
+        const choosingCorrection = plan.ambiguous.field?.startsWith('pending-correction')
         return {
           draft: null,
           correctedPending: choosingCorrection ? [] : undefined,
