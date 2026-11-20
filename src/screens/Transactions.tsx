@@ -5,7 +5,7 @@ import { isDriver } from '../services/profile'
 import { transactionOccurrence } from '../services/calc'
 import { financingForTransaction } from '../services/cards'
 import { catById } from '../data/categories'
-import { addDays, fmtBRL, fmtDateLong, fromISO, todayISO } from '../utils/format'
+import { addDays, fmtBRL, fmtDateLong, fromISO, isCalendarDate, todayISO } from '../utils/format'
 import { sentenceCase } from '../utils/text'
 import { ConfirmDialog, EmptyState, Money, Sheet, useToast } from '../components/ui'
 import { Transaction } from '../models/types'
@@ -87,7 +87,7 @@ export default function Transactions() {
         return (t.description || '').toLowerCase().includes(q) ||
           cat.name.toLowerCase().includes(q) ||
           t.amount.toFixed(2).includes(q.replace(',', '.')) ||
-          new Date(t.date + 'T12:00').toLocaleDateString('pt-BR', { month: 'long' }).includes(q)
+          (isCalendarDate(t.date) && fromISO(t.date).toLocaleDateString('pt-BR', { month: 'long' }).includes(q))
       })
       .sort((a, b) => (b.date + (b.time || '')).localeCompare(a.date + (a.time || '')))
   }, [inPeriod, category, query, state.categories])
@@ -112,7 +112,7 @@ export default function Transactions() {
   }, [filtered])
 
   const today = todayISO()
-  const realized = filtered.filter(t => t.date <= today)
+  const realized = filtered.filter(t => t.date <= today && isCalendarDate(t.date))
   const totalIn = realized.filter(t => t.type === 'income').reduce((a, t) => a + t.amount, 0)
   const totalOut = realized.filter(t => t.type === 'expense').reduce((a, t) => a + t.amount, 0)
 
@@ -225,7 +225,9 @@ function TransactionDetail({ tx, onClose, onRemove }: {
     ['Valor', fmtBRL(tx.amount)],
     ['Tipo', TYPE_LABEL[tx.type] || tx.type],
     ['Categoria', `${cat.icon} ${cat.name}`],
-    ['Data', fromISO(tx.date).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })],
+    ['Data', isCalendarDate(tx.date)
+      ? fromISO(tx.date).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+      : 'Data a conferir'],
     ['Horário', tx.time?.slice(0, 8)],
     ['Origem / fonte', sentenceCase(tx.origin) || undefined],
     ['Forma de pagamento', tx.paymentMethod],

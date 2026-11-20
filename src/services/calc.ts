@@ -1,6 +1,6 @@
 // Motor de cálculos financeiros — todos os números do app saem daqui.
 import { AppState, Insight, IntervalUnit, ParsedAction, RecurrenceOccurrence, RecurringExpense, Transaction } from '../models/types'
-import { addDays, dateForDayOfMonth, daysInMonth, dueLabel, fmtBRL, fmtNum, fromISO, MESES_PT_BR, monthKey, monthShortLabel, stampOf, todayISO, toISO } from '../utils/format'
+import { addDays, dateForDayOfMonth, daysInMonth, dueLabel, fmtBRL, fmtNum, fromISO, isCalendarDate, MESES_PT_BR, monthKey, monthShortLabel, stampOf, todayISO, toISO } from '../utils/format'
 import { normalizeName, sentenceCase, weekdayName } from '../utils/text'
 import { installmentsThisMonth, monthlyCommitments, installmentsInMonth, chargesInMonth, cardInvoice, directInstallmentPaidAmount, installmentRemaining, invoiceOpenAmount, hasAmbiguousLegacyCardBalance, validPaymentDate } from './cards'
 
@@ -19,7 +19,7 @@ export interface PeriodStats {
   profitPerHour: number
 }
 
-const inRange = (date: string, from: string, to: string) => date >= from && date <= to
+const inRange = (date: string, from: string, to: string) => date >= from && validPaymentDate(date, to)
 
 export function periodStats(s: AppState, from: string, to: string, today = todayISO()): PeriodStats {
   const until = to < today ? to : today
@@ -102,12 +102,12 @@ export function currentBalance(s: AppState, today = todayISO()): number {
   const since = s.settings.balanceAsOf || `${today}T00:00`
   let total = anchor
   for (const t of s.transactions) {
-    if (t.date > today || stampOf(t.date, t.time) <= since) continue
+    if (!validPaymentDate(t.date, today) || stampOf(t.date, t.time) <= since) continue
     if (t.type === 'income' || t.type === 'financed-cash-inflow') total += t.amount
     else if (t.type === 'expense') total -= t.amount
   }
   for (const p of s.cardPayments || []) {
-    if (!p.fromBalance || p.paymentDate > today) continue
+    if (!p.fromBalance || !validPaymentDate(p.paymentDate, today)) continue
     if (stampOf(p.paymentDate, p.paymentTime) <= since) continue
     total -= p.amount
   }
@@ -265,7 +265,7 @@ export function savedThisMonth(s: AppState, today = todayISO()): number {
   // que já saiu da conta até hoje (regra 21), a mesma leitura de
   // `currentBalance`, que também ignora movimento datado para a frente.
   return s.transactions
-    .filter(x => x.type === 'saving' && monthKey(x.date) === monthKey(today) && x.date <= today)
+    .filter(x => x.type === 'saving' && validPaymentDate(x.date, today) && monthKey(x.date) === monthKey(today))
     .reduce((a, x) => a + x.amount, 0)
 }
 
@@ -1018,7 +1018,7 @@ export function cashObligationsUntil(s: AppState, until: string, t = todayISO())
   const cardIds = new Set(cards.map(c => c.id))
   for (const i of s.installments || []) {
     const plan = plans.get(i.planId)
-    if (!plan || plan.status === 'cancelled' || i.dueDate > until) continue
+    if (!plan || plan.status === 'cancelled' || i.dueDate > until || !isCalendarDate(i.dueDate)) continue
     if (plan.cardId && cardIds.has(plan.cardId)) continue
     const left = installmentRemaining(s, i, t)
     if (left > 0.009) {
@@ -1032,7 +1032,7 @@ export function cashObligationsUntil(s: AppState, until: string, t = todayISO())
 // ---------- ORÇAMENTOS (seção 26) ----------
 export function budgetUsage(s: AppState, category: string, today = todayISO()): number {
   return s.transactions
-    .filter(tx => tx.type === 'expense' && tx.category === category && monthKey(tx.date) === monthKey(today) && tx.date <= today)
+    .filter(tx => tx.type === 'expense' && tx.category === category && validPaymentDate(tx.date, today) && monthKey(tx.date) === monthKey(today))
     .reduce((a, tx) => a + tx.amount, 0)
 }
 
@@ -1048,9 +1048,9 @@ export function dailySeries(s: AppState, days: number) {
   return out
 }
 
-export function categoryBreakdown(s: AppState, from: string, to: string) {
+export function categoryBreakdown(s: AppState, from: string, to: string, today = todayISO()) {
   const map = new Map<string, number>()
-  s.transactions.filter(t => t.type === 'expense' && inRange(t.date, from, to))
+  s.transactions.filter(t => t.type === 'expense' && inRange(t.date, from, to < today ? to : today))
     .forEach(t => map.set(t.category, (map.get(t.category) || 0) + t.amount))
   return [...map.entries()].map(([category, total]) => ({ category, total })).sort((a, b) => b.total - a.total)
 }

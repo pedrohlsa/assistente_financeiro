@@ -11,13 +11,13 @@
 import {
   AppState, CardPayment, CreditCard, Installment, InstallmentPlan, RecurringCardCharge, Transaction,
 } from '../models/types'
-import { addDays, dateForDayOfMonth, fromISO, monthKey, todayISO, toISO } from '../utils/format'
+import { addDays, dateForDayOfMonth, fromISO, isCalendarDate, monthKey, todayISO, toISO } from '../utils/format'
+import { normalizeName, sameName } from '../utils/text'
 
 /** Data do dinheiro já pago; vencimento futuro pode ser quitado hoje. */
 export function validPaymentDate(date: string, today = todayISO()): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= today && toISO(fromISO(date)) === date
+  return isCalendarDate(date) && date <= today
 }
-import { normalizeName, sameName } from '../utils/text'
 
 const round2 = (v: number) => Math.round(v * 100) / 100
 
@@ -118,7 +118,7 @@ type PlanRemoval =
 export function invoicePaymentsForInstallments(payments: CardPayment[], cardId: string | undefined, installments: Installment[]): CardPayment[] {
   if (!cardId || !installments.length) return []
   const ids = new Set(installments.map(i => i.id))
-  const months = new Set(installments.map(i => monthKey(i.dueDate)))
+  const months = new Set(installments.filter(i => isCalendarDate(i.dueDate)).map(i => monthKey(i.dueDate)))
   return payments.filter(p => p.cardId === cardId
     && (months.has(p.referenceMonth) || p.settledInstallmentIds?.some(id => ids.has(id))))
 }
@@ -128,7 +128,7 @@ export function hasRecordedInstallmentPayment(i: Installment): boolean {
 }
 
 export function futureInstallmentsToCancel(s: AppState, plan: InstallmentPlan, today = todayISO()): Installment[] {
-  return planInstallments(s, plan.id).filter(i => i.status === 'pending' && i.dueDate > today
+  return planInstallments(s, plan.id).filter(i => i.status === 'pending' && i.dueDate > today && isCalendarDate(i.dueDate)
     && !hasRecordedInstallmentPayment(i) && !invoicePaymentsForInstallments(s.cardPayments, plan.cardId, [i]).length)
 }
 
@@ -184,7 +184,8 @@ export function activePlans(s: AppState): InstallmentPlan[] {
 export function installmentsInMonth(s: AppState, mk: string): Installment[] {
   const cancelledPlans = new Set((s.installmentPlans || []).filter(p => p.status === 'cancelled').map(p => p.id))
   return (s.installments || [])
-    .filter(i => i.status !== 'cancelled' && (!cancelledPlans.has(i.planId) || i.status === 'paid') && monthKey(i.dueDate) === mk)
+    .filter(i => i.status !== 'cancelled' && (!cancelledPlans.has(i.planId) || i.status === 'paid')
+      && isCalendarDate(i.dueDate) && monthKey(i.dueDate) === mk)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
 }
 
@@ -196,8 +197,9 @@ export function directInstallmentPaidAmount(s: AppState, i: Installment, asOf = 
   if (i.status === 'cancelled' || i.paidVia === 'invoice'
     || (!i.paidAt && !i.directPayments?.length)) return 0
   const plan = planById(s, i.planId)
-  if (i.paidVia !== 'direct' && plan?.cardId && (s.cardPayments || []).some(p =>
-    p.cardId === plan.cardId && p.referenceMonth === monthKey(i.dueDate) && p.paymentDate === i.paidAt)) return 0
+  if (i.paidVia !== 'direct' && plan?.cardId && isCalendarDate(i.dueDate) && (s.cardPayments || []).some(p =>
+    p.cardId === plan.cardId && p.referenceMonth === monthKey(i.dueDate) && p.paymentDate === i.paidAt
+    && validPaymentDate(p.paymentDate, asOf))) return 0
   const amount = i.directPayments?.length
     ? i.directPayments.filter(p => validPaymentDate(p.date, asOf)).reduce((sum, p) => sum + p.amount, 0)
     : i.paidAt && validPaymentDate(i.paidAt, asOf)
@@ -210,12 +212,13 @@ export function directInstallmentPaidAmount(s: AppState, i: Installment, asOf = 
 export function futureInstallmentPaymentDate(s: AppState, i: Installment, asOf = todayISO()): string | undefined {
   if (i.status === 'cancelled') return undefined
   const dates = [i.paidAt, ...(i.directPayments || []).map(p => p.date)]
-    .filter((date): date is string => !!date && date > asOf && validPaymentDate(date, date))
+    .filter((date): date is string => isCalendarDate(date) && date > asOf)
   const cardId = planById(s, i.planId)?.cardId
+  const mk = isCalendarDate(i.dueDate) ? monthKey(i.dueDate) : undefined
   if (cardId) for (const p of s.cardPayments || []) {
-    if (p.cardId === cardId && p.referenceMonth === monthKey(i.dueDate)
-      && p.paymentDate > asOf && validPaymentDate(p.paymentDate, p.paymentDate) && (p.settledInstallmentIds?.includes(i.id)
-        || (p.settledInstallmentIds === undefined && i.paidVia === 'invoice'))) dates.push(p.paymentDate)
+    if (p.cardId === cardId && (!mk || p.referenceMonth === mk)
+      && p.paymentDate > asOf && isCalendarDate(p.paymentDate) && (p.settledInstallmentIds?.includes(i.id)
+        || (mk && p.settledInstallmentIds === undefined && i.paidVia === 'invoice'))) dates.push(p.paymentDate)
   }
   return dates.sort()[0]
 }
@@ -223,7 +226,7 @@ export function futureInstallmentPaymentDate(s: AppState, i: Installment, asOf =
 /** Impede uma segunda quitação enquanto um backup conserva pagamento futuro. */
 export function futureInvoicePaymentDate(s: AppState, card: CreditCard, mk: string, asOf = todayISO()): string | undefined {
   const dates = (s.cardPayments || [])
-    .filter(p => p.cardId === card.id && p.referenceMonth === mk && p.paymentDate > asOf)
+    .filter(p => p.cardId === card.id && p.referenceMonth === mk && p.paymentDate > asOf && isCalendarDate(p.paymentDate))
     .map(p => p.paymentDate)
   for (const i of installmentsInMonth(s, mk)) {
     if (planById(s, i.planId)?.cardId !== card.id) continue
@@ -238,9 +241,9 @@ export function unpaidPriorInvoiceMonths(s: AppState, card: CreditCard, mk: stri
   const months = new Set<string>()
   for (let back = 1; back <= 24; back++) months.add(monthKey(toISO(new Date(year, month - 1 - back, 1))))
   for (const i of s.installments || []) {
-    if (planById(s, i.planId)?.cardId === card.id && monthKey(i.dueDate) < mk) months.add(monthKey(i.dueDate))
+    if (planById(s, i.planId)?.cardId === card.id && isCalendarDate(i.dueDate) && monthKey(i.dueDate) < mk) months.add(monthKey(i.dueDate))
   }
-  if (card.initialInvoiceBalance) months.add(monthKey(nextInvoiceDueDate(card, card.createdAt)))
+  if (card.initialInvoiceBalance && isCalendarDate(card.createdAt)) months.add(monthKey(nextInvoiceDueDate(card, card.createdAt)))
   return [...months].filter(m => m < mk).sort().reverse().filter(m =>
     invoiceOpenAmount(s, cardInvoice(s, card, m, asOf), asOf) > 0.009)
 }
@@ -251,7 +254,8 @@ function installmentPaidAsOf(s: AppState, i: Installment, asOf = todayISO()): nu
   const direct = directInstallmentPaidAmount(s, i, asOf)
   if (futureInstallmentPaymentDate(s, i, asOf)) return direct
   // A quitação pela fatura pode ter coberto só o saldo após um parcial direto.
-  if (i.status === 'paid' && i.paidVia === 'direct' && installmentLinkedToCardPayment(s, i, asOf, true)) return i.amount
+  if (i.status === 'paid' && installmentLinkedToCardPayment(s, i, asOf, true)) return i.amount
+  if ((i.paidAt && !isCalendarDate(i.paidAt)) || i.directPayments?.some(p => !isCalendarDate(p.date))) return direct
   const reported = Number.isFinite(i.paidAmount) ? i.paidAmount! : i.status === 'paid' ? i.amount : 0
   return round2(Math.min(Math.max(direct, reported, 0), i.amount))
 }
@@ -274,11 +278,12 @@ export function canPayInstallment(s: AppState, i: Installment, today = todayISO(
 export function installmentLinkedToCardPayment(s: AppState, i: Installment, asOf?: string, exactOnly = false): boolean {
   const cardId = planById(s, i.planId)?.cardId
   if (!cardId) return false
+  const mk = isCalendarDate(i.dueDate) ? monthKey(i.dueDate) : undefined
   return (s.cardPayments || []).some(p => {
-    if (p.cardId !== cardId || p.referenceMonth !== monthKey(i.dueDate)) return false
+    if (p.cardId !== cardId || (mk && p.referenceMonth !== mk)) return false
     if (!validPaymentDate(p.paymentDate, asOf ?? p.paymentDate)) return false
     if (p.settledInstallmentIds !== undefined) return p.settledInstallmentIds.includes(i.id)
-    if (exactOnly) return false
+    if (exactOnly || !mk) return false
     if (i.paidVia === 'invoice') return true
     return !!i.paidAt && p.paymentDate >= i.paidAt
   })
@@ -287,7 +292,7 @@ export function installmentLinkedToCardPayment(s: AppState, i: Installment, asOf
 /** Assinaturas ativas que caem no mês de referência. */
 export function chargesInMonth(s: AppState, mk: string): RecurringCardCharge[] {
   return (s.cardCharges || []).filter(c => {
-    if (c.active === false) return false
+    if (c.active === false || !isCalendarDate(c.nextDate)) return false
     if (monthKey(c.nextDate) > mk) return false          // ainda não começou
     const [year, month] = mk.split('-').map(Number)
     const occurrence = c.frequency === 'monthly'
@@ -316,7 +321,7 @@ export function overdueInstallments(s: AppState): Installment[] {
   const t = todayISO()
   const cancelled = new Set((s.installmentPlans || []).filter(p => p.status === 'cancelled').map(p => p.id))
   return (s.installments || [])
-    .filter(i => i.status !== 'cancelled' && !cancelled.has(i.planId) && i.dueDate < t
+    .filter(i => i.status !== 'cancelled' && !cancelled.has(i.planId) && i.dueDate < t && isCalendarDate(i.dueDate)
       && installmentPaidAsOf(s, i, t) < i.amount - 0.009)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
 }
@@ -405,14 +410,13 @@ export function cardInvoice(s: AppState, card: CreditCard, mk: string, asOf = to
     items.push({ label: c.description, amount: c.amount, kind: 'charge', dueDate: toISO(due) })
   }
   // saldo que já existia quando o cartão foi cadastrado entra na primeira fatura
-  const firstMk = monthKey(nextInvoiceDueDate(card, card.createdAt))
-  if (card.initialInvoiceBalance && mk === firstMk) {
+  if (card.initialInvoiceBalance && isCalendarDate(card.createdAt) && mk === monthKey(nextInvoiceDueDate(card, card.createdAt))) {
     items.push({ label: 'Saldo anterior da fatura', amount: card.initialInvoiceBalance, kind: 'initial', dueDate: toISO(due) })
   }
 
   const total = round2(items.reduce((a, i) => a + i.amount, 0))
   const paid = round2(directPaid + (s.cardPayments || [])
-    .filter(p => p.cardId === card.id && p.referenceMonth === mk && p.paymentDate <= asOf)
+    .filter(p => p.cardId === card.id && p.referenceMonth === mk && validPaymentDate(p.paymentDate, asOf))
     .reduce((a, p) => a + p.amount, 0))
   const pending = round2(Math.max(total - paid, 0))
 
@@ -454,13 +458,14 @@ export function upcomingInvoices(s: AppState, card: CreditCard, months = 6): Car
  */
 function unallocatedInstallmentPayments(s: AppState, cardId: string): number {
   const card = cardById(s, cardId)
+  const today = todayISO()
   // Pagamento parcial da fatura não quita uma parcela específica. Só é seguro
   // abater do total do cartão quando a fatura contém exclusivamente parcelas;
   // com assinatura/saldo anterior não sabemos a qual obrigação atribuí-lo.
   return (s.cardPayments || [])
-    .filter(p => p.cardId === cardId && p.paymentDate <= todayISO() && p.settledInstallmentIds?.length === 0)
+    .filter(p => p.cardId === cardId && validPaymentDate(p.paymentDate, today) && p.settledInstallmentIds?.length === 0)
     .reduce((sum, p) => {
-      if (!card || !/^\d{4}-\d{2}$/.test(p.referenceMonth || '')) return sum
+      if (!card || !isCalendarDate(`${p.referenceMonth}-01`)) return sum
       const invoice = cardInvoice(s, card, p.referenceMonth)
       return invoice.items.length && invoice.items.every(item => item.kind === 'installment')
         ? sum + p.amount : sum
@@ -478,7 +483,7 @@ export function cardOutstanding(s: AppState, cardId: string): number {
   // essa fatura não foi quitada.
   const card = cardById(s, cardId)
   let initialLeft = 0
-  if (card?.initialInvoiceBalance) {
+  if (card?.initialInvoiceBalance && isCalendarDate(card.createdAt)) {
     const firstInvoice = cardInvoice(s, card, monthKey(nextInvoiceDueDate(card, card.createdAt)))
     initialLeft = Math.min(card.initialInvoiceBalance, firstInvoice.pending)
   }
@@ -529,12 +534,11 @@ export interface PlanProgress {
   card?: CreditCard
 }
 
-export function planProgress(s: AppState, plan: InstallmentPlan): PlanProgress {
+export function planProgress(s: AppState, plan: InstallmentPlan, t = todayISO()): PlanProgress {
   const list = planInstallments(s, plan.id)
-  const t = todayISO()
   const active = list.filter(i => i.status !== 'cancelled').map(i => ({ i, remaining: installmentRemaining(s, i, t) }))
   const pending = active.filter(row => row.remaining > 0).map(row => row.i)
-    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+  const dated = pending.filter(i => isCalendarDate(i.dueDate)).sort((a, b) => a.dueDate.localeCompare(b.dueDate))
   const remainingAmount = round2(active.reduce((a, row) => a + row.remaining, 0))
   const totalActive = round2(active.reduce((a, row) => a + row.i.amount, 0))
   const paidAmount = round2(Math.max(totalActive - remainingAmount, 0))
@@ -545,9 +549,9 @@ export function planProgress(s: AppState, plan: InstallmentPlan): PlanProgress {
     remainingCount: pending.length,
     paidAmount,
     remainingAmount,
-    currentAmount: pending[0]?.amount ?? active[active.length - 1]?.i.amount ?? 0,
-    nextDueDate: pending[0]?.dueDate,
-    overdueCount: pending.filter(i => i.dueDate < t).length,
+    currentAmount: dated[0]?.amount ?? pending[0]?.amount ?? active[active.length - 1]?.i.amount ?? 0,
+    nextDueDate: dated[0]?.dueDate,
+    overdueCount: dated.filter(i => i.dueDate < t).length,
     pct: totalActive > 0 ? Math.round((paidAmount / totalActive) * 100) : 0,
     card: cardById(s, plan.cardId),
   }
@@ -659,7 +663,7 @@ export function commitmentTimeline(s: AppState, fromDate: string, toDate: string
   for (const plan of (s.installmentPlans || [])) {
     if (plan.status === 'cancelled' || plan.cardId) continue
     for (const i of planInstallments(s, plan.id)) {
-      if (i.status === 'cancelled' || i.dueDate < fromDate || i.dueDate > toDate) continue
+      if (i.status === 'cancelled' || !isCalendarDate(i.dueDate) || i.dueDate < fromDate || i.dueDate > toDate) continue
       out.push({
         date: i.dueDate,
         label: plan.description,

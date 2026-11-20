@@ -4,8 +4,8 @@ import type { AppState } from '../../src/models/types'
 import { orchestrate } from '../../src/assistant/orchestrator'
 import { segment } from '../../src/assistant/clauses'
 import { findDate } from '../../src/assistant/dates'
-import { balanceOutlook, balanceOutlookText, budgetUsage, cashObligationsUntil, currentBalance, kmCost, monthlyProjections, occurrencesBetween, pendingRecurrings, periodStats, possibleRecurringTransactions, recurringLinkAction, transactionOccurrence, upcomingBills } from '../../src/services/calc'
-import { buildInstallments, cardInvoice, cardOutstanding, cardsOverview, commitmentTimeline, futureInstallmentPaymentDate, invoiceOpenAmount, planProgress } from '../../src/services/cards'
+import { balanceOutlook, balanceOutlookText, budgetUsage, cashObligationsUntil, categoryBreakdown, currentBalance, kmCost, monthlyProjections, occurrencesBetween, pendingRecurrings, periodStats, possibleRecurringTransactions, recurringLinkAction, transactionOccurrence, upcomingBills } from '../../src/services/calc'
+import { buildInstallments, cardInvoice, cardOutstanding, cardsOverview, commitmentTimeline, futureInstallmentPaymentDate, futureInvoicePaymentDate, invoiceOpenAmount, planProgress } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
 import { buildCapabilities } from '../../src/assistant/capabilities'
 import { isValidationFailure, validateAction } from '../../src/assistant/contracts'
@@ -15,7 +15,7 @@ import { runQuery } from '../../src/assistant/query/engine'
 import { isRevertFailure, revertBatchPure } from '../../src/assistant/journal'
 import { applyPreferenceAliases } from '../../src/assistant/preferences'
 import { hydrateForTest, reducer } from '../../src/store/store'
-import { addDays, fmtBRL, fromISO, MESES_PT_BR, monthShortLabel, nowPaymentTime, nowStamp, todayISO, toISO as toISOdate } from '../../src/utils/format'
+import { addDays, fmtBRL, fmtDateShort, fromISO, MESES_PT_BR, monthShortLabel, nowPaymentTime, nowStamp, todayISO, toISO as toISOdate } from '../../src/utils/format'
 import { autonomoRico, motoristaRico } from '../fixtures/richState'
 import { buildState } from './harness'
 
@@ -4577,6 +4577,45 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       'a projeção inclui exatamente os R$ 60 restantes da parcela avulsa marcada como paga',
       obligationsSingle.length === 1 && obligationsSingle[0].kind === 'installment' && obligationsSingle[0].amount === 60
         && monthlySingle?.installments === 60 && monthlySingle.runningBalance === 940))
+
+    const invalidDate = '2024-02-30'
+    const validLeapDate = '2024-02-29'
+    const expense = { id: 'despesa-bissexto', type: 'expense' as const, amount: 17, category: 'casa', date: validLeapDate, time: '09:00' }
+    const invalidBackup = hydrateForTest(JSON.parse(JSON.stringify({ ...receita,
+      settings: { ...receita.settings, balanceAsOf: '2024-01-01T00:00' },
+      transactions: [expense, { ...expense, id: 'despesa-impossivel', date: invalidDate, amount: 100 },
+        { ...expense, id: 'dia-zero', date: `${hoje.slice(0, 7)}-00`, amount: 200 }],
+      workSessions: [{ id: 'turno-certo', date: validLeapDate, km: 50, trips: 4, hours: 2 },
+        { id: 'turno-impossivel', date: invalidDate, km: 900, trips: 10, hours: 5 }],
+    })))
+    const realized = periodStats(invalidBackup, '2024-01-01', hoje)
+    const queryDate = validateQueryPlan({ source: 'transactions', metric: 'sum',
+      period: { from: '2024-01-01', to: '2024-12-31' }, filter: { txType: ['expense'] } }, invalidBackup, hoje)
+    const confirmedExpense = queryDate.ok === true ? runQuery(invalidBackup, queryDate.plan, hoje) : undefined
+    out.push(result('DATE-backup-invalido-nao-conta-no-caixa-relatorio-ou-orcamento', { realized, confirmed: confirmedExpense?.total,
+      cash: currentBalance(invalidBackup), label: fmtDateShort(invalidDate) },
+      '29/02 válido soma R$ 17 e 50 km; dia impossível fica no backup e sai dos totais',
+      invalidBackup.transactions.length === 3 && currentBalance(invalidBackup) === 983 && realized.expense === 17 && realized.km === 50
+        && confirmedExpense?.total === 17 && categoryBreakdown(invalidBackup, '2024-01-01', hoje)[0]?.total === 17
+        && budgetUsage(invalidBackup, 'casa', hoje) === 0 && fmtDateShort(invalidDate) === 'Data a conferir'))
+
+    const ref = due.slice(0, 7)
+    const invalidPayments: AppState = { ...activeCard, cardCharges: [], cardPayments: [
+      { ...payment, id: 'impossivel', referenceMonth: ref, amount: 90, paymentDate: invalidDate },
+      { ...payment, id: 'futuro-inexistente', referenceMonth: ref, amount: 50, paymentDate: '9999-13-01' },
+      { ...payment, id: 'valido', referenceMonth: ref, amount: 20 },
+    ] }
+    const corruptedSettlement: AppState = { ...invalidPayments, installments: [{ ...invalidPayments.installments[0],
+      status: 'paid', paidVia: 'direct', paidAmount: 200, paidAt: invalidDate,
+      directPayments: [{ date: hoje, amount: 30 }, { date: invalidDate, amount: 170 }],
+    }] }
+    const corruptedInvoice = cardInvoice(corruptedSettlement, card, ref)
+    out.push(result('DATE-fatura-legada-ignora-baixas-datadas-em-dias-impossiveis', { invoice: corruptedInvoice,
+      cash: currentBalance(corruptedSettlement), debt: cardOutstanding(corruptedSettlement, card.id) },
+      'só os R$ 20 da fatura e os R$ 30 da baixa direta válidos contam; o restante de R$ 150 permanece devido',
+      invalidPayments.cardPayments.length === 3 && planProgress(corruptedSettlement, archivePlan).remainingAmount === 170
+        && corruptedInvoice.paid === 50 && corruptedInvoice.pending === 150 && cardOutstanding(corruptedSettlement, card.id) === 150
+        && currentBalance(corruptedSettlement) === 950 && futureInvoicePaymentDate(corruptedSettlement, card, ref) === undefined))
   }
 
   {

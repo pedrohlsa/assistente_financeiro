@@ -6,7 +6,7 @@ import React, { useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { reducer, useStore } from '../store/store'
 import { CreditCard, Installment, InstallmentPlan } from '../models/types'
-import { fmtBRL, fmtDateShort, nowPaymentTime, todayISO, toISO, fromISO, parseMoney, uid } from '../utils/format'
+import { fmtBRL, fmtDateShort, isCalendarDate, nowPaymentTime, todayISO, toISO, fromISO, parseMoney, uid } from '../utils/format'
 import { ConfirmDialog, EmptyState, Progress, Sheet, useToast } from '../components/ui'
 import {
   CardChargeForm, CardForm, CardPaymentForm, FinancedInflowForm, PurchaseForm, StandalonePlanForm,
@@ -489,7 +489,7 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
   const futurePaid = pp.installments.some(i => !!futureInstallmentPaymentDate(state, i, t))
   const remaining = open ? pp.installments.filter(i => installmentRemaining(state, i, t) > 0) : []
   const payable = remaining.filter(i => canPayInstallment(state, i, t))
-  const advanceable = payable.filter(i => i.dueDate > t).sort((a, b) => b.dueDate.localeCompare(a.dueDate))
+  const advanceable = payable.filter(i => i.dueDate > t && isCalendarDate(i.dueDate)).sort((a, b) => b.dueDate.localeCompare(a.dueDate))
   const partial = payable.find(i => i.id === partialId)
   const cancellable = open ? futureInstallmentsToCancel(state, plan, t).length : 0
   const removalStart = confirmDelete ? checkPlanRemoval(state, plan) : undefined
@@ -594,7 +594,8 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
         <Progress pct={pp.pct} tone={pp.overdueCount > 0 ? 'danger' : undefined} />
         <div className="spread" style={{ marginTop: 6 }}>
           <span className="tiny">{pp.pct}% pago</span>
-          <span className="tiny">{pp.nextDueDate ? `Próximo vencimento: ${fmtDateShort(pp.nextDueDate)}` : 'Sem parcelas pendentes'}</span>
+          <span className="tiny">{pp.nextDueDate ? `Próximo vencimento: ${fmtDateShort(pp.nextDueDate)}`
+            : pp.remainingCount > 0 ? 'Vencimento a conferir' : 'Sem parcelas pendentes'}</span>
         </div>
       </button>
 
@@ -627,12 +628,15 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
           {pp.installments.map(i => {
             const futureDate = futureInstallmentPaymentDate(state, i, t)
             const left = installmentRemaining(state, i, t)
-            const overdue = left > 0 && i.dueDate < t
+            const due = isCalendarDate(i.dueDate) ? i.dueDate : undefined
+            const overdue = left > 0 && due && due < t
             const invoicePayment = installmentLinkedToCardPayment(state, i)
             const incompleteLegacy = i.status === 'paid' && left > 0
             const canPay = payable.includes(i)
             const paidAt = i.paidAt && validPaymentDate(i.paidAt, t) ? i.paidAt : undefined
-            const early = paidAt && paidAt < i.dueDate
+            const early = paidAt && due && paidAt < due
+            const invalidPaymentDate = i.paidAt && !isCalendarDate(i.paidAt)
+              || i.directPayments?.some(p => !isCalendarDate(p.date))
             const color = i.status === 'cancelled' ? 'var(--text-3)' : futureDate ? 'var(--text-3)'
               : overdue ? 'var(--danger)' : left === 0 ? 'var(--positive)' : undefined
             return (
@@ -644,10 +648,12 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
                   <div className="tiny" style={{ color }}>
                     {i.status === 'cancelled' ? 'cancelada'
                       : futureDate ? `pagamento com data futura (${fmtDateShort(futureDate)}); ainda não quitada hoje`
+                      : invalidPaymentDate ? 'data de pagamento a conferir'
                       : incompleteLegacy ? `pagamento parcial ${fmtBRL(i.amount - left)} — falta completar`
                       : left === 0 ? (paidAt ? `paga em ${fmtDateShort(paidAt)}${early ? ' (antecipada)' : ''}`
                         : 'paga · data de pagamento não informada')
-                      : overdue ? `venceu em ${fmtDateShort(i.dueDate)}` : `vence em ${fmtDateShort(i.dueDate)}`}
+                      : !due ? 'vencimento a conferir'
+                      : overdue ? `venceu em ${fmtDateShort(due)}` : `vence em ${fmtDateShort(due)}`}
                     {left > 0 && left < i.amount && i.status === 'pending' ? ` · pago parcial ${fmtBRL(i.amount - left)}` : ''}
                   </div>
                 </div>

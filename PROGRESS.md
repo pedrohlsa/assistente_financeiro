@@ -6030,3 +6030,13 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - O Chrome preservou os R$ 150 que faltavam na fatura e confirmou a
   quitação pela tela. Suíte com 777/777 regressões, 151 invariantes,
   typechecks, build e rubrica passaram.
+
+## 20/11/2026 — Datas impossíveis em históricos importados
+
+- Uma data inválida não movimenta caixa, não reduz a fatura e não
+  entra nos totais do extrato, consultas, orçamentos ou relatórios.
+  Os registros permanecem no histórico, com indicação de conferência.
+- O Chrome mostrou os dois lançamentos do teste e somou apenas os
+  R$ 17 do dia válido. Uma baixa inválida deixou a parcela em aberto.
+- Suíte com 779/779 regressões, matriz de oito datas, 151 invariantes,
+  teste de dinheiro, typechecks, build e rubrica passaram.

@@ -29,6 +29,13 @@ export const todayISO = () => {
 export const toISO = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
+/** Valida o dia do calendário sem normalizar datas como 31 de fevereiro. */
+export function isCalendarDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const date = new Date(`${value}T00:00:00.000Z`)
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value
+}
+
 export const addDays = (iso: string, days: number) => {
   const d = fromISO(iso)
   d.setDate(d.getDate() + days)
@@ -81,11 +88,13 @@ const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 's
 export const monthShortLabel = (d: Date): string => `${MESES_CURTOS[d.getMonth()]}/${d.getFullYear()}`
 
 export const fmtDateShort = (iso: string) => {
+  if (!isCalendarDate(iso)) return 'Data a conferir'
   const d = fromISO(iso)
   return d.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })
 }
 
 export const fmtDateLong = (iso: string) => {
+  if (!isCalendarDate(iso)) return 'Data a conferir'
   const today = todayISO()
   if (iso === today) return 'Hoje'
   if (iso === addDays(today, -1)) return 'Ontem'

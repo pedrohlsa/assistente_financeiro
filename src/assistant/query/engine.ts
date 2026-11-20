@@ -11,7 +11,7 @@
 
 import type { AppState, TxType } from '../../models/types'
 import { catById } from '../../data/categories'
-import { addDays, fromISO, monthKey, monthShortLabel, todayISO, toISO } from '../../utils/format'
+import { addDays, fromISO, isCalendarDate, monthKey, monthShortLabel, todayISO, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase, weekdayName } from '../../utils/text'
 import {
   cardById, cardInvoice, cardOutstanding, invoiceOpenAmount, planProgress,
@@ -27,7 +27,7 @@ const MAX_ROWS = 20000
 
 const r2 = (v: number) => Math.round(v * 100) / 100
 
-const inRange = (d: string, from: string, to: string) => !!d && d >= from && d <= to
+const inRange = (d: string, from: string, to: string) => d >= from && d <= to && isCalendarDate(d)
 
 // ---------------------------------------------------------------------------
 // Extração — cada fonte vira `QueryRow[]`
@@ -149,7 +149,7 @@ function rowsOf(state: AppState, plan: AssistantQueryPlan, today: string): Query
         // plano ainda em aberto continua interessando mesmo que a compra tenha
         // sido antes da janela — senão "quanto falta pagar do computador"
         // dependeria de o usuário ter comprado dentro do período perguntado.
-        const pp = planProgress(state, p)
+        const pp = planProgress(state, p, today)
         const vivo = p.status !== 'settled' && p.status !== 'cancelled' && pp.remainingCount > 0
         if (!vivo && !inRange(p.purchaseDate, from, to)) continue
         const card = cardById(state, p.cardId)
