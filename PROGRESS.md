@@ -5891,3 +5891,15 @@ APK ou chamada paga. NOT READY até auditoria independente.
   esclarecidas antes da proposta.
 - Suíte com 754/754 regressões reais no relógio padrão, matriz de
   oito datas, typechecks, build e rubrica local passaram.
+
+## 19/11/2026 — Calendário de registros e consultas
+
+- Datas ISO completas mantêm dia e mês. Consultas por dia em ISO ou
+  formato brasileiro e intervalos ISO usam o período solicitado.
+- Dias inexistentes em registros e consultas pedem uma data válida.
+  Sugestões de data só exibem dias que existem no mês ou ano em
+  questão. Prazo de caixa até o fim do mês mantém o último dia.
+- O contrato recusa datas inválidas também em períodos de comparação.
+  A suíte passou com 758/758 regressões no relógio padrão e oito datas
+  na matriz. A execução bissexta em America/New_York e o pagamento com
+  data ISO no Chrome passaram, assim como typechecks, build e rubrica.

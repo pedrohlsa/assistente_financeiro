@@ -10,6 +10,7 @@ import { applyBatchPure } from '../../src/assistant/execute'
 import { buildCapabilities } from '../../src/assistant/capabilities'
 import { isValidationFailure, validateAction } from '../../src/assistant/contracts'
 import { editableFieldsFor } from '../../src/assistant/proposalEdit'
+import { validateQueryPlan } from '../../src/assistant/query/validate'
 import { isRevertFailure, revertBatchPure } from '../../src/assistant/journal'
 import { applyPreferenceAliases } from '../../src/assistant/preferences'
 import { hydrateForTest, reducer } from '../../src/store/store'
@@ -4122,6 +4123,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       `pagamos 80 da fatura do Inter de ${nomeMesAnterior} ontem`,
       `paguei a fatura de ${mesNumerico} do Inter 80 reais ontem`,
       `paguei 80 da fatura do Inter do mês passado em ${pagamento.split('-').reverse().join('/')}`,
+      `paguei 80 da fatura do Inter de ${mesNumerico} em ${pagamento}`,
     ]) {
       const proposta = await turnoHoje(st, frase)
       const aplicado = applyBatchPure(st, proposta.actions.map((action, i) => ({ id: `fref-${i}`, action })),
@@ -4217,6 +4219,55 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && cardInvoice(atrasada.state, st.cards[0], antiga, pagamento).paid === 80
         && cardInvoice(atrasada.state, st.cards[0], antiga).pending === 0
         && currentBalance(atrasada.state) === 700))
+  }
+
+  {
+    const now = '2026-11-19'
+    const st = buildState({ profile: 'autonomo', transactions: [
+      { type: 'expense', amount: 37, date: '2026-11-10', description: 'Mercado' },
+      { type: 'expense', amount: 70, date: '2026-10-11', description: 'Mercado' },
+      { type: 'expense', amount: 20, date: '2026-11-11', description: 'Padaria' },
+    ] })
+    const run = async (message: string) => (await orchestrate({ state: st, message, today: now, remoteEnabled: false })).response
+    const isoDate = await run('Quanto gastei em 2026-11-10?')
+    const localDate = await run('Quanto gastei em 10/11/2026?')
+    const range = await run('Quanto gastei de 2026-11-10 a 2026-11-11?')
+    const invalid = await run('Quanto gastei em 2026-02-31?')
+    const mixed = await run('Gastei 7 no mercado hoje. Quanto gastei em 31/02/2026?')
+    out.push(result('DATE-consulta-preserva-dia-e-recusa-calendario-impossivel', [isoDate.reply, localDate.reply, range.reply, invalid.reply, mixed.reply],
+      'cada dia e intervalo retornam os valores exatos; datas inválidas pedem correção e não tiram o registro independente',
+      [isoDate, localDate].every(r => r.actions.length === 0 && /10\/11\/2026.*R\$\s37,00/.test(r.reply) && !/70,00/.test(r.reply))
+        && range.actions.length === 0 && /10\/11\/2026 a 11\/11\/2026.*R\$\s57,00/.test(range.reply)
+        && invalid.mode === 'clarify' && /não existe/.test(invalid.reply) && !/dado real/.test(invalid.reply)
+        && mixed.actions.length === 1 && mixed.actions[0].action.kind === 'expense' && mixed.actions[0].action.amount === 7
+        && /não existe/.test(mixed.reply) && !/dado real/.test(mixed.reply)))
+
+    const rawPeriod = (from: string, to: string) => ({ from, to, grain: 'range' })
+    const badPeriods = [
+      rawPeriod('2026-02-29', '2026-03-01'), rawPeriod('2026-11-01', '2026-11-31'),
+      rawPeriod('2026-00-01', '2026-03-01'), rawPeriod('2026-11-01 adicional', '2026-11-19'),
+    ]
+    const valid = rawPeriod('2024-02-29', '2024-03-01')
+    const checks = badPeriods.flatMap(period => [
+      validateQueryPlan({ source: 'transactions', metric: 'sum', period }, st, now),
+      validateQueryPlan({ source: 'transactions', metric: 'sum', period: valid, comparePeriod: period }, st, now),
+    ])
+    out.push(result('DATE-validador-de-periodo-requer-datas-reais-completas', checks,
+      'consulta e comparação rejeitam datas inexistentes e sufixos; 29/02 de ano bissexto é válido',
+      checks.every(r => 'code' in r && r.code === 'bad-period')
+        && validateQueryPlan({ source: 'transactions', metric: 'sum', period: valid }, st, now).ok))
+
+    const literal = findDate('paguei 80 em 2026-11-10', now)
+    const semDia = findDate('gastei 50 dia 31', '2026-02-28')
+    const prazo = findDate('quanto até dia 31?', '2026-02-15')
+    const mesCurto = findDate('gastei 50 dia 31', '2026-05-15')
+    const fevereiro = findDate('paguei 80 em 29 de fevereiro', '2028-02-15')
+    out.push(result('DATE-dia-do-mes-nao-arredonda-para-ultima-data', { literal, semDia, prazo, mesCurto, fevereiro },
+      'fato no dia 31 inexistente é inválido; prazo de fim do mês mantém o último dia; escolhas de data correspondem ao dia escrito',
+      literal?.kind === 'date' && literal.date === '2026-11-10' && semDia?.kind === 'invalid'
+        && prazo?.kind === 'future' && prazo.date === '2026-02-28'
+        && mesCurto?.kind === 'ambiguous' && mesCurto.options.length === 1 && mesCurto.options[0].value === '2026-05-31'
+        && fevereiro?.kind === 'ambiguous' && fevereiro.options.length === 1 && fevereiro.options[0].value === '2028-02-29'))
   }
 
   {

@@ -15,6 +15,9 @@
 import type { AppState } from '../../models/types'
 import { fmtBRL, fmtNum, todayISO } from '../../utils/format'
 import { normalizeName, sentenceCase } from '../../utils/text'
+import { looksLikeQuestion } from '../clauses'
+import { findAllDates } from '../dates'
+import { pedeReservaDeCaixa } from '../cashQuestions'
 import { planQuery, runPlannedQuery } from '../query'
 import { leadSimNao } from '../query/answer'
 import { normalizeQuery } from '../query/parse'
@@ -67,6 +70,13 @@ export function answerConversation(
   message: string,
   opts: ConversationOptions = {},
 ): ConversationAnswer | null {
+  if (looksLikeQuestion(message) && !pedeReservaDeCaixa(normalizeQuery(message))) {
+    const invalid = findAllDates(message, opts.today || todayISO()).find(d => d.kind === 'invalid')
+    if (invalid?.kind === 'invalid') return {
+      kind: 'clarify', reply: invalid.question, clarification: { question: invalid.question, options: [] },
+      focus: opts.focus || { updatedAt: Date.now() },
+    }
+  }
   const out = respondeConversa(state, message, opts)
   // Pergunta de sim ou não começa por sim ou não (regra 57), em qualquer
   // caminho que tenha terminado numa comparação: consulta nova ou refino.

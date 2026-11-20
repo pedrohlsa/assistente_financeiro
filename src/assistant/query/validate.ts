@@ -12,7 +12,7 @@ import type { AppState, TxType } from '../../models/types'
 import { usableCategories } from '../../data/categories'
 import { isDriver } from '../../services/profile'
 import { normalizeName } from '../../utils/text'
-import { semNulosOpcionais } from '../contracts'
+import { isPlausibleDate, semNulosOpcionais } from '../contracts'
 import {
   DRIVER_ONLY_SOURCES, FIELDS_BY_SOURCE, QUERY_DSL_VERSION, QUERY_GROUPS,
   QUERY_METRICS, QUERY_ORDERS, QUERY_SOURCES,
@@ -68,7 +68,6 @@ export const MAX_PERIOD_DAYS = 3660
 export const MAX_GROUPS = 24
 export const DEFAULT_GROUP_LIMIT = 8
 
-const ISO = /^\d{4}-\d{2}-\d{2}$/
 
 /**
  * Chaves que nunca podem chegar a um objeto construído a partir de dado externo.
@@ -106,15 +105,9 @@ const daysBetweenIso = (a: string, b: string): number =>
 
 function validatePeriod(raw: any, todayIso: string): QueryPeriod | QueryErrorCode {
   if (!raw || typeof raw !== 'object') return 'bad-period'
-  const from = strOf(raw.from, 10)
-  const to = strOf(raw.to, 10)
-  if (!from || !to || !ISO.test(from) || !ISO.test(to)) return 'bad-period'
-  // Datas fora de qualquer plausibilidade: ano 1000, ano 9999. O app existe
-  // desde 2024 e projeta no máximo alguns anos à frente.
-  const maxYear = Number(todayIso.slice(0, 4)) + 5
-  const y1 = Number(from.slice(0, 4))
-  const y2 = Number(to.slice(0, 4))
-  if (!(y1 >= 2000 && y1 <= maxYear && y2 >= 2000 && y2 <= maxYear)) return 'bad-period'
+  const from = typeof raw.from === 'string' ? raw.from.trim() : ''
+  const to = typeof raw.to === 'string' ? raw.to.trim() : ''
+  if (!isPlausibleDate(from, todayIso) || !isPlausibleDate(to, todayIso)) return 'bad-period'
   if (from > to) return 'bad-period'
   if (daysBetweenIso(from, to) > MAX_PERIOD_DAYS) return 'period-too-long'
   const grain = ['day', 'week', 'month', 'quarter', 'year', 'range'].includes(raw.grain) ? raw.grain : 'range'

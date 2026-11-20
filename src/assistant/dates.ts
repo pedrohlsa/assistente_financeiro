@@ -7,6 +7,7 @@
 
 import { addDays, fromISO, toISO, todayISO, dateForDayOfMonth } from '../utils/format'
 import { weekdayName } from '../utils/text'
+import { isPlausibleDate } from './contracts'
 
 export type DateResolution =
   /** Data única e sem dúvida. */
@@ -215,6 +216,16 @@ const RULES: Rule[] = [
     },
   },
   {
+    // ISO inteiro vem antes de DD-MM; interpretar só "11-10" de
+    // "2026-11-10" trocava o dia e o mês.
+    re: /\b(?:dia\s+)?(\d{4}-\d{2}-\d{2})\b/,
+    build: (m, t) => {
+      const iso = m[1]
+      if (!isPlausibleDate(iso, t)) return invalidDate(m[0])
+      return iso > t ? { kind: 'future', date: iso, label: brDate(iso) } : { kind: 'date', date: iso, label: brDate(iso) }
+    },
+  },
+  {
     // "10/08", "dia 10/08", "10/08/2026", "10-08". O "dia" entra na expressão
     // para ser retirado junto: sem isso a palavra sobrava e o lançamento
     // nascia descrito como "Mercado dia".
@@ -248,7 +259,7 @@ const RULES: Rule[] = [
           kind: 'ambiguous',
           question: `${day} de ${MONTHS[mon]} de qual ano?`,
           options: [
-            { label: `${brDate(prev)}`, value: prev },
+            ...(fromISO(prev).getDate() === day ? [{ label: brDate(prev), value: prev }] : []),
             { label: `${brDate(iso)} (futuro)`, value: iso },
           ],
         }
@@ -328,6 +339,7 @@ const RULES: Rule[] = [
       if (day < 1 || day > 31) return invalidDate(m[0])
       const d = fromISO(t)
       const thisMonth = toISO(dateForDayOfMonth(d.getFullYear(), d.getMonth(), day))
+      if (fromISO(thisMonth).getDate() !== day) return invalidDate(m[0])
       if (thisMonth <= t) return { kind: 'date', date: thisMonth, label: brDate(thisMonth) }
       // Ainda não chegou neste mês: pode ser o mês passado ou uma previsão.
       const lastMonth = toISO(dateForDayOfMonth(d.getFullYear(), d.getMonth() - 1, day))
@@ -335,7 +347,7 @@ const RULES: Rule[] = [
         kind: 'ambiguous',
         question: `O dia ${day} deste mês ainda não chegou. Você quis dizer qual data?`,
         options: [
-          { label: `Dia ${day} do mês passado (${brDate(lastMonth)})`, value: lastMonth },
+          ...(fromISO(lastMonth).getDate() === day ? [{ label: `Dia ${day} do mês passado (${brDate(lastMonth)})`, value: lastMonth }] : []),
           { label: `Dia ${day} deste mês (${brDate(thisMonth)})`, value: thisMonth },
         ],
       }

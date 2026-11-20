@@ -10,6 +10,7 @@
 // qual período foi usado.
 
 import { addDays, fromISO, MESES_PT_BR as MESES, monthKey, toISO, todayISO } from '../../utils/format'
+import { findDate } from '../dates'
 import type { PeriodGrain, QueryPeriod } from './types'
 
 const MES_RE = 'janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro'
@@ -155,6 +156,15 @@ export function parsePeriod(input: string, hoje = todayISO()): { period: QueryPe
       return { period: P(from, to, `de ${br(from)} a ${br(to)}`, 'range', hoje), matched: intervalo[0] }
     }
   }
+  const intervaloISO = t.match(/\b(?:de|entre)\s+(\d{4}-\d{2}-\d{2})\s+(?:a|ate|e)\s+(\d{4}-\d{2}-\d{2})\b/)
+  if (intervaloISO) {
+    const from = findDate(intervaloISO[1], hoje)
+    const to = findDate(intervaloISO[2], hoje)
+    if ((from?.kind === 'date' || from?.kind === 'future') && (to?.kind === 'date' || to?.kind === 'future') && from.date <= to.date) {
+      return { period: P(from.date, to.date, `de ${br(from.date)} a ${br(to.date)}`, 'range', hoje), matched: intervaloISO[0] }
+    }
+    return null
+  }
 
   // --- "últimos N dias/semanas/meses/anos" ---------------------------------
   const ultimos = t.match(/\b(?:nos?\s+)?(?:ultim[oa]s?|passad[oa]s?)\s+(\d{1,4}|[a-z]+)\s+(dias?|semanas?|mes(?:es)?|anos?)\b/)
@@ -237,6 +247,14 @@ export function parsePeriod(input: string, hoje = todayISO()): { period: QueryPe
   {
     const m = t.match(/\b(?:d?est[ea]|d?ess[ea]|ness?[ea]|nest[ea])\s+ano\b|\bano\s+atual\b|\b(?:no|do)\s+ano\b/)
     if (m) return { period: P(`${ano}-01-01`, hoje, 'neste ano', 'year', hoje), matched: 'este ano', span: m[0] }
+  }
+  const diaLiteral = t.match(/\b(?:(?:em|no\s+dia|na\s+data|dia)\s+)?(\d{4}-\d{2}-\d{2})(?![\d/-])/)
+    || t.match(/\b(?:em|no\s+dia|na\s+data|dia)\s+(\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)(?![\d/-])/)
+  if (diaLiteral) {
+    const day = findDate(diaLiteral[1], hoje)
+    return day?.kind === 'date' || day?.kind === 'future'
+      ? { period: P(day.date, day.date, `em ${br(day.date)}`, 'day', hoje), matched: diaLiteral[0] }
+      : null
   }
   const anoExplicito = t.match(/\bem\s+(20\d{2})\b/)
   if (anoExplicito) {
