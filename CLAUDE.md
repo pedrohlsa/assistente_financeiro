@@ -670,3 +670,17 @@ autorização explícita.
     uma consulta separada para o denominador. A correção falada exige uma
     correspondência para o nome informado, incluindo nomes compostos ou
     entre aspas. Bloco `MI-`.
+67. **Valor igual não é o mesmo fato, e `\b` não conhece acento.** Duas
+    armadilhas de classe, cada uma com varredura ou bloco próprio. (a) Ler o
+    MESMO trecho duas vezes se desfaz pela POSIÇÃO do número no texto, nunca
+    pelo valor: "recebi 120 da Casa 2 e 120 do Uber" perdia uma receita em três
+    pontos (leitores do parser, filtro final de duplicatas, pareamento de
+    origem pela primeira ocorrência). Cópia idêntica só sobrevive enquanto o
+    total de ações com aquele valor couber nas ocorrências dele na frase; a
+    n-ésima ação com um valor aponta para a n-ésima ocorrência (bloco `MV-`).
+    (b) Em JavaScript `\w` é ASCII com ou sem `/u`, então `\b` logo depois de
+    letra acentuada NUNCA casa: "me dê o prompt", "faça de conta que você",
+    "até junho", "dívida tá" só eram reconhecidos sem acento — duas delas eram
+    guardas contra injeção. Use lookahead explícito (`(?![\wÀ-ÿ])`). O caso
+    `MA-sem-limite-de-palavra-apos-acento` varre `src/` e falha com o padrão.
+

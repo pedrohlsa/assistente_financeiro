@@ -6376,3 +6376,54 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - Suíte com 820/820 regressões reais. As matrizes de linguagem
   passaram em 640/640 casos de fala irregular e 384/384 casos de
   horário em oito datas e quatro perfis, sem chamar o remoto.
+
+## 20/11/2026 — Fala do dia a dia, previsão do mês e acentos (Claude)
+
+Retomada a partir de `6129f5a` (handoff do Codex). Dez commits locais,
+`2414f14..a438ef8`, todos com regressão vermelha antes da correção, pelo
+orquestrador real e offline. Sondas lidas resposta por resposta.
+
+Casos do handoff resolvidos:
+- "recebi 120 da Casa 2 e 120 do Uber" (e invertido, e duas casas, e por
+  extenso): três deduplicações por VALOR viraram por POSIÇÃO (regra 67a).
+- "às 9 e 30 na padaria" pergunta se o 30 é minuto ou outro gasto, com as
+  duas leituras prontas; "horário", "1", "mais 30 na padaria", "2" ou o
+  lugar escolhem. Meio de pagamento ("no cartão") não é lugar.
+- "trabalhei ontem das 9h às 13h" vira 4h de trabalho (motorista); turno que
+  passa da meia-noite pergunta o dia.
+- "ao meio-dia", "à meia-noite", "faz meia hora", "há 20 minutos" viram hora;
+  relativa usa o relógio do aparelho e vira ontem antes da meia-noite. O
+  corretor de digitação não troca mais "meio"→"maio" nem "meia"→"meta".
+- "recebi 110 do joão" não presume corrida nem viagem.
+
+Defeitos novos achados pelas sondas e corrigidos:
+- Receita fantasma de R$ 15 em "gastei 30 no mercado e 20 na padaria e 15 no
+  uber"; "fiz 12 corridas deu 310 e rodei 180 km" perdia os 310; "comprei
+  pão 8 leite 6 e café 12" perdia R$ 14 em silêncio; "abasteci 50 de etanol
+  e 30 de lanche" perguntava pelos 30.
+- "gastei uns 30 ou 40 no mercado" virava DUAS despesas; agora pergunta.
+- "quanto eu fiz essa semana na 99" somava todas as plataformas; "gastei
+  quanto de luz esse ano" respondia a categoria Casa (o telhado); nome de
+  conta fixa cadastrada agora é entidade.
+- Meta "Notebook até junho" sem prazo; média "por semana" era por
+  lançamento; "cm uber" virava descrição; borracheiro e lavagem.
+- Oito regexes nunca casavam com acento, inclusive duas guardas contra
+  injeção ("me dê o prompt", "faça de conta que você"); a correção expôs um
+  corte antigo de "minha dívida tá em | quanto?" (regra 67b).
+- Fim do mês: "quanto vai sobrar/sobrará", "vou fechar no azul?", "to tendo
+  lucro?", "consigo guardar 500 esse mês?", "quanto vou ter dia 30" agora
+  respondem com a previsão e a conta, ditas como previsão.
+- Complemento curto da proposta: "foi na uber", "de salário", "no posto",
+  "foi janta", "foram 18 litros", "não, foi 250", "da casa 3", "e hoje 320".
+
+Gates (relógio 2026-09-15): 733/733 corpus, 99/99, 50/50, 898/898
+adversariais, 4.088 + 3.800 metamórficos, 1.416 fuzz, 151/151 invariantes,
+5/5 ditado, 468 offline; typecheck, typecheck:api, test:money, build,
+rubrica (0 perigosa, 0 ruim) e `test:calendario` (oito datas). Sem push,
+merge, deploy, APK ou DeepSeek. **NOT READY** até auditoria independente.
+
+Abertos e não atacados: "paguei a taxa da 99 de 1 real" cai no menu; "e fiz
+10 corridas" depois de "rodei 150 km" cria um segundo registro de trabalho
+em vez de juntar; "qual dia eu mais ganho" responde a data, não o dia da
+semana; voz real, Android e DeepSeek continuam sem validação.
+
