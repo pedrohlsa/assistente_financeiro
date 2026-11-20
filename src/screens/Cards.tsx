@@ -14,7 +14,7 @@ import {
 import {
   cardInvoice, cardLimits, cardsOverview, commitmentTimeline, currentInvoice,
   planProgress, upcomingInvoices, planInstallments, splitInstallmentAmounts, installmentLinkedToCardPayment,
-  futureInstallmentPaymentDate,
+  futureInstallmentPaymentDate, validPaymentDate,
 } from '../services/cards'
 import { monthlyProjections, hasProjectionData } from '../services/calc'
 import { catById } from '../data/categories'
@@ -603,7 +603,8 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
             const overdue = (i.status === 'pending' || !!futureDate) && i.dueDate < t
             const invoicePayment = installmentLinkedToCardPayment(state, i)
             const incompleteLegacy = i.status === 'paid' && !futureDate && (i.paidAmount ?? i.amount) < i.amount - 0.009
-            const early = i.status === 'paid' && !futureDate && i.paidAt && i.paidAt < i.dueDate
+            const paidAt = i.paidAt && validPaymentDate(i.paidAt, t) ? i.paidAt : undefined
+            const early = paidAt && paidAt < i.dueDate
             const color = i.status === 'cancelled' ? 'var(--text-3)' : futureDate ? 'var(--text-3)'
               : i.status === 'paid' ? 'var(--positive)' : overdue ? 'var(--danger)' : undefined
             return (
@@ -616,7 +617,8 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
                     {i.status === 'cancelled' ? 'cancelada'
                       : futureDate ? `pagamento com data futura (${fmtDateShort(futureDate)}); ainda não quitada hoje`
                       : incompleteLegacy ? `pagamento parcial ${fmtBRL(i.paidAmount || 0)} — falta completar`
-                      : i.status === 'paid' ? `paga em ${fmtDateShort(i.paidAt || i.dueDate)}${early ? ' (antecipada)' : ''}`
+                      : i.status === 'paid' ? (paidAt ? `paga em ${fmtDateShort(paidAt)}${early ? ' (antecipada)' : ''}`
+                        : 'paga · data de pagamento não informada')
                       : overdue ? `venceu em ${fmtDateShort(i.dueDate)}` : `vence em ${fmtDateShort(i.dueDate)}`}
                     {i.paidAmount && i.status === 'pending' ? ` · pago parcial ${fmtBRL(i.paidAmount)}` : ''}
                   </div>

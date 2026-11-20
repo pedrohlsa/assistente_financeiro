@@ -5964,3 +5964,10 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - A suíte passou com 766/766 regressões reais no relógio padrão.
   Typechecks, build, teste de dinheiro, rubrica e teste bissexto
   em Europe/Lisbon passaram. A branch permanece NOT READY.
+
+## 20/11/2026 — Data no detalhe de parcelas pagas
+
+- O detalhe mostra “paga · data de pagamento não informada” quando
+  o histórico guarda a quitação sem a data. O Chrome confirmou que
+  o vencimento de amanhã deixou de aparecer como data do pagamento.
+  Typecheck e build passaram.
