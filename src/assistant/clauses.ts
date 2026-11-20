@@ -1230,7 +1230,7 @@ function unaccountedMoney(clause: AnalyzedClause): number[] {
  */
 export function analyzeMessage(
   input: string,
-  opts?: { driver?: boolean; today?: string },
+  opts?: { driver?: boolean; today?: string; inheritedKind?: 'income' | 'expense' },
 ): MessageAnalysis {
   const today = opts?.today || todayISO()
   const original = input.trim()
@@ -1261,7 +1261,10 @@ export function analyzeMessage(
    * app perguntava "esses R$ 320 foram ganho ou gasto?" numa frase que já
    * tinha respondido isso.
    */
-  let inheritedKind: 'income' | 'expense' | undefined
+  // "Ontem fiz 280" → "E HOJE 320": a continuação herda o sentido do
+  // dinheiro da proposta na tela. Só para frase que começa com "e" — sem
+  // isso o motorista era perguntado se os 320 foram ganho ou gasto.
+  let inheritedKind: 'income' | 'expense' | undefined = /^\s*e\s/i.test(input) ? opts?.inheritedKind : undefined
 
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i]

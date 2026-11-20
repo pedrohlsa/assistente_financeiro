@@ -918,6 +918,14 @@ function acrescimoAProposta(pending: AssistantCandidateAction[], mensagem: strin
   if (relato && looksPast(relato) && !looksLikeQuestion(relato)) return relato
   const tipos = new Set(pending.map(p => p.action.kind).filter(k => k === 'expense' || k === 'income'))
   if (tipos.size !== 1) return null
+  // "Ontem fiz 280" → "E HOJE 320" (ou "e 320 ontem"): outro dia, mesmo tipo
+  // de dinheiro. Substituía a proposta e perguntava se era ganho ou gasto.
+  const dia = mensagem.trim().match(/^(?:e\s+)(?:(hoje|hj|ontem|anteontem)\s+(?:mais\s+)?(?:r\$\s*)?(\d[\d.,]*)|(?:mais\s+)?(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real)?\s+(hoje|hj|ontem|anteontem))\s*(?:reais|real)?\s*[?.!]*$/i)
+  if (dia) {
+    const corrida = pending.some(p => p.action.kind === 'income' && (p.action as any).category === 'corridas')
+    const verbo = tipos.has('income') ? (corrida ? 'fiz' : 'recebi') : 'gastei'
+    return `${dia[1] || dia[4]} ${verbo} ${dia[2] || dia[3]}`
+  }
   const m = mensagem.trim().match(/^(?:e\s+)?(?:mais\s+|tamb[ée]m\s+)?(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real|conto|contos|pila)?\s+(de|do|da|dos|das|no|na|nos|nas|em|com|pro|pra|para)\s+([a-zà-úç][a-zà-úç0-9\s]{1,40}?)\s*[?.!]*$/i)
   if (!m) return null
   return `${tipos.has('income') ? 'recebi' : 'gastei'} ${m[1]} ${m[2]} ${m[3]}`
@@ -1970,7 +1978,9 @@ Confirmar?`,
   // frase. A consulta só toma a frente quando o plano usa algo que ele
   // COMPROVADAMENTE não expressa (`beyondLegacy`). Fora disso ela fica de
   // reserva e entra no passo 18, onde hoje sai o texto genérico de ajuda.
-  let turno = buildTurnPlan(input.state, input.message, { today })
+  const sentidosNaTela = [...new Set((input.pending || []).map(p => p.action.kind).filter(k => k === 'income' || k === 'expense'))] as ('income' | 'expense')[]
+  const herdado = sentidosNaTela.length === 1 ? sentidosNaTela[0] : undefined
+  let turno = buildTurnPlan(input.state, input.message, { today, inheritedKind: herdado })
   let mensagem = input.message
   let reparo: RepairedText | null = null
 
@@ -2016,7 +2026,7 @@ ${response.reply}`,
     // muleta nunca é parte do sentido: tirá-la não pode piorar a leitura.
     const semMuleta = stripFillers(input.message)
     if (semMuleta.changed) {
-      const outro = buildTurnPlan(input.state, semMuleta.text, { today })
+      const outro = buildTurnPlan(input.state, semMuleta.text, { today, inheritedKind: herdado })
       turno = outro
       mensagem = semMuleta.text
     }
@@ -2048,7 +2058,7 @@ ${response.reply}`,
       const podeRecuperarNegacao = tentativa.corrections.some(c => c.estrutural)
         && /\b(?:n|n[ãa]o|nem|nunca|jamais)\b|(?<![\p{L}\p{M}])ñ(?=\s)/iu.test(mensagem)
       if (!hasBlock(turno, 'record') || degradado || parcial || podeRecuperarNegacao) {
-        const outro = buildTurnPlan(input.state, tentativa.text, { today })
+        const outro = buildTurnPlan(input.state, tentativa.text, { today, inheritedKind: herdado })
         const recuperouNegacao = podeRecuperarNegacao
           && outro.blocks.filter(b => looksNegated(b.clause.text)).length > turno.blocks.filter(b => looksNegated(b.clause.text)).length
         const melhorou = outro.coverage > turno.coverage + 1e-6

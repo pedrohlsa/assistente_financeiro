@@ -6177,6 +6177,10 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       ['MC-fonte-de-renda', 'autonomo', 'recebi 2000', 'de salário', a => a.length === 1 && a[0].amount === 2000 && a[0].category === 'salario'],
       ['MC-lugar-curto', 'autonomo', 'gastei 70', 'no posto', a => a.length === 1 && a[0].amount === 70 && a[0].description === 'Posto' && a[0].category === 'combustivel'],
       ['MC-dois-itens-nao-chuta', 'autonomo', 'gastei 50 no mercado e 30 na farmácia', 'no posto', a => !a.some(x => x.description === 'Posto')],
+      ['MC-e-hoje-herda-o-sentido', 'driver', 'ontem fiz 280', 'e hoje 320', a => a.some(x => x.kind === 'income' && x.amount === 280 && x.date === addDays(hoje, -1))
+        && a.some(x => x.kind === 'income' && x.amount === 320 && (x.date || hoje) === hoje)],
+      ['MC-e-valor-ontem', 'autonomo', 'gastei 40 no mercado', 'e 25 ontem', a => a.some(x => x.kind === 'expense' && x.amount === 40)
+        && a.some(x => x.kind === 'expense' && x.amount === 25 && x.date === addDays(hoje, -1))],
     ]
     for (const [id, perfil, primeira, segunda, ok] of casos) {
       const a = await segue(perfil, primeira, segunda)

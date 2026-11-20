@@ -85,10 +85,10 @@ function classifica(c: AnalyzedClause, state: AppState): TurnBlockType {
 export function buildTurnPlan(
   state: AppState,
   message: string,
-  opts: { today?: string } = {},
+  opts: { today?: string; inheritedKind?: 'income' | 'expense' } = {},
 ): AssistantTurnPlan {
   const today = opts.today || todayISO()
-  const analysis = analyzeMessage(message, { driver: isDriver(state.settings), today })
+  const analysis = analyzeMessage(message, { driver: isDriver(state.settings), today, inheritedKind: opts.inheritedKind })
 
   const blocks: TurnBlock[] = analysis.clauses.map(c => ({
     id: c.id,
