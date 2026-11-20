@@ -243,14 +243,45 @@ export function parseNatural(input: string): ParsedAction[] {
     actions.push(merged)
   }
 
-  // remove duplicatas exatas (mesma ação detectada em duas cláusulas)
+  // Remove duplicatas exatas — a mesma ação lida duas vezes — mas só até o
+  // número de vezes que aquele VALOR aparece na frase. "Recebi 120 da Casa 2 e
+  // 120 da Casa 1" tem duas receitas iguais como objeto (a origem entra depois,
+  // na cláusula) e dois "120" no texto: as duas existem.
+  const vezesNoTexto = (v: number): number => {
+    const inteiro = Math.round(v)
+    const formas = [...new Set([String(v).replace('.', ','), String(inteiro), inteiro.toLocaleString('pt-BR')])]
+    let max = 0
+    for (const f of formas) {
+      const re = new RegExp(String.raw`(?<![\d.,])${f.replace(/[.]/g, '\\.')}(?![\d]|[.,]\d)`, 'g')
+      max = Math.max(max, (input.match(re) || []).length)
+    }
+    return Math.max(max, 1)
+  }
+  // Primeiro, uma de cada; depois, a cópia idêntica só volta enquanto o TOTAL
+  // de ações com aquele valor (de qualquer descrição) couber nas ocorrências
+  // do valor no texto. "90 na farmácia e 90 no mercado" lido duas vezes no
+  // mercado tem três ações para dois "90": a cópia não volta.
   const seen = new Set<string>()
-  return actions.filter(a => {
+  const unicas: ParsedAction[] = []
+  const copias: ParsedAction[] = []
+  for (const a of actions) {
     const k = JSON.stringify(a)
-    if (seen.has(k)) return false
-    seen.add(k)
-    return true
-  })
+    if (seen.has(k)) copias.push(a)
+    else { seen.add(k); unicas.push(a) }
+  }
+  const porValor = new Map<number, number>()
+  for (const a of unicas) {
+    const v = (a as any).amount
+    if (typeof v === 'number' && v > 0) porValor.set(v, (porValor.get(v) || 0) + 1)
+  }
+  const voltam = new Set<ParsedAction>()
+  for (const a of copias) {
+    const v = (a as any).amount
+    if (!(typeof v === 'number' && v > 0)) continue
+    const n = porValor.get(v) || 0
+    if (n < vezesNoTexto(v)) { voltam.add(a); porValor.set(v, n + 1) }
+  }
+  return actions.filter(a => unicas.includes(a) || voltam.has(a))
 }
 
 // ---------- AMBIGUIDADE DO "GÁS" (item 26) ----------
@@ -970,6 +1001,15 @@ function parseClause(input: string): ParsedAction[] {
   // ----- receitas, inclusive várias na mesma cláusula:
   // "ganhei 430 Uber, mais 399 da 99"
   if (!actions.length || !actions.some(a => a.kind === 'goal')) {
+    // Os três leitores abaixo se sobrepõem no MESMO trecho ("ganhei 430 na
+    // uber" casa nos dois primeiros). A deduplicação é pela POSIÇÃO do número
+    // no texto, nunca pelo valor: por valor, "recebi 120 da Casa 2 e 120 do
+    // Uber" perdia a segunda receita em silêncio.
+    const valoresLidos = new Set<number>()
+    const posicaoDoValor = (inicio: number, numero: string) => {
+      const i = text.indexOf(numero, inicio)
+      return i < 0 ? inicio : i
+    }
     const incRe = new RegExp(
       // "Caiu" é o verbo mais natural para salário e pagamento que chega na
       // conta — sem ele, "caiu 500 na conta hoje" não registrava nada.
@@ -993,6 +1033,7 @@ function parseClause(input: string): ParsedAction[] {
             : platform.includes('privada') ? 'Corrida privada'
               : undefined
       const context = platform || (VERBO_DE_PAGAR.test(text) ? janelaLocal(text, at, at + inc[0].trimEnd().length) : text)
+      valoresLidos.add(posicaoDoValor(at, inc[1]))
       actions.push({
         kind: 'income',
         amount: parseNum(inc[1]),
@@ -1008,7 +1049,9 @@ function parseClause(input: string): ParsedAction[] {
     for (const pm of text.matchAll(platRe)) {
       const amount = parseNum(pm[1])
       if (!(amount > 0)) continue
-      if (actions.some(a => a.kind === 'income' && a.amount === amount)) continue
+      const pos = posicaoDoValor(pm.index || 0, pm[1])
+      if (valoresLidos.has(pos)) continue
+      valoresLidos.add(pos)
       const plat = pm[2].toLowerCase()
       actions.push({
         kind: 'income', amount, category: 'corridas',
@@ -1027,7 +1070,9 @@ function parseClause(input: string): ParsedAction[] {
       for (const em of text.matchAll(enumIncRe)) {
         const amount = parseNum(em[1])
         if (!(amount > 0)) continue
-        if (actions.some(a => (a as any).amount === amount)) continue
+        const pos = posicaoDoValor(em.index || 0, em[1])
+        if (valoresLidos.has(pos)) continue
+        valoresLidos.add(pos)
         actions.push({ kind: 'income', amount, category: guessCategory(em[2], 'income') })
       }
     }

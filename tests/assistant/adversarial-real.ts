@@ -5877,6 +5877,50 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // Dois fatos do MESMO valor numa frase sem repetir o verbo. "Recebi 120 da
+  // Casa 2 e 120 do Uber" perdia uma receita: três leitores do parser
+  // deduplicavam pelo valor, o filtro final de "duplicatas exatas" juntava
+  // duas receitas iguais como objeto, e a cláusula pareava a origem pela
+  // PRIMEIRA ocorrência do número — as duas herdavam "Casa 2".
+  {
+    const lote = (st: AppState, acoes: any[]) => applyBatchPure(st, acoes.map((action, i) => ({ id: `mv-${i}`, action })),
+      { now: { date: hoje, time: '00:00' } })
+    const receitas = (acoes: any[]) => acoes.filter(a => a.kind === 'income')
+      .map(a => `${a.amount}:${a.category}:${a.origin || a.description || '-'}`).sort().join(',')
+    const viagens = (acoes: any[]) => acoes.filter(a => a.kind === 'work').reduce((t, a) => t + (a.trips || 0), 0)
+    for (const [id, frase, esperado, trips] of [
+      ['MV-casa-e-uber', 'recebi 120 da Casa 2 e 120 do Uber', '120:corridas:Uber,120:outros-in:Casa 2', 1],
+      ['MV-uber-e-casa', 'recebi 120 do Uber e 120 da Casa 2', '120:corridas:Uber,120:outros-in:Casa 2', 1],
+      ['MV-duas-casas', 'recebi 120 da Casa 2 e 120 da Casa 1', '120:outros-in:Casa 1,120:outros-in:Casa 2', 0],
+      ['MV-verbo-repetido', 'recebi 120 da Casa 2 e recebi 120 do Uber', '120:corridas:Uber,120:outros-in:Casa 2', 1],
+    ] as const) {
+      const st = buildState({ profile: 'driver', balance: 1000 })
+      st.settings.balanceAsOf = `${addDays(hoje, -1)}T00:00:00`
+      const r = await turnoHoje(st, frase)
+      const aplicado = lote(st, r.actions)
+      out.push(result(id, { reply: r.reply, actions: r.actions }, `${esperado}; ${trips} viagem(ns); saldo 1.240 depois de confirmar`,
+        receitas(r.actions) === esperado && viagens(r.actions) === trips && !/mencionou R\$/.test(r.reply)
+          && aplicado.applied && currentBalance(aplicado.state, hoje) === 1240))
+    }
+    for (const perfil of ['autonomo', 'clt', 'other'] as const) {
+      const r = await turnoHoje(buildState({ profile: perfil }), 'recebi 120 da Casa 2 e 120 do Uber')
+      out.push(result(`MV-casa-e-uber-${perfil}`, r.actions, 'Casa 2 em Outros, Uber à parte, sem viagem',
+        receitas(r.actions) === '120:corridas:Uber,120:outros-in:Casa 2' && viagens(r.actions) === 0))
+    }
+    // Repetição que é CORREÇÃO não vira duas receitas.
+    const correcao = await turnoHoje(buildState({ profile: 'driver' }), 'recebi 120 da Casa 2, quer dizer, 120 da Casa 2')
+    out.push(result('MV-correcao-nao-duplica', correcao.actions, 'uma receita de 120 da Casa 2',
+      correcao.actions.filter(a => a.kind === 'income').length === 1))
+    // Leitura dupla do MESMO trecho continua removida: dois "90" no texto, duas despesas.
+    const despesas = await turnoHoje(buildState({ profile: 'autonomo' }), 'gastei 90 na farmácia e 90 no mercado')
+    out.push(result('MV-despesas-iguais-sem-leitura-dupla', despesas.actions, 'Farmácia 90 e Mercado 90, nada a mais',
+      despesas.actions.length === 2 && despesas.actions.every(a => a.kind === 'expense' && a.amount === 90)))
+    // Três valores iguais, três lugares.
+    const tres = await turnoHoje(buildState({ profile: 'autonomo' }), 'recebi 50 da Casa 1, 50 da Casa 2 e 50 da Casa 3')
+    out.push(result('MV-tres-iguais', tres.actions, 'três receitas de 50 com as três origens',
+      receitas(tres.actions) === '50:outros-in:Casa 1,50:outros-in:Casa 2,50:outros-in:Casa 3'))
+  }
+
   return out
 }
 

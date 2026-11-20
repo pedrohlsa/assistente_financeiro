@@ -771,7 +771,7 @@ const clauseId = () => `c${++seq}`
  * lançamento à origem que o usuário citou logo depois dele.
  * Devolve -1 quando o valor não aparece de forma reconhecível.
  */
-function amountPosition(text: string, amount?: number): number {
+function amountPosition(text: string, amount?: number, occurrence = 0): number {
   if (!(amount > 0)) return -1
   const inteiro = Math.round(amount)
   const candidatos = [
@@ -779,9 +779,14 @@ function amountPosition(text: string, amount?: number): number {
     String(inteiro),
     inteiro.toLocaleString('pt-BR'),
   ]
+  // `occurrence`: o mesmo valor dito duas vezes ("120 da Casa 2 e 120 do
+  // Uber") são dois lugares no texto. Sempre a primeira ocorrência fazia as
+  // duas ações herdarem a origem do primeiro valor.
   for (const c of candidatos) {
-    const i = text.indexOf(c)
-    if (i >= 0) return i
+    // Borda de dígito: o "12" não pode casar dentro de "120".
+    const re = new RegExp(String.raw`(?<![\d.,])${c.replace(/[.]/g, '\\.')}(?![\d]|[.,]\d)`, 'g')
+    const achados = [...text.matchAll(re)].map(m => m.index ?? -1).filter(i => i >= 0)
+    if (achados.length) return achados[Math.min(occurrence, achados.length - 1)]
   }
   return -1
 }
@@ -1520,7 +1525,19 @@ export function analyzeMessage(
     const extraOriginal = [...textoComValores.matchAll(INVOICE_EXTRA_AMOUNT)][0]
     const textoExtra = extraOriginal ? textoComValores.slice(extraOriginal.index) : ''
     const origensDoExtra = textoExtra ? extractOrigins(textoExtra) : []
-    const incomePositions = actions.flatMap(a => a.kind === 'income' ? [amountPosition(part.text, a.amount)] : [])
+    // A n-ésima ação com o mesmo valor aponta para a n-ésima ocorrência dele.
+    const ocorrenciaDe = new Map<ParsedAction, number>()
+    {
+      const vistos = new Map<string, number>()
+      for (const a of actions) {
+        const v = (a as any).amount
+        if (!(v > 0)) continue
+        const n = vistos.get(String(v)) || 0
+        ocorrenciaDe.set(a, n)
+        vistos.set(String(v), n + 1)
+      }
+    }
+    const incomePositions = actions.flatMap(a => a.kind === 'income' ? [amountPosition(part.text, a.amount, ocorrenciaDe.get(a) || 0)] : [])
     let fewerTrips = 0
 
     actions = actions.map(a => {
@@ -1530,7 +1547,7 @@ export function analyzeMessage(
       if (a.kind === 'card-payment' && invoiceParser.referenceMonth) next.referenceMonth = invoiceParser.referenceMonth
       const isExpenseExtra = despesasDaFatura.includes(a)
       const scopedOrigins = isExpenseExtra ? origensDoExtra : origins
-      const at = amountPosition(isExpenseExtra ? textoExtra : part.text, next.amount)
+      const at = amountPosition(isExpenseExtra ? textoExtra : part.text, next.amount, isExpenseExtra ? 0 : ocorrenciaDe.get(a) || 0)
       const incomeEnd = a.kind === 'income' && at >= 0 ? incomePositions.find(pos => pos > at) : undefined
       const hasRidePlatform = a.kind === 'income' && RIDE_PLATFORM_NAME.test(a.description || '')
       if (ORIGINABLE.has(a.kind) && !next.origin && scopedOrigins.length) {
@@ -1543,10 +1560,13 @@ export function analyzeMessage(
         if (pick) next.origin = pick.value
       }
       const incomeText = incomePositions.length > 1 && at >= 0 ? part.text.slice(at, incomeEnd) : part.text
-      if (opts?.driver && a.kind === 'income' && a.category === 'corridas' && !hasRidePlatform && !RIDE_REFERENCE.test(incomeText)
-        && (next.origin || NON_RIDE_RECEIPT.test(incomeText))) {
+      // Receita com origem própria ("da Casa 2") não é corrida só porque a
+      // frase cita Uber em outra parte. Vale para todo perfil; só o motorista
+      // tem viagem implícita a descontar.
+      if (a.kind === 'income' && a.category === 'corridas' && !hasRidePlatform && !RIDE_REFERENCE.test(incomeText)
+        && (next.origin || (opts?.driver && NON_RIDE_RECEIPT.test(incomeText)))) {
         next.category = 'outros-in'
-        fewerTrips++
+        if (opts?.driver) fewerTrips++
       }
       return next as ParsedAction
     })
