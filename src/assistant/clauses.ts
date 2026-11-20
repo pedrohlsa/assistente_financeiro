@@ -119,7 +119,7 @@ const QUESTION_PATTERNS: RegExp[] = [
   // e o número do período da frase podia virar lançamento.
   /\b(?:qnto|qnta|qntos|qntas|qnt|qto|qta|qts|qnd|qndo)\b/i,
   /\bcomo\s+(?:est[aáo]|foi|fica|t[aá]|anda|vai)\b/i,
-  /\b(?:sobra|sobrou|sobrar[áa]?|resta|restou|restar[áa]?)\b/i,
+  /\b(?:sobra|sobrou|sobrar[áa]?|resta|restou|restar[áa]?)(?![\wÀ-ÿ])/i,
   /\bd[áa]\s+(?:pra|para)\b/i,
   /\bvai\s+(?:faltar|sobrar|pesar|dar|apertar)\b/i,
   /\b(?:t[ôo]|tou|estou|to)\s+(?:bem|bom|mal|ruim|apertad|indo|gastando|lucrando)/i,
@@ -129,7 +129,7 @@ const QUESTION_PATTERNS: RegExp[] = [
   /^\s*e\s+(?:agora|depois|no\s+pr[óo]ximo|mês\s+que\s+vem|m[eê]s\s+que\s+vem)\b/i,
   /\b(?:posso|consigo|devo|preciso|dever[ií]a)\b/i,
   /\bcobr[eo]m?\b/i,
-  /\bd[íi]vida\s+(?:t[áa]|est[áa])\b/i,
+  /\bd[íi]vida\s+(?:t[áa]|est[áa])(?![\wÀ-ÿ])/i,
   /\bmelhor(?:ou)?\b/i,
   /\bpior(?:ou)?\b/i,
 ]
@@ -609,6 +609,10 @@ export function segment(text: string, today = todayISO()): { text: string; start
     if (/\be$/i.test(text.slice(0, m.index || 0))) continue
     const prior = expandWeekdayAlternatives(text.slice(Math.max(...[...cuts].filter(cut => cut <= m.index)), m.index))
     if (/^\s*(?:me\s+)?(?:lembra|diz|fala|conta|mostra)\s*$/i.test(prior)) continue
+    // "Minha dívida tá EM quanto?", "foi DE quanto?": a palavra interrogativa
+    // é objeto da preposição, e a frase é UMA pergunta. Cortada, "quanto?"
+    // sozinho era respondido com o resumo dos cartões.
+    if (/(?<![\wÀ-ÿ])(?:em|de|do|da|por|pra|pro|para|com|at[ée]|no|na|a)\s*$/i.test(prior)) continue
     const dates = /\bou\b/i.test(prior) ? alternativeDates(prior, datesMentioned(prior, today)) : undefined
     if (dates && /^\s*(?:(?:no|na|em)\s*)?[,; ]*$/i.test(prior.slice(0, dates.start) + prior.slice(dates.end))) continue
     push((m.index || 0) + m[0].length)
@@ -1895,7 +1899,7 @@ export function analyzeMessage(
 
     // Uma cláusula com ação E pergunta juntas ("gastei 40, ainda bato a meta?")
     // rende DUAS entradas: a pergunta não pode sumir porque a ação foi entendida.
-    const interrompida = /^\s*n[ãa]o[\s,]+(?:espera|pera[íi]?)\b/i.test(part.text)
+    const interrompida = /^\s*n[ãa]o[\s,]+(?:espera|pera[íi]?)(?![\wÀ-ÿ])/i.test(part.text)
     const handled = (negated && !interrompida) || unrealized || intent === 'conversation'
       || (intent === 'record' && actions.length > 0) || !!temporal || !!ambiguity
 

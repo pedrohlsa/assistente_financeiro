@@ -88,7 +88,7 @@ const semBase = (o_que: string) =>
 const RE_TIPICO = /\b(?:costum\w+|tipic\w+|normal|em m[ée]dia|m[ée]dia)\b[^?]*\b(?:por dia|no dia|dia|dias)\b|\b(?:quanto|qual)[^?]*\b(?:costum\w+|tipic\w+)\b/
 const RE_DIAS_FORTES = /\b(?:dias?|dia)\b[^?]*\b(?:mais fort\w+|melhor\w*|que rende\w*|mais rende\w*|mais forte)\b|\bmelhores? dias?\b|\bpiores? dias?\b|\bdias? (?:mais )?frac\w+\b/
 const RE_PLATAFORMA = /\b(?:uber|99|indrive|indriver|plataforma|aplicativo)\b[^?]*\b(?:mais|melhor|rende|vem|d[áa]|paga)\b|\b(?:de onde|qual)\b[^?]*\b(?:vem mais|rende mais|paga mais)\b|\bdistribui[çc][ãa]o\b/
-const RE_TENDENCIA = /\b(?:tend[êe]ncia|essa semana|esta semana|ultimos dias|[úu]ltimos dias)\b[^?]*\b(?:melhor|pior|normal|m[ée]dia|comparad\w+)\b|\b(?:estou|to|t[ôo])\b[^?]*\b(?:acima|abaixo)\b[^?]*\b(?:normal|m[ée]dia)\b/
+const RE_TENDENCIA = /\b(?:tend[êe]ncia|essa semana|esta semana|ultimos dias|[úu]ltimos dias)\b[^?]*\b(?:melhor|pior|normal|m[ée]dia|comparad\w+)\b|\b(?:estou|to|t[ôo])(?![\wÀ-ÿ])[^?]*\b(?:acima|abaixo)\b[^?]*\b(?:normal|m[ée]dia)\b/
 const RE_COMBUSTIVEL_TIPICO = /\b(?:costum\w+|tipic\w+|em m[ée]dia|quanto)\b[^?]*\b(?:gast\w+)\b[^?]*\b(?:gasolina|combust[íi]vel|etanol|[áa]lcool|gnv|diesel)\b[^?]*\b(?:por dia|no dia|por m[êe]s)\b/
 
 /**

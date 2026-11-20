@@ -19,7 +19,7 @@ export type EstadoDaAcao = 'pendente' | 'nada-proposto'
 /** Verbo de execução na primeira pessoa, com o "já" que costuma vir antes. */
 const PRIMEIRA_PESSOA = /\b(j[áa]\s+)?(registrei|anotei|lancei|salvei|gravei|confirmei)\b/gi
 /** Ação irreversível: "preparei" não cabe; o texto passa a oferecer, não a afirmar. */
-const IRREVERSIVEL = /\b(j[áa]\s+)?(transferi|apaguei|deletei|exclu[íi])\b/gi
+const IRREVERSIVEL = /\b(j[áa]\s+)?(transferi|apaguei|deletei|exclu[íi])(?![\wÀ-ÿ])/gi
 const OFERTA: Record<string, string> = { transferi: 'posso transferir', apaguei: 'posso apagar', deletei: 'posso apagar', 'excluí': 'posso excluir', exclui: 'posso excluir' }
 /** Passiva que afirma o fato consumado: "foi registrada", "já estão lançados". */
 const PASSIVA = /\b(?:j[áa]\s+)?(foi|foram|est[áa]|est[ãa]o|ficou|ficaram)\s+(registrad|lan[çc]ad|anotad|salv|gravad|confirmad|transferid|apagad)(a|o|as|os)\b/gi

@@ -1114,10 +1114,10 @@ const QUEBRAR_REGRA = [
   /\bignor[ae]\s+(?:suas?|as|todas?)\s+(?:regras?|instru)/i,
   /\bsem\s+(?:pedir\s+)?confirma/i,
   /\bregistr[ae]\s+.{0,30}\bsem\s+confirm/i,
-  /\b(?:mostr[ae]|revel[ae]|me\s+d[êe]|qual\s+[ée])\b[^?]{0,40}\b(?:prompt|instru[çc][õo]es\s+internas|system\s+prompt)\b/i,
+  /\b(?:mostr[ae]|revel[ae]|me\s+d[êe]|qual\s+[ée])(?![\wÀ-ÿ])[^?]{0,40}\b(?:prompt|instru[çc][õo]es\s+internas|system\s+prompt)\b/i,
   /\b(?:chave|token|api\s*key|senha)\b[^?]{0,30}\b(?:api|deepseek|sistema|voc[êe]\s+usa)\b/i,
   /\bqual\s+[ée]\s+a\s+(?:chave|senha|api)/i,
-  /\bfa[çc]a\s+de\s+conta\s+que\s+voc[êe]\b/i,
+  /\bfa[çc]a\s+de\s+conta\s+que\s+voc[êe](?![\wÀ-ÿ])/i,
   /\besque[çc]a\s+(?:tudo|suas?\s+regras?)/i,
 ]
 
