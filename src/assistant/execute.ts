@@ -19,7 +19,7 @@ import { findInvoicePaymentCards, invoicePaymentIssue } from './invoicePayment'
 import { addDays, monthKey, nowPaymentTime, nowStamp, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
-import { isOccurrenceResolved, matchRecurringPayment, nextCashEventTime, occurrencesBetween, possibleRecurringTransactions } from '../services/calc'
+import { matchRecurringPayment, nextCashEventTime, occurrencesBetween, possibleRecurringTransactions, recurringOccurrenceState } from '../services/calc'
 import { buildInstallments, cardInvoice, directInstallmentPaidAmount, futureInvoicePaymentDate,
   invoiceOpenAmount, settleableInstallmentIds, suggestedFirstDueDate, unpaidPriorInvoiceMonths,
   validPaymentDate } from '../services/cards'
@@ -409,7 +409,10 @@ export function applyActionPure(
       const occ = action.occurrenceDate
       // A chave recurringId + data é a mesma da Home: confirmar duas vezes o
       // mesmo vencimento é recusado, nunca duplicado.
-      if (isOccurrenceResolved(rec, occ) || state.transactions.some(x => x.recurringId === rec.id && x.occurrenceDate === occ)) {
+      const occurrence = recurringOccurrenceState(state, rec, occ, date)
+      if (occurrence.futurePaymentDate) return { state, result: fail(actionId, 'recurring-conflict',
+        `${rec.name} tem um lançamento vinculado com data futura. Confira a data em Movimentações.`, false) }
+      if (occurrence.resolved) {
         return { state, result: fail(actionId, 'occurrence-resolved', rec.name, false) }
       }
       if (!isPlausibleDate(occ, date) || occ > date || !occurrencesBetween(rec, occ, occ, date).length) {

@@ -51,7 +51,7 @@ import { describeAction, META_OUTRA } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
 import { catById, usableCategories } from '../data/categories'
 import { addDays, fmtBRL, MESES_PT_BR, todayISO, uid } from '../utils/format'
-import { matchRecurringPayment, occurrenceRecord, occurrencesBetween, possibleRecurringTransactions, recurringActiveOn, recurringLinkAction } from '../services/calc'
+import { matchRecurringPayment, occurrencesBetween, possibleRecurringTransactions, recurringActiveOn, recurringLinkAction } from '../services/calc'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { brDate, dateLabel, findAllDates, findDate, previousYearOf, resolveDayInWindow } from './dates'
 import { applyPreferenceAliases, parsePreferenceCommand } from './preferences'
@@ -1041,6 +1041,10 @@ function resolveRecurringStatement(
   if (!matches) return null
   if (reference && !occurrenceDate) return { note: 'Qual é a data de vencimento dessa conta fixa? Informe dia, mês e ano.' }
   if (matches.conflictingReference) return { note: 'O mês informado é diferente do mês do vencimento. Qual ocorrência você pagou?' }
+  const future = matches.pending.find(p => p.futurePaymentDate)
+  if (future?.futurePaymentDate) {
+    return { note: `Já existe um lançamento com data futura (${brDate(future.futurePaymentDate)}) para "${sentenceCase(future.rec.name)}", vencimento ${brDate(future.dueDate)}. Confira a data em Movimentações.` }
+  }
   if (matches.alreadyPaid) {
     return { note: 'Já encontrei um registro para essa conta fixa. Se você pagou outra ocorrência, diga o vencimento ou a origem dessa conta.' }
   }

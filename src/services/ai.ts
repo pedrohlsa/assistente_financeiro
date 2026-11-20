@@ -22,7 +22,7 @@ import { MARGEM_EMPATE } from '../assistant/query/answer'
 import {
   analyzeRide, avgDailyProfit, balanceOutlook, balanceOutlookText, bestWorstDay, cashObligationsUntil, currentBalance, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
   monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections, budgetUsage,
-  describeRecurrence, occurrenceRecord, occurrencesBetween, recurrenceStep, recurringActiveOn, savedThisMonth,
+  describeRecurrence, occurrencesBetween, recurrenceStep, recurringActiveOn, recurringOccurrenceState, savedThisMonth,
 } from './calc'
 import type { CashObligation } from './calc'
 import {
@@ -2044,18 +2044,16 @@ function respostaDaConta(s: AppState, r: RecurringExpense, tipo: PerguntaDeConta
   const nome = r.name.trim()
   const vencidas = occurrencesBetween(r, addDays(hoje, -62), hoje).filter(d => recurringActiveOn(r, d))
   const ultima = vencidas[vencidas.length - 1]
+  const status = (d: string) => recurringOccurrenceState(s, r, d, hoje)
   const proxima = occurrencesBetween(r, addDays(hoje, 1), addDays(hoje, 400))
-    .find(d => recurringActiveOn(r, d) && !occurrenceRecord(r, d))
-  const paga = (d: string) => occurrenceRecord(r, d)?.status === 'confirmed'
-    || s.transactions.some(x => x.recurringId === r.id && x.occurrenceDate === d)
-  const pulada = (d: string) => occurrenceRecord(r, d)?.status === 'skipped'
+    .find(d => recurringActiveOn(r, d) && !status(d).resolved)
+  const paga = (d: string) => status(d).resolved && status(d).record?.status !== 'skipped'
+  const pulada = (d: string) => status(d).record?.status === 'skipped'
   const valorDe = (d: string) => {
-    const occurrence = occurrenceRecord(r, d)
-    const linked = (occurrence?.txId ? s.transactions.find(t => t.id === occurrence.txId) : undefined)
-      || s.transactions.find(t => t.recurringId === r.id && t.occurrenceDate === d)
-    return linked?.amount ?? occurrence?.amount ?? r.amount
+    const occurrence = status(d)
+    return occurrence.futurePaymentDate ? r.amount : occurrence.transaction?.amount ?? occurrence.record?.amount ?? r.amount
   }
-  const emAberto = vencidas.filter(d => !paga(d) && !pulada(d))
+  const emAberto = vencidas.filter(d => !status(d).resolved)
   const regra = describeRecurrence(r)
   const quando = regra.charAt(0).toLowerCase() + regra.slice(1)
   const amanha = (d: string) => d === addDays(hoje, 1) ? ' (amanhã)' : ''
@@ -2074,6 +2072,8 @@ function respostaDaConta(s: AppState, r: RecurringExpense, tipo: PerguntaDeConta
       }
       if (emAberto.length) {
         const ult = emAberto[emAberto.length - 1]
+        const futura = status(ult).futurePaymentDate
+        if (futura) return { text: `A conta ${nome} de ${dataCompleta(ult)} ainda está em aberto. O lançamento vinculado tem data futura (${dataCompleta(futura)}). Confira a data em Movimentações.` }
         return { text: [`Não está marcada como paga: a conta ${nome} de ${fmtBRL(valorDe(ult))} venceu em ${dataCompleta(ult)} e não foi confirmada.`,
           emAberto.length > 1 ? aberto : '', 'Se já pagou, confirme na tela inicial.'].filter(Boolean).join(' ') }
       }

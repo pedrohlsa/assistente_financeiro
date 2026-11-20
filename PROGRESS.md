@@ -5857,3 +5857,16 @@ APK ou chamada paga. NOT READY até auditoria independente.
   restauração fica bloqueada.
 - O fluxo de remoção e desfazer passou no Chrome. A suíte passou
   com 747/747 regressões reais, typechecks e build.
+
+## 19/11/2026 — Baixas futuras de contas fixas
+
+- Uma baixa importada com data futura mantém a ocorrência em aberto
+  até a data da movimentação. Home e chat mostram o aviso e bloqueiam
+  outro pagamento para o mesmo vencimento. O planejamento continua
+  considerando a conta.
+- Adiar o lembrete na Home mantém o vencimento nos cálculos de cobertura.
+  Um saldo de R$ 100 com uma conta vencida de R$ 120 sem confirmação
+  deixa de produzir uma conclusão de cobertura.
+- Restauração de backup fictício validada no Chrome. A suíte passou
+  com 750/750 regressões reais no relógio padrão. Matriz de oito datas,
+  typechecks, build e rubrica local passaram. A branch permanece NOT READY.

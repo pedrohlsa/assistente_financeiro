@@ -14,7 +14,7 @@ import { buildDemoData } from '../data/demo'
 import { addDays, monthKey, nowPaymentTime, nowStamp, nowTime, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
-import { isOccurrenceResolved, nextCashEventTime, transactionOccurrence } from '../services/calc'
+import { nextCashEventTime, recurringOccurrenceState, transactionOccurrence } from '../services/calc'
 import type { TransactionOccurrence } from '../services/calc'
 import { cardInvoice, currentInvoice, directInstallmentPaidAmount, futureInvoicePaymentDate,
   installmentLinkedToCardPayment, validPaymentDate } from '../services/cards'
@@ -291,8 +291,9 @@ export function reducer(s: AppState, a: Action): AppState {
     case 'resolveOccurrence':
       if (a.occurrence.status === 'skipped') {
         const rec = s.recurring.find(r => r.id === a.recurringId)
-        if (!rec || isOccurrenceResolved(rec, a.occurrence.date)
-          || s.transactions.some(t => t.recurringId === rec.id && t.occurrenceDate === a.occurrence.date)) return s
+        if (!rec) return s
+        const occurrence = recurringOccurrenceState(s, rec, a.occurrence.date, todayISO())
+        if (occurrence.resolved || occurrence.futurePaymentDate) return s
       }
       // Chave única recurringId + date: reconfirmar a mesma ocorrência substitui
       // o registro em vez de criar um segundo.

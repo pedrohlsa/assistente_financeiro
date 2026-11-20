@@ -70,7 +70,9 @@ export default function PendingRecurrings() {
             </p>
             <p className="tiny" style={{ margin: '-6px 0 12px' }}>{dueLabel(p.inDays, p.kind)}</p>
 
-            {open === 'links' ? (
+            {p.futurePaymentDate ? (
+              <p className="small">O lançamento vinculado tem data futura ({fmtDateShort(p.futurePaymentDate)}). Confira a data em Movimentações.</p>
+            ) : open === 'links' ? (
               <div className="stack">
                 <p className="small">Qual lançamento já registrado corresponde a este vencimento?</p>
                 {p.matches.map(t => (

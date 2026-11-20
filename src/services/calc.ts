@@ -330,8 +330,7 @@ export interface MonthProjection {
 /** Só ocorrências ainda futuras e não resolvidas entram no saldo projetado. */
 function projectedRecurringAmount(s: AppState, r: RecurringExpense, from: string, to: string, today: string): number {
   return occurrencesBetween(r, from, to, today)
-    .filter(date => !isOccurrenceResolved(r, date)
-      && !s.transactions.some(t => t.recurringId === r.id && t.occurrenceDate === date))
+    .filter(date => !recurringOccurrenceState(s, r, date, today).resolved)
     .reduce(sum => sum + r.amount, 0)
 }
 
@@ -432,6 +431,7 @@ export interface PendingRecurring {
   kind: 'income' | 'expense'
   /** Dias desde/até o vencimento REAL: 0 = hoje, negativo = já venceu. */
   inDays: number
+  futurePaymentDate?: string
 }
 
 /** Quanto tempo para trás o app ainda pergunta sobre uma ocorrência não resolvida. */
@@ -451,13 +451,13 @@ export function pendingRecurrings(s: AppState, t = todayISO(), includeSnoozed = 
       // Uma recorrente cadastrada hoje NÃO nasce atrasada: a âncora define a
       // primeira ocorrência e nada antes dela vira pendência.
       if (!recurringActiveOn(r, dueIso)) continue
-      if (isOccurrenceResolved(r, dueIso)) continue
-      // Lançamento já existente para esta ocorrência (ex.: registrado na criação).
-      if (s.transactions.some(x => x.recurringId === r.id && x.occurrenceDate === dueIso)) continue
+      const occurrence = recurringOccurrenceState(s, r, dueIso, t)
+      if (occurrence.resolved) continue
       out.push({
         rec: r, monthKey: monthKey(dueIso), dueDate: dueIso,
         kind: r.kind === 'income' ? 'income' : 'expense',
         inDays: Math.round((fromISO(dueIso).getTime() - today.getTime()) / 86400000),
+        futurePaymentDate: occurrence.futurePaymentDate,
       })
     }
   }
@@ -576,9 +576,14 @@ export function matchRecurringPayment(
     const samePayment = payment.date ? t.date === payment.date : t.date >= earliestRepeat
     return matchesAmount && samePayment
   }) || (explicit && accounts.some(r => {
-    if (dueDate) return dueDate <= today && occurrenceRecord(r, dueDate)?.status === 'confirmed'
-    return !!(reference && legacyMonthResolved(r, reference))
-      || (r.occurrences || []).some(o => o.status === 'confirmed' && o.date <= today && references(o.date))
+    if (dueDate) {
+      const occurrence = recurringOccurrenceState(s, r, dueDate, today)
+      return dueDate <= today && occurrence.resolved && occurrence.record?.status === 'confirmed'
+    }
+    return !!(reference && legacyMonthResolved(r, reference)
+      && !pending.some(p => p.rec.id === r.id && p.futurePaymentDate))
+      || (r.occurrences || []).some(o => o.status === 'confirmed' && o.date <= today && references(o.date)
+        && recurringOccurrenceState(s, r, o.date, today).resolved)
   }))
   return pending.length || alreadyPaid || explicit ? { pending, alreadyPaid } : null
 }
@@ -855,9 +860,14 @@ function legacyMonthResolved(r: RecurringExpense, month: string): boolean {
   return !!r.handledMonths?.includes(month) && (!r.occurrences?.length || recurrenceStep(r).unit === 'month')
 }
 
-/** A ocorrência já foi resolvida (confirmada ou marcada como não recebida/paga)? */
-export const isOccurrenceResolved = (r: RecurringExpense, date: string): boolean =>
-  !!occurrenceRecord(r, date)
+/** Uma baixa importada com data futura continua registrada, mas ainda não foi realizada. */
+export function recurringOccurrenceState(s: AppState, r: RecurringExpense, date: string, today: string) {
+  const record = occurrenceRecord(r, date)
+  const transaction = (record?.txId ? s.transactions.find(t => t.id === record.txId) : undefined)
+    ?? s.transactions.find(t => t.recurringId === r.id && t.occurrenceDate === date)
+  const futurePaymentDate = record?.status !== 'skipped' && transaction && transaction.date > today ? transaction.date : undefined
+  return { record, transaction, futurePaymentDate, resolved: !futurePaymentDate && !!(record || transaction) }
+}
 
 /** O recorrente está valendo nesta data? (desativado, ainda não começou, já terminou) */
 export function recurringActiveOn(r: RecurringExpense, iso: string): boolean {
@@ -872,14 +882,14 @@ export function recurringActiveOn(r: RecurringExpense, iso: string): boolean {
  * Ocorrência já confirmada sai daqui: senão o mesmo salário apareceria ao mesmo
  * tempo como saldo realizado e como entrada prevista (item 11).
  */
-function upcomingFrom(list: RecurringExpense[], horizon: number, t = todayISO()): UpcomingBill[] {
+function upcomingFrom(s: AppState, kind: 'expense' | 'income', horizon: number, t: string): UpcomingBill[] {
   const today = fromISO(t)
   const to = addDays(t, horizon)
   const out: UpcomingBill[] = []
-  for (const r of list) {
-    const kind = r.kind === 'income' ? 'income' : 'expense'
+  for (const r of s.recurring) {
+    if ((r.kind ?? 'expense') !== kind) continue
     for (const iso of occurrencesBetween(r, t, to, t)) {
-      if (isOccurrenceResolved(r, iso)) continue
+      if (recurringOccurrenceState(s, r, iso, t).resolved) continue
       out.push({
         name: r.name, amount: r.amount, date: iso, kind,
         inDays: Math.round((fromISO(iso).getTime() - today.getTime()) / 86400000),
@@ -891,12 +901,12 @@ function upcomingFrom(list: RecurringExpense[], horizon: number, t = todayISO())
 
 /** Contas a PAGAR nos próximos dias (só saídas). */
 export function upcomingBills(s: AppState, horizon = 30, today = todayISO()): UpcomingBill[] {
-  return upcomingFrom(s.recurring.filter(r => r.kind !== 'income'), horizon, today)
+  return upcomingFrom(s, 'expense', horizon, today)
 }
 
 /** Entradas fixas a RECEBER nos próximos dias (salário/aluguel). */
 export function upcomingIncomes(s: AppState, horizon = 30): UpcomingBill[] {
-  return upcomingFrom(s.recurring.filter(r => r.kind === 'income'), horizon)
+  return upcomingFrom(s, 'income', horizon, todayISO())
 }
 
 // ---------- MODO BANCO: saúde do saldo (auto-adaptativo) ----------
@@ -976,8 +986,8 @@ export function cashObligationsUntil(s: AppState, until: string, t = todayISO())
   const inDays = (iso: string) => Math.round((fromISO(iso).getTime() - today.getTime()) / 86400000)
   const out: CashObligation[] = []
 
-  // Atrasadas e de hoje: a mesma lista de pendências da Home.
-  for (const p of pendingRecurrings(s, t)) {
+  // Adiar o aviso na Home não retira o vencimento dos cálculos de cobertura.
+  for (const p of pendingRecurrings(s, t, true)) {
     if (p.kind !== 'expense' || p.dueDate > until) continue
     out.push({ name: p.rec.name, amount: p.rec.amount, date: p.dueDate, inDays: p.inDays, kind: 'bill',
       ...(p.inDays < 0 ? { unconfirmed: true } : {}) })

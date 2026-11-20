@@ -4,7 +4,7 @@ import type { AppState } from '../../src/models/types'
 import { orchestrate } from '../../src/assistant/orchestrator'
 import { segment } from '../../src/assistant/clauses'
 import { findDate } from '../../src/assistant/dates'
-import { balanceOutlook, balanceOutlookText, currentBalance, kmCost, monthlyProjections, occurrencesBetween, pendingRecurrings, possibleRecurringTransactions, recurringLinkAction, transactionOccurrence } from '../../src/services/calc'
+import { balanceOutlook, balanceOutlookText, currentBalance, kmCost, monthlyProjections, occurrencesBetween, pendingRecurrings, possibleRecurringTransactions, recurringLinkAction, transactionOccurrence, upcomingBills } from '../../src/services/calc'
 import { cardInvoice, cardOutstanding, cardsOverview, futureInstallmentPaymentDate, invoiceOpenAmount, planProgress } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
 import { buildCapabilities } from '../../src/assistant/capabilities'
@@ -4565,6 +4565,43 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('RVIN-extrato-desfazer-mantem-hora-da-ancora', restauradaNaAncora.transactions[0],
       'desfazer exclusão mantém o carimbo da transação que já estava incluída no saldo informado',
       restauradaNaAncora.transactions[0]?.time === hora && currentBalance(restauradaNaAncora) === 1000))
+
+    const amanha = addDays(hoje, 1)
+    const baixaFutura: AppState = { ...legado, settings: { ...legado.settings, balance: 100 },
+      recurring: [{ ...conta, startDate: ontem, dueDay: Number(ontem.slice(8)),
+        occurrences: [{ date: ontem, status: 'confirmed', txId: avulsa.id, amount: 120 }] }],
+      transactions: [{ ...avulsa, date: amanha, recurringId: conta.id, occurrenceDate: ontem }],
+    }
+    const futuroRestaurado = hydrateForTest(JSON.parse(JSON.stringify(baixaFutura)))
+    const statusFuturo = await turnoHoje(futuroRestaurado, 'A conta de internet está paga?')
+    const tentativa = await turnoHoje(futuroRestaurado, 'Paguei 120 da internet')
+    const executor = applyBatchPure(futuroRestaurado, [{ id: 'baixa-anterior', action: { kind: 'recurring-confirm',
+      recurringId: conta.id, occurrenceDate: ontem, amount: 120 } }], { now: agora })
+    const cobertura = balanceOutlook(futuroRestaurado, 7, hoje)
+    out.push(result('RFUT-backup-nao-confirma-conta-com-baixa-futura', { statusFuturo, tentativa, cobertura, executor: executor.results },
+      'hoje o saldo é 100 e a conta de 120 ainda está pendente; chat e executor bloqueiam duplicidade e o caixa só baixa na data',
+      /ainda está em aberto.*data futura/.test(statusFuturo.reply) && tentativa.actions.length === 0 && /data futura/.test(tentativa.reply)
+        && !executor.applied && executor.state === futuroRestaurado && /data futura/.test(JSON.stringify(executor.results))
+        && cobertura.balance === 100 && cobertura.ok === undefined && cobertura.unconfirmed.some(p => p.amount === 120)
+        && pendingRecurrings(futuroRestaurado, hoje)[0]?.futurePaymentDate === amanha
+        && pendingRecurrings(futuroRestaurado, amanha).length === 0 && currentBalance(futuroRestaurado, amanha) === -20))
+
+    const adiada = { ...futuroRestaurado, recurring: futuroRestaurado.recurring.map(r => ({ ...r, snoozeUntil: amanha })) }
+    const vencidaAdiada = { ...adiada, transactions: [], recurring: adiada.recurring.map(r => ({ ...r, occurrences: [] })) }
+    out.push(result('RFUT-adiar-alerta-nao-remove-conta-da-cobertura', balanceOutlook(vencidaAdiada, 7, hoje),
+      'a conta adiada some da Home até amanhã, mas o compromisso vencido continua na cobertura',
+      pendingRecurrings(vencidaAdiada, hoje).length === 0 && balanceOutlook(vencidaAdiada, 7, hoje).unconfirmed.length === 1
+        && balanceOutlook(vencidaAdiada, 7, hoje).ok === undefined))
+
+    const previsao: AppState = { ...baixaFutura, recurring: [{ ...conta, startDate: amanha, dueDay: Number(amanha.slice(8)),
+      occurrences: [{ date: amanha, status: 'confirmed', txId: avulsa.id, amount: 120 }] }],
+      transactions: [{ ...avulsa, date: addDays(hoje, 2), recurringId: conta.id, occurrenceDate: amanha }],
+    }
+    const previstos = upcomingBills(previsao, 7, hoje)
+    const projecao = monthlyProjections(previsao, 2, hoje).find(m => m.monthKey === amanha.slice(0, 7))
+    out.push(result('RFUT-baixa-futura-nao-apaga-previsao-de-vencimento', { previstos, projecao },
+      'vencimento pertence ao período previsto até que a baixa tenha ocorrido',
+      previstos.length === 1 && previstos[0].date === amanha && previstos[0].amount === 120 && projecao?.bills === 120))
   }
 
   // "Até dia N" é PRAZO, não fato. No dia 12, "quanto preciso deixar parado

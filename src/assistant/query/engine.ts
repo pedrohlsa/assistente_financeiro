@@ -16,7 +16,7 @@ import { normalizeName, sentenceCase, weekdayName } from '../../utils/text'
 import {
   activeCards, cardById, cardInvoice, cardOutstanding, invoiceOpenAmount, planProgress,
 } from '../../services/cards'
-import { monthlyProjections, occurrencesBetween, recurringActiveOn, isOccurrenceResolved } from '../../services/calc'
+import { monthlyProjections, occurrencesBetween, recurringActiveOn, recurringOccurrenceState } from '../../services/calc'
 import type {
   AssistantFact, AssistantQueryPlan, AssistantQueryResult, FactUnit,
   QueryGroupResult, QueryRow,
@@ -71,10 +71,9 @@ function rowsOf(state: AppState, plan: AssistantQueryPlan, today: string): Query
       // Ocorrências PREVISTAS: nunca somadas a realizado (regra 18).
       for (const rec of state.recurring || []) {
         if (!rec || rec.active === false) continue
-        for (const dia of occurrencesBetween(rec, from, to)) {
+        for (const dia of occurrencesBetween(rec, from, to, today)) {
           if (!recurringActiveOn(rec, dia)) continue
-          if (plan.filter.plannedOnly && (isOccurrenceResolved(rec, dia)
-            || state.transactions.some(t => t.recurringId === rec.id && t.occurrenceDate === dia))) continue
+          if (plan.filter.plannedOnly && recurringOccurrenceState(state, rec, dia, today).resolved) continue
           out.push({
             id: `${rec.id}@${dia}`, date: dia, value: Number(rec.amount) || 0,
             label: rec.name, category: rec.category, origin: rec.origin,
