@@ -503,6 +503,23 @@ export function recurringLinkAction(rec: RecurringExpense, due: string, transact
     transactionId: transaction.id, amount: transaction.amount, date: transaction.date }
 }
 
+export interface TransactionOccurrence {
+  recurringId: string
+  date: string
+  record?: RecurrenceOccurrence
+}
+
+export function transactionOccurrence(s: AppState, t: Transaction): TransactionOccurrence | undefined {
+  for (const rec of s.recurring) {
+    const record = rec.occurrences?.find(o => o.status === 'confirmed' && o.txId === t.id)
+    if (record) return { recurringId: rec.id, date: record.date, record }
+  }
+  if (!t.recurringId || !t.occurrenceDate) return undefined
+  const rec = s.recurring.find(r => r.id === t.recurringId)
+  const record = rec?.occurrences?.find(o => o.date === t.occurrenceDate && o.status === 'confirmed' && !o.txId)
+  return { recurringId: t.recurringId, date: t.occurrenceDate, record }
+}
+
 /**
  * Consulta a recorrência citada numa movimentação. Uma data de pagamento não
  * escolhe o vencimento. Uma referência explícita, como "luz deste mês", escolhe

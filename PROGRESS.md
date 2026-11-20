@@ -5845,3 +5845,15 @@ APK ou chamada paga. NOT READY até auditoria independente.
   fictícios. O desfazer após recarga deixou o lançamento original
   no extrato e a conta em aberto. Suíte com 745/745 regressões reais,
   typechecks, build e rubrica passaram. A branch permanece NOT READY.
+
+## 19/11/2026 — Extrato e ocorrências vinculadas
+
+- A consulta de conta fixa usa o valor atual do lançamento. Corrigir de
+  R$ 120 para R$ 135 atualiza a resposta do chat e mantém a mesma
+  ocorrência quitada.
+- Remover o lançamento pelo extrato reabre o vencimento correspondente.
+  Desfazer no aviso restaura o mesmo lançamento, com data, hora e
+  vínculo originais. Se a ocorrência já recebeu outra baixa, a
+  restauração fica bloqueada.
+- O fluxo de remoção e desfazer passou no Chrome. A suíte passou
+  com 747/747 regressões reais, typechecks e build.

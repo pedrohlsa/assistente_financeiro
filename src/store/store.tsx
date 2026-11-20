@@ -14,7 +14,8 @@ import { buildDemoData } from '../data/demo'
 import { addDays, monthKey, nowPaymentTime, nowStamp, nowTime, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
-import { isOccurrenceResolved, nextCashEventTime } from '../services/calc'
+import { isOccurrenceResolved, nextCashEventTime, transactionOccurrence } from '../services/calc'
+import type { TransactionOccurrence } from '../services/calc'
 import { cardInvoice, currentInvoice, directInstallmentPaidAmount, futureInvoicePaymentDate,
   installmentLinkedToCardPayment, validPaymentDate } from '../services/cards'
 import { applyActionPure, applyBatchPure } from '../assistant/execute'
@@ -134,6 +135,7 @@ type Action =
   | { type: 'settings'; patch: Partial<Settings> }
   | { type: 'addTx'; tx: Transaction }
   | { type: 'removeTx'; id: string }
+  | { type: 'restoreTx'; tx: Transaction; occurrence?: TransactionOccurrence }
   | { type: 'addWork'; w: Partial<WorkSession> }
   | { type: 'addFuel'; f: FuelRecord }
   | { type: 'setVehicle'; v: Vehicle }
@@ -210,7 +212,31 @@ export function reducer(s: AppState, a: Action): AppState {
     case 'assistantPreferenceRemove': return { ...s, assistantPreferences: (s.assistantPreferences || []).filter(p => p.id !== a.id) }
     case 'addTx': return { ...s, transactions: [{ ...a.tx,
       time: a.tx.time ? nextCashEventTime(s, a.tx.date, a.tx.time) : a.tx.time }, ...s.transactions] }
-    case 'removeTx': return { ...s, transactions: s.transactions.filter(t => t.id !== a.id) }
+    case 'removeTx': {
+      const removed = s.transactions.find(t => t.id === a.id)
+      if (!removed) return s
+      const transactions = s.transactions.filter(t => t.id !== a.id)
+      const link = transactionOccurrence(s, removed)
+      if (!link?.record) return { ...s, transactions }
+      const remaining = transactions.find(t => t.recurringId === link.recurringId && t.occurrenceDate === link.date)
+      const recurring = s.recurring.map(r => r.id !== link.recurringId ? r : {
+        ...r, occurrences: remaining
+          ? r.occurrences?.map(o => o === link.record ? { ...o, txId: remaining.id, amount: remaining.amount } : o)
+          : r.occurrences?.filter(o => o !== link.record),
+      })
+      return { ...s, transactions, recurring }
+    }
+    case 'restoreTx': {
+      if (s.transactions.some(t => t.id === a.tx.id)) return s
+      const link = a.occurrence
+      const rec = link && s.recurring.find(r => r.id === link.recurringId)
+      if (link && (rec?.occurrences?.some(o => o.date === link.date)
+        || s.transactions.some(t => t.recurringId === link.recurringId && t.occurrenceDate === link.date))) return s
+      const record = link?.record
+      const recurring = record && rec ? s.recurring.map(r => r === rec
+        ? { ...r, occurrences: [...(r.occurrences || []), record] } : r) : s.recurring
+      return { ...s, transactions: [a.tx, ...s.transactions], recurring }
+    }
     case 'addWork': {
       const date = a.w.date || todayISO()
       const existing = s.workSessions.find(w => w.date === date)

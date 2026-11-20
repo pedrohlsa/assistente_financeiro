@@ -2,6 +2,7 @@
 import React, { useMemo, useState } from 'react'
 import { useStore } from '../store/store'
 import { isDriver } from '../services/profile'
+import { transactionOccurrence } from '../services/calc'
 import { catById } from '../data/categories'
 import { addDays, fmtBRL, fmtDateLong, fromISO, todayISO } from '../utils/format'
 import { sentenceCase } from '../utils/text'
@@ -191,9 +192,10 @@ export default function Transactions() {
         tx={detail}
         onClose={() => setDetail(null)}
         onRemove={tx => {
+          const occurrence = transactionOccurrence(state, tx)
           dispatch({ type: 'removeTx', id: tx.id })
           setDetail(null)
-          toast({ text: 'Movimentação removida.', undo: () => dispatch({ type: 'addTx', tx }) })
+          toast({ text: 'Movimentação removida.', undo: () => dispatch({ type: 'restoreTx', tx, occurrence }) })
         }}
       />
     </div>
@@ -210,6 +212,9 @@ function TransactionDetail({ tx, onClose, onRemove }: {
   const [confirming, setConfirming] = useState(false)
   if (!tx) return null
   const cat = catById(state.categories, tx.category)
+  const occurrence = transactionOccurrence(state, tx)
+  const conta = occurrence && state.recurring.find(r => r.id === occurrence.recurringId)
+  const aviso = conta && occurrence ? ` O vencimento de ${fmtDateLong(occurrence.date)} da conta ${conta.name} pode voltar para as pendências.` : ''
   const rows: [string, string | undefined][] = [
     ['Valor', fmtBRL(tx.amount)],
     ['Tipo', TYPE_LABEL[tx.type] || tx.type],
@@ -241,7 +246,7 @@ function TransactionDetail({ tx, onClose, onRemove }: {
         open={confirming}
         onClose={() => setConfirming(false)}
         title="Remover esta movimentação?"
-        text={`${TYPE_LABEL[tx.type] || tx.type} de ${fmtBRL(tx.amount)} em ${cat.name}. Você ainda poderá desfazer pelo aviso que aparece em seguida.`}
+        text={`${TYPE_LABEL[tx.type] || tx.type} de ${fmtBRL(tx.amount)} em ${cat.name}.${aviso} Você poderá desfazer pelo aviso que aparece em seguida.`}
         actions={[{ label: 'Remover', onClick: () => { setConfirming(false); onRemove(tx) }, tone: 'danger' }]}
       />
     </>

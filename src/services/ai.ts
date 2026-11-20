@@ -2049,7 +2049,12 @@ function respostaDaConta(s: AppState, r: RecurringExpense, tipo: PerguntaDeConta
   const paga = (d: string) => occurrenceRecord(r, d)?.status === 'confirmed'
     || s.transactions.some(x => x.recurringId === r.id && x.occurrenceDate === d)
   const pulada = (d: string) => occurrenceRecord(r, d)?.status === 'skipped'
-  const valorDe = (d: string) => occurrenceRecord(r, d)?.amount ?? r.amount
+  const valorDe = (d: string) => {
+    const occurrence = occurrenceRecord(r, d)
+    const linked = (occurrence?.txId ? s.transactions.find(t => t.id === occurrence.txId) : undefined)
+      || s.transactions.find(t => t.recurringId === r.id && t.occurrenceDate === d)
+    return linked?.amount ?? occurrence?.amount ?? r.amount
+  }
   const emAberto = vencidas.filter(d => !paga(d) && !pulada(d))
   const regra = describeRecurrence(r)
   const quando = regra.charAt(0).toLowerCase() + regra.slice(1)

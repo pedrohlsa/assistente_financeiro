@@ -4,7 +4,7 @@ import type { AppState } from '../../src/models/types'
 import { orchestrate } from '../../src/assistant/orchestrator'
 import { segment } from '../../src/assistant/clauses'
 import { findDate } from '../../src/assistant/dates'
-import { balanceOutlook, balanceOutlookText, currentBalance, kmCost, monthlyProjections, occurrencesBetween, pendingRecurrings, possibleRecurringTransactions, recurringLinkAction } from '../../src/services/calc'
+import { balanceOutlook, balanceOutlookText, currentBalance, kmCost, monthlyProjections, occurrencesBetween, pendingRecurrings, possibleRecurringTransactions, recurringLinkAction, transactionOccurrence } from '../../src/services/calc'
 import { cardInvoice, cardOutstanding, cardsOverview, futureInstallmentPaymentDate, invoiceOpenAmount, planProgress } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
 import { buildCapabilities } from '../../src/assistant/capabilities'
@@ -4535,6 +4535,36 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       'saldo anterior de 1000 menos gasto de hoje de 120 volta a 880 após recarga e desfazer',
       novoSaldo.applied && currentBalance(novoSaldo.state) === 400 && !isRevertFailure(saldoDesfeito)
         && !saldoDesfeito.state.settings.balanceAsOf && currentBalance(saldoDesfeito.state) === 880))
+
+    const valorCorrigido = applyBatchPure(pelaHome, [{ id: 'corrigir-vinculo', action: {
+      kind: 'edit-transaction', transactionId: avulsa.id, amount: 135,
+    } }], { now: agora })
+    const seguePaga = await turnoHoje(valorCorrigido.state, 'A conta de internet está paga?')
+    const transacao = valorCorrigido.state.transactions[0]
+    const snapshot = transactionOccurrence(valorCorrigido.state, transacao)
+    const removido = reducer(valorCorrigido.state, { type: 'removeTx', id: transacao.id })
+    const reaberta = await turnoHoje(removido, 'A conta de internet está paga?')
+    const restaurar = { type: 'restoreTx' as const, tx: transacao, occurrence: snapshot }
+    const restaurado = reducer(removido, restaurar)
+    const novaBaixa = reducer(removido, { ...payload, action: { kind: 'recurring-confirm', recurringId: conta.id,
+      occurrenceDate: hoje, amount: 120 } })
+    out.push(result('RVIN-extrato-corrige-reabre-e-restaura-vencimento', { seguePaga, reaberta, restaurado: restaurado.recurring },
+      'chat lê o valor corrigido de 135; excluir reabre a conta; desfazer restaura o mesmo lançamento e bloqueia duplicidades',
+      valorCorrigido.applied && /está paga.*135,00/.test(seguePaga.reply) && !/120,00/.test(seguePaga.reply)
+        && currentBalance(valorCorrigido.state) === 865 && !removido.transactions.length
+        && pendingRecurrings(removido, hoje).length === 1 && /não.*paga/i.test(reaberta.reply)
+        && restaurado.transactions[0] === transacao && restaurado.recurring[0].occurrences?.[0]?.txId === transacao.id
+        && currentBalance(restaurado) === 865 && !pendingRecurrings(restaurado, hoje).length
+        && reducer(restaurado, restaurar) === restaurado && novaBaixa !== removido && reducer(novaBaixa, restaurar) === novaBaixa))
+
+    const hora = '13:00:00.000'
+    const naAncora: AppState = { ...st, settings: { ...st.settings, balanceAsOf: `${hoje}T${hora}` },
+      transactions: [{ ...avulsa, date: hoje, time: hora }] }
+    const restauradaNaAncora = reducer(reducer(naAncora, { type: 'removeTx', id: avulsa.id }),
+      { type: 'restoreTx', tx: naAncora.transactions[0] })
+    out.push(result('RVIN-extrato-desfazer-mantem-hora-da-ancora', restauradaNaAncora.transactions[0],
+      'desfazer exclusão mantém o carimbo da transação que já estava incluída no saldo informado',
+      restauradaNaAncora.transactions[0]?.time === hora && currentBalance(restauradaNaAncora) === 1000))
   }
 
   // "Até dia N" é PRAZO, não fato. No dia 12, "quanto preciso deixar parado
