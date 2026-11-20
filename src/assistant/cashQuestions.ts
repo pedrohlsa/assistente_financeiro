@@ -463,3 +463,26 @@ function respostaDaContaDeclarada(c: ContaDeclarada): string {
     : `Faltam ${fmtBRL(Math.abs(sobra))} para ${c.guardar ? 'pagar tudo e ainda guardar o que você quer' : 'pagar tudo'}.`
   return `${veredito}\n\nA conta: ${conta}\n\nUsei só os valores que você disse para esta conta.`
 }
+
+/**
+ * Como o mês vai FECHAR: "quanto vai sobrar no fim do mês", "quanto sobrará",
+ * "vou fechar o mês no azul?". A DSL somava o gasto do mês até hoje e o
+ * roteador mostrava uma projeção por mês com outro rótulo; "fechar no azul"
+ * caía no menu. `simNao` quando a pergunta pede veredito.
+ */
+export function pedeFimDoMes(t: string): { simNao: boolean } | null {
+  const fimDoMes = /\b(?:no\s+|ate\s+o\s+)?(?:fim|final)\s+do\s+mes\b|\bfechar\s+o\s+mes\b|\bfechamento\s+do\s+mes\b/.test(t)
+  if (!fimDoMes) return null
+  if (/\b(?:vou|vai|eu\s+vou|vamos)\s+fechar\s+o\s+mes\s+(?:no\s+|com\s+|em\s+)?(?:azul|vermelho|positivo|negativo|lucro|prejuizo|sobra|deficit)\b/.test(t)) return { simNao: true }
+  if (/\b(?:quanto|qto|qnto)\b[^?]*\b(?:vai\s+sobrar|vou\s+ter|sobrara|sobraria|restara|restaria|vai\s+restar|fica(?:ra|ria)?|vai\s+ficar|sobra)\b/.test(t)) return { simNao: false }
+  if (/\b(?:vai|vou)\s+(?:sobrar|faltar)\b|\bsobrara\b|\bfaltara\b/.test(t)) return { simNao: /\?\s*$/.test(t) && !/\bquanto\b/.test(t) }
+  return null
+}
+
+/** "Consigo guardar 500 esse mês?", "dá pra juntar 300 este mês?": o valor pedido. */
+export function guardarEsteMes(t: string): number | null {
+  const m = t.match(/\b(?:consigo|da\s+para|daria\s+para|posso|eu\s+consigo)\s+(?:ainda\s+)?(?:guardar|juntar|poupar|separar)\s+(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real|conto|pila)?(?![\d])[^?]*\b(?:esse|este|nesse|neste|do)\s+mes\b/)
+  if (!m) return null
+  const v = parseMoney(m[1])
+  return Number.isFinite(v) && v > 0 ? v : null
+}

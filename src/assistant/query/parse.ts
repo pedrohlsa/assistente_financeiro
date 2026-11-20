@@ -30,7 +30,7 @@ import { addDays, fromISO, todayISO, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase } from '../../utils/text'
 import { isDriver } from '../../services/profile'
 import { buildPersonalModel, adaptiveEnabled } from '../personalModel'
-import { pedeAntecipacaoDeFatura, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeDividaTotal, pedeFimDoParcelamento, pedeListaDeParcelamentos, pedeQuantoPossoGastar, pedeLimite, pedeMaiorParcela, pedeSobraSemCombustivel, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, perguntaDeManutencao, planoDeGuardar } from '../cashQuestions'
+import { pedeFimDoMes, guardarEsteMes, pedeAntecipacaoDeFatura, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeDividaTotal, pedeFimDoParcelamento, pedeListaDeParcelamentos, pedeQuantoPossoGastar, pedeLimite, pedeMaiorParcela, pedeSobraSemCombustivel, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, perguntaDeManutencao, planoDeGuardar } from '../cashQuestions'
 import {
   currentMonthToDate, mesAFrente, monthPeriod, nextMonths, parseFutureMonth, parsePeriod, previousPeriod,
 } from './period'
@@ -152,7 +152,7 @@ export function looksLikeDataQuestion(input: string): boolean {
   const faturaDaJanela = fatura === 'falta' && !!parsePeriod(t)
   // O resumo da fatura de agora inclui os vencidos. Com período informado,
   // o plano restringe o pendente às faturas que venceram naquele recorte.
-  if (pedeReservaDeCaixa(t) || pedeContaQueAperta(t) || pedeTotalGuardado(t) || (fatura && !faturaDaJanela) || pedeAntecipacaoDeFatura(t)
+  if (pedeFimDoMes(t) || guardarEsteMes(t) !== null || pedeReservaDeCaixa(t) || pedeContaQueAperta(t) || pedeTotalGuardado(t) || (fatura && !faturaDaJanela) || pedeAntecipacaoDeFatura(t)
     || pedeContasAPagar(t) || planoDeGuardar(t) || perguntaDeManutencao(t)
     || pedeContasFixas(t) || pedeSobraSemCombustivel(t) || pedeLimite(t)
     || pedeFimDoParcelamento(t) || pedeMaiorParcela(t) || pedeDividaTotal(t) || pedeListaDeParcelamentos(t)

@@ -6128,6 +6128,39 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // Previsão do mês: "quanto vai sobrar", "fechar no azul", "consigo guardar
+  // 500 esse mês", "quanto vou ter dia 30". Oráculo pelo próprio fixture:
+  // entradas e saídas realizadas do mês, parcelas pendentes até o fim do mês.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/\u00a0/g, ' ')
+    const limpa = (x: string) => x.replace(/\u00a0/g, ' ')
+    const rico = autonomoRico(hoje)
+    const mes = hoje.slice(0, 7)
+    const fimMes = toISOdate(new Date(fromISO(hoje).getFullYear(), fromISO(hoje).getMonth() + 1, 0))
+    const entrou = rico.transactions.filter(t => t.type === 'income' && t.date.startsWith(mes) && t.date <= hoje).reduce((a, t) => a + t.amount, 0)
+    const saiu = rico.transactions.filter(t => t.type === 'expense' && t.date.startsWith(mes) && t.date <= hoje).reduce((a, t) => a + t.amount, 0)
+    const parcelas = rico.installments.filter(i => i.status === 'pending' && i.dueDate.startsWith(mes) && i.dueDate >= hoje).reduce((a, i) => a + i.amount, 0)
+    const contas = upcomingBills(rico, Math.max(Math.round((fromISO(fimMes).getTime() - fromISO(hoje).getTime()) / 86400000), 0), hoje)
+      .filter(b => b.date <= fimMes).reduce((a, b) => a + b.amount, 0)
+    const sobra = Math.round((entrou - saiu - parcelas - contas) * 100) / 100
+    for (const frase of ['quanto vai sobrar no fim do mês', 'quanto sobrará no fim do mês?']) {
+      const r = limpa((await turnoHoje(rico, frase)).reply)
+      out.push(result(`MP-${frase.replace(/\W+/g, '-')}`, r, `previsão com sobra/déficit de ${brl(Math.abs(sobra))}, dita como previsão`,
+        r.includes(brl(Math.abs(sobra))) && /\(previsão\)/.test(r) && !/^Total gasto/.test(r)))
+    }
+    const azul = limpa((await turnoHoje(rico, 'vou fechar o mês no azul?')).reply)
+    out.push(result('MP-fechar-no-azul', azul, sobra >= 0 ? 'Sim primeiro' : 'Não primeiro',
+      (sobra > 0 ? /^Sim:/ : sobra < 0 ? /^Não:/ : /^Fica no zero/).test(azul) && !/Posso te ajudar/.test(azul)))
+    const guardar = limpa((await turnoHoje(rico, 'consigo guardar 500 esse mês?')).reply)
+    out.push(result('MP-consigo-guardar-500', guardar, sobra >= 500 ? 'Dá' : 'Pela previsão, não',
+      (sobra >= 500 ? /^Dá:/ : /^Pela previsão, não:/).test(guardar) && !/ainda não aconteceu/.test(guardar)))
+    const dia30 = limpa((await turnoHoje(rico, `quanto vou ter na conta dia ${Number(fimMes.slice(8))}`)).reply)
+    out.push(result('MP-quanto-vou-ter-no-dia', dia30, `até ${fimMes.slice(8)}/${fimMes.slice(5, 7)}, previsão`,
+      dia30.startsWith(`Até ${fimMes.slice(8)}/${fimMes.slice(5, 7)}, seu saldo deve ficar`) && /\(previsão\)/.test(dia30)))
+    const lucro = (await turnoHoje(motoristaRico(hoje), 'to tendo lucro?')).reply
+    out.push(result('MP-to-tendo-lucro', lucro, 'Sim/Não com entradas e saídas', /^(?:Sim|Não) — /.test(lucro) && !/Posso te ajudar/.test(lucro)))
+  }
+
   return out
 }
 

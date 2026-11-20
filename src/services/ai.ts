@@ -22,11 +22,11 @@ import { MARGEM_EMPATE } from '../assistant/query/answer'
 import {
   analyzeRide, avgDailyProfit, balanceOutlook, balanceOutlookText, bestWorstDay, cashObligationsUntil, currentBalance, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
   monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections, budgetUsage,
-  describeRecurrence, occurrencesBetween, recurrenceStep, recurringActiveOn, recurringOccurrenceState, savedThisMonth,
+  describeRecurrence, occurrencesBetween, recurrenceStep, recurringActiveOn, recurringOccurrenceState, savedThisMonth, monthForecast,
 } from './calc'
 import type { CashObligation } from './calc'
 import {
-  alvoDaReserva, diaDaSemanaPedido, mesesAtePrazo, pedeDividaTotal, pedeFimDoParcelamento, pedeListaDeParcelamentos, pedeQuantoPossoGastar, pedeLimite, pedeMaiorParcela, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeResumoDoDia, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
+  alvoDaReserva, diaDaSemanaPedido, mesesAtePrazo, pedeFimDoMes, guardarEsteMes, pedeDividaTotal, pedeFimDoParcelamento, pedeListaDeParcelamentos, pedeQuantoPossoGastar, pedeLimite, pedeMaiorParcela, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeResumoDoDia, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
   pedeAntecipacaoDeFatura, perguntaDeFatura, perguntaDeManutencao,
   planoDeGuardar, prazoDasContas, retiraDaReserva,
 } from '../assistant/cashQuestions'
@@ -980,8 +980,11 @@ function resolveLocal(s: AppState, input: string): AiReply {
     }
   }
 
+  // "Quanto VOU ter na conta dia 30" é saldo FUTURO: fica com a resposta
+  // datada, mais abaixo, e não com o saldo de hoje contra sete dias.
+  const saldoFuturo = /\bquanto\s+(?:eu\s+)?(?:vou|vai|irei|devo)\s+ter\b/.test(t) && /\bdia\s+\d{1,2}\b|\b(?:fim|final)\s+do\s+mes\b/.test(t)
   // "qual meu saldo" / "quanto tenho no banco"
-  if (/(qual|quanto).*(saldo|no banco|na conta)|meu saldo|quanto\s+(?:eu\s+)?tenho(?:\s+(?:de\s+)?(?:dinheiro|guardado|sobrando))?\s*\??$|quanto\s+sobrou\s+(?:de\s+)?dinheiro/.test(t)) {
+  if (!saldoFuturo && /(qual|quanto).*(saldo|no banco|na conta)|meu saldo|quanto\s+(?:eu\s+)?tenho(?:\s+(?:de\s+)?(?:dinheiro|guardado|sobrando))?\s*\??$|quanto\s+sobrou\s+(?:de\s+)?dinheiro/.test(t)) {
     if (hasAmbiguousLegacyCardBalance(s)) return { text: AMBIGUOUS_BALANCE_REPLY }
     const saldo = currentBalance(s)
     if (saldo === 0) return { text: 'Seu saldo em conta está zerado. Toque em "Saldo em conta" na tela inicial, ou me diga "meu saldo é 1500".' }
@@ -1141,13 +1144,82 @@ function resolveLocal(s: AppState, input: string): AiReply {
     }
   }
 
+  // Como o mês vai FECHAR. Previsão, dita como previsão: o que já entrou e
+  // saiu, mais o que está cadastrado para entrar e vencer até o fim do mês.
+  // Gasto do dia a dia não cadastrado fica de fora, e isso é dito.
+  // "Consigo guardar 500 esse mês?": a mesma previsão, contra o valor pedido.
+  // O que já foi guardado no mês não volta para o saldo (regra 20), então a
+  // folga é a sobra prevista.
+  const querGuardar = guardarEsteMes(t)
+  if (querGuardar !== null) {
+    if (hasAmbiguousLegacyCardBalance(s)) return { text: AMBIGUOUS_BALANCE_REPLY }
+    const f = monthForecast(s)
+    if (!f.hasData) return { text: 'Ainda não tenho dados para dizer. Registre o que entrou e saiu este mês, ou cadastre as contas e entradas fixas.' }
+    const sobra = round2(f.received + f.incomingLeft - f.paid - f.billsLeft - f.installmentsLeft)
+    const ja = round2(savedThisMonth(s, todayISO()))
+    const ressalva = 'É uma previsão com o que está registrado e cadastrado; gastos do dia a dia que ainda não aconteceram não entram.'
+    const jaTxt = ja > 0 ? ` Você já guardou ${fmtBRL(ja)} este mês.` : ''
+    return { text: sobra >= querGuardar
+      ? `Dá: a sobra prevista do mês é ${fmtBRL(sobra)}, e guardar ${fmtBRL(querGuardar)} ainda deixa ${fmtBRL(round2(sobra - querGuardar))}.${jaTxt} (previsão)\n\n${ressalva}`
+      : `Pela previsão, não: a sobra prevista do mês é ${fmtBRL(sobra)}, e guardar ${fmtBRL(querGuardar)} deixaria ${fmtBRL(round2(querGuardar - sobra))} a descoberto.${jaTxt} (previsão)\n\n${ressalva}` }
+  }
+
+  // "Quanto vou ter na conta dia 30": saldo de hoje, mais o que está
+  // cadastrado para entrar, menos o que vence até lá. Respondia o saldo de
+  // hoje contra os próximos SETE dias, ignorando o dia pedido.
+  if (/\bquanto\s+(?:eu\s+)?(?:vou|vai|irei|devo)\s+ter\b/.test(t) && /\bdia\s+\d{1,2}\b|\b(?:fim|final)\s+do\s+mes\b/.test(t)) {
+    const alvo = alvoDaReserva(t, todayISO())
+    if (alvo.kind === 'invalid') return { text: `Não existe dia ${alvo.dia} no calendário. Me diga outro dia.` }
+    if (alvo.kind === 'date') {
+      if (hasAmbiguousLegacyCardBalance(s)) return { text: AMBIGUOUS_BALANCE_REPLY }
+      const hoje = todayISO()
+      const dias = Math.max(Math.round((fromISO(alvo.date).getTime() - fromISO(hoje).getTime()) / 86400000), 0)
+      const saldo = currentBalance(s)
+      const entradas = round2(upcomingIncomes(s, dias).filter(b => b.date <= alvo.date).reduce((a, b) => a + b.amount, 0))
+      const todas = cashObligationsUntil(s, alvo.date)
+      const certas = somaDe(todas.filter(o => !o.unconfirmed))
+      const previsto = round2(saldo + entradas - certas)
+      const partes = [
+        `Até ${diaMes(alvo.date)}, seu saldo deve ficar em torno de ${fmtBRL(previsto)} (previsão).`,
+        `• Saldo hoje: ${fmtBRL(saldo)}` + (entradas ? `\n• Entradas cadastradas até lá: ${fmtBRL(entradas)}` : '') + (certas ? `\n• O que vence até lá: ${fmtBRL(certas)}` : ''),
+        semConfirmacao(todas),
+        'Gastos do dia a dia que ainda não aconteceram, como mercado e combustível, não entram nessa conta.',
+      ].filter(Boolean)
+      return { text: partes.join('\n\n') }
+    }
+  }
+
+  const fim = pedeFimDoMes(t)
+  if (fim) {
+    if (hasAmbiguousLegacyCardBalance(s)) return { text: AMBIGUOUS_BALANCE_REPLY }
+    const f = monthForecast(s)
+    if (!f.hasData) return { text: 'Ainda não tenho dados para prever o fim do mês. Registre o que entrou e saiu, ou cadastre as contas e entradas fixas em Planejamento.' }
+    const resultado = round2(f.received + f.incomingLeft - f.paid - f.billsLeft - f.installmentsLeft)
+    const saldoFim = round2(f.estimatedEnd)
+    const conta = [
+      `• Já entrou: ${fmtBRL(f.received)}`,
+      f.incomingLeft ? `• Ainda vai entrar (cadastrado): ${fmtBRL(f.incomingLeft)}` : '',
+      `• Já saiu: ${fmtBRL(f.paid)}`,
+      f.billsLeft ? `• Contas fixas até o fim do mês: ${fmtBRL(f.billsLeft)}` : '',
+      f.installmentsLeft ? `• Parcelas que ainda vencem: ${fmtBRL(f.installmentsLeft)}` : '',
+    ].filter(Boolean).join('\n')
+    const ressalva = 'É uma previsão: gastos do dia a dia que ainda não aconteceram, como mercado e combustível, não entram.'
+    const veredito = resultado > 0 ? `deve fechar no azul, com sobra de ${fmtBRL(resultado)}`
+      : resultado < 0 ? `deve fechar no vermelho, com déficit de ${fmtBRL(-resultado)}` : 'deve fechar zerado'
+    const azul = /\b(?:azul|positivo|lucro|sobra)\b/.test(t)
+    const lead = fim.simNao
+      ? `${resultado === 0 ? 'Fica no zero' : (resultado > 0) === azul ? 'Sim' : 'Não'}: pelo que está registrado e cadastrado, o mês ${veredito}.`
+      : `Pelo que está registrado e cadastrado, o mês ${veredito}. Seu saldo em conta deve ficar em torno de ${fmtBRL(saldoFim)} no fim do mês.`
+    return { text: `${lead} (previsão)\n\n${conta}\n\n${ressalva}` }
+  }
+
   // "to no lucro esse mes?" / "quanto sobrou"
   // "Tô gastando mais do que ganho?" é a pergunta mais direta sobre a saúde do
   // mês, e é a mesma conta do "tô no lucro" com o sinal invertido.
   // "Tô ferrado esse mês?" é a mesma pergunta de "tô no vermelho?", dita como
   // se diz; caía no menu de ajuda. O aperto também mostra o que vence.
   const aperto = /(?:t[oô]|estou|to|tou)\s+(?:ferrad[oa]|fudid[oa]|lascad[oa]|quebrad[oa]|apertad[oa]|enrolad[oa]|no\s+sufoco|no\s+aperto|mal\s+de\s+grana|zerad[oa])\b/.test(t)
-  if (aperto || /(?:t[oô]|estou|to)\s+no\s+lucro|(?:t[oô]|estou)\s+no\s+(?:azul|vermelho)|quanto\s+sobrou\s*\??$|sobrou\s+quanto/.test(t)
+  if (aperto || /(?:t[oô]|estou|to)\s+(?:tendo|dando|com|ficando\s+(?:no|com))\s+(?:lucro|preju[ií]zo)|(?:t[oô]|estou|to)\s+no\s+lucro|(?:t[oô]|estou)\s+no\s+(?:azul|vermelho)|quanto\s+sobrou\s*\??$|sobrou\s+quanto/.test(t)
     || /(?:gastando|gasto|gastei)\s+mais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:ganho|ganhei|recebo|recebi|entra|faturo)/.test(t)) {
     const p = /semana/.test(t) ? periodFromText(t) : { from: todayISO().slice(0, 8) + '01', to: todayISO(), label: 'este mês' }
     if (!p) return ajudaGenerica(driverMode)
