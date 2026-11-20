@@ -6179,3 +6179,15 @@ APK ou chamada paga. NOT READY até auditoria independente.
   inicialmente citados. Os quatro lançamentos da base permaneceram.
 - Suíte com 791/791 regressões reais, 151 invariantes, avaliação
   remota offline, typechecks e build.
+
+## 20/11/2026 — Intervalos por dias e semana de calendário
+
+- “Entre segunda e terça”, dito na terça, inclui a terça do próprio
+  dia. “Segunda e quinta da semana passada” usa os dois dias da semana
+  civil, de segunda a domingo. Intervalos numéricos reconhecem
+  “de dia 10 a 15” e preservam o mês ou ano informado.
+- Para um intervalo realizado com fim no futuro, “até ontem” recupera
+  o começo e o filtro da consulta. Datas invertidas pedem esclarecimento.
+- Chrome confirmou as datas, a retomada com filtro de padaria e a
+  ausência de novos lançamentos. Matriz específica com 56/56
+  verificações em oito datas e suíte com 792/792 regressões reais.

@@ -691,7 +691,10 @@ export function datesMentioned(text: string, today: string, query = false): Date
   const dates = findAllDates(text, today)
   return dates.flatMap(date => {
     if (!/\bdia\s+\d{1,2}$/i.test(date.text)) return [date]
-    const shorthand = query
+    const interval = query && /\b(?:de|entre)\s*$/i.test(text.slice(0, date.start))
+    const shorthand = interval
+      ? /^(\s+(?:a|at[ée]|e)\s+)(\d{1,2})(?!\d|[.,/-]\d|\s+(?:reais?|contos?|centavos?|km|litros?|parcelas?)\b)(?=\s|$|[,;.!?])/i
+      : query
       ? /^(\s+(?:e|ou)\s+|\s*,\s*(?:e\s+)?)(\d{1,2})(?!\d|[.,/-]\d|\s+(?:reais?|contos?|centavos?|km|litros?|parcelas?)\b)(?=\s|$|[,;.!?])/i
       : /^(\s+ou\s+)(\d{1,2})(?!\d|[.,]\d|\s+(?:reais?|contos?|km|litros?|parcelas?)\b)(?=\s|$|[,;.!?])/i
     const expanded = [date]
@@ -702,7 +705,7 @@ export function datesMentioned(text: string, today: string, query = false): Date
       const start = cursor + short[1].length
       cursor = start + short[2].length
       expanded.push({ ...other, start, end: cursor })
-      if (!query) break
+      if (!query || interval) break
     }
     return expanded
   })

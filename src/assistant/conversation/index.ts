@@ -13,15 +13,16 @@
 // Nada daqui produz ação. Consulta e cenário são sempre RESPOSTA.
 
 import type { AppState } from '../../models/types'
+import type { AssistantClarification } from '../contracts'
 import { fmtBRL, fmtNum, todayISO } from '../../utils/format'
 import { normalizeName, sentenceCase } from '../../utils/text'
 import { looksLikeQuestion } from '../clauses'
-import { findAllDates } from '../dates'
+import { brDate, findAllDates } from '../dates'
 import { pedeReservaDeCaixa } from '../cashQuestions'
 import { planQuery, runPlannedQuery } from '../query'
 import { leadSimNao } from '../query/answer'
 import { normalizeQuery } from '../query/parse'
-import { parsePeriod, previousPeriod } from '../query/period'
+import { parseCalendarRange, parsePeriod, previousPeriod } from '../query/period'
 import type { QueryAnswer } from '../query'
 import type { AssistantQueryPlan } from '../query/types'
 import { answerScenario, rerunScenario } from '../scenario'
@@ -48,7 +49,7 @@ export interface ConversationAnswer {
   /** Foco atualizado. O chamador guarda; nada é persistido em disco. */
   focus: ConversationFocus
   /** Pergunta de desambiguação, quando a referência tem dois candidatos. */
-  clarification?: { question: string; options: { label: string; value: string }[] }
+  clarification?: AssistantClarification
   /** Confiança do plano — decide se a consulta assume a pergunta (ver orchestrator). */
   confidence?: 'high' | 'medium'
   /**
@@ -70,10 +71,25 @@ export function answerConversation(
   message: string,
   opts: ConversationOptions = {},
 ): ConversationAnswer | null {
-  if (looksLikeQuestion(message) && !pedeReservaDeCaixa(normalizeQuery(message))) {
-    const invalid = findAllDates(message, opts.today || todayISO()).find(d => d.kind === 'invalid')
-    if (invalid?.kind === 'invalid') return {
-      kind: 'clarify', reply: invalid.question, clarification: { question: invalid.question, options: [] },
+  const queryText = normalizeQuery(message)
+  if (looksLikeQuestion(message) && !pedeReservaDeCaixa(queryText)) {
+    const today = opts.today || todayISO()
+    const invalid = findAllDates(message, today).find(d => d.kind === 'invalid')
+    const interval = parseCalendarRange(queryText, today)
+    const realized = /\b(?:gastei|paguei|recebi|ganhei|guardei|faturei|entrou|saiu)\b/.test(queryText)
+    const futureEnd = interval?.period && interval.period.to > today && realized && !/\b(?:vou|vai|sera|previsto)\b/.test(queryText)
+    const question = invalid?.kind === 'invalid' ? invalid.question : interval?.question
+      || (futureEnd && interval.period.from <= today
+        ? `O intervalo termina em ${brDate(interval.period.to)}, uma data que ainda não chegou. Até qual data você quer consultar os lançamentos realizados?`
+        : futureEnd ? 'Esse intervalo ainda não começou. Quais datas já ocorridas você quer consultar?' : undefined)
+    if (question) return {
+      kind: 'clarify', reply: question, clarification: { question, options: [],
+        ...(futureEnd && interval.period.from <= today ? {
+          field: 'query-range-end',
+          dateWindow: { from: interval.period.from, to: today },
+          queryTemplate: queryText.replace(interval.matched, `de ${interval.period.from} a %DATE%`),
+        } : {}),
+      },
       focus: opts.focus || { updatedAt: Date.now() },
     }
   }
@@ -84,11 +100,11 @@ export function answerConversation(
   const q = out?.kind === 'query' ? out.focus?.lastQuery : undefined
   if (out && plan && q && !q.empty) {
     const anterior = q.compareCount === 0 ? undefined : q.compareTotal
-    const lead = leadSimNao(normalizeQuery(message), plan, q.total, anterior, q.groups?.[0]?.delta)
+    const lead = leadSimNao(queryText, plan, q.total, anterior, q.groups?.[0]?.delta)
     if (lead && !/^(?:sim|n[ãa]o)\b/i.test(out.reply)) return { ...out, reply: `${lead}${out.reply}` }
   }
   const cenario = out?.kind === 'scenario' ? out.focus?.lastScenario : undefined
-  if (out && cenario) return { ...out, reply: releCenario(normalizeQuery(message), out.reply, cenario) }
+  if (out && cenario) return { ...out, reply: releCenario(queryText, out.reply, cenario) }
   return out
 }
 

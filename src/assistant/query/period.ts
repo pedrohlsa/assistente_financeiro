@@ -14,7 +14,14 @@ import { findDate } from '../dates'
 import type { PeriodGrain, QueryPeriod } from './types'
 
 const MES_RE = 'janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro'
-const DIA_SEMANA = '(?:domingo|segunda|terca|quarta|quinta|sexta|sabado)(?:-feira)?(?:\\s+passad[oa]|\\s+que\\s+vem)?'
+const DIA_SEMANA_SIMPLES = '(?:domingo|segunda|terca|quarta|quinta|sexta|sabado)(?:-feira)?'
+const DIA_SEMANA = `${DIA_SEMANA_SIMPLES}(?:\\s+passad[oa]|\\s+que\\s+vem)?`
+const DIA_SEMANA_INTEIRO = new RegExp(`^${DIA_SEMANA_SIMPLES}$`)
+const QUALIFICADOR_DA_SEMANA = String.raw`(?:da\s+semana\s+passada|d(?:esta|essa)\s+semana)\b`
+const SEMANA_DO_CALENDARIO = new RegExp(`^${QUALIFICADOR_DA_SEMANA}`, 'i')
+const DIA_DO_MES = String.raw`\d{1,2}(?:\s+(?:d[oe]\s+mes\s+passado|d(?:este|esse)\s+mes))?`
+const DATA_DO_INTERVALO = String.raw`(?:\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|dia\s+${DIA_DO_MES}|${DIA_SEMANA}|hoje|anteontem|ontem)`
+const INTERVALO_DE_DIAS = new RegExp(String.raw`\b(de|entre)\s+(${DATA_DO_INTERVALO})(?:\s+(${QUALIFICADOR_DA_SEMANA}))?\s+(a|ate|e)\s+(${DATA_DO_INTERVALO}|${DIA_DO_MES})(?![\d/-]|[.,]\d)(?=\b)(?:\s+(${QUALIFICADOR_DA_SEMANA}))?`)
 
 // MAPA, nao objeto: leitura por colchete anda pela cadeia de prototipo, e
 // `MES_CURTO['con']` de "constructor" ja foi um crash real em outro modulo.
@@ -37,6 +44,59 @@ const ultimoDia = (ano: number, mes: number) => toISO(new Date(ano, mes + 1, 0))
 
 const P = (from: string, to: string, label: string, grain: PeriodGrain, hoje: string): QueryPeriod =>
   ({ from, to, label, grain, future: from > hoje })
+
+/** Segunda-feira seguinte à semana civil mencionada. */
+export function namedCalendarWeek(text: string, today: string): { anchor: string; matched: string } | undefined {
+  const week = text.trimStart().match(SEMANA_DO_CALENDARIO)
+  if (!week) return undefined
+  const sinceMonday = (fromISO(today).getDay() + 6) % 7
+  return { anchor: addDays(today, (week[0].endsWith('passada') ? 0 : 7) - sinceMonday), matched: week[0] }
+}
+
+export function weekdayInCalendarWeek(text: string, anchor: string): string | undefined {
+  const weekday = semAcento(text).replace(/^(?:no|na|em)\s+/, '')
+  const date = DIA_SEMANA_INTEIRO.test(weekday) ? findDate(weekday, anchor) : null
+  return date?.kind === 'date' ? date.date : undefined
+}
+
+type CalendarRange = { matched: string; period?: QueryPeriod; question?: string }
+
+export function parseCalendarRange(input: string, today: string): CalendarRange | undefined {
+  const normalized = semAcento(input)
+  const m = normalized.match(INTERVALO_DE_DIAS)
+  if (!m || (m[1] === 'de' && m[4] === 'e')) return undefined
+  const [matched, , first, firstWeek, , rawLast, lastWeek] = m
+  const elided = /^\d{1,2}(?:\s|$)/.test(rawLast)
+  if (elided && (!/^dia\s/i.test(first) || /^\s+(?:reais?|contos?|centavos?)\b/.test(normalized.slice(m.index + matched.length)))) return undefined
+  const last = elided ? `dia ${rawLast}` : rawLast
+  const bareFirst = DIA_SEMANA_INTEIRO.test(first)
+  const bareLast = DIA_SEMANA_INTEIRO.test(last)
+  const endWeek = lastWeek && namedCalendarWeek(lastWeek, today)
+  const startWeek = firstWeek ? namedCalendarWeek(firstWeek, today) : bareFirst && bareLast ? endWeek : undefined
+
+  const firstYear = first.match(/^\d{1,2}[/-]\d{1,2}[/-](\d{2,4})$/)?.[1]
+  const lastYear = last.match(/^\d{1,2}[/-]\d{1,2}[/-](\d{2,4})$/)?.[1]
+  const lastMonth = last.match(/^dia\s+\d{1,2}\s+(.+)$/)?.[1]
+  const start = findDate(lastMonth && /^dia\s+\d{1,2}$/.test(first) ? `${first} ${lastMonth}`
+    : lastYear && /^\d{1,2}[/-]\d{1,2}$/.test(first) ? `${first}/${lastYear}` : first, today)
+  const end = findDate(firstYear && /^\d{1,2}[/-]\d{1,2}$/.test(last) ? `${last}/${firstYear}` : last, today)
+  let from = startWeek ? weekdayInCalendarWeek(first, startWeek.anchor)
+    : start?.kind === 'date' || start?.kind === 'future' ? start.date : undefined
+  let to = endWeek ? weekdayInCalendarWeek(last, endWeek.anchor)
+    : end?.kind === 'date' || end?.kind === 'future' ? end.date : undefined
+
+  // Num intervalo sem marcador de semana, a última data válida ancora o
+  // começo. Especialmente na terça, segunda a terça pode terminar hoje.
+  if (!endWeek && bareLast && to === addDays(today, -7)) to = today
+  if (!startWeek && !endWeek && bareFirst && bareLast && from && to) {
+    if (from === addDays(today, -7) && to === today && first === last) from = today
+    else if (from > to) from = addDays(from, -7)
+  }
+  if (!from || !to || from > to) {
+    return { matched, question: 'Qual é a data inicial e a data final? Informe dia e mês de cada uma para eu consultar o intervalo.' }
+  }
+  return { matched, period: P(from, to, `de ${br(from)} a ${br(to)}`, 'range', today) }
+}
 
 /** Mês inteiro que contém `iso`, recuado `back` meses. */
 export function monthPeriod(iso: string, back = 0, hoje = todayISO()): QueryPeriod {
@@ -146,35 +206,8 @@ export function parsePeriod(input: string, hoje = todayISO()): { period: QueryPe
     }
   }
 
-  // --- intervalo explícito: "de 01/07 a 15/07", "entre 1/8 e 20/8" ----------
-  const intervalo = t.match(/\b(?:de|entre)\s+(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?\s+(?:a|ate|e)\s+(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?/)
-  if (intervalo) {
-    const y1 = intervalo[3] ? normalizaAno(intervalo[3]) : ano
-    const y2 = intervalo[6] ? normalizaAno(intervalo[6]) : y1
-    const from = iso(y1, Number(intervalo[2]) - 1, Number(intervalo[1]))
-    const to = iso(y2, Number(intervalo[5]) - 1, Number(intervalo[4]))
-    if (from && to && from <= to) {
-      return { period: P(from, to, `de ${br(from)} a ${br(to)}`, 'range', hoje), matched: intervalo[0] }
-    }
-  }
-  const intervaloISO = t.match(/\b(?:de|entre)\s+(\d{4}-\d{2}-\d{2})\s+(?:a|ate|e)\s+(\d{4}-\d{2}-\d{2})\b/)
-  if (intervaloISO) {
-    const from = findDate(intervaloISO[1], hoje)
-    const to = findDate(intervaloISO[2], hoje)
-    if ((from?.kind === 'date' || from?.kind === 'future') && (to?.kind === 'date' || to?.kind === 'future') && from.date <= to.date) {
-      return { period: P(from.date, to.date, `de ${br(from.date)} a ${br(to.date)}`, 'range', hoje), matched: intervaloISO[0] }
-    }
-    return null
-  }
-  const diasDaSemana = t.match(new RegExp(String.raw`\b(?:entre|de)\s+(${DIA_SEMANA})\s+(?:e|a|ate)\s+(${DIA_SEMANA})\b`))
-  if (diasDaSemana) {
-    const from = findDate(diasDaSemana[1], hoje)
-    const to = findDate(diasDaSemana[2], hoje)
-    if (from?.kind === 'date' && to?.kind === 'date' && from.date <= to.date) {
-      return { period: P(from.date, to.date, `de ${br(from.date)} a ${br(to.date)}`, 'range', hoje), matched: diasDaSemana[0] }
-    }
-    return null
-  }
+  const interval = parseCalendarRange(t, hoje)
+  if (interval) return interval.period ? { period: interval.period, matched: interval.matched } : null
 
   // --- "últimos N dias/semanas/meses/anos" ---------------------------------
   const ultimos = t.match(/\b(?:nos?\s+)?(?:ultim[oa]s?|passad[oa]s?)\s+(\d{1,4}|[a-z]+)\s+(dias?|semanas?|mes(?:es)?|anos?)\b/)
@@ -375,18 +408,6 @@ function janelaRelativa(n: number, unidade: string, hoje: string): { from: strin
     label: n === 1 ? 'neste mês' : `nos últimos ${n} meses`,
     grain: 'month',
   }
-}
-
-const normalizaAno = (s: string): number => {
-  const n = Number(s)
-  return s.length <= 2 ? 2000 + n : n
-}
-
-const iso = (ano: number, mes: number, dia: number): string | null => {
-  if (mes < 0 || mes > 11 || dia < 1 || dia > 31) return null
-  const d = new Date(ano, mes, dia)
-  if (d.getDate() !== dia || d.getMonth() !== mes) return null
-  return toISO(d)
 }
 
 const br = (isoDate: string) => fromISO(isoDate).toLocaleDateString('pt-BR')

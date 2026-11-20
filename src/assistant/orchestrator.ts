@@ -35,6 +35,7 @@ import { modalidadeExplicita, planoContradizModalidade } from './semantic/modali
 import { semAlegacaoDeExecucao } from './claims'
 import { composeAnswer, explainQueryResult, isQueryFailure, runQuery, validateQueryPlan } from './query'
 import { looksLikeDataQuestion, planQuery } from './query/parse'
+import { namedCalendarWeek, weekdayInCalendarWeek } from './query/period'
 import { rememberQuery } from './conversation'
 import type { RepairedText } from './semantic/normalize'
 import type { ConversationFocus } from './conversation'
@@ -773,19 +774,34 @@ function answerQuestions(
 
 function answerListedDays(state: AppState, question: string, today: string): string | undefined {
   if (!looksLikeQuestion(question) || !looksLikeDataQuestion(question)) return undefined
-  const dates = datesMentioned(question, today, true).sort((a, b) => a.start - b.start)
+  const mentioned = datesMentioned(question, today, true)
+  const dates = mentioned.filter(date => date.kind !== 'period').sort((a, b) => a.start - b.start)
   if (dates.length < 2) return undefined
   const [first] = dates
   const prefix = question.slice(0, first.start).trimEnd()
-  if (/\b(?:entre|de)\s*$/i.test(prefix)) return undefined
-  const joiner = /^(?:\s*,\s*(?:e\s+)?|\s+e\s+)(?:(?:no|na|em)\s*)?$/i
+  if (/\bentre\s*$/i.test(prefix)) return undefined
+  const joiner = /^(?:\s*,\s*(?:e\s+)?|\s+e\s+)(?:(?:no|na|em|de)\s*)?$/i
   if (!dates.slice(1).every((d, i) => joiner.test(question.slice(dates[i].end, d.start)))) return undefined
-  const days = [...new Set(dates.flatMap(date => date.kind === 'date' ? [date.date] : []))]
-  if (dates.some(date => date.kind !== 'date')) {
+  const last = dates[dates.length - 1]
+  const rawTail = question.slice(last.end)
+  const tail = rawTail.trimStart()
+  const week = namedCalendarWeek(tail, today)
+  const monthPattern = /^(?:d[oe]\s+m[eê]s\s+passado|d(?:esse|este)\s+m[eê]s)\b/i
+  const monthInTail = tail.match(monthPattern)?.[0]
+  const month = monthInTail || last.text.replace(/^dia\s+\d{1,2}\s+/i, '').match(monthPattern)?.[0]
+  const qualifierEnd = last.end + rawTail.length - tail.length + (week?.matched.length || monthInTail?.length || 0)
+  if (mentioned.some(date => date.kind === 'period' && (date.start < last.end || date.end > qualifierEnd))) return undefined
+  const resolved = dates.map(date => {
+    if (week) return weekdayInCalendarWeek(date.text, week.anchor)
+    const full = month && /^dia\s+\d{1,2}$/i.test(date.text) ? findDate(`${date.text} ${month}`, today) : date
+    return full?.kind === 'date' ? full.date : undefined
+  })
+  if (resolved.some(day => !day || day > today)) {
     return 'Quais datas já ocorridas você quer consultar? Informe dia e mês de cada uma.'
   }
-  const suffix = question.slice(dates[dates.length - 1].end).replace(/\b(?:separadamente|em\s+cada\s+dia)\b/i, '')
-  const queryPrefix = prefix.replace(/\b(?:no|na|em)\s*$/i, '').trimEnd()
+  const days = [...new Set(resolved)]
+  const suffix = (week ? tail.slice(week.matched.length) : tail.replace(monthPattern, '')).replace(/\b(?:separadamente|em\s+cada\s+dia)\b/i, '')
+  const queryPrefix = prefix.replace(/\b(?:no|na|em|de)\s*$/i, '').trimEnd()
   const readings = days.map(date => answerConversation(state, `${queryPrefix} em ${date} ${suffix}`.trim(), { today }))
   if (readings.some((r, i) => r?.kind !== 'query' || r.focus.lastQueryPlan?.period.from !== days[i]
     || r.focus.lastQueryPlan?.period.to !== days[i])) return 'O que você quer consultar nesses dias? Diga o tipo de gasto ou receita e as datas.'
@@ -1248,6 +1264,21 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   // "GNV" logo depois de "gás de cozinha ou GNV?" precisa recuperar o valor e
   // a descrição da mensagem anterior — o usuário não repete nada.
   const pc = input.pendingClarification
+  if (pc?.field === 'query-range-end' && pc.dateWindow && pc.queryTemplate) {
+    const said = input.message.replace(/^\s*at[ée]\s+/i, '')
+    const date = dateInAnswer(weekdayChoiceWord(said), today)
+    if (date?.kind === 'date' && date.date >= pc.dateWindow.from && date.date <= pc.dateWindow.to) {
+      const lookup = respostaLocal(input.state, pc.queryTemplate.replace('%DATE%', date.date), today, true)
+      if (lookup) return {
+        draft: null, keepPending: true, focus: lookup.focus || input.focus,
+        response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply: lookup.text },
+      }
+    }
+    if (!looksLikeDataQuestion(input.message) && !looksPast(input.message)) return {
+      draft: null, keepPending: true,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [], clarification: pc, reply: pc.question },
+    }
+  }
   if (pc?.field === 'query-date' && pc.queryTemplate && pc.options?.length) {
     const said = normalizeName(input.message).replace(/[.!?]+$/g, '').trim()
     const date = dateInAnswer(weekdayChoiceWord(input.message), today)

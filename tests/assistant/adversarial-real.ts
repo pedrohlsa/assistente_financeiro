@@ -305,6 +305,33 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && /Total dos dois dias:.*72,50/.test(shorthandDays.response.reply) && !/240,00/.test(shorthandDays.response.reply)
       && ![threeDays, countDays, shorthandDays].some(r => r.response.actions.length) && calledForNegation === 0))
 
+  const rangeState = buildState({ profile: 'other', transactions: [
+    { type: 'expense', description: 'Padaria', amount: 35, category: 'alimentacao', date: '2026-11-16' },
+    { type: 'expense', description: 'Padaria', amount: 48, category: 'alimentacao', date: '2026-11-17' },
+    { type: 'expense', description: 'Mercado', amount: 250, category: 'alimentacao', date: '2026-11-16' },
+    { type: 'expense', description: 'Padaria', amount: 12, category: 'alimentacao', date: '2026-11-09' },
+    { type: 'expense', description: 'Padaria', amount: 17, category: 'alimentacao', date: '2026-11-12' },
+  ] })
+  const rangeQuery = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({
+    state: rangeState, today: '2026-11-17', message, pendingClarification: answerChoices(prior),
+    remoteEnabled: true, askRemote: remoteSpy, planRemoteQuery: remoteSpy,
+  })
+  const currentRange = await rangeQuery('quanto gastei na padaria entre segunda e terça?')
+  const priorWeek = await rangeQuery('quanto gastei na segunda e quinta da semana passada?')
+  const futureRange = await rangeQuery('quanto gastei na padaria de segunda até sexta dessa semana?')
+  const narrowedRange = await rangeQuery('até ontem', futureRange)
+  const backwardsRange = await rangeQuery('quanto gastei entre 15/11 e 10/11?')
+  out.push(result('LING-intervalo-com-duas-datas-ancora-semana-e-recupera-filtro', { current: currentRange.response,
+    prior: priorWeek.response, future: futureRange.response, narrowed: narrowedRange.response, backwards: backwardsRange.response },
+    'segunda a terça soma R$ 83 na terça; a semana passada soma R$ 29; até ontem recupera só a padaria; datas invertidas pedem confirmação',
+    currentRange.focus?.lastQuery?.total === 83 && currentRange.focus.lastQueryPlan?.period.to === '2026-11-17'
+      && /Total dos dois dias:.*29,00/.test(priorWeek.response.reply)
+      && answerChoices(futureRange)?.field === 'query-range-end' && narrowedRange.focus?.lastQuery?.total === 35
+      && narrowedRange.focus.lastQueryPlan?.period.from === '2026-11-16'
+      && narrowedRange.focus.lastQueryPlan?.period.to === '2026-11-16'
+      && backwardsRange.response.mode === 'clarify' && calledForNegation === 0
+      && ![currentRange, priorWeek, futureRange, narrowedRange, backwardsRange].some(r => r.response.actions.length)))
+
   const c1 = baseline()
   c1.transactions = ['2026-06-10', '2026-07-10', '2026-08-10'].map((date, i) => ({
     id: `obra-${i}`, type: 'expense', amount: 300, category: 'obra', date, description: 'Obra', time: '10:00',
