@@ -9,7 +9,7 @@
 // 3. Por isso nenhum cálculo daqui entra em periodStats/monthStats: os números
 //    de receita e despesa do app continuam exatamente como eram.
 import {
-  AppState, CreditCard, Installment, InstallmentPlan, RecurringCardCharge, Transaction,
+  AppState, CardPayment, CreditCard, Installment, InstallmentPlan, RecurringCardCharge, Transaction,
 } from '../models/types'
 import { addDays, dateForDayOfMonth, fromISO, monthKey, todayISO, toISO } from '../utils/format'
 
@@ -115,26 +115,26 @@ type PlanRemoval =
   | { allowed: true; receipt?: Transaction }
   | { allowed: false; message: string; legacyOptions?: Transaction[] }
 
-function hasInvoicePaymentForInstallments(s: AppState, cardId: string | undefined, installments: Installment[]): boolean {
-  if (!cardId || !installments.length) return false
+export function invoicePaymentsForInstallments(payments: CardPayment[], cardId: string | undefined, installments: Installment[]): CardPayment[] {
+  if (!cardId || !installments.length) return []
   const ids = new Set(installments.map(i => i.id))
   const months = new Set(installments.map(i => monthKey(i.dueDate)))
-  return s.cardPayments.some(p => p.cardId === cardId
+  return payments.filter(p => p.cardId === cardId
     && (months.has(p.referenceMonth) || p.settledInstallmentIds?.some(id => ids.has(id))))
 }
 
-function hasRecordedInstallmentPayment(i: Installment): boolean {
+export function hasRecordedInstallmentPayment(i: Installment): boolean {
   return i.status === 'paid' || !!i.paidAt || (i.paidAmount || 0) > 0 || !!i.directPayments?.length || i.paidVia === 'invoice'
 }
 
 export function futureInstallmentsToCancel(s: AppState, plan: InstallmentPlan, today = todayISO()): Installment[] {
   return planInstallments(s, plan.id).filter(i => i.status === 'pending' && i.dueDate > today
-    && !hasRecordedInstallmentPayment(i) && !hasInvoicePaymentForInstallments(s, plan.cardId, [i]))
+    && !hasRecordedInstallmentPayment(i) && !invoicePaymentsForInstallments(s.cardPayments, plan.cardId, [i]).length)
 }
 
 export function checkPlanRemoval(s: AppState, plan: InstallmentPlan, legacyReceiptId?: string): PlanRemoval {
   const installments = planInstallments(s, plan.id)
-  if (hasInvoicePaymentForInstallments(s, plan.cardId, installments)) {
+  if (invoicePaymentsForInstallments(s.cardPayments, plan.cardId, installments).length) {
     return { allowed: false, message: 'Há pagamentos nas faturas deste parcelamento. Confira esses pagamentos antes de excluir o plano.' }
   }
   if (plan.operationType !== 'financed-cash-inflow') return { allowed: true }

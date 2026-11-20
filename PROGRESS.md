@@ -6006,3 +6006,15 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - O Chrome confirmou a baixa de apenas R$ 60, o bloqueio da segunda
   baixa e a antecipação de um único vencimento futuro. Suíte com
   772/772 regressões reais, 151 invariantes, typechecks, build e rubrica.
+
+## 20/11/2026 — Desfazer sem apagar mudanças posteriores
+
+- O registro de auditoria confere as entidades novas e os campos que
+  o lote alterou. Mudanças posteriores nesses dados bloqueiam a reversão.
+  Alterações em campos diferentes continuam preservadas.
+- Pagamentos posteriores ligados a um plano bloqueiam a remoção pelo
+  chat. Pagamentos que já existiam antes do lote seguem no histórico.
+- No Chrome, desfazer uma entrada intacta removeu a entrada e o plano.
+  Uma parcela paga bloqueou tanto a proposta quanto a confirmação feita
+  depois da baixa. Suíte com 775/775 regressões, 151 invariantes,
+  typechecks, build e rubrica passaram.

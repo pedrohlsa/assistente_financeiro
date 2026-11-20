@@ -4489,6 +4489,61 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && currentBalance(comFutura) === currentBalance(parcial) && reducer(comFutura, loteMisto) === comFutura
         && reducer(comFutura, quitar) === comFutura
         && reducer(comFutura, { type: 'partialPayInstallment', id: novas[3].id, paidAt: hoje, amount: 20 }) === comFutura))
+
+    const stamp = `${hoje}T16:00:00.000`
+    const loanOptions = { batchId: 'fin-com-diario', now: { date: hoje, time: '15:10' } }
+    const loanActions = [{ id: 'fin-diario', action: { kind: 'financed-cash-inflow' as const,
+      total: 100, netReceived: 80, installments: 2, cardName: 'Inter' } }]
+    const loan = applyBatchPure(receita, loanActions, loanOptions)
+    const intact = hydrateForTest(JSON.parse(JSON.stringify(loan.state)))
+    const proposal = await orchestrate({ state: intact, message: 'desfaz o último', today: hoje, remoteEnabled: false })
+    const undo = (s: AppState) => applyBatchPure(s, proposal.response.actions.map(({ id, action }) => ({ id, action })), { stamp })
+    const undone = undo(intact)
+    const repaid = reducer(intact, { type: 'payInstallment', id: intact.installments[0]?.id, paidAt: hoje, paidTime: '15:30' })
+    const conflicted = undo(repaid)
+    const denied = await orchestrate({ state: repaid, message: 'desfaz o último', today: hoje, remoteEnabled: false })
+    const legacyJournal = { ...repaid, assistantJournal: repaid.assistantJournal.map(entry => ({ ...entry,
+      ops: entry.ops.map(op => {
+        if (op.op === 'delete') return op
+        const { after, ...legacy } = op
+        return legacy
+      }),
+    })) }
+    const legacyDenied = undo(legacyJournal)
+    out.push(result('UNDO-financiamento-apos-pagamento-independente', { proposta: proposal.response.mode,
+      refusals: [conflicted.results, denied.response.reply, legacyDenied.results] },
+      'financiamento intacto é reversível após recarga; pagamento posterior bloqueia proposta e confirmação inclusive em journal legado',
+      loan.applied && proposal.response.actions.length === 1 && proposal.response.actions[0].action.kind === 'undo-batch'
+        && undone.applied && !undone.state.installments.length && !undone.state.transactions.length && currentBalance(undone.state) === 1000
+        && currentBalance(repaid) === 1030 && conflicted.state === repaid && !conflicted.applied && !legacyDenied.applied
+        && conflicted.results[0]?.ok === false && 'code' in conflicted.results[0] && conflicted.results[0].code === 'batch-changed'
+        && denied.response.actions.length === 0 && /alterações ou pagamentos posteriores/.test(denied.response.reply)))
+
+    const payment = { id: 'fatura-dependente', cardId: 'card0', amount: 20, paymentDate: hoje,
+      referenceMonth: intact.installments[0].dueDate.slice(0, 7), fromBalance: true, settledInstallmentIds: [] }
+    const external = { ...intact, cardPayments: [payment] }
+    const afterExisting = applyBatchPure({ ...receita, cardPayments: [payment] }, loanActions, loanOptions)
+    const withoutLoan = undo(afterExisting.state)
+    out.push(result('UNDO-preserva-pagamento-preexistente-e-bloqueia-posterior', { posterior: undo(external).results,
+      anterior: withoutLoan.results },
+      'pagamento anterior continua salvo ao desfazer; baixa posterior na mesma fatura exige conferência',
+      undo(external).state === external && !undo(external).applied && afterExisting.applied && withoutLoan.applied
+        && !withoutLoan.state.installmentPlans.length && withoutLoan.state.cardPayments[0] === payment
+        && currentBalance(withoutLoan.state) === 980))
+
+    const balanceBatch = applyBatchPure(receita, [{ id: 'saldo-do-chat', action: { kind: 'balance', amount: 400 } }], loanOptions)
+    const balanceEdited = reducer(balanceBatch.state, { type: 'settings', patch: { balance: 623, balanceAsOf: stamp } })
+    const balanceDenied = revertBatchPure(balanceEdited, loanOptions.batchId, stamp)
+    const expenseBatch = applyBatchPure(receita, [{ id: 'despesa-do-chat', action: { kind: 'expense', amount: 50, category: 'casa' } }], loanOptions)
+    const edited = applyBatchPure(expenseBatch.state, [{ id: 'edicao-despesa', action: {
+      kind: 'edit-transaction', transactionId: expenseBatch.state.transactions[0].id, amount: 151,
+    } }], { stamp })
+    const editDenied = revertBatchPure(edited.state, loanOptions.batchId, stamp)
+    out.push(result('UNDO-preserva-saldo-e-lancamento-editados-manualmente', { balanceDenied, editDenied },
+      'desfazer nunca sobrescreve saldo manual posterior nem apaga despesa que o usuário alterou',
+      currentBalance(balanceEdited) === 623 && edited.applied && edited.state.transactions[0].amount === 151
+        && isRevertFailure(balanceDenied) && balanceDenied.code === 'batch-changed'
+        && isRevertFailure(editDenied) && editDenied.code === 'batch-changed'))
   }
 
   {

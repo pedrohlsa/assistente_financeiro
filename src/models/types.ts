@@ -468,16 +468,15 @@ export type JournalCollection =
 
 /**
  * O que o lote fez, no nível de entidade. `update` e `delete` guardam o estado
- * ANTERIOR porque `assistantBatchId` dentro da entidade só marca o que nasceu
- * no lote — um depósito em meta ou um pagamento de fatura alteram objetos que
- * já existiam, e sem o valor anterior a reversão seria adivinhação.
+ * anterior para restaurar os campos. `after` permite conferir se o registro
+ * mudou após o lote. Entradas de versões antigas podem não ter esse retrato.
  */
 export type AssistantJournalOp =
-  | { op: 'create'; entity: JournalCollection; id: string }
-  | { op: 'update'; entity: JournalCollection; id: string; before: Record<string, unknown>; absent?: string[] }
+  | { op: 'create'; entity: JournalCollection; id: string; after?: Record<string, unknown>; priorInvoicePaymentIds?: string[] }
+  | { op: 'update'; entity: JournalCollection; id: string; before: Record<string, unknown>; absent?: string[]; after?: Record<string, unknown> }
   | { op: 'delete'; entity: JournalCollection; id: string; snapshot: Record<string, unknown> }
-  | { op: 'patch'; entity: 'settings'; before: Record<string, unknown>; absent?: string[] }
-  | { op: 'patch'; entity: 'vehicle'; before: Vehicle | null }
+  | { op: 'patch'; entity: 'settings'; before: Record<string, unknown>; absent?: string[]; after?: Record<string, unknown> }
+  | { op: 'patch'; entity: 'vehicle'; before: Vehicle | null; after?: Vehicle | null }
 
 export interface AssistantJournalEntry {
   batchId: string

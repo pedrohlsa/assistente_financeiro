@@ -303,7 +303,7 @@ export type AssistantErrorCode =
   | 'duplicate' | 'recurring-conflict' | 'missing-field' | 'profile-forbidden'
   | 'invoice-empty' | 'invoice-conflict' | 'insufficient-reserve'
   | 'unsupported-action' | 'conflict' | 'text-too-long' | 'unknown-field'
-  | 'batch-not-found' | 'batch-not-reversible' | 'already-undone'
+  | 'batch-not-found' | 'batch-not-reversible' | 'already-undone' | 'batch-changed'
   | 'transaction-not-found' | 'edit-not-allowed'
   | 'recurring-not-found' | 'occurrence-resolved' | 'occurrence-invalid'
 
@@ -336,6 +336,7 @@ export const ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
   'batch-not-found': 'Não tenho o registro detalhado desse lançamento para desfazer com segurança.',
   'batch-not-reversible': 'Esse lote não tem detalhe suficiente para ser desfeito com segurança.',
   'already-undone': 'Esse lote já foi desfeito.',
+  'batch-changed': 'Há alterações ou pagamentos posteriores nos registros deste lote. Confira os lançamentos vinculados antes de desfazer.',
   'transaction-not-found': 'Não encontrei esse lançamento.',
   'edit-not-allowed': 'Esse lançamento não dá para corrigir por aqui.',
 }

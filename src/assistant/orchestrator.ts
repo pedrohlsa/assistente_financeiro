@@ -9,7 +9,7 @@
 // nunca duplica.
 
 import type { AppState, AssistantJournalEntry, ParsedAction, Transaction } from '../models/types'
-import { lastReversibleBatch } from './journal'
+import { isRevertFailure, lastReversibleBatch, revertBatchPure } from './journal'
 import { editActionFor, findEditCandidates, parseEditRequest, parseSpokenCorrection } from './editSaved'
 import type { EditableTxField } from './editSaved'
 import { editBlockReason } from './execute'
@@ -1554,6 +1554,12 @@ Confirmar?`,
   if (UNDO_REQUEST.test(input.message) || UNDO_SHORT.test(input.message)) {
     const alvo = lastReversibleBatch(input.state)
     if (alvo) {
+      const preview = revertBatchPure(input.state, alvo.batchId, alvo.createdAt)
+      if (isRevertFailure(preview)) return {
+        draft: null,
+        response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local',
+          actions: [], unresolved: [], reply: preview.message },
+      }
       const itens = describeUndo(input.state, alvo)
       const cand = [candidate({ kind: 'undo-batch', batchId: alvo.batchId }, 'local')]
       return {
