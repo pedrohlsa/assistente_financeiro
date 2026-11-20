@@ -260,6 +260,7 @@ export const looksLikeRetraction = (t: string): boolean => hasAny(t, RETRACTION_
 const CONTEST_PATTERNS: RegExp[] = [
   ...RETRACTION_PATTERNS,
   /^\s*n[ãa]o\b/i,
+  /^\s*n\s+(?:foi|era|fui)\b/i,
   /\b(?:est[áa]|ta|tah)\s+errad[oa]\b/i,
   /\b(?:errad[oa]|engano|enganado)\b/i,
   /\bn[ãa]o\s+(?:[ée]|eh)\s+(?:isso|assim|bem\s+assim)\b/i,
@@ -750,7 +751,7 @@ function incompleteAmount(text: string, driver: boolean | undefined, date?: stri
 const APPROXIMATE_AMOUNT = /\b(?:uns|umas|mais\s+ou\s+menos|cerca\s+de|por\s+volta\s+de|aproximadamente)\s+(?:r\$\s*)?\d/i
 
 /** Um número numa origem (Casa 2) ou numa data não substitui o valor do registro. */
-function revisedAction(action: ParsedAction, body: string, today: string): ParsedAction | undefined {
+export function revisedAction(action: ParsedAction, body: string, today: string): ParsedAction | undefined {
   const dates = findAllDates(body, today)
   const [date] = dates
   if (dates.length > 1 || (date && date.kind !== 'date')) return undefined

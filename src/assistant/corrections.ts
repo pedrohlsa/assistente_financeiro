@@ -5,15 +5,16 @@
 // alterar um lançamento existente é um fluxo próprio, com confirmação separada.
 
 import type { ParsedAction } from '../models/types'
-import type { AssistantCandidateAction, AssistantCapabilities } from './contracts'
+import { validateAction, type AssistantCandidateAction, type AssistantCapabilities, type AssistantClarification } from './contracts'
 import { fmtBRL, parseMoney, todayISO } from '../utils/format'
 import { normalizeNumberWords } from './numbers'
 import { findDate } from './dates'
-import { extractOrigins } from './clauses'
+import { extractOrigins, looksLikeQuestion, revisedAction } from './clauses'
 import { normalizeName } from '../utils/text'
 import { guessCategory } from '../data/categories'
 
-const NUMBER = String.raw`(\d+(?:[.,]\d+)*)`
+const NUMBER = String.raw`(\d+(?:[.,]\d+)*)(?!\d|[.,]\d)`
+const MONEY_START = new RegExp(String.raw`^(?:r\$\s*)?${NUMBER}(?:\s+reais?\b)?`, 'i')
 
 export interface CorrectionPlan {
   /** Ids a remover da proposta. */
@@ -25,7 +26,7 @@ export interface CorrectionPlan {
   /** Descrição em pt-BR do que foi entendido, para o assistente confirmar. */
   summary: string[]
   /** A frase referenciava algo que não deu para identificar com segurança. */
-  ambiguous?: { question: string; options: { label: string; value: string }[] }
+  ambiguous?: AssistantClarification
 }
 
 const ORDINALS: Record<string, number> = {
@@ -109,6 +110,113 @@ const describe = (a: ParsedAction): string => {
   return v !== undefined ? `${label} de ${fmtBRL(v)}` : label
 }
 
+/** Separa o que foi negado do que efetivamente deve entrar na proposta. */
+function contrast(message: string): { rejected: string; affirmed: string } | undefined {
+  const front = message.match(/^\s*(?:n[ãa]o|n)\s+(?:foi|era|fui)\s+(.+?)(?:\s*[,;.!—–]\s*|\s+)\s*(?:mas\s+)?(?:foi|era|fui)\s+(.+)$/i)
+  if (front) return { rejected: front[1], affirmed: front[2] }
+  const back = message.match(/^\s*(?:foi|era|fui)\s+(.+?)(?:\s*[,;.!—–]\s*|\s+(?:e\s+)?)\s*(?:n[ãa]o|n)\s+(?:(?:foi|era|fui)\s+)?(.+)$/i)
+  if (back) return { rejected: back[2], affirmed: back[1] }
+  return undefined
+}
+
+function reviseContrast(action: ParsedAction, text: string, caps: AssistantCapabilities, today: string): ParsedAction | undefined {
+  const affirmed = text.trim().replace(/[.!]+$/, '')
+  const cardClause = affirmed.match(/^(?:(.+?)\s+e\s+(?:era|foi)\s+)?(?:no|na|pelo|pela)\s+(.+)$/i)
+  if (cardClause && 'cardName' in action) {
+    const cardName = caps.cardNames.find(name => normalizeName(name) === normalizeName(cardClause[2]))
+    if (!cardName) return undefined
+    const updated = cardClause[1] ? revisedAction(action, cardClause[1], today) : action
+    if (updated?.kind === 'card-payment' && normalizeName(updated.cardName) !== normalizeName(cardName)) {
+      const { cardId, expectedPending, ...payment } = updated
+      return { ...payment, cardName }
+    }
+    return updated && 'cardName' in updated ? { ...updated, cardName } : undefined
+  }
+
+  const amount = affirmed.match(MONEY_START)
+  const date = findDate(affirmed, today)
+  let details = affirmed.slice(amount?.[0].length ?? 0).trim()
+  const restatement = details.match(/^que\s+(?:eu\s+)?(gastei|paguei|recebi|ganhei)\b/i)
+  if (restatement) {
+    const kind = /^(?:recebi|ganhei)$/i.test(restatement[1]) ? 'income' : 'expense'
+    if (kind !== action.kind) return undefined
+    details = details.slice(restatement[0].length).trim()
+  }
+  const rest = date && date.kind === 'date' ? affirmed.slice(date.end).trim() : null
+  const onlyDate = rest === '' && /^(?:(?:no|na|em)\s+)?$/i.test(affirmed.slice(0, date?.start))
+  const place = /^(?:n[oa]s?|em|d[ao]s?)\s+\S/i.test(details)
+  if (!onlyDate && !place && (!amount || details && !date)) return undefined
+  if (/\bou\b|(?:[,;]|\be)\s*(?:r\$\s*)?\d/i.test(details)) return undefined
+
+  const body = [amount?.[0], details].filter(Boolean).join(' ')
+  const updated = revisedAction(action, body, today)
+  if ((action.kind === 'income' || action.kind === 'expense') && (updated?.kind === 'income' || updated?.kind === 'expense')) {
+    return { ...updated, origin: updated.origin ?? action.origin, category: updated.category ?? action.category }
+  }
+  return updated
+}
+
+function parseContrastCorrection(
+  message: string, pending: AssistantCandidateAction[], caps: AssistantCapabilities, today: string, plan: CorrectionPlan,
+): CorrectionPlan | null {
+  const parts = contrast(message)
+  if (!parts || looksLikeQuestion(message)) return null
+  const { rejected, affirmed } = parts
+  const amount = rejected.match(MONEY_START)
+  const oldValue = amount ? parseMoney(amount[1]) : undefined
+  const amountHits = oldValue === undefined ? pending : pending.filter(p => Math.abs((amountOf(p.action) ?? NaN) - oldValue) < 0.005)
+  if (oldValue !== undefined && !amountHits.length) {
+    plan.ambiguous = { question: `Não há proposta de ${fmtBRL(oldValue)} nesta conversa. Qual lançamento você quer corrigir?` }
+    return plan
+  }
+
+  // A referência vem do trecho rejeitado. O novo lugar pode ser o nome de
+  // outro registro na mesma proposta, e nesse caso não deve virar o alvo.
+  const date = findDate(rejected, today)
+  const onDate = date?.kind === 'date' ? amountHits.filter(({ action }) => ('date' in action ? action.date || today : today) === date.date) : []
+  const pool = onDate.length ? onDate : amountHits
+  const target = resolveTarget(rejected, pool)
+  const targets = !target ? pool : 'id' in target ? pool.filter(p => p.id === target.id) : target.ambiguousAmong
+  const edits = targets.flatMap(p => {
+    const revision = reviseContrast(p.action, affirmed, caps, today)
+    const checked = revision && validateAction(revision, caps, today)
+    return checked?.ok ? [{ id: p.id, action: checked.action }] : []
+  })
+  if (edits.length !== targets.length || !edits.length) {
+    plan.ambiguous = { question: 'Qual é a correção exata? Diga o valor, a data ou o detalhe que devo trocar.' }
+    return plan
+  }
+  if (edits.length > 1) {
+    if (targets.some(({ action }) => action.kind === 'recurring-confirm' && action.transactionId)) {
+      plan.ambiguous = { question: 'Há uma conta fixa vinculada nesta proposta. Diga qual lançamento e qual valor você quer corrigir.' }
+      return plan
+    }
+    plan.ambiguous = {
+      field: 'pending-correction',
+      question: 'Qual lançamento você quer corrigir?',
+      options: edits.map((edit, i) => {
+        const { action } = targets[i]
+        const detail = ('description' in action && action.description) || ('origin' in action && action.origin)
+        return {
+          value: String(i + 1), label: `${i + 1}. ${describe(action)}${detail ? ` · ${detail}` : ''}`,
+          actions: pending.map(p => p.id === edit.id ? edit.action : p.action),
+        }
+      }),
+    }
+    return plan
+  }
+
+  const [{ id, action }] = edits
+  const [{ action: original }] = targets
+  const before = original as unknown as Record<string, unknown>
+  const after = action as unknown as Record<string, unknown>
+  for (const field of ['amount', 'total', 'cost', 'description', 'category', 'date', 'origin', 'cardName']) {
+    if (before[field] !== after[field]) plan.edits.push({ id, field, value: after[field], was: before[field] })
+  }
+  plan.summary.push(plan.edits.length ? 'Corrigi a proposta.' : 'A proposta já estava com esses dados.')
+  return plan
+}
+
 /**
  * Interpreta uma frase de correção contra a proposta pendente.
  * Devolve `null` quando a frase não é uma correção reconhecível — nesse caso o
@@ -124,6 +232,9 @@ export function parseCorrection(
   const { text: norm } = normalizeNumberWords(message)
   const t = norm.toLowerCase()
   const plan: CorrectionPlan = { remove: [], edits: [], cancelAll: false, summary: [] }
+  const contrasted = parseContrastCorrection(norm, pending, caps, today, plan)
+  if (contrasted) return contrasted
+  if (/^\s*(?:n[ãa]o|n)\s+(?:foi|era|fui)\b/i.test(t)) return null
 
   // Cancelar tudo.
   if (/\b(?:cancela|cancelar|esquece|esquecer|deixa\s+pra\s+l[áa]|n[ãa]o\s+registra\s+(?:nada|isso\s+tudo))\b/.test(t)
@@ -166,8 +277,7 @@ export function parseCorrection(
   // SEGUNDA despesa — com a primeira ainda confirmável logo acima.
   const REFORCO = String.raw`(?:\s*(?:mesmo|mesma|sim|isso|isso a[ií]|certo|exato|exatamente|redondo|cravado|ao\s+todo|no\s+total|s[oó]|apenas|apenas isso))?`
   const valueRe = new RegExp(
-    String.raw`(?:n[ãa]o\s+(?:foi|era|é|e)\s*(?:r\$)?\s*${NUMBER}${MIL}\s*,?\s*(?:e|mas)?\s*(?:foi|era|é|e|sim)?\s*(?:r\$)?\s*${NUMBER}${MIL})` +
-    String.raw`|(?:(?:troca|trocar|muda|mudar|altera|alterar|corrige|corrigir|ajusta|ajustar)\s+(?:o\s+)?valor\s+(?:para|pra|por|em)\s*(?:r\$)?\s*${NUMBER}${MIL})` +
+    String.raw`(?:(?:troca|trocar|muda|mudar|altera|alterar|corrige|corrigir|ajusta|ajustar)\s+(?:o\s+)?valor\s+(?:para|pra|por|em)\s*(?:r\$)?\s*${NUMBER}${MIL})` +
     String.raw`|(?:(?:foi|era|é)\s*(?:r\$)?\s*${NUMBER}${MIL}\s*(?:reais)?${REFORCO}\s*$)` +
     // "Na verdade 80", "quer dizer 80 reais" — o conserto mais natural que
     // existe, e o único caminho que faltava reconhecer.
@@ -179,10 +289,8 @@ export function parseCorrection(
   )
   const vm = t.match(valueRe)
   if (vm) {
-    // Pares [valor, "mil"]: 1/2 = antigo, 3/4 = novo, 5/6 e 7/8 = formas
-    // curtas, 9/10 = "na verdade X", 11/12 = a mensagem inteira sendo o valor.
     const pick = (n: number, m: number) => (vm[n] ? parseMoney(vm[n]) * (vm[m] ? 1000 : 1) : NaN)
-    const newValue = [pick(3, 4), pick(5, 6), pick(7, 8), pick(9, 10), pick(11, 12), pick(1, 2)].find(v => v > 0) ?? NaN
+    const newValue = [pick(1, 2), pick(3, 4), pick(5, 6), pick(7, 8)].find(v => v > 0) ?? NaN
     if (newValue > 0) {
       const target = resolveTarget(t, remaining)
       if (target && 'id' in target) {

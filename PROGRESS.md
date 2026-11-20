@@ -6132,3 +6132,16 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - Três casos de corpus, suíte com 790/790 regressões, 151 invariantes,
   typechecks, build e rubrica passaram. A matriz adicional de consultas
   passou com 64/64 casos em oito datas.
+
+## 20/11/2026 — Correção de uma proposta em outro turno
+
+- O chat separa o dado negado do afirmado antes de editar o cartão.
+  Com “não foi 90, foi 75 que gastei na padaria”, corrige tanto o
+  valor como o lugar, e usa a data afirmada em “não foi anteontem,
+  foi ontem”.
+- Quando dois lançamentos têm o valor negado, o cartão anterior é
+  retirado e o chat pede a seleção. O Chrome confirmou que só havia
+  um cartão depois da escolha e que só o registro escolhido mudou.
+  Também confirmou correção de origem sem perder a categoria.
+- 11 novos casos no corpus, suíte local completa, 151 invariantes,
+  avaliação remota offline, typechecks, build e rubrica.
