@@ -105,7 +105,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     for (const [i, phrase] of phrases.entries()) {
       const ambiguous = await orchestrate({ state, today: TODAY, message: `ontem gastei 50 no mercado ${phrase}`, remoteEnabled: false })
       const clarification = ambiguous.response.mode === 'clarify' ? ambiguous.response.clarification : undefined
-      const exact = await orchestrate({ state, today: TODAY, message: 'às nove e quinze', pendingClarification: clarification, remoteEnabled: false })
+      const exact = await orchestrate({ state, today: TODAY, message: 'às nove horas e quinze minutos', pendingClarification: clarification, remoteEnabled: false })
       const [action] = exact.response.actions.map(a => a.action)
       out.push(result(`LING-horario-impreciso-${i + 1}`, { ambiguous: ambiguous.response, exact: exact.response },
         'espera pelo horário, sem trocar valor, data ou local', clarification?.field === 'clock-time' && !ambiguous.response.actions.length
