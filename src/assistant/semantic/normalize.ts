@@ -81,7 +81,7 @@ const ESTRUTURAL: string[] = [
   'banco', 'cartao', 'cartoes', 'fatura', 'faturas', 'reserva', 'renda', 'venda',
   // Relato de transferência: "mandei Pix" não é "andei km". Também não
   // corrigir conectores e parentesco comuns para verbos/tempo por semelhança.
-  'mandei', 'enviei', 'transferi', 'pix', 'para', 'minha', 'filha',
+  'mandei', 'enviei', 'transferi', 'pix', 'para', 'minha', 'minhas', 'nossa', 'nossas', 'filha',
 ]
 
 const DICIONARIO = new Set(ESTRUTURAL)

@@ -6268,3 +6268,14 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - O Chrome confirmou R$ 35 e manteve a base sem movimentos adicionais.
   Suíte com 800/800 regressões reais, 151 invariantes, avaliação local,
   typechecks e build.
+
+## 20/11/2026 — Pix recebido e transferência própria
+
+- “Recebi Pix de 99 de João” mantém João como origem e R$ 99 como
+  valor, sem criar corrida. “Me enviaram Pix” também distingue a
+  entrada de um envio. Valor incompleto preserva a data na pergunta.
+- Transferência entre contas próprias fica fora das despesas. O
+  reparo de digitação preserva essa leitura.
+- Chrome confirmou os Pix de R$ 99 e R$ 74,50, sem sessão de trabalho.
+  Suíte com 801/801 regressões reais, 151 invariantes, typechecks,
+  build e rubrica sem respostas ruins ou perigosas.

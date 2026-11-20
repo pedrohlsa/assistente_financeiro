@@ -50,6 +50,7 @@ export interface AnalyzedClause {
   intention?: boolean
   /** O trecho descreve um fato que quase aconteceu ou um plano abandonado. */
   unrealized?: boolean
+  internalTransfer?: boolean
   approximateAmount?: boolean
   /**
    * Leituras locais DESCARTADAS por baixa confiança (ver semantic/confidence.ts).
@@ -184,6 +185,8 @@ const OUTGOING_REFUND = new RegExp(String.raw`\b(?:${REFUND_FIRST})\b`, 'i')
 const REFUND_DENIED = new RegExp(String.raw`(?<![\p{L}\p{M}])(?:n[ãa]o|nem|[nñ])\s+(?:(?:me|nos)\s+)?(?:${REFUND_THIRD}|${REFUND_FIRST})\b`, 'iu')
 const PIX_REQUEST = /\b(?:pediu|pediram|solicitou|solicitaram)\b[^.;!?]*\bpix\b|\bpix\b[^.;!?]*\b(?:pediu|pediram|solicitou|solicitaram)\b/i
 const PIX_SENDING = 'mandei|enviei|transferi'
+const PIX_INCOMING = 'mandaram|enviaram|transferiram|mandou|enviou|transferiu'
+const OWN_ACCOUNTS = /\bentre\s+(?:as\s+)?(?:(?:minhas|nossas)\s+(?:duas\s+)?contas|contas\s+pr[óo]prias)\b|\b(?:da|de)\s+(?:minha|nossa)\s+conta\b[^.;!?]{0,55}\b(?:para|pra)\s+(?:a\s+)?(?:minha|nossa)\s+conta\b/i
 const PIX_CONTEXT_HEAD = /^(?:(?:eu|j[áa]|ainda|n[ãa]o|nem|[nñ])\s+){0,3}(?:mandei|enviei|transferi|acabei\s+(?:de\s+)?(?:mandar|enviar|transferir|mandando|enviando|transferindo))\b/i
 const PIX_CONTEXT_DENIED = new RegExp(String.raw`^(?:(?:eu|ainda)\s+){0,2}(?:n[ãa]o|nem|[nñ])\s+(?:${PIX_SENDING})(?:\s+(?:o\s+)?pix|\s+${CASH_PAIR_VALUE})?\s*[,;.!]*$`, 'i')
 const PIX_CONTEXT_SENT = new RegExp(String.raw`^(?:(?:eu|j[áa])\s+){0,2}(?:${PIX_SENDING})\s+(?:(?:o\s+|um\s+)?pix\s+(?:de\s+)?)?(?:(?:s[oó]|apenas)\s+)?(${CASH_PAIR_VALUE})(?:\s+(?:via|por|no|pelo)\s+pix)?(?:\s+(?:para|pra|pro)\s+[\p{L}\p{M}\s]{2,45})?[,;.!]*$`, 'iu')
@@ -195,7 +198,7 @@ const NEGATED_VERBS =
   // Qualquer verbo de dinheiro no passado pode ser NEGADO. A lista acima
   // esquecia troquei, instalei, vendi, depositei e outros — e "nao troquei o
   // oleo por 280" registrava a manutencao mesmo assim.
-  + `|troquei|instalei|vendi|depositei|investi|apliquei|parcelei|passei|tirei|retirei|faturei|lucrei|andei|dirigi|percorri|saiu|entrou|caiu|sobrou|custou|${PIX_SENDING}|${REFUND_FIRST}|${REFUND_THIRD}|${COMPLETED_MONEY}|${RECORD_VERB}`
+  + `|troquei|instalei|vendi|depositei|investi|apliquei|parcelei|passei|tirei|retirei|faturei|lucrei|andei|dirigi|percorri|saiu|entrou|caiu|sobrou|custou|${PIX_SENDING}|${PIX_INCOMING}|${REFUND_FIRST}|${REFUND_THIRD}|${COMPLETED_MONEY}|${RECORD_VERB}`
 
 /**
  * A vírgula depois do "não" é o jeito mais comum de negar em fala real: "não,
@@ -219,7 +222,7 @@ export const looksNegated = (t: string): boolean => NEGATED_STATEMENT.test(t)
  * respostas diferentes, e nenhuma delas é gravar na data de hoje.
  */
 const PAST_MONEY_VERBS =
-  `gastei|gastou|gastamos|paguei|pagou|pagamos|quitei|quitamos|antecipei|adiantei|recebi|recebeu|recebemos|ganhei|ganhou|ganhamos|comprei|comprou|compramos|parcelei|passei|abasteci|coloquei|botei|guardei|separei|depositei|investi|apliquei|tirei|retirei|vendi|faturei|lucrei|rodei|andei|dirigi|percorri|trabalhei|fiz|fizemos|troquei|instalei|entrou|caiu|sobrou|reembolsaram|reembolsou|${PIX_SENDING}`
+  `gastei|gastou|gastamos|paguei|pagou|pagamos|quitei|quitamos|antecipei|adiantei|recebi|recebeu|recebemos|ganhei|ganhou|ganhamos|comprei|comprou|compramos|parcelei|passei|abasteci|coloquei|botei|guardei|separei|depositei|investi|apliquei|tirei|retirei|vendi|faturei|lucrei|rodei|andei|dirigi|percorri|trabalhei|fiz|fizemos|troquei|instalei|entrou|caiu|sobrou|reembolsaram|reembolsou|${PIX_SENDING}|${PIX_INCOMING}`
 
 const PAST_STATEMENT = new RegExp(String.raw`\b(?:${PAST_MONEY_VERBS}|${COMPLETED_MONEY}|${RECORD_DIRECTIVE})\b`, 'i')
 
@@ -741,6 +744,30 @@ function parseFirstAmount(text: string): number {
   return m ? parseMoney(m[1]) : NaN
 }
 
+const PIX_INFLOW_HEAD = String.raw`(?:(?:eu|j[áa])\s+){0,2}(?:recebi|me\s+(?:${PIX_INCOMING}))`
+const PIX_AMOUNT_BOUND = String.raw`(?:(quase|mais\s+de|menos\s+de|pelo\s+menos|no\s+m[áa]ximo)\s+)?(${CASH_PAIR_VALUE})(?!\d|[.,]\d)`
+const RECEIVED_BY_PIX = [
+  new RegExp(String.raw`^${PIX_INFLOW_HEAD}\s+(?:(?:um|o)\s+)?pix\s+(?:(?:de|no\s+valor\s+de)\s+)?${PIX_AMOUNT_BOUND}`, 'i'),
+  new RegExp(String.raw`^${PIX_INFLOW_HEAD}\s+${PIX_AMOUNT_BOUND}\s+(?:via|por|no|pelo)\s+pix\b`, 'i'),
+]
+
+function readReceivedPix(text: string): { action: IncomeAction; uncertain: boolean; creditSource: boolean } | undefined {
+  const received = RECEIVED_BY_PIX.map(re => text.match(re)).find(Boolean)
+  const amount = received ? parseFirstAmount(received[2]) : NaN
+  if (!(amount > 0)) return undefined
+  const detail = text.slice(received[0].length).trim()
+  const uncertainty = /^(?:[,\s]*ou\s+(?:talvez\s+)?(?:r\$\s*)?\d|e\s+(?:poucos?|uns\s+(?:quebrados|trocados|centavos)|alguns\s+centavos)\b)/i.test(detail)
+  const source = extractOrigins(detail)[0]?.value || detail.match(/^de\s+([\p{Lu}][\p{L}\p{M}]+(?:\s+[\p{Lu}][\p{L}\p{M}]+)*)/u)?.[1]
+  const incomeType = /\b(?:sal[áa]rio|aluguel|freela|freelance|comiss[ãa]o|vendas?|corridas?|uber|indrive|da\s+99)\b/i.test(detail)
+    ? guessCategory(detail, 'income') : undefined
+  const isRefund = /\breembolso\b/i.test(detail)
+  return {
+    action: { kind: 'income', amount, category: incomeType || 'outros-in', description: isRefund ? 'Reembolso' : 'Pix recebido', ...(source ? { origin: source } : {}) },
+    uncertain: !!received[1] || uncertainty,
+    creditSource: /\b(?:do\s+cart[ãa]o|limite\s+do\s+cart[ãa]o|no\s+cr[ée]dito|empr[ée]stimo)\b/i.test(detail),
+  }
+}
+
 export function financialEventActions(event: FinancialEvent, amount: number, driver: boolean): ParsedAction[] {
   if (!(amount > 0)) return []
   if (event === 'ride') return [
@@ -1166,8 +1193,10 @@ export function analyzeMessage(
     const abandonedReply = ABANDONING.test(part.text) && WISH_ABANDONED.test(parts[i - 1]?.text || '')
     const onlyPlanned = !looksPast(part.text) && /\b(?:ia|iria)\s+/i.test(part.text) && declaresIntention(part.text)
     const refundDenied = REFUND_DENIED.test(part.text)
+    const internalTransfer = !isQuestion && !negated && looksPast(part.text)
+      && /\b(?:pix|transferi)\b/i.test(part.text) && OWN_ACCOUNTS.test(part.text)
     const unrealized = !isQuestion && (abandoned || abandonedReply || onlyPlanned || declinedRide || refundDenied || ALMOST_HAPPENED.test(part.text))
-    const canShareContext = !isQuestion && !isConversation && !negated && !unrealized
+    const canShareContext = !isQuestion && !isConversation && !negated && !unrealized && !internalTransfer
     const originalMoney = spokenMoney(expandWeekdayAlternatives(part.text))
     const forParserRaw = spokenMoney(expandWeekdayAlternatives(aligned ? normalizedParts[i].text : normalized))
     const invoiceOriginal = readInvoiceReference(originalMoney, today)
@@ -1251,6 +1280,7 @@ export function analyzeMessage(
     const sentAmount = pixSent ? parseFirstAmount(pixSent[1]) : NaN
     const closedPix = sentAmount > 0 || (previousPix && PIX_CONTEXT_DENIED.test(fala))
     if (closedPix) previousClause.ambiguity = undefined
+    const pixInflow = !requestedPix && !isQuestion && !negated && !internalTransfer ? readReceivedPix(fala) : undefined
     const refundMention = REFUND_VERB.test(fala) || /\b(?:estorno|reembolso)\b/i.test(fala)
     const caixaDoReembolso = REEMBOLSO_NA_CONTA.test(fala.replace(/[.!]+$/, '').trim())
     const creditoNaFatura = refundMention && !caixaDoReembolso && /\b(?:cart[ãa]o|fatura|cr[ée]dito)\b/i.test(fala)
@@ -1271,6 +1301,10 @@ export function analyzeMessage(
       : parseNaturalFull(comando, { driver: opts?.driver, dayHint, inheritedKind })
     if (sentAmount > 0) {
       parsed.actions = financialEventActions('pix', sentAmount, !!opts?.driver)
+      parsed.ambiguity = undefined
+    }
+    if (pixInflow) {
+      parsed.actions = pixInflow.uncertain || pixInflow.creditSource ? [] : [pixInflow.action]
       parsed.ambiguity = undefined
     }
     const fatura = parsed.actions.find(a => a.kind === 'card-payment')
@@ -1377,6 +1411,17 @@ export function analyzeMessage(
     else if (canShareContext && !date && inheritedDate && !temporal && !dateAmbiguity) { date = inheritedDate; dLabel = inheritedLabel }
     if (unclearDirection) {
       ambiguity = cashPairDirection(unclearDirection, date, !!temporal || !!dateAmbiguity)
+      temporal = undefined
+      dateAmbiguity = undefined
+    }
+    if (pixInflow?.creditSource) {
+      ambiguity = { question: 'Esse Pix foi um pagamento recebido ou uma transferência de crédito? Diga a origem do dinheiro para eu classificar.', options: [] }
+    } else if (pixInflow?.uncertain) {
+      const dateMissing = !!temporal || !!dateAmbiguity
+      ambiguity = { field: 'exact-amount', options: [],
+        question: dateMissing ? 'Qual foi o valor exato do Pix e em que dia ele entrou?' : 'Qual foi o valor exato do Pix recebido?',
+        pendingActions: dateMissing ? undefined : [{ ...pixInflow.action, date }],
+      }
       temporal = undefined
       dateAmbiguity = undefined
     }
@@ -1495,6 +1540,12 @@ export function analyzeMessage(
           { label: 'Não', actions: [], reply: 'Certo, não vou registrar esse valor como realizado.' },
         ] : [] }
     }
+    if (internalTransfer) {
+      actions = []
+      temporal = undefined
+      ambiguity = undefined
+      dateAmbiguity = undefined
+    }
 
     const aguardaReembolso = PEDIU_REEMBOLSO.test(part.text) || REEMBOLSO_HIPOTETICO.test(part.text)
       || REEMBOLSO_PENDENTE.test(part.text) || /^(?:o\s+)?reembolso\b.*\?\s*$/i.test(part.text)
@@ -1596,7 +1647,7 @@ export function analyzeMessage(
 
     let intent: AssistantIntent
     if (queryDates) intent = 'clarification'
-    else if (isConversation) intent = 'conversation'
+    else if (isConversation || internalTransfer) intent = 'conversation'
     else if (aguardaReembolso || duvidaFatura || amountChoice || unrealized) intent = 'record'
     else if (negated) intent = 'correction'
     else if (isCorrection && !actions.length) intent = 'correction'
@@ -1627,6 +1678,7 @@ export function analyzeMessage(
       temporal,
       intention: intencao || undefined,
       unrealized: unrealized || undefined,
+      internalTransfer: internalTransfer || undefined,
       approximateAmount: actions.length > 0 && APPROXIMATE_AMOUNT.test(semData) || undefined,
       suspicious: suspeitas.size ? [...suspeitas] : undefined,
     })

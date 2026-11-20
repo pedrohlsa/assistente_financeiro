@@ -1103,6 +1103,26 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && pixSameTurn[2].actions.some(a => a.kind === 'expense' && a.date === TODAY)
       && pixDenied.every(r => !r.actions.length && r.mode !== 'clarify')
       && sentPrint.mode === 'clarify' && !sentPrint.actions.length))
+  const pixDriver = buildState({ profile: 'driver' })
+  const pixBank = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({ state: pixDriver,
+    today: TODAY, remoteEnabled: false, message, pendingClarification: answerChoices(prior) })
+  const receivedPix = await pixBank('recebi Pix de 99 de João ontem')
+  const thirdPersonPix = await pixBank('me enviaram Pix de 16,25')
+  const incompletePix = await pixBank('recebi Pix de 70 e pouco ontem')
+  const chosenPix = await pixBank('foi 74,50', incompletePix)
+  const internalPix = await Promise.all([
+    'fiz um Pix de 40 entre minhas contas',
+    'transferi 40 da minha conta do Inter pra minha conta do Nubank',
+  ].map(message => pixBank(message)))
+  out.push(result('A-pix-entrada-sem-inventar-corrida-e-transferencia-propria', { received: receivedPix.response, thirdPerson: thirdPersonPix.response,
+    incomplete: incompletePix.response, exact: chosenPix.response, internal: internalPix.map(r => r.response) },
+    'Pix recebido é entrada com a origem dita, números e valores incertos não criam viagem, e transferência própria não é despesa',
+    receivedPix.response.actions.length === 1 && receivedPix.response.actions.map(a => a.action).some(a => a.kind === 'income'
+      && a.amount === 99 && a.category === 'outros-in' && a.origin === 'João' && a.date === addDays(TODAY, -1))
+      && thirdPersonPix.response.actions.length === 1 && thirdPersonPix.response.actions.map(a => a.action).some(a => a.kind === 'income' && a.amount === 16.25)
+      && !incompletePix.response.actions.length && answerChoices(incompletePix)?.field === 'exact-amount'
+      && chosenPix.response.actions.length === 1 && chosenPix.response.actions.map(a => a.action).some(a => a.kind === 'income' && a.amount === 74.50 && a.date === addDays(TODAY, -1))
+      && internalPix.every(r => !r.response.actions.length && /contas próprias/.test(r.response.reply))))
   const directMixed = buildState({ balance: 1000, cards: [{ name: 'Inter', dueDay: 20, closingDay: 5 }] })
   directMixed.settings.balanceAsOf = '2026-09-14T09:00'
   directMixed.installmentPlans = [{ id: 'mixed-plan', description: 'Compra', cardId: 'card0',
