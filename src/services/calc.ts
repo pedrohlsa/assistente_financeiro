@@ -117,10 +117,10 @@ export function currentBalance(s: AppState, today = todayISO()): number {
     if (i.directPayments?.length) {
       // Cada parcela parcial mantém sua própria hora; o total acumulado não
       // pode ser todo movido para o instante do pagamento mais recente.
-      total -= i.directPayments.filter(p => p.date <= today && stampOf(p.date, p.time) > since)
+      total -= i.directPayments.filter(p => validPaymentDate(p.date, today) && stampOf(p.date, p.time) > since)
         .reduce((sum, p) => sum + p.amount, 0)
-    } else if (i.paidAt && i.paidAt.slice(0, 10) <= today && stampOf(i.paidAt) > since) {
-      total -= directInstallmentPaidAmount(s, i)
+    } else if (i.paidAt && validPaymentDate(i.paidAt, today) && stampOf(i.paidAt) > since) {
+      total -= directInstallmentPaidAmount(s, i, today)
     }
   }
   return Math.round(total * 100) / 100

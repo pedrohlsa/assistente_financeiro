@@ -16,8 +16,9 @@ import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
 import { nextCashEventTime, recurringOccurrenceState, transactionOccurrence } from '../services/calc'
 import type { TransactionOccurrence } from '../services/calc'
-import { cardInvoice, checkPlanRemoval, currentInvoice, directInstallmentPaidAmount, financingForTransaction,
-  futureInstallmentsToCancel, futureInvoicePaymentDate, installmentLinkedToCardPayment, planProgress, validPaymentDate } from '../services/cards'
+import { canPayInstallment, cardInvoice, checkPlanRemoval, currentInvoice, directInstallmentPaidAmount, financingForTransaction,
+  futureInstallmentsToCancel, futureInvoicePaymentDate, installmentLinkedToCardPayment, installmentRemaining,
+  planProgress, validPaymentDate } from '../services/cards'
 import { applyActionPure, applyBatchPure } from '../assistant/execute'
 import type { BatchItem } from '../assistant/execute'
 import type { ActionExecutionResult } from '../assistant/contracts'
@@ -171,6 +172,7 @@ type Action =
   | { type: 'cancelFutureInstallments'; planId: string }
   | { type: 'payInstallment'; id: string; paidAt: string; paidTime?: string; paidAmount?: number }
   | { type: 'partialPayInstallment'; id: string; amount: number; paidAt: string; paidTime?: string }
+  | { type: 'payInstallments'; planId: string; ids: string[]; paidAt: string; completePlan?: boolean }
   | { type: 'unpayInstallment'; id: string }
   | { type: 'updateInstallment'; id: string; patch: Partial<Installment> }
   | { type: 'addCardPayment'; payment: CardPayment; settleInstallmentIds: string[] }
@@ -192,6 +194,14 @@ type Action =
   | { type: 'clearActivity' }
   | { type: 'loadDemo' }
   | { type: 'reset' }
+
+function withInstallmentProgress(s: AppState, installments: Installment[], plan: InstallmentPlan): AppState {
+  const progress = planProgress({ ...s, installments }, plan)
+  const status = progress.remainingCount ? 'active'
+    : progress.installments.some(i => i.status !== 'cancelled') ? 'settled' : 'cancelled'
+  return { ...s, installments, installmentPlans: s.installmentPlans.map(p => p.id === plan.id && p.status !== status
+    ? { ...p, status } : p) }
+}
 
 export function reducer(s: AppState, a: Action): AppState {
   switch (a.type) {
@@ -392,60 +402,51 @@ export function reducer(s: AppState, a: Action): AppState {
       if (!eligible.size) return s
       const installments = s.installments.map(i => i.planId === plan.id && eligible.has(i.id)
         ? { ...i, status: 'cancelled' as const } : i)
-      const progress = planProgress({ ...s, installments }, plan)
-      const status = progress.remainingCount ? 'active'
-        : progress.installments.some(i => i.status === 'paid') ? 'settled' : 'cancelled'
-      return { ...s, installments, installmentPlans: s.installmentPlans.map(p => p.id === plan.id ? { ...p, status } : p) }
+      return withInstallmentProgress(s, installments, plan)
     }
-    case 'payInstallment': {
-      if (!validPaymentDate(a.paidAt)) return s
-      const paidTime = nextCashEventTime(s, a.paidAt, a.paidTime || nowPaymentTime())
-      return {
-        ...s,
-        installments: s.installments.map(i => {
-          if (i.id !== a.id || i.status === 'cancelled' || i.paidVia === 'invoice') return i
-          // Backups podem marcar "paid" com paidAmount menor que a parcela.
-          // Completar o restante é permitido só sem quitação de fatura ligada.
-          if (i.status === 'paid' && ((i.paidAmount ?? i.amount) >= i.amount - 0.009
-            || installmentLinkedToCardPayment(s, i))) return i
-          const previous = Math.min(Math.max(i.paidAmount || 0, 0), i.amount)
-          const remainder = Math.max((a.paidAmount ?? i.amount) - previous, 0)
-          const history = i.directPayments?.length ? i.directPayments
-            : i.paidAt && previous > 0
-              ? [{ amount: previous, date: i.paidAt }] : []
-          return { ...i, status: 'paid' as const, paidAt: a.paidAt,
-            paidAmount: a.paidAmount ?? i.amount, paidVia: 'direct' as const,
-            directPayments: remainder > 0 ? [...history,
-              { amount: remainder, date: a.paidAt, time: paidTime }] : history }
-        }),
-      }
-    }
+    case 'payInstallment':
     case 'partialPayInstallment': {
       if (!validPaymentDate(a.paidAt)) return s
-      const paidTime = nextCashEventTime(s, a.paidAt, a.paidTime || nowPaymentTime())
-      return { ...s, installments: s.installments.map(i => {
-        if (i.id !== a.id || i.status !== 'pending' || !(a.amount > 0)) return i
-        const paid = Math.min(i.amount, (i.paidAmount || 0) + a.amount)
-        if (paid >= i.amount - 0.009) return i
-        const history = i.directPayments?.length ? i.directPayments
-          : i.paidAt && (i.paidAmount || 0) > 0 && i.paidVia !== 'invoice'
-            ? [{ amount: i.paidAmount!, date: i.paidAt }] : []
-        return { ...i, paidAmount: paid, paidAt: a.paidAt, paidVia: 'direct' as const,
-          directPayments: [...history,
-            { amount: a.amount, date: a.paidAt, time: paidTime }] }
-      }) }
+      const i = s.installments.find(i => i.id === a.id)
+      const plan = i && s.installmentPlans.find(p => p.id === i.planId)
+      if (!i || !plan || !canPayInstallment(s, i)) return s
+      const remaining = installmentRemaining(s, i)
+      const previous = Math.round((i.amount - remaining) * 100) / 100
+      const requested = a.type === 'partialPayInstallment' ? a.amount : (a.paidAmount ?? i.amount) - previous
+      const amount = Math.round(requested * 100) / 100
+      if (!(amount > 0 && amount <= remaining) || (a.type === 'partialPayInstallment' && amount === remaining)) return s
+      const history = i.directPayments?.length ? i.directPayments
+        : i.paidAt && validPaymentDate(i.paidAt) && previous > 0 ? [{ amount: previous, date: i.paidAt }] : []
+      const time = a.paidTime || (a.paidAt === todayISO() ? nowPaymentTime() : undefined)
+      const paidTime = time ? nextCashEventTime(s, a.paidAt, time) : undefined
+      const paidAt = i.paidAt && validPaymentDate(i.paidAt) && i.paidAt > a.paidAt ? i.paidAt : a.paidAt
+      const installment: Installment = { ...i, status: amount === remaining ? 'paid' : 'pending', paidAt,
+        paidAmount: Math.round((previous + amount) * 100) / 100, paidVia: 'direct',
+        directPayments: [...history, { amount, date: a.paidAt, time: paidTime }] }
+      return withInstallmentProgress(s, s.installments.map(other => other === i ? installment : other), plan)
+    }
+    case 'payInstallments': {
+      const plan = s.installmentPlans.find(p => p.id === a.planId)
+      if (!plan || !a.ids.length) return s
+      let updated = s
+      for (const id of a.ids) {
+        if (!updated.installments.some(i => i.id === id && i.planId === plan.id)) return s
+        const next = reducer(updated, { type: 'payInstallment', id, paidAt: a.paidAt })
+        if (next === updated) return s
+        updated = next
+      }
+      return a.completePlan && planProgress(updated, plan).remainingCount ? s : updated
     }
     case 'unpayInstallment': {
       // Uma fatura paga é um registro separado. Reabrir apenas a parcela
       // removeria o crédito direto mas deixaria o pagamento da fatura intacto.
       const installment = s.installments.find(i => i.id === a.id)
-      if (installment && installmentLinkedToCardPayment(s, installment)) return s
-      return {
-        ...s,
-        installments: s.installments.map(i =>
-          i.id === a.id ? { ...i, status: 'pending' as const, paidAt: undefined, paidAmount: undefined,
-            paidVia: undefined, directPayments: undefined } : i),
-      }
+      const plan = installment && s.installmentPlans.find(p => p.id === installment.planId)
+      if (!installment || !plan || plan.status === 'cancelled' || installment.status === 'cancelled'
+        || installment.paidVia === 'invoice' || installmentLinkedToCardPayment(s, installment)) return s
+      const installments = s.installments.map(i => i === installment
+        ? { ...i, status: 'pending' as const, paidAt: undefined, paidAmount: undefined, paidVia: undefined, directPayments: undefined } : i)
+      return withInstallmentProgress(s, installments, plan)
     }
     case 'updateInstallment':
       return { ...s, installments: s.installments.map(i => i.id === a.id ? { ...i, ...a.patch } : i) }

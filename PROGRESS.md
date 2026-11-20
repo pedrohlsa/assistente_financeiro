@@ -5994,3 +5994,15 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - No Chrome, cancelar a parcela futura de uma compra de R$ 300
   deixou R$ 200 pendentes. A suíte passou com 770/770 regressões
   reais, typechecks, build e rubrica.
+
+## 20/11/2026 — Quitação de parcelas com pagamento parcial
+
+- O saldo das parcelas determina o estado do plano. Registro legado
+  de R$ 40 numa parcela de R$ 100 mantém R$ 60 a pagar, inclusive se
+  o plano ou a parcela vierem marcados como quitados.
+- A quitação aplica todas as baixas juntas. Um pagamento futuro no
+  histórico direto bloqueia nova baixa. A antecipação seleciona só
+  vencimentos após hoje.
+- O Chrome confirmou a baixa de apenas R$ 60, o bloqueio da segunda
+  baixa e a antecipação de um único vencimento futuro. Suíte com
+  772/772 regressões reais, 151 invariantes, typechecks, build e rubrica.

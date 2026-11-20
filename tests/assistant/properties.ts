@@ -1854,16 +1854,16 @@ export async function runProperties(): Promise<PropertyReport> {
       return st
     }
 
-    for (const status of [undefined, 'active']) {
+    for (const status of [undefined, 'active', 'settled']) {
       const o = cardsOverview(mk(status))
       if (o.installmentsThisMonth > 0 && o.totalDebt <= 0) {
         return `status ${String(status)}: parcela no mês ${o.installmentsThisMonth} com dívida ${o.totalDebt}`
       }
     }
-    // Quitado e cancelado continuam fora da dívida.
-    for (const status of ['settled', 'cancelled']) {
-      if (cardsOverview(mk(status)).totalDebt > 0) return `plano ${status} continuou contando como dívida`
-    }
+    const quitado = mk('settled')
+    quitado.installments = quitado.installments.map(i => ({ ...i, status: 'paid' }))
+    if (cardsOverview(quitado).totalDebt > 0) return 'parcelas quitadas continuaram contando como dívida'
+    if (cardsOverview(mk('cancelled')).totalDebt > 0) return 'plano cancelado continuou contando como dívida'
     if (cardsOverview(s).totalDebt !== 0) return 'sem plano nenhum a dívida não é zero'
     return null
   })

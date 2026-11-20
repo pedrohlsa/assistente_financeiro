@@ -4461,6 +4461,34 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       'o plano fica encerrado sem saldo a pagar; uma fatura anterior continua com a parcela de 100 paga inclusive em plano legado cancelado',
       encerrado.installmentPlans[0]?.status === 'settled' && planProgress(encerrado, plano).remainingCount === 0
         && faturaPaga.total === 100 && faturaPaga.paid === 100 && faturaPaga.pending === 0))
+
+    const planoParcial = { ...plano, cardId: undefined, status: 'settled' as const, totalAmount: 100, installmentCount: 1 }
+    const parcial: AppState = { ...misto, installmentPlans: [planoParcial], cardPayments: [], installments: [
+      { ...novas[0], total: 1, status: 'paid', paidAmount: 40 },
+    ] }
+    const quitar = { type: 'payInstallments' as const, planId: planoParcial.id, ids: [novas[0].id], paidAt: hoje, completePlan: true }
+    const quitado = reducer(parcial, quitar)
+    out.push(result('FPAR-legado-quitado-com-saldo', { antes: planProgress(parcial, planoParcial).remainingAmount,
+      depois: planProgress(quitado, planoParcial).remainingAmount, eventos: quitado.installments[0].directPayments },
+      'a dívida legada de R$ 60 aparece e somente esse valor sai do caixa ao quitar',
+      planProgress(parcial, planoParcial).remainingAmount === 60 && cardsOverview(parcial).totalDebt === 60
+        && cardsOverview(parcial).overdueAmount === 60
+        && planProgress(quitado, planoParcial).remainingAmount === 0 && quitado.installmentPlans[0]?.status === 'settled'
+        && quitado.installments[0].directPayments?.[0]?.amount === 60
+        && currentBalance(parcial) - currentBalance(quitado) === 60 && reducer(quitado, quitar) === quitado))
+
+    const comFutura: AppState = { ...parcial, installments: [...parcial.installments, {
+      ...novas[3], paidAmount: 40, directPayments: [{ date: addDays(hoje, 2), amount: 40 }],
+    }] }
+    const dataFutura = futureInstallmentPaymentDate(comFutura, comFutura.installments[1])
+    const loteMisto = { ...quitar, ids: [novas[0].id, novas[3].id] }
+    out.push(result('FPAR-data-futura-bloqueia-quitacao-atomica', { dataFutura,
+      projetado: planProgress(comFutura, planoParcial).remainingAmount, caixa: currentBalance(comFutura) },
+      'uma data futura só no histórico direto bloqueia pagamento individual e o lote inteiro',
+      dataFutura === addDays(hoje, 2) && planProgress(comFutura, planoParcial).remainingAmount === 160
+        && currentBalance(comFutura) === currentBalance(parcial) && reducer(comFutura, loteMisto) === comFutura
+        && reducer(comFutura, quitar) === comFutura
+        && reducer(comFutura, { type: 'partialPayInstallment', id: novas[3].id, paidAt: hoje, amount: 20 }) === comFutura))
   }
 
   {

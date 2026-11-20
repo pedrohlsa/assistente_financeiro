@@ -4,7 +4,7 @@
 // despesa nova — ver services/cards.ts.
 import React, { useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useStore } from '../store/store'
+import { reducer, useStore } from '../store/store'
 import { CreditCard, Installment, InstallmentPlan } from '../models/types'
 import { fmtBRL, fmtDateShort, nowPaymentTime, todayISO, toISO, fromISO, parseMoney, uid } from '../utils/format'
 import { ConfirmDialog, EmptyState, Progress, Sheet, useToast } from '../components/ui'
@@ -12,8 +12,8 @@ import {
   CardChargeForm, CardForm, CardPaymentForm, FinancedInflowForm, PurchaseForm, StandalonePlanForm,
 } from '../components/cardForms'
 import {
-  cardInvoice, cardLimits, cardsOverview, checkPlanRemoval, commitmentTimeline, currentInvoice,
-  planProgress, upcomingInvoices, planInstallments, splitInstallmentAmounts, installmentLinkedToCardPayment,
+  canPayInstallment, cardInvoice, cardLimits, cardsOverview, checkPlanRemoval, commitmentTimeline, currentInvoice,
+  planProgress, upcomingInvoices, planInstallments, splitInstallmentAmounts, installmentLinkedToCardPayment, installmentRemaining,
   futureInstallmentPaymentDate, futureInstallmentsToCancel, validPaymentDate,
 } from '../services/cards'
 import { monthlyProjections, hasProjectionData } from '../services/calc'
@@ -408,9 +408,9 @@ function PlansTab({ ov, onAddPurchase, onAddPlan }: { ov: ReturnType<typeof card
     const all = (state.installmentPlans || []).map(p => planProgress(state, p))
     const filtered = all.filter(pp => {
       switch (filter) {
-        case 'active': return pp.plan.status === 'active'
-        case 'settled': return pp.plan.status === 'settled' || pp.remainingCount === 0
-        case 'overdue': return pp.overdueCount > 0
+        case 'active': return pp.plan.status !== 'cancelled' && pp.remainingCount > 0
+        case 'settled': return pp.plan.status !== 'cancelled' && pp.remainingCount === 0
+        case 'overdue': return pp.plan.status !== 'cancelled' && pp.overdueCount > 0
         case 'with-card': return !!pp.plan.cardId
         case 'without-card': return !pp.plan.cardId
         default: return true
@@ -482,11 +482,15 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [legacyReceiptId, setLegacyReceiptId] = useState('')
   const [confirmAction, setConfirmAction] = useState<'settle' | 'cancel-future' | null>(null)
-  const [partial, setPartial] = useState<Installment | null>(null)
+  const [partialId, setPartialId] = useState<string>()
   const plan = pp.plan
   const cat = plan.categoryId ? catById(state.categories, plan.categoryId) : undefined
   const t = todayISO()
   const futurePaid = pp.installments.some(i => !!futureInstallmentPaymentDate(state, i, t))
+  const remaining = open ? pp.installments.filter(i => installmentRemaining(state, i, t) > 0) : []
+  const payable = remaining.filter(i => canPayInstallment(state, i, t))
+  const advanceable = payable.filter(i => i.dueDate > t).sort((a, b) => b.dueDate.localeCompare(a.dueDate))
+  const partial = payable.find(i => i.id === partialId)
   const cancellable = open ? futureInstallmentsToCancel(state, plan, t).length : 0
   const removalStart = confirmDelete ? checkPlanRemoval(state, plan) : undefined
   const removal = confirmDelete && legacyReceiptId ? checkPlanRemoval(state, plan, legacyReceiptId) : removalStart
@@ -498,46 +502,51 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
 
   const statusLabel = plan.status === 'cancelled' ? 'Cancelado'
     : futurePaid ? 'Pagamento futuro'
-    : plan.status === 'settled' || pp.remainingCount === 0
+    : pp.remainingCount === 0
       ? (pp.installments.some(i => i.status === 'cancelled') ? 'Encerrado' : 'Quitado')
     : pp.overdueCount > 0 ? 'Atrasado' : 'Ativo'
   const statusCls = statusLabel === 'Quitado' ? 'pos' : statusLabel === 'Atrasado' ? 'neg'
     : statusLabel === 'Cancelado' || statusLabel === 'Encerrado' ? 'neutral' : 'warn'
 
   const markPaid = (i: Installment) => {
-    dispatch({ type: 'payInstallment', id: i.id, paidAt: todayISO() })
-    const left = pp.remainingCount - 1
-    if (left <= 0) dispatch({ type: 'updatePlan', id: plan.id, patch: { status: 'settled' } })
-    toast({ text: `Parcela ${i.number} marcada como paga.`, undo: () => {
+    const paidAt = todayISO()
+    const current = stateRef.current.installments.find(x => x.id === i.id)
+    if (!current || !canPayInstallment(stateRef.current, current, paidAt)) return
+    const firstPayment = installmentRemaining(stateRef.current, current, paidAt) === current.amount
+    dispatch({ type: 'payInstallment', id: i.id, paidAt })
+    const undo = firstPayment ? () => {
       const current = stateRef.current.installments.find(x => x.id === i.id)
-      if (current && installmentLinkedToCardPayment(stateRef.current, current)) {
-        toast({ text: 'Não reabri a parcela: ela está vinculada a um pagamento da fatura.' })
+      const event = current?.directPayments?.[0]
+      if (!current || current.directPayments?.length !== 1 || event?.date !== paidAt
+        || event.amount !== i.amount || installmentLinkedToCardPayment(stateRef.current, current)) {
+        toast({ text: 'Confira o histórico da parcela antes de reabrir. O registro mudou.' })
         return
       }
       dispatch({ type: 'unpayInstallment', id: i.id })
-      if (left <= 0) dispatch({ type: 'updatePlan', id: plan.id, patch: { status: 'active' } })
-    } })
+    } : undefined
+    toast({ text: `Parcela ${i.number} marcada como paga.`, undo })
   }
 
-  /** Antecipar = marcar as próximas N parcelas pendentes como pagas hoje. */
+  const paySelection = (installments: Installment[], completePlan?: boolean) => {
+    const action = { type: 'payInstallments' as const, planId: plan.id, ids: installments.map(i => i.id),
+      paidAt: todayISO(), completePlan }
+    const current = stateRef.current
+    if (reducer(current, action) === current) {
+      toast({ text: 'Confira o saldo e os pagamentos já registrados antes de continuar.' })
+      return false
+    }
+    dispatch(action)
+    return true
+  }
+
   const anticipate = (n: number) => {
-    const pending = pp.installments.filter(i => i.status === 'pending').sort((a, b) => b.dueDate.localeCompare(a.dueDate)).slice(0, n)
-    pending.forEach(i => dispatch({ type: 'payInstallment', id: i.id, paidAt: todayISO() }))
-    if (pp.remainingCount - pending.length <= 0) dispatch({ type: 'updatePlan', id: plan.id, patch: { status: 'settled' } })
-    toast({ text: `${pending.length} parcela(s) antecipada(s).` })
+    const selection = advanceable.slice(0, n)
+    if (paySelection(selection)) toast({ text: `${selection.length} parcela(s) antecipada(s).` })
   }
 
   const settleAll = () => {
-    if (futurePaid) {
-      setConfirmAction(null)
-      toast({ text: 'Confira o pagamento com data futura antes de quitar o parcelamento.' })
-      return
-    }
-    const pending = pp.installments.filter(i => i.status === 'pending')
-    pending.forEach(i => dispatch({ type: 'payInstallment', id: i.id, paidAt: todayISO() }))
-    dispatch({ type: 'updatePlan', id: plan.id, patch: { status: 'settled' } })
     setConfirmAction(null)
-    toast({ text: 'Parcelamento quitado. 🎉' })
+    if (paySelection(remaining, true)) toast({ text: 'Parcelamento quitado. 🎉' })
   }
 
   const cancelFuture = () => {
@@ -617,13 +626,15 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
           <p className="tiny" style={{ fontWeight: 650, margin: '10px 0 2px' }}>Todas as parcelas</p>
           {pp.installments.map(i => {
             const futureDate = futureInstallmentPaymentDate(state, i, t)
-            const overdue = (i.status === 'pending' || !!futureDate) && i.dueDate < t
+            const left = installmentRemaining(state, i, t)
+            const overdue = left > 0 && i.dueDate < t
             const invoicePayment = installmentLinkedToCardPayment(state, i)
-            const incompleteLegacy = i.status === 'paid' && !futureDate && (i.paidAmount ?? i.amount) < i.amount - 0.009
+            const incompleteLegacy = i.status === 'paid' && left > 0
+            const canPay = payable.includes(i)
             const paidAt = i.paidAt && validPaymentDate(i.paidAt, t) ? i.paidAt : undefined
             const early = paidAt && paidAt < i.dueDate
             const color = i.status === 'cancelled' ? 'var(--text-3)' : futureDate ? 'var(--text-3)'
-              : i.status === 'paid' ? 'var(--positive)' : overdue ? 'var(--danger)' : undefined
+              : overdue ? 'var(--danger)' : left === 0 ? 'var(--positive)' : undefined
             return (
               <div key={i.id} className="row list-item">
                 <div className="grow">
@@ -633,46 +644,39 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
                   <div className="tiny" style={{ color }}>
                     {i.status === 'cancelled' ? 'cancelada'
                       : futureDate ? `pagamento com data futura (${fmtDateShort(futureDate)}); ainda não quitada hoje`
-                      : incompleteLegacy ? `pagamento parcial ${fmtBRL(i.paidAmount || 0)} — falta completar`
-                      : i.status === 'paid' ? (paidAt ? `paga em ${fmtDateShort(paidAt)}${early ? ' (antecipada)' : ''}`
+                      : incompleteLegacy ? `pagamento parcial ${fmtBRL(i.amount - left)} — falta completar`
+                      : left === 0 ? (paidAt ? `paga em ${fmtDateShort(paidAt)}${early ? ' (antecipada)' : ''}`
                         : 'paga · data de pagamento não informada')
                       : overdue ? `venceu em ${fmtDateShort(i.dueDate)}` : `vence em ${fmtDateShort(i.dueDate)}`}
-                    {i.paidAmount && i.status === 'pending' ? ` · pago parcial ${fmtBRL(i.paidAmount)}` : ''}
+                    {left > 0 && left < i.amount && i.status === 'pending' ? ` · pago parcial ${fmtBRL(i.amount - left)}` : ''}
                   </div>
                 </div>
                 <span className="mono-num small" style={{ color }}>{fmtBRL(i.amount)}</span>
-                {i.status === 'pending' && !futureDate && (
+                {canPay && (
                   <>
-                    <button className="link tiny" onClick={() => markPaid(i)}>Pagar</button>
-                    <button className="link tiny" onClick={() => setPartial(i)}>Parcial</button>
+                    <button className="link tiny" onClick={() => markPaid(i)}>{incompleteLegacy ? 'Completar' : 'Pagar'}</button>
+                    <button className="link tiny" onClick={() => setPartialId(i.id)}>Parcial</button>
                   </>
-                )}
-                {incompleteLegacy && !invoicePayment && i.paidVia !== 'invoice' && (
-                  <button className="link tiny" onClick={() => {
-                    dispatch({ type: 'payInstallment', id: i.id, paidAt: todayISO() })
-                    toast({ text: 'Restante da parcela registrado.' })
-                  }}>Completar</button>
                 )}
                 {i.status === 'paid' && (invoicePayment
                   ? <span className="tiny muted" title="O pagamento da fatura precisa ser reconciliado antes de reabrir esta parcela.">
                       {futureDate ? 'Vinculada ao pagamento da fatura' : 'Vinculada à fatura paga'}
                     </span>
-                  : <button className="link tiny" onClick={() => {
+                  : i.paidVia !== 'invoice' && plan.status !== 'cancelled' && <button className="link tiny" onClick={() => {
                     dispatch({ type: 'unpayInstallment', id: i.id })
-                    if (plan.status === 'settled') dispatch({ type: 'updatePlan', id: plan.id, patch: { status: 'active' } })
                     toast({ text: 'Parcela reaberta.' })
                   }}>Desfazer</button>)}
               </div>
             )
           })}
 
-          {partial && <PartialPaymentBox installment={partial} onDone={() => setPartial(null)} />}
+          {partial && <PartialPaymentBox installment={partial} left={installmentRemaining(state, partial, t)} onDone={() => setPartialId(undefined)} />}
 
           <div className="suggestion-row" style={{ marginTop: 12 }}>
-            {pp.remainingCount > 1 && !futurePaid && <button className="btn btn-soft btn-sm" onClick={() => anticipate(1)}>Antecipar 1</button>}
-            {pp.remainingCount > 2 && !futurePaid && <button className="btn btn-soft btn-sm" onClick={() => anticipate(2)}>Antecipar 2</button>}
-            {pp.remainingCount > 0 && !futurePaid && <button className="btn btn-soft btn-sm" onClick={() => setConfirmAction('settle')}>Quitar tudo</button>}
-            {futurePaid && <span className="tiny muted">Confira ou remova o pagamento com data futura antes de quitar o parcelamento.</span>}
+            {pp.remainingCount > 1 && advanceable.length > 0 && !futurePaid && <button className="btn btn-soft btn-sm" onClick={() => anticipate(1)}>Antecipar 1</button>}
+            {pp.remainingCount > 2 && advanceable.length > 1 && !futurePaid && <button className="btn btn-soft btn-sm" onClick={() => anticipate(2)}>Antecipar 2</button>}
+            {remaining.length > 0 && remaining.length === payable.length && !futurePaid && <button className="btn btn-soft btn-sm" onClick={() => setConfirmAction('settle')}>Quitar tudo</button>}
+            {futurePaid && <span className="tiny muted">Confira o pagamento com data futura antes de quitar o parcelamento.</span>}
             {cancellable > 0 && (
               <button className="btn btn-soft btn-sm" onClick={() => setConfirmAction('cancel-future')}>Cancelar futuras</button>
             )}
@@ -718,7 +722,7 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
         open={confirmAction === 'settle'}
         onClose={() => setConfirmAction(null)}
         title={`Quitar "${plan.description}"?`}
-        text={`Isso marcará as ${pp.remainingCount} parcela(s) restante(s) como pagas hoje.`}
+        text={`Isso registrará hoje ${fmtBRL(pp.remainingAmount)} em ${pp.remainingCount} parcela(s).`}
         actions={[{ label: 'Quitar parcelamento', tone: 'primary', onClick: settleAll }]}
       />
       <ConfirmDialog
@@ -732,12 +736,11 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
   )
 }
 
-function PartialPaymentBox({ installment, onDone }: { installment: Installment; onDone: () => void }) {
+function PartialPaymentBox({ installment, left, onDone }: { installment: Installment; left: number; onDone: () => void }) {
   const { dispatch } = useStore()
   const toast = useToast()
   const [value, setValue] = useState('')
   const v = parseMoney(value) || 0
-  const left = installment.amount - (installment.paidAmount || 0)
 
   return (
     <div className="card" style={{ padding: '12px 14px', marginTop: 10, borderColor: 'var(--warning)', borderWidth: 1.5 }}>
@@ -747,13 +750,12 @@ function PartialPaymentBox({ installment, onDone }: { installment: Installment; 
       <div className="row" style={{ gap: 8 }}>
         <input className="input" inputMode="decimal" autoFocus placeholder="0,00" value={value} onChange={e => setValue(e.target.value)} />
         <button className="btn btn-primary btn-sm" disabled={!(v > 0 && v <= left + 0.009)} onClick={() => {
-          const paid = (installment.paidAmount || 0) + v
-          if (paid >= installment.amount - 0.009) {
-            dispatch({ type: 'payInstallment', id: installment.id, paidAt: todayISO(), paidTime: nowPaymentTime(), paidAmount: installment.amount })
+          if (left - v < 0.009) {
+            dispatch({ type: 'payInstallment', id: installment.id, paidAt: todayISO(), paidTime: nowPaymentTime() })
             toast({ text: 'Parcela quitada.' })
           } else {
             dispatch({ type: 'partialPayInstallment', id: installment.id, amount: v, paidAt: todayISO(), paidTime: nowPaymentTime() })
-            toast({ text: `Pagamento parcial registrado. Restam ${fmtBRL(installment.amount - paid)}.` })
+            toast({ text: `Pagamento parcial registrado. Restam ${fmtBRL(left - v)}.` })
           }
           onDone()
         }}>Registrar</button>
