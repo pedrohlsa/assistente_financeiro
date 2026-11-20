@@ -5983,3 +5983,14 @@ APK ou chamada paga. NOT READY até auditoria independente.
   de mesmo valor ficou no extrato.
 - Suíte com 768/768 regressões reais, matriz de oito datas, typechecks,
   build e rubrica passaram. A branch permanece NOT READY.
+
+## 20/11/2026 — Cancelar só as parcelas futuras
+
+- Cancelar futuras mantém as parcelas vencidas, as de hoje e as que
+  já têm pagamento direto ou de fatura. O plano e as parcelas mudam
+  juntos. Se restar dívida, o plano continua ativo.
+- Parcelas antigas pagas continuam na fatura depois que o plano é
+  encerrado, inclusive no histórico legado com status cancelado.
+- No Chrome, cancelar a parcela futura de uma compra de R$ 300
+  deixou R$ 200 pendentes. A suíte passou com 770/770 regressões
+  reais, typechecks, build e rubrica.

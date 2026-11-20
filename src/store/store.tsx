@@ -16,8 +16,8 @@ import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
 import { nextCashEventTime, recurringOccurrenceState, transactionOccurrence } from '../services/calc'
 import type { TransactionOccurrence } from '../services/calc'
-import { cardInvoice, checkPlanRemoval, currentInvoice, directInstallmentPaidAmount, financingForTransaction, futureInvoicePaymentDate,
-  installmentLinkedToCardPayment, validPaymentDate } from '../services/cards'
+import { cardInvoice, checkPlanRemoval, currentInvoice, directInstallmentPaidAmount, financingForTransaction,
+  futureInstallmentsToCancel, futureInvoicePaymentDate, installmentLinkedToCardPayment, planProgress, validPaymentDate } from '../services/cards'
 import { applyActionPure, applyBatchPure } from '../assistant/execute'
 import type { BatchItem } from '../assistant/execute'
 import type { ActionExecutionResult } from '../assistant/contracts'
@@ -385,12 +385,18 @@ export function reducer(s: AppState, a: Action): AppState {
         transactions: receiptId ? s.transactions.filter(t => t.id !== receiptId) : s.transactions,
       }
     }
-    case 'cancelFutureInstallments':
-      return {
-        ...s,
-        installments: s.installments.map(i =>
-          i.planId === a.planId && i.status === 'pending' ? { ...i, status: 'cancelled' as const } : i),
-      }
+    case 'cancelFutureInstallments': {
+      const plan = s.installmentPlans.find(p => p.id === a.planId)
+      if (!plan) return s
+      const eligible = new Set(futureInstallmentsToCancel(s, plan).map(i => i.id))
+      if (!eligible.size) return s
+      const installments = s.installments.map(i => i.planId === plan.id && eligible.has(i.id)
+        ? { ...i, status: 'cancelled' as const } : i)
+      const progress = planProgress({ ...s, installments }, plan)
+      const status = progress.remainingCount ? 'active'
+        : progress.installments.some(i => i.status === 'paid') ? 'settled' : 'cancelled'
+      return { ...s, installments, installmentPlans: s.installmentPlans.map(p => p.id === plan.id ? { ...p, status } : p) }
+    }
     case 'payInstallment': {
       if (!validPaymentDate(a.paidAt)) return s
       const paidTime = nextCashEventTime(s, a.paidAt, a.paidTime || nowPaymentTime())

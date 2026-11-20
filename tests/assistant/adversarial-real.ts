@@ -4347,8 +4347,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     ], workSessions: [{ date: now, km: 10, hours: 1 }, { date: apos, km: 100, hours: 10 }] })
     caixa.settings.balanceAsOf = `${before}T12:00:00.000`
     const periodo = { from: before, to: apos, label: 'intervalo informado', grain: 'range' as const }
-    const plano = validateQueryPlan({ source: 'transactions', metric: 'per-km', period: periodo, filter: { txType: ['expense'] } }, caixa, now)
-    const porKm = plano.ok === true ? runQuery(caixa, plano.plan, now) : undefined
+    const planoPorKm = validateQueryPlan({ source: 'transactions', metric: 'per-km', period: periodo, filter: { txType: ['expense'] } }, caixa, now)
+    const porKm = planoPorKm.ok === true ? runQuery(caixa, planoPorKm.plan, now) : undefined
     const stats = periodStats(caixa, before, apos, now)
     const foraDaData = reducer(caixa, { type: 'addTx', tx: { ...caixa.transactions[1], id: 'future-new', date: addDays(hoje, 1) } })
     const futuroNoLote = applyBatchPure(caixa, [{ id: 'future-local', action: { kind: 'expense', amount: 80, date: apos } }],
@@ -4426,6 +4426,41 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && reducer(legadoFinanceiro, { type: 'removeTx', id: 'fin-legado-1' }) === legadoFinanceiro
         && certa.transactions.map(t => t.id).join(',') === 'fin-legado-1,sem-match'
         && !certa.installmentPlans.length && !certa.installments.length))
+
+    const plano = { ...planoHistorico, id: 'historico-e-futuras', cardId: 'card0', totalAmount: 600,
+      purchaseDate: addDays(hoje, -30), firstDueDate: addDays(hoje, -2), installmentCount: 6,
+      operationType: 'card-purchase' as const }
+    const novas = [-2, -1, 0, 7, 14, 45].map((offset, index) => ({
+      id: `cancela-${index}`, planId: plano.id, number: index + 1, total: 6,
+      amount: 100, dueDate: addDays(hoje, offset), status: 'pending' as const,
+    }))
+    const misto: AppState = { ...receita, settings: { ...receita.settings, balanceAsOf: addDays(hoje, -15) },
+      installmentPlans: [plano], installments: [
+        { ...novas[0], status: 'paid', paidAt: addDays(hoje, -2), paidVia: 'direct', paidAmount: 100 },
+        ...novas.slice(1, 4),
+        { ...novas[4], paidAmount: 40, paidVia: 'direct', paidAt: hoje, directPayments: [{ date: hoje, amount: 40 }] },
+        novas[5],
+      ],
+      cardPayments: [{ id: 'avanco-fatura', cardId: 'card0', referenceMonth: novas[5].dueDate.slice(0, 7),
+        paymentDate: hoje, amount: 60, fromBalance: true }],
+    }
+    const cancelar = { type: 'cancelFutureInstallments' as const, planId: plano.id }
+    const cancelado = reducer(misto, cancelar)
+    out.push(result('FCAN-preserva-hoje-atrasadas-e-pagamentos-parciais', { estados: cancelado.installments.map(i => i.status),
+      antes: currentBalance(misto), depois: currentBalance(cancelado) },
+      'só a parcela futura livre sai, preservando as atrasadas, a de hoje, a paga e pagamentos parcial e de fatura',
+      cancelado.installments.map(i => i.status).join(',') === 'paid,pending,pending,cancelled,pending,pending'
+        && cancelado.installmentPlans[0].status === 'active' && planProgress(cancelado, plano).remainingAmount === 360
+        && currentBalance(misto) === 800 && currentBalance(cancelado) === 800 && reducer(cancelado, cancelar) === cancelado))
+    const encerrar = { ...misto, cardPayments: [], installments: [misto.installments[0], misto.installments[3]] }
+    const encerrado = reducer(encerrar, cancelar)
+    const salvoAntigo = { ...encerrado, installmentPlans: [{ ...encerrado.installmentPlans[0], status: 'cancelled' as const }] }
+    const competenciaPaga = misto.installments[0].dueDate.slice(0, 7)
+    const faturaPaga = cardInvoice(salvoAntigo, salvoAntigo.cards[0], competenciaPaga)
+    out.push(result('FCAN-encerra-sem-liberar-um-vencimento-ja-pago', { plano: encerrado.installmentPlans[0].status, fatura: faturaPaga },
+      'o plano fica encerrado sem saldo a pagar; uma fatura anterior continua com a parcela de 100 paga inclusive em plano legado cancelado',
+      encerrado.installmentPlans[0]?.status === 'settled' && planProgress(encerrado, plano).remainingCount === 0
+        && faturaPaga.total === 100 && faturaPaga.paid === 100 && faturaPaga.pending === 0))
   }
 
   {

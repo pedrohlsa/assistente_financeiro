@@ -14,7 +14,7 @@ import {
 import {
   cardInvoice, cardLimits, cardsOverview, checkPlanRemoval, commitmentTimeline, currentInvoice,
   planProgress, upcomingInvoices, planInstallments, splitInstallmentAmounts, installmentLinkedToCardPayment,
-  futureInstallmentPaymentDate, validPaymentDate,
+  futureInstallmentPaymentDate, futureInstallmentsToCancel, validPaymentDate,
 } from '../services/cards'
 import { monthlyProjections, hasProjectionData } from '../services/calc'
 import { catById } from '../data/categories'
@@ -487,6 +487,7 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
   const cat = plan.categoryId ? catById(state.categories, plan.categoryId) : undefined
   const t = todayISO()
   const futurePaid = pp.installments.some(i => !!futureInstallmentPaymentDate(state, i, t))
+  const cancellable = open ? futureInstallmentsToCancel(state, plan, t).length : 0
   const removalStart = confirmDelete ? checkPlanRemoval(state, plan) : undefined
   const removal = confirmDelete && legacyReceiptId ? checkPlanRemoval(state, plan, legacyReceiptId) : removalStart
   const receipts = removalStart?.allowed === false ? removalStart.legacyOptions?.map(tx => ({
@@ -497,9 +498,11 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
 
   const statusLabel = plan.status === 'cancelled' ? 'Cancelado'
     : futurePaid ? 'Pagamento futuro'
-    : plan.status === 'settled' || pp.remainingCount === 0 ? 'Quitado'
+    : plan.status === 'settled' || pp.remainingCount === 0
+      ? (pp.installments.some(i => i.status === 'cancelled') ? 'Encerrado' : 'Quitado')
     : pp.overdueCount > 0 ? 'Atrasado' : 'Ativo'
-  const statusCls = statusLabel === 'Quitado' ? 'pos' : statusLabel === 'Atrasado' ? 'neg' : statusLabel === 'Cancelado' ? 'neutral' : 'warn'
+  const statusCls = statusLabel === 'Quitado' ? 'pos' : statusLabel === 'Atrasado' ? 'neg'
+    : statusLabel === 'Cancelado' || statusLabel === 'Encerrado' ? 'neutral' : 'warn'
 
   const markPaid = (i: Installment) => {
     dispatch({ type: 'payInstallment', id: i.id, paidAt: todayISO() })
@@ -538,10 +541,16 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
   }
 
   const cancelFuture = () => {
+    const current = stateRef.current.installmentPlans.find(p => p.id === plan.id)
+    if (!current || !futureInstallmentsToCancel(stateRef.current, current).length) {
+      setConfirmAction(null)
+      toast({ text: 'Confira as parcelas antes de cancelar. Os vencimentos elegíveis mudaram.' })
+      return
+    }
     dispatch({ type: 'cancelFutureInstallments', planId: plan.id })
-    dispatch({ type: 'updatePlan', id: plan.id, patch: { status: 'cancelled' } })
     setConfirmAction(null)
-    toast({ text: 'Parcelas futuras canceladas. O histórico foi preservado.' })
+    setConfirmDelete(false)
+    toast({ text: 'Parcelas futuras em aberto e sem pagamento canceladas.' })
   }
 
   return (
@@ -664,7 +673,7 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
             {pp.remainingCount > 2 && !futurePaid && <button className="btn btn-soft btn-sm" onClick={() => anticipate(2)}>Antecipar 2</button>}
             {pp.remainingCount > 0 && !futurePaid && <button className="btn btn-soft btn-sm" onClick={() => setConfirmAction('settle')}>Quitar tudo</button>}
             {futurePaid && <span className="tiny muted">Confira ou remova o pagamento com data futura antes de quitar o parcelamento.</span>}
-            {pp.remainingCount > 0 && (
+            {cancellable > 0 && (
               <button className="btn btn-soft btn-sm" onClick={() => setConfirmAction('cancel-future')}>Cancelar futuras</button>
             )}
             <button className="btn btn-danger-soft btn-sm" onClick={() => { setLegacyReceiptId(''); setConfirmDelete(true) }}>Excluir</button>
@@ -698,12 +707,7 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
                   dispatch({ type: 'removePlan', id: plan.id, legacyReceiptId: legacyReceiptId || undefined })
                   toast({ text: 'Parcelamento excluído.' })
                 }}>Excluir tudo</button>
-                <button className="btn btn-soft btn-sm" onClick={() => {
-                  dispatch({ type: 'cancelFutureInstallments', planId: plan.id })
-                  dispatch({ type: 'updatePlan', id: plan.id, patch: { status: 'cancelled' } })
-                  setConfirmDelete(false)
-                  toast({ text: 'Somente as parcelas futuras foram canceladas.' })
-                }}>Só cancelar futuras</button>
+                {cancellable > 0 && <button className="btn btn-soft btn-sm" onClick={cancelFuture}>Só cancelar futuras</button>}
                 <button className="chip" onClick={() => setConfirmDelete(false)}>Voltar</button>
               </div>
             </div>
@@ -721,7 +725,7 @@ function PlanCard({ pp, open, onToggle }: { pp: ReturnType<typeof planProgress>;
         open={confirmAction === 'cancel-future'}
         onClose={() => setConfirmAction(null)}
         title="Cancelar as parcelas futuras?"
-        text="As parcelas já pagas continuarão no histórico. Somente as parcelas pendentes serão canceladas."
+        text={`Serão canceladas ${cancellable} parcela(s) com vencimento após hoje e sem pagamento registrado. As demais permanecem no parcelamento.`}
         actions={[{ label: 'Cancelar parcelas futuras', tone: 'danger', onClick: cancelFuture }]}
       />
     </div>

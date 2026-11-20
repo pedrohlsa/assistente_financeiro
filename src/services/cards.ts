@@ -115,18 +115,30 @@ type PlanRemoval =
   | { allowed: true; receipt?: Transaction }
   | { allowed: false; message: string; legacyOptions?: Transaction[] }
 
+function hasInvoicePaymentForInstallments(s: AppState, cardId: string | undefined, installments: Installment[]): boolean {
+  if (!cardId || !installments.length) return false
+  const ids = new Set(installments.map(i => i.id))
+  const months = new Set(installments.map(i => monthKey(i.dueDate)))
+  return s.cardPayments.some(p => p.cardId === cardId
+    && (months.has(p.referenceMonth) || p.settledInstallmentIds?.some(id => ids.has(id))))
+}
+
+function hasRecordedInstallmentPayment(i: Installment): boolean {
+  return i.status === 'paid' || !!i.paidAt || (i.paidAmount || 0) > 0 || !!i.directPayments?.length || i.paidVia === 'invoice'
+}
+
+export function futureInstallmentsToCancel(s: AppState, plan: InstallmentPlan, today = todayISO()): Installment[] {
+  return planInstallments(s, plan.id).filter(i => i.status === 'pending' && i.dueDate > today
+    && !hasRecordedInstallmentPayment(i) && !hasInvoicePaymentForInstallments(s, plan.cardId, [i]))
+}
+
 export function checkPlanRemoval(s: AppState, plan: InstallmentPlan, legacyReceiptId?: string): PlanRemoval {
   const installments = planInstallments(s, plan.id)
-  if (plan.cardId && installments.length) {
-    const ids = new Set(installments.map(i => i.id))
-    const months = new Set(installments.map(i => monthKey(i.dueDate)))
-    if (s.cardPayments.some(p => p.cardId === plan.cardId
-      && (months.has(p.referenceMonth) || p.settledInstallmentIds?.some(id => ids.has(id))))) {
-      return { allowed: false, message: 'Há pagamentos nas faturas deste parcelamento. Confira esses pagamentos antes de excluir o plano.' }
-    }
+  if (hasInvoicePaymentForInstallments(s, plan.cardId, installments)) {
+    return { allowed: false, message: 'Há pagamentos nas faturas deste parcelamento. Confira esses pagamentos antes de excluir o plano.' }
   }
   if (plan.operationType !== 'financed-cash-inflow') return { allowed: true }
-  if (installments.some(i => i.status === 'paid' || i.paidAt || (i.paidAmount || 0) > 0 || i.directPayments?.length)) {
+  if (installments.some(hasRecordedInstallmentPayment)) {
     return { allowed: false, message: 'Há pagamentos registrados neste financiamento. Confira as parcelas antes de excluir a operação.' }
   }
   const linked = s.transactions.filter(t => t.financedPlanId === plan.id)
@@ -172,7 +184,7 @@ export const activePlans = (s: AppState): InstallmentPlan[] =>
 export function installmentsInMonth(s: AppState, mk: string): Installment[] {
   const cancelledPlans = new Set((s.installmentPlans || []).filter(p => p.status === 'cancelled').map(p => p.id))
   return (s.installments || [])
-    .filter(i => i.status !== 'cancelled' && !cancelledPlans.has(i.planId) && monthKey(i.dueDate) === mk)
+    .filter(i => i.status !== 'cancelled' && (!cancelledPlans.has(i.planId) || i.status === 'paid') && monthKey(i.dueDate) === mk)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
 }
 
