@@ -5,7 +5,7 @@ import React, { useMemo, useState } from 'react'
 import { useStore } from '../store/store'
 import { ConfirmDialog, MoneyInput, useToast } from './ui'
 import {
-  CreditCard, Installment, InstallmentPlan, RecurringCardCharge,
+  CreditCard, InstallmentPlan, RecurringCardCharge,
 } from '../models/types'
 import { fmtBRL, fmtDateShort, nowPaymentTime, parseMoney, todayISO, uid } from '../utils/format'
 import {
@@ -531,7 +531,7 @@ export function StandalonePlanForm({ onDone }: { onDone: () => void }) {
   const paidCount = Math.min(Math.max(parseInt(alreadyPaid, 10) || 0, 0), n)
   const amounts = financedV > 0 && countOk ? splitInstallmentAmounts(financedV, n) : []
   const cats = state.categories.filter(c => c.type === 'expense' && !c.archived)
-  const valid = principalV > 0 && !!description.trim() && countOk !== null
+  const valid = principalV > 0 && !!description.trim() && countOk !== null && validPaymentDate(firstDue, firstDue)
 
   const save = () => {
     if (!valid) return
@@ -552,8 +552,7 @@ export function StandalonePlanForm({ onDone }: { onDone: () => void }) {
       profileAtCreation: state.settings.profile,
       createdAt: todayISO(),
     }
-    const installments = buildInstallments(plan, uid).map((i, idx): Installment =>
-      idx < paidCount ? { ...i, status: 'paid', paidAt: i.dueDate, paidAmount: i.amount } : i)
+    const installments = buildInstallments(plan, uid, paidCount)
     dispatch({ type: 'addPlan', plan, installments })
     toast({ text: 'Parcelamento registrado.' })
     onDone()
@@ -576,6 +575,7 @@ export function StandalonePlanForm({ onDone }: { onDone: () => void }) {
         <InstallmentCount count={count} setCount={setCount} />
         <div className="field"><label>Parcelas já pagas</label>
           <input className="input" inputMode="numeric" value={alreadyPaid} onChange={e => setAlreadyPaid(e.target.value.replace(/\D/g, ''))} />
+          <span className="tiny">O histórico será marcado como pago com data em branco.</span>
         </div>
         <div className="field"><label>1º vencimento</label>
           <input type="date" className="input" value={firstDue} onChange={e => setFirstDue(e.target.value)} />

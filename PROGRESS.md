@@ -5953,3 +5953,14 @@ APK ou chamada paga. NOT READY até auditoria independente.
   typechecks, build, rubrica e teste de dinheiro. A branch permanece
   NOT READY. A forma antiga pode ter duplicado entradas no saldo já
   salvo. Esses dados exigem conferência antes de uma correção retroativa.
+
+## 19/11/2026 — Parcelas já pagas no cadastro
+
+- Parcelas informadas como pagas reduzem o saldo devedor sem usar a
+  data de vencimento como data de pagamento. O valor do caixa segue
+  o saldo informado e os movimentos com data de pagamento.
+- No Chrome, um acordo de R$ 100 em duas parcelas guardou uma
+  parcela de R$ 50 como paga, sem data, e manteve o saldo de R$ 1.000.
+- A suíte passou com 766/766 regressões reais no relógio padrão.
+  Typechecks, build, teste de dinheiro, rubrica e teste bissexto
+  em Europe/Lisbon passaram. A branch permanece NOT READY.

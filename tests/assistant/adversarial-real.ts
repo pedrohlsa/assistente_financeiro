@@ -4384,6 +4384,14 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       valido.settings.balance === 1000 && currentBalance(valido) === 1080 && periodStats(valido, hoje, hoje).income === 0
         && valido.installmentPlans.length === 1 && valido.installments.length === 2 && valido.transactions.length === 1
         && futuro === receita && incompleto === receita && divergente === receita && reducer(valido, registro) === valido))
+    const planoHistorico = { ...compra, id: 'acordo-em-andamento', cardId: undefined, netReceived: undefined,
+      operationType: 'standalone' as const }
+    const parcelas = buildInstallments(planoHistorico, () => `parcela-${++parcelaId}`, 1)
+    const acordado = reducer(receita, { type: 'addPlan', plan: planoHistorico, installments: parcelas })
+    out.push(result('DATE-parcelas-ja-pagas-sem-inventar-data-ou-saida', { parcelas, saldo: currentBalance(acordado) },
+      'quitar uma parcela histórica reduz a dívida de 100 para 50; não cria um dia de pagamento nem muda o saldo',
+      parcelas[0].status === 'paid' && parcelas[0].paidAmount === 50 && !parcelas[0].paidAt && parcelas[1].status === 'pending'
+        && currentBalance(acordado) === 1000 && planProgress(acordado, planoHistorico).remainingAmount === 50))
   }
 
   {

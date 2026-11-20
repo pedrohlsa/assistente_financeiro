@@ -70,7 +70,7 @@ export function nextInvoiceDueDate(card: CreditCard, purchaseDate: string): stri
 }
 
 /** Gera as parcelas de um plano — mensais, a partir de firstDueDate. */
-export function buildInstallments(plan: InstallmentPlan, idGen: () => string): Installment[] {
+export function buildInstallments(plan: InstallmentPlan, idGen: () => string, alreadyPaid = 0): Installment[] {
   const amounts = splitInstallmentAmounts(plan.totalAmount, plan.installmentCount)
   const first = fromISO(plan.firstDueDate)
   const day = first.getDate()
@@ -81,7 +81,8 @@ export function buildInstallments(plan: InstallmentPlan, idGen: () => string): I
     total: amounts.length,
     amount,
     dueDate: toISO(clampDay(first.getFullYear(), first.getMonth() + i, day)),
-    status: 'pending' as const,
+    status: i < alreadyPaid ? 'paid' as const : 'pending' as const,
+    ...(i < alreadyPaid ? { paidAmount: amount } : {}),
   }))
 }
 

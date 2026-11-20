@@ -356,7 +356,8 @@ export function reducer(s: AppState, a: Action): AppState {
       }
     }
     case 'addPlan': {
-      if (!validPaymentDate(a.plan.purchaseDate) || s.installmentPlans.some(plan => plan.id === a.plan.id)) return s
+      if (!validPaymentDate(a.plan.purchaseDate) || !validPaymentDate(a.plan.firstDueDate, a.plan.firstDueDate)
+        || s.installmentPlans.some(plan => plan.id === a.plan.id)) return s
       const inflow = a.cashInflow
       if (a.plan.operationType === 'financed-cash-inflow') {
         if (!inflow || inflow.type !== 'financed-cash-inflow' || inflow.date !== a.plan.purchaseDate
