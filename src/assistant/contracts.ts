@@ -406,6 +406,8 @@ export interface AssistantClarification {
    * — nada é aproximado e nada cai em hoje.
    */
   dateWindow?: { from: string; to: string }
+  /** Consulta original com o dia a preencher após a escolha na conversa. */
+  queryTemplate?: string
   /** Ações que só serão propostas depois da resposta. Nada foi registrado. */
   pendingActions?: ParsedAction[]
 }

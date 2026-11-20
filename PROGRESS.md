@@ -6093,3 +6093,14 @@ APK ou chamada paga. NOT READY até auditoria independente.
   confirmou esse caso e a receita de R$ 105,50 após a resposta curta.
 - Suíte com 786/786 regressões, 151 invariantes, typechecks, build e
   rubrica passaram.
+
+## 20/11/2026 — Consultas pelos dias da semana
+
+- “Na segunda”, “segunda versus terça” e “entre segunda e terça”
+  usam os dias correspondentes na consulta. “Seg ou ter” pede a
+  escolha do dia e guarda o filtro da pergunta original.
+- Uma proposta independente permanece na tela enquanto o usuário
+  consulta um dia. O Chrome confirmou os valores de R$ 87 e R$ 172
+  na comparação e R$ 35 na padaria após escolher terça.
+- Suíte com 788/788 regressões, 151 invariantes, avaliação remota
+  offline, typechecks, build e rubrica passaram.

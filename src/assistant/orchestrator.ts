@@ -19,7 +19,7 @@ import type {
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, errorMessage, isValidationFailure, validateAction } from './contracts'
-import { PEDE_APAGAR, analyzeMessage, contestsProposal, declaresIntention, isRefundInflow, looksLikeQuestion, looksLikeRetraction, looksNegated, looksPast, looksRecurring } from './clauses'
+import { PEDE_APAGAR, analyzeMessage, contestsProposal, declaresIntention, isRefundInflow, looksLikeQuestion, looksLikeRetraction, looksNegated, looksPast, looksRecurring, weekdayChoiceWord } from './clauses'
 import { categoryDilemma, outOfPatternWarning, withLearnedCategory } from './learning'
 import { explainRequest } from './explain'
 import { answerConversation, isFocusFresh, looksLikeFollowUp } from './conversation'
@@ -643,9 +643,10 @@ function runLocal(
       question: ambiguities.length > 1
         ? ambiguities.map(c => c.ambiguity!.question).join('\n\n')
         : ambiguous.ambiguity.question,
-      options: ambiguities.length > 1 ? [] : ambiguous.ambiguity.options.map(o => ({ label: o.label, value: o.label, actions: o.actions, reply: o.reply })),
+      options: ambiguities.length > 1 ? [] : ambiguous.ambiguity.options.map(o => ({ label: o.label, value: o.value || o.label, actions: o.actions, reply: o.reply })),
       field: ambiguities.length > 1 ? 'financial-events' : ambiguous.ambiguity.field || 'ambiguity',
       pendingActions: ambiguities.length === 1 ? ambiguous.ambiguity.pendingActions : undefined,
+      queryTemplate: ambiguities.length === 1 ? ambiguous.ambiguity.queryTemplate : undefined,
     }
   }
 
@@ -1202,6 +1203,26 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   // "GNV" logo depois de "gás de cozinha ou GNV?" precisa recuperar o valor e
   // a descrição da mensagem anterior — o usuário não repete nada.
   const pc = input.pendingClarification
+  if (pc?.field === 'query-date' && pc.queryTemplate && pc.options?.length) {
+    const said = normalizeName(input.message).replace(/[.!?]+$/g, '').trim()
+    const date = dateInAnswer(weekdayChoiceWord(input.message), today)
+    const choice = pc.options.find(o => normalizeName(o.label) === said || o.value === said
+      || ((date?.kind === 'date' || date?.kind === 'future') && date.date === o.value))
+    if (choice) {
+      const query = pc.queryTemplate.replace('%DATE%', choice.value)
+      const response = respostaLocal(input.state, query, today, true)
+      return {
+        draft: null, keepPending: true, focus: response?.focus || input.focus,
+        response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
+          reply: response?.text || 'O dia foi selecionado. Reformule a pergunta com esse dia para eu consultar.' },
+      }
+    }
+    if (!looksLikeQuestion(input.message) && !looksPast(input.message)) return {
+      draft: null, keepPending: true,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [],
+        clarification: pc, reply: pc.question },
+    }
+  }
   if (pc?.field === 'exact-amount' && pc.pendingActions?.length) {
     const amount = exactMoneyAnswer(input.message)
     if (amount > 0) {
@@ -1879,6 +1900,7 @@ Confirmar?`,
 
   // ---- 11) Consulta, cenário e continuação ------------------------------
   const temFato = hasBlock(turno, 'record')
+  const consultaPedeDia = turno.analysis.clauses.some(c => c.ambiguity?.field === 'query-date')
 
   // Registrar E simular na mesma frase (regra 27). "Meu salário entrou 1625,
   // paguei 355, guardei 150 e quero saber se consigo comprar um celular de 3000
@@ -1894,7 +1916,7 @@ Confirmar?`,
   const cenarioJunto = temFato && hasBlock(turno, 'scenario')
     ? answerConversation(input.state, mensagem, { today, focus: input.focus })
     : null
-  const conversa = temFato ? null : answerConversation(input.state, mensagem, {
+  const conversa = temFato || consultaPedeDia ? null : answerConversation(input.state, mensagem, {
     today, focus: input.focus,
   })
   // Consulta INCOMPLETA nunca é assumida aqui, nem como continuação: não há

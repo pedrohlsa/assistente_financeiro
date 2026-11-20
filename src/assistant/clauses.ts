@@ -31,7 +31,8 @@ export interface AnalyzedClause {
   date?: string
   dateLabel?: string
   /** Pergunta de desambiguação levantada pelo parser (ex.: gás). */
-  ambiguity?: { question: string; field?: string; pendingActions?: ParsedAction[]; options: { label: string; actions: ParsedAction[]; reply?: string }[] }
+  ambiguity?: { question: string; field?: string; pendingActions?: ParsedAction[]; queryTemplate?: string;
+    options: { label: string; value?: string; actions: ParsedAction[]; reply?: string }[] }
   /** Data ambígua: precisa de escolha antes de virar lançamento. */
   dateAmbiguity?: { question: string; options: { label: string; value: string }[] }
   /**
@@ -460,7 +461,12 @@ export function segment(text: string, today = todayISO()): { text: string; start
     push((m.index || 0) + m[0].length)
   }
   // "mas", "porém" e "só que" separam registro de pergunta.
-  for (const m of text.matchAll(/[,;]?\s+(?:mas|por[ée]m|s[óo]\s+que)\s+/gi)) push((m.index || 0) + m[0].length)
+  for (const m of text.matchAll(/[,;]?\s+(?:mas|por[ée]m|s[óo]\s+que)\s+/gi)) {
+    const after = (m.index || 0) + m[0].length
+    const prior = text.slice(Math.max(...[...cuts].filter(cut => cut <= m.index)), m.index)
+    if (/^(?:sem|tirando|exceto)\b/i.test(text.slice(after)) && looksLikeQuestion(prior)) continue
+    push(after)
+  }
   // Palavra interrogativa começando uma pergunta colada ao registro:
   // "gastei 80 de mercado QUANTO sobrou" — sem este corte a pergunta virava
   // parte da descrição ("Mercado quanto") e nunca era respondida.
@@ -469,6 +475,9 @@ export function segment(text: string, today = todayISO()): { text: string; start
   for (const m of text.matchAll(/\s+(?=(?:e\s+)?(?:(?:quanto|quantos|quantas|qual|quais|quando)\b|como\s+(?:foi|t[aá]|est[aá]|ficou)(?![\wà-ú])))/gi)) {
     // O espaço entre "e" e "quanto" não é outro corte: o "e" ficava sozinho.
     if (/\be$/i.test(text.slice(0, m.index || 0))) continue
+    const prior = expandWeekdayAlternatives(text.slice(Math.max(...[...cuts].filter(cut => cut <= m.index)), m.index))
+    const dates = /\bou\b/i.test(prior) ? alternativeDates(prior, datesMentioned(prior, today)) : undefined
+    if (dates && /^\s*(?:(?:no|na|em)\s*)?[,; ]*$/i.test(prior.slice(0, dates.start) + prior.slice(dates.end))) continue
     push((m.index || 0) + m[0].length)
   }
   // Marcador de correção dentro da própria mensagem.
@@ -640,6 +649,19 @@ function parseFirstAmount(text: string): number {
   return m ? parseMoney(m[1]) : NaN
 }
 
+const SHORT_WEEKDAYS: Record<string, string> = { seg: 'segunda', ter: 'terça', qua: 'quarta', qui: 'quinta', sex: 'sexta', sab: 'sábado', dom: 'domingo' }
+
+export function weekdayChoiceWord(text: string): string {
+  const word = normalizeName(text).replace(/[.!?]+$/, '').trim()
+  return /^(?:seg|ter|qua|qui|sex|sab|dom)$/.test(word) ? SHORT_WEEKDAYS[word] : text
+}
+
+function expandWeekdayAlternatives(text: string): string {
+  const days = 'segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado|domingo|seg|ter|qua|qui|sex|s[áa]b|dom'
+  return text.replace(new RegExp(String.raw`(?<![\p{L}\p{M}])(${days})(\s+ou\s+)(${days})(?![\p{L}\p{M}])`, 'giu'),
+    (_m, left: string, separator: string, right: string) => weekdayChoiceWord(left) + separator + weekdayChoiceWord(right))
+}
+
 function datesMentioned(text: string, today: string): DateResolution[] {
   const dates = findAllDates(text, today)
   return dates.flatMap(date => {
@@ -653,6 +675,7 @@ function datesMentioned(text: string, today: string): DateResolution[] {
 }
 
 function alternativeDates(text: string, dates: DateResolution[]) {
+  if (dates.length < 2 || !/\bou\b/i.test(text)) return undefined
   const ordered = [...dates].sort((a, b) => a.start - b.start)
   const joined = (a: DateResolution, b?: DateResolution) => !!b && /^\s*,?\s*ou(?:\s+talvez)?\s*$/i.test(text.slice(a.end, b.start))
   const first = ordered.findIndex((date, i) => joined(date, ordered[i + 1]))
@@ -986,8 +1009,8 @@ export function analyzeMessage(
 
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i]
-    const originalMoney = spokenMoney(part.text)
-    const forParserRaw = spokenMoney(aligned ? normalizedParts[i].text : normalized)
+    const originalMoney = spokenMoney(expandWeekdayAlternatives(part.text))
+    const forParserRaw = spokenMoney(expandWeekdayAlternatives(aligned ? normalizedParts[i].text : normalized))
     const invoiceOriginal = readInvoiceReference(originalMoney, today)
     const invoiceParser = forParserRaw === originalMoney ? invoiceOriginal : readInvoiceReference(forParserRaw, today)
     const forParser = invoiceParser.paymentText
@@ -1029,7 +1052,8 @@ export function analyzeMessage(
     // O trecho que fala do FUTURO não descreve o fato passado. Sem recortá-lo,
     // "gastei 40 hoje e amanhã vou pagar 120" gravava a despesa de hoje com a
     // descrição "Vou pagar 120" — o plano contaminava o lançamento real.
-    const alternatives = !looksLikeQuestion(part.text) && looksPast(part.text) ? alternativeDates(forParser, datesParser) : undefined
+    const dateAlternatives = alternativeDates(forParser, datesParser)
+    const alternatives = !looksLikeQuestion(part.text) && looksPast(part.text) ? dateAlternatives : undefined
     let base = alternatives ? `${forParser.slice(0, alternatives.start)} ${forParser.slice(alternatives.end)}` : forParser
     const futParser = datesParser.find(isFutureDate)
     const pastParser = datesParser.find(d => d.kind === 'date')
@@ -1209,6 +1233,7 @@ export function analyzeMessage(
 
     const isConversation = looksLikeConversation(part.text)
     const isQuestion = !isConversation && looksLikeQuestion(part.text)
+    const queryDates = isQuestion && dateAlternatives ? dateAlternatives : undefined
 
     // Pergunta de ANÁLISE cita valores para serem avaliados, não registrados:
     // "essa corrida de 18 por 12 km vale a pena?" não é uma receita de 18.
@@ -1377,6 +1402,16 @@ export function analyzeMessage(
       dateAmbiguity = undefined
       ambiguity = dateMissing ? { question: 'Qual foi o valor exato e em que dia aconteceu?', options: [] } : amountChoice
     }
+    if (queryDates) {
+      actions = []
+      temporal = undefined
+      dateAmbiguity = undefined
+      const prefix = forParser.slice(0, queryDates.start).trimEnd().replace(/\b(?:no|na|em)\s*$/i, '').trimEnd()
+      const suffix = forParser.slice(queryDates.end).replace(/^\s*(?:mas|por[ée]m)\s+(?=(?:sem|tirando|exceto)\b)/i, ' ')
+      ambiguity = { field: 'query-date', question: 'Qual desses dias você quer consultar?',
+        queryTemplate: `${prefix} em %DATE% ${suffix}`.trim(),
+        options: queryDates.options.map(o => ({ ...o, actions: [] })) }
+    }
 
     // Uma PERGUNTA que por acaso contém "trocar"/"mudar" não é uma correção:
     // "vale a pena trocar de plano?" era classificada como correção e o
@@ -1385,7 +1420,8 @@ export function analyzeMessage(
     const isCorrection = !isConversation && !isQuestion && looksLikeCorrection(part.text)
 
     let intent: AssistantIntent
-    if (isConversation) intent = 'conversation'
+    if (queryDates) intent = 'clarification'
+    else if (isConversation) intent = 'conversation'
     else if (aguardaReembolso || duvidaFatura || amountChoice || unrealized) intent = 'record'
     else if (negated) intent = 'correction'
     else if (isCorrection && !actions.length) intent = 'correction'

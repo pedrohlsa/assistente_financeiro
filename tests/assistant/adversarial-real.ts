@@ -214,6 +214,48 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && resolvedYesterday.response.actions[0].action.amount === 51.3 && resolvedYesterday.response.actions[0].action.description === 'Padaria'
       && resolvedYesterday.response.actions[0].action.date === addDays(spokenDate, -1) && calledForNegation === 0))
 
+  const friday = addDays(spokenDate, -((fromISO(spokenDate).getDay() + 2) % 7))
+  const recentMonday = addDays(friday, -4)
+  const recentTuesday = addDays(friday, -3)
+  const weekdayState = buildState({ profile: 'autonomo', transactions: [
+    { type: 'expense', category: 'alimentacao', description: 'Padaria', date: recentMonday, amount: 25 },
+    { type: 'expense', category: 'alimentacao', description: 'Padaria', date: recentTuesday, amount: 35 },
+    { type: 'expense', category: 'alimentacao', description: 'Mercado', date: recentTuesday, amount: 137 },
+    { type: 'expense', category: 'casa', description: 'Água', date: recentMonday, amount: 62 },
+    { type: 'expense', category: 'obra', description: 'Tinta', date: addDays(friday, -1), amount: 999 },
+  ] })
+  const weekdayQuery = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({
+    state: weekdayState, today: friday, remoteEnabled: true, askRemote: remoteSpy, planRemoteQuery: remoteSpy, message,
+    pending: prior?.response.actions, pendingClarification: answerChoices(prior),
+  })
+  const mondayTotal = await weekdayQuery('quanto gastei na segunda?')
+  const compareWeekdays = await weekdayQuery('quanto gastei segunda versus terça?')
+  const dayRange = await weekdayQuery('quanto gastei na padaria entre segunda e terça?')
+  out.push(result('LING-consulta-dias-da-semana-filtra-e-compara-datas-exatas', { monday: mondayTotal.response,
+    compare: compareWeekdays.response, range: dayRange.response },
+    'segunda soma R$ 87, terça R$ 172 e a padaria soma R$ 60 no intervalo, sem misturar a obra',
+    mondayTotal.focus?.lastQuery?.total === 87 && mondayTotal.focus.lastQueryPlan?.period.from === recentMonday
+      && compareWeekdays.focus?.lastQueryPlan?.comparePeriod?.from === recentTuesday
+      && /87,00/.test(compareWeekdays.response.reply) && /172,00/.test(compareWeekdays.response.reply)
+      && dayRange.focus?.lastQuery?.total === 60 && dayRange.focus.lastQueryPlan?.period.from === recentMonday
+      && dayRange.focus.lastQueryPlan.period.to === recentTuesday && !dayRange.response.actions.length))
+
+  const queryAlternatives = await weekdayQuery('qnt gastei na padaria seg ou ter?')
+  const chooseTuesday = await weekdayQuery('ter', queryAlternatives)
+  const queryExclusion = await weekdayQuery('quanto gastei segunda ou terça mas sem mercado?')
+  const excludingMarket = await weekdayQuery('terça', queryExclusion)
+  const mixedQuery = await weekdayQuery('paguei 50 no posto e quanto gastei na padaria segunda ou terça?')
+  const chooseMonday = await weekdayQuery('segunda', mixedQuery)
+  out.push(result('LING-consulta-com-ou-guarda-dia-filtro-e-proposta-independente', { choices: queryAlternatives.response,
+    chosen: chooseTuesday.response, exclusion: excludingMarket.response, mixed: mixedQuery.response },
+    'só responde após escolher; preserva padaria, exclusão e a proposta em paralelo, sem gravar movimentações',
+    answerChoices(queryAlternatives)?.field === 'query-date' && answerChoices(queryAlternatives)?.options?.length === 2
+      && !queryAlternatives.response.actions.length && chooseTuesday.focus?.lastQuery?.total === 35
+      && chooseTuesday.focus.lastQueryPlan?.period.from === recentTuesday && !chooseTuesday.response.actions.length
+      && excludingMarket.focus?.lastQuery?.total === 35 && answerChoices(mixedQuery)?.field === 'query-date'
+      && mixedQuery.response.actions.length === 1 && chooseMonday.keepPending && chooseMonday.focus?.lastQuery?.total === 25
+      && !chooseMonday.response.actions.length && calledForNegation === 0 && weekdayState.transactions.length === 5))
+
   const c1 = baseline()
   c1.transactions = ['2026-06-10', '2026-07-10', '2026-08-10'].map((date, i) => ({
     id: `obra-${i}`, type: 'expense', amount: 300, category: 'obra', date, description: 'Obra', time: '10:00',

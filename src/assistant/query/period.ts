@@ -14,6 +14,7 @@ import { findDate } from '../dates'
 import type { PeriodGrain, QueryPeriod } from './types'
 
 const MES_RE = 'janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro'
+const DIA_SEMANA = '(?:domingo|segunda|terca|quarta|quinta|sexta|sabado)(?:-feira)?(?:\\s+passad[oa]|\\s+que\\s+vem)?'
 
 // MAPA, nao objeto: leitura por colchete anda pela cadeia de prototipo, e
 // `MES_CURTO['con']` de "constructor" ja foi um crash real em outro modulo.
@@ -165,6 +166,15 @@ export function parsePeriod(input: string, hoje = todayISO()): { period: QueryPe
     }
     return null
   }
+  const diasDaSemana = t.match(new RegExp(String.raw`\b(?:entre|de)\s+(${DIA_SEMANA})\s+(?:e|a|ate)\s+(${DIA_SEMANA})\b`))
+  if (diasDaSemana) {
+    const from = findDate(diasDaSemana[1], hoje)
+    const to = findDate(diasDaSemana[2], hoje)
+    if (from?.kind === 'date' && to?.kind === 'date' && from.date <= to.date) {
+      return { period: P(from.date, to.date, `de ${br(from.date)} a ${br(to.date)}`, 'range', hoje), matched: diasDaSemana[0] }
+    }
+    return null
+  }
 
   // --- "últimos N dias/semanas/meses/anos" ---------------------------------
   const ultimos = t.match(/\b(?:nos?\s+)?(?:ultim[oa]s?|passad[oa]s?)\s+(\d{1,4}|[a-z]+)\s+(dias?|semanas?|mes(?:es)?|anos?)\b/)
@@ -266,6 +276,15 @@ export function parsePeriod(input: string, hoje = todayISO()): { period: QueryPe
   if (/\banteontem\b/.test(t)) return { period: P(addDays(hoje, -2), addDays(hoje, -2), 'anteontem', 'day', hoje), matched: 'anteontem' }
   if (/\bontem\b/.test(t)) return { period: P(addDays(hoje, -1), addDays(hoje, -1), 'ontem', 'day', hoje), matched: 'ontem' }
   if (/\bhoje\b|\bhj\b/.test(t)) return { period: P(hoje, hoje, 'hoje', 'day', hoje), matched: 'hoje' }
+
+  const diaDaSemana = t.match(new RegExp(String.raw`\b(?:(?:no|na|em)\s+)?(${DIA_SEMANA})\b(?=\s*[,!?]|\s*$|\s+(?:na|no|de|com|sem)\s)`, 'i'))
+  const rankingDeDia = /\b(?:pior|melhor|maior|menor)\s+(?:domingo|segunda|terca|quarta|quinta|sexta|sabado)(?:-feira)?\b(?!\s+passad[oa])/i.test(t)
+  if (diaDaSemana && !rankingDeDia) {
+    const day = findDate(diaDaSemana[1], hoje)
+    if (day?.kind === 'date' || day?.kind === 'future') {
+      return { period: P(day.date, day.date, `em ${br(day.date)}`, 'day', hoje), matched: diaDaSemana[0] }
+    }
+  }
 
   // --- mês pelo NOME: "em outubro", "de agosto", "outubro de 2025" ---------
   const mesNome = t.match(new RegExp(String.raw`\b(?:em|n[oa]|de|do)?\s*(${MES_RE})\b(?:\s+de\s+(20\d{2}))?`))
