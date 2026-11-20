@@ -1013,6 +1013,15 @@ function parseClause(input: string): ParsedAction[] {
     else actions.push({ kind: 'odometer', value })
   }
 
+  // ----- "lavei o carro 30", "lavei o carro por 40": o verbo é o serviço, e o
+  // valor vem depois do objeto. Caía no menu de ajuda.
+  if (!actions.some(a => a.kind === 'expense')) {
+    const lavei = text.match(new RegExp(String.raw`\b(?:lavei|mandei\s+lavar|levei\s+pra\s+lavar)\s+(?:o\s+|a\s+|meu\s+|minha\s+)?(carro|moto|ve[ií]culo)\s+(?:por\s+|de\s+|a\s+)?(?:r\$\s*)?${NUM}`, 'i'))
+    if (lavei && parseNum(lavei[2]) > 0) {
+      actions.push({ kind: 'expense', amount: parseNum(lavei[2]), category: 'manutencao', description: 'Lavagem' })
+    }
+  }
+
   // ----- lista ITEM VALOR depois de um verbo de compra: "comprei pão 8 leite
   // 6 e café 12". O valor vem DEPOIS do nome, sem preposição, e o parser não
   // lia nada — a frase perdia R$ 14 em silêncio. Exige pelo menos dois pares

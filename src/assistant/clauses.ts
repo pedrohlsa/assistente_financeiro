@@ -927,7 +927,9 @@ function alternativeDates(text: string, dates: DateResolution[]) {
 function alternativeAmounts(text: string, driver: boolean | undefined, date?: string, origin?: string): AnalyzedClause['ambiguity'] {
   const re = /(?<![\w.,])(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s+(?:reais?|contos?))?\s+ou(?:\s+talvez)?\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?![\d.,])/gi
   const match = [...text.matchAll(re)].find(m => /r\$/i.test(m[0])
-    || new RegExp(String.raw`\b(?:${PAST_MONEY_VERBS}|valor)\b\s*(?:foi\s+|de\s+)?$`, 'i').test(text.slice(0, m.index)))
+    // "Gastei UNS 30 ou 40": a palavra de aproximação entre o verbo e o valor
+    // escondia a alternativa, e a frase virava DUAS despesas (30 "Ou" e 40).
+    || new RegExp(String.raw`\b(?:${PAST_MONEY_VERBS}|valor)\b\s*(?:foi\s+|de\s+)?(?:(?:uns|umas|tipo|quase|cerca\s+de|aproximadamente|mais\s+ou\s+menos|por\s+volta\s+de|entre)\s+)?$`, 'i').test(text.slice(0, m.index)))
   if (!match) return undefined
   if (/^\s*(?:km|quil[oô]metros?|parcelas?|vezes|litros?|horas?|dias?|viagens?|corridas?)\b/i.test(text.slice(match.index + match[0].length))) return undefined
   const options = [...new Set([parseMoney(match[1]), parseMoney(match[2])])].flatMap(value => {

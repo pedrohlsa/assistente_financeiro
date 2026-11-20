@@ -6188,6 +6188,18 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // Valor alternativo com palavra de aproximação, e serviço com valor depois do objeto.
+  {
+    for (const frase of ['gastei uns 30 ou 40 no mercado', 'paguei tipo 30 ou 40 no mercado', 'gastei 30 ou 40 no mercado']) {
+      const r = await turnoHoje(buildState({ profile: 'autonomo' }), frase)
+      out.push(result(`MX-${frase.replace(/\W+/g, '-')}`, { reply: r.reply, actions: r.actions }, 'pergunta o valor exato, nenhuma despesa',
+        r.actions.length === 0 && /valor exato/i.test(r.reply)))
+    }
+    const lavei = await turnoHoje(buildState({ profile: 'driver' }), 'lavei o carro 30')
+    out.push(result('MX-lavei-o-carro', lavei.actions, 'Lavagem 30 em Manutenção',
+      lavei.actions.length === 1 && lavei.actions[0].amount === 30 && (lavei.actions[0] as any).category === 'manutencao'))
+  }
+
   return out
 }
 
