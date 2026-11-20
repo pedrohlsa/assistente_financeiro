@@ -5,7 +5,7 @@ import { orchestrate } from '../../src/assistant/orchestrator'
 import { segment } from '../../src/assistant/clauses'
 import { findDate } from '../../src/assistant/dates'
 import { balanceOutlook, balanceOutlookText, budgetUsage, currentBalance, kmCost, monthlyProjections, occurrencesBetween, pendingRecurrings, periodStats, possibleRecurringTransactions, recurringLinkAction, transactionOccurrence, upcomingBills } from '../../src/services/calc'
-import { cardInvoice, cardOutstanding, cardsOverview, futureInstallmentPaymentDate, invoiceOpenAmount, planProgress } from '../../src/services/cards'
+import { buildInstallments, cardInvoice, cardOutstanding, cardsOverview, futureInstallmentPaymentDate, invoiceOpenAmount, planProgress } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
 import { buildCapabilities } from '../../src/assistant/capabilities'
 import { isValidationFailure, validateAction } from '../../src/assistant/contracts'
@@ -4365,6 +4365,25 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       'despesa de ontem sem hora fica no extrato de ontem e não muda o saldo que já foi informado depois',
       retroativo.applied && retroativo.state.transactions[0]?.date === before && retroativo.state.transactions[0]?.time === undefined
         && currentBalance(retroativo.state, now) === 963 && periodStats(retroativo.state, before, before, now).expense === 25))
+
+    const receita = buildState({ balance: 1000, profile: 'autonomo', cards: [{ name: 'Inter' }] })
+    receita.settings.balanceAsOf = `${addDays(hoje, -1)}T12:00:00.000`
+    const compra = { id: 'financiada', description: 'Entrada financiada', cardId: 'card0', totalAmount: 100,
+      installmentCount: 2, firstDueDate: addDays(hoje, 25), purchaseDate: hoje,
+      createdAt: hoje, status: 'active' as const, operationType: 'financed-cash-inflow' as const, netReceived: 80 }
+    let parcelaId = 0
+    const registro = { type: 'addPlan' as const, plan: compra, installments: buildInstallments(compra, () => `parcela-${++parcelaId}`),
+      cashInflow: { id: 'receipt', type: 'financed-cash-inflow' as const, amount: 80, category: 'outros-in', date: hoje, time: '15:00' } }
+    const valido = reducer(receita, registro)
+    const futuro = reducer(receita, { ...registro, plan: { ...compra, purchaseDate: addDays(hoje, 1) },
+      cashInflow: { ...registro.cashInflow, date: addDays(hoje, 1) } })
+    const incompleto = reducer(receita, { ...registro, cashInflow: undefined })
+    const divergente = reducer(receita, { ...registro, cashInflow: { ...registro.cashInflow, amount: 90 } })
+    out.push(result('DATE-entrada-financiada-manual-atomica-e-uma-vez', { saldo: currentBalance(valido), recusados: [futuro === receita, incompleto === receita, divergente === receita] },
+      'entrada de 80 soma uma vez a 1000, primeira parcela pode vencer depois; dados incompletos ou futuros não gravam plano nem caixa',
+      valido.settings.balance === 1000 && currentBalance(valido) === 1080 && periodStats(valido, hoje, hoje).income === 0
+        && valido.installmentPlans.length === 1 && valido.installments.length === 2 && valido.transactions.length === 1
+        && futuro === receita && incompleto === receita && divergente === receita && reducer(valido, registro) === valido))
   }
 
   {

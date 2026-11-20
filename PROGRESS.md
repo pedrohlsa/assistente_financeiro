@@ -5940,3 +5940,16 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - No Chrome, a data futura manteve Salvar desabilitado, e uma despesa
   retroativa deixou o saldo informado em R$ 1.000. Suíte com 764/764
   regressões reais, matriz de oito datas, typechecks, build e rubrica.
+
+## 19/11/2026 — Compra e entrada financiada no formulário
+
+- Compra e entrada financiada exigem a data em que aconteceram. O
+  primeiro vencimento pode ser futuro.
+- O formulário de financiamento registra o plano, as parcelas e a
+  entrada de caixa em uma operação. O saldo sobe pela movimentação,
+  uma vez. No Chrome, uma entrada líquida de R$ 80 levou R$ 1.000 a
+  R$ 1.080 sem gerar receita.
+- A suíte passou com 765/765 regressões reais no relógio padrão,
+  typechecks, build, rubrica e teste de dinheiro. A branch permanece
+  NOT READY. A forma antiga pode ter duplicado entradas no saldo já
+  salvo. Esses dados exigem conferência antes de uma correção retroativa.

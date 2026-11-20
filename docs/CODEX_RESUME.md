@@ -1,5 +1,17 @@
 # Retomada autônoma — AssistFin
 
+> **19/11/2026 — auditoria local.** Trabalhar em `~/work/assistfin`,
+> na branch `feat/assistant-intelligence-v2`. Os últimos blocos de
+> [PROGRESS.md](../PROGRESS.md) documentam as correções de faturas,
+> recorrências, calendário, caixa e financiamento, com testes e
+> validação em Chrome com dados fictícios. As três prioridades do
+> checkpoint de 28/10 abaixo foram cobertas localmente.
+>
+> A branch permanece **NOT READY** para merge ou deploy até revisão
+> independente. DeepSeek real e APK não foram executados nesta rodada.
+> O arquivo `docs/HANDOFF_GPT_2026-11-12.md` continua fora dos commits.
+> Confira `git status` e `git log` antes de retomar.
+
 > **12/11/2026 — retomada no Linux.** O projeto agora também vive em
 > `~/work/assistfin` (clone da `main` do GitHub + branch
 > `feat/assistant-intelligence-v2` trazida do disco do Windows, nunca enviada).

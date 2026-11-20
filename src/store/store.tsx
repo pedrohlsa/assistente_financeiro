@@ -163,7 +163,7 @@ type Action =
   | { type: 'addCard'; card: CreditCard }
   | { type: 'updateCard'; id: string; patch: Partial<CreditCard> }
   | { type: 'removeCard'; id: string }
-  | { type: 'addPlan'; plan: InstallmentPlan; installments: Installment[] }
+  | { type: 'addPlan'; plan: InstallmentPlan; installments: Installment[]; cashInflow?: Transaction }
   | { type: 'updatePlan'; id: string; patch: Partial<InstallmentPlan> }
   /** Remove o plano e TODAS as suas parcelas (histórico incluído). */
   | { type: 'removePlan'; id: string }
@@ -355,8 +355,18 @@ export function reducer(s: AppState, a: Action): AppState {
         cardPayments: s.cardPayments.filter(p => p.cardId !== a.id),
       }
     }
-    case 'addPlan':
-      return { ...s, installmentPlans: [a.plan, ...s.installmentPlans], installments: [...s.installments, ...a.installments] }
+    case 'addPlan': {
+      if (!validPaymentDate(a.plan.purchaseDate) || s.installmentPlans.some(plan => plan.id === a.plan.id)) return s
+      const inflow = a.cashInflow
+      if (a.plan.operationType === 'financed-cash-inflow') {
+        if (!inflow || inflow.type !== 'financed-cash-inflow' || inflow.date !== a.plan.purchaseDate
+          || s.transactions.some(tx => tx.id === inflow.id)
+          || inflow.amount !== a.plan.netReceived || !(inflow.amount > 0) || inflow.amount > a.plan.totalAmount) return s
+      } else if (inflow) return s
+      const transactions = inflow ? [{ ...inflow,
+        time: inflow.time ? nextCashEventTime(s, inflow.date, inflow.time) : undefined }, ...s.transactions] : s.transactions
+      return { ...s, transactions, installmentPlans: [a.plan, ...s.installmentPlans], installments: [...s.installments, ...a.installments] }
+    }
     case 'updatePlan':
       return { ...s, installmentPlans: s.installmentPlans.map(p => p.id === a.id ? { ...p, ...a.patch } : p) }
     case 'removePlan':

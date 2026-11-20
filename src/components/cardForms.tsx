@@ -261,21 +261,23 @@ export function PurchaseForm({ onDone, defaultCardId }: { onDone: () => void; de
   const [customFirstDue, setCustomFirstDue] = useState('')
 
   const card = cardById(state, cardId)
+  const today = todayISO()
+  const dateValid = validPaymentDate(purchaseDate, today)
   // Valor da compra + juros = TOTAL FINANCIADO. É o total financiado que vira
   // parcelas, fatura e projeção — os juros não podem ficar só decorando a tela.
   const principalV = parseMoney(total) || 0
   const interestV = parseMoney(interest) || 0
   const financedV = round2(principalV + interestV)
   const n = clampCount(count)
-  const firstDue = customFirstDue || suggestedFirstDueDate(card, purchaseDate)
-  const preview = financedV > 0 && n ? simulatePurchase(financedV, n, firstDue) : null
+  const firstDue = customFirstDue || (dateValid ? suggestedFirstDueDate(card, purchaseDate) : '')
+  const preview = dateValid && financedV > 0 && n ? simulatePurchase(financedV, n, firstDue) : null
   const amounts = financedV > 0 && n ? splitInstallmentAmounts(financedV, n) : []
 
   const cats = state.categories.filter(c => c.type === 'expense' && !c.archived)
-  const valid = principalV > 0 && n !== null
+  const valid = principalV > 0 && n !== null && dateValid
 
   const save = () => {
-    if (!valid) return
+    if (!valid || !validPaymentDate(purchaseDate)) return
     const plan: InstallmentPlan = {
       id: uid(),
       description: sentenceCase(description) || 'Compra no cartão',
@@ -324,8 +326,10 @@ export function PurchaseForm({ onDone, defaultCardId }: { onDone: () => void; de
             </select>
           </div>
         )}
-        <div className="field"><label>Data da compra</label>
-          <input type="date" className="input" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)} />
+        <div className="field"><label htmlFor="purchase-date">Data da compra</label>
+          <input id="purchase-date" type="date" className="input" max={today} value={purchaseDate} aria-invalid={!dateValid}
+            onChange={e => setPurchaseDate(e.target.value)} />
+          {!dateValid && <p className="tiny muted">Informe uma data válida até hoje.</p>}
         </div>
         <div className="field"><label>1º vencimento</label>
           <input type="date" className="input" value={firstDue} onChange={e => setCustomFirstDue(e.target.value)} />
@@ -386,16 +390,19 @@ export function FinancedInflowForm({ onDone }: { onDone: () => void }) {
   const [customFirstDue, setCustomFirstDue] = useState('')
 
   const card = cardById(state, cardId)
+  const today = todayISO()
+  const dateValid = validPaymentDate(date, today)
   const chargedV = parseMoney(charged) || 0
   const receivedV = parseMoney(received) || 0
   const cost = Math.max(chargedV - receivedV, 0)
   const n = clampCount(count) ?? 1
-  const firstDue = customFirstDue || suggestedFirstDueDate(card, date)
+  const firstDue = customFirstDue || (dateValid ? suggestedFirstDueDate(card, date) : '')
   const amounts = chargedV > 0 ? splitInstallmentAmounts(chargedV, n) : []
-  const valid = chargedV > 0 && receivedV > 0 && receivedV <= chargedV && confirmed && clampCount(count) !== null
+  const valid = chargedV > 0 && receivedV > 0 && receivedV <= chargedV && confirmed && clampCount(count) !== null && dateValid
 
   const save = () => {
-    if (!valid) return
+    const at = todayISO()
+    if (!valid || !validPaymentDate(date, at)) return
     const plan: InstallmentPlan = {
       id: uid(),
       description: 'Entrada financiada pelo cartão',
@@ -414,17 +421,15 @@ export function FinancedInflowForm({ onDone }: { onDone: () => void }) {
       profileAtCreation: state.settings.profile,
       createdAt: todayISO(),
     }
-    dispatch({ type: 'addPlan', plan, installments: buildInstallments(plan, uid) })
-    // Dinheiro que entrou no caixa — NUNCA classificado como receita/lucro.
     dispatch({
-      type: 'addTx',
-      tx: {
+      type: 'addPlan', plan, installments: buildInstallments(plan, uid),
+      cashInflow: {
         id: uid(), type: 'financed-cash-inflow', amount: receivedV, category: 'outros-in',
         description: 'Entrada financiada pelo cartão', date, source: 'manual',
+        time: date === at ? nowPaymentTime() : undefined,
         profileAtCreation: state.settings.profile,
       },
     })
-    dispatch({ type: 'settings', patch: { balance: (state.settings.balance || 0) + receivedV } })
     toast({ text: 'Operação registrada.' })
     onDone()
   }
@@ -452,8 +457,10 @@ export function FinancedInflowForm({ onDone }: { onDone: () => void }) {
           <MoneyInput value={received} onChange={setReceived} />
         </div>
         <InstallmentCount count={count} setCount={setCount} />
-        <div className="field full"><label>Data da operação</label>
-          <input type="date" className="input" value={date} onChange={e => setDate(e.target.value)} />
+        <div className="field full"><label htmlFor="financed-inflow-date">Data da operação</label>
+          <input id="financed-inflow-date" type="date" className="input" max={today} value={date} aria-invalid={!dateValid}
+            onChange={e => setDate(e.target.value)} />
+          {!dateValid && <p className="tiny muted">Informe uma data válida até hoje.</p>}
         </div>
         <div className="field full"><label>1º vencimento</label>
           <input type="date" className="input" value={firstDue} onChange={e => setCustomFirstDue(e.target.value)} />
