@@ -172,7 +172,7 @@ export function applyPreferenceAliases(state: AppState, text: string): string {
       // preservando o MESMO dinheiro que saiu. Um novo evento ou troca de
       // polaridade continua proibido.
       const kind = a.kind === 'expense' || a.kind === 'fuel' ? 'outflow' : a.kind
-      return [kind, x.amount, x.cost, x.total, x.netReceived, x.date,
+      return [kind, x.amount, x.cost, x.total, x.netReceived, x.date, x.time,
         x.km, x.trips, x.hours, x.value, x.liters, x.odometer]
     }),
   )

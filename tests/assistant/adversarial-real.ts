@@ -100,6 +100,27 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const state = buildState({ profile: 'driver' })
+    const cases = [
+      ['ontem recebi 120 da Casa 2 mais 150 da Casa 1', [[120, 'outros-in', 'Casa 2'], [150, 'outros-in', 'Casa 1']], 0],
+      ['recebi 95 do Cliente 1', [[95, 'outros-in', 'Cliente 1']], 0],
+      ['recebi 110 no caixa às seis e meia ontem', [[110, 'outros-in', null]], 0],
+      ['recebi 120 da Casa 2 e 80 do Uber', [[120, 'outros-in', 'Casa 2'], [80, 'corridas', null]], 1],
+      ['recebi 120 do Uber e 30 da Casa 2', [[120, 'corridas', null], [30, 'outros-in', 'Casa 2']], 1],
+      ['recebi 120 da Casa 2 e fiz 5 corridas', [[120, 'outros-in', 'Casa 2']], 5],
+      ['recebi 120 de uma corrida pra Casa 2', [[120, 'corridas', null]], 1],
+    ] as const
+    for (const [index, [message, expected, trips]] of cases.entries()) {
+      const answer = await turn(state, message)
+      const applied = applyBatchPure(state, answer.actions.map((action, pos) => ({ id: `income-${pos}`, action })), { now: { date: TODAY, time: '14:00' } })
+      const income = applied.state.transactions.slice().reverse().map(t => [t.amount, t.category, t.origin ?? null])
+      const tripCount = applied.state.workSessions.reduce((sum, w) => sum + (w.trips || 0), 0)
+      out.push(result(`LING-origem-motorista-${index + 1}`, { answer, income, tripCount }, { expected, trips },
+        answer.mode === 'propose_actions' && applied.applied && JSON.stringify(income) === JSON.stringify(expected) && tripCount === trips))
+    }
+  }
+
+  {
     const state = buildState({ profile: 'autonomo' })
     const speak = (message: string, pending?: Awaited<ReturnType<typeof orchestrate>>['response']['actions']) =>
       orchestrate({ state, message, today: TODAY, remoteEnabled: false, pending })

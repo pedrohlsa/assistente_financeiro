@@ -6347,3 +6347,14 @@ APK ou chamada paga. NOT READY até auditoria independente.
   diga se aconteceu outra vez antes de criar uma duplicata.
 - Suíte com 806/806 regressões reais e 30/30 casos de correção.
   Conferidos no Chrome os dois registros do primeiro exemplo.
+
+## 20/11/2026 — Receitas com origem no perfil motorista
+
+- “Recebi 120 da Casa 2 e 80 do Uber” confirma as duas receitas
+  com as origens correspondentes e uma corrida. Inverter a ordem
+  também preserva a origem e a contagem.
+- A numeração do cliente ou da loja pertence ao nome da origem.
+  O caixa e as origens declaradas deixam de acrescentar viagens
+  inferidas. Se a pessoa diz que fez cinco corridas, ficam cinco.
+- Chrome com confirmação, suíte com 813/813 regressões, 151
+  invariantes e rubrica com zero respostas perigosas ou ruins.

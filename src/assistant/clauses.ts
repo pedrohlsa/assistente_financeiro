@@ -655,14 +655,14 @@ const ORIGIN_NOUNS = 'casa|cliente|empresa|loja|apart(?:amento)?|kitnet|kitinete
  * "gastei 190 de cimento" nunca vira origem: "cimento" não é nome próprio nem
  * substantivo de fonte.
  */
-export function extractOrigins(originalClause: string): { value: string; at: number }[] {
-  const out: { value: string; at: number }[] = []
+export function extractOrigins(originalClause: string): { value: string; at: number; end: number }[] {
+  const out: { value: string; at: number; end: number }[] = []
   const taken: [number, number][] = []
   const add = (v: string, start: number, end: number) => {
     if (taken.some(([a, b]) => start < b && end > a)) return
     if (/^(uber|99|indrive|indriver)$/i.test(v)) return // plataforma é descrição
     taken.push([start, end])
-    out.push({ value: v.replace(/\s+/g, ' ').trim(), at: start })
+    out.push({ value: v.replace(/\s+/g, ' ').trim(), at: start, end })
   }
 
   // O identificador pode vir ligado por preposição: "kitnet DO fundo", "casa DO
@@ -1011,6 +1011,9 @@ export function revisedAction(action: ParsedAction, body: string, today: string)
  * saem (o trabalho sem km nem horas sai junto).
  */
 const QUANTIDADE_DE_VIAGENS = /\b\d+\s+(?:corridas|viagens|corrida|viagem)\b/i
+const RIDE_REFERENCE = /\b(?:corridas?|uber|indrive[r]?)\b|\b(?:na|pela|da|do|de)\s+99\b/i
+const RIDE_PLATFORM_NAME = /^(?:uber|99|indrive[r]?)$/i
+const NON_RIDE_RECEIPT = /\b(?:no\s+caixa|d[ao]\s+(?:im[oó]vel|sobrado|apartamento|kitnet|loja|inquilin[oa]|empresa))\b/i
 function semViagemInferida(actions: ParsedAction[], text: string): ParsedAction[] {
   if (QUANTIDADE_DE_VIAGENS.test(text)) return actions
   return actions.flatMap(a => {
@@ -1180,10 +1183,11 @@ function unaccountedMoney(clause: AnalyzedClause): number[] {
   // "3 corridas de 40 e uma de 25": quantidade e valor de cada grupo estão no
   // produto registrado (R$ 120,00 e R$ 25,00); não são valores soltos.
   const grupos = gruposDeCorrida(normalized).filter(g => represented.some(v => Math.abs(v - g.n * g.v) < 0.005))
+  const origins = extractOrigins(normalized)
   const missing: number[] = []
   for (const m of normalized.matchAll(/(?<![\d.,])(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?![\d.,])/g)) {
     const at = m.index || 0
-    if (grupos.some(g => at >= g.start && at < g.end)) continue
+    if (grupos.some(g => at >= g.start && at < g.end) || origins.some(o => at >= o.at && at < o.end)) continue
     const before = normalized.slice(Math.max(0, at - 24), at)
     const after = normalized.slice(at + m[0].length, at + m[0].length + 24)
     // "Na 99", "pela 99": é a plataforma, não R$ 99,00.
@@ -1516,6 +1520,8 @@ export function analyzeMessage(
     const extraOriginal = [...textoComValores.matchAll(INVOICE_EXTRA_AMOUNT)][0]
     const textoExtra = extraOriginal ? textoComValores.slice(extraOriginal.index) : ''
     const origensDoExtra = textoExtra ? extractOrigins(textoExtra) : []
+    const incomePositions = actions.flatMap(a => a.kind === 'income' ? [amountPosition(part.text, a.amount)] : [])
+    let fewerTrips = 0
 
     actions = actions.map(a => {
       const next: any = { ...a }
@@ -1524,18 +1530,34 @@ export function analyzeMessage(
       if (a.kind === 'card-payment' && invoiceParser.referenceMonth) next.referenceMonth = invoiceParser.referenceMonth
       const isExpenseExtra = despesasDaFatura.includes(a)
       const scopedOrigins = isExpenseExtra ? origensDoExtra : origins
+      const at = amountPosition(isExpenseExtra ? textoExtra : part.text, next.amount)
+      const incomeEnd = a.kind === 'income' && at >= 0 ? incomePositions.find(pos => pos > at) : undefined
+      const hasRidePlatform = a.kind === 'income' && RIDE_PLATFORM_NAME.test(a.description || '')
       if (ORIGINABLE.has(a.kind) && !next.origin && scopedOrigins.length) {
-        const at = amountPosition(isExpenseExtra ? textoExtra : part.text, next.amount)
         const perto = at >= 0
-          ? scopedOrigins.filter(o => o.at > at).sort((x, y) => x.at - y.at)[0]
+          ? scopedOrigins.find(o => o.at > at && (incomeEnd === undefined || o.at < incomeEnd))
           : undefined
         // Sem conseguir localizar o valor no texto, só usa a origem quando ela é
         // única — do contrário arriscaria colar a fonte errada no lançamento.
-        const pick = perto || (scopedOrigins.length === 1 ? scopedOrigins[0] : undefined)
+        const pick = perto || (scopedOrigins.length === 1 && (incomePositions.length < 2 || a.kind !== 'income' || at < 0) ? scopedOrigins[0] : undefined)
         if (pick) next.origin = pick.value
+      }
+      const incomeText = incomePositions.length > 1 && at >= 0 ? part.text.slice(at, incomeEnd) : part.text
+      if (opts?.driver && a.kind === 'income' && a.category === 'corridas' && !hasRidePlatform && !RIDE_REFERENCE.test(incomeText)
+        && (next.origin || NON_RIDE_RECEIPT.test(incomeText))) {
+        next.category = 'outros-in'
+        fewerTrips++
       }
       return next as ParsedAction
     })
+    if (fewerTrips && !QUANTIDADE_DE_VIAGENS.test(normalizeNumberWords(part.text).text)) {
+      actions = actions.flatMap(a => {
+        if (a.kind !== 'work' || !a.trips || a.trips < 0) return [a]
+        const { trips, ...work } = a
+        if (trips > fewerTrips) return [{ ...work, trips: trips - fewerTrips }]
+        return work.hours || work.km ? [work] : []
+      })
+    }
 
     const queryDates = isQuestion && dateAlternatives ? dateAlternatives : undefined
 
