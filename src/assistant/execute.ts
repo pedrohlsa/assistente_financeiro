@@ -356,7 +356,7 @@ export function applyActionPure(
       if (invoice.paid > invoice.total + 0.009) return {
         state, result: fail(actionId, 'invoice-conflict', `${card.name}.`, false),
       }
-      const issue = invoicePaymentIssue(state, invoice, paymentDate, date, action.amount)
+      const issue = invoicePaymentIssue(state, invoice, paymentDate, date, action)
       if (issue) return { state, result: fail(actionId, issue.code, issue.detail, false) }
       const open = invoiceOpenAmount(state, invoice, date)
       if (open <= 0.009) return { state, result: fail(actionId, 'invoice-empty', `${card.name}.`, false) }

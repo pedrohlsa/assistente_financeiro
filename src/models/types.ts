@@ -377,7 +377,7 @@ export type ParsedAction =
   | { kind: 'card-purchase'; description?: string; total: number; installments: number; cardName?: string; category?: string; firstDueDate?: string }
   // Recebeu dinheiro agora e ficou com dívida parcelada (seção 7). NUNCA é receita.
   | { kind: 'financed-cash-inflow'; total: number; netReceived: number; installments: number; cardName?: string; source?: string }
-  | { kind: 'card-payment'; cardName?: string; cardId?: string; amount?: number; referenceMonth?: string; date?: string }
+  | { kind: 'card-payment'; cardName?: string; cardId?: string; amount?: number; referenceMonth?: string; date?: string; expectedPending?: number }
   | { kind: 'card-charge'; description?: string; amount: number; cardName?: string; category?: string } // assinatura
   | { kind: 'reset' }                           // apaga todos os dados (confirmação obrigatória)
   // Desfaz um LOTE inteiro já confirmado, pelo journal. Nunca um pedaço, nunca

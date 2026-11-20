@@ -219,6 +219,7 @@ export const ACTION_CATALOG: ActionSpec[] = [
       textField('cardName', 'nome do cartão'),
       { ...textField('cardId', 'identificador do cartão escolhido no aplicativo', 128), localOnly: true, editable: false },
       { name: 'amount', type: 'money', required: false, min: 0.01, max: 99_999_999, describe: 'valor pago. Omitir = pagar todo o pendente' },
+      { name: 'expectedPending', type: 'money', required: false, min: 0.01, max: 99_999_999, localOnly: true, editable: false, describe: 'valor pendente exibido na proposta de quitação' },
       { ...dateField, localOnly: true },
       { ...textField('referenceMonth', 'mês de vencimento da fatura no formato YYYY-MM', 7), localOnly: true, editable: false },
     ],

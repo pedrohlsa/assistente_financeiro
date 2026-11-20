@@ -13,6 +13,7 @@ const auto = { profile: 'autonomo' as const }
 const other = { profile: 'other' as const }
 
 const oneCard = { cards: [{ name: 'Nubank' }] }
+const oneOpenInvoice = { cards: [{ name: 'Nubank', closingDay: 20, dueDay: 25, initialInvoiceBalance: 1000 }] }
 const twoCards = { cards: [{ name: 'Nubank' }, { name: 'Inter' }] }
 
 export const CASES: AssistantCase[] = [
@@ -282,10 +283,10 @@ export const CASES: AssistantCase[] = [
   { id: 'car-01', group: 'cartoes', ...other, state: oneCard,
     messages: ['comprei um computador de 4000 em 4 vezes no nubank'],
     expectActions: [{ kind: 'card-purchase', total: 4000, installments: 4 }] },
-  { id: 'car-02', group: 'cartoes', ...other, state: oneCard,
+  { id: 'car-02', group: 'cartoes', ...other, state: oneOpenInvoice,
     messages: ['paguei a fatura do nubank'],
     expectActions: [{ kind: 'card-payment' }] },
-  { id: 'car-03', group: 'cartoes', ...other, state: oneCard,
+  { id: 'car-03', group: 'cartoes', ...other, state: oneOpenInvoice,
     messages: ['paguei 700 da fatura do nubank'],
     expectActions: [{ kind: 'card-payment', amount: 700 }] },
   { id: 'car-04', group: 'cartoes', ...other, state: oneCard,

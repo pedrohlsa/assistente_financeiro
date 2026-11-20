@@ -345,13 +345,13 @@ export function cardInvoice(s: AppState, card: CreditCard, mk: string, asOf = to
 }
 
 /** Fatura corrente: a próxima a vencer (ou a de hoje, se ainda não venceu). */
-export function currentInvoice(s: AppState, card: CreditCard): CardInvoice {
-  const t = fromISO(todayISO())
-  const thisMk = monthKey(todayISO())
-  const inv = cardInvoice(s, card, thisMk)
+export function currentInvoice(s: AppState, card: CreditCard, asOf = todayISO()): CardInvoice {
+  const t = fromISO(asOf)
+  const thisMk = monthKey(asOf)
+  const inv = cardInvoice(s, card, thisMk, asOf)
   if (fromISO(inv.dueDate) >= t || inv.pending > 0) return inv
   const nxt = new Date(t.getFullYear(), t.getMonth() + 1, 1)
-  return cardInvoice(s, card, monthKey(toISO(nxt)))
+  return cardInvoice(s, card, monthKey(toISO(nxt)), asOf)
 }
 
 /** Próximas N faturas do cartão a partir do mês atual. */

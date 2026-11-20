@@ -364,7 +364,7 @@ export function applyCorrection(
     out = out.map(p => {
       if (p.id !== e.id) return p
       if (p.action.kind === 'card-payment' && e.field === 'cardName') {
-        const { cardId, ...payment } = p.action
+        const { cardId, expectedPending, ...payment } = p.action
         return { ...p, action: { ...payment, cardName: e.value } }
       }
       return { ...p, action: { ...p.action, [e.field]: e.value } }

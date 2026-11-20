@@ -1427,7 +1427,8 @@ export function describeActionDetailed(a: ParsedAction, opts?: { fee?: number; c
       lines.push(`Cartão: ${a.cardName || 'não informado'}`)
       if (a.referenceMonth) lines.push(`Mês de vencimento: ${a.referenceMonth.split('-').reverse().join('/')}`)
       if (a.date) lines.push(`Data do pagamento: ${a.date.split('-').reverse().join('/')}`)
-      lines.push(a.amount ? `Valor: ${money(a.amount)} (pagamento parcial se for menor que a fatura)` : 'Valor: todo o pendente da fatura')
+      lines.push(a.amount ? `Valor: ${money(a.amount)} (pagamento parcial se for menor que a fatura)`
+        : a.expectedPending !== undefined ? `Valor: ${money(a.expectedPending)} (todo o pendente da fatura)` : 'Valor: todo o pendente da fatura')
       lines.push('Não gera despesa nova — as compras já foram contadas como parcelas.')
       break
     case 'card-charge':
@@ -1491,7 +1492,8 @@ export function describeAction(a: ParsedAction, categoryName?: (id: string) => s
     case 'financed-cash-inflow':
       return `Entrada financiada: recebeu ${fmtBRL(a.netReceived)} e deve ${fmtBRL(a.total)} em ${a.installments}x`
     case 'card-payment':
-      return `Pagar fatura${a.cardName ? ` do ${a.cardName}` : ''}${a.referenceMonth ? ` de ${a.referenceMonth.split('-').reverse().join('/')}` : ''}${a.amount ? ` — ${fmtBRL(a.amount)}` : ' (valor pendente)'}`
+      return `Pagar fatura${a.cardName ? ` do ${a.cardName}` : ''}${a.referenceMonth ? ` de ${a.referenceMonth.split('-').reverse().join('/')}` : ''}${a.amount ? ` — ${fmtBRL(a.amount)}`
+        : a.expectedPending !== undefined ? ` — ${fmtBRL(a.expectedPending)} (todo o pendente)` : ' (valor pendente)'}`
     case 'card-charge':
       return `Assinatura${a.description ? ` ${a.description}` : ''} de ${fmtBRL(a.amount)}/mês${a.cardName ? ` no ${a.cardName}` : ''}`
     case 'reset': return 'Apagar TODOS os dados do app'

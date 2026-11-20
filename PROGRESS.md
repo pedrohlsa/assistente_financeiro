@@ -5870,3 +5870,14 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - Restauração de backup fictício validada no Chrome. A suíte passou
   com 750/750 regressões reais no relógio padrão. Matriz de oito datas,
   typechecks, build e rubrica local passaram. A branch permanece NOT READY.
+
+## 19/11/2026 — Valor da quitação mostrado na confirmação
+
+- Uma fatura sem pendente fica sem proposta de pagamento. Se Cartões
+  já mostra a próxima fatura, o chat pede escolher o mês explicitamente.
+- A proposta integral mostra o valor da dívida. Se o pendente mudou
+  entre a proposta e a confirmação, o executor pede o valor que foi
+  pago. O valor exibido fica no contrato local.
+- No Chrome, confirmar R$ 20 deixou uma proposta anterior de R$ 300
+  pendente de revisão quando o saldo caiu para R$ 280. Suíte com
+  752/752 regressões reais no relógio padrão, typechecks, build e rubrica.

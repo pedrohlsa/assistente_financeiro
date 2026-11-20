@@ -1,5 +1,5 @@
 import type { AppState, CreditCard, ParsedAction } from '../models/types'
-import { cardInvoice, futureInvoicePaymentDate, invoiceOpenAmount, unpaidPriorInvoiceMonths } from '../services/cards'
+import { cardInvoice, currentInvoice, futureInvoicePaymentDate, invoiceOpenAmount, unpaidPriorInvoiceMonths } from '../services/cards'
 import type { CardInvoice } from '../services/cards'
 import { fmtBRL, fmtDateShort, fromISO, MESES_PT_BR, monthKey, toISO } from '../utils/format'
 import { normalizeName } from '../utils/text'
@@ -53,9 +53,13 @@ export function readInvoiceReference(text: string, today: string): {
 
 /** A folha de pagamento manual tem confirmação específica para pagar acima do pendente. */
 export function invoicePaymentIssue(
-  state: AppState, invoice: CardInvoice, date: string, today: string, amount?: number,
+  state: AppState, invoice: CardInvoice, date: string, today: string, { amount, expectedPending }: InvoicePayment,
 ): { code: AssistantErrorCode; detail: string } | undefined {
   if (amount === undefined) {
+    if (expectedPending !== undefined && Math.abs(invoice.pending - expectedPending) > 0.009) return {
+      code: 'invoice-conflict',
+      detail: `O pendente da fatura do ${invoice.card.name} mudou de ${fmtBRL(expectedPending)} para ${fmtBRL(invoice.pending)}. Informe o valor que você pagou.`,
+    }
     if (date < today && (date <= invoice.closingDate || invoice.paid !== cardInvoice(state, invoice.card, invoice.monthKey, date).paid)) {
       return { code: 'missing-field', detail: `Qual foi o valor pago em ${fmtDateShort(date)} pela fatura do ${invoice.card.name}?` }
     }
@@ -97,7 +101,7 @@ function invoiceChoice(cards: CreditCard[], invoices: CardInvoice[], action: Inv
     const label = `${name} · ${month.slice(5)}/${month.slice(0, 4)} · ${fmtBRL(pending)} pendentes`
     return {
       label, value: `fatura:${card.id}:${month}`,
-      actions: [{ ...action, cardId: card.id, cardName: card.name, referenceMonth: month, date }],
+      actions: [{ ...action, cardId: card.id, cardName: card.name, referenceMonth: month, date, expectedPending: pending }],
     }
   })
   // Extratos de cartões com nomes, vencimentos e saldos iguais precisam de um
@@ -148,11 +152,15 @@ export function prepareInvoicePayments(state: AppState, candidates: AssistantCan
     const paidOn = action.date || today
     const target = action.referenceMonth || current
     const earlier = action.referenceMonth ? [] : unpaidPriorInvoiceMonths(state, cards[0], current, today)
-    const needsChoice = cards.length > 1 || (!action.referenceMonth && (monthKey(paidOn) !== current || earlier.length > 0))
+    const displayed = currentInvoice(state, cards[0], today)
+    const nextShown = displayed.monthKey !== current && invoiceOpenAmount(state, displayed, today) > 0.009
+    const needsChoice = cards.length > 1 || (!action.referenceMonth && (monthKey(paidOn) !== current || earlier.length > 0 || nextShown))
     if (needsChoice) {
       const invoices = cards.flatMap(card => {
-        const months = action.referenceMonth ? [target] : [current, ...(card === cards[0] ? earlier : unpaidPriorInvoiceMonths(state, card, current, today))]
-        return months.map(month => cardInvoice(state, card, month, today))
+        const upcoming = card === cards[0] ? displayed : currentInvoice(state, card, today)
+        const older = card === cards[0] ? earlier : unpaidPriorInvoiceMonths(state, card, current, today)
+        const months = action.referenceMonth ? [target] : [...new Set([current, ...older, upcoming.monthKey])]
+        return months.map(month => month === upcoming.monthKey ? upcoming : cardInvoice(state, card, month, today))
           .filter(invoice => invoiceOpenAmount(state, invoice, today) > 0.009)
       })
       const choice = invoiceChoice(cards, invoices, action, paidOn)
@@ -167,14 +175,18 @@ export function prepareInvoicePayments(state: AppState, candidates: AssistantCan
       notes.add(`Já existe um pagamento com data futura para essa fatura do ${card.name}. Confira o registro na tela de Cartões e parcelamentos.`)
       return []
     }
-    const issue = invoicePaymentIssue(state, invoice, paidOn, today, action.amount)
+    const issue = invoicePaymentIssue(state, invoice, paidOn, today, action)
     if (issue) {
       notes.add(issue.detail)
       return []
     }
     const open = invoiceOpenAmount(state, invoice, today)
-    if ((action.referenceMonth || paidOn !== today) && open <= 0.009) {
+    if (open <= 0.009) {
       notes.add(`Não há valor pendente na fatura do ${card.name} com vencimento em ${target.slice(5)}/${target.slice(0, 4)}. Confira o mês em Cartões e parcelamentos.`)
+      return []
+    }
+    if (open < invoice.pending - 0.009) {
+      notes.add(`A fatura do ${card.name} tem parcelas antigas sem comprovação de pagamento. Confira os registros em Cartões e parcelamentos.`)
       return []
     }
     const key = JSON.stringify([card.id, target, paidOn, action.amount ?? invoice.pending])
@@ -184,7 +196,7 @@ export function prepareInvoicePayments(state: AppState, candidates: AssistantCan
     }
     seen.add(key)
     return [{ ...candidate, action: { ...action, cardId: card.id, cardName: card.name, date: paidOn,
-      ...(open > 0.009 ? { referenceMonth: target } : {}),
+      referenceMonth: target, expectedPending: invoice.pending,
     } }]
   })
   const unique = [...new Map(choices.map(c => [JSON.stringify(c.options), c])).values()]

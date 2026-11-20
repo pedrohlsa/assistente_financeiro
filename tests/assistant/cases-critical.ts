@@ -148,7 +148,9 @@ export const CRITICAL: AssistantCase[] = [
   { id: 'dt2-08', group: 'datas2', ...other, messages: ['ontem guardei 300'], expectActions: [{ kind: 'saving', amount: 300, date: '2026-07-14' }] },
 
   // ============ CARTÕES COMPLEMENTARES ============
-  { id: 'crd-01', group: 'cartoes2', ...other, state: twoCards, messages: ['paguei 600 da fatura do Nubank'], expectActions: [{ kind: 'card-payment', amount: 600, cardName: 'Nubank' }] },
+  { id: 'crd-01', group: 'cartoes2', ...other,
+    state: { cards: twoCards.cards.map(c => ({ ...c, closingDay: 20, dueDay: 25, initialInvoiceBalance: 800 })) },
+    messages: ['paguei 600 da fatura do Nubank'], expectActions: [{ kind: 'card-payment', amount: 600, cardName: 'Nubank' }] },
   { id: 'crd-02', group: 'cartoes2', ...other, state: oneCard, messages: ['comprei uma cadeira de 800 em 2 vezes'], expectActions: [{ kind: 'card-purchase', total: 800, installments: 2 }] },
   { id: 'crd-03', group: 'cartoes2', ...other, state: oneCard, messages: ['comprei um celular de 1500 em 1 vez'], expectActions: [{ kind: 'card-purchase', total: 1500, installments: 1 }] },
   { id: 'crd-04', group: 'cartoes2', ...other, state: oneCard,

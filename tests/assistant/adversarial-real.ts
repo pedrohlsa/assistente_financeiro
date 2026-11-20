@@ -1988,7 +1988,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const r = await turnoHoje(st, frase)
       out.push(result(id, r.reply, esperado, ok(limpa(r.reply)) && r.actions.length === 0))
     }
-    const paguei = await turnoHoje(st, 'paguei a fatura do nubank')
+    const vencimento = addDays(hoje, 3).slice(0, 7).split('-').reverse().join('/')
+    const paguei = await turnoHoje(st, `paguei a fatura do nubank de ${vencimento}`)
     out.push(result('S-afirmacao-ainda-registra', paguei.actions, 'pagamento de fatura do Nubank proposto',
       paguei.actions.some(a => a.kind === 'card-payment' && /nubank/i.test(a.cardName || ''))))
   }
@@ -4178,12 +4179,13 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const remoteDate = validateAction({ ...explicit, referenceMonth: undefined }, caps, hoje, { allowRemoteOnly: true })
     const remoteMonth = validateAction({ ...explicit, date: undefined }, caps, hoje, { allowRemoteOnly: true })
     const remoteId = validateAction({ ...explicit, date: undefined, referenceMonth: undefined, cardId: 'card0' }, caps, hoje, { allowRemoteOnly: true })
+    const remotePending = validateAction({ ...explicit, date: undefined, referenceMonth: undefined, expectedPending: 300 }, caps, hoje, { allowRemoteOnly: true })
     const localFields = validateAction(explicit, caps, hoje)
     const invalidFields = validateAction({ ...explicit, referenceMonth: `${hoje.slice(0, 4)}-13` }, caps, hoje)
-    out.push(result('FREF-data-e-referencia-sao-locais', { localFields, invalidFields, remoteDate, remoteMonth, remoteId, control },
+    out.push(result('FREF-data-e-referencia-sao-locais', { localFields, invalidFields, remoteDate, remoteMonth, remoteId, remotePending, control },
       'o contrato local mantém data e referência válidas; remoto continua aceitando só cartão e valor',
       !isValidationFailure(localFields) && !isValidationFailure(control) && isValidationFailure(invalidFields)
-        && isValidationFailure(remoteDate) && isValidationFailure(remoteMonth) && isValidationFailure(remoteId)))
+        && isValidationFailure(remoteDate) && isValidationFailure(remoteMonth) && isValidationFailure(remoteId) && isValidationFailure(remotePending)))
 
     const historico: AppState = { ...st, cardPayments: [{ id: 'later-partial', cardId: 'card0', amount: 220,
       paymentDate: hoje, referenceMonth: antiga, fromBalance: true, settledInstallmentIds: [] }] }
@@ -4234,8 +4236,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         r.response.actions.length === 0 && remoteCalls === 0 && /valor pendente|mês de vencimento/.test(r.response.reply)))
     }
     const ordinary = await turnoHoje(st, 'paguei 200 da fatura do Inter hoje')
-    out.push(result('FREF-pagamento-hoje-preservado', ordinary, 'pagamento simples de hoje continua proposto200',
-      ordinary.actions.length === 1 && ordinary.actions[0].kind === 'card-payment' && ordinary.actions[0].amount === 200))
+    out.push(result('FREF-fatura-sem-pendente-nao-abre-confirmacao', ordinary, 'sem pendente nem outra fatura, não há botão para pagar',
+      ordinary.actions.length === 0 && /não há valor pendente/i.test(ordinary.reply)))
   }
 
   {
@@ -4258,9 +4260,36 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
           && cardInvoice(applied.state, st.cards[0], hoje.slice(0, 7)).pending === 100))
     }
     const full = await turnoHoje(st, 'paguei a fatura do Inter')
-    out.push(result('FAMT-sem-valor-paga-inteira', full, 'sem valor explícito, pagamento da fatura inteira continua possível',
+    out.push(result('FAMT-sem-valor-paga-inteira', full, 'sem valor explícito, a proposta exibe o pendente da fatura',
       full.actions.length === 1 && full.actions[0].kind === 'card-payment'
-        && full.actions[0].amount === undefined))
+        && full.actions[0].amount === undefined && full.actions[0].expectedPending === 300 && /R\$\s300,00/.test(full.reply)))
+    const agora = { date: hoje, time: '14:00' }
+    const outroPagamento = applyBatchPure(st, [{ id: 'pago-enquanto-esperava', action: { kind: 'card-payment', cardName: 'Inter', amount: 20 } }], { now: agora })
+    const totalAntigo = applyBatchPure(outroPagamento.state, full.actions.map((action, i) => ({ id: `integral-${i}`, action })), { now: agora })
+    const tentarDeNovo = await turnoHoje(outroPagamento.state, 'paguei a fatura do Inter')
+    const pagoIntegral = applyBatchPure(st, full.actions.map((action, i) => ({ id: `integral-${i}`, action })), { now: agora })
+    const jaQuitada = await turnoHoje(pagoIntegral.state, 'paguei a fatura do Inter')
+    out.push(result('FAMT-valor-pendente-fixado-ate-confirmar', { full, totalAntigo: totalAntigo.results, tentarDeNovo, jaQuitada },
+      'a proposta integral de 300 bloqueia se agora faltam 280, nova proposta mostra 280; quitada jamais propõe outra quitação',
+      outroPagamento.applied && !totalAntigo.applied && totalAntigo.state === outroPagamento.state
+        && /mudou de.*300,00.*280,00/.test(JSON.stringify(totalAntigo.results))
+        && tentarDeNovo.actions[0]?.expectedPending === 280 && pagoIntegral.applied
+        && jaQuitada.actions.length === 0 && /não há valor pendente/i.test(jaQuitada.reply)))
+
+    const d = fromISO(hoje)
+    const depoisDoDiaUm = toISOdate(new Date(d.getFullYear(), d.getMonth(), 2))
+    const primeiroDaProxima = toISOdate(new Date(d.getFullYear(), d.getMonth() + 1, 1))
+    const proxima = { ...st, cards: [{ ...st.cards[0], dueDay: 1, closingDay: 1 }],
+      installmentPlans: [{ ...st.installmentPlans[0], firstDueDate: primeiroDaProxima }],
+      installments: [{ ...st.installments[0], dueDate: primeiroDaProxima }] }
+    const escolherProxima = await orchestrate({ state: proxima, message: 'paguei a fatura do Inter',
+      today: depoisDoDiaUm, remoteEnabled: false })
+    const propostaProxima = escolherProxima.response.mode === 'clarify' ? escolherProxima.response.clarification.options : undefined
+    out.push(result('FAMT-proxima-fatura-aparece-para-escolha', escolherProxima.response,
+      'após o vencimento, a fatura que a tela exibe para o próximo mês exige escolha explícita',
+      escolherProxima.response.actions.length === 0 && propostaProxima?.length === 1
+        && propostaProxima[0].actions?.[0].kind === 'card-payment'
+        && propostaProxima[0].actions[0].referenceMonth === primeiroDaProxima.slice(0, 7)))
     const accountNumber = await turnoHoje(st, 'paguei a fatura do Inter conta 1234')
     out.push(result('FAMT-numero-de-conta-nao-e-valor', accountNumber,
       'número de conta depois do cartão não vira valor de pagamento', accountNumber.actions.length === 0))
