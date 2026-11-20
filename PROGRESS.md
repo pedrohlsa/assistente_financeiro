@@ -6191,3 +6191,17 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - Chrome confirmou as datas, a retomada com filtro de padaria e a
   ausência de novos lançamentos. Matriz específica com 56/56
   verificações em oito datas e suíte com 792/792 regressões reais.
+
+## 20/11/2026 — Acréscimo e confirmação parcial em conversa
+
+- Um acréscimo como “e mais 20 de ônibus” substitui o cartão da
+  proposta pelo lote acumulado. Um novo relato explícito com “e”
+  também pode acrescentar receita ou despesa ao lote.
+- Confirmar uma parte deixa apenas os itens que ainda precisam de
+  confirmação disponíveis para correções pelo chat. Respostas que
+  ficaram obsoletas enquanto a proposta mudou não reabrem itens
+  confirmados ou editados na tela.
+- O Chrome reproduziu dois cartões confirmáveis antes da correção e
+  confirmou uma única gravação de cada item depois. Em outro lote,
+  confirmou o almoço de R$ 33 e depois o café corrigido para R$ 15.
+  A suíte completa manteve 792/792 regressões reais.

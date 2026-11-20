@@ -89,6 +89,7 @@ export function ProposalCard({
     setErro(null)
   }
 
+  const remainingCount = proposal.filter(p => !p.outcome?.ok).length
   return (
     <div className="stack" style={{ gap: 8, marginTop: 10 }}>
       {proposal.map((p, i) => {
@@ -139,7 +140,7 @@ export function ProposalCard({
                 {p.outcome.ok ? '✓ Registrado' : `✕ ${p.outcome.message}`}
               </div>
             )}
-            {!p.outcome?.ok && proposal.length > 1 && (
+            {!p.outcome?.ok && remainingCount > 1 && (
               <button className="link tiny" style={{ display: 'block', marginTop: 6 }} onClick={() => onConfirmOne(p.id)}>
                 Confirmar só este
               </button>
@@ -148,10 +149,10 @@ export function ProposalCard({
         )
       })}
 
-      {proposal.some(p => !p.outcome?.ok) && (
+      {remainingCount > 0 && (
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           <button className="btn btn-primary btn-sm" onClick={onConfirmAll}>
-            {proposal.length > 1 ? `Confirmar ${proposal.length}` : 'Confirmar'}
+            {remainingCount > 1 ? `Confirmar ${remainingCount}` : 'Confirmar'}
           </button>
           <button className="btn btn-danger-soft btn-sm" onClick={onCancel}>Cancelar</button>
         </div>

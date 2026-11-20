@@ -3138,10 +3138,16 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const rico = autonomoRico(hoje)
     const base = await orchestrate({ state: rico, message: 'gastei 30 no almoço e 15 no café', today: hoje, remoteEnabled: false })
     const mais = await orchestrate({ state: rico, message: 'e mais 20 de pão', today: hoje, remoteEnabled: false, pending: base.response.actions })
+    const receitaTambem = await orchestrate({ state: rico, message: 'e recebi 120 da Casa 2', today: hoje, remoteEnabled: false, pending: mais.response.actions })
     const itens = mais.response.actions.map(a => a.action as any)
-    out.push(result('PN-e-mais-acrescenta', itens, 'almoço 30, café 15 e pão 20, todos despesa',
+    const idsOriginais = base.response.actions.map(a => a.id)
+    const comReceita = receitaTambem.response.actions.map(a => a.action)
+    out.push(result('PN-e-mais-acrescenta', itens, 'despesas anteriores e pão de R$ 20 ficam em um cartão, que aceita a receita adicional',
       itens.length === 3 && itens.every(x => x.kind === 'expense') && itens.some(x => x.amount === 20 && /p[ãa]o/i.test(x.description || ''))
-        && itens.some(x => x.amount === 30) && itens.some(x => x.amount === 15)))
+        && itens.some(x => x.amount === 30) && itens.some(x => x.amount === 15)
+        && mais.correctedPending?.length === 3 && idsOriginais.every(id => mais.correctedPending.some(next => next.id === id))
+        && receitaTambem.correctedPending?.length === 4 && comReceita.some(action =>
+          action.kind === 'income' && action.amount === 120 && action.origin === 'Casa 2')))
   }
 
   // Trocar o LUGAR da proposta: "foi na padaria" caía na ajuda. E "pão" é

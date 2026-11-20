@@ -68,6 +68,7 @@ export default function Chat() {
     const t = text.trim()
     if (!t || thinking) return
     const previousClarification = clarificationRef.current
+    const previousProposal = pendingRef.current
     if (previousClarification) dispatch({ type: 'chatClearClarification', id: previousClarification.msgId })
     dispatch({ type: 'chat', msg: { id: uid(), role: 'user', text: displayText.trim(), time: nowTime() } })
     setInput('')
@@ -81,7 +82,7 @@ export default function Chat() {
       // as perguntas. O que o remoto precisa saber da conversa sai do foco, do
       // rascunho e da proposta na tela, como estrutura — ver remoteContext.ts.
       draft: draftRef.current || undefined,
-      pending: pendingRef.current?.actions.map(p => ({
+      pending: previousProposal?.actions.map(p => ({
         id: p.id, action: p.action, engine: p.engine || 'local', confidence: p.confidence || 'high',
       })),
       pendingClarification: previousClarification?.value,
@@ -91,7 +92,12 @@ export default function Chat() {
       devDiagnostics: import.meta.env?.DEV === true,
     })
     setThinking(false)
-
+    if (out.correctedPending && previousProposal && pendingRef.current !== previousProposal) {
+      if (clarificationRef.current === previousClarification) clarificationRef.current = null
+      dispatch({ type: 'chat', msg: { id: uid(), role: 'assistant', time: nowTime(),
+        text: 'A proposta mudou enquanto eu lia sua mensagem. Diga de novo o que quer corrigir ou acrescentar.' } })
+      return
+    }
 
     if (out.response.diagnostics) {
       // Só em desenvolvimento; nunca aparece para o usuário final e nunca
@@ -110,8 +116,7 @@ export default function Chat() {
     if (out.focus) focusRef.current = out.focus
     // Correção aplicada: a proposta antiga some da mensagem anterior.
     if (out.correctedPending) {
-      const old = pendingRef.current
-      if (old) dispatch({ type: 'chatResolve', id: old.msgId })
+      if (previousProposal) dispatch({ type: 'chatResolve', id: previousProposal.msgId })
       pendingRef.current = null
     }
 
@@ -171,7 +176,8 @@ export default function Chat() {
   const updateProposal = (msgId: string, next: ProposedAction[]) => {
     dispatch({ type: 'chatUpdateProposal', id: msgId, proposal: next })
     if (pendingRef.current?.msgId === msgId) {
-      pendingRef.current = next.length ? { msgId, actions: next } : null
+      const remaining = next.filter(p => !p.outcome?.ok)
+      pendingRef.current = remaining.length ? { msgId, actions: remaining } : null
     }
   }
 
@@ -209,7 +215,6 @@ export default function Chat() {
     const text = mensagemDaExecucao(applied, okCount, failures)
     dispatch({ type: 'chat', msg: { id: uid(), role: 'assistant', text, time: nowTime(), batchId: undefined } })
     if (applied) toast({ text: okCount > 1 ? `${okCount} registros salvos.` : 'Registro salvo.' })
-    if (pendingRef.current?.msgId === msgId && applied) pendingRef.current = null
 
     // Regra da 99: pergunta separada, só no perfil motorista e só para receita
     // de corridas. Citar a 99 nunca desconta sozinho.
@@ -325,9 +330,9 @@ export default function Chat() {
                 proposal={m.proposal}
                 categories={state.categories}
                 caps={caps}
-                onConfirmAll={() => commit(m.id, m.proposal!.filter(p => !p.outcome), m.proposal!)}
+                onConfirmAll={() => commit(m.id, m.proposal!.filter(p => !p.outcome?.ok), m.proposal!)}
                 onConfirmOne={id => commit(m.id, m.proposal!.filter(p => p.id === id), m.proposal!)}
-                onEdit={(id, action) => updateProposal(m.id, m.proposal!.map(p => (p.id === id ? { ...p, action } : p)))}
+                onEdit={(id, action) => updateProposal(m.id, m.proposal!.map(p => (p.id === id ? { ...p, action, outcome: undefined } : p)))}
                 onRemove={id => {
                   const next = m.proposal!.filter(p => p.id !== id)
                   updateProposal(m.id, next)

@@ -912,9 +912,11 @@ const escapaRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
  * dinheiro pendentes são do mesmo tipo e a frase não tem verbo.
  */
 function acrescimoAProposta(pending: AssistantCandidateAction[], mensagem: string): string | null {
+  const relato = mensagem.trim().match(/^(?:e\s+(?:tamb[ée]m\s+)?|tamb[ée]m\s+)(.+)$/i)?.[1]
+  if (relato && looksPast(relato) && !looksLikeQuestion(relato)) return relato
   const tipos = new Set(pending.map(p => p.action.kind).filter(k => k === 'expense' || k === 'income'))
   if (tipos.size !== 1) return null
-  const m = mensagem.toLowerCase().trim().match(/^(?:e\s+)?(?:mais\s+|tamb[ée]m\s+)?(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real|conto|contos|pila)?\s+(de|do|da|dos|das|no|na|nos|nas|em|com|pro|pra|para)\s+([a-zà-úç][a-zà-úç0-9\s]{1,40}?)\s*[?.!]*$/)
+  const m = mensagem.trim().match(/^(?:e\s+)?(?:mais\s+|tamb[ée]m\s+)?(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real|conto|contos|pila)?\s+(de|do|da|dos|das|no|na|nos|nas|em|com|pro|pra|para)\s+([a-zà-úç][a-zà-úç0-9\s]{1,40}?)\s*[?.!]*$/i)
   if (!m) return null
   return `${tipos.has('income') ? 'recebi' : 'gastei'} ${m[1]} ${m[2]} ${m[3]}`
 }
@@ -1622,14 +1624,20 @@ Confirmar?`,
     const novo = await orchestrate({ ...input, message: acrescimo, pending: undefined })
     if (novo.response.mode === 'propose_actions' && novo.response.actions.length) {
       const todos = [...input.pending!, ...novo.response.actions]
+      if (todos.length > MAX_ACTIONS_PER_BATCH) return {
+        draft: null, keepPending: true,
+        response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
+          reply: `Cada confirmação pode incluir até ${MAX_ACTIONS_PER_BATCH} itens. Confirme ou retire alguns da proposta e mande o novo relato depois.` },
+      }
       return {
-        draft: null, focus: input.focus,
+        draft: null, focus: input.focus, correctedPending: todos,
         response: {
           version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
           actions: todos, unresolved: [], reply: `${proposalText(todos, input.state)}\n\nConfirmar?`,
         },
       }
     }
+    if (!novo.response.actions.length) return { ...novo, keepPending: true }
   }
 
   // Uma compra em aberto vence um foco antigo de simulação. A frase elíptica
