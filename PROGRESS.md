@@ -6115,3 +6115,12 @@ APK ou chamada paga. NOT READY até auditoria independente.
   em outra mensagem não mudou a data da nova despesa de ônibus.
 - Suíte com 789/789 regressões, 151 invariantes, typechecks,
   build e rubrica passaram.
+
+## 20/11/2026 — Consultas de dois dias e revisão de fala real
+
+- “Segunda e quinta” consulta apenas os dois dias citados. Se o usuário
+  pede separadamente, o chat mostra o valor de cada dia.
+- O Chrome confirmou R$ 1.086 de segunda e quinta, sem incluir terça.
+- A matriz adicional de fala espontânea passou com 672/672 variações
+  de data, valor, origem, negação, correção e continuação. A suíte padrão
+  passou com 790/790 regressões, 151 invariantes, typechecks, build e rubrica.

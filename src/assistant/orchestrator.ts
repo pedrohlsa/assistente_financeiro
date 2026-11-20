@@ -771,6 +771,31 @@ function answerQuestions(
   return { text: parts.join('\n\n'), answered, focus }
 }
 
+function answerTwoDays(state: AppState, question: string, today: string): string | undefined {
+  if (!looksLikeQuestion(question) || !looksPast(question) || !/\be\b/i.test(question)) return undefined
+  const dates = findAllDates(question, today).sort((a, b) => a.start - b.start)
+  const [first, second] = dates
+  if (dates.length !== 2 || !/^\s*,?\s*e\s*$/i.test(question.slice(first.end, second.start))) return undefined
+  const prefix = question.slice(0, first.start).trimEnd()
+  if (/\b(?:entre|de)\s*$/i.test(prefix)) return undefined
+  if (first.kind !== 'date' || second.kind !== 'date') {
+    return 'Quais são as duas datas já ocorridas que você quer consultar?'
+  }
+  const suffix = question.slice(second.end).replace(/\b(?:separadamente|em\s+cada\s+dia)\b/i, '')
+  const queryPrefix = prefix.replace(/\b(?:no|na|em)\s*$/i, '').trimEnd()
+  const days = [...new Set([first.date, second.date])]
+  const readings = days.map(date => answerConversation(state, `${queryPrefix} em ${date} ${suffix}`.trim(), { today }))
+  if (readings.some((r, i) => r?.kind !== 'query' || r.focus.lastQueryPlan?.period.from !== days[i]
+    || r.focus.lastQueryPlan?.period.to !== days[i])) return 'Quais valores você quer consultar nesses dias? Diga o tipo de gasto ou receita e as duas datas.'
+  const summaries = readings.map(r => r.focus.lastQuery)
+  const separate = /\b(?:separadamente|em\s+cada\s+dia)\b/i.test(question)
+  const additive = readings.length === 2 && !separate
+    && readings.every(r => r.focus.lastQueryPlan?.metric === 'sum' && r.focus.lastQueryPlan?.group === 'none')
+    && summaries.every(s => s?.unit === 'BRL')
+  const total = additive ? `\n\nTotal dos dois dias: ${fmtBRL(summaries.reduce((sum, s) => sum + s!.total, 0))}.` : ''
+  return readings.map(r => r.reply).join('\n\n') + total
+}
+
 /**
  * A resposta local de uma pergunta solta, como no turno sem registro: a
  * consulta toma a frente só no que o roteador antigo não expressa, e responde
@@ -780,6 +805,8 @@ function answerQuestions(
 function respostaLocal(
   state: AppState, pergunta: string, today: string, usaConsulta: boolean,
 ): { text: string; focus?: ConversationFocus } | null {
+  const groupedDays = answerTwoDays(state, pergunta, today)
+  if (groupedDays) return { text: groupedDays }
   const conv = usaConsulta ? answerConversation(state, pergunta, { today }) : null
   if (conv?.kind === 'clarify') return { text: conv.reply, focus: conv.focus }
   if (conv?.kind === 'explain' && conv.focus.last === 'vehicle') return { text: conv.reply, focus: conv.focus }
@@ -1901,6 +1928,12 @@ Confirmar?`,
   // ---- 11) Consulta, cenário e continuação ------------------------------
   const temFato = hasBlock(turno, 'record')
   const consultaPedeDia = turno.analysis.clauses.some(c => c.ambiguity?.field === 'query-date')
+  const groupedDays = !temFato && !consultaPedeDia && hasBlock(turno, 'query') && !hasBlock(turno, 'scenario')
+    ? answerTwoDays(input.state, mensagem, today) : undefined
+  if (groupedDays) return {
+    draft: null, keepPending: true, focus: input.focus,
+    response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply: groupedDays },
+  }
 
   // Registrar E simular na mesma frase (regra 27). "Meu salário entrou 1625,
   // paguei 355, guardei 150 e quero saber se consigo comprar um celular de 3000

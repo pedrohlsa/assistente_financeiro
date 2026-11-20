@@ -279,6 +279,15 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && separateApplied.state.transactions.some(t => t.description === 'Ônibus' && t.amount === 50 && t.date === friday)
       && calledForNegation === 0))
 
+  const twoDaysTotal = await weekdayQuery('quanto gastei segunda e quinta?')
+  const twoDaysSeparately = await weekdayQuery('quanto gastei segunda e terça separadamente?')
+  out.push(result('LING-consulta-de-dois-dias-nao-inclui-os-dias-do-meio', { total: twoDaysTotal.response, separately: twoDaysSeparately.response },
+    'segunda e quinta somam R$ 1.086 sem trazer terça; separadamente devolve R$ 87 e R$ 172 sem somá-los',
+    /87,00/.test(twoDaysTotal.response.reply) && /999,00/.test(twoDaysTotal.response.reply)
+      && /Total dos dois dias:.*1\.086,00/.test(twoDaysTotal.response.reply) && !/172,00/.test(twoDaysTotal.response.reply)
+      && /87,00/.test(twoDaysSeparately.response.reply) && /172,00/.test(twoDaysSeparately.response.reply)
+      && !/259,00/.test(twoDaysSeparately.response.reply) && !twoDaysSeparately.response.actions.length && calledForNegation === 0))
+
   const c1 = baseline()
   c1.transactions = ['2026-06-10', '2026-07-10', '2026-08-10'].map((date, i) => ({
     id: `obra-${i}`, type: 'expense', amount: 300, category: 'obra', date, description: 'Obra', time: '10:00',
