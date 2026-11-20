@@ -6336,3 +6336,14 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - Chrome local e suíte com 805/805 regressões reais. O horário é
   preenchido pelo interpretador local. Contas fixas com horário
   explícito apontam para o vencimento no Planejamento.
+
+## 20/11/2026 — Negativa com outro local ou data
+
+- “Não gastei 90 no mercado mas gastei 75 na padaria” preserva
+  o registro de R$ 90 da farmácia e propõe os R$ 75 da padaria.
+  Se a referência aponta para a farmácia, corrige a ação anterior.
+- Uma data incompatível numa correção com valor pede o alvo.
+  Repetir a ação já proposta com os mesmos dados pede que o usuário
+  diga se aconteceu outra vez antes de criar uma duplicata.
+- Suíte com 806/806 regressões reais e 30/30 casos de correção.
+  Conferidos no Chrome os dois registros do primeiro exemplo.

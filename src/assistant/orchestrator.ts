@@ -1637,6 +1637,26 @@ Confirmar?`,
   if (input.pending?.length) {
     const plan: CorrectionPlan | null = parseCorrection(command, input.pending, caps, today)
     if (plan) {
+      if (plan.independentStatement) {
+        const separate = await orchestrate({ ...input, message: plan.independentStatement, draft: undefined, pending: undefined, pendingClarification: undefined })
+        if (separate.response.mode === 'answer' || !separate.response.actions.length) return { ...separate, keepPending: true }
+        const additions = separate.response.actions.filter(({ action }) => {
+          if (action.kind !== 'expense' && action.kind !== 'income') return true
+          return !input.pending?.some(({ action: old }) => old.kind === action.kind && old.amount === action.amount
+            && (old.date || today) === (action.date || today) && old.time === action.time
+            && normalizeName(old.description) === normalizeName(action.description) && normalizeName(old.origin) === normalizeName(action.origin))
+        })
+        if (!additions.length && separate.response.mode === 'propose_actions') return preparedActionResponse(input.state, {
+          actions: [], clarification: undefined, notes: ['Esse relato já está na proposta. Se foi outra movimentação com os mesmos dados, diga que aconteceu de novo.'],
+        }, input.pending)
+        const actions = [...input.pending, ...additions]
+        if (actions.length > MAX_ACTIONS_PER_BATCH) return preparedActionResponse(input.state, {
+          actions: [], clarification: undefined, notes: [`Cada confirmação pode incluir até ${MAX_ACTIONS_PER_BATCH} itens. Confirme ou retire alguns da proposta e mande o novo relato depois.`],
+        }, input.pending)
+        return { ...separate, correctedPending: actions, response: {
+          ...separate.response, actions, reply: `Mantive a proposta anterior.\n\n${separate.response.reply}`,
+        } }
+      }
       if (plan.ambiguous) {
         const choosingCorrection = plan.ambiguous.field?.startsWith('pending-correction')
         return {

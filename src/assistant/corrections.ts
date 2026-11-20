@@ -27,6 +27,8 @@ export interface CorrectionPlan {
   summary: string[]
   /** A frase referenciava algo que não deu para identificar com segurança. */
   ambiguous?: AssistantClarification
+  /** Relato afirmativo separado de uma negativa sobre outro lançamento. */
+  independentStatement?: string
 }
 
 const ORDINALS: Record<string, number> = {
@@ -123,6 +125,14 @@ const DENIED_KINDS = new Map<string, ParsedAction['kind'][]>([
 ])
 const JUST_A_PLAN = /^(?:(?:nao|n)\s*,?\s*)?(?:(?:(?:isso\s+tudo\s+)?(?:foi|era)\s+)?(?:so|apenas)\s+(?:(?:um|uma)\s+)?(?:orcamento|simulacao|cotacao|teste|exemplo|previsao)|(?:nao|nem|n)\s+aconteceu)[.!]*$/
 const DENIED_EVENT = new RegExp(String.raw`^(?:eu\s+|ainda\s+){0,2}(?:nao|nem|n)\s*,?\s*(?:eu\s+)?(${[...DENIED_KINDS.keys()].join('|')})\b\s*(.*?)\s*[.!]*$`)
+const EXPLICIT_REFERENCE = /^(?:nada\s+)?(?:na|no|nas|nos|em|de|da|do|com|por)\s+(.+)$/
+
+function matchesReference(action: ParsedAction, reference: string): boolean {
+  const details = [('description' in action && action.description), ('origin' in action && action.origin),
+    ('item' in action && action.item), ('cardName' in action && action.cardName)]
+  return details.some(value => value && normalizeName(value) === reference)
+    || (action.kind === 'fuel' && /^(?:gasolina|etanol|diesel|gnv|combustivel)$/.test(reference))
+}
 
 function withdrawDeniedProposal(message: string, pending: AssistantCandidateAction[], today: string, plan: CorrectionPlan): CorrectionPlan | null {
   const text = normalizeName(message)
@@ -140,7 +150,7 @@ function withdrawDeniedProposal(message: string, pending: AssistantCandidateActi
     const amount = body.match(MONEY_START)
     const value = amount ? parseMoney(amount[1]) : undefined
     const detail = body.slice(amount?.[0].length ?? 0).trim()
-    const reference = detail.match(/^(?:nada\s+)?(?:na|no|nas|nos|em|de|da|do|com|por)\s+(.+)$/)?.[1]
+    const reference = detail.match(EXPLICIT_REFERENCE)?.[1]
     if (detail && !reference && !/^(?:nada|isso|esse valor|essa quantia)$/.test(detail)) return null
     all = detail === 'nada' && value === undefined
     targets = pending.filter(({ action }) => {
@@ -148,10 +158,7 @@ function withdrawDeniedProposal(message: string, pending: AssistantCandidateActi
       if (value !== undefined && !(Math.abs((amountOf(action) ?? NaN) - value) < 0.005)) return false
       if (date && date.kind === 'date' && ('date' in action ? action.date || today : today) !== date.date) return false
       if (!reference) return true
-      const details = [('description' in action && action.description), ('origin' in action && action.origin),
-        ('item' in action && action.item), ('cardName' in action && action.cardName)]
-      return details.some(value => value && normalizeName(value) === reference)
-        || (action.kind === 'fuel' && /^(?:gasolina|etanol|diesel|gnv|combustivel)$/.test(reference))
+      return matchesReference(action, reference)
     })
   }
   if (!targets.length) return null
@@ -169,9 +176,9 @@ function withdrawDeniedProposal(message: string, pending: AssistantCandidateActi
 }
 
 /** Separa o que foi negado do que efetivamente deve entrar na proposta. */
-function contrast(message: string): { rejected: string; affirmed: string; kind?: 'income' | 'expense' } | undefined {
+function contrast(message: string): { rejected: string; affirmed: string; verb?: string; kind?: 'income' | 'expense' } | undefined {
   const repeated = message.match(/^\s*(?:n[ãa]o|[nñ])\s+(gastei|paguei|recebi|ganhei)\s+(.+?)(?:\s*[,;]\s*(?:mas\s+)?|\s+mas\s+)\1\s+(.+)$/i)
-  if (repeated) return { rejected: repeated[2], affirmed: repeated[3], kind: /^(?:recebi|ganhei)$/i.test(repeated[1]) ? 'income' : 'expense' }
+  if (repeated) return { rejected: repeated[2], affirmed: repeated[3], verb: repeated[1], kind: /^(?:recebi|ganhei)$/i.test(repeated[1]) ? 'income' : 'expense' }
   const front = message.match(/^\s*(?:n[ãa]o|[nñ])\s+(?:foi|era|fui)\s+(.+?)(?:\s*[,;.!—–]\s*|\s+)\s*(?:mas\s+)?(?:foi|era|fui)\s+(.+)$/i)
   if (front) return { rejected: front[1], affirmed: front[2] }
   const back = message.match(/^\s*(?:foi|era|fui)\s+(.+?)(?:\s*[,;.!—–]\s*|\s+(?:e\s+)?)\s*(?:n[ãa]o|[nñ])\s+(?:(?:foi|era|fui)\s+)?(.+)$/i)
@@ -275,12 +282,27 @@ function parseContrastCorrection(
 ): CorrectionPlan | null {
   const parts = contrast(message)
   if (!parts || looksLikeQuestion(message)) return null
-  const { rejected, affirmed, kind } = parts
+  const { rejected, affirmed, kind, verb } = parts
   const matchingKind = kind ? pending.filter(p => p.action.kind === kind) : pending
   if (!matchingKind.length) return null
   const amount = rejected.match(MONEY_START)
   const oldValue = amount ? parseMoney(amount[1]) : undefined
   const amountHits = oldValue === undefined ? matchingKind : matchingKind.filter(p => Math.abs((amountOf(p.action) ?? NaN) - oldValue) < 0.005)
+  const date = findDate(rejected, today)
+  const withoutDate = date ? `${rejected.slice(0, date.start)} ${rejected.slice(date.end)}` : rejected
+  const reference = normalizeName(withoutDate.replace(MONEY_START, '')).replace(/[,\s]+$/, '').match(EXPLICIT_REFERENCE)?.[1]
+  // Quando só a data estava em discussão, a proposta única sem dia explícito
+  // pode receber a data nova. Valor, local ou verbo comparam o fato inteiro.
+  const [sole] = amountHits
+  const dateIsReference = date && (verb || oldValue !== undefined || reference || amountHits.length !== 1
+    || (sole && 'date' in sole.action && sole.action.date))
+  const pool = amountHits.filter(({ action }) => (!dateIsReference || (date.kind === 'date' && ('date' in action ? action.date || today : today) === date.date))
+    && (!reference || matchesReference(action, reference)))
+  if (!pool.length && (dateIsReference || reference) && amountHits.length) {
+    if (verb) plan.independentStatement = `${verb} ${affirmed}`
+    else plan.ambiguous = { question: 'Qual lançamento da proposta você quer corrigir? O local ou a data mencionada não coincide com a proposta aberta.' }
+    return plan
+  }
   if (oldValue !== undefined && !amountHits.length) {
     plan.ambiguous = { question: `Não há proposta de ${fmtBRL(oldValue)} nesta conversa. Qual lançamento você quer corrigir?` }
     return plan
@@ -288,9 +310,6 @@ function parseContrastCorrection(
 
   // A referência vem do trecho rejeitado. O novo lugar pode ser o nome de
   // outro registro na mesma proposta, e nesse caso não deve virar o alvo.
-  const date = findDate(rejected, today)
-  const onDate = date?.kind === 'date' ? amountHits.filter(({ action }) => ('date' in action ? action.date || today : today) === date.date) : []
-  const pool = onDate.length ? onDate : amountHits
   const target = resolveTarget(rejected, pool)
   const targets = !target ? pool : 'id' in target ? pool.filter(p => p.id === target.id) : target.ambiguousAmong
   const alternatives = revisionChoices(affirmed, targets, pending, caps, today)

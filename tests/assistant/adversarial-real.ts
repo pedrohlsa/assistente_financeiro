@@ -100,6 +100,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const state = buildState({ profile: 'autonomo' })
+    const speak = (message: string, pending?: Awaited<ReturnType<typeof orchestrate>>['response']['actions']) =>
+      orchestrate({ state, message, today: TODAY, remoteEnabled: false, pending })
+    const original = await speak('ontem gastei 90 na farmácia')
+    const pending = original.response.actions
+    const independent = await speak('não gastei 90 no mercado mas gastei 75 na padaria', pending)
+    const revised = await speak('não gastei 90 na farmácia ontem mas gastei 75 na padaria', pending)
+    const wrongDay = await speak('não foi 90 anteontem, foi 75', pending)
+    const repeated = await speak('não gastei 90 no mercado mas gastei 90 na farmácia ontem', pending)
+    const cash = independent.response.actions.map(({ action }) => action.kind === 'expense' ? [action.amount, action.description] : action.kind)
+    out.push(result('LING-contraste-respeita-referencia-e-mantem-relato-independente',
+      { independent: independent.response, revised: revised.response, wrongDay: wrongDay.response, repeated: repeated.response },
+      'mantém Farmácia, acrescenta Padaria, corrige só quando a referência bate e evita duplicar a ação quando a frase apenas a repete',
+      JSON.stringify(cash) === JSON.stringify([[90, 'Farmácia'], [75, 'Padaria']])
+      && independent.correctedPending?.[0]?.id === pending[0]?.id
+      && revised.response.actions.length === 1 && revised.response.actions[0].id === pending[0]?.id
+      && revised.response.actions[0].action.kind === 'expense' && revised.response.actions[0].action.description === 'Padaria'
+      && wrongDay.response.mode === 'clarify' && wrongDay.keepPending === true
+      && repeated.response.actions.length === 1 && repeated.response.actions[0].id === pending[0]?.id))
+  }
+
+  {
     const state = buildState({ profile: 'autonomo', balance: 1000 })
     const anchorDay = addDays(TODAY, -1)
     state.settings.balanceAsOf = `${anchorDay}T12:00:00.000`
@@ -125,7 +147,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       invalid.response.mode === 'clarify' && invalid.response.clarification.field === 'clock-time' && invalid.response.actions.length === 0
       && corrected.response.mode === 'propose_actions' && corrected.response.actions.length === 1
       && action?.kind === 'expense' && action.time === '08:30' && action.date === addDays(TODAY, -1) && action.amount === 80
-      && !future.applied && future.state === state && future.results[0]?.code === 'future-time' && isValidationFailure(remote)))
+      && !future.applied && future.state === state && 'code' in future.results[0] && future.results[0].code === 'future-time' && isValidationFailure(remote)))
   }
 
   const spokenDate = todayISO()
