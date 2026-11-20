@@ -2210,7 +2210,11 @@ Confirmar?`,
   const planNote = local.temporalPlan ? futurePlanReply(local.temporalPlan) : null
   const intentionNote = candidates.length
     ? analysis.clauses.filter(c => c.intention && /\d/.test(c.text))
-      .map(c => `“${c.text.replace(/[.,;]\s*$/, '')}” descreve intenção futura; não registrei essa parte como realizada.`)
+      .map(c => {
+        const trecho = c.text.replace(/\s+(?:mas|por[ée]m|s[óo]\s+que)\s*$/i, '').replace(/[.,;]\s*$/, '')
+        return c.unrealized ? `“${trecho}” ficou como contexto da conversa.`
+          : `“${trecho}” descreve intenção futura; não registrei essa parte como realizada.`
+      })
       .join('\n')
     : ''
   // A IA remota caiu (vazia, 502, timeout, rede). O usuário precisa saber que a
@@ -2308,7 +2312,8 @@ Confirmar?`,
       // guardar 200?" viravam lancamento, porque o verbo esta no INFINITIVO e
       // nenhuma lista de verbo conjugado os barrava. O app diz o que fez e o
       // que fara — nunca inventa a movimentacao.
-      reply = ['Isso ainda não aconteceu, então não registrei nada. '
+      reply = analysis.clauses.some(c => c.unrealized) ? 'Isso não chegou a acontecer. Nenhum lançamento foi preparado.'
+        : ['Isso ainda não aconteceu, então não registrei nada. '
         + 'Quando acontecer de verdade, me avise que eu lanço na hora.',
       'Se quiser saber como isso ficaria antes de decidir, pergunte com "e se" — '
         + 'por exemplo, "e se eu gastar 200 esse mês?".'].join('\n\n')

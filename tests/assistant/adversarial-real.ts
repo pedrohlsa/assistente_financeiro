@@ -170,6 +170,31 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && answerChoices(futureDay)?.field === 'date-choice' && !chosenFuture.response.actions.length
       && chosenFuture.response.mode === 'clarify' && calledForNegation === 0))
 
+  const intentAndFact = await localSpoken('queria comprar uma bota de 150 mas acabei pagando 95 por um tênis')
+  const expenseConfirmed = applyBatchPure(spoken, intentAndFact.response.actions.map(({ id, action }) => ({ id, action })),
+    { now: { date: spokenDate, time: '16:00' } })
+  const formerlyPlanned = await localSpoken('eu ia pagar 80 no estacionamento mas paguei 35 na padaria')
+  const abandonedPlan = await localSpoken('eu só queria comprar um notebook de 2000 mas desisti')
+  const actualGoal = await localSpoken('quero comprar um notebook de 2000 em 3 meses')
+  out.push(result('LING-plano-desistido-nao-vira-meta-nem-despesa', { proposed: intentAndFact.response,
+      formerPlan: formerlyPlanned.response, abandoned: abandonedPlan.response, goal: actualGoal.response },
+    'o gasto de R$ 95 é a única saída; a intenção antiga não cria meta, enquanto um pedido de meta atual continua funcionando',
+    expenseConfirmed.applied && expenseConfirmed.state.transactions.length === 1 && currentBalance(expenseConfirmed.state) === 1105
+      && expenseConfirmed.state.transactions[0].description === 'Tênis' && expenseConfirmed.state.goals.length === 0
+      && formerlyPlanned.response.actions.length === 1 && formerlyPlanned.response.actions[0].action.kind === 'expense'
+      && formerlyPlanned.response.actions[0].action.amount === 35 && !abandonedPlan.response.actions.length
+      && actualGoal.response.actions.length === 1 && actualGoal.response.actions[0].action.kind === 'goal'
+      && actualGoal.response.actions[0].action.name === 'Notebook' && actualGoal.response.actions[0].action.target === 2000))
+
+  const exact = await localSpoken('acabei de receber 130 da Casa 2 e paguei precisamente R$ 37,50 de mercado hj')
+  const almost = await localSpoken('quase gastei 80 no Pix mas gastei 35 no mercado')
+  out.push(result('LING-conclusao-e-enfase-preservam-os-valores-e-o-origem', { exact: exact.response, almost: almost.response },
+    'recebimento concluído guarda R$ 130 da Casa 2; centavos e local do gasto exato permanecem; o quase gasto fica fora',
+    exact.response.actions.length === 2 && exact.response.actions.some(({ action: a }) => a.kind === 'income' && a.amount === 130 && a.origin === 'Casa 2')
+      && exact.response.actions.some(({ action: a }) => a.kind === 'expense' && a.amount === 37.5 && a.description === 'Mercado' && a.date === spokenDate)
+      && almost.response.actions.length === 1 && almost.response.actions[0].action.kind === 'expense'
+      && almost.response.actions[0].action.amount === 35 && calledForNegation === 0))
+
   const c1 = baseline()
   c1.transactions = ['2026-06-10', '2026-07-10', '2026-08-10'].map((date, i) => ({
     id: `obra-${i}`, type: 'expense', amount: 300, category: 'obra', date, description: 'Obra', time: '10:00',

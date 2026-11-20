@@ -46,6 +46,8 @@ export interface AnalyzedClause {
    * removido; quem recebe isto EXPLICA em vez de registrar.
    */
   intention?: boolean
+  /** O trecho descreve um fato que quase aconteceu ou um plano abandonado. */
+  unrealized?: boolean
   /**
    * Leituras locais DESCARTADAS por baixa confiança (ver semantic/confidence.ts).
    * A cláusula que as tinha fica em aberto — é isso que deixa a consulta local e
@@ -157,12 +159,19 @@ const CORRECTION_PATTERNS: RegExp[] = [
  * o usuário dizia que NÃO gastou e o app oferecia registrar o gasto. É o erro
  * mais perigoso possível num app de dinheiro.
  */
+const COMPLETED_FORMS = {
+  gastar: 'gastei', gastando: 'gastei', pagar: 'paguei', pagando: 'paguei',
+  receber: 'recebi', recebendo: 'recebi', comprar: 'comprei', comprando: 'comprei',
+  ganhar: 'ganhei', ganhando: 'ganhei', transferir: 'transferi', transferindo: 'transferi',
+} as const
+const COMPLETED_MONEY = String.raw`(?:acabei|terminei)\s+(?:de\s+)?(?:${Object.keys(COMPLETED_FORMS).join('|')})`
+
 const NEGATED_VERBS =
   'gastei|gastou|paguei|pagou|pagamos|quitei|quitamos|antecipei|adiantei|recebi|recebeu|ganhei|ganhou|comprei|comprou|guardar|guardei|separei|abasteci|coloquei|botei|rodei|trabalhei|fiz|foi|era|quero|vou|registra|registre|registrar|salva|salve|anota|anote|anotar'
   // Qualquer verbo de dinheiro no passado pode ser NEGADO. A lista acima
   // esquecia troquei, instalei, vendi, depositei e outros — e "nao troquei o
   // oleo por 280" registrava a manutencao mesmo assim.
-  + '|troquei|instalei|vendi|depositei|investi|apliquei|parcelei|passei|tirei|retirei|faturei|lucrei|andei|dirigi|percorri|saiu|entrou|caiu|sobrou|custou|reembolsaram|reembolsou'
+  + `|troquei|instalei|vendi|depositei|investi|apliquei|parcelei|passei|tirei|retirei|faturei|lucrei|andei|dirigi|percorri|saiu|entrou|caiu|sobrou|custou|reembolsaram|reembolsou|${COMPLETED_MONEY}`
 
 /**
  * A vírgula depois do "não" é o jeito mais comum de negar em fala real: "não,
@@ -188,9 +197,17 @@ export const looksNegated = (t: string): boolean => NEGATED_STATEMENT.test(t)
 const PAST_MONEY_VERBS =
   'gastei|gastou|gastamos|paguei|pagou|pagamos|quitei|quitamos|antecipei|adiantei|recebi|recebeu|recebemos|ganhei|ganhou|ganhamos|comprei|comprou|compramos|parcelei|passei|abasteci|coloquei|botei|guardei|separei|depositei|investi|apliquei|tirei|retirei|vendi|faturei|lucrei|rodei|andei|dirigi|percorri|trabalhei|fiz|fizemos|troquei|instalei|entrou|caiu|sobrou|reembolsaram|reembolsou'
 
-const PAST_STATEMENT = new RegExp(String.raw`\b(?:${PAST_MONEY_VERBS})\b`, 'i')
+const PAST_STATEMENT = new RegExp(String.raw`\b(?:${PAST_MONEY_VERBS}|${COMPLETED_MONEY})\b`, 'i')
 
 export const looksPast = (t: string): boolean => PAST_STATEMENT.test(t)
+
+function spokenMoney(text: string): string {
+  return text
+    .replace(new RegExp(String.raw`\b(?:acabei|terminei)\s+(?:de\s+)?(${Object.keys(COMPLETED_FORMS).join('|')})\b`, 'gi'),
+      (_m, form: keyof typeof COMPLETED_FORMS) => COMPLETED_FORMS[form.toLowerCase()])
+    .replace(new RegExp(String.raw`\b(${PAST_MONEY_VERBS})\s+(?:exatamente|precisamente|certinh[oa]s?)\s+(?=(?:r\$\s*)?\d)`, 'gi'), '$1 ')
+    .replace(new RegExp(String.raw`(\b(?:${PAST_MONEY_VERBS})\s+(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?)\s+(?:exat[oa]s?|certinh[oa]s?)\b`, 'gi'), '$1')
+}
 
 const hasAny = (t: string, list: RegExp[]) => list.some(r => r.test(t))
 
@@ -272,7 +289,7 @@ export const looksLikeConversation = (t: string): boolean => hasAny(t, CONVERSAT
 // o sujeito é o dinheiro, não a pessoa, e por isso não estavam aqui. "Vai cair
 // 1800 do aluguel" virava uma DESPESA realizada de 1800 — o leitor sem verbo
 // achava o valor e o substantivo, e nada dizia que aquilo ainda não aconteceu.
-const MODAIS = 'posso|poderia|devo|deveria|quero|queria|pretendo|penso\\s+em|planejo|vou|vamos|vai|v[ãa]o|irei|iria|ir[áa]|ir[ãa]o|deve|devem|preciso|precisava|tenho\\s+que|tenho\\s+de|d[áa]\\s+pra|d[áa]\\s+para|consigo|gostaria\\s+de|to\\s+querendo|estou\\s+querendo'
+const MODAIS = 'posso|poderia|devo|deveria|quero|queria|pretendo|penso\\s+em|planejo|vou|vamos|vai|v[ãa]o|ia|iria|irei|ir[áa]|ir[ãa]o|deve|devem|preciso|precisava|tenho\\s+que|tenho\\s+de|d[áa]\\s+pra|d[áa]\\s+para|consigo|gostaria\\s+de|to\\s+querendo|estou\\s+querendo'
 const INFINITIVOS_DINHEIRO = 'gastar|pagar|receber|ganhar|comprar|guardar|separar|colocar|botar|abastecer|investir|depositar|tirar|vender|parcelar|juntar|poupar|torrar|meter|trocar|instalar|rodar|trabalhar|faturar|lucrar|aplicar|quitar'
   + '|cair|entrar|pingar|sair|vencer|debitar|descontar|cobrar'
   // "Vou assinar a netflix de 39,90" virava despesa de hoje com a frase inteira
@@ -294,7 +311,11 @@ export const PEDE_APAGAR = /^\s*(?:por\s+favor\s+)?(?:apaga|apague|apagar|exclui
 // ---------------------------------------------------------------------------
 
 const COMMAND_VERBS =
-  'ganhei|ganhou|recebi|recebeu|faturei|lucrei|entrou|caiu|gastei|gastou|paguei|pagou|comprei|comprou|parcelei|passei|troquei|instalei|abasteci|coloquei|botei|rodei|andei|dirigi|percorri|trabalhei|quero|queria|vou|vamos|vai|pretendo|fiz|guardei|guarda|guardar|separei|separa|separar|depositei|investi|tirei|retirei|sobrou|sobra|vendi|apliquei'
+  `ganhei|ganhou|recebi|recebeu|faturei|lucrei|entrou|caiu|gastei|gastou|paguei|pagou|comprei|comprou|parcelei|passei|troquei|instalei|abasteci|coloquei|botei|rodei|andei|dirigi|percorri|trabalhei|quero|queria|vou|vamos|vai|pretendo|fiz|guardei|guarda|guardar|separei|separa|separar|depositei|investi|tirei|retirei|sobrou|sobra|vendi|apliquei|${COMPLETED_MONEY}`
+
+const WISH_ABANDONED = /\b(?:queria\s+comprar|pensei\s+que|achei\s+que)\b/i
+const ABANDONING = /^\s*(?:eu\s+)?(?:desisti|deixei\s+pra\s+l[áa]|mudei\s+de\s+ideia)\b/i
+const ALMOST_HAPPENED = new RegExp(String.raw`^\s*(?:(?:eu|s[oó]|ainda)\s+)*quase\s+(?:${PAST_MONEY_VERBS}|${INFINITIVOS_DINHEIRO})\b`, 'i')
 
 const CONNECTORS = '(?:e\\s+)?(?:logo\\s+)?(?:depois|em\\s+seguida|mais\\s+tarde|tamb[ée]m|ent[ãa]o|a[íi])\\s+'
 
@@ -316,7 +337,7 @@ const CONNECTORS = '(?:e\\s+)?(?:logo\\s+)?(?:depois|em\\s+seguida|mais\\s+tarde
  * frase que falava de receita).
  */
 const INTRA_CORRECTION =
-  String.raw`(?:(?:quer\s+dizer|na\s+verdade|ou\s+melhor|melhor\s+dizendo|digo|perd[ãa]o|desculpa|n[ãa]o[\s,]+(?:espera|pera[íi]?)|pera[íi]?|corrigindo|ops|minto|mentira|esquece\s+(?:essa|isso))(?![a-zà-ú])|n[ãa]o\s*,(?=\s*(?:foi|era)\b))`
+  String.raw`(?:(?:quer\s+dizer|na\s+verdade|na\s+real|ou\s+melhor|melhor\s+dizendo|digo|perd[ãa]o|desculpa|n[ãa]o[\s,]+(?:espera|pera[íi]?)|pera[íi]?|corrigindo|ops|minto|mentira|esquece\s+(?:essa|isso))(?![a-zà-ú])|n[ãa]o\s*,(?=\s*(?:foi|era)\b))`
 const CORRECTION_START = new RegExp(String.raw`^\s*(?:${INTRA_CORRECTION}|era\b)`, 'i')
 const CORRECTION_CONTRAST = /^\s*n[ãa]o\s+(?:foi|era)\s+[^.!?]+?\s+(?:foi|era)\s+([^.!?]+)[.!?]*$/i
 const CORRECTED_AMOUNT = /^(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s*(?:reais?|contos?)\b)?/i
@@ -940,9 +961,10 @@ export function analyzeMessage(
 
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i]
-    const forParserRaw = aligned ? normalizedParts[i].text : normalized
-    const invoiceOriginal = readInvoiceReference(part.text, today)
-    const invoiceParser = forParserRaw === part.text ? invoiceOriginal : readInvoiceReference(forParserRaw, today)
+    const originalMoney = spokenMoney(part.text)
+    const forParserRaw = spokenMoney(aligned ? normalizedParts[i].text : normalized)
+    const invoiceOriginal = readInvoiceReference(originalMoney, today)
+    const invoiceParser = forParserRaw === originalMoney ? invoiceOriginal : readInvoiceReference(forParserRaw, today)
     const forParser = invoiceParser.paymentText
     const id = clauseId()
 
@@ -1178,6 +1200,19 @@ export function analyzeMessage(
     const negated = looksNegated(part.text)
     if (negated) actions = []
 
+    const following = parts[i + 1]?.text || ''
+    const abandoned = /\b(?:mas|por[ée]m|s[óo]\s+que)\s*$/i.test(part.text) && WISH_ABANDONED.test(part.text)
+      && (looksPast(following) || ABANDONING.test(following))
+    const abandonedReply = ABANDONING.test(part.text) && WISH_ABANDONED.test(parts[i - 1]?.text || '')
+    const onlyPlanned = !looksPast(part.text) && /\b(?:ia|iria)\s+/i.test(part.text) && declaresIntention(part.text)
+    const unrealized = !isQuestion && (abandoned || abandonedReply || onlyPlanned || ALMOST_HAPPENED.test(part.text))
+    if (unrealized) {
+      actions = []
+      ambiguity = undefined
+      temporal = undefined
+      dateAmbiguity = undefined
+    }
+
     // Hipótese descreve um cenário, não um fato consumado.
     // "Supondo que eu ganhar 250 na uber" registrava os 250: a lista só
     // conhecia "se eu", e as outras formas de abrir uma hipótese passavam
@@ -1192,7 +1227,7 @@ export function analyzeMessage(
     // Intenção declarada ("vou gastar 80 no mercado", "posso guardar 200?"):
     // nenhum MOVIMENTO de dinheiro nasce dela. Meta continua passando, porque
     // "quero comprar um celular de 5000 em 6 meses" é como se cria um objetivo.
-    let intencao = false
+    let intencao = unrealized
     // Com verbo no PASSADO na mesma cláusula o fato existe e a intenção é só a
     // outra metade da frase — "gastei 40 hoje e amanhã vou pagar 120" tem um
     // lançamento legítimo, e quem cuida do plano é a regra temporal. Sem esta
@@ -1206,7 +1241,7 @@ export function analyzeMessage(
         'card-payment', 'financed-cash-inflow', 'card-charge'])
       const antes = actions.length
       actions = actions.filter(a => !MOVIMENTO_INTENCAO.has(a.kind))
-      intencao = actions.length < antes
+      intencao ||= actions.length < antes
     }
 
     const requestedPix = /\b(?:pediu|pediram|solicitou|solicitaram)\b[^.;!?]*\bpix\b|\bpix\b[^.;!?]*\b(?:pediu|pediram|solicitou)\b/i.test(part.text)
@@ -1306,7 +1341,7 @@ export function analyzeMessage(
       temporal = undefined
     }
 
-    const amountChoice = passado && !negated && !isQuestion && !isConversation
+    const amountChoice = passado && !negated && !unrealized && !isQuestion && !isConversation
       ? alternativeAmounts(semData, opts?.driver, date, origins.length === 1 ? origins[0].value : undefined) : undefined
     if (amountChoice) {
       const dateMissing = !!temporal || !!dateAmbiguity
@@ -1324,7 +1359,7 @@ export function analyzeMessage(
 
     let intent: AssistantIntent
     if (isConversation) intent = 'conversation'
-    else if (aguardaReembolso || duvidaFatura || amountChoice) intent = 'record'
+    else if (aguardaReembolso || duvidaFatura || amountChoice || unrealized) intent = 'record'
     else if (negated) intent = 'correction'
     else if (isCorrection && !actions.length) intent = 'correction'
     else if (actions.length && !isQuestion) intent = 'record'
@@ -1340,7 +1375,8 @@ export function analyzeMessage(
     // Uma cláusula com ação E pergunta juntas ("gastei 40, ainda bato a meta?")
     // rende DUAS entradas: a pergunta não pode sumir porque a ação foi entendida.
     const interrompida = /^\s*n[ãa]o[\s,]+(?:espera|pera[íi]?)\b/i.test(part.text)
-    const handled = (negated && !interrompida) || intent === 'conversation' || (intent === 'record' && actions.length > 0) || !!temporal || !!ambiguity
+    const handled = (negated && !interrompida) || unrealized || intent === 'conversation'
+      || (intent === 'record' && actions.length > 0) || !!temporal || !!ambiguity
 
     clauses.push({
       id, text: part.text, start: part.start, end: part.end,
@@ -1352,6 +1388,7 @@ export function analyzeMessage(
       dateAmbiguity,
       temporal,
       intention: intencao || undefined,
+      unrealized: unrealized || undefined,
       suspicious: suspeitas.size ? [...suspeitas] : undefined,
     })
 

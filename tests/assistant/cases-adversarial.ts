@@ -43,6 +43,10 @@ export const ADVERSARIAL: AssistantCase[] = [
       { kind: 'expense', amount: 31, date: '2026-07-15', description: 'Mercado' }] },
   { id: 'neg-15', group: 'negacao', ...auto, messages: ['recebi 150 da Empresa N ontem'],
     expectActions: [{ kind: 'income', amount: 150, origin: 'Empresa N', date: '2026-07-14' }] },
+  { id: 'neg-16', group: 'negacao', ...auto, messages: ['n acabei de pagar 56 na padaria e gastei 30 no metrô'],
+    expectActions: [{ kind: 'expense', amount: 30, description: 'Metrô' }], forbidReply: [/56,00/] },
+  { id: 'neg-17', group: 'negacao', ...auto, messages: ['não terminei de pagar 50 no posto'],
+    expectNoActions: true, forbidReply: [/confirmar\?/i] },
 
   // ===== BUG 2 — ABREVIAÇÕES DE DATA =====
   { id: 'abr-01', group: 'abreviacao', ...other, messages: ['gastei 190 de cimento hj'],
@@ -140,6 +144,8 @@ export const ADVERSARIAL: AssistantCase[] = [
     expectActions: [{ kind: 'income', amount: 450, origin: 'Casa 2' }] },
   { id: 'cim-12', group: 'correcaomsg', ...auto, messages: ['paguei 50 no mercado, esquece essa, mas recebi 200 de freela'],
     expectActions: [{ kind: 'income', amount: 200, category: 'freelance' }], forbidReply: [/50,00|mercado/i] },
+  { id: 'cim-13', group: 'correcaomsg', ...auto, messages: ['paguei de verdade 35 no mercado, na real 28'],
+    expectActions: [{ kind: 'expense', amount: 28, description: 'Mercado' }], forbidReply: [/35,00/] },
 
   // ===== BUG 8 — "troca pro inter" =====
   { id: 'prp-01', group: 'preposicao', ...other, state: twoCards,

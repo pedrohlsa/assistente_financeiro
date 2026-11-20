@@ -6071,3 +6071,14 @@ APK ou chamada paga. NOT READY até auditoria independente.
   sem baixa realizada.
 - O Chrome confirmou os dois fluxos. Suíte com 783/783 regressões,
   matriz de oito datas, 151 invariantes, typechecks, build e rubrica.
+
+## 20/11/2026 — Planos abandonados e pagamentos concluídos
+
+- “Ia pagar”, “quase gastei” e uma compra abandonada ficam como
+  contexto. “Acabei de pagar”, “terminei pagando” e “acabei de receber”
+  preservam a movimentação relatada e sua negação, quando houver.
+- O chat aceita “exatamente” e “certinho” junto ao valor, preserva
+  acentos da descrição e entende “na real” como correção após uma pausa.
+- O Chrome confirmou a saída de R$ 95 pelo tênis, sem criar meta para a
+  bota, e os R$ 37,50 do mercado. Suíte com 785/785 regressões,
+  151 invariantes, typechecks, build e rubrica.
