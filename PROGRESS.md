@@ -6358,3 +6358,12 @@ APK ou chamada paga. NOT READY até auditoria independente.
   inferidas. Se a pessoa diz que fez cinco corridas, ficam cinco.
 - Chrome com confirmação, suíte com 813/813 regressões, 151
   invariantes e rubrica com zero respostas perigosas ou ruins.
+
+## 20/11/2026 — Correção do horário antes de confirmar
+
+- “Foi às oito e meia” atualiza só o horário da entrada ou
+  despesa avulsa proposta. Com mais de um lançamento, o
+  assistente pergunta qual recebeu o novo horário.
+- O Chrome confirmou duas despesas, preservando a hora original
+  da farmácia e marcando somente 10h30 na padaria.
+  A suíte ficou em 814/814 regressões reais.

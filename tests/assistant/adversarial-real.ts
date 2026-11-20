@@ -100,6 +100,27 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const state = buildState({ profile: 'autonomo' })
+    const ask = (message: string, pending?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({
+      state, message, today: TODAY, remoteEnabled: false, pending: pending?.response.actions,
+      pendingClarification: pending?.response.mode === 'clarify' ? pending.response.clarification : undefined,
+    })
+    const start = await ask('ontem gastei 90 na farmácia às oito')
+    const edit = await ask('na real foi às oito e meia', start)
+    const multi = await ask('ontem gastei 90 na farmácia e paguei 35 na padaria')
+    const choose = await ask('foi às dez e trinta', multi)
+    const chosen = await ask('a da padaria', choose)
+    const summary = chosen.response.actions.map(({ action }) => action.kind === 'expense' ? [action.amount, action.description, action.time ?? null] : [])
+    const fixed = edit.response.actions[0]
+    out.push(result('LING-corrige-horario-sem-trocar-valor-e-pede-alvo', { edit: edit.response, choice: choose.response, summary },
+      'mantém R$ 90 e altera a hora a 08:30; com dois gastos, pergunta e aplica 10:30 somente na padaria',
+      edit.response.actions.length === 1 && fixed?.id === start.response.actions[0]?.id && fixed.action.kind === 'expense'
+      && fixed.action.amount === 90 && fixed.action.time === '08:30' && fixed.action.date === addDays(TODAY, -1)
+      && choose.response.mode === 'clarify' && choose.response.clarification.field === 'pending-correction'
+      && JSON.stringify(summary) === JSON.stringify([[90, 'Farmácia', null], [35, 'Padaria', '10:30']])))
+  }
+
+  {
     const state = buildState({ profile: 'driver' })
     const cases = [
       ['ontem recebi 120 da Casa 2 mais 150 da Casa 1', [[120, 'outros-in', 'Casa 2'], [150, 'outros-in', 'Casa 1']], 0],

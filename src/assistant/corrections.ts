@@ -6,12 +6,13 @@
 
 import type { ParsedAction } from '../models/types'
 import { validateAction, type AssistantCandidateAction, type AssistantCapabilities, type AssistantClarification } from './contracts'
-import { fmtBRL, parseMoney, todayISO } from '../utils/format'
+import { fmtBRL, nowTime, parseMoney, todayISO } from '../utils/format'
 import { normalizeNumberWords } from './numbers'
 import { brDate, dateInAnswer, findDate } from './dates'
 import { extractOrigins, looksLikeQuestion, revisedAction } from './clauses'
 import { normalizeName } from '../utils/text'
 import { guessCategory } from '../data/categories'
+import { spokenClock } from './semantic/clock'
 
 const NUMBER = String.raw`(\d+(?:[.,]\d+)*)(?!\d|[.,]\d)`
 const MONEY_START = new RegExp(String.raw`^(?:r\$\s*)?${NUMBER}(?:\s+reais?\b)?`, 'i')
@@ -351,6 +352,46 @@ function parseContrastCorrection(
   return plan
 }
 
+function parseClockCorrection(message: string, pending: AssistantCandidateAction[], today: string, plan: CorrectionPlan): boolean {
+  const body = message.match(/^\s*(?:(?:na\s+(?:real|verdade)|ops)[\s,:]+)?(?:(?:o\s+)?hor[áa]rio\s+)?(?:foi|era)\s+(.+)$/i)?.[1]
+  if (!body || looksLikeQuestion(message)) return false
+  const clock = spokenClock(body)
+  if (!clock.time && !clock.invalid && !clock.range) return false
+  const reference = clock.remaining.replace(/^[,\s]+|[,.!\s]+$/g, '')
+  const date = reference ? dateInAnswer(reference, today) : undefined
+  if (reference && !date) return false
+  if ((reference && date?.kind !== 'date') || clock.invalid || !clock.time) {
+    plan.ambiguous = { question: 'Qual foi o dia e o horário exatos desse lançamento?' }
+    return true
+  }
+  const time = clock.time
+  const targets = pending.flatMap(candidate => {
+    const { action } = candidate
+    if (action.kind !== 'expense' && action.kind !== 'income') return []
+    const day = date?.kind === 'date' ? date.date : action.date
+    return [{ candidate, action, day }]
+  })
+  if (!targets.length) {
+    plan.ambiguous = { question: 'O assistente só grava horário informado em entradas e despesas avulsas. Qual lançamento você quer alterar?' }
+    return true
+  }
+  const [target] = targets
+  if (today === todayISO() && time > nowTime() && targets.some(t => !t.day || t.day === today)) {
+    plan.ambiguous = { question: `O horário ${time} ainda não chegou hoje. Diga o dia e o horário em que aconteceu.` }
+    return true
+  }
+  if (targets.length > 1) {
+    plan.ambiguous = { field: 'pending-correction', question: `Qual lançamento aconteceu às ${time}?`,
+      options: targets.map(({ candidate, action, day }, i) => ({ value: String(i + 1), label: correctionLabel(candidate, i),
+        actions: pending.map(p => p.id === candidate.id ? { ...action, ...(day ? { date: day } : {}), time } : p.action) })) }
+    return true
+  }
+  if (target.action.time !== time) plan.edits.push({ id: target.candidate.id, field: 'time', value: time, was: target.action.time })
+  if (target.day && target.day !== target.action.date) plan.edits.push({ id: target.candidate.id, field: 'date', value: target.day, was: target.action.date })
+  plan.summary.push(`Horário da proposta às ${time}.`)
+  return true
+}
+
 /**
  * Interpreta uma frase de correção contra a proposta pendente.
  * Devolve `null` quando a frase não é uma correção reconhecível — nesse caso o
@@ -366,6 +407,7 @@ export function parseCorrection(
   const { text: norm } = normalizeNumberWords(message)
   const t = norm.toLowerCase()
   const plan: CorrectionPlan = { remove: [], edits: [], cancelAll: false, summary: [] }
+  if (parseClockCorrection(message, pending, today, plan)) return plan
   const contrasted = parseContrastCorrection(norm, pending, caps, today, plan)
   if (contrasted) return contrasted
   const withdrawn = withdrawDeniedProposal(norm, pending, today, plan)
