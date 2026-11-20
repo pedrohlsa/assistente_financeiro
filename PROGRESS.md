@@ -6323,3 +6323,16 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - O Chrome confirmou o gasto corrigido para R$ 75 depois das citações.
   O exemplo de desfazer preservou o lançamento salvo. Suíte com
   803/803 regressões reais e 30 casos de correção de proposta.
+
+## 20/11/2026 — Horários em entradas e despesas avulsas
+
+- Horas ditas com “às” ficam no lançamento. “Ontem às 20h gastei
+  30 na padaria” mantém o dia, o horário e os R$ 30 na proposta e
+  na confirmação. “Às oito e meia” vira 08:30.
+- Horário inválido pede correção e recupera o restante da proposta.
+  Confirmação recusa um horário posterior ao relógio no mesmo dia.
+  Em um teste com saldo informado às 12h, o gasto das 9h já estava
+  incluído e apenas o das 13h30 alterou o caixa.
+- Chrome local e suíte com 805/805 regressões reais. O horário é
+  preenchido pelo interpretador local. Contas fixas com horário
+  explícito apontam para o vencimento no Planejamento.

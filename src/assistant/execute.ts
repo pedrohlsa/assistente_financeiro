@@ -13,7 +13,7 @@ import type {
   FinancialGoal, CreditCard,
 } from '../models/types'
 import type { ActionExecutionResult, AssistantErrorCode } from './contracts'
-import { ASSISTANT_CONTRACT_VERSION, actionSpec, errorMessage, isPlausibleDate } from './contracts'
+import { ASSISTANT_CONTRACT_VERSION, actionSpec, errorMessage, isCashClock, isPlausibleDate } from './contracts'
 import { JOURNAL_LIMIT, diffForJournal, isRevertFailure, revertBatchPure } from './journal'
 import { findInvoicePaymentCards, invoicePaymentIssue } from './invoicePayment'
 import { addDays, monthKey, nowPaymentTime, nowStamp, todayISO, uid } from '../utils/format'
@@ -71,6 +71,8 @@ export interface ApplyOptions {
   /** Gerador de id injetável, para os testes serem determinísticos. */
   newId?: () => string
   now?: { date: string; time: string }
+  /** Limite real para horas informadas, independente da ordem sintética do lote. */
+  clockLimit?: string
   /** Motor que produziu o lote — vai para o journal. */
   engine?: AssistantJournalEntry['engine']
   /** ID da mensagem do chat que originou o lote. NUNCA o texto dela. */
@@ -128,11 +130,17 @@ export function applyActionPure(
     if (actionDate > date) return { state, result: fail(actionId, 'future-date', actionDate) }
   }
   const eventDate = actionDate || date
+  const explicitTime = (action.kind === 'income' || action.kind === 'expense') ? action.time : undefined
+  const clockLimit = (opts.clockLimit || time).slice(0, 5)
+  if (explicitTime !== undefined && !isCashClock(explicitTime)) return { state, result: fail(actionId, 'invalid-time') }
+  if (explicitTime && eventDate === date && isCashClock(clockLimit) && explicitTime > clockLimit) {
+    return { state, result: fail(actionId, 'future-time') }
+  }
 
   const tx = (t: Partial<Transaction> & Pick<Transaction, 'type' | 'amount' | 'category'>): Transaction => ({
     id: gen(),
     date: eventDate,
-    time: eventDate === date ? time : undefined,
+    time: explicitTime ?? (eventDate === date ? time : undefined),
     source,
     profileAtCreation,
     assistantBatchId: batch,
@@ -532,7 +540,7 @@ export function applyBatchPure(
   for (const item of items) {
     const time = nextCashEventTime(cur, batchDate, normalizedTime, true)
     const step = applyActionPure(cur, item.action, item.id,
-      { ...opts, now: { date: batchDate, time } })
+      { ...opts, now: { date: batchDate, time }, clockLimit: batchTime })
     results.push(step.result)
     if (step.result.ok) cur = step.state
     else if (atomic) return { state, results, applied: false }

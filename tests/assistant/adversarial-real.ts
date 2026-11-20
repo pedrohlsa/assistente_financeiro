@@ -99,6 +99,35 @@ function faturasAPagarEsperadas(rico: AppState, hoje: string): { descricao: stri
 export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
+  {
+    const state = buildState({ profile: 'autonomo', balance: 1000 })
+    const anchorDay = addDays(TODAY, -1)
+    state.settings.balanceAsOf = `${anchorDay}T12:00:00.000`
+    const now = { date: TODAY, time: '14:00' }
+    const early = await turn(state, 'ontem paguei 46 na farmácia às 9')
+    const late = await turn(state, 'ontem gastei 35 às treze e trinta no mercado')
+    const previous = await turn(state, 'anteontem às 20h recebi 900 de aluguel da Casa 2')
+    const applied = applyBatchPure(state, [...early.actions, ...late.actions, ...previous.actions].map((action, i) => ({ id: `clock-${i}`, action })), { now })
+    const txs = applied.state.transactions.map(t => [t.amount, t.date, t.time])
+    const expected = [[900, addDays(TODAY, -2), '20:00'], [35, anchorDay, '13:30'], [46, anchorDay, '09:00']]
+    out.push(result('LING-horario-nao-e-valor-e-define-ordem-do-caixa', { early, late, previous, txs, balance: currentBalance(applied.state, TODAY) }, expected,
+      [early, late, previous].every(r => r.mode === 'propose_actions' && r.actions.length === 1) && applied.applied
+      && JSON.stringify(txs) === JSON.stringify(expected) && currentBalance(applied.state, TODAY) === 965))
+
+    const invalid = await orchestrate({ state, message: 'ontem paguei 80 na farmácia às 24:61', today: TODAY, remoteEnabled: false })
+    const corrected = await orchestrate({ state, message: 'foi às oito e meia', today: TODAY, remoteEnabled: false,
+      pendingClarification: invalid.response.mode === 'clarify' ? invalid.response.clarification : undefined })
+    const [action] = corrected.response.actions.map(a => a.action)
+    const future = applyBatchPure(state, [{ id: 'future', action: { kind: 'expense', amount: 30, time: '14:01' } }], { now })
+    const remote = validateAction({ kind: 'expense', amount: 30, time: '09:00' }, buildCapabilities(state), TODAY, { allowRemoteOnly: true })
+    out.push(result('LING-horario-invalido-corrigido-futuro-impedido', { invalid: invalid.response, corrected: corrected.response, future: future.results, remote },
+      'pergunta antes de confirmar, recupera R$ 80 na data anterior às 08:30 e rejeita horário futuro ou adicionado pelo remoto',
+      invalid.response.mode === 'clarify' && invalid.response.clarification.field === 'clock-time' && invalid.response.actions.length === 0
+      && corrected.response.mode === 'propose_actions' && corrected.response.actions.length === 1
+      && action?.kind === 'expense' && action.time === '08:30' && action.date === addDays(TODAY, -1) && action.amount === 80
+      && !future.applied && future.state === state && future.results[0]?.code === 'future-time' && isValidationFailure(remote)))
+  }
+
   const spokenDate = todayISO()
   const spoken = buildState({ profile: 'autonomo', balance: 1200 })
   spoken.settings.balanceAsOf = `${addDays(spokenDate, -1)}T10:00`

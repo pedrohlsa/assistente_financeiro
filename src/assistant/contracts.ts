@@ -90,6 +90,9 @@ const dateField: ActionFieldSpec = {
 
 const textField = (name: string, describe: string, maxLength = 80): ActionFieldSpec =>
   ({ name, type: 'text', required: false, maxLength, describe })
+const timeField: ActionFieldSpec = { ...textField('time', 'hora local do fato em HH:MM, quando informada', 5), localOnly: true }
+export const isCashClock = (value: unknown): value is string =>
+  typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)
 
 export const ACTION_CATALOG: ActionSpec[] = [
   {
@@ -100,6 +103,7 @@ export const ACTION_CATALOG: ActionSpec[] = [
       textField('description', 'o que foi (ex.: "Uber", "Aluguel")'),
       textField('origin', 'fonte informada EXPLICITAMENTE pelo usuário ("Casa 1", "Cliente João"). NUNCA deduza'),
       dateField,
+      timeField,
     ],
     promptHint: 'dinheiro que entrou de verdade',
   },
@@ -111,6 +115,7 @@ export const ACTION_CATALOG: ActionSpec[] = [
       textField('description', 'o objeto real do gasto, sem palavras funcionais'),
       textField('origin', 'fonte informada EXPLICITAMENTE pelo usuário. NUNCA deduza'),
       dateField,
+      timeField,
     ],
     promptHint: 'dinheiro que saiu de verdade',
   },
@@ -297,7 +302,7 @@ export function allowedRemoteKinds(profile: ProfileId): AssistantActionKind[] {
 // ---------------------------------------------------------------------------
 
 export type AssistantErrorCode =
-  | 'invalid-amount' | 'invalid-date' | 'future-date' | 'invalid-number'
+  | 'invalid-amount' | 'invalid-date' | 'future-date' | 'invalid-time' | 'future-time' | 'invalid-number'
   | 'category-not-found' | 'category-wrong-type'
   | 'card-not-found' | 'card-ambiguous' | 'goal-not-found' | 'goal-ambiguous'
   | 'duplicate' | 'recurring-conflict' | 'missing-field' | 'profile-forbidden'
@@ -312,6 +317,8 @@ export const ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
   'invalid-amount': 'O valor informado não é um número válido.',
   'invalid-date': 'Não consegui entender a data.',
   'future-date': 'Essa data ainda não chegou — só registro o que já aconteceu.',
+  'invalid-time': 'Informe um horário válido no formato HH:MM.',
+  'future-time': 'Esse horário ainda não chegou. Confira o dia e o horário do lançamento.',
   'invalid-number': 'Um dos números informados não é válido.',
   'category-not-found': 'Essa categoria não existe no seu app.',
   'category-wrong-type': 'Essa categoria não serve para esse tipo de lançamento.',
@@ -591,6 +598,7 @@ export function validateAction(
         const t = v.trim()
         if (!t) { if (f.required) return { ok: false, code: 'missing-field', detail: f.name }; continue }
         if (t.length > (f.maxLength ?? 80)) return { ok: false, code: 'text-too-long', detail: f.name }
+        if (f.name === 'time' && !isCashClock(t)) return { ok: false, code: 'invalid-time' }
         if (f.categoryOf) {
           const cat = caps.categories.find(c => c.id === t)
           if (!cat) return { ok: false, code: 'category-not-found', detail: t }

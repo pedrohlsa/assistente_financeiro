@@ -363,8 +363,8 @@ export interface ProposedAction {
 // que é exatamente o comportamento de antes desta versão. Uma proposta com data
 // sempre mostra a data interpretada antes de o usuário confirmar.
 export type ParsedAction =
-  | { kind: 'income'; amount: number; category?: string; description?: string; is99?: boolean; origin?: string; date?: string }
-  | { kind: 'expense'; amount: number; category?: string; description?: string; origin?: string; date?: string }
+  | { kind: 'income'; amount: number; category?: string; description?: string; is99?: boolean; origin?: string; date?: string; time?: string }
+  | { kind: 'expense'; amount: number; category?: string; description?: string; origin?: string; date?: string; time?: string }
   | { kind: 'saving'; amount: number; description?: string; date?: string }
   | { kind: 'work'; km?: number; trips?: number; hours?: number; date?: string }
   | { kind: 'fuel'; amount?: number; liters?: number; pricePerLiter?: number; odometer?: number; date?: string }

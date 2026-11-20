@@ -36,7 +36,7 @@ const LABELS: Record<string, string> = {
   km: 'Km', trips: 'Viagens', hours: 'Horas', liters: 'Litros',
   pricePerLiter: 'Preço por litro', odometer: 'Hodômetro',
   installments: 'Parcelas', firstDueDate: 'Primeiro vencimento',
-  source: 'Intermediário', date: 'Data',
+  source: 'Intermediário', date: 'Data', time: 'Horário (HH:MM)',
 }
 
 /** Metas existentes viram lista: `goal-update` e `goal-deposit` exigem uma. */

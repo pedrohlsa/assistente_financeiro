@@ -12,9 +12,10 @@ import { cleanDescription, gruposDeCorrida, looksRecurring, parseNaturalFull } f
 import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
-import { addDays, fmtBRL, MESES_PT_BR, parseMoney, todayISO } from '../utils/format'
+import { addDays, fmtBRL, MESES_PT_BR, nowTime, parseMoney, todayISO } from '../utils/format'
 import { normalizeName } from '../utils/text'
 import { suspicionReasons } from './semantic/confidence'
+import { spokenClock } from './semantic/clock'
 import type { SuspicionReason } from './semantic/confidence'
 import { isInvoicePaymentStatement, readInvoiceReference } from './invoicePayment'
 
@@ -620,11 +621,21 @@ export function segment(text: string, today = todayISO()): { text: string; start
 
   const sorted = [...cuts].sort((a, b) => a - b)
   const out: { text: string; start: number; end: number }[] = []
+  let start = sorted[0]
   for (let i = 0; i < sorted.length; i++) {
-    const start = sorted[i]
     const end = i + 1 < sorted.length ? sorted[i + 1] : text.length
     const slice = text.slice(start, end)
+    // O contexto em "ontem às 20h gastei..." qualifica o fato seguinte.
+    if (i + 1 < sorted.length && looksPast(text.slice(end, sorted[i + 2] ?? text.length))) {
+      const clock = spokenClock(slice)
+      if (clock.time || clock.invalid) {
+        let context = clock.remaining
+        for (const date of findAllDates(context, today).reverse()) context = context.slice(0, date.start) + context.slice(date.end)
+        if (!context.replace(/\b(?:agora\s+(?:h?[áa]\s+)?pouco|h[áa]\s+pouco|agorinha)\b/gi, '').replace(/[\s,]+/g, '')) continue
+      }
+    }
     if (slice.trim()) out.push({ text: slice.trim(), start, end })
+    start = end
   }
   return out.length ? out : [{ text: text.trim(), start: 0, end: text.length }]
 }
@@ -1144,7 +1155,7 @@ function unaccountedMoney(clause: AnalyzedClause): number[] {
   if (clause.ambiguity || clause.temporal || clause.intention || clause.intent === 'question'
     || clause.intent === 'conversation' || clause.intent === 'correction'
     || /\bse\s+eu\b|\b(?:supondo|imagina)\b|%/.test(clause.text)) return []
-  const normalized = normalizeNumberWords(clause.text).text
+  const normalized = normalizeNumberWords(spokenClock(clause.text).remaining).text
   if (clause.actions.some(a => a.kind === 'card-payment')) {
     const amounts = clause.actions.filter(a => a.kind === 'expense').map(a => a.amount)
     return [...normalized.matchAll(INVOICE_EXTRA_AMOUNT)].flatMap(m => {
@@ -1180,7 +1191,7 @@ function unaccountedMoney(clause: AnalyzedClause): number[] {
     const anoDeCompetencia = /^(?:19|20)\d{2}$/.test(m[0]) && ANO_DE_COMPETENCIA.test(normalizeName(before))
     if (plataforma99 || anoDeCompetencia || /[\-/]$/.test(before) || /^[\-/]/.test(after)
       || /\b(?:dia|casa|apto|apartamento|numero|número|aro|tamanho|placa|modelo)\s*$/i.test(before)
-      || /^\s*(?:x|vezes|parcelas?|km|quil[oô]metros?|litros?|horas?|viagens?|corridas?|dias?|semanas?|meses?|anos?|%|k\b)/i.test(after)) continue
+      || /^\s*(?:x|vezes|parcelas?|km|quil[oô]metros?|litros?|h\b|horas?|viagens?|corridas?|dias?|semanas?|meses?|anos?|%|k\b)/i.test(after)) continue
     const amount = parseMoney(m[0])
     const representedAt = represented.findIndex(v => Math.abs(v - amount) < 0.005)
     if (representedAt >= 0) represented.splice(representedAt, 1)
@@ -1260,8 +1271,10 @@ export function analyzeMessage(
       : undefined)
     const unrealized = !isQuestion && (abandoned || abandonedReply || onlyPlanned || declinedRide || refundDenied || ALMOST_HAPPENED.test(part.text))
     const canShareContext = !isQuestion && !isConversation && !negated && !unrealized && !localExplanation
-    const originalMoney = spokenMoney(expandWeekdayAlternatives(part.text))
-    const forParserRaw = spokenMoney(expandWeekdayAlternatives(aligned ? normalizedParts[i].text : normalized))
+    const clock = isQuestion ? { remaining: part.text } : spokenClock(part.text)
+    const originalMoney = spokenMoney(expandWeekdayAlternatives(clock.remaining))
+    const normalizedForParser = clock.remaining !== part.text ? normalizeNumberWords(clock.remaining).text : aligned ? normalizedParts[i].text : normalized
+    const forParserRaw = spokenMoney(expandWeekdayAlternatives(normalizedForParser))
     const invoiceOriginal = readInvoiceReference(originalMoney, today)
     const invoiceParser = forParserRaw === originalMoney ? invoiceOriginal : readInvoiceReference(forParserRaw, today)
     const forParser = invoiceParser.paymentText
@@ -1507,6 +1520,7 @@ export function analyzeMessage(
     actions = actions.map(a => {
       const next: any = { ...a }
       if (date && DATABLE.has(a.kind)) next.date = date
+      if (clock.time && (a.kind === 'income' || a.kind === 'expense')) next.time = clock.time
       if (a.kind === 'card-payment' && invoiceParser.referenceMonth) next.referenceMonth = invoiceParser.referenceMonth
       const isExpenseExtra = despesasDaFatura.includes(a)
       const scopedOrigins = isExpenseExtra ? origensDoExtra : origins
@@ -1691,6 +1705,22 @@ export function analyzeMessage(
       temporal = undefined
       dateAmbiguity = undefined
       ambiguity = dateMissing ? { question: 'Qual foi o valor exato e em que dia aconteceu?', options: [] } : amountChoice
+      if (clock.time && !dateMissing) {
+        const time = clock.time
+        const atTime = (action: ParsedAction): ParsedAction => action.kind === 'income' || action.kind === 'expense'
+          ? { ...action, time } : action
+        ambiguity.pendingActions = ambiguity.pendingActions?.map(atTime)
+        ambiguity.options = ambiguity.options.map(option => ({ ...option, actions: option.actions?.map(atTime) }))
+      }
+    }
+    if (!ambiguity && actions.some(a => a.kind === 'income' || a.kind === 'expense')) {
+      const futureClock = clock.time && (!date || date === today) && today === todayISO() && clock.time > nowTime()
+      if (clock.invalid || futureClock) {
+        const question = futureClock ? `O horário ${clock.time} ainda não chegou hoje. Em que dia aconteceu?`
+          : 'Qual foi o horário? A proposta já tem o valor e o restante dos dados.'
+        ambiguity = { field: futureClock ? 'date' : 'clock-time', question, options: [], pendingActions: actions }
+        actions = []
+      }
     }
     if (queryDates) {
       actions = []

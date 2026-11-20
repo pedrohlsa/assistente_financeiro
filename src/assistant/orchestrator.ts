@@ -29,6 +29,7 @@ import { buildTurnPlan, hasBlock } from './semantic/turn'
 import { parseDriverDay } from './semantic/driverDay'
 import { parseTypedPairs } from './semantic/pairs'
 import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } from './semantic/normalize'
+import { spokenClock } from './semantic/clock'
 import { conflictQuestion, evidenceFor, mergeByField, sameFact } from './semantic/evidence'
 import { classifyLocalDecision } from './semantic/confidence'
 import { modalidadeExplicita, planoContradizModalidade } from './semantic/modality'
@@ -51,7 +52,7 @@ import { buildCapabilities } from './capabilities'
 import { describeAction, META_OUTRA } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
 import { catById, usableCategories } from '../data/categories'
-import { addDays, fmtBRL, MESES_PT_BR, parseMoney, todayISO, uid } from '../utils/format'
+import { addDays, fmtBRL, MESES_PT_BR, nowTime, parseMoney, todayISO, uid } from '../utils/format'
 import { matchRecurringPayment, occurrencesBetween, possibleRecurringTransactions, recurringActiveOn, recurringLinkAction } from '../services/calc'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { normalizeNumberWords } from './numbers'
@@ -961,7 +962,8 @@ function faturaComOutroCartao(state: AppState, focus: ConversationFocus | undefi
 function proposalText(candidates: AssistantCandidateAction[], state: AppState): string {
   const lines = candidates.map(c => {
     const d = (c.action as any).date
-    const suffix = d ? ` · ${dateLabel(d)}` : ''
+    const at = 'time' in c.action ? c.action.time : undefined
+    const suffix = (d ? ` · ${dateLabel(d)}` : '') + (at ? ` às ${at}` : '')
     return `• ${describeAction(c.action, id => state.categories?.find(x => x.id === id)?.name)}${suffix}`
   })
   return `Entendi isso:\n\n${lines.join('\n')}`
@@ -1061,6 +1063,11 @@ function proposeDatedActions(input: OrchestratorInput, actions: ParsedAction[], 
       return []
     }
     const action = validated.action
+    if ((action.kind === 'expense' || action.kind === 'income') && action.time
+      && (!action.date || action.date === today) && today === todayISO() && action.time > nowTime()) {
+      choices.push({ field: 'date', question: `O horário ${action.time} ainda não chegou hoje. Em que dia aconteceu?`, pendingActions: [action] })
+      return []
+    }
     const fixed = action.kind === 'expense' ? resolveRecurringStatement(input.state, action, '', caps, today) : null
     if (!fixed) return [candidate(action, 'local')]
     if ('clarification' in fixed) choices.push(fixed.clarification)
@@ -1174,6 +1181,7 @@ type RecurringStatement = {
   description?: string
   amount?: number
   date?: string
+  time?: string
   origin?: string
 }
 
@@ -1214,6 +1222,9 @@ function resolveRecurringStatement(
   const description = reference ? payment.description?.replace(/\s+(?:com\s+)?vencimento.*$/i, '') : payment.description
   const matches = matchRecurringPayment(state, { ...payment, description }, today, occurrenceDate)
   if (!matches) return null
+  if (payment.time || spokenClock(text).remaining !== text) {
+    return { note: `Esse pagamento corresponde a uma conta fixa. Confira o vencimento em Planejamento. O assistente só grava horário informado em entradas e despesas avulsas.` }
+  }
   if (reference && !occurrenceDate) return { note: 'Qual é a data de vencimento dessa conta fixa? Informe dia, mês e ano.' }
   if (matches.conflictingReference) return { note: 'O mês informado é diferente do mês do vencimento. Qual ocorrência você pagou?' }
   const future = matches.pending.find(p => p.futurePaymentDate)
@@ -1335,6 +1346,17 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   // "GNV" logo depois de "gás de cozinha ou GNV?" precisa recuperar o valor e
   // a descrição da mensagem anterior — o usuário não repete nada.
   const pc = input.pendingClarification
+  if (pc?.field === 'clock-time' && pc.pendingActions?.length) {
+    const withoutPrefix = input.message.trim().replace(/^(?:foi|era)\s+/i, '')
+    const reply = spokenClock(/^(?:[àa]s|por\s+volta\s+das)\s+/i.test(withoutPrefix) ? withoutPrefix : `às ${withoutPrefix}`)
+    if (reply.time && !reply.invalid && /^[.!]*$/.test(reply.remaining)) {
+      return proposeDatedActions(input, pc.pendingActions.map(a => a.kind === 'expense' || a.kind === 'income' ? { ...a, time: reply.time } : a), caps, today)
+    }
+    if (!looksPast(input.message) && !looksLikeQuestion(input.message)) return {
+      draft: null, keepPending: true,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [], clarification: pc, reply: pc.question },
+    }
+  }
   if (pc?.field?.startsWith('pending-correction') && /^(?:cancela(?:r)?|esquece|deixa pra la)[.!]*$/.test(normalizeName(input.message))) {
     return { draft: null,
       response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply: 'Descartei a proposta.' },
