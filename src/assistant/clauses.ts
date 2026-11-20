@@ -687,15 +687,24 @@ function expandWeekdayAlternatives(text: string): string {
     (_m, left: string, separator: string, right: string) => weekdayChoiceWord(left) + separator + weekdayChoiceWord(right))
 }
 
-function datesMentioned(text: string, today: string): DateResolution[] {
+export function datesMentioned(text: string, today: string, query = false): DateResolution[] {
   const dates = findAllDates(text, today)
   return dates.flatMap(date => {
     if (!/\bdia\s+\d{1,2}$/i.test(date.text)) return [date]
-    const short = text.slice(date.end).match(/^(\s+ou\s+)(\d{1,2})(?!\d|[.,]\d|\s+(?:reais?|contos?|km|litros?|parcelas?)\b)(?=\s|$|[,;.!?])/i)
-    if (!short) return [date]
-    const other = findDate(`dia ${short[2]}`, today)
-    const start = date.end + short[1].length
-    return other ? [date, { ...other, start, end: start + short[2].length }] : [date]
+    const shorthand = query
+      ? /^(\s+(?:e|ou)\s+|\s*,\s*(?:e\s+)?)(\d{1,2})(?!\d|[.,/-]\d|\s+(?:reais?|contos?|centavos?|km|litros?|parcelas?)\b)(?=\s|$|[,;.!?])/i
+      : /^(\s+ou\s+)(\d{1,2})(?!\d|[.,]\d|\s+(?:reais?|contos?|km|litros?|parcelas?)\b)(?=\s|$|[,;.!?])/i
+    const expanded = [date]
+    let cursor = date.end
+    for (let short = text.slice(cursor).match(shorthand); short; short = text.slice(cursor).match(shorthand)) {
+      const other = findDate(`dia ${short[2]}`, today)
+      if (!other) break
+      const start = cursor + short[1].length
+      cursor = start + short[2].length
+      expanded.push({ ...other, start, end: cursor })
+      if (!query) break
+    }
+    return expanded
   })
 }
 
@@ -1055,8 +1064,8 @@ export function analyzeMessage(
     // primeira era retirada, e a que sobrava no texto virava número e descrição
     // do lançamento: "ontem gastei 50 e daqui a 3 dias pago mais 100" criava uma
     // despesa fantasma de R$ 3,00, datada de ontem.
-    let datesOriginal = datesMentioned(invoiceOriginal.paymentText, today)
-    let datesParser = datesMentioned(forParser, today)
+    let datesOriginal = datesMentioned(invoiceOriginal.paymentText, today, isQuestion)
+    let datesParser = datesMentioned(forParser, today, isQuestion)
     let hintOriginal = datesOriginal.length ? null : findUnresolvedTemporalHint(invoiceOriginal.paymentText)
     let hintParser = datesParser.length ? null : findUnresolvedTemporalHint(forParser)
 
@@ -1104,7 +1113,8 @@ export function analyzeMessage(
     // aqui elas eram procuradas de novo e arrancadas — "em 6 meses" chegava ao
     // parser sem o prazo, e a meta nascia sem ele.
     let semData = base
-    for (const d of [...findAllDates(base, today)].filter(d => !(prazoDaMeta && isFutureDate(d))).sort((a, b) => b.start - a.start)) {
+    for (const d of (isQuestion ? datesMentioned(base, today, true) : findAllDates(base, today))
+      .filter(d => !(prazoDaMeta && isFutureDate(d))).sort((a, b) => b.start - a.start)) {
       semData = semData.slice(0, d.start) + ' ' + semData.slice(d.end)
     }
     // Conector órfão deixado pelo recorte ("gastei 40 e") não é descrição.

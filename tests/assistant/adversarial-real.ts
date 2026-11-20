@@ -288,6 +288,23 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && /87,00/.test(twoDaysSeparately.response.reply) && /172,00/.test(twoDaysSeparately.response.reply)
       && !/259,00/.test(twoDaysSeparately.response.reply) && !twoDaysSeparately.response.actions.length && calledForNegation === 0))
 
+  const threeDays = await weekdayQuery('quanto gastei na segunda, terça e quinta?')
+  const countDays = await weekdayQuery('quantos lançamentos fiz na segunda e quinta?')
+  const dateListState = buildState({ profile: 'other', transactions: [
+    { type: 'expense', amount: 30, category: 'alimentacao', date: '2026-11-10' },
+    { type: 'expense', amount: 240, category: 'alimentacao', date: '2026-11-12' },
+    { type: 'expense', amount: 42.50, category: 'alimentacao', date: '2026-11-15' },
+  ] })
+  const shorthandDays = await orchestrate({ state: dateListState, message: 'quanto gastei dia 10 e 15', today: '2026-11-20',
+    remoteEnabled: true, askRemote: remoteSpy, planRemoteQuery: remoteSpy })
+  out.push(result('LING-lista-de-dias-trata-numero-como-data-e-conta-registros', { threeDays: threeDays.response,
+    count: countDays.response, shorthand: shorthandDays.response },
+    'três dias somam R$ 1.258, dois dias têm três registros e dia 10 e 15 soma R$ 72,50 sem propor R$ 15',
+    /Total dos 3 dias:.*1\.258,00/.test(threeDays.response.reply)
+      && /Total dos dois dias: 3 lançamentos/.test(countDays.response.reply)
+      && /Total dos dois dias:.*72,50/.test(shorthandDays.response.reply) && !/240,00/.test(shorthandDays.response.reply)
+      && ![threeDays, countDays, shorthandDays].some(r => r.response.actions.length) && calledForNegation === 0))
+
   const c1 = baseline()
   c1.transactions = ['2026-06-10', '2026-07-10', '2026-08-10'].map((date, i) => ({
     id: `obra-${i}`, type: 'expense', amount: 300, category: 'obra', date, description: 'Obra', time: '10:00',

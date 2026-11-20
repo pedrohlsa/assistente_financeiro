@@ -210,6 +210,7 @@ const GASTO = /\bgast(?:ei|o|ou|ando|os?|ar)\b|\bpag(?:uei|o|ou|amento)\b|\btorr
 // são entrada. Sem eles, "quanto vou receber esse mês" dava o total GASTO.
 const ENTRADA = /\bganh(?:ei|o|ou|ar|a|amos)\b|\breceb(?:i|o|er|e|eu|emos|endo)\b|\bentr(?:ou|ada|adas|aram|ar|a|am)\b|\bfatur(?:ei|o|amento|ou)\b|\breceitas?\b|\brenda\b|\bvend(?:i|as?)\b|\brend(?:e|eu|imento)\b|\bfa(?:co|z(?:endo|er))\b|\bfiz\b|\btir(?:ei|o)\b|\bd[aá]\s+mais\b|\bme\s+d[aá]\b/
 const GUARDADO = /\bguard(?:ei|o|ado|ar)\b|\bseparei\b|\breservei\b|\bpoupei\b/
+const CONTAGEM_DE_REGISTROS = /\bquant(?:os|as)\s+(?:lancamentos|registros|movimentacoes)\b/
 const RESULTADO = /\blucr(?:ei|o|ou)\b|\bsobr(?:ou|a|as|ando)\b|\bliquido\b|\bresultado\b|\bmelhor\s+mes\b|\bpior\s+mes\b|\bmelhor\s+semana\b|\bpior\s+semana\b|\bmelhor\s+dia\b|\bpior\s+dia\b/
 
 /**
@@ -237,6 +238,9 @@ function lerMetrica(t: string): { valor: MetricaLida; matched: string } {
   const porUnidade = tipo.length > 1 ? 'Líquido por ' : 'Por '
   const rotuloBase = tipo.length > 1 ? 'Resultado'
     : tipo[0] === 'income' ? 'Total recebido' : tipo[0] === 'saving' ? 'Total guardado' : 'Total gasto'
+  const direcaoDosRegistros = t.replace(/\b(?:fiz|fizemos|faco|fazemos|fazer|registrei|anotei|lancei)\b/g, '')
+  const tiposDosRegistros: MetricaLida['txType'] = GASTO.test(direcaoDosRegistros) || ENTRADA.test(direcaoDosRegistros) || GUARDADO.test(direcaoDosRegistros)
+    ? tipoBaseDe(direcaoDosRegistros) : ['income', 'expense', 'saving']
 
   const tabela: [RegExp, MetricaLida][] = [
     [/\b(?:com\s+)?(?:mais|maior)\s+frequencia\b|\bmais\s+frequente\b|\bque\s+(?:eu\s+)?mais\s+(?:faco|repito)\b/,
@@ -246,8 +250,9 @@ function lerMetrica(t: string): { valor: MetricaLida; matched: string } {
     // contagem sozinha deixava o "quanto deu" sem resposta.
     [/\bquantas?\s+vezes\b(?=.*\be\s+quanto\s+(?:deu|foi|gastei|saiu|custou|paguei)\b)/,
       { metric: 'sum', txType: tipo, label: rotuloBase }],
-    [/\bquantas?\s+vezes\b|\bquantos?\s+(?:lancamentos|registros)\b/,
-      { metric: 'count', txType: tipo, label: 'Quantidade' }],
+    [CONTAGEM_DE_REGISTROS, { metric: 'count', txType: tiposDosRegistros, label: 'Quantidade' }],
+    [/\bquant(?:os|as)\s+(?:gastos|despesas|saidas)\b/, { metric: 'count', txType: ['expense'], label: 'Quantidade' }],
+    [/\bquantas?\s+vezes\b/, { metric: 'count', txType: tipo, label: 'Quantidade' }],
     [/\bquantas?\s+parcelas\b/, { metric: 'count', txType: tipo, label: 'Parcelas' }],
     [/\brepresent\w*\b|\bporcentagem\b|\bproporcao\b|\bpercentual\b|\bquantos?\s*%/,
       { metric: 'share', txType: tipo, label: 'Participação' }],

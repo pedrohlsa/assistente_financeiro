@@ -6168,3 +6168,14 @@ APK ou chamada paga. NOT READY até auditoria independente.
   descartou a receita negada e consultou o total exato de Mercado.
   O corpus acrescentou oito casos e passou com a suíte local, 151
   invariantes, avaliação remota offline, rubrica, typechecks e build.
+
+## 20/11/2026 — Consultas com uma lista de dias
+
+- “Quanto gastei dia 10 e 15” consulta duas datas, sem oferecer
+  o registro de R$ 15. “Segunda, terça e quinta” consulta os três
+  dias, e “quantos gastos” pede contagem de despesas.
+- O Chrome confirmou R$ 72,50 nos dias 10 e 15, R$ 312,50 ao incluir
+  o dia 12, três movimentações e duas despesas nos dois dias
+  inicialmente citados. Os quatro lançamentos da base permaneceram.
+- Suíte com 791/791 regressões reais, 151 invariantes, avaliação
+  remota offline, typechecks e build.

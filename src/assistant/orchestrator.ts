@@ -19,7 +19,7 @@ import type {
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, errorMessage, isValidationFailure, validateAction } from './contracts'
-import { PEDE_APAGAR, analyzeMessage, contestsProposal, declaresIntention, isRefundInflow, looksLikeQuestion, looksLikeRetraction, looksNegated, looksPast, looksRecurring, weekdayChoiceWord } from './clauses'
+import { PEDE_APAGAR, analyzeMessage, contestsProposal, datesMentioned, declaresIntention, isRefundInflow, looksLikeQuestion, looksLikeRetraction, looksNegated, looksPast, looksRecurring, weekdayChoiceWord } from './clauses'
 import { categoryDilemma, outOfPatternWarning, withLearnedCategory } from './learning'
 import { explainRequest } from './explain'
 import { answerConversation, isFocusFresh, looksLikeFollowUp } from './conversation'
@@ -34,7 +34,7 @@ import { classifyLocalDecision } from './semantic/confidence'
 import { modalidadeExplicita, planoContradizModalidade } from './semantic/modality'
 import { semAlegacaoDeExecucao } from './claims'
 import { composeAnswer, explainQueryResult, isQueryFailure, runQuery, validateQueryPlan } from './query'
-import { planQuery } from './query/parse'
+import { looksLikeDataQuestion, planQuery } from './query/parse'
 import { rememberQuery } from './conversation'
 import type { RepairedText } from './semantic/normalize'
 import type { ConversationFocus } from './conversation'
@@ -771,29 +771,34 @@ function answerQuestions(
   return { text: parts.join('\n\n'), answered, focus }
 }
 
-function answerTwoDays(state: AppState, question: string, today: string): string | undefined {
-  if (!looksLikeQuestion(question) || !looksPast(question) || !/\be\b/i.test(question)) return undefined
-  const dates = findAllDates(question, today).sort((a, b) => a.start - b.start)
-  const [first, second] = dates
-  if (dates.length !== 2 || !/^\s*,?\s*e\s*$/i.test(question.slice(first.end, second.start))) return undefined
+function answerListedDays(state: AppState, question: string, today: string): string | undefined {
+  if (!looksLikeQuestion(question) || !looksLikeDataQuestion(question)) return undefined
+  const dates = datesMentioned(question, today, true).sort((a, b) => a.start - b.start)
+  if (dates.length < 2) return undefined
+  const [first] = dates
   const prefix = question.slice(0, first.start).trimEnd()
   if (/\b(?:entre|de)\s*$/i.test(prefix)) return undefined
-  if (first.kind !== 'date' || second.kind !== 'date') {
-    return 'Quais são as duas datas já ocorridas que você quer consultar?'
+  const joiner = /^(?:\s*,\s*(?:e\s+)?|\s+e\s+)(?:(?:no|na|em)\s*)?$/i
+  if (!dates.slice(1).every((d, i) => joiner.test(question.slice(dates[i].end, d.start)))) return undefined
+  const days = [...new Set(dates.flatMap(date => date.kind === 'date' ? [date.date] : []))]
+  if (dates.some(date => date.kind !== 'date')) {
+    return 'Quais datas já ocorridas você quer consultar? Informe dia e mês de cada uma.'
   }
-  const suffix = question.slice(second.end).replace(/\b(?:separadamente|em\s+cada\s+dia)\b/i, '')
+  const suffix = question.slice(dates[dates.length - 1].end).replace(/\b(?:separadamente|em\s+cada\s+dia)\b/i, '')
   const queryPrefix = prefix.replace(/\b(?:no|na|em)\s*$/i, '').trimEnd()
-  const days = [...new Set([first.date, second.date])]
   const readings = days.map(date => answerConversation(state, `${queryPrefix} em ${date} ${suffix}`.trim(), { today }))
   if (readings.some((r, i) => r?.kind !== 'query' || r.focus.lastQueryPlan?.period.from !== days[i]
-    || r.focus.lastQueryPlan?.period.to !== days[i])) return 'Quais valores você quer consultar nesses dias? Diga o tipo de gasto ou receita e as duas datas.'
+    || r.focus.lastQueryPlan?.period.to !== days[i])) return 'O que você quer consultar nesses dias? Diga o tipo de gasto ou receita e as datas.'
   const summaries = readings.map(r => r.focus.lastQuery)
   const separate = /\b(?:separadamente|em\s+cada\s+dia)\b/i.test(question)
-  const additive = readings.length === 2 && !separate
-    && readings.every(r => r.focus.lastQueryPlan?.metric === 'sum' && r.focus.lastQueryPlan?.group === 'none')
-    && summaries.every(s => s?.unit === 'BRL')
-  const total = additive ? `\n\nTotal dos dois dias: ${fmtBRL(summaries.reduce((sum, s) => sum + s!.total, 0))}.` : ''
-  return readings.map(r => r.reply).join('\n\n') + total
+  const metric = readings[0]?.focus.lastQueryPlan?.metric
+  const unit = metric === 'sum' ? 'BRL' : metric === 'count' ? 'count' : undefined
+  const additive = days.length > 1 && !separate && unit
+    && readings.every(r => r.focus.lastQueryPlan?.metric === metric && r.focus.lastQueryPlan?.group === 'none')
+    && summaries.every(s => s?.unit === unit)
+  const total = additive ? summaries.reduce((sum, s) => sum + s.total, 0) : undefined
+  const summary = total === undefined ? '' : `\n\nTotal dos ${days.length === 2 ? 'dois' : days.length} dias: ${unit === 'BRL' ? fmtBRL(total) : `${total} ${total === 1 ? 'lançamento' : 'lançamentos'}`}.`
+  return readings.map(r => r.reply).join('\n\n') + summary
 }
 
 /**
@@ -805,7 +810,7 @@ function answerTwoDays(state: AppState, question: string, today: string): string
 function respostaLocal(
   state: AppState, pergunta: string, today: string, usaConsulta: boolean,
 ): { text: string; focus?: ConversationFocus } | null {
-  const groupedDays = answerTwoDays(state, pergunta, today)
+  const groupedDays = answerListedDays(state, pergunta, today)
   if (groupedDays) return { text: groupedDays }
   const conv = usaConsulta ? answerConversation(state, pergunta, { today }) : null
   if (conv?.kind === 'clarify') return { text: conv.reply, focus: conv.focus }
@@ -1950,7 +1955,7 @@ Confirmar?`,
   const temFato = hasBlock(turno, 'record')
   const consultaPedeDia = turno.analysis.clauses.some(c => c.ambiguity?.field === 'query-date')
   const groupedDays = !temFato && !consultaPedeDia && hasBlock(turno, 'query') && !hasBlock(turno, 'scenario')
-    ? answerTwoDays(input.state, mensagem, today) : undefined
+    ? answerListedDays(input.state, mensagem, today) : undefined
   if (groupedDays) return {
     draft: null, keepPending: true, focus: input.focus,
     response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply: groupedDays },
