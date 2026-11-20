@@ -1428,6 +1428,49 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const correctionChoice = pendingCorrection ? pendingCorrectionAnswer(pc, input.message, today) : undefined
     const direction = directionChoice && /^(?:foi\s+)?(?:gasto|despesa|saiu|gastei)$/.test(simpleAnswer) ? 'saida'
       : directionChoice && /^(?:foi\s+)?(?:receita|recebi|entrou|recebimento)$/.test(simpleAnswer) ? 'entrada' : undefined
+    // "Horário ou mais um gasto?": a resposta raramente repete o rótulo.
+    // "Foi o horário", "1", "era hora" escolhem a primeira; "mais 30 na
+    // padaria", "outro gasto", "2" escolhem a segunda. Sem casar, NÃO cai no
+    // parser: "mais 30 na padaria" sozinho virava uma despesa solta de R$ 30.
+    if (pc.field === 'minute-or-amount' && pc.options?.length === 2) {
+      const r = simpleAnswer
+      const horario = /^(?:1|primeira|a\s+primeira|opcao\s+1)$|\b(?:horario|hora|minutos?|era\s+(?:a\s+)?hora|foi\s+(?:a\s+|o\s+)?hora)\b/.test(r)
+      const lugar = normalizeName(pc.options[1].label).split(' ').filter(w => w.length > 3).slice(-1)[0]
+      const valor = /^(?:2|segunda|a\s+segunda|opcao\s+2)$|\b(?:mais|outro|outra|separad[oa]s?|tambem|valor|reais|gasto|gastei|paguei|despesa|compra)\b/.test(r)
+        || (!!lugar && new RegExp(`\\b${lugar}\\b`).test(r))
+      if (horario !== valor) {
+        const escolhida = pc.options[horario ? 0 : 1]
+        const lote: ParsedAction[] = []
+        for (const action of escolhida.actions || []) {
+          const checked = validateAction(action, caps, today)
+          if (isValidationFailure(checked)) {
+            return {
+              draft: null,
+              response: {
+                version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
+                reply: `Não consegui preparar esse registro: ${checked.detail || checked.code}. Conte o valor e o que aconteceu de novo.`,
+              },
+            }
+          }
+          lote.push(checked.action)
+        }
+        return {
+          draft: null,
+          response: {
+            version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
+            actions: lote.map(a => candidate(a, 'local')), unresolved: [],
+            reply: `Entendi isso:\n\n${lote.map(a => `• ${describeAction(a)}${(a as any).time ? ` · ${(a as any).time}` : ''}`).join('\n')}\n\nConfirmar?`,
+          },
+        }
+      }
+      return {
+        draft: null, keepPending: true,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
+          actions: [], unresolved: [], clarification: pc, reply: `${pc.question}\n\nResponda "horário" ou "mais um gasto".`,
+        },
+      }
+    }
     const hit = invoiceChoice ? matchInvoiceChoice(pc.options, input.message) : pc.options.find(o => amountChoice
       ? (normalizeName(o.label) === simpleAnswer || (amount > 0 && amount === parseMoney(o.label)))
       : financialEvent || fixedBillChoice || fixedBillLink || dateChoice || pendingCorrection || directionChoice

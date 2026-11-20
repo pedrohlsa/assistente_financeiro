@@ -1015,10 +1015,18 @@ export function revisedAction(action: ParsedAction, body: string, today: string)
  * para a mensagem: as viagens que as outras cláusulas inferiram da receita
  * saem (o trabalho sem km nem horas sai junto).
  */
+// "às 9 e 30 na padaria": hora + número + lugar. Só número em algarismo ou
+// por extenso; "e meia" é sempre minuto e não entra aqui.
+const MINUTO_OU_VALOR = /(?<![\p{L}\p{M}])((?:[àa]s)\s+(\d{1,2}|uma|duas|tr[eê]s|quatro|cinco|seis|sete|oito|nove|dez|onze|doze)\s+e\s+(\d{1,2}|dez|quinze|vinte|trinta|quarenta|cinquenta))(?=\s+(?:n[oa]s?|em|pr[ao]|pel[ao])\s+(?!(?:cart[aã]o|pix|d[eé]bito|cr[eé]dito|dinheiro|esp[eé]cie|boleto|conta|app|aplicativo)\b)[\p{L}\p{M}])/iu
+const TURNO_VERB = /\b(?:trabalhei|rodei|dirigi|fiquei\s+rodando|fiz\s+(?:o\s+)?turno|peguei\s+(?:no\s+)?(?:volante|turno)|fiquei\s+na\s+rua|tava\s+rodando|estava\s+rodando)\b/i
 const QUANTIDADE_DE_VIAGENS = /\b\d+\s+(?:corridas|viagens|corrida|viagem)\b/i
 const RIDE_REFERENCE = /\b(?:corridas?|uber|indrive[r]?)\b|\b(?:na|pela|da|do|de)\s+99\b/i
 const RIDE_PLATFORM_NAME = /^(?:uber|99|indrive[r]?)$/i
-const NON_RIDE_RECEIPT = /\b(?:no\s+caixa|d[ao]\s+(?:im[oó]vel|sobrado|apartamento|kitnet|loja|inquilin[oa]|empresa))\b/i
+// Dinheiro recebido DE UMA PESSOA ("do joão", "da minha mãe") não é corrida
+// presumida: no perfil motorista a viagem implícita contava um Pix do irmão
+// como trabalho. A origem continua não inferida (regra do `origin`); só a
+// viagem e a categoria de corridas deixam de ser chutadas.
+const NON_RIDE_RECEIPT = /\b(?:no\s+caixa|d[ao]\s+(?:im[oó]vel|sobrado|apartamento|kitnet|loja|inquilin[oa]|empresa))\b|\b(?:d[ao])\s+(?:meu\s+|minha\s+)?(?!(?:uber|99|indrive[r]?|corridas?|viagens?|passageir[oa]s?|app|aplicativo|plataforma|dia|m[eê]s|semana|ano|pix|banco|conta|cart[aã]o|caixa|hoje|ontem|valor|total)\b)[a-zà-ú][a-zà-ú]{2,}\b/i
 function semViagemInferida(actions: ParsedAction[], text: string): ParsedAction[] {
   if (QUANTIDADE_DE_VIAGENS.test(text)) return actions
   return actions.flatMap(a => {
@@ -1280,7 +1288,7 @@ export function analyzeMessage(
       : undefined)
     const unrealized = !isQuestion && (abandoned || abandonedReply || onlyPlanned || declinedRide || refundDenied || ALMOST_HAPPENED.test(part.text))
     const canShareContext = !isQuestion && !isConversation && !negated && !unrealized && !localExplanation
-    const clock = isQuestion ? { remaining: part.text } : spokenClock(part.text)
+    let clock: ReturnType<typeof spokenClock> = isQuestion ? { remaining: part.text } : spokenClock(part.text)
     const originalMoney = spokenMoney(expandWeekdayAlternatives(clock.remaining))
     const normalizedForParser = clock.remaining !== part.text ? normalizeNumberWords(clock.remaining).text : aligned ? normalizedParts[i].text : normalized
     const forParserRaw = spokenMoney(expandWeekdayAlternatives(normalizedForParser))
@@ -1456,6 +1464,21 @@ export function analyzeMessage(
     // engolia a orientação de cadastrar a conta nos primeiros dias de cada mês.
     else if (primary && primary.kind === 'ambiguous' && !looksRecurring(part.text)) dateAmbiguity = { question: primary.question, options: primary.options }
 
+    // "Faz meia hora": a hora sai do relógio do aparelho. Só vale quando o
+    // "hoje" desta análise é o dia real e nenhuma outra data foi dita — "ontem,
+    // faz meia hora" é contradição, e vira pergunta de horário. Se a conta
+    // voltar para antes da meia-noite, a data é ontem.
+    if (clock.minutesAgo !== undefined) {
+      if (today !== todayISO() || (date && date !== today)) {
+        clock = { ...clock, invalid: true, minutesAgo: undefined }
+      } else {
+        const [h, m] = nowTime().split(':').map(Number)
+        let total = h * 60 + m - clock.minutesAgo
+        if (total < 0) { total += 24 * 60; date = addDays(today, -1); dLabel = 'ontem' }
+        clock = { ...clock, time: `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}` }
+      }
+    }
+
     if (invalid) {
       temporal = {
         kind: 'invalid', text: invalid.text, label: invalid.label,
@@ -1521,6 +1544,12 @@ export function analyzeMessage(
     // que aceitam origem e só 2 fontes). Cada ação é ligada à fonte que aparece
     // logo depois do SEU valor no texto — e nenhuma origem é inventada.
     const origins = extractOrigins(part.text)
+    // Posições comparáveis exigem o MESMO texto dos dois lados: com valor por
+    // extenso ("cento e vinte da Casa 2 e cento e vinte do Uber") o número não
+    // existe no texto original e as duas receitas caíam no fallback, herdando
+    // a mesma origem. O pareamento usa o texto com algarismos.
+    const textoPareamento = normalizeNumberWords(part.text).text
+    const origensPareamento = textoPareamento === part.text ? origins : extractOrigins(textoPareamento)
     const textoComValores = despesasDaFatura.length ? normalizeNumberWords(part.text).text : ''
     const extraOriginal = [...textoComValores.matchAll(INVOICE_EXTRA_AMOUNT)][0]
     const textoExtra = extraOriginal ? textoComValores.slice(extraOriginal.index) : ''
@@ -1537,7 +1566,7 @@ export function analyzeMessage(
         vistos.set(String(v), n + 1)
       }
     }
-    const incomePositions = actions.flatMap(a => a.kind === 'income' ? [amountPosition(part.text, a.amount, ocorrenciaDe.get(a) || 0)] : [])
+    const incomePositions = actions.flatMap(a => a.kind === 'income' ? [amountPosition(textoPareamento, a.amount, ocorrenciaDe.get(a) || 0)] : [])
     let fewerTrips = 0
 
     actions = actions.map(a => {
@@ -1546,8 +1575,8 @@ export function analyzeMessage(
       if (clock.time && (a.kind === 'income' || a.kind === 'expense')) next.time = clock.time
       if (a.kind === 'card-payment' && invoiceParser.referenceMonth) next.referenceMonth = invoiceParser.referenceMonth
       const isExpenseExtra = despesasDaFatura.includes(a)
-      const scopedOrigins = isExpenseExtra ? origensDoExtra : origins
-      const at = amountPosition(isExpenseExtra ? textoExtra : part.text, next.amount, isExpenseExtra ? 0 : ocorrenciaDe.get(a) || 0)
+      const scopedOrigins = isExpenseExtra ? origensDoExtra : origensPareamento
+      const at = amountPosition(isExpenseExtra ? textoExtra : textoPareamento, next.amount, isExpenseExtra ? 0 : ocorrenciaDe.get(a) || 0)
       const incomeEnd = a.kind === 'income' && at >= 0 ? incomePositions.find(pos => pos > at) : undefined
       const hasRidePlatform = a.kind === 'income' && RIDE_PLATFORM_NAME.test(a.description || '')
       if (ORIGINABLE.has(a.kind) && !next.origin && scopedOrigins.length) {
@@ -1559,7 +1588,7 @@ export function analyzeMessage(
         const pick = perto || (scopedOrigins.length === 1 && (incomePositions.length < 2 || a.kind !== 'income' || at < 0) ? scopedOrigins[0] : undefined)
         if (pick) next.origin = pick.value
       }
-      const incomeText = incomePositions.length > 1 && at >= 0 ? part.text.slice(at, incomeEnd) : part.text
+      const incomeText = incomePositions.length > 1 && at >= 0 ? textoPareamento.slice(at, incomeEnd) : part.text
       // Receita com origem própria ("da Casa 2") não é corrida só porque a
       // frase cita Uber em outra parte. Vale para todo perfil; só o motorista
       // tem viagem implícita a descontar.
@@ -1737,6 +1766,39 @@ export function analyzeMessage(
       temporal = undefined
     }
 
+    // TURNO do motorista: "trabalhei ontem das 9h às 13h" é duração, não
+    // horário. Sem isto a faixa era descartada e a frase ficava sem proposta;
+    // com uma receita junto ("fiz 300 das 9 às 13"), o app pedia o horário
+    // exato de uma corrida que ninguém tinha como dizer. Faixa que passa da
+    // meia-noite pergunta o dia antes de propor.
+    let turnoAmbiguity: AnalyzedClause['ambiguity']
+    if (opts?.driver && clock.span && !isQuestion && !negated && !unrealized
+      && (TURNO_VERB.test(part.text) || actions.some(a => a.kind === 'income' || a.kind === 'work'))) {
+      const minutos = (hhmm: string) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m }
+      let dur = minutos(clock.span.end) - minutos(clock.span.start)
+      const viraDia = dur <= 0
+      if (viraDia) dur += 24 * 60
+      const horas = Math.round((dur / 60) * 100) / 100
+      if (horas > 0 && horas <= 20 && !actions.some(a => a.kind === 'work' && (a as any).hours)) {
+        const work = actions.find(a => a.kind === 'work') as Extract<ParsedAction, { kind: 'work' }> | undefined
+        const comHoras: ParsedAction = work ? { ...work, hours: horas } : { kind: 'work', hours: horas, ...(date ? { date } : {}) }
+        actions = work ? actions.map(a => (a === work ? comHoras : a)) : [...actions, comHoras]
+        clock = { ...clock, range: undefined }
+        if (viraDia) {
+          const inicio = date || today
+          turnoAmbiguity = {
+            question: `O turno das ${clock.span.start} às ${clock.span.end} passa da meia-noite. Registro as ${String(horas).replace('.', ',')}h no dia em que começou (${inicio.split('-').reverse().join('/')})?`,
+            options: [
+              { label: 'Sim, nesse dia', value: 'sim', actions: actions.map(a => (a.kind === 'work' && !(a as any).date ? { ...a, date: inicio } : a)) },
+              { label: 'Não, corrigir', value: 'nao', actions: [] },
+            ],
+            pendingActions: actions,
+          }
+          actions = []
+        }
+      }
+    }
+
     const singleOrigin = origins.length === 1 ? origins[0].value : undefined
     const amountChoice = passado && !negated && !unrealized && !isQuestion && !isConversation
       ? alternativeAmounts(semData, opts?.driver, date, singleOrigin) || incompleteAmount(semData, opts?.driver, date, singleOrigin)
@@ -1753,6 +1815,40 @@ export function analyzeMessage(
           ? { ...action, time } : action
         ambiguity.pendingActions = ambiguity.pendingActions?.map(atTime)
         ambiguity.options = ambiguity.options.map(option => ({ ...option, actions: option.actions?.map(atTime) }))
+      }
+    }
+    if (!ambiguity && turnoAmbiguity) ambiguity = turnoAmbiguity
+    // "Paguei 50 na farmácia às 9 E 30 NA PADARIA": o 30 tanto é minuto quanto
+    // outro gasto. Confirmar uma leitura sozinha gravava R$ 50 às 09:30 com a
+    // descrição "Farmácia na padaria" — e os R$ 30 sumiam. Pergunta, com as
+    // duas leituras prontas como opção.
+    if (!ambiguity && !isQuestion && !negated && !unrealized && actions.some(a => a.kind === 'income' || a.kind === 'expense')) {
+      const dupla = part.text.match(MINUTO_OU_VALOR)
+      const hora = dupla ? Number(normalizeNumberWords(dupla[2]).text) : NaN
+      const minuto = dupla ? Number(normalizeNumberWords(dupla[3]).text) : NaN
+      if (dupla && hora >= 0 && hora <= 23 && minuto >= 1 && minuto <= 59 && !(opts as any)?.semMinutoOuValor) {
+        const inicio = dupla.index! + dupla[0].indexOf(dupla[1])
+        const fim = inicio + dupla[1].length
+        const hh = String(hora).padStart(2, '0')
+        const lugar = part.text.slice(fim).match(/^\s+((?:n[oa]s?|em|pr[ao]|pel[ao])\s+[\p{L}\p{M}][\p{L}\p{M}\s]*?)(?=\s*(?:[,.;!?]|\s+e\s|$))/u)
+        const semLugar = lugar ? part.text.slice(0, fim) + part.text.slice(fim + lugar[0].length) : part.text
+        const comoHora = analyzeMessage(semLugar.slice(0, inicio) + `às ${hh}:${String(minuto).padStart(2, '0')}` + semLugar.slice(fim),
+          { ...opts, today, semMinutoOuValor: true } as any).actions
+        const comoValor = analyzeMessage(part.text.slice(0, inicio) + `às ${hh}h, e ${minuto}` + part.text.slice(fim),
+          { ...opts, today, semMinutoOuValor: true } as any).actions
+        const soma = (xs: ParsedAction[]) => xs.filter(a => a.kind === 'income' || a.kind === 'expense').length
+        if (soma(comoHora) >= 1 && soma(comoValor) === soma(comoHora) + 1) {
+          ambiguity = {
+            field: 'minute-or-amount',
+            question: `Em "${dupla[1]}${lugar ? ' ' + lugar[1] : ''}", o ${minuto} é o horário (${hh}:${String(minuto).padStart(2, '0')}) ou mais R$ ${minuto},00${lugar ? ' ' + lugar[1] : ''}?`,
+            options: [
+              { label: `Horário ${hh}:${String(minuto).padStart(2, '0')}`, value: 'horario', actions: comoHora },
+              { label: `Mais R$ ${minuto},00${lugar ? ' ' + lugar[1] : ''}`, value: 'valor', actions: comoValor },
+            ],
+            pendingActions: actions,
+          }
+          actions = []
+        }
       }
     }
     if (!ambiguity && actions.some(a => a.kind === 'income' || a.kind === 'expense')) {

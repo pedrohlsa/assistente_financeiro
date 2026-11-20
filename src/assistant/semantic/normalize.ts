@@ -84,7 +84,11 @@ const ESTRUTURAL: string[] = [
   'mandei', 'enviei', 'transferi', 'pix', 'para', 'minha', 'minhas', 'nossa', 'nossas', 'filha',
 ]
 
-const DICIONARIO = new Set(ESTRUTURAL)
+// Palavras corretas que ficam a uma letra de vocabulário estrutural e nunca
+// podem ser "consertadas": "meio-dia" virava "maio" (mês) e "meia" virava
+// "meta" — a hora sumia e a descrição ganhava "ao maio".
+const PALAVRAS_DE_HORA = ['meio', 'meia', 'noite', 'hora', 'horas', 'minuto', 'minutos', 'tarde', 'manha', 'madrugada']
+const DICIONARIO = new Set([...ESTRUTURAL, ...PALAVRAS_DE_HORA])
 
 /** Comprimento mínimo do token que pode ser corrigido. */
 const MIN_LEN = 4

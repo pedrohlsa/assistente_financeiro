@@ -5919,6 +5919,96 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const tres = await turnoHoje(buildState({ profile: 'autonomo' }), 'recebi 50 da Casa 1, 50 da Casa 2 e 50 da Casa 3')
     out.push(result('MV-tres-iguais', tres.actions, 'três receitas de 50 com as três origens',
       receitas(tres.actions) === '50:outros-in:Casa 1,50:outros-in:Casa 2,50:outros-in:Casa 3'))
+    // Valor por extenso: o número não existe no texto original; o pareamento
+    // de origem usa o texto com algarismos.
+    const extenso = await turnoHoje(buildState({ profile: 'driver' }), 'ontem recebi cento e vinte da Casa 2 e cento e vinte do Uber às nove')
+    out.push(result('MV-extenso-casa-e-uber', extenso.actions, 'Casa 2 em Outros, Uber em Corridas, 1 viagem, às 09:00',
+      receitas(extenso.actions) === '120:corridas:Uber,120:outros-in:Casa 2' && viagens(extenso.actions) === 1
+        && extenso.actions.filter(a => a.kind === 'income').every((a: any) => a.time === '09:00')))
+  }
+
+  // Fala do dia a dia lida pelo orquestrador: pessoa não é corrida, hora sem
+  // dígito, turno e o "30" que tanto é minuto quanto valor.
+  {
+    // Dinheiro de uma pessoa não inventa viagem nem vira corrida.
+    for (const frase of ['recebi 110 do joão ontem às 8h', 'recebi 200 da minha mãe', 'caiu 50 da maria']) {
+      const r = await turnoHoje(buildState({ profile: 'driver' }), frase)
+      out.push(result(`MF-pessoa-nao-e-corrida-${frase.split(' ')[2]}`, r.actions, 'receita em Outros, sem viagem',
+        r.actions.some(a => a.kind === 'income' && (a as any).category !== 'corridas') && !r.actions.some(a => a.kind === 'work')))
+    }
+    const controle = await turnoHoje(buildState({ profile: 'driver' }), 'recebi 110 do uber')
+    out.push(result('MF-uber-continua-corrida', controle.actions, 'Corridas com 1 viagem',
+      controle.actions.some(a => a.kind === 'income' && (a as any).category === 'corridas') && controle.actions.some(a => a.kind === 'work')))
+
+    // Meio-dia e meia-noite com preposição; "meio dia" de trabalho não é 12h.
+    const meioDia = await turnoHoje(buildState({ profile: 'autonomo' }), 'ontem paguei 25 na padaria ao meio-dia')
+    out.push(result('MF-ao-meio-dia', meioDia.actions, 'Padaria às 12:00 de ontem, sem "maio" na descrição',
+      meioDia.actions.length === 1 && (meioDia.actions[0] as any).time === '12:00' && (meioDia.actions[0] as any).description === 'Padaria'))
+    const meiaNoite = await turnoHoje(buildState({ profile: 'autonomo' }), 'ontem gastei 30 no bar à meia-noite')
+    out.push(result('MF-a-meia-noite', meiaNoite.actions, 'Bar às 00:00', (meiaNoite.actions[0] as any)?.time === '00:00'))
+    const meioDiaTrabalho = await turnoHoje(buildState({ profile: 'driver' }), 'trabalhei meio dia hoje e fiz 150')
+    out.push(result('MF-meio-dia-de-trabalho-nao-e-hora', meioDiaTrabalho.actions, 'receita de 150 sem horário 12:00',
+      meioDiaTrabalho.actions.some(a => a.kind === 'income' && a.amount === 150) && !meioDiaTrabalho.actions.some((a: any) => a.time === '12:00')))
+
+    // Hora relativa à fala, com o relógio dos testes (12:00 congelado).
+    const agora = nowPaymentTime().slice(0, 5)
+    const [ah, am] = agora.split(':').map(Number)
+    const menos = (min: number) => { const t = ah * 60 + am - min; const n = (t + 1440) % 1440; return `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}` }
+    const meiaHora = await turnoHoje(buildState({ profile: 'autonomo' }), 'gastei 37 no mercado faz meia hora')
+    out.push(result('MF-faz-meia-hora', meiaHora.actions, `Mercado às ${menos(30)}, sem "faz meia hora" na descrição`,
+      meiaHora.actions.length === 1 && (meiaHora.actions[0] as any).description === 'Mercado' && (meiaHora.actions[0] as any).time === menos(30)))
+    const vinteMin = await turnoHoje(buildState({ profile: 'autonomo' }), 'gastei 40 no posto há 20 minutos')
+    out.push(result('MF-ha-vinte-minutos', vinteMin.actions, `às ${menos(20)}`, (vinteMin.actions[0] as any)?.time === menos(20)))
+    const contradicao = await turnoHoje(buildState({ profile: 'autonomo' }), 'ontem gastei 30 faz meia hora')
+    out.push(result('MF-ontem-e-faz-meia-hora-pergunta', contradicao.reply, 'pergunta o horário, sem proposta',
+      contradicao.actions.length === 0 && /hor[áa]rio/i.test(contradicao.reply)))
+
+    // Turno do motorista: faixa vira horas trabalhadas.
+    const turno = await turnoHoje(buildState({ profile: 'driver' }), 'trabalhei ontem das 9h às 13h')
+    out.push(result('MF-turno-vira-horas', turno.actions, '4 horas ontem',
+      turno.actions.length === 1 && turno.actions[0].kind === 'work' && (turno.actions[0] as any).hours === 4 && (turno.actions[0] as any).date === addDays(hoje, -1)))
+    const turnoMeia = await turnoHoje(buildState({ profile: 'driver' }), 'trabalhei das 9 às 13 e meia')
+    out.push(result('MF-turno-e-meia', turnoMeia.actions, '4,5 horas', (turnoMeia.actions.find(a => a.kind === 'work') as any)?.hours === 4.5))
+    const turnoComReceita = await turnoHoje(buildState({ profile: 'driver' }), 'rodei das 7 às 11 e fiz 180 na uber')
+    out.push(result('MF-turno-com-receita', turnoComReceita.actions, 'receita 180 e 4 horas, sem pedir horário',
+      turnoComReceita.actions.some(a => a.kind === 'income' && a.amount === 180)
+        && (turnoComReceita.actions.find(a => a.kind === 'work') as any)?.hours === 4))
+    const madrugada = await turnoHoje(buildState({ profile: 'driver' }), 'ontem trabalhei das 22h às 2h')
+    out.push(result('MF-turno-vira-dia-pergunta', madrugada.reply, 'pergunta o dia antes de propor 4h',
+      madrugada.actions.length === 0 && /meia-noite/.test(madrugada.reply)))
+    const naoMotorista = await turnoHoje(buildState({ profile: 'autonomo' }), 'trabalhei ontem das 9h às 13h')
+    out.push(result('MF-turno-so-motorista', naoMotorista.actions, 'sem registro de trabalho fora do perfil motorista',
+      !naoMotorista.actions.some(a => a.kind === 'work')))
+
+    // "Às 9 e 30 na padaria": minuto ou valor. Pergunta; as respostas escolhem.
+    const st = buildState({ profile: 'autonomo' })
+    const frase = 'ontem paguei 50 na farmácia às 9 e 30 na padaria'
+    const t1 = await orchestrate({ state: st, message: frase, today: hoje, remoteEnabled: false })
+    out.push(result('MF-minuto-ou-valor-pergunta', t1.response.reply, 'pergunta, sem proposta',
+      t1.response.mode === 'clarify' && t1.response.actions.length === 0 && /horário \(09:30\) ou mais R\$ 30,00/.test(t1.response.reply)))
+    const resposta = async (msg: string) => (await orchestrate({ state: st, message: msg, today: hoje, remoteEnabled: false,
+      pendingClarification: t1.response.mode === 'clarify' ? t1.response.clarification : undefined, pending: t1.response.actions, focus: t1.focus })).response
+    const lido = (r: Awaited<ReturnType<typeof resposta>>) => r.actions.map(a => `${(a.action as any).amount}@${(a.action as any).time}`).join(',')
+    for (const [id, msg, esperado] of [
+      ['MF-resposta-horario', 'foi o horário', '50@09:30'],
+      ['MF-resposta-1', '1', '50@09:30'],
+      ['MF-resposta-mais', 'mais 30 na padaria', '50@09:00,30@09:00'],
+      ['MF-resposta-2', '2', '50@09:00,30@09:00'],
+      ['MF-resposta-lugar', 'eram 30 na padaria', '50@09:00,30@09:00'],
+    ] as const) {
+      const r = await resposta(msg)
+      out.push(result(id, lido(r), esperado, lido(r) === esperado))
+    }
+    const vaga = await resposta('sei lá')
+    out.push(result('MF-resposta-vaga-pergunta-de-novo', vaga.reply, 'repete a pergunta, nenhuma despesa solta',
+      vaga.actions.length === 0 && /horário/.test(vaga.reply)))
+    for (const [id, f] of [['MF-nove-e-meia-e-hora', 'ontem paguei 50 na farmácia às 9 e meia'],
+      ['MF-nove-e-trinta-sem-lugar-e-hora', 'ontem paguei 50 na farmácia às 9 e 30'],
+      ['MF-cartao-e-meio-de-pagamento', 'ontem paguei 50 na farmácia às 9 e 30 no cartão']] as const) {
+      const r = await turnoHoje(buildState({ profile: 'autonomo' }), f)
+      out.push(result(id, r.actions, '50 às 09:30, sem pergunta',
+        r.actions.length === 1 && (r.actions[0] as any).time === '09:30' && r.actions[0].amount === 50))
+    }
   }
 
   return out
