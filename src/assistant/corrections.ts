@@ -635,6 +635,55 @@ export function parseCorrection(
     }
   }
 
+  // Complemento CURTO de uma proposta única: "foi na uber", "no posto", "de
+  // salário", "foi janta", "foram 18 litros", "não, foi 250". Caíam no menu de
+  // ajuda ou em "não peguei o quê". Só com UM item na tela: com dois, o
+  // complemento não diz a quem pertence, e o fluxo de alvo acima pergunta.
+  // A viagem implícita do motorista acompanha a receita e não é outro alvo.
+  const principais = remaining.filter(x => x.action.kind !== 'work')
+  if (!touched && principais.length === 1) {
+    const p = principais[0]
+    const a: any = p.action
+    const semPrefixo = t.replace(/^(?:na\s+verdade|na\s+real|ou\s+melhor|quer\s+dizer|pensando\s+bem)\s*,?\s*/, '').replace(/[.!?]+$/, '').trim()
+    const valor = semPrefixo.match(/^n[ãa]o\s*[,;.!]+\s*(?:foi|era|deu|[ée]|foram)\s+(?:r\$\s*)?(\d+(?:[.,]\d{1,2})?)(?:\s*(?:reais|real))?$/)
+    const litros = semPrefixo.match(/^(?:foram|deu|deram|eram|s[ãa]o|foi)?\s*(\d+(?:[.,]\d+)?)\s*(?:l|lts?|litros?)$/)
+    const plataforma = semPrefixo.match(/^(?:e\s+)?(?:foi\s+|era\s+)?(?:n[oa]|pel[oa]|d[oa])\s+(uber|99|indrive[r]?)$/)
+    const deX = semPrefixo.match(/^(?:e\s+)?(?:foi\s+|era\s+)?(?:de|do|da)\s+([a-zà-úç][a-zà-úç\s]{1,30})$/)
+    const lugarCurto = semPrefixo.match(/^(?:e\s+)?(?:foi\s+|era\s+)?(?:n[oa]s?|em)\s+([a-zà-úç][a-zà-úç0-9\s]{1,40})$/)
+    const coisa = semPrefixo.match(/^(?:foi|era)\s+(?:(?:um|uma|o|a)\s+)?([a-zà-úç][a-zà-úç\s]{1,30})$/)
+    const editar = (field: string, value: unknown) => {
+      if (a[field] !== value) plan.edits.push({ id: p.id, field: field as any, value, was: a[field] })
+    }
+    const capital = (x: string) => x.charAt(0).toUpperCase() + x.slice(1)
+    if (valor && typeof a.amount === 'number') {
+      const novo = parseMoney(valor[1])
+      if (novo > 0) { editar('amount', novo); plan.summary.push(`Troquei o valor para ${fmtBRL(novo)}.`); touched = true }
+    } else if (litros && a.kind === 'fuel') {
+      const l = parseMoney(litros[1])
+      if (l > 0) { editar('liters', l); plan.summary.push(`Anotei ${String(l).replace('.', ',')} litros.`); touched = true }
+    } else if (plataforma && a.kind === 'income') {
+      const nome = /^uber$/i.test(plataforma[1]) ? 'Uber' : /^99$/.test(plataforma[1]) ? '99' : 'inDrive'
+      editar('description', nome); editar('category', 'corridas')
+      plan.summary.push(`Anotei a plataforma: ${nome}.`); touched = true
+    } else if (deX && a.kind === 'income') {
+      const fonte = deX[1].trim()
+      const cat = guessCategory(fonte, 'income')
+      if (cat) editar('category', cat)
+      if (!a.description) editar('description', capital(fonte))
+      plan.summary.push(`Anotei: ${capital(fonte)}.`); touched = true
+    } else if ((lugarCurto || coisa) && (a.kind === 'expense' || a.kind === 'income')) {
+      const nome = (lugarCurto || coisa)![1].trim()
+      // Data, cartão e categoria já tiveram sua vez acima; palavra de tempo aqui
+      // seria descrição errada ("foi hoje").
+      if (!/^(?:hoje|ontem|anteontem|agora|cedo|tarde|noite|isso|so|só|tudo|nada)$/i.test(nome)) {
+        editar('description', capital(nome))
+        const cat = guessCategory(nome, a.kind)
+        if (cat) editar('category', cat)
+        plan.summary.push(`Troquei para ${capital(nome)}.`); touched = true
+      }
+    }
+  }
+
   // Ambiguidade do gás resolvida por correção: "é GNV, não gás de cozinha"
   if (/\b[ée]\s+gnv\b/i.test(t) || /\bgnv\b.*\bn[ãa]o\b/i.test(t)) {
     for (const p of remaining) {

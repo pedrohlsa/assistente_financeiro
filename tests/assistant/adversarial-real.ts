@@ -6161,6 +6161,29 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('MP-to-tendo-lucro', lucro, 'Sim/Não com entradas e saídas', /^(?:Sim|Não) — /.test(lucro) && !/Posso te ajudar/.test(lucro)))
   }
 
+  // Complemento curto da proposta na tela, no turno seguinte.
+  {
+    const segue = async (perfil: 'driver' | 'autonomo', primeira: string, segunda: string) => {
+      const st = buildState({ profile: perfil })
+      const t1 = await orchestrate({ state: st, message: primeira, today: hoje, remoteEnabled: false })
+      const t2 = await orchestrate({ state: st, message: segunda, today: hoje, remoteEnabled: false, pending: t1.response.actions, focus: t1.focus })
+      return t2.response.actions.map(a => a.action as any)
+    }
+    const casos: [string, 'driver' | 'autonomo', string, string, (a: any[]) => boolean][] = [
+      ['MC-plataforma', 'driver', 'fiz 300 hoje', 'foi na uber', a => a.some(x => x.kind === 'income' && x.amount === 300 && x.description === 'Uber' && x.category === 'corridas')],
+      ['MC-nao-virgula-valor', 'driver', 'ganhei 200 na 99', 'não, foi 250', a => a.some(x => x.kind === 'income' && x.amount === 250) && !a.some(x => x.amount === 200)],
+      ['MC-litros', 'driver', 'abasteci 100', 'foram 18 litros', a => a.some(x => x.kind === 'fuel' && x.amount === 100 && x.liters === 18)],
+      ['MC-coisa', 'driver', 'gastei 60 de almoço', 'na verdade foi janta', a => a.length === 1 && a[0].amount === 60 && a[0].description === 'Janta'],
+      ['MC-fonte-de-renda', 'autonomo', 'recebi 2000', 'de salário', a => a.length === 1 && a[0].amount === 2000 && a[0].category === 'salario'],
+      ['MC-lugar-curto', 'autonomo', 'gastei 70', 'no posto', a => a.length === 1 && a[0].amount === 70 && a[0].description === 'Posto' && a[0].category === 'combustivel'],
+      ['MC-dois-itens-nao-chuta', 'autonomo', 'gastei 50 no mercado e 30 na farmácia', 'no posto', a => !a.some(x => x.description === 'Posto')],
+    ]
+    for (const [id, perfil, primeira, segunda, ok] of casos) {
+      const a = await segue(perfil, primeira, segunda)
+      out.push(result(id, a, `${primeira} → ${segunda}`, ok(a)))
+    }
+  }
+
   return out
 }
 
