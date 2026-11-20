@@ -179,7 +179,7 @@ const RECORD_DIRECTIVE = String.raw`(?:${RECORD_VERB})\s+(?:(?:[oa]\s+)?(?:${REC
 const EMPHATIC_PAYMENT = String.raw`foi\s+(${RECORD_NUMBER})\s+que\s+(?:eu\s+)?(gastei|paguei|recebi|ganhei)\b`
 
 const NEGATED_VERBS =
-  'gastei|gastou|paguei|pagou|pagamos|quitei|quitamos|antecipei|adiantei|recebi|recebeu|ganhei|ganhou|comprei|comprou|guardar|guardei|separei|abasteci|coloquei|botei|rodei|trabalhei|fiz|foi|era|quero|vou|registra|registre|registrar|salva|salve|anota|anote|anotar'
+  'gastei|gastou|paguei|pagou|pagamos|quitei|quitamos|antecipei|adiantei|recebi|recebeu|ganhei|ganhou|comprei|comprou|guardar|guardei|separei|abasteci|coloquei|botei|rodei|trabalhei|fiz|tocou|chamou|apareceu|foi|era|quero|vou|registra|registre|registrar|salva|salve|anota|anote|anotar'
   // Qualquer verbo de dinheiro no passado pode ser NEGADO. A lista acima
   // esquecia troquei, instalei, vendi, depositei e outros — e "nao troquei o
   // oleo por 280" registrava a manutencao mesmo assim.
@@ -736,6 +736,26 @@ export function financialEventActions(event: FinancialEvent, amount: number, dri
   return [{ kind: 'expense', amount, category: 'outros-out', description: event === 'pix' ? 'Pix enviado' : 'Devolução' }]
 }
 
+const RIDE_OFFER = /\b(?:tocou|chamou|apareceu)\s+(?:uma?\s+)?corrida\b/i
+const RIDE_REJECTION = String.raw`(?:recusei|dispensei|cancelei|deixei\s+passar|(?:n[ãa]o|nem|[nñ])\s+(?:aceitei|peguei|fiz))\b`
+const DECLINED_RIDE = new RegExp(String.raw`(?<![\p{L}\p{M}])${RIDE_REJECTION}`, 'iu')
+const DECLINED_NEXT = new RegExp(String.raw`^(?:eu\s+)?${RIDE_REJECTION}`, 'i')
+
+function offeredRideAmount(text: string): number {
+  const offer = text.match(RIDE_OFFER)
+  if (!offer) return NaN
+  const terms = text.slice(offer.index + offer[0].length)
+  const numbers = [...terms.matchAll(/(?<![\w.,])(?<currency>r\$\s*)?(?<number>\d+(?:[.,]\d+)*)(?![\d.,]\d)(?<unit>\s*(?:reais?|contos?|km|quil[oô]metros?|min(?:utos?)?|horas?|h|metros?|m|viagens?|corridas?))?\b/gi)]
+  const prices = numbers.filter(({ groups, index }) => {
+    const unit = groups.unit?.trim() || ''
+    if (unit && !/^(?:reais?|contos?)$/i.test(unit)) return false
+    const before = terms.slice(0, index)
+    return groups.currency || unit || /^(?:\s|:)*$|\b(?:de|por|valor\s+de)\s*$/i.test(before)
+  })
+  if (prices.length !== 1 || /\bou\s+(?:talvez\s+)?(?:r\$\s*)?\d/i.test(terms)) return NaN
+  return parseMoney(prices[0].groups.number)
+}
+
 const SHORT_WEEKDAYS: Record<string, string> = { seg: 'segunda', ter: 'terça', qua: 'quarta', qui: 'quinta', sex: 'sexta', sab: 'sábado', dom: 'domingo' }
 
 export function weekdayChoiceWord(text: string): string {
@@ -1112,11 +1132,14 @@ export function analyzeMessage(
     const isQuestion = !isConversation && looksLikeQuestion(part.text)
     const negated = looksNegated(part.text)
     const following = parts[i + 1]?.text || ''
+    const offeredRide = RIDE_OFFER.test(part.text)
+    const declinedRide = offeredRide && (negated || DECLINED_RIDE.test(part.text)
+      || (/\b(?:mas|e|por[ée]m)\s*$/i.test(part.text) && DECLINED_NEXT.test(following)))
     const abandoned = /\b(?:mas|por[ée]m|s[óo]\s+que)\s*$/i.test(part.text) && WISH_ABANDONED.test(part.text)
       && (looksPast(following) || ABANDONING.test(following))
     const abandonedReply = ABANDONING.test(part.text) && WISH_ABANDONED.test(parts[i - 1]?.text || '')
     const onlyPlanned = !looksPast(part.text) && /\b(?:ia|iria)\s+/i.test(part.text) && declaresIntention(part.text)
-    const unrealized = !isQuestion && (abandoned || abandonedReply || onlyPlanned || ALMOST_HAPPENED.test(part.text))
+    const unrealized = !isQuestion && (abandoned || abandonedReply || onlyPlanned || declinedRide || ALMOST_HAPPENED.test(part.text))
     const canShareContext = !isQuestion && !isConversation && !negated && !unrealized
     const originalMoney = spokenMoney(expandWeekdayAlternatives(part.text))
     const forParserRaw = spokenMoney(expandWeekdayAlternatives(aligned ? normalizedParts[i].text : normalized))
@@ -1405,15 +1428,17 @@ export function analyzeMessage(
     }
 
     const requestedPix = /\b(?:pediu|pediram|solicitou|solicitaram)\b[^.;!?]*\bpix\b|\bpix\b[^.;!?]*\b(?:pediu|pediram|solicitou)\b/i.test(part.text)
-    const offeredRide = /\b(?:tocou|chamou|apareceu)\s+(?:uma?\s+)?corrida\b/i.test(part.text)
     const refund = /\b(?:devolvi|devolveu|estornei|estornou)\b/i.test(part.text)
-    if (requestedPix || offeredRide || refund) {
+    if (declinedRide) {
+      actions = []
+      ambiguity = undefined
+    } else if (requestedPix || offeredRide || refund) {
       actions = []
       const event: FinancialEvent = requestedPix ? 'pix' : offeredRide ? 'ride' : 'refund'
       const value = requestedPix
         ? parseFirstAmount(semData.match(/\bpix\s+(?:(?:de|no\s+valor\s+de)\s+)?(?:r\$\s*)?\d+(?:[.,]\d+)*/i)?.[0] || '')
         : refund ? parseFirstAmount(part.text.match(/\b(?:devolvi|devolveu|estornei|estornou)\b[^.;!?]*?\d+(?:[.,]\d+)*/i)?.[0] || part.text)
-          : parseFirstAmount(part.text)
+          : offeredRideAmount(semData)
       const amount = Number.isFinite(value) ? `R$ ${value.toFixed(2).replace('.', ',')}` : ''
       const yesActions = financialEventActions(event, value, !!opts?.driver)
       ambiguity = { field: 'financial-event', financialEvent: event, question: requestedPix

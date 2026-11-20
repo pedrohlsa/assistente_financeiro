@@ -6238,3 +6238,13 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - O Chrome confirmou os dois lotes e a escolha de saída de R$ 22.
   Seis novos casos de corpus passaram com os testes locais, os
   typechecks, o build e a rubrica.
+
+## 20/11/2026 — Distância e preço em corrida oferecida
+
+- “Tocou corrida de 12 km por 70” guarda R$ 70 como valor a confirmar.
+  Distância e duração sem preço não viram receita. Preços alternativos
+  esperam o valor efetivamente recebido.
+- “Recusei”, “n aceitei” e “não tocou” encerram a oferta.
+- O Chrome confirmou R$ 70 e uma viagem sem copiar os 12 km como
+  distância trabalhada. Suíte com 798/798 regressões reais e os
+  typechecks, build, invariantes e avaliação remota offline passaram.

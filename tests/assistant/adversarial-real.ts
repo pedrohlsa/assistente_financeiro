@@ -813,6 +813,24 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   out.push(result('H7-corrida-continuacao', rideYes.response, 'sim propõe receita R$ 70 para confirmação',
     rideYes.response.mode === 'propose_actions'
       && rideYes.response.actions.some(a => a.action.kind === 'income' && a.action.amount === 70)))
+  const rideDriver = buildState({ profile: 'driver' })
+  const ride = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({ state: rideDriver, message,
+    today: TODAY, remoteEnabled: false, pendingClarification: answerChoices(prior) })
+  const withDistance = await ride('tocou corrida de 12 km por 70')
+  const onlyDistance = await ride('tocou corrida de 8 km e 40 minutos')
+  const uncertainFare = await ride('tocou corrida de 70 ou 80')
+  const exactFare = await ride('recebi 77,25 ontem', uncertainFare)
+  const acceptedFare = await ride('sim', withDistance)
+  const declinedOffers = await Promise.all(['tocou corrida de 70 mas recusei', 'tocou corrida de 70, mas n aceitei',
+    'não tocou corrida de 70'].map(message => ride(message)))
+  out.push(result('H7-medida-na-corrida-oferecida-nao-vira-dinheiro', { price: withDistance.response, onlyDistance: onlyDistance.response,
+    uncertain: uncertainFare.response, actualFare: exactFare.response, declined: declinedOffers.map(r => r.response) },
+    'o preço é R$ 70, quilômetros e duração não viram receita, preço alternativo pede o valor e recusa encerra a oferta',
+    /R\$\s70,00/.test(withDistance.response.reply) && !/R\$\s12,00/.test(withDistance.response.reply)
+      && answerChoices(onlyDistance)?.options?.length === 0 && answerChoices(uncertainFare)?.options?.length === 0
+      && exactFare.response.actions.map(a => a.action).some(a => a.kind === 'income' && a.amount === 77.25 && a.date === addDays(TODAY, -1))
+      && acceptedFare.response.actions.length === 2 && acceptedFare.response.actions.map(a => a.action).some(a => a.kind === 'work' && a.trips === 1 && !a.km)
+      && declinedOffers.every(r => r.response.mode !== 'clarify' && !r.response.actions.length)))
   const refundFirst = await orchestrate({ state: buildState(), message: 'Recebi 70, mas devolvi 20', today: TODAY, remoteEnabled: false })
   const refundYes = await orchestrate({ state: buildState(), message: 'sim', today: TODAY, remoteEnabled: false,
     pending: refundFirst.response.actions,
