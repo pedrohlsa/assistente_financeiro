@@ -7,6 +7,7 @@
 
 import type { ParsedAction } from '../models/types'
 import type { AssistantConfidence, AssistantIntent, FinancialEvent } from './contracts'
+import { guessCategory } from '../data/categories'
 import { cleanDescription, gruposDeCorrida, looksRecurring, parseNaturalFull } from '../services/nlp'
 import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
@@ -170,6 +171,10 @@ const COMPLETED_MONEY = String.raw`(?:acabei|terminei)\s+(?:de\s+)?(?:${Object.k
 const RECORD_VERB = 'anot[ae]|registr[ae]|lan[cç][ae]|salv[ae]'
 const RECORD_TYPE = 'despesa|gasto|receita|entrada'
 const RECORD_NUMBER = String.raw`(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?`
+const CASH_PAIR_VALUE = String.raw`(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+(?:reais?|contos?|pila))?`
+const CASH_PAIR_PLACE = 'mercado|supermercado|padaria|farm[áa]cia|a[cç]ougue|feira|[ôo]nibus|metr[ôo]|almo[cç]o|lanche|jantar|caf[ée]|estacionamento'
+const PLACE_FIRST = new RegExp(String.raw`^(?:(?:o|a|no|na|em|com)\s+)?(${CASH_PAIR_PLACE})\s+(${CASH_PAIR_VALUE})$`, 'i')
+const ORIGIN_FIRST = new RegExp(String.raw`^(d[ao]s?)\s+(.+?)\s+(${CASH_PAIR_VALUE})(?:\s+de\s+(aluguel|comiss[ãa]o|freela|freelance|sal[áa]rio))?$`, 'i')
 const RECORD_DIRECTIVE = String.raw`(?:${RECORD_VERB})\s+(?:(?:[oa]\s+)?(?:${RECORD_TYPE})|${RECORD_NUMBER}\s+de\s+(?:${RECORD_TYPE}))`
 const EMPHATIC_PAYMENT = String.raw`foi\s+(${RECORD_NUMBER})\s+que\s+(?:eu\s+)?(gastei|paguei|recebi|ganhei)\b`
 
@@ -221,6 +226,44 @@ function spokenMoney(text: string): string {
       (_m, form: keyof typeof COMPLETED_FORMS) => COMPLETED_FORMS[form.toLowerCase()])
     .replace(new RegExp(String.raw`\b(${PAST_MONEY_VERBS})\s+(?:exatamente|precisamente|certinh[oa]s?)\s+(?=(?:r\$\s*)?\d)`, 'gi'), '$1 ')
     .replace(new RegExp(String.raw`(\b(?:${PAST_MONEY_VERBS})\s+(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?)\s+(?:exat[oa]s?|certinh[oa]s?)\b`, 'gi'), '$1')
+}
+
+type CashPair = { kind: 'income' | 'expense'; command: string; amount: number; name: string }
+
+function cashPair(text: string): CashPair | undefined {
+  const cleaned = text.trim().replace(/[,;.!?]+$/, '').trim()
+  const place = cleaned.match(PLACE_FIRST)
+  if (place) return { kind: 'expense', command: `gastei ${place[2]} em ${place[1]}`, amount: parseFirstAmount(place[2]), name: place[1] }
+  const source = cleaned.match(ORIGIN_FIRST)
+  if (source) {
+    const original = `${source[1]} ${source[2]}`
+    const origin = extractOrigins(original)[0]?.value
+    if (origin && normalizeName(origin) === normalizeName(source[2])) {
+      const detail = source[4] ? ` de ${source[4]}` : ''
+      return { kind: 'income', command: `recebi ${source[3]}${detail} ${original}`, amount: parseFirstAmount(source[3]), name: origin }
+    }
+  }
+  return undefined
+}
+
+function cashPairCommand(text: string, inherited?: 'income' | 'expense'): string {
+  const first = text.match(/^(?:eu\s+)?(gastei|paguei|recebi|ganhei)\s+/i)
+  const direction = first ? /^(?:gastei|paguei)$/i.test(first[1]) ? 'expense' : 'income' : inherited
+  if (!direction) return text
+  const pair = cashPair(first ? text.slice(first[0].length) : text)
+  return pair?.kind === direction ? pair.command : text
+}
+
+function cashPairDirection(pair: CashPair, date?: string, dateMissing = false): AnalyzedClause['ambiguity'] {
+  const detail = pair.kind === 'income' ? { origin: pair.name } : { description: cleanDescription(pair.name) }
+  return {
+    field: 'money-direction',
+    question: `Os ${fmtBRL(pair.amount)} de ${pair.name} foram uma entrada ou uma saída?${dateMissing ? ' Informe também a data.' : ''}`,
+    options: dateMissing ? [] : [
+      { label: 'Entrada', actions: [{ kind: 'income', amount: pair.amount, category: 'outros-in', ...detail, date }] },
+      { label: 'Saída', actions: [{ kind: 'expense', amount: pair.amount, category: guessCategory(pair.name, 'expense'), ...detail, date }] },
+    ],
+  }
 }
 
 const hasAny = (t: string, list: RegExp[]) => list.some(r => r.test(t))
@@ -475,6 +518,16 @@ export function segment(text: string, today = todayISO()): { text: string; start
   // cimento" era cortado no meio e a descrição se perdia.
   for (const m of text.matchAll(new RegExp(String.raw`[,;]?\s+${CONNECTORS}(?=(?:${COMMAND_VERBS})\b)`, 'gi'))) {
     push((m.index || 0) + m[0].length)
+  }
+  // Em uma enumeração, “mercado 55, farmácia 21” pode usar o verbo que
+  // abriu a frase. Cada par precisa ter valor e destino próprios.
+  for (const m of text.matchAll(/(?:,\s*(?:e\s+)?|\s+e\s+)(?=\p{L})/giu)) {
+    const after = m.index + m[0].length
+    const left = text.slice(0, m.index).split(/[.!?;]\s+/).pop() || ''
+    if (!looksPast(left) || looksLikeQuestion(left) || looksNegated(left)) continue
+    const right = text.slice(after).split(/[!?;]|,(?!\d)|\s+e\s+/i)[0]
+    if (cashPair(normalizeNumberWords(right).text)
+      || /^(?:o\s+)?(?:sal[áa]rio|freela|freelance|comiss[ãa]o)\s+(?:entrou|caiu|pingou)\s+(?:r\$\s*)?\d/i.test(right)) push(after)
   }
   // O verbo seguinte pode estar ilegível. Quando há outro valor seguido de
   // uma origem explícita, a fonte à direita não pertence ao primeiro relato.
@@ -1151,7 +1204,12 @@ export function analyzeMessage(
     const antesDoReembolso = reembolso && maisReembolso ? fala.slice(0, maisReembolso.index).trim() : fala
     const extraDaFatura = isInvoicePaymentStatement(antesDoReembolso) ? [...antesDoReembolso.matchAll(INVOICE_EXTRA_AMOUNT)][0] : undefined
     const comandoPrincipal = extraDaFatura ? antesDoReembolso.slice(0, extraDaFatura.index).trim() : antesDoReembolso
-    const parsed = parseNaturalFull(comandoPrincipal, { driver: opts?.driver, dayHint, inheritedKind })
+    const linkedPair = /(?:,\s*(?:e\s+)?|\s+e\s+)$/i.test(original.slice(0, part.start))
+    const barePair = canShareContext && linkedPair && inheritedKind ? cashPair(comandoPrincipal) : undefined
+    const unclearDirection = barePair && barePair.kind !== inheritedKind ? barePair : undefined
+    const comando = canShareContext ? cashPairCommand(comandoPrincipal, linkedPair ? inheritedKind : undefined) : comandoPrincipal
+    const parsed = unclearDirection ? { actions: [], ambiguity: undefined }
+      : parseNaturalFull(comando, { driver: opts?.driver, dayHint, inheritedKind })
     const fatura = parsed.actions.find(a => a.kind === 'card-payment')
     const resolved = datesOriginal.length ? datesOriginal : datesParser
     const datasDitas = resolved.filter(d => d.kind === 'date' || d.kind === 'future').map(d => d.date)
@@ -1254,6 +1312,11 @@ export function analyzeMessage(
     }
     if (canShareContext && date) { inheritedDate = date; inheritedLabel = dLabel }
     else if (canShareContext && !date && inheritedDate && !temporal && !dateAmbiguity) { date = inheritedDate; dLabel = inheritedLabel }
+    if (unclearDirection) {
+      ambiguity = cashPairDirection(unclearDirection, date, !!temporal || !!dateAmbiguity)
+      temporal = undefined
+      dateAmbiguity = undefined
+    }
 
     // Origem por posição: "recebi 1800 da Casa 1, mais 1750 da Casa 2" tem duas
     // fontes numa cláusula só. Quando a quantidade de origens bate com a de

@@ -6226,3 +6226,15 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - O Chrome confirmou o gasto de R$ 75 após trocar de tela duas vezes.
   No recarregamento completo, a proposta pendente foi descartada,
   conforme a regra de reidratação, e o gasto já confirmado foi mantido.
+
+## 20/11/2026 — Relatos enumerados sem repetir o verbo
+
+- “Paguei 50 no mercado e a farmácia 20” prepara as duas despesas.
+  “Ontem paguei mercado 55, farmácia 21 e freela entrou 260” mantém
+  ontem nos três lançamentos. “Recebi da Casa 2 1.234,56 de aluguel”
+  distingue o número do imóvel do valor.
+- Se o relato de duas entradas termina em “e padaria 22”, pergunta
+  se o último valor entrou ou saiu e preserva os dois recebimentos.
+- O Chrome confirmou os dois lotes e a escolha de saída de R$ 22.
+  Seis novos casos de corpus passaram com os testes locais, os
+  typechecks, o build e a rubrica.

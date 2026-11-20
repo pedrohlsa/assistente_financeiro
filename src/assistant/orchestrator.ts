@@ -1382,6 +1382,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const invoiceChoice = pc.field === 'invoice-reference'
     const dateChoice = pc.field === 'date' || pc.field === 'date-choice'
     const amountChoice = pc.field === 'amount-choice'
+    const directionChoice = pc.field === 'money-direction'
     const pendingCorrection = pc.field?.startsWith('pending-correction')
     // Para dinheiro, só uma resposta inequívoca aceita a ação antiga. "assim"
     // contém "sim", e "sim, mandei só 10" altera o valor da proposta.
@@ -1389,11 +1390,14 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const negativeAnswer = financialEvent && /^(?:nao|nem)(?:\b|$)/.test(simpleAnswer)
     const amount = amountChoice ? exactMoneyAnswer(input.message) : undefined
     const correctionChoice = pendingCorrection ? pendingCorrectionAnswer(pc, input.message, today) : undefined
+    const direction = directionChoice && /^(?:foi\s+)?(?:gasto|despesa|saiu|gastei)$/.test(simpleAnswer) ? 'saida'
+      : directionChoice && /^(?:foi\s+)?(?:receita|recebi|entrou|recebimento)$/.test(simpleAnswer) ? 'entrada' : undefined
     const hit = invoiceChoice ? matchInvoiceChoice(pc.options, input.message) : pc.options.find(o => amountChoice
       ? (normalizeName(o.label) === simpleAnswer || (amount > 0 && amount === parseMoney(o.label)))
-      : financialEvent || fixedBillChoice || fixedBillLink || dateChoice || pendingCorrection
+      : financialEvent || fixedBillChoice || fixedBillLink || dateChoice || pendingCorrection || directionChoice
       ? (normalizeName(o.label) === simpleAnswer || normalizeName(o.value) === simpleAnswer
         || (correctionChoice !== undefined && normalizeName(o.value) === correctionChoice)
+        || (direction !== undefined && normalizeName(o.label) === direction)
         || (negativeAnswer && normalizeName(o.label) === 'nao'))
       : (normalizeName(o.label) === said || normalizeName(o.value) === said ||
         (said.length > 2 && (normalizeName(o.label).includes(said) || said.includes(normalizeName(o.label))))))
@@ -1416,7 +1420,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
           }
           validated.push(checked.action)
         }
-        const previous = financialEvent || fixedBillChoice || fixedBillLink || invoiceChoice || amountChoice ? input.pending || [] : []
+        const previous = financialEvent || fixedBillChoice || fixedBillLink || invoiceChoice || amountChoice || directionChoice ? input.pending || [] : []
         if (fixedBillChoice && validated.length === 1 && validated[0].kind === 'recurring-confirm') {
           const link = recurringLinkChoice(input.state, validated[0], today)
           if (link) return {
@@ -1455,7 +1459,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
         },
       }
     }
-    if ((invoiceChoice || fixedBillLink || amountChoice || pendingCorrection) && !looksPast(input.message) && !looksLikeQuestion(input.message)) {
+    if ((invoiceChoice || fixedBillLink || amountChoice || pendingCorrection || directionChoice) && !looksPast(input.message) && !looksLikeQuestion(input.message)) {
       return {
         draft: null, keepPending: true,
         response: {
