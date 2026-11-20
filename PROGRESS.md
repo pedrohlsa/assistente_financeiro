@@ -6018,3 +6018,15 @@ APK ou chamada paga. NOT READY até auditoria independente.
   Uma parcela paga bloqueou tanto a proposta quanto a confirmação feita
   depois da baixa. Suíte com 775/775 regressões, 151 invariantes,
   typechecks, build e rubrica passaram.
+
+## 20/11/2026 — Faturas de cartões arquivados
+
+- Arquivar um cartão retira o limite disponível e os atalhos de compra.
+  Faturas, histórico, vencimentos e projeções continuam usando o mesmo
+  valor em aberto. Consultas e simulações do assistente leem a fatura
+  arquivada; a baixa pode ser registrada na tela do cartão.
+- A projeção e os compromissos também usam o saldo de parcelas avulsas
+  pagas parcialmente em backups legados.
+- O Chrome preservou os R$ 150 que faltavam na fatura e confirmou a
+  quitação pela tela. Suíte com 777/777 regressões, 151 invariantes,
+  typechecks, build e rubrica passaram.

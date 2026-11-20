@@ -297,8 +297,8 @@ function CardsTab({ onAddCard, onAddPurchase, onAddCharge }: { onAddCard: () => 
                 {inv.pending > 0 && (
                   <button className="btn btn-primary btn-sm" onClick={() => setPaying({ card, mk: inv.monthKey })}>Pagar fatura</button>
                 )}
-                <button className="btn btn-soft btn-sm" onClick={onAddPurchase}>Nova compra</button>
-                <button className="btn btn-soft btn-sm" onClick={onAddCharge}>Assinatura</button>
+                {!card.archived && <button className="btn btn-soft btn-sm" onClick={onAddPurchase}>Nova compra</button>}
+                {!card.archived && <button className="btn btn-soft btn-sm" onClick={onAddCharge}>Assinatura</button>}
                 <button className="btn btn-soft btn-sm" onClick={() => setEditing(card)}>Editar</button>
                 <button className="btn btn-soft btn-sm" onClick={() => {
                   dispatch({ type: 'updateCard', id: card.id, patch: { archived: !card.archived } })

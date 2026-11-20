@@ -4,8 +4,8 @@ import type { AppState } from '../../src/models/types'
 import { orchestrate } from '../../src/assistant/orchestrator'
 import { segment } from '../../src/assistant/clauses'
 import { findDate } from '../../src/assistant/dates'
-import { balanceOutlook, balanceOutlookText, budgetUsage, currentBalance, kmCost, monthlyProjections, occurrencesBetween, pendingRecurrings, periodStats, possibleRecurringTransactions, recurringLinkAction, transactionOccurrence, upcomingBills } from '../../src/services/calc'
-import { buildInstallments, cardInvoice, cardOutstanding, cardsOverview, futureInstallmentPaymentDate, invoiceOpenAmount, planProgress } from '../../src/services/cards'
+import { balanceOutlook, balanceOutlookText, budgetUsage, cashObligationsUntil, currentBalance, kmCost, monthlyProjections, occurrencesBetween, pendingRecurrings, periodStats, possibleRecurringTransactions, recurringLinkAction, transactionOccurrence, upcomingBills } from '../../src/services/calc'
+import { buildInstallments, cardInvoice, cardOutstanding, cardsOverview, commitmentTimeline, futureInstallmentPaymentDate, invoiceOpenAmount, planProgress } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
 import { buildCapabilities } from '../../src/assistant/capabilities'
 import { isValidationFailure, validateAction } from '../../src/assistant/contracts'
@@ -4544,6 +4544,39 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       currentBalance(balanceEdited) === 623 && edited.applied && edited.state.transactions[0].amount === 151
         && isRevertFailure(balanceDenied) && balanceDenied.code === 'batch-changed'
         && isRevertFailure(editDenied) && editDenied.code === 'batch-changed'))
+
+    const due = addDays(hoje, 4)
+    const card = { ...receita.cards[0], dueDay: Number(due.slice(8)), closingDay: 1, limit: 1000 }
+    const archivePlan = { ...plano, totalAmount: 200, installmentCount: 1, firstDueDate: due }
+    const activeCard: AppState = { ...receita, cards: [card], installmentPlans: [archivePlan],
+      installments: [{ ...novas[0], total: 1, dueDate: due, amount: 200 }],
+      cardCharges: [{ id: 'assinatura-arquivada', cardId: card.id, description: 'Assinatura',
+        active: true, frequency: 'monthly', amount: 50, nextDate: due, createdAt: hoje }],
+      cardPayments: [{ ...payment, cardId: card.id, referenceMonth: due.slice(0, 7), amount: 100 }],
+    }
+    const archivedCard = reducer(activeCard, { type: 'updateCard', id: card.id, patch: { archived: true } })
+    const obligations = cashObligationsUntil(archivedCard, due, hoje)
+    const projected = monthlyProjections(archivedCard, 2, hoje)
+    const timeline = commitmentTimeline(archivedCard, hoje, due)
+    const getInvoice = await turnoHoje(archivedCard, 'quanto falta pagar da fatura do Inter?')
+    const simulate = await turnoHoje(archivedCard, 'se eu pagar a fatura do Inter?')
+    out.push(result('ARCH-cartao-arquivado-preserva-projecao-fatura-e-pagamento', { obligations, timeline,
+      projected: projected.map(m => m.installments), fatura: getInvoice.reply, simulacao: simulate.reply },
+      'arquivar preserva os R$ 150 em aberto e o débito já pago; deixa de oferecer os R$ 1.000 de limite para compra nova',
+      currentBalance(archivedCard) === 900 && obligations.length === 1 && obligations[0].kind === 'invoice' && obligations[0].amount === 150
+        && JSON.stringify(projected) === JSON.stringify(monthlyProjections(activeCard, 2, hoje))
+        && projected.find(m => m.monthKey === due.slice(0, 7))?.installments === 150
+        && timeline.length === 1 && timeline[0].kind === 'invoice' && timeline[0].amount === 250
+        && cardsOverview(archivedCard).totalLimit === 0 && cardsOverview(activeCard).totalLimit === 1000
+        && /150,00/.test(getInvoice.reply) && /750,00/.test(simulate.reply) && !getInvoice.actions.length && !simulate.actions.length))
+
+    const standalone: AppState = { ...parcial, installments: [{ ...parcial.installments[0], dueDate: due }] }
+    const obligationsSingle = cashObligationsUntil(standalone, due, hoje)
+    const monthlySingle = monthlyProjections(standalone, 2, hoje).find(m => m.monthKey === due.slice(0, 7))
+    out.push(result('FPAR-saldo-avulso-entra-em-obrigacoes-e-projecao', { obligationsSingle, monthlySingle },
+      'a projeção inclui exatamente os R$ 60 restantes da parcela avulsa marcada como paga',
+      obligationsSingle.length === 1 && obligationsSingle[0].kind === 'installment' && obligationsSingle[0].amount === 60
+        && monthlySingle?.installments === 60 && monthlySingle.runningBalance === 940))
   }
 
   {

@@ -108,8 +108,8 @@ function categoriaDe(state: AppState, t: string): string | undefined {
   return undefined
 }
 
-function cartaoDe(state: AppState, t: string): string | undefined {
-  for (const c of activeCards(state)) {
+function cartaoDe(state: AppState, t: string, cards = activeCards(state)): string | undefined {
+  for (const c of cards) {
     const n = normalizeName(c.name)
     if (n.length >= 3 && t.includes(n)) return c.name
   }
@@ -327,9 +327,10 @@ function planSingleScenario(
   if (/\bparar\s+de\s+(?:guardar|poupar|juntar|separar)\b/.test(t)) return null
 
   // ---- pagar a fatura -----------------------------------------------------
+  const cartaoDaFatura = cartaoDe(state, t, state.cards || [])
   if (/\bpagar\s+(?:a\s+)?fatura\b|\bquitar\s+(?:a\s+)?fatura\b/.test(t)
-    || (!!cartaoDe(state, t) && /\b(?:pagar|quitar)\b[^?]*\binteir[oa]\b/.test(t))) {
-    return base('pay-invoice', { cardName: cartaoDe(state, t) }, 'pagar a fatura')
+    || (!!cartaoDaFatura && /\b(?:pagar|quitar)\b[^?]*\binteir[oa]\b/.test(t))) {
+    return base('pay-invoice', { cardName: cartaoDaFatura }, 'pagar a fatura')
   }
 
   // ---- entrada que não vem ------------------------------------------------

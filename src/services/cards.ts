@@ -575,7 +575,7 @@ export function cardsOverview(s: AppState): CardsOverview {
   const thisMk = monthKey(t)
   const d = fromISO(t)
   const nextMk = monthKey(toISO(new Date(d.getFullYear(), d.getMonth() + 1, 1)))
-  const cards = activeCards(s)
+  const cards = s.cards || []
 
   const openInvoicesTotal = round2(cards.reduce((a, c) => a + currentInvoice(s, c).pending, 0))
   const nextInvoicesTotal = round2(cards.reduce((a, c) => a + cardInvoice(s, c, nextMk).pending, 0))
@@ -589,8 +589,9 @@ export function cardsOverview(s: AppState): CardsOverview {
     return sum + Math.max(pending - unallocatedInstallmentPayments(s, c.id), 0)
   }, 0)
   const totalDebt = round2(noCardDebt + cardPlanDebt)
-  const totalLimit = round2(cards.reduce((a, c) => a + (c.limit || 0), 0))
-  const usedLimit = round2(cards.reduce((a, c) => a + cardOutstanding(s, c.id), 0))
+  const usableCards = activeCards(s)
+  const totalLimit = round2(usableCards.reduce((a, c) => a + (c.limit || 0), 0))
+  const usedLimit = round2(usableCards.reduce((a, c) => a + cardOutstanding(s, c.id), 0))
   const overdue = overdueInstallments(s)
 
   return {
@@ -629,7 +630,7 @@ export function commitmentTimeline(s: AppState, fromDate: string, toDate: string
 
   // faturas de cartão (agregam as parcelas do próprio cartão)
   const seenInvoice = new Set<string>()
-  for (const card of activeCards(s)) {
+  for (const card of s.cards || []) {
     let cursor = fromISO(fromDate)
     const end = fromISO(toDate)
     while (cursor <= end) {

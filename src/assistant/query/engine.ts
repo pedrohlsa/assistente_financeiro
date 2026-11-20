@@ -14,7 +14,7 @@ import { catById } from '../../data/categories'
 import { addDays, fromISO, monthKey, monthShortLabel, todayISO, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase, weekdayName } from '../../utils/text'
 import {
-  activeCards, cardById, cardInvoice, cardOutstanding, invoiceOpenAmount, planProgress,
+  cardById, cardInvoice, cardOutstanding, invoiceOpenAmount, planProgress,
 } from '../../services/cards'
 import { monthlyProjections, occurrencesBetween, recurringActiveOn, recurringOccurrenceState } from '../../services/calc'
 import type {
@@ -115,7 +115,7 @@ function rowsOf(state: AppState, plan: AssistantQueryPlan, today: string): Query
         const mk = monthKey(toISO(cursor))
         if (!mesesVistos.has(mk)) {
           mesesVistos.add(mk)
-          for (const c of activeCards(state)) {
+          for (const c of state.cards || []) {
             const inv = cardInvoice(state, c, mk, today)
             // O pendente é o do caixa: parcela marcada como paga (mesmo sem
             // data) não deixa a fatura "atrasada" aqui e quitada na resposta
@@ -578,7 +578,7 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
     && plan.metric === 'sum' && plan.group === 'none' && !plan.comparePeriod
     && plan.filter.cardNames?.length === 1 && !plan.filter.text
     && !plan.filter.categories?.length && !plan.filter.status?.length
-    ? activeCards(state).find(c => c.name === plan.filter.cardNames![0]) : undefined
+    ? (state.cards || []).find(c => c.name === plan.filter.cardNames![0]) : undefined
   if (cardDebt) total = cardOutstanding(state, cardDebt.id)
   let base = 0
   // "Por dia" divide pelos dias CORRIDOS. Para quem não trabalha todo dia, o
@@ -765,7 +765,7 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
     && Object.keys(plan.filter).every(k => k === 'cardNames' || k === 'excludeCardNames')) {
     const incluidos = plan.filter.cardNames?.map(normalizeName) || []
     const excluidos = plan.filter.excludeCardNames?.map(normalizeName) || []
-    const cartoes = new Set(activeCards(state).filter(c => {
+    const cartoes = new Set((state.cards || []).filter(c => {
       const nome = normalizeName(c.name)
       return (!incluidos.length || incluidos.includes(nome)) && !excluidos.includes(nome)
     }).map(c => c.id))

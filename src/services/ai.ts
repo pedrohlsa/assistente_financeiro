@@ -667,7 +667,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   const ov = cardsOverview(s)
   // "Limite no Nubank" é pergunta de cartão mesmo sem a palavra "cartão"; e
   // "quando acaba a geladeira" é do parcelamento, citado pelo nome.
-  if (/parcela|fatura|cart[ãa]o|parcelamento|d[ií]vida/.test(t) || (pedeLimite(t) && activeCards(s).length > 0) || pedeDividaTotal(t)
+  if (/parcela|fatura|cart[ãa]o|parcelamento|d[ií]vida/.test(t) || (pedeLimite(t) && s.cards?.length > 0) || pedeDividaTotal(t)
     || pedeListaDeParcelamentos(t)
     || (planoCitado(s, t) && (FIM_DO_PLANO.test(t) || COMPRA_DO_PLANO.test(t) || /\b(?:antecip|adiantei\b|adiantar\b)/.test(t)))) {
     const sobreFatura = perguntaDeFatura(t)
@@ -676,7 +676,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
       return { text: 'Você ainda não cadastrou cartões nem parcelamentos. Você pode adicionar em Mais → Cartões e parcelamentos.' }
     }
     if (pedeAntecipacaoDeFatura(t)) return { text: 'Para preparar uma antecipação no chat, diga qual cartão você já pagou, o valor e o mês de vencimento da fatura. Em Mais → Cartões e parcelamentos, você pode conferir a fatura desse mês.' }
-    if (sobreFatura && activeCards(s).length) return respostaDaFatura(s, t, sobreFatura)
+    if (sobreFatura && s.cards?.length) return respostaDaFatura(s, t, sobreFatura)
     // Antecipar parcela não tem ação no chat; a tela tem ("Antecipar 1/2").
     // Antes: o resumo dos cartões, como se a pessoa tivesse perguntado outra coisa.
     const p = planoCitado(s, t)
@@ -695,7 +695,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
 
     // "qual será minha maior fatura?"
     if (/maior fatura/.test(t)) {
-      const all = activeCards(s).flatMap(c => upcomingInvoices(s, c, 6).map(inv => ({ card: c.name, inv })))
+      const all = (s.cards || []).flatMap(c => upcomingInvoices(s, c, 6).map(inv => ({ card: c.name, inv })))
         .filter(x => x.inv.total > 0)
         .sort((a, b) => b.inv.total - a.inv.total)
       if (!all.length) return { text: 'Não há faturas previstas com valor nos próximos meses.' }
@@ -732,9 +732,10 @@ function resolveLocal(s: AppState, input: string): AiReply {
     // "quanto tenho de limite"
     if (/limite/.test(t)) {
       // "…de limite NO NUBANK": o cartão citado, não a soma de todos.
-      const doCartao = cartoesDaPergunta(s, t)
+      const doCartao = cartoesDaPergunta(s, t, s.cards || [])
       if (doCartao.length === 1) {
         const c = doCartao[0]
+        if (c.archived) return { text: `O cartão ${c.name} está arquivado. O limite dele fica fora do seu crédito disponível. As faturas continuam no histórico.` }
         if (!(c.limit > 0)) return { text: `Você não informou o limite do ${c.name}. Dá pra cadastrar em Mais → Cartões e parcelamentos.` }
         const usado = round2(cardOutstanding(s, c.id))
         return { text: `O ${c.name} tem limite de ${fmtBRL(c.limit)}. Comprometido em parcelas e compras: ${fmtBRL(usado)}. Disponível: ${fmtBRL(round2(Math.max(c.limit - usado, 0)))}. (dados reais)` }
@@ -744,13 +745,13 @@ function resolveLocal(s: AppState, input: string): AiReply {
     }
 
     // resumo geral de fatura/parcelas
-    const cardsList = activeCards(s)
+    const cardsList = s.cards || []
     if (cardsList.length) {
       return {
         text: `Situação dos seus cartões (dados reais):\n\n` +
           cardsList.map(c => {
             const inv = currentInvoice(s, c)
-            return `• ${c.name}: fatura de ${fmtBRL(inv.total)}${inv.paid > 0 ? ` (pago ${fmtBRL(inv.paid)}, pendente ${fmtBRL(inv.pending)})` : ''} — vence ${fromISO(inv.dueDate).toLocaleDateString('pt-BR')} · ${inv.status}`
+            return `• ${c.name}${c.archived ? ' (arquivado)' : ''}: fatura de ${fmtBRL(inv.total)}${inv.paid > 0 ? ` (pago ${fmtBRL(inv.paid)}, pendente ${fmtBRL(inv.pending)})` : ''} — vence ${fromISO(inv.dueDate).toLocaleDateString('pt-BR')} · ${inv.status}`
           }).join('\n') +
           `\n\nParcelas deste mês: ${fmtBRL(ov.installmentsThisMonth)}. Dívida parcelada restante: ${fmtBRL(ov.totalDebt)}.`,
       }
@@ -1580,7 +1581,7 @@ function devidasDa(f: SituacaoDaFatura): { valor: number; data: string; linha: s
  */
 function respostaDaFatura(s: AppState, t: string, tipo: PerguntaDeFatura): AiReply {
   const historico = tipo === 'pagamentos' || tipo === 'valor-pago'
-  const disponiveis = historico ? s.cards || [] : activeCards(s)
+  const disponiveis = s.cards || []
   const citados = cartoesDaPergunta(s, t, disponiveis)
   if (!citados.length) {
     const dito = t.match(/\bfaturas?\s+d[oa]s?\s+(?:meu\s+|minha\s+)?(?:cartao\s+(?:d[oa]\s+)?)?([a-z][a-z0-9]*)/)

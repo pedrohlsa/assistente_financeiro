@@ -2,7 +2,7 @@
 import { AppState, Insight, IntervalUnit, ParsedAction, RecurrenceOccurrence, RecurringExpense, Transaction } from '../models/types'
 import { addDays, dateForDayOfMonth, daysInMonth, dueLabel, fmtBRL, fmtNum, fromISO, MESES_PT_BR, monthKey, monthShortLabel, stampOf, todayISO, toISO } from '../utils/format'
 import { normalizeName, sentenceCase, weekdayName } from '../utils/text'
-import { installmentsThisMonth, monthlyCommitments, installmentsInMonth, chargesInMonth, activeCards, cardInvoice, directInstallmentPaidAmount, invoiceOpenAmount, hasAmbiguousLegacyCardBalance, validPaymentDate } from './cards'
+import { installmentsThisMonth, monthlyCommitments, installmentsInMonth, chargesInMonth, cardInvoice, directInstallmentPaidAmount, installmentRemaining, invoiceOpenAmount, hasAmbiguousLegacyCardBalance, validPaymentDate } from './cards'
 
 export interface PeriodStats {
   income: number
@@ -354,7 +354,7 @@ export function representedRecurringExpenseMonths(
 }
 
 function projectedInstallments(s: AppState, mk: string, from: string, today: string): number {
-  const cards = activeCards(s)
+  const cards = s.cards || []
   const cardIds = new Set(cards.map(c => c.id))
   const plans = new Map((s.installmentPlans || []).map(p => [p.id, p]))
   // A fatura reconcilia parcelas, assinaturas e pagamentos no mesmo lugar.
@@ -362,14 +362,13 @@ function projectedInstallments(s: AppState, mk: string, from: string, today: str
   const invoiced = cards.reduce((sum, card) => {
     const invoice = cardInvoice(s, card, mk, today)
     if (invoice.dueDate < from) return sum
-    return sum + invoice.pending
+    return sum + invoiceOpenAmount(s, invoice, today)
   }, 0)
   // Dados legados podem conter parcela sem plano/cartão; mantemos a projeção
   // desses itens, que não aparecem em nenhuma fatura.
   const orphanInstallments = installmentsInMonth(s, mk)
-    .filter(i => i.status === 'pending' && i.dueDate >= from
-      && !cardIds.has(plans.get(i.planId)?.cardId || ''))
-    .reduce((sum, i) => sum + Math.max(i.amount - (i.paidAmount || 0), 0), 0)
+    .filter(i => i.dueDate >= from && !cardIds.has(plans.get(i.planId)?.cardId || ''))
+    .reduce((sum, i) => sum + installmentRemaining(s, i, today), 0)
   const orphanCharges = chargesInMonth(s, mk).filter(c => !cardIds.has(c.cardId)).reduce((sum, c) => {
     const due = c.nextDate.slice(0, 7) === mk ? c.nextDate
       : toISO(dateForDayOfMonth(Number(mk.slice(0, 4)), Number(mk.slice(5, 7)) - 1, Number(c.nextDate.slice(8, 10))))
@@ -422,6 +421,7 @@ export function monthlyProjections(s: AppState, months = 12, today = todayISO())
 /** Há base suficiente para projetar? Sem isso, a tela mostra estado vazio honesto. */
 export function hasProjectionData(s: AppState): boolean {
   return s.recurring.length > 0 || (s.installmentPlans?.length || 0) > 0 || (s.cardCharges?.length || 0) > 0
+    || (s.cards || []).some(card => card.initialInvoiceBalance > 0)
 }
 
 // ---------- RECORRENTES PENDENTES DE CONFIRMAÇÃO (14.2) ----------
@@ -1001,25 +1001,26 @@ export function cashObligationsUntil(s: AppState, until: string, t = todayISO())
 
   const last = fromISO(until)
   const plans = new Map((s.installmentPlans || []).map(p => [p.id, p]))
-  for (const card of activeCards(s)) {
+  const cards = s.cards || []
+  for (const card of cards) {
     for (let back = OBLIGATION_LOOKBACK_MONTHS; ; back--) {
       const d = new Date(today.getFullYear(), today.getMonth() - back, 1)
       if (d > last) break
-      const inv = cardInvoice(s, card, monthKey(toISO(d)))
+      const inv = cardInvoice(s, card, monthKey(toISO(d)), t)
       if (inv.pending <= 0.009 || inv.dueDate > until) continue
-      const amount = invoiceOpenAmount(s, inv)
+      const amount = invoiceOpenAmount(s, inv, t)
       if (amount > 0.009) {
         out.push({ name: `Fatura ${card.name}`, amount, date: inv.dueDate, inDays: inDays(inv.dueDate), kind: 'invoice', cardId: card.id })
       }
     }
   }
 
-  const cardIds = new Set(activeCards(s).map(c => c.id))
+  const cardIds = new Set(cards.map(c => c.id))
   for (const i of s.installments || []) {
     const plan = plans.get(i.planId)
-    if (!plan || plan.status === 'cancelled' || i.status !== 'pending' || i.dueDate > until) continue
+    if (!plan || plan.status === 'cancelled' || i.dueDate > until) continue
     if (plan.cardId && cardIds.has(plan.cardId)) continue
-    const left = Math.round((i.amount - Math.min(Math.max(i.paidAmount || 0, 0), i.amount)) * 100) / 100
+    const left = installmentRemaining(s, i, t)
     if (left > 0.009) {
       out.push({ name: `${plan.description} (${i.number}/${i.total})`, amount: left, date: i.dueDate, inDays: inDays(i.dueDate), kind: 'installment' })
     }

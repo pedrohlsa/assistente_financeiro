@@ -17,7 +17,7 @@ import {
   representedRecurringExpenseMonths, todayStats, fuelCostBasis, kmCost,
 } from '../../services/calc'
 import {
-  activeCards, buildInstallments, cardById, currentInvoice, nextInvoiceDueDate, splitInstallmentAmounts, hasAmbiguousLegacyCardBalance,
+  activeCards, buildInstallments, cardById, currentInvoice, invoiceOpenAmount, nextInvoiceDueDate, splitInstallmentAmounts, hasAmbiguousLegacyCardBalance,
 } from '../../services/cards'
 import { isDriver } from '../../services/profile'
 import { brDate } from '../dates'
@@ -602,7 +602,7 @@ function simulaCenario(
 
     // ------------------------------------------------------ pagar a fatura
     case 'pay-invoice': {
-      const cards = activeCards(state)
+      const cards = (state.cards || []).filter(c => plan.cardName || !c.archived || invoiceOpenAmount(state, currentInvoice(state, c, hoje), hoje) > 0)
       if (!cards.length) return vazio(plan, caveats, 'Você não tem cartão cadastrado.')
       const alvo = plan.cardName
         ? cards.find(c => normalizeName(c.name).includes(normalizeName(plan.cardName!)))
@@ -611,15 +611,16 @@ function simulaCenario(
         caveats.push(`Você tem ${cards.length} cartões — me diga qual (${cards.map(c => c.name).join(', ')}).`)
         return { plan, facts, months: [], caveats, empty: true }
       }
-      const inv = currentInvoice(state, alvo)
+      const inv = currentInvoice(state, alvo, hoje)
+      const pendente = invoiceOpenAmount(state, inv, hoje)
       const saldo = currentBalance(state, hoje)
-      facts.push(fato(`Fatura pendente do ${alvo.name}`, inv.pending, 'BRL', 'fatura atual'))
+      facts.push(fato(`Fatura pendente do ${alvo.name}`, pendente, 'BRL', 'fatura atual'))
       facts.push(fato('Saldo hoje', saldo, 'BRL', 'saldo atual'))
-      facts.push(fato('Saldo depois de pagar', saldo - inv.pending, 'BRL', 'subtração'))
+      facts.push(fato('Saldo depois de pagar', saldo - pendente, 'BRL', 'subtração'))
       // Regra 10: pagar fatura quita dívida, não cria despesa nova.
       caveats.push('Pagar a fatura quita a dívida e reduz o saldo — não entra como despesa nova no mês.')
-      if (inv.pending <= 0) caveats.push('Essa fatura não tem valor pendente agora.')
-      return { plan, facts, months: [], feasible: saldo - inv.pending >= 0, caveats, empty: false }
+      if (pendente <= 0) caveats.push('Essa fatura não tem valor pendente agora.')
+      return { plan, facts, months: [], feasible: saldo - pendente >= 0, caveats, empty: false }
     }
 
     // -------------------------------------------------- entrada que não vem
