@@ -69,7 +69,7 @@ export const CATEGORY_KEYWORDS: Record<string, string[]> = {
   // 'almocei' e 'jantei' cobrem o verbo: "quanto almocei esse mês" é
   // Alimentação, e sem eles a pergunta dava o gasto do mês inteiro.
   alimentacao: ['almoço', 'almoco', 'almocei', 'almoçamos', 'almocamos', 'janta', 'jantar', 'jantei', 'jantamos', 'lanche', 'comida', 'ifood', 'restaurante', 'padaria', 'mercad', 'mercearia', 'sacolão', 'sacolao', 'quitanda', 'café', 'cafe', 'marmita', 'pizza', 'burger', 'hamb', 'salgado', 'coxinha', 'açaí', 'acai', 'sorvete', 'pão', ' pao', 'leite', 'queijo', 'ovos', 'carne', 'frango', 'arroz', 'feijão', 'feijao', 'fruta', 'verdura', 'açougue', 'acougue', 'hortifruti'],
-  manutencao: ['óleo', 'oleo', 'pneu', 'freio', 'pastilha', 'revisão', 'revisao', 'mecânico', 'mecanico', 'oficina', 'peça', 'peca', 'filtro', 'vela', 'correia', 'amortecedor', 'manutenção', 'manutencao', 'lavagem', 'lava'],
+  manutencao: ['óleo', 'oleo', 'pneu', 'freio', 'pastilha', 'revisão', 'revisao', 'mecânico', 'mecanico', 'oficina', 'borracheiro', 'borracharia', 'funilaria', 'lanternagem', 'alinhamento', 'balanceamento', 'calibragem', 'peça', 'peca', 'filtro', 'vela', 'correia', 'amortecedor', 'manutenção', 'manutencao', 'lavagem', 'lava'],
   estacionamento: ['estacionamento', 'estacionei', 'zona azul', 'parquímetro', 'parquimetro'],
   pedagio: ['pedágio', 'pedagio', 'sem parar', 'veloe', 'conectcar'],
   assinaturas: ['netflix', 'spotify', 'assinatura', 'plano', 'internet', 'celular', 'amazon prime', 'disney', 'hbo', 'globoplay', 'youtube premium'],

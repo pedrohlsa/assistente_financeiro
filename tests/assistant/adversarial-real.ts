@@ -6076,6 +6076,32 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('MQ-palavra-de-categoria-continua', gasolina, 'combustível do mês, como antes', /Combust[íi]vel|Gasolina/.test(gasolina) && /R\$/.test(gasolina)))
   }
 
+  // Terceira sonda: meta com prazo, média semanal, abreviações e categorias.
+  {
+    for (const [id, frase, nome] of [
+      ['MT-meta-ate-mes-com-acento', 'quero juntar 3000 pra um notebook até junho', 'Notebook'],
+      ['MT-meta-ate-ano-que-vem', 'quero comprar uma moto de 12 mil até dezembro do ano que vem', 'Moto'],
+    ] as const) {
+      const r = await turnoHoje(buildState({ profile: 'autonomo' }), frase)
+      const g: any = r.actions.find(a => a.kind === 'goal')
+      out.push(result(id, r.actions, `meta "${nome}" com prazo em meses, sem "até" no nome`,
+        !!g && g.name === nome && g.months > 0 && !/at[ée]/i.test(g.name)))
+    }
+    // Média POR SEMANA é a média dos totais semanais, com as semanas ditas.
+    const rico = autonomoRico(hoje)
+    const semana = (await turnoHoje(rico, 'quanto gastei em média por semana no mercado')).reply
+    out.push(result('MT-media-por-semana', semana, 'rótulo "Média" (não "por lançamento") e semanas completas',
+      /^Média - Mercado por semana: R\$/.test(semana) && !/por lançamento/.test(semana) && /semanas? completas?/.test(semana)))
+    // "cm" e "c/" são "com"; "30 cm de cano" continua medida.
+    const cm = await turnoHoje(buildState({ profile: 'autonomo' }), 'gstei 30 cm uber')
+    out.push(result('MT-cm-e-com', cm.actions, 'despesa de 30 com descrição Uber', cm.actions.length === 1 && (cm.actions[0] as any).description === 'Uber'))
+    const cano = await turnoHoje(buildState({ profile: 'autonomo' }), 'comprei 30 cm de cano por 12')
+    out.push(result('MT-centimetro-continua-medida', cano.actions, 'nenhuma descrição com "com de"',
+      !cano.actions.some((a: any) => /\bcom de\b/i.test(a.description || ''))))
+    const borracheiro = await turnoHoje(buildState({ profile: 'driver' }), 'o pneu furou e gastei 40 no borracheiro')
+    out.push(result('MT-borracheiro-e-manutencao', borracheiro.actions, 'Manutenção', (borracheiro.actions[0] as any)?.category === 'manutencao'))
+  }
+
   return out
 }
 

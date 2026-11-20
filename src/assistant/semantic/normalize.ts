@@ -409,9 +409,20 @@ export function expandMilAbreviado(message: string): string {
 
 export interface ClampedMessage { text: string; truncated: boolean }
 
+/**
+ * Abreviações de preposição do celular: "gastei 30 cm uber" virava a descrição
+ * "Cm uber", e "p/ o mercado" deixava "p/" no texto. "cm" só vira "com" antes
+ * de palavra que não seja de medida ("30 cm de cano" continua centímetro).
+ */
+export function expandPreposicoesAbreviadas(message: string): string {
+  return message
+    .replace(/(?<![\p{L}\p{M}\d])(?:c\/|cm)\s+(?!(?:de|do|da|x|por|e)(?![\p{L}\p{M}]))(?=[\p{L}])/giu, 'com ')
+    .replace(/(?<![\p{L}\p{M}\d])p\/\s*(?=[\p{L}])/giu, 'pra ')
+}
+
 /** Limpa e limita. É a única porta de entrada da mensagem no orquestrador. */
 export function clampMessage(message: string): ClampedMessage {
-  const limpa = expandMilAbreviado(stripInvisible(String(message ?? '')))
+  const limpa = expandPreposicoesAbreviadas(expandMilAbreviado(stripInvisible(String(message ?? ''))))
   return limpa.length > MAX_MESSAGE_CHARS
     ? { text: limpa.slice(0, MAX_MESSAGE_CHARS), truncated: true }
     : { text: limpa, truncated: false }

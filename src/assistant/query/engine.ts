@@ -642,6 +642,30 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
     }
   }
 
+  // "Em média POR SEMANA": a mesma regra do mês, com semanas. A semana de hoje
+  // ainda não fechou e a primeira semana do período pode estar cortada; as
+  // duas ficam fora quando há semanas inteiras para medir. Semana sem
+  // lançamento entre a primeira e a última conta como zero.
+  if (plan.metric === 'avg' && plan.group === 'week' && !plan.comparePeriod) {
+    for (const g of groups) {
+      const soma = ag.groups.get(g.key)?.valores.reduce((a, b) => a + b, 0) ?? 0
+      g.value = r2(soma)
+    }
+    const semanaAtual = semanaDe(today)
+    const primeiraCortada = semanaDe(plan.period.from) !== plan.period.from ? semanaDe(plan.period.from) : null
+    const comDado = [...ag.groups.keys()].sort()
+    const inteiras = comDado.filter(k => k !== semanaAtual && k !== primeiraCortada && k <= plan.period.to)
+    const usadas = inteiras.length ? inteiras : comDado
+    if (usadas.length) {
+      const semanas: string[] = []
+      for (let k = usadas[0]; k <= usadas[usadas.length - 1]; k = semanaDe(addDays(k, 7))) semanas.push(k)
+      const soma = semanas.reduce((a, k) => a + (ag.groups.get(k)?.valores.reduce((x, y) => x + y, 0) ?? 0), 0)
+      total = soma / semanas.length
+      caveats.push(semanas.length === 1 ? 'Média de 1 semana completa.'
+        : `Média de ${semanas.length} semanas completas, de domingo a sábado${inteiras.length && comDado.length > inteiras.length ? '; a semana atual e a primeira semana cortada pelo período ficam fora' : ''}.`)
+    }
+  }
+
   // "Quanto eu ganho POR MÊS em média": a média dos TOTAIS mensais. Lida como
   // média por lançamento agrupada por mês, a resposta era "R$ 1.396" para quem
   // recebe R$ 3.000 todo mês (dois aluguéis de R$ 1.500). Cada mês vale o que

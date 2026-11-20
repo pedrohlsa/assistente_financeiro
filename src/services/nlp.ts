@@ -901,7 +901,7 @@ function parseClause(input: string): ParsedAction[] {
   // uma moto"). Só o primeiro era capturado, e toda meta dita do segundo jeito
   // nascia chamada "Objetivo" — com duas ou três assim, a lista de metas fica
   // ilegível e o usuário não sabe qual é qual.
-  const goalRe = new RegExp(String.raw`(?:quero|queria|vou|preciso)\s+(?:comprar|juntar|guardar)(?:\s+(?:uma|um|para|pra|o|a))?\s*([\wçãõáéíóú\s]*?)\s*(?:de|por|no valor de)?\s*(?:r\$)?\s*${NUM}(?:\s*(?:reais|mil|conto[s]?))?(?:\s*(?:pra|para|pro|p\/)\s+(?:uma?\s+|o\s+|a\s+|meu\s+|minha\s+)?([a-zà-úçãõ][\wçãõáéíóú]*(?:\s+(?!(?:e|mas|que|ate|até|em|daqui)\b)[a-zà-úçãõ][\wçãõáéíóú]*){0,2}))?(?:\s*em\s*(\d+)\s*(mes(?:es)?|dias?|semanas?))?`, 'i')
+  const goalRe = new RegExp(String.raw`(?:quero|queria|vou|preciso)\s+(?:comprar|juntar|guardar)(?:\s+(?:uma|um|para|pra|o|a))?\s*([\wçãõáéíóú\s]*?)\s*(?:de|por|no valor de)?\s*(?:r\$)?\s*${NUM}(?:\s*(?:reais|mil|conto[s]?))?(?:\s*(?:pra|para|pro|p\/)\s+(?:uma?\s+|o\s+|a\s+|meu\s+|minha\s+)?([a-zà-úçãõ][\wçãõáéíóú]*(?:\s+(?!(?:e|mas|que|ate|até|em|daqui)(?![\wà-ú]))[a-zà-úçãõ][\wçãõáéíóú]*){0,2}))?(?:\s*em\s*(\d+)\s*(mes(?:es)?|dias?|semanas?))?`, 'i')
   const g = text.match(goalRe)
   if (g && !m) {
     let target = parseNum(g[2])
@@ -923,7 +923,9 @@ function parseClause(input: string): ParsedAction[] {
       const dias = Math.round((new Date(ano, mes + 1, 0).getTime() - hoje.getTime()) / 86400000)
       if (dias > 0) months = dias / 30
     }
-    const semPrazo = (s: string) => s.replace(/\s*\b(?:ate|até)\b.*$/i, '').trim()
+    // `\b` depois de "é" não existe em regex sem /u: "até" nunca casava e a
+    // meta nascia "Notebook até junho", sem prazo no nome.
+    const semPrazo = (s: string) => s.replace(/\s*(?<![\wà-ú])(?:ate|até)(?![\wà-ú]).*$/i, '').trim()
     const nome = cleanDescription(semPrazo(g[1] || '')) || cleanDescription(semPrazo(g[3] || ''))
     actions.push({ kind: 'goal', name: nome || 'Objetivo', target, months })
   }
