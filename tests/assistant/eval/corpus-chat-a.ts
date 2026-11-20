@@ -158,7 +158,7 @@ export const CASOS_CHAT_A: CasoChat[] = [
     'vou receber 1800 da casa 1 dia 5',
     'futuro nunca vira movimentação realizada (regra 18)',
     { intencao: 'responder', acoes: [], tiposProibidos: ['income'] }),
-  casoChat('c-22', 'autonomo', 'modalidade', 'remota',
+  casoChat('c-22', 'autonomo', 'modalidade', 'local',
     'nao foi 500 na obra nao, nem gastei nada hoje',
     'negação dupla, sem nenhuma proposta na tela',
     { intencao: 'responder', acoes: [], tiposProibidos: ['expense'] }),

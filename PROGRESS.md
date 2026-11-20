@@ -6040,3 +6040,13 @@ APK ou chamada paga. NOT READY até auditoria independente.
   R$ 17 do dia válido. Uma baixa inválida deixou a parcela em aberto.
 - Suíte com 779/779 regressões, matriz de oito datas, 151 invariantes,
   teste de dinheiro, typechecks, build e rubrica passaram.
+
+## 20/11/2026 — Negação e erro de digitação no chat
+
+- O chat separa o fato afirmado da baixa negada na mesma mensagem. A
+  abreviação “n” e o reparo de verbos como “gsatei” preservam a negação.
+- No Chrome, “n gsatei 37” ficou sem proposta. Em “n gastei 37 no
+  mercado mas receby 120 da Casa 2” a confirmação gravou só a receita.
+  O teste com o canal remoto simulado comprovou que não houve chamada.
+- Seis casos novos entre corpus e regressões, 780/780 regressões reais,
+  151 invariantes, avaliação remota offline, typechecks, build e rubrica.

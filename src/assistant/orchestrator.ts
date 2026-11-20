@@ -19,7 +19,7 @@ import type {
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, errorMessage, isValidationFailure, validateAction } from './contracts'
-import { PEDE_APAGAR, analyzeMessage, contestsProposal, declaresIntention, isRefundInflow, looksLikeQuestion, looksLikeRetraction, looksPast, looksRecurring } from './clauses'
+import { PEDE_APAGAR, analyzeMessage, contestsProposal, declaresIntention, isRefundInflow, looksLikeQuestion, looksLikeRetraction, looksNegated, looksPast, looksRecurring } from './clauses'
 import { categoryDilemma, outOfPatternWarning, withLearnedCategory } from './learning'
 import { explainRequest } from './explain'
 import { answerConversation, isFocusFresh, looksLikeFollowUp } from './conversation'
@@ -1745,13 +1745,16 @@ ${response.reply}`,
       // sumia em silêncio. Coberta parcial é sinal de que o reparo tem o que
       // destravar, mesmo com um fato já reconhecido.
       const parcial = tentativa.corrections.some(c => c.estrutural) && turno.coverage < 0.999
-      if (!hasBlock(turno, 'record') || degradado || parcial) {
+      const podeRecuperarNegacao = tentativa.corrections.some(c => c.estrutural) && /\b(?:n|n[ãa]o|nem|nunca|jamais)\b/i.test(mensagem)
+      if (!hasBlock(turno, 'record') || degradado || parcial || podeRecuperarNegacao) {
         const outro = buildTurnPlan(input.state, tentativa.text, { today })
+        const recuperouNegacao = podeRecuperarNegacao
+          && outro.blocks.filter(b => looksNegated(b.clause.text)).length > turno.blocks.filter(b => looksNegated(b.clause.text)).length
         const melhorou = outro.coverage > turno.coverage + 1e-6
           || outro.blocks.reduce((n, b) => n + b.actions.length, 0)
             > turno.blocks.reduce((n, b) => n + b.actions.length, 0)
-        if ((hasBlock(outro, 'record') || hasBlock(outro, 'scenario'))
-          && (!hasBlock(turno, 'record') || degradado || melhorou)) {
+        if (recuperouNegacao || ((hasBlock(outro, 'record') || hasBlock(outro, 'scenario'))
+          && (!hasBlock(turno, 'record') || degradado || melhorou))) {
           turno = outro
           mensagem = tentativa.text
           reparo = tentativa

@@ -158,11 +158,11 @@ const CORRECTION_PATTERNS: RegExp[] = [
  * mais perigoso possível num app de dinheiro.
  */
 const NEGATED_VERBS =
-  'gastei|gastou|paguei|pagou|pagamos|quitei|quitamos|antecipei|adiantei|recebi|recebeu|ganhei|ganhou|comprei|comprou|guardar|guardei|separei|abasteci|coloquei|botei|rodei|trabalhei|fiz|foi|era|quero|vou|registra|registre|salva|salve'
+  'gastei|gastou|paguei|pagou|pagamos|quitei|quitamos|antecipei|adiantei|recebi|recebeu|ganhei|ganhou|comprei|comprou|guardar|guardei|separei|abasteci|coloquei|botei|rodei|trabalhei|fiz|foi|era|quero|vou|registra|registre|registrar|salva|salve|anota|anote|anotar'
   // Qualquer verbo de dinheiro no passado pode ser NEGADO. A lista acima
   // esquecia troquei, instalei, vendi, depositei e outros — e "nao troquei o
   // oleo por 280" registrava a manutencao mesmo assim.
-  + '|troquei|instalei|vendi|depositei|investi|apliquei|parcelei|passei|tirei|retirei|faturei|lucrei|andei|dirigi|percorri|entrou|caiu|sobrou|custou|reembolsaram|reembolsou'
+  + '|troquei|instalei|vendi|depositei|investi|apliquei|parcelei|passei|tirei|retirei|faturei|lucrei|andei|dirigi|percorri|saiu|entrou|caiu|sobrou|custou|reembolsaram|reembolsou'
 
 /**
  * A vírgula depois do "não" é o jeito mais comum de negar em fala real: "não,
@@ -170,8 +170,10 @@ const NEGATED_VERBS =
  * escapar da guarda e o gasto negado virava lançamento. "Nem" é a outra forma
  * ("nem gastei isso").
  */
+const NEGATION_HEAD = String.raw`(?:n[ãa]o|nem|nunca|jamais)\b[\s,;!]*(?:\S+[\s,]+){0,3}?(?:${NEGATED_VERBS})(?![a-zà-ú])`
+const SHORT_NEGATION_HEAD = String.raw`n\s+(?:(?:eu|ainda)\s+){0,2}(?:${NEGATED_VERBS})(?![a-zà-ú])`
 const NEGATED_STATEMENT = new RegExp(
-  String.raw`^\s*(?:mas\s*,?\s*|e\s*,?\s*|ah\s*,?\s*|olha\s*,?\s*)?(?:n[ãa]o|nem|nunca|jamais)\b[\s,;!]*(?:\S+[\s,]+){0,3}?(?:${NEGATED_VERBS})(?![a-zà-ú])`,
+  String.raw`^\s*(?:(?:mas|e|ah|olha|eu|ainda)\b[\s,]+){0,3}(?:${NEGATION_HEAD}|${SHORT_NEGATION_HEAD})`,
   'i',
 )
 
@@ -343,6 +345,9 @@ export function segment(text: string, today = todayISO()): { text: string; start
   for (const m of text.matchAll(new RegExp(String.raw`\s+e\s+(?=(?:${COMMAND_VERBS})\b)`, 'gi'))) {
     push((m.index || 0) + m[0].length)
   }
+  // Uma baixa anterior continua válida quando a segunda parte é negada.
+  const beforeNegation = new RegExp(String.raw`(?:[,;]\s*(?:e\s+)?|\s+e\s+)(?=(?:(?:eu|ainda)\s+){0,2}(?:${NEGATION_HEAD}|${SHORT_NEGATION_HEAD}))`, 'gi')
+  for (const m of text.matchAll(beforeNegation)) push((m.index || 0) + m[0].length)
   // Duas PERGUNTAS na mesma frase: "quanto gastei com combustível…, e quanto
   // isso representa do faturamento?". Juntas, o planejador lia uma consulta
   // só, com a segunda metade virando filtro, e respondia "não tenho lançamento"
@@ -373,7 +378,7 @@ export function segment(text: string, today = todayISO()): { text: string; start
     // Nunca deixe a negação no fragmento anterior: "não gastei" é uma unidade.
     // Nem a pergunta: "quanto gastei de alimentação" era cortado em "quanto" +
     // "gastei de alimentação", e nenhuma das metades tinha resposta.
-    if (!onlyDate && /\d/.test(fragment) && !/\b(?:e|dps|n[ãa]o|nunca|jamais|nem(?:\s+sequer)?)\s*$/i.test(prefix)
+    if (!onlyDate && /\d/.test(fragment) && !/\b(?:e|dps|n[ãa]o|n|nunca|jamais|nem(?:\s+sequer)?)\s*$/i.test(prefix)
       && !/\b(?:quanto|quantos|quantas|qual|quais|quando|onde|como|que)\b(?:\s+[^\s\d,;.!?]+){0,3}\s*$/i.test(prefix)) {
       push((m.index || 0) + m[0].length)
     }
@@ -1228,7 +1233,8 @@ export function analyzeMessage(
 
     // Uma cláusula com ação E pergunta juntas ("gastei 40, ainda bato a meta?")
     // rende DUAS entradas: a pergunta não pode sumir porque a ação foi entendida.
-    const handled = intent === 'conversation' || (intent === 'record' && actions.length > 0) || !!temporal || !!ambiguity
+    const interrompida = /^\s*n[ãa]o[\s,]+(?:espera|pera[íi]?)\b/i.test(part.text)
+    const handled = (negated && !interrompida) || intent === 'conversation' || (intent === 'record' && actions.length > 0) || !!temporal || !!ambiguity
 
     clauses.push({
       id, text: part.text, start: part.start, end: part.end,

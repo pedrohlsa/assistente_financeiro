@@ -99,6 +99,25 @@ function faturasAPagarEsperadas(rico: AppState, hoje: string): { descricao: stri
 export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
+  const spokenDate = todayISO()
+  const spoken = buildState({ profile: 'autonomo', balance: 1200 })
+  spoken.settings.balanceAsOf = `${addDays(spokenDate, -1)}T10:00`
+  let calledForNegation = 0
+  const remoteSpy = async () => { calledForNegation++; return null }
+  const onlyIncome = await orchestrate({ state: spoken, today: spokenDate, remoteEnabled: true,
+    askRemote: remoteSpy, planRemoteQuery: remoteSpy, message: 'n gastei 37 no mercado mas receby 120 da Casa 2' })
+  const ignored = await orchestrate({ state: spoken, today: spokenDate, remoteEnabled: true,
+    askRemote: remoteSpy, planRemoteQuery: remoteSpy, message: 'n gsatei 37 no mercado, foi só orçamento' })
+  const appliedSpoken = applyBatchPure(spoken, onlyIncome.response.actions.map(({ id, action }) => ({ id, action })),
+    { now: { date: spokenDate, time: '15:00' } })
+  out.push(result('LING-negacao-abreviada-e-erro-de-digitacao', { proposta: onlyIncome.response, negacao: ignored.response,
+    chamadoRemoto: calledForNegation, saldo: currentBalance(appliedSpoken.state) },
+    'a despesa negada não vira proposta; a receita de R$ 120 da Casa 2 é a única gravada, sem recorrer ao remoto',
+    calledForNegation === 0 && ignored.response.actions.length === 0 && onlyIncome.response.actions.length === 1
+      && appliedSpoken.applied && appliedSpoken.state.transactions.length === 1
+      && appliedSpoken.state.transactions[0].type === 'income' && appliedSpoken.state.transactions[0].origin === 'Casa 2'
+      && currentBalance(appliedSpoken.state) === 1320 && spoken.transactions.length === 0))
+
   const c1 = baseline()
   c1.transactions = ['2026-06-10', '2026-07-10', '2026-08-10'].map((date, i) => ({
     id: `obra-${i}`, type: 'expense', amount: 300, category: 'obra', date, description: 'Obra', time: '10:00',

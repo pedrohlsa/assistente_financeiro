@@ -31,6 +31,18 @@ export const ADVERSARIAL: AssistantCase[] = [
   { id: 'neg-08', group: 'negacao', ...other, messages: ['nao recebi 500'], expectNoActions: true },
   { id: 'neg-09', group: 'negacao', ...other, messages: ['não comprei nada'], expectNoActions: true },
   { id: 'neg-10', group: 'negacao', ...other, messages: ['ignora o que eu falei antes'], expectNoActions: true },
+  { id: 'neg-11', group: 'negacao', ...auto, messages: ['n gsatei 37 no mercado, foi só orçamento'],
+    expectNoActions: true, expectReply: [/não aconteceu/i], forbidReply: [/confirmar\?/i] },
+  { id: 'neg-12', group: 'negacao', ...auto, messages: ['gasstei 37 no mercado e n recebbi 120 da Casa 2'],
+    expectActions: [{ kind: 'expense', amount: 37, category: 'alimentacao', description: 'Mercado' }],
+    forbidReply: [/receita de/i, /não registrei esta parte/i] },
+  { id: 'neg-13', group: 'negacao', ...auto, messages: ['não anota o mercado de 30 mas registra a despesa de 15 da farmácia'],
+    expectActions: [{ kind: 'expense', amount: 15 }], forbidReply: [/30,00/] },
+  { id: 'neg-14', group: 'negacao', ...auto, messages: ['gastei 29 ontem e 31 hj no mercado e não recebi o aluguel'],
+    expectActions: [{ kind: 'expense', amount: 29, date: '2026-07-14' },
+      { kind: 'expense', amount: 31, date: '2026-07-15', description: 'Mercado' }] },
+  { id: 'neg-15', group: 'negacao', ...auto, messages: ['recebi 150 da Empresa N ontem'],
+    expectActions: [{ kind: 'income', amount: 150, origin: 'Empresa N', date: '2026-07-14' }] },
 
   // ===== BUG 2 — ABREVIAÇÕES DE DATA =====
   { id: 'abr-01', group: 'abreviacao', ...other, messages: ['gastei 190 de cimento hj'],
