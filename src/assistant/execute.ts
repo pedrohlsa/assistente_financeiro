@@ -19,7 +19,7 @@ import { findInvoicePaymentCards, invoicePaymentIssue } from './invoicePayment'
 import { addDays, monthKey, nowPaymentTime, nowStamp, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
-import { isOccurrenceResolved, matchRecurringPayment, nextCashEventTime, occurrencesBetween } from '../services/calc'
+import { isOccurrenceResolved, matchRecurringPayment, nextCashEventTime, occurrencesBetween, possibleRecurringTransactions } from '../services/calc'
 import { buildInstallments, cardInvoice, directInstallmentPaidAmount, futureInvoicePaymentDate,
   invoiceOpenAmount, settleableInstallmentIds, suggestedFirstDueDate, unpaidPriorInvoiceMonths,
   validPaymentDate } from '../services/cards'
@@ -422,15 +422,29 @@ export function applyActionPure(
       if (!Number.isFinite(amount) || amount < 0.01 || amount > 99_999_999) {
         return { state, result: fail(actionId, 'invalid-amount', rec.name) }
       }
-      const t = tx({
+      const matching = possibleRecurringTransactions(state, rec, occ, date, {
+        date: action.date, amount: action.transactionId ? action.amount : amount,
+      })
+      const existing = action.transactionId ? matching.find(t => t.id === action.transactionId) : undefined
+      if (action.transactionId && (!existing || action.newPaymentConfirmed
+        || !isPlausibleDate(existing.date, date) || state.transactions.filter(t => t.id === existing.id).length !== 1)) {
+        return { state, result: fail(actionId, 'recurring-conflict',
+          'O lançamento escolhido não está mais disponível para vínculo. Confira a conta e tente novamente.', false) }
+      }
+      if (!existing && matching.length && !action.newPaymentConfirmed) return { state, result: fail(actionId, 'recurring-conflict',
+        'Há um lançamento parecido. Escolha se quer vincular o existente ou registrar um pagamento separado.', false) }
+      const t = existing || tx({
         type: rec.kind === 'income' ? 'income' : 'expense', amount, category: rec.category,
         description: rec.name, origin: rec.origin, recurringId: rec.id, occurrenceDate: occ,
       })
       const recurring = state.recurring.map(r => r.id !== rec.id ? r : {
         ...r, snoozeUntil: undefined,
-        occurrences: [...(r.occurrences || []).filter(o => o.date !== occ), { date: occ, status: 'confirmed' as const, txId: t.id, amount }],
+        occurrences: [...(r.occurrences || []).filter(o => o.date !== occ), { date: occ, status: 'confirmed' as const, txId: t.id, amount: t.amount }],
       })
-      return { state: { ...withTx(t), recurring }, result: { ok: true, actionId, entityId: t.id } }
+      const transactions = existing
+        ? state.transactions.map(row => row.id === t.id ? { ...row, recurringId: rec.id, occurrenceDate: occ } : row)
+        : [t, ...state.transactions]
+      return { state: { ...state, transactions, recurring }, result: { ok: true, actionId, entityId: t.id } }
     }
     case 'edit-transaction': {
       const alvo = state.transactions.find(t => t.id === action.transactionId)

@@ -1499,7 +1499,8 @@ export function describeAction(a: ParsedAction, categoryName?: (id: string) => s
     case 'edit-transaction': return 'Corrigir um lançamento já salvo'
     case 'recurring-confirm': {
       const venc = /^\d{4}-\d{2}-\d{2}$/.test(a.occurrenceDate || '') ? a.occurrenceDate.split('-').reverse().join('/') : ''
-      return `Confirmar pagamento da conta fixa${a.description ? ` "${a.description}"` : ''}${a.amount ? ` — ${fmtBRL(a.amount)}` : ' (valor cadastrado)'}${venc ? ` · vencimento ${venc}` : ''}`
+      const title = a.transactionId ? 'Vincular lançamento existente à conta fixa' : 'Confirmar pagamento da conta fixa'
+      return `${title}${a.description ? ` "${a.description}"` : ''}${a.amount ? ` — ${fmtBRL(a.amount)}` : ' (valor cadastrado)'}${venc ? ` · vencimento ${venc}` : ''}`
     }
   }
 }

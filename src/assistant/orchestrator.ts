@@ -51,7 +51,7 @@ import { describeAction, META_OUTRA } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
 import { catById, usableCategories } from '../data/categories'
 import { addDays, fmtBRL, MESES_PT_BR, todayISO, uid } from '../utils/format'
-import { matchRecurringPayment, occurrenceRecord, occurrencesBetween, recurringActiveOn } from '../services/calc'
+import { matchRecurringPayment, occurrenceRecord, occurrencesBetween, possibleRecurringTransactions, recurringActiveOn, recurringLinkAction } from '../services/calc'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { brDate, dateLabel, findAllDates, findDate, previousYearOf, resolveDayInWindow } from './dates'
 import { applyPreferenceAliases, parsePreferenceCommand } from './preferences'
@@ -1007,6 +1007,29 @@ type RecurringResolution =
   | { clarification: AssistantClarification }
   | { note: string }
 
+function recurringLinkChoice(
+  state: AppState, action: Extract<ParsedAction, { kind: 'recurring-confirm' }>, today: string,
+  actual: { amount?: number; date?: string } = action,
+): AssistantClarification | undefined {
+  const rec = state.recurring.find(r => r.id === action.recurringId)
+  if (!rec || action.transactionId || action.newPaymentConfirmed) return undefined
+  const matches = possibleRecurringTransactions(state, rec, action.occurrenceDate, today, actual)
+  if (!matches.length) return undefined
+  const kind = rec.kind === 'income' ? 'recebimento' : 'pagamento'
+  return {
+    field: 'recurring-link',
+    question: `Encontrei ${matches.length === 1 ? 'um lançamento parecido' : 'lançamentos parecidos'} para "${sentenceCase(rec.name)}", vencimento ${brDate(action.occurrenceDate)}. Qual deles corresponde a esse ${kind}?`,
+    options: [
+      ...matches.map((t, i) => ({
+        value: String(i + 1),
+        label: `${i + 1}. Vincular ${fmtBRL(t.amount)} de ${brDate(t.date)}${t.time ? ` às ${t.time.slice(0, 5)}` : ''}${t.origin ? ` · ${t.origin}` : ''}`,
+        actions: [recurringLinkAction(rec, action.occurrenceDate, t)],
+      })),
+      { value: 'novo-lancamento', label: `Registrar outro ${kind}`, actions: [{ ...action, newPaymentConfirmed: true }] },
+    ],
+  }
+}
+
 function resolveRecurringStatement(
   state: AppState, payment: RecurringStatement, text: string, caps: AssistantCapabilities, today: string,
 ): RecurringResolution | null {
@@ -1047,6 +1070,8 @@ function resolveRecurringStatement(
     },
   }
   const [{ action, pending: p }] = actions
+  const link = action.kind === 'recurring-confirm' && recurringLinkChoice(state, action, today, { amount: payment.amount, date })
+  if (link) return { clarification: link }
   const valueNote = payment.amount === undefined ? ` com o valor cadastrado (${fmtBRL(p.rec.amount)})`
     : Math.abs(payment.amount - p.rec.amount) > 0.009
       ? ` com ${fmtBRL(payment.amount)} (cadastrado: ${fmtBRL(p.rec.amount)})`
@@ -1126,12 +1151,13 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const said = normalizeName(input.message)
     const financialEvent = pc.field === 'financial-event'
     const fixedBillChoice = pc.field === 'recurring-occurrence'
+    const fixedBillLink = pc.field === 'recurring-link'
     const invoiceChoice = pc.field === 'invoice-reference'
     // Para dinheiro, só uma resposta inequívoca aceita a ação antiga. "assim"
     // contém "sim", e "sim, mandei só 10" altera o valor da proposta.
     const simpleAnswer = said.replace(/[.!?]+$/g, '').trim()
     const negativeAnswer = financialEvent && /^(?:nao|nem)(?:\b|$)/.test(simpleAnswer)
-    const hit = invoiceChoice ? matchInvoiceChoice(pc.options, input.message) : pc.options.find(o => financialEvent || fixedBillChoice
+    const hit = invoiceChoice ? matchInvoiceChoice(pc.options, input.message) : pc.options.find(o => financialEvent || fixedBillChoice || fixedBillLink
       ? (normalizeName(o.label) === simpleAnswer || normalizeName(o.value) === simpleAnswer
         || (negativeAnswer && normalizeName(o.label) === 'nao'))
       : (normalizeName(o.label) === said || normalizeName(o.value) === said ||
@@ -1154,7 +1180,17 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
           }
           validated.push(checked.action)
         }
-        const previous = financialEvent || fixedBillChoice || invoiceChoice ? input.pending || [] : []
+        const previous = financialEvent || fixedBillChoice || fixedBillLink || invoiceChoice ? input.pending || [] : []
+        if (fixedBillChoice && validated.length === 1 && validated[0].kind === 'recurring-confirm') {
+          const link = recurringLinkChoice(input.state, validated[0], today)
+          if (link) return {
+            draft: null, keepPending: true,
+            response: {
+              version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
+              actions: [], unresolved: [], clarification: link, reply: link.question,
+            },
+          }
+        }
         return proposeClarifiedActions(input.state, validated, today, previous)
       }
       // Escolha que significa NÃO REGISTRAR ("é um plano"): a explicação já vem
@@ -1183,13 +1219,13 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
         },
       }
     }
-    if (invoiceChoice && !looksPast(input.message) && !looksLikeQuestion(input.message)) {
+    if ((invoiceChoice || fixedBillLink) && !looksPast(input.message) && !looksLikeQuestion(input.message)) {
       return {
         draft: null, keepPending: true,
         response: {
           version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
           actions: [], unresolved: [], clarification: pc,
-          reply: `Escolha uma das faturas abaixo. Se o valor ou a data mudou, diga o pagamento em uma frase completa. ${pc.question}`,
+          reply: `Escolha uma das opções abaixo. Se o valor ou a data mudou, descreva o que aconteceu em uma frase completa. ${pc.question}`,
         },
       }
     }
@@ -1334,7 +1370,13 @@ Confirmar?`,
           },
         }
       }
-      const next = applyCorrection(input.pending, plan)
+      const linked = new Set(input.pending.filter(({ id, action }) => action.kind === 'recurring-confirm' && action.transactionId
+        && plan.edits.some(edit => edit.id === id)).map(c => c.id))
+      const next = applyCorrection(input.pending, plan).filter(c => !linked.has(c.id))
+      if (linked.size) {
+        return preparedActionResponse(input.state, prepareInvoicePayments(input.state, next, today), [],
+          'Confira o valor e a data do lançamento existente no Extrato. Depois diga qual conta fixa quer vincular.')
+      }
       if (!next.length) {
         return {
           draft: null, correctedPending: [],

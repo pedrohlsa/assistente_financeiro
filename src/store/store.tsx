@@ -14,10 +14,10 @@ import { buildDemoData } from '../data/demo'
 import { addDays, monthKey, nowPaymentTime, nowStamp, nowTime, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
 import { defaultIncomeCategory } from '../services/profile'
-import { nextCashEventTime } from '../services/calc'
+import { isOccurrenceResolved, nextCashEventTime } from '../services/calc'
 import { cardInvoice, currentInvoice, directInstallmentPaidAmount, futureInvoicePaymentDate,
   installmentLinkedToCardPayment, validPaymentDate } from '../services/cards'
-import { applyBatchPure } from '../assistant/execute'
+import { applyActionPure, applyBatchPure } from '../assistant/execute'
 import type { BatchItem } from '../assistant/execute'
 import type { ActionExecutionResult } from '../assistant/contracts'
 import { isSafePreference, mergePreferenceLists } from '../assistant/preferences'
@@ -125,6 +125,10 @@ export function hydrateForTest(parsed: any): AppState {
   return { ...state, chat }
 }
 
+type ConfirmRecurring = {
+  type: 'confirmRecurring'; action: Extract<ParsedAction, { kind: 'recurring-confirm' }>; id: string; stamp: string
+}
+
 type Action =
   | { type: 'hydrate'; state: AppState }
   | { type: 'settings'; patch: Partial<Settings> }
@@ -149,6 +153,7 @@ type Action =
   | { type: 'archiveCategory'; id: string; archived: boolean }
   | { type: 'updateRecurring'; id: string; patch: Partial<RecurringExpense> }
   | { type: 'resolveOccurrence'; recurringId: string; occurrence: RecurrenceOccurrence }
+  | ConfirmRecurring
   | { type: 'mergeState'; state: Partial<AppState> }
   | { type: 'assistantPreferenceUpsert'; preference: AssistantPreference }
   | { type: 'assistantPreferenceRemove'; id: string }
@@ -255,7 +260,14 @@ export function reducer(s: AppState, a: Action): AppState {
       return { ...s, categories: s.categories.map(c => c.id === a.id ? { ...c, archived: a.archived } : c) }
     case 'updateRecurring':
       return { ...s, recurring: s.recurring.map(r => r.id === a.id ? { ...r, ...a.patch } : r) }
+    case 'confirmRecurring':
+      return applyRecurringConfirmation(s, a).state
     case 'resolveOccurrence':
+      if (a.occurrence.status === 'skipped') {
+        const rec = s.recurring.find(r => r.id === a.recurringId)
+        if (!rec || isOccurrenceResolved(rec, a.occurrence.date)
+          || s.transactions.some(t => t.recurringId === rec.id && t.occurrenceDate === a.occurrence.date)) return s
+      }
       // Chave única recurringId + date: reconfirmar a mesma ocorrência substitui
       // o registro em vez de criar um segundo.
       return {
@@ -630,6 +642,23 @@ export function applyAssistantBatch(
   const dry = applyBatchPure(state, items, { source, batchId, stamp, ...meta })
   if (dry.applied) dispatch({ type: 'assistantBatch', items, source, batchId, stamp, ...meta })
   return { results: dry.results, applied: dry.applied, batchId }
+}
+
+function applyRecurringConfirmation(state: AppState, command: ConfirmRecurring) {
+  const date = command.stamp.slice(0, 10)
+  return applyActionPure(state, command.action, command.id, {
+    source: 'recurring', newId: () => command.id,
+    now: { date, time: nextCashEventTime(state, date, command.stamp.slice(11)) },
+  })
+}
+
+export function confirmRecurringPayment(
+  dispatch: React.Dispatch<Action>, state: AppState, action: ConfirmRecurring['action'],
+): ActionExecutionResult {
+  const command: ConfirmRecurring = { type: 'confirmRecurring', action, id: uid(), stamp: nowStamp() }
+  const { result } = applyRecurringConfirmation(state, command)
+  if (result.ok) dispatch(command)
+  return result
 }
 
 /**

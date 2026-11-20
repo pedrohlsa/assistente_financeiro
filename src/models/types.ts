@@ -130,7 +130,7 @@ export type OccurrenceStatus = 'confirmed' | 'skipped'
 export interface RecurrenceOccurrence {
   date: string   // YYYY-MM-DD da ocorrência prevista
   status: OccurrenceStatus
-  /** Transação criada ao confirmar (ausente em 'skipped'). */
+  /** Transação vinculada ou criada ao confirmar (ausente em 'skipped'). */
   txId?: string
   /** Valor realmente confirmado, quando diferente do previsto. */
   amount?: number
@@ -391,7 +391,8 @@ export type ParsedAction =
   // luz"): cria a movimentação realizada e resolve a ocorrência, o mesmo que o
   // card da Home faz. `amount` ausente = valor cadastrado; `date` = dia do
   // pagamento (hoje por padrão). Local-only: o remoto não conhece ids.
-  | { kind: 'recurring-confirm'; recurringId: string; occurrenceDate: string; amount?: number; description?: string; date?: string }
+  | { kind: 'recurring-confirm'; recurringId: string; occurrenceDate: string; amount?: number; description?: string; date?: string;
+      transactionId?: string; newPaymentConfirmed?: boolean }
 
 export interface Insight {
   id: string
@@ -471,9 +472,9 @@ export type JournalCollection =
  */
 export type AssistantJournalOp =
   | { op: 'create'; entity: JournalCollection; id: string }
-  | { op: 'update'; entity: JournalCollection; id: string; before: Record<string, unknown> }
+  | { op: 'update'; entity: JournalCollection; id: string; before: Record<string, unknown>; absent?: string[] }
   | { op: 'delete'; entity: JournalCollection; id: string; snapshot: Record<string, unknown> }
-  | { op: 'patch'; entity: 'settings'; before: Record<string, unknown> }
+  | { op: 'patch'; entity: 'settings'; before: Record<string, unknown>; absent?: string[] }
   | { op: 'patch'; entity: 'vehicle'; before: Vehicle | null }
 
 export interface AssistantJournalEntry {

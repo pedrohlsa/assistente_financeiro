@@ -4,7 +4,7 @@ import type { AppState } from '../../src/models/types'
 import { orchestrate } from '../../src/assistant/orchestrator'
 import { segment } from '../../src/assistant/clauses'
 import { findDate } from '../../src/assistant/dates'
-import { balanceOutlook, balanceOutlookText, currentBalance, kmCost, monthlyProjections, occurrencesBetween, pendingRecurrings } from '../../src/services/calc'
+import { balanceOutlook, balanceOutlookText, currentBalance, kmCost, monthlyProjections, occurrencesBetween, pendingRecurrings, possibleRecurringTransactions, recurringLinkAction } from '../../src/services/calc'
 import { cardInvoice, cardOutstanding, cardsOverview, futureInstallmentPaymentDate, invoiceOpenAmount, planProgress } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
 import { buildCapabilities } from '../../src/assistant/capabilities'
@@ -4455,6 +4455,86 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       'conta fixa vira confirmação; despesa independente de 30 continua proposta',
       other.actions.length === 2 && other.actions.some(a => a.kind === 'recurring-confirm' && a.amount === 120)
         && other.actions.some(a => a.kind === 'expense' && a.amount === 30) && /internet/i.test(other.reply)))
+
+    const ontem = addDays(hoje, -1)
+    const avulsa = { id: 'avulsa-existente', type: 'expense' as const, category: 'assinaturas', amount: 120,
+      description: 'Internet', origin: 'Casa 2', date: ontem, time: '13:00', source: 'manual' as const }
+    const legado: AppState = { ...st, settings: { ...st.settings, balanceAsOf: addDays(hoje, -30) },
+      recurring: [{ ...st.recurring[0], origin: 'Casa 2' }], transactions: [avulsa] }
+    const conta = legado.recurring[0]
+    const candidatos = possibleRecurringTransactions({ ...legado, transactions: [avulsa,
+      { ...avulsa, id: 'outra-casa', origin: 'Casa 1' },
+      { ...avulsa, id: 'receita', type: 'income' },
+      { ...avulsa, id: 'data-futura', date: addDays(hoje, 1) },
+      { ...avulsa, id: 'vinculada', recurringId: 'outra-conta' },
+    ] }, conta, hoje, hoje)
+    const agora = { date: hoje, time: '15:00' }
+    const payload = { type: 'confirmRecurring' as const, id: 'home-confirm-link', stamp: `${hoje}T15:00:00.000`,
+      action: recurringLinkAction(conta, hoje, avulsa) }
+    const pelaHome = reducer(legado, payload)
+    const replay = reducer(pelaHome, { ...payload, id: 'home-repeat-link' })
+    const pularDepois = reducer(pelaHome, { type: 'resolveOccurrence', recurringId: conta.id,
+      occurrence: { date: hoje, status: 'skipped' } })
+    const legadoSemEscolha = reducer(legado, { ...payload, action: { kind: 'recurring-confirm', recurringId: conta.id,
+      occurrenceDate: hoje, amount: 120 } })
+    out.push(result('RVIN-home-vincula-sem-mexer-no-caixa', { candidatos, saldo: currentBalance(pelaHome), pelaHome: pelaHome.recurring },
+      'a Home vincula a avulsa sem mexer no valor, data, categoria ou caixa; replays e confirmação sem escolha são bloqueados',
+      candidatos.length === 1 && candidatos[0].id === avulsa.id && currentBalance(pelaHome) === 880
+        && pelaHome.transactions.length === 1 && JSON.stringify(pelaHome.transactions[0]) ===
+          JSON.stringify({ ...avulsa, recurringId: conta.id, occurrenceDate: hoje })
+        && pelaHome.recurring[0].occurrences?.[0]?.txId === avulsa.id && !pendingRecurrings(pelaHome, hoje).length
+        && replay === pelaHome && pularDepois === pelaHome && legadoSemEscolha === legado))
+
+    const noChat = await orchestrate({ state: legado, message: 'Paguei 120 da internet', today: hoje, remoteEnabled: false })
+    const escolhaLegado = noChat.response.mode === 'clarify' ? noChat.response.clarification : undefined
+    const escolher = (state: AppState, message: string) => orchestrate({ state, message, today: hoje, remoteEnabled: false,
+      pendingClarification: escolhaLegado })
+    const vincular = await escolher(legado, '1')
+    const conferir = (state: AppState, actions: typeof vincular.response.actions) => applyBatchPure(state,
+      actions.map(({ id, action }) => ({ id, action })), { now: agora, batchId: 'vinculo-chat', stamp: payload.stamp })
+    const vinculado = conferir(legado, vincular.response.actions)
+    const registroAlterado = { ...legado, transactions: [{ ...avulsa, amount: 99 }] }
+    const vencida = conferir(registroAlterado, vincular.response.actions)
+    const depoisDaRecarga = hydrateForTest(JSON.parse(JSON.stringify(vinculado.state)))
+    const desvinculado = revertBatchPure(depoisDaRecarga, 'vinculo-chat', `${hoje}T16:00:00.000`)
+    const criarNova = await escolher(legado, 'Registrar outro pagamento')
+    const novoConfirmado = conferir(legado, criarNova.response.actions)
+    out.push(result('RVIN-chat-escolha-explicita-e-desfaz-vinculo', { noChat: noChat.response, vincular: vincular.response,
+      vinculado: vinculado.results, vencida: vencida.results, novoConfirmado: novoConfirmado.results },
+      'escolher vínculo não movimenta caixa, desfazer reabre conta sem apagar a avulsa; registro separado exige sua própria escolha',
+      escolhaLegado?.field === 'recurring-link' && escolhaLegado.options?.length === 2 && !noChat.response.actions.length
+        && vincular.response.mode === 'propose_actions' && /Vincular lançamento existente/.test(vincular.response.reply)
+        && vincular.response.actions.length === 1 && editableFieldsFor(vincular.response.actions[0].action, buildCapabilities(legado)).length === 0
+        && vinculado.applied && currentBalance(vinculado.state) === 880 && !pendingRecurrings(vinculado.state, hoje).length
+        && !vencida.applied && vencida.state === registroAlterado
+        && !isRevertFailure(desvinculado) && currentBalance(desvinculado.state) === 880
+        && desvinculado.state.transactions[0]?.id === avulsa.id && !desvinculado.state.transactions[0]?.recurringId
+        && !desvinculado.state.transactions[0]?.occurrenceDate && !desvinculado.state.recurring[0]?.occurrences
+        && pendingRecurrings(desvinculado.state, hoje).length === 1
+        && novoConfirmado.applied && currentBalance(novoConfirmado.state) === 760 && novoConfirmado.state.transactions.length === 2))
+
+    const diaUm = `${hoje.slice(0, 7)}-01`
+    const mesAnterior = addDays(diaUm, -1).slice(0, 7)
+    const contaMigrada = { ...conta, startDate: `${mesAnterior}-01`, dueDay: 1, handledMonths: [mesAnterior] }
+    const txMigrada = { ...avulsa, date: diaUm }
+    const migrado = { ...legado, recurring: [contaMigrada], transactions: [txMigrada] }
+    const estadoMigrado = reducer(migrado, { ...payload, action: recurringLinkAction(contaMigrada, diaUm, txMigrada) })
+    const mesQuitado = await turnoHoje(estadoMigrado, 'Paguei 120 da internet do mês passado')
+    out.push(result('RVIN-data-antiga-ja-resolvida-continua-quitada', { ocorrencias: estadoMigrado.recurring[0].occurrences, mesQuitado },
+      'criar a primeira ocorrência exata mantém o mês legado quitado no planejamento e no chat',
+      estadoMigrado.recurring[0].occurrences?.[0]?.date === diaUm && !pendingRecurrings(estadoMigrado, hoje).length
+        && mesQuitado.actions.length === 0 && /já encontrei um registro/i.test(mesQuitado.reply)))
+
+    const semAncora = { ...legado, settings: { ...legado.settings, balanceAsOf: undefined },
+      transactions: [{ ...avulsa, date: hoje }] }
+    const novoSaldo = applyBatchPure(semAncora, [{ id: 'ajuste-saldo', action: { kind: 'balance', amount: 400 } }],
+      { now: agora, batchId: 'ancora-ajustada', stamp: payload.stamp })
+    const saldoDesfeito = revertBatchPure(hydrateForTest(JSON.parse(JSON.stringify(novoSaldo.state))),
+      'ancora-ajustada', `${hoje}T16:00:00.000`)
+    out.push(result('RVIN-undo-apos-recarga-restaura-ausencia-de-ancora', saldoDesfeito,
+      'saldo anterior de 1000 menos gasto de hoje de 120 volta a 880 após recarga e desfazer',
+      novoSaldo.applied && currentBalance(novoSaldo.state) === 400 && !isRevertFailure(saldoDesfeito)
+        && !saldoDesfeito.state.settings.balanceAsOf && currentBalance(saldoDesfeito.state) === 880))
   }
 
   // "Até dia N" é PRAZO, não fato. No dia 12, "quanto preciso deixar parado

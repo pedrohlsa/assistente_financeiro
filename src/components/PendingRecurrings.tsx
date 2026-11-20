@@ -1,9 +1,10 @@
 // Confirmação de entradas/contas recorrentes (14.2).
 // Nada é lançado automaticamente: o app pergunta e só registra após confirmação.
 import React, { useMemo, useState } from 'react'
-import { useStore } from '../store/store'
-import { pendingRecurrings } from '../services/calc'
-import { addDays, dueLabel, fmtBRL, fromISO, nowPaymentTime, parseMoney, todayISO, uid } from '../utils/format'
+import { confirmRecurringPayment, useStore } from '../store/store'
+import { pendingRecurrings, possibleRecurringTransactions, recurringLinkAction } from '../services/calc'
+import { addDays, dueLabel, fmtBRL, fmtDateShort, fromISO, parseMoney, todayISO } from '../utils/format'
+import type { ParsedAction } from '../models/types'
 import { sentenceCase } from '../utils/text'
 import { MoneyInput, useToast } from './ui'
 
@@ -13,33 +14,22 @@ const longDate = (iso: string) =>
 export default function PendingRecurrings() {
   const { state, dispatch } = useStore()
   const toast = useToast()
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState<{ key: string; field: 'amount' | 'links' } | null>(null)
   const [valueInput, setValueInput] = useState('')
 
-  const pendings = useMemo(() => pendingRecurrings(state), [state])
+  const today = todayISO()
+  const pendings = useMemo(() => pendingRecurrings(state, today).map(p => ({
+    ...p, matches: possibleRecurringTransactions(state, p.rec, p.dueDate, today),
+  })), [state, today])
   if (!pendings.length) return null
 
-  /**
-   * Confirmar cria a movimentação REALIZADA (que é o que move o saldo) e marca a
-   * ocorrência daquela data exata como resolvida — a chave recurringId+date é o
-   * que impede confirmar duas vezes o mesmo período.
-   */
-  const confirmar = (recId: string, occurrenceDate: string, kind: 'income' | 'expense', amount: number) => {
-    const rec = state.recurring.find(r => r.id === recId)
-    if (!rec) return
-    const txId = uid()
-    dispatch({
-      type: 'addTx',
-      tx: {
-        id: txId, type: kind, amount, category: rec.category,
-        description: rec.name, origin: rec.origin,
-        date: todayISO(), time: nowPaymentTime(), source: 'recurring',
-        recurringId: rec.id, occurrenceDate, profileAtCreation: state.settings.profile,
-      },
-    })
-    dispatch({ type: 'resolveOccurrence', recurringId: recId, occurrence: { date: occurrenceDate, status: 'confirmed', txId, amount } })
-    setEditingId(null)
-    toast({ text: kind === 'income' ? `${fmtBRL(amount)} recebidos.` : `${fmtBRL(amount)} pagos.` })
+  const confirmar = (action: Extract<ParsedAction, { kind: 'recurring-confirm' }>, kind: 'income' | 'expense') => {
+    const result = confirmRecurringPayment(dispatch, state, action)
+    if (result.ok === false) { toast({ text: result.message }); return }
+    setExpanded(null)
+    const confirmation = kind === 'income' ? 'Recebimento confirmado.' : 'Pagamento confirmado.'
+    toast({ text: action.transactionId ? 'Lançamento vinculado à conta fixa.'
+      : action.amount === undefined ? confirmation : `${fmtBRL(action.amount)} ${kind === 'income' ? 'recebidos' : 'pagos'}.` })
   }
 
   const adiar = (recId: string) => {
@@ -56,9 +46,13 @@ export default function PendingRecurrings() {
     <>
       {pendings.map(p => {
         const isIncome = p.kind === 'income'
-        const editing = editingId === p.rec.id + p.dueDate
+        const key = p.rec.id + p.dueDate
+        const open = expanded?.key === key ? expanded.field : undefined
+        const alreadyEntered = p.matches.length > 0
+        const registrar = (amount: number) => confirmar({ kind: 'recurring-confirm', recurringId: p.rec.id,
+          occurrenceDate: p.dueDate, amount, ...(alreadyEntered ? { newPaymentConfirmed: true } : {}) }, p.kind)
         return (
-          <div key={p.rec.id + p.dueDate} className="card" style={{ borderColor: 'var(--warning)', borderWidth: 1.5 }}>
+          <div key={key} className="card" style={{ borderColor: 'var(--warning)', borderWidth: 1.5 }}>
             <h3>
               {isIncome ? 'Entrada prevista' : 'Conta prevista'}: {p.rec.name}
               {p.rec.origin ? ` — ${p.rec.origin}` : ''}
@@ -76,26 +70,42 @@ export default function PendingRecurrings() {
             </p>
             <p className="tiny" style={{ margin: '-6px 0 12px' }}>{dueLabel(p.inDays, p.kind)}</p>
 
-            {editing ? (
+            {open === 'links' ? (
+              <div className="stack">
+                <p className="small">Qual lançamento já registrado corresponde a este vencimento?</p>
+                {p.matches.map(t => (
+                  <div key={t.id} className="row" style={{ gap: 8, justifyContent: 'space-between' }}>
+                    <span className="small">
+                      {sentenceCase(t.description)}{t.origin ? ` · ${t.origin}` : ''} · {fmtDateShort(t.date)}
+                      {t.time ? ` às ${t.time.slice(0, 5)}` : ''} · {fmtBRL(t.amount)}
+                    </span>
+                    <button className="btn btn-primary btn-sm" onClick={() => confirmar(recurringLinkAction(p.rec, p.dueDate, t), p.kind)}>Vincular</button>
+                  </div>
+                ))}
+                <button className="btn btn-ghost btn-sm" onClick={() => setExpanded(null)}>Voltar</button>
+              </div>
+            ) : open === 'amount' ? (
               <div className="stack">
                 <div className="field">
-                  <label>Valor real (R$)</label>
+                  <label>{alreadyEntered ? 'Valor do novo lançamento (R$)' : 'Valor real (R$)'}</label>
                   <MoneyInput
                     autoFocus value={valueInput} onChange={setValueInput}
-                    onKeyDown={e => e.key === 'Enter' && confirmar(p.rec.id, p.dueDate, p.kind, parseMoney(valueInput) || p.rec.amount)}
+                    onKeyDown={e => e.key === 'Enter' && registrar(parseMoney(valueInput) || p.rec.amount)}
                   />
                 </div>
                 <div className="row" style={{ gap: 8 }}>
-                  <button className="btn btn-primary btn-sm" onClick={() => confirmar(p.rec.id, p.dueDate, p.kind, parseMoney(valueInput) || p.rec.amount)}>Salvar</button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => setEditingId(null)}>Cancelar</button>
+                  <button className="btn btn-primary btn-sm" onClick={() => registrar(parseMoney(valueInput) || p.rec.amount)}>Salvar</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setExpanded(null)}>Cancelar</button>
                 </div>
               </div>
             ) : (
               <div className="suggestion-row">
-                <button className="chip active" onClick={() => confirmar(p.rec.id, p.dueDate, p.kind, p.rec.amount)}>
-                  {isIncome ? 'Confirmar recebimento' : 'Confirmar pagamento'}
+                {alreadyEntered && <button className="chip active" onClick={() => setExpanded({ key, field: 'links' })}>Vincular lançamento existente</button>}
+                <button className={alreadyEntered ? 'chip' : 'chip active'} onClick={() => registrar(p.rec.amount)}>
+                  {alreadyEntered ? (isIncome ? 'Registrar outro recebimento' : 'Registrar outro pagamento')
+                    : (isIncome ? 'Confirmar recebimento' : 'Confirmar pagamento')}
                 </button>
-                <button className="chip" onClick={() => { setEditingId(p.rec.id + p.dueDate); setValueInput(String(p.rec.amount)) }}>Alterar valor</button>
+                <button className="chip" onClick={() => { setExpanded({ key, field: 'amount' }); setValueInput(String(p.rec.amount)) }}>Alterar valor</button>
                 <button className="chip" onClick={() => adiar(p.rec.id)}>Adiar</button>
                 <button className="chip" onClick={() => naoRecebi(p.rec.id, p.dueDate, p.kind)}>{isIncome ? 'Não recebi' : 'Não paguei'}</button>
               </div>

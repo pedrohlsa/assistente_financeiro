@@ -261,6 +261,8 @@ export const ACTION_CATALOG: ActionSpec[] = [
       { name: 'occurrenceDate', type: 'date', required: true, editable: false, notFuture: true, describe: 'vencimento da ocorrência confirmada, YYYY-MM-DD' },
       { name: 'amount', type: 'money', required: false, min: 0.01, max: 99_999_999, describe: 'valor pago, se diferente do cadastrado' },
       { ...textField('description', 'nome da conta fixa, só para exibição'), editable: false },
+      { ...textField('transactionId', 'lançamento existente escolhido pelo usuário', 128), editable: false },
+      { name: 'newPaymentConfirmed', type: 'flag', required: false, editable: false, describe: 'confirma que se trata de um pagamento separado' },
       dateField,
     ],
   },

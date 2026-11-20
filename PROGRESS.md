@@ -5827,3 +5827,21 @@ APK ou chamada paga. NOT READY até auditoria independente.
   registrou o pagamento no segundo cartão de mesmo nome. A suíte passou
   com 741/741 regressões reais no relógio padrão. Typechecks, build,
   matriz de oito datas e rubrica passaram. A branch permanece NOT READY.
+
+## 19/11/2026 — Vínculo de lançamentos com contas fixas
+
+- A Home e o chat oferecem vincular um lançamento parecido ou informar
+  um pagamento separado. O vínculo mantém valor, data, categoria, origem
+  e saldo do lançamento original. Confirmações repetidas e vínculos
+  vencidos são recusados pelo executor compartilhado.
+- A conclusão de uma ocorrência usa uma única operação. O mês quitado
+  por um backup legado continua resolvido quando a primeira ocorrência
+  nova é registrada.
+- O histórico de desfazer agora guarda os campos que antes estavam
+  ausentes. Após recarregar, desfazer um vínculo reabre a conta e
+  preserva o lançamento. Desfazer um ajuste de saldo também remove
+  a âncora se o saldo original não tinha uma.
+- No Chrome, o vínculo funcionou pela Home e pelo chat com dados
+  fictícios. O desfazer após recarga deixou o lançamento original
+  no extrato e a conta em aberto. Suíte com 745/745 regressões reais,
+  typechecks, build e rubrica passaram. A branch permanece NOT READY.

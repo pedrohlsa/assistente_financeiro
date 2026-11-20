@@ -1,8 +1,8 @@
 // Motor de cálculos financeiros — todos os números do app saem daqui.
-import { AppState, Insight, IntervalUnit, RecurrenceOccurrence, RecurringExpense, Transaction } from '../models/types'
+import { AppState, Insight, IntervalUnit, ParsedAction, RecurrenceOccurrence, RecurringExpense, Transaction } from '../models/types'
 import { addDays, dateForDayOfMonth, daysInMonth, dueLabel, fmtBRL, fmtNum, fromISO, MESES_PT_BR, monthKey, monthShortLabel, stampOf, todayISO, toISO } from '../utils/format'
 import { normalizeName, sentenceCase, weekdayName } from '../utils/text'
-import { installmentsThisMonth, monthlyCommitments, installmentsInMonth, chargesInMonth, activeCards, cardInvoice, directInstallmentPaidAmount, invoiceOpenAmount, hasAmbiguousLegacyCardBalance } from './cards'
+import { installmentsThisMonth, monthlyCommitments, installmentsInMonth, chargesInMonth, activeCards, cardInvoice, directInstallmentPaidAmount, invoiceOpenAmount, hasAmbiguousLegacyCardBalance, validPaymentDate } from './cards'
 
 export interface PeriodStats {
   income: number
@@ -467,6 +467,42 @@ export function pendingRecurrings(s: AppState, t = todayISO(), includeSnoozed = 
 const mesesPorNome = MESES_PT_BR.map(normalizeName)
 const nomeDaCompetencia = new RegExp(String.raw`\s+(?:de|referente\s+(?:a|ao|a\s+mes\s+de))\s+(${mesesPorNome.join('|')})(?:\s+de\s+(\d{4}))?$`)
 
+function matchesRecurringName(r: RecurringExpense, description: string, origin: string): boolean {
+  const registeredOrigin = normalizeName(r.origin)
+  if (origin && registeredOrigin && origin !== registeredOrigin) return false
+  const name = normalizeName(r.name)
+  return !!name && (description === name || (!!registeredOrigin && ['da', 'do', 'de', 'na', 'no']
+    .some(link => description === `${name} ${link} ${registeredOrigin}`)))
+}
+
+/** Sugestões de vínculo em volta do vencimento. O usuário escolhe o lançamento. */
+export function possibleRecurringTransactions(
+  s: AppState, rec: RecurringExpense, due: string, today: string, payment: { date?: string; amount?: number } = {},
+): Transaction[] {
+  const from = addDays(due, -PENDING_LOOKBACK_DAYS)
+  const to = addDays(due, PENDING_LOOKBACK_DAYS)
+  const list = occurrencesBetween(rec, from, to, today)
+  const index = list.indexOf(due)
+  if (index < 0) return []
+  const previous = list[index - 1]
+  const next = list[index + 1]
+  const linked = new Set(s.recurring.flatMap(r => (r.occurrences || []).map(o => o.txId).filter(Boolean)))
+  return s.transactions.filter(t =>
+    t.type === (rec.kind ?? 'expense') && !t.recurringId && !t.occurrenceDate && !linked.has(t.id)
+    && t.date >= from && t.date <= to && (!previous || t.date > previous) && (!next || t.date < next)
+    && (!payment.date || t.date === payment.date)
+    && (payment.amount === undefined || Math.abs(t.amount - payment.amount) < 0.005)
+    && Number.isFinite(t.amount) && t.amount >= 0.01 && t.amount <= 99_999_999
+    && matchesRecurringName(rec, normalizeName(t.description), normalizeName(t.origin)))
+    .filter(t => validPaymentDate(t.date, today))
+    .sort((a, b) => b.date.localeCompare(a.date) || (b.time || '').localeCompare(a.time || ''))
+}
+
+export function recurringLinkAction(rec: RecurringExpense, due: string, transaction: Transaction): Extract<ParsedAction, { kind: 'recurring-confirm' }> {
+  return { kind: 'recurring-confirm', recurringId: rec.id, occurrenceDate: due, description: rec.name,
+    transactionId: transaction.id, amount: transaction.amount, date: transaction.date }
+}
+
 /**
  * Consulta a recorrência citada numa movimentação. Uma data de pagamento não
  * escolhe o vencimento. Uma referência explícita, como "luz deste mês", escolhe
@@ -481,13 +517,8 @@ export function matchRecurringPayment(
   const name = normalizeName(payment.description)
   if (!name) return null
   const origin = normalizeName(payment.origin)
-  const matches = (description: string) => s.recurring.filter(r => {
-    const registeredOrigin = normalizeName(r.origin)
-    if ((r.kind || 'expense') !== payment.kind || (origin && registeredOrigin && origin !== registeredOrigin)) return false
-    const registered = normalizeName(r.name)
-    return description === registered || (!!registeredOrigin && ['da', 'do', 'de', 'na', 'no']
-      .some(link => description === `${registered} ${link} ${registeredOrigin}`))
-  })
+  const matches = (description: string) => s.recurring.filter(r =>
+    (r.kind || 'expense') === payment.kind && matchesRecurringName(r, description, origin))
   let accounts = matches(name)
   let reference: string | undefined
   if (!accounts.length) {
@@ -529,8 +560,8 @@ export function matchRecurringPayment(
     return matchesAmount && samePayment
   }) || (explicit && accounts.some(r => {
     if (dueDate) return dueDate <= today && occurrenceRecord(r, dueDate)?.status === 'confirmed'
-    if (!r.occurrences?.length) return !!reference && r.handledMonths?.includes(reference)
-    return r.occurrences.some(o => o.status === 'confirmed' && o.date <= today && references(o.date))
+    return !!(reference && legacyMonthResolved(r, reference))
+      || (r.occurrences || []).some(o => o.status === 'confirmed' && o.date <= today && references(o.date))
   }))
   return pending.length || alreadyPaid || explicit ? { pending, alreadyPaid } : null
 }
@@ -794,11 +825,17 @@ export function describeRecurrence(r: RecurringExpense): string {
 export function occurrenceRecord(r: RecurringExpense, date: string): RecurrenceOccurrence | undefined {
   const exact = r.occurrences?.find(o => o.date === date)
   if (exact) return exact
-  // Compatibilidade: recorrência antiga só marcava o mês inteiro como resolvido.
-  if (!r.occurrences?.length && r.handledMonths?.includes(monthKey(date))) {
+  if (legacyMonthResolved(r, monthKey(date))) {
     return { date, status: 'confirmed' }
   }
   return undefined
+}
+
+function legacyMonthResolved(r: RecurringExpense, month: string): boolean {
+  // Meses já quitados continuam resolvidos depois do primeiro registro novo.
+  // Em uma cadência diária ou semanal, um registro antigo do mês não quita
+  // todas as datas depois que o calendário exato já está em uso.
+  return !!r.handledMonths?.includes(month) && (!r.occurrences?.length || recurrenceStep(r).unit === 'month')
 }
 
 /** A ocorrência já foi resolvida (confirmada ou marcada como não recebida/paga)? */

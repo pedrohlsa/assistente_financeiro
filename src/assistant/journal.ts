@@ -36,13 +36,25 @@ const byId = (list: any): Map<string, any> => {
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
-/** Só os campos que mudaram, com o valor ANTERIOR — o journal fica pequeno. */
-function changedFields(before: any, after: any): Record<string, unknown> | null {
-  const out: Record<string, unknown> = {}
-  for (const k of new Set([...Object.keys(before || {}), ...Object.keys(after || {})])) {
-    if (!same(before?.[k], after?.[k])) out[k] = before?.[k]
+/** JSON omite undefined, então campos antes ausentes precisam de registro próprio. */
+function changedFields(before: Record<string, unknown>, after: Record<string, unknown>,
+  keys: Iterable<string> = new Set([...Object.keys(before), ...Object.keys(after)]),
+): { before: Record<string, unknown>; absent?: string[] } | null {
+  const changed = [...keys].filter(k => !same(before[k], after[k]))
+  if (!changed.length) return null
+  const absent = changed.filter(k => before[k] === undefined)
+  return {
+    before: Object.fromEntries(changed.filter(k => before[k] !== undefined).map(k => [k, before[k]])),
+    ...(absent.length ? { absent } : {}),
   }
-  return Object.keys(out).length ? out : null
+}
+
+function restoreFields<T extends object>(current: T, before: Record<string, unknown>, absent?: string[]): T {
+  const restored = { ...current, ...before }
+  if (Array.isArray(absent)) {
+    for (const key of absent) delete restored[key]
+  }
+  return restored
 }
 
 /** O que o lote fez, comparando o estado antes e depois. */
@@ -56,7 +68,7 @@ export function diffForJournal(before: AppState, after: AppState): AssistantJour
       const velho = antes.get(id)
       if (!velho) { ops.push({ op: 'create', entity: col, id }); continue }
       const mudou = changedFields(velho, novo)
-      if (mudou) ops.push({ op: 'update', entity: col, id, before: mudou })
+      if (mudou) ops.push({ op: 'update', entity: col, id, ...mudou })
     }
     // Sim, um lote pode APAGAR: registrar manutenção substitui a peça anterior
     // de mesmo nome. Sem o retrato, desfazer perderia o registro antigo.
@@ -65,13 +77,8 @@ export function diffForJournal(before: AppState, after: AppState): AssistantJour
     }
   }
 
-  const settingsBefore: Record<string, unknown> = {}
-  for (const k of SETTINGS_KEYS) {
-    if (!same((before.settings as any)?.[k], (after.settings as any)?.[k])) {
-      settingsBefore[k] = (before.settings as any)?.[k]
-    }
-  }
-  if (Object.keys(settingsBefore).length) ops.push({ op: 'patch', entity: 'settings', before: settingsBefore })
+  const settings = changedFields({ ...before.settings }, { ...after.settings }, SETTINGS_KEYS)
+  if (settings) ops.push({ op: 'patch', entity: 'settings', ...settings })
 
   if (!same(before.vehicle, after.vehicle)) {
     ops.push({ op: 'patch', entity: 'vehicle', before: before.vehicle ?? null })
@@ -130,7 +137,7 @@ export function revertBatchPure(state: AppState, batchId: string, stamp: string)
   for (const op of [...entry.ops].reverse()) {
     if (op.op === 'patch') {
       next = op.entity === 'settings'
-        ? { ...next, settings: { ...next.settings, ...(op.before as any) } }
+        ? { ...next, settings: restoreFields(next.settings, op.before, op.absent) }
         : { ...next, vehicle: op.before }
       continue
     }
@@ -138,7 +145,7 @@ export function revertBatchPure(state: AppState, batchId: string, stamp: string)
     if (op.op === 'create') {
       next = { ...next, [op.entity]: atual.filter(x => x.id !== op.id) } as AppState
     } else if (op.op === 'update') {
-      next = { ...next, [op.entity]: atual.map(x => (x.id === op.id ? { ...x, ...op.before } : x)) } as AppState
+      next = { ...next, [op.entity]: atual.map(x => (x.id === op.id ? restoreFields(x, op.before, op.absent) : x)) } as AppState
     } else {
       // Recriar só se ainda não existir — reversão idempotente por item.
       next = atual.some(x => x.id === op.id)
