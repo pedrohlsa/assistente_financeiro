@@ -5915,3 +5915,16 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - O Chrome guardou R$ 50 na data selecionada e R$ 30 de padaria no dia
   originalmente dito. A suíte padrão passou com 761/761 regressões
   reais. A branch permanece NOT READY.
+
+## 19/11/2026 — Histórico de pagamentos de fatura
+
+- Período de pagamento filtra a data do desembolso. Referência da
+  fatura filtra o vencimento. As duas condições podem ser usadas
+  juntas. Cartões arquivados continuam consultáveis no histórico.
+- O total por período usa pagamentos com data válida registrada.
+  Ao consultar um vencimento específico, a resposta pode informar
+  o valor quitado sem data quando essa for a evidência disponível.
+- No Chrome, um pagamento de R$ 80 feito neste mês ficou na fatura
+  do mês anterior. Os totais por data foram R$ 100 neste mês e R$ 45
+  no mês anterior. Suíte com 762/762 regressões reais, matriz de oito
+  datas, typechecks, build e rubrica local passaram.

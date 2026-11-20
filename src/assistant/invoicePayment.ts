@@ -14,10 +14,10 @@ const RELATO_DE_FATURA = /\b(?:paguei|pagamos|quitei|quitamos|antecipei|adiantei
 export const isInvoicePaymentStatement = (text: string): boolean => /\bfaturas?\b/i.test(text) && RELATO_DE_FATURA.test(text)
 
 /** Retira só o mês de vencimento. O leitor de datas recebe a data do dinheiro à parte. */
-export function readInvoiceReference(text: string, today: string): {
+export function readInvoiceReference(text: string, today: string, paymentHistory = false): {
   paymentText: string; referenceMonth?: string; referenceQuestion?: string
 } {
-  if (!isInvoicePaymentStatement(text)) return { paymentText: text }
+  if (!paymentHistory && !isInvoicePaymentStatement(text)) return { paymentText: text }
   const d = fromISO(today)
   const matches = [...text.matchAll(REFERENCIA)].filter(m => {
     // "dia 10 do mês passado" é um dia do pagamento, mesmo se houver fatura.

@@ -3472,27 +3472,50 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
-  // "Quanto PAGUEI de fatura" é o que foi pago, não o valor das faturas: "esse
-  // ano" dava R$ 2.000,00 (o faturado) com R$ 1.200,00 pagos; "mês passado"
-  // e sem período davam o resumo dos cartões. Pago = parcelas marcadas pagas,
-  // pelo vencimento, no fixture.
+  // O vencimento de uma parcela marcada como paga não é a data do pagamento.
   {
-    const limpa = (s: string) => s.replace(/ /g, ' ')
     const rico = autonomoRico(hoje)
-    const fmt = (v: number) => `R$ ${v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`
-    const pagoEm = (prefixo: string) => rico.installments.filter(i => i.status === 'paid' && i.dueDate.startsWith(prefixo))
-      .reduce((a, i) => a + i.amount, 0)
-    const passado = new Date(Number(hoje.slice(0, 4)), Number(hoje.slice(5, 7)) - 2, 1)
-    const prefixoPassado = `${passado.getFullYear()}-${String(passado.getMonth() + 1).padStart(2, '0')}`
-    const mesPassado = limpa((await turnoHoje(rico, 'quanto paguei de fatura mes passado')).reply)
-    out.push(result('FP-paguei-mes-passado', mesPassado, `${fmt(pagoEm(prefixoPassado))} pagos`,
-      pagoEm(prefixoPassado) > 0 && mesPassado.includes(fmt(pagoEm(prefixoPassado))) && !/Situação dos seus cartões/.test(mesPassado)))
-    const ano = limpa((await turnoHoje(rico, 'quanto ja paguei de fatura esse ano')).reply)
-    out.push(result('FP-paguei-no-ano', ano, `${fmt(pagoEm(hoje.slice(0, 4)))} pagos, não o faturado`,
-      ano.includes(fmt(pagoEm(hoje.slice(0, 4)))) && !/R\$ 2\.000,00/.test(ano)))
-    const semPeriodo = limpa((await turnoHoje(rico, 'quanto paguei de fatura')).reply)
-    out.push(result('FP-paguei-sem-periodo', semPeriodo, `${fmt(pagoEm(hoje.slice(0, 7)))} pagos este mês`,
-      semPeriodo.includes(fmt(pagoEm(hoje.slice(0, 7)))) && !/Situação dos seus cartões/.test(semPeriodo)))
+    for (const [id, frase, rotulo] of [
+      ['FP-paguei-mes-passado', 'quanto paguei de fatura mes passado', /mês passado/],
+      ['FP-paguei-no-ano', 'quanto ja paguei de fatura esse ano', /este ano/],
+      ['FP-paguei-sem-periodo', 'quanto paguei de fatura', /este mês/],
+    ] as const) {
+      const r = await turnoHoje(rico, frase)
+      out.push(result(id, r, 'informa ausência de data de pagamento no período solicitado',
+        r.actions.length === 0 && /Não tenho pagamento de fatura.*data registrada/.test(r.reply)
+          && rotulo.test(r.reply) && !/R\$/.test(r.reply)))
+    }
+
+    const agora = hoje.slice(0, 7)
+    const anterior = addDays(`${agora}-01`, -2)
+    const antiga = anterior.slice(0, 7)
+    const referencia = antiga.split('-').reverse().join('/')
+    const nomeDoMes = MESES_PT_BR[Number(antiga.slice(5)) - 1]
+    const st = buildState({ profile: 'autonomo', cards: [{ name: 'Inter' }, { name: 'Nubank' }] })
+    st.cardPayments = [
+      { id: 'old-paid-now', cardId: 'card0', referenceMonth: antiga, paymentDate: hoje, amount: 80 },
+      { id: 'now-paid-old', cardId: 'card0', referenceMonth: agora, paymentDate: anterior, amount: 45 },
+      { id: 'now-paid-now', cardId: 'card0', referenceMonth: agora, paymentDate: hoje, amount: 20 },
+      { id: 'future-paid', cardId: 'card0', referenceMonth: antiga, paymentDate: addDays(hoje, 1), amount: 999 },
+      { id: 'other-card', cardId: 'card1', referenceMonth: antiga, paymentDate: hoje, amount: 888 },
+    ]
+    const quandoPorReferencia = await turnoHoje(st, `Quando paguei a fatura do Inter de ${nomeDoMes} de ${antiga.slice(0, 4)}?`)
+    const quandoPorData = await turnoHoje(st, 'Quando paguei fatura do Inter no mês passado?')
+    const totalDoMes = await turnoHoje(st, 'Quanto paguei de faturas do Inter neste mês?')
+    const totalAntigo = await turnoHoje(st, 'Quanto paguei de faturas do Inter mês passado?')
+    const soDaFatura = await turnoHoje(st, `Quanto paguei da fatura do Inter de ${referencia}?`)
+    const doisFiltros = await turnoHoje(st, `Quanto paguei da fatura do Inter de ${referencia} no mês passado?`)
+    const arquivado = await turnoHoje({ ...st, cards: st.cards.map(c => ({ ...c, archived: true })) },
+      `Qual a data do último pagamento da fatura do Inter de ${referencia}?`)
+    const porValor = [totalDoMes, totalAntigo, soDaFatura].map(r => r.reply)
+    const datas = [quandoPorReferencia.reply, quandoPorData.reply, arquivado.reply]
+    out.push(result('FP-separa-data-de-desembolso-e-competencia', { porValor, datas, doisFiltros },
+      'o período lê a data do pagamento; a referência lê o vencimento, os filtros podem coexistir e o histórico inclui cartões arquivados',
+      /100,00/.test(porValor[0]) && /45,00/.test(porValor[1]) && /80,00/.test(porValor[2])
+        && /80,00/.test(datas[0]) && !/45,00|20,00/.test(datas[0]) && /45,00/.test(datas[1]) && !/80,00/.test(datas[1])
+        && /80,00/.test(datas[2]) && /não tenho pagamento/i.test(doisFiltros.reply)
+        && [...porValor, ...datas].every(reply => !/999,00|888,00/.test(reply))
+        && [quandoPorReferencia, quandoPorData, totalDoMes, totalAntigo, soDaFatura, doisFiltros, arquivado].every(r => !r.actions.length)))
   }
 
   // "Quanto posso gastar por dia" dava 70% do saldo menos só as contas fixas de

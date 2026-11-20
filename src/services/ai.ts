@@ -34,12 +34,15 @@ import type { PerguntaDeConta, PerguntaDeFatura, PlanoDeGuardar } from '../assis
 import { describeAction, parseNaturalFull } from './nlp'
 import { driverInsight } from '../assistant/driverInsights'
 import { answerVehicleCost } from '../assistant/vehicleCost'
+import { readInvoiceReference } from '../assistant/invoicePayment'
+import { findAllDates } from '../assistant/dates'
+import { currentMonthToDate, parsePeriod } from '../assistant/query/period'
 import { adaptiveEnabled, buildPersonalModel } from '../assistant/personalModel'
 import { catById } from '../data/categories'
 import { isDriver } from './profile'
 import {
   activeCards, cardInvoice, cardOutstanding, cardsOverview, currentInvoice, monthlyCommitments, activePlans,
-  planProgress, overdueInstallments, upcomingInvoices, installmentsThisMonth, hasAmbiguousLegacyCardBalance,
+  planProgress, overdueInstallments, upcomingInvoices, installmentsThisMonth, hasAmbiguousLegacyCardBalance, invoiceOpenAmount, validPaymentDate,
 } from './cards'
 import type { CardInvoice } from './cards'
 
@@ -667,11 +670,12 @@ function resolveLocal(s: AppState, input: string): AiReply {
   if (/parcela|fatura|cart[ãa]o|parcelamento|d[ií]vida/.test(t) || (pedeLimite(t) && activeCards(s).length > 0) || pedeDividaTotal(t)
     || pedeListaDeParcelamentos(t)
     || (planoCitado(s, t) && (FIM_DO_PLANO.test(t) || COMPRA_DO_PLANO.test(t) || /\b(?:antecip|adiantei\b|adiantar\b)/.test(t)))) {
+    const sobreFatura = perguntaDeFatura(t)
+    if ((sobreFatura === 'pagamentos' || sobreFatura === 'valor-pago') && s.cards?.length) return respostaDaFatura(s, t, sobreFatura)
     if (!ov.hasData) {
       return { text: 'Você ainda não cadastrou cartões nem parcelamentos. Você pode adicionar em Mais → Cartões e parcelamentos.' }
     }
     if (pedeAntecipacaoDeFatura(t)) return { text: 'Para preparar uma antecipação no chat, diga qual cartão você já pagou, o valor e o mês de vencimento da fatura. Em Mais → Cartões e parcelamentos, você pode conferir a fatura desse mês.' }
-    const sobreFatura = perguntaDeFatura(t)
     if (sobreFatura && activeCards(s).length) return respostaDaFatura(s, t, sobreFatura)
     // Antecipar parcela não tem ação no chat; a tela tem ("Antecipar 1/2").
     // Antes: o resumo dos cartões, como se a pessoa tivesse perguntado outra coisa.
@@ -1469,11 +1473,63 @@ interface SituacaoDaFatura {
 }
 
 /** Cartões citados pelo nome; nome curto como "C6" também vale. */
-function cartoesDaPergunta(s: AppState, t: string) {
-  return activeCards(s).filter(c => {
+function cartoesDaPergunta(s: AppState, t: string, cards = activeCards(s)) {
+  return cards.filter(c => {
     const n = normalizeQuestion(c.name)
     return n.length >= 2 && new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(t)
   })
+}
+
+function pagamentosDeFatura(
+  s: AppState, t: string, tipo: 'pagamentos' | 'valor-pago', cartoes: ReturnType<typeof activeCards>, alvo: string,
+): AiReply {
+  const hoje = todayISO()
+  const reference = readInvoiceReference(t, hoje, true)
+  if (reference.referenceQuestion) return { text: reference.referenceQuestion }
+  const mk = reference.referenceMonth
+  const periodText = reference.paymentText
+  const saidDates = findAllDates(periodText, hoje)
+  const invalid = saidDates.find(d => d.kind === 'ambiguous' || d.kind === 'invalid')
+  if (invalid?.kind === 'ambiguous' || invalid?.kind === 'invalid') return { text: invalid.question }
+  const explicit = parsePeriod(periodText, hoje)?.period
+  const dated = saidDates.flatMap(d => d.kind === 'date' || (d.kind === 'future' && !d.imprecise) ? [d] : [])
+  if (dated.length > 1 && explicit?.grain !== 'range') {
+    return { text: 'Qual é o período dos pagamentos que você quer consultar? Informe a data inicial e a final.' }
+  }
+  const day = dated[0]
+  const period = day && explicit?.grain !== 'range' ? { from: day.date, to: day.date, label: day.label }
+    : explicit || (tipo === 'valor-pago' && !mk ? currentMonthToDate(hoje) : undefined)
+  const competencia = mk ? ` com vencimento em ${mk.slice(5)}/${mk.slice(0, 4)}` : ''
+  const janela = period ? ` (${period.label})` : ''
+  const nomes = new Map(cartoes.map(c => [c.id, c.name]))
+  const pagamentos = (s.cardPayments || []).filter(p => nomes.has(p.cardId) && (!mk || p.referenceMonth === mk)
+    && validPaymentDate(p.paymentDate, hoje) && Number.isFinite(p.amount) && p.amount > 0
+    && (!period || (p.paymentDate >= period.from && p.paymentDate <= period.to)))
+    .sort((a, b) => b.paymentDate.localeCompare(a.paymentDate) || (b.paymentTime || '').localeCompare(a.paymentTime || ''))
+
+  if (tipo === 'valor-pago' && pagamentos.length) {
+    const total = round2(pagamentos.reduce((sum, p) => sum + p.amount, 0))
+    return { text: `Total de pagamentos de fatura registrados${alvo}${competencia}${janela} pela data do pagamento: ${fmtBRL(total)}.` }
+  }
+  if (!pagamentos.length) {
+    if (tipo === 'valor-pago' && mk && !period) {
+      const quitado = cartoes.reduce((sum, card) => {
+        const invoice = cardInvoice(s, card, mk, hoje)
+        return sum + invoice.total - invoiceOpenAmount(s, invoice, hoje)
+      }, 0)
+      if (quitado > 0.009) return {
+        text: `Constam ${fmtBRL(quitado)} quitados nas faturas${alvo}${competencia}. Para essa quitação, não há pagamento de fatura com data registrada.`,
+      }
+    }
+    return { text: `Não tenho pagamento de fatura${alvo}${competencia} com data registrada${janela}. Uma parcela marcada como paga, sozinha, não informa quando a fatura foi paga.` }
+  }
+  const linhas = pagamentos.slice(0, 5).map(p => {
+    const vencimento = /^\d{4}-\d{2}$/.test(p.referenceMonth)
+      ? ` · fatura de ${p.referenceMonth.slice(5)}/${p.referenceMonth.slice(0, 4)}` : ''
+    return `• ${nomes.get(p.cardId)}: ${fmtBRL(p.amount)} em ${dataCompleta(p.paymentDate)}${vencimento}.`
+  })
+  const mais = pagamentos.length > 5 ? ` Mostrei os 5 mais recentes de ${pagamentos.length}.` : ''
+  return { text: `Últimos pagamentos de fatura registrados${alvo}${competencia}${janela}:\n${linhas.join('\n')}\n\nO valor de cada pagamento pode ser parcial.${mais}` }
 }
 
 function situacaoDasFaturas(s: AppState, cartoes: ReturnType<typeof activeCards>): SituacaoDaFatura[] {
@@ -1523,30 +1579,19 @@ function devidasDa(f: SituacaoDaFatura): { valor: number; data: string; linha: s
  * aqui e outro em "quanto preciso deixar até dia 10".
  */
 function respostaDaFatura(s: AppState, t: string, tipo: PerguntaDeFatura): AiReply {
-  const citados = cartoesDaPergunta(s, t)
+  const historico = tipo === 'pagamentos' || tipo === 'valor-pago'
+  const disponiveis = historico ? s.cards || [] : activeCards(s)
+  const citados = cartoesDaPergunta(s, t, disponiveis)
   if (!citados.length) {
     const dito = t.match(/\bfaturas?\s+d[oa]s?\s+(?:meu\s+|minha\s+)?(?:cartao\s+(?:d[oa]\s+)?)?([a-z][a-z0-9]*)/)
     if (dito && !/^(?:cartao|cartoes|credito|mes|meses|ano|semana|dia|atual|agora|passad[oa]|anterior|ultim[oa]|proxim[oa]|hoje)$/.test(dito[1])) {
-      return { text: `Não encontrei um cartão chamado ${sentenceCase(dito[1])}. Seus cartões: ${listaDeNomes(activeCards(s).map(c => c.name))}.` }
+      return { text: `Não encontrei um cartão chamado ${sentenceCase(dito[1])}. Seus cartões: ${listaDeNomes(disponiveis.map(c => c.name))}.` }
     }
   }
-  const cartoes = citados.length ? citados : activeCards(s)
-  if (tipo === 'pagamentos') {
-    const ids = new Set(cartoes.map(c => c.id))
-    const pagamentos = (s.cardPayments || []).filter(p => ids.has(p.cardId)
-      && /^\d{4}-\d{2}-\d{2}$/.test(p.paymentDate)
-      && p.paymentDate <= todayISO() && toISO(fromISO(p.paymentDate)) === p.paymentDate)
-      .sort((a, b) => b.paymentDate.localeCompare(a.paymentDate)
-        || (b.paymentTime || '').localeCompare(a.paymentTime || ''))
+  const cartoes = citados.length ? citados : disponiveis
+  if (historico) {
     const alvo = citados.length === 1 ? ` do ${citados[0].name}` : ''
-    if (!pagamentos.length) return { text: `Não tenho pagamento de fatura${alvo} com data registrada. Uma parcela marcada como paga, sozinha, não informa quando a fatura foi paga.` }
-    const linhas = pagamentos.slice(0, 5).map(p => {
-      const nome = cartoes.find(c => c.id === p.cardId)!.name
-      const referencia = /^\d{4}-\d{2}$/.test(p.referenceMonth)
-        ? `; fatura de ${p.referenceMonth.slice(5, 7)}/${p.referenceMonth.slice(0, 4)}` : ''
-      return `• ${nome}: ${fmtBRL(p.amount)} em ${dataCompleta(p.paymentDate)}${referencia}.`
-    })
-    return { text: `Últimos pagamentos de fatura registrados${alvo}:\n${linhas.join('\n')}\n\nO valor de cada pagamento pode ser parcial.${pagamentos.length > 5 ? ` Mostrei os 5 mais recentes de ${pagamentos.length}.` : ''}` }
+    return pagamentosDeFatura(s, t, tipo, cartoes, alvo)
   }
   const faturas = situacaoDasFaturas(s, cartoes)
   if (faturas.length === 1) {
