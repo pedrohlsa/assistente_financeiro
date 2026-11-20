@@ -618,6 +618,52 @@ function parseFirstAmount(text: string): number {
   return m ? parseMoney(m[1]) : NaN
 }
 
+function datesMentioned(text: string, today: string): DateResolution[] {
+  const dates = findAllDates(text, today)
+  return dates.flatMap(date => {
+    if (!/\bdia\s+\d{1,2}$/i.test(date.text)) return [date]
+    const short = text.slice(date.end).match(/^(\s+ou\s+)(\d{1,2})(?!\d|[.,]\d|\s+(?:reais?|contos?|km|litros?|parcelas?)\b)(?=\s|$|[,;.!?])/i)
+    if (!short) return [date]
+    const other = findDate(`dia ${short[2]}`, today)
+    const start = date.end + short[1].length
+    return other ? [date, { ...other, start, end: start + short[2].length }] : [date]
+  })
+}
+
+function alternativeDates(text: string, dates: DateResolution[]) {
+  const ordered = [...dates].sort((a, b) => a.start - b.start)
+  const joined = (a: DateResolution, b?: DateResolution) => !!b && /^\s*,?\s*ou(?:\s+talvez)?\s*$/i.test(text.slice(a.end, b.start))
+  const first = ordered.findIndex((date, i) => joined(date, ordered[i + 1]))
+  if (first < 0) return undefined
+  let last = first + 1
+  while (joined(ordered[last], ordered[last + 1])) last++
+  const choices = ordered.slice(first, last + 1).flatMap(d => d.kind === 'ambiguous' ? d.options
+    : (d.kind === 'date' || d.kind === 'future') && d.date ? [{ label: d.label, value: d.date }] : [])
+  const options = [...new Map(choices.map(o => [o.value, o])).values()]
+  if (options.length < 2) return undefined
+  return { question: 'Em qual dessas datas o lançamento aconteceu?', options, start: ordered[first].start, end: ordered[last].end }
+}
+
+function alternativeAmounts(text: string, driver: boolean | undefined, date?: string, origin?: string): AnalyzedClause['ambiguity'] {
+  const re = /(?<![\w.,])(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s+(?:reais?|contos?))?\s+ou(?:\s+talvez)?\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?![\d.,])/gi
+  const match = [...text.matchAll(re)].find(m => /r\$/i.test(m[0])
+    || new RegExp(String.raw`\b(?:${PAST_MONEY_VERBS}|valor)\b\s*(?:foi\s+|de\s+)?$`, 'i').test(text.slice(0, m.index)))
+  if (!match) return undefined
+  if (/^\s*(?:km|quil[oô]metros?|parcelas?|vezes|litros?|horas?|dias?|viagens?|corridas?)\b/i.test(text.slice(match.index + match[0].length))) return undefined
+  const options = [...new Set([parseMoney(match[1]), parseMoney(match[2])])].flatMap(value => {
+    if (!(value > 0)) return []
+    const alternate = `${text.slice(0, match.index)}${value.toFixed(2).replace('.', ',')}${text.slice(match.index + match[0].length)}`
+    const parsed = parseNaturalFull(alternate, { driver })
+    const money = parsed.actions.filter(a => a.kind !== 'work')
+    if (parsed.ambiguity || money.length !== 1 || !('amount' in money[0]) || money[0].amount !== value) return []
+    return [{ label: fmtBRL(value), actions: parsed.actions.map(a => ({ ...a,
+      ...(date && DATABLE.has(a.kind) ? { date } : {}), ...(origin && ORIGINABLE.has(a.kind) ? { origin } : {}),
+    })) }]
+  })
+  return { field: 'amount-choice', question: options.length === 2 ? 'Qual dos dois valores foi o valor exato?' : 'Qual foi o valor exato?',
+    options: options.length === 2 ? options : [] }
+}
+
 /** Um número numa origem (Casa 2) ou numa data não substitui o valor do registro. */
 function revisedAction(action: ParsedAction, body: string, today: string): ParsedAction | undefined {
   const dates = findAllDates(body, today)
@@ -904,8 +950,8 @@ export function analyzeMessage(
     // primeira era retirada, e a que sobrava no texto virava número e descrição
     // do lançamento: "ontem gastei 50 e daqui a 3 dias pago mais 100" criava uma
     // despesa fantasma de R$ 3,00, datada de ontem.
-    let datesOriginal = findAllDates(invoiceOriginal.paymentText, today)
-    let datesParser = findAllDates(forParser, today)
+    let datesOriginal = datesMentioned(invoiceOriginal.paymentText, today)
+    let datesParser = datesMentioned(forParser, today)
     let hintOriginal = datesOriginal.length ? null : findUnresolvedTemporalHint(invoiceOriginal.paymentText)
     let hintParser = datesParser.length ? null : findUnresolvedTemporalHint(forParser)
 
@@ -936,10 +982,11 @@ export function analyzeMessage(
     // O trecho que fala do FUTURO não descreve o fato passado. Sem recortá-lo,
     // "gastei 40 hoje e amanhã vou pagar 120" gravava a despesa de hoje com a
     // descrição "Vou pagar 120" — o plano contaminava o lançamento real.
-    let base = forParser
+    const alternatives = !looksLikeQuestion(part.text) && looksPast(part.text) ? alternativeDates(forParser, datesParser) : undefined
+    let base = alternatives ? `${forParser.slice(0, alternatives.start)} ${forParser.slice(alternatives.end)}` : forParser
     const futParser = datesParser.find(isFutureDate)
     const pastParser = datesParser.find(d => d.kind === 'date')
-    if (futParser && pastParser) {
+    if (futParser && pastParser && !alternatives) {
       const retoma = datesParser.find(d => d.kind === 'date' && d.start > futParser.start)?.start ?? forParser.length
       base = `${forParser.slice(0, futParser.start)} ${forParser.slice(retoma)}`
     }
@@ -1034,7 +1081,8 @@ export function analyzeMessage(
     // aqui ligamos a ele a data passada mesmo quando o plano veio primeiro.
     const primary = future && past ? past : resolved[0]
     let temporal: TemporalSignal | undefined
-    if (primary && primary.kind === 'date') { date = primary.date; dLabel = primary.label }
+    if (alternatives) dateAmbiguity = { question: alternatives.question, options: alternatives.options }
+    else if (primary && primary.kind === 'date') { date = primary.date; dLabel = primary.label }
     // "Meu salário cai dia 5" no dia 1º: o "dia 5" é o DIA DA RECORRÊNCIA, não
     // uma data a esclarecer. Perguntar "o dia 5 deste mês ainda não chegou?"
     // engolia a orientação de cadastrar a conta nos primeiros dias de cada mês.
@@ -1045,7 +1093,7 @@ export function analyzeMessage(
         kind: 'invalid', text: invalid.text, label: invalid.label,
         question: invalid.question, actions: [],
       }
-    } else if (future) {
+    } else if (future && !alternatives) {
       temporal = {
         kind: 'future', text: future.text, label: future.label,
         date: future.date, relative: future.relative,
@@ -1258,6 +1306,16 @@ export function analyzeMessage(
       temporal = undefined
     }
 
+    const amountChoice = passado && !negated && !isQuestion && !isConversation
+      ? alternativeAmounts(semData, opts?.driver, date, origins.length === 1 ? origins[0].value : undefined) : undefined
+    if (amountChoice) {
+      const dateMissing = !!temporal || !!dateAmbiguity
+      actions = []
+      temporal = undefined
+      dateAmbiguity = undefined
+      ambiguity = dateMissing ? { question: 'Qual foi o valor exato e em que dia aconteceu?', options: [] } : amountChoice
+    }
+
     // Uma PERGUNTA que por acaso contém "trocar"/"mudar" não é uma correção:
     // "vale a pena trocar de plano?" era classificada como correção e o
     // assistente respondia "entendi que isso não aconteceu — não registrei
@@ -1266,7 +1324,7 @@ export function analyzeMessage(
 
     let intent: AssistantIntent
     if (isConversation) intent = 'conversation'
-    else if (aguardaReembolso || duvidaFatura) intent = 'record'
+    else if (aguardaReembolso || duvidaFatura || amountChoice) intent = 'record'
     else if (negated) intent = 'correction'
     else if (isCorrection && !actions.length) intent = 'correction'
     else if (actions.length && !isQuestion) intent = 'record'

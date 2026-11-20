@@ -132,6 +132,44 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && appliedCorrection.state.transactions.some(t => t.amount === 20 && t.description === 'Ônibus')
       && !appliedCorrection.state.transactions.some(t => t.amount === 90)))
 
+  const answerChoices = (out?: Awaited<ReturnType<typeof orchestrate>>) =>
+    out?.response.mode === 'clarify' ? out.response.clarification : undefined
+  const localSpoken = (message: string, context?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({
+    state: spoken, today: spokenDate, remoteEnabled: true, askRemote: remoteSpy, planRemoteQuery: remoteSpy, message,
+    pending: context?.response.actions, pendingClarification: answerChoices(context),
+  })
+  const twoAmounts = await localSpoken('recebi 125 do freela e gastei vinte e nove ou trinta e um no mercado')
+  const stillTwo = await localSpoken('31 ou 29', twoAmounts)
+  const choseAmount = await localSpoken('foi 31', twoAmounts)
+  const chosenState = applyBatchPure(spoken, choseAmount.response.actions.map(({ id, action }) => ({ id, action })),
+    { now: { date: spokenDate, time: '16:00' } })
+  out.push(result('LING-escolha-curta-de-valor-preserva-receita-da-mesma-frase', { first: twoAmounts.response,
+      repeated: stillTwo.response, chosen: choseAmount.response, caixa: currentBalance(chosenState.state) },
+    'o gasto aguarda escolha exata; depois só R$ 31 saem do caixa e a receita independente de R$ 125 aparece uma vez',
+    answerChoices(twoAmounts)?.field === 'amount-choice' && answerChoices(twoAmounts)?.options?.length === 2
+      && twoAmounts.response.actions.length === 1 && twoAmounts.response.actions[0].action.kind === 'income'
+      && answerChoices(stillTwo)?.field === 'amount-choice' && !!stillTwo.keepPending && !stillTwo.response.actions.length
+      && chosenState.applied && currentBalance(chosenState.state) === 1294 && chosenState.state.transactions.length === 2
+      && chosenState.state.transactions.some(t => t.type === 'expense' && t.amount === 31 && t.description === 'Mercado')
+      && calledForNegation === 0 && spoken.transactions.length === 0))
+
+  const days = await localSpoken('gastei 72 segunda ou terça no mercado')
+  const chosenDay = await localSpoken('terça', days)
+  const tuesday = addDays(spokenDate, -(((fromISO(spokenDate).getDay() + 5) % 7) || 7))
+  const shortDays = await localSpoken('paguei 72 no mercado dia 3 ou 4')
+  const futureDay = await localSpoken('gastei 72 no mercado ontem ou amanhã')
+  const chosenFuture = await localSpoken('amanhã', futureDay)
+  out.push(result('LING-dias-alternativos-nao-escolhem-dia-nem-viram-dinheiro', { first: days.response, chosen: chosenDay.response,
+      shortDays: shortDays.response, choseFuture: chosenFuture.response },
+    'segunda e terça ficam em aberto; dia abreviado não vira R$ 4; escolher amanhã impede uma baixa realizada',
+    answerChoices(days)?.field === 'date-choice' && answerChoices(days)?.options?.length === 2 && !days.response.actions.length
+      && chosenDay.response.actions.length === 1 && chosenDay.response.actions[0].action.kind === 'expense'
+      && chosenDay.response.actions[0].action.amount === 72 && chosenDay.response.actions[0].action.description === 'Mercado'
+      && chosenDay.response.actions[0].action.date === tuesday && answerChoices(shortDays)?.field === 'date-choice'
+      && answerChoices(shortDays)?.pendingActions?.length === 1 && !shortDays.response.actions.length
+      && answerChoices(futureDay)?.field === 'date-choice' && !chosenFuture.response.actions.length
+      && chosenFuture.response.mode === 'clarify' && calledForNegation === 0))
+
   const c1 = baseline()
   c1.transactions = ['2026-06-10', '2026-07-10', '2026-08-10'].map((date, i) => ({
     id: `obra-${i}`, type: 'expense', amount: 300, category: 'obra', date, description: 'Obra', time: '10:00',

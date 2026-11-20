@@ -6060,3 +6060,14 @@ APK ou chamada paga. NOT READY até auditoria independente.
   Outra conversa gravou R$ 900 da Casa 1 e manteve fora a compra retirada.
 - Nove casos novos entre corpus e regressões. Suíte com 781/781
   regressões reais, 151 invariantes, typechecks, build e rubrica.
+
+## 20/11/2026 — Escolha de valor ou data antes de registrar
+
+- O chat pergunta qual é o valor quando o usuário relata alternativas
+  como “29 ou 31” ou escreve os valores por extenso. Pode receber “foi
+  31” e manter os outros registros da mensagem na proposta.
+- “Segunda ou terça” e “dia 3 ou 4” viram escolhas de data, sem criar
+  valor ou selecionar um dia pelo usuário. Uma data futura continua
+  sem baixa realizada.
+- O Chrome confirmou os dois fluxos. Suíte com 783/783 regressões,
+  matriz de oito datas, 151 invariantes, typechecks, build e rubrica.
