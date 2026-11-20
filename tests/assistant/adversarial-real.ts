@@ -332,6 +332,23 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && backwardsRange.response.mode === 'clarify' && calledForNegation === 0
       && ![currentRange, priorWeek, futureRange, narrowedRange, backwardsRange].some(r => r.response.actions.length)))
 
+  const quotedState = buildState({ profile: 'other' })
+  const hear = (message: string) => orchestrate({ state: quotedState, today: TODAY, message,
+    remoteEnabled: true, askRemote: remoteSpy, planRemoteQuery: remoteSpy })
+  const examples = await Promise.all([
+    'exemplo: gastei 80 no mercado', 'tô testando: gastei 80 no mercado, recebi 120 de aluguel',
+    'o gerente falou “paguei 100 na farmácia e gastei 30 no café”', 'eu disse que não paguei 30 na farmácia',
+    'me falaram que eu gastei 100 no mercado', 'meu irmão gastou 90 no mercado', 'o cliente pagou 200 no mercado',
+  ].map(hear))
+  const mixedActors = await hear('eu paguei 80 na farmácia e meu irmão pagou 90 no mercado')
+  const exampleThenReal = await hear('exemplo, gastei 80 no mercado. De verdade paguei 22 na padaria')
+  out.push(result('LING-exemplos-citacoes-e-valor-de-outra-pessoa', { examples: examples.map(r => r.response),
+    mixed: mixedActors.response, followedByFact: exampleThenReal.response }, 'só o relato financeiro afirmado pelo usuário vira proposta, sem automação remota',
+    examples.every(r => !r.response.actions.length && /exemplo|cita|outra pessoa/.test(r.response.reply))
+      && mixedActors.response.actions.length === 1 && mixedActors.response.actions.map(a => a.action).some(a => a.kind === 'expense' && a.amount === 80)
+      && exampleThenReal.response.actions.length === 1 && exampleThenReal.response.actions.map(a => a.action).some(a => a.kind === 'expense' && a.amount === 22)
+      && calledForNegation === 0 && quotedState.transactions.length === 0))
+
   const c1 = baseline()
   c1.transactions = ['2026-06-10', '2026-07-10', '2026-08-10'].map((date, i) => ({
     id: `obra-${i}`, type: 'expense', amount: 300, category: 'obra', date, description: 'Obra', time: '10:00',

@@ -6279,3 +6279,13 @@ APK ou chamada paga. NOT READY até auditoria independente.
 - Chrome confirmou os Pix de R$ 99 e R$ 74,50, sem sessão de trabalho.
   Suíte com 801/801 regressões reais, 151 invariantes, typechecks,
   build e rubrica sem respostas ruins ou perigosas.
+
+## 20/11/2026 — Exemplos, citações e quem pagou
+
+- “Exemplo: gastei 80” e “o gerente falou ‘paguei 100’” ficam
+  como contexto. “Eu disse que não paguei” conserva a negativa.
+- “Eu paguei 80 na farmácia e meu irmão pagou 90” propõe só a
+  despesa de R$ 80. Outro relato explícito após o exemplo também
+  continua disponível para confirmação.
+- A suíte ficou em 802/802 regressões reais. Os testes com transporte
+  simulado verificaram esses trechos sem enviá-los a um serviço.

@@ -1955,9 +1955,9 @@ ${response.reply}`,
         const melhorou = outro.coverage > turno.coverage + 1e-6
           || outro.blocks.reduce((n, b) => n + b.actions.length, 0)
             > turno.blocks.reduce((n, b) => n + b.actions.length, 0)
-        const preservaTransferencias = outro.analysis.clauses.filter(c => c.internalTransfer).length
-          >= turno.analysis.clauses.filter(c => c.internalTransfer).length
-        if (preservaTransferencias && (recuperouNegacao || ((hasBlock(outro, 'record') || hasBlock(outro, 'scenario'))
+        const preservaContexto = turno.analysis.clauses.every(c => !c.localExplanation
+          || outro.analysis.clauses.some(other => other.localExplanation === c.localExplanation))
+        if (preservaContexto && (recuperouNegacao || ((hasBlock(outro, 'record') || hasBlock(outro, 'scenario'))
           && (!hasBlock(turno, 'record') || degradado || melhorou)))) {
           turno = outro
           mensagem = tentativa.text
@@ -2439,8 +2439,7 @@ Confirmar?`,
   const rejectedAll = [...local.rejected, ...remoteRejected]
 
   let reply: string
-  const internalTransferNote = analysis.clauses.some(c => c.internalTransfer)
-    ? 'O dinheiro passou entre contas próprias. Isso mantém o total em caixa.' : ''
+  const localNotes = [...new Set(analysis.clauses.flatMap(c => c.localExplanation ? [c.localExplanation] : []))].join('\n\n')
   let mode: AssistantResponse['mode']
   /** Foco devolvido ao chamador. So muda quando a consulta de fato respondeu. */
   // Pergunta respondida pelo roteador antigo no passo 14: o PLANO fica no foco
@@ -2542,8 +2541,8 @@ Confirmar?`,
       // intenção, não negação. Lida como "isso não aconteceu" soava como se o
       // app tivesse desentendido. O útil é mostrar quanto tem saído.
       reply = respostaDeIntencaoDeReduzir(input.state, mensagem, today)
-    } else if (internalTransferNote && !notUnderstood.length) {
-      reply = internalTransferNote
+    } else if (localNotes && !notUnderstood.length) {
+      reply = localNotes
     } else if (negadas.length) {
       // O usuário disse que NÃO fez o lançamento. Confirmar isso em voz alta é
       // parte da correção — e nada pode sugerir registro.
@@ -2579,7 +2578,7 @@ Confirmar?`,
   // vê o valor certo com uma palavra que não escreveu e não sabe se o app
   // entendeu ou adivinhou.
   const notaReparo = reparo ? describeRepairs(reparo) : null
-  if (internalTransferNote && reply !== internalTransferNote) reply = `${internalTransferNote}\n\n${reply}`
+  if (localNotes && reply !== localNotes) reply = `${localNotes}\n\n${reply}`
   if (candidates.some(candidate => analysis.clauses.some(c => c.id === candidate.clauseId && c.approximateAmount))) {
     const note = 'Você informou um valor aproximado. Confira o valor na proposta antes de confirmar.'
     reply = reply.endsWith('Confirmar?') ? `${reply.slice(0, -'Confirmar?'.length)}${note}\n\nConfirmar?` : `${reply}\n\n${note}`

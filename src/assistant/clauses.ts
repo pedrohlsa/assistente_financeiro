@@ -50,7 +50,7 @@ export interface AnalyzedClause {
   intention?: boolean
   /** O trecho descreve um fato que quase aconteceu ou um plano abandonado. */
   unrealized?: boolean
-  internalTransfer?: boolean
+  localExplanation?: string
   approximateAmount?: boolean
   /**
    * Leituras locais DESCARTADAS por baixa confiança (ver semantic/confidence.ts).
@@ -187,6 +187,13 @@ const PIX_REQUEST = /\b(?:pediu|pediram|solicitou|solicitaram)\b[^.;!?]*\bpix\b|
 const PIX_SENDING = 'mandei|enviei|transferi'
 const PIX_INCOMING = 'mandaram|enviaram|transferiram|mandou|enviou|transferiu'
 const OWN_ACCOUNTS = /\bentre\s+(?:as\s+)?(?:(?:minhas|nossas)\s+(?:duas\s+)?contas|contas\s+pr[óo]prias)\b|\b(?:da|de)\s+(?:minha|nossa)\s+conta\b[^.;!?]{0,55}\b(?:para|pra)\s+(?:a\s+)?(?:minha|nossa)\s+conta\b/i
+const EXAMPLE_CUE = String.raw`(?:(?:por\s+)?exemplo|(?:s[oó]\s+)?(?:um\s+)?teste|(?:t[oô]|estou)\s+testando|isso\s+[ée]\s+s[oó]\s+(?:um\s+)?exemplo)\s*[:,—–-]\s*`
+const EXAMPLE_START = new RegExp(String.raw`^\s*${EXAMPLE_CUE}`, 'i')
+const REPORTED_SPEECH = /^(?:(?:eu\s+)?(?:falei|disse)|(?:me|nos)\s+(?:falaram|disseram)|(?:(?:o|a|meu|minha)\s+)?[\p{L}\p{M}]+(?:\s+[\p{L}\p{M}]+)?\s+(?:falou|disse|afirmou|avisou))\s*(?:que\b|[:"“‘'])/iu
+const THIRD_PARTY = /^(?:(?:hoje|ontem|anteontem|j[áa])\s+)?(?:meu|minha|nosso|nossa|o|a)\s+(?:irm[ãa]o|irm[ãa]|marido|esposa|m[ãa]e|pai|filh[oa]|colega|cliente|gerente|amig[oa]|s[óo]ci[oa]|loja|empresa)\s+(?:j[áa]\s+)?(?:gastou|pagou|comprou|recebeu|ganhou|guardou)\b/i
+const NAMED_THIRD_PARTY = /^(?:(?:[OoAa]|ontem|hoje)\s+)?(?!Quanto\b|Quant[ao]s?\b|Quem\b|Quando\b|Onde\b|Como\b|Ontem\b|Hoje\b|Anteontem\b)[\p{Lu}][\p{L}\p{M}]+(?:\s+[\p{Lu}][\p{L}\p{M}]+){0,2}\s+(?:gastou|pagou|comprou|recebeu|ganhou|guardou)\b/u
+
+const thirdPartyReference = (text: string): boolean => THIRD_PARTY.test(text) || NAMED_THIRD_PARTY.test(text)
 const PIX_CONTEXT_HEAD = /^(?:(?:eu|j[áa]|ainda|n[ãa]o|nem|[nñ])\s+){0,3}(?:mandei|enviei|transferi|acabei\s+(?:de\s+)?(?:mandar|enviar|transferir|mandando|enviando|transferindo))\b/i
 const PIX_CONTEXT_DENIED = new RegExp(String.raw`^(?:(?:eu|ainda)\s+){0,2}(?:n[ãa]o|nem|[nñ])\s+(?:${PIX_SENDING})(?:\s+(?:o\s+)?pix|\s+${CASH_PAIR_VALUE})?\s*[,;.!]*$`, 'i')
 const PIX_CONTEXT_SENT = new RegExp(String.raw`^(?:(?:eu|j[áa])\s+){0,2}(?:${PIX_SENDING})\s+(?:(?:o\s+|um\s+)?pix\s+(?:de\s+)?)?(?:(?:s[oó]|apenas)\s+)?(${CASH_PAIR_VALUE})(?:\s+(?:via|por|no|pelo)\s+pix)?(?:\s+(?:para|pra|pro)\s+[\p{L}\p{M}\s]{2,45})?[,;.!]*$`, 'iu')
@@ -418,6 +425,8 @@ const CORRECTED_AMOUNT = /^(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s*(?:reais?|contos?)\
 const PROTECTED: RegExp[] = [
   /(?:passei|passou|fiz)\s+(?:r\$\s*)?[\d.,]+[^.;!?]*?(?:recebi|receber|peguei|caiu)\s+(?:r\$\s*)?[\d.,]+/gi,
   /comprei[^.;!?]*?\b(?:em|x)\s*\d+\s*(?:vez(?:es)?|x|parcelas?)/gi,
+  /"[^"\n]{1,512}"|“[^”\n]{1,512}”|‘[^’\n]{1,512}’/g,
+  new RegExp(String.raw`(?:^|[.!?;]\s+)${EXAMPLE_CUE}(?:[^.!?]|\.(?!\s|$)){1,512}`, 'gi'),
 ]
 
 export function segment(text: string, today = todayISO()): { text: string; start: number; end: number }[] {
@@ -544,7 +553,7 @@ export function segment(text: string, today = todayISO()): { text: string; start
     if (!looksPast(left) || looksLikeQuestion(left) || looksNegated(left)) continue
     if (cashPair(normalizeNumberWords(right).text)
       || /^(?:o\s+)?(?:sal[áa]rio|freela|freelance|comiss[ãa]o)\s+(?:entrou|caiu|pingou)\s+(?:r\$\s*)?\d/i.test(right)
-      || REFUND_VERB.test(right.slice(0, 55))) push(after)
+      || thirdPartyReference(right) || REFUND_VERB.test(right.slice(0, 55))) push(after)
   }
   // O verbo seguinte pode estar ilegível. Quando há outro valor seguido de
   // uma origem explícita, a fonte à direita não pertence ao primeiro relato.
@@ -1195,8 +1204,13 @@ export function analyzeMessage(
     const refundDenied = REFUND_DENIED.test(part.text)
     const internalTransfer = !isQuestion && !negated && looksPast(part.text)
       && /\b(?:pix|transferi)\b/i.test(part.text) && OWN_ACCOUNTS.test(part.text)
+    const localExplanation = internalTransfer ? 'O dinheiro passou entre contas próprias. Isso mantém o total em caixa.'
+      : EXAMPLE_START.test(part.text) ? 'Entendi o trecho como exemplo. Para registrar um valor real, diga o que aconteceu.'
+      : REPORTED_SPEECH.test(part.text) && looksPast(part.text) ? 'Esse trecho cita o que alguém disse. Para registrar, confirme o que aconteceu na sua conta.'
+      : thirdPartyReference(part.text) ? 'Esse trecho fala da movimentação de outra pessoa. Se afetou sua conta, diga se o dinheiro entrou ou saiu e qual foi o valor.'
+      : undefined
     const unrealized = !isQuestion && (abandoned || abandonedReply || onlyPlanned || declinedRide || refundDenied || ALMOST_HAPPENED.test(part.text))
-    const canShareContext = !isQuestion && !isConversation && !negated && !unrealized && !internalTransfer
+    const canShareContext = !isQuestion && !isConversation && !negated && !unrealized && !localExplanation
     const originalMoney = spokenMoney(expandWeekdayAlternatives(part.text))
     const forParserRaw = spokenMoney(expandWeekdayAlternatives(aligned ? normalizedParts[i].text : normalized))
     const invoiceOriginal = readInvoiceReference(originalMoney, today)
@@ -1540,7 +1554,7 @@ export function analyzeMessage(
           { label: 'Não', actions: [], reply: 'Certo, não vou registrar esse valor como realizado.' },
         ] : [] }
     }
-    if (internalTransfer) {
+    if (localExplanation) {
       actions = []
       temporal = undefined
       ambiguity = undefined
@@ -1647,7 +1661,7 @@ export function analyzeMessage(
 
     let intent: AssistantIntent
     if (queryDates) intent = 'clarification'
-    else if (isConversation || internalTransfer) intent = 'conversation'
+    else if (isConversation || localExplanation) intent = 'conversation'
     else if (aguardaReembolso || duvidaFatura || amountChoice || unrealized) intent = 'record'
     else if (negated) intent = 'correction'
     else if (isCorrection && !actions.length) intent = 'correction'
@@ -1678,7 +1692,7 @@ export function analyzeMessage(
       temporal,
       intention: intencao || undefined,
       unrealized: unrealized || undefined,
-      internalTransfer: internalTransfer || undefined,
+      localExplanation,
       approximateAmount: actions.length > 0 && APPROXIMATE_AMOUNT.test(semData) || undefined,
       suspicious: suspeitas.size ? [...suspeitas] : undefined,
     })
