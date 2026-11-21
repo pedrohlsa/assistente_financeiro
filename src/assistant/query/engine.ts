@@ -26,6 +26,9 @@ import type {
 const MAX_ROWS = 20000
 
 const r2 = (v: number) => Math.round(v * 100) / 100
+// Percentual guarda mais casas: a resposta arredonda para um décimo, e
+// arredondar duas vezes fazia 12,748% virar 12,75% e depois 12,8%.
+const r4 = (v: number) => Math.round(v * 10000) / 10000
 
 const inRange = (d: string, from: string, to: string) => d >= from && d <= to && isCalendarDate(d)
 
@@ -619,7 +622,7 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
     const anterior = compareGroups ? (compareGroups.get(key) ?? 0) : undefined
     const delta = anterior === undefined ? undefined : r2(valor - anterior)
     return {
-      key, label: g.label, value: r2(cardDebt ? total : valor), count: g.valores.length,
+      key, label: g.label, value: (plan.metric === 'share' ? r4 : r2)(cardDebt ? total : valor), count: g.valores.length,
       compareValue: anterior === undefined ? undefined : r2(anterior),
       delta,
       deltaPct: anterior !== undefined && anterior !== 0 ? Math.round(((valor - anterior) / Math.abs(anterior)) * 100) : undefined,
@@ -813,7 +816,7 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
     plan,
     ...(lastOutside ? { lastOutside } : {}),
     ...(cardPurchases ? { cardPurchases } : {}),
-    total: r2(total),
+    total: (plan.metric === 'share' ? r4 : r2)(total),
     count: rows.length,
     groups: limitados,
     compareTotal: compareTotal === undefined ? undefined : r2(compareTotal),
@@ -845,7 +848,7 @@ function montaFatos(
   const facts: AssistantFact[] = [{
     id: factId(),
     label: plan.label || 'Total',
-    value: r2(total),
+    value: (plan.metric === 'share' ? r4 : r2)(total),
     unit,
     period: periodo,
     provenance: { source: plan.source, rows, detail: plan.metric },

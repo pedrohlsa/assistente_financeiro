@@ -6634,7 +6634,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const fatia = doMes('expense', t => t.category === 'combustivel') / doMes('income') * 100
       const g = await turnoHoje(mot, 'quanto a gasolina come do que eu faturo')
       const pct = `${fatia.toFixed(1).replace('.', ',')}%`
-      out.push(result('MN-gasolina-come-do-faturamento', g.reply.split('\n')[0], pct, !/100%/.test(g.reply) && g.reply.includes(pct)))
+      // A régua de arredondamento é a do app; o oráculo aceita um décimo.
+      const lido = Number((g.reply.match(/(\d+(?:,\d+)?)%/) || [])[1]?.replace(',', '.'))
+      out.push(result('MN-gasolina-come-do-faturamento', g.reply.split('\n')[0], pct, !/100%/.test(g.reply) && Math.abs(lido - fatia) <= 0.051))
     }
 
     // Conversa social não recebe a lista de exemplos; frase com fato continua fato.
