@@ -6486,13 +6486,18 @@ Depois do checkpoint (`de33fd6..`):
 - Corrida com distância analisada; "quando troco o óleo/os pneus";
   confirmação digitada aponta o botão; "é salário" no segundo turno; rascunho
   "comprei um celular" → "1200 em 10x" vira parcelamento.
+- Real e centavos falados: "um e cinquenta no pão" era R$ 51,00 (agora
+  R$ 1,50); "paguei 4 e 90 no pão" eram dois gastos somando R$ 94 (agora
+  pergunta "R$ 4,90 ou dois gastos?"). "Fiz 450 em 12 horas" guarda as horas.
+- Percentual arredondado uma vez só: 12,748% saía 12,8% (achado pela matriz
+  de calendário em 30/11). "Obrigado", "oi" e "bom dia" têm resposta curta.
 
 Decisão de produto deixada para o usuário: no perfil motorista, cada receita
 de plataforma num dia inteiro conta "1 viagem" (`crit-motorista` espera 2
 viagens para Uber + 99 com 161 km e 8 horas). A regra 34 diz que um dia
 inteiro não inventa viagem; o caso crítico diz o contrário. Não mudei.
 
-Gates (relógio 2026-09-15): 733/733 corpus, 1.002/1.002 adversariais, 151/151
+Gates (relógio 2026-09-15): 733/733 corpus, 1.028/1.028 adversariais, 151/151
 invariantes, mutações, fuzz, ditado e remoto offline; typecheck,
 typecheck:api, test:money, build, rubrica (0 perigosa, 0 ruim) e
 `test:calendario` nas oito datas. Sem push, merge, deploy, APK ou DeepSeek.
