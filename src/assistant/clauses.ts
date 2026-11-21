@@ -1017,10 +1017,21 @@ export function revisedAction(action: ParsedAction, body: string, today: string)
     const origins = extractOrigins(payload)
     if (origins.length > 1) return undefined
     const verb = action.kind === 'expense' ? 'gastei' : 'recebi'
-    const parsed = parseNaturalFull(`${verb} ${v.toFixed(2).replace('.', ',')} ${place}`, { driver: false }).actions
-    const [replacement] = parsed
-    if (parsed.length !== 1 || replacement?.kind !== action.kind) return undefined
+    const parsed = parseNaturalFull(`${verb} ${v.toFixed(2).replace('.', ',')} ${place}`, { driver: false })
+    const [replacement] = parsed.actions
+    if (parsed.ambiguity || parsed.actions.length !== 1 || replacement?.kind !== action.kind) return undefined
     const origin = origins[0]?.value
+    if (action.kind === 'income' && replacement.kind === 'income') {
+      const ride = replacement.category === 'corridas' && RIDE_REFERENCE.test(place)
+      const nonRideSource = !ride && (origin || NON_RIDE_RECEIPT.test(place))
+      if (!nonRideSource && !replacement.description && !replacement.category) return undefined
+      if (ride || nonRideSource) {
+        const category = replacement.category || (action.category && action.category !== 'corridas' ? action.category : 'outros-in')
+        return { ...action, ...replacement, amount: v, category, origin: ride ? undefined : origin,
+          description: replacement.description, is99: ride ? replacement.is99 : undefined,
+          ...(exactDate ? { date: exactDate } : {}) }
+      }
+    }
     if (!origin && !replacement.description && !replacement.category) return undefined
     return { ...action, ...replacement, amount: v,
       description: replacement.description || (origin && normalizeName(action.description) === normalizeName(action.origin) ? undefined : action.description),

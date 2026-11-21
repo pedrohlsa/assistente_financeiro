@@ -6680,3 +6680,12 @@ até auditoria independente.
   “Vale rodar hoje? Tô com sono” considera a segunda parte da mensagem.
 - A suíte passou com 1.191/1.191 regressões adversariais e ambos os
   typechecks passaram.
+
+## 21/11/2026 — Origem de receita após uma autocorreção
+
+- “Recebi 120 do Uber, quer dizer, 100 da Casa 2” propõe uma entrada de
+  R$ 100 da Casa 2 em Outras receitas. Se a entrada foi dita como aluguel,
+  corrigir só o imóvel preserva a categoria.
+- “Errei, foi 100 do Uber” em uma proposta aberta pode trocar valor e
+  origem juntos. A origem antiga deixa de aparecer e a viagem não é
+  inferida. A suíte passou com 1.195/1.195 regressões adversariais.

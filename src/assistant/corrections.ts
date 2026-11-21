@@ -221,7 +221,7 @@ function reviseContrast(action: ParsedAction, text: string, caps: AssistantCapab
 
   const body = [amount?.[0], details].filter(Boolean).join(' ')
   const updated = revisedAction(action, body, today)
-  if ((action.kind === 'income' || action.kind === 'expense') && (updated?.kind === 'income' || updated?.kind === 'expense')) {
+  if (action.kind === 'expense' && updated?.kind === 'expense') {
     return { ...updated, origin: updated.origin ?? action.origin, category: updated.category ?? action.category }
   }
   return updated
@@ -345,7 +345,7 @@ function parseContrastCorrection(
   const [{ action: original }] = targets
   const before = original as unknown as Record<string, unknown>
   const after = action as unknown as Record<string, unknown>
-  for (const field of ['amount', 'total', 'cost', 'description', 'category', 'date', 'origin', 'cardName']) {
+  for (const field of ['amount', 'total', 'cost', 'description', 'category', 'date', 'origin', 'cardName', 'is99']) {
     if (before[field] !== after[field]) plan.edits.push({ id, field, value: after[field], was: before[field] })
   }
   plan.summary.push(plan.edits.length ? 'Corrigi a proposta.' : 'A proposta já estava com esses dados.')
@@ -420,6 +420,30 @@ export function parseCorrection(
     const alternatives = revisionChoices(repair[1], targets, pending, caps, today)
     if (alternatives) {
       plan.ambiguous = alternatives
+      return plan
+    }
+  }
+
+  // Uma correção de origem pode trazer valor e fonte juntos. O leitor de
+  // valor isolado aproveitava só o número e mantinha a plataforma anterior.
+  const [income, other] = pending.filter(p => p.action.kind !== 'work')
+  const creditRevision = norm.match(/^\s*(?:(?:na\s+(?:real|verdade)|ou\s+melhor|quer\s+dizer|ops|errei|corrigindo|me\s+enganei)[\s,:]+)+(?:foi\s+|era\s+|veio\s+)?(.+)$/i)?.[1]
+    || repair?.[1]
+  if (income?.action.kind === 'income' && !other && creditRevision && !looksLikeQuestion(norm)
+    && /^(?:(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?\s+)?(?:d[aeo]s?|pel[oa]|n[oa])\s+\S/i.test(creditRevision)) {
+    const revision = revisedAction(income.action, creditRevision, today)
+    const checked = revision && validateAction(revision, caps, today)
+    if (checked?.ok && checked.action.kind === 'income') {
+      for (const field of ['amount', 'description', 'category', 'origin', 'date', 'is99'] as const) {
+        if (checked.action[field] !== income.action[field]) {
+          plan.edits.push({ id: income.id, field, value: checked.action[field], was: income.action[field] })
+        }
+      }
+      plan.summary.push(plan.edits.length ? 'Corrigi a proposta.' : 'A proposta já estava com esses dados.')
+      return plan
+    }
+    if (extractOrigins(creditRevision).length > 1 || /\bou\b|\be\s+(?:r\$\s*)?\d/i.test(creditRevision)) {
+      plan.ambiguous = { question: 'Qual foi o valor exato e de onde veio essa receita?' }
       return plan
     }
   }

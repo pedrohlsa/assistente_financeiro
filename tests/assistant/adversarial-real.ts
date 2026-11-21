@@ -6111,8 +6111,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
     // Repetição que é CORREÇÃO não vira duas receitas.
     const correcao = await turnoHoje(buildState({ profile: 'driver' }), 'recebi 120 da Casa 2, quer dizer, 120 da Casa 2')
-    out.push(result('MV-correcao-nao-duplica', correcao.actions, 'uma receita de 120 da Casa 2',
-      correcao.actions.filter(a => a.kind === 'income').length === 1))
+    out.push(result('MV-correcao-nao-duplica', correcao.actions, 'uma receita de 120 da Casa 2 em Outras receitas',
+      receitas(correcao.actions) === '120:outros-in:Casa 2' && viagens(correcao.actions) === 0))
+    for (const [id, frase, esperado] of [
+      ['MV-correcao-uber-para-imovel', 'recebi 120 do Uber, quer dizer, 100 da Casa 2', '100:outros-in:Casa 2'],
+      ['MV-correcao-mantem-aluguel', 'recebi 120 de aluguel da Casa 2, quer dizer, 110 da Casa 3', '110:aluguel:Casa 3'],
+    ] as const) {
+      const r = await turnoHoje(buildState({ profile: 'driver' }), frase)
+      out.push(result(id, r.actions, esperado, receitas(r.actions) === esperado
+        && !r.actions.some(a => a.kind === 'income' && a.description === 'Uber') && viagens(r.actions) === 0))
+    }
+    const st = buildState({ profile: 'driver' })
+    const proposta = await orchestrate({ state: st, message: 'recebi 120 de aluguel da Casa 2', today: hoje, remoteEnabled: false })
+    for (const [id, message, valor] of [
+      ['MV-correcao-pendente-origem-e-valor', 'errei, foi 100 do Uber', 100],
+      ['MV-correcao-pendente-contraste', 'foi do Uber, não da Casa 2', 120],
+    ] as const) {
+      const editada = await orchestrate({ state: st, message, pending: proposta.response.actions, today: hoje, remoteEnabled: false })
+      const alteradas = editada.response.actions.map(a => a.action)
+      const [entrada] = alteradas
+      out.push(result(id, alteradas, `Uber ${valor} em Corridas, sem origem antiga nem viagem`,
+        receitas(alteradas) === `${valor}:corridas:Uber` && entrada.kind === 'income' && !entrada.origin && viagens(alteradas) === 0))
+    }
     // Leitura dupla do MESMO trecho continua removida: dois "90" no texto, duas despesas.
     const despesas = await turnoHoje(buildState({ profile: 'autonomo' }), 'gastei 90 na farmácia e 90 no mercado')
     out.push(result('MV-despesas-iguais-sem-leitura-dupla', despesas.actions, 'Farmácia 90 e Mercado 90, nada a mais',
