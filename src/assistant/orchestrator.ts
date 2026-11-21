@@ -12,7 +12,7 @@ import type { AppState, AssistantJournalEntry, ParsedAction, Transaction } from 
 import { isRevertFailure, lastReversibleBatch, revertBatchPure } from './journal'
 import { editActionFor, findEditCandidates, parseEditRequest, parseSpokenCorrection } from './editSaved'
 import type { EditableTxField } from './editSaved'
-import { editBlockReason } from './execute'
+import { editBlockReason, findGoalByExactName } from './execute'
 import { matchInvoiceChoice, prepareInvoicePayments } from './invoicePayment'
 import type {
   AssistantCandidateAction, AssistantCapabilities, AssistantClarification,
@@ -2417,6 +2417,37 @@ Confirmar?`,
       if ('action' in fixed) candidates.push(candidate(fixed.action, 'local'))
       if ('clarification' in fixed) clarification = fixed.clarification
       unresolved = []
+    }
+  }
+
+  // ---- 12a) Meta com nome que já existe PERGUNTA (regra 14) --------------
+  // "Quero juntar 5000 pra viagem" com uma meta Viagem já guardando dinheiro
+  // propunha uma SEGUNDA meta Viagem, sem aviso. As três saídas da regra:
+  // atualizar a existente, criar outra mesmo assim, cancelar.
+  if (!clarification) {
+    const nova = candidates.find(c => c.action.kind === 'goal' && findGoalByExactName(input.state, (c.action as any).name))
+    if (nova) {
+      const a = nova.action as Extract<ParsedAction, { kind: 'goal' }>
+      const existente = findGoalByExactName(input.state, a.name)!
+      const outras = candidates.filter(c => c !== nova).map(c => c.action)
+      const question = `Você já tem a meta ${existente.name}, com ${fmtBRL(existente.saved || 0)} guardados de ${fmtBRL(existente.target || 0)}. O que eu faço?`
+      return {
+        draft: null,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [],
+          clarification: {
+            question, field: 'goal-duplicate',
+            options: [
+              { label: 'Atualizar a existente', value: 'atualizar', actions: [...outras, { kind: 'goal-update', name: existente.name, target: a.target, ...(a.months ? { months: a.months } : {}) }] },
+              { label: 'Criar outra mesmo assim', value: 'criar', actions: [...outras, a] },
+              outras.length
+                ? { label: 'Só o resto', value: 'cancelar', actions: outras }
+                : { label: 'Cancelar', value: 'cancelar', reply: 'Ok, não criei nem mudei nenhuma meta.' },
+            ],
+          },
+          reply: question,
+        },
+      }
     }
   }
 

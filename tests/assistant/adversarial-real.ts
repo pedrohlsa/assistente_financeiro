@@ -3768,7 +3768,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     // "Até dezembro" é o PRAZO da meta, não parte do nome: nascia a meta "Moto
   // ate dezembro", sem prazo. Prazo = último dia do mês dito.
   {
-    const rico = autonomoRico(hoje)
+    // Sem a meta Viagem do fixture: com ela, criar outra "Viagem" pergunta
+    // antes (regra 14), e estes casos medem o nome e o prazo.
+    const rico = { ...autonomoRico(hoje), goals: autonomoRico(hoje).goals.filter(g => g.name !== 'Viagem') }
     const meta = async (msg: string) => ((await turnoHoje(rico, msg)).actions as { kind: string, name?: string, months?: number }[])
       .find(a => a.kind === 'goal')
     const dias = (ano: number, mes: number) => Math.round((new Date(ano, mes + 1, 0).getTime() - fromISO(hoje).getTime()) / 86400000)
@@ -4203,7 +4205,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   }
 
   for (const future of ['amanhã pago a luz 180', 'depois de amanhã vou pagar 180 de luz']) {
-    const r = await turnoHoje(autonomoRico(hoje), `quero juntar 1000 pra viagem e ${future}`)
+    const semViagem = { ...autonomoRico(hoje), goals: autonomoRico(hoje).goals.filter(g => g.name !== 'Viagem') }
+    const r = await turnoHoje(semViagem, `quero juntar 1000 pra viagem e ${future}`)
     out.push(result(`MFUT-${future}`, r, 'meta 1000 preservada e intenção futura explicada, sem despesa 180',
       r.actions.length === 1 && r.actions[0].kind === 'goal' && r.actions[0].target === 1000
         && /futur|ainda n[ãa]o|n[ãa]o registrei essa parte|planejad/i.test(r.reply)
@@ -6602,6 +6605,36 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const meio = await turnoHoje(rico, 'gastei 80 no mercado no débito')
       out.push(result('MN-meio-de-pagamento-fora-da-descricao', meio.actions, 'Mercado, despesa 80',
         meio.actions.length === 1 && gastos(meio.actions)[0]?.description === 'Mercado'))
+    }
+
+    // Regra 14 no chat: meta com nome que já existe pergunta, com as três saídas.
+    {
+      const rico = autonomoRico(hoje)
+      const viagem = rico.goals.find(g => g.name === 'Viagem')!
+      const r = await turn(rico, 'quero juntar 5000 pra viagem até dezembro')
+      const ops = r.clarification?.options || []
+      out.push(result('MN-meta-repetida-pergunta', { mode: r.mode, ops: ops.map(o => o.label) }, 'atualizar / criar outra / cancelar',
+        r.mode === 'clarify' && r.actions.length === 0 && r.reply.includes(`meta ${viagem.name}`)
+          && ops.some(o => o.actions?.[0]?.kind === 'goal-update') && ops.some(o => o.actions?.[0]?.kind === 'goal') && ops.some(o => !!o.reply)))
+      const desisti = await turnoHoje(rico, 'desisti da meta do notebook')
+      out.push(result('MN-desisti-da-meta', desisti.reply.split('\n')[0], 'diz onde encerrar, nada registrado',
+        desisti.actions.length === 0 && /Metas → Notebook/.test(desisti.reply)))
+    }
+
+    // "Limpo" é o resultado; a fatia da gasolina na renda é uma DESPESA.
+    {
+      const mot = motoristaRico(hoje)
+      const ini = addDays(hoje, -6)
+      const soma = (tipo: string, f = (_: any) => true) => mot.transactions.filter(t => t.type === tipo && t.date >= ini && t.date <= hoje && f(t)).reduce((a, t) => a + t.amount, 0)
+      const limpo = soma('income') - soma('expense')
+      const r = await turnoHoje(mot, 'quanto eu tirei limpo essa semana')
+      out.push(result('MN-tirei-limpo-e-resultado', r.reply.split('\n')[0], `resultado ${brl(limpo)}`, limpa(r.reply).includes(brl(limpo))))
+      const mes = hoje.slice(0, 7)
+      const doMes = (tipo: string, f = (_: any) => true) => mot.transactions.filter(t => t.type === tipo && t.date.startsWith(mes) && t.date <= hoje && f(t)).reduce((a, t) => a + t.amount, 0)
+      const fatia = doMes('expense', t => t.category === 'combustivel') / doMes('income') * 100
+      const g = await turnoHoje(mot, 'quanto a gasolina come do que eu faturo')
+      const pct = `${fatia.toFixed(1).replace('.', ',')}%`
+      out.push(result('MN-gasolina-come-do-faturamento', g.reply.split('\n')[0], pct, !/100%/.test(g.reply) && g.reply.includes(pct)))
     }
   }
 

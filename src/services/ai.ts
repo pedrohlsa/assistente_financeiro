@@ -1061,6 +1061,15 @@ function resolveLocal(s: AppState, input: string): AiReply {
     return { text: 'Isso parece um orçamento ou um preço, não um pagamento — não registrei nada. Quando você pagar, me diga, por exemplo, "paguei 500 no mecânico", que eu lanço.' }
   }
 
+  // "Desisti da meta do notebook": encerrar uma meta é na tela de Metas, e o
+  // que já foi guardado continua guardado. A ajuda genérica não dizia nada.
+  if (/\b(?:desisti|desistir|cancela(?:r)?|apaga(?:r)?|exclui(?:r)?|encerra(?:r)?|remove(?:r)?|tira(?:r)?)\b[^?\d]*\bmeta\b/.test(t) && !/\b(?:quanto|qual|quando|como)\b/.test(t)) {
+    const alvo = s.goals.find(g => !g.done && g.name?.trim() && t.includes(normalizeQuestion(g.name)))
+    return { text: alvo
+      ? `Para encerrar ou apagar a meta ${alvo.name}, abra Metas → ${alvo.name}. Pelo chat eu não apago meta. O que já foi guardado (${fmtBRL(alvo.saved || 0)}) continua guardado.`
+      : 'Para encerrar ou apagar uma meta, abra a tela de Metas e escolha a meta. Pelo chat eu não apago meta, e o que já foi guardado continua guardado.' }
+  }
+
   // "Emprestei 100 pro João": o dinheiro saiu, mas deve voltar — não é gasto,
   // e o app não acompanha quem deve ao usuário. Dizer isso é melhor que a
   // ajuda genérica, e melhor que gravar uma despesa que ele não fez.

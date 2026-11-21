@@ -25,7 +25,7 @@
 // por `validateQueryPlan()` e só então é executado por `query/engine.ts`.
 
 import type { AppState } from '../../models/types'
-import { CATEGORY_KEYWORDS, usableCategories } from '../../data/categories'
+import { CATEGORY_KEYWORDS, usableCategories, guessCategory } from '../../data/categories'
 import { addDays, fromISO, todayISO, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase } from '../../utils/text'
 import { isDriver } from '../../services/profile'
@@ -243,7 +243,7 @@ const GASTO = /\bgast(?:ei|o|ou|ando|os?|ar)\b|\bpag(?:uei|o|ou|amento)\b|\btorr
 const ENTRADA = /\bganh(?:ei|o|ou|ar|a|amos)\b|\breceb(?:i|o|er|e|eu|emos|endo)\b|\bentr(?:ou|ada|adas|aram|ar|a|am)\b|\bfatur(?:ei|o|amento|ou)\b|\breceitas?\b|\brenda\b|\bvend(?:i|as?)\b|\brend(?:e|eu|er|o|imento)\b|\b(?:pra|para)\s+(?:rodar|trabalhar)\b|\bfa(?:co|z(?:endo|er))\b|\bfiz\b|\btir(?:ei|o)\b|\bd[aá]\s+mais\b|\bme\s+d[aá](?![\wÀ-ÿ])/
 const GUARDADO = /\bguard(?:ei|o|ado|ar)\b|\bseparei\b|\breservei\b|\bpoup(?:ei|ou|ado|ar)\b|\beconomiz(?:ei|ou|amos|ado|ar)\b|\bjunt(?:ei|ou|amos|ado|ar)\b/
 const CONTAGEM_DE_REGISTROS = /\bquant(?:os|as)\s+(?:lancamentos|registros|movimentacoes)\b/
-const RESULTADO = /\blucr(?:ei|o|ou)\b|\bcompens(?:a|ou|am)\b|\bsobr(?:ou|a|as|ando)\b|\bliquido\b|\bresultado\b|\bmelhor\s+mes\b|\bpior\s+mes\b|\bmelhor\s+semana\b|\bpior\s+semana\b|\bmelhor\s+dia\b|\bpior\s+dia\b/
+const RESULTADO = /\blucr(?:ei|o|ou)\b|\bcompens(?:a|ou|am)\b|\blimp[oa]s?\b|\bsobr(?:ou|a|as|ando)\b|\bliquido\b|\bresultado\b|\bmelhor\s+mes\b|\bpior\s+mes\b|\bmelhor\s+semana\b|\bpior\s+semana\b|\bmelhor\s+dia\b|\bpior\s+dia\b/
 
 /**
  * "Qual cliente ME PAGOU mais", "quem me paga melhor": o dinheiro veio para o
@@ -286,7 +286,8 @@ function lerMetrica(t: string): { valor: MetricaLida; matched: string } {
     [/\bquant(?:os|as)\s+(?:gastos|despesas|saidas)\b/, { metric: 'count', txType: ['expense'], label: 'Quantidade' }],
     [/\bquantas?\s+vezes\b/, { metric: 'count', txType: tipo, label: 'Quantidade' }],
     [/\bquantas?\s+parcelas\b/, { metric: 'count', txType: tipo, label: 'Parcelas' }],
-    [/\brepresent\w*\b|\bporcentagem\b|\bproporcao\b|\bpercentual\b|\bquantos?\s*%/,
+    // "Quanto a gasolina COME do que eu faturo": a fatia, dita como gente fala.
+    [/\brepresent\w*\b|\bporcentagem\b|\bproporcao\b|\bpercentual\b|\bquantos?\s*%|\b(?:come|consome|leva|morde|engole)\b(?=[^?]*\bd[aeo]\s+(?:que|meu|minha|meus|minhas)\b)/,
       { metric: 'share', txType: tipo, label: 'Participação' }],
     [/\bquanto\s+d[aeo]s?\s+(?:minhas?\s+|meus?\s+)?(?:receitas?|entradas?|renda|faturamento|ganhos)\b/,
       { metric: 'share', txType: tipo, label: 'Participação' }],
@@ -827,7 +828,8 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   // denominador ("receitas") e o numerador ("combustível"). Deixar o
   // denominador no texto fazia o leitor de verbo classificar a pergunta inteira
   // como receita — e a resposta era 100%, aritmeticamente impecável e inútil.
-  const baseProporcao = t0.match(/\bd[aeo]s?\s+(?:minhas?\s+|meus?\s+)?(?:receitas?|entradas?|renda|faturamento|ganhos)\b/)
+  // "Do que eu FATURO", "do que eu ganho": o mesmo denominador, dito com verbo.
+  const baseProporcao = t0.match(/\bd[aeo]s?\s+(?:minhas?\s+|meus?\s+)?(?:receitas?|entradas?|renda|faturamento|ganhos)\b|\bd[aeo]\s+que\s+(?:eu\s+)?(?:faturo|ganho|recebo|tiro|fa[cç]o)\b/)
   if (baseProporcao) rest.consome(baseProporcao[0])
 
   // ---- 2/3/4) métrica, fonte e agrupamento -------------------------------
@@ -1031,6 +1033,15 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   if (previsaoDeReceita) filter.plannedOnly = true
   if (source === 'transactions' || source === 'recurring') {
     filter.txType = metric === 'net' ? ['income', 'expense'] : metrica.valor.txType
+  }
+  // "Quanto A GASOLINA come do que eu faturo", "quanto o combustível representa
+  // das minhas receitas": o numerador não tem verbo, e era lido como receita —
+  // a resposta saía "100%". Uma categoria de GASTO dita no numerador decide.
+  if (metric === 'share' && baseProporcao && filter.txType?.length === 1 && filter.txType[0] === 'income'
+    && !ENTRADA.test(rest.texto) && (categoriaSolta(state, rest.texto, 'expense') || guessCategory(rest.texto, 'expense'))
+    // "Quanto a Casa 1 representa da minha renda": uma ORIGEM de receita.
+    && !state.transactions.some(x => x.type === 'income' && x.origin?.trim() && ` ${normalizeName(rest.texto)} `.includes(` ${normalizeName(x.origin)} `))) {
+    filter.txType = ['expense']
   }
   const tipoAlvo: 'income' | 'expense' = filter.txType?.[0] === 'income' ? 'income' : 'expense'
 
