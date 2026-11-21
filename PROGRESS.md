@@ -6587,12 +6587,19 @@ Pergunta respondida pela metade ou pela ajuda genérica:
   parcelamento; "vale a pena quitar?" diz o que falta e que só compensa com
   desconto, sem inventar juros (`QT-`; o caso `c-49` do corpus remoto passou
   a ser local).
+- Perfil CLT: "meu 13º caiu 1600" lia R$ 13; 13º e férias são Salário;
+  "paguei a pensão 600" caía na ajuda; "descontaram 300 de INSS" listava
+  vencimentos (o `/contas?/` casava dentro de "desCONTAram") e agora explica o
+  desconto em folha; "quanto eu ganho por hora" sem horas dizia
+  "R$ 0,00/hora (dado real)"; "quanto do meu salário vai pro aluguel" é
+  proporção (`SL-`). Varredura de regex sem borda no roteador antigo: "METAde"
+  puxava a meta diária, "MESmo" virava mês (`BW-`).
 - "Hoje fiz 18 corridas e tirei 410" perdia os R$ 410 (`SQ-`); "paguei o
   aluguel, 400" perdia a descrição e "paguei o mecânico: 350" não registrava
   nada (`VF-`); "IPTU" e "iFood" com a grafia certa; "recebi o vale" é
   Salário.
 
-Gates (relógio 2026-09-15): 733/733 corpus, 1.148/1.148 adversariais, 151/151
+Gates (relógio 2026-09-15): 733/733 corpus, 1.159/1.159 adversariais, 151/151
 invariantes, mutações, fuzz, ditado e remoto offline; typecheck,
 typecheck:api, test:money, build e rubrica (0 perigosa, 0 ruim).
 `test:calendario` rodou depois de cada lote e achou quatro oráculos de teste
