@@ -97,11 +97,15 @@ const VERBO_NO_INICIO = new Set(['gasto', 'gastos', 'pago', 'compro'])
 // Palavra que só sobra no FIM de uma descrição cortada no meio da frase:
 // "12 de iof SEM eu saber" gravava "Iof sem". No início ela pode ser nome
 // ("Sem Parar"), por isso a lista é só do fim.
-const FIM_SOLTO = new Set(['sem', 'que', 'porque', 'mas', 'quando', 'se', 'por', 'ai', 'aí', 'la', 'lá', 'hoje', 'ontem', 'agora', 'tipo', 'ne', 'né'])
+const FIM_SOLTO = new Set(['sem', 'que', 'porque', 'mas', 'quando', 'se', 'por', 'ai', 'aí', 'la', 'lá', 'hoje', 'ontem', 'agora', 'tipo', 'ne', 'né', 'veio', 'chegou', 'ficou', 'deu'])
 
 export function cleanDescription(raw?: string): string | undefined {
   if (!raw) return undefined
-  const words = raw.toLowerCase().replace(/[.,;!?]+$/g, '').split(/\s+/).filter(Boolean)
+  // "No ifood ontem À NOITE": a hora do dia não é parte do que foi comprado.
+  // Só com preposição — "café da manhã" continua sendo o café da manhã.
+  const words = raw.toLowerCase().replace(/[.,;!?]+$/g, '')
+    .replace(/\s+(?:a|à|de|pela|pelo|na|no|hoje|ontem)\s+(?:noite|tarde|manh[ãa]|madrugada|cedinho|cedo|almo[çc]o)$/i, '')
+    .split(/\s+/).filter(Boolean)
   // O verbo no presente só sai do INÍCIO: "gasto 50 de luz" gravava "Gasto de
   // luz", mas no fim o "pago" é nome ("Mercado Pago").
   while (words.length && (DESC_STOPWORDS.has(words[0]) || VERBO_NO_INICIO.has(words[0]))) words.shift()
@@ -237,9 +241,12 @@ function cobrancaRecebida(input: string): string {
  * caíam na ajuda genérica ou gravavam "Tomei um café" como descrição.
  */
 function verboDeConsumo(input: string): string {
+  // "A conta de luz veio 180 e já paguei": o pagamento fecha a conta que veio.
+  const paga = input.match(/^\s*(?:a\s+|minha\s+)?conta\s+d([aeo])\s+([\p{L}]+(?:\s+[\p{L}]+)?)\s+(?:veio|chegou)\s+(?:de\s+|em\s+)?((?:r\$\s*)?\d+(?:[.,]\d+)*)\s*(?:reais)?\s*,?\s*e\s+(?:j[áa]\s+)?(?:paguei|quitei)\b.*$/iu)
+  if (paga) return `paguei ${paga[3]} de conta d${paga[1]} ${paga[2]}`
   return input
     .replace(/^((?:\s*(?:eu|hoje|hj|ontem|anteontem)\b)*\s*)dei\s+(?=(?:r\$\s*)?\d)/i, '$1paguei ')
-    .replace(/^((?:\s*(?:eu|hoje|hj|ontem|anteontem)\b)*\s*)(?:comi|tomei|bebi)\s+(?=(?:um|uma|uns|umas)\s+[\p{L}])/iu, '$1paguei ')
+    .replace(/^((?:\s*(?:eu|hoje|hj|ontem|anteontem)\b)*\s*)(?:comi|tomei|bebi)\s+(?:(um|uma|uns|umas)\s+)?(?=[\p{L}][^\d]*\d)/iu, (_m, pre, art) => `${pre}paguei ${art || 'um'} `)
 }
 
 export function parseNatural(input: string): ParsedAction[] {
@@ -1308,7 +1315,7 @@ function parseClause(input: string): ParsedAction[] {
     // "paguei o boleto de 300", "comprei uma camisa de 60": o "de" depois do
     // item também liga o valor. O número não pode ser seguido de unidade —
     // "a parcela de 3 meses", "o pacote de 2 kg" não dizem quanto custou.
-    const deRe = new RegExp(String.raw`(?:gastei|paguei|comprei|torrei)\s+${APROX}(?:um|uma|o|a|uns|umas)\s+([a-zà-úçãõ][\wçãõáéíóúâê]*(?:\s+[\wçãõáéíóúâê]+){0,3}?)\s+de\s+(?:r\$)?\s*${NUM}\s*${MOEDA}?(?!\s*(?:x\b|vezes|parcelas?|meses|m[eê]s|dias?|anos?|semanas?|horas?|h\b|min|minutos?|km|quil[oô]metros?|litros?|l\b|kg|quilos?|gramas?|g\b|gb|%|por\s*cento|metros?|m\b|unidades?|pe[cç]as?))\s*$`, 'i')
+    const deRe = new RegExp(String.raw`(?:gastei|paguei|comprei|torrei)\s+${APROX}(?:um|uma|o|a|uns|umas)\s+([a-zà-úçãõ][\wçãõáéíóúâê-]*(?:\s+[\wçãõáéíóúâê-]+){0,3}?)\s+de\s+(?:r\$)?\s*${NUM}\s*${MOEDA}?(?!\s*(?:x\b|vezes|parcelas?|meses|m[eê]s|dias?|anos?|semanas?|horas?|h\b|min|minutos?|km|quil[oô]metros?|litros?|l\b|kg|quilos?|gramas?|g\b|gb|%|por\s*cento|metros?|m\b|unidades?|pe[cç]as?))\s*$`, 'i')
     const inv = text.match(invRe) || text.match(deRe)
     if (inv) {
       const desc = cleanDescription(inv[1])
@@ -1506,7 +1513,10 @@ function parseSemVerbo(text: string): ParsedAction[] {
   // Orçamento, cotação e preço no PRESENTE não são dinheiro que saiu: "o
   // mecânico me deu um orçamento de 500", "o pneu tá 400 na loja", "cobra 500
   // pra trocar". Sem verbo de pagar, nada disso é lançamento.
-  if (/or[çc]amento|cota[çc][ãa]o|\bpre[çc]os?\b/i.test(text)
+  // "A conta de água VEIO 95": a conta chegou, não foi paga — e pago ou não
+  // é o usuário quem diz.
+  if (/(?<![\wÀ-ÿ])(?:veio|vieram|chegou|chegaram|vem|vai\s+vir)(?![\wÀ-ÿ])/i.test(text)
+    || /or[çc]amento|cota[çc][ãa]o|\bpre[çc]os?\b/i.test(text)
     || /(?<![\wÀ-ÿ])(?:t[áa]|est[áa]|custa|custam|cobra|cobram|fica|ficaria|sairia|custaria|cobraria|vale)(?![\wÀ-ÿ])/i.test(text)) return []
 
   const out: ParsedAction[] = []

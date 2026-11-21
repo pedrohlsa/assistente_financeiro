@@ -483,7 +483,10 @@ export function segment(text: string, today = todayISO()): { text: string; start
   for (const m of text.matchAll(new RegExp(String.raw`[,;]\s*(?:${CONNECTORS})?(?:e\s+)?(?=(?:${COMMAND_VERBS})\b)`, 'gi'))) {
     push((m.index || 0) + m[0].length)
   }
-  for (const m of text.matchAll(new RegExp(String.raw`\s+e\s+(?=(?:${COMMAND_VERBS})\b)`, 'gi'))) {
+  for (const m of text.matchAll(new RegExp(String.raw`\s+e\s+(?:j[áa]\s+)?(?=(?:${COMMAND_VERBS})\b)`, 'gi'))) {
+    // "A conta de luz veio 180 E PAGUEI": o "paguei" sem valor fecha o mesmo
+    // fato. Cortado, a primeira metade era só uma conta que chegou.
+    if (/\b(?:veio|chegou)\b/i.test(text.slice(0, m.index)) && /^\s*e\s+(?:j[áa]\s+)?(?:paguei|quitei)(?:\s+(?:ela|tamb[ée]m|hoje|ontem))?\s*[.!]*$/i.test(text.slice(m.index))) continue
     push((m.index || 0) + m[0].length)
   }
   // Uma baixa anterior continua válida quando a segunda parte é negada.
@@ -519,7 +522,7 @@ export function segment(text: string, today = todayISO()): { text: string; start
     // Nunca deixe a negação no fragmento anterior: "não gastei" é uma unidade.
     // Nem a pergunta: "quanto gastei de alimentação" era cortado em "quanto" +
     // "gastei de alimentação", e nenhuma das metades tinha resposta.
-    if (!onlyDate && /\d/.test(fragment) && !/\b(?:e|dps|n[ãa]o|n|nunca|jamais|nem(?:\s+sequer)?)\s*$/i.test(prefix)
+    if (!onlyDate && /\d/.test(fragment) && !/\b(?:e|dps|n[ãa]o|n|nunca|jamais|nem(?:\s+sequer)?|e\s+j[áa])\s*$/i.test(prefix)
       && !/\b(?:quanto|quantos|quantas|qual|quais|quando|onde|como|que)\b(?:\s+[^\s\d,;.!?]+){0,3}\s*$/i.test(prefix)) {
       push((m.index || 0) + m[0].length)
     }

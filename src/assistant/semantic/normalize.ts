@@ -105,6 +105,7 @@ export const PALAVRAS_REAIS_PROTEGIDAS = [
   'sobras', 'parcelado', 'parcelada', 'abri', 'abriu', 'abrir',
   'livro', 'livros', 'salao', 'filho', 'filhos', 'sogra', 'sogro',
   'rendeu', 'renderam', 'rende', 'render', 'tocou', 'pagaram', 'faltaram', 'faltou', 'troco',
+  'veio', 'vieram', 'vem', 'chegou', 'chegaram',
 ]
 
 const DICIONARIO = new Set([...ESTRUTURAL, ...PALAVRAS_DE_HORA])

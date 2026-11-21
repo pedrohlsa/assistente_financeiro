@@ -1041,6 +1041,19 @@ function resolveLocal(s: AppState, input: string): AiReply {
   const chegada = respostaDeChegada(s, input)
   if (chegada) return { text: chegada }
 
+  // "Minha conta de água veio 95": a conta CHEGOU. Paga ou não, quem diz é o
+  // usuário — registrar como despesa era tirar do saldo um dinheiro que pode
+  // ainda estar na conta.
+  const contaChegou = t.match(/\bconta\s+d[aeo]\s+([a-z\u00e0-\u00fa]+(?:\s+[a-z\u00e0-\u00fa]+)?)\s+(?:veio|chegou)\s+(?:de\s+|em\s+)?(?:r\$\s*)?(\d+(?:[.,]\d+)*)/)
+  if (contaChegou && !/\b(?:paguei|pago|paga|quitei|gastei)\b/.test(t)) {
+    const valor = parseMoney(contaChegou[2])
+    if (valor > 0) {
+      const nome = contaChegou[1].trim()
+      return { text: `Entendi: a conta de ${nome} veio ${fmtBRL(valor)}. Não registrei nada, porque ela ainda pode não estar paga.\n\n`
+        + `Quando pagar, diga "paguei ${fmtNum(valor, valor % 1 ? 2 : 0)} de ${nome}" que eu lanço. Se ela vem todo mês, cadastre em Planejamento para eu avisar o vencimento.` }
+    }
+  }
+
   // Orçamento ou preço com valor, sem verbo de pagar: não é lançamento, e a
   // ajuda genérica fazia parecer que o app não entendeu nada.
   if (/\d/.test(t) && !/\b(?:paguei|gastei|comprei|torrei|quitei|acertei|fechei|fechamos)\b/.test(t)

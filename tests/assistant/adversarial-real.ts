@@ -6455,6 +6455,27 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('MN-maior-despesa-fixa', fixa.reply.split('\n')[0], `a maior é ${maior.name}`,
         fixa.reply.startsWith(`A maior é ${maior.name}`)))
     }
+
+    // Conta que CHEGOU não é conta paga; com "e já paguei", é.
+    {
+      const clt = () => buildState({ profile: 'clt' })
+      const veio = await turnoHoje(clt(), 'minha conta de agua veio 95')
+      out.push(result('MN-conta-veio-nao-e-paga', { reply: veio.reply.split('\n')[0], actions: veio.actions }, 'nada registrado; diz que pode não estar paga',
+        veio.actions.length === 0 && /ainda pode não estar paga/.test(veio.reply)))
+      const paga = await turnoHoje(clt(), 'a conta de luz veio 180 e já paguei')
+      out.push(result('MN-conta-veio-e-ja-paguei', paga.actions, 'despesa 180 em Casa',
+        paga.actions.length === 1 && gastos(paga.actions)[0]?.amount === 180 && gastos(paga.actions)[0]?.category === 'casa'))
+      const falta = await turnoHoje(clt(), 'gastei 30 no mercado e paguei a luz')
+      out.push(result('MN-parte-sem-valor-avisa', falta.reply, 'mercado 30 e avisa que falta o valor da luz',
+        gastos(falta.actions).length === 1 && /Faltou o valor de “paguei a luz”/.test(falta.reply)))
+      const noite = await turnoHoje(clt(), 'gastei 45 no ifood ontem a noite')
+      out.push(result('MN-hora-do-dia-fora-da-descricao', noite.actions, 'Ifood, ontem',
+        noite.actions.length === 1 && gastos(noite.actions)[0]?.description === 'Ifood' && gastos(noite.actions)[0]?.date === addDays(hoje, -1)))
+      for (const [frase, desc] of [['tomei café da manhã de 15', 'Café da manhã'], ['comi um x-tudo de 25', 'X-tudo'], ['bebi uma cerveja de 12', 'Cerveja']] as const) {
+        const r = await turnoHoje(clt(), frase)
+        out.push(result(`MN-${frase.replace(/\W+/g, '-')}`, r.actions, desc, r.actions.length === 1 && gastos(r.actions)[0]?.description === desc))
+      }
+    }
   }
 
   return out

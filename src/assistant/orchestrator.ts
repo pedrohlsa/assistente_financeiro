@@ -1140,9 +1140,15 @@ const SEM_CERTEZA = 'Não tenho certeza do que registrar aqui. Pode escrever de 
  */
 function sobraComValor(unresolved: AssistantUnresolvedClause[]): string {
   const sobra = unresolved.filter(u => u.reason === 'not-understood' && /\d/.test(u.text))
-  if (!sobra.length) return ''
-  const trechos = sobra.map(u => `“${u.text.trim().replace(/[\s,;]+$/, '')}”`).join(', ')
-  return `\n\nNão registrei ${sobra.length === 1 ? 'esta parte' : 'estas partes'}: ${trechos}. Me diga o que foi que eu lanço.`
+  // Relato SEM valor ("gastei 30 no mercado e PAGUEI A LUZ"): a segunda metade
+  // sumia sem aviso, e o usuário confirmava achando que tinha lançado as duas.
+  const semValor = unresolved.filter(u => u.reason === 'not-understood' && !/\d/.test(u.text)
+    && /^\s*(?:e\s+)?(?:j[áa]\s+)?(?:paguei|gastei|comprei|torrei|recebi|ganhei|abasteci|guardei)(?![\wÀ-ÿ])/i.test(u.text))
+  const limpa = (u: AssistantUnresolvedClause) => `“${u.text.trim().replace(/[\s,;]+$/, '')}”`
+  let out = ''
+  if (sobra.length) out += `\n\nNão registrei ${sobra.length === 1 ? 'esta parte' : 'estas partes'}: ${sobra.map(limpa).join(', ')}. Me diga o que foi que eu lanço.`
+  if (semValor.length) out += `\n\nFaltou o valor de ${semValor.map(limpa).join(', ')} — me diga quanto foi que eu lanço também.`
+  return out
 }
 
 /**
