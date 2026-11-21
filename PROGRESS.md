@@ -6847,3 +6847,12 @@ até auditoria independente.
   origem identificada.
 - “Recebi 20 da Ana. Quanto ela já me pagou hoje?” mostra o total
   projetado da Ana, condicionado à confirmação. Suíte com 1.295/1.295.
+
+## 21/11/2026 — Continuação de consulta por pagador
+
+- “E do João?” troca a origem e conserva o período. “Somando as duas?”
+  e “qual dos dois me pagou mais?” usam só Ana e João.
+- “Quanto ela me pagou?” usa a pessoa da consulta recente quando é única.
+  Com nenhum nome ou mais de um, pede a identificação. “E por Pix?”
+  combina o meio de pagamento com a origem e o período em foco.
+  Suíte com 1.298/1.298 regressões.

@@ -1644,6 +1644,31 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('A-consulta-pagador-e-proposta', projected.reply, 'R$ 140,50 da Ana, condicionado a confirmar R$ 20',
       projected.actions.length === 1 && projected.actions[0].kind === 'income' && projected.actions[0].amount === 20
         && /Se você confirmar/.test(projected.reply) && projected.reply.includes(fmtBRL(140.5))))
+    const ana = await turn(s, 'quanto recebi da ana hoje?')
+    const joao = await turn(s, 'e do joão?', ana.focus)
+    const together = await turn(s, 'somando as duas?', joao.focus)
+    const higher = await turn(s, 'qual dos dois me pagou mais?', joao.focus)
+    out.push(result('A-pagadores-troca-soma-e-comparacao', [joao.reply, together.reply, higher.reply],
+      'João 130,50, total dos dois 251, João no topo; nenhum outro pagador',
+      joao.focus?.lastQuery?.total === 130.50 && joao.focus.lastQueryPlan?.period.from === TODAY
+        && joao.focus.lastQueryPlan?.period.to === TODAY && joao.focus?.previousOrigin === 'Ana'
+        && together.focus?.lastQuery?.total === 251 && together.focus.lastQueryPlan?.filter.origins?.length === 2
+        && higher.focus?.lastQuery?.groups[0]?.label === 'João' && higher.focus.lastQuery.groups.length === 2
+        && [joao, together, higher].every(x => !x.actions.length)))
+    const pronoun = await turn(s, 'e quanto ela já me pagou hoje?', ana.focus)
+    const noFocus = await turn(s, 'quanto ela me pagou hoje?')
+    const many = await turn(s, 'quanto ela me pagou hoje?', higher.focus)
+    out.push(result('A-pagador-pronome-com-e-sem-contexto', [pronoun.reply, noFocus.reply, many.reply],
+      'só usa ela com um pagador no foco recente',
+      pronoun.focus?.lastQuery?.total === 120.5 && /Ana hoje/.test(pronoun.reply)
+        && /De quem/.test(noFocus.reply) && /De quem/.test(many.reply)
+        && [pronoun, noFocus, many].every(x => !x.actions.length)))
+    const pixOnly = await turn(s, 'e por Pix?', ana.focus)
+    const totalSame = await turn(s, 'e total?', ana.focus)
+    out.push(result('A-pagador-pix-e-total-no-foco', [pixOnly.reply, totalSame.reply],
+      'conserva a Ana e o dia, filtra Pix só quando pedido',
+      pixOnly.focus?.lastQuery?.total === 120.5 && pixOnly.focus?.lastQueryPlan?.filter.text === 'pix'
+        && totalSame.focus?.lastQuery?.total === 120.5 && !totalSame.focus.lastQueryPlan?.filter.text))
   }
   const directMixed = buildState({ balance: 1000, cards: [{ name: 'Inter', dueDay: 20, closingDay: 5 }] })
   directMixed.settings.balanceAsOf = '2026-09-14T09:00'

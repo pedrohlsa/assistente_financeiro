@@ -37,7 +37,7 @@ import { classifyLocalDecision } from './semantic/confidence'
 import { modalidadeExplicita, planoContradizModalidade } from './semantic/modality'
 import { semAlegacaoDeExecucao } from './claims'
 import { composeAnswer, explainQueryResult, isQueryFailure, runQuery, validateQueryPlan } from './query'
-import { looksLikeDataQuestion, planQuery } from './query/parse'
+import { looksLikeDataQuestion, PAYER_PRONOUN_QUERY, planQuery } from './query/parse'
 import { namedCalendarWeek, weekdayInCalendarWeek } from './query/period'
 import { rememberQuery } from './conversation'
 import type { RepairedText } from './semantic/normalize'
@@ -880,8 +880,8 @@ function caudaDaPergunta(texto: string, candidates: AssistantCandidateAction[]):
  * diz de quê: o assunto é o registro ao lado. Sem ele, a pergunta sumia.
  */
 function perguntaComAssunto(pergunta: string, candidates: AssistantCandidateAction[]): string {
-  const pagador = pergunta.match(/^(\s*(?:e\s+)?quanto\s+(?:que\s+)?)(?:ele|ela)(\s+(?:j[áa]\s+)?me\s+(?:pagou|mandou|enviou|transferiu)\b.*)$/i)
-  if (pagador) {
+  const pagador = pergunta.match(PAYER_PRONOUN_QUERY)
+  if (pagador && !/\b(?:eles|elas)\b/i.test(pergunta)) {
     const origins = [...new Set(candidates.flatMap(({ action }) => action.kind === 'income' && action.origin ? [action.origin] : []))]
     if (origins.length === 1) return `${pagador[1]}${origins[0]}${pagador[2]}`
   }

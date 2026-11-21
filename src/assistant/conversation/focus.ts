@@ -25,9 +25,9 @@ import { normalizeNumberWords } from '../numbers'
 import { parsePeriod, previousPeriod } from '../query/period'
 import { runQuery } from '../query/engine'
 import { validateQueryPlan, isQueryFailure } from '../query/validate'
-import { ehResiduo, planQuery } from '../query/parse'
+import { ehResiduo, PAYER_PRONOUN_QUERY, planQuery } from '../query/parse'
 import type { PlannedQuery } from '../query/parse'
-import type { AssistantQueryPlan, AssistantQueryResult, FactUnit, QueryPeriod } from '../query/types'
+import type { AssistantQueryPlan, AssistantQueryResult, FactUnit, QueryFilter, QueryPeriod } from '../query/types'
 import type { AssistantScenarioPlan, AssistantScenarioResult } from '../scenario/types'
 import { parsePurchaseDelay } from '../scenario/parse'
 import { readPayoffQuote } from '../scenario/payoff'
@@ -115,6 +115,10 @@ export function rememberDriver(
 export const isFocusFresh = (f?: ConversationFocus, now = Date.now()): boolean =>
   !!f && now - f.updatedAt < FOCUS_TTL_MINUTES * 60_000
 
+function singleOrigin(filter?: QueryFilter): string | undefined {
+  return filter?.origins?.length === 1 ? filter.origins[0] : filter?.origin
+}
+
 export function rememberQuery(
   prev: ConversationFocus | undefined,
   plan: AssistantQueryPlan,
@@ -122,6 +126,8 @@ export function rememberQuery(
   explain: string,
   now = Date.now(),
 ): ConversationFocus {
+  const previousPayer = singleOrigin(prev?.lastQueryPlan?.filter)
+  const payer = singleOrigin(plan.filter)
   return {
     ...prev,
     pendingQueryClarification: undefined,
@@ -138,9 +144,8 @@ export function rememberQuery(
       : prev?.previousQuery,
     // Casa 1 → Casa 2 troca a ORIGEM, não o período: "somando as duas" precisa
     // da que saiu.
-    previousOrigin: prev?.lastQueryPlan?.filter.origin && plan.filter.origin
-      && normalizeName(prev.lastQueryPlan.filter.origin) !== normalizeName(plan.filter.origin)
-      ? prev.lastQueryPlan.filter.origin
+    previousOrigin: previousPayer && payer && normalizeName(previousPayer) !== normalizeName(payer)
+      ? previousPayer
       : prev?.previousOrigin,
     lastQuery: {
       label: plan.label || 'Total',
@@ -241,12 +246,12 @@ const CONTINUACAO = [
   /^(?:d[áa]\s+ruim|ficou\s+ruim|t[áa]\s+ruim|[ée]\s+ruim|vale\s+a\s+pena)\s*\??$/,
   // "O maior gasto DISSO" e "somando as duas" só fazem sentido sobre o que
   // acabou de ser mostrado.
-  /\b(?:maior|menor)\s+(?:gasto|valor|lancamento|despesa|entrada|compra)\b.*\b(?:disso|desse|dessa|desses|dessas|daquilo|nisso|deles|delas)\b/,
+  /\b(?:maior|menor)\s+(?:gasto|valor|lancamento|despesa|entrada|compra)\b.*\b(?:disso|desse|dessa|desses|dessas|daquilo|nisso|dele|dela|deles|delas)\b/,
   /^(?:e\s+)?(?:somando|soma|juntando|junta)\b|^(?:e\s+)?(?:os|as)\s+(?:dois|duas)\s+juntos?/,
 ]
 
 /** "Disso", "desse", "deles": a frase fala do assunto anterior. */
-const ANAFORA = /\b(?:disso|desse|dessa|desses|dessas|daquilo|nisso|deles|delas)\b/
+const ANAFORA = /\b(?:disso|desse|dessa|desses|dessas|daquilo|nisso|dele|dela|deles|delas)\b/
 
 /** Frase curta o bastante para ser continuação, e não uma pergunta nova. */
 const MAX_FOLLOWUP_CHARS = 70
@@ -254,7 +259,7 @@ const MAX_FOLLOWUP_CHARS = 70
 export const looksLikeFollowUp = (message: string): boolean => {
   const t = semAcento(message)
   if (t.length > MAX_FOLLOWUP_CHARS) return false
-  return CONTINUACAO.some(re => re.test(t))
+  return PAYER_PRONOUN_QUERY.test(t) || CONTINUACAO.some(re => re.test(t))
 }
 
 // ---------------------------------------------------------------------------
@@ -601,6 +606,38 @@ function refinaConsulta(
   // período deixava "recebi" preso em recorrências e "previsão" no passado.
   const incomeFocus = (base.source === 'transactions' || base.source === 'recurring')
     && base.filter.txType?.length === 1 && base.filter.txType[0] === 'income'
+  const named = singleOrigin(base.filter)
+  const actor = focus.last === 'query' ? t.match(PAYER_PRONOUN_QUERY) : null
+  if (actor && (!incomeFocus || !named || /\b(?:eles|elas)\b/.test(t))) {
+    return { kind: 'ambiguous', question: 'De quem você quer consultar os recebimentos? Diga o nome da pessoa.', options: [] }
+  }
+  const other = t.match(/^e\s+(d[aoe]\s+.+?)\s*[.!?]*$/)
+  if (incomeFocus && base.source === 'transactions' && named && (actor || other)) {
+    const query = actor ? `quanto ${named}${actor[2]}` : `quanto recebi ${other[1]}`
+    const next = planQuery(state, query, { today })
+    const nextName = singleOrigin(next?.plan.filter)
+    if (next && nextName && !next.incompleto && !next.clarification) {
+      const filter = { ...base.filter, ...next.plan.filter }
+      if (next.plan.filter.origins) delete filter.origin
+      if (next.plan.filter.origin) delete filter.origins
+      const explicitPeriod = !next.plan.period.implicit
+      const period = explicitPeriod ? next.plan.period : base.period
+      const comparePeriod = explicitPeriod ? next.plan.comparePeriod : base.comparePeriod
+      const plan = actor ? next.plan : base
+      const scope = [sentenceCase(nextName),
+        ...(filter.categories || []).map(id => state.categories.find(c => c.id === id)?.name || id),
+        ...(filter.text ? [sentenceCase(filter.text)] : [])]
+      const label = `${plan.label.split(' - ')[0]} - ${scope.join(' · ')}`
+      return planned({ ...plan, period, comparePeriod, filter, label }, `recebimentos de ${nextName}`)
+    }
+  }
+  if (incomeFocus && named && /^(?:e\s+)?(?:s[oó]\s+)?(?:por|via|de)\s+pix\s*\??$/.test(t)) {
+    return planned({ ...base, filter: { ...base.filter, text: 'pix' }, label: `${base.label.split(' - ')[0]} - ${named} por Pix` }, 'por Pix')
+  }
+  if (incomeFocus && named && /^e\s+total\s*\??$/.test(t)) {
+    return planned({ ...base, metric: 'sum', group: 'none', order: undefined, limit: 1,
+      label: `Total recebido - ${named}` }, 'total da mesma origem')
+  }
   const realizedIncome = /\b(?:recebi|recebemos|ganhei|entrou|entraram|caiu|cairam)\b/.test(t)
   const forecastIncome = /\b(?:vou|vamos)\s+receber\b|\b(?:vai|vao)\s+(?:entrar|cair)\b|\bprevisao\b/.test(t)
   if (incomeFocus && (realizedIncome || forecastIncome) && !/\b(?:se|nao)\b/.test(t)) {
@@ -656,7 +693,7 @@ function refinaConsulta(
   // origens que ele acabou de ver, numa soma só.
   if (/^(?:e\s+)?(?:somando|soma|juntando|junta)\b|^(?:e\s+)?(?:os|as)\s+(?:dois|duas)\s+juntos?|^(?:e\s+)?no\s+total\s*\??$/.test(t)) {
     const antes = focus.previousOrigin
-    const agora = base.filter.origin
+    const agora = singleOrigin(base.filter)
     if (antes && agora && normalizeName(antes) !== normalizeName(agora)) {
       const filtro = { ...base.filter, origins: [antes, agora] }
       delete filtro.origin
@@ -714,6 +751,17 @@ function refinaConsulta(
 
   // ---- "qual das duas rende mais?" — agrupa pela entidade em foco ------
   if (/^qual\s+d[oa]s\s+(?:duas|dois)\b/.test(t)) {
+    const explicit = incomeFocus ? planQuery(state, t, { today }) : undefined
+    if (explicit?.plan.filter.origins?.length > 1) return { kind: 'query', planned: explicit }
+    if (incomeFocus && named && focus.previousOrigin && normalizeName(named) !== normalizeName(focus.previousOrigin)) {
+      const filter = { ...base.filter, origins: [focus.previousOrigin, named] }
+      delete filter.origin
+      const label = base.label.split(' - ')[0]
+      return planned({ ...base, filter, label, group: 'origin', order: 'value-desc', limit: 2, comparePeriod: undefined }, 'comparação das duas origens')
+    }
+    if (incomeFocus && named && base.filter.origins?.length === 1) {
+      return { kind: 'ambiguous', question: `Com quem você quer comparar ${named}?`, options: [] }
+    }
     const porOrigem = !!base.filter.origin || !!focus.entities?.origins?.length
     const grupo = porOrigem ? 'origin' : base.filter.cardNames?.length ? 'card' : 'category'
     // A origem que estava filtrando SAI: comparar duas exige ver as duas.

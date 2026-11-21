@@ -272,6 +272,8 @@ const RESULTADO = /\blucr(?:ei|o|ou)\b|\bcompens(?:a|ou|am)\b|\blimp[oa]s?\b|\bs
  * sem esta leitura a pergunta virava um ranking de DESPESAS por origem.
  */
 const PAYER_VERB = String.raw`(?:pag(?:ou|aram|a|am|ava|avam)|mandou|mandaram|enviou|enviaram|transferiu|transferiram)`
+export const PAYER_PRONOUN_QUERY = new RegExp(String.raw`^(\s*(?:e\s+)?quanto\s+(?:que\s+)?)(?:ele|ela|eles|elas)(\s+(?:j[áa]\s+)?(?:me|nos)\s+${PAYER_VERB}\b.*)$`, 'i')
+const PIX_QUERY_METHOD = /\b(?:por|via)\s+pix\b/
 const ME_PAGOU = new RegExp(String.raw`\b(?:me|nos)\s+${PAYER_VERB}\b|\bpag(?:ou|aram)\s+(?:pra|para)\s+mim\b`)
 
 function tipoBaseDe(t: string): ('income' | 'expense' | 'saving')[] {
@@ -678,7 +680,7 @@ function extrairOrigem(t: string): { valor: string; matched: string } | undefine
 }
 
 const RECEBIDO_DE = /\b(?:receb(?:i|o|emos)|entrou|caiu|pingou|veio)(?:\s+(?:mesmo|exatamente|quanto|mais)){0,2}\s+((?:d[aoe]\s+)[^.!?]+)/
-const PAYER_SUBJECT = new RegExp(String.raw`^\s*(?:quanto\s+(?:que\s+)?)?(?:[ao]\s+)?([^.!?;,]+?)\s+(?:ja\s+)?(?:me|nos)\s+${PAYER_VERB}\b`)
+const PAYER_SUBJECT = new RegExp(String.raw`^\s*(?:e\s+)?(?:quanto\s+(?:que\s+)?)?(?:[ao]\s+)?([^.!?;,]+?)\s+(?:ja\s+)?(?:me|nos)\s+${PAYER_VERB}\b`)
 const PAYER_OPTIONS = new RegExp(String.raw`\b(?:quem|qual\s+dos\s+dois)\s+me\s+${PAYER_VERB}\s+mais\s*:\s*([^.!?]+)`)
 const NAMED_PART_END = /\s+(?:d[eo]\s+(?:pix|aluguel|salario|freela|comissao)|via\s+pix|por\s+pix|junt[ao]s?|somad[ao]s?|ao\s+todo|separad[ao]s?|separadamente|mesmo|hein|ne)\b/
 
@@ -1164,6 +1166,12 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     filter.origins = saidPayers.names
     if (saidPayers.names.length > 1 && !/\b(?:junt[ao]s?|somad[ao]s?|ao\s+todo)\b/.test(t0)) group = 'origin'
     recognized.push(`origens ${saidPayers.names.join(', ')}`)
+    const pix = rest.texto.match(PIX_QUERY_METHOD)
+    if (pix) {
+      rest.consome(pix[0])
+      filter.text = 'pix'
+      recognized.push('por Pix')
+    }
   } else if (origens.length > 1) {
     for (const o of origens) rest.consome(o.matched)
     filter.origins = origens.map(o => o.valor)
@@ -1475,7 +1483,9 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     plan, confidence, recognized, fallbackCategory,
     beyondLegacy: plan.showCardPurchases || (driver && plan.metric === 'per-km' && !!lido) || alemDoAntigo(plan, !!lido || !!periodoComparadoDireto,
       /\bpor\s+lancamentos?\b/.test(t0)),
-    ...(periodoVago ? {
+    ...(PAYER_PRONOUN_QUERY.test(t0) ? {
+      clarification: { question: 'De quem você quer consultar os recebimentos? Diga o nome da pessoa.', options: [] },
+    } : periodoVago ? {
       clarification: {
         question: 'Quando você diz “últimos meses”, quer olhar quantos meses?',
         options: [
