@@ -6429,3 +6429,56 @@ Abertos e não atacados: "paguei a taxa da 99 de 1 real" cai no menu; "qual
 dia eu mais ganho" responde a data, não o dia da semana; voz real, Android e
 DeepSeek continuam sem validação.
 
+
+## 21/11/2026 — Palavra real, dinheiro que chegou e o dia do motorista (Claude)
+
+Retomada de `64206c0`. Nove commits locais, `386ebe3..348048d`, todos com
+regressão escrita no bloco `MN-` de `tests/assistant/adversarial-real.ts`.
+Sondas lidas resposta por resposta, pelo orquestrador real e offline.
+
+Abertos da rodada anterior resolvidos:
+- "paguei a taxa da 99 de 1 real", "taxa da 99 1 real": o 99 depois de
+  preposição é a plataforma; sem valor, pergunta. Vale em todos os perfis
+  porque é o usuário dizendo que pagou (a regra 1 continua intocada).
+- "qual dia eu mais ganho", "melhor dia pra rodar", "qual dia compensa mais
+  rodar": presente habitual ranqueia dia da semana; "ganhei" ranqueia datas.
+- `kmCost` dividia o custo fixo MENSAL pelos km rodados até hoje no mês: no
+  dia 15 o custo fixo valia o dobro e no dia 1º seis vezes mais, e o mínimo
+  recomendado e o "vale a pena?" herdavam a distorção. Agora `projectedMonthlyKm`.
+
+Classes de defeito achadas pelas sondas e corrigidas:
+- Corretor de digitação trocando PALAVRA REAL por vocabulário do app (regra
+  68): peguei→paguei, cobrou→sobrou, salão→saldo, comprando→comparando,
+  veio→meio, passeio→passei, banheiro→janeiro (distância 2), Marcos→Marco.
+- Palavra-chave de categoria casando no meio da palavra: imposto→Combustível,
+  cobraram→Obra, barbeiro/embarque→Lazer, japão→Alimentação.
+- Sinal do dinheiro: "paguei a corrida de 30" era RECEITA (regra 34).
+- Dinheiro inventado ou perdido: "paguei o boleto de 300" e "paguei a taxa de
+  5" (o valor depois de "de"), "comprei 10 sacos de cimento por 350" (R$ 10),
+  orçamento e preço no presente virando despesa, "a conta de água veio 95"
+  virando conta PAGA (regra 69), "o banco me cobrou 45 de tarifa e 12 de iof",
+  "minha mãe me deu 50", "a Casa 1 pagou 1800", "o cliente pagou 300", "dei
+  20 pro flanelinha", "comi um pastel de 12", "enchi o tanque 250", "fiz um
+  bico de 150", "fiz 10 corridas e rodei 120 km, deu 300", "fiz 18 corridas
+  420 reais 9 horas", "gastei 30 no mercado e paguei a luz" (a segunda metade
+  sumia sem aviso).
+- Perguntas respondidas com o assunto errado: "o salário já caiu?" dizia "Não,
+  subiu" com o GASTO; "a Casa 2 já pagou?" ia para a ajuda; "quanto falta pro
+  salário cair" falava de parcelamentos; "quanto eu economizei" dava o total
+  gasto; "qual minha maior despesa fixa" dava o maior gasto avulso.
+- Novas respostas locais: avaliação de um dia ("como foi ontem?", "sexta
+  rendeu bem?"), corrida com distância ("pego corrida de 20 por 25 km?"),
+  "quando troco o óleo/os pneus", empréstimo, confirmação digitada.
+- Rascunho "comprei um celular" → "1200 em 10x" virava despesa avulsa; agora
+  vira compra parcelada (regra 10).
+
+Decisão de produto deixada para o usuário: no perfil motorista, cada receita
+de plataforma num dia inteiro conta "1 viagem" (`crit-motorista` espera 2
+viagens para Uber + 99 com 161 km e 8 horas). A regra 34 diz que um dia
+inteiro não inventa viagem; o caso crítico diz o contrário. Não mudei.
+
+Gates (relógio 2026-09-15): 733/733 corpus, 1.002/1.002 adversariais, 151/151
+invariantes, mutações, fuzz, ditado e remoto offline; typecheck,
+typecheck:api, test:money, build, rubrica (0 perigosa, 0 ruim) e
+`test:calendario` nas oito datas. Sem push, merge, deploy, APK ou DeepSeek.
+**NOT READY** até auditoria independente.

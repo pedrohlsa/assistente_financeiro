@@ -683,4 +683,23 @@ autorização explícita.
     "até junho", "dívida tá" só eram reconhecidos sem acento — duas delas eram
     guardas contra injeção. Use lookahead explícito (`(?![\wÀ-ÿ])`). O caso
     `MA-sem-limite-de-palavra-apos-acento` varre `src/` e falha com o padrão.
-
+68. **O corretor de digitação conserta VOCABULÁRIO, nunca conteúdo.**
+    `repairStructuralTypos` troca palavra por verbo, tempo ou unidade do app —
+    e cada troca errada muda o sentido da frase: "peguei uma corrida" virava
+    "paguei", "o banco me cobrou" virava "me sobrou", "salão" virava "saldo",
+    "banheiro" virava "janeiro", "Marcos" virava "Marco". Quatro travas:
+    palavra real comum fica em `PALAVRAS_REAIS_PROTEGIDAS` (que só PROTEGE —
+    entrar no dicionário de alvos fazia "rendeu" virar "vendeu"); distância 2
+    só vale para verbo de relato no passado; maiúscula no meio da frase é
+    nome; mês como alvo exige palavra de data antes. A varredura
+    `MN-corretor-nao-troca-palavra-real` falha se uma voltar a ser trocada.
+    Palavra-chave de categoria segue a mesma ideia: casa no INÍCIO da palavra
+    (`posto` não está em "imposto"), e as curtas só como palavra inteira.
+69. **Dinheiro dito não é dinheiro que saiu.** Conta que CHEGOU ("a conta de
+    água veio 95"), orçamento, cotação e preço no presente ("o pneu tá 400")
+    não são lançamento: o app diz que não registrou e como registrar quando
+    pagar. Empréstimo não é gasto. "Me cobrou" e "me deu" têm direção (saiu,
+    entrou); "a Casa 1 pagou 1800" é a fonte do usuário pagando, e "o cliente
+    pagou 200 NO MERCADO" é dinheiro de outra pessoa. Pergunta sobre dinheiro
+    que chega ("o salário já caiu?", "a Casa 2 já pagou?") responde pelo que
+    está REGISTRADO e diz a previsão como previsão (`assistant/arrival.ts`).
