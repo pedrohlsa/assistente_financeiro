@@ -1147,6 +1147,14 @@ function resolveLocal(s: AppState, input: string): AiReply {
       + 'Quando gastar esse dinheiro, me diga o gasto — por exemplo, "paguei 50 em dinheiro no mercado" — que eu lanço.' }
   }
 
+  // "Descontaram 300 de INSS": desconto em folha sai ANTES de o salário cair.
+  // Lançado como gasto, o dinheiro sairia duas vezes (no líquido e no gasto).
+  if (/\b(?:descontaram|descontou|desconta(?:m)?|descontado|descontada|desconto\s+de)\b/.test(t)
+    && /\b(?:inss|irrf|imposto\s+de\s+renda|ir|vale[\s-]?transporte|vt|plano\s+de\s+saude|sindicato|contribuicao|folha|salario|holerite|contracheque)\b/.test(t)
+    && !/\b(?:paguei|gastei|quanto|quantos)\b/.test(t)) {
+    return { text: 'Desconto em folha (INSS, imposto, vale-transporte) sai do salário antes de ele cair: não registrei como gasto, para o dinheiro não sair duas vezes.\n\n'
+      + 'Registre o salário líquido que entrou — por exemplo, "meu salário caiu 2900".' }
+  }
   if (CORRIDA_CANCELADA.test(input) && !/\btaxa\s+de\s+cancelamento\b/.test(t)) {
     return { text: 'Corrida cancelada não é receita: não registrei nada.\n\n'
       + 'Se a plataforma pagou taxa de cancelamento, diga "recebi 5 de taxa de cancelamento" que eu lanço.' }
@@ -1649,7 +1657,9 @@ function resolveLocal(s: AppState, input: string): AiReply {
 
   // contas próximas — mesmas fontes da cobertura, com o prazo que foi dito.
   // "Quanto falta pagar esse mês" é a mesma pergunta sem a palavra "conta".
-  if (/contas?( fixas)?|vencimento|vence/.test(t) || pedeContasAPagar(t)) {
+  // Com borda de palavra: "desCONTAram 300 de INSS", "desconto", "contador"
+  // caíam aqui e recebiam a lista de vencimentos.
+  if (/\bcontas?\b|\bvencimento\b|\bvence\b/.test(t) || pedeContasAPagar(t)) {
     const ate = prazoDasContas(t, todayISO(), 15)
     const todas = cashObligationsUntil(s, ate)
     const certas = todas.filter(o => !o.unconfirmed)

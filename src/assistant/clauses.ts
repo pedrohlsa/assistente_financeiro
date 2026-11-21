@@ -8,7 +8,7 @@
 import type { ParsedAction } from '../models/types'
 import type { AssistantConfidence, AssistantIntent, FinancialEvent } from './contracts'
 import { guessCategory } from '../data/categories'
-import { cleanDescription, gruposDeCorrida, looksRecurring, parseNaturalFull, UMA_CORRIDA_NOMEADA } from '../services/nlp'
+import { cleanDescription, DECIMO_TERCEIRO, gruposDeCorrida, looksRecurring, parseNaturalFull, UMA_CORRIDA_NOMEADA } from '../services/nlp'
 import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
@@ -1280,7 +1280,8 @@ export function analyzeMessage(
   opts?: { driver?: boolean; today?: string; inheritedKind?: 'income' | 'expense' },
 ): MessageAnalysis {
   const today = opts?.today || todayISO()
-  const original = input.trim()
+  // "Meu 13º caiu 1600": o 13 é o NOME do salário extra, não R$ 13,00.
+  const original = input.trim().replace(DECIMO_TERCEIRO, 'décimo terceiro')
   // Números por extenso viram algarismos ANTES dos regex, para reaproveitar
   // todo o parser já testado em vez de duplicá-lo.
   const { text: normalized } = normalizeNumberWords(original)

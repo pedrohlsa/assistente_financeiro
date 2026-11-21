@@ -267,6 +267,9 @@ function verboDeConsumo(input: string): string {
     .replace(/^((?:\s*(?:eu|hoje|hj|ontem|anteontem)\b)*\s*)(?:comi|tomei|bebi)\s+(?:(um|uma|uns|umas)\s+)?(?=[\p{L}][^\d]*\d)/iu, (_m, pre, art) => `${pre}paguei ${art || 'um'} `)
 }
 
+/** "13º", "13o salário": o décimo terceiro, nunca R$ 13. */
+export const DECIMO_TERCEIRO = /(?<![\d.,])13\s*[º°o](?:\s+sal[áa]rio)?(?![\wÀ-ÿ])|(?<![\d.,])13\s+sal[áa]rio(?![\wÀ-ÿ])/gi
+
 /** "1/3 do aluguel", "1/2 da conta": fração de algo, nunca valor nem data. */
 export const FRACAO_DE = /(?<![\d\/.,])(\d{1,2})\s*\/\s*(\d{1,2})(?![\d\/])(?=\s+d[oa]s?\s)/g
 
@@ -276,13 +279,19 @@ export const FRACAO_DE = /(?<![\d\/.,])(\d{1,2})\s*\/\s*(\d{1,2})(?![\d\/])(?=\s
  * registrado. Reescrito como "paguei 400 o aluguel", a forma que o parser lê.
  */
 function valorNoFim(input: string): string {
-  const m = input.match(/^(\s*(?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)(gastei|paguei|comprei|torrei|recebi|ganhei)\s+([^\d,:;?]{2,60}?)\s*[,:;]\s*(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real|contos?|pila)?\s*[.!]?\s*$/i)
+  const m = input.match(/^(\s*(?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)(gastei|paguei|comprei|torrei|recebi|ganhei)\s+([^\d,:;?]{2,60}?)\s*([,:;]?)\s*(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real|contos?|pila)?\s*[.!]?\s*$/i)
   if (!m) return input
-  return `${m[1]}${m[2]} ${m[4]} ${m[3].trim()}`
+  // Sem vírgula ("paguei a pensão 600"), o número pode ser parte de um NOME:
+  // "a parcela 3", "a casa 2", "o cliente 1". Aí não é valor.
+  if (!m[4] && /(?:^|\s)(?:parcela|presta[çc][ãa]o|casa|apto|apartamento|loja|sala|kitnet|quarto|cliente|n[ºo°]?|numero|n[úu]mero|lote|bloco|vaga)$/i.test(m[3].trim())) return input
+  // "Um celular DE 900", "a taxa DA 99": a preposição já liga o número à coisa
+  // — a frase está na forma que o parser lê, e "99" ali é a plataforma.
+  if (/(?:^|\s)(?:de|da|do|das|dos|na|no|nas|nos|pela|pelo|em|com|por|a|o)$/i.test(m[3].trim())) return input
+  return `${m[1]}${m[2]} ${m[5]} ${m[3].trim()}`
 }
 
 export function parseNatural(input: string): ParsedAction[] {
-  input = verboDeConsumo(cobrancaRecebida(fontePagou(valorNoFim(input.replace(FRACAO_DE, 'parte')))))
+  input = verboDeConsumo(cobrancaRecebida(fontePagou(valorNoFim(input.replace(DECIMO_TERCEIRO, 'décimo terceiro').replace(FRACAO_DE, 'parte')))))
   // Operações de cartão são analisadas na frase INTEIRA antes de qualquer
   // quebra: "passei 2000 em 5 vezes E RECEBI 1850" tem um verbo de comando no
   // meio, e cortar ali transformava uma entrada financiada numa receita de

@@ -863,7 +863,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   // denominador no texto fazia o leitor de verbo classificar a pergunta inteira
   // como receita — e a resposta era 100%, aritmeticamente impecável e inútil.
   // "Do que eu FATURO", "do que eu ganho": o mesmo denominador, dito com verbo.
-  const baseProporcao = t0.match(/\bd[aeo]s?\s+(?:minhas?\s+|meus?\s+)?(?:receitas?|entradas?|renda|faturamento|ganhos)\b|\bd[aeo]\s+que\s+(?:eu\s+)?(?:faturo|ganho|recebo|tiro|fa[cç]o)\b/)
+  const baseProporcao = t0.match(/\bd[aeo]s?\s+(?:minhas?\s+|meus?\s+)?(?:receitas?|entradas?|renda|faturamento|ganhos|salario)\b|\bd[aeo]\s+que\s+(?:eu\s+)?(?:faturo|ganho|recebo|tiro|fa[cç]o)\b/)
   if (baseProporcao) rest.consome(baseProporcao[0])
 
   // ---- 2/3/4) métrica, fonte e agrupamento -------------------------------

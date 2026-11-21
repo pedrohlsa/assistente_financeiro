@@ -579,6 +579,16 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
       sample: { rows: 0, from: plan.period.from, to: plan.period.to }, facts: [], samples: [],
       caveats: [`Não tenho quilometragem de trabalho registrada ${plan.period.label} para calcular o valor por km.`] }
   }
+  // "Quanto eu ganho por hora" sem hora nenhuma respondia "R$ 0,00/hora (dado
+  // real)" — número certo de nada. Mesma saída do valor por km sem km.
+  const q0 = (plan.metric === 'per-hour' || plan.metric === 'per-trip') ? quantidadeTrabalho(state, plan.period.from, plan.period.to, today) : undefined
+  if (q0 && (plan.metric === 'per-hour' ? q0.hours : q0.trips) <= 0) {
+    return { plan, unit, total: 0, count: 0, groups: [], estimated: false, empty: true, missingDistance: true,
+      sample: { rows: 0, from: plan.period.from, to: plan.period.to }, facts: [], samples: [],
+      caveats: [plan.metric === 'per-hour'
+        ? `Não tenho horas de trabalho registradas ${plan.period.label} para calcular o valor por hora. Diga "trabalhei 8 horas" junto com o ganho do dia.`
+        : `Não tenho quantidade de viagens informada ${plan.period.label} para calcular o valor por viagem. Diga "fiz 14 viagens" junto com o ganho do dia.`] }
+  }
   const { ag, rows } = agrega(state, plan, plan.period, today)
   const caveats: string[] = []
 

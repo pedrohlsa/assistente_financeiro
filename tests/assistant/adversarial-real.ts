@@ -7228,6 +7228,38 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('QT-quitar-sem-plano', nada, 'diz que não acha o parcelamento', /não (?:encontrei|achei|tenho)/i.test(nada) && !/Posso te ajudar/.test(nada)))
   }
 
+  // Perfil CLT, fala real: "13º" virava R$ 13; férias e 13º iam para Outros;
+  // "paguei a pensão 600" caía na ajuda; "descontaram 300 de INSS" respondia
+  // vencimentos; "quanto eu ganho por hora" dizia "R$ 0,00/hora (dado real)"
+  // sem hora nenhuma; "quanto do meu salário vai pro aluguel" dava o total.
+  {
+    const st = buildState({ profile: 'clt', transactions: [
+      { type: 'income', amount: 3200, category: 'salario', date: `${hoje.slice(0, 8)}01`, description: 'Salário' },
+      { type: 'expense', amount: 1100, category: 'casa', date: `${hoje.slice(0, 8)}01`, description: 'Aluguel' },
+    ] })
+    const treze = await turnoHoje(st, 'meu 13º caiu 1600')
+    out.push(result('SL-decimo-terceiro', { reply: treze.reply, actions: treze.actions }, 'receita 1600 em Salário, sem R$ 13',
+      treze.actions.length === 1 && (treze.actions[0] as any).amount === 1600 && (treze.actions[0] as any).category === 'salario'
+        && !/R\$ 13,00/.test(treze.reply)))
+    const ferias = await turnoHoje(st, 'recebi as férias, 4200')
+    out.push(result('SL-ferias', ferias.actions, 'receita 4200 em Salário',
+      ferias.actions.some((a: any) => a.kind === 'income' && a.amount === 4200 && a.category === 'salario')))
+    for (const [id, frase, valor] of [['SL-pensao', 'paguei a pensão 600', 600], ['SL-escola', 'paguei a escola 800', 800]] as const) {
+      const r = await turnoHoje(st, frase)
+      out.push(result(id, r.actions, `despesa ${valor}`, r.actions.length === 1 && (r.actions[0] as any).kind === 'expense' && (r.actions[0] as any).amount === valor))
+    }
+    const parcela = await turnoHoje(st, 'paguei a parcela 3')
+    out.push(result('SL-controle-parcela-3', parcela.actions, 'nunca uma despesa de R$ 3',
+      !parcela.actions.some((a: any) => a.kind === 'expense' && a.amount === 3)))
+    const inss = await turnoHoje(st, 'descontaram 300 de INSS')
+    out.push(result('SL-desconto-em-folha', { reply: inss.reply, actions: inss.actions }, 'não registra; fala do salário líquido',
+      !inss.actions.length && /líquido/.test(inss.reply)))
+    const hora = (await turnoHoje(st, 'quanto eu ganho por hora')).reply
+    out.push(result('SL-por-hora-sem-horas', hora, 'sem R$ 0,00/hora; diz que não há horas', !/R\$ 0,00\/hora/.test(hora) && /horas/.test(hora)))
+    const share = (await turnoHoje(st, 'quanto do meu salário vai pro aluguel')).reply.replace(/ /g, ' ')
+    out.push(result('SL-proporcao-do-salario', share, '34,4% do salário', /34[,.]4\s*%/.test(share)))
+  }
+
   return out
 }
 
