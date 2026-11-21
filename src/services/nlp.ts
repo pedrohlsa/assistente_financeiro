@@ -613,6 +613,31 @@ export function parseNaturalFull(
 
   if (dayAsk) return { actions, ambiguity: dayAsk }
 
+  // "Paguei 4 E 90 no pão": R$ 4,90 dito como se fala, ou dois gastos? Os dois
+  // são possíveis, e somados davam R$ 94,00 sem aviso. Pergunta, com as duas
+  // leituras prontas.
+  {
+    const dito = input.match(/^\s*(?:(?:eu|hoje|hj|ontem)\s+)*(?:gastei|paguei|comprei|torrei|dei)\s+(?:r\$\s*)?(\d{1,2})\s+e\s+(\d{2})(?![\d.,])\s*(?:reais\s+)?(?:n[oa]s?|em|de|com|pr[ao])\s+[^\d]+$/i)
+    const gastos = actions.filter(a => a.kind === 'expense') as Extract<ParsedAction, { kind: 'expense' }>[]
+    if (dito && gastos.length === 2 && actions.length === 2) {
+      const inteiro = Number(dito[1]), centavos = Number(dito[2])
+      const comLugar = gastos.find(g => g.amount === centavos) || gastos[1]
+      const juntos = Math.round((inteiro + centavos / 100) * 100) / 100
+      if (inteiro <= 20 && gastos.some(g => g.amount === inteiro) && gastos.some(g => g.amount === centavos)) {
+        return {
+          actions: [],
+          ambiguity: {
+            question: `Foi ${fmtBRL(juntos)} ou dois gastos, de ${fmtBRL(inteiro)} e ${fmtBRL(centavos)}?`,
+            options: [
+              { label: fmtBRL(juntos), actions: [{ ...comLugar, amount: juntos }] },
+              { label: 'Dois gastos', actions },
+            ],
+          },
+        }
+      }
+    }
+  }
+
   const polaridade = resolvePolaridade(input, actions)
   if (polaridade) return polaridade
 
@@ -1469,6 +1494,8 @@ function parseClause(input: string): ParsedAction[] {
     // "rodei 200 km EM 10 HORAS" — a jornada vinha junto da distância e se
     // perdia inteira, porque nenhum dos padrões acima cobre "em N horas".
     || text.match(new RegExp(String.raw`(?:km|quil[oô]metros?|viagens|corridas)\s*(?:em|durante)\s*${NUM}\s*(?:horas?|hrs?|h)\b`, 'i'))
+    // "Fiz 450 EM 12 HORAS": o resultado do dia e a jornada na mesma frase.
+    || text.match(new RegExp(String.raw`\b(?:fiz|ganhei|faturei|tirei)\s+(?:r\$\s*)?\d+(?:[.,]\d+)?\s*(?:reais\s*)?(?:em|durante)\s*${NUM}\s*(?:horas?|hrs?|h)\b`, 'i'))
 
   const kmIsMaint = m && m[3] // km da manutenção
   if ((kmM && !kmIsMaint && !kmSubM) || (tripsM && !tripsSubM) || (hoursM && !hoursSubM)) {

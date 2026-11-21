@@ -186,6 +186,18 @@ export function findNumberWords(text: string): NumberWordMatch[] {
     const unit = canonicalUnit(unitM?.[1])
 
     let value = wordsToNumber(seq)
+    // "UM e cinquenta", "dois e noventa": unidade ANTES da dezena não existe
+    // como número inteiro — é como se fala real e centavos. Somado, "um e
+    // cinquenta no pão" virava R$ 51,00.
+    {
+      const sig = seq.filter(w => !FILLER.has(strip(w)))
+      const primeira = sig.length >= 2 ? wordsToNumber([sig[0]]) : null
+      const resto = sig.length >= 2 ? wordsToNumber(sig.slice(1)) : null
+      if (primeira !== null && resto !== null && primeira >= 1 && primeira <= 9 && resto >= 10 && resto <= 99
+        && strip(seq[1] || '') === 'e') {
+        value = primeira + resto / 100
+      }
+    }
     if (value !== null) {
       const meaningful = seq.filter(w => !FILLER.has(strip(w)))
       const single = meaningful.length === 1 ? strip(meaningful[0]) : ''

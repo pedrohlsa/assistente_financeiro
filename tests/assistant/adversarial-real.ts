@@ -6648,6 +6648,26 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const comFato = await turnoHoje(buildState({ profile: 'clt' }), 'oi, gastei 50 no mercado')
       out.push(result('MN-social-com-fato', comFato.actions, 'despesa 50', comFato.actions.length === 1 && gastos(comFato.actions)[0]?.amount === 50))
     }
+
+    // Real e centavos falados: "um e cinquenta" é R$ 1,50; "4 e 90" pergunta.
+    {
+      const clt = () => buildState({ profile: 'clt' })
+      for (const [frase, valor] of [['gastei um e cinquenta no pão', 1.5], ['paguei dois e noventa no ônibus', 2.9], ['gastei cinquenta e um no mercado', 51]] as const) {
+        const r = await turnoHoje(clt(), frase)
+        out.push(result(`MN-falado-${frase.replace(/\W+/g, '-')}`, r.actions, `despesa ${valor}`, r.actions.length === 1 && gastos(r.actions)[0]?.amount === valor))
+      }
+      const q = await turn(clt(), 'paguei 4 e 90 no pão')
+      out.push(result('MN-n-e-m-pergunta', { mode: q.mode, reply: q.reply }, 'pergunta R$ 4,90 ou dois gastos',
+        q.mode === 'clarify' && q.actions.length === 0 && /R\$\s4,90/.test(limpa(q.reply))))
+      const escolha = await orchestrate({ state: clt(), message: 'R$ 4,90', today: hoje, remoteEnabled: false, pendingClarification: q.clarification })
+      const e: any = escolha.response.actions[0]?.action
+      out.push(result('MN-n-e-m-escolhe-junto', e, 'despesa 4,90 Pão', escolha.response.actions.length === 1 && e.amount === 4.9 && e.description === 'Pão'))
+      const dois = await turnoHoje(clt(), 'gastei 20 e 30')
+      out.push(result('MN-dois-valores-sem-lugar', dois.actions, 'duas despesas', gastos(dois.actions).length === 2))
+      const horas = await turnoHoje(buildState({ profile: 'driver' }), 'fiz 450 em 12 horas')
+      out.push(result('MN-fiz-em-horas', horas.actions, 'receita 450 e 12 horas',
+        receitas(horas.actions)[0]?.amount === 450 && (horas.actions.find((a: any) => a.kind === 'work') as any)?.hours === 12))
+    }
   }
 
   return out
