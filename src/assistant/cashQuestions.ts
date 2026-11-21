@@ -164,7 +164,7 @@ export function mesesAtePrazo(t: string, hoje: string, prazoDaMeta?: string): st
  */
 export function perguntaDeManutencao(t: string): boolean {
   if (/\b(?:gastei|gasto|gastou|paguei|custou|custa|custo)\b/.test(t)) return false
-  return /\btroca\w*\b[^?]*\b(?:oleo|pneus?|pastilhas?|filtros?|correia)\b|\b(?:oleo|pneus?|pastilhas?|filtros?|correia)\b[^?]*\btroca\w*\b/.test(t)
+  return /\btroc(?:a|o|ar|ando)\w*\b[^?]*\b(?:oleo|pneus?|pastilhas?|filtros?|correia)\b|\b(?:oleo|pneus?|pastilhas?|filtros?|correia)\b[^?]*\btroc(?:a|o|ar|ando)\w*\b/.test(t)
 }
 
 /**

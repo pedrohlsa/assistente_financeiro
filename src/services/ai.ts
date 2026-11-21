@@ -16,7 +16,7 @@ import type { OrchestratorInput } from '../assistant/orchestrator'
 import type { RemoteConversationContext } from '../assistant/conversation/remoteContext'
 import {
   addDays, dueLabel, fmtBRL, fmtNum, fromISO, monthKey, todayISO, toISO, daysInMonth, parseMoney, daysBetween } from '../utils/format'
-import { promptSafe, sentenceCase } from '../utils/text'
+import { normalizeName, promptSafe, sentenceCase } from '../utils/text'
 import { MAX_COMPOSE_FACTS } from '../assistant/grounding'
 import { MARGEM_EMPATE } from '../assistant/query/answer'
 import {
@@ -862,8 +862,8 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // ===== Perguntas exclusivas de MOTORISTA =====
 
   // "essa corrida de 18 reais por 12 km vale a pena?"
-  const rideM = driverMode ? t.match(new RegExp(String.raw`corrida\s*(?:de)?\s*(?:r\$)?\s*${NUM}\s*(?:reais)?\s*(?:por|de|em)?\s*${NUM}\s*km`)) : null
-  if (rideM && /vale/.test(t)) {
+  const rideM = driverMode ? t.match(new RegExp(String.raw`corrida\s*(?:de)?\s*(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?|pila)?\s*(?:por|de|em|pra|para|com|e|,)?\s*${NUM}\s*km`)) : null
+  if (rideM && /vale|compensa|aceit|\bpego\b|\bpegar\b|d[aá]\s+pra/.test(t)) {
     const r = analyzeRide(s, n(rideM[1]), 0, n(rideM[2]), (n(rideM[2]) / 30) * 60)
     return {
       text: `Análise da corrida (estimativa com base nos seus custos):\n\n` +
@@ -1405,6 +1405,15 @@ function resolveLocal(s: AppState, input: string): AiReply {
     for (const mi of semIntervalo) {
       lines.push(`• ${mi.name}: trocado aos ${fmtNum(mi.kmInstalled, 0)} km. Não sei o intervalo dessa peça —`
         + ' me diga de quantos em quantos km você troca que eu passo a avisar.')
+    }
+    // "Quando troco OS PNEUS?" com só o óleo cadastrado: dizer que a peça
+    // pedida não está cadastrada, em vez de responder sobre outra.
+    const PECAS: [RegExp, string][] = [[/\bpneus?\b/, 'pneu'], [/\bpastilhas?\b|\bfreios?\b/, 'pastilha'], [/\bfiltros?\b/, 'filtro'], [/\bcorreia\b/, 'correia'], [/\boleo\b|\bóleo\b/, 'óleo']]
+    const pedida = PECAS.find(([re]) => re.test(t))
+    if (pedida && !s.maintenance.some(mi => normalizeName(mi.name).includes(normalizeName(pedida[1]).slice(0, 4)))) {
+      return { text: `Não tenho ${pedida[1]} cadastrado em Manutenção, então não sei quando é a próxima troca. `
+        + `Quando trocar, diga por exemplo "troquei ${pedida[1] === 'pneu' ? 'os pneus' : `o ${pedida[1]}`} por 800 com ${fmtNum(odo || 100000, 0)} km" que eu passo a acompanhar.\n\n`
+        + `O que está cadastrado (hodômetro em ${fmtNum(odo, 0)} km):\n\n${lines.join('\n')}` }
     }
     return { text: `Com o hodômetro em ${fmtNum(odo, 0)} km:\n\n${lines.join('\n')}` }
   }

@@ -6476,6 +6476,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         out.push(result(`MN-${frase.replace(/\W+/g, '-')}`, r.actions, desc, r.actions.length === 1 && gastos(r.actions)[0]?.description === desc))
       }
     }
+
+    // Corrida com valor E distância é pergunta de análise, nunca registro.
+    {
+      const mot = motoristaRico(hoje)
+      for (const [frase, bruto] of [['vale a pena aceitar corrida de 15 reais pra 8 km', 15 / 8], ['corrida de 12 reais 6 km compensa?', 2], ['pego corrida de 20 por 25 km?', 0.8]] as const) {
+        const r = await turnoHoje(mot, frase)
+        out.push(result(`MN-analise-${frase.replace(/\W+/g, '-')}`, r.reply.split('\n')[0], `análise com ${brl(bruto)}/km bruto`,
+          r.actions.length === 0 && /^Análise da corrida/.test(r.reply) && limpa(r.reply).includes(`${brl(Math.round(bruto * 100) / 100)}/km bruto`)))
+      }
+      const troco = await turnoHoje(mot, 'quando troco o óleo')
+      out.push(result('MN-quando-troco-o-oleo', troco.reply.split('\n')[0], 'próxima troca do óleo', /Óleo: próxima troca/.test(troco.reply)))
+      const pneu = await turnoHoje(mot, 'quando troco os pneus?')
+      out.push(result('MN-peca-nao-cadastrada', pneu.reply.split('\n')[0], 'diz que pneu não está cadastrado', /^Não tenho pneu cadastrado/.test(pneu.reply)))
+    }
   }
 
   return out

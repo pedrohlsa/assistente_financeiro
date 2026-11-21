@@ -1638,7 +1638,7 @@ export function analyzeMessage(
     // a pena trocar de plano?" é um fato mais uma opinião, e descartar tudo
     // fazia a despesa real do usuário desaparecer sem aviso.
     if (isQuestion && !looksPast(part.text)
-      && /\bvale\s+a\s+pena\b|\bcompensa\b|\bdevo\s+aceitar\b|\bacei(?:to|tar)\b/i.test(part.text)) {
+      && /\bvale\s+a\s+pena\b|\bcompensa\b|\bdevo\s+aceitar\b|\bacei(?:to|tar)\b|\bpe(?:go|gar)\b/i.test(part.text)) {
       actions = []
     }
 
