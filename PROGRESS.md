@@ -6544,3 +6544,59 @@ invariantes, mutações, fuzz, ditado e remoto offline; typecheck,
 typecheck:api, test:money, build, rubrica (0 perigosa, 0 ruim) e
 `test:calendario` nas oito datas. Sem push, merge, deploy, APK ou DeepSeek.
 **NOT READY** até auditoria independente.
+
+## 21/11/2026 — Depois da decisão das viagens: sondas e correções (Claude)
+
+Continuação da mesma rodada, com sondas sobre os fixtures ricos e as
+respostas lidas uma a uma (regra 35). Cada item tem bloco próprio em
+`tests/assistant/adversarial-real.ts`.
+
+Números errados ou registro que não devia existir:
+- Abastecimento grava o registro do veículo E a transação de Combustível; a
+  média de combustível somava os dois (R$ 200 para R$ 100). `fuelSpend()` em
+  `calc.ts` conta o dinheiro uma vez (`CB-`).
+- "Gastei mais que o mês passado?" no dia 15 comparava 15 dias com o mês
+  passado INTEIRO e respondia "Não, caiu (-52%)" quando o gasto tinha subido
+  39%. O mês citado compara o mesmo pedaço, e o rótulo diz qual
+  ("De 1º a 15 de agosto") (`CP-`).
+- "Dá pra guardar 500 esse mês?" respondia "Sim" pelo simulador de meta e
+  "consigo guardar 300" respondia "não" pela sobra prevista. As formas
+  faladas vão para a mesma conta (`GE-`).
+- "Paguei 2400 no seguro em 12x no nubank" virava despesa avulsa (regra 10);
+  "12x de 200" era lido como total de R$ 200; "do carro" virava cartão (`PZ-`).
+- "Paguei 1/3 do aluguel, 400" era lançado em 01/03 (`FR-`); "reajustei o
+  aluguel da casa 1 pra 1900" propunha uma despesa de R$ 1,00; "cancelaram a
+  corrida de 30" lançava R$ 30 e 1 viagem; "tirei 200 do banco" era R$ 200 de
+  corrida; saque não é ganho nem gasto (`NN-`, `SQ-`).
+- "Quanto rodei esse mês" respondia o total GASTO; "melhor dia esse mês"
+  devolvia um dia do mês anterior; "quanto o carro me custa por mês"
+  respondia todo o gasto do mês (`KR-`, `CB-`).
+
+Pergunta respondida pela metade ou pela ajuda genérica:
+- "Tô gastando muito com obra?", "gastei muito esse mês?" (`GX-`); "tô bem
+  na meta?" e "quanto falta pra meta de hoje" na forma da pergunta (`MD-`);
+  "como é meu dia típico?" (`KR-`); "minha luz veio 230" (`CV-`); "quanto
+  sobra até o próximo salário" (`CL-`); "o inquilino da casa 2 atrasou"
+  (`AT-`); "o que eu registrei hoje?", "mostra meus últimos gastos" (`LS-`).
+- Correção sem proposta na tela não diz mais "isso não aconteceu"; "errei,
+  era 45 e não 54" corrige o lançamento de 54 (`RT-`).
+- "Posso parcelar uma geladeira de 3000 em 10x?" mostrava os cartões e
+  "posso comprar um celular de 1500?" caía na ajuda — agora simulam como
+  "consigo comprar"; "e se a casa 2 ficar vazia" é entrada que não vem
+  (`HP-posso-*`). "Quanto falta pra quitar o computador" dizia que não havia
+  parcelamento; "vale a pena quitar?" diz o que falta e que só compensa com
+  desconto, sem inventar juros (`QT-`; o caso `c-49` do corpus remoto passou
+  a ser local).
+- "Hoje fiz 18 corridas e tirei 410" perdia os R$ 410 (`SQ-`); "paguei o
+  aluguel, 400" perdia a descrição e "paguei o mecânico: 350" não registrava
+  nada (`VF-`); "IPTU" e "iFood" com a grafia certa; "recebi o vale" é
+  Salário.
+
+Gates (relógio 2026-09-15): 733/733 corpus, 1.148/1.148 adversariais, 151/151
+invariantes, mutações, fuzz, ditado e remoto offline; typecheck,
+typecheck:api, test:money, build e rubrica (0 perigosa, 0 ruim).
+`test:calendario` rodou depois de cada lote e achou quatro oráculos de teste
+dependentes de data (último dia do mês, dia 1º, 12/11 e 28/02/2027), todos
+corrigidos no teste; o dia 1º também mudou o rótulo ("em 1º de outubro"). Sem push, merge, deploy, APK ou DeepSeek. **NOT READY**
+até auditoria independente.
+
