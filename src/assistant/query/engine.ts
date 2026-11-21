@@ -17,6 +17,8 @@ import {
   cardById, cardInvoice, cardOutstanding, invoiceOpenAmount, planProgress,
 } from '../../services/cards'
 import { monthlyProjections, occurrencesBetween, recurringActiveOn, recurringOccurrenceState } from '../../services/calc'
+import { RIDE_INCOME_CATEGORIES } from '../../services/profile'
+import { FALTAM_VIAGENS_POR_APP } from '../driverAdvice'
 import type {
   AssistantFact, AssistantQueryPlan, AssistantQueryResult, FactUnit,
   QueryGroupResult, QueryRow,
@@ -405,9 +407,11 @@ function quantidadeTrabalho(state: AppState, from: string, to: string, today: st
     trips += Number(w.trips) || 0
     viagensPorDia.set(w.date, (viagensPorDia.get(w.date) || 0) + (Number(w.trips) || 0))
   }
-  const diasComViagem = new Set([...viagensPorDia].filter(([, n]) => n > 0).map(([d]) => d))
-  return { km, hours, trips, diasComViagem }
+  return { km, hours, trips, viagensPorDia }
 }
+
+const incluiReceitaDeCorridas = (plan: AssistantQueryPlan) =>
+  !plan.filter.txType?.length || plan.filter.txType.includes('income')
 
 /**
  * Numerador das métricas "por unidade". Quando o recorte tem entradas E saídas,
@@ -462,14 +466,12 @@ function aplicaMetrica(
       return q.hours > 0 ? numerador(soma, rows, plan) / q.hours : 0
     }
     case 'per-trip': {
-      // Só o dinheiro dos dias em que as viagens foram DITAS: o dia registrado
-      // sem quantidade (regra 34) não tem viagem para dividir, e somá-lo no
-      // numerador inflaria o ganho por viagem. Mesmo recorte de `periodStats`.
       const q = quantidadeTrabalho(state, periodo.from, periodo.to, today)
-      if (q.trips <= 0) return 0
-      const comViagem = rows.filter(row => q.diasComViagem.has(row.date))
-      const somaComViagem = comViagem.reduce((a, row) => a + valorDe(row, plan), 0)
-      return numerador(somaComViagem, comViagem, plan) / q.trips
+      const dates = new Set(rows.filter(row => !incluiReceitaDeCorridas(plan) || row.txType === 'income').map(row => row.date))
+      const trips = incluiReceitaDeCorridas(plan) || plan.group !== 'none'
+        ? [...dates].reduce((sum, day) => sum + (q.viagensPorDia.get(day) || 0), 0)
+        : q.trips
+      return trips > 0 ? numerador(soma, rows, plan) / trips : 0
     }
     // `share` é calculado fora: ele precisa da consulta SEM os filtros de
     // conteúdo, e isso não cabe numa função que só enxerga as linhas filtradas.
@@ -502,7 +504,20 @@ interface Agregado { total: number; count: number; groups: Map<string, { label: 
 function agrega(state: AppState, plan: AssistantQueryPlan, periodo: { from: string; to: string }, today: string): { ag: Agregado; rows: QueryRow[] } {
   const planoNoPeriodo: AssistantQueryPlan = { ...plan, period: { ...plan.period, ...periodo } }
   const brutas = rowsOf(state, planoNoPeriodo, today)
-  const rows = brutas.filter(row => passa(row, planoNoPeriodo, state))
+  let rows = brutas.filter(row => passa(row, planoNoPeriodo, state))
+  if (plan.metric === 'per-trip') {
+    const { viagensPorDia } = quantidadeTrabalho(state, periodo.from, periodo.to, today)
+    rows = rows.filter(row => (viagensPorDia.get(row.date) || 0) > 0)
+    if (incluiReceitaDeCorridas(plan)) {
+      const fromRides = (row: QueryRow) => row.txType === 'income' && RIDE_INCOME_CATEGORIES.includes(row.category || '')
+        && Number.isFinite(row.value) && row.value > 0
+      const revenues = rows.filter(fromRides)
+      const dates = new Set(revenues.map(row => row.date))
+      rows = plan.filter.txType?.includes('expense')
+        ? rows.filter(row => dates.has(row.date) && (row.txType === 'expense' || fromRides(row)))
+        : revenues
+    }
+  }
 
   const groups = new Map<string, { label: string; valores: number[]; rows: QueryRow[] }>()
   for (const row of rows) {
@@ -566,6 +581,11 @@ const factId = (() => {
  */
 export function runQuery(state: AppState, plan: AssistantQueryPlan, today = todayISO()): AssistantQueryResult {
   const unit = unidadeDe(plan)
+  if (plan.metric === 'per-trip' && (plan.filter.platform || plan.group === 'platform')) {
+    return { plan, unit, total: 0, count: 0, groups: [], estimated: false, empty: true,
+      sample: { rows: 0, from: plan.period.from, to: plan.period.to }, facts: [], samples: [],
+      caveats: [FALTAM_VIAGENS_POR_APP] }
+  }
   // A meta só armazena o acumulado atual. Data de criação não é data dos
   // depósitos, e o journal limitado não substitui um histórico completo.
   if (plan.source === 'goals' && plan.field === 'saved' && plan.period.label !== 'até agora') {
@@ -591,6 +611,9 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
   }
   const { ag, rows } = agrega(state, plan, plan.period, today)
   const caveats: string[] = []
+  if (plan.metric === 'per-trip' && incluiReceitaDeCorridas(plan) && !rows.length) {
+    caveats.push('Preciso de receitas de corridas e quantidades de viagens registradas nos mesmos dias deste período.')
+  }
 
   let total = ag.total
   // Pagamento parcial de fatura reduz a dívida do CARTÃO, mas não tem vínculo

@@ -193,7 +193,7 @@ export default function VehicleScreen() {
             <div className="mini-card"><div className="mini-value">{fmtNum(m.hours, 0)}h</div><div className="mini-label">horas trabalhadas</div></div>
             <div className="mini-card"><div className="mini-value">{fmtBRL(m.grossPerKm)}</div><div className="mini-label">R$/km bruto</div></div>
             <div className="mini-card"><div className="mini-value">{fmtBRL(m.netPerKm)}</div><div className="mini-label">R$/km líquido</div></div>
-            <div className="mini-card"><div className="mini-value">{m.trips > 0 ? fmtBRL(m.perTrip) : '—'}</div><div className="mini-label">média/viagem</div></div>
+            <div className="mini-card"><div className="mini-value">{m.tripsWithIncome > 0 ? fmtBRL(m.perTrip) : '—'}</div><div className="mini-label">média/viagem</div></div>
           </div>
         </>
       )}

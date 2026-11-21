@@ -18,7 +18,7 @@ const ALL_CARDS: { id: string; label: string; value: (s: any, ts: any, kc: any) 
   { id: 'netkm', label: 'R$/KM líquido', value: (_s, ts) => fmtBRL(ts.netPerKm) },
   { id: 'costkm', label: 'Custo por KM', value: (_s, _ts, kc) => fmtBRL(kc.total) },
   { id: 'minkm', label: 'Mínimo por KM', value: (_s, _ts, kc) => fmtBRL(kc.minRecommended) },
-  { id: 'pertrip', label: 'Média por viagem', value: (_s, ts) => (ts.trips > 0 ? fmtBRL(ts.perTrip) : '—') },
+  { id: 'pertrip', label: 'Média por viagem', value: (_s, ts) => (ts.tripsWithIncome > 0 ? fmtBRL(ts.perTrip) : '—') },
   { id: 'perhour', label: 'Lucro por hora', value: (_s, ts) => fmtBRL(ts.profitPerHour) },
   { id: 'hours', label: 'Horas trabalhadas', value: (_s, ts) => fmtNum(ts.hours) + 'h' },
 ]

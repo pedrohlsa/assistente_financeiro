@@ -205,7 +205,7 @@ export function composeAnswer(r: AssistantQueryResult): string {
 
   if (r.empty) {
     if (comprasLinha) return `${comprasLinha}\n\nNão encontrei faturas com vencimento ${periodo}.`
-    if ((r.missingDistance || p.source === 'goals' && p.field === 'saved' || p.metric === 'avg' && p.group === 'month')
+    if ((r.missingDistance || p.metric === 'per-trip' || p.source === 'goals' && p.field === 'saved' || p.metric === 'avg' && p.group === 'month')
       && r.caveats.length) return r.caveats.join('\n\n')
     if (p.source === 'recurring' && p.filter.plannedOnly && p.filter.txType?.[0] === 'income') {
       return `Não há entradas recorrentes previstas em aberto ${periodo}. Cadastre as entradas em Planejamento para eu calcular essa previsão.`

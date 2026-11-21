@@ -5,6 +5,7 @@ import { addDays, fmtBRL, fromISO, todayISO } from '../utils/format'
 import { normalizeName } from '../utils/text'
 
 export const PARE_PARA_DESCANSAR = 'Pare em um local seguro e descanse antes de voltar a dirigir.'
+export const FALTAM_VIAGENS_POR_APP = 'O histórico guarda a quantidade de viagens por dia. Preciso da quantidade por plataforma para calcular o valor por viagem de cada app.'
 
 export function perceivesDrivingFatigue(text: string): boolean {
   const t = normalizeName(text)

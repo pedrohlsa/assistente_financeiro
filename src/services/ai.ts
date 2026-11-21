@@ -35,7 +35,7 @@ import type { PerguntaDeConta, PerguntaDeFatura, PlanoDeGuardar } from '../assis
 import { CORRIDA_CANCELADA, describeAction, parseNaturalFull, REAJUSTE, SAQUE } from './nlp'
 import { driverInsight } from '../assistant/driverInsights'
 import { answerVehicleCost, answerVehicleMonthly } from '../assistant/vehicleCost'
-import { answerDrivingShift, perceivesDrivingFatigue, PARE_PARA_DESCANSAR } from '../assistant/driverAdvice'
+import { answerDrivingShift, perceivesDrivingFatigue, FALTAM_VIAGENS_POR_APP, PARE_PARA_DESCANSAR } from '../assistant/driverAdvice'
 import { answerRideOffer } from '../assistant/rideOffer'
 import { avaliacaoDoDia } from '../assistant/dayReview'
 import { respostaDeAtraso, respostaDeChegada, respostaDeProximaEntrada } from '../assistant/arrival'
@@ -140,7 +140,7 @@ export function buildAiContext(s: AppState, opts: { aggregates?: boolean } = {})
     ? {
         receitas: r2(x.income), despesas: r2(x.expense), lucro: r2(x.profit),
         km: r2(x.km), viagens: x.trips, horas: r2(x.hours),
-        lucroPorKm: r2(x.netPerKm), lucroPorHora: r2(x.profitPerHour), mediaPorViagem: r2(x.perTrip),
+        lucroPorKm: r2(x.netPerKm), lucroPorHora: r2(x.profitPerHour), mediaPorViagem: x.tripsWithIncome > 0 ? r2(x.perTrip) : null,
       }
     : { receitas: r2(x.income), despesas: r2(x.expense), lucro: r2(x.profit) })
   const soma = (xs: { amount: number }[]) => r2(xs.reduce((a, b) => a + b.amount, 0))
@@ -1570,13 +1570,16 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     }
   }
   if (driverMode && /(?:quanto|qual).*(?:por\s+viagem|por\s+corrida|a\s+viagem|cada\s+viagem|m[ée]dia\s+(?:por|da)\s+(?:viagem|corrida))/.test(t)) {
-    const w = weekStats(s)
+    if (/\b(?:uber|indrive|plataformas?|apps?|aplicativos?)\b|\b(?:na|da|pela)\s+99\b/.test(t)) return { text: FALTAM_VIAGENS_POR_APP }
+    const w = periodStats(s, addDays(today, -6), today, today)
     if (w.trips <= 0) return { text: 'Ainda não tenho viagens registradas nos últimos 7 dias. Diga "fiz 14 viagens" que eu calculo sua média por viagem.' }
+    if (w.tripsWithIncome <= 0) return { text: `Foram ${w.trips} viagens nos últimos 7 dias. Preciso da receita de corridas dos mesmos dias para calcular a média por viagem.` }
     return {
-      text: `Nos últimos 7 dias foram ${w.trips} viagens e ${fmtBRL(w.incomeWithTrips)} de receita nos dias em que elas foram informadas — ${fmtBRL(w.perTrip)} por viagem (dado real).`
-        + (w.income - w.incomeWithTrips > 0.009
-          ? `\n\n${fmtBRL(w.income - w.incomeWithTrips)} entraram em dias sem a quantidade de viagens e ficaram fora dessa média. Diga "fiz 14 viagens" junto com o ganho do dia que eu incluo.`
-          : ''),
+      text: `Nos últimos 7 dias, foram ${w.tripsWithIncome} viagens nos dias com ${fmtBRL(w.incomeWithTrips)} de receita de corridas: ${fmtBRL(w.perTrip)} por viagem (dado real).`
+        + (w.rideIncome - w.incomeWithTrips > 0.009
+          ? `\n\n${fmtBRL(w.rideIncome - w.incomeWithTrips)} de corridas ficaram fora da média porque faltou a quantidade de viagens nesses dias.` : '')
+        + (w.trips > w.tripsWithIncome
+          ? `\n\nOutras ${w.trips - w.tripsWithIncome} viagens ficaram fora porque faltou a receita dos mesmos dias.` : ''),
     }
   }
 

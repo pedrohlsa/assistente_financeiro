@@ -3,6 +3,7 @@ import { AppState, Insight, IntervalUnit, ParsedAction, RecurrenceOccurrence, Re
 import { addDays, dateForDayOfMonth, daysInMonth, dueLabel, fmtBRL, fmtNum, fromISO, isCalendarDate, MESES_PT_BR, monthKey, monthShortLabel, stampOf, todayISO, toISO } from '../utils/format'
 import { normalizeName, sentenceCase, weekdayName } from '../utils/text'
 import { installmentsThisMonth, monthlyCommitments, installmentsInMonth, chargesInMonth, cardInvoice, directInstallmentPaidAmount, installmentRemaining, invoiceOpenAmount, hasAmbiguousLegacyCardBalance, validPaymentDate } from './cards'
+import { RIDE_INCOME_CATEGORIES } from './profile'
 
 export interface PeriodStats {
   income: number
@@ -15,8 +16,11 @@ export interface PeriodStats {
   grossPerKm: number
   netPerKm: number
   costPerKm: number
-  /** Receita só dos dias com viagens informadas — o numerador de `perTrip`. */
+  rideIncome: number
+  /** Corridas recebidas nos dias com quantidade informada. */
   incomeWithTrips: number
+  /** Viagens em dias com receita de corridas registrada. */
+  tripsWithIncome: number
   perTrip: number
   profitPerHour: number
 }
@@ -39,16 +43,20 @@ export function periodStats(s: AppState, from: string, to: string, today = today
   // somar a receita dele inflaria a média.
   const viagensPorDia = new Map<string, number>()
   for (const w of ws) viagensPorDia.set(w.date, (viagensPorDia.get(w.date) || 0) + w.trips)
-  const incomeWithTrips = txs.filter(t => t.type === 'income' && (viagensPorDia.get(t.date) || 0) > 0)
-    .reduce((a, t) => a + t.amount, 0)
+  const receitasDeCorridas = txs.filter(t => t.type === 'income' && RIDE_INCOME_CATEGORIES.includes(t.category)
+    && Number.isFinite(t.amount) && t.amount > 0)
+  const rideIncome = receitasDeCorridas.reduce((a, t) => a + t.amount, 0)
+  const comViagens = receitasDeCorridas.filter(t => (viagensPorDia.get(t.date) || 0) > 0)
+  const incomeWithTrips = comViagens.reduce((a, t) => a + t.amount, 0)
+  const tripsWithIncome = [...new Set(comViagens.map(t => t.date))].reduce((a, date) => a + viagensPorDia.get(date)!, 0)
   return {
     income, expense, profit, km, trips, hours,
     days: daysSet.size,
     grossPerKm: km > 0 ? income / km : 0,
     netPerKm: km > 0 ? profit / km : 0,
     costPerKm: km > 0 ? expense / km : 0,
-    incomeWithTrips,
-    perTrip: trips > 0 ? incomeWithTrips / trips : 0,
+    rideIncome, incomeWithTrips, tripsWithIncome,
+    perTrip: tripsWithIncome > 0 ? incomeWithTrips / tripsWithIncome : 0,
     profitPerHour: hours > 0 ? profit / hours : 0,
   }
 }

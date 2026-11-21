@@ -7094,8 +7094,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result(id, r.actions, `receita ${receita} em Corridas, sem trips`, total === receita && !temTrips(r.actions)))
     }
 
-    // Métricas: o dia sem viagens informadas não entra no ganho por viagem.
-    // Antes: (300 + 450) / 10 = R$ 75,00 — com a decisão nova, R$ 30,00.
+    // Médias usam receita de corridas e a quantidade do mesmo dia. Aluguel,
+    // dia sem viagens e dia sem receita de corridas ficam fora da amostra.
     {
       const ontem = addDays(hoje, -1), anteontem = addDays(hoje, -2)
       const st = buildState({
@@ -7103,15 +7103,16 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         transactions: [
           { type: 'income', amount: 300, category: 'corridas', date: anteontem, description: 'Uber' },
           { type: 'income', amount: 450, category: 'corridas', date: ontem, description: 'Uber' },
+          { type: 'income', amount: 1200, category: 'aluguel', date: anteontem, origin: 'Casa 2' },
         ],
-        workSessions: [{ date: anteontem, km: 100, trips: 10, hours: 5 }, { date: ontem, km: 160, hours: 9 }],
+        workSessions: [{ date: anteontem, km: 100, trips: 10, hours: 5 }, { date: ontem, km: 160, hours: 9 }, { date: hoje, trips: 7 }],
       })
       const ps = periodStats(st, anteontem, hoje, hoje)
-      out.push(result('VI-metrica-periodStats', ps, 'perTrip 30 (300 / 10), receita total 750',
-        ps.income === 750 && ps.trips === 10 && Math.abs(ps.perTrip - 30) < 0.001 && ps.incomeWithTrips === 300))
+      out.push(result('VI-metrica-periodStats', ps, 'perTrip 30 (300 / 10), receita total 1950, 17 viagens registradas',
+        ps.income === 1950 && ps.trips === 17 && ps.tripsWithIncome === 10 && Math.abs(ps.perTrip - 30) < 0.001 && ps.incomeWithTrips === 300))
       const r = await turnoHoje(st, 'qual minha média por viagem?')
-      out.push(result('VI-metrica-resposta', r.reply, 'R$ 30,00 por viagem e os R$ 450 fora da média',
-        limpa(r.reply).includes(brl(30)) && !limpa(r.reply).includes(brl(75)) && limpa(r.reply).includes(brl(450))))
+      out.push(result('VI-metrica-resposta', r.reply, 'R$ 30,00 por viagem, com exclusão explicada dos R$ 450 e das 7 viagens',
+        limpa(r.reply).includes(brl(30)) && !limpa(r.reply).includes(brl(1200)) && limpa(r.reply).includes(brl(450)) && /Outras 7 viagens/.test(r.reply)))
       const plano: any = validateQueryPlan({
         source: 'transactions', metric: 'per-trip', filter: { txType: ['income'] },
         period: { from: anteontem, to: hoje, grain: 'range' },
@@ -7119,7 +7120,16 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const q = plano.ok ? runQuery(st, plano.plan, hoje) : null
       const valor = q?.total
       out.push(result('VI-metrica-dsl-igual-calc', { plano, valor }, 'consulta per-trip = periodStats.perTrip (30)',
-        typeof valor === 'number' && Math.abs(valor - ps.perTrip) < 0.005))
+        typeof valor === 'number' && Math.abs(valor - ps.perTrip) < 0.005 && q?.count === 1))
+      for (const [id, frase, esperado] of [
+        ['VI-metrica-plataforma-precisa-contagem', 'quanto eu ganho por viagem na Uber essa semana?', /quantidade por plataforma/],
+        ['VI-metrica-app-precisa-contagem', 'qual app paga melhor por viagem?', /quantidade por plataforma/],
+        ['VI-metrica-hoje-sem-receita', 'quanto ganho por viagem hoje?', /receitas de corridas.*viagens.*mesmos dias/],
+      ] as const) {
+        const a = await turnoHoje(st, frase)
+        out.push(result(id, a.reply, 'explica a base necessária, sem valor por viagem nem gravação',
+          esperado.test(a.reply) && !/R\$/.test(a.reply) && !a.actions.length))
+      }
     }
   }
 

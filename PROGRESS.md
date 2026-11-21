@@ -6722,3 +6722,15 @@ até auditoria independente.
   fluxo de intenção incompleta.
 - Chrome confirmou compra em 20/11 com parcelas em 28/11 e 28/12, após
   substituir o vencimento. Suíte com 1.219/1.219 regressões adversariais.
+
+## 21/11/2026 — Receita e quantidade usadas na média por viagem
+
+- A média usa dias que têm tanto a quantidade de viagens quanto a receita
+  de corridas. Salário, aluguel, receita sem contagem e contagem sem
+  receita ficam fora da amostra. A quantidade total continua disponível.
+- O chat e as telas calculam a mesma média. Se faltar um dos dados, as
+  telas mostram o campo indisponível. Perguntas por Uber ou 99 explicam
+  por que o total de viagens do dia não permite atribuir uma média ao app.
+- Com dez viagens e R$ 300 de corridas, a média permanece R$ 30 mesmo
+  com aluguel e registros incompletos em outros dias. Suíte com
+  1.222/1.222 regressões adversariais.

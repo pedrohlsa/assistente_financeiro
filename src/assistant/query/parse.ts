@@ -1542,7 +1542,7 @@ function alemDoAntigo(plan: AssistantQueryPlan, periodoDito: boolean, porLancame
   // mês" recebia a receita bruta da semana — outra conta, com cara de certa.
   if (plan.metric === 'per-trip' || plan.metric === 'per-hour') {
     if (periodoDito && plan.period.label !== 'nos últimos 7 dias') return true
-    if (plan.metric === 'per-trip' && (f.txType?.length || 0) > 1) return true
+    if (plan.metric === 'per-trip' && ((f.txType?.length || 0) > 1 || f.platform || plan.group === 'platform')) return true
   }
   return false
 }
