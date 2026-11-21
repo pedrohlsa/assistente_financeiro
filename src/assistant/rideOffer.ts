@@ -7,6 +7,7 @@ import { normalizeName } from '../utils/text'
 import { looksPast } from './clauses'
 import { PARE_PARA_DESCANSAR, perceivesDrivingFatigue } from './driverAdvice'
 import { normalizeNumberWords } from './numbers'
+import { COMPOUND_DURATION, elapsedMinutes } from './semantic/clock'
 
 const NOME = /\b(?:corridas?|viagem|chamada)\b/
 const NUMBER = String.raw`(\d+(?:[.,]\d+)*)(?!\d|[.,]\d)`
@@ -23,18 +24,17 @@ const PREFIX = new RegExp(String.raw`\b(embarque|buscar|passageiro|distancia\s+$
 const IS_PICKUP = /\b(?:embarq\w*|buscar|passageir[oa]|aproximacao)\b/
 const IS_TOTAL = new RegExp(String.raw`\b${TOTAL}\b`)
 const DISTANCE = new RegExp(String.raw`(?<![\d.,-])${NUMBER}\s*(kms?|quilometros?|m|metros?)\b`, 'g')
-const TIME = new RegExp(String.raw`(?<![\d.,-])${NUMBER}\s*(min|minutos?|h|horas?)\b`, 'g')
+const TIME = new RegExp(String.raw`(?<![\d.,-])(?:${COMPOUND_DURATION}|${NUMBER}\s*(min|minutos?|h|horas?))\b`, 'gi')
 type Part = 'pickup' | 'trip' | 'total' | 'unmarked'
 
-function measured(t: string, units: RegExp): Partial<Record<Part, number>> | undefined {
+function measured(t: string, units: RegExp, readValue: (match: RegExpMatchArray) => number | undefined): Partial<Record<Part, number>> | undefined {
   const result: Partial<Record<Part, number>> = {}
   for (const match of t.matchAll(units)) {
     const before = t.slice(0, match.index)
     const after = t.slice(match.index + match[0].length)
     const role = after.match(SUFFIX)?.[1] || before.match(PREFIX)?.[1]
     const part = !role ? 'unmarked' : IS_PICKUP.test(role) ? 'pickup' : IS_TOTAL.test(role) ? 'total' : 'trip'
-    const unitScale = /^h/.test(match[2]) ? 60 : units === DISTANCE && /^m/.test(match[2]) ? 0.001 : 1
-    const value = parseMoney(match[1]) * unitScale
+    const value = readValue(match)
     if (!Number.isFinite(value) || value < 0 || result[part] !== undefined) return undefined
     result[part] = value
   }
@@ -62,14 +62,16 @@ function amountForOffer(text: string, elliptical = false): number | undefined {
 }
 
 function offerDistance(text: string) {
-  const parts = measured(text, DISTANCE)
+  const parts = measured(text, DISTANCE, m => parseMoney(m[1]) * (m[2].startsWith('m') ? 0.001 : 1))
   const km = parts && routeTotal(parts)
   const complete = !!parts && (parts.total !== undefined || (parts.pickup !== undefined && parts.trip !== undefined))
   return { parts, km, complete }
 }
 
 function offerMinutes(text: string): number | undefined {
-  const times = measured(text, TIME)
+  const times = measured(text, TIME, m => m[2]
+    ? parseMoney(m[1]) * (m[2].startsWith('h') ? 60 : 1)
+    : elapsedMinutes(m[0]))
   return times && routeTotal(times)
 }
 

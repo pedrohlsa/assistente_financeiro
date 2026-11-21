@@ -6975,6 +6975,12 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         ['RP-tempos-separados', 'corrida de 17 reais, 2 km pra buscar, 7 km de trajeto, 3 min até o passageiro e 15 min de viagem, compensa?', 9, 1.89, 12.5, 41.67],
         ['RP-oferta-por-extenso', 'tocou uma corrida de vinte reais, seis km no total e vinte minutos. pego?', 6, 3.33, 17, 51],
         ['RP-metros', 'corrida de 17 reais, 500 metros até o passageiro e 8,5 km de viagem, pego?', 9, 1.89, 12.5, undefined],
+        ['RP-uma-hora-e-meia', 'corrida de 30 por 10 km no total em uma hora e meia, compensa?', 10, 3, 25, 16.67],
+        ['RP-horas-e-minutos-juntos', 'corrida de 30 por 10 km no total em 1h30, compensa?', 10, 3, 25, 16.67],
+        ['RP-meia-hora', 'corrida de 30 por 10 km no total em meia hora, compensa?', 10, 3, 25, 50],
+        ['RP-minutos-e-hora-e-meia', 'corrida de 30 em 4 km até o passageiro e 6 km até o destino, 5 min de aproximação e uma hora e meia de viagem, compensa?', 10, 3, 25, 15.79],
+        ['RP-zero-no-embarque', 'corrida de 30 por 10 km no total, 0 min pra buscar e uma hora e meia de viagem, compensa?', 10, 3, 25, 16.67],
+        ['RP-minuto-invalido', 'corrida de 30 por 10 km no total em 1h99, compensa?', 10, 3, 25, undefined],
       ] as const) {
         const r = await turnoHoje(oferta, frase)
         const texto = limpa(r.reply)
@@ -6998,6 +7004,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && !/lucro estimado|classificação|pode aceitar/i.test(semCusto.reply) && !semCusto.actions.length))
       for (const [id, frase, lead, numbers] of [
         ['RP-comparar-separando-dois-precos', 'compare corrida de 30 em 10 km ou 50 em 20 km, qual pego?', /^A primeira paga mais por km/, [3, 2.5, 25, 40]],
+        ['RP-comparar-horas-e-minutos', 'compara corrida de 30 por 10 km no total, 1h30 ao todo ou 50 por 20 km no total, 2h no total, qual paga mais por hora?', /^A segunda tem maior lucro por hora/, [16.67, 20]],
         ['RP-comparar-por-hora-com-tempos-totais', 'qual corrida compensa: 30 por 10 km no total e 20 min no total ou 50 por 20 km no total e 40 min no total?', /^A primeira tem maior lucro por hora/, [75, 60]],
         ['RP-comparar-lucro-total-pedido', 'compara corrida por 30 reais, são 2 km pra buscar e 8 km de viagem, contra a de 50 reais, 10 km pra buscar e 10 km de viagem. qual dá mais lucro total?', /^A segunda tem maior lucro estimado/, [25, 40]],
         ['RP-comparar-empate-por-km', 'qual dessas corridas vale a pena: 30 por 10 km ou 60 por 20 km?', /^As duas têm o mesmo valor por km/, [3]],

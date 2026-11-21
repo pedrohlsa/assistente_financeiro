@@ -6828,3 +6828,11 @@ até auditoria independente.
 - “Fiz uma corrida de 30 por 10 km e outra de 50 por 20 km compensa?”
   mantém os R$ 30 e a viagem concluída e analisa apenas os 20 km da outra.
   Suíte com 1.280/1.280 regressões.
+
+## 21/11/2026 — Durações faladas nas ofertas
+
+- “1h30”, “uma hora e meia” e “meia hora” entram no cálculo por hora.
+  Com 5 min até o passageiro e 1h30 de viagem, a base é de 95 min.
+- “1h99” não produz taxa por hora. A comparação de 1h30 e 2h calcula
+  R$ 16,67/h e R$ 20/h com o custo por km cadastrado. Suíte com
+  1.287/1.287 regressões.
