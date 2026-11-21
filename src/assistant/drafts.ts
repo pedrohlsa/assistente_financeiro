@@ -17,6 +17,7 @@ import { findDate } from './dates'
 import { guessCategory } from '../data/categories'
 import { sentenceCase, normalizeName } from '../utils/text'
 import { maintenanceWithoutCost } from '../services/nlp'
+import { MENTIONS_99 } from '../services/profile'
 
 export type DraftStatus = 'collecting' | 'ready' | 'confirmed' | 'cancelled'
 
@@ -72,7 +73,9 @@ const SEM_VALOR = /^\s*(?:eu\s+)?(?:j[áa]\s+)?(ganhei|recebi|faturei|lucrei|gas
 function semValorDraft(text: string, t: string, caps: AssistantCapabilities): IncompleteIntent | null {
   const m = text.match(SEM_VALOR)
   if (!m) return null
-  if (/r\$\s*\d|\b\d{2,}\b|\b\d+[.,]\d/i.test(t)) return null
+  // "Paguei a taxa DA 99": o 99 é a plataforma, não o valor.
+  const semPlataforma = t.replace(MENTIONS_99, ' ')
+  if (/r\$\s*\d|\b\d{2,}\b|\b\d+[.,]\d/i.test(semPlataforma)) return null
   if (/\?|\b(?:quanto|quantos|quantas|qual|quais|quando|como|onde|quem)\b/i.test(t)) return null
   if (/\bn[ãa]o\b/i.test(t)) return null
 

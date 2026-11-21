@@ -73,7 +73,7 @@ const CONNECTOR = String.raw`(?:e\s+)?(?:logo\s+)?(?:depois|em\s+seguida|mais\s+
 /** Palavras funcionais que nunca são o objeto real da despesa (item 27). */
 const DESC_STOPWORDS = new Set([
   'colocando', 'comprando', 'pagando', 'gastando', 'depois', 'pois', 'logo', 'entao', 'então',
-  'tambem', 'também', 'ainda', 'mais', 'de', 'do', 'da', 'no', 'na', 'em', 'com', 'para', 'pra',
+  'tambem', 'também', 'ainda', 'mais', 'de', 'do', 'da', 'no', 'na', 'em', 'com', 'para', 'pra', 'pro', 'pros', 'pras',
   'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas',
   // Gíria de dinheiro é a UNIDADE do valor, nunca o objeto do gasto.
   'reais', 'real', 'conto', 'contos', 'pila', 'pilas', 'mango', 'mangos', 'pau', 'paus', 'prata',
@@ -94,13 +94,18 @@ const DESC_STOPWORDS = new Set([
  */
 const VERBO_NO_INICIO = new Set(['gasto', 'gastos', 'pago', 'compro'])
 
+// Palavra que só sobra no FIM de uma descrição cortada no meio da frase:
+// "12 de iof SEM eu saber" gravava "Iof sem". No início ela pode ser nome
+// ("Sem Parar"), por isso a lista é só do fim.
+const FIM_SOLTO = new Set(['sem', 'que', 'porque', 'mas', 'quando', 'se', 'por', 'ai', 'aí', 'la', 'lá', 'hoje', 'ontem', 'agora', 'tipo', 'ne', 'né'])
+
 export function cleanDescription(raw?: string): string | undefined {
   if (!raw) return undefined
   const words = raw.toLowerCase().replace(/[.,;!?]+$/g, '').split(/\s+/).filter(Boolean)
   // O verbo no presente só sai do INÍCIO: "gasto 50 de luz" gravava "Gasto de
   // luz", mas no fim o "pago" é nome ("Mercado Pago").
   while (words.length && (DESC_STOPWORDS.has(words[0]) || VERBO_NO_INICIO.has(words[0]))) words.shift()
-  while (words.length && DESC_STOPWORDS.has(words[words.length - 1])) words.pop()
+  while (words.length && (DESC_STOPWORDS.has(words[words.length - 1]) || FIM_SOLTO.has(words[words.length - 1]))) words.pop()
   const out = words.join(' ').trim()
   // Um número sozinho nunca descreve um gasto: "gastei 20 e 30" deixava a
   // descrição "30" no primeiro lançamento, escondendo ali o segundo valor.
@@ -211,7 +216,34 @@ function splitClauses(input: string): string[] {
 
 const VERBO_DE_GASTO_LISTA = /\b(?:gastei|gasto|paguei|comprei|torrei|abasteci|coloquei|botei|saiu|saiu|foi\s+(?:de|com)|dei)\b/gi
 
+/**
+ * "O banco ME COBROU 45 de tarifa", "me cobraram 30 de taxa": o dinheiro saiu.
+ * Lido como "paguei", com quem cobrou virando o lugar quando a frase não diz
+ * outro ("o mecânico me cobrou 500" → "paguei 500 no mecânico"). Sem isso o
+ * leitor sem verbo usava a frase inteira como descrição.
+ */
+function cobrancaRecebida(input: string): string {
+  const m = input.match(/^\s*(?:(o|a|os|as)\s+)?((?:[\p{L}]+)(?:\s+[\p{L}]+)?)?\s*\bme\s+cobr(?:ou|aram)\s+(.+)$/iu)
+  if (!m || (m[2] && /^(?:eu|ele|ela|eles|elas|voc[eê]|que|quem|quanto)$/i.test(m[2].trim()))) return input
+  const resto = m[3]
+  const soValor = /^(?:r\$\s*)?\d[\d.,]*\s*(?:reais|real|conto|contos)?\s*$/i.test(resto)
+  const lugar = soValor && m[2] ? ` ${m[1] && /^a/i.test(m[1]) ? 'na' : 'no'} ${m[2].trim()}` : ''
+  return `paguei ${resto}${lugar}`
+}
+
+/**
+ * "DEI 20 pro flanelinha", "COMI um pastel de 12", "TOMEI um café de 8": o
+ * dinheiro saiu, só que o verbo não é de pagar. Lidos como "paguei" — antes
+ * caíam na ajuda genérica ou gravavam "Tomei um café" como descrição.
+ */
+function verboDeConsumo(input: string): string {
+  return input
+    .replace(/^((?:\s*(?:eu|hoje|hj|ontem|anteontem)\b)*\s*)dei\s+(?=(?:r\$\s*)?\d)/i, '$1paguei ')
+    .replace(/^((?:\s*(?:eu|hoje|hj|ontem|anteontem)\b)*\s*)(?:comi|tomei|bebi)\s+(?=(?:um|uma|uns|umas)\s+[\p{L}])/iu, '$1paguei ')
+}
+
 export function parseNatural(input: string): ParsedAction[] {
+  input = verboDeConsumo(cobrancaRecebida(input))
   // Operações de cartão são analisadas na frase INTEIRA antes de qualquer
   // quebra: "passei 2000 em 5 vezes E RECEBI 1850" tem um verbo de comando no
   // meio, e cortar ali transformava uma entrada financiada numa receita de
@@ -322,7 +354,7 @@ export function isAmbiguousGas(text: string): boolean {
 // junto de "hoje" não tem leitura padrão nenhuma, e chutar seria invenção.
 
 /** Verbo de gasto explícito. Onde ele aparece, a leitura é gasto e ponto. */
-const STRONG_EXPENSE_VERB = /\b(?:gastei|paguei|comprei|torrei|coloquei|botei|abasteci|enchi|parcelei|passei|guardei|separei)\b/i
+const STRONG_EXPENSE_VERB = /\b(?:gastei|paguei|comprei|torrei|coloquei|botei|abasteci|enchi|parcelei|passei|guardei|separei|dei|comi|tomei|bebi)\b/i
 const DAY_WORD = /\b(?:hoje|hj|ontem|anteontem|o\s+dia|no\s+dia|dia|na\s+rua|de\s+rua|no\s+corre|na\s+ativa|na\s+labuta|no\s+trampo|rodando)\b/i
 const DAY_RESULT_VERB = /\b(?:deu|deram|fez|fiz|foi|fechei|fechou|tirei|tirou|rendeu|rendi|saiu|bati|consegui|entrou)\b/i
 const DAY_QUALIFIER = /\b(?:fraco|fraca|fraquinho|bom|boa|[óo]tim[oa]|ruim|puxad[oa]|parad[oa]|movimentad[oa]|tranquil[oa]|l[íi]quido|limpo|s[óo]|apenas|somente)\b/i
@@ -522,13 +554,16 @@ export function parseNaturalFull(
 
     // "Fiz 12 corridas E (deu) 260": o valor depois das corridas é o que elas
     // renderam. Só as viagens entravam, e o dinheiro virava uma pergunta.
-    if (!actions.some(a => a.kind === 'income') && actions.some(a => a.kind === 'work' && a.trips)) {
+    if (!actions.some(a => a.kind === 'income') && actions.some(a => a.kind === 'work' && (a.trips || a.km || a.hours))) {
       // O separador é opcional quando há verbo de resultado ("12 corridas DEU
       // 310"), e o valor não precisa fechar a frase: "…deu 310 e rodei 180 km"
       // perdia a receita inteira.
       const verboResultado = 'deu|deram|rendeu|renderam|fiz|faturei|ganhei|foi|foram|tirei|bateu'
       const rendeu = input.match(new RegExp(String.raw`\b(?:corridas|viagens)\b(?:\s+(?:hoje|ontem))?\s*(?:(?:,|\be\b)\s*(?:${verboResultado})?|(?:${verboResultado}))\s*(?:r\$)?\s*${NUM}\s*${MOEDA}?(?=\s*$|\s*[,;.]|\s+e\b)`, 'i'))
-      const valor = rendeu ? parseNum(rendeu[1]) : NaN
+      // A jornada pode vir no meio: "fiz 10 corridas E RODEI 120 KM, deu 300".
+      const colado = rendeu ? null : input.match(new RegExp(String.raw`\b(?:corridas|viagens)\s+(?:r\$\s*)?${NUM}(?![\d.,])\s*(?:reais|real|contos?|pilas?)\b`, 'i'))
+      const depoisDaJornada = rendeu || colado ? null : input.match(new RegExp(String.raw`(?:^|[,;]\s*|\s)(?:deu|deram|rendeu|renderam|faturei|tirei|bateu)\s+(?:r\$)?\s*${NUM}(?![\d.,])\s*${MOEDA}?(?!\s*(?:km|h\b|hrs?|horas?|litros?|l\b|corridas|viagens|%))`, 'i'))
+      const valor = rendeu ? parseNum(rendeu[1]) : colado ? parseNum(colado[1]) : depoisDaJornada ? parseNum(depoisDaJornada[1]) : NaN
       if (valor > 0) actions.push({ kind: 'income', amount: valor, category: 'corridas' })
     }
 
@@ -953,7 +988,11 @@ function parseClause(input: string): ParsedAction[] {
   const fuelRe3 = /(?:gastei|paguei|comprei|coloquei|botei|abasteci|torrei)/.test(text)
     ? null
     : new RegExp(String.raw`(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:de|em)\s+${COMBUSTIVEL}`, 'i')
+  // "Botei 30 no tanque", "enchi o tanque com 250": o tanque é o combustível.
+  const fuelRe4 = new RegExp(String.raw`(?:coloquei|botei|enchi|completei)\s+(?:o\s+tanque\s+(?:com\s+|por\s+|de\s+)?${APROX}(?:r\$)?\s*${NUM}|${APROX}(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:no|de)\s+tanque)`, 'i')
+  const tanque = text.match(fuelRe4)
   const f = text.match(fuelRe) || text.match(fuelRe2) || (fuelRe3 && text.match(fuelRe3))
+    || (tanque ? Object.assign([tanque[0], tanque[1] ?? tanque[2]], { index: tanque.index }) as unknown as RegExpMatchArray : null)
   const litersM = text.match(new RegExp(String.raw`${NUM}\s*litros?`, 'i'))
   if (f || (litersM && /(coloquei|botei|abasteci|posto)/.test(text))) {
     // "Abasteci 24 litros POR 180": com os litros ditos, o preço vinha depois e
@@ -1177,6 +1216,11 @@ function parseClause(input: string): ParsedAction[] {
     for (const ride of text.matchAll(rideIncomeRe)) {
       const amount = parseNum(ride[2])
       if (actions.some(a => a.kind === 'income' && a.amount === amount && a.category === 'corridas')) continue
+      // "PAGUEI a corrida de 30" é a corrida que ele pegou como passageiro: o
+      // sinal do dinheiro nunca se inverte (regra 34). Só o ÚLTIMO verbo antes
+      // da corrida decide — "paguei 20 de lanche e fiz uma corrida de 30" ganha.
+      const verbos = [...text.slice(0, ride.index || 0).matchAll(/\b(paguei|gastei|torrei|fiz|ganhei|recebi|faturei|peguei|tive|rodei)\b/gi)]
+      if (verbos.length && /^(?:paguei|gastei|torrei)$/i.test(verbos[verbos.length - 1][1])) continue
       // A plataforma pode vir antes OU depois do valor: "corrida na 99 de 37" e
       // "corrida de 37 na 99" são a mesma coisa.
       const after = text.slice((ride.index || 0) + ride[0].length)
@@ -1261,7 +1305,11 @@ function parseClause(input: string): ParsedAction[] {
   // ----- despesa na ordem inversa: "comprei cimento por 190", "paguei a internet a 120"
   if (!e && !m && !abasteceu) {
     const invRe = new RegExp(String.raw`(?:gastei|paguei|comprei|torrei)\s+${APROX}(?:um|uma|o|a|uns|umas)?\s*([a-zà-úçãõ][\wçãõáéíóúâê]*(?:\s+[\wçãõáéíóúâê]+){0,2}?)\s+(?:por|a|custou|saiu por)\s*(?:r\$)?\s*${NUM}`, 'i')
-    const inv = text.match(invRe)
+    // "paguei o boleto de 300", "comprei uma camisa de 60": o "de" depois do
+    // item também liga o valor. O número não pode ser seguido de unidade —
+    // "a parcela de 3 meses", "o pacote de 2 kg" não dizem quanto custou.
+    const deRe = new RegExp(String.raw`(?:gastei|paguei|comprei|torrei)\s+${APROX}(?:um|uma|o|a|uns|umas)\s+([a-zà-úçãõ][\wçãõáéíóúâê]*(?:\s+[\wçãõáéíóúâê]+){0,3}?)\s+de\s+(?:r\$)?\s*${NUM}\s*${MOEDA}?(?!\s*(?:x\b|vezes|parcelas?|meses|m[eê]s|dias?|anos?|semanas?|horas?|h\b|min|minutos?|km|quil[oô]metros?|litros?|l\b|kg|quilos?|gramas?|g\b|gb|%|por\s*cento|metros?|m\b|unidades?|pe[cç]as?))\s*$`, 'i')
+    const inv = text.match(invRe) || text.match(deRe)
     if (inv) {
       const desc = cleanDescription(inv[1])
       actions.push({ kind: 'expense', amount: parseNum(inv[2]), category: guessCategory(inv[1] || text, 'expense'), description: desc })
@@ -1272,7 +1320,8 @@ function parseClause(input: string): ParsedAction[] {
       // Dois itens com "e" ("comprei pão e leite 18") são um gasto só: sem o
       // "e" a frase caía na ajuda genérica.
       const nuRe = new RegExp(String.raw`(?:gastei|paguei|comprei|torrei)\s+(?:mais\s+)?(?:o|a|os|as|um|uma|meu|minha)?\s*([a-zà-úçãõ][\wçãõáéíóúâê]*(?:\s+(?:e\s+)?[a-zà-úçãõ][\wçãõáéíóúâê]*)?)\s+(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*$`, 'i')
-      const nu = text.match(nuRe)
+      // "Paguei a taxa DA 99": o número é a plataforma, não o valor.
+      const nu = /\b(?:d[ao]|n[ao]|pel[ao]|via)\s+99\s*$/i.test(text) ? null : text.match(nuRe)
       const cat = nu ? guessCategory(nu[1], 'expense') : undefined
       if (nu && cat) {
         actions.push({ kind: 'expense', amount: parseNum(nu[2]), category: cat, description: cleanDescription(nu[1]) })
@@ -1377,6 +1426,9 @@ function parseClause(input: string): ParsedAction[] {
   const hoursM = text.match(new RegExp(String.raw`\b(?:trabalhei|fiquei|rodei(?:\s+por)?)\s*${NUM}\s*(?:horas?|hrs?|h)\b`, 'i'))
     // "Rodei 150 km E 8 HORAS", "fiz 5 corridas E 3 HORAS": a jornada depois.
     || (/\b(?:rodei|trabalhei)\b|\b\d+\s+(?:corridas|viagens)\b/i.test(text) ? text.match(new RegExp(String.raw`\be\s+${NUM}\s*(?:horas?|hrs?|h)\b`, 'i')) : null)
+    // Ditado telegráfico com a quantidade de corridas: "fiz 18 corridas 420
+    // reais 9 horas". Sem conector nenhum, as horas se perdiam.
+    || (/\b\d+\s+(?:corridas|viagens)\b/i.test(text) ? text.match(new RegExp(String.raw`(?<![\d.,])${NUM}\s*(?:horas|hrs?)\b`, 'i')) : null)
     || text.match(new RegExp(String.raw`${NUM}\s*horas?\s*(?:online|trabalhad)`, 'i'))
     // Jornada como o motorista fala: "8 horas na rua", "10 horas rodando".
     || text.match(new RegExp(String.raw`${NUM}\s*(?:horas?|hrs?)\s+(?:na\s+rua|de\s+rua|rodando|na\s+ativa|no\s+corre|na\s+labuta|no\s+trampo|trabalhando|de\s+trabalho)`, 'i'))
@@ -1451,13 +1503,20 @@ function parseSemVerbo(text: string): ParsedAction[] {
   // infinitivo, então nenhuma das listas de comando o barrava.
   if (PERGUNTA_EM_QUALQUER_LUGAR.test(text)
     || /^\s*(?:como|posso|poderia|devo|preciso|vale|d[áa]\s+pra|d[áa]\s+para|ser[áa]|tem\s+como)\b/i.test(text)) return []
+  // Orçamento, cotação e preço no PRESENTE não são dinheiro que saiu: "o
+  // mecânico me deu um orçamento de 500", "o pneu tá 400 na loja", "cobra 500
+  // pra trocar". Sem verbo de pagar, nada disso é lançamento.
+  if (/or[çc]amento|cota[çc][ãa]o|\bpre[çc]os?\b/i.test(text)
+    || /(?<![\wÀ-ÿ])(?:t[áa]|est[áa]|custa|custam|cobra|cobram|fica|ficaria|sairia|custaria|cobraria|vale)(?![\wÀ-ÿ])/i.test(text)) return []
 
   const out: ParsedAction[] = []
   // `,(?!\d)` preserva a vírgula decimal: "1.234,56" é um valor, não dois itens.
   for (const trecho of text.split(/\s+e\s+|,(?!\d)|;/)) {
     const t = trecho.trim()
     if (!t) continue
-    const vm = t.match(new RegExp(String.raw`(?:r\$)?\s*${NUM}\s*${MOEDA}?`, 'i'))
+    // "Taxa DA 99 1 real": o 99 depois de preposição é a plataforma.
+    const vm = [...t.matchAll(new RegExp(String.raw`(?:r\$)?\s*${NUM}\s*${MOEDA}?`, 'gi'))]
+      .find(m => !(m[1] === '99' && /(?:\b(?:d[ao]|n[ao]|pel[ao]|via|app|aplicativo|plataforma)\s*)$/i.test(t.slice(0, m.index || 0))))
     if (!vm) continue
     const amount = parseNum(vm[1])
     if (!(amount > 0)) continue

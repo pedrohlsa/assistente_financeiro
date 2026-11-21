@@ -187,7 +187,10 @@ const REFUND_DENIED = new RegExp(String.raw`(?<![\p{L}\p{M}])(?:n[ãa]o|nem|[nñ
 const PIX_REQUEST = /\b(?:pediu|pediram|solicitou|solicitaram)\b[^.;!?]*\bpix\b|\bpix\b[^.;!?]*\b(?:pediu|pediram|solicitou|solicitaram)\b/i
 const PIX_SENDING = 'mandei|enviei|transferi'
 const PIX_INCOMING = 'mandaram|enviaram|transferiram|mandou|enviou|transferiu'
-const RECIPIENT_OF_PAYMENT = new RegExp(String.raw`\b(?:me|nos)\s+(?:pagou|pagaram|${PIX_INCOMING})\b`, 'i')
+// "Minha mãe me DEU 50", "o patrão me PASSOU 200": dinheiro que chega de
+// alguém. Caíam na ajuda genérica — só "pagou" e os verbos de Pix eram lidos.
+const GAVE_TO_ME = 'deu|deram|passou|passaram'
+const RECIPIENT_OF_PAYMENT = new RegExp(String.raw`\b(?:me|nos)\s+(?:pagou|pagaram|${PIX_INCOMING}|${GAVE_TO_ME})\b`, 'i')
 const PAYMENT_NOT_RECEIVED = /^(?:(?:o\s+)?(?:pix|dinheiro|pagamento)\s+)?(?:ainda\s+)?(?:n[ãa]o|nem|[nñ])\s+(?:caiu|entrou|foi\s+creditado)\b/i
 const NAMED_PAYMENT_PENDING = /\b(?:pix|dinheiro|pagamento)\s+(?:ainda\s+)?n[ãa]o\s+(?:caiu|entrou|foi\s+creditado)\b/i
 const PAYMENT_DENIED = /(?<![\p{L}\p{M}])(?:n[ãa]o|nem|[nñ])\s+(?:me|nos)\s+(?:pagou|pagaram)\b/iu
@@ -613,6 +616,9 @@ export function segment(text: string, today = todayISO()): { text: string; start
     // é objeto da preposição, e a frase é UMA pergunta. Cortada, "quanto?"
     // sozinho era respondido com o resumo dos cartões.
     if (/(?<![\wÀ-ÿ])(?:em|de|do|da|por|pra|pro|para|com|at[ée]|no|na|a)\s*$/i.test(prior)) continue
+    // "E ontem, como foi?": o dia sozinho é o assunto da pergunta. Cortado, o
+    // "como foi?" ficava sem dia e respondia sobre HOJE.
+    if (/^\s*(?:e\s+)?(?:(?:no|na)\s+)?(?:hoje|hj|ontem|anteontem|domingo|segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado)(?:[-\s]feira)?\s*[,;]?\s*$/i.test(prior)) continue
     const dates = /\bou\b/i.test(prior) ? alternativeDates(prior, datesMentioned(prior, today)) : undefined
     if (dates && /^\s*(?:(?:no|na|em)\s*)?[,; ]*$/i.test(prior.slice(0, dates.start) + prior.slice(dates.end))) continue
     push((m.index || 0) + m[0].length)
@@ -805,15 +811,15 @@ const PIX_INFLOW_HEAD = String.raw`(?:(?:eu|j[áa])\s+){0,2}(?:recebi|(?:me|nos)
 const PIX_AMOUNT_BOUND = String.raw`(?:(quase|mais\s+de|menos\s+de|pelo\s+menos|no\s+m[áa]ximo)\s+)?(${CASH_PAIR_VALUE})(?!\d|[.,]\d)`
 const RECEIVED_BY_PIX = [
   new RegExp(String.raw`^${PIX_INFLOW_HEAD}\s+(?:(?:um|o)\s+)?pix\s+(?:(?:de|no\s+valor\s+de)\s+)?${PIX_AMOUNT_BOUND}`, 'i'),
-  new RegExp(String.raw`^${PIX_INFLOW_HEAD}\s+${PIX_AMOUNT_BOUND}\s+(?:via|por|no|pelo)\s+pix\b`, 'i'),
+  new RegExp(String.raw`^${PIX_INFLOW_HEAD}\s+${PIX_AMOUNT_BOUND}\s+(?:reais\s+)?(?:via|por|no|pelo|de|em)\s+pix\b`, 'i'),
 ]
-const PAID_TO_ME = new RegExp(String.raw`^(?:me|nos)\s+(?:pagou|pagaram)\s+${PIX_AMOUNT_BOUND}`, 'i')
+const PAID_TO_ME = new RegExp(String.raw`^(?:me|nos)\s+(?:pagou|pagaram|${PIX_INCOMING}|${GAVE_TO_ME})\s+${PIX_AMOUNT_BOUND}`, 'i')
 
 function actualPayer(text: string): { body: string; origin?: string } {
   const verb = text.match(RECIPIENT_OF_PAYMENT)
   if (!verb?.index) return { body: text }
   const subject = text.slice(0, verb.index).trim().replace(/^(?:o|a|meu|minha|nosso|nossa)\s+/i, '')
-  const generic = subject.match(/^(cliente|patr[ãa]o|empresa|inquilin[oa]|m[ãa]e|pai|irm[ãa]o|irm[ãa])(?:\s+([\p{Lu}\d][\p{L}\p{M}\d-]*(?:\s+[\p{Lu}][\p{L}\p{M}]+)*))?$/u)
+  const generic = subject.match(/^(cliente|patr[ãa]o|empresa|inquilin[oa]|m[ãa]e|pai|irm[ãa]o|irm[ãa]|sogr[ao]|ti[ao]|av[óô]|v[óô]|filh[ao]|espos[ao]|marido|namorad[ao]|amig[ao]|vizinh[ao]|chefe)(?:\s+([\p{Lu}\d][\p{L}\p{M}\d-]*(?:\s+[\p{Lu}][\p{L}\p{M}]+)*))?$/u)
   if (generic) return { body: text.slice(verb.index), origin: generic[2] ? `${cleanDescription(generic[1])} ${generic[2]}` : undefined }
   if (/^[\p{Lu}][\p{L}\p{M}]+(?:\s+[\p{Lu}][\p{L}\p{M}]+){0,3}$/u.test(subject)) {
     return { body: text.slice(verb.index), origin: subject }
@@ -836,7 +842,10 @@ function readReceivedPayment(text: string): { action: IncomeAction; uncertain: b
   const isRefund = /\breembolso\b/i.test(detail)
   return {
     action: { kind: 'income', amount, category: isRefund ? 'outros-in' : incomeType || 'outros-in',
-      description: isRefund ? 'Reembolso' : viaPix ? 'Pix recebido' : 'Pagamento recebido', ...(source ? { origin: source } : {}) },
+      description: isRefund ? 'Reembolso' : viaPix ? 'Pix recebido'
+        : new RegExp(String.raw`^(?:me|nos)\s+(?:${GAVE_TO_ME})\b`, 'i').test(payer.body) ? 'Dinheiro recebido'
+          : new RegExp(String.raw`^(?:me|nos)\s+(?:${PIX_INCOMING})\b`, 'i').test(payer.body) ? 'Transferência recebida'
+            : 'Pagamento recebido', ...(source ? { origin: source } : {}) },
     uncertain: !!received[1] || uncertainty,
     creditSource: /\b(?:do\s+cart[ãa]o|limite\s+do\s+cart[ãa]o|no\s+cr[ée]dito|empr[ée]stimo)\b/i.test(detail),
     pix: !!viaPix,
@@ -1056,7 +1065,8 @@ const RECEBI_REEMBOLSO = [
   new RegExp(String.raw`^(?:o\s+)?reembolso\s+de\s+${VALOR_REEMBOLSO}(?:\s+(?<referencia>d[aeo]s?\s+[^\d?!;,.]+?))?\s+(?:caiu|entrou)(?:\s+na\s+conta)?[.!]*$`, 'i'),
 ]
 const ME_DEVOLVERAM = [
-  new RegExp(String.raw`\b(?:me|nos)\s+(?:${REFUND_THIRD})\s+${VALOR_REEMBOLSO}\b`, 'i'),
+  // "Me devolveu OS 100": o artigo retoma um valor já conhecido.
+  new RegExp(String.raw`\b(?:me|nos)\s+(?:${REFUND_THIRD})\s+(?:(?:os|as|o|a)\s+)?${VALOR_REEMBOLSO}\b`, 'i'),
   new RegExp(String.raw`\b(?:${REFUND_THIRD})\s+${VALOR_REEMBOLSO}\s+(?:pra|para)\s+mim\b`, 'i'),
   new RegExp(String.raw`\b(?:${REFUND_THIRD})\s+${VALOR_REEMBOLSO}\s+na\s+(?:minha|nossa)\s+conta\b`, 'i'),
   new RegExp(String.raw`^(?:eu\s+)?recebi\s+(?:o\s+)?estorno\s+(?:de\s+)?${VALOR_REEMBOLSO}\b`, 'i'),
