@@ -6763,3 +6763,15 @@ até auditoria independente.
   “15” é a data quando o rascunho pergunta o dia do mês passado.
 - Chrome confirmou primeiro o ônibus de R$ 20, clicou “anteontem” e
   confirmou só uma compra de R$ 250 em 2x. Suíte com 1.233 regressões.
+
+## 21/11/2026 — Chamada, corrida concluída e corrida paga como passageiro
+
+- “Me ofereceram corrida de 37” e “recebi uma chamada de 27 na Uber”
+  aguardam confirmação de que houve pagamento. Recusar a corrida ou
+  dizer que ainda não aceitou deixa a oferta fora do caixa.
+- “Entrei 25 de uma corrida e tocou outra de 17” preserva a primeira
+  entrada e pergunta pela segunda. Uma pergunta de análise sobre a oferta
+  usa o valor e a distância sem registrar receita.
+- Pagar uma corrida de 8 km por R$ 29 gera uma despesa de R$ 29. O leitor
+  de itens protege unidades de medida antes de buscar valores enumerados.
+  Suíte com 1.241/1.241 regressões.

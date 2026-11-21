@@ -538,6 +538,16 @@ function driverDayResult(input: string, actions: ParsedAction[], dayHint?: boole
  */
 export const CORRIDA_CANCELADA = /(?<![\wÀ-ÿ])(?:cancel(?:aram|ou|ei|amos)\b[^.;!?]*\bcorridas?\b|corridas?\b[^.;!?]*\bcancelad[ao]s?\b)/i
 
+const APP_DE_CORRIDA = String.raw`(?:uber|99|in\s*drive[r]?)`
+const AVISO_DE_CORRIDA = String.raw`(?:oferta|chamada|proposta|solicita[çc][ãa]o)`
+const UMA_OFERTA = String.raw`(?:(?:uma|a|outra|nova|essa|esta)\s+)?`
+export const RIDE_OFFER_NOTICE = new RegExp(
+  String.raw`(?<![\p{L}\p{M}])(?:(?:tocou|chamou|apareceu|caiu|(?:me\s+)?oferece(?:u|ram))\s+${UMA_OFERTA}corrida|`
+  + String.raw`(?:recebi|me\s+(?:mandou|mandaram|enviou|enviaram|ofereceu|ofereceram))\s+${UMA_OFERTA}${AVISO_DE_CORRIDA}`
+  + String.raw`(?:\s+de\s+corrida|\s+d[ao]\s+${APP_DE_CORRIDA}|(?=[^.;!?\n]*\s+(?:na|no|da|do|pela|pelo)\s+${APP_DE_CORRIDA}\b)))(?![\p{L}\p{M}])`,
+  'iu',
+)
+
 /**
  * Reajuste de valor RECORRENTE ("reajustei o aluguel da casa 1 pra 1900") muda
  * a previsão, não é lançamento. O "1" de "Casa 1" virava uma despesa de R$ 1.
@@ -569,6 +579,9 @@ export function parseNaturalFull(
   // Saque não vira receita (nem o "resultado do dia" do motorista) nem gasto.
   if (SAQUE.test(input) && !/\b(?:paguei|gastei|comprei|recebi|ganhei|faturei)\b/i.test(input)) return { actions: [] }
   if (CORRIDA_CANCELADA.test(input) && !/\btaxa\s+de\s+cancelamento\b/i.test(input)) return { actions: [] }
+  if (RIDE_OFFER_NOTICE.test(input) && !/\b(?:paguei|gastei|recebi|ganhei|faturei|entrou|me\s+pagaram)\b/i.test(input.replace(RIDE_OFFER_NOTICE, ' '))) {
+    return { actions: [] }
+  }
   if (REAJUSTE.test(input) && !/\b(?:paguei|gastei|recebi|ganhei)\b/i.test(input)) return { actions: [] }
   let actions = parseNatural(input)
   let dayAsk: DayResult['ask']
@@ -962,6 +975,7 @@ function matchCardName(text: string, compra = false): string | undefined {
 function parseClause(input: string): ParsedAction[] {
   const text = input.toLowerCase().trim()
   const actions: ParsedAction[] = []
+  if (RIDE_OFFER_NOTICE.test(text) && !/\btaxa\s+de\s+cancelamento\b/i.test(text)) return actions
 
   // Cartões/parcelamentos têm prioridade: "comprei X em 4 vezes" não pode virar
   // uma despesa simples de X à vista.
@@ -1219,7 +1233,7 @@ function parseClause(input: string): ParsedAction[] {
   if (!actions.some(a => a.kind === 'expense' || a.kind === 'fuel')) {
     const lista = text.match(/\b(?:comprei|gastei\s+com|paguei|peguei|levei)\s+(.+)$/i)
     if (lista) {
-      const pares = [...lista[1].matchAll(new RegExp(String.raw`(?:^|,\s*|\s+e\s+|\s+)([a-zà-úçãõ][a-zà-úçãõáéíóúâê]+(?:\s+(?:de\s+)?[a-zà-úçãõ][a-zà-úçãõáéíóúâê]+)?)\s+(?:r\$\s*)?${NUM}(?:\s*(?:reais|real|conto|pila))?(?=\s*$|\s*,|\s+e\b|\s+[a-zà-ú])`, 'gi'))]
+      const pares = [...lista[1].matchAll(new RegExp(String.raw`(?:^|,\s*|\s+e\s+|\s+)([a-zà-úçãõ][a-zà-úçãõáéíóúâê]+(?:\s+(?:de\s+)?[a-zà-úçãõ][a-zà-úçãõáéíóúâê]+)?)\s+(?:r\$\s*)?${NUM}(?!\d|[.,]\d|${UNIT_AFTER}(?![\p{L}\p{M}])|\s*(?:kms?|metros?|m|kg|quilos?|gramas?)\b)(?:\s*(?:reais|real|conto|pila))?(?=\s*$|\s*,|\s+e\b|\s+[a-zà-ú])`, 'giu'))]
       const validos = pares.filter(p => parseNum(p[2]) > 0 && !/^(?:uns|umas|mais|tipo|por|de|no|na|em|reais|e)$/i.test(p[1]))
       if (validos.length >= 2) {
         for (const p of validos) {
@@ -1466,12 +1480,17 @@ function parseClause(input: string): ParsedAction[] {
 
   // ----- despesa na ordem inversa: "comprei cimento por 190", "paguei a internet a 120"
   if (!e && !m && !abasteceu) {
-    const invRe = new RegExp(String.raw`(?:gastei|paguei|comprei|torrei)\s+${APROX}(?:um|uma|o|a|uns|umas)?\s*([a-zà-úçãõ][\wçãõáéíóúâê]*(?:\s+[\wçãõáéíóúâê]+){0,2}?)\s+(?:por|a|custou|saiu por)\s*(?:r\$)?\s*${NUM}`, 'i')
+    const rideFare = text.match(new RegExp(
+      String.raw`\b(?:paguei|gastei)\s+(?:(?:a|uma|minha)\s+)?(corrida(?:\s+(?:d[ao]|n[ao]|via)\s+${APP_DE_CORRIDA})?)`
+      + String.raw`\s+(?:(?:de|com)\s+\d+(?:[.,]\d+)?\s*(?:kms?|quil[oô]metros?|metros?)\s+)?`
+      + String.raw`(?:de|por|no\s+valor\s+de)\s*(?:r\$\s*)?${NUM}(?!\d|[.,]\d|${UNIT_AFTER}(?![\p{L}\p{M}])|\s*(?:kms?|metros?|m)\b)`, 'iu',
+    ))
+    const invRe = new RegExp(String.raw`(?:gastei|paguei|comprei|torrei)\s+${APROX}(?:um|uma|o|a|uns|umas)?\s*([a-zà-úçãõ][\wçãõáéíóúâê]*(?:\s+[\wçãõáéíóúâê]+){0,2}?)\s+(?:por|a|custou|saiu por)\s*(?:r\$)?\s*${NUM}(?!\d|[.,]\d|${UNIT_AFTER}(?![\p{L}\p{M}]))`, 'iu')
     // "paguei o boleto de 300", "comprei uma camisa de 60": o "de" depois do
     // item também liga o valor. O número não pode ser seguido de unidade —
     // "a parcela de 3 meses", "o pacote de 2 kg" não dizem quanto custou.
     const deRe = new RegExp(String.raw`(?:gastei|paguei|comprei|torrei)\s+${APROX}(?:um|uma|o|a|uns|umas)\s+([a-zà-úçãõ][\wçãõáéíóúâê-]*(?:\s+[\wçãõáéíóúâê-]+){0,3}?)\s+de\s+(?:r\$)?\s*${NUM}\s*${MOEDA}?(?!\s*(?:x\b|vezes|parcelas?|meses|m[eê]s|dias?|anos?|semanas?|horas?|h\b|min|minutos?|km|quil[oô]metros?|litros?|l\b|kg|quilos?|gramas?|g\b|gb|%|por\s*cento|metros?|m\b|unidades?|pe[cç]as?))\s*$`, 'i')
-    const inv = text.match(invRe) || text.match(deRe)
+    const inv = rideFare || text.match(invRe) || text.match(deRe)
     if (inv) {
       const desc = cleanDescription(inv[1])
       actions.push({ kind: 'expense', amount: parseNum(inv[2]), category: guessCategory(inv[1] || text, 'expense'), description: desc })

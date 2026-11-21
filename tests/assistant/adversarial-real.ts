@@ -6906,6 +6906,41 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         out.push(result(id, r.actions, 'uma receita de R$ 22 e uma viagem explícita',
           rendas.length === 1 && rendas[0]?.amount === 22 && r.actions.some(a => a.kind === 'work' && a.trips === 1)))
       }
+      for (const [id, message, value] of [
+        ['RP-offer-me-ofereceram', 'me ofereceram corrida de 37 por 9 km', 37],
+        ['RP-offer-chamada-da-uber', 'recebi uma chamada de 27 na Uber', 27],
+      ] as const) {
+        const r = await orchestrate({ state: oferta, message, today: hoje, remoteEnabled: false })
+        const question = r.response.mode === 'clarify' ? r.response.clarification : undefined
+        const yes = question && await orchestrate({ state: oferta, message: 'sim', today: hoje, remoteEnabled: false, pendingClarification: question })
+        const proposals = yes ? yes.response.actions.map(c => c.action) : []
+        out.push(result(id, { first: r.response, proposals }, `aviso sem receita confirmável, depois R$ ${value} ao dizer que foi paga`,
+          question?.financialEvent === 'ride' && !r.response.actions.length && receitas(proposals).length === 1
+          && receitas(proposals)[0]?.amount === value && proposals.some(a => a.kind === 'work' && a.trips === 1)))
+      }
+      for (const [id, message] of [
+        ['RP-proposta-recusada', 'recebi uma proposta de corrida de 35 por 10 km e recusei'],
+        ['RP-oferta-nao-aceita', 'caiu uma corrida de 29 reais aqui, ainda nem peguei'],
+      ] as const) {
+        const r = await turnoHoje(oferta, message)
+        out.push(result(id, r.reply, 'reconhece corrida sem movimento', !r.actions.length && /a corrida não aconteceu/i.test(r.reply)))
+      }
+      const receivedQuote = await turnoHoje(oferta, 'recebi uma oferta da Uber de 45 reais, vale rodar 11 km?')
+      out.push(result('RP-oferta-recebida-pode-ser-analisada', receivedQuote.reply, 'oferta de R$ 45 por 11 km',
+        !receivedQuote.actions.length && limpa(receivedQuote.reply).includes(`${brl(4.09)}/km bruto`)))
+      const cameAnother = await turnoHoje(oferta, 'entrou 25 de uma corrida de 8 km e tocou outra de 17 reais')
+      out.push(result('RP-corrida-feita-e-outra-oferecida', { actions: cameAnother.actions, reply: cameAnother.reply }, 'propõe R$ 25 e uma viagem, pergunta da segunda',
+        receitas(cameAnother.actions).length === 1 && receitas(cameAnother.actions)[0].amount === 25
+        && /17,00.*foi concluída e paga/i.test(limpa(cameAnother.reply))))
+      for (const [id, message] of [
+        ['RP-passageiro-preco-antes-do-km', 'fui passageiro, paguei uma corrida de 29 por 8 km'],
+        ['RP-passageiro-km-antes-do-preco', 'paguei a corrida de 8 quilômetros por R$ 29'],
+      ] as const) {
+        const r = await turnoHoje(oferta, message)
+        const [expense] = r.actions
+        out.push(result(id, r.actions, 'uma despesa de R$ 29 com a corrida de passageiro',
+          r.actions.length === 1 && expense.kind === 'expense' && expense.amount === 29))
+      }
       const troco = await turnoHoje(mot, 'quando troco o óleo')
       out.push(result('MN-quando-troco-o-oleo', troco.reply.split('\n')[0], 'próxima troca do óleo', /Óleo: próxima troca/.test(troco.reply)))
       const pneu = await turnoHoje(mot, 'quando troco os pneus?')

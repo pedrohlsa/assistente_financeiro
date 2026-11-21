@@ -1,5 +1,6 @@
 import type { AppState } from '../models/types'
 import { analyzeRide, kmCost } from '../services/calc'
+import { RIDE_OFFER_NOTICE } from '../services/nlp'
 import { isDriver } from '../services/profile'
 import { fmtBRL, fmtNum, parseMoney } from '../utils/format'
 import { normalizeName } from '../utils/text'
@@ -50,9 +51,10 @@ function routeTotal(parts: Partial<Record<Part, number>>): number | undefined {
 const ROTA = 'Diga os km totais ou os km até o passageiro e os km da viagem.'
 
 export function answerRideOffer(state: AppState, input: string, context = input): string | undefined {
-  if (!isDriver(state.settings) || looksPast(input)) return undefined
+  const notice = input.match(RIDE_OFFER_NOTICE)
+  if (!isDriver(state.settings) || looksPast(notice ? input.replace(RIDE_OFFER_NOTICE, ' ') : input)) return undefined
   const t = normalizeNumberWords(normalizeName(input)).text
-  if (!PEDIDO.test(t) || !NOME.test(t)) return undefined
+  if (!PEDIDO.test(t) || (!notice && !NOME.test(t))) return undefined
   if (perceivesDrivingFatigue(context)) return PARE_PARA_DESCANSAR
   if (!/\d/.test(t)) return undefined
   const alternativas = /\d[^?]*\bou\b[^?]*\d/.test(t)

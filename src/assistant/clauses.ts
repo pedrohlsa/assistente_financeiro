@@ -8,7 +8,7 @@
 import type { ParsedAction } from '../models/types'
 import type { AssistantConfidence, AssistantIntent, FinancialEvent } from './contracts'
 import { guessCategory } from '../data/categories'
-import { cleanDescription, DECIMO_TERCEIRO, financedCardMentions, gruposDeCorrida, looksRecurring, parseNaturalFull, UMA_CORRIDA_NOMEADA } from '../services/nlp'
+import { cleanDescription, DECIMO_TERCEIRO, financedCardMentions, gruposDeCorrida, looksRecurring, parseNaturalFull, RIDE_OFFER_NOTICE, UMA_CORRIDA_NOMEADA } from '../services/nlp'
 import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
@@ -428,7 +428,7 @@ export const PEDE_APAGAR = /^\s*(?:por\s+favor\s+)?(?:apaga|apague|apagar|exclui
 // ---------------------------------------------------------------------------
 
 const COMMAND_VERBS =
-  `ganhei|ganhou|recebi|recebeu|faturei|lucrei|entrou|caiu|gastei|gastou|paguei|pagou|comprei|comprou|parcelei|passei|troquei|instalei|abasteci|coloquei|botei|rodei|andei|dirigi|percorri|trabalhei|quero|queria|vou|vamos|vai|pretendo|fiz|guardei|guarda|guardar|separei|separa|separar|depositei|investi|tirei|retirei|sobrou|sobra|vendi|apliquei|${COMPLETED_MONEY}|${RECORD_DIRECTIVE}|(?:${RECORD_VERB})\\s+que\\s+(?:eu\\s+)?(?:${PAST_MONEY_VERBS}|${COMPLETED_MONEY})`
+  `ganhei|ganhou|recebi|recebeu|faturei|lucrei|entrou|caiu|gastei|gastou|paguei|pagou|comprei|comprou|parcelei|passei|troquei|instalei|abasteci|coloquei|botei|rodei|andei|dirigi|percorri|trabalhei|quero|queria|vou|vamos|vai|pretendo|fiz|guardei|guarda|guardar|separei|separa|separar|depositei|investi|tirei|retirei|sobrou|sobra|vendi|apliquei|(?:me\\s+)?oferece(?:u|ram)|${COMPLETED_MONEY}|${RECORD_DIRECTIVE}|(?:${RECORD_VERB})\\s+que\\s+(?:eu\\s+)?(?:${PAST_MONEY_VERBS}|${COMPLETED_MONEY})`
 
 const WISH_ABANDONED = /\b(?:queria\s+comprar|pensei\s+que|achei\s+que)\b/i
 const ABANDONING = /^\s*(?:eu\s+)?(?:desisti|deixei\s+pra\s+l[áa]|mudei\s+de\s+ideia)\b/i
@@ -872,13 +872,13 @@ export function financialEventActions(event: FinancialEvent, amount: number, dri
   return [{ kind: 'expense', amount, category: 'outros-out', description: event === 'pix' ? 'Pix enviado' : 'Devolução' }]
 }
 
-const RIDE_OFFER = /\b(?:tocou|chamou|apareceu)\s+(?:uma?\s+)?corrida\b/i
 const RIDE_REJECTION = String.raw`(?:recusei|dispensei|cancelei|deixei\s+passar|(?:n[ãa]o|nem|[nñ])\s+(?:aceitei|peguei|fiz))\b`
 const DECLINED_RIDE = new RegExp(String.raw`(?<![\p{L}\p{M}])${RIDE_REJECTION}`, 'iu')
-const DECLINED_NEXT = new RegExp(String.raw`^(?:eu\s+)?${RIDE_REJECTION}`, 'i')
+const DECLINED_NEXT = new RegExp(String.raw`^(?:eu\s+)?(?:ainda\s+)?${RIDE_REJECTION}`, 'i')
+const SENT_ANOTHER_RIDE = /^(?:tocou|chamou|apareceu|caiu)\s+outra(?=\s+(?:de|por|no\s+valor\s+de)\b)/i
 
-function offeredRideAmount(text: string): number {
-  const offer = text.match(RIDE_OFFER)
+function offeredRideAmount(text: string, cue: RegExp): number {
+  const offer = text.match(cue)
   if (!offer) return NaN
   const terms = text.slice(offer.index + offer[0].length)
   const numbers = [...terms.matchAll(/(?<![\w.,])(?<currency>r\$\s*)?(?<number>\d+(?:[.,]\d+)*)(?![\d.,]\d)(?<unit>\s*(?:reais?|contos?|km|quil[oô]metros?|min(?:utos?)?|horas?|h|metros?|m|viagens?|corridas?))?\b/gi)]
@@ -1338,8 +1338,9 @@ export function analyzeMessage(
     const requestedPix = PIX_REQUEST.test(part.text)
     const previousClause = clauses[clauses.length - 1]
     const previousPix = previousClause?.ambiguity?.financialEvent === 'pix'
-    const offeredRide = RIDE_OFFER.test(part.text)
-    const declinedRide = offeredRide && (negated || DECLINED_RIDE.test(part.text)
+    const rideCue = RIDE_OFFER_NOTICE.test(part.text) ? RIDE_OFFER_NOTICE
+      : opts?.driver && SENT_ANOTHER_RIDE.test(part.text) && previousClause?.actions.some(a => a.kind === 'income' && a.category === 'corridas') ? SENT_ANOTHER_RIDE : undefined
+    const declinedRide = rideCue && (negated || DECLINED_RIDE.test(part.text)
       || (/\b(?:mas|e|por[ée]m)\s*$/i.test(part.text) && DECLINED_NEXT.test(following)))
     const abandoned = /\b(?:mas|por[ée]m|s[óo]\s+que)\s*$/i.test(part.text) && WISH_ABANDONED.test(part.text)
       && (looksPast(following) || ABANDONING.test(following))
@@ -1353,7 +1354,8 @@ export function analyzeMessage(
     const paymentPending = standalonePending || PAYMENT_DENIED.test(part.text) || (receiptMention && (NAMED_PAYMENT_PENDING.test(part.text)
       || (/\b(?:mas|por[ée]m|s[oó]\s+que)\s*$/i.test(part.text) && PAYMENT_NOT_RECEIVED.test(following))))
     const localExplanation = internalTransfer ? 'O dinheiro passou entre contas próprias. Isso mantém o total em caixa.'
-      : quotedOrExample(part.text) || (paymentPending ? 'O recebimento ainda está pendente. Quando o dinheiro entrar, diga o valor e a data.'
+      : quotedOrExample(part.text) || (declinedRide && !part.text.includes('?') ? 'A corrida não aconteceu. Nenhum lançamento foi preparado.'
+      : paymentPending ? 'O recebimento ainda está pendente. Quando o dinheiro entrar, diga o valor e a data.'
       : thirdPartyReference(part.text) ? 'Esse trecho fala da movimentação de outra pessoa. Se afetou sua conta, diga se o dinheiro entrou ou saiu e qual foi o valor.'
       : undefined)
     const unrealized = !isQuestion && (abandoned || abandonedReply || onlyPlanned || declinedRide || refundDenied || ALMOST_HAPPENED.test(part.text))
@@ -1592,7 +1594,7 @@ export function analyzeMessage(
       date = undefined
       dateAmbiguity = undefined
     }
-    if (canShareContext && date && !requestedPix && !offeredRide) { inheritedDate = date; inheritedLabel = dLabel }
+    if (canShareContext && date && !requestedPix && !rideCue) { inheritedDate = date; inheritedLabel = dLabel }
     else if (canShareContext && !date && inheritedDate && !temporal && !dateAmbiguity) { date = inheritedDate; dLabel = inheritedLabel }
     if (unclearDirection) {
       ambiguity = cashPairDirection(unclearDirection, date, !!temporal || !!dateAmbiguity)
@@ -1748,18 +1750,18 @@ export function analyzeMessage(
       ambiguity = { question: creditoNaFatura
         ? 'O valor voltou como crédito na fatura? Se entrou na sua conta, diga o valor e a data do recebimento.'
         : 'Quem recebeu a devolução? Diga se o dinheiro entrou na sua conta ou se foi devolvido a outra pessoa.', options: [] }
-    } else if (requestedPix || offeredRide || refund) {
+    } else if (requestedPix || rideCue || refund) {
       actions = []
-      const event: FinancialEvent = requestedPix ? 'pix' : offeredRide ? 'ride' : 'refund'
+      const event: FinancialEvent = requestedPix ? 'pix' : rideCue ? 'ride' : 'refund'
       const value = requestedPix
         ? parseFirstAmount(semData.match(/\bpix\s+(?:(?:de|no\s+valor\s+de)\s+)?(?:r\$\s*)?\d+(?:[.,]\d+)*/i)?.[0] || '')
         : refund ? parseMoney(semData.match(VALOR_DEVOLVIDO)?.[1] || '')
-          : offeredRideAmount(semData)
+          : rideCue ? offeredRideAmount(semData, rideCue) : NaN
       const amount = Number.isFinite(value) ? `R$ ${value.toFixed(2).replace('.', ',')}` : ''
       const yesActions = financialEventActions(event, value, !!opts?.driver)
       ambiguity = { field: 'financial-event', financialEvent: event, question: requestedPix
         ? `Você chegou a enviar o Pix${amount ? ` de ${amount}` : ''}? Pedido não é transferência realizada.`
-        : offeredRide ? `Essa corrida${amount ? ` de ${amount}` : ''} foi concluída e paga? Uma chamada não é receita recebida.`
+        : rideCue ? `Essa corrida${amount ? ` de ${amount}` : ''} foi concluída e paga? Uma chamada não é receita recebida.`
           : `Você devolveu${amount ? ` ${amount}` : ''} ao pagador? Posso registrar essa devolução como saída após você confirmar.`,
         options: yesActions.length ? [
           { label: 'Sim', actions: yesActions },
