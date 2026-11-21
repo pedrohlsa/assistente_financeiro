@@ -6594,12 +6594,16 @@ Pergunta respondida pela metade ou pela ajuda genérica:
   "R$ 0,00/hora (dado real)"; "quanto do meu salário vai pro aluguel" é
   proporção (`SL-`). Varredura de regex sem borda no roteador antigo: "METAde"
   puxava a meta diária, "MESmo" virava mês (`BW-`).
+- "Comprei um celular" → "1200" → "em 10x" → "no nubank": o parcelamento
+  dito depois da proposta caía na ajuda e a compra ficava como despesa avulsa
+  (regra 10); o celular comprado ia para Assinaturas. "35 cnto no mcdonalds",
+  "120 d luz", "40 rs no bar" deixavam a abreviação na descrição (`AB-`).
 - "Hoje fiz 18 corridas e tirei 410" perdia os R$ 410 (`SQ-`); "paguei o
   aluguel, 400" perdia a descrição e "paguei o mecânico: 350" não registrava
   nada (`VF-`); "IPTU" e "iFood" com a grafia certa; "recebi o vale" é
   Salário.
 
-Gates (relógio 2026-09-15): 733/733 corpus, 1.159/1.159 adversariais, 151/151
+Gates (relógio 2026-09-15): 733/733 corpus, 1.167/1.167 adversariais, 151/151
 invariantes, mutações, fuzz, ditado e remoto offline; typecheck,
 typecheck:api, test:money, build e rubrica (0 perigosa, 0 ruim).
 `test:calendario` rodou depois de cada lote e achou quatro oráculos de teste
