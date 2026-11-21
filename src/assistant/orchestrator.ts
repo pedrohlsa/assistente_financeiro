@@ -1691,6 +1691,18 @@ Confirmar?`,
   }
 
   // ---- 5) A mensagem corrige a proposta na tela? -------------------------
+  // "Pode confirmar", "sim", "isso": o registro só acontece no BOTÃO (regra 8).
+  // Antes a frase caía na ajuda genérica, e parecia que o app tinha perdido a
+  // proposta. Ela continua na tela.
+  if (input.pending?.length && /^\s*(?:pode\s+)?(?:confirm[ao]r?|confirma\s+(?:a[íi]|isso|tudo)|sim|isso(?:\s+mesmo)?|ok|beleza|blz|certo|correto|t[áa]\s+certo|pode\s+(?:salvar|registrar|lan[çc]ar|mandar)|salva|registra|lan[çc]a)\s*[.!]*\s*$/i.test(command)) {
+    return {
+      draft: null, keepPending: true, focus: input.focus,
+      response: {
+        version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
+        reply: 'É só tocar em Confirmar na proposta acima — eu só registro pelo botão, para nada entrar sem você ver.',
+      },
+    }
+  }
   if (input.pending?.length) {
     const plan: CorrectionPlan | null = parseCorrection(command, input.pending, caps, today)
     if (plan) {

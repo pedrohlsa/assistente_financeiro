@@ -230,6 +230,31 @@ export function resolveDraftAnswer(
   const resolved: string[] = []
   const { text: norm } = normalizeNumberWords(message)
   const lower = norm.toLowerCase()
+
+  // "Comprei um celular" → "1200 em 10x": a resposta revela um PARCELAMENTO.
+  // Preenchido como despesa, virava um gasto avulso de R$ 1.200 — exatamente a
+  // contagem dupla que a regra 10 proíbe. O rascunho muda de tipo e passa a
+  // perguntar o cartão, como a frase completa faria.
+  const parcelas = lower.match(/(?:em\s*)?(\d+)\s*(?:x|vezes|parcelas?)\b/)
+  if (draft.partial.kind === 'expense' && draft.missingFields.some(f => f.field === 'amount') && parcelas) {
+    const n = parseInt(parcelas[1], 10)
+    const valor = lower.replace(/(?:em\s*)?\d+\s*(?:x|vezes|parcelas?)\b/g, ' ').match(new RegExp(String.raw`(?:r\$\s*)?${NUMBER}`))
+    const total = valor ? parseMoney(valor[1]) : NaN
+    if (n >= 2 && n <= 120 && total > 0) {
+      const desc = (draft.partial as any).description as string | undefined
+      const citado = caps.cardNames.find(c => normalizeName(lower).includes(normalizeName(c)))
+      const partial: any = { kind: 'card-purchase', total, installments: n,
+        ...(desc ? { description: desc, category: guessCategory(desc, 'expense') === 'assinaturas' ? 'compras' : (guessCategory(desc, 'expense') || 'compras') } : {}),
+        ...(citado ? { cardName: citado } : {}) }
+      const faltando = caps.cardNames.length > 1 && !citado ? ['cardName'] : []
+      return {
+        draft: { ...draft, partial, originalMessages: [...draft.originalMessages, message], updatedAt: new Date().toISOString(),
+          missingFields: faltando.map(f => questionFor('card-purchase', f, caps)), status: faltando.length ? 'collecting' : 'ready' },
+        resolved: ['total', 'installments', ...(citado ? ['cardName'] : [])],
+        unmatched: false,
+      }
+    }
+  }
   const pending = new Set(draft.missingFields.map(f => f.field))
 
   // "Foi no Nubank?" → "sim"

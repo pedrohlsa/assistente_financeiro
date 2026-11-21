@@ -651,6 +651,9 @@ export function parseCorrection(
     const deX = semPrefixo.match(/^(?:e\s+)?(?:foi\s+|era\s+)?(?:de|do|da)\s+([a-zà-úç][a-zà-úç\s]{1,30})$/)
     const lugarCurto = semPrefixo.match(/^(?:e\s+)?(?:foi\s+|era\s+)?(?:n[oa]s?|em)\s+([a-zà-úç][a-zà-úç0-9\s]{1,40})$/)
     const coisa = semPrefixo.match(/^(?:foi|era)\s+(?:(?:um|uma|o|a)\s+)?([a-zà-úç][a-zà-úç\s]{1,30})$/)
+    // "É salário", "era o aluguel", "foi comissão": a FONTE da receita.
+    const fonteDita = semPrefixo.match(/^(?:e\s+|mas\s+)?(?:[ée]|era|foi)\s+(?:(?:o|a|meu|minha|do|da|de)\s+)?([a-zà-úç][a-zà-úç\s]{1,30})$/)
+    const catDaFonte = fonteDita && a.kind === 'income' ? guessCategory(fonteDita[1], 'income') : undefined
     const editar = (field: string, value: unknown) => {
       if (a[field] !== value) plan.edits.push({ id: p.id, field: field as any, value, was: a[field] })
     }
@@ -665,6 +668,9 @@ export function parseCorrection(
       const nome = /^uber$/i.test(plataforma[1]) ? 'Uber' : /^99$/.test(plataforma[1]) ? '99' : 'inDrive'
       editar('description', nome); editar('category', 'corridas')
       plan.summary.push(`Anotei a plataforma: ${nome}.`); touched = true
+    } else if (catDaFonte && fonteDita) {
+      editar('category', catDaFonte)
+      plan.summary.push(`Anotei: ${capital(fonteDita[1].trim())}.`); touched = true
     } else if (deX && a.kind === 'income') {
       const fonte = deX[1].trim()
       const cat = guessCategory(fonte, 'income')

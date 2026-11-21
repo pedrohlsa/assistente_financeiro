@@ -6527,6 +6527,31 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const sem = await turnoHoje(buildState({ profile: 'clt' }), 'quanto falta pro salario cair')
       out.push(result('MN-salario-sem-previsao', sem.reply.split('\n')[0], 'diz que não há previsão', /^Não tenho previsão cadastrada para Salário/.test(sem.reply)))
     }
+
+    // Segundo turno: confirmação digitada, fonte dita com "é", parcelas no rascunho.
+    {
+      const dois = async (primeira: string, segunda: string) => {
+        const st = buildState({ profile: 'clt' })
+        const t1 = await orchestrate({ state: st, message: primeira, today: hoje, remoteEnabled: false })
+        const t2 = await orchestrate({ state: st, message: segunda, today: hoje, remoteEnabled: false, focus: t1.focus,
+          draft: t1.draft ?? undefined, pending: t1.response.actions.length ? t1.response.actions : undefined })
+        return { t2, acoes: t2.response.actions.map(a => a.action as any) }
+      }
+      for (const frase of ['pode confirmar', 'sim', 'isso mesmo']) {
+        const { t2 } = await dois('gastei 50 no mercado', frase)
+        out.push(result(`MN-confirmar-digitado-${frase.replace(/\W+/g, '-')}`, { reply: t2.response.reply, keep: t2.keepPending }, 'aponta o botão e mantém a proposta',
+          t2.response.actions.length === 0 && t2.keepPending === true && /tocar em Confirmar/.test(t2.response.reply)))
+      }
+      for (const [segunda, cat] of [['é salário', 'salario'], ['era o aluguel', 'aluguel'], ['foi venda', 'vendas']] as const) {
+        const { acoes } = await dois('recebi 3000', segunda)
+        out.push(result(`MN-fonte-dita-${segunda.replace(/\W+/g, '-')}`, acoes, `receita 3000 em ${cat}`, acoes.length === 1 && acoes[0].amount === 3000 && acoes[0].category === cat))
+      }
+      const { acoes: celular } = await dois('comprei um celular', '1200 em 10x')
+      out.push(result('MN-rascunho-vira-parcelamento', celular, 'compra parcelada 1200 em 10x, nunca despesa',
+        celular.length === 1 && celular[0].kind === 'card-purchase' && celular[0].total === 1200 && celular[0].installments === 10))
+      const { acoes: tenis } = await dois('comprei um tênis', '300')
+      out.push(result('MN-rascunho-sem-parcela-e-despesa', tenis, 'despesa 300', tenis.length === 1 && tenis[0].kind === 'expense' && tenis[0].amount === 300))
+    }
   }
 
   return out
