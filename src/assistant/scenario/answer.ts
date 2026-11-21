@@ -6,6 +6,7 @@
 
 import { fmtBRL, fmtNum } from '../../utils/format'
 import { sentenceCase } from '../../utils/text'
+import { brDate } from '../dates'
 import { incomeLossLabel } from './incomeWindow'
 import { formatValue } from '../query/answer'
 import type { AssistantScenarioResult } from './types'
@@ -141,17 +142,22 @@ export function composeScenario(r: AssistantScenarioResult): string {
     }
 
     case 'income-missing': {
-      if (p.incomeLossDuration) {
-        const duration = incomeLossLabel(p.incomeLossDuration)
+      if (p.incomeLossDuration || p.incomeLossWindow) {
+        const duration = p.incomeLossDuration ? incomeLossLabel(p.incomeLossDuration) : undefined
         const loss = valor('Entrada prevista que deixaria de cair') ?? valor('Perda estimada pelo histórico')
+        const historicAverage = valor('Entrada média no histórico')
         const balance = valor('Saldo estimado ao fim do intervalo')
         const otherIncome = valor('Outras entradas previstas')
         const obligations = valor('Compromissos no intervalo')
         const historical = valor('Perda estimada pelo histórico') !== undefined
         const origin = p.origin ? ` de ${sentenceCase(p.origin)}` : ''
-        if (loss === 0 && !historical) linhas.push(`Não há entrada prevista${origin} nos próximos ${duration}.`)
-        else if (loss !== undefined) linhas.push(`Em ${duration}, ${historical ? 'o histórico sugere uma perda de' : 'deixariam de entrar'} ${fmtBRL(loss)}${origin}.`)
-        if (balance !== undefined) linhas.push(`Saldo estimado ao fim dos ${duration}: ${fmtBRL(balance)}. Outras entradas previstas de ${fmtBRL(otherIncome ?? 0)} e compromissos de ${fmtBRL(obligations ?? 0)}.`)
+        const period = duration ? `nos próximos ${duration}` : `de ${brDate(p.incomeLossWindow!.from)} a ${brDate(p.incomeLossWindow!.to)}`
+        if (loss === 0 && !historical) linhas.push(`Não há entrada prevista${origin} ${period}.`)
+        else if (loss !== undefined) linhas.push(`${sentenceCase(period)}, ${historical ? 'o histórico sugere uma perda de' : 'deixariam de entrar'} ${fmtBRL(loss)}${origin}.`)
+        if (historicAverage !== undefined) linhas.push(`A média mensal recebida${origin} foi ${fmtBRL(historicAverage)} no histórico.`)
+        if (balance !== undefined) linhas.push(`Saldo estimado ao fim do período: ${fmtBRL(balance)}. Outras entradas previstas de ${fmtBRL(otherIncome ?? 0)} e compromissos de ${fmtBRL(obligations ?? 0)}.`)
+        if (r.feasible === false) linhas.push('Em pelo menos um dia, o saldo não cobriria os compromissos cadastrados.')
+        if (r.feasible === true) linhas.push('Se as outras entradas caírem nas datas previstas, o saldo cobre os compromissos cadastrados.')
         break
       }
       const entrada = r.facts.find(f => f.label.includes('Entrada'))

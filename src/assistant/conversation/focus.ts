@@ -483,7 +483,7 @@ function refinaCenario(focus: ConversationFocus, t: string, today: string): Assi
       }
       duration.value += base.incomeLossDuration.value
     }
-    return duration && validIncomeLossDuration(duration) ? { ...base, incomeLossDuration: duration, planningIssue: undefined }
+    return duration && validIncomeLossDuration(duration) ? { ...base, incomeLossDuration: duration, incomeLossWindow: undefined, planningIssue: undefined }
       : { ...base, planningIssue: INCOME_LOSS_WINDOW_LIMIT }
   }
 

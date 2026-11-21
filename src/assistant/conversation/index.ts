@@ -28,6 +28,7 @@ import type { AssistantQueryPlan } from '../query/types'
 import { answerScenario, rerunScenario } from '../scenario'
 import type { ScenarioAnswer } from '../scenario'
 import { looksLikeScenario, parsePurchaseDelay } from '../scenario/parse'
+import { MISSING_RENTAL_SOURCE, rentalSources } from '../scenario/incomeWindow'
 import { analyzeChanges, answerChangeQuestion, changeScopeClarification, composeChangeExplanation, expenseCategoryInQuestion } from '../drivers'
 import { answerVehicleCost } from '../vehicleCost'
 import {
@@ -147,6 +148,13 @@ function respondeConversa(
   const hoje = opts.today || todayISO()
   const agora = opts.now ?? Date.now()
   const focus = opts.focus
+  const awaitingRental = isFocusFresh(focus, agora) && focus?.last === 'scenario' ? focus.lastScenarioPlan : undefined
+  if (awaitingRental?.kind === 'income-missing' && awaitingRental.planningIssue === MISSING_RENTAL_SOURCE) {
+    const said = normalizeName(message).replace(/^(?:(?:e|foi|seria)\s+)?(?:a\s+)?/, '').replace(/[.!?]+$/, '').trim()
+    const name = rentalSources(state, hoje).find(source => source === said)
+    if (name) return aplicaFollowUp(state, focus, { kind: 'scenario',
+      plan: { ...awaitingRental, origin: name, planningIssue: undefined } }, hoje, agora)
+  }
 
   const driverPending = isFocusFresh(focus, agora) ? focus?.pendingDriverClarification : undefined
   if (driverPending) {

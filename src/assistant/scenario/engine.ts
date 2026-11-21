@@ -222,7 +222,7 @@ function runCompoundMonths(
       continue
     }
     if (step.kind === 'income-missing') {
-      if (step.incomeLossDuration) {
+      if (step.incomeLossDuration || step.incomeLossWindow) {
         const partial = forecastIncomeGap(state, step, hoje)
         facts.push(...partial.result.facts)
         caveats.push(...partial.result.caveats)
@@ -311,14 +311,18 @@ function runCompoundMonths(
  */
 /** Projeta o intervalo exato pelos vencimentos, sem presumir rendas históricas. */
 function forecastIncomeGap(state: AppState, plan: AssistantScenarioPlan, today: string) {
-  const duration = plan.incomeLossDuration!
-  if (!validIncomeLossDuration(duration)) return { missing: [], result: vazio(plan, [], INCOME_LOSS_WINDOW_LIMIT) }
-  const until = incomeLossEnd(today, duration)
+  const duration = plan.incomeLossDuration
+  const calendar = plan.incomeLossWindow
+  if (plan.planningIssue || duration && !validIncomeLossDuration(duration)) {
+    return { missing: [], result: vazio(plan, [], plan.planningIssue || INCOME_LOSS_WINDOW_LIMIT) }
+  }
+  const lossStart = calendar?.from || today
+  const until = calendar?.to || incomeLossEnd(today, duration!)
   const name = plan.origin
   const entries = pendingIncomeInWindow(state, today, until)
   const target = (origin: string | undefined, description: string | undefined, category: string) => name
     && matchesIncomeSource(name, origin, description) && (!plan.incomeLossForRent || isRentalIncome(category, description))
-  const missing = entries.filter(e => target(e.origin, e.name, e.category))
+  const missing = entries.filter(e => e.date >= lossStart && target(e.origin, e.name, e.category))
   const scheduled = state.recurring.some(r => r.kind === 'income' && target(r.origin, r.name, r.category))
   const startBalance = currentBalance(state, today)
   const obligations = cashObligationsUntil(state, until, today)
@@ -361,16 +365,22 @@ function forecastIncomeGap(state: AppState, plan: AssistantScenarioPlan, today: 
     const from = addDays(today, -89)
     const history = name ? state.transactions.filter(t => t.type === 'income' && t.date >= from && t.date <= today
       && target(t.origin, t.description, t.category)) : []
-    if (history.length && duration.unit === 'months') {
+    if (history.length && (duration?.unit === 'months' || calendar)) {
       const average = history.reduce((sum, t) => sum + t.amount, 0) / Math.max(mesesEntre(history), 1)
-      facts.unshift(fato('Perda estimada pelo histórico', average * duration.value, 'BRL', 'média mensal dos recebimentos registrados', history.length))
+      if (duration) {
+        facts.unshift(fato('Perda estimada pelo histórico', average * duration.value, 'BRL', 'média mensal dos recebimentos registrados', history.length))
+      } else {
+        facts.unshift(fato('Entrada média no histórico', average, 'BRL', 'média mensal dos recebimentos registrados', history.length))
+      }
     }
     if (plan.amount) caveats.push(`Valor citado para a entrada ${fmtBRL(plan.amount)}. Ele não alterou o saldo sem uma previsão correspondente.`)
   }
   if (shortageDay) caveats.push(`Pelos vencimentos cadastrados, o primeiro dia em que o caixa ficaria negativo é ${brDate(shortageDay)}.`)
   const uncertain = obligations.filter(o => o.unconfirmed)
   if (uncertain.length) caveats.push('Há contas antigas em aberto que ainda precisam de confirmação. Elas ficaram fora do total de compromissos certos.')
-  caveats.push(`A janela de ${incomeLossLabel(duration)} vai de ${brDate(today)} a ${brDate(until)}. Usei as outras entradas previstas e os compromissos cadastrados; gastos futuros avulsos ainda podem mudar o resultado.`)
+  const scope = duration ? `A janela de ${incomeLossLabel(duration)} vai de ${brDate(lossStart)} a ${brDate(until)}.`
+    : `A ausência vale de ${brDate(lossStart)} a ${brDate(until)}. O saldo considera o caixa de hoje até o fim desse período.`
+  caveats.push(`${scope} Considerei as entradas previstas e os compromissos cadastrados. Novos gastos avulsos podem mudar o resultado.`)
   return {
     missing,
     result: {
@@ -739,7 +749,7 @@ function simulaCenario(
 
     // -------------------------------------------------- entrada que não vem
     case 'income-missing': {
-      if (plan.incomeLossDuration) {
+      if (plan.incomeLossDuration || plan.incomeLossWindow) {
         const { result } = forecastIncomeGap(state, plan, hoje)
         return { ...result, caveats: [...result.caveats, ...caveats] }
       }

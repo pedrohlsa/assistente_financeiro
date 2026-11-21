@@ -6734,3 +6734,12 @@ até auditoria independente.
 - Com dez viagens e R$ 300 de corridas, a média permanece R$ 30 mesmo
   com aluguel e registros incompletos em outros dias. Suíte com
   1.222/1.222 regressões adversariais.
+
+## 21/11/2026 — Vacância no mês do calendário
+
+- “Se a Casa 2 não pagar este mês” simula do dia atual ao último dia do
+  mês. “Mês que vem” retira só a entrada da origem naquele mês e mantém
+  as ocorrências anteriores na projeção de caixa.
+- Quando há mais de um imóvel, responder “Casa 2” reaproveita o prazo já
+  informado. Se o histórico de recebimentos existe sem previsão cadastrada,
+  a média aparece como referência. Suíte com 1.223/1.223 regressões.

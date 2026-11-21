@@ -16,7 +16,7 @@ import { normalizeNumberWords } from '../numbers'
 import { SCENARIO_DSL_VERSION } from './types'
 import { guardarEsteMes } from '../cashQuestions'
 import { readPayoffQuote } from './payoff'
-import { incomeLossEnd, isRentalIncome, matchesIncomeSource, readIncomeLossDuration } from './incomeWindow'
+import { incomeLossEnd, MISSING_RENTAL_SOURCE, readIncomeLossDuration, readNamedIncomeLossWindow, rentalSources } from './incomeWindow'
 import type { AssistantScenarioPlan, DrivingScenario, ScenarioKind } from './types'
 
 const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -366,24 +366,19 @@ function planSingleScenario(
     let origem = origemDe(t)
     const parsedDuration = readIncomeLossDuration(t)
     const incomeLossDuration = parsedDuration.duration
-    let planningIssue = parsedDuration.issue
+    const calendar = readNamedIncomeLossWindow(parsedDuration.remaining, opts.today || todayISO())
+    let planningIssue = parsedDuration.issue || (incomeLossDuration && calendar
+      ? 'Quer usar o mês do calendário ou a duração que você informou?' : undefined)
     if (vacancia && !origem) {
-      const rentals = new Map<string, string>()
-      for (const r of state.recurring || []) {
-        if (r.active !== false && r.kind === 'income' && isRentalIncome(r.category, r.name)) rentals.set(normalizeName(r.origin || r.name), r.origin || r.name)
-      }
-      for (const transaction of state.transactions || []) {
-        if (transaction.type === 'income' && isRentalIncome(transaction.category, transaction.description) && transaction.origin
-          && ![...rentals.keys()].some(name => matchesIncomeSource(normalizeName(transaction.origin), undefined, name))) {
-          rentals.set(normalizeName(transaction.origin), transaction.origin)
-        }
-      }
-      if (rentals.size === 1) origem = rentals.keys().next().value
-      else planningIssue ||= 'Qual imóvel ficaria sem aluguel? Diga a origem, como Casa 2, e o prazo.'
+      const [only, second] = rentalSources(state, opts.today || todayISO())
+      if (only && !second) origem = only
+      else planningIssue ||= MISSING_RENTAL_SOURCE
     }
-    const semOrigem = origem ? parsedDuration.remaining.replace(origem, ' ') : parsedDuration.remaining
+    const remaining = calendar?.remaining || parsedDuration.remaining
+    const semOrigem = origem ? remaining.replace(origem, ' ') : remaining
     const valor = lerValor(semOrigem)
-    return base('income-missing', { origin: origem, amount: valorDeDinheiro(semOrigem, valor), incomeLossDuration, ...(vacancia ? { incomeLossForRent: true } : {}), planningIssue },
+    return base('income-missing', { origin: origem, amount: valorDeDinheiro(semOrigem, valor), incomeLossDuration,
+      incomeLossWindow: calendar?.window, ...(vacancia ? { incomeLossForRent: true } : {}), planningIssue },
       'uma entrada que não vem')
   }
 
@@ -510,8 +505,8 @@ export function planScenario(
   if (separateSteps.length > 1) {
     const today = opts.today || todayISO()
     const maxIncomeWindow = Math.max(0, ...separateSteps.flatMap(step => {
-      if (!step.incomeLossDuration) return []
-      const final = incomeLossEnd(today, step.incomeLossDuration)
+      if (!step.incomeLossDuration && !step.incomeLossWindow) return []
+      const final = step.incomeLossWindow?.to || incomeLossEnd(today, step.incomeLossDuration!)
       return [(Number(final.slice(0, 4)) - Number(today.slice(0, 4))) * 12
         + Number(final.slice(5, 7)) - Number(today.slice(5, 7)) + 1]
     }))

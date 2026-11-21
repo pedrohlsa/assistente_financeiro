@@ -178,6 +178,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && [three, more, short].every(t => !t.response.actions.length)))
 
     const noSource = await turn('e se a casa ficar vazia três meses?')
+    const selected = await turn('Casa 2', noSource)
     const overLimit = await turn('e se a casa 2 ficar vazia 18 meses?')
     const historyOnly = { ...state, recurring: state.recurring.filter(r => r.id !== 'vacancy-rent'), transactions: [
       { id: 'vacancy-history', type: 'income' as const, amount: 1500, date: '2026-10-10', origin: 'Casa 2', category: 'aluguel' },
@@ -186,6 +187,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('VC-pede-imovel-e-distingue-historico-da-projecao', { noSource: noSource.response, overLimit: overLimit.response, fromHistory: fromHistory.response },
       'pede a origem, limita o prazo e mostra R$ 4.500 de perda histórica sem reduzir a projeção que já não contava com o aluguel',
       /Qual imóvel/.test(noSource.response.reply) && /até 12 meses/.test(overLimit.response.reply)
+      && value(selected, 'Entrada prevista que deixaria de cair') === 4800 && !selected.response.actions.length
       && value(fromHistory, 'Perda estimada pelo histórico') === 4500
       && value(fromHistory, 'Saldo estimado ao fim do intervalo') === 2200
       && /já estava sem essa entrada/.test(fromHistory.response.reply)
@@ -200,6 +202,21 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('VC-vencimento-ja-recebido-fica-no-caixa', firstPayment.response,
       'entrada já recebida continua no saldo e fica fora da perda de 45 dias',
       value(firstPayment, 'Entrada prevista que deixaria de cair') === 0 && !firstPayment.response.actions.length))
+
+    const calendar = { ...state, recurring: state.recurring.map(r => r.id === 'vacancy-rent'
+      ? { ...r, dueDay: 27, startDate: '2026-11-27' } : r) }
+    const current = await turn('se a Casa 2 não pagar este mês, ainda cubro minhas contas?', undefined, calendar)
+    const next = await turn('e se a Casa 2 ficar vazia mês que vem?', undefined, calendar)
+    const conflicting = await turn('e se a Casa 2 ficar vazia este mês por três meses?', undefined, calendar)
+    out.push(result('VC-mes-civil-isola-vencimentos', { current: current.response, next: next.response, conflicting: conflicting.response },
+      'novembro termina no dia 30; dezembro preserva o aluguel de novembro, tira o de dezembro e inclui a conta de dezembro',
+      value(current, 'Entrada prevista que deixaria de cair') === 1700 && value(current, 'Outras entradas previstas') === 800
+      && value(current, 'Compromissos no intervalo') === 0 && /21\/11\/2026 a 30\/11\/2026/.test(current.response.reply)
+      && value(next, 'Entrada prevista que deixaria de cair') === 1600 && value(next, 'Outras entradas previstas') === 3400
+      && value(next, 'Compromissos no intervalo') === 500 && value(next, 'Saldo estimado ao fim do intervalo') === 3900
+      && /01\/12\/2026 a 31\/12\/2026/.test(next.response.reply)
+      && /mês do calendário ou a duração/.test(conflicting.response.reply)
+      && [current, next, conflicting].every(r => !r.response.actions.length)))
   }
 
   {
