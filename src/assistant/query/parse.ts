@@ -199,6 +199,8 @@ export function looksLikeDataQuestion(input: string): boolean {
   // "Como é meu dia típico?", "quanto eu faço num dia normal": o RITMO
   // diário, não o total do período — quem responde é o `driverInsight`.
   if (DIA_TIPICO.test(t)) return false
+  // "Onde dá pra cortar gastos": pedido de orientação, respondido no roteador.
+  if (/\b(?:onde|o\s+que|em\s+que)\b[^?]*\b(?:cortar|economizar|reduzir|enxugar|apertar)\b/.test(t)) return false
   // "Melhor horário pra rodar": o app não sabe a hora das corridas.
   if (/\b(?:melhor|pior)\s+(?:horario|hora|periodo|turno)\b/.test(t)) return false
   if (pedeCustoMensalDoVeiculo(input)) return false
@@ -932,7 +934,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   // estou indo": sobra só palavra de estrutura e de período.
   // "Compara julho com junho" é outra construção, com contrato próprio (gasto).
   const soComparacao = !!marcador && !!textoComparacao && !base
-    .replace(/\b(?:e|eu|estou|esta|como|foi|ficou|meu|minha|o|a|os|as|de|do|da|em|no|na|nesse|neste|essa|esse|esta|este|mes|semana|hoje|ano|dia|entao|ai|hein|ne)\b/g, '')
+    .replace(/(?<![\wÀ-ÿ])(?:e|eu|estou|esta|como|foi|ficou|meu|minha|o|a|os|as|de|do|da|em|no|na|nesse|neste|essa|esse|esta|este|mes|semana|hoje|ano|dia|entao|ai|hein|ne)(?![\wÀ-ÿ])/g, '')
     .replace(/[?!.,\s]+/g, '')
   const melhorQue = pedeComparacao && (soComparacao
     || /\b(?:melhor|pior)\s+(?:do\s+)?que\b|\bcomo\s+(?:foi|esta|anda|vai|ficou)\b/.test(t0))

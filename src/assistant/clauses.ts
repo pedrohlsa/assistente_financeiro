@@ -527,7 +527,7 @@ export function segment(text: string, today = todayISO()): { text: string; start
     // Nunca deixe a negação no fragmento anterior: "não gastei" é uma unidade.
     // Nem a pergunta: "quanto gastei de alimentação" era cortado em "quanto" +
     // "gastei de alimentação", e nenhuma das metades tinha resposta.
-    if (!onlyDate && /\d/.test(fragment) && !/\b(?:e|dps|n[ãa]o|n|nunca|jamais|nem(?:\s+sequer)?|e\s+j[áa])\s*$/i.test(prefix)
+    if (!onlyDate && /\d/.test(fragment) && !/(?<![\wÀ-ÿ])(?:e|dps|n[ãa]o|n|nunca|jamais|nem(?:\s+sequer)?|e\s+j[áa])\s*$/i.test(prefix)
       && !/\b(?:quanto|quantos|quantas|qual|quais|quando|onde|como|que)\b(?:\s+[^\s\d,;.!?]+){0,3}\s*$/i.test(prefix)) {
       push((m.index || 0) + m[0].length)
     }
@@ -617,7 +617,7 @@ export function segment(text: string, today = todayISO()): { text: string; start
   // registro sumia em "não tenho certeza do que registrar".
   for (const m of text.matchAll(/\s+(?=(?:e\s+)?(?:(?:quanto|quantos|quantas|qual|quais|quando)\b|como\s+(?:foi|t[aá]|est[aá]|ficou)(?![\wà-ú])))/gi)) {
     // O espaço entre "e" e "quanto" não é outro corte: o "e" ficava sozinho.
-    if (/\be$/i.test(text.slice(0, m.index || 0))) continue
+    if (/(?<![\wÀ-ÿ])e$/i.test(text.slice(0, m.index || 0))) continue
     const prior = expandWeekdayAlternatives(text.slice(Math.max(...[...cuts].filter(cut => cut <= m.index)), m.index))
     if (/^\s*(?:me\s+)?(?:lembra|diz|fala|conta|mostra)\s*$/i.test(prior)) continue
     // "Minha dívida tá EM quanto?", "foi DE quanto?": a palavra interrogativa
@@ -1410,7 +1410,9 @@ export function analyzeMessage(
       semData = semData.slice(0, d.start) + ' ' + semData.slice(d.end)
     }
     // Conector órfão deixado pelo recorte ("gastei 40 e") não é descrição.
-    semData = semData.replace(/\s{2,}/g, ' ').replace(/[\s,;]*\b(?:e|mas|por[ée]m)\s*$/i, '').trim()
+    // Borda explícita (regra 67b): com `\b`, o "e" de "mãE" contava como
+    // palavra solta — "dei 100 pra minha mãe" gravava "Minha mã".
+    semData = semData.replace(/\s{2,}/g, ' ').replace(/[\s,;]*(?<![\wÀ-ÿ])(?:e|mas|por[ée]m)\s*$/i, '').trim()
     if (isInvoicePaymentStatement(forParser)) semData = semData.replace(/\s+(?:em|no\s+dia|na\s+data)\s*$/i, '').trim()
 
     // A expressão de dia foi RETIRADA do texto acima. O parser precisa saber que
@@ -2085,7 +2087,7 @@ export function analyzeMessage(
     const next = clauses[i + 1]
     const extraExpense = next?.text.match(/^(?:r\$\s*)?\d+(?:[.,]\d+)*\s+(?:no|na|de|em)\s+([a-zà-ú-]+)[.!]*$/i)
     if (revised?.kind === 'expense' && next && !next.actions.length && !next.ambiguity && !next.temporal && !next.dateAmbiguity
-      && /\be$/i.test(c.text) && extraExpense) {
+      && /(?<![\wÀ-ÿ])e$/i.test(c.text) && extraExpense) {
       const parsed = parseNaturalFull(`gastei ${next.text}`, { driver: opts?.driver })
       const [extra] = parsed.actions
       if (!parsed.ambiguity && parsed.actions.length === 1 && extra?.kind === 'expense') {

@@ -201,7 +201,7 @@ const PASSADO = new Set([
 
 const MESES = new Set(['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'])
 const ERROS_DE_RECEBIMENTO = new Map([['reci bi', 'recebi'], ['rece bi', 'recebi'], ['rebcbi', 'recebi']])
-const ANTES_DE_RELATO = /(?:^|[,:;.!?]|\b(?:e|mas|depois))\s*(?:(?:eu|j[áa]|ainda|n|ñ|n[ãa]o|nem|hoje|hj|ontem|anteontem)\s+)*$/i
+const ANTES_DE_RELATO = /(?:^|[,:;.!?]|(?<![\wÀ-ÿ])(?:e|mas|depois))\s*(?:(?:eu|j[áa]|ainda|n|ñ|n[ãa]o|nem|hoje|hj|ontem|anteontem)\s+)*$/i
 const VALOR_DE_RELATO = /^\s+(?:r\$\s*)?\d/i
 
 /**

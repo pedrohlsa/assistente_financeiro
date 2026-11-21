@@ -290,7 +290,7 @@ export const FRACAO_DE = /(?<![\d\/.,])(\d{1,2})\s*\/\s*(\d{1,2})(?![\d\/])(?=\s
  * registrado. Reescrito como "paguei 400 o aluguel", a forma que o parser lê.
  */
 function valorNoFim(input: string): string {
-  const m = input.match(/^(\s*(?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)(gastei|paguei|comprei|torrei|recebi|ganhei)\s+([^\d,:;?]{2,60}?)\s*([,:;]?)\s*(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real|contos?|pila)?\s*[.!]?\s*$/i)
+  const m = input.match(/^(\s*(?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)(gastei|paguei|comprei|torrei|recebi|ganhei|dei)\s+([^\d,:;?]{2,60}?)\s*([,:;]?)\s*(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real|contos?|pila)?\s*[.!]?\s*$/i)
   if (!m) return input
   // Sem vírgula ("paguei a pensão 600"), o número pode ser parte de um NOME:
   // "a parcela 3", "a casa 2", "o cliente 1". Aí não é valor.
@@ -1565,7 +1565,7 @@ function parseClause(input: string): ParsedAction[] {
     // "Rodei 8h E 150 KM", "fiz 12 corridas E 40 KM": a distância vem depois
     // da outra medida, com a unidade dita.
     || (/\b(?:rodei|andei|dirigi|percorri)\b|\b\d+\s+(?:corridas|viagens)\b/i.test(text)
-      ? text.match(new RegExp(String.raw`\b(?:e|com)\s+${NUM}\s*(?:km|quil[oô]metros?)\b`, 'i')) : null)
+      ? text.match(new RegExp(String.raw`(?<![\wÀ-ÿ])(?:e|com)\s+${NUM}\s*(?:km|quil[oô]metros?)\b`, 'i')) : null)
   const tripsM = text.match(new RegExp(String.raw`(?:fiz|realizei|completei)?\s*${NUM}\s*(?:viagens|corridas)`, 'i'))
   const hoursM = text.match(new RegExp(String.raw`\b(?:trabalhei|fiquei|rodei(?:\s+por)?)\s*${NUM}\s*(?:horas?|hrs?|h)\b`, 'i'))
     // "Rodei 150 km E 8 HORAS", "fiz 5 corridas E 3 HORAS": a jornada depois.

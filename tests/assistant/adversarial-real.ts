@@ -7335,6 +7335,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('DR-paro-ou-continuo', c, 'o dia contra a meta, sem decidir pelo usuário', /meta/i.test(c) && !/Posso te ajudar/.test(c)))
   }
 
+  // `\b` antes de "e" casa depois de letra acentuada (regra 67b): o "e" de
+  // "mãE" era lido como conector solto e cortado — "Minha mã".
+  for (const [id, frase, desc] of [
+    ['AC-mae', 'dei 100 pra minha mãe', 'Minha mãe'],
+    ['AC-mae-valor-no-fim', 'dei pra minha mãe 100', 'Minha mãe'],
+    ['AC-irmae', 'paguei 50 pra minha irmã e', 'Minha irmã'],
+  ] as const) {
+    const r = await turnoHoje(buildState({ profile: 'other' }), frase)
+    const a: any = r.actions[0]
+    out.push(result(id, r.actions, desc, r.actions.length === 1 && a.description === desc))
+  }
+
+  // "Onde dá pra cortar gastos" buscava o texto "cortar gastos"; "me dá uma
+  // dica pra economizar" caía na ajuda. A resposta mostra onde mais saiu.
+  {
+    const rico = autonomoRico(hoje)
+    for (const [id, frase] of [['OC-onde-cortar', 'onde dá pra cortar gastos'], ['OC-dica', 'me dá uma dica pra economizar']] as const) {
+      const r = (await turnoHoje(rico, frase)).reply
+      out.push(result(id, r, 'o que mais saiu no mês, sem filtro de texto', /Onde mais saiu|Ainda não tenho gasto/.test(r) && !/cortar gastos"|Posso te ajudar/.test(r)))
+    }
+  }
+
   return out
 }
 

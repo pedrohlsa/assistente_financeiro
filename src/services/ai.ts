@@ -531,6 +531,35 @@ function valeQuitar(s: AppState, t: string): string | undefined {
   ].join('\n\n')
 }
 
+/**
+ * "Onde dá pra cortar gastos?", "me dá uma dica pra economizar": o que mais
+ * saiu no mês, do maior para o menor. O que é obrigatório só o usuário sabe —
+ * o app mostra onde está o dinheiro e não decide por ele. A frase virava a
+ * busca pelo texto "cortar gastos", ou caía na ajuda.
+ */
+function ondeCortar(s: AppState, t: string): string | undefined {
+  if (!/\b(?:onde|o\s+que|em\s+que)\b[^?]*\b(?:cortar|economizar|reduzir|enxugar|apertar)\b|\bdicas?\s+(?:pra|para|de)\s+(?:economizar|poupar|guardar\s+mais|gastar\s+menos)\b|\bcomo\s+(?:eu\s+)?(?:economizo|posso\s+economizar|gasto\s+menos|corto\s+gastos)\b/.test(t)) return undefined
+  const hoje = todayISO()
+  const de = `${hoje.slice(0, 8)}01`
+  const porCat = new Map<string, number>()
+  for (const x of s.transactions) {
+    if (x.type !== 'expense' || x.date < de || x.date > hoje) continue
+    porCat.set(x.category, (porCat.get(x.category) || 0) + x.amount)
+  }
+  const top = [...porCat].sort((a, b) => b[1] - a[1]).slice(0, 4)
+  if (!top.length) return 'Ainda não tenho gasto registrado este mês para dizer onde dá para cortar. Registre os gastos do dia a dia que eu mostro onde está indo o dinheiro.'
+  const total = [...porCat.values()].reduce((a, b) => a + b, 0)
+  const nome = (id: string) => s.categories.find(c => c.id === id)?.name || id
+  return [
+    `Onde mais saiu este mês (dado real, ${fmtBRL(total)} no total):`,
+    '',
+    ...top.map(([id, v]) => `• ${nome(id)}: ${fmtBRL(v)} (${fmtNum(v / total * 100, 0)}%)`),
+    '',
+    'O que dá para cortar depende do que é obrigatório para você — conta fixa raramente baixa de um mês para o outro; os gastos variáveis do topo são onde um corte aparece primeiro.',
+    `Para ver se algum está acima do normal, pergunte por exemplo "tô gastando muito com ${nome(top[0][0]).toLowerCase()}?".`,
+  ].join('\n')
+}
+
 function resolveLocal(s: AppState, input: string): AiReply {
   const t = normalizeQuestion(input)
   const driverMode = isDriver(s.settings)
@@ -539,6 +568,8 @@ function resolveLocal(s: AppState, input: string): AiReply {
   if (custoMensal) return { text: custoMensal }
   const lista = listaDeLancamentos(s, t)
   if (lista) return { text: lista }
+  const corte = ondeCortar(s, t)
+  if (corte) return { text: corte }
   const quitar = valeQuitar(s, t)
   if (quitar) return { text: quitar }
   // Meta de COMPRA citada pelo NOME ganha da meta diária e da mensal. O usuário
