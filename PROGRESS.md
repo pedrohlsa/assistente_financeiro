@@ -6658,3 +6658,14 @@ até auditoria independente.
 - Pergunta qual imóvel se houver mais de um candidato. “Mais um mês” mantém
   a origem e estende o cenário. O Chrome confirmou três e quatro meses sem
   gravar movimentação. Suíte com 1.185/1.185 regressões adversariais.
+
+## 21/11/2026 — Simulação de quitação de um parcelamento
+
+- “E se eu quitar o computador hoje?” mostra o saldo em aberto e o
+  saldo após a quitação pelo valor nominal. Preço ou desconto informado
+  recalcula a diferença. “E se sair por 600?” mantém o parcelamento.
+- Usa o progresso real do plano, incluindo pagamentos parciais e parcelas
+  canceladas. Com nomes repetidos, pede o alvo e aceita o cartão na frase.
+  Exige um prazo válido quando o usuário pergunta pelo saldo de outro dia.
+- Chrome confirmou a simulação com preço informado e parcelas intactas.
+  A suíte passou com 1.187/1.187 regressões adversariais.

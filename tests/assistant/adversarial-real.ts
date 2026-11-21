@@ -105,6 +105,51 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
 
   {
     const today = '2026-11-21'
+    const state = buildState({ profile: 'autonomo', balance: 1000, cards: [{ name: 'Nubank' }, { name: 'Inter' }] })
+    state.settings.balanceAsOf = `${today}T12:00`
+    const plan: AppState['installmentPlans'][number] = { id: 'qt-note', description: 'Computador',
+      totalAmount: 1200, installmentCount: 3, firstDueDate: '2026-10-10', purchaseDate: '2026-10-01',
+      createdAt: '2026-10-01', status: 'active', operationType: 'card-purchase', cardId: state.cards[0].id }
+    state.installmentPlans = [plan]
+    state.installments = buildInstallments(plan, (() => { let id = 0; return () => `qt-i-${++id}` })()).map((item, index) =>
+      index === 0 ? { ...item, status: 'paid', paidAmount: 400, paidAt: '2026-10-10', paidVia: 'direct' }
+        : index === 1 ? { ...item, paidAmount: 100, paidAt: '2026-11-10', paidVia: 'direct' } : item)
+    const turn = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>, sample = state) =>
+      orchestrate({ state: sample, today, message, remoteEnabled: false, focus: prior?.focus })
+    const value = (answer: Awaited<ReturnType<typeof orchestrate>>, label: string) =>
+      answer.focus?.lastScenario?.facts.find(f => f.label === label)?.value
+    const before = JSON.stringify(state)
+    const nominal = await turn('e se eu quitar o computador hoje?')
+    const quote = await turn('e se sair por 600?', nominal)
+    const percent = await turn('e se eu quitar o computador com desconto de 10%?')
+    const tooHigh = await turn('e se eu quitar o computador por 1.200?')
+    out.push(result('QT-simula-quitacao-com-baixas-e-cotacao', { nominal: nominal.response, quote: quote.response, percent: percent.response, tooHigh: tooHigh.response },
+      'restam R$ 700 em duas parcelas; cotação de R$ 600 poupa R$ 100; 10% custa R$ 630; R$ 1.200 não cabe',
+      value(nominal, 'Saldo em aberto de Computador') === 700 && value(nominal, 'Parcelas em aberto') === 2
+      && value(nominal, 'Saldo depois da quitação') === 300 && value(nominal, 'Diferença a favor da quitação') === undefined
+      && value(quote, 'Diferença a favor da quitação') === 100 && value(quote, 'Saldo depois da quitação') === 400
+      && value(percent, 'Preço simulado da quitação') === 630 && value(tooHigh, 'Saldo depois da quitação') === -200
+      && /não cobre/.test(tooHigh.response.reply) && [nominal, quote, percent, tooHigh].every(t => !t.response.actions.length)
+      && JSON.stringify(state) === before))
+
+    const duplicate = { ...plan, id: 'qt-inter', cardId: state.cards[1].id }
+    const dual = { ...state, installmentPlans: [plan, duplicate], installments: [...state.installments,
+      { ...state.installments[2], id: 'qt-inter-last', planId: duplicate.id }] }
+    const which = await turn('e se eu quitar o computador por 350?', undefined, dual)
+    const inter = await turn('e se eu quitar o computador do Inter por 350?', undefined, dual)
+    const later = await turn('e se eu quitar o computador amanhã?', undefined, dual)
+    const invalid = await turn('e se eu quitar o computador com desconto de 110%?')
+    out.push(result('QT-pede-plano-ou-data-e-limita-desconto', { which: which.response, inter: inter.response, later: later.response, invalid: invalid.response },
+      'pergunta o alvo em caso de empate e simula só Inter quando explícito, sem adivinhar saldo futuro ou desconto impossível',
+      /mais de um parcelamento/.test(which.response.reply) && value(which, 'Saldo depois da quitação') === undefined
+      && value(inter, 'Saldo em aberto de Computador') === 400 && value(inter, 'Diferença a favor da quitação') === 50
+      && /usa o saldo de hoje/.test(later.response.reply) && /Confira o valor oferecido/.test(invalid.response.reply)
+      && [which, inter, later, invalid].every(t => !t.response.actions.length)))
+  }
+
+
+  {
+    const today = '2026-11-21'
     const state = buildState({ profile: 'autonomo', balance: 1_000 })
     state.settings.balanceAsOf = `${today}T12:00`
     const monthly = { active: true, frequency: 'monthly' as const, startDate: '2026-11-01' }

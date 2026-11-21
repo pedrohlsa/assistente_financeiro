@@ -21,6 +21,7 @@ import {
 } from '../../services/cards'
 import { isDriver } from '../../services/profile'
 import { brDate } from '../dates'
+import { findPayoffPlan } from './payoff'
 import { incomeLossEnd, incomeLossLabel, isRentalIncome, matchesIncomeSource, pendingIncomeInWindow, validIncomeLossDuration, INCOME_LOSS_WINDOW_LIMIT } from './incomeWindow'
 import type { AssistantFact } from '../query/types'
 import type { AssistantScenarioPlan, AssistantScenarioResult, DrivingScenario, ScenarioMonth } from './types'
@@ -687,6 +688,33 @@ function simulaCenario(
     }
 
     // ------------------------------------------------------ pagar a fatura
+    case 'payoff': {
+      const chosen = findPayoffPlan(state, plan.description || '', hoje, plan.cardName)
+      if ('question' in chosen) return vazio(plan, caveats, chosen.question)
+      const { progress, lastDue } = chosen
+      const nominal = progress.remainingAmount
+      const quote = plan.payoffQuote
+      if (quote && (!Number.isFinite(quote.amount) || quote.amount < 0 || quote.amount > 99_999_999
+        || (quote.kind === 'discount' && quote.amount > nominal) || (quote.kind === 'percent' && quote.amount > 100))) {
+        return vazio(plan, caveats, 'Confira o valor oferecido. O desconto precisa ficar entre zero e o total em aberto.')
+      }
+      const price = quote ? r2(quote.kind === 'price' ? quote.amount
+        : nominal - quote.amount * (quote.kind === 'percent' ? nominal / 100 : 1)) : nominal
+      const balance = currentBalance(state, hoje)
+      const after = r2(balance - price)
+      const name = sentenceCase(progress.plan.description)
+      facts.push(fato(`Saldo em aberto de ${name}`, nominal, 'BRL', 'parcelas pendentes com baixas e cancelamentos descontados'))
+      facts.push(fato('Parcelas em aberto', progress.remainingCount, 'count', 'parcelas com saldo a pagar', progress.remainingCount))
+      facts.push(fato('Preço simulado da quitação', price, 'BRL', quote ? 'valor ou desconto informado na pergunta' : 'saldo em aberto, sem oferta do cartão'))
+      if (quote) facts.push(fato('Diferença a favor da quitação', nominal - price, 'BRL', 'saldo em aberto menos preço simulado'))
+      facts.push(fato('Saldo hoje', balance, 'BRL', 'saldo atual'))
+      facts.push(fato('Saldo depois da quitação', after, 'BRL', 'saldo atual menos pagamento simulado'))
+      if (lastDue) caveats.push(`A última parcela em aberto vence em ${brDate(lastDue)}.`)
+      if (!quote) caveats.push('Usei o saldo em aberto. Diga o preço de quitação do cartão para eu calcular o desconto real.')
+      caveats.push('O saldo após a quitação vem antes das demais contas. Confira no cartão o valor e a baixa das parcelas.')
+      return { plan: { ...plan, description: name }, facts, months: [], feasible: after >= 0, caveats, empty: false }
+    }
+
     case 'pay-invoice': {
       const cards = (state.cards || []).filter(c => plan.cardName || !c.archived || invoiceOpenAmount(state, currentInvoice(state, c, hoje), hoje) > 0)
       if (!cards.length) return vazio(plan, caveats, 'Você não tem cartão cadastrado.')

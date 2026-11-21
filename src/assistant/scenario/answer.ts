@@ -116,6 +116,20 @@ export function composeScenario(r: AssistantScenarioResult): string {
       break
     }
 
+    case 'payoff': {
+      const debt = r.facts.find(f => f.label.startsWith('Saldo em aberto de'))
+      const count = valor('Parcelas em aberto')
+      const price = valor('Preço simulado da quitação')
+      const after = valor('Saldo depois da quitação')
+      const difference = valor('Diferença a favor da quitação')
+      if (debt) linhas.push(`${debt.label}: ${fmtBRL(debt.value)} em ${count} ${count === 1 ? 'parcela' : 'parcelas'}.`)
+      if (price !== undefined && after !== undefined) linhas.push(`Quitando hoje por ${fmtBRL(price)}, seu saldo ficaria em ${fmtBRL(after)}.`)
+      if (difference !== undefined) linhas.push(difference > 0 ? `Pelo preço informado, a economia seria de ${fmtBRL(difference)}.`
+        : difference < 0 ? `Esse preço é ${fmtBRL(-difference)} acima do saldo em aberto.` : 'O preço informado coincide com o saldo em aberto.')
+      if (r.feasible === false) linhas.push('Seu saldo de hoje não cobre esse pagamento.')
+      break
+    }
+
     case 'pay-invoice': {
       const pendente = r.facts.find(f => f.label.startsWith('Fatura pendente'))
       const depois = valor('Saldo depois de pagar')
@@ -233,6 +247,7 @@ function descricaoPasso(p: NonNullable<AssistantScenarioResult['plan']['steps']>
     case 'purchase': return `compra de ${fmtBRL(p.amount || 0)} em ${p.installments || 1}x`
     case 'save': return `guardar ${fmtBRL(p.amount || 0)} por mês`
     case 'income-missing': return `${p.origin || 'uma entrada'} não entra`
+    case 'payoff': return `quitar ${p.description || 'o parcelamento'}`
     case 'pay-invoice': return `pagar a fatura${p.cardName ? ` do ${p.cardName}` : ''}`
     case 'cut': return `${p.ratio === 0.5 ? 'cortar pela metade' : 'parar'} os gastos com ${p.description || p.category || 'a categoria'}`
     case 'reduce': return `reduzir ${p.description || p.category || 'o gasto'} em ${fmtBRL(p.amount || 0)} por mês`

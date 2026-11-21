@@ -1,3 +1,4 @@
+import { findPayoffPlan, readPayoffQuote } from '../assistant/scenario/payoff'
 // Assistente IA local (seções 8, 37).
 // Este módulo responde perguntas usando SOMENTE dados reais do estado — nunca inventa valores.
 // Ele diferencia dados reais de estimativas/projeções no texto das respostas.
@@ -16,7 +17,7 @@ import type { OrchestratorInput } from '../assistant/orchestrator'
 import type { RemoteConversationContext } from '../assistant/conversation/remoteContext'
 import {
   addDays, dueLabel, fmtBRL, fmtNum, fromISO, monthKey, todayISO, toISO, daysInMonth, parseMoney, daysBetween } from '../utils/format'
-import { normalizeName, promptSafe, sameName, sentenceCase } from '../utils/text'
+import { normalizeName, promptSafe, sentenceCase } from '../utils/text'
 import { MAX_COMPOSE_FACTS } from '../assistant/grounding'
 import { MARGEM_EMPATE } from '../assistant/query/answer'
 import {
@@ -44,7 +45,7 @@ import { catById } from '../data/categories'
 import { isDriver } from './profile'
 import {
   activeCards, cardInvoice, cardOutstanding, cardsOverview, currentInvoice, monthlyCommitments, activePlans,
-  planProgress, overdueInstallments, upcomingInvoices, installmentsThisMonth, hasAmbiguousLegacyCardBalance, installmentRemaining, invoiceOpenAmount, validPaymentDate,
+  planProgress, overdueInstallments, upcomingInvoices, installmentsThisMonth, hasAmbiguousLegacyCardBalance, invoiceOpenAmount, validPaymentDate,
 } from './cards'
 import type { CardInvoice } from './cards'
 
@@ -512,18 +513,15 @@ function listaDeLancamentos(s: AppState, t: string): string | undefined {
 function valeQuitar(s: AppState, t: string): string | undefined {
   const m = t.match(/\b(?:vale\s+a\s+pena|compensa|devo|e\s+bom|seria\s+bom)\s+(?:eu\s+)?(?:quitar|antecipar|adiantar)\s+(?:o\s+|a\s+|os\s+|as\s+)?(?:parcelamento\s+d[oa]\s+|parcelas\s+d[oa]\s+)?([a-z0-9][a-z0-9 ]*?)\s*\??$/)
   if (!m) return undefined
-  // "Quitar o computador ANTES / agora / de uma vez": o advérbio não é nome.
-  const nome = m[1].replace(/\s+(?:antes|agora|ja|logo|de\s+uma\s+vez|adiantado|antecipado|todo|toda|inteiro|inteira)$/g, '').trim()
-  const planos = (s.installmentPlans || []).filter(p => p.status === 'active' && (sameName(p.description, nome) || normalizeName(p.description).includes(normalizeName(nome))))
-  if (!planos.length) return `Não encontrei um parcelamento em aberto chamado "${sentenceCase(nome)}". Confira o nome em Cartões e parcelamentos.`
-  const p = planos[0]
-  const pendentes = (s.installments || []).filter(i => i.planId === p.id && i.status !== 'paid').sort((a, b) => a.dueDate.localeCompare(b.dueDate))
-  if (!pendentes.length) return `O parcelamento ${sentenceCase(p.description)} não tem parcelas em aberto.`
-  const falta = round2(pendentes.reduce((a, i) => a + installmentRemaining(s, i), 0))
+  const { name } = readPayoffQuote(m[1])
+  const picked = findPayoffPlan(s, name)
+  if ('question' in picked) return picked.question
+  const { progress, lastDue } = picked
+  const falta = progress.remainingAmount
   const saldo = currentBalance(s)
-  const ultima = pendentes[pendentes.length - 1].dueDate
+  const prazo = lastDue ? `, a última em ${lastDue.slice(5, 7)}/${lastDue.slice(0, 4)}` : ''
   return [
-    `Falta ${fmtBRL(falta)} do ${sentenceCase(p.description)}: ${pendentes.length} ${pendentes.length === 1 ? 'parcela' : 'parcelas'}, a última em ${ultima.slice(5, 7)}/${ultima.slice(0, 4)} (dado real).`,
+    `Falta ${fmtBRL(falta)} do ${sentenceCase(progress.plan.description)}: ${progress.remainingCount} ${progress.remainingCount === 1 ? 'parcela' : 'parcelas'}${prazo} (dado real).`,
     `Quitar antes só compensa se o cartão der DESCONTO pela antecipação — sem desconto, você paga os mesmos ${fmtBRL(falta)}, só que agora. Peça o valor de antecipação no app do cartão: o que ficar abaixo de ${fmtBRL(falta)} é o que você economiza.`,
     saldo >= falta
       ? `Seu saldo hoje é ${fmtBRL(saldo)}; quitando tudo, ficaria ${fmtBRL(round2(saldo - falta))}, antes das contas que ainda vencem.`

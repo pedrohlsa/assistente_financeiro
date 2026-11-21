@@ -11,6 +11,7 @@
 // ambiguidade, que aquele número descreve um mundo que ainda não existe.
 
 import type { AssistantFact } from '../query/types'
+import type { PayoffQuote } from './payoff'
 
 export const SCENARIO_DSL_VERSION = 2 as const
 
@@ -19,6 +20,7 @@ export type ScenarioKind =
   | 'spend'           // "se eu gastar 500 agora, quanto sobra?"
   | 'purchase'        // "se eu comprar um pc de 4000 em 10x no nubank"
   | 'save'            // "se eu guardar 500 por mês, quando bato a meta?"
+  | 'payoff'          // "e se eu quitar o computador por 950?"
   | 'pay-invoice'     // "se eu pagar a fatura inteira hoje"
   | 'income-missing'  // "se a Casa 1 não pagar este mês"
   | 'extra-work'      // motorista: "se eu fizer mais 3 horas por dia"
@@ -51,6 +53,7 @@ export interface AssistantScenarioPlan {
   /** Meses entre hoje e a data da compra simulada. */
   purchaseDelayMonths?: number
   cardName?: string
+  payoffQuote?: PayoffQuote
   /** Horizonte em meses para projetar. */
   months?: number
   /** Primeiro mês em que uma reserva começa (inclusive). */

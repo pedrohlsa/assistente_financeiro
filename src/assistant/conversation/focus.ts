@@ -30,6 +30,7 @@ import type { PlannedQuery } from '../query/parse'
 import type { AssistantQueryPlan, AssistantQueryResult, FactUnit, QueryPeriod } from '../query/types'
 import type { AssistantScenarioPlan, AssistantScenarioResult } from '../scenario/types'
 import { parsePurchaseDelay } from '../scenario/parse'
+import { readPayoffQuote } from '../scenario/payoff'
 import { INCOME_LOSS_WINDOW_LIMIT, readIncomeLossDuration, validIncomeLossDuration } from '../scenario/incomeWindow'
 import { answerVehicleCost } from '../vehicleCost'
 import type { ChangeAnalysis } from '../drivers'
@@ -484,6 +485,12 @@ function refinaCenario(focus: ConversationFocus, t: string, today: string): Assi
     }
     return duration && validIncomeLossDuration(duration) ? { ...base, incomeLossDuration: duration, planningIssue: undefined }
       : { ...base, planningIssue: INCOME_LOSS_WINDOW_LIMIT }
+  }
+
+  if (base.kind === 'payoff' && base.description
+    && /^(?:e(?:\s+se)?|agora|entao)\s+(?:(?:sair|for|ficar)\s+)?(?:por|com\s+desconto\s+de)\b/.test(t)) {
+    const revised = readPayoffQuote(t)
+    if (revised.quote && !revised.conflict) return { ...base, payoffQuote: revised.quote, planningIssue: undefined }
   }
 
   const atraso = base.kind === 'purchase' && parsePurchaseDelay(t)

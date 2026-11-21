@@ -15,6 +15,7 @@ import { usableCategories, CATEGORY_KEYWORDS } from '../../data/categories'
 import { normalizeNumberWords } from '../numbers'
 import { SCENARIO_DSL_VERSION } from './types'
 import { guardarEsteMes } from '../cashQuestions'
+import { readPayoffQuote } from './payoff'
 import { incomeLossEnd, isRentalIncome, matchesIncomeSource, readIncomeLossDuration } from './incomeWindow'
 import type { AssistantScenarioPlan, DrivingScenario, ScenarioKind } from './types'
 
@@ -330,9 +331,26 @@ function planSingleScenario(
     }
   }
 
-  // Parar de guardar e antecipar uma dívida ainda não são transformações
-  // representadas. O “3” é duração, nunca R$ 3 por mês.
+  // Parar de guardar ainda não está representado. O “3” é duração, nunca R$ 3 por mês.
   if (/\bparar\s+de\s+(?:guardar|poupar|juntar|separar)\b/.test(t)) return null
+
+  // Uma quitação hipotética se refere ao plano, sem baixar as suas parcelas.
+  const quitacao = t.match(/\b(?:quitar|antecipar|adiantar)\s+(?:(?:o|a|os|as)\s+)?(?:(?:parcelamento|parcelas)\s+d[oa]\s+)?(.+)$/)
+  if (quitacao && !/^fatura[s]?\b/.test(quitacao[1])) {
+    const named = readPayoffQuote(quitacao[1])
+    const wholeCard = (state.cards || []).find(c => normalizeName(c.name) === named.name)
+    if (wholeCard && /\binteir[ao]\b/.test(quitacao[1])) return base('pay-invoice', { cardName: wholeCard.name }, 'pagar a fatura')
+    const [qualified] = (state.cards || []).flatMap(card => {
+      const suffix = ['do', 'da', 'no', 'na', 'pelo', 'pela'].map(article => ` ${article} ${normalizeName(card.name)}`)
+        .find(candidate => named.name.endsWith(candidate))
+      return suffix ? [{ cardName: card.name, description: named.name.slice(0, -suffix.length) }] : []
+    })
+    const description = qualified?.description || named.name
+    const planningIssue = named.conflict ? 'Informe só o preço final da quitação ou só o desconto oferecido.'
+      : /\b(?:amanha|mes\s+que\s+vem|mes\s+seguinte|daqui\s+a|dia\s+\d+)\b/.test(quitacao[1])
+        ? 'Esta conta usa o saldo de hoje. Diga se quer simular a quitação hoje.' : undefined
+    return base('payoff', { description, cardName: qualified?.cardName, payoffQuote: named.quote, planningIssue }, 'quitar um parcelamento')
+  }
 
   // ---- pagar a fatura -----------------------------------------------------
   const cartaoDaFatura = cartaoDe(state, t, state.cards || [])
