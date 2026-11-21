@@ -106,7 +106,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const hoje = '2026-11-21'
     const ontem = '2026-11-20'
     const state = buildState({ profile: 'other', balance: 800 })
-    state.cards = [{ id: 'compra-data-nu', name: 'Nubank', closingDay: 20, dueDay: 25, limit: 4000, active: true }]
+    state.cards = [{ id: 'compra-data-nu', name: 'Nubank', closingDay: 20, dueDay: 25, limit: 4000, createdAt: hoje }]
     const send = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({
       state, today: hoje, message, remoteEnabled: false, draft: prior?.draft || undefined,
       pending: prior?.response.actions, pendingClarification: prior?.response.mode === 'clarify' ? prior.response.clarification : undefined,
@@ -123,6 +123,32 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       started.response.mode === 'clarify' && !started.response.actions.length && /ontem|20\/11\/2026/.test(atSight.response.reply)
       && credited.applied && plan?.purchaseDate === ontem && plan.firstDueDate === '2026-11-25'
       && installment?.dueDate === '2026-11-25' && installment.amount === 80 && credited.state.transactions.length === 0))
+
+    const mixed = await send('paguei 20 de ônibus hoje e passei 80 no cartão ontem')
+    const merged = await send('à vista', mixed)
+    const all = commit(merged)
+    const already = commit(mixed)
+    const onlyCard = await orchestrate({ state: already.state, today: hoje, message: 'à vista',
+      draft: mixed.draft, remoteEnabled: false })
+    const afterPartial = applyBatchPure(already.state, onlyCard.response.actions, { now: { date: hoje, time: '15:01' } })
+    out.push(result('CD-compra-e-despesa-distintas-com-confirmacao-parcial', { mixed, merged, afterPartial: afterPartial.results },
+      'o cartão espera as parcelas de R$ 80; o ônibus de R$ 20 mantém a data e é aplicado uma vez, mesmo com confirmação parcial',
+      mixed.response.mode === 'clarify' && mixed.response.actions.length === 1
+      && merged.response.actions.length === 2 && merged.correctedPending?.[0].id === mixed.response.actions[0].id
+      && all.applied && all.state.transactions[0]?.amount === 20 && all.state.transactions[0]?.date === hoje
+      && all.state.installmentPlans[0]?.totalAmount === 80 && all.state.installmentPlans[0]?.purchaseDate === ontem
+      && already.applied && afterPartial.applied && afterPartial.state.transactions.length === 1
+      && afterPartial.state.installmentPlans.length === 1))
+
+    const rent = await send('ontem passei 80 no cartão e recebi 60 de aluguel')
+    const rentAndCard = commit(await send('à vista', rent))
+    const realLoan = await send('passei 2.000 em 5x e recebi 1.850,00')
+    out.push(result('CD-aluguel-independente-nao-e-entrada-financiada', { rent, rentAndCard: rentAndCard.results, realLoan },
+      'R$ 60 são aluguel; a compra no cartão é R$ 80; a entrada financiada de R$ 1.850 é mantida quando há relação',
+      rentAndCard.applied && rentAndCard.state.transactions[0]?.type === 'income'
+      && rentAndCard.state.transactions[0]?.amount === 60 && rentAndCard.state.installmentPlans[0]?.totalAmount === 80
+      && realLoan.response.actions.length === 1 && realLoan.response.actions[0].action.kind === 'financed-cash-inflow'
+      && realLoan.response.actions[0].action.netReceived === 1850))
 
     const debit = commit(await send('foi no débito', started))
     const [expense] = debit.state.transactions

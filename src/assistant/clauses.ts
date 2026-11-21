@@ -8,7 +8,7 @@
 import type { ParsedAction } from '../models/types'
 import type { AssistantConfidence, AssistantIntent, FinancialEvent } from './contracts'
 import { guessCategory } from '../data/categories'
-import { cleanDescription, DECIMO_TERCEIRO, gruposDeCorrida, looksRecurring, parseNaturalFull, UMA_CORRIDA_NOMEADA } from '../services/nlp'
+import { cleanDescription, DECIMO_TERCEIRO, financedCardMentions, gruposDeCorrida, looksRecurring, parseNaturalFull, UMA_CORRIDA_NOMEADA } from '../services/nlp'
 import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
@@ -460,14 +460,13 @@ const CORRECTION_CONTRAST = /^\s*n[ãa]o\s+(?:foi|era)\s+[^.!?]+?\s+(?:foi|era)\
 const CORRECTED_AMOUNT = /^(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s*(?:reais?|contos?)\b)?/i
 
 const PROTECTED: RegExp[] = [
-  /(?:passei|passou|fiz)\s+(?:r\$\s*)?[\d.,]+[^.;!?]*?(?:recebi|receber|peguei|caiu)\s+(?:r\$\s*)?[\d.,]+/gi,
   /comprei[^.;!?]*?\b(?:em|x)\s*\d+\s*(?:vez(?:es)?|x|parcelas?)/gi,
   /"[^"\n]{1,512}"|“[^”\n]{1,512}”|‘[^’\n]{1,512}’/g,
   new RegExp(String.raw`(?:^|[.!?;]\s+)${EXAMPLE_CUE}(?:[^.!?]|\.(?!\s|$)){1,512}`, 'gi'),
 ]
 
 export function segment(text: string, today = todayISO()): { text: string; start: number; end: number }[] {
-  const guarded: [number, number][] = []
+  const guarded: [number, number][] = financedCardMentions(text).map(m => [m.index!, m.index! + m[0].length])
   for (const re of PROTECTED) {
     for (const m of text.matchAll(re)) {
       if (m.index !== undefined) guarded.push([m.index, m.index + m[0].length])

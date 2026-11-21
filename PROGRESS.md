@@ -6634,3 +6634,15 @@ até auditoria independente.
   vencimento anterior à compra.
 - Chrome local verificou crédito e débito. A suíte passou com 1.180/1.180
   regressões adversariais e 151/151 invariantes.
+
+## 21/11/2026 — Compra no cartão junto de outros fatos
+
+- “Paguei 20 de ônibus hoje e passei 80 no cartão ontem” mantém a
+  despesa de R$ 20 e pergunta quantas parcelas teve a compra de R$ 80.
+  A resposta reaproveita somente os itens que ainda estão pendentes.
+- “Passei 80 no cartão e recebi 60 de aluguel” mantém o aluguel como
+  receita independente. “Passei 2.000 em 5x e recebi 1.850” continua
+  como entrada financiada. O mesmo reconhecedor delimita o trecho
+  no segmentador e no parser.
+- Chrome confirmou primeiro o ônibus, depois a compra, cada um
+  uma vez. A suíte passou com 1.182/1.182 regressões adversariais.

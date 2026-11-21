@@ -36,6 +36,8 @@ export interface AssistantDraft {
    * isso, o rascunho volta a ser esta despesa, com data e hora da frase.
    */
   fallbackExpense?: ParsedAction
+  /** Ações independentes que apareceram junto do rascunho e ainda podem estar na tela. */
+  companion?: { before: string[]; after: string[] }
 }
 
 /** Rascunho velho não pode ressuscitar no meio de outra conversa. */

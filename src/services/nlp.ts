@@ -816,10 +816,28 @@ function resolvePolaridade(input: string, actions: ParsedAction[]): ParseResult 
  * Regra: nada é inventado. Se faltar valor ou nº de parcelas, não gera ação —
  * o assistente pergunta o que falta em vez de chutar.
  */
+const FINANCED_CARD = new RegExp(
+  String.raw`(?<![\wÀ-ÿ])(?:passei|passou|fiz)\s*(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:no cart[ãa]o\s*)?(?:em|x|vez(?:es)?)?\s*(\d+)?\s*(?:vez(?:es)?|x|parcelas?)?[^\d.;!?]*?(?:recebi|receber|peguei|caiu)\s*(?:r\$)?\s*${NUM}(?!\d|[.,]\d)`, 'gi')
+
+/** Só protege a frase inteira quando a entrada realmente pertence à dívida. */
+export function financedCardMentions(text: string): RegExpMatchArray[] {
+  return [...text.matchAll(FINANCED_CARD)].filter(match => {
+    const start = match.index
+    const amount = parseNum(match[1])
+    const received = parseNum(match[3])
+    const preceding = match[0].split(/\b(?:recebi|receber|peguei|caiu)\b/i)[0]
+    if (!(amount > 0 && received > 0 && received <= amount)
+      || !/\b(?:cart[ãa]o|cr[ée]dito)\b|\d+\s*(?:x|vez(?:es)?|parcelas?)\b/i.test(preceding)) return false
+    const tail = text.slice(start + match[0].length).replace(new RegExp(String.raw`^\s+${MOEDA}\b`, 'i'), '').trimStart()
+    // “Recebi 60 de aluguel” nomeia outro evento. Origem compatível com a
+    // operação pode aparecer junto do líquido, como “pela maquininha”.
+    return !/^(?:d[aeo]|pelo|pela|por|via)\s+(?!(?:maquininha|cart[ãa]o|cr[ée]dito|intermedi[áa]ri[oa])\b)/i.test(tail)
+  })
+}
+
 function parseCardClause(text: string): ParsedAction[] {
   // "passei 2000 em 5 vezes e recebi 1850 líquidos" — entrada financiada (seção 7)
-  const financed = text.match(new RegExp(
-    String.raw`(?:passei|passou|fiz)\s*(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:no cart[ãa]o\s*)?(?:em|x|vez(?:es)?)?\s*(\d+)?\s*(?:vez(?:es)?|x|parcelas?)?[^\d]*(?:e\s*)?(?:recebi|receber|peguei|caiu)\s*(?:r\$)?\s*${NUM}`, 'i'))
+  const [financed] = financedCardMentions(text)
   if (financed) {
     const total = parseNum(financed[1])
     const net = parseNum(financed[3])

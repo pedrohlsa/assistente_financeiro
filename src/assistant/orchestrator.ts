@@ -1700,6 +1700,10 @@ Confirmar?`,
 
   // ---- 4) A mensagem responde a uma pergunta pendente? -------------------
   if (isDraftFresh(input.draft)) {
+    const placement = input.draft?.companion
+    const before = input.pending?.filter(p => placement?.before.includes(p.id)) ?? []
+    const after = input.pending?.filter(p => placement?.after.includes(p.id)) ?? []
+    const companion = [...before, ...after]
     const res = resolveDraftAnswer(input.draft!, input.message, caps, today)
     if (!res.unmatched) {
       if (res.draft.status === 'ready') {
@@ -1718,6 +1722,14 @@ Confirmar?`,
             },
           }
         }
+        if (companion.length) {
+          if (companion.length >= MAX_ACTIONS_PER_BATCH) return preparedActionResponse(input.state, {
+            actions: [], clarification: undefined, notes: ['Confirme alguns itens antes de acrescentar esta compra.'],
+          }, companion)
+          const actions = [...before, candidate(v.action, 'local'), ...after]
+          const output = preparedActionResponse(input.state, { actions, notes: [], clarification: undefined })
+          return { ...output, correctedPending: actions }
+        }
         const cand = [candidate(v.action, 'local')]
         return {
           draft: null,
@@ -1730,7 +1742,7 @@ Confirmar?`,
       }
       const nextQ = res.draft.missingFields[0]
       return {
-        draft: res.draft,
+        draft: res.draft, keepPending: companion.length > 0,
         response: {
           version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
           actions: [], unresolved: [],
@@ -2529,32 +2541,45 @@ Confirmar?`,
   // R$ 80 saíam do saldo de novo (regra 10). É o fluxo de "comprei uma
   // geladeira de 3000 no cartão": pergunta as parcelas ("à vista" é 1x).
   if (!clarification && !notasDeFatura.size) {
-    const compra = compraNoCartao(mensagem, candidates, caps, today)
-    if (compra) {
+    const purchases = analysis.clauses.flatMap(clause => {
+      if (clause.localExplanation || clause.unrealized || clause.intention || clause.temporal || clause.ambiguity
+        || clause.intent === 'conversation' || clause.intent === 'correction' || looksNegated(clause.text)) return []
+      const scoped = candidates.filter(c => c.clauseId === clause.id)
+      const compra = compraNoCartao(clause.text, scoped, caps, today)
+      return compra ? [{ clause, scoped, compra }] : []
+    })
+    if (purchases.length) {
+      const ids = new Set(purchases.map(p => p.clause.id))
+      const other = candidates.filter(c => !ids.has(c.clauseId))
+      if (purchases.length > 1) {
+        const question = 'Você descreveu mais de uma compra no cartão. Diga uma de cada vez, com o valor e o número de parcelas.'
+        return preparedActionResponse(input.state, { actions: other, notes: [], clarification: { question, field: 'installments' } })
+      }
+      const [{ clause, scoped, compra }] = purchases
+      if (compra.partial.kind === 'card-purchase' && !compra.partial.date && clause.date) compra.partial.date = clause.date
       const d = newDraft(compra, input.message, caps)
-      if (candidates.length === 1 && candidates[0].action.kind === 'expense') {
-        const despesa: any = { ...candidates[0].action }
-        const semMeio = (despesa.description || '').replace(/\s*\b(?:no|na|pelo|pela)\s+(?:cart[ãa]o(?:\s+de\s+cr[ée]dito)?|cr[ée]dito)\b/gi, '').trim()
-        despesa.description = semMeio ? sentenceCase(semMeio) : undefined
-        if (!despesa.description) delete despesa.description
-        d.fallbackExpense = despesa
-      } else if (compra.partial.kind === 'card-purchase' && compra.partial.total) {
+      const [source] = scoped
+      if (compra.partial.kind === 'card-purchase' && compra.partial.total) {
         const { total, date, category, description } = compra.partial
-        d.fallbackExpense = { kind: 'expense', amount: total, date, category, description }
+        d.fallbackExpense = { kind: 'expense', amount: total, date,
+          category: category ?? (source?.action.kind === 'expense' ? source.action.category : undefined),
+          description, time: source?.action.kind === 'expense' ? source.action.time : undefined }
       }
-      const q = { ...d.missingFields[0] }
-      if (q.field === 'installments') q.question = 'Em quantas parcelas? Se foi à vista, diga "à vista"; se foi no débito, diga "débito".'
-      return {
-        draft: d,
-        response: {
-          version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
-          actions: [], unresolved: [],
-          clarification: { question: q.question, field: q.field, options: q.options },
-          reply: q.question,
-        },
+      const earlier = new Set(analysis.clauses.filter(part => part.start < clause.start).map(part => part.id))
+      d.companion = {
+        before: other.filter(c => earlier.has(c.clauseId)).map(c => c.id),
+        after: other.filter(c => !earlier.has(c.clauseId)).map(c => c.id),
       }
+      const q = d.missingFields[0]
+      const question = q.field === 'installments'
+        ? `${other.length && compra.partial.kind === 'card-purchase' ? `Em quantas parcelas foi a compra de ${fmtBRL(compra.partial.total)}?` : 'Em quantas parcelas?'} Se foi à vista, diga "à vista"; se foi no débito, diga "débito".`
+        : q.question
+      const result = preparedActionResponse(input.state, { actions: other, notes: [],
+        clarification: { question, field: q.field, options: q.options } })
+      return { ...result, draft: d }
     }
   }
+
 
   // ---- 13) Intenção incompleta vira rascunho ------------------------------
   if (!candidates.length && !clarification && !notasDeContaFixa.length && !notasDeFatura.size) {
