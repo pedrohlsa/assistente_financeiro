@@ -31,6 +31,7 @@ import { normalizeName, sentenceCase } from '../../utils/text'
 import { isDriver } from '../../services/profile'
 import { buildPersonalModel, adaptiveEnabled } from '../personalModel'
 import { pareceChegada, pedeProximaEntrada } from '../arrival'
+import { DIA_TIPICO } from '../driverInsights'
 import { pedeFimDoMes, guardarEsteMes, pedeAntecipacaoDeFatura, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeDividaTotal, pedeFimDoParcelamento, pedeListaDeParcelamentos, pedeQuantoPossoGastar, pedeLimite, pedeMaiorParcela, pedeSobraSemCombustivel, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, perguntaDeManutencao, planoDeGuardar } from '../cashQuestions'
 import {
   currentMonthToDate, mesAFrente, monthPeriod, nextMonths, parseFutureMonth, parsePeriod, previousPeriod,
@@ -184,6 +185,9 @@ export function looksLikeDataQuestion(input: string): boolean {
   // "O salário já caiu?", "a Casa 2 já pagou?": chegada de dinheiro, não
   // comparação — "caiu" lido pela DSL respondia "Não, subiu" com o GASTO.
   if (pareceChegada(input) || pedeProximaEntrada(input)) return false
+  // "Como é meu dia típico?", "quanto eu faço num dia normal": o RITMO
+  // diário, não o total do período — quem responde é o `driverInsight`.
+  if (DIA_TIPICO.test(t)) return false
   if (pedeFimDoMes(t) || guardarEsteMes(t) !== null || pedeReservaDeCaixa(t) || pedeContaQueAperta(t) || pedeTotalGuardado(t) || (fatura && !faturaDaJanela) || pedeAntecipacaoDeFatura(t)
     || pedeContasAPagar(t) || planoDeGuardar(t) || perguntaDeManutencao(t)
     || pedeContasFixas(t) || pedeSobraSemCombustivel(t) || pedeLimite(t)
@@ -386,6 +390,9 @@ function lerFonte(t: string, driver: boolean, metas: string[] = []): { valor: Fo
   if (driver) {
     const dr: [RegExp, FonteLida][] = [
       [/\bquantos?\s+km\b|\bkm\s+(?:eu\s+)?rode[iu]\b|\bkm\s+(?:rodad|percorr)/, { source: 'work', field: 'km' }],
+      // "Quanto rodei esse mês", "rodei quanto ontem?": para o motorista,
+      // rodar é DISTÂNCIA — a resposta em reais era o total gasto.
+      [/\bquanto\s+(?:(?:eu|que\s+eu|q\s+eu)\s+)?(?:rode[iu]|andei|dirigi|percorri)\b|\b(?:rodei|andei|dirigi|percorri)\s+quanto\b/, { source: 'work', field: 'km' }],
       [/\bquantas?\s+horas\b|\bhoras\s+(?:trabalhad|na\s+rua)/, { source: 'work', field: 'hours' }],
       [/\bquantas?\s+(?:viagens|corridas)\b/, { source: 'work', field: 'trips' }],
       [/\bsemana\s+(?:que\s+)?(?:eu\s+)?(?:mais\s+)?rode[iu]\b|\brode[iu]\s+mais\b/, { source: 'work', field: 'km' }],
@@ -1498,10 +1505,10 @@ const ROTULO_FONTE: Partial<Record<QuerySource, string>> = {
   plans: 'Falta pagar',
   goals: 'Metas',
   recurring: 'Contas previstas',
-  projections: 'Projecao',
+  projections: 'Projeção',
   work: 'Trabalho',
-  fuel: 'Combustivel',
-  maintenance: 'Manutencao',
+  fuel: 'Combustível',
+  maintenance: 'Manutenção',
 }
 
 function rotulo(
@@ -1524,6 +1531,10 @@ function rotulo(
           : source === 'goals' && field === 'saved' ? 'Guardado nas metas'
           : source === 'goals' && field === 'target' ? 'Valor das metas'
           : source === 'recurring' && filter.txType?.length === 1 && filter.txType[0] === 'income' ? 'Entradas previstas'
+          // "Trabalho: 95" não dizia se eram viagens, km ou horas.
+          : source === 'work' && field === 'trips' ? 'Viagens'
+          : source === 'work' && field === 'km' ? 'Km rodados'
+          : source === 'work' && field === 'hours' ? 'Horas trabalhadas'
           : ROTULO_FONTE[source] || m.label
   const cat = filter.categories?.length
     ? (state.categories || []).find(c => c.id === filter.categories![0])?.name

@@ -85,6 +85,8 @@ const semBase = (o_que: string) =>
 // Perguntas
 // ---------------------------------------------------------------------------
 
+/** "Dia típico", "dia normal", "um dia comum": o ritmo diário dele. */
+export const DIA_TIPICO = /\bdias?\s+(?:\w+\s+)?(?:tipic\w+|normal|normais|comum|comuns)\b|\b(?:tipic\w+|normal|comum)\s+dia\b/
 const RE_TIPICO = /\b(?:costum\w+|tipic\w+|normal|em m[ée]dia|m[ée]dia)\b[^?]*\b(?:por dia|no dia|dia|dias)\b|\b(?:quanto|qual)[^?]*\b(?:costum\w+|tipic\w+)\b/
 const RE_DIAS_FORTES = /\b(?:dias?|dia)\b[^?]*\b(?:mais fort\w+|melhor\w*|que rende\w*|mais rende\w*|mais forte)\b|\bmelhores? dias?\b|\bpiores? dias?\b|\bdias? (?:mais )?frac\w+\b/
 const RE_PLATAFORMA = /\b(?:uber|99|indrive|indriver|plataforma|aplicativo)\b[^?]*\b(?:mais|melhor|rende|vem|d[áa]|paga)\b|\b(?:de onde|qual)\b[^?]*\b(?:vem mais|rende mais|paga mais)\b|\bdistribui[çc][ãa]o\b/
@@ -102,7 +104,7 @@ export function driverInsight(s: AppState, input: string): string | undefined {
   if (RE_DIAS_FORTES.test(t)) return diasFortes(s, /pior|frac/.test(t))
   if (RE_PLATAFORMA.test(t)) return porPlataforma(s)
   if (RE_TENDENCIA.test(t)) return tendencia(s)
-  if (RE_TIPICO.test(t)) return diaTipico(s)
+  if (RE_TIPICO.test(t) || DIA_TIPICO.test(t)) return diaTipico(s)
   return undefined
 }
 

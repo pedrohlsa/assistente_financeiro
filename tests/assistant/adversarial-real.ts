@@ -6797,6 +6797,65 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+  // Perguntas de trabalho do motorista que respondiam outra coisa: "quanto
+  // rodei" devolvia o total GASTO, "quantas corridas" um número sem unidade,
+  // "dia típico" a ajuda genérica e "melhor dia esse mês" uma data do mês
+  // anterior.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (t: string) => t.replace(/ /g, ' ')
+    const moto = motoristaRico(hoje)
+    const inicioMes = `${hoje.slice(0, 8)}01`
+    const kmEntre = (de: string, ate: string) => moto.workSessions.filter(w => w.date >= de && w.date <= ate).reduce((t, w) => t + w.km, 0)
+    const kmFmt = (v: number) => `${Math.round(v).toLocaleString('pt-BR')} km`
+    for (const [id, frase, de, ate] of [
+      ['KR-quanto-rodei-mes', 'quanto rodei esse mês', inicioMes, hoje],
+      ['KR-quanto-rodei-semana', 'quanto rodei essa semana', addDays(hoje, -6), hoje],
+      ['KR-rodei-quanto-ontem', 'rodei quanto ontem?', addDays(hoje, -1), addDays(hoje, -1)],
+      ['KR-quanto-eu-andei', 'quanto eu andei esse mês', inicioMes, hoje],
+    ] as const) {
+      const km = kmEntre(de, ate)
+      const r = await turnoHoje(moto, frase)
+      out.push(result(id, r.reply, km ? kmFmt(km) : 'sem km no período, sem valor em reais',
+        km ? limpa(r.reply).includes(kmFmt(km)) && !/gasto|R\$/.test(r.reply) : !/R\$/.test(r.reply)))
+    }
+    {
+      const viagens = moto.workSessions.filter(w => w.date >= addDays(hoje, -6) && w.date <= hoje).reduce((t, w) => t + w.trips, 0)
+      const r = await turnoHoje(moto, 'quantas corridas eu fiz essa semana')
+      out.push(result('KR-quantas-corridas-unidade', r.reply, `Viagens…: ${viagens}`,
+        new RegExp(`^Viagens[^:]*: ${viagens}\\b`).test(r.reply)))
+      const h = await turnoHoje(moto, 'quantas horas trabalhei essa semana')
+      out.push(result('KR-quantas-horas-rotulo', h.reply, 'Horas trabalhadas…', /^Horas trabalhadas/.test(h.reply)))
+      const l = await turnoHoje(moto, 'quantos litros coloquei esse mês')
+      out.push(result('KR-combustivel-acento', l.reply, 'Combustível com acento', !/Combustivel/.test(l.reply) && /Combustível|litros?|\bL\b/.test(l.reply)))
+    }
+    for (const [id, frase] of [
+      ['KR-dia-tipico', 'como é meu dia típico?'],
+      ['KR-dia-normal', 'quanto eu faço num dia normal'],
+      ['KR-dia-normal-2', 'como é um dia normal meu'],
+    ] as const) {
+      const r = await turnoHoje(moto, frase)
+      out.push(result(id, r.reply, 'ritmo diário (faturamento por dia)',
+        /por dia/.test(r.reply) && /Faturamento/.test(r.reply) && !/Posso te ajudar/.test(r.reply)))
+    }
+    {
+      const doMes = new Map<string, number>()
+      for (const t of moto.transactions) {
+        if (t.date < inicioMes || t.date > hoje) continue
+        const v = t.type === 'income' ? t.amount : t.type === 'expense' ? -t.amount : 0
+        doMes.set(t.date, (doMes.get(t.date) || 0) + v)
+      }
+      const melhor = [...doMes].sort((a, b) => b[1] - a[1])[0]
+      const r = await turnoHoje(moto, 'qual foi meu melhor dia esse mês')
+      const data = melhor ? fmtDateShort(melhor[0]) : ''
+      out.push(result('KR-melhor-dia-do-mes', r.reply, melhor ? `${melhor[0]} com ${brl(melhor[1])}` : 'sem dia no mês',
+        !!melhor && /este m[eê]s/.test(r.reply) && limpa(r.reply).includes(brl(melhor[1]))
+          && r.reply.includes(`${melhor[0].slice(8, 10)}/${melhor[0].slice(5, 7)}`) && !!data))
+      const semana = await turnoHoje(moto, 'qual foi meu pior dia essa semana')
+      out.push(result('KR-pior-dia-da-semana', semana.reply, 'diz "últimos 7 dias"', /7 dias/.test(semana.reply)))
+    }
+  }
+
   return out
 }
 

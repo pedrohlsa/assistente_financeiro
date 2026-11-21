@@ -20,7 +20,7 @@ import { normalizeName, promptSafe, sentenceCase } from '../utils/text'
 import { MAX_COMPOSE_FACTS } from '../assistant/grounding'
 import { MARGEM_EMPATE } from '../assistant/query/answer'
 import {
-  analyzeRide, avgDailyProfit, balanceOutlook, balanceOutlookText, bestWorstDay, cashObligationsUntil, currentBalance, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
+  analyzeRide, avgDailyProfit, balanceOutlook, balanceOutlookText, cashObligationsUntil, dailySeries, currentBalance, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
   monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections, budgetUsage,
   describeRecurrence, occurrencesBetween, recurrenceStep, recurringActiveOn, recurringOccurrenceState, savedThisMonth, monthForecast,
 } from './calc'
@@ -1334,10 +1334,24 @@ function resolveLocal(s: AppState, input: string): AiReply {
 
   // "qual foi meu melhor dia"
   if (/melhor dia|pior dia|(?:qual|que)\s+dia\s+(?:eu\s+)?(?:fiz|ganhei|faturei|rendeu)\s+mais|dia\s+que\s+(?:eu\s+)?mais\s+(?:fiz|ganhei)/.test(t)) {
-    const { best, worst } = bestWorstDay(s)
-    if (!best) return { text: 'Ainda não há dados suficientes nos últimos 30 dias.' }
-    if (/pior/.test(t)) return { text: `Seu pior dia nos últimos 30 dias foi ${fromISO(worst!.date).toLocaleDateString('pt-BR')}, com lucro de ${fmtBRL(worst!.profit)}.` }
-    return { text: `Seu melhor dia nos últimos 30 dias foi ${fromISO(best.date).toLocaleDateString('pt-BR')}, com lucro de ${fmtBRL(best.profit)} (${fmtBRL(best.income)} de receitas).` }
+    // O período DITO manda: "melhor dia esse mês" respondia com 29/08, de
+    // outro mês, porque a janela era sempre os últimos 30 dias.
+    const hoje = todayISO()
+    const inicioMes = `${hoje.slice(0, 8)}01`
+    const janela = /\bmes\s+passado\b/.test(t)
+      ? { de: addDays(inicioMes, -1).slice(0, 8) + '01', ate: addDays(inicioMes, -1), rotulo: 'no mês passado' }
+      : /\b(?:ess[ea]|est[ea]|nesse|neste|do)\s+mes\b/.test(t)
+        ? { de: inicioMes, ate: hoje, rotulo: 'este mês' }
+        : /\bsemana\b/.test(t)
+          ? { de: addDays(hoje, -6), ate: hoje, rotulo: 'nos últimos 7 dias' }
+          : { de: addDays(hoje, -29), ate: hoje, rotulo: 'nos últimos 30 dias' }
+    const dias = Math.round((fromISO(hoje).getTime() - fromISO(janela.de).getTime()) / 86400000) + 1
+    const serie = dailySeries(s, dias).filter(d => d.date >= janela.de && d.date <= janela.ate && (d.income > 0 || d.expense > 0))
+    if (!serie.length) return { text: `Não tenho movimentação registrada ${janela.rotulo} para apontar um dia.` }
+    const ordenada = [...serie].sort((a, b) => b.profit - a.profit)
+    const best = ordenada[0], worst = ordenada[ordenada.length - 1]
+    if (/pior/.test(t)) return { text: `Seu pior dia ${janela.rotulo} foi ${fromISO(worst.date).toLocaleDateString('pt-BR')}, com lucro de ${fmtBRL(worst.profit)}.` }
+    return { text: `Seu melhor dia ${janela.rotulo} foi ${fromISO(best.date).toLocaleDateString('pt-BR')}, com lucro de ${fmtBRL(best.profit)} (${fmtBRL(best.income)} de receitas).` }
   }
 
   // "quanto eu COSTUMO gastar de suco por dia?" — a pergunta é sobre o hábito,
