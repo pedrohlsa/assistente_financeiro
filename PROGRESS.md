@@ -6935,3 +6935,10 @@ até auditoria independente.
 - Datas incertas continuam pendentes. Frete já incluído fica no
   total enquanto a pessoa escolhe o dia, inclusive no mês passado.
   Suíte com 1.344/1.344 regressões.
+
+## 21/11/2026 — Plataforma citada antes do valor
+
+- “Na Uber recebi 120”, “pela 99 entrou 88” e “na inDrive ganhei 43”
+  mantêm a plataforma em Corridas sem inventar viagens.
+- Em “na Uber recebi 120 da Maria”, o nome declarado continua como
+  a origem. Suíte com 1.348/1.348 regressões.

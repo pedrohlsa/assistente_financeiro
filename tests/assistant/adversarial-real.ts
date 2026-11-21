@@ -6572,6 +6572,21 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('MF-nome-substitui-plataforma', editada.response.actions, 'R$ 110 da Maria em Outros',
       editada.response.actions.length === 1 && acao.kind === 'income' && acao.amount === 110 && acao.origin === 'Maria'
         && acao.category === 'outros-in' && !acao.description && !acao.is99))
+    for (const [id, phrase, amount, platform] of [
+      ['uber-antes', 'na Uber recebi 120 ontem', 120, 'Uber'],
+      ['99-antes', 'pela 99 entrou 88', 88, '99'],
+      ['indrive-antes', 'na inDrive ganhei 43 hoje', 43, 'inDrive'],
+    ] as const) {
+      const r = await turnoHoje(falado, phrase)
+      const [entry] = r.actions
+      out.push(result(`MF-${id}`, r.actions, `entrada de ${amount} na plataforma ${platform}, sem viagem inferida`,
+        r.actions.length === 1 && entry.kind === 'income' && entry.amount === amount
+          && entry.category === 'corridas' && entry.description === platform))
+    }
+    const otherPayer = await turnoHoje(falado, 'na Uber recebi 120 da maria')
+    out.push(result('MF-app-no-contexto-e-pagador-dito', otherPayer.actions, 'R$ 120 da Maria em Outros',
+      otherPayer.actions.length === 1 && otherPayer.actions[0].kind === 'income'
+        && otherPayer.actions[0].origin === 'Maria' && otherPayer.actions[0].category === 'outros-in'))
     const controle = await turnoHoje(buildState({ profile: 'driver' }), 'recebi 110 do uber')
     // A plataforma é origem: Corridas, mas sem viagem inventada (regra 34).
     out.push(result('MF-uber-continua-corrida', controle.actions, 'Corridas, sem viagem inventada',

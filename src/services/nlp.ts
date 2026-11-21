@@ -543,6 +543,10 @@ export const RIDE_CONDITIONAL = /^(?:eu\s+)?(?:tiraria|ganharia|receberia|render
 export const NEXT_RIDE_DISTANCE = /^\s*(?:a\s+)?outra(?=\s+(?:de|por)\s+[^.;!?]*\d\s*(?:kms?|quil[oô]metros?)\b)/i
 
 const APP_DE_CORRIDA = String.raw`(?:uber|99|in\s*drive[r]?)`
+export const INCOME_PLATFORM_PREFIX = new RegExp(
+  String.raw`^\s*(?:(?:hoje|ontem|anteontem|eu|j[áa])\s+){0,3}(?:n[ao]|pel[ao]|d[ao])\s+(${APP_DE_CORRIDA})\s+(?:(?:hoje|ontem|anteontem|eu|j[áa])\s+){0,3}(?=(?:fiz|ganhei|recebi|faturei|entrou|caiu|pingou)\b)`, 'i',
+)
+const DISTINCT_INCOME_SOURCE = /^\s+d[aoe]\s+(?!(?:pix|dinheiro|transfer[eê]ncia|corridas?)\b)\p{L}/iu
 const AVISO_DE_CORRIDA = String.raw`(?:oferta|chamada|proposta|solicita[çc][ãa]o)`
 const UMA_OFERTA = String.raw`(?:(?:uma|a|outra|nova|essa|esta)\s+)?`
 export const RIDE_OFFER_NOTICE = new RegExp(
@@ -1301,6 +1305,7 @@ function parseClause(input: string): ParsedAction[] {
       String.raw`(?:\b(?:ganhei|recebi|faturei|lucrei|entrou|caiu|cairam|pingou|fiz)\s*(?:mais\s+)?|\bmais\s+)(?:r\$)?\s*${NUM}\s*${MOEDA}?(?:\s+(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(uber|99|indriver|corrida(?:\s+privada)?))?`,
       'gi',
     )
+    const prefixPlatform = text.match(INCOME_PLATFORM_PREFIX)
     for (const inc of text.matchAll(incRe)) {
       const at = inc.index || 0
       const tail = text.slice(at)
@@ -1312,10 +1317,11 @@ function parseClause(input: string): ParsedAction[] {
       const afterAmount = text.slice(at + inc[0].length)
       if (MEASURE_AFTER_AMOUNT.test(afterAmount)) continue
       const nearbyPlatform = afterAmount.match(/^\s*(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(uber|99|indriver|corrida(?:\s+privada)?)/i)
-      const platform = (inc[2] || nearbyPlatform?.[1] || '').trim().toLowerCase()
+      const firstPlatform = prefixPlatform?.[0].length === at && !DISTINCT_INCOME_SOURCE.test(afterAmount) ? prefixPlatform[1] : undefined
+      const platform = (inc[2] || nearbyPlatform?.[1] || firstPlatform || '').trim().toLowerCase().replace(/\s+/g, '')
       const description = platform === 'uber' ? 'Uber'
         : platform === '99' ? '99'
-          : platform === 'indriver' ? 'inDrive'
+          : /^indriver?$/.test(platform) ? 'inDrive'
             : platform.includes('privada') ? 'Corrida privada'
               : undefined
       const context = platform || (VERBO_DE_PAGAR.test(text) ? janelaLocal(text, at, at + inc[0].trimEnd().length) : text)

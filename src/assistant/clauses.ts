@@ -8,7 +8,7 @@
 import type { ParsedAction } from '../models/types'
 import type { AssistantConfidence, AssistantIntent, FinancialEvent } from './contracts'
 import { guessCategory } from '../data/categories'
-import { cleanDescription, DECIMO_TERCEIRO, DISTANCE_ON_FOOT, financedCardMentions, gruposDeCorrida, looksRecurring, parseNaturalFull, NEXT_RIDE_DISTANCE, RIDE_COMPARISON_REQUEST, RIDE_CONDITIONAL, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE, UMA_CORRIDA_NOMEADA } from '../services/nlp'
+import { cleanDescription, DECIMO_TERCEIRO, DISTANCE_ON_FOOT, financedCardMentions, gruposDeCorrida, INCOME_PLATFORM_PREFIX, looksRecurring, parseNaturalFull, NEXT_RIDE_DISTANCE, RIDE_COMPARISON_REQUEST, RIDE_CONDITIONAL, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE, UMA_CORRIDA_NOMEADA } from '../services/nlp'
 import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
@@ -1753,7 +1753,9 @@ export function analyzeMessage(
       // Receita com origem própria ("da Casa 2") não é corrida só porque a
       // frase cita Uber em outra parte. Vale para todo perfil; só o motorista
       // tem viagem implícita a descontar.
-      if (a.kind === 'income' && a.category === 'corridas' && !hasRidePlatform && !RIDE_REFERENCE.test(incomeText)
+      const namesReceiptOutsidePlatform = a.kind === 'income' && next.origin && INCOME_PLATFORM_PREFIX.test(comando) && !a.description
+      if (a.kind === 'income' && a.category === 'corridas' && !hasRidePlatform
+        && (!RIDE_REFERENCE.test(incomeText) || namesReceiptOutsidePlatform)
         && (next.origin || (opts?.driver && NON_RIDE_RECEIPT.test(incomeText)))) {
         next.category = 'outros-in'
         if (opts?.driver) fewerTrips++
