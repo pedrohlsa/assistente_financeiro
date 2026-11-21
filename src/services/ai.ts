@@ -21,7 +21,7 @@ import { normalizeName, promptSafe, sentenceCase } from '../utils/text'
 import { MAX_COMPOSE_FACTS } from '../assistant/grounding'
 import { MARGEM_EMPATE } from '../assistant/query/answer'
 import {
-  analyzeRide, avgDailyProfit, balanceOutlook, balanceOutlookText, cashObligationsUntil, dailySeries, fuelSpend, currentBalance, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
+  avgDailyProfit, balanceOutlook, balanceOutlookText, cashObligationsUntil, dailySeries, fuelSpend, currentBalance, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
   monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections, budgetUsage,
   describeRecurrence, occurrencesBetween, recurrenceStep, recurringActiveOn, recurringOccurrenceState, savedThisMonth, monthForecast,
 } from './calc'
@@ -36,6 +36,7 @@ import { CORRIDA_CANCELADA, describeAction, parseNaturalFull, REAJUSTE, SAQUE } 
 import { driverInsight } from '../assistant/driverInsights'
 import { answerVehicleCost, answerVehicleMonthly } from '../assistant/vehicleCost'
 import { answerDrivingShift, perceivesDrivingFatigue, PARE_PARA_DESCANSAR } from '../assistant/driverAdvice'
+import { answerRideOffer } from '../assistant/rideOffer'
 import { avaliacaoDoDia } from '../assistant/dayReview'
 import { respostaDeAtraso, respostaDeChegada, respostaDeProximaEntrada } from '../assistant/arrival'
 import { readInvoiceReference } from '../assistant/invoicePayment'
@@ -954,43 +955,8 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
 
   // ===== Perguntas exclusivas de MOTORISTA =====
 
-  // "essa corrida de 18 reais por 12 km vale a pena?"
-  const rideM = driverMode ? t.match(new RegExp(String.raw`corrida\s*(?:de)?\s*(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?|pila)?\s*(?:por|de|em|pra|para|com|e|,)?\s*${NUM}\s*km`)) : null
-  if (rideM && /vale|compensa|aceit|\bpego\b|\bpegar\b|d[aá]\s+pra/.test(t)) {
-    const r = analyzeRide(s, n(rideM[1]), 0, n(rideM[2]), (n(rideM[2]) / 30) * 60)
-    return {
-      text: `Análise da corrida (estimativa com base nos seus custos):\n\n` +
-        `• ${fmtBRL(r.grossPerKm)}/km bruto\n• ${fmtBRL(r.netPerKm)}/km líquido\n• Lucro estimado: ${fmtBRL(r.profit)}\n\nClassificação: ${r.rating}.` +
-        (r.tone === 'negative' ? ' Eu recusaria essa.' : r.tone === 'positive' ? ' Pode aceitar!' : ' No limite do aceitável.'),
-    }
-  }
-
-  // "vale a pena corrida de 8 reais" — o VALOR sem a distância.
-  // É assim que a pergunta aparece na rua: o app mostra o valor antes do km.
-  // Sem esta resposta a pergunta caía no parser e virava tentativa de
-  // REGISTRO, que é o pior desfecho: perguntar não é gastar nem ganhar.
-  const rideValorM = driverMode && !rideM && /vale\s*(?:a\s*)?pena|aceito|pego|compensa/.test(t)
-    ? t.match(new RegExp(String.raw`(?:corrida|viagem|chamada|corrid[ao])[^\d]{0,12}(?:r\$)?\s*${NUM}|(?:r\$)?\s*${NUM}\s*(?:reais|conto[s]?|pila)`))
-    : null
-  if (rideValorM) {
-    const valor = n(rideValorM[1] || rideValorM[2])
-    const kc = kmCost(s)
-    const custoKm = kc.fuelPerKm + kc.maintenancePerKm + kc.fixedPerKm
-    if (!(valor > 0)) return { text: 'Me diga o valor da corrida que eu comparo com o seu custo por km.' }
-    if (custoKm <= 0) {
-      return {
-        text: `Para dizer se ${fmtBRL(valor)} compensa eu preciso saber quanto seu carro custa por km.\n\n`
-          + 'Registre um abastecimento com o km do hodômetro ("botei 100 de gasolina, hodômetro 220007") que eu calculo com o consumo real do seu carro.',
-      }
-    }
-    const minKm = Math.max(custoKm * 2, custoKm + 0.5)
-    const kmQueCompensa = valor / minKm
-    return {
-      text: `Seu custo é cerca de ${fmtBRL(custoKm)}/km, e o mínimo para lucrar é ${fmtBRL(minKm)}/km.\n\n`
-        + `Então ${fmtBRL(valor)} compensa até cerca de ${fmtNum(kmQueCompensa)} km. Mais que isso e você está pagando para trabalhar.\n\n`
-        + 'Se me disser a distância ("corrida de 8 reais por 3 km") eu faço a conta exata.',
-    }
-  }
+  const oferta = answerRideOffer(s, input, context?.message)
+  if (oferta) return { text: oferta }
 
   // "vale a pena trabalhar mais 3 horas hoje?"
   const hoursM = driverMode ? t.match(new RegExp(String.raw`trabalhar\s*(?:mais)?\s*${NUM}\s*horas?`)) : null

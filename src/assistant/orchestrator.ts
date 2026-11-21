@@ -30,6 +30,7 @@ import { parseDriverDay } from './semantic/driverDay'
 import { parseTypedPairs } from './semantic/pairs'
 import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } from './semantic/normalize'
 import { spokenClock } from './semantic/clock'
+import { answerRideOffer } from './rideOffer'
 import { conflictQuestion, evidenceFor, mergeByField, sameFact } from './semantic/evidence'
 import { classifyLocalDecision } from './semantic/confidence'
 import { modalidadeExplicita, planoContradizModalidade } from './semantic/modality'
@@ -2320,6 +2321,13 @@ Confirmar?`,
   const localNotes = [...new Set(turno.analysis.clauses.flatMap(c => c.localExplanation ? [c.localExplanation] : []))].join('\n\n')
   const onlyLocalContext = !!localNotes && turno.analysis.clauses.every(c => c.intent === 'conversation')
   const temFato = hasBlock(turno, 'record')
+  // Uma oferta com quilômetros e tempo pode parecer consulta financeira ou
+  // lançamento para os leitores gerais. Esta pergunta tem um cálculo próprio.
+  const oferta = localNotes ? undefined : answerRideOffer(input.state, mensagem)
+  if (oferta) return {
+    draft: null, keepPending: true, focus: input.focus,
+    response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply: oferta },
+  }
   const consultaPedeDia = turno.analysis.clauses.some(c => c.ambiguity?.field === 'query-date')
   const groupedDays = !temFato && !consultaPedeDia && hasBlock(turno, 'query') && !hasBlock(turno, 'scenario')
     ? answerListedDays(input.state, mensagem, today) : undefined

@@ -1366,8 +1366,8 @@ function parseClause(input: string): ParsedAction[] {
     // Ordem coloquial: "mais uma corrida de 49 reais" / "fiz uma corrida
     // na 99 no valor de 37". O valor vem depois do substantivo.
     const rideIncomeRe = new RegExp(
-      String.raw`(?:fiz\s+|mais\s+)?(?:uma\s+)?corrida(?:\s+(?:n[ao]|d[ao]|pel[ao]|via)\s*(uber|99|indriver))?\s+(?:de|por|no\s+valor\s+de)\s*(?:r\$)?\s*${NUM}`,
-      'gi',
+      String.raw`(?:fiz\s+|mais\s+)?(?:uma\s+)?corrida(?:\s+(?:n[ao]|d[ao]|pel[ao]|via)\s*(uber|99|indriver))?\s+(?:de|por|no\s+valor\s+de)\s*(?:r\$)?\s*${NUM}(?!\d|[.,]\d|${UNIT_AFTER}(?![\p{L}\p{M}])|\s*(?:kms?|metros?|m|seg(?:undos?)?)(?![\p{L}\p{M}]))`,
+      'giu',
     )
     for (const ride of text.matchAll(rideIncomeRe)) {
       const amount = parseNum(ride[2])

@@ -6699,3 +6699,15 @@ até auditoria independente.
 - A simulação de confirmação e a consulta usam a mesma data no turno.
   A suíte passou com 1.203/1.203 regressões adversariais na data padrão,
   151/151 invariantes e matriz verde nas oito datas.
+
+## 21/11/2026 — Ofertas de corrida e unidades do ditado
+
+- A análise soma os quilômetros até o passageiro aos da viagem e usa
+  o tempo informado. Quando falta custo por km, mostra apenas o bruto.
+  Distâncias conflitantes pedem confirmação. Duas ofertas na mesma frase
+  não geram entradas, e o chat pede que sejam enviadas uma por vez.
+- “Recebi 22 por uma corrida de 8,5 km” propõe apenas R$ 22 e a viagem
+  dita. O parser protege quilômetros, metros e tempo no lugar do valor.
+- Chrome verificou uma oferta de 18 km e 30 min, a resposta ao cansaço
+  e a confirmação de uma única entrada de R$ 22. A suíte passou com
+  1.215/1.215 regressões adversariais.

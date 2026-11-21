@@ -6749,6 +6749,42 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         out.push(result(`MN-analise-${frase.replace(/\W+/g, '-')}`, r.reply.split('\n')[0], `análise com ${brl(bruto)}/km bruto`,
           r.actions.length === 0 && /^Análise da corrida/.test(r.reply) && limpa(r.reply).includes(`${brl(Math.round(bruto * 100) / 100)}/km bruto`)))
       }
+      const oferta = buildState({ profile: 'driver' })
+      oferta.settings.fuelPricePerLiter = 6
+      oferta.settings.kmPerLiter = 12
+      for (const [id, frase, km, bruto, lucro, hora] of [
+        ['RP-embarque-viagem-total', 'vale a pena corrida de 52 reais, 5 km até o passageiro, 13 km de viagem e 30 minutos no total?', 18, 2.89, 43, 86],
+        ['RP-tempos-separados', 'corrida de 17 reais, 2 km pra buscar, 7 km de trajeto, 3 min até o passageiro e 15 min de viagem, compensa?', 9, 1.89, 12.5, 41.67],
+        ['RP-oferta-por-extenso', 'tocou uma corrida de vinte reais, seis km no total e vinte minutos. pego?', 6, 3.33, 17, 51],
+        ['RP-metros', 'corrida de 17 reais, 500 metros até o passageiro e 8,5 km de viagem, pego?', 9, 1.89, 12.5, undefined],
+      ] as const) {
+        const r = await turnoHoje(oferta, frase)
+        const texto = limpa(r.reply)
+        out.push(result(id, r.reply, 'soma os trechos, usa o custo de 0,50/km e o tempo informado',
+          !r.actions.length && texto.includes(`${km} km no total`) && texto.includes(`${brl(bruto)}/km bruto`)
+          && texto.includes(`Lucro estimado de ${brl(lucro)}`)
+          && (hora ? texto.includes(`${brl(hora)}/hora líquida`) : !/\/hora/.test(texto))))
+      }
+      for (const [id, frase, padrao] of [
+        ['RP-km-sem-valor', 'compensa uma corrida de 8 km?', /Qual é o valor/],
+        ['RP-99-nao-e-preco', 'corrida da 99, 8 km no total, vale?', /Qual é o valor/],
+        ['RP-distancias-conflitam', 'corrida de 20 reais, 4 km até o passageiro, 8 km de viagem e 8 km no total, compensa?', /Diga os km totais/],
+        ['RP-duas-ofertas-nao-sao-receita', 'compare corrida de 30 em 10 km ou 50 em 20 km, qual pego?', /uma oferta por vez/],
+        ['RP-sono-depois-da-oferta', 'essa corrida de 30 por 8 km compensa? tô com sono', /^Pare em um local seguro/],
+      ] as const) {
+        const r = await turnoHoje(oferta, frase)
+        out.push(result(id, r.reply, 'explica o ponto pendente sem propor lançamento ou aceitação', padrao.test(r.reply) && !r.actions.length && !/lucro estimado|pode aceitar/i.test(r.reply)))
+      }
+      const semCusto = await turnoHoje(buildState({ profile: 'driver' }), 'compensa corrida de 40 por 12 km?')
+      out.push(result('RP-sem-custo-tem-so-bruto', semCusto.reply, 'R$ 3,33/km bruto e pedido de custo por km',
+        limpa(semCusto.reply).includes(`${brl(3.33)}/km bruto`) && /Cadastre o custo/.test(semCusto.reply)
+        && !/lucro estimado|classificação|pode aceitar/i.test(semCusto.reply) && !semCusto.actions.length))
+      for (const [id, distancia] of [['RP-km-nao-sao-dinheiro', '8,5 km'], ['RP-metros-nao-sao-dinheiro', '500 metros']] as const) {
+        const r = await turnoHoje(oferta, `recebi 22 por uma corrida de ${distancia}`)
+        const rendas = receitas(r.actions)
+        out.push(result(id, r.actions, 'uma receita de R$ 22 e uma viagem explícita',
+          rendas.length === 1 && rendas[0]?.amount === 22 && r.actions.some(a => a.kind === 'work' && a.trips === 1)))
+      }
       const troco = await turnoHoje(mot, 'quando troco o óleo')
       out.push(result('MN-quando-troco-o-oleo', troco.reply.split('\n')[0], 'próxima troca do óleo', /Óleo: próxima troca/.test(troco.reply)))
       const pneu = await turnoHoje(mot, 'quando troco os pneus?')
