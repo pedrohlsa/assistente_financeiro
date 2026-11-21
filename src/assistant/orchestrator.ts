@@ -1726,6 +1726,28 @@ Confirmar?`,
     // de contaminar a próxima mensagem.
   }
 
+  // ---- 4b) "Não, foi no cartão" sobre a despesa na tela -----------------
+  // A compra no crédito nunca é despesa avulsa (regra 10): a proposta vira o
+  // rascunho de compra no cartão, como se a frase tivesse dito isso de início.
+  if (input.pending?.length === 1 && input.pending[0].action.kind === 'expense'
+    && /^\s*(?:n[ãa]o\s*[,.]?\s*)?(?:foi\s+|era\s+|paguei\s+|passei\s+)?(?:no|na|pelo|pela)\s+[\p{L}\s]{3,40}[.!]*\s*$/iu.test(command)) {
+    const compra = compraNoCartao(command, input.pending, caps)
+    if (compra) {
+      const d = newDraft(compra, input.message, caps)
+      d.fallbackExpense = { ...input.pending[0].action }
+      const q = { ...d.missingFields[0] }
+      if (q.field === 'installments') q.question = 'Em quantas parcelas? Se foi à vista, diga "à vista"; se foi no débito, diga "débito".'
+      return {
+        draft: d,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [],
+          clarification: { question: q.question, field: q.field, options: q.options },
+          reply: q.question,
+        },
+      }
+    }
+  }
+
   // ---- 5) A mensagem corrige a proposta na tela? -------------------------
   // "Pode confirmar", "sim", "isso": o registro só acontece no BOTÃO (regra 8).
   // Antes a frase caía na ajuda genérica, e parecia que o app tinha perdido a

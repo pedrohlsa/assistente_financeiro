@@ -6668,6 +6668,25 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('MN-fiz-em-horas', horas.actions, 'receita 450 e 12 horas',
         receitas(horas.actions)[0]?.amount === 450 && (horas.actions.find((a: any) => a.kind === 'work') as any)?.hours === 12))
     }
+
+    // "Não, foi no cartão" no segundo turno vira compra no cartão; a categoria
+    // depois do período continua sendo filtro.
+    {
+      const rico = autonomoRico(hoje)
+      const t1 = await orchestrate({ state: rico, message: 'gastei 80 no mercado', today: hoje, remoteEnabled: false })
+      const t2 = await orchestrate({ state: rico, message: 'não, foi no cartão', today: hoje, remoteEnabled: false, pending: t1.response.actions, focus: t1.focus })
+      out.push(result('MN-segundo-turno-foi-no-cartao', { mode: t2.response.mode, reply: t2.response.reply }, 'pergunta as parcelas',
+        t2.response.mode === 'clarify' && /parcelas/.test(t2.response.reply) && !!t2.draft?.fallbackExpense))
+      const t3 = await orchestrate({ state: rico, message: 'débito', today: hoje, remoteEnabled: false, draft: t2.draft ?? undefined,
+        pendingClarification: t2.response.mode === 'clarify' ? t2.response.clarification : undefined })
+      const d: any = t3.response.actions[0]?.action
+      out.push(result('MN-segundo-turno-era-debito', d, 'despesa 80 Mercado', d?.kind === 'expense' && d.amount === 80 && d.description === 'Mercado'))
+      const semana = addDays(hoje, -6)
+      const lazer = rico.transactions.filter(t => t.type === 'expense' && t.category === 'lazer' && t.date >= semana && t.date <= hoje).reduce((a, t) => a + t.amount, 0)
+      const r = await turnoHoje(rico, 'quanto gastei essa semana com lazer')
+      out.push(result('MN-categoria-depois-do-periodo', r.reply.split('\n')[0], lazer ? `lazer ${brl(lazer)}` : 'sem lazer na semana',
+        /lazer/i.test(r.reply) && (lazer ? limpa(r.reply).includes(brl(lazer)) : true)))
+    }
   }
 
   return out

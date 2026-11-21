@@ -1157,7 +1157,12 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // a pergunta mais comum não tem categoria nenhuma.
   // "Por dia" e "em média" são outra conta, que a consulta faz: aqui saía o
   // total de 7 dias para quem perguntou quanto gasta por dia.
+  // A categoria pode vir DEPOIS do período: "quanto gastei essa semana COM
+  // LAZER" recebia o total da semana inteira. Tirado o período, sobrar "com
+  // X" é filtro — e quem responde é a consulta.
+  const semPeriodo = t.replace(/\b(?:ess[ae]|est[ae]|ness[ae]|nest[ae]|n[ao]|d[ao])\s+(?:semana|mes|m[eê]s|ano|quinzena)(?:\s+passad[ao])?\b|\b(?:hoje|ontem|anteontem)\b|\bultim[ao]s\s+\d+\s+(?:dias|semanas|meses)\b/g, ' ')
   if (/quanto\s+(?:eu\s+)?(?:j[áa]\s+)?(?:gastei|gastou|torrei|saiu|foi)\b(?!\s*(?:com|de|em)\s+[a-zà-ú])/.test(t)
+    && !/\b(?:com|de|em|no|na|nos|nas)\s+(?!r\$)[a-zà-ú]{3,}/.test(semPeriodo.slice(semPeriodo.search(/gastei|gastou|torrei|saiu|foi/)))
     && !/quanto\s+(?:eu\s+)?(?:posso|da\s+para|consigo)/.test(t)
     && !/\bpor\s+(?:dia|semana|mes)\b|\bao\s+dia\b|\bdiari[oa]\b|\bmedia\b/.test(t)) {
     const p = periodFromText(t)
