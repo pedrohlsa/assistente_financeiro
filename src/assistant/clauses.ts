@@ -15,7 +15,7 @@ import { normalizeNumberWords } from './numbers'
 import { addDays, fmtBRL, MESES_PT_BR, nowTime, parseMoney, todayISO, toISO } from '../utils/format'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { suspicionReasons } from './semantic/confidence'
-import { spokenClock } from './semantic/clock'
+import { spokenClock, workDuration } from './semantic/clock'
 import type { SuspicionReason } from './semantic/confidence'
 import { isInvoicePaymentStatement, readInvoiceReference } from './invoicePayment'
 import { RESERVE_WITHDRAWAL_REPLY, retiraDaReserva } from './cashQuestions'
@@ -1299,7 +1299,7 @@ function unaccountedMoney(clause: AnalyzedClause): number[] {
   if (clause.ambiguity || clause.temporal || clause.intention || clause.intent === 'question'
     || clause.intent === 'conversation' || clause.intent === 'correction'
     || /\bse\s+eu\b|\b(?:supondo|imagina)\b|%/.test(clause.text)) return []
-  const normalized = normalizeNumberWords(spokenClock(clause.text).remaining).text
+  const normalized = workDuration(normalizeNumberWords(spokenClock(clause.text).remaining).text).remaining
   if (clause.actions.some(a => a.kind === 'card-payment')) {
     const amounts = clause.actions.filter(a => a.kind === 'expense').map(a => a.amount)
     return [...normalized.matchAll(INVOICE_EXTRA_AMOUNT)].flatMap(m => {

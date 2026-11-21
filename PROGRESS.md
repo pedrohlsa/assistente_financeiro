@@ -6875,3 +6875,10 @@ até auditoria independente.
   se a volta já está incluída.
 - A taxa por hora usa o tempo com retorno. A comparação usa cada
   rota separadamente. Suíte com 1.307/1.307 regressões.
+
+## 21/11/2026 — Duração exata na jornada realizada
+
+- “Rodei 75 km em 1h30 e ganhei 150” registra 75 km, 1h30 e R$ 150.
+  “Três horas e meia” e “35 minutos” também são durações. Os números
+  da hora ficam fora do caixa. Duração da viagem como passageiro fica
+  fora do trabalho. Suíte com 1.313/1.313 regressões.

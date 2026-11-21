@@ -3,8 +3,9 @@
 // por um serviço de IA no backend (ver services/ai.ts).
 import { ParsedAction } from '../models/types'
 import { DEFAULT_CATEGORIES, guessCategory } from '../data/categories'
-import { fmtBRL, fromISO, parseMoney, todayISO } from '../utils/format'
+import { fmtBRL, fmtNum, fromISO, parseMoney, todayISO } from '../utils/format'
 import { normalizeName, sentenceCase } from '../utils/text'
+import { workDuration } from '../assistant/semantic/clock'
 
 // Captura valores com QUALQUER combinação de separadores ("100.000,00",
 // "10,000,00", "1.234,56", "5000"). A interpretação é sempre delegada ao
@@ -975,7 +976,8 @@ function matchCardName(text: string, compra = false): string | undefined {
 }
 
 function parseClause(input: string): ParsedAction[] {
-  const text = input.toLowerCase().trim()
+  const duration = workDuration(input)
+  const text = duration.remaining.toLowerCase().trim()
   const actions: ParsedAction[] = []
   if (RIDE_OFFER_NOTICE.test(text) && !/\btaxa\s+de\s+cancelamento\b/i.test(text)) return actions
 
@@ -1621,13 +1623,14 @@ function parseClause(input: string): ParsedAction[] {
     // "Fiz 450 EM 12 HORAS": o resultado do dia e a jornada na mesma frase.
     || text.match(new RegExp(String.raw`\b(?:fiz|ganhei|faturei|tirei)\s+(?:r\$\s*)?\d+(?:[.,]\d+)?\s*(?:reais\s*)?(?:em|durante)\s*${NUM}\s*(?:horas?|hrs?|h)\b`, 'i'))
 
+  const hours = duration.minutes ? duration.minutes / 60 : hoursM ? parseNum(hoursM[1]) : undefined
   const kmIsMaint = m && m[3] // km da manutenção
-  if ((kmM && !kmIsMaint && !kmSubM) || (tripsM && !tripsSubM) || (hoursM && !hoursSubM)) {
+  if ((kmM && !kmIsMaint && !kmSubM) || (tripsM && !tripsSubM) || (hours !== undefined && !hoursSubM)) {
     actions.push({
       kind: 'work',
       km: kmM && !kmIsMaint && !kmSubM ? parseNum(kmM[1]) : undefined,
       trips: tripsM && !tripsSubM ? parseNum(tripsM[1]) : undefined,
-      hours: hoursM && !hoursSubM ? parseNum(hoursM[1]) : undefined,
+      hours: hoursSubM ? undefined : hours,
     })
   }
 
@@ -1825,7 +1828,16 @@ export function describeAction(a: ParsedAction, categoryName?: (id: string) => s
           ? viagem(a.trips)
           : `${viagem(Math.abs(a.trips))} ${Math.abs(a.trips) === 1 ? 'removida' : 'removidas'}`)
       }
-      if (a.hours) parts.push(a.hours > 0 ? `${a.hours}h trabalhadas` : `${Math.abs(a.hours)}h removidas`)
+      if (a.hours) {
+        const rawMinutes = Math.abs(a.hours) * 60
+        const rounded = Math.round(rawMinutes)
+        const h = Math.floor(rounded / 60)
+        const min = rounded % 60
+        const asMinutes = rounded && Math.abs(rounded - rawMinutes) <= 0.031
+        const duration = asMinutes ? [h ? `${h}h` : '', min ? `${min} min` : ''].filter(Boolean).join(' ')
+          : `${fmtNum(Math.abs(a.hours), 3)}h`
+        parts.push(`${duration} ${a.hours > 0 ? 'de trabalho' : 'de trabalho removidos'}`)
+      }
       return `Trabalho: ${parts.join(', ')}`
     }
     case 'fuel': return `Abastecimento${a.amount ? ` de ${fmtBRL(a.amount)}` : ''}${a.liters ? ` (${a.liters} L)` : ''}${a.odometer ? ` · hodômetro ${a.odometer.toLocaleString('pt-BR')} km` : ''}`

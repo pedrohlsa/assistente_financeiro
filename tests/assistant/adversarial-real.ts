@@ -7211,6 +7211,26 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         out.push(result(id, r.actions, 'uma despesa de R$ 29 com a corrida de passageiro',
           r.actions.length === 1 && expense.kind === 'expense' && expense.amount === 29))
       }
+      for (const [id, phrase, amount, hours, km, trips, explicitDate] of [
+        ['RP-jornada-compacta', 'rodei 75 km em 1h30 ganhei 150 na Uber', 150, 1.5, 75, 0],
+        ['RP-jornada-compacta-com-unidade', 'rodei 75km em 1h30min e ganhei 150 na Uber', 150, 1.5, 75, 0],
+        ['RP-jornada-falada', 'ontem trabalhei três horas e meia, rodei 75 km, ganhei 150 na Uber', 150, 3.5, 75, 0, addDays(TODAY, -1)],
+        ['RP-jornada-em-minutos', 'trabalhei 35 minutos e ganhei 70 na Uber', 70, 35 / 60, 0, 0],
+        ['RP-jornada-com-contagem-dita', 'ontem trabalhei uma hora e meia e fiz 150 em 5 corridas', 150, 1.5, 0, 5, addDays(TODAY, -1)],
+      ] as const) {
+        const r = await orchestrate({ state: oferta, today: TODAY, remoteEnabled: false, message: phrase })
+        const actions = r.response.actions.map(c => c.action)
+        const committed = applyBatchPure(oferta, r.response.actions, { now: { date: TODAY, time: '12:00' } })
+        const [work] = committed.state.workSessions
+        out.push(result(id, r.response, 'valor e duração exatos, distância e viagens apenas quando ditas',
+          committed.applied && r.response.mode === 'propose_actions' && actions.length === 2
+          && receitas(actions)[0]?.amount === amount && committed.state.transactions.length === 1
+          && Math.abs(work.hours - hours) <= 0.0005 && work.km === km && work.trips === trips && work.date === (explicitDate || TODAY)))
+      }
+      const riderWithTime = await turnoHoje(oferta, 'paguei 30 na corrida em 1h30')
+      out.push(result('RP-tempo-de-passageiro-sem-jornada', riderWithTime.actions,
+        'só o gasto de R$ 30, sem atribuir a duração à jornada do motorista',
+        riderWithTime.actions.length === 1 && riderWithTime.actions[0].kind === 'expense' && riderWithTime.actions[0].amount === 30))
       const troco = await turnoHoje(mot, 'quando troco o óleo')
       out.push(result('MN-quando-troco-o-oleo', troco.reply.split('\n')[0], 'próxima troca do óleo', /Óleo: próxima troca/.test(troco.reply)))
       const pneu = await turnoHoje(mot, 'quando troco os pneus?')
