@@ -419,14 +419,55 @@ export function previousYearOf(iso: string): string | undefined {
   return previous.getDate() === d.getDate() ? toISO(previous) : undefined
 }
 
-/** Aceita uma data em resposta à pergunta, sem outros valores ou negações. */
-export function dateInAnswer(answer: string, today: string): Extract<DateResolution, { kind: 'date' | 'future' }> | null {
-  const date = findDate(answer, today)
-  if (date?.kind !== 'date' && date?.kind !== 'future') return null
-  const context = normalizeName(answer.slice(0, date.start)).replace(/[,.:]+$/g, '').trim()
-  const suffix = answer.slice(date.end).trim()
+function isDateAnswerPart(text: string, date: DateResolution): boolean {
+  const context = normalizeName(text.slice(0, date.start)).replace(/[,.:]+$/g, '').trim()
   return /^(?:na verdade[,]?\s*)?(?:(?:a data|o pagamento)\s+)?(?:(?:foi|era|e)\s*)?(?:em|no dia|na data|no|na)?$/.test(context)
-    && /^[.!?]*$/.test(suffix) ? date : null
+    && /^[.!?]*$/.test(text.slice(date.end).trim())
+}
+
+function isRejectedDate(text: string, today: string): boolean {
+  return text.split(/\s+(?:nem|ou)\s+/i).every(part => {
+    if (/^\s*(?:(?:foi|era)\s+)?(?:dia\s+)?\d{1,2}[.!?]*\s*$/i.test(part)) return true
+    const date = findDate(part, today)
+    return !!date && isDateAnswerPart(part, date)
+  })
+}
+
+/**
+ * Isola a data afirmada em uma resposta curta. Uma recusa sem substituto fica
+ * vazia, para que a data que o usuário rejeitou não complete um rascunho.
+ */
+export function dateAnswerCorrection(answer: string, today: string): { text: string; start: number } | undefined {
+  const negation = answer.match(/^\s*n[ãa]o\b\s*/i)
+  if (negation) {
+    const tail = answer.slice(negation[0].length)
+    const lead = tail.match(/^[,;—–]\s*(?=(?:foi|era)\s+)/i)
+    if (lead) {
+      const start = negation[0].length + lead[0].length
+      return { text: answer.slice(start), start }
+    }
+    const separator = tail.match(/[,;—–]\s*|\s+(?=(?:foi|era)\s+)/i)
+    const rejected = separator ? tail.slice(0, separator.index) : tail
+    if (!isRejectedDate(rejected, today)) return undefined
+    if (separator) {
+      const start = negation[0].length + separator.index + separator[0].length
+      return { text: answer.slice(start), start }
+    }
+    return { text: '', start: answer.length }
+  }
+  const rejected = answer.match(/(?:[,;—–]\s*|\s+)n[ãa]o\s+(?:(?:foi|era)\s+)?/i)
+  return rejected && isRejectedDate(answer.slice(rejected.index + rejected[0].length), today)
+    ? { text: answer.slice(0, rejected.index), start: 0 } : undefined
+}
+
+/** Aceita uma data afirmada em resposta à pergunta, sem outros valores. */
+export function dateInAnswer(answer: string, today: string): Extract<DateResolution, { kind: 'date' | 'future' }> | null {
+  const correction = dateAnswerCorrection(answer, today)
+  const said = correction?.text ?? answer
+  const date = findDate(said, today)
+  if ((date?.kind !== 'date' && date?.kind !== 'future') || !isDateAnswerPart(said, date)) return null
+  const offset = correction?.start || 0
+  return { ...date, start: date.start + offset, end: date.end + offset }
 }
 
 /**
@@ -442,7 +483,8 @@ export function resolveDayInWindow(
 ): string | null {
   const within = (iso: string) => (iso >= window.from && iso <= window.to && iso <= today ? iso : null)
 
-  const m = answer.trim().match(/^(?:(?:foi|era)\s+)?(?:dia\s+)?(\d{1,2})[.!?]*$/i)
+  const affirmed = dateAnswerCorrection(answer, today)?.text ?? answer
+  const m = affirmed.trim().match(/^(?:(?:foi|era)\s+)?(?:dia\s+)?(\d{1,2})[.!?]*$/i)
   if (!m) {
     // A data completa fora da janela continua sendo o dia e o mês que a pessoa
     // disse. Uma resposta com valor em dinheiro também não vira um dia.

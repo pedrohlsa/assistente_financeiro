@@ -6800,3 +6800,11 @@ até auditoria independente.
   pessoa. “Eu paguei 80 no posto e joao pagou 90 no mercado” propõe só
   os R$ 80. “O cliente pagou 40 pra Marina” também fica fora do caixa.
   Suíte com 1.257/1.257 regressões.
+
+## 21/11/2026 — Data afirmada depois de recusar um dia
+
+- “Não foi ontem, foi anteontem” seleciona anteontem. Se a pessoa disser
+  só “não foi ontem”, o rascunho guarda a compra e volta a perguntar o dia.
+- “Não dia 2, dia 15” dentro de “mês passado” usa o dia 15 daquele mês.
+  A mesma leitura vale para corrigir o primeiro vencimento sem mudar
+  a data da compra. Suíte com 1.264/1.264 regressões.

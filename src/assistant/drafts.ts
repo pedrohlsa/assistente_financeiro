@@ -13,7 +13,7 @@ import type { AssistantCapabilities, AssistantMissingField, AssistantActionKind 
 import { actionSpec } from './contracts'
 import { parseMoney, todayISO, uid } from '../utils/format'
 import { normalizeNumberWords } from './numbers'
-import { dateInAnswer, findDate, resolveDayInWindow } from './dates'
+import { dateAnswerCorrection, dateInAnswer, findDate, resolveDayInWindow } from './dates'
 import { resolveCardPurchaseDue } from './cardPurchaseDue'
 import { looksNegated, readDateAlternatives } from './clauses'
 import { guessCategory } from '../data/categories'
@@ -277,19 +277,24 @@ export function resolveDraftAnswer(
       next.status = next.missingFields.length ? 'collecting' : 'ready'
       return { draft: next, resolved: ['firstDueDate'], unmatched: false }
     }
+    if (dateAnswerCorrection(normalized, today)) return { draft: next, resolved: [], unmatched: false }
     return { draft: next, resolved: [], unmatched: !/^\s*(?:\d|dia\b|no\s+dia|foi\b|era\b)/i.test(normalized) }
   }
   const dateField = draft.missingFields.find(f => f.field === 'date')
   const shortAnswer = normalizeName(norm).replace(/[.!?]+$/, '').trim()
   const dateOption = dateField?.options?.find(o => normalizeName(o.label) === shortAnswer || o.value === shortAnswer)
-  const possibleDates = draft.partial.kind === 'card-purchase' ? readDateAlternatives(normalized, today) : undefined
-  const date = dateOption ? dateInAnswer(dateOption.value, today) : !possibleDates ? findDate(normalized, today) : undefined
-  const dayOnly = !!draft.purchaseDateWindow && /^\d{1,2}$/.test(shortAnswer)
-  const dateSpan = possibleDates || (dateOption || dayOnly ? { start: 0, end: normalized.length } : date)
+  const correction = dateField ? dateAnswerCorrection(normalized, today) : undefined
+  const affirmed = correction?.text ?? normalized
+  const possibleDates = draft.partial.kind === 'card-purchase' ? readDateAlternatives(affirmed, today) : undefined
+  const date = dateOption ? dateInAnswer(dateOption.value, today)
+    : correction ? dateInAnswer(normalized, today) : !possibleDates ? findDate(normalized, today) : undefined
+  const dayOnly = !!draft.purchaseDateWindow && /^(?:(?:foi|era)\s+)?\d{1,2}[.!?]*$/.test(affirmed.trim())
+  const dateSpan = correction || dateOption || dayOnly ? { start: 0, end: normalized.length } : possibleDates || date
   const lower = dateSpan ? `${normalized.slice(0, dateSpan.start)} ${normalized.slice(dateSpan.end)}`.trim() : normalized
   const purchaseDate = draft.purchaseDateWindow
-    ? resolveDayInWindow(date?.text || message, draft.purchaseDateWindow, today)
+    ? resolveDayInWindow(correction ? affirmed : date?.text || message, draft.purchaseDateWindow, today)
     : date?.kind === 'date' ? date.date : undefined
+  if (correction && !purchaseDate && !possibleDates) return { draft: next, resolved: [], unmatched: false }
 
   // "Foi no débito": a compra "no cartão" não era crédito — é a despesa.
   if (draft.partial.kind === 'card-purchase' && draft.fallbackExpense

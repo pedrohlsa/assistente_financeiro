@@ -1,6 +1,6 @@
 import { dateForDayOfMonth, fromISO, toISO } from '../utils/format'
 import { normalizeName } from '../utils/text'
-import { dateInAnswer, findDate } from './dates'
+import { dateAnswerCorrection, dateInAnswer, findDate } from './dates'
 import { findNumberWords, normalizeNumberWords } from './numbers'
 
 const MARKER = /(?<![\p{L}\p{M}])(?:com\s+)?(?:(?:o\s+)?(?:primeiro|1[ºo°])\s+vencimento|(?:a\s+)?(?:primeira|1[ªa°])\s*(?:parcela\s+(?:(?:vai\s+)?vence[r]?|(?:tem|com)\s+vencimento)|parcela\s+fica\s+para))(?![\p{L}\p{M}])\s*(?:[:=]\s*|(?:[ée]|ser[áa]|para)\s+)?/iu
@@ -25,7 +25,8 @@ export function readCardPurchaseDue(text: string, today: string) {
 }
 
 export function resolveCardPurchaseDue(answer: string, purchaseDate: string, today: string): string | undefined {
-  const normalized = normalizeName(normalizeNumberWords(answer).text)
+  const affirmed = dateAnswerCorrection(answer, today)?.text ?? answer
+  const normalized = normalizeName(normalizeNumberWords(affirmed).text)
   const bare = normalized.match(/^(?:(?:foi|era|e|para)\s+)?(?:no\s+)?(?:dia\s+)?(\d{1,2})[.!]*$/)
   if (bare) {
     const day = Number(bare[1])

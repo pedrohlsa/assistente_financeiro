@@ -346,6 +346,42 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && dated.applied && datedPlan?.purchaseDate === '2026-11-19' && datedPlan.firstDueDate === '2026-12-10'
       && datedPlan.totalAmount === 250 && datedPlan.installmentCount === 2 && datedPlan.cardId === state.cards[0].id))
 
+    for (const [id, reply] of [
+      ['rejeita-e-afirma', 'não foi ontem, foi anteontem'],
+      ['afirma-e-rejeita', 'foi anteontem, não ontem'],
+      ['rejeita-sem-pontuacao', 'não foi ontem foi anteontem'],
+      ['corrige-com-nao-inicial', 'não, foi anteontem'],
+    ] as const) {
+      const correctedDate = commit(await send(reply, dates))
+      const [plan] = correctedDate.state.installmentPlans
+      out.push(result(`CD-${id}`, plan, 'dia afirmado, compra de R$ 250 e vencimento original',
+        correctedDate.applied && plan?.purchaseDate === '2026-11-19' && plan.firstDueDate === '2026-12-10'
+          && plan.totalAmount === 250 && plan.installmentCount === 2))
+    }
+
+    const cardMissingInstallments = await send('ontem ou anteontem passei 80 no Nubank')
+    const rejection = await send('não foi ontem', cardMissingInstallments)
+    const chooseDay = await send('não foi ontem, foi anteontem', rejection)
+    const chosenPlan = commit(await send('em 2x', chooseDay)).state.installmentPlans[0]
+    out.push(result('CD-dia-rejeitado-preserva-rascunho', { rejection: rejection.response, chosenPlan },
+      'recusa de um dia mantém a pergunta. Com a data certa e as parcelas, confirma a compra',
+      rejection.response.mode === 'clarify' && rejection.response.clarification.field === 'date' && !rejection.response.actions.length
+      && chooseDay.response.mode === 'clarify' && chooseDay.response.clarification.field === 'installments'
+      && chosenPlan?.purchaseDate === '2026-11-19' && chosenPlan.totalAmount === 80 && chosenPlan.installmentCount === 2))
+
+    const noDay = await send('gastei 50 no mercado mês passado')
+    const movedDay = commit(await send('não dia 2, dia 15', noDay))
+    const [lastMonthTx] = movedDay.state.transactions
+    out.push(result('CD-corrige-dia-dentro-do-mes-pedido', lastMonthTx, 'a despesa de R$ 50 fica em 15/10',
+      movedDay.applied && lastMonthTx?.date === '2026-10-15' && lastMonthTx.amount === 50))
+
+    const rejectedDue = await send('não foi dia 26', badDue)
+    const chosenDue = commit(await send('não foi dia 26, foi dia 29', rejectedDue)).state.installmentPlans[0]
+    out.push(result('CD-rejeita-e-corrige-vencimento', { rejectedDue: rejectedDue.response, chosenDue },
+      'vencimento 29/11 e compra em 20/11',
+      rejectedDue.response.mode === 'clarify' && rejectedDue.response.clarification.field === 'firstDueDate'
+      && chosenDue?.purchaseDate === ontem && chosenDue.firstDueDate === '2026-11-29'))
+
     const dateChangesMonth = await send('dia 30/10/2026 ou dia 02/11/2026 comprei uma cadeira de 250 em 2x no Nubank, primeiro vencimento dia 1')
     const october = commit(await send('2026-10-30', dateChangesMonth))
     const november = commit(await send('2026-11-02', dateChangesMonth))
