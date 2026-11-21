@@ -6603,12 +6603,18 @@ Pergunta respondida pela metade ou pela ajuda genérica:
   do REGISTRO, não a das corridas, e agora diz isso); "tô cansado, paro ou
   continuo?" mostra o dia contra a meta e deixa a decisão com o motorista
   (`DR-`).
+- "Dei 100 pra minha mãe" gravava "Minha mã": o `\b(?:e|mas|porém)$` que tira
+  o conector órfão casava no "e" depois de "ã" (regra 67b). Mais cinco regex
+  com `\b` antes de "e" ganharam borda explícita (`AC-`). "Onde dá pra cortar
+  gastos" buscava o texto "cortar gastos" e "me dá uma dica pra economizar"
+  caía na ajuda; agora mostram onde mais saiu no mês (`OC-onde-cortar`,
+  `OC-dica`).
 - "Hoje fiz 18 corridas e tirei 410" perdia os R$ 410 (`SQ-`); "paguei o
   aluguel, 400" perdia a descrição e "paguei o mecânico: 350" não registrava
   nada (`VF-`); "IPTU" e "iFood" com a grafia certa; "recebi o vale" é
   Salário.
 
-Gates (relógio 2026-09-15): 733/733 corpus, 1.170/1.170 adversariais, 151/151
+Gates (relógio 2026-09-15): 733/733 corpus, 1.175/1.175 adversariais, 151/151
 invariantes, mutações, fuzz, ditado e remoto offline; typecheck,
 typecheck:api, test:money, build e rubrica (0 perigosa, 0 ruim).
 `test:calendario` rodou depois de cada lote e achou quatro oráculos de teste
