@@ -9,7 +9,7 @@ import { validateAction, type AssistantCandidateAction, type AssistantCapabiliti
 import { fmtBRL, nowTime, parseMoney, todayISO } from '../utils/format'
 import { normalizeNumberWords } from './numbers'
 import { brDate, dateInAnswer, findDate } from './dates'
-import { extractOrigins, looksLikeQuestion, revisedAction } from './clauses'
+import { explicitSpokenPayer, extractOrigins, looksLikeQuestion, revisedAction } from './clauses'
 import { normalizeName } from '../utils/text'
 import { guessCategory } from '../data/categories'
 import { spokenClock } from './semantic/clock'
@@ -624,11 +624,23 @@ export function parseCorrection(
   // A resposta curta "da casa 3", "do cliente João" (sem verbo) completa a
   // proposta na tela do mesmo jeito: caía no menu de ajuda.
   if (!touched && /^(?:e\s+)?(?:(?:era|foi|e|é|veio|vem|vieram)\s+)?d[ao]s?\s/.test(t)) {
-    const origem = extractOrigins(message.trim())[0]?.value
+    const primary = remaining.filter(p => p.action.kind !== 'work')
+    const onlyIncome = primary.length === 1 && primary[0].action.kind === 'income'
+    const said = message.trim().replace(/^(?:e\s+)?(?:(?:era|foi|e|é|veio|vem|vieram)\s+)?/i, '')
+    const explicit = extractOrigins(message.trim())[0]?.value
+    const origem = explicit || (onlyIncome ? explicitSpokenPayer(said) : undefined)
     const target = origem ? resolveTarget(t, remaining) : null
     const p = target && 'id' in target ? remaining.find(x => x.id === target.id) : undefined
     if (origem && p && (p.action.kind === 'income' || p.action.kind === 'expense')) {
-      const nova = origem.replace(/(^|\s)(\S)/g, (_, s: string, c: string) => s + c.toUpperCase())
+      const nova = explicit ? origem.replace(/(^|\s)(\S)/g, (_, s: string, c: string) => s + c.toUpperCase()) : origem
+      if (p.action.kind === 'income') {
+        const revision = revisedAction(p.action, said, today)
+        if (revision?.kind === 'income') {
+          for (const field of ['category', 'description', 'is99'] as const) {
+            if (p.action[field] !== revision[field]) plan.edits.push({ id: p.id, field, value: revision[field], was: p.action[field] })
+          }
+        }
+      }
       if (normalizeName((p.action as any).origin || '') !== normalizeName(nova)) {
         plan.edits.push({ id: p.id, field: 'origin', value: nova, was: (p.action as any).origin })
         plan.summary.push(`Anotei a origem: ${nova}.`)

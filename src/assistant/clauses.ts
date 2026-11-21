@@ -13,7 +13,7 @@ import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from '.
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
 import { addDays, fmtBRL, MESES_PT_BR, nowTime, parseMoney, todayISO, toISO } from '../utils/format'
-import { normalizeName } from '../utils/text'
+import { normalizeName, sentenceCase } from '../utils/text'
 import { suspicionReasons } from './semantic/confidence'
 import { spokenClock } from './semantic/clock'
 import type { SuspicionReason } from './semantic/confidence'
@@ -193,7 +193,7 @@ const GAVE_TO_ME = 'deu|deram|passou|passaram'
 const RECIPIENT_OF_PAYMENT = new RegExp(String.raw`\b(?:me|nos)\s+(?:pagou|pagaram|${PIX_INCOMING}|${GAVE_TO_ME})\b`, 'i')
 const PAYMENT_NOT_RECEIVED = /^(?:(?:o\s+)?(?:pix|dinheiro|pagamento)\s+)?(?:ainda\s+)?(?:n[ãa]o|nem|[nñ])\s+(?:caiu|entrou|foi\s+creditado)\b/i
 const NAMED_PAYMENT_PENDING = /\b(?:pix|dinheiro|pagamento)\s+(?:ainda\s+)?n[ãa]o\s+(?:caiu|entrou|foi\s+creditado)\b/i
-const PAYMENT_DENIED = /(?<![\p{L}\p{M}])(?:n[ãa]o|nem|[nñ])\s+(?:me|nos)\s+(?:pagou|pagaram)\b/iu
+const PAYMENT_DENIED = new RegExp(String.raw`(?<![\p{L}\p{M}])(?:n[ãa]o|nem|[nñ]|ningu[eé]m)\s+(?:me|nos)\s+(?:pagou|pagaram|${PIX_INCOMING}|${GAVE_TO_ME})\b`, 'iu')
 const OWN_ACCOUNTS = /\bentre\s+(?:as\s+)?(?:(?:minhas|nossas)\s+(?:duas\s+)?contas|contas\s+pr[óo]prias)\b|\b(?:da|de)\s+(?:minha|nossa)\s+conta\b[^.;!?]{0,55}\b(?:para|pra)\s+(?:a\s+)?(?:minha|nossa)\s+conta\b/i
 const EXAMPLE_CUE = String.raw`(?:(?:por\s+)?exemplo|(?:s[oó]\s+)?(?:um\s+)?teste|(?:t[oô]|estou)\s+testando|isso\s+[ée]\s+s[oó]\s+(?:um\s+)?exemplo)\s*[:,—–-]\s*`
 const EXAMPLE_START = new RegExp(String.raw`^\s*${EXAMPLE_CUE}`, 'i')
@@ -705,6 +705,28 @@ export function extractOrigins(originalClause: string): { value: string; at: num
 /** Compatibilidade: a primeira origem do trecho. */
 export const extractOrigin = (t: string): string | undefined => extractOrigins(t)[0]?.value
 
+const SPOKEN_PAYER_END = /\s+(?:ontem|anteontem|hoje|amanh[ãa]|agora|cedo|tarde|noite|[àa]s|j[áa]|via|por|pra|para|pelo|pela|porque|mas|depois|viu|mesmo|certo|na\s+conta|no\s+banco|no\s+pix|em\s+dinheiro|e\s+(?:mais|\d|eu|paguei|gastei|recebi|ganhei|trabalhei|rodei)|d[ao]\s+(?:aluguel|sal[áa]rio|freela))\b|[;,!?]/i
+const NON_NAME = /^(?:minh[ao]|meu|noss[ao]|seu|su[ao]|a|o|os|as|ele|ela|eles|elas|alguem|ninguem|nada|quem|todo|toda|um|uma|me|nos|banco|pix|conta|cartao|credito|debito|bolso|reembolso|estorno|emprestimo|financiamento|reserva|extrato|total|agora|hoje|ontem|ontm|anteontem|dinheiro|pagamento|saldo|trabalho|dia|mes|semana|ano|cliente|empresa|patrao|inquilino|cobra[nd][co]a?)$/
+
+/** Nome dito junto a uma indicação explícita de quem pagou. */
+function spokenPayerName(text?: string): string | undefined {
+  const name = text?.trim().split(SPOKEN_PAYER_END, 1)[0].trim().replace(/[.]+$/, '').replace(/\s+e$/i, '')
+  if (!name || !/^[\p{L}\p{M}][\p{L}\p{M}'’\-]+(?:\s+(?:(?:d[aeo]s?)\s+)?[\p{L}\p{M}][\p{L}\p{M}'’\-]+){0,2}$/iu.test(name)) return undefined
+  const first = normalizeName(name).split(' ')[0]
+  if (NON_NAME.test(first) || guessCategory(first, 'income')) return undefined
+  return name.replace(/(^|\s)([\p{L}\p{M}'’\-]+)/gu, (_word, space: string, token: string) =>
+    space + (space && /^d[aeo]s?$/i.test(token) ? token.toLowerCase() : sentenceCase(token)))
+}
+
+export function explicitSpokenPayer(text: string): string | undefined {
+  return spokenPayerName(text.trim().match(/^d[ao]\s+(.+)$/i)?.[1])
+}
+
+function payerAfterAmount(text: string): string | undefined {
+  const tail = text.match(/^\d+(?:[.,]\d+)*(?:\s+(?:reais?|contos?|pila))?(?:\s+(?:de|por|via|no|pelo)\s+pix)?\s+(d[ao]\s+.+)$/i)?.[1]
+  return tail ? explicitSpokenPayer(tail) : undefined
+}
+
 // ---------------------------------------------------------------------------
 // Futuro referido por outra cláusula
 // ---------------------------------------------------------------------------
@@ -792,24 +814,20 @@ const clauseId = () => `c${++seq}`
  * lançamento à origem que o usuário citou logo depois dele.
  * Devolve -1 quando o valor não aparece de forma reconhecível.
  */
-function amountPosition(text: string, amount?: number, occurrence = 0): number {
+function amountPosition(text: string, amount: number | undefined, occurrence = 0, dates: DateResolution[] = []): number {
   if (!(amount > 0)) return -1
-  const inteiro = Math.round(amount)
-  const candidatos = [
-    String(amount).replace('.', ','),
-    String(inteiro),
-    inteiro.toLocaleString('pt-BR'),
-  ]
-  // `occurrence`: o mesmo valor dito duas vezes ("120 da Casa 2 e 120 do
-  // Uber") são dois lugares no texto. Sempre a primeira ocorrência fazia as
-  // duas ações herdarem a origem do primeiro valor.
-  for (const c of candidatos) {
-    // Borda de dígito: o "12" não pode casar dentro de "120".
-    const re = new RegExp(String.raw`(?<![\d.,])${c.replace(/[.]/g, '\\.')}(?![\d]|[.,]\d)`, 'g')
-    const achados = [...text.matchAll(re)].map(m => m.index ?? -1).filter(i => i >= 0)
-    if (achados.length) return achados[Math.min(occurrence, achados.length - 1)]
-  }
-  return -1
+  // Persegue a ocorrência do valor, inclusive quando valores iguais foram
+  // escritos de formas diferentes (R$ 120,50 e R$ 120,5).
+  const matches = [...text.matchAll(/(?<![\d.,-])\d+(?:[.,]\d+)*(?!\d|[.,]\d)/g)].flatMap(m => {
+    const at = m.index
+    if (Math.abs(parseMoney(m[0]) - amount) >= 0.005 || dates.some(d => at >= d.start && at < d.end)) return []
+    const before = text.slice(0, at)
+    const after = text.slice(at + m[0].length)
+    if (m[0] === '99' && /\b(?:da|na|pela|via)\s*$/i.test(before)
+      && !/^\s*(?:reais?|contos?|pila)\b/i.test(after)) return []
+    return [at]
+  })
+  return matches[occurrence] ?? matches[matches.length - 1] ?? -1
 }
 
 /** Primeiro valor monetário de um trecho — usado só pela correção intramensagem. */
@@ -830,11 +848,13 @@ function actualPayer(text: string): { body: string; origin?: string } {
   const verb = text.match(RECIPIENT_OF_PAYMENT)
   if (!verb?.index) return { body: text }
   const subject = text.slice(0, verb.index).trim().replace(/^(?:o|a|meu|minha|nosso|nossa)\s+/i, '')
-  const generic = subject.match(/^(cliente|patr[ãa]o|empresa|inquilin[oa]|m[ãa]e|pai|irm[ãa]o|irm[ãa]|sogr[ao]|ti[ao]|av[óô]|v[óô]|filh[ao]|espos[ao]|marido|namorad[ao]|amig[ao]|vizinh[ao]|chefe)(?:\s+([\p{Lu}\d][\p{L}\p{M}\d-]*(?:\s+[\p{Lu}][\p{L}\p{M}]+)*))?$/u)
-  if (generic) return { body: text.slice(verb.index), origin: generic[2] ? `${cleanDescription(generic[1])} ${generic[2]}` : undefined }
-  if (/^[\p{Lu}][\p{L}\p{M}]+(?:\s+[\p{Lu}][\p{L}\p{M}]+){0,3}$/u.test(subject)) {
-    return { body: text.slice(verb.index), origin: subject }
+  const generic = subject.match(/^(cliente|patr[ãa]o|empresa|inquilin[oa]|m[ãa]e|pai|irm[ãa]o|irm[ãa]|sogr[ao]|ti[ao]|av[óô]|v[óô]|filh[ao]|espos[ao]|marido|namorad[ao]|amig[ao]|vizinh[ao]|chefe)(?:\s+(.*))?$/iu)
+  if (generic) {
+    const label = /^\d+$/.test(generic[2] || '') ? generic[2] : spokenPayerName(generic[2])
+    return { body: text.slice(verb.index), origin: label ? `${cleanDescription(generic[1])} ${label}` : undefined }
   }
+  const origin = spokenPayerName(subject)
+  if (origin) return { body: text.slice(verb.index), origin }
   return { body: text }
 }
 
@@ -1024,7 +1044,7 @@ export function revisedAction(action: ParsedAction, body: string, today: string)
     const parsed = parseNaturalFull(`${verb} ${v.toFixed(2).replace('.', ',')} ${place}`, { driver: false })
     const [replacement] = parsed.actions
     if (parsed.ambiguity || parsed.actions.length !== 1 || replacement?.kind !== action.kind) return undefined
-    const origin = origins[0]?.value
+    const origin = origins[0]?.value || (action.kind === 'income' ? explicitSpokenPayer(place) : undefined)
     if (action.kind === 'income' && replacement.kind === 'income') {
       const ride = replacement.category === 'corridas' && RIDE_REFERENCE.test(place)
       const nonRideSource = !ride && (origin || NON_RIDE_RECEIPT.test(place))
@@ -1627,7 +1647,7 @@ export function analyzeMessage(
     // extenso ("cento e vinte da Casa 2 e cento e vinte do Uber") o número não
     // existe no texto original e as duas receitas caíam no fallback, herdando
     // a mesma origem. O pareamento usa o texto com algarismos.
-    const textoPareamento = normalizeNumberWords(part.text).text
+    const textoPareamento = normalizeNumberWords(clock.remaining).text
     const origensPareamento = textoPareamento === part.text ? origins : extractOrigins(textoPareamento)
     const textoComValores = despesasDaFatura.length ? normalizeNumberWords(part.text).text : ''
     const extraOriginal = [...textoComValores.matchAll(INVOICE_EXTRA_AMOUNT)][0]
@@ -1645,7 +1665,8 @@ export function analyzeMessage(
         vistos.set(String(v), n + 1)
       }
     }
-    const incomePositions = actions.flatMap(a => a.kind === 'income' ? [amountPosition(textoPareamento, a.amount, ocorrenciaDe.get(a) || 0)] : [])
+    const datesForPairing = findAllDates(textoPareamento, today)
+    const incomePositions = actions.flatMap(a => a.kind === 'income' ? [amountPosition(textoPareamento, a.amount, ocorrenciaDe.get(a) || 0, datesForPairing)] : [])
     let fewerTrips = 0
 
     actions = actions.map(a => {
@@ -1655,7 +1676,8 @@ export function analyzeMessage(
       if (a.kind === 'card-payment' && invoiceParser.referenceMonth) next.referenceMonth = invoiceParser.referenceMonth
       const isExpenseExtra = despesasDaFatura.includes(a)
       const scopedOrigins = isExpenseExtra ? origensDoExtra : origensPareamento
-      const at = amountPosition(isExpenseExtra ? textoExtra : textoPareamento, next.amount, isExpenseExtra ? 0 : ocorrenciaDe.get(a) || 0)
+      const at = isExpenseExtra ? amountPosition(textoExtra, next.amount)
+        : amountPosition(textoPareamento, next.amount, ocorrenciaDe.get(a) || 0, datesForPairing)
       const incomeEnd = a.kind === 'income' && at >= 0 ? incomePositions.find(pos => pos > at) : undefined
       const hasRidePlatform = a.kind === 'income' && RIDE_PLATFORM_NAME.test(a.description || '')
       if (ORIGINABLE.has(a.kind) && !next.origin && scopedOrigins.length) {
@@ -1668,6 +1690,12 @@ export function analyzeMessage(
         if (pick) next.origin = pick.value
       }
       const incomeText = incomePositions.length > 1 && at >= 0 ? textoPareamento.slice(at, incomeEnd) : part.text
+      if (a.kind === 'income' && !next.origin && !hasRidePlatform && at >= 0
+        && /\b(?:recebi|ganhei|recebemos|caiu|entrou|pingou|dep[oô]sito|pagou)\b/i.test(textoPareamento.slice(0, at))) {
+        const before = incomePositions.length === 1
+          ? textoPareamento.match(/^\s*(d[ao]\s+.+?)\s+(?:eu\s+)?(?:recebi|ganhei|caiu|entrou)\b/i)?.[1] : undefined
+        next.origin = payerAfterAmount(textoPareamento.slice(at, incomeEnd)) || (before ? explicitSpokenPayer(before) : undefined)
+      }
       // Receita com origem própria ("da Casa 2") não é corrida só porque a
       // frase cita Uber em outra parte. Vale para todo perfil; só o motorista
       // tem viagem implícita a descontar.

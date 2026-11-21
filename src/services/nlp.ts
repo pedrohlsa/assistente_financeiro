@@ -340,16 +340,6 @@ export function parseNatural(input: string): ParsedAction[] {
   // número de vezes que aquele VALOR aparece na frase. "Recebi 120 da Casa 2 e
   // 120 da Casa 1" tem duas receitas iguais como objeto (a origem entra depois,
   // na cláusula) e dois "120" no texto: as duas existem.
-  const vezesNoTexto = (v: number): number => {
-    const inteiro = Math.round(v)
-    const formas = [...new Set([String(v).replace('.', ','), String(inteiro), inteiro.toLocaleString('pt-BR')])]
-    let max = 0
-    for (const f of formas) {
-      const re = new RegExp(String.raw`(?<![\d.,])${f.replace(/[.]/g, '\\.')}(?![\d]|[.,]\d)`, 'g')
-      max = Math.max(max, (input.match(re) || []).length)
-    }
-    return Math.max(max, 1)
-  }
   // Primeiro, uma de cada; depois, a cópia idêntica só volta enquanto o TOTAL
   // de ações com aquele valor (de qualquer descrição) couber nas ocorrências
   // do valor no texto. "90 na farmácia e 90 no mercado" lido duas vezes no
@@ -367,12 +357,19 @@ export function parseNatural(input: string): ParsedAction[] {
     const v = (a as any).amount
     if (typeof v === 'number' && v > 0) porValor.set(v, (porValor.get(v) || 0) + 1)
   }
+  const ocorrencias = new Map<number, number>()
+  if (copias.length) {
+    for (const match of input.matchAll(/(?<![\d.,-])\d+(?:[.,]\d+)*(?!\d|[.,]\d)/g)) {
+      const valor = parseNum(match[0])
+      ocorrencias.set(valor, (ocorrencias.get(valor) || 0) + 1)
+    }
+  }
   const voltam = new Set<ParsedAction>()
   for (const a of copias) {
     const v = (a as any).amount
     if (!(typeof v === 'number' && v > 0)) continue
     const n = porValor.get(v) || 0
-    if (n < vezesNoTexto(v)) { voltam.add(a); porValor.set(v, n + 1) }
+    if (n < (ocorrencias.get(v) || 1)) { voltam.add(a); porValor.set(v, n + 1) }
   }
   return actions.filter(a => unicas.includes(a) || voltam.has(a))
 }

@@ -6784,3 +6784,12 @@ até auditoria independente.
 - A resposta informa quando falta distância, tempo ou custo do veículo.
   Ofertas ficam fora do caixa. O Chrome comparou R$ 75/h e R$ 60/h com
   uma despesa anterior ainda pendente. Suíte com 1.247/1.247 regressões.
+
+## 21/11/2026 — Quem pagou, mesmo em minúsculas
+
+- O chat guarda o nome da pessoa em “recebi 110 do joão às 8h” e
+  “o joão me mandou um Pix de 40”. A categoria segue o motivo informado.
+- “Recebi 120,50 da ana e 120,5 do joão” preserva as duas receitas.
+  A confirmação soma R$ 241. “Ninguém me mandou Pix” fica pendente.
+- “Foi da Maria” corrige a origem de uma receita da Uber e retira
+  a categoria da plataforma. Suíte com 1.254/1.254 regressões.

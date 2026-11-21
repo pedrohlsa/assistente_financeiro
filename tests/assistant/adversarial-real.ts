@@ -6249,6 +6249,15 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result(`MV-casa-e-uber-${perfil}`, r.actions, 'Casa 2 em Outros, Uber à parte, sem viagem',
         receitas(r.actions) === '120:corridas:Uber,120:outros-in:Casa 2' && viagens(r.actions) === 0))
     }
+    {
+      const st = buildState({ profile: 'driver', balance: 1000 })
+      st.settings.balanceAsOf = `${addDays(hoje, -1)}T00:00:00`
+      const r = await turnoHoje(st, 'recebi 120,50 da ana e 120,5 do joão')
+      const aplicado = lote(st, r.actions)
+      out.push(result('MV-pessoas-centavos-grafias-diferentes', r.actions, 'R$ 120,50 de cada pessoa, saldo R$ 1.241',
+        receitas(r.actions) === '120.5:outros-in:Ana,120.5:outros-in:João' && viagens(r.actions) === 0
+          && aplicado.applied && currentBalance(aplicado.state, hoje) === 1241))
+    }
     // Repetição que é CORREÇÃO não vira duas receitas.
     const correcao = await turnoHoje(buildState({ profile: 'driver' }), 'recebi 120 da Casa 2, quer dizer, 120 da Casa 2')
     out.push(result('MV-correcao-nao-duplica', correcao.actions, 'uma receita de 120 da Casa 2 em Outras receitas',
@@ -6298,6 +6307,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result(`MF-pessoa-nao-e-corrida-${frase.split(' ')[2]}`, r.actions, 'receita em Outros, sem viagem',
         r.actions.some(a => a.kind === 'income' && (a as any).category !== 'corridas') && !r.actions.some(a => a.kind === 'work')))
     }
+    const falado = buildState({ profile: 'driver' })
+    for (const [id, frase, valor, fonte, categoria, data, hora] of [
+      ['nome-hora', 'recebi 110 do joão ontem às 8h', 110, 'João', 'outros-in', addDays(hoje, -1), '08:00'],
+      ['pix-de-nome', 'recebi 120,50 de pix da ana', 120.5, 'Ana', 'outros-in'],
+      ['nome-enviou-pix', 'o joão me mandou um Pix de 40 ontem', 40, 'João', 'outros-in', addDays(hoje, -1)],
+      ['cliente-aluguel', 'a cliente ana silva me pagou 230 de aluguel', 230, 'Cliente Ana Silva', 'aluguel'],
+    ] as const) {
+      const r = await turnoHoje(falado, frase)
+      const [a] = r.actions
+      out.push(result(`MF-${id}`, r.actions, `${valor} em ${categoria}, origem ${fonte}`,
+        r.actions.length === 1 && a.kind === 'income' && a.amount === valor && a.origin === fonte && a.category === categoria
+          && a.date === data && a.time === hora))
+    }
+    const naoRecebeu = await turnoHoje(falado, 'ninguém me mandou pix de 50')
+    out.push(result('MF-ninguem-pagou-pix', naoRecebeu.reply, 'nenhum lançamento de Pix',
+      naoRecebeu.actions.length === 0 && /pendente/i.test(naoRecebeu.reply)))
+    const previa = await orchestrate({ state: falado, message: 'recebi 110 do uber', today: hoje, remoteEnabled: false })
+    const editada = await orchestrate({ state: falado, message: 'foi da maria', pending: previa.response.actions, today: hoje, remoteEnabled: false })
+    const [acao] = editada.response.actions.map(p => p.action)
+    out.push(result('MF-nome-substitui-plataforma', editada.response.actions, 'R$ 110 da Maria em Outros',
+      editada.response.actions.length === 1 && acao.kind === 'income' && acao.amount === 110 && acao.origin === 'Maria'
+        && acao.category === 'outros-in' && !acao.description && !acao.is99))
     const controle = await turnoHoje(buildState({ profile: 'driver' }), 'recebi 110 do uber')
     // A plataforma é origem: Corridas, mas sem viagem inventada (regra 34).
     out.push(result('MF-uber-continua-corrida', controle.actions, 'Corridas, sem viagem inventada',
