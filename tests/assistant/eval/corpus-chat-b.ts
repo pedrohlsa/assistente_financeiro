@@ -156,7 +156,9 @@ export const CASOS_CHAT_B: CasoChat[] = [
       deveMencionar: [/1\.497|azul|positiv|sobr/i],
       proibidoNaResposta: [{ re: /voc[êe] est[áa] (?:no vermelho|negativ)/i, tipo: 'fato-errado' }],
     }),
-  casoChat('c-49', 'autonomo', 'utilidade', 'remota',
+  // Resolvido no aparelho desde 21/11 (`valeQuitar` em ai.ts): o que falta e a
+  // condição do desconto, sem inventar juros.
+  casoChat('c-49', 'autonomo', 'utilidade', 'local',
     'vale a pena quitar o computador antes?',
     'o contexto tem saldo restante e parcelas, mas NÃO tem juros nem desconto: citar um é inventar',
     {

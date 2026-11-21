@@ -127,6 +127,9 @@ export function normalizeQuery(input: string): string {
     const mes = mesDigitadoErrado(w.toLowerCase())
     return mes ? `${prep} ${mes}` : m
   })
+  // "Quanto falta PRA QUITAR o computador": o verbo ficava no filtro de texto,
+  // e a resposta era "você não tem parcelamentos com 'quitar o computador'".
+  t = t.replace(/\b(?:pra|para)\s+(?:quitar|terminar\s+de\s+pagar|acabar\s+de\s+pagar)\s+(o|a|os|as)\s+/g, (_m, art: string) => `d${art} `)
   return t.replace(/\s{2,}/g, ' ')
 }
 

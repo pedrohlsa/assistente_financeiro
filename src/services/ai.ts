@@ -16,7 +16,7 @@ import type { OrchestratorInput } from '../assistant/orchestrator'
 import type { RemoteConversationContext } from '../assistant/conversation/remoteContext'
 import {
   addDays, dueLabel, fmtBRL, fmtNum, fromISO, monthKey, todayISO, toISO, daysInMonth, parseMoney, daysBetween } from '../utils/format'
-import { normalizeName, promptSafe, sentenceCase } from '../utils/text'
+import { normalizeName, promptSafe, sameName, sentenceCase } from '../utils/text'
 import { MAX_COMPOSE_FACTS } from '../assistant/grounding'
 import { MARGEM_EMPATE } from '../assistant/query/answer'
 import {
@@ -44,7 +44,7 @@ import { catById } from '../data/categories'
 import { isDriver } from './profile'
 import {
   activeCards, cardInvoice, cardOutstanding, cardsOverview, currentInvoice, monthlyCommitments, activePlans,
-  planProgress, overdueInstallments, upcomingInvoices, installmentsThisMonth, hasAmbiguousLegacyCardBalance, invoiceOpenAmount, validPaymentDate,
+  planProgress, overdueInstallments, upcomingInvoices, installmentsThisMonth, hasAmbiguousLegacyCardBalance, installmentRemaining, invoiceOpenAmount, validPaymentDate,
 } from './cards'
 import type { CardInvoice } from './cards'
 
@@ -503,6 +503,34 @@ function listaDeLancamentos(s: AppState, t: string): string | undefined {
     ...(lista.length > mostrados.length ? ['', `E mais ${lista.length - mostrados.length}. A lista completa fica em Movimentações.`] : [])].join('\n')
 }
 
+/**
+ * "Vale a pena quitar o computador?": a decisão depende do DESCONTO que o
+ * cartão dá para antecipar — um número que o app não tem. A resposta diz o que
+ * falta, o que muda no saldo e a condição para compensar; nunca inventa juros.
+ * Caía na ajuda genérica.
+ */
+function valeQuitar(s: AppState, t: string): string | undefined {
+  const m = t.match(/\b(?:vale\s+a\s+pena|compensa|devo|e\s+bom|seria\s+bom)\s+(?:eu\s+)?(?:quitar|antecipar|adiantar)\s+(?:o\s+|a\s+|os\s+|as\s+)?(?:parcelamento\s+d[oa]\s+|parcelas\s+d[oa]\s+)?([a-z0-9][a-z0-9 ]*?)\s*\??$/)
+  if (!m) return undefined
+  // "Quitar o computador ANTES / agora / de uma vez": o advérbio não é nome.
+  const nome = m[1].replace(/\s+(?:antes|agora|ja|logo|de\s+uma\s+vez|adiantado|antecipado|todo|toda|inteiro|inteira)$/g, '').trim()
+  const planos = (s.installmentPlans || []).filter(p => p.status === 'active' && (sameName(p.description, nome) || normalizeName(p.description).includes(normalizeName(nome))))
+  if (!planos.length) return `Não encontrei um parcelamento em aberto chamado "${sentenceCase(nome)}". Confira o nome em Cartões e parcelamentos.`
+  const p = planos[0]
+  const pendentes = (s.installments || []).filter(i => i.planId === p.id && i.status !== 'paid').sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+  if (!pendentes.length) return `O parcelamento ${sentenceCase(p.description)} não tem parcelas em aberto.`
+  const falta = round2(pendentes.reduce((a, i) => a + installmentRemaining(s, i), 0))
+  const saldo = currentBalance(s)
+  const ultima = pendentes[pendentes.length - 1].dueDate
+  return [
+    `Falta ${fmtBRL(falta)} do ${sentenceCase(p.description)}: ${pendentes.length} ${pendentes.length === 1 ? 'parcela' : 'parcelas'}, a última em ${ultima.slice(5, 7)}/${ultima.slice(0, 4)} (dado real).`,
+    `Quitar antes só compensa se o cartão der DESCONTO pela antecipação — sem desconto, você paga os mesmos ${fmtBRL(falta)}, só que agora. Peça o valor de antecipação no app do cartão: o que ficar abaixo de ${fmtBRL(falta)} é o que você economiza.`,
+    saldo >= falta
+      ? `Seu saldo hoje é ${fmtBRL(saldo)}; quitando tudo, ficaria ${fmtBRL(round2(saldo - falta))}, antes das contas que ainda vencem.`
+      : `Seu saldo hoje é ${fmtBRL(saldo)}, menor que o que falta — quitar tudo agora não cabe.`,
+  ].join('\n\n')
+}
+
 function resolveLocal(s: AppState, input: string): AiReply {
   const t = normalizeQuestion(input)
   const driverMode = isDriver(s.settings)
@@ -511,6 +539,8 @@ function resolveLocal(s: AppState, input: string): AiReply {
   if (custoMensal) return { text: custoMensal }
   const lista = listaDeLancamentos(s, t)
   if (lista) return { text: lista }
+  const quitar = valeQuitar(s, t)
+  if (quitar) return { text: quitar }
   // Meta de COMPRA citada pelo NOME ganha da meta diária e da mensal. O usuário
   // tem as duas, e a palavra "meta" serve às duas — mas quem batizou a meta de
   // "Moto" e pergunta por ela espera ouvir sobre ela.

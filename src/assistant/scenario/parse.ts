@@ -41,6 +41,9 @@ const HIPOTESE = [
   /\bse\s+(?:r\$\s*)?\d/,
   /\bcabe\b/, /\bd[áa]\s+pra\b[^?]*\d/, /\bdaria\s+pra\b/,
   /\bconsigo\s+(?:comprar|pagar|bancar)\b/, /\bs[óo]\s+quero\s+saber\s+se\b/,
+  // "Posso parcelar uma geladeira de 3000 em 10x?" mostrava a situação dos
+  // cartões; "posso comprar um celular de 1500?" caía na ajuda.
+  /\bposso\s+(?:comprar|parcelar|financiar|bancar)\b/,
   // "Vale a pena ficar mais 3 horas?" é a mesma hipótese do "se eu ficar mais
   // 3h", sem o "se" — caía em "não tenho certeza do que registrar".
   /\b(?:vale\s+a\s+pena|compensa)\s+(?:eu\s+)?(?:ficar|rodar|trabalhar|fazer)\s+mais\b/,
@@ -341,7 +344,8 @@ function planSingleScenario(
   // "n pagar" é como se escreve no celular. Sem aceitar o "n" abreviado, a
   // frase caía no ramo de GASTO e o "1" de "Casa 1" virava um gasto simulado
   // de R$ 1,00 — resposta completa, precisa e sobre outra coisa.
-  if (/\b(?:nao|n)\s+(?:me\s+)?(?:pagar|pagarem|vier|entrar|cair|depositar|receber)\b|\batrasar\b|\bfalhar\b/.test(t)) {
+  // "E se a casa 2 FICAR VAZIA": o aluguel que não vem.
+  if (/\b(?:nao|n)\s+(?:me\s+)?(?:pagar|pagarem|vier|entrar|cair|depositar|receber)\b|\batrasar\b|\bfalhar\b|\bficar\s+(?:vazi[ao]|sem\s+inquilino)\b|\bdesocupar\b/.test(t)) {
     const origem = origemDe(t)
     // O número de "Casa 1" é parte do NOME, não um valor: sem tirar a origem do
     // texto antes de ler o dinheiro, "se a Casa 1 não pagar" virava uma entrada

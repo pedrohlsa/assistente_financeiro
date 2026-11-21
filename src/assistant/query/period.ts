@@ -130,7 +130,7 @@ export function previousPeriod(p: QueryPeriod): QueryPeriod {
     // como o mês inteiro.
     const label = mesPrincipalCompleto || to === ultimoDia(ano, mes)
       ? `em ${MESES[mes]}`
-      : `de 1º a ${Number(to.slice(8, 10))} de ${MESES[mes]}`
+      : Number(to.slice(8, 10)) === 1 ? `em 1º de ${MESES[mes]}` : `de 1º a ${Number(to.slice(8, 10))} de ${MESES[mes]}`
     return { from: primeiroDia(ano, mes), to, label, grain: 'month' }
   }
   if (p.grain === 'year') {

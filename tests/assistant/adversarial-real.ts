@@ -6926,9 +6926,12 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       ['CP-mesmo-pedaco-comparado', 'quanto gastei esse mês comparado com o mês passado'],
     ] as const) {
       const r = limpa((await turnoHoje(rico, frase)).reply)
+      // Sem lançamento no pedaço anterior não há base: o app diz isso (regra 43).
+      const semBase = !rico.transactions.some(x => x.type === 'expense' && x.date >= ini && x.date <= ate)
+      const rotulo = Number(ate.slice(8, 10)) === 1 ? /em 1º de/i : new RegExp(`de 1º a ${Number(ate.slice(8, 10))} de`, 'i')
       out.push(result(id, r, `${brl(mesmoPedaco)} nos mesmos ${dia} dias${completo ? '' : ', com o pedaço no rótulo'}`,
-        r.includes(brl(esteMes)) && r.includes(brl(mesmoPedaco))
-          && (completo || new RegExp(`de 1º a ${Number(ate.slice(8, 10))} de`, "i").test(r))))
+        r.includes(brl(esteMes)) && (semBase ? /não há lançamentos para comparar/.test(r) : r.includes(brl(mesmoPedaco)))
+          && (completo || rotulo.test(r))))
     }
   }
 
@@ -6979,8 +6982,11 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         : gasto(catId, ini, ate)
       const r = limpa((await turnoHoje(rico, frase)).reply)
       const veredito = agora > antes ? /^Sim\b/ : agora < antes ? /^Não\b/ : /^Não, igual/
-      out.push(result(id, r, `${agora > antes ? 'Sim' : 'Não'} primeiro; ${brl(agora)} contra ${brl(antes)}`,
-        veredito.test(r) && r.includes(brl(agora)) && (antes === 0 || r.includes(brl(antes))) && !/Posso te ajudar/.test(r)))
+      // Sem nada no pedaço anterior, não há veredito: "não há lançamentos para comparar".
+      const semBase = antes === 0
+      out.push(result(id, r, semBase ? 'sem base: diz que não há o que comparar' : `${agora > antes ? 'Sim' : 'Não'} primeiro; ${brl(agora)} contra ${brl(antes)}`,
+        (semBase ? /não há lançamentos para comparar/.test(r) : veredito.test(r) && r.includes(brl(antes)))
+          && r.includes(brl(agora)) && !/Posso te ajudar/.test(r)))
     }
     // Sigla escrita em minúsculas é exibida como sigla.
     const iptu = await turnoHoje(buildState({ profile: 'autonomo' }), 'paguei o iptu 380')
@@ -7186,6 +7192,40 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       g.includes('Mercado') && g.includes('Cinema') && !g.includes('Site')))
     const vazio = (await turnoHoje(buildState({ profile: 'autonomo' }), 'o que eu registrei hoje?')).reply
     out.push(result('LS-nada-hoje', vazio, 'diz que não há nada hoje', /Nada registrado hoje|não há nada registrado hoje/i.test(vazio)))
+  }
+
+  // "Posso parcelar uma geladeira de 3000 em 10x?" mostrava a situação dos
+  // cartões; "posso comprar um celular de 1500?" caía na ajuda. As duas são a
+  // mesma simulação de "consigo comprar". "E se a casa 2 ficar vazia" é uma
+  // entrada que não vem.
+  {
+    const rico = autonomoRico(hoje)
+    for (const [id, frase, re] of [
+      ['HP-posso-parcelar', 'posso parcelar uma geladeira de 3000 em 10x?', /R\$ 300,00 por m[êe]s/],
+      ['HP-posso-comprar', 'posso comprar um celular de 1500?', /R\$ 1\.500,00/],
+      ['HP-posso-financiar', 'posso financiar uma moto de 12 mil em 24x?', /R\$ 500,00 por m[êe]s/],
+      ['HP-casa-vazia', 'e se a casa 2 ficar vazia', /Casa 2/],
+    ] as const) {
+      const r = await turnoHoje(rico, frase)
+      const txt = r.reply.replace(/ /g, ' ')
+      out.push(result(id, txt, 'simulação, nada registrado', !r.actions.length && /Simula[çc][ãa]o/.test(txt) && re.test(txt)))
+    }
+  }
+
+  // "Quanto falta pra quitar o computador" dizia que não havia parcelamento:
+  // o "quitar" ficava no filtro. "Vale a pena quitar?" caía na ajuda.
+  {
+    const rico = autonomoRico(hoje)
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const plano = rico.installmentPlans.find(p => p.description === 'Computador')!
+    const falta = rico.installments.filter(i => i.planId === plano.id && i.status === 'pending').reduce((t, i) => t + i.amount, 0)
+    const r = (await turnoHoje(rico, 'quanto falta pra quitar o computador')).reply.replace(/ /g, ' ')
+    out.push(result('QT-falta-pra-quitar', r, `${brl(falta)} do Computador`, r.includes(brl(falta)) && !/não tem parcelamentos/.test(r)))
+    const v = (await turnoHoje(rico, 'vale a pena quitar o computador?')).reply.replace(/ /g, ' ')
+    out.push(result('QT-vale-a-pena-quitar', v, 'o que falta, as parcelas e o desconto como condição; sem inventar juros',
+      v.includes(brl(falta)) && /desconto/i.test(v) && !/Posso te ajudar/.test(v)))
+    const nada = (await turnoHoje(rico, 'vale a pena quitar a moto?')).reply
+    out.push(result('QT-quitar-sem-plano', nada, 'diz que não acha o parcelamento', /não (?:encontrei|achei|tenho)/i.test(nada) && !/Posso te ajudar/.test(nada)))
   }
 
   return out
