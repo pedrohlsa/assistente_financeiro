@@ -51,7 +51,7 @@ import { findGoalByName, planAssistantActions } from './execute'
 import { askAssistant, normalizeQuestion, respostaDeMetaCitada } from '../services/ai'
 import { contaDeclarada, perguntaDeFatura, perguntaNominal } from './cashQuestions'
 import { buildCapabilities } from './capabilities'
-import { describeAction, META_OUTRA, SAQUE } from '../services/nlp'
+import { describeAction, META_OUTRA, NEXT_RIDE_DISTANCE, SAQUE } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
 import { catById, usableCategories } from '../data/categories'
 import { addDays, fmtBRL, MESES_PT_BR, nowPaymentTime, nowTime, parseMoney, todayISO, uid } from '../utils/format'
@@ -761,6 +761,14 @@ function answerQuestions(
   const answered: AnalyzedClause[] = []
   let focus: ConversationFocus | undefined
   for (const q of questions) {
+    const nextRide = candidates.some(c => c.action.kind === 'income' && c.action.description === 'Corrida')
+      ? q.text.replace(NEXT_RIDE_DISTANCE, 'outra corrida') : q.text
+    const offer = answerRideOffer(state, nextRide, message)
+    if (offer) {
+      parts.push(offer)
+      answered.push(q)
+      continue
+    }
     const pergunta = perguntaComAssunto(caudaDaPergunta(q.text, candidates), candidates)
     // A consulta só entra ao lado de um registro e com pergunta inteira. Sem
     // registro, quem responde é o turno normal, que lê a mensagem toda; e um

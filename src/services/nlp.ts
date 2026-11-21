@@ -535,6 +535,11 @@ function driverDayResult(input: string, actions: ParsedAction[], dayHint?: boole
  */
 export const CORRIDA_CANCELADA = /(?<![\wÀ-ÿ])(?:cancel(?:aram|ou|ei|amos)\b[^.;!?]*\bcorridas?\b|corridas?\b[^.;!?]*\bcancelad[ao]s?\b)/i
 
+export const RIDE_EVALUATION_REQUEST = /\b(?:vale(?:\s+a\s+pena)?|compensa|aceito|pego|(?:devo|posso|vale)\s+(?:aceitar|pegar)|(?:d[áa]|serve)\s+(?:pra|para)\s+(?:aceitar|pegar))\b/i
+export const RIDE_COMPARISON_REQUEST = /\b(?:compara|compare|comparar|comparando|qual\s+(?:dessas?\s+)?(?:corrida|oferta)s?\s+(?:paga|rende)\s+mais)\b/i
+export const RIDE_CONDITIONAL = /^(?:eu\s+)?(?:tiraria|ganharia|receberia|renderia|pagaria)\b[^.;!?]*\bcorrida\b/i
+export const NEXT_RIDE_DISTANCE = /^\s*(?:a\s+)?outra(?=\s+(?:de|por)\s+[^.;!?]*\d\s*(?:kms?|quil[oô]metros?)\b)/i
+
 const APP_DE_CORRIDA = String.raw`(?:uber|99|in\s*drive[r]?)`
 const AVISO_DE_CORRIDA = String.raw`(?:oferta|chamada|proposta|solicita[çc][ãa]o)`
 const UMA_OFERTA = String.raw`(?:(?:uma|a|outra|nova|essa|esta)\s+)?`

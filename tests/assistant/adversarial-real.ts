@@ -7007,6 +7007,27 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         out.push(result(id, r.reply, 'usa o critério pedido e os números de cada oferta, sem gravar',
           lead.test(r.reply) && numbers.every(n => limpa(r.reply).includes(brl(n))) && !r.actions.length))
       }
+      for (const [id, message, price, approach] of [
+        ['RP-gasto-e-corrida-condicional', 'gastei 25 no mercado e tiraria 30 numa corrida de 10 km, compensa?', 3, /Análise da corrida/],
+        ['RP-gasto-e-chamada', 'paguei 25 no mercado e me ofereceram uma corrida de 50 por 20 km, compensa?', 2.5, /Análise da corrida/],
+        ['RP-gasto-e-comparacao', 'gastei 25 no mercado e compara corrida de 30 em 10 km ou 50 em 20 km', 3, /A primeira paga mais por km/],
+      ] as const) {
+        const r = await turn(oferta, message)
+        const [action] = r.actions
+        out.push(result(id, r.reply, 'uma despesa de R$ 25 e análise de oferta sem lançamento',
+          r.mode === 'answer_and_actions' && r.actions.length === 1 && action.kind === 'expense'
+            && action.amount === 25 && approach.test(r.reply) && limpa(r.reply).includes(`${brl(price)}/km bruto`)))
+      }
+      const completedAndOffer = await turn(oferta, 'fiz uma corrida de 30 por 10 km e outra de 50 por 20 km compensa?')
+      out.push(result('RP-corrida-feita-com-analise-de-outra', completedAndOffer.reply,
+        'R$ 30 e uma viagem como proposta, calcula nos 20 km da outra',
+        completedAndOffer.mode === 'answer_and_actions' && completedAndOffer.actions.length === 2
+          && receitas(completedAndOffer.actions)[0]?.amount === 30 && completedAndOffer.actions.some(a => a.kind === 'work' && a.trips === 1)
+          && /Análise da corrida \(20 km/.test(completedAndOffer.reply) && limpa(completedAndOffer.reply).includes(`${brl(2.5)}/km bruto`)))
+      const conditionalOnly = await turn(oferta, 'gastei 25 e tiraria 30 numa corrida de 10 km')
+      out.push(result('RP-corrida-condicional-fora-do-caixa', conditionalOnly.actions, 'só R$ 25 de despesa, sem dados da corrida na descrição',
+        conditionalOnly.actions.length === 1 && conditionalOnly.actions[0].kind === 'expense' && conditionalOnly.actions[0].amount === 25
+          && !conditionalOnly.actions[0].description && conditionalOnly.mode !== 'clarify'))
       const onlyOne = await turnoHoje(oferta, 'corrida de 40 em 8 ou 10 km, vale?')
       out.push(result('RP-distancia-duvidosa-nao-e-duas-ofertas', onlyOne.reply, 'pede a distância de cada oferta sem criar uma',
         /Diga o valor e a distância/.test(onlyOne.reply) && !onlyOne.actions.length && !/Primeira\./.test(onlyOne.reply)))

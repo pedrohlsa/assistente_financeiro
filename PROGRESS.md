@@ -6819,3 +6819,12 @@ até auditoria independente.
   empréstimo bancário. Crédito no cartão pede os dados da entrada financiada.
 - Em relatos mistos, R$ 80,50 retirados da reserva ficam fora e R$ 15,20
   de freela permanecem na proposta. Suíte com 1.275/1.275 regressões.
+
+## 21/11/2026 — Oferta e movimentação realizada na mesma fala
+
+- “Gastei 25 no mercado e tiraria 30 numa corrida de 10 km, compensa?”
+  prepara só o gasto e calcula R$ 3/km bruto para a oferta. O mesmo vale
+  para perguntas sobre chamadas recebidas e comparações.
+- “Fiz uma corrida de 30 por 10 km e outra de 50 por 20 km compensa?”
+  mantém os R$ 30 e a viagem concluída e analisa apenas os 20 km da outra.
+  Suíte com 1.280/1.280 regressões.

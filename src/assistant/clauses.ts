@@ -8,7 +8,7 @@
 import type { ParsedAction } from '../models/types'
 import type { AssistantConfidence, AssistantIntent, FinancialEvent } from './contracts'
 import { guessCategory } from '../data/categories'
-import { cleanDescription, DECIMO_TERCEIRO, financedCardMentions, gruposDeCorrida, looksRecurring, parseNaturalFull, RIDE_OFFER_NOTICE, UMA_CORRIDA_NOMEADA } from '../services/nlp'
+import { cleanDescription, DECIMO_TERCEIRO, financedCardMentions, gruposDeCorrida, looksRecurring, parseNaturalFull, NEXT_RIDE_DISTANCE, RIDE_COMPARISON_REQUEST, RIDE_CONDITIONAL, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE, UMA_CORRIDA_NOMEADA } from '../services/nlp'
 import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
@@ -216,6 +216,7 @@ function inflowGuard(text: string, carriesInflow = false): string | undefined {
   if (CARD_CREDIT_SOURCE.test(text)) return 'Se foi uma entrada financiada, diga o valor cobrado no cartão, o valor que entrou, o cartão e em quantas parcelas vai pagar.'
   return undefined
 }
+const PROSPECTIVE_RIDE = /^(?:essa|esta|outra|uma\s+outra)\s+corrida\b/i
 const EXAMPLE_CUE = String.raw`(?:(?:por\s+)?exemplo|(?:s[oó]\s+)?(?:um\s+)?teste|(?:t[oô]|estou)\s+testando|isso\s+[ée]\s+s[oó]\s+(?:um\s+)?exemplo)\s*[:,—–-]\s*`
 const EXAMPLE_START = new RegExp(String.raw`^\s*${EXAMPLE_CUE}`, 'i')
 const REPORTED_SPEECH = /^(?:(?:eu\s+)?(?:falei|disse)|(?:me|nos)\s+(?:falaram|disseram)|(?:(?:o|a|meu|minha)\s+)?[\p{L}\p{M}]+(?:\s+[\p{L}\p{M}]+)?\s+(?:falou|disse|afirmou|avisou))\s*(?:que\b|[:"“‘'])/iu
@@ -613,6 +614,17 @@ export function segment(text: string, today = todayISO()): { text: string; start
   // cimento" era cortado no meio e a descrição se perdia.
   for (const m of text.matchAll(new RegExp(String.raw`[,;]?\s+${CONNECTORS}(?=(?:${COMMAND_VERBS})\b)`, 'gi'))) {
     push((m.index || 0) + m[0].length)
+  }
+  // Um gasto ou ganho realizado pode anteceder uma pergunta sobre outra corrida.
+  for (const m of text.matchAll(/(?:,\s*(?:e\s+)?|\s+(?:e|mas)\s+)(?=\p{L})/giu)) {
+    const after = m.index + m[0].length
+    const left = text.slice(0, m.index).split(/[.!?;]\s+/).pop() || ''
+    const right = text.slice(after).split(/[.!?;]\s+/)[0]
+    if (!looksPast(left)) continue
+    const requestsEvaluation = RIDE_EVALUATION_REQUEST.test(right) || RIDE_COMPARISON_REQUEST.test(right)
+    if (RIDE_CONDITIONAL.test(right)
+      || (requestsEvaluation && (PROSPECTIVE_RIDE.test(right) || (NEXT_RIDE_DISTANCE.test(right) && /\bcorrida\b/i.test(left))
+        || (RIDE_COMPARISON_REQUEST.test(right) && /\bcorridas?\b/i.test(right))))) push(after)
   }
   // Em uma enumeração, “mercado 55, farmácia 21” pode usar o verbo que
   // abriu a frase. Cada par precisa ter valor e destino próprios.
@@ -1385,7 +1397,10 @@ export function analyzeMessage(
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i]
     const isConversation = looksLikeConversation(part.text)
-    const isQuestion = !isConversation && looksLikeQuestion(part.text)
+    const evaluateOffer = RIDE_EVALUATION_REQUEST.test(part.text) && (RIDE_OFFER_NOTICE.test(part.text)
+      || PROSPECTIVE_RIDE.test(part.text) || RIDE_CONDITIONAL.test(part.text) || NEXT_RIDE_DISTANCE.test(part.text))
+    const compareOffers = RIDE_COMPARISON_REQUEST.test(part.text) && /\b(?:corridas?|ofertas?)\b/i.test(part.text)
+    const isQuestion = !isConversation && (looksLikeQuestion(part.text) || evaluateOffer || compareOffers)
     const negated = looksNegated(part.text)
     const following = parts[i + 1]?.text || ''
     const requestedPix = PIX_REQUEST.test(part.text)
@@ -1415,7 +1430,7 @@ export function analyzeMessage(
       : paymentPending ? 'O recebimento ainda está pendente. Quando o dinheiro entrar, diga o valor e a data.'
       : thirdPartyReference(part.text) ? 'Esse trecho fala da movimentação de outra pessoa. Se afetou sua conta, diga se o dinheiro entrou ou saiu e qual foi o valor.'
       : undefined))
-    const unrealized = !isQuestion && (abandoned || abandonedReply || onlyPlanned || declinedRide || refundDenied || ALMOST_HAPPENED.test(part.text))
+    const unrealized = !isQuestion && (abandoned || abandonedReply || onlyPlanned || declinedRide || refundDenied || RIDE_CONDITIONAL.test(part.text) || ALMOST_HAPPENED.test(part.text))
     const canShareContext = !isQuestion && !isConversation && !negated && !unrealized && !localExplanation
     let clock: ReturnType<typeof spokenClock> = isQuestion ? { remaining: part.text } : spokenClock(part.text)
     const originalMoney = spokenMoney(expandWeekdayAlternatives(clock.remaining))
@@ -1815,6 +1830,9 @@ export function analyzeMessage(
       ambiguity = { question: creditoNaFatura
         ? 'O valor voltou como crédito na fatura? Se entrou na sua conta, diga o valor e a data do recebimento.'
         : 'Quem recebeu a devolução? Diga se o dinheiro entrou na sua conta ou se foi devolvido a outra pessoa.', options: [] }
+    } else if (compareOffers || (rideCue && evaluateOffer)) {
+      actions = []
+      ambiguity = undefined
     } else if (requestedPix || rideCue || refund) {
       actions = []
       const event: FinancialEvent = requestedPix ? 'pix' : rideCue ? 'ride' : 'refund'

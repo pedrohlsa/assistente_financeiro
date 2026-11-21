@@ -1,6 +1,6 @@
 import type { AppState } from '../models/types'
 import { analyzeRide, kmCost } from '../services/calc'
-import { RIDE_OFFER_NOTICE } from '../services/nlp'
+import { RIDE_COMPARISON_REQUEST, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE } from '../services/nlp'
 import { isDriver } from '../services/profile'
 import { fmtBRL, fmtNum, parseMoney } from '../utils/format'
 import { normalizeName } from '../utils/text'
@@ -8,12 +8,11 @@ import { looksPast } from './clauses'
 import { PARE_PARA_DESCANSAR, perceivesDrivingFatigue } from './driverAdvice'
 import { normalizeNumberWords } from './numbers'
 
-const PEDIDO = /\b(?:vale(?:\s+a\s+pena)?|compensa|aceito|pego|(?:devo|posso|vale)\s+(?:aceitar|pegar)|(?:da|serve)\s+(?:pra|para)\s+(?:aceitar|pegar))\b/
-const COMPARAR = /\b(?:compara|compare|comparar|comparando|qual\s+(?:dessas?\s+)?(?:corrida|oferta)s?\s+(?:paga|rende)\s+mais)\b/
 const NOME = /\b(?:corridas?|viagem|chamada)\b/
 const NUMBER = String.raw`(\d+(?:[.,]\d+)*)(?!\d|[.,]\d)`
 const AMOUNT_WITH_CURRENCY = new RegExp(String.raw`(?<!-)r\$\s*${NUMBER}|(?<![\w.,-])${NUMBER}\s*(?:reais?|contos?|pila)\b`, 'g')
 const AMOUNT_AFTER_NOUN = new RegExp(String.raw`\b(?:corridas?|viagem|chamada)\s+(?:(?:da|do|na|no|pela|pelo|via)\s+(?:uber|99|indrive[r]?)\s+)?(?:(?:de|por|no\s+valor\s+de)\s+)?${NUMBER}(?!\s*(?:kms?|quilometros?|m|metros?|h|horas?|min|minutos?|segundos?)\b)`)
+const AMOUNT_PROSPECTIVE = new RegExp(String.raw`\b(?:tiraria|ganharia|receberia|renderia|pagaria)\s+${NUMBER}(?!\s*(?:kms?|quilometros?|m|metros?|h|horas?|min|minutos?)\b)`)
 const AMOUNT_BEFORE_DISTANCE = new RegExp(String.raw`(?<![\w.,-])${NUMBER}\s+(?:por|em|pra|para|com)\s+\d+(?:[.,]\d+)*\s*(?:kms?|quilometros?|metros?)\b`, 'g')
 const OFFER_SEPARATOR = /\s+(?:ou|contra|e(?=\s+(?:a\s+)?outra\b))\s+/
 const PICKUP = String.raw`(?:ate\s+(?:(?:o|a)\s+)?(?:passageir[oa]|embarque)|(?:pra|para)\s+(?:(?:o|a)\s+)?(?:buscar|embarcar|embarque)|(?:de|do|pro|para\s+o)\s+embarque|(?:de\s+)?aproximacao)`
@@ -54,7 +53,7 @@ function routeTotal(parts: Partial<Record<Part, number>>): number | undefined {
 function amountForOffer(text: string, elliptical = false): number | undefined {
   const explicit = new Set([...text.matchAll(AMOUNT_WITH_CURRENCY)].map(m => parseMoney(m[1] || m[2])))
   if (explicit.size) return explicit.size === 1 ? explicit.values().next().value : undefined
-  const afterNoun = text.match(AMOUNT_AFTER_NOUN)?.[1]
+  const afterNoun = text.match(AMOUNT_AFTER_NOUN)?.[1] || text.match(AMOUNT_PROSPECTIVE)?.[1]
   if (afterNoun) return parseMoney(afterNoun)
   if (!elliptical) return undefined
   const prices = [...text.matchAll(AMOUNT_BEFORE_DISTANCE)].filter(m =>
@@ -116,8 +115,8 @@ export function answerRideOffer(state: AppState, input: string, context = input)
   const notice = input.match(RIDE_OFFER_NOTICE)
   if (!isDriver(state.settings) || looksPast(notice ? input.replace(RIDE_OFFER_NOTICE, ' ') : input)) return undefined
   const t = normalizeNumberWords(normalizeName(input)).text
-  const compare = COMPARAR.test(t)
-  if ((!PEDIDO.test(t) && !compare) || (!notice && !NOME.test(t))) return undefined
+  const compare = RIDE_COMPARISON_REQUEST.test(t)
+  if ((!RIDE_EVALUATION_REQUEST.test(t) && !compare) || (!notice && !NOME.test(t))) return undefined
   if (perceivesDrivingFatigue(context)) return PARE_PARA_DESCANSAR
   if (!/\d/.test(t)) return undefined
   const alternatives = t.split(OFFER_SEPARATOR)
