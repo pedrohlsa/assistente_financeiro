@@ -6890,7 +6890,6 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         ['RP-km-sem-valor', 'compensa uma corrida de 8 km?', /Qual é o valor/],
         ['RP-99-nao-e-preco', 'corrida da 99, 8 km no total, vale?', /Qual é o valor/],
         ['RP-distancias-conflitam', 'corrida de 20 reais, 4 km até o passageiro, 8 km de viagem e 8 km no total, compensa?', /Diga os km totais/],
-        ['RP-duas-ofertas-nao-sao-receita', 'compare corrida de 30 em 10 km ou 50 em 20 km, qual pego?', /uma oferta por vez/],
         ['RP-sono-depois-da-oferta', 'essa corrida de 30 por 8 km compensa? tô com sono', /^Pare em um local seguro/],
       ] as const) {
         const r = await turnoHoje(oferta, frase)
@@ -6900,6 +6899,26 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('RP-sem-custo-tem-so-bruto', semCusto.reply, 'R$ 3,33/km bruto e pedido de custo por km',
         limpa(semCusto.reply).includes(`${brl(3.33)}/km bruto`) && /Cadastre o custo/.test(semCusto.reply)
         && !/lucro estimado|classificação|pode aceitar/i.test(semCusto.reply) && !semCusto.actions.length))
+      for (const [id, frase, lead, numbers] of [
+        ['RP-comparar-separando-dois-precos', 'compare corrida de 30 em 10 km ou 50 em 20 km, qual pego?', /^A primeira paga mais por km/, [3, 2.5, 25, 40]],
+        ['RP-comparar-por-hora-com-tempos-totais', 'qual corrida compensa: 30 por 10 km no total e 20 min no total ou 50 por 20 km no total e 40 min no total?', /^A primeira tem maior lucro por hora/, [75, 60]],
+        ['RP-comparar-lucro-total-pedido', 'compara corrida por 30 reais, são 2 km pra buscar e 8 km de viagem, contra a de 50 reais, 10 km pra buscar e 10 km de viagem. qual dá mais lucro total?', /^A segunda tem maior lucro estimado/, [25, 40]],
+        ['RP-comparar-empate-por-km', 'qual dessas corridas vale a pena: 30 por 10 km ou 60 por 20 km?', /^As duas têm o mesmo valor por km/, [3]],
+        ['RP-comparar-hora-sem-tempo', 'compare corrida de 30 por 10 km ou 50 por 20 km: qual paga mais por hora?', /^Para comparar por hora, preciso/, [3, 2.5]],
+      ] as const) {
+        const r = await turnoHoje(oferta, frase)
+        out.push(result(id, r.reply, 'usa o critério pedido e os números de cada oferta, sem gravar',
+          lead.test(r.reply) && numbers.every(n => limpa(r.reply).includes(brl(n))) && !r.actions.length))
+      }
+      const onlyOne = await turnoHoje(oferta, 'corrida de 40 em 8 ou 10 km, vale?')
+      out.push(result('RP-distancia-duvidosa-nao-e-duas-ofertas', onlyOne.reply, 'pede a distância de cada oferta sem criar uma',
+        /Diga o valor e a distância/.test(onlyOne.reply) && !onlyOne.actions.length && !/Primeira\./.test(onlyOne.reply)))
+      const noCostComparison = await turnoHoje(buildState({ profile: 'driver' }),
+        'qual corrida compensa: 30 por 10 km no total e 20 min no total ou 50 por 20 km no total e 40 min no total?')
+      out.push(result('RP-comparar-sem-custo-tem-receita-bruta', noCostComparison.reply, 'R$ 90/h e R$ 75/h brutos, sem lucro inventado',
+        /^A primeira tem maior receita por hora/.test(noCostComparison.reply)
+        && limpa(noCostComparison.reply).includes(`${brl(90)}/h bruto`) && limpa(noCostComparison.reply).includes(`${brl(75)}/h bruto`)
+        && !/lucro|aceitar/i.test(noCostComparison.reply) && !noCostComparison.actions.length))
       for (const [id, distancia] of [['RP-km-nao-sao-dinheiro', '8,5 km'], ['RP-metros-nao-sao-dinheiro', '500 metros']] as const) {
         const r = await turnoHoje(oferta, `recebi 22 por uma corrida de ${distancia}`)
         const rendas = receitas(r.actions)

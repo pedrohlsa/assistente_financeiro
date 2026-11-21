@@ -6775,3 +6775,12 @@ até auditoria independente.
 - Pagar uma corrida de 8 km por R$ 29 gera uma despesa de R$ 29. O leitor
   de itens protege unidades de medida antes de buscar valores enumerados.
   Suíte com 1.241/1.241 regressões.
+
+## 21/11/2026 — Comparação de duas ofertas
+
+- “Compare corrida de 30 em 10 km ou 50 em 20 km” mostra as duas ofertas
+  com seus valores e distâncias. O critério explícito de km, hora ou
+  lucro total prevalece. Tempo completo permite usar a taxa por hora.
+- A resposta informa quando falta distância, tempo ou custo do veículo.
+  Ofertas ficam fora do caixa. O Chrome comparou R$ 75/h e R$ 60/h com
+  uma despesa anterior ainda pendente. Suíte com 1.247/1.247 regressões.
