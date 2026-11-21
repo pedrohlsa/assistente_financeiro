@@ -481,8 +481,17 @@ export function pedeFimDoMes(t: string): { simNao: boolean } | null {
 
 /** "Consigo guardar 500 esse mês?", "dá pra juntar 300 este mês?": o valor pedido. */
 export function guardarEsteMes(t: string): number | null {
-  const m = t.match(/\b(?:consigo|da\s+para|daria\s+para|posso|eu\s+consigo)\s+(?:ainda\s+)?(?:guardar|juntar|poupar|separar)\s+(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real|conto|pila)?(?![\d])[^?]*\b(?:esse|este|nesse|neste|do)\s+mes\b/)
+  // "Dá PRA", "tem como", "rola": a mesma pergunta. Sem as formas faladas,
+  // "dá pra guardar 500 esse mês?" ia para o simulador de meta e respondia
+  // "Sim" quando "consigo guardar 300" respondia "não".
+  const m = t.match(/\b(?:consigo|da\s+(?:para|pra)|daria\s+(?:para|pra)|posso|eu\s+consigo|tem\s+como|rola)\s+(?:ainda\s+)?(?:guardar|juntar|poupar|separar)\s+(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real|conto|pila)?(?![\d])[^?]*\b(?:esse|este|nesse|neste|do)\s+mes\b/)
   if (!m) return null
   const v = parseMoney(m[1])
   return Number.isFinite(v) && v > 0 ? v : null
+}
+
+/** "Quanto sobra até o próximo salário?", "dá pra chegar até o salário cair?" */
+export function pedeAteOSalario(t: string): boolean {
+  return /\bate\s+(?:o\s+)?(?:proximo\s+|outro\s+)?(?:salario|pagamento)\b|\bate\s+(?:o\s+)?salario\s+cair\b|\bate\s+cair\s+o\s+salario\b/.test(t)
+    && /\b(?:quanto|qto|qnto|sobra|sobrar|vou\s+ter|aguento|da\s+(?:pra|para)|consigo|posso\s+gastar)\b/.test(t)
 }

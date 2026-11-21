@@ -14,6 +14,7 @@ import { activeCards } from '../../services/cards'
 import { usableCategories, CATEGORY_KEYWORDS } from '../../data/categories'
 import { normalizeNumberWords } from '../numbers'
 import { SCENARIO_DSL_VERSION } from './types'
+import { guardarEsteMes } from '../cashQuestions'
 import type { AssistantScenarioPlan, DrivingScenario, ScenarioKind } from './types'
 
 const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -52,6 +53,9 @@ const HIPOTESE = [
 
 export const looksLikeScenario = (input: string): boolean => {
   const t = semAcento(input)
+  // "Dá pra guardar 300 ESTE MÊS?" é a sobra prevista do mês (fato
+  // projetado, `cashQuestions`), não uma simulação de guardar por mês.
+  if (guardarEsteMes(t.replace(/[?!.,]/g, ' ').replace(/\s+/g, ' ')) !== null) return false
   return HIPOTESE.some(re => re.test(t))
 }
 

@@ -267,8 +267,22 @@ function verboDeConsumo(input: string): string {
     .replace(/^((?:\s*(?:eu|hoje|hj|ontem|anteontem)\b)*\s*)(?:comi|tomei|bebi)\s+(?:(um|uma|uns|umas)\s+)?(?=[\p{L}][^\d]*\d)/iu, (_m, pre, art) => `${pre}paguei ${art || 'um'} `)
 }
 
+/** "1/3 do aluguel", "1/2 da conta": fração de algo, nunca valor nem data. */
+export const FRACAO_DE = /(?<![\d\/.,])(\d{1,2})\s*\/\s*(\d{1,2})(?![\d\/])(?=\s+d[oa]s?\s)/g
+
+/**
+ * "Paguei o aluguel, 400", "gastei no mercado, 230", "paguei o mecânico: 350":
+ * o valor depois da vírgula. A descrição sumia, e com dois-pontos nada era
+ * registrado. Reescrito como "paguei 400 o aluguel", a forma que o parser lê.
+ */
+function valorNoFim(input: string): string {
+  const m = input.match(/^(\s*(?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)(gastei|paguei|comprei|torrei|recebi|ganhei)\s+([^\d,:;?]{2,60}?)\s*[,:;]\s*(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real|contos?|pila)?\s*[.!]?\s*$/i)
+  if (!m) return input
+  return `${m[1]}${m[2]} ${m[4]} ${m[3].trim()}`
+}
+
 export function parseNatural(input: string): ParsedAction[] {
-  input = verboDeConsumo(cobrancaRecebida(fontePagou(input)))
+  input = verboDeConsumo(cobrancaRecebida(fontePagou(valorNoFim(input.replace(FRACAO_DE, 'parte')))))
   // Operações de cartão são analisadas na frase INTEIRA antes de qualquer
   // quebra: "passei 2000 em 5 vezes E RECEBI 1850" tem um verbo de comando no
   // meio, e cortar ali transformava uma entrada financiada numa receita de

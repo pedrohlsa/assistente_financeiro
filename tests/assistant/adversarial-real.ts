@@ -6482,8 +6482,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('MN-parte-sem-valor-avisa', falta.reply, 'mercado 30 e avisa que falta o valor da luz',
         gastos(falta.actions).length === 1 && /Faltou o valor de “paguei a luz”/.test(falta.reply)))
       const noite = await turnoHoje(clt(), 'gastei 45 no ifood ontem a noite')
-      out.push(result('MN-hora-do-dia-fora-da-descricao', noite.actions, 'Ifood, ontem',
-        noite.actions.length === 1 && gastos(noite.actions)[0]?.description === 'Ifood' && gastos(noite.actions)[0]?.date === addDays(hoje, -1)))
+      out.push(result('MN-hora-do-dia-fora-da-descricao', noite.actions, 'iFood, ontem',
+        noite.actions.length === 1 && gastos(noite.actions)[0]?.description === 'iFood' && gastos(noite.actions)[0]?.date === addDays(hoje, -1)))
       for (const [frase, desc] of [['tomei café da manhã de 15', 'Café da manhã'], ['comi um x-tudo de 25', 'X-tudo'], ['bebi uma cerveja de 12', 'Cerveja']] as const) {
         const r = await turnoHoje(clt(), frase)
         out.push(result(`MN-${frase.replace(/\W+/g, '-')}`, r.actions, desc, r.actions.length === 1 && gastos(r.actions)[0]?.description === desc))
@@ -6911,7 +6911,11 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const dia = h.getDate()
     const ini = toISOdate(new Date(h.getFullYear(), h.getMonth() - 1, 1))
     const fimMesPassado = toISOdate(new Date(h.getFullYear(), h.getMonth(), 0))
-    const ate = toISOdate(new Date(h.getFullYear(), h.getMonth() - 1, Math.min(dia, Number(fimMesPassado.slice(8, 10)))))
+    // No ÚLTIMO dia do mês o mês corrente está completo: compara-se com o
+    // mês passado inteiro (31/10 entra mesmo quando hoje é 30/11).
+    const ultimoDoMes = toISOdate(new Date(h.getFullYear(), h.getMonth() + 1, 0)) === hoje
+    const ate = ultimoDoMes ? fimMesPassado
+      : toISOdate(new Date(h.getFullYear(), h.getMonth() - 1, Math.min(dia, Number(fimMesPassado.slice(8, 10)))))
     const gasto = (de: string, a: string) => rico.transactions.filter(x => x.type === 'expense' && x.date >= de && x.date <= a).reduce((t, x) => t + x.amount, 0)
     const esteMes = gasto(`${hoje.slice(0, 8)}01`, hoje)
     const mesmoPedaco = gasto(ini, ate)
@@ -6955,7 +6959,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const h = fromISO(hoje)
     const fimMesPassado = toISOdate(new Date(h.getFullYear(), h.getMonth(), 0))
     const ini = toISOdate(new Date(h.getFullYear(), h.getMonth() - 1, 1))
-    const ate = toISOdate(new Date(h.getFullYear(), h.getMonth() - 1, Math.min(h.getDate(), Number(fimMesPassado.slice(8, 10)))))
+    const ultimoDoMes = toISOdate(new Date(h.getFullYear(), h.getMonth() + 1, 0)) === hoje
+    const ate = ultimoDoMes ? fimMesPassado
+      : toISOdate(new Date(h.getFullYear(), h.getMonth() - 1, Math.min(h.getDate(), Number(fimMesPassado.slice(8, 10)))))
     const gasto = (cat: string | null, de: string, a: string) => rico.transactions
       .filter(x => x.type === 'expense' && (!cat || x.category === cat) && x.date >= de && x.date <= a).reduce((t, x) => t + x.amount, 0)
     for (const [id, frase, cat] of [
@@ -6978,6 +6984,80 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     // Sigla escrita em minúsculas é exibida como sigla.
     const iptu = await turnoHoje(buildState({ profile: 'autonomo' }), 'paguei o iptu 380')
     out.push(result('GX-sigla-iptu', iptu.reply, 'IPTU', /IPTU/.test(iptu.reply) && !/Iptu/.test(iptu.reply)))
+  }
+
+  // "Dá pra guardar 500 esse mês?" respondia "Sim" pelo simulador de meta, e
+  // "consigo guardar 300 esse mês?" respondia "não" pela sobra prevista — a
+  // mesma pergunta com duas respostas opostas. As formas faladas vão para a
+  // mesma conta.
+  {
+    const rico = autonomoRico(hoje)
+    const base = (await turnoHoje(rico, 'consigo guardar 300 esse mês?')).reply
+    const veredito = (r: string) => (/^Pela previsão, (?:não|sim)|^(?:Sim|Não)\b/.exec(r)?.[0] || '').toLowerCase()
+    for (const frase of ['dá pra guardar 300 esse mês?', 'daria pra guardar 300 esse mês?', 'tem como guardar 300 esse mês?', 'rola guardar 300 esse mês?']) {
+      const r = (await turnoHoje(rico, frase)).reply
+      out.push(result(`GE-${frase.replace(/\W+/g, '-')}`, { r, base }, 'mesma resposta de "consigo guardar 300 esse mês?"',
+        !!veredito(base) && veredito(r) === veredito(base) && !/Simula[çc][ãa]o/.test(r)))
+    }
+    // Controle: guardar POR MÊS para uma meta continua sendo simulação.
+    const sim = (await turnoHoje(rico, 'se eu guardar 500 por mês, quando chego no notebook?')).reply
+    out.push(result('GE-controle-simulacao', sim, 'simulação', /Simula[çc][ãa]o/.test(sim)))
+  }
+
+  // "Paguei 1/3 do aluguel, 400": a fração virava a data 01/03, seis meses
+  // atrás. Número/número seguido de "do/da" é parte de alguma coisa.
+  {
+    for (const [id, frase] of [
+      ['FR-um-terco', 'paguei 1/3 do aluguel, 400'],
+      ['FR-metade', 'paguei 1/2 da conta de luz, 90'],
+    ] as const) {
+      const r = await turnoHoje(buildState({ profile: 'other' }), frase)
+      const a: any = r.actions[0]
+      out.push(result(id, r.actions, 'despesa sem data inventada', r.actions.length === 1 && a.kind === 'expense' && !a.date))
+    }
+    const data = await turnoHoje(buildState({ profile: 'other' }), 'paguei 400 de aluguel dia 1/9')
+    const d: any = data.actions[0]
+    out.push(result('FR-controle-data', data.actions, `data ${hoje.slice(0, 4)}-09-01`, d?.date === `${hoje.slice(0, 4)}-09-01`))
+  }
+
+  // "Paguei o aluguel, 400": valor depois da vírgula perdia a descrição; com
+  // dois-pontos ("paguei o mecânico: 350") nada era registrado.
+  for (const [id, frase, valor, desc] of [
+    ['VF-virgula-aluguel', 'paguei o aluguel, 400', 400, 'Aluguel'],
+    ['VF-virgula-mercado', 'gastei no mercado, 230', 230, 'Mercado'],
+    ['VF-dois-pontos', 'paguei o mecânico: 350', 350, 'Mecânico'],
+    ['VF-fracao', 'paguei 1/3 do aluguel, 400', 400, 'Parte do aluguel'],
+  ] as const) {
+    const r = await turnoHoje(buildState({ profile: 'other' }), frase)
+    const a: any = r.actions[0]
+    out.push(result(id, r.actions, `${valor} — ${desc}`, r.actions.length === 1 && a.amount === valor && a.description === desc && !a.date))
+  }
+
+  // Perfil CLT: "até o próximo salário", o vale, o iFood e o pedido de
+  // empréstimo ao app.
+  {
+    const st = buildState({ profile: 'clt', balance: 2000,
+      transactions: [{ type: 'expense', amount: 100, category: 'alimentacao', date: hoje, description: 'Mercado' }] })
+    st.settings.balanceAsOf = `${addDays(hoje, -1)}T00:00:00`
+    const semSalario = (await turnoHoje(st, 'quanto sobra até o próximo salário?')).reply
+    out.push(result('CL-ate-salario-sem-cadastro', semSalario, 'diz que não sabe a data e onde cadastrar',
+      /Não tenho o seu salário cadastrado com data/.test(semSalario) && !/Resultado/.test(semSalario)))
+    const dia = Math.min(Number(addDays(hoje, 10).slice(8, 10)), 28)
+    const comSalario = { ...st, recurring: [{ id: 'sal', name: 'Salário', kind: 'income', amount: 3200, category: 'salario',
+      dayOfMonth: dia, startDate: `${hoje.slice(0, 7)}-01`, interval: 1, intervalUnit: 'month', active: true } as any] }
+    const r = (await turnoHoje(comSalario, 'quanto sobra até o próximo salário?')).reply.replace(/ /g, ' ')
+    out.push(result('CL-ate-salario-com-cadastro', r, 'saldo de hoje (R$ 1.900,00) até a véspera, com a data prevista',
+      /^Até o próximo salário \(previsto para \d{2}\/\d{2}/.test(r) && r.includes('R$ 1.900,00') && /\(previsão\)/.test(r)))
+    const vale = await turnoHoje(st, 'recebi o vale de 600')
+    out.push(result('CL-vale-e-salario', vale.actions, 'receita 600 em Salário',
+      vale.actions.some((a: any) => a.kind === 'income' && a.amount === 600 && a.category === 'salario')))
+    const ifood = await turnoHoje(st, 'gastei 45 no ifood')
+    out.push(result('CL-grafia-ifood', ifood.reply, 'iFood', /iFood/.test(ifood.reply) && !/Ifood/.test(ifood.reply)))
+    const emp = (await turnoHoje(st, 'me empresta dinheiro')).reply
+    out.push(result('CL-me-empresta', emp, 'diz que não movimenta dinheiro', /não movimento dinheiro/.test(emp)))
+    // Controle: "vale a pena" não é salário nem registro.
+    const pena = await turnoHoje(st, 'vale a pena pagar a fatura toda?')
+    out.push(result('CL-controle-vale-a-pena', pena.actions, 'sem receita', !pena.actions.some((a: any) => a.kind === 'income')))
   }
 
   return out

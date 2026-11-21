@@ -32,7 +32,7 @@ import { isDriver } from '../../services/profile'
 import { buildPersonalModel, adaptiveEnabled } from '../personalModel'
 import { pareceChegada, pedeProximaEntrada } from '../arrival'
 import { DIA_TIPICO } from '../driverInsights'
-import { pedeFimDoMes, guardarEsteMes, pedeAntecipacaoDeFatura, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeDividaTotal, pedeFimDoParcelamento, pedeListaDeParcelamentos, pedeQuantoPossoGastar, pedeLimite, pedeMaiorParcela, pedeSobraSemCombustivel, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, perguntaDeManutencao, planoDeGuardar } from '../cashQuestions'
+import { pedeAteOSalario, pedeFimDoMes, guardarEsteMes, pedeAntecipacaoDeFatura, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeDividaTotal, pedeFimDoParcelamento, pedeListaDeParcelamentos, pedeQuantoPossoGastar, pedeLimite, pedeMaiorParcela, pedeSobraSemCombustivel, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, perguntaDeManutencao, planoDeGuardar } from '../cashQuestions'
 import {
   currentMonthToDate, mesAFrente, monthPeriod, nextMonths, parseFutureMonth, parsePeriod, previousPeriod,
 } from './period'
@@ -195,7 +195,7 @@ export function looksLikeDataQuestion(input: string): boolean {
   // "Como é meu dia típico?", "quanto eu faço num dia normal": o RITMO
   // diário, não o total do período — quem responde é o `driverInsight`.
   if (DIA_TIPICO.test(t)) return false
-  if (pedeFimDoMes(t) || guardarEsteMes(t) !== null || pedeReservaDeCaixa(t) || pedeContaQueAperta(t) || pedeTotalGuardado(t) || (fatura && !faturaDaJanela) || pedeAntecipacaoDeFatura(t)
+  if (pedeAteOSalario(t) || pedeFimDoMes(t) || guardarEsteMes(t) !== null || pedeReservaDeCaixa(t) || pedeContaQueAperta(t) || pedeTotalGuardado(t) || (fatura && !faturaDaJanela) || pedeAntecipacaoDeFatura(t)
     || pedeContasAPagar(t) || planoDeGuardar(t) || perguntaDeManutencao(t)
     || pedeContasFixas(t) || pedeSobraSemCombustivel(t) || pedeLimite(t)
     || pedeFimDoParcelamento(t) || pedeMaiorParcela(t) || pedeDividaTotal(t) || pedeListaDeParcelamentos(t)

@@ -14,13 +14,18 @@ export function sentenceCase(s?: string | null): string {
   if (!t) return ''
   if (/[A-ZÀ-ÖØ-Þ]/.test(t)) return t
   // Sigla digitada em minúsculas é sigla: "iptu" vira "IPTU", nunca "Iptu".
-  const u = t.replace(SIGLAS, m => m.toUpperCase())
+  const u = t.replace(SIGLAS, m => m.toUpperCase()).replace(MARCAS, m => MARCA_GRAFIA[m.toLowerCase()] || m)
   const i = u.search(/[a-zà-öø-ÿ0-9]/)
   if (i < 0) return u
+  // A marca que começa em minúscula fica como é: "iFood", não "IFood".
+  if (Object.values(MARCA_GRAFIA).some(m => u.startsWith(m, i))) return u
   return u.slice(0, i) + u[i].toUpperCase() + u.slice(i + 1)
 }
 
 /** Siglas comuns em lançamentos. Só palavras que nunca são palavra comum. */
+/** Marcas com grafia própria: "ifood" é "iFood", nunca "Ifood". */
+const MARCA_GRAFIA: Record<string, string> = { ifood: 'iFood', iphone: 'iPhone', ipad: 'iPad' }
+const MARCAS = /(?<![\wÀ-ÿ])(?:ifood|iphone|ipad)(?![\wÀ-ÿ])/gi
 const SIGLAS = /(?<![\wÀ-ÿ])(?:iptu|ipva|inss|fgts|cnh|dpvat|darf|gnv|mei|irpf|cpf|cnpj)(?![\wÀ-ÿ])/g
 
 /**

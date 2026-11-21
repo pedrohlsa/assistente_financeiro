@@ -232,6 +232,11 @@ const RULES: Rule[] = [
     re: /\b(?:dia\s+)?(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\b/,
     build: (m, t) => {
       const day = Number(m[1]); const mon = Number(m[2])
+      // "Paguei 1/3 DO aluguel", "1/2 da conta": fração de alguma coisa, não
+      // data — virava 01/03, seis meses atrás. Com "dia" antes ou com o ano,
+      // continua sendo data.
+      const depois = (m.input || '').slice((m.index || 0) + m[0].length)
+      if (!/^dia\b/i.test(m[0]) && !m[3] && /^\s+d[oa]s?\s/i.test(depois)) return null
       if (day < 1 || day > 31 || mon < 1 || mon > 12) return invalidDate(m[0])
       let year = m[3] ? Number(m[3]) : fromISO(t).getFullYear()
       if (year < 100) year += 2000

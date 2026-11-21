@@ -26,7 +26,7 @@ import {
 } from './calc'
 import type { CashObligation } from './calc'
 import {
-  alvoDaReserva, diaDaSemanaPedido, mesesAtePrazo, pedeFimDoMes, guardarEsteMes, pedeDividaTotal, pedeFimDoParcelamento, pedeListaDeParcelamentos, pedeQuantoPossoGastar, pedeLimite, pedeMaiorParcela, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeResumoDoDia, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
+  alvoDaReserva, diaDaSemanaPedido, mesesAtePrazo, pedeAteOSalario, pedeFimDoMes, guardarEsteMes, pedeDividaTotal, pedeFimDoParcelamento, pedeListaDeParcelamentos, pedeQuantoPossoGastar, pedeLimite, pedeMaiorParcela, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeResumoDoDia, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
   pedeAntecipacaoDeFatura, perguntaDeFatura, perguntaDeManutencao,
   planoDeGuardar, prazoDasContas, retiraDaReserva,
 } from '../assistant/cashQuestions'
@@ -1052,6 +1052,11 @@ function resolveLocal(s: AppState, input: string): AiReply {
 
   // Conversa social: "obrigado" e "valeu" recebiam a lista de exemplos.
   const social = t.replace(/[!?.,]+/g, ' ').trim()
+  // "Me empresta dinheiro?" — o app não movimenta dinheiro, e dizer isso
+  // é melhor que a lista de exemplos.
+  if (/^(?:voce\s+|vc\s+)?(?:me\s+)?(?:empresta|emprestaria|da|dar|passa|manda|arruma)\s+(?:um\s+|uma\s+)?(?:dinheiro|grana|pix|emprestimo|uns?\s+trocados?)(?:\s+(?:ai|pra\s+mim|por\s+favor|pfv|pf))*$/.test(social)) {
+    return { text: 'Eu não movimento dinheiro — não empresto, não transfiro e não faço Pix. Eu organizo os seus números: se quiser, vejo quanto dá para gastar até o fim do mês ou onde dá para cortar.' }
+  }
   if (/^(?:muito\s+)?(?:obrigad[oa]|obg|brigad[oa]|valeu|vlw|thanks|agradec\w*)(?:\s+(?:mesmo|demais|ai|viu|cara|mano))*$/.test(social)) {
     return { text: 'De nada! Quando quiser, é só me contar um gasto, um ganho ou perguntar como está o mês.' }
   }
@@ -1255,6 +1260,42 @@ function resolveLocal(s: AppState, input: string): AiReply {
     return { text: sobra >= querGuardar
       ? `Dá: a sobra prevista do mês é ${fmtBRL(sobra)}, e guardar ${fmtBRL(querGuardar)} ainda deixa ${fmtBRL(round2(sobra - querGuardar))}.${jaTxt} (previsão)\n\n${ressalva}`
       : `Pela previsão, não: a sobra prevista do mês é ${fmtBRL(sobra)}, e guardar ${fmtBRL(querGuardar)} deixaria ${fmtBRL(round2(querGuardar - sobra))} a descoberto.${jaTxt} (previsão)\n\n${ressalva}` }
+  }
+
+  // "Quanto sobra até o próximo salário?": o mesmo cálculo de "quanto vou ter
+  // dia N", com N = a véspera do salário CADASTRADO. Respondia "Resultado -
+  // Salário este mês: R$ 3.200,00", que é a entrada, não a folga até ela.
+  if (pedeAteOSalario(t)) {
+    if (hasAmbiguousLegacyCardBalance(s)) return { text: AMBIGUOUS_BALANCE_REPLY }
+    const hoje = todayISO()
+    const limite = addDays(hoje, 62)
+    const salario = (s.recurring || [])
+      .filter(r => r.kind === 'income' && r.active !== false && (r.category === 'salario' || /sal[aá]rio|pagamento|holerite/i.test(r.name)))
+      .flatMap(r => occurrencesBetween(r, addDays(hoje, 1), limite)
+        .filter(d => !(r.occurrences || []).some((o: any) => o.date === d))
+        .map(d => ({ r, d })))
+      .sort((a, b) => a.d.localeCompare(b.d))[0]
+    if (!salario) {
+      return { text: 'Não tenho o seu salário cadastrado com data, então não sei quando ele cai. '
+        + 'Cadastre em Planejamento (valor e dia) que eu passo a responder até o dia certo. '
+        + 'Enquanto isso, pergunte "quanto vou ter no fim do mês?" que eu faço a conta até lá.' }
+    }
+    const vespera = addDays(salario.d, -1)
+    const dias = Math.max(Math.round((fromISO(vespera).getTime() - fromISO(hoje).getTime()) / 86400000), 0)
+    const saldo = currentBalance(s)
+    const entradas = round2(upcomingIncomes(s, dias).filter(b => b.date <= vespera).reduce((a, b) => a + b.amount, 0))
+    const todas = cashObligationsUntil(s, vespera)
+    const certas = somaDe(todas.filter(o => !o.unconfirmed))
+    const previsto = round2(saldo + entradas - certas)
+    const diasAte = Math.round((fromISO(salario.d).getTime() - fromISO(hoje).getTime()) / 86400000)
+    const partes = [
+      `Até o próximo salário (previsto para ${diaMes(salario.d)}, daqui a ${diasAte} ${diasAte === 1 ? 'dia' : 'dias'}), seu saldo deve ficar em torno de ${fmtBRL(previsto)} (previsão).`
+        + (previsto > 0 && diasAte > 0 ? ` Dá uns ${fmtBRL(round2(previsto / diasAte))} por dia até lá.` : ''),
+      `• Saldo hoje: ${fmtBRL(saldo)}` + (entradas ? `\n• Entradas cadastradas até lá: ${fmtBRL(entradas)}` : '') + (certas ? `\n• O que vence até lá: ${fmtBRL(certas)}` : ''),
+      semConfirmacao(todas),
+      'Gastos do dia a dia que ainda não aconteceram, como mercado e combustível, não entram nessa conta.',
+    ].filter(Boolean)
+    return { text: partes.join('\n\n') }
   }
 
   // "Quanto vou ter na conta dia 30": saldo de hoje, mais o que está

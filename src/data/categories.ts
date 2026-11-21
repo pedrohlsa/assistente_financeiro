@@ -80,7 +80,8 @@ export const CATEGORY_KEYWORDS: Record<string, string[]> = {
   compras: ['roupa', 'tênis', 'tenis', 'shopping', 'loja', 'presente', 'farmácia', 'farmacia', ' camisa', ' camiseta', ' blusa', ' bermuda', ' vestido', ' sapato', ' chinelo', ' sandália', ' sandalia'],
   autocuidado: ['autocuidado', 'auto cuidado', 'cabeleireiro', 'barbeiro', 'barbearia', 'salão', 'salao', 'manicure', 'pedicure', 'cosmético', 'cosmetico', 'skincare', 'academia'],
   corridas: ['corrida', 'uber', '99 ', 'indriver', 'app ', 'aplicativo', 'viagem', 'passageiro'],
-  salario: ['salário', 'salario', 'pagamento', 'holerite'],
+  // "Recebi o vale": o adiantamento do salário (vale-refeição também é do emprego).
+  salario: ['salário', 'salario', 'pagamento', 'holerite', 'vale ', 'adiantamento', 'decimo terceiro', '13o salario'],
   aluguel: ['aluguel', 'aluguéis', 'alugueis', 'inquilino', 'locação', 'locacao', 'imóvel', 'imovel', 'casa alugada'],
   freelance: ['freela', 'freelance', 'bico', 'job'],
   vendas: ['venda', 'vendi'],
