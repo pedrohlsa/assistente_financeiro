@@ -21,6 +21,7 @@ import {
 } from '../../services/cards'
 import { isDriver } from '../../services/profile'
 import { brDate } from '../dates'
+import { incomeLossEnd, incomeLossLabel, isRentalIncome, matchesIncomeSource, pendingIncomeInWindow, validIncomeLossDuration, INCOME_LOSS_WINDOW_LIMIT } from './incomeWindow'
 import type { AssistantFact } from '../query/types'
 import type { AssistantScenarioPlan, AssistantScenarioResult, DrivingScenario, ScenarioMonth } from './types'
 
@@ -151,6 +152,7 @@ function runCompoundMonths(
   let hasSaving = false
   const cutCategories = new Set<string>()
   const priorReductions = new Map<string, number[]>()
+  const missingIncomeEvents = new Set<string>()
 
   for (const step of steps) {
     if (step.kind === 'cut') {
@@ -219,6 +221,19 @@ function runCompoundMonths(
       continue
     }
     if (step.kind === 'income-missing') {
+      if (step.incomeLossDuration) {
+        const partial = forecastIncomeGap(state, step, hoje)
+        facts.push(...partial.result.facts)
+        caveats.push(...partial.result.caveats)
+        incomplete ||= partial.result.empty
+        for (const income of partial.missing) {
+          const i = baseline.findIndex(m => m.monthKey === monthKey(income.date))
+          if (i < 0 || missingIncomeEvents.has(income.id)) continue
+          effects[i] -= income.amount
+          missingIncomeEvents.add(income.id)
+        }
+        continue
+      }
       const partial = runScenario(state, step, hoje)
       const value = partial.facts.find(f => f.label.includes('Entrada média'))?.value || step.amount || 0
       if (!(value > 0)) { incomplete = true; caveats.push(...partial.caveats); continue }
@@ -293,6 +308,77 @@ function runCompoundMonths(
  * zero que o usuário nunca disse. A conta continua; o veredito some, e a
  * resposta pede o saldo.
  */
+/** Projeta o intervalo exato pelos vencimentos, sem presumir rendas históricas. */
+function forecastIncomeGap(state: AppState, plan: AssistantScenarioPlan, today: string) {
+  const duration = plan.incomeLossDuration!
+  if (!validIncomeLossDuration(duration)) return { missing: [], result: vazio(plan, [], INCOME_LOSS_WINDOW_LIMIT) }
+  const until = incomeLossEnd(today, duration)
+  const name = plan.origin
+  const entries = pendingIncomeInWindow(state, today, until)
+  const target = (origin: string | undefined, description: string | undefined, category: string) => name
+    && matchesIncomeSource(name, origin, description) && (!plan.incomeLossForRent || isRentalIncome(category, description))
+  const missing = entries.filter(e => target(e.origin, e.name, e.category))
+  const scheduled = state.recurring.some(r => r.kind === 'income' && target(r.origin, r.name, r.category))
+  const startBalance = currentBalance(state, today)
+  const obligations = cashObligationsUntil(state, until, today)
+  const known = obligations.filter(o => !o.unconfirmed)
+  const totalCosts = r2(known.reduce((sum, o) => sum + o.amount, 0))
+  const forecastLost = r2(missing.reduce((sum, p) => sum + p.amount, 0))
+  const lostIds = new Set(missing.map(p => p.id))
+  const kept = entries.filter(entry => !lostIds.has(entry.id))
+  const otherIncome = r2(kept.reduce((sum, entry) => sum + entry.amount, 0))
+  const dailyChanges = new Map<string, number>()
+  for (const e of kept) dailyChanges.set(e.date, (dailyChanges.get(e.date) || 0) + e.amount)
+  for (const o of known) {
+    const day = o.date < today ? today : o.date
+    dailyChanges.set(day, (dailyChanges.get(day) || 0) - o.amount)
+  }
+  let running = startBalance
+  let lowest = startBalance
+  let shortageDay: string | undefined = startBalance < 0 ? today : undefined
+  for (const day of [...dailyChanges.keys()].sort()) {
+    running = r2(running + dailyChanges.get(day))
+    lowest = Math.min(lowest, running)
+    if (!shortageDay && running < 0) shortageDay = day
+  }
+  const facts: AssistantFact[] = [
+    fato('Saldo hoje', startBalance, 'BRL', 'saldo atual'),
+    fato('Outras entradas previstas', otherIncome, 'BRL', 'ocorrências cadastradas no intervalo', kept.length),
+    fato('Compromissos no intervalo', totalCosts, 'BRL', 'contas, faturas e parcelas sem duplicidade', known.length),
+    fato('Saldo estimado ao fim do intervalo', r2(startBalance + otherIncome - totalCosts), 'BRL', 'saldo de hoje, outras entradas previstas e compromissos'),
+  ]
+  const caveats: string[] = []
+  if (scheduled) {
+    facts.unshift(fato('Entrada prevista que deixaria de cair', forecastLost, 'BRL', 'vencimentos em aberto da origem no intervalo', missing.length))
+    if (plan.amount && plan.amount !== forecastLost) {
+      caveats.push(`Você citou ${fmtBRL(plan.amount)}. A diferença entre os cenários segue os vencimentos cadastrados da origem.`)
+    }
+  } else {
+    caveats.push(name
+      ? `O AssistFin não tem uma entrada recorrente cadastrada para ${sentenceCase(name)}. O saldo projetado já estava sem essa entrada.`
+      : 'Diga qual origem deixaria de pagar para retirar seus vencimentos da projeção.')
+    const from = addDays(today, -89)
+    const history = name ? state.transactions.filter(t => t.type === 'income' && t.date >= from && t.date <= today
+      && target(t.origin, t.description, t.category)) : []
+    if (history.length && duration.unit === 'months') {
+      const average = history.reduce((sum, t) => sum + t.amount, 0) / Math.max(mesesEntre(history), 1)
+      facts.unshift(fato('Perda estimada pelo histórico', average * duration.value, 'BRL', 'média mensal dos recebimentos registrados', history.length))
+    }
+    if (plan.amount) caveats.push(`Valor citado para a entrada ${fmtBRL(plan.amount)}. Ele não alterou o saldo sem uma previsão correspondente.`)
+  }
+  if (shortageDay) caveats.push(`Pelos vencimentos cadastrados, o primeiro dia em que o caixa ficaria negativo é ${brDate(shortageDay)}.`)
+  const uncertain = obligations.filter(o => o.unconfirmed)
+  if (uncertain.length) caveats.push('Há contas antigas em aberto que ainda precisam de confirmação. Elas ficaram fora do total de compromissos certos.')
+  caveats.push(`A janela de ${incomeLossLabel(duration)} vai de ${brDate(today)} a ${brDate(until)}. Usei as outras entradas previstas e os compromissos cadastrados; gastos futuros avulsos ainda podem mudar o resultado.`)
+  return {
+    missing,
+    result: {
+      plan, facts, caveats, months: [], empty: false,
+      feasible: lowest < 0 ? false : lowest < uncertain.reduce((sum, o) => sum + o.amount, 0) ? undefined : true,
+    } satisfies AssistantScenarioResult,
+  }
+}
+
 export function runScenario(
   state: AppState,
   plan: AssistantScenarioPlan,
@@ -625,12 +711,16 @@ function simulaCenario(
 
     // -------------------------------------------------- entrada que não vem
     case 'income-missing': {
+      if (plan.incomeLossDuration) {
+        const { result } = forecastIncomeGap(state, plan, hoje)
+        return { ...result, caveats: [...result.caveats, ...caveats] }
+      }
       const nome = plan.origin || plan.description
       // Quanto essa fonte costuma trazer por mês, medido no histórico DELE.
       const from = addDays(hoje, -89)
       const doOrigem = (state.transactions || []).filter(t =>
         t && t.type === 'income' && t.date >= from && t.date <= hoje
-        && (nome ? normalizeName(t.origin || t.description || '').includes(normalizeName(nome)) : true))
+        && (!nome || matchesIncomeSource(nome, t.origin, t.description)))
       const valor = plan.amount
         || (doOrigem.length ? r2(doOrigem.reduce((a, t) => a + t.amount, 0) / Math.max(mesesEntre(doOrigem), 1)) : 0)
       if (!(valor > 0)) {

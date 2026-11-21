@@ -30,6 +30,7 @@ import type { PlannedQuery } from '../query/parse'
 import type { AssistantQueryPlan, AssistantQueryResult, FactUnit, QueryPeriod } from '../query/types'
 import type { AssistantScenarioPlan, AssistantScenarioResult } from '../scenario/types'
 import { parsePurchaseDelay } from '../scenario/parse'
+import { INCOME_LOSS_WINDOW_LIMIT, readIncomeLossDuration, validIncomeLossDuration } from '../scenario/incomeWindow'
 import { answerVehicleCost } from '../vehicleCost'
 import type { ChangeAnalysis } from '../drivers'
 import type { ChangeScope } from '../drivers/engine'
@@ -470,6 +471,20 @@ const NUM = String.raw`(\d+(?:[.,]\d+)*)`
 
 function refinaCenario(focus: ConversationFocus, t: string, today: string): AssistantScenarioPlan | null {
   const base = focus.lastScenarioPlan!
+
+  if (base.kind === 'income-missing' && base.origin
+    && /^(?:(?:e(?:\s+se)?|agora|entao)\s+)(?:(?:por|durante)\s+)?(?:mais\s+)?(?:\d+(?:[.,]\d+)?|um|uma)\s+(?:dias?|semanas?|mes(?:es)?)\s*[.!?]*$/.test(t)) {
+    const { duration, issue } = readIncomeLossDuration(t)
+    if (issue) return { ...base, planningIssue: issue }
+    if (duration && /\bmais\b/.test(t)) {
+      if (base.incomeLossDuration?.unit !== duration.unit) {
+        return { ...base, planningIssue: 'Qual é o prazo total da entrada ausente? Diga em dias, semanas ou meses.' }
+      }
+      duration.value += base.incomeLossDuration.value
+    }
+    return duration && validIncomeLossDuration(duration) ? { ...base, incomeLossDuration: duration, planningIssue: undefined }
+      : { ...base, planningIssue: INCOME_LOSS_WINDOW_LIMIT }
+  }
 
   const atraso = base.kind === 'purchase' && parsePurchaseDelay(t)
   if (atraso && !/\d+\s*(?:x\b|vezes\b|parcelas\b)/.test(t)) {

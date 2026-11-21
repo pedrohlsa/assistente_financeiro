@@ -102,6 +102,61 @@ function faturasAPagarEsperadas(rico: AppState, hoje: string): { descricao: stri
 export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
+
+  {
+    const today = '2026-11-21'
+    const state = buildState({ profile: 'autonomo', balance: 1_000 })
+    state.settings.balanceAsOf = `${today}T12:00`
+    const monthly = { active: true, frequency: 'monthly' as const, startDate: '2026-11-01' }
+    state.recurring = [
+      { ...monthly, id: 'vacancy-rent', kind: 'income', category: 'aluguel', name: 'Aluguel Casa 2', origin: 'Casa 2', amount: 1600, dueDay: 10, startDate: '2026-11-10' },
+      { ...monthly, id: 'vacancy-other-rent', kind: 'income', category: 'aluguel', name: 'Aluguel Casa 20', origin: 'Casa 20', amount: 800, dueDay: 25, startDate: '2026-11-25' },
+      { ...monthly, id: 'vacancy-service', kind: 'income', category: 'outros-in', name: 'Serviço Casa 2', origin: 'Casa 2', amount: 100, dueDay: 28, startDate: '2026-11-28' },
+      { ...monthly, id: 'vacancy-bill', kind: 'expense', category: 'casa', name: 'Seguro', amount: 500, dueDay: 15, startDate: '2026-12-15' },
+    ]
+    const turn = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>, sample = state) =>
+      orchestrate({ state: sample, today, message, remoteEnabled: false, focus: prior?.focus })
+    const value = (answer: Awaited<ReturnType<typeof orchestrate>>, label: string) =>
+      answer.focus?.lastScenario?.facts.find(f => f.label === label)?.value
+    const saved = JSON.stringify(state)
+    const three = await turn('E se a Casa 2 ficar vazia por três meses?')
+    const more = await turn('e por mais um mês?', three)
+    const short = await turn('se a Casa 2 ficar vazia por duas semanas?')
+    out.push(result('VC-intervalos-de-vacancia-e-fonte-independentes', { three: three.response, more: more.response, short: short.response },
+      'desconta R$ 4.800 de aluguel da Casa 2 em três meses, mantém Casa 20 e o serviço da Casa 2 e usa quatro meses após o refino',
+      value(three, 'Entrada prevista que deixaria de cair') === 4800 && value(three, 'Outras entradas previstas') === 2700
+      && value(three, 'Compromissos no intervalo') === 1500 && value(three, 'Saldo estimado ao fim do intervalo') === 2200
+      && /21\/11\/2026 a 20\/02\/2027/.test(three.response.reply)
+      && value(more, 'Entrada prevista que deixaria de cair') === 6400
+      && value(short, 'Entrada prevista que deixaria de cair') === 0
+      && /04\/12\/2026/.test(short.response.reply) && JSON.stringify(state) === saved
+      && [three, more, short].every(t => !t.response.actions.length)))
+
+    const noSource = await turn('e se a casa ficar vazia três meses?')
+    const overLimit = await turn('e se a casa 2 ficar vazia 18 meses?')
+    const historyOnly = { ...state, recurring: state.recurring.filter(r => r.id !== 'vacancy-rent'), transactions: [
+      { id: 'vacancy-history', type: 'income' as const, amount: 1500, date: '2026-10-10', origin: 'Casa 2', category: 'aluguel' },
+    ] }
+    const fromHistory = await turn('e se a casa 2 ficar vazia 3 meses?', undefined, historyOnly)
+    out.push(result('VC-pede-imovel-e-distingue-historico-da-projecao', { noSource: noSource.response, overLimit: overLimit.response, fromHistory: fromHistory.response },
+      'pede a origem, limita o prazo e mostra R$ 4.500 de perda histórica sem reduzir a projeção que já não contava com o aluguel',
+      /Qual imóvel/.test(noSource.response.reply) && /até 12 meses/.test(overLimit.response.reply)
+      && value(fromHistory, 'Perda estimada pelo histórico') === 4500
+      && value(fromHistory, 'Saldo estimado ao fim do intervalo') === 2200
+      && /já estava sem essa entrada/.test(fromHistory.response.reply)
+      && [noSource, overLimit, fromHistory].every(t => !t.response.actions.length)))
+
+    const firstPayment = await turn('e se a Casa 2 ficar vazia por 45 dias?', undefined, {
+      ...state, transactions: [{ id: 'vacancy-paid', type: 'income', category: 'aluguel', origin: 'Casa 2',
+        recurringId: 'vacancy-rent', occurrenceDate: '2026-12-10', amount: 1600, date: today, time: '08:00' }],
+      recurring: state.recurring.map(r => r.id === 'vacancy-rent'
+        ? { ...r, occurrences: [{ date: '2026-12-10', status: 'confirmed', txId: 'vacancy-paid' }] } : r),
+    })
+    out.push(result('VC-vencimento-ja-recebido-fica-no-caixa', firstPayment.response,
+      'entrada já recebida continua no saldo e fica fora da perda de 45 dias',
+      value(firstPayment, 'Entrada prevista que deixaria de cair') === 0 && !firstPayment.response.actions.length))
+  }
+
   {
     const hoje = '2026-11-21'
     const ontem = '2026-11-20'

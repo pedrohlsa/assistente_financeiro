@@ -35,6 +35,11 @@ export interface DrivingScenario {
   extraDaysPerWeek?: number
 }
 
+export interface IncomeLossDuration {
+  value: number
+  unit: 'days' | 'weeks' | 'months'
+}
+
 export interface AssistantScenarioPlan {
   version: typeof SCENARIO_DSL_VERSION
   kind: ScenarioKind
@@ -59,6 +64,10 @@ export interface AssistantScenarioPlan {
   declaredGoalSaved?: number
   /** Fonte que deixaria de pagar ("Casa 1"). */
   origin?: string
+  /** Duração dita para uma entrada ausente, independente dos outros passos. */
+  incomeLossDuration?: IncomeLossDuration
+  /** Vacância retira somente aluguel da origem, mesmo se houver outras entradas. */
+  incomeLossForRent?: boolean
   category?: string
   description?: string
   /** Conta fixa citada pelo nome ("parar de pagar a internet"): o corte é só dela. */

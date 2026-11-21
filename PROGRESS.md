@@ -6646,3 +6646,15 @@ até auditoria independente.
   no segmentador e no parser.
 - Chrome confirmou primeiro o ônibus, depois a compra, cada um
   uma vez. A suíte passou com 1.182/1.182 regressões adversariais.
+
+## 21/11/2026 — Prazo dito na simulação de vacância
+
+- “Se a Casa 2 ficar vazia três meses” usa o intervalo real até 20/02,
+  considerando a partir de 21/11. Dias e semanas também entram na conta.
+- Retira só as ocorrências em aberto de aluguel da origem no período.
+  Receitas da Casa 20, serviços da mesma origem e valores já recebidos
+  continuam com o tratamento normal. Histórico sem recorrência é mostrado
+  como referência, sem descontar do saldo uma entrada que já estava fora.
+- Pergunta qual imóvel se houver mais de um candidato. “Mais um mês” mantém
+  a origem e estende o cenário. O Chrome confirmou três e quatro meses sem
+  gravar movimentação. Suíte com 1.185/1.185 regressões adversariais.

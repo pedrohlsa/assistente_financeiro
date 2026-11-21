@@ -15,6 +15,7 @@ import { usableCategories, CATEGORY_KEYWORDS } from '../../data/categories'
 import { normalizeNumberWords } from '../numbers'
 import { SCENARIO_DSL_VERSION } from './types'
 import { guardarEsteMes } from '../cashQuestions'
+import { incomeLossEnd, isRentalIncome, matchesIncomeSource, readIncomeLossDuration } from './incomeWindow'
 import type { AssistantScenarioPlan, DrivingScenario, ScenarioKind } from './types'
 
 const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -34,7 +35,7 @@ const HIPOTESE = [
   // "se a Casa 1 não pagar": entre o artigo e o verbo cabe um nome com número
   // ("casa 1", "cliente joão silva"), e exigir uma palavra só deixava a frase
   // mais comum do dono de imóvel de fora.
-  /\bse\s+(?:a|o|as|os)\s+[\w\s]{2,24}?\s(?:nao|n|atrasar|atrasarem|falhar|sumir)\b/,
+  /\bse\s+(?:a|o|as|os)\s+[\w\s]{2,24}?\s(?:nao|n|atrasar|atrasarem|falhar|sumir|ficar\s+(?:vazi[ao]|sem\s+inquilino)|desocupar)\b/,
   // "só quero saber se 500 de obra cabe esse mês" — hipótese sem "eu", dita do
   // jeito mais direto possível. Sem estas formas ela caía no texto genérico de
   // ajuda, e é justamente a frase de quem NÃO quer registrar nada.
@@ -126,7 +127,7 @@ function cartaoDe(state: AppState, t: string, cards = activeCards(state)): strin
 /** Fonte que deixaria de pagar: "se a Casa 1 não pagar", "se o Cliente João atrasar". */
 function origemDe(t: string): string | undefined {
   const m = t.match(/\b(?:casa|cliente|empresa|loja|kitnet|apart\w*|inquilin\w+|contrato|sala|ponto|unidade)\s+([\w\d]+)/)
-  return m ? m[0] : undefined
+  return m && !/^(?:ficar|ficasse|vazia|vazio|nao|n|atrasar|falhar|desocupar|sumir|por|durante)$/.test(m[1]) ? m[0] : undefined
 }
 
 /**
@@ -340,20 +341,31 @@ function planSingleScenario(
     return base('pay-invoice', { cardName: cartaoDaFatura }, 'pagar a fatura')
   }
 
-  // ---- entrada que não vem ------------------------------------------------
-  // "n pagar" é como se escreve no celular. Sem aceitar o "n" abreviado, a
-  // frase caía no ramo de GASTO e o "1" de "Casa 1" virava um gasto simulado
-  // de R$ 1,00 — resposta completa, precisa e sobre outra coisa.
-  // "E se a casa 2 FICAR VAZIA": o aluguel que não vem.
-  if (/\b(?:nao|n)\s+(?:me\s+)?(?:pagar|pagarem|vier|entrar|cair|depositar|receber)\b|\batrasar\b|\bfalhar\b|\bficar\s+(?:vazi[ao]|sem\s+inquilino)\b|\bdesocupar\b/.test(t)) {
-    const origem = origemDe(t)
-    // O número de "Casa 1" é parte do NOME, não um valor: sem tirar a origem do
-    // texto antes de ler o dinheiro, "se a Casa 1 não pagar" virava uma entrada
-    // média de R$ 1,00.
-    const semOrigem = origem ? t.replace(origem, ' ') : t
+  // Por quanto tempo uma fonte fica sem pagar. O número do imóvel ou do
+  // período nunca entra no valor em reais.
+  const vacancia = /\b(?:ficar|ficasse)\s+(?:vazi[ao]|sem\s+inquilino)\b|\bdesocupar\b/.test(t)
+  if (vacancia || /\b(?:nao|n)\s+(?:me\s+)?(?:pagar|pagarem|vier|entrar|cair|depositar|receber)\b|\batrasar\b|\bfalhar\b/.test(t)) {
+    let origem = origemDe(t)
+    const parsedDuration = readIncomeLossDuration(t)
+    const incomeLossDuration = parsedDuration.duration
+    let planningIssue = parsedDuration.issue
+    if (vacancia && !origem) {
+      const rentals = new Map<string, string>()
+      for (const r of state.recurring || []) {
+        if (r.active !== false && r.kind === 'income' && isRentalIncome(r.category, r.name)) rentals.set(normalizeName(r.origin || r.name), r.origin || r.name)
+      }
+      for (const transaction of state.transactions || []) {
+        if (transaction.type === 'income' && isRentalIncome(transaction.category, transaction.description) && transaction.origin
+          && ![...rentals.keys()].some(name => matchesIncomeSource(normalizeName(transaction.origin), undefined, name))) {
+          rentals.set(normalizeName(transaction.origin), transaction.origin)
+        }
+      }
+      if (rentals.size === 1) origem = rentals.keys().next().value
+      else planningIssue ||= 'Qual imóvel ficaria sem aluguel? Diga a origem, como Casa 2, e o prazo.'
+    }
+    const semOrigem = origem ? parsedDuration.remaining.replace(origem, ' ') : parsedDuration.remaining
     const valor = lerValor(semOrigem)
-    return base('income-missing',
-      { origin: origem, amount: valorDeDinheiro(semOrigem, valor) },
+    return base('income-missing', { origin: origem, amount: valorDeDinheiro(semOrigem, valor), incomeLossDuration, ...(vacancia ? { incomeLossForRent: true } : {}), planningIssue },
       'uma entrada que não vem')
   }
 
@@ -478,13 +490,21 @@ export function planScenario(
   const issue = planningIssue || (startMonth && startMonth > endMonth
     ? 'O início da reserva fica depois do horizonte final; me diga outras datas.' : undefined)
   if (separateSteps.length > 1) {
-    const months = horizonte(normalized, opts.today || todayISO())
+    const today = opts.today || todayISO()
+    const maxIncomeWindow = Math.max(0, ...separateSteps.flatMap(step => {
+      if (!step.incomeLossDuration) return []
+      const final = incomeLossEnd(today, step.incomeLossDuration)
+      return [(Number(final.slice(0, 4)) - Number(today.slice(0, 4))) * 12
+        + Number(final.slice(5, 7)) - Number(today.slice(5, 7)) + 1]
+    }))
+    const months = Math.max(horizonte(normalized, today), Math.min(maxIncomeWindow, 12))
     return {
       version: SCENARIO_DSL_VERSION,
       kind: 'compound',
       steps: separateSteps.map(step => ({ ...step, months })),
       months,
-      planningIssue: issue,
+      planningIssue: issue || (maxIncomeWindow > 12 ? 'Para combinar as mudanças, informe um prazo que caiba nos próximos 12 meses do calendário.'
+        : separateSteps.find(step => step.planningIssue)?.planningIssue),
       unsupportedFragments,
       label: `cenário com ${separateSteps.length} mudanças`,
     }

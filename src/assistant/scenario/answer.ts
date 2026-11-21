@@ -5,6 +5,8 @@
 // direta de o app mentir sem errar uma conta.
 
 import { fmtBRL, fmtNum } from '../../utils/format'
+import { sentenceCase } from '../../utils/text'
+import { incomeLossLabel } from './incomeWindow'
 import { formatValue } from '../query/answer'
 import type { AssistantScenarioResult } from './types'
 
@@ -125,6 +127,19 @@ export function composeScenario(r: AssistantScenarioResult): string {
     }
 
     case 'income-missing': {
+      if (p.incomeLossDuration) {
+        const duration = incomeLossLabel(p.incomeLossDuration)
+        const loss = valor('Entrada prevista que deixaria de cair') ?? valor('Perda estimada pelo histórico')
+        const balance = valor('Saldo estimado ao fim do intervalo')
+        const otherIncome = valor('Outras entradas previstas')
+        const obligations = valor('Compromissos no intervalo')
+        const historical = valor('Perda estimada pelo histórico') !== undefined
+        const origin = p.origin ? ` de ${sentenceCase(p.origin)}` : ''
+        if (loss === 0 && !historical) linhas.push(`Não há entrada prevista${origin} nos próximos ${duration}.`)
+        else if (loss !== undefined) linhas.push(`Em ${duration}, ${historical ? 'o histórico sugere uma perda de' : 'deixariam de entrar'} ${fmtBRL(loss)}${origin}.`)
+        if (balance !== undefined) linhas.push(`Saldo estimado ao fim dos ${duration}: ${fmtBRL(balance)}. Outras entradas previstas de ${fmtBRL(otherIncome ?? 0)} e compromissos de ${fmtBRL(obligations ?? 0)}.`)
+        break
+      }
       const entrada = r.facts.find(f => f.label.includes('Entrada'))
       const sobra = valor('Sobra estimada sem essa entrada')
       const contas = valor('Compromissos vencidos e dos próximos 30 dias')
