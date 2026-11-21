@@ -226,10 +226,13 @@ function aparelhoComprado(texto: string, actions: ParsedAction[]): ParsedAction[
 }
 
 function splitClauses(input: string): string[] {
-  const marked = input
+  const platformLead = input.match(INCOME_PLATFORM_PREFIX)?.[0] || ''
+  const marked = input.slice(platformLead.length)
     .toLowerCase()
     .replace(new RegExp(String.raw`[\s,;]+(?:${CONNECTOR})?(?:e\s+)?(?=(?:${COMMAND_VERBS.join('|')})\b)`, 'g'), '\n')
-  return marked.split(/\n|;|\.\s/).map(s => s.trim()).filter(Boolean)
+  const clauses = marked.split(/\n|;|\.\s/).map(s => s.trim()).filter(Boolean)
+  if (platformLead && clauses.length) clauses[0] = platformLead + clauses[0]
+  return clauses
 }
 
 const VERBO_DE_GASTO_LISTA = /\b(?:gastei|gasto|paguei|comprei|torrei|abasteci|coloquei|botei|saiu|saiu|foi\s+(?:de|com)|dei)\b/gi
@@ -546,7 +549,7 @@ const APP_DE_CORRIDA = String.raw`(?:uber|99|in\s*drive[r]?)`
 export const INCOME_PLATFORM_PREFIX = new RegExp(
   String.raw`^\s*(?:(?:hoje|ontem|anteontem|eu|j[áa])\s+){0,3}(?:n[ao]|pel[ao]|d[ao])\s+(${APP_DE_CORRIDA})\s+(?:(?:hoje|ontem|anteontem|eu|j[áa])\s+){0,3}(?=(?:fiz|ganhei|recebi|faturei|entrou|caiu|pingou)\b)`, 'i',
 )
-const DISTINCT_INCOME_SOURCE = /^\s+d[aoe]\s+(?!(?:pix|dinheiro|transfer[eê]ncia|corridas?)\b)\p{L}/iu
+const DISTINCT_INCOME_SOURCE = /^\s*d[aoe]\s+(?!(?:pix|dinheiro|transfer[eê]ncia|corridas?)\b)\p{L}/iu
 const AVISO_DE_CORRIDA = String.raw`(?:oferta|chamada|proposta|solicita[çc][ãa]o)`
 const UMA_OFERTA = String.raw`(?:(?:uma|a|outra|nova|essa|esta)\s+)?`
 export const RIDE_OFFER_NOTICE = new RegExp(
