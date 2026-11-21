@@ -6900,3 +6900,12 @@ até auditoria independente.
 - Um total declarado no fim da lista é conferido em centavos. Quando
   diverge dos itens, o chat pede os valores corretos antes de propor.
   Suíte com 1.332/1.332 regressões.
+
+## 21/11/2026 — Uma compra com dois meios de pagamento
+
+- “Gastei 150,50 no mercado, 100,25 no Nubank e 50,25 no Pix” propõe
+  só R$ 50,25 no caixa. Os R$ 100,25 vão para a compra no cartão
+  quando as parcelas são informadas.
+- Pix, dinheiro e débito da mesma compra compõem uma saída pelo total.
+  A soma informada precisa bater antes de preparar os registros.
+  Suíte com 1.335/1.335 regressões.

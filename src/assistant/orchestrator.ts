@@ -1541,7 +1541,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   const caps = buildCapabilities(input.state)
   const today = input.today || todayISO()
   if (!input.draft && (!input.pendingClarification || input.pendingClarification.field === 'reported-total')) {
-    const reconciled = reconcileSpokenTotals(input.message, today, isDriver(input.state.settings))
+    const reconciled = reconcileSpokenTotals(input.message, today, isDriver(input.state.settings), caps.cardNames)
     if (reconciled?.issue) return {
       draft: null, keepPending: true, focus: input.focus,
       response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [],

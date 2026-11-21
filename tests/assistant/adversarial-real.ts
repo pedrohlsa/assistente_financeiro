@@ -1693,6 +1693,33 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         r.response.mode === 'propose_actions' && actual.join(',') === amounts.join(',') && prepared.map(a => a.kind).join(',') === kinds.join(',')
         && (id !== 'frete-e-taxa-incluidos' || ('date' in prepared[0] && prepared[0].date === addDays(TODAY, -1)))))
     }
+    const part = await ask('ontem gastei 150,50 no mercado, 100,25 no Nubank e 50,25 no Pix')
+    const paid = applyBatchPure(s, part.response.actions, { now: { date: TODAY, time: '12:00' } })
+    const installments = await orchestrate({ state: paid.state, message: 'em 2x', today: TODAY, remoteEnabled: false,
+      draft: part.draft, pendingClarification: answerChoices(part) })
+    const saved = applyBatchPure(paid.state, installments.response.actions, { now: { date: TODAY, time: '12:00' } })
+    out.push(result('A-pagamento-pix-e-cartao-com-centavos', [part.response, installments.response],
+      'só R$ 50,25 saem da conta e só R$ 100,25 viram compra, na data de ontem',
+      answerChoices(part)?.field === 'installments' && paid.applied && paid.state.transactions.length === 1
+        && paid.state.transactions[0].amount === 50.25 && paid.state.transactions[0].date === addDays(TODAY, -1)
+        && saved.applied && saved.state.transactions.length === 1 && saved.state.installmentPlans.length === 1
+        && saved.state.installmentPlans[0].totalAmount === 100.25 && saved.state.installmentPlans[0].purchaseDate === addDays(TODAY, -1)
+        && saved.state.installmentPlans[0].cardId === s.cards[0].id && saved.state.installmentPlans[0].installmentCount === 2))
+
+    const full = await ask('gastei 150 no mercado, 100 no Nubank em 2x e 50 no Pix')
+    const fullState = applyBatchPure(s, full.response.actions, { now: { date: TODAY, time: '12:00' } })
+    out.push(result('A-pagamento-dividido-com-parcelas-ditas', full.response, 'R$ 100 são compra no Nubank, R$ 50 são despesa',
+      fullState.applied && full.response.mode === 'propose_actions' && fullState.state.transactions.length === 1
+        && fullState.state.transactions[0].amount === 50 && fullState.state.installmentPlans[0]?.totalAmount === 100
+        && fullState.state.installmentPlans[0].cardId === s.cards[0].id && fullState.state.installmentPlans[0].installmentCount === 2))
+
+    const cash = await ask('paguei 150 no total, 100 foi no Pix e 50 em dinheiro')
+    const incomplete = await ask('paguei 150 no total, 100 foi no Pix')
+    const diverges = await ask('paguei 150 no mercado, 100 no Nubank e 40 no Pix')
+    out.push(result('A-pagamento-dividido-confere-partes', [cash.response, incomplete.response, diverges.response],
+      'R$ 150 de uma despesa paga fora do crédito. Valores incompletos ou diferentes pedem esclarecimento',
+      cash.response.actions.length === 1 && cash.response.actions[0].action.kind === 'expense' && cash.response.actions[0].action.amount === 150
+        && [incomplete, diverges].every(r => !r.response.actions.length && answerChoices(r)?.field === 'reported-total')))
     const conflict = await ask('paguei 100 no mercado e 50 na farmácia, 140 ao todo')
     const corrected = await ask('paguei 100 no mercado e 40 na farmácia, 140 ao todo', conflict)
     const badPart = await ask('paguei 60 incluindo 100 de frete')
