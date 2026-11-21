@@ -219,7 +219,13 @@ código consulta essas funções em vez de comparar `profile === 'driver'` inlin
     motorista, e só quando não há verbo de gasto explícito — este manda sempre.
     Valor sem nenhum sinal de resultado ("hoje 250") vira PERGUNTA, jamais palpite.
     Um dia inteiro NÃO inventa "1 viagem": cravar isso destrói o ganho por viagem.
-    Invariantes 54 e 55 travam os dois sentidos.
+    Desde 21/11/2026 a viagem só existe quando é DITA — "fiz 12 corridas", "uma
+    corrida de 35", "corrida de 18". Plataforma é ORIGEM de receita, não viagem:
+    "430 na Uber, 399 na 99" não vira "2 viagens" (`UMA_CORRIDA_NOMEADA` em
+    `nlp.ts`). E o ganho por viagem divide só a receita dos dias com viagens
+    informadas (`incomeWithTrips` em `periodStats`, mesmo recorte no `per-trip`
+    da DSL); sem viagem, a tela mostra travessão. Invariantes 54 e 55 travam os
+    dois sentidos do sinal; o bloco `VI-` trava a viagem.
 35. **O corpus só sabe o que já perguntaram a ele.** Duas rodadas seguidas
     encontraram a maioria dos defeitos FORA dele: a adversarial no navegador, a de
     13/08 com uma sonda sobre fala real. Três defeitos daquela rodada não apareciam

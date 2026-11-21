@@ -6505,3 +6505,42 @@ invariantes, mutações, fuzz, ditado e remoto offline; typecheck,
 typecheck:api, test:money, build, rubrica (0 perigosa, 0 ruim) e
 `test:calendario` nas oito datas. Sem push, merge, deploy, APK ou DeepSeek.
 **NOT READY** até auditoria independente.
+
+## 21/11/2026 — Viagem só quando é dita (decisão do usuário) (Claude)
+
+Decisão autorizada pelo usuário: no perfil motorista, plataforma mencionada
+num resumo do dia ou do turno é ORIGEM de receita, não viagem. A quantidade
+de viagens fica ausente quando a pessoa não diz quantas fez (regra 34).
+
+- Parser (`nlp.ts`): a viagem implícita por receita de corrida só vale quando
+  a frase NOMEIA uma corrida no singular (`UMA_CORRIDA_NOMEADA`: "uma
+  corrida", "numa corrida", "pela corrida", "corrida de 18"). "Ganhei 22 DE
+  corrida" é categoria, não contagem. Quantidade dita ("fiz 12 corridas")
+  continua valendo, inclusive com receitas de várias plataformas na frase.
+- Cláusulas (`clauses.ts`): "Fiz uma corrida, ganhei 150" — a corrida
+  nomeada sem valor passa a viagem para a receita da cláusula seguinte.
+- Métricas: o ganho por viagem dividia a receita de TODOS os dias pelas
+  viagens; com dias sem quantidade, inflaria (R$ 750 / 10 = R$ 75 em vez de
+  R$ 30). Agora `periodStats` expõe `incomeWithTrips` e `perTrip` usa só os
+  dias com viagens; o `per-trip` da DSL usa o mesmo recorte (bate com
+  `calc.ts`, regra 58); a resposta "qual minha média por viagem?" diz quanto
+  ficou fora da média; o "dia típico" do motorista também. Home, Veículo e
+  Análises mostram travessão em vez de "R$ 0,00 por viagem" sem viagem.
+- Catálogo: o campo `trips` diz ao planejador remoto que a quantidade é a
+  DITA, nunca inferida do valor nem da plataforma. O prompt de produção só
+  muda depois de um redeploy autorizado.
+- Casos: `crit-motorista`, `sem-04`, `mul-01`, `mul-07` esperam o trabalho
+  sem `trips`; `rec-01/02/08`, `mt2-04`, `abr-03`, `sem-02`, `fr-15/16`,
+  `rr-42`, `ad-05/06/39`, `LING-origem-motorista-4/5`, `MV-*`, `MF-uber-…` e
+  `VG-sem-quantidade-controle` deixaram de esperar a viagem inventada; `rr-53`
+  (plural de "1 viagem") usa "fiz uma corrida de 25"; `test-app.mts` idem.
+  Bloco novo `VI-` (19 casos): o relato completo do turno (proposta, texto,
+  estado depois de confirmar, faturamento de R$ 829, abastecimento, 161 km,
+  8 h, zero viagens e nenhum ganho por viagem), "hoje rodei 12 horas e fiz
+  450", as quantidades ditas e as métricas.
+
+Gates (relógio 2026-09-15): 733/733 corpus, 1.050/1.050 adversariais, 151/151
+invariantes, mutações, fuzz, ditado e remoto offline; typecheck,
+typecheck:api, test:money, build, rubrica (0 perigosa, 0 ruim) e
+`test:calendario` nas oito datas. Sem push, merge, deploy, APK ou DeepSeek.
+**NOT READY** até auditoria independente.
