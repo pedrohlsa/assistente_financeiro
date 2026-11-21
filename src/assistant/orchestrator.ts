@@ -52,7 +52,7 @@ import { buildCapabilities } from './capabilities'
 import { describeAction, META_OUTRA, SAQUE } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
 import { catById, usableCategories } from '../data/categories'
-import { addDays, fmtBRL, MESES_PT_BR, nowTime, parseMoney, todayISO, uid } from '../utils/format'
+import { addDays, fmtBRL, MESES_PT_BR, nowPaymentTime, nowTime, parseMoney, todayISO, uid } from '../utils/format'
 import { matchRecurringPayment, occurrencesBetween, possibleRecurringTransactions, recurringActiveOn, recurringLinkAction } from '../services/calc'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { normalizeNumberWords } from './numbers'
@@ -752,7 +752,7 @@ function answerQuestions(
 ): { text: string; answered: AnalyzedClause[]; focus?: ConversationFocus } {
   if (!questions.length) return { text: '', answered: [] }
   const projected = candidates.length
-    ? planAssistantActions(state, candidates.map(c => ({ id: c.id, action: c.action }))).projected
+    ? planAssistantActions(state, candidates.map(c => ({ id: c.id, action: c.action })), { date: today, time: nowPaymentTime() }).projected
     : state
 
   const parts: string[] = []

@@ -39,7 +39,7 @@ import { answerDrivingShift, perceivesDrivingFatigue, PARE_PARA_DESCANSAR } from
 import { avaliacaoDoDia } from '../assistant/dayReview'
 import { respostaDeAtraso, respostaDeChegada, respostaDeProximaEntrada } from '../assistant/arrival'
 import { readInvoiceReference } from '../assistant/invoicePayment'
-import { findAllDates } from '../assistant/dates'
+import { findAllDates, findUnresolvedTemporalHint } from '../assistant/dates'
 import { currentMonthToDate, parsePeriod } from '../assistant/query/period'
 import { adaptiveEnabled, buildPersonalModel } from '../assistant/personalModel'
 import { catById } from '../data/categories'
@@ -413,29 +413,18 @@ export async function askRemoteCompose(
 const NUM = String.raw`(\d+(?:[.,]\d+)*)`
 const n = (s: string) => parseMoney(s)
 
-function periodFromText(t: string): { from: string; to: string; label: string } | null {
-  // Este leitor conhece SEIS frases e caía em "últimos 7 dias" para o resto.
-  // Período dito que ele não expressa devolve null, e quem chama NÃO responde:
-  // "maior gasto em 90 dias" saía com os últimos 7 dias, com cara de dado real,
-  // e a pergunta nunca chegava a quem sabe lê-la.
-  if (/\b\d{1,4}\s*(?:dias|semanas|meses|mes|anos)\b|\bdesde\b|\bquinzena\b/.test(t)) return null
-  const today = todayISO()
-  if (/semana passada/.test(t)) return { from: addDays(today, -13), to: addDays(today, -7), label: 'na semana passada' }
-  if (/(essa|esta|nesta|nessa)\s+semana|semana/.test(t)) return { from: addDays(today, -6), to: today, label: 'nos últimos 7 dias' }
-  if (/m[eê]s passado/.test(t)) {
-    const d = fromISO(today)
-    const first = new Date(d.getFullYear(), d.getMonth() - 1, 1)
-    const last = new Date(d.getFullYear(), d.getMonth(), 0)
-    return { from: `${first.getFullYear()}-${String(first.getMonth() + 1).padStart(2, '0')}-01`, to: `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}`, label: 'no mês passado' }
-  }
-  if (/(esse|este|neste|nesse)\s+m[eê]s|m[eê]s/.test(t)) return { from: today.slice(0, 8) + '01', to: today, label: 'este mês' }
-  if (/ontem/.test(t)) return { from: addDays(today, -1), to: addDays(today, -1), label: 'ontem' }
-  if (/hoje/.test(t)) return { from: today, to: today, label: 'hoje' }
-  // Sem período dito, o mês corrente — a mesma janela da consulta. Os últimos
-  // 7 dias faziam "quanto recebi de aluguel" responder R$ 0,00 para quem
-  // recebeu R$ 3.000,00 no mês, e a pergunta mudava de resposta conforme quem
-  // a lia.
-  return { from: today.slice(0, 8) + '01', to: today, label: 'este mês' }
+function periodFromText(t: string, today = todayISO()): { from: string; to: string; label: string } | null {
+  const dates = findAllDates(t, today)
+  if (dates.some(d => d.kind === 'ambiguous' || d.kind === 'invalid')) return null
+  const read = parsePeriod(t, today)?.period
+  const days = dates.filter(d => d.kind === 'date' || d.kind === 'future')
+  if (new Set(days.map(d => d.date)).size > 1 && read?.grain !== 'range') return null
+  const [day] = days
+  const period = read ?? (day ? { from: day.date, to: day.date, label: day.label } : undefined)
+  if (period) return period.from > today ? null : { ...period, to: period.to > today ? today : period.to }
+  if (findUnresolvedTemporalHint(t) || /\b(?:\d{1,4}\s*(?:dias|semanas|meses|mes|anos)|desde|quinzena|entre\s+(?:os\s+)?dias)\b/.test(t)) return null
+  if (/\bsemana\b/.test(t)) return { from: addDays(today, -6), to: today, label: 'nos últimos 7 dias' }
+  return currentMonthToDate(today)
 }
 
 // Motor local determinístico. Retorna handled:false SÓ no fallback genérico
@@ -561,6 +550,7 @@ function ondeCortar(s: AppState, t: string): string | undefined {
 
 function resolveLocal(s: AppState, input: string, context?: { today?: string; message: string }): AiReply {
   const t = normalizeQuestion(input)
+  const today = context?.today ?? todayISO()
   const driverMode = isDriver(s.settings)
   const turno = answerDrivingShift(s, input, context?.today, context?.message)
   if (turno) return { text: turno }
@@ -716,7 +706,7 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   if (pedeResumoDoDia(t)) return respostaDoDia(s, t, driverMode)
 
   // "Quanto fico por dia tirando a gasolina": entradas MENOS combustível.
-  if (pedeSobraSemCombustivel(t)) return respostaSobraSemCombustivel(s, t)
+  if (pedeSobraSemCombustivel(t)) return respostaSobraSemCombustivel(s, t, today)
 
   // Intenção de conversar/avisar o que virá não é um pedido de resumo.
   if (/\b(?:vou|posso|quero)\s+(?:te\s+)?(?:passar|falar|dizer|mandar)\b/.test(t) && !/\b\d+(?:[.,]\d+)*\b/.test(t)) {
@@ -953,9 +943,9 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
         venda: 'vendas', vendas: 'vendas',
       }
       const catId = map[fonteM[1]] || 'aluguel'
-      const p = periodFromText(t)
+      const p = periodFromText(t, today)
       if (!p) return ajudaGenerica(driverMode)
-      const txs = s.transactions.filter(x => x.type === 'income' && x.category === catId && x.date >= p.from && x.date <= p.to)
+      const txs = s.transactions.filter(x => x.type === 'income' && x.category === catId && x.date >= p.from && validPaymentDate(x.date, p.to))
       const total = txs.reduce((a, x) => a + x.amount, 0)
       const cat = catById(s.categories, catId)
       return { text: `Você recebeu ${fmtBRL(total)} em ${cat.name} ${p.label} (${txs.length} registro${txs.length === 1 ? '' : 's'} — dado real).` }
@@ -1333,9 +1323,9 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     && !/\b(?:com|de|em|no|na|nos|nas)\s+(?!r\$)[a-zà-ú]{3,}/.test(semPeriodo.slice(semPeriodo.search(/gastei|gastou|torrei|saiu|foi/)))
     && !/quanto\s+(?:eu\s+)?(?:posso|da\s+para|consigo)/.test(t)
     && !/\bpor\s+(?:dia|semana|mes)\b|\bao\s+dia\b|\bdiari[oa]\b|\bmedia\b/.test(t)) {
-    const p = periodFromText(t)
+    const p = periodFromText(t, today)
     if (!p) return ajudaGenerica(driverMode)
-    const st = periodStats(s, p.from, p.to)
+    const st = periodStats(s, p.from, p.to, today)
     return {
       text: st.expense > 0
         ? `Você gastou ${fmtBRL(st.expense)} ${p.label} (dado real). Nesse mesmo período entraram ${fmtBRL(st.income)}.`
@@ -1485,9 +1475,9 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   const aperto = /(?:t[oô]|estou|to|tou)\s+(?:ferrad[oa]|fudid[oa]|lascad[oa]|quebrad[oa]|apertad[oa]|enrolad[oa]|no\s+sufoco|no\s+aperto|mal\s+de\s+grana|zerad[oa])\b/.test(t)
   if (aperto || /(?:t[oô]|estou|to)\s+(?:tendo|dando|com|ficando\s+(?:no|com))\s+(?:lucro|preju[ií]zo)|(?:t[oô]|estou|to)\s+no\s+lucro|(?:t[oô]|estou)\s+no\s+(?:azul|vermelho)|quanto\s+sobrou\s*\??$|sobrou\s+quanto/.test(t)
     || /(?:gastando|gasto|gastei)\s+mais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:ganho|ganhei|recebo|recebi|entra|faturo)/.test(t)) {
-    const p = /semana/.test(t) ? periodFromText(t) : { from: todayISO().slice(0, 8) + '01', to: todayISO(), label: 'este mês' }
+    const p = periodFromText(t, today)
     if (!p) return ajudaGenerica(driverMode)
-    const st = periodStats(s, p.from, p.to)
+    const st = periodStats(s, p.from, p.to, today)
     const saldo = st.income - st.expense
     // Sem movimento nenhum não existe "sim": zero não é lucro, é ausência de
     // dado. Responder "Sim, sobrando R$ 0,00" seria mentir com número certo.
@@ -1521,9 +1511,9 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
 
   // "qual foi meu maior gasto"
   if (/maior gasto|maior despesa/.test(t) && !pedeContasFixas(t)) {
-    const p = periodFromText(t)
+    const p = periodFromText(t, today)
     if (!p) return ajudaGenerica(driverMode)
-    const txs = s.transactions.filter(x => x.type === 'expense' && x.date >= p.from && x.date <= p.to)
+    const txs = s.transactions.filter(x => x.type === 'expense' && x.date >= p.from && validPaymentDate(x.date, p.to))
     if (!txs.length) return { text: `Não encontrei despesas ${p.label}.` }
     const top = [...txs].sort((a, b) => b.amount - a.amount)[0]
     const cat = catById(s.categories, top.category)
@@ -1567,17 +1557,17 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   }
 
   // "quanto gastei com gasolina esse mês" / "quanto perco por mês com gasolina"
-  const spentM = t.match(/quanto\s+(?:eu\s+)?(?:ja\s+)?(?:gastei|gasto|perco|perdi|torrei)\s*(?:por m[eê]s)?\s*(?:com|de|em)\s+([\wçãõáéíóú\s]+?)(?:\s+(?:esse|este|nesse|neste)?\s*(m[eê]s|semana|hoje|ano)|\?|$)/)
+  const spentM = t.match(/quanto\s+(?:eu\s+)?(?:ja\s+)?(?:gastei|gasto|perco|perdi|torrei)\s*(?:por mes)?\s*(?:com|de|em)\s+([\w\s]+?)(?:\s+(?:(?:esse|este|nesse|neste)\s+)?(?:mes|semana|anteontem|ontem|hoje|ano)\b|\?|$)/)
   if (spentM) {
     // "Com O bar": o artigo não é parte do nome, e "o bar" não achava "Bar".
     const what = spentM[1].trim().replace(/^(?:o|a|os|as|no|na|nos|nas|meu|minha|meus|minhas)\s+/, '')
-    const p = periodFromText(t)
+    const p = periodFromText(t, today)
     if (!p) return ajudaGenerica(driverMode)
     // Pergunta sem acento contra nome com acento: "alimentacao" nunca achava
     // "Alimentação" e a resposta era R$ 0,00 com cara de dado real.
     const catGuess = s.categories.find(c => normalizeQuestion(c.name).includes(what)) ||
       (/(gasolina|combust|etanol|alcool)/.test(what) ? catById(s.categories, 'combustivel') : undefined)
-    const txs = s.transactions.filter(x => x.type === 'expense' && x.date >= p.from && x.date <= p.to &&
+    const txs = s.transactions.filter(x => x.type === 'expense' && x.date >= p.from && validPaymentDate(x.date, p.to) &&
       (catGuess ? x.category === catGuess.id : normalizeQuestion(x.description || '').includes(what)))
     // Palavra que não é categoria nem aparece em lançamento nenhum: "R$ 0,00 —
     // dado real" afirmava um zero para quem chama Alimentação de "comida". A
@@ -1589,9 +1579,9 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
 
   // "quanto ganhei" / "quanto lucrei" / "quanto faturei"
   if (/quanto\s+(?:eu\s+)?(ganhei|faturei|lucrei|recebi|fiz)/.test(t)) {
-    const p = periodFromText(t)
+    const p = periodFromText(t, today)
     if (!p) return ajudaGenerica(driverMode)
-    const st = periodStats(s, p.from, p.to)
+    const st = periodStats(s, p.from, p.to, today)
     const isLucro = /lucrei/.test(t)
     return {
       text: isLucro
@@ -2262,11 +2252,12 @@ function respostaDoDia(s: AppState, t: string, driverMode: boolean): AiReply {
  * "tirando a gasolina" quer esse desconto primeiro, mas não pode achar que
  * sobrou o que a troca de óleo já levou.
  */
-function respostaSobraSemCombustivel(s: AppState, t: string): AiReply {
-  const hoje = todayISO()
-  const dito = /\bhoje\b|\bontem\b|\bsemana\b|\bmes\s+passado\b/.test(t) ? periodFromText(t) : null
-  const p = dito || { from: `${hoje.slice(0, 8)}01`, to: hoje, label: 'este mês' }
-  const txs = s.transactions.filter(x => x.date >= p.from && x.date <= p.to)
+function respostaSobraSemCombustivel(s: AppState, t: string, hoje: string): AiReply {
+  const explicit = parsePeriod(t, hoje)?.period
+  if (explicit?.future) return { text: 'O período que você pediu ainda não começou. Posso calcular o que sobrou após o combustível em um período que já passou ou até hoje.' }
+  const p = periodFromText(t, hoje)
+  if (!p) return { text: 'De qual período você quer o saldo depois do combustível? Diga um dia ou o intervalo de datas.' }
+  const txs = s.transactions.filter(x => x.date >= p.from && validPaymentDate(x.date, p.to))
   const soma = (f: (x: typeof txs[number]) => boolean) => round2(txs.filter(f).reduce((a, x) => a + x.amount, 0))
   const entradas = soma(x => x.type === 'income')
   const combustivel = soma(x => x.type === 'expense' && x.category === 'combustivel')

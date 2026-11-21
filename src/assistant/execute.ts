@@ -581,11 +581,11 @@ export function applyBatchPure(
  * mostrar o botão Confirmar e (b) responder perguntas hipotéticas ("se você
  * confirmar, sobra quanto?") sem gravar nada.
  */
-export function planAssistantActions(state: AppState, items: BatchItem[]): {
+export function planAssistantActions(state: AppState, items: BatchItem[], now?: ApplyOptions['now']): {
   results: ActionExecutionResult[]
   projected: AppState
   ok: boolean
 } {
-  const out = applyBatchPure(state, items, { atomic: false })
+  const out = applyBatchPure(state, items, { atomic: false, now })
   return { results: out.results, projected: out.state, ok: out.results.every(r => r.ok) }
 }

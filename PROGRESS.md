@@ -6689,3 +6689,13 @@ até auditoria independente.
 - “Errei, foi 100 do Uber” em uma proposta aberta pode trocar valor e
   origem juntos. A origem antiga deixa de aparecer e a viagem não é
   inferida. A suíte passou com 1.195/1.195 regressões adversariais.
+
+## 21/11/2026 — Período de consulta com fala espontânea
+
+- “Quanto gastei mesmo ontem?” agora usa ontem. “Mesmo” e “mesa” deixaram
+  de cair nas regras que reconhecem mês. “Anteontem” é um dia próprio.
+- A sobra depois da gasolina usa o dia, mês ou intervalo pedido. O
+  período futuro pede uma janela já iniciada para consultar o realizado.
+- A simulação de confirmação e a consulta usam a mesma data no turno.
+  A suíte passou com 1.203/1.203 regressões adversariais na data padrão,
+  151/151 invariantes e matriz verde nas oito datas.

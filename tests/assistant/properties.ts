@@ -1052,16 +1052,14 @@ export async function runProperties(): Promise<PropertyReport> {
 
   // --- 57. "Tô no lucro?" e "tô no vermelho?" têm polaridade OPOSTA --------
   // Um "Sim" fixo respondia "sim, você está no vermelho" para quem tinha
-  // sobra: número certo, resposta errada. O corpus não pegaria isto porque
-  // `resolveLocal` lê o relógio real da máquina, não a data injetada — por
-  // isso a invariante monta as datas a partir de `todayISO()`.
+  // sobra: número certo, resposta errada. Os lançamentos usam a mesma data
+  // injetada na consulta.
   await checkAsync(r, 'lucro e vermelho respondem com sinais opostos', async () => {
-    const hoje = todayISO()
     const cenario = (income: number, expense: number) => {
       const s = buildState({ profile: 'driver' })
       s.transactions = [
-        { id: 'i', type: 'income', amount: income, category: 'corridas', date: hoje, time: '10:00' },
-        { id: 'e', type: 'expense', amount: expense, category: 'alimentacao', date: hoje, time: '11:00' },
+        { id: 'i', type: 'income', amount: income, category: 'corridas', date: TODAY, time: '10:00' },
+        { id: 'e', type: 'expense', amount: expense, category: 'alimentacao', date: TODAY, time: '11:00' },
       ] as any
       return s
     }

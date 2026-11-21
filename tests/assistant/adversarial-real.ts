@@ -2982,6 +2982,49 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /L[íi]quido por dia/.test(rotulo) && rotulo.includes(dias === 1 ? '1 dia corrido' : `${dias} dias corridos`)))
   }
 
+  // Muleta de fala ("mesmo") não é mês; a operação de tirar combustível
+  // conserva a janela pedida mesmo quando não passa pelo plano de consulta.
+  {
+    const ontem = addDays(hoje, -1)
+    const anteontem = addDays(hoje, -2)
+    const mesAnterior = addDays(`${hoje.slice(0, 7)}-01`, -1).slice(0, 7)
+    const estado = buildState({
+      profile: 'autonomo',
+      transactions: [
+        { date: hoje, type: 'expense', category: 'compras', amount: 200 },
+        { date: ontem, type: 'expense', category: 'compras', description: 'Mesa', amount: 42 },
+        { date: ontem, type: 'income', category: 'aluguel', amount: 550 },
+        { date: anteontem, type: 'income', category: 'aluguel', amount: 700 },
+        { date: anteontem, type: 'expense', category: 'combustivel', amount: 75 },
+        { date: anteontem, type: 'expense', category: 'compras', amount: 40 },
+        { date: `${mesAnterior}-10`, type: 'income', category: 'aluguel', amount: 810 },
+        { date: `${mesAnterior}-10`, type: 'expense', category: 'combustivel', amount: 81 },
+      ],
+    })
+    for (const [id, frase, valores, proibidos] of [
+      ['PER-mesmo-ontem', 'quanto eu gastei mesmo ontem?', [42], [200, 75]],
+      ['PER-maior-mesmo-ontem', 'qual foi mesmo meu maior gasto ontem?', [42], [200]],
+      ['PER-aluguel-mesmo-ontem', 'quanto recebi de aluguel mesmo ontem?', [550], [700, 810]],
+      ['PER-mesa-ontem', 'quanto gastei com mesa ontem?', [42], [200]],
+      ['PER-combustivel-anteontem', 'quanto sobrou tirando a gasolina anteontem?', [625, 585], [550, 810]],
+      ['PER-combustivel-14-dias', 'quanto sobrou tirando a gasolina nos últimos 14 dias?', [1175, 893], [810]],
+    ] as const) {
+      const r = await turnoHoje(estado, frase)
+      out.push(result(id, r.reply, valores, valores.every(v => r.reply.includes(fmtBRL(v)))
+        && proibidos.every(v => !r.reply.includes(fmtBRL(v))) && !r.actions.length))
+    }
+    const mes = MESES_PT_BR[Number(mesAnterior.slice(5)) - 1].toLowerCase()
+    const anterior = await turnoHoje(estado, `quanto sobrou tirando a gasolina em ${mes} de ${mesAnterior.slice(0, 4)}?`)
+    const nasVizinhas = [ontem, anteontem].some(d => d.startsWith(mesAnterior))
+    const esperado = 729 + (ontem.startsWith(mesAnterior) ? 550 : 0) + (anteontem.startsWith(mesAnterior) ? 625 : 0)
+    out.push(result('PER-combustivel-mes-nomeado', anterior.reply, fmtBRL(esperado),
+      anterior.reply.includes(fmtBRL(esperado)) && anterior.reply.includes(mes)
+        && (!nasVizinhas || !anterior.reply.includes(fmtBRL(1175))) && !anterior.actions.length))
+    const futuro = await turnoHoje(estado, 'quanto sobrou tirando a gasolina mês que vem?')
+    out.push(result('PER-combustivel-sem-realizado-futuro', futuro.reply, 'pede período já iniciado',
+      /ainda não começou/.test(futuro.reply) && !/R\$/.test(futuro.reply) && !futuro.actions.length))
+  }
+
   // "Tirando cimento" tira o CIMENTO, não a categoria Obra inteira (areia e
   // tijolo junto), e o rótulo diz o que ficou de fora. "Tirando obra" (o nome
   // da categoria) e "tirando comida" (sem lançamento com esse nome) continuam
