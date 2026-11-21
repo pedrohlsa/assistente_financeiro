@@ -98,6 +98,8 @@ const PALAVRAS_DE_HORA = ['meio', 'meia', 'noite', 'hora', 'horas', 'minuto', 'm
  */
 export const PALAVRAS_REAIS_PROTEGIDAS = [
   'cobrou', 'cobrar', 'cobra', 'cobrei', 'cobraram', 'cobrado', 'cobrada', 'cobranca',
+  // "Cancelei a corrida" virava "parcelei a corrida".
+  'cancelei', 'cancelou', 'cancelaram', 'cancela', 'cancelar', 'cancelada', 'cancelado', 'cancelamento',
   'peguei', 'pegou', 'pegar', 'pego', 'pega', 'pegaram', 'pegamos',
   'transferiu', 'depositou', 'gastaram', 'ganharam', 'receberam', 'venderam', 'vendeu',
   'compraram', 'comprando', 'trocaram', 'trocou', 'tirou', 'botou', 'colocou', 'abasteceu',

@@ -7015,9 +7015,11 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const a: any = r.actions[0]
       out.push(result(id, r.actions, 'despesa sem data inventada', r.actions.length === 1 && a.kind === 'expense' && !a.date))
     }
-    const data = await turnoHoje(buildState({ profile: 'other' }), 'paguei 400 de aluguel dia 1/9')
+    // Dia 1º do mês corrente: nunca está no futuro, em nenhuma data da matriz.
+    const data = await turnoHoje(buildState({ profile: 'other' }), `paguei 400 de aluguel dia 1/${Number(hoje.slice(5, 7))}`)
     const d: any = data.actions[0]
-    out.push(result('FR-controle-data', data.actions, `data ${hoje.slice(0, 4)}-09-01`, d?.date === `${hoje.slice(0, 4)}-09-01`))
+    out.push(result('FR-controle-data', data.actions, `data ${hoje.slice(0, 7)}-01`,
+      hoje.slice(8, 10) === '01' ? d?.kind === 'expense' : d?.date === `${hoje.slice(0, 7)}-01`))
   }
 
   // "Paguei o aluguel, 400": valor depois da vírgula perdia a descrição; com
@@ -7109,6 +7111,81 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     // Controle: pagar uma parcela de financiamento continua sendo despesa.
     const parcela = await turnoHoje(st, 'paguei 200 da parcela do carro')
     out.push(result('PZ-controle-parcela-paga', parcela.actions, 'despesa 200', parcela.actions.some((a: any) => a.kind === 'expense' && a.amount === 200)))
+  }
+
+  // "Cancelaram a corrida de 30" registrava R$ 30 de receita e 1 viagem: a
+  // corrida cancelada não pagou nada. A taxa de cancelamento, quando dita, é
+  // receita.
+  {
+    for (const frase of ['cancelaram a corrida de 30', 'o passageiro cancelou a corrida de 25', 'cancelei a corrida de 40']) {
+      const r = await turnoHoje(buildState({ profile: 'driver' }), frase)
+      out.push(result(`NN-corrida-cancelada-${frase.split(' ')[0]}`, { reply: r.reply, actions: r.actions }, 'nenhuma receita nem viagem; diz como lançar a taxa',
+        !r.actions.length && /cancelad/i.test(r.reply) && /taxa de cancelamento/.test(r.reply)))
+    }
+    const taxa = await turnoHoje(buildState({ profile: 'driver' }), 'recebi 15 de taxa de cancelamento')
+    out.push(result('NN-controle-taxa', taxa.actions, 'receita 15', taxa.actions.some((a: any) => a.kind === 'income' && a.amount === 15)))
+  }
+
+  // O número que é parte de um NOME ("Casa 1", "Cliente 2") nunca é o valor:
+  // "reajustei o aluguel da casa 1 pra 1900" propunha uma despesa de R$ 1,00.
+  {
+    const st = autonomoRico(hoje)
+    const r = await turnoHoje(st, 'reajustei o aluguel da casa 1 pra 1900')
+    out.push(result('NN-reajuste-nao-e-lancamento', { reply: r.reply, actions: r.actions }, 'nenhum lançamento; aponta o Planejamento',
+      !r.actions.length && /Planejamento/.test(r.reply) && !/R\$ 1,00/.test(r.reply)))
+    for (const frase of ['a casa 1 tá com goteira', 'o cliente 2 sumiu']) {
+      const x = await turnoHoje(st, frase)
+      out.push(result(`NN-nome-sem-valor-${frase.split(' ')[1]}`, x.actions, 'nenhum lançamento de R$ 1 ou R$ 2',
+        !x.actions.some((a: any) => (a.kind === 'expense' || a.kind === 'income') && a.amount <= 2)))
+    }
+    const ok = await turnoHoje(st, 'recebi 1800 da casa 1')
+    out.push(result('NN-controle-casa-1', ok.actions, 'receita 1800 da Casa 1', ok.actions.length === 1 && (ok.actions[0] as any).amount === 1800))
+  }
+
+  // "O inquilino da casa 2 atrasou": o que está REGISTRADO, sem lançar nada.
+  {
+    const st = autonomoRico(hoje)
+    const r = await turnoHoje(st, 'o inquilino da casa 2 atrasou')
+    out.push(result('AT-inquilino-atrasou', { reply: r.reply, actions: r.actions }, 'fala da Casa 2, não registra, não é ajuda genérica',
+      !r.actions.length && /Casa 2/.test(r.reply) && !/Posso te ajudar/.test(r.reply)))
+  }
+
+  // Correção sem proposta na tela não é "isso não aconteceu"; e "errei, era 45
+  // e não 54" procurava um lançamento chamado "Errei".
+  {
+    const st = buildState({ profile: 'autonomo', transactions: [
+      { id: 'rt-1', type: 'expense', amount: 54, category: 'alimentacao', description: 'Mercado', date: hoje },
+    ] })
+    for (const frase of ['na verdade foi ontem', 'muda pra alimentação']) {
+      const r = await turnoHoje(st, frase)
+      out.push(result(`RT-sem-proposta-${frase.split(' ')[0]}`, r.reply, 'não diz que não aconteceu; pede o lançamento',
+        !r.actions.length && !/não aconteceu/.test(r.reply) && /qual|diga|me diga/i.test(r.reply)))
+    }
+    const errei = await turnoHoje(st, 'errei, era 45 e não 54')
+    const e: any = errei.actions[0]
+    out.push(result('RT-errei-era-45', { reply: errei.reply, actions: errei.actions }, 'corrige o Mercado de 54 para 45',
+      e?.kind === 'edit-transaction' && e.transactionId === 'rt-1' && (e.amount === 45 || e.changes?.amount === 45 || e.value === 45)))
+    const neg = await turnoHoje(st, 'não gastei 50 no bar')
+    out.push(result('RT-controle-negacao', neg.reply, 'continua dizendo que não aconteceu', /não aconteceu/.test(neg.reply)))
+  }
+
+  // "O que eu registrei hoje?", "mostra meus últimos gastos": lista curta
+  // (regra 17), somente leitura.
+  {
+    const st = buildState({ profile: 'autonomo', transactions: [
+      { type: 'expense', amount: 54, category: 'alimentacao', description: 'Mercado', date: hoje },
+      { type: 'income', amount: 300, category: 'freelance', description: 'Site', date: hoje },
+      { type: 'expense', amount: 20, category: 'lazer', description: 'Cinema', date: addDays(hoje, -2) },
+    ] })
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const r = (await turnoHoje(st, 'o que eu registrei hoje?')).reply.replace(/ /g, ' ')
+    out.push(result('LS-registrei-hoje', r, 'Mercado 54 e Site 300, sem o Cinema',
+      r.includes('Mercado') && r.includes(brl(54)) && r.includes('Site') && r.includes(brl(300)) && !r.includes('Cinema')))
+    const g = (await turnoHoje(st, 'mostra meus últimos gastos')).reply.replace(/ /g, ' ')
+    out.push(result('LS-ultimos-gastos', g, 'Mercado e Cinema, sem a receita',
+      g.includes('Mercado') && g.includes('Cinema') && !g.includes('Site')))
+    const vazio = (await turnoHoje(buildState({ profile: 'autonomo' }), 'o que eu registrei hoje?')).reply
+    out.push(result('LS-nada-hoje', vazio, 'diz que não há nada hoje', /Nada registrado hoje|não há nada registrado hoje/i.test(vazio)))
   }
 
   return out

@@ -170,3 +170,39 @@ export function respostaDeProximaEntrada(s: AppState, input: string, hoje = toda
     + (doMes.length ? ` Este mês já está registrado: ${fmtBRL(doMes.reduce((a, x) => a + x.amount, 0))}.` : ultima ? ` A última registrada foi ${fmtBRL(ultima.amount)} em ${brDate(ultima.date)}.` : '')
     + ' Cadastre em Planejamento, com o dia em que costuma cair, que eu passo a avisar.'
 }
+
+// ---------------------------------------------------------------------------
+// "O inquilino da casa 2 atrasou", "a Casa 1 ainda não pagou"
+// ---------------------------------------------------------------------------
+// Caía na ajuda genérica. O usuário está CONTANDO que o dinheiro não veio: o
+// app não registra nada e diz o que sabe — o que está registrado no mês, a
+// previsão (que continua previsão, regra 18) e como lançar quando pagar.
+
+const ATRASO = /^(?:(?:o|a|meu|minha)\s+)?(.+?)\s+(?:atrasou|atrasaram|esta\s+atrasad[oa]s?|ta\s+atrasad[oa]s?|nao\s+pagou|ainda\s+nao\s+pagou|nao\s+me\s+pagou|ainda\s+nao\s+me\s+pagou)(?:\s+(?:o\s+aluguel|a\s+parcela|esse\s+mes|este\s+mes|ainda|de\s+novo|hoje))*$/
+
+export function respostaDeAtraso(s: AppState, input: string, hoje = todayISO()): string | undefined {
+  const t = normalizeName(input).replace(/[?!.,]/g, ' ').replace(/\s+/g, ' ').trim()
+  if (/\d{2,}/.test(t)) return undefined
+  const m = t.match(ATRASO)
+  if (!m) return undefined
+  const alvo = alvoDe(s, m[1])
+  if (!alvo) return undefined
+  const mes = mesDe(hoje)
+  const doMes = s.transactions.filter(x => alvo.casa(x) && mesDe(x.date) === mes && x.date <= hoje)
+  const partes = ['Entendido — não registrei nada.']
+  if (doMes.length) {
+    partes.push(`Só para conferir: está registrado que ${alvo.rotulo} entrou ${fmtBRL(doMes.reduce((a, x) => a + x.amount, 0))} este mês. Se esse registro estiver errado, me diga qual corrigir.`)
+  } else {
+    partes.push(`Não há entrada de ${alvo.rotulo} registrada este mês.`)
+    const prevista = alvo.previstas
+      .flatMap(r => occurrencesBetween(r, `${mes}-01`, `${mes}-31`).map(d => ({ r, d })))
+      .filter(o => !(o.r.occurrences || []).some((x: any) => x.date === o.d))
+      .sort((a, b) => a.d.localeCompare(b.d))[0]
+    if (prevista) partes.push(`A previsão era ${brDate(prevista.d)}, de ${fmtBRL(prevista.r.amount)} — ela continua como previsão, fora do saldo, até você confirmar.`)
+    const anterior = s.transactions.filter(x => alvo.casa(x) && x.date < `${mes}-01`).sort((a, b) => b.date.localeCompare(a.date))[0]
+    if (anterior) partes.push(`A última foi ${fmtBRL(anterior.amount)} em ${brDate(anterior.date)}.`)
+    const exemplo = prevista ? prevista.r.amount : anterior ? anterior.amount : 1000
+    partes.push(`Quando pagar, diga "recebi ${Math.round(exemplo)} ${/^(?:casa|cliente|loja|apart|sala|kitnet)/i.test(alvo.rotulo) ? `da ${alvo.rotulo}` : `de ${alvo.rotulo.toLowerCase()}`}" que eu lanço.`)
+  }
+  return partes.join('\n\n')
+}

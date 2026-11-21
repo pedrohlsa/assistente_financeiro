@@ -181,7 +181,9 @@ const CATEGORIA_TROCADA = new RegExp(String.raw`\b${COPULA}\s+(?:de|d[oa])\s+([a
 const CONTESTA_SEM_ALVO = new RegExp(String.raw`^\s*${NAO}\s*[,!.]?\s+${COPULA}\s+${VALOR}(?:\s+mesmo)?\s*[.!]?\s*$`, 'i')
 
 const COPULA_COM_VALOR = new RegExp(String.raw`\b${COPULA}\s+${VALOR}`, 'i')
-const INICIO_CORRECAO = /^\s*(?:e\s+)?(?:na\s+(?:verdade|real)\b\s*,?\s*)?/i
+// "ERREI, era 45 e não 54": a muleta de retratação abre a frase e não nomeia
+// nada — virava a busca por um lançamento chamado "Errei".
+const INICIO_CORRECAO = /^\s*(?:(?:e|ops+|opa|ih|xi|putz|nossa|desculp[ae]|perd[aã]o|foi\s+mal|errei|me\s+enganei|enganei|corrigindo|na\s+(?:verdade|real))(?![\wÀ-ÿ])[\s,;:.!-]*)*/i
 const ARTIGO_CORRECAO = /^(?:(?:o|a|os|as|aquele|aquela|esse|essa|este|esta|meu|minha)\s+)+/i
 
 function nomeDaCorrecao(prefixo: string, today: string): string | undefined {

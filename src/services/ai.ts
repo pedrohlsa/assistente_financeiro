@@ -8,7 +8,7 @@
 // outro lado: responder localmente tudo que o app sabe com certeza, para que a
 // pergunta factual nunca dependa de rede nem de modelo.
 
-import { AppState, ParsedAction, RecurringExpense } from '../models/types'
+import { AppState, ParsedAction, RecurringExpense, Transaction } from '../models/types'
 import { validateAction, isValidationFailure } from '../assistant/contracts'
 import type { AssistantErrorCode } from '../assistant/contracts'
 import { buildCapabilities } from '../assistant/capabilities'
@@ -31,11 +31,11 @@ import {
   planoDeGuardar, prazoDasContas, retiraDaReserva,
 } from '../assistant/cashQuestions'
 import type { PerguntaDeConta, PerguntaDeFatura, PlanoDeGuardar } from '../assistant/cashQuestions'
-import { describeAction, parseNaturalFull, SAQUE } from './nlp'
+import { CORRIDA_CANCELADA, describeAction, parseNaturalFull, REAJUSTE, SAQUE } from './nlp'
 import { driverInsight } from '../assistant/driverInsights'
 import { answerVehicleCost, answerVehicleMonthly } from '../assistant/vehicleCost'
 import { avaliacaoDoDia } from '../assistant/dayReview'
-import { respostaDeChegada, respostaDeProximaEntrada } from '../assistant/arrival'
+import { respostaDeAtraso, respostaDeChegada, respostaDeProximaEntrada } from '../assistant/arrival'
 import { readInvoiceReference } from '../assistant/invoicePayment'
 import { findAllDates } from '../assistant/dates'
 import { currentMonthToDate, parsePeriod } from '../assistant/query/period'
@@ -467,12 +467,50 @@ export function normalizeQuestion(input: string): string {
   return t
 }
 
+/**
+ * "O que eu registrei hoje?", "mostra meus últimos gastos": a lista curta da
+ * regra 17 — descrição, categoria, horário e valor. Somente leitura. Caía na
+ * ajuda genérica.
+ */
+function listaDeLancamentos(s: AppState, t: string): string | undefined {
+  const pedeO_que = /\bo\s+que\s+(?:eu\s+)?(?:registrei|lancei|anotei|coloquei|botei)\b/.test(t)
+  const pedeLista = /^(?:me\s+)?(?:mostra|mostre|lista|liste|listar|ver|quero\s+ver|abre)\s+(?:os\s+|as\s+|meus\s+|minhas\s+)*(?:ultim[oa]s\s+)?(?:gastos|despesas|lancamentos|movimentacoes|registros|receitas|entradas)\b/.test(t)
+    || /\bquais\s+(?:foram\s+)?(?:os\s+|as\s+|meus\s+|minhas\s+)*(?:ultim[oa]s\s+)?(?:gastos|despesas|lancamentos|movimentacoes|registros|receitas|entradas)\b/.test(t)
+  if (!pedeO_que && !pedeLista) return undefined
+  if (/\b(?:quanto|quantos|quantas|maior|menor|total)\b/.test(t)) return undefined
+  const hoje = todayISO()
+  const dia = /\banteontem\b/.test(t) ? addDays(hoje, -2) : /\bontem\b/.test(t) ? addDays(hoje, -1) : /\bhoje\b/.test(t) ? hoje : undefined
+  const tipo = /\b(?:gastos|despesas|gastei)\b/.test(t) ? 'expense' : /\b(?:receitas|entradas|recebi)\b/.test(t) ? 'income' : undefined
+  const rotuloDia = dia === hoje ? 'hoje' : dia === addDays(hoje, -1) ? 'ontem' : dia ? 'anteontem' : ''
+  const lista = s.transactions
+    .filter(x => x.date <= hoje && (!dia || x.date === dia) && (!tipo || x.type === tipo))
+    .sort((a, b) => `${b.date}${b.time || ''}`.localeCompare(`${a.date}${a.time || ''}`))
+  const oque = tipo === 'expense' ? 'gasto' : tipo === 'income' ? 'entrada' : 'lançamento'
+  if (!lista.length) {
+    return dia ? `Nada registrado ${rotuloDia}${tipo ? ` como ${oque}` : ''}. Quando quiser, me conte o que entrou ou saiu.`
+      : `Ainda não há nenhum ${oque} registrado.`
+  }
+  const mostrados = lista.slice(0, 8)
+  const linha = (x: Transaction) => {
+    const cat = s.categories.find(c => c.id === x.category)?.name
+    const nome = sentenceCase(x.description || cat || 'Lançamento')
+    const quando = dia ? (x.time ? x.time.slice(0, 5) : '') : `${x.date.slice(8, 10)}/${x.date.slice(5, 7)}`
+    const sinal = x.type === 'income' ? '+' : x.type === 'expense' ? '−' : ''
+    return `• ${quando ? `${quando} · ` : ''}${nome}${cat && cat !== nome ? ` (${cat})` : ''}: ${sinal}${fmtBRL(x.amount)}`
+  }
+  const titulo = dia ? `Registrado ${rotuloDia} (${lista.length}):` : `Seus últimos ${oque === 'lançamento' ? 'lançamentos' : oque === 'gasto' ? 'gastos' : 'entradas'}:`
+  return [titulo, '', ...mostrados.map(linha),
+    ...(lista.length > mostrados.length ? ['', `E mais ${lista.length - mostrados.length}. A lista completa fica em Movimentações.`] : [])].join('\n')
+}
+
 function resolveLocal(s: AppState, input: string): AiReply {
   const t = normalizeQuestion(input)
   const driverMode = isDriver(s.settings)
   // Antes das rotas de "quanto gastei": sem período, elas devolviam a ajuda.
   const custoMensal = answerVehicleMonthly(s, t)
   if (custoMensal) return { text: custoMensal }
+  const lista = listaDeLancamentos(s, t)
+  if (lista) return { text: lista }
   // Meta de COMPRA citada pelo NOME ganha da meta diária e da mensal. O usuário
   // tem as duas, e a palavra "meta" serve às duas — mas quem batizou a meta de
   // "Moto" e pergunta por ela espera ouvir sobre ela.
@@ -1069,7 +1107,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   }
 
   // "O salário já caiu?", "a Casa 2 já pagou?": o que está REGISTRADO.
-  const chegada = respostaDeChegada(s, input) || respostaDeProximaEntrada(s, input)
+  const chegada = respostaDeChegada(s, input) || respostaDeProximaEntrada(s, input) || respostaDeAtraso(s, input)
   if (chegada) return { text: chegada }
 
   // Saque: o dinheiro só mudou de lugar. Para o motorista "tirei 200 do
@@ -1077,6 +1115,15 @@ function resolveLocal(s: AppState, input: string): AiReply {
   if (SAQUE.test(input) && !/\b(?:paguei|gastei|comprei|recebi|ganhei|faturei)\b/.test(t)) {
     return { text: 'Saque não é ganho nem gasto: o dinheiro continua seu, só saiu da conta para a mão. Não registrei nada.\n\n'
       + 'Quando gastar esse dinheiro, me diga o gasto — por exemplo, "paguei 50 em dinheiro no mercado" — que eu lanço.' }
+  }
+
+  if (CORRIDA_CANCELADA.test(input) && !/\btaxa\s+de\s+cancelamento\b/.test(t)) {
+    return { text: 'Corrida cancelada não é receita: não registrei nada.\n\n'
+      + 'Se a plataforma pagou taxa de cancelamento, diga "recebi 5 de taxa de cancelamento" que eu lanço.' }
+  }
+  if (REAJUSTE.test(input) && !/\b(?:paguei|gastei|recebi|ganhei)\b/.test(t)) {
+    return { text: 'Reajuste muda o valor PREVISTO, não é um lançamento: não registrei nada.\n\n'
+      + 'Atualize o valor da entrada ou da conta em Planejamento — a partir daí a previsão e os avisos usam o valor novo. Quando o dinheiro entrar ou sair, me diga que eu lanço.' }
   }
 
   // "Minha conta de água veio 95": a conta CHEGOU. Paga ou não, quem diz é o

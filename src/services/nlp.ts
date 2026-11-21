@@ -513,6 +513,18 @@ function driverDayResult(input: string, actions: ParsedAction[], dayHint?: boole
 }
 
 /**
+ * Corrida CANCELADA não pagou nada: "cancelaram a corrida de 30" virava R$ 30
+ * de receita e 1 viagem. A taxa de cancelamento, quando dita, é receita.
+ */
+export const CORRIDA_CANCELADA = /(?<![\wÀ-ÿ])(?:cancel(?:aram|ou|ei|amos)\b[^.;!?]*\bcorridas?\b|corridas?\b[^.;!?]*\bcancelad[ao]s?\b)/i
+
+/**
+ * Reajuste de valor RECORRENTE ("reajustei o aluguel da casa 1 pra 1900") muda
+ * a previsão, não é lançamento. O "1" de "Casa 1" virava uma despesa de R$ 1.
+ */
+export const REAJUSTE = /(?<![\wÀ-ÿ])(?:reajustei|reajustou|reajustaram|aumentei|subi|baixei|abaixei|diminui|atualizei|mudei)\s+(?:o\s+|a\s+)?(?:valor\s+d[oa]\s+)?(?:aluguel|condom[íi]nio|mensalidade|pre[çc]o\s+d[oa]\s+aluguel)(?![\wÀ-ÿ])/i
+
+/**
  * Saque do PRÓPRIO dinheiro: "saquei 200", "tirei 200 do banco", "fiz um
  * saque de 150". Não é ganho nem gasto — o dinheiro só mudou de lugar
  * (regra 69). Tirar da META ou da reserva é outra operação e fica de fora.
@@ -536,6 +548,8 @@ export function parseNaturalFull(
 ): ParseResult {
   // Saque não vira receita (nem o "resultado do dia" do motorista) nem gasto.
   if (SAQUE.test(input) && !/\b(?:paguei|gastei|comprei|recebi|ganhei|faturei)\b/i.test(input)) return { actions: [] }
+  if (CORRIDA_CANCELADA.test(input) && !/\btaxa\s+de\s+cancelamento\b/i.test(input)) return { actions: [] }
+  if (REAJUSTE.test(input) && !/\b(?:paguei|gastei|recebi|ganhei)\b/i.test(input)) return { actions: [] }
   let actions = parseNatural(input)
   let dayAsk: DayResult['ask']
   let doDia = false

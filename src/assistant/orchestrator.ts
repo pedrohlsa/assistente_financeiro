@@ -2815,7 +2815,12 @@ Confirmar?`,
     } else if (negadas.length) {
       // O usuário disse que NÃO fez o lançamento. Confirmar isso em voz alta é
       // parte da correção — e nada pode sugerir registro.
-      reply = 'Entendi que isso não aconteceu — não registrei nada. Se quiser lançar outra coisa, é só me dizer.'
+      // "Na verdade foi ontem", "muda pra alimentação" sem nada na tela: é
+      // CORREÇÃO sem alvo, não negação. "Isso não aconteceu" era falso.
+      reply = negadas.every(c => looksNegated(c.text))
+        ? 'Entendi que isso não aconteceu — não registrei nada. Se quiser lançar outra coisa, é só me dizer.'
+        : 'Não tenho nenhuma proposta na tela para corrigir, então não mudei nada. '
+          + 'Se for um lançamento já salvo, me diga qual e o que mudar — por exemplo, "o mercado de hoje foi 45 e não 54".'
     } else if (notUnderstood.length && (candidates.length || analysis.clauses.some(c => c.handled))) {
       reply = SAQUE.test(notUnderstood[0].text)
         ? `“${notUnderstood[0].text.trim().replace(/[\s,;]+$/, '')}” é saque: não é ganho nem gasto, então não registrei.`
