@@ -1552,11 +1552,11 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     }
     if (payout && 'amount' in payout) {
       const result = await orchestrate({ ...input, message: payout.text, remoteEnabled: false })
-      const first = result.response.actions.findIndex(({ action }) => action.kind === 'income' && action.amount === payout.amount)
-      if (first >= 0) {
-        const initial = result.response.actions[first]
-        const action = { ...initial.action, feeAlreadyWithheld: true } as ParsedAction
-        result.response.actions[first] = { ...initial, action }
+      const actions: AssistantCandidateAction[] = result.response.actions
+      const first = actions.findIndex(({ action }) => action.kind === 'income' && action.amount === payout.amount)
+      const initial = actions[first]
+      if (initial?.action.kind === 'income') {
+        actions[first] = { ...initial, action: { ...initial.action, feeAlreadyWithheld: true } }
       }
       return result
     }
