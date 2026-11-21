@@ -6900,6 +6900,51 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('SQ-controle-resultado-do-dia', dia.actions, 'receita 300', receita(dia.actions) === 300))
   }
 
+  // "Gastei mais que o mês passado?" no meio do mês comparava 15 dias com o
+  // mês passado INTEIRO e respondia "Não, caiu (-52%)" por construção. E o
+  // pedaço comparado precisa estar no rótulo.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (t: string) => t.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const h = fromISO(hoje)
+    const dia = h.getDate()
+    const ini = toISOdate(new Date(h.getFullYear(), h.getMonth() - 1, 1))
+    const fimMesPassado = toISOdate(new Date(h.getFullYear(), h.getMonth(), 0))
+    const ate = toISOdate(new Date(h.getFullYear(), h.getMonth() - 1, Math.min(dia, Number(fimMesPassado.slice(8, 10)))))
+    const gasto = (de: string, a: string) => rico.transactions.filter(x => x.type === 'expense' && x.date >= de && x.date <= a).reduce((t, x) => t + x.amount, 0)
+    const esteMes = gasto(`${hoje.slice(0, 8)}01`, hoje)
+    const mesmoPedaco = gasto(ini, ate)
+    const completo = ate === fimMesPassado
+    for (const [id, frase] of [
+      ['CP-mesmo-pedaco-mes-passado', 'gastei mais que o mês passado?'],
+      ['CP-mesmo-pedaco-comparado', 'quanto gastei esse mês comparado com o mês passado'],
+    ] as const) {
+      const r = limpa((await turnoHoje(rico, frase)).reply)
+      out.push(result(id, r, `${brl(mesmoPedaco)} nos mesmos ${dia} dias${completo ? '' : ', com o pedaço no rótulo'}`,
+        r.includes(brl(esteMes)) && r.includes(brl(mesmoPedaco))
+          && (completo || new RegExp(`de 1º a ${Number(ate.slice(8, 10))} de`, "i").test(r))))
+    }
+  }
+
+  // "Minha luz veio 230" é a conta que CHEGOU (regra 69), como "a conta de
+  // luz veio 230" — e caía na ajuda genérica.
+  for (const perfil of ['autonomo', 'driver'] as const) {
+    for (const frase of ['minha luz veio 230', 'a água veio 95', 'o condomínio chegou 480']) {
+      const r = await turnoHoje(buildState({ profile: perfil }), frase)
+      out.push(result(`CV-${frase.replace(/\W+/g, '-')}-${perfil}`, r, 'não registra e diz como registrar quando pagar',
+        !r.actions.length && /Não registrei/.test(r.reply) && /paguei/.test(r.reply)))
+    }
+  }
+  {
+    const r = await turnoHoje(buildState({ profile: 'autonomo' }), 'minha luz veio 230 e já paguei')
+    out.push(result('CV-controle-ja-paguei', r.actions, 'despesa 230', r.actions.some((a: any) => a.kind === 'expense' && a.amount === 230)))
+    // Com Luz no Planejamento, "cadastre em Planejamento" criaria a conta em dobro.
+    const comLuz = await turnoHoje(autonomoRico(hoje), 'minha luz veio 230')
+    out.push(result('CV-ja-cadastrada', comLuz.reply, 'diz que já está no Planejamento, sem mandar cadastrar',
+      /já está no seu Planejamento/.test(comLuz.reply) && !/cadastre em Planejamento/.test(comLuz.reply)))
+  }
+
   return out
 }
 

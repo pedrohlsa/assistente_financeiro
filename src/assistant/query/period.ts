@@ -126,7 +126,12 @@ export function previousPeriod(p: QueryPeriod): QueryPeriod {
     const diaFim = mesPrincipalCompleto ? 31 : fromISO(p.to).getDate()
     const fimReal = fromISO(ultimoDia(ano, mes)).getDate()
     const to = `${primeiroDia(ano, mes).slice(0, 8)}${String(Math.min(diaFim, fimReal)).padStart(2, '0')}`
-    return { from: primeiroDia(ano, mes), to, label: `em ${MESES[mes]}`, grain: 'month' }
+    // O rótulo diz o pedaço: "Em agosto: R$ 900" para os dias 1 a 15 se lia
+    // como o mês inteiro.
+    const label = mesPrincipalCompleto || to === ultimoDia(ano, mes)
+      ? `em ${MESES[mes]}`
+      : `de 1º a ${Number(to.slice(8, 10))} de ${MESES[mes]}`
+    return { from: primeiroDia(ano, mes), to, label, grain: 'month' }
   }
   if (p.grain === 'year') {
     const ano = Number(p.from.slice(0, 4)) - 1

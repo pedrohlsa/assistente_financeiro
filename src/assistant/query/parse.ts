@@ -1021,6 +1021,12 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
       const atras = textoComparacao.match(/(\d{1,3})\s+(dias?|semanas?|mes(?:es)?|anos?)\s+atras/)
       if (atras) comparePeriod = deslocaPeriodo(period, Number(atras[1]), atras[2])
       else comparePeriod = parsePeriod(textoComparacao, hoje)?.period
+      // "Gastei mais que o mês passado?" no dia 15: o mês passado INTEIRO
+      // contra 15 dias deste dava "Não, caiu (-52%)" por construção. Quando o
+      // período citado é exatamente o anterior, compara o mesmo pedaço.
+      const anterior = previousPeriod(period)
+      if (comparePeriod && comparePeriod.grain === 'month' && period.grain === 'month'
+        && comparePeriod.from === anterior.from && anterior.to < comparePeriod.to) comparePeriod = anterior
     }
     if (!comparePeriod) comparePeriod = previousPeriod(period)
     // "Comparado com a semana passada" sem período principal dito compara com

@@ -259,6 +259,9 @@ function verboDeConsumo(input: string): string {
   // "A conta de luz veio 180 e já paguei": o pagamento fecha a conta que veio.
   const paga = input.match(/^\s*(?:a\s+|minha\s+)?conta\s+d([aeo])\s+([\p{L}]+(?:\s+[\p{L}]+)?)\s+(?:veio|chegou)\s+(?:de\s+|em\s+)?((?:r\$\s*)?\d+(?:[.,]\d+)*)\s*(?:reais)?\s*,?\s*e\s+(?:j[áa]\s+)?(?:paguei|quitei)\b.*$/iu)
   if (paga) return `paguei ${paga[3]} de conta d${paga[1]} ${paga[2]}`
+  // "Minha LUZ veio 230 e já paguei": a mesma conta, sem a palavra "conta".
+  const semConta = input.match(/^\s*(?:a\s+|o\s+|minha\s+|meu\s+)?(luz|[áa]gua|energia|internet|net|g[áa]s|telefone|celular|condom[íi]nio|iptu|ipva)\s+(?:veio|chegou)\s+(?:de\s+|em\s+)?((?:r\$\s*)?\d+(?:[.,]\d+)*)\s*(?:reais)?\s*,?\s*e\s+(?:j[áa]\s+)?(?:paguei|quitei)\b.*$/iu)
+  if (semConta) return `paguei ${semConta[2]} de ${semConta[1]}`
   return input
     .replace(/^((?:\s*(?:eu|hoje|hj|ontem|anteontem)\b)*\s*)dei\s+(?=(?:r\$\s*)?\d)/i, '$1paguei ')
     .replace(/^((?:\s*(?:eu|hoje|hj|ontem|anteontem)\b)*\s*)(?:comi|tomei|bebi)\s+(?:(um|uma|uns|umas)\s+)?(?=[\p{L}][^\d]*\d)/iu, (_m, pre, art) => `${pre}paguei ${art || 'um'} `)

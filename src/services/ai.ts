@@ -1074,13 +1074,20 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // "Minha conta de água veio 95": a conta CHEGOU. Paga ou não, quem diz é o
   // usuário — registrar como despesa era tirar do saldo um dinheiro que pode
   // ainda estar na conta.
+  // "Minha LUZ veio 230" é a mesma conta sem a palavra "conta".
   const contaChegou = t.match(/\bconta\s+d[aeo]\s+([a-z\u00e0-\u00fa]+(?:\s+[a-z\u00e0-\u00fa]+)?)\s+(?:veio|chegou)\s+(?:de\s+|em\s+)?(?:r\$\s*)?(\d+(?:[.,]\d+)*)/)
+    || t.match(/(?:^|\b(?:a|o|minha|meu)\s+)(luz|agua|energia|internet|net|gas|telefone|celular|condominio|iptu|ipva|fatura\s+d[ao]\s+celular)\s+(?:veio|chegou)\s+(?:de\s+|em\s+)?(?:r\$\s*)?(\d+(?:[.,]\d+)*)/)
   if (contaChegou && !/\b(?:paguei|pago|paga|quitei|gastei)\b/.test(t)) {
     const valor = parseMoney(contaChegou[2])
     if (valor > 0) {
       const nome = contaChegou[1].trim()
+      // Já cadastrada: mandar cadastrar de novo criaria a conta em dobro.
+      const cadastrada = (s.recurring || []).find(r => r.kind !== 'income' && r.active !== false && normalizeName(r.name) === normalizeName(nome))
       return { text: `Entendi: a conta de ${nome} veio ${fmtBRL(valor)}. Não registrei nada, porque ela ainda pode não estar paga.\n\n`
-        + `Quando pagar, diga "paguei ${fmtNum(valor, valor % 1 ? 2 : 0)} de ${nome}" que eu lanço. Se ela vem todo mês, cadastre em Planejamento para eu avisar o vencimento.` }
+        + `Quando pagar, diga "paguei ${fmtNum(valor, valor % 1 ? 2 : 0)} de ${nome}" que eu lanço.`
+        + (cadastrada
+          ? ` Ela já está no seu Planejamento (${fmtBRL(cadastrada.amount)} cadastrados), então eu confirmo o vencimento em aberto com o valor que você disser.`
+          : ' Se ela vem todo mês, cadastre em Planejamento para eu avisar o vencimento.') }
     }
   }
 
