@@ -6552,6 +6552,22 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const { acoes: tenis } = await dois('comprei um tênis', '300')
       out.push(result('MN-rascunho-sem-parcela-e-despesa', tenis, 'despesa 300', tenis.length === 1 && tenis[0].kind === 'expense' && tenis[0].amount === 300))
     }
+
+    // Mês com um erro de digitação, depois de palavra de data, é o mês.
+    {
+      const rico = autonomoRico(hoje)
+      const mesPassado = `${addDays(`${hoje.slice(0, 7)}-01`, -1).slice(0, 7)}`
+      const nomeMes = MESES_PT_BR[Number(mesPassado.slice(5, 7)) - 1].toLowerCase()
+      // Erro de uma letra: tira a terceira letra do nome sem acento.
+      const semAcentoMes = nomeMes.normalize('NFD').replace(/[̀-ͯ]/g, '')
+      const errado = semAcentoMes.slice(0, 2) + semAcentoMes.slice(3)
+      const gasto = rico.transactions.filter(t => t.type === 'expense' && t.date.startsWith(mesPassado)).reduce((a, t) => a + t.amount, 0)
+      const r = await turnoHoje(rico, `quanto gastei em ${errado}`)
+      out.push(result('MN-mes-digitado-errado', r.reply.split('\n')[0], `${errado} → ${nomeMes}: ${brl(gasto)}`,
+        gasto > 0 ? limpa(r.reply).includes(brl(gasto)) : !/com "/.test(r.reply)))
+      const mario = await turnoHoje(rico, 'quanto recebi de mario')
+      out.push(result('MN-nome-depois-de-de-nao-vira-mes', mario.reply.split('\n')[0], 'não lê março', !/março/i.test(mario.reply)))
+    }
   }
 
   return out

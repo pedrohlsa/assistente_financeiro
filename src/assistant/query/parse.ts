@@ -94,9 +94,37 @@ const ABREV: [RegExp, string][] = [
   [/\bd\b/g, 'de'],
 ]
 
+const MESES_DA_CONSULTA = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+
+/**
+ * Mês digitado com UM erro ("agsto", "setembor", "otubro") depois de palavra de
+ * data. Sem isto a pergunta virava filtro de texto ("não tenho nada com
+ * 'agsto'"). Uma letra a mais, a menos, trocada ou duas vizinhas invertidas —
+ * e só quando um mês, e só um, está tão perto.
+ */
+function mesDigitadoErrado(token: string): string | null {
+  if (token.length < 4 || MESES_DA_CONSULTA.includes(token)) return null
+  const perto = MESES_DA_CONSULTA.filter(m => {
+    if (Math.abs(m.length - token.length) > 1) return false
+    if (m.length === token.length) {
+      const dif = [...m].map((c, i) => (c === token[i] ? -1 : i)).filter(i => i >= 0)
+      if (dif.length === 1) return true
+      return dif.length === 2 && dif[1] === dif[0] + 1 && m[dif[0]] === token[dif[1]] && m[dif[1]] === token[dif[0]]
+    }
+    const [curto, longo] = m.length < token.length ? [m, token] : [token, m]
+    for (let i = 0; i < longo.length; i++) if (longo.slice(0, i) + longo.slice(i + 1) === curto) return true
+    return false
+  })
+  return perto.length === 1 ? perto[0] : null
+}
+
 export function normalizeQuery(input: string): string {
   let t = semAcento(input).trim().replace(/^(?:me\s+)?(?:lembra|diz|fala|conta|mostra)\s+(?=(?:quanto|qnt[oa]?|qto|quando|qual|quais|como|onde)\b)/i, '')
   for (const [re, sub] of ABREV) t = t.replace(re, sub)
+  t = t.replace(/\b(em|desde|ate|no\s+mes\s+de|mes\s+de)\s+([a-z]{4,10})\b/gi, (m, prep: string, w: string) => {
+    const mes = mesDigitadoErrado(w.toLowerCase())
+    return mes ? `${prep} ${mes}` : m
+  })
   return t.replace(/\s{2,}/g, ' ')
 }
 
