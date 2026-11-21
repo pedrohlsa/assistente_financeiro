@@ -29,7 +29,7 @@ import { buildTurnPlan, hasBlock } from './semantic/turn'
 import { parseDriverDay } from './semantic/driverDay'
 import { parseTypedPairs } from './semantic/pairs'
 import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } from './semantic/normalize'
-import { spokenClock } from './semantic/clock'
+import { elapsedMinutes, spokenClock } from './semantic/clock'
 import { continueRideOffer, interpretRideOffer } from './rideOffer'
 import { reconcileSpokenTotals } from './spokenTotals'
 import { readPlatformPayout } from './platformPayout'
@@ -1583,6 +1583,18 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (pc?.field === 'ride-offer' && pc.rideOffer) {
     const offer = continueRideOffer(input.state, pc.rideOffer, input.message)
     if (offer) return rideOfferReply(input, offer)
+  }
+  if (pc?.field === 'work-duration' && pc.pendingActions?.length) {
+    const said = normalizeNumberWords(input.message).text.trim()
+      .replace(/^(?:foram|foi|era|deu|trabalhei)\s+/i, '').replace(/[.!]+$/, '')
+    const minutes = elapsedMinutes(said)
+    if (minutes) {
+      return proposeDatedActions(input, pc.pendingActions.map(a => a.kind === 'work' ? { ...a, hours: minutes / 60 } : a), caps, today)
+    }
+    if (!looksPast(input.message) && !looksLikeQuestion(input.message)) return {
+      draft: null, keepPending: true, focus: input.focus,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [], clarification: pc, reply: pc.question },
+    }
   }
   if (pc?.field === 'clock-time' && pc.pendingActions?.length) {
     const withoutPrefix = input.message.trim().replace(/^(?:foi|era)\s+/i, '')

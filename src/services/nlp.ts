@@ -638,7 +638,7 @@ export function parseNaturalFull(
       if (actions.some(gemea)) actions = actions.filter(a => !gemea(a))
     }
 
-    const dia = driverDayResult(input, actions, opts?.dayHint)
+    const dia = driverDayResult(workDuration(input).remaining, actions, opts?.dayHint)
     if (dia) {
       actions = dia.actions
       dayAsk = dia.ask

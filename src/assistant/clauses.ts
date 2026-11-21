@@ -2015,6 +2015,12 @@ export function analyzeMessage(
         }
       }
     }
+    if (opts?.driver && canShareContext && !ambiguity && !temporal && !dateAmbiguity && workDuration(semData).invalid) {
+      const held = actions.filter(a => a.kind === 'work')
+      ambiguity = { field: 'work-duration', question: 'Qual foi a duração da jornada? Diga as horas e os minutos.', options: [],
+        pendingActions: held.length ? held : [{ kind: 'work', date }] }
+      actions = actions.filter(a => a.kind !== 'work')
+    }
     if (!ambiguity && actions.some(a => a.kind === 'income' || a.kind === 'expense')) {
       const futureClock = clock.time && (!date || date === today) && today === todayISO() && clock.time > nowTime()
       if (clock.invalid || clock.range || futureClock) {

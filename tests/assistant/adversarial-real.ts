@@ -7339,6 +7339,26 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
           && receitas(candidates)[0]?.amount === amount && confirm.state.workSessions.length === 1
           && confirm.state.workSessions[0].km === km && confirm.state.workSessions[0].trips === trip))
       }
+      const invalidDuration = await rideTurn('ontem rodei 75 km em 1h99 e ganhei 150 na Uber')
+      const clockReply = await rideTurn('às 8h', invalidDuration)
+      const fixedDuration = await rideTurn('1h45', invalidDuration)
+      const savedDuration = applyBatchPure(oferta, fixedDuration.response.actions, { now: { date: hoje, time: '12:00' } })
+      out.push(result('RP-duracao-invalida-preserva-data-km-e-receita', [invalidDuration.response, clockReply.response, fixedDuration.response],
+        'pede só duração. Mantém 75 km, R$ 150 e ontem. Horário de relógio não preenche duração',
+        answerChoices(invalidDuration)?.field === 'work-duration' && invalidDuration.response.actions.length === 1
+          && invalidDuration.response.actions[0].action.kind === 'income' && invalidDuration.response.actions[0].action.amount === 150
+          && answerChoices(clockReply)?.field === 'work-duration' && !clockReply.response.actions.length
+          && savedDuration.applied && savedDuration.state.workSessions.length === 1
+          && savedDuration.state.workSessions[0].date === addDays(hoje, -1) && savedDuration.state.workSessions[0].km === 75
+          && savedDuration.state.workSessions[0].hours === 1.75 && savedDuration.state.transactions.length === 1))
+
+      const onlyDuration = await rideTurn('ontem trabalhei 1h99')
+      const answeredDuration = await rideTurn('uma hora e meia', onlyDuration)
+      out.push(result('RP-duracao-sem-outros-dados', [onlyDuration.response, answeredDuration.response],
+        'números da duração inválida ficam fora do caixa; a resposta corrige só o tempo e mantém ontem',
+        answerChoices(onlyDuration)?.field === 'work-duration' && !onlyDuration.response.actions.length
+          && answeredDuration.response.actions.length === 1 && answeredDuration.response.actions[0].action.kind === 'work'
+          && answeredDuration.response.actions[0].action.hours === 1.5 && answeredDuration.response.actions[0].action.date === addDays(hoje, -1)))
       const walking = await rideTurn('andei 5 km a pé e gastei 20 no mercado')
       const refusedWalkBack = await rideTurn('não voltei 10 km vazio')
       const passengerBack = await rideTurn('voltei 10 km de Uber')

@@ -6918,3 +6918,11 @@ até auditoria independente.
 - Quando bruto, líquido e taxa divergem, o chat pergunta o valor que
   entrou. O recebimento após retenção não reabre a oferta de lançar
   a taxa. A marca só pode vir do leitor local. Suíte com 1.340/1.340.
+
+## 21/11/2026 — Duração inválida sem misturar caixa e jornada
+
+- “Ontem rodei 75 km em 1h99 e ganhei 150 na Uber” separa a receita
+  e pergunta só a duração. “1h45” recupera 75 km de ontem; “às 8h”
+  continua como horário de relógio e pede a duração.
+- O chat encerra esclarecimentos respondidos sem apagar a proposta
+  que ainda pode ser confirmada. Suíte com 1.342/1.342 regressões.

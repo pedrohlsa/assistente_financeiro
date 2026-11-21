@@ -163,7 +163,7 @@ export default function Chat() {
     // "não, foi 80") ainda se refere a ela.
     if (proposal) pendingRef.current = { msgId, actions: proposal }
     else if (!out.keepPending) pendingRef.current = null
-    if (previousClarification?.value.rideOffer) dispatch({ type: 'chatClearClarification', id: previousClarification.msgId })
+    if (previousClarification) dispatch({ type: 'chatClearClarification', id: previousClarification.msgId })
     clarificationRef.current = out.response.mode === 'clarify' ? { msgId, value: out.response.clarification } : null
   }
 

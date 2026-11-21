@@ -72,13 +72,14 @@ const WORK_DURATION = new RegExp(
 )
 
 /** Duração de trabalho ligada a um verbo ou a uma medida da jornada. */
-export function workDuration(text: string): { remaining: string; minutes?: number } {
+export function workDuration(text: string): { remaining: string; minutes?: number; invalid?: boolean } {
   const span = text.match(WORK_DURATION)
   if (!span) return { remaining: text }
   const end = span.index + span[0].length
   const start = end - span[1].length
   const worked = /\b(?:trabalhei|fiquei|rodei|andei|dirigi|percorri|fiz|realizei|completei|ganhei|faturei|tirei)\b/i.test(text.slice(0, start))
-  return { remaining: text.slice(0, start) + ' ' + text.slice(end), minutes: worked ? elapsedMinutes(span[1]) : undefined }
+  const minutes = worked ? elapsedMinutes(span[1]) : undefined
+  return { remaining: text.slice(0, start) + ' ' + text.slice(end), minutes, invalid: worked && minutes === undefined }
 }
 
 export function spokenClock(text: string): {
