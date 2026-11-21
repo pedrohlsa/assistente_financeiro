@@ -6006,7 +6006,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       vaga.actions.length === 0 && /horário/.test(vaga.reply)))
     for (const [id, f] of [['MF-nove-e-meia-e-hora', 'ontem paguei 50 na farmácia às 9 e meia'],
       ['MF-nove-e-trinta-sem-lugar-e-hora', 'ontem paguei 50 na farmácia às 9 e 30'],
-      ['MF-cartao-e-meio-de-pagamento', 'ontem paguei 50 na farmácia às 9 e 30 no cartão']] as const) {
+      ['MF-cartao-e-meio-de-pagamento', 'ontem paguei 50 na farmácia às 9 e 30 no débito']] as const) {
       const r = await turnoHoje(buildState({ profile: 'autonomo' }), f)
       out.push(result(id, r.actions, '50 às 09:30, sem pergunta',
         r.actions.length === 1 && (r.actions[0] as any).time === '09:30' && r.actions[0].amount === 50))
@@ -6567,6 +6567,41 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         gasto > 0 ? limpa(r.reply).includes(brl(gasto)) : !/com "/.test(r.reply)))
       const mario = await turnoHoje(rico, 'quanto recebi de mario')
       out.push(result('MN-nome-depois-de-de-nao-vira-mes', mario.reply.split('\n')[0], 'não lê março', !/março/i.test(mario.reply)))
+    }
+
+    // Compra "no cartão" / "no crédito" / no nome do cartão nunca é despesa
+    // avulsa (regra 10): pergunta as parcelas; "à vista" é 1x; "débito" volta
+    // a ser a despesa, com data e hora da frase.
+    {
+      const rico = autonomoRico(hoje)
+      const conversa = async (...msgs: string[]) => {
+        let prev: Awaited<ReturnType<typeof orchestrate>> | undefined
+        for (const m of msgs) {
+          prev = await orchestrate({ state: rico, message: m, today: hoje, remoteEnabled: false, draft: prev?.draft ?? undefined, focus: prev?.focus,
+            pending: prev?.response.actions.length ? prev.response.actions : undefined,
+            pendingClarification: prev?.response.mode === 'clarify' ? prev.response.clarification : undefined })
+        }
+        return prev!
+      }
+      for (const frase of ['gastei 80 no cartão', 'passei 80 no nubank', 'gastei 80 no mercado no nubank', 'paguei 80 no crédito no mercado']) {
+        const r = await conversa(frase)
+        out.push(result(`MN-cartao-${frase.replace(/\W+/g, '-')}`, { mode: r.response.mode, reply: r.response.reply }, 'pergunta as parcelas, nenhuma despesa',
+          r.response.mode === 'clarify' && r.response.actions.length === 0 && /parcelas/.test(r.response.reply)))
+      }
+      const vista = await conversa('gastei 80 no mercado no nubank', 'à vista')
+      const a: any = vista.response.actions[0]?.action
+      out.push(result('MN-cartao-a-vista', a, 'compra de 80 em 1x no Nubank, Mercado',
+        vista.response.actions.length === 1 && a.kind === 'card-purchase' && a.total === 80 && a.installments === 1 && a.cardName === 'Nubank' && a.description === 'Mercado'))
+      const doisCartoes = await conversa('gastei 80 no cartão', '1x', 'inter')
+      const b: any = doisCartoes.response.actions[0]?.action
+      out.push(result('MN-cartao-pergunta-qual', b, 'compra de 80 em 1x no Inter', b?.kind === 'card-purchase' && b.installments === 1 && b.cardName === 'Inter'))
+      const debito = await conversa('ontem paguei 50 na farmácia às 9 e 30 no cartão', 'no débito')
+      const c: any = debito.response.actions[0]?.action
+      out.push(result('MN-cartao-era-debito', c, 'despesa 50 ontem às 09:30, Farmácia',
+        debito.response.actions.length === 1 && c.kind === 'expense' && c.amount === 50 && c.time === '09:30' && c.date === addDays(hoje, -1) && c.description === 'Farmácia'))
+      const meio = await turnoHoje(rico, 'gastei 80 no mercado no débito')
+      out.push(result('MN-meio-de-pagamento-fora-da-descricao', meio.actions, 'Mercado, despesa 80',
+        meio.actions.length === 1 && gastos(meio.actions)[0]?.description === 'Mercado'))
     }
   }
 

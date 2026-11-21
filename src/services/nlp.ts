@@ -105,6 +105,8 @@ export function cleanDescription(raw?: string): string | undefined {
   // Só com preposição — "café da manhã" continua sendo o café da manhã.
   const words = raw.toLowerCase().replace(/[.,;!?]+$/g, '')
     .replace(/\s+(?:a|à|de|pela|pelo|na|no|hoje|ontem)\s+(?:noite|tarde|manh[ãa]|madrugada|cedinho|cedo|almo[çc]o)$/i, '')
+    // O MEIO de pagamento não é o que foi comprado: "mercado no débito".
+    .replace(/\s+(?:no|em|pelo|via|com)\s+(?:d[ée]bito|pix|dinheiro|esp[ée]cie|cart[ãa]o\s+de\s+d[ée]bito)$/i, '')
     .split(/\s+/).filter(Boolean)
   // O verbo no presente só sai do INÍCIO: "gasto 50 de luz" gravava "Gasto de
   // luz", mas no fim o "pago" é nome ("Mercado Pago").

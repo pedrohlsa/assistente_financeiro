@@ -103,7 +103,7 @@ export const CASOS_CHAT_A: CasoChat[] = [
     'é que assim né eu fui no mercado e tal e deu 230 mas metade era da minha irmã',
     'registrar 230 ou só a metade é decisão do usuário, não do modelo',
     { intencao: 'perguntar', acoes: [], perguntaSobre: /metade|115|230|irm[ãa]|tudo/i }),
-  casoChat('c-13', 'other', 'ambiguidade', 'remota',
+  casoChat('c-13', 'other', 'ambiguidade', 'local',
     'passei 300 no cartão',
     'dois cartões e nenhuma parcela: compra no cartão nunca é despesa (regra 10), e escolher o cartão é chutar',
     { intencao: 'perguntar', acoes: [], perguntaSobre: /cart[ãa]o|nubank|inter|parcela|vezes/i, tiposProibidos: ['expense'] }),

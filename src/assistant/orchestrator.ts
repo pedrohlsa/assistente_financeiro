@@ -1133,6 +1133,42 @@ const pedeParaQuebrarRegra = (t: string): boolean => QUEBRAR_REGRA.some(re => re
 
 const SEM_CERTEZA = 'Não tenho certeza do que registrar aqui. Pode escrever de outro jeito?'
 
+const escaparRegex = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * Compra no cartão de crédito dita sem parcelas: o valor e o item, como
+ * rascunho de `card-purchase` que só falta o número de parcelas (e o cartão,
+ * com mais de um). Débito, Pix, dinheiro e fatura ficam de fora.
+ */
+function compraNoCartao(mensagem: string, candidates: AssistantCandidateAction[], caps: AssistantCapabilities): import('./drafts').IncompleteIntent | null {
+  const t = normalizeName(mensagem)
+  if (/\bd[eé]bito\b|\bpix\b|\bdinheiro\b|\bespecie\b|\bfatura\b|\bassinatura\b|\?|\b(?:quanto|qual|quais|quando|posso|consigo)\b|\b(?:vezes|parcelas?|\d+\s*x)\b/.test(t)) return null
+  const cartao = caps.cardNames.find(c => new RegExp(String.raw`\b(?:no|na|pelo|pela)\s+${escaparRegex(normalizeName(c))}\b`).test(t))
+  const marca = /\b(?:no|pelo)\s+cartao\b|\bno\s+credito\b|\bcartao\s+de\s+credito\b/.test(t) || !!cartao
+  if (!marca) return null
+  const limpar = (desc?: string) => {
+    const nomes = caps.cardNames.map(c => escaparRegex(normalizeName(c))).join('|')
+    const out = (desc || '').replace(new RegExp(String.raw`\s*\b(?:no|na|pelo|pela)\s+(?:cart[ãa]o(?:\s+de\s+cr[ée]dito)?|cr[ée]dito${nomes ? `|${nomes}` : ''})\b`, 'gi'), ' ').replace(/\s+/g, ' ').trim()
+    return out && !/^(?:cart[ãa]o|cr[ée]dito)$/i.test(out) ? sentenceCase(out) : undefined
+  }
+  let total: number | undefined
+  let descricao: string | undefined
+  let categoria: string | undefined
+  if (candidates.length === 1 && candidates[0].action.kind === 'expense') {
+    const a: any = candidates[0].action
+    total = a.amount
+    descricao = limpar(a.description)
+    categoria = descricao ? (a.category === 'outros-out' ? undefined : a.category) : undefined
+  } else if (!candidates.length) {
+    const m = t.match(/^(?:eu\s+)?(?:hoje\s+|ontem\s+)?(?:passei|gastei|paguei|comprei|torrei)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)/)
+    if (m) total = parseMoney(m[1])
+  } else return null
+  if (!(total && total > 0)) return null
+  const partial: any = { kind: 'card-purchase', total, ...(descricao ? { description: descricao } : {}), ...(categoria ? { category: categoria } : {}), ...(cartao ? { cardName: cartao } : {}) }
+  const missing = ['installments', ...(caps.cardNames.length > 1 && !cartao ? ['cardName'] : [])]
+  return { partial, missing }
+}
+
 /**
  * Pedaço com valor que nada leu, numa mensagem em que outra parte virou
  * proposta. "Ontem gastei 30 de lanche e anteontem 20 de uber" mostrava só os
@@ -2381,6 +2417,36 @@ Confirmar?`,
       if ('action' in fixed) candidates.push(candidate(fixed.action, 'local'))
       if ('clarification' in fixed) clarification = fixed.clarification
       unresolved = []
+    }
+  }
+
+  // ---- 12b) Compra no CARTÃO sem parcelas vira rascunho de parcelamento ---
+  // "Gastei 80 no cartão", "passei 80 no Nubank", "paguei 120 no crédito no
+  // mercado": viravam despesa avulsa — e quando a fatura fosse paga, os mesmos
+  // R$ 80 saíam do saldo de novo (regra 10). É o fluxo de "comprei uma
+  // geladeira de 3000 no cartão": pergunta as parcelas ("à vista" é 1x).
+  if (!clarification && !notasDeFatura.size) {
+    const compra = compraNoCartao(mensagem, candidates, caps)
+    if (compra) {
+      const d = newDraft(compra, input.message, caps)
+      if (candidates.length === 1 && candidates[0].action.kind === 'expense') {
+        const despesa: any = { ...candidates[0].action }
+        const semMeio = (despesa.description || '').replace(/\s*\b(?:no|na|pelo|pela)\s+(?:cart[ãa]o(?:\s+de\s+cr[ée]dito)?|cr[ée]dito)\b/gi, '').trim()
+        despesa.description = semMeio ? sentenceCase(semMeio) : undefined
+        if (!despesa.description) delete despesa.description
+        d.fallbackExpense = despesa
+      }
+      const q = { ...d.missingFields[0] }
+      if (q.field === 'installments') q.question = 'Em quantas parcelas? Se foi à vista, diga "à vista"; se foi no débito, diga "débito".'
+      return {
+        draft: d,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
+          actions: [], unresolved: [],
+          clarification: { question: q.question, field: q.field, options: q.options },
+          reply: q.question,
+        },
+      }
     }
   }
 

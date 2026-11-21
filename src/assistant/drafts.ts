@@ -31,6 +31,11 @@ export interface AssistantDraft {
   partial: Partial<ParsedAction> & { kind: AssistantActionKind }
   missingFields: AssistantMissingField[]
   status: DraftStatus
+  /**
+   * Compra dita "no cartão" pode ter sido no DÉBITO. Se a resposta disser
+   * isso, o rascunho volta a ser esta despesa, com data e hora da frase.
+   */
+  fallbackExpense?: ParsedAction
 }
 
 /** Rascunho velho não pode ressuscitar no meio de outra conversa. */
@@ -231,6 +236,17 @@ export function resolveDraftAnswer(
   const { text: norm } = normalizeNumberWords(message)
   const lower = norm.toLowerCase()
 
+  // "Foi no débito": a compra "no cartão" não era crédito — é a despesa.
+  if (draft.partial.kind === 'card-purchase' && draft.fallbackExpense
+    && /(?<![\wÀ-ÿ])(?:d[ée]bito|pix|dinheiro|esp[ée]cie)(?![\wÀ-ÿ])/.test(lower)) {
+    return {
+      draft: { ...draft, partial: { ...draft.fallbackExpense } as any, missingFields: [], status: 'ready',
+        originalMessages: [...draft.originalMessages, message], updatedAt: new Date().toISOString() },
+      resolved: ['kind'],
+      unmatched: false,
+    }
+  }
+
   // "Comprei um celular" → "1200 em 10x": a resposta revela um PARCELAMENTO.
   // Preenchido como despesa, virava um gasto avulso de R$ 1.200 — exatamente a
   // contagem dupla que a regra 10 proíbe. O rascunho muda de tipo e passa a
@@ -277,7 +293,9 @@ export function resolveDraftAnswer(
 
   // Parcelas: "em 4x", "4 vezes", "quatro vezes" (já normalizado).
   if (pending.has('installments')) {
+    // "À vista", "uma vez só", "sem parcelar": 1x.
     const m = lower.match(/(?:em\s*)?(\d+)\s*(?:x|vezes|parcelas?)\b/) || (pending.size === 1 ? lower.match(/^\s*(\d+)\s*$/) : null)
+      || (/(?<![\wÀ-ÿ])(?:[àa]\s+vista|avista|uma\s+vez(?:\s+s[óo])?|sem\s+parcelar|n[ãa]o\s+parcelei)(?![\wÀ-ÿ])/.test(lower) ? ['', '1'] as unknown as RegExpMatchArray : null)
     if (m) {
       const v = parseInt(m[1], 10)
       if (v >= 1 && v <= 120) { (next.partial as any).installments = v; resolved.push('installments'); pending.delete('installments') }
