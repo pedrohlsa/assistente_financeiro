@@ -422,6 +422,8 @@ export interface AssistantClarification {
   financialEvent?: FinancialEvent
   /** Ações que só serão propostas depois da resposta. Nada foi registrado. */
   pendingActions?: ParsedAction[]
+  /** No chat local, primeiro vencimento que depende do dia da compra em aberto. */
+  purchaseDueText?: string
 }
 
 export interface AssistantUnresolvedClause {

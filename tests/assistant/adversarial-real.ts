@@ -335,6 +335,55 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const denied = await send('não comprei 250 em 2x no Nubank, primeiro vencimento dia 25')
     out.push(result('CD-compra-negada-sem-rascunho', denied.response, 'sem proposta, sem perguntar o valor de uma compra negada',
       !denied.draft && !denied.response.actions.length && denied.response.mode !== 'clarify'))
+
+    const dates = await send('ontem ou anteontem comprei uma cadeira de 250 em 2x no Nubank, primeiro vencimento em 10/12/2026')
+    const dated = commit(await send('anteontem', dates))
+    const [datedPlan] = dated.state.installmentPlans
+    out.push(result('CD-escolha-dia-conserva-vencimento', { dates: dates.response, dated: datedPlan },
+      'pergunta só a data e mantém R$ 250 em 2x no Nubank com vencimento em 10/12',
+      dates.response.mode === 'clarify' && dates.response.clarification.field === 'date-choice'
+      && dates.response.clarification.options?.length === 2 && !dates.response.actions.length
+      && dated.applied && datedPlan?.purchaseDate === '2026-11-19' && datedPlan.firstDueDate === '2026-12-10'
+      && datedPlan.totalAmount === 250 && datedPlan.installmentCount === 2 && datedPlan.cardId === state.cards[0].id))
+
+    const dateChangesMonth = await send('dia 30/10/2026 ou dia 02/11/2026 comprei uma cadeira de 250 em 2x no Nubank, primeiro vencimento dia 1')
+    const october = commit(await send('2026-10-30', dateChangesMonth))
+    const november = commit(await send('2026-11-02', dateChangesMonth))
+    out.push(result('CD-dia-do-vencimento-segue-dia-escolhido', { october: october.state.installmentPlans, november: november.state.installmentPlans },
+      'dia 1 cai em novembro para a compra de outubro e em dezembro para a compra de novembro',
+      october.applied && november.applied && october.state.installmentPlans[0]?.firstDueDate === '2026-11-01'
+      && november.state.installmentPlans[0]?.firstDueDate === '2026-12-01'))
+
+    const cardAndBus = await send('paguei 20 de ônibus hoje e ontem ou anteontem comprei uma cadeira de 250 em 2x no Nubank, primeiro vencimento em 18/11/2026')
+    const paidBus = commit(cardAndBus)
+    const thenDue = await orchestrate({ state: paidBus.state, message: 'anteontem', today: hoje, remoteEnabled: false,
+      pendingClarification: cardAndBus.response.mode === 'clarify' ? cardAndBus.response.clarification : undefined })
+    const repaired = await orchestrate({ state: paidBus.state, message: '26/11/2026', today: hoje, remoteEnabled: false, draft: thenDue.draft || undefined })
+    const applied = applyBatchPure(paidBus.state, repaired.response.actions, { now: { date: hoje, time: '15:01' } })
+    out.push(result('CD-vencimento-invalido-depois-da-escolha', { thenDue: thenDue.response, aplicado: applied.results },
+      'confirma seguro o ônibus e pede outro vencimento, sem pedir de novo a compra',
+      paidBus.applied && thenDue.response.mode === 'clarify' && thenDue.response.clarification.field === 'firstDueDate'
+      && !thenDue.response.actions.length && applied.applied && applied.state.transactions.length === 1
+      && applied.state.transactions[0].amount === 20 && applied.state.installmentPlans[0]?.purchaseDate === '2026-11-19'
+      && applied.state.installmentPlans[0]?.firstDueDate === '2026-11-26' && applied.state.installmentPlans[0]?.totalAmount === 250))
+
+    const valueMissing = await send('no mês passado comprei uma cadeira em 2x no Nubank, primeiro vencimento dia 1')
+    const lastMonth = await send('15', valueMissing)
+    const collected = commit(await send('250', lastMonth))
+    out.push(result('CD-rascunho-data-e-valor-independentes', { lastMonth: lastMonth.response, collected: collected.state.installmentPlans },
+      '15 é dia de outubro, não o valor. Conserva 2x e resolve o dia 1 em novembro',
+      lastMonth.response.mode === 'clarify' && lastMonth.response.clarification.field === 'total' && !lastMonth.response.actions.length
+      && collected.applied && collected.state.installmentPlans[0]?.purchaseDate === '2026-10-15'
+      && collected.state.installmentPlans[0]?.firstDueDate === '2026-11-01' && collected.state.installmentPlans[0]?.totalAmount === 250))
+
+    const bareCard = await send('gastei 80 no cartão ontem ou anteontem')
+    const selected = await send('anteontem', bareCard)
+    const card80 = commit(await send('à vista', selected))
+    out.push(result('CD-data-incerta-nao-vira-despesa-no-credito', { selected: selected.response, card80: card80.state.installmentPlans },
+      'depois da data pergunta as parcelas e só prepara a compra no cartão',
+      selected.response.mode === 'clarify' && selected.response.clarification.field === 'installments' && !selected.response.actions.length
+      && card80.applied && !card80.state.transactions.length && card80.state.installmentPlans[0]?.totalAmount === 80
+      && card80.state.installmentPlans[0]?.purchaseDate === '2026-11-19' && card80.state.installmentPlans[0]?.cardId === state.cards[0].id))
   }
 
   {

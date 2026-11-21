@@ -6753,3 +6753,13 @@ até auditoria independente.
   com a data calculada, inclusive na virada da meia-noite.
 - A suíte passou com 1.228/1.228 regressões e 151/151 invariantes.
   O teste independente confirmou viradas de mês, ano e fevereiro bissexto.
+
+## 21/11/2026 — Escolha da data da compra com vencimento informado
+
+- “Ontem ou anteontem comprei uma cadeira de 250 em 2x no Nubank,
+  primeiro vencimento em 10/12” pede só a data. A escolha conserva os
+  dados do plano. Vencimento dito só pelo dia é resolvido depois da escolha.
+- Compras sem valor ou sem parcelas também preservam a data pendente.
+  “15” é a data quando o rascunho pergunta o dia do mês passado.
+- Chrome confirmou primeiro o ônibus de R$ 20, clicou “anteontem” e
+  confirmou só uma compra de R$ 250 em 2x. Suíte com 1.233 regressões.

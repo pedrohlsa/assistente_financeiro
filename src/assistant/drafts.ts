@@ -13,9 +13,9 @@ import type { AssistantCapabilities, AssistantMissingField, AssistantActionKind 
 import { actionSpec } from './contracts'
 import { parseMoney, todayISO, uid } from '../utils/format'
 import { normalizeNumberWords } from './numbers'
-import { findDate } from './dates'
+import { dateInAnswer, findDate, resolveDayInWindow } from './dates'
 import { resolveCardPurchaseDue } from './cardPurchaseDue'
-import { looksNegated } from './clauses'
+import { looksNegated, readDateAlternatives } from './clauses'
 import { guessCategory } from '../data/categories'
 import { sentenceCase, normalizeName } from '../utils/text'
 import { maintenanceWithoutCost, compraDeAparelho } from '../services/nlp'
@@ -38,6 +38,9 @@ export interface AssistantDraft {
    * isso, o rascunho volta a ser esta despesa, com data e hora da frase.
    */
   fallbackExpense?: ParsedAction
+  /** Dados de calendário enquanto a compra aguarda a confirmação do dia. */
+  purchaseDateWindow?: { from: string; to: string }
+  purchaseDueText?: string
   /** Ações independentes que apareceram junto do rascunho e ainda podem estar na tela. */
   companion?: { before: string[]; after: string[] }
 }
@@ -63,9 +66,24 @@ export function isDraftFresh(d: AssistantDraft | undefined, now = Date.now()): b
 export interface IncompleteIntent {
   partial: Partial<ParsedAction> & { kind: AssistantActionKind }
   missing: string[]
+  purchaseDateQuestion?: Pick<AssistantMissingField, 'question' | 'options'> & { window?: { from: string; to: string } }
 }
 
 const NUMBER = String.raw`(\d+(?:[.,]\d+)*)`
+
+export function readDraftPurchaseDate(text: string, today: string) {
+  const choices = readDateAlternatives(text, today)
+  const date = choices ? undefined : findDate(text, today)
+  const span = choices || date
+  const remaining = span ? (text.slice(0, span.start) + ' ' + text.slice(span.end)).replace(/^[\s,;]+/, '').trim() : text
+  let question: IncompleteIntent['purchaseDateQuestion']
+  if (choices) question = { question: choices.question, options: choices.options }
+  else if (date?.kind === 'ambiguous') question = { question: date.question, options: date.options }
+  else if (date?.kind === 'invalid') question = { question: date.question }
+  else if (date?.kind === 'period') question = { question: `Em que dia foi a compra? Você disse “${date.text}”.`, window: { from: date.from, to: date.to } }
+  else if (date?.kind === 'future') question = { question: 'Em que dia a compra aconteceu?' }
+  return { remaining, date: date?.kind === 'date' ? date.date : undefined, question }
+}
 
 /**
  * Registro começado sem o valor: "recebi o salário", "comprei uma tv", "gastei
@@ -125,10 +143,8 @@ export function detectIncomplete(text: string, caps: AssistantCapabilities, toda
 
   // Compra parcelada sem valor e/ou sem número de parcelas.
   if (/\b(comprei|compra|parcelei|parcelad[oa])\b/.test(t)) {
-    const date = findDate(t, today)
-    const purchase = date ? `${t.slice(0, date.start)} ${t.slice(date.end)}`.trim() : t
-    const rawDate = findDate(text, today)
-    const originalPurchase = rawDate ? `${text.slice(0, rawDate.start)} ${text.slice(rawDate.end)}`.trim() : text
+    const { date, remaining: purchase, question } = readDraftPurchaseDate(t, today)
+    const originalPurchase = readDraftPurchaseDate(text, today).remaining
     const instM = purchase.match(/(?:em|x)\s*(\d+)\s*(?:vez(?:es)?|x|parcelas?)|(\d+)\s*x\b/)
     const valM = purchase.match(new RegExp(String.raw`(?:de|por|custou|valor de)\s*(?:r\$)?\s*${NUMBER}`))
       || purchase.match(new RegExp(String.raw`r\$\s*${NUMBER}`))
@@ -143,8 +159,8 @@ export function detectIncomplete(text: string, caps: AssistantCapabilities, toda
     // o valor em vez de devolver o texto genérico de ajuda.
     if (missing.length === 2) {
       const draft = semValorDraft(originalPurchase, purchase, caps)
-      if (draft && date?.kind === 'date') draft.partial = { ...draft.partial, date: date.date } as IncompleteIntent['partial']
-      else if (draft && date) draft.missing.unshift('date')
+      if (draft && date) draft.partial = { ...draft.partial, date } as IncompleteIntent['partial']
+      else if (draft && question) { draft.missing.unshift('date'); draft.purchaseDateQuestion = question }
       return draft
     }
     // Com vários cartões, saber qual é obrigatório — e essa checagem precisa
@@ -152,15 +168,15 @@ export function detectIncomplete(text: string, caps: AssistantCapabilities, toda
     // dois cartões cadastrados nunca perguntava nada.
     const citedCard = caps.cardNames.find(c => t.includes(normalizeName(c)))
     if (caps.cardNames.length > 1 && !citedCard) missing.push('cardName')
-    if (date && date.kind !== 'date') missing.unshift('date')
+    if (question) missing.unshift('date')
     if (!missing.length) return null // completa: o parser normal dá conta
     const partial: any = { kind: 'card-purchase' }
     if (total > 0) partial.total = total
     if (installments > 0) partial.installments = installments
-    if (date?.kind === 'date') partial.date = date.date
+    if (date) partial.date = date
     if (citedCard) partial.cardName = citedCard
     if (descM) partial.description = sentenceCase(descM[1].trim())
-    return { partial, missing }
+    return { partial, missing, purchaseDateQuestion: question }
   }
 
   const rascunho = semValorDraft(text, t, caps)
@@ -263,18 +279,27 @@ export function resolveDraftAnswer(
     }
     return { draft: next, resolved: [], unmatched: !/^\s*(?:\d|dia\b|no\s+dia|foi\b|era\b)/i.test(normalized) }
   }
-  const date = findDate(normalized, today)
-  const lower = date ? `${normalized.slice(0, date.start)} ${normalized.slice(date.end)}`.trim() : normalized
+  const dateField = draft.missingFields.find(f => f.field === 'date')
+  const shortAnswer = normalizeName(norm).replace(/[.!?]+$/, '').trim()
+  const dateOption = dateField?.options?.find(o => normalizeName(o.label) === shortAnswer || o.value === shortAnswer)
+  const possibleDates = draft.partial.kind === 'card-purchase' ? readDateAlternatives(normalized, today) : undefined
+  const date = dateOption ? dateInAnswer(dateOption.value, today) : !possibleDates ? findDate(normalized, today) : undefined
+  const dayOnly = !!draft.purchaseDateWindow && /^\d{1,2}$/.test(shortAnswer)
+  const dateSpan = possibleDates || (dateOption || dayOnly ? { start: 0, end: normalized.length } : date)
+  const lower = dateSpan ? `${normalized.slice(0, dateSpan.start)} ${normalized.slice(dateSpan.end)}`.trim() : normalized
+  const purchaseDate = draft.purchaseDateWindow
+    ? resolveDayInWindow(date?.text || message, draft.purchaseDateWindow, today)
+    : date?.kind === 'date' ? date.date : undefined
 
   // "Foi no débito": a compra "no cartão" não era crédito — é a despesa.
   if (draft.partial.kind === 'card-purchase' && draft.fallbackExpense
     && /(?<![\wÀ-ÿ])(?:d[ée]bito|pix|dinheiro|esp[ée]cie)(?![\wÀ-ÿ])/.test(lower)) {
-    const needsDate = date ? date.kind !== 'date' : draft.missingFields.some(field => field.field === 'date')
+    const needsDate = possibleDates || date ? !purchaseDate : !!dateField
     const originalDate = 'date' in draft.fallbackExpense ? draft.fallbackExpense.date : undefined
-    const expenseDate = date?.kind === 'date' ? date.date : needsDate ? undefined : originalDate
+    const expenseDate = purchaseDate || (needsDate ? undefined : originalDate)
     return {
       draft: { ...next, partial: { ...draft.fallbackExpense, date: expenseDate } as IncompleteIntent['partial'],
-        missingFields: needsDate ? [questionFor(draft.fallbackExpense.kind, 'date', caps)] : [],
+        missingFields: needsDate ? [dateField || questionFor(draft.fallbackExpense.kind, 'date', caps)] : [],
         status: needsDate ? 'collecting' : 'ready' },
       resolved: ['kind'],
       unmatched: false,
@@ -294,10 +319,10 @@ export function resolveDraftAnswer(
       const desc = (draft.partial as any).description as string | undefined
       const citado = caps.cardNames.find(c => normalizeName(lower).includes(normalizeName(c)))
       const partial: any = { kind: 'card-purchase', total, installments: n,
-        ...(date?.kind === 'date' ? { date: date.date } : 'date' in draft.partial ? { date: draft.partial.date } : {}),
+        ...(purchaseDate ? { date: purchaseDate } : 'date' in draft.partial ? { date: draft.partial.date } : {}),
         ...(desc ? { description: desc, category: guessCategory(desc, 'expense') === 'assinaturas' ? 'compras' : (guessCategory(desc, 'expense') || 'compras') } : {}),
         ...(citado ? { cardName: citado } : {}) }
-      const faltando = [...(date && date.kind !== 'date' ? ['date'] : []), ...(caps.cardNames.length > 1 && !citado ? ['cardName'] : [])]
+      const faltando = [...((dateField || date || possibleDates) && !purchaseDate ? ['date'] : []), ...(caps.cardNames.length > 1 && !citado ? ['cardName'] : [])]
       return {
         draft: { ...draft, partial, originalMessages: [...draft.originalMessages, message], updatedAt: new Date().toISOString(),
           missingFields: faltando.map(f => questionFor('card-purchase', f, caps)), status: faltando.length ? 'collecting' : 'ready' },
@@ -355,10 +380,11 @@ export function resolveDraftAnswer(
 
   // Data citada enquanto o rascunho está aberto. Fica fora dos números
   // usados para completar valor/parcelas e é resolvida pelo campo próprio.
-  if (date && actionSpec(draft.partial.kind)?.fields.some(f => f.name === 'date')) {
-    if (date.kind === 'date') {
-      ;(next.partial as any).date = date.date
+  if ((date || possibleDates || dayOnly || purchaseDate) && actionSpec(draft.partial.kind)?.fields.some(f => f.name === 'date')) {
+    if (purchaseDate) {
+      ;(next.partial as any).date = purchaseDate
       pending.delete('date')
+      delete next.purchaseDateWindow
     } else {
       delete (next.partial as any).date
       pending.add('date')
@@ -367,9 +393,17 @@ export function resolveDraftAnswer(
   }
 
   next.missingFields = [
-    ...(pending.has('date') ? [questionFor(draft.partial.kind, 'date', caps)] : []),
+    ...(pending.has('date') ? [possibleDates
+      ? { actionKind: draft.partial.kind, field: 'date', question: possibleDates.question, options: possibleDates.options }
+      : dateField || questionFor(draft.partial.kind, 'date', caps)] : []),
     ...draft.missingFields.filter(f => f.field !== 'date' && pending.has(f.field)),
   ]
+  if (next.partial.kind === 'card-purchase' && purchaseDate && draft.purchaseDueText !== undefined) {
+    const firstDueDate = resolveCardPurchaseDue(draft.purchaseDueText, purchaseDate, today)
+    next.partial = { ...next.partial, firstDueDate }
+    delete next.purchaseDueText
+    if (!firstDueDate) next.missingFields.push(questionFor('card-purchase', 'firstDueDate', caps))
+  }
   next.status = next.missingFields.length ? 'collecting' : 'ready'
   return { draft: next, resolved, unmatched: resolved.length === 0 }
 }
@@ -390,7 +424,10 @@ export function newDraft(
     updatedAt: now,
     originalMessages: [message],
     partial,
-    missingFields: intent.missing.map(f => questionFor(intent.partial.kind, f, caps)),
+    missingFields: intent.missing.map(f => f === 'date' && intent.purchaseDateQuestion
+      ? { ...questionFor(intent.partial.kind, f, caps), question: intent.purchaseDateQuestion.question, options: intent.purchaseDateQuestion.options }
+      : questionFor(intent.partial.kind, f, caps)),
+    purchaseDateWindow: intent.purchaseDateQuestion?.window,
     status: 'collecting',
   }
 }

@@ -43,7 +43,7 @@ import { rememberQuery } from './conversation'
 import type { RepairedText } from './semantic/normalize'
 import type { ConversationFocus } from './conversation'
 import type { AnalyzedClause, MessageAnalysis, TemporalSignal } from './clauses'
-import { detectIncomplete, isDraftFresh, newDraft, questionFor, resolveDraftAnswer } from './drafts'
+import { detectIncomplete, isDraftFresh, newDraft, questionFor, readDraftPurchaseDate, resolveDraftAnswer } from './drafts'
 import type { AssistantDraft } from './drafts'
 import { applyCorrection, parseCorrection } from './corrections'
 import type { CorrectionPlan } from './corrections'
@@ -1075,6 +1075,8 @@ function pendingCorrectionAnswer(choice: AssistantClarification, message: string
 function proposeDatedActions(input: OrchestratorInput, actions: ParsedAction[], caps: AssistantCapabilities, today: string): OrchestratorOutput {
   const notes: string[] = []
   const choices: AssistantClarification[] = []
+  const dueText = input.pendingClarification?.purchaseDueText
+  let dueDraft: AssistantDraft | undefined
   const candidates = actions.flatMap(raw => {
     const validated = validateAction(actionForProfile(raw, caps), caps, today)
     if (isValidationFailure(validated)) {
@@ -1082,6 +1084,12 @@ function proposeDatedActions(input: OrchestratorInput, actions: ParsedAction[], 
       return []
     }
     const action = validated.action
+    if (action.kind === 'card-purchase' && dueText !== undefined) {
+      const firstDueDate = resolveCardPurchaseDue(dueText, action.date || today, today)
+      if (firstDueDate) return [candidate({ ...action, firstDueDate }, 'local')]
+      dueDraft = newDraft({ partial: action, missing: ['firstDueDate'] }, input.message, caps)
+      return []
+    }
     if ((action.kind === 'expense' || action.kind === 'income') && action.time
       && (!action.date || action.date === today) && today === todayISO() && action.time > nowTime()) {
       choices.push({ field: 'date', question: `O horário ${action.time} ainda não chegou hoje. Em que dia aconteceu?`, pendingActions: [action] })
@@ -1094,6 +1102,12 @@ function proposeDatedActions(input: OrchestratorInput, actions: ParsedAction[], 
     return 'action' in fixed ? [candidate(fixed.action, 'local')] : []
   })
   const prepared = prepareInvoicePayments(input.state, candidates, today)
+  if (dueDraft) {
+    const [field] = dueDraft.missingFields
+    dueDraft.companion = { before: [...(input.pending || []), ...prepared.actions].map(c => c.id), after: [] }
+    prepared.clarification = { field: field.field, question: field.question }
+    return { ...preparedActionResponse(input.state, prepared, input.pending), draft: dueDraft }
+  }
   const choicesNow = [...choices, ...(prepared.clarification ? [prepared.clarification] : [])]
   prepared.notes.push(...notes)
   if (choicesNow.length > 1) prepared.notes.push('Informe separadamente as datas e os vencimentos dos registros que ainda precisam de confirmação.')
@@ -1166,6 +1180,7 @@ function compraNoCartao(mensagem: string, candidates: AssistantCandidateAction[]
   let descricao: string | undefined
   let categoria: string | undefined
   let purchaseDate: string | undefined
+  const said = readDraftPurchaseDate(t, today)
   if (candidates.length === 1 && candidates[0].action.kind === 'expense') {
     const a: any = candidates[0].action
     total = a.amount
@@ -1173,17 +1188,14 @@ function compraNoCartao(mensagem: string, candidates: AssistantCandidateAction[]
     descricao = limpar(a.description)
     categoria = descricao ? (a.category === 'outros-out' ? undefined : a.category) : undefined
   } else if (!candidates.length) {
-    const said = findDate(t, today)
-    const withoutDate = said ? `${t.slice(0, said.start)} ${t.slice(said.end)}`.trim() : t
-    const m = withoutDate.match(/^(?:eu\s+)?(?:passei|gastei|paguei|comprei|torrei)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)/)
+    const m = said.remaining.match(/^(?:eu\s+)?(?:passei|gastei|paguei|comprei|torrei)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)/)
     if (m) total = parseMoney(m[1])
   } else return null
   if (!(total && total > 0)) return null
-  const said = !purchaseDate ? findDate(mensagem, today) : undefined
-  if (said?.kind === 'date') purchaseDate = said.date
+  purchaseDate = said.question ? undefined : purchaseDate || said.date
   const partial: any = { kind: 'card-purchase', total, ...(purchaseDate ? { date: purchaseDate } : {}), ...(descricao ? { description: descricao } : {}), ...(categoria ? { category: categoria } : {}), ...(cartao ? { cardName: cartao } : {}) }
-  const missing = [...(said && said.kind !== 'date' ? ['date'] : []), 'installments', ...(caps.cardNames.length > 1 && !cartao ? ['cardName'] : [])]
-  return { partial, missing }
+  const missing = [...(said.question ? ['date'] : []), 'installments', ...(caps.cardNames.length > 1 && !cartao ? ['cardName'] : [])]
+  return { partial, missing, purchaseDateQuestion: said.question }
 }
 
 /** Um vencimento explicitamente dito pertence ao parcelamento, não ao registro de caixa. */
@@ -1209,11 +1221,13 @@ async function purchaseWithFirstDue(input: OrchestratorInput, caps: AssistantCap
   if (newPurchase && looksNegated(prev)) return result
   const openDraft = pureDue ? activeDraft : result.draft
   if (openDraft?.partial.kind === 'card-purchase') {
-    const firstDueDate = resolveCardPurchaseDue(mention.answer, openDraft.partial.date || today, today)
+    const datePending = openDraft.missingFields.some(f => f.field === 'date')
+    const firstDueDate = datePending ? undefined : resolveCardPurchaseDue(mention.answer, openDraft.partial.date || today, today)
     const fields = openDraft.missingFields.filter(f => f.field !== 'firstDueDate')
     const dueField = questionFor('card-purchase', 'firstDueDate', caps)
     const draft = { ...openDraft, partial: { ...openDraft.partial, firstDueDate },
-      missingFields: firstDueDate ? fields : [...fields, dueField] }
+      purchaseDueText: datePending ? mention.answer : undefined,
+      missingFields: datePending || firstDueDate ? fields : [...fields, dueField] }
     const [field] = draft.missingFields
     if (field) {
       if (!pureDue && result.response.mode === 'clarify' && field.field === result.response.clarification.field) return { ...result, draft }
@@ -1232,7 +1246,15 @@ async function purchaseWithFirstDue(input: OrchestratorInput, caps: AssistantCap
 
   const candidates: AssistantCandidateAction[] = result.response.actions
   const purchases = candidates.filter(c => c.action.kind === 'card-purchase')
-  const [target, ambiguous] = purchases
+  const clarification = result.response.mode === 'clarify' ? result.response.clarification : undefined
+  const held = clarification && (clarification.field === 'date' || clarification.field === 'date-choice')
+    ? clarification.pendingActions?.filter(a => a.kind === 'card-purchase').length || 0 : 0
+  if (held === 1 && !purchases.length && result.response.mode === 'clarify') {
+    return { ...result, response: { ...result.response,
+      clarification: { ...result.response.clarification, purchaseDueText: mention.answer } } }
+  }
+  const [target] = purchases
+  const ambiguous = purchases.length + held > 1
   if (target?.action.kind === 'card-purchase' && !ambiguous) {
     const firstDueDate = resolveCardPurchaseDue(mention.answer, target.action.date || today, today)
     const updated = firstDueDate && validateAction({ ...target.action, firstDueDate }, caps, today)
@@ -1760,6 +1782,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
         imprecise: corrected.imprecise, actions: pc.pendingActions,
         conflict: true,
       })
+      clarification.purchaseDueText = pc.purchaseDueText
       return {
         draft: null, keepPending: true,
         response: {
@@ -2648,11 +2671,17 @@ Confirmar?`,
   // mercado": viravam despesa avulsa — e quando a fatura fosse paga, os mesmos
   // R$ 80 saíam do saldo de novo (regra 10). É o fluxo de "comprei uma
   // geladeira de 3000 no cartão": pergunta as parcelas ("à vista" é 1x).
-  if (!clarification && !notasDeFatura.size) {
+  const datePending = (clarification?.field === 'date-choice' || clarification?.field === 'date')
+    && clarification.pendingActions?.length === 1 && clarification.pendingActions[0].kind === 'expense'
+    ? clarification.pendingActions[0] : undefined
+  if ((!clarification || datePending) && !notasDeFatura.size) {
     const purchases = analysis.clauses.flatMap(clause => {
-      if (clause.localExplanation || clause.unrealized || clause.intention || clause.temporal || clause.ambiguity
+      const heldExpense = datePending && (clause.dateAmbiguity ? clause.actions : clause.temporal && clause.temporal.kind !== 'future' ? clause.temporal.actions : [])
+        .some(a => a.kind === 'expense' && a.amount === datePending.amount && a.description === datePending.description)
+      if (clause.localExplanation || clause.unrealized || clause.intention || (clause.temporal && !heldExpense) || clause.ambiguity
         || clause.intent === 'conversation' || clause.intent === 'correction' || looksNegated(clause.text)) return []
-      const scoped = candidates.filter(c => c.clauseId === clause.id)
+      if (datePending && !heldExpense) return []
+      const scoped = heldExpense ? [candidate(datePending, 'local', clause.id)] : candidates.filter(c => c.clauseId === clause.id)
       const compra = compraNoCartao(clause.text, scoped, caps, today)
       return compra ? [{ clause, scoped, compra }] : []
     })
@@ -2664,7 +2693,7 @@ Confirmar?`,
         return preparedActionResponse(input.state, { actions: other, notes: [], clarification: { question, field: 'installments' } })
       }
       const [{ clause, scoped, compra }] = purchases
-      if (compra.partial.kind === 'card-purchase' && !compra.partial.date && clause.date) compra.partial.date = clause.date
+      if (compra.partial.kind === 'card-purchase' && !compra.partial.date && !compra.missing.includes('date') && clause.date) compra.partial.date = clause.date
       const d = newDraft(compra, input.message, caps)
       const [source] = scoped
       if (compra.partial.kind === 'card-purchase' && compra.partial.total) {

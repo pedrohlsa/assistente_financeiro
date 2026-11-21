@@ -944,6 +944,10 @@ function alternativeDates(text: string, dates: DateResolution[]) {
   return { question: 'Em qual dessas datas o lançamento aconteceu?', options, start: ordered[first].start, end: ordered[last].end }
 }
 
+export function readDateAlternatives(text: string, today: string) {
+  return alternativeDates(text, datesMentioned(text, today))
+}
+
 function alternativeAmounts(text: string, driver: boolean | undefined, date?: string, origin?: string): AnalyzedClause['ambiguity'] {
   const re = /(?<![\w.,])(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s+(?:reais?|contos?))?\s+ou(?:\s+talvez)?\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?![\d.,])/gi
   const match = [...text.matchAll(re)].find(m => /r\$/i.test(m[0])
