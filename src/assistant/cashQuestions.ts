@@ -43,8 +43,10 @@ export function pedeTotalGuardado(t: string): boolean {
 }
 
 /** "Tirei 300 da reserva": não há lançamento de retirada no app. */
+export const RESERVE_WITHDRAWAL_REPLY = 'Ainda não registro retirada da reserva no app. O valor da reserva mostra a soma dos depósitos. Se um depósito foi lançado errado, corrija ou apague em Movimentações.'
+
 export const retiraDaReserva = (t: string): boolean =>
-  /\b(?:tirei|retirei|saquei|peguei|usei)\b[^.?!]*\b(?:da|na)\s+(?:minha\s+)?(?:reserva|poupanca)\b/.test(t)
+  /\b(?:tirei|retirei|saquei|resgatei|peguei|usei)\b[^.?!]*\b(?:da|na)\s+(?:minha\s+)?(?:reserva|poupanca)\b/.test(t)
 
 export type PerguntaDeFatura = 'falta' | 'paga' | 'atrasada' | 'vence' | 'fecha' | 'valor' | 'pagamentos' | 'valor-pago'
 

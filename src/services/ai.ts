@@ -29,7 +29,7 @@ import type { CashObligation } from './calc'
 import {
   alvoDaReserva, diaDaSemanaPedido, mesesAtePrazo, pedeAteOSalario, pedeFimDoMes, guardarEsteMes, pedeDividaTotal, pedeFimDoParcelamento, pedeListaDeParcelamentos, pedeQuantoPossoGastar, pedeLimite, pedeMaiorParcela, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeReservaDeCaixa, pedeResumoDoDia, pedeSobraSemCombustivel, pedeTotalGuardado, perguntaDeConta,
   pedeAntecipacaoDeFatura, perguntaDeFatura, perguntaDeManutencao,
-  planoDeGuardar, prazoDasContas, retiraDaReserva,
+  planoDeGuardar, prazoDasContas, RESERVE_WITHDRAWAL_REPLY, retiraDaReserva,
 } from '../assistant/cashQuestions'
 import type { PerguntaDeConta, PerguntaDeFatura, PlanoDeGuardar } from '../assistant/cashQuestions'
 import { CORRIDA_CANCELADA, describeAction, parseNaturalFull, REAJUSTE, SAQUE } from './nlp'
@@ -632,7 +632,7 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   // "Tirei 300 da reserva": não existe lançamento de retirada. O texto genérico
   // de ajuda deixava parecer que a frase não foi entendida.
   if (retiraDaReserva(t)) {
-    return { text: 'Ainda não registro retirada da reserva: ela é a soma do que você guardou, e retirar não tem um lançamento próprio no app. Se o depósito foi lançado errado, corrija ou apague em Movimentações.' }
+    return { text: RESERVE_WITHDRAWAL_REPLY }
   }
   // "Tirei 100 da viagem": retirar de META também não tem ação no chat, mas a
   // tela tem ("Já guardado" no Editar). Caía na ajuda genérica.

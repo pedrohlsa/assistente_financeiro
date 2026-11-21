@@ -6808,3 +6808,14 @@ até auditoria independente.
 - “Não dia 2, dia 15” dentro de “mês passado” usa o dia 15 daquele mês.
   A mesma leitura vale para corrigir o primeiro vencimento sem mudar
   a data da compra. Suíte com 1.264/1.264 regressões.
+
+## 21/11/2026 — Dinheiro recebido, reserva e empréstimo
+
+- Recebimento do banco ou na conta sem indicação de plataforma entra em
+  Outros. O banco de destino fica fora da origem. Salário conserva a
+  categoria informada.
+- Dinheiro da própria conta, retirada da reserva e empréstimo não inflam
+  receitas. O chat explica a limitação de registro da reserva e do
+  empréstimo bancário. Crédito no cartão pede os dados da entrada financiada.
+- Em relatos mistos, R$ 80,50 retirados da reserva ficam fora e R$ 15,20
+  de freela permanecem na proposta. Suíte com 1.275/1.275 regressões.

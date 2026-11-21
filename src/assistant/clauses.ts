@@ -18,6 +18,7 @@ import { suspicionReasons } from './semantic/confidence'
 import { spokenClock } from './semantic/clock'
 import type { SuspicionReason } from './semantic/confidence'
 import { isInvoicePaymentStatement, readInvoiceReference } from './invoicePayment'
+import { RESERVE_WITHDRAWAL_REPLY, retiraDaReserva } from './cashQuestions'
 
 export interface AnalyzedClause {
   id: string
@@ -195,6 +196,26 @@ const PAYMENT_NOT_RECEIVED = /^(?:(?:o\s+)?(?:pix|dinheiro|pagamento)\s+)?(?:ain
 const NAMED_PAYMENT_PENDING = /\b(?:pix|dinheiro|pagamento)\s+(?:ainda\s+)?n[ãa]o\s+(?:caiu|entrou|foi\s+creditado)\b/i
 const PAYMENT_DENIED = new RegExp(String.raw`(?<![\p{L}\p{M}])(?:n[ãa]o|nem|[nñ]|ningu[eé]m)\s+(?:me|nos)\s+(?:pagou|pagaram|${PIX_INCOMING}|${GAVE_TO_ME})\b`, 'iu')
 const OWN_ACCOUNTS = /\bentre\s+(?:as\s+)?(?:(?:minhas|nossas)\s+(?:duas\s+)?contas|contas\s+pr[óo]prias)\b|\b(?:da|de)\s+(?:minha|nossa)\s+conta\b[^.;!?]{0,55}\b(?:para|pra)\s+(?:a\s+)?(?:minha|nossa)\s+conta\b/i
+const INCOMING_CASH = /^(?:(?:eu|hoje|ontem|anteontem|j[áa]|agora)\s+){0,3}(?:recebi|caiu|entrou|pingou|me\s+(?:pagaram|enviaram|mandaram))\b/i
+const LOAN_SOURCE = /\b(?:empr[ée]stimo|dinheiro\s+emprestado)\b/i
+const OWN_CASH_SOURCE = /\bda\s+(?:minha|nossa)\s+(?:outra|pr[óo]pria)\s+conta\b/i
+const RESERVE_SOURCE = /\bda\s+(?:(?:minha|nossa)\s+)?(?:reserva|poupan[çc]a)\b/i
+const CARD_CREDIT_SOURCE = /\b(?:do\s+cart[ãa]o\s+(?:de\s+cr[ée]dito|via\s+pix)|do\s+limite\s+(?:do\s+)?cart[ãa]o)\b/i
+const CASH_LIST_ITEM = new RegExp(String.raw`^${CASH_PAIR_VALUE}\s+(?:d[aeo]s?|via|na|no|em)\s+\p{L}`, 'iu')
+const INTERNAL_TRANSFER_REPLY = 'O dinheiro passou entre contas próprias. Isso mantém o total em caixa.'
+const LOAN_REPLY = 'Esse valor veio de um empréstimo. O chat registra entradas financiadas pelo cartão.'
+
+function inflowGuard(text: string, carriesInflow = false): string | undefined {
+  if (/\b(?:n[ãa]o|nem|ningu[eé]m)\s+me\s+emprestou\b/i.test(text)) return 'O empréstimo ainda não entrou no caixa.'
+  if (/\bme\s+emprestou\b|\bpeguei\b[^.;!?]*\bempr[ée]stimo\b/i.test(text)) return LOAN_REPLY
+  if (retiraDaReserva(normalizeName(text))) return RESERVE_WITHDRAWAL_REPLY
+  if (!carriesInflow && !INCOMING_CASH.test(text)) return undefined
+  if (RESERVE_SOURCE.test(text)) return RESERVE_WITHDRAWAL_REPLY
+  if (OWN_CASH_SOURCE.test(text)) return INTERNAL_TRANSFER_REPLY
+  if (LOAN_SOURCE.test(text)) return LOAN_REPLY
+  if (CARD_CREDIT_SOURCE.test(text)) return 'Se foi uma entrada financiada, diga o valor cobrado no cartão, o valor que entrou, o cartão e em quantas parcelas vai pagar.'
+  return undefined
+}
 const EXAMPLE_CUE = String.raw`(?:(?:por\s+)?exemplo|(?:s[oó]\s+)?(?:um\s+)?teste|(?:t[oô]|estou)\s+testando|isso\s+[ée]\s+s[oó]\s+(?:um\s+)?exemplo)\s*[:,—–-]\s*`
 const EXAMPLE_START = new RegExp(String.raw`^\s*${EXAMPLE_CUE}`, 'i')
 const REPORTED_SPEECH = /^(?:(?:eu\s+)?(?:falei|disse)|(?:me|nos)\s+(?:falaram|disseram)|(?:(?:o|a|meu|minha)\s+)?[\p{L}\p{M}]+(?:\s+[\p{L}\p{M}]+)?\s+(?:falou|disse|afirmou|avisou))\s*(?:que\b|[:"“‘'])/iu
@@ -578,8 +599,14 @@ export function segment(text: string, today = todayISO()): { text: string; start
   const DIA = /\b(?:hoje|hj|ontem|anteontem|dia\s+\d{1,2})\b/i
   for (const m of text.matchAll(/\s+e\s+(?=\d)/gi)) {
     const antes = text.slice(0, m.index || 0)
-    const depois = text.slice((m.index || 0) + m[0].length).split(/[,;.!?]|\s+e\s+/)[0]
-    if (DIA.test(antes.split(/[,;.!?]/).pop() || '') && DIA.test(depois)) push((m.index || 0) + m[0].length)
+    const after = (m.index || 0) + m[0].length
+    const tail = text.slice(after)
+    const depois = tail.split(/[,;.!?]|\s+e\s+/i)[0]
+    if (DIA.test(antes.split(/[,;.!?]/).pop() || '') && DIA.test(depois)) push(after)
+    // A natureza de cada valor deve ser lida antes da categoria da receita.
+    const left = antes.split(/[.;!?]\s+/).pop()?.trim() || ''
+    const right = tail.split(/[;!?]|[,.](?!\d)|\s+e\s+/i)[0]
+    if (INCOMING_CASH.test(left) && CASH_LIST_ITEM.test(right) && (inflowGuard(left) || inflowGuard(right, true))) push(after)
   }
   // Conector explícito começando uma nova ideia — só quando um verbo de comando
   // vem logo depois. Sem essa exigência, "gastei 190 reais DEPOIS comprando
@@ -682,6 +709,7 @@ export function extractOrigins(originalClause: string): { value: string; at: num
   const taken: [number, number][] = []
   const add = (v: string, start: number, end: number) => {
     if (taken.some(([a, b]) => start < b && end > a)) return
+    if (/\b(?:na|em)\s+(?:uma\s+)?conta\s*$/i.test(originalClause.slice(0, start))) return
     if (/^(uber|99|indrive|indriver)$/i.test(v)) return // plataforma é descrição
     taken.push([start, end])
     out.push({ value: v.replace(/\s+/g, ' ').trim(), at: start, end })
@@ -1093,7 +1121,7 @@ const RIDE_PLATFORM_NAME = /^(?:uber|99|indrive[r]?)$/i
 // presumida: no perfil motorista a viagem implícita contava um Pix do irmão
 // como trabalho. A origem continua não inferida (regra do `origin`); só a
 // viagem e a categoria de corridas deixam de ser chutadas.
-const NON_RIDE_RECEIPT = /\b(?:no\s+caixa|d[ao]\s+(?:im[oó]vel|sobrado|apartamento|kitnet|loja|inquilin[oa]|empresa))\b|\b(?:d[ao])\s+(?:meu\s+|minha\s+)?(?!(?:uber|99|indrive[r]?|corridas?|viagens?|passageir[oa]s?|app|aplicativo|plataforma|dia|m[eê]s|semana|ano|pix|banco|conta|cart[aã]o|caixa|hoje|ontem|valor|total)\b)[a-zà-ú][a-zà-ú]{2,}\b/i
+const NON_RIDE_RECEIPT = /\b(?:no\s+caixa|(?:na\s+conta|do\s+banco)|d[ao]\s+(?:im[oó]vel|sobrado|apartamento|kitnet|loja|inquilin[oa]|empresa))\b|\b(?:d[ao])\s+(?:meu\s+|minha\s+)?(?!(?:uber|99|indrive[r]?|corridas?|viagens?|passageir[oa]s?|app|aplicativo|plataforma|dia|m[eê]s|semana|ano|pix|banco|conta|cart[aã]o|caixa|hoje|ontem|valor|total)\b)[a-zà-ú][a-zà-ú]{2,}\b/i
 function semViagemInferida(actions: ParsedAction[], text: string): ParsedAction[] {
   if (QUANTIDADE_DE_VIAGENS.test(text)) return actions
   return actions.flatMap(a => {
@@ -1372,17 +1400,21 @@ export function analyzeMessage(
     const abandonedReply = ABANDONING.test(part.text) && WISH_ABANDONED.test(parts[i - 1]?.text || '')
     const onlyPlanned = !looksPast(part.text) && /\b(?:ia|iria)\s+/i.test(part.text) && declaresIntention(part.text)
     const refundDenied = REFUND_DENIED.test(part.text)
+    const linkedPair = /(?:,\s*(?:e\s+)?|\s+e\s+)$/i.test(original.slice(0, part.start))
+    const followsInflow = linkedPair && CASH_LIST_ITEM.test(normalizeNumberWords(part.text).text)
+      && (inheritedKind === 'income' || !!(previousClause && INCOMING_CASH.test(previousClause.text)))
+    const specializedInflow = !isQuestion && !negated ? inflowGuard(part.text, followsInflow) : undefined
     const internalTransfer = !isQuestion && !negated && looksPast(part.text)
       && /\b(?:pix|transferi)\b/i.test(part.text) && OWN_ACCOUNTS.test(part.text)
     const receiptMention = RECIPIENT_OF_PAYMENT.test(part.text) || /\brecebi\b[^.;!?]*\bpix\b/i.test(part.text)
     const standalonePending = /^(?:o\s+)?(?:pix|dinheiro|pagamento)\s+/i.test(part.text) && PAYMENT_NOT_RECEIVED.test(part.text)
     const paymentPending = standalonePending || PAYMENT_DENIED.test(part.text) || (receiptMention && (NAMED_PAYMENT_PENDING.test(part.text)
       || (/\b(?:mas|por[ée]m|s[oó]\s+que)\s*$/i.test(part.text) && PAYMENT_NOT_RECEIVED.test(following))))
-    const localExplanation = internalTransfer ? 'O dinheiro passou entre contas próprias. Isso mantém o total em caixa.'
+    const localExplanation = specializedInflow || (internalTransfer ? INTERNAL_TRANSFER_REPLY
       : quotedOrExample(part.text) || (declinedRide && !part.text.includes('?') ? 'A corrida não aconteceu. Nenhum lançamento foi preparado.'
       : paymentPending ? 'O recebimento ainda está pendente. Quando o dinheiro entrar, diga o valor e a data.'
       : thirdPartyReference(part.text) ? 'Esse trecho fala da movimentação de outra pessoa. Se afetou sua conta, diga se o dinheiro entrou ou saiu e qual foi o valor.'
-      : undefined)
+      : undefined))
     const unrealized = !isQuestion && (abandoned || abandonedReply || onlyPlanned || declinedRide || refundDenied || ALMOST_HAPPENED.test(part.text))
     const canShareContext = !isQuestion && !isConversation && !negated && !unrealized && !localExplanation
     let clock: ReturnType<typeof spokenClock> = isQuestion ? { remaining: part.text } : spokenClock(part.text)
@@ -1490,8 +1522,8 @@ export function analyzeMessage(
     const reembolso = mencaoReembolso && reembolsoRecebido(mencaoReembolso, fala)
     const antesDoReembolso = reembolso && maisReembolso ? fala.slice(0, maisReembolso.index).trim() : fala
     const extraDaFatura = isInvoicePaymentStatement(antesDoReembolso) ? [...antesDoReembolso.matchAll(INVOICE_EXTRA_AMOUNT)][0] : undefined
-    const comandoPrincipal = extraDaFatura ? antesDoReembolso.slice(0, extraDaFatura.index).trim() : antesDoReembolso
-    const linkedPair = /(?:,\s*(?:e\s+)?|\s+e\s+)$/i.test(original.slice(0, part.start))
+    const comandoPrincipal = extraDaFatura ? antesDoReembolso.slice(0, extraDaFatura.index).trim()
+      : followsInflow && previousClause?.localExplanation && INCOMING_CASH.test(previousClause.text) ? `recebi ${antesDoReembolso}` : antesDoReembolso
     const barePair = canShareContext && linkedPair && inheritedKind ? cashPair(comandoPrincipal) : undefined
     const unclearDirection = barePair && barePair.kind !== inheritedKind ? barePair : undefined
     const comando = canShareContext ? cashPairCommand(comandoPrincipal, linkedPair ? inheritedKind : undefined) : comandoPrincipal

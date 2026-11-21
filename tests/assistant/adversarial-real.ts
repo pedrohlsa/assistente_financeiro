@@ -1588,6 +1588,25 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && !incompletePix.response.actions.length && answerChoices(incompletePix)?.field === 'exact-amount'
       && chosenPix.response.actions.length === 1 && chosenPix.response.actions.map(a => a.action).some(a => a.kind === 'income' && a.amount === 74.50 && a.date === addDays(TODAY, -1))
       && internalPix.every(r => !r.response.actions.length && /contas próprias/.test(r.response.reply))))
+  for (const [id, message, kind, amount, category, note] of [
+    ['banco-via-pix', 'recebi 300 do banco via Pix', 'income', 300, 'outros-in'],
+    ['conta-e-destino', 'entrou 50 na conta do Nubank', 'income', 50, 'outros-in'],
+    ['salario-via-banco', 'recebi 300 do banco de salário', 'income', 300, 'salario'],
+    ['retirada-da-reserva', 'caiu 80 da minha reserva', null, 0, null, 'retirada da reserva'],
+    ['saque-e-despesa', 'resgatei 80 da reserva e gastei 15 no mercado', 'expense', 15, 'alimentacao', 'retirada da reserva'],
+    ['saque-e-freela', 'recebi 80,50 da reserva e 15,20 de freela', 'income', 15.20, 'freelance', 'retirada da reserva'],
+    ['corrida-e-saque', 'recebi 80 do Uber e 15 da reserva', 'income', 80, 'corridas', 'retirada da reserva'],
+    ['emprestimo-e-compra', 'recebi 2000 de empréstimo do banco e paguei 25 no mercado', 'expense', 25, 'alimentacao', 'veio de um empréstimo'],
+    ['emprestimo-negado', 'o banco não me emprestou 2000', null, 0, null, 'ainda não entrou'],
+    ['entrada-da-propria-conta', 'recebi 50 da minha própria conta', null, 0, null, 'contas próprias'],
+    ['credito-via-pix', 'recebi 300 do cartão via Pix', null, 0, null, 'valor cobrado no cartão'],
+  ] as const) {
+    const { response } = await pixBank(message)
+    const a = response.actions[0]?.action
+    out.push(result(`A-origem-${id}`, response, kind ? `só a movimentação de ${amount} em ${category}` : 'sem proposta de movimentação',
+      (!note || response.reply.includes(note)) && response.actions.length === (kind ? 1 : 0)
+        && (!kind || (a?.kind === kind && a.amount === amount && a.category === category && !a.origin))))
+  }
   const directMixed = buildState({ balance: 1000, cards: [{ name: 'Inter', dueDay: 20, closingDay: 5 }] })
   directMixed.settings.balanceAsOf = '2026-09-14T09:00'
   directMixed.installmentPlans = [{ id: 'mixed-plan', description: 'Compra', cardId: 'card0',
