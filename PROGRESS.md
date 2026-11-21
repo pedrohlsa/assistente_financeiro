@@ -6793,3 +6793,10 @@ até auditoria independente.
   A confirmação soma R$ 241. “Ninguém me mandou Pix” fica pendente.
 - “Foi da Maria” corrige a origem de uma receita da Uber e retira
   a categoria da plataforma. Suíte com 1.254/1.254 regressões.
+
+## 21/11/2026 — Pagamentos de terceiros
+
+- “Joao pagou 40 pro supermercado” descreve uma movimentação de outra
+  pessoa. “Eu paguei 80 no posto e joao pagou 90 no mercado” propõe só
+  os R$ 80. “O cliente pagou 40 pra Marina” também fica fora do caixa.
+  Suíte com 1.257/1.257 regressões.

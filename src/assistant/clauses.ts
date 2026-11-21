@@ -199,14 +199,19 @@ const EXAMPLE_CUE = String.raw`(?:(?:por\s+)?exemplo|(?:s[oó]\s+)?(?:um\s+)?tes
 const EXAMPLE_START = new RegExp(String.raw`^\s*${EXAMPLE_CUE}`, 'i')
 const REPORTED_SPEECH = /^(?:(?:eu\s+)?(?:falei|disse)|(?:me|nos)\s+(?:falaram|disseram)|(?:(?:o|a|meu|minha)\s+)?[\p{L}\p{M}]+(?:\s+[\p{L}\p{M}]+)?\s+(?:falou|disse|afirmou|avisou))\s*(?:que\b|[:"“‘'])/iu
 const THIRD_PARTY = /^(?:(?:hoje|ontem|anteontem|j[áa])\s+)?(?:meu|minha|nosso|nossa|o|a)\s+(?:irm[ãa]o|irm[ãa]|marido|esposa|m[ãa]e|pai|filh[oa]|colega|cliente|gerente|amig[oa]|s[óo]ci[oa]|loja|empresa)\s+(?:j[áa]\s+)?(?:gastou|pagou|comprou|recebeu|ganhou|guardou)\b/i
-const NAMED_THIRD_PARTY = /^(?:(?:[OoAa]|ontem|hoje)\s+)?(?!Quanto\b|Quant[ao]s?\b|Quem\b|Quando\b|Onde\b|Como\b|Ontem\b|Hoje\b|Anteontem\b)[\p{Lu}][\p{L}\p{M}]+(?:\s+[\p{Lu}][\p{L}\p{M}]+){0,2}\s+(?:gastou|pagou|comprou|recebeu|ganhou|guardou)\b/u
+const NAMED_THIRD_PARTY = /^(?:(?:ontem|hoje|anteontem|j[áa])\s+)?(?:[oa]\s+)?(?!quant[oa]s?\b|quem\b|quando\b|onde\b|como\b|por\b|que\b|eu\b|foi\b|era\b|se\b|quanto\b)([\p{L}\p{M}]+(?:\s+[\p{L}\p{M}]+){0,2}?)\s+(?:j[áa]\s+)?(?:gastou|pagou|comprou|recebeu|ganhou|guardou)\s+(?:r\$\s*)?\d/iu
+const PAID_ELSEWHERE = /\bpag(?:ou|aram)\s+(?:r\$\s*)?\d+(?:[.,]\d+)*\s+(?:reais?\s+)?(?:par[ao]|pr[ao]s?)\s+(?!mim\b|n[óo]s\b)/i
 
 // "O cliente PAGOU 300", "a empresa pagou 3000": quem paga o usuário, com o
 // valor logo depois do verbo — o dinheiro entrou para ele. "Meu irmão pagou
 // 50 da conta" e "o cliente pagou 200 NO MERCADO" continuam sendo de outra
 // pessoa: o lugar depois do valor diz onde ELE gastou.
 const FONTE_PAGOU = /^(?:(?:hoje|ontem|anteontem|j[áa])\s+)?(?:o|a|meu|minha)\s+(?:cliente|empresa|patr[ãa]o)(?:\s+[\p{Lu}][\p{L}\p{M}]+)?\s+(?:j[áa]\s+)?pag(?:ou|aram)\s+(?:r\$\s*)?\d+(?:[.,]\d+)*(?![\d.,])(?!\s*(?:reais\s+)?(?:n[oa]s?|em)\s)/iu
-const thirdPartyReference = (text: string): boolean => !FONTE_PAGOU.test(text) && (THIRD_PARTY.test(text) || NAMED_THIRD_PARTY.test(text))
+function thirdPartyReference(text: string): boolean {
+  if (FONTE_PAGOU.test(text) && !PAID_ELSEWHERE.test(text)) return false
+  const subject = normalizeNumberWords(text).text.match(NAMED_THIRD_PARTY)?.[1]
+  return THIRD_PARTY.test(text) || !!spokenPayerName(subject)
+}
 const PIX_CONTEXT_HEAD = /^(?:(?:eu|j[áa]|ainda|n[ãa]o|nem|[nñ])\s+){0,3}(?:mandei|enviei|transferi|acabei\s+(?:de\s+)?(?:mandar|enviar|transferir|mandando|enviando|transferindo))\b/i
 const PIX_CONTEXT_DENIED = new RegExp(String.raw`^(?:(?:eu|ainda)\s+){0,2}(?:n[ãa]o|nem|[nñ])\s+(?:${PIX_SENDING})(?:\s+(?:o\s+)?pix|\s+${CASH_PAIR_VALUE})?\s*[,;.!]*$`, 'i')
 const PIX_CONTEXT_SENT = new RegExp(String.raw`^(?:(?:eu|j[áa])\s+){0,2}(?:${PIX_SENDING})\s+(?:(?:o\s+|um\s+)?pix\s+(?:de\s+)?)?(?:(?:s[oó]|apenas)\s+)?(${CASH_PAIR_VALUE})(?:\s+(?:via|por|no|pelo)\s+pix)?(?:\s+(?:para|pra|pro)\s+[\p{L}\p{M}\s]{2,45})?[,;.!]*$`, 'iu')

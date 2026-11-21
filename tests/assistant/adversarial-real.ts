@@ -6320,6 +6320,17 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         r.actions.length === 1 && a.kind === 'income' && a.amount === valor && a.origin === fonte && a.category === categoria
           && a.date === data && a.time === hora))
     }
+    for (const [id, frase, gasto] of [
+      ['terceiro-em-minusculas', 'joao pagou 40 pro supermercado', 0],
+      ['eu-e-terceiro', 'eu paguei 80 no posto e joao pagou 90 no mercado', 80],
+      ['cliente-pagou-outra-pessoa', 'o cliente pagou 40 pra Marina', 0],
+    ] as const) {
+      const r = await turnoHoje(falado, frase)
+      const [a] = r.actions
+      out.push(result(`MF-${id}`, { reply: r.reply, actions: r.actions }, `despesa própria de ${gasto}, separada da despesa de terceiro`,
+        /outra pessoa/.test(r.reply) && r.actions.length === (gasto ? 1 : 0)
+          && (!gasto || (a.kind === 'expense' && a.amount === gasto && a.category === 'combustivel'))))
+    }
     const naoRecebeu = await turnoHoje(falado, 'ninguém me mandou pix de 50')
     out.push(result('MF-ninguem-pagou-pix', naoRecebeu.reply, 'nenhum lançamento de Pix',
       naoRecebeu.actions.length === 0 && /pendente/i.test(naoRecebeu.reply)))
