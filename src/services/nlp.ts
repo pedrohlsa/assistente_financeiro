@@ -1715,6 +1715,7 @@ export function describeActionDetailed(a: ParsedAction, opts?: { fee?: number; c
       lines.push(`Valor total: ${money(a.total)}`)
       lines.push(`Parcelas: ${a.installments}x de ${money(per)}`)
       lines.push(`Cartão: ${a.cardName || 'não informado (registra sem cartão)'}`)
+      if (a.date) lines.push(`Data da compra: ${a.date.split('-').reverse().join('/')}`)
       lines.push(`1º vencimento: ${a.firstDueDate ? a.firstDueDate.split('-').reverse().join('/') : 'próxima fatura'}`)
       const c = catName(a.category)
       if (c) lines.push(`Categoria: ${sentenceCase(c)}`)

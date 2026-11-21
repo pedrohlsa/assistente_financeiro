@@ -103,6 +103,67 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const hoje = '2026-11-21'
+    const ontem = '2026-11-20'
+    const state = buildState({ profile: 'other', balance: 800 })
+    state.cards = [{ id: 'compra-data-nu', name: 'Nubank', closingDay: 20, dueDay: 25, limit: 4000, active: true }]
+    const send = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({
+      state, today: hoje, message, remoteEnabled: false, draft: prior?.draft || undefined,
+      pending: prior?.response.actions, pendingClarification: prior?.response.mode === 'clarify' ? prior.response.clarification : undefined,
+    })
+    const commit = (response: Awaited<ReturnType<typeof orchestrate>>) => applyBatchPure(state, response.response.actions,
+      { now: { date: hoje, time: '15:00' } })
+    const started = await send('ontem passei 80 no cartão')
+    const atSight = await send('à vista', started)
+    const credited = commit(atSight)
+    const [plan] = credited.state.installmentPlans
+    const [installment] = credited.state.installments
+    out.push(result('CD-cartao-a-vista-ontem-e-vencimento', { started, atSight: atSight.response, plan, installment },
+      'confirma uma dívida de R$ 80, compra em 20/11 e vencimento de 25/11, sem transação avulsa',
+      started.response.mode === 'clarify' && !started.response.actions.length && /ontem|20\/11\/2026/.test(atSight.response.reply)
+      && credited.applied && plan?.purchaseDate === ontem && plan.firstDueDate === '2026-11-25'
+      && installment?.dueDate === '2026-11-25' && installment.amount === 80 && credited.state.transactions.length === 0))
+
+    const debit = commit(await send('foi no débito', started))
+    const [expense] = debit.state.transactions
+    out.push(result('CD-debito-sem-perder-ontem', { expense, plans: debit.state.installmentPlans },
+      'R$ 80 só no caixa em 20/11 se o meio era débito', debit.applied && expense?.amount === 80
+      && expense.date === ontem && debit.state.installmentPlans.length === 0))
+
+    const direct = await send('comprei uma cadeira de 250 em 2x no Nubank')
+    const original = commit(direct).state.installmentPlans[0]
+    const revised = await send('foi ontem', direct)
+    const corrected = commit(revised).state.installmentPlans[0]
+    const editable = editableFieldsFor(revised.response.actions[0].action, buildCapabilities(state)).find(field => field.name === 'date')
+    out.push(result('CD-corrigir-dia-troca-fatura-do-plano', { original, corrected, editable },
+      'corrigir 21/11 para 20/11 move a primeira fatura de 25/12 para 25/11 e expõe o campo Data',
+      original?.firstDueDate === '2026-12-25' && corrected?.firstDueDate === '2026-11-25'
+      && corrected.purchaseDate === ontem && editable?.control === 'date'))
+
+    const incomplete = await send('comprei uma cadeira em 2 vezes')
+    const dayOnly = await send('foi dia 18', incomplete)
+    const finished = commit(await send('250 no Nubank', dayOnly))
+    const correctedFromInvalid = await send('250 no Nubank, dia 31/11', incomplete)
+    const fixed = commit(await send('foi ontem', correctedFromInvalid))
+    out.push(result('CD-data-isolada-nao-e-valor-rascunho', { dayOnly, correctedFromInvalid, finished: finished.state.installmentPlans, fixed: fixed.state.installmentPlans },
+      'o dia 18 conserva a pergunta do valor e 31/11 pede a data, com R$ 250 armazenados no rascunho',
+      dayOnly.response.mode === 'clarify' && dayOnly.response.clarification.field === 'total' && !dayOnly.response.actions.length
+      && finished.applied && finished.state.installmentPlans[0]?.purchaseDate === '2026-11-18'
+      && correctedFromInvalid.response.mode === 'clarify' && correctedFromInvalid.response.clarification.field === 'date'
+      && !correctedFromInvalid.response.actions.length && fixed.state.installmentPlans[0]?.purchaseDate === ontem
+      && fixed.state.installmentPlans[0]?.totalAmount === 250))
+
+    const future = await send('comprei uma cadeira de 250 em 2x no Nubank amanhã')
+    const action = { kind: 'card-purchase' as const, total: 250, installments: 2, cardName: 'Nubank', date: ontem, firstDueDate: '2026-11-19' }
+    const checked = validateAction(action, buildCapabilities(state), hoje)
+    const invalid = applyBatchPure(state, [{ id: 'compra-data-invalida', action }], { now: { date: hoje, time: '15:00' } })
+    out.push(result('CD-data-futura-ou-vencimento-antes-da-compra', { future: future.response, checked, invalid: invalid.results },
+      'aguarda correção de compra no futuro e recusa vencimento anterior à compra pelo contrato e pelo executor',
+      future.response.mode === 'clarify' && !future.response.actions.length && isValidationFailure(checked)
+      && !invalid.applied && invalid.state === state))
+  }
+
+  {
     const state = buildState({ profile: 'other' })
     const phrases = ['às nove ou dez', 'às 9 ou 10', 'às nove ou às dez', 'entre 9h e 10h', 'das 9h às 10h', 'por volta das 9h']
     for (const [i, phrase] of phrases.entries()) {

@@ -376,7 +376,7 @@ export type ParsedAction =
   | { kind: 'balance'; amount: number }        // define o saldo atual em conta ("meu saldo é 1500")
   // Compra parcelada (ou à vista no crédito, com installments: 1). A IA nunca
   // inventa cartão, valor, nº de parcelas ou data — pergunta o que faltar.
-  | { kind: 'card-purchase'; description?: string; total: number; installments: number; cardName?: string; category?: string; firstDueDate?: string }
+  | { kind: 'card-purchase'; description?: string; total: number; installments: number; cardName?: string; category?: string; date?: string; firstDueDate?: string }
   // Recebeu dinheiro agora e ficou com dívida parcelada (seção 7). NUNCA é receita.
   | { kind: 'financed-cash-inflow'; total: number; netReceived: number; installments: number; cardName?: string; source?: string }
   | { kind: 'card-payment'; cardName?: string; cardId?: string; amount?: number; referenceMonth?: string; date?: string; expectedPending?: number }

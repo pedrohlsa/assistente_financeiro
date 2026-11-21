@@ -1147,7 +1147,7 @@ const escaparRegex = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
  * rascunho de `card-purchase` que só falta o número de parcelas (e o cartão,
  * com mais de um). Débito, Pix, dinheiro e fatura ficam de fora.
  */
-function compraNoCartao(mensagem: string, candidates: AssistantCandidateAction[], caps: AssistantCapabilities): import('./drafts').IncompleteIntent | null {
+function compraNoCartao(mensagem: string, candidates: AssistantCandidateAction[], caps: AssistantCapabilities, today: string): import('./drafts').IncompleteIntent | null {
   const t = normalizeName(mensagem)
   if (/\bd[eé]bito\b|\bpix\b|\bdinheiro\b|\bespecie\b|\bfatura\b|\bassinatura\b|\?|\b(?:quanto|qual|quais|quando|posso|consigo)\b|\b(?:vezes|parcelas?|\d+\s*x)\b/.test(t)) return null
   const cartao = caps.cardNames.find(c => new RegExp(String.raw`\b(?:no|na|pelo|pela)\s+${escaparRegex(normalizeName(c))}\b`).test(t))
@@ -1161,18 +1161,24 @@ function compraNoCartao(mensagem: string, candidates: AssistantCandidateAction[]
   let total: number | undefined
   let descricao: string | undefined
   let categoria: string | undefined
+  let purchaseDate: string | undefined
   if (candidates.length === 1 && candidates[0].action.kind === 'expense') {
     const a: any = candidates[0].action
     total = a.amount
+    purchaseDate = a.date
     descricao = limpar(a.description)
     categoria = descricao ? (a.category === 'outros-out' ? undefined : a.category) : undefined
   } else if (!candidates.length) {
-    const m = t.match(/^(?:eu\s+)?(?:hoje\s+|ontem\s+)?(?:passei|gastei|paguei|comprei|torrei)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)/)
+    const said = findDate(t, today)
+    const withoutDate = said ? `${t.slice(0, said.start)} ${t.slice(said.end)}`.trim() : t
+    const m = withoutDate.match(/^(?:eu\s+)?(?:passei|gastei|paguei|comprei|torrei)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)/)
     if (m) total = parseMoney(m[1])
   } else return null
   if (!(total && total > 0)) return null
-  const partial: any = { kind: 'card-purchase', total, ...(descricao ? { description: descricao } : {}), ...(categoria ? { category: categoria } : {}), ...(cartao ? { cardName: cartao } : {}) }
-  const missing = ['installments', ...(caps.cardNames.length > 1 && !cartao ? ['cardName'] : [])]
+  const said = !purchaseDate ? findDate(mensagem, today) : undefined
+  if (said?.kind === 'date') purchaseDate = said.date
+  const partial: any = { kind: 'card-purchase', total, ...(purchaseDate ? { date: purchaseDate } : {}), ...(descricao ? { description: descricao } : {}), ...(categoria ? { category: categoria } : {}), ...(cartao ? { cardName: cartao } : {}) }
+  const missing = [...(said && said.kind !== 'date' ? ['date'] : []), 'installments', ...(caps.cardNames.length > 1 && !cartao ? ['cardName'] : [])]
   return { partial, missing }
 }
 
@@ -1742,7 +1748,7 @@ Confirmar?`,
   // rascunho de compra no cartão, como se a frase tivesse dito isso de início.
   if (input.pending?.length === 1 && input.pending[0].action.kind === 'expense'
     && /^\s*(?:n[ãa]o\s*[,.]?\s*)?(?:foi\s+|era\s+|paguei\s+|passei\s+)?(?:no|na|pelo|pela)\s+[\p{L}\s]{3,40}[.!]*\s*$/iu.test(command)) {
-    const compra = compraNoCartao(command, input.pending, caps)
+    const compra = compraNoCartao(command, input.pending, caps, today)
     if (compra) {
       const d = newDraft(compra, input.message, caps)
       d.fallbackExpense = { ...input.pending[0].action }
@@ -1771,6 +1777,7 @@ Confirmar?`,
       const dito = m[2]?.trim()
       const cartao = dito ? caps.cardNames.find(c => normalizeName(c) === dito || normalizeName(c).includes(dito)) : undefined
       const partial: any = { kind: 'card-purchase', total: a.amount, installments: n,
+        ...(a.date ? { date: a.date } : {}),
         ...(a.description ? { description: a.description } : {}),
         ...(a.category && a.category !== 'outros-out' ? { category: a.category === 'assinaturas' ? 'compras' : a.category } : {}),
         ...(cartao ? { cardName: cartao } : {}) }
@@ -2522,7 +2529,7 @@ Confirmar?`,
   // R$ 80 saíam do saldo de novo (regra 10). É o fluxo de "comprei uma
   // geladeira de 3000 no cartão": pergunta as parcelas ("à vista" é 1x).
   if (!clarification && !notasDeFatura.size) {
-    const compra = compraNoCartao(mensagem, candidates, caps)
+    const compra = compraNoCartao(mensagem, candidates, caps, today)
     if (compra) {
       const d = newDraft(compra, input.message, caps)
       if (candidates.length === 1 && candidates[0].action.kind === 'expense') {
@@ -2531,6 +2538,9 @@ Confirmar?`,
         despesa.description = semMeio ? sentenceCase(semMeio) : undefined
         if (!despesa.description) delete despesa.description
         d.fallbackExpense = despesa
+      } else if (compra.partial.kind === 'card-purchase' && compra.partial.total) {
+        const { total, date, category, description } = compra.partial
+        d.fallbackExpense = { kind: 'expense', amount: total, date, category, description }
       }
       const q = { ...d.missingFields[0] }
       if (q.field === 'installments') q.question = 'Em quantas parcelas? Se foi à vista, diga "à vista"; se foi no débito, diga "débito".'

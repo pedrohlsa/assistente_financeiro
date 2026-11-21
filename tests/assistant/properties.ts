@@ -819,7 +819,7 @@ export async function runProperties(): Promise<PropertyReport> {
     // e o pagamento é recusado antes de quitar qualquer parcela.
     const agora = { date: TODAY, time: '10:00' }
     const comPlano = applyBatchPure(s, batch([
-      { kind: 'card-purchase', total: 400, installments: 1, cardName: 'Nubank', firstDueDate: '2026-07-10' },
+      { kind: 'card-purchase', total: 400, installments: 1, cardName: 'Nubank', date: '2026-07-09', firstDueDate: '2026-07-10' },
     ]), { source: 'ai', batchId: 'compra', stamp: CARIMBO, now: agora }).state
     const antes = semJournal(comPlano)
     const pago = applyBatchPure(comPlano, batch([{ kind: 'card-payment', cardName: 'Nubank' }]), {

@@ -203,6 +203,7 @@ export const ACTION_CATALOG: ActionSpec[] = [
       textField('description', 'o que foi comprado'),
       textField('cardName', 'nome do cartão, se o usuário citar'),
       { name: 'category', type: 'text', required: false, categoryOf: 'expense', describe: 'id de categoria de SAÍDA' },
+      { ...dateField, localOnly: true },
       { name: 'firstDueDate', type: 'date', required: false, describe: 'primeiro vencimento YYYY-MM-DD, se informado' },
     ],
     promptHint: 'SÓ gere com valor total E número de parcelas. Faltando um, pergunte só o que falta',
@@ -630,6 +631,9 @@ export function validateAction(
   // Invariantes entre campos.
   if (out.kind === 'financed-cash-inflow' && out.netReceived > out.total) {
     return { ok: false, code: 'conflict', detail: 'recebido maior que a dívida' }
+  }
+  if (out.kind === 'card-purchase' && out.firstDueDate && out.firstDueDate < (out.date || todayIso)) {
+    return { ok: false, code: 'invalid-date', detail: 'O primeiro vencimento precisa ser no dia da compra ou depois.' }
   }
   if (out.kind === 'card-payment' && out.referenceMonth && !isPlausibleDate(`${out.referenceMonth}-01`, todayIso)) {
     return { ok: false, code: 'invalid-date', detail: out.referenceMonth }

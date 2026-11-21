@@ -281,6 +281,9 @@ export function applyActionPure(
       }
     }
     case 'card-purchase': {
+      if (action.firstDueDate !== undefined && (!isPlausibleDate(action.firstDueDate, date) || action.firstDueDate < eventDate)) {
+        return { state, result: fail(actionId, 'invalid-date', 'O primeiro vencimento precisa ser no dia da compra ou depois.') }
+      }
       const card = findCardByName(state, action.cardName)
       if (action.cardName && !card) return { state, result: fail(actionId, 'card-not-found', `"${action.cardName}"`) }
       const count = Math.max(Math.round(action.installments || 1), 1)
@@ -291,8 +294,8 @@ export function applyActionPure(
         categoryId: action.category || 'compras',
         totalAmount: action.total,
         installmentCount: count,
-        firstDueDate: action.firstDueDate || suggestedFirstDueDate(card, date),
-        purchaseDate: date,
+        firstDueDate: action.firstDueDate || suggestedFirstDueDate(card, eventDate),
+        purchaseDate: eventDate,
         status: 'active',
         operationType: card ? 'card-purchase' : 'standalone',
         profileAtCreation,

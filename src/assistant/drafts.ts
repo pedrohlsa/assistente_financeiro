@@ -120,10 +120,14 @@ export function detectIncomplete(text: string, caps: AssistantCapabilities, toda
 
   // Compra parcelada sem valor e/ou sem número de parcelas.
   if (/\b(comprei|compra|parcelei|parcelad[oa])\b/.test(t)) {
-    const instM = t.match(/(?:em|x)\s*(\d+)\s*(?:vez(?:es)?|x|parcelas?)|(\d+)\s*x\b/)
-    const valM = t.match(new RegExp(String.raw`(?:de|por|custou|valor de)\s*(?:r\$)?\s*${NUMBER}`))
-      || t.match(new RegExp(String.raw`r\$\s*${NUMBER}`))
-    const descM = text.match(/comprei\s+(?:um|uma|o|a|uns|umas)\s+([\wçãõáéíóúâê]+(?:\s+[\wçãõáéíóúâê]+)*?)(?=\s+(?:de|por|em|no|na)\b|\s*r\$|\s*\d|$)/i)
+    const date = findDate(t, today)
+    const purchase = date ? `${t.slice(0, date.start)} ${t.slice(date.end)}`.trim() : t
+    const rawDate = findDate(text, today)
+    const originalPurchase = rawDate ? `${text.slice(0, rawDate.start)} ${text.slice(rawDate.end)}`.trim() : text
+    const instM = purchase.match(/(?:em|x)\s*(\d+)\s*(?:vez(?:es)?|x|parcelas?)|(\d+)\s*x\b/)
+    const valM = purchase.match(new RegExp(String.raw`(?:de|por|custou|valor de)\s*(?:r\$)?\s*${NUMBER}`))
+      || purchase.match(new RegExp(String.raw`r\$\s*${NUMBER}`))
+    const descM = originalPurchase.match(/comprei\s+(?:um|uma|o|a|uns|umas)\s+([\wçãõáéíóúâê]+(?:\s+[\wçãõáéíóúâê]+)*?)(?=\s+(?:de|por|em|no|na)\b|\s*r\$|\s*\d|$)/i)
     const total = valM ? parseMoney(valM[1]) : undefined
     const installments = instM ? parseInt(instM[1] || instM[2], 10) : undefined
     const missing: string[] = []
@@ -132,16 +136,23 @@ export function detectIncomplete(text: string, caps: AssistantCapabilities, toda
     // Sem NENHUM dos dois não dá para tratar como PARCELAMENTO — mas "comprei
     // uma tv" continua sendo um gasto começado, e o caminho de baixo pergunta
     // o valor em vez de devolver o texto genérico de ajuda.
-    if (missing.length === 2) return semValorDraft(text, t, caps)
+    if (missing.length === 2) {
+      const draft = semValorDraft(originalPurchase, purchase, caps)
+      if (draft && date?.kind === 'date') draft.partial = { ...draft.partial, date: date.date } as IncompleteIntent['partial']
+      else if (draft && date) draft.missing.unshift('date')
+      return draft
+    }
     // Com vários cartões, saber qual é obrigatório — e essa checagem precisa
     // vir ANTES da saída antecipada, senão "comprei X de 4000 em 4 vezes" com
     // dois cartões cadastrados nunca perguntava nada.
     const citedCard = caps.cardNames.find(c => t.includes(normalizeName(c)))
     if (caps.cardNames.length > 1 && !citedCard) missing.push('cardName')
+    if (date && date.kind !== 'date') missing.unshift('date')
     if (!missing.length) return null // completa: o parser normal dá conta
     const partial: any = { kind: 'card-purchase' }
     if (total > 0) partial.total = total
     if (installments > 0) partial.installments = installments
+    if (date?.kind === 'date') partial.date = date.date
     if (citedCard) partial.cardName = citedCard
     if (descM) partial.description = sentenceCase(descM[1].trim())
     return { partial, missing }
@@ -234,14 +245,20 @@ export function resolveDraftAnswer(
   }
   const resolved: string[] = []
   const { text: norm } = normalizeNumberWords(message)
-  const lower = norm.toLowerCase()
+  const normalized = norm.toLowerCase()
+  const date = findDate(normalized, today)
+  const lower = date ? `${normalized.slice(0, date.start)} ${normalized.slice(date.end)}`.trim() : normalized
 
   // "Foi no débito": a compra "no cartão" não era crédito — é a despesa.
   if (draft.partial.kind === 'card-purchase' && draft.fallbackExpense
     && /(?<![\wÀ-ÿ])(?:d[ée]bito|pix|dinheiro|esp[ée]cie)(?![\wÀ-ÿ])/.test(lower)) {
+    const needsDate = date ? date.kind !== 'date' : draft.missingFields.some(field => field.field === 'date')
+    const originalDate = 'date' in draft.fallbackExpense ? draft.fallbackExpense.date : undefined
+    const expenseDate = date?.kind === 'date' ? date.date : needsDate ? undefined : originalDate
     return {
-      draft: { ...draft, partial: { ...draft.fallbackExpense } as any, missingFields: [], status: 'ready',
-        originalMessages: [...draft.originalMessages, message], updatedAt: new Date().toISOString() },
+      draft: { ...next, partial: { ...draft.fallbackExpense, date: expenseDate } as IncompleteIntent['partial'],
+        missingFields: needsDate ? [questionFor(draft.fallbackExpense.kind, 'date', caps)] : [],
+        status: needsDate ? 'collecting' : 'ready' },
       resolved: ['kind'],
       unmatched: false,
     }
@@ -260,9 +277,10 @@ export function resolveDraftAnswer(
       const desc = (draft.partial as any).description as string | undefined
       const citado = caps.cardNames.find(c => normalizeName(lower).includes(normalizeName(c)))
       const partial: any = { kind: 'card-purchase', total, installments: n,
+        ...(date?.kind === 'date' ? { date: date.date } : 'date' in draft.partial ? { date: draft.partial.date } : {}),
         ...(desc ? { description: desc, category: guessCategory(desc, 'expense') === 'assinaturas' ? 'compras' : (guessCategory(desc, 'expense') || 'compras') } : {}),
         ...(citado ? { cardName: citado } : {}) }
-      const faltando = caps.cardNames.length > 1 && !citado ? ['cardName'] : []
+      const faltando = [...(date && date.kind !== 'date' ? ['date'] : []), ...(caps.cardNames.length > 1 && !citado ? ['cardName'] : [])]
       return {
         draft: { ...draft, partial, originalMessages: [...draft.originalMessages, message], updatedAt: new Date().toISOString(),
           missingFields: faltando.map(f => questionFor('card-purchase', f, caps)), status: faltando.length ? 'collecting' : 'ready' },
@@ -318,17 +336,23 @@ export function resolveDraftAnswer(
     }
   }
 
-  // Data mencionada na resposta ("foi ontem").
-  const d = findDate(message, today)
-  if (d && d.kind === 'date') {
-    const spec = actionSpec(draft.partial.kind)
-    if (spec?.fields.some(f => f.name === 'date')) {
-      ;(next.partial as any).date = d.date
-      resolved.push('date')
+  // Data citada enquanto o rascunho está aberto. Fica fora dos números
+  // usados para completar valor/parcelas e é resolvida pelo campo próprio.
+  if (date && actionSpec(draft.partial.kind)?.fields.some(f => f.name === 'date')) {
+    if (date.kind === 'date') {
+      ;(next.partial as any).date = date.date
+      pending.delete('date')
+    } else {
+      delete (next.partial as any).date
+      pending.add('date')
     }
+    resolved.push('date')
   }
 
-  next.missingFields = draft.missingFields.filter(f => pending.has(f.field))
+  next.missingFields = [
+    ...(pending.has('date') ? [questionFor(draft.partial.kind, 'date', caps)] : []),
+    ...draft.missingFields.filter(f => f.field !== 'date' && pending.has(f.field)),
+  ]
   next.status = next.missingFields.length ? 'collecting' : 'ready'
   return { draft: next, resolved, unmatched: resolved.length === 0 }
 }

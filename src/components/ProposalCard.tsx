@@ -45,7 +45,7 @@ function detailRows(a: any, catName: (id: string) => string): [string, string][]
   if (a.name) rows.push(['Meta', sentenceCase(a.name)])
   if (a.months) rows.push(['Prazo', `${Math.round(a.months)} meses`])
   if (a.firstDueDate) rows.push(['1º vencimento', a.firstDueDate.split('-').reverse().join('/')])
-  rows.push(['Data', a.date ? sentenceCase(dateLabel(a.date)) : 'Hoje'])
+  rows.push([a.kind === 'card-purchase' ? 'Data da compra' : 'Data', a.date ? sentenceCase(dateLabel(a.date)) : 'Hoje'])
   if (a.time) rows.push(['Horário', a.time])
   return rows
 }

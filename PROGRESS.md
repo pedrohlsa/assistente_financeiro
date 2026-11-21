@@ -6622,3 +6622,15 @@ dependentes de data (último dia do mês, dia 1º, 12/11 e 28/02/2027), todos
 corrigidos no teste; o dia 1º também mudou o rótulo ("em 1º de outubro"). Sem push, merge, deploy, APK ou DeepSeek. **NOT READY**
 até auditoria independente.
 
+
+## 21/11/2026 — Data da compra no cartão pelo chat
+
+- A ação de compra guarda a data explícita pelo interpretador local. O executor
+  usa essa data para escolher o vencimento e mantém a data de criação.
+- “Ontem passei 80 no cartão”, seguido de “à vista”, confirma a compra de
+  ontem. “Foi no débito” preserva o dia e grava uma despesa avulsa.
+- O dia dito em rascunho fica fora do valor e do número de parcelas.
+  Data inválida pede esclarecimento. O contrato e o executor recusam primeiro
+  vencimento anterior à compra.
+- Chrome local verificou crédito e débito. A suíte passou com 1.180/1.180
+  regressões adversariais e 151/151 invariantes.

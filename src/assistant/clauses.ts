@@ -775,7 +775,7 @@ function moveFuturoReferido(clauses: AnalyzedClause[], today: string): void {
 // Análise
 // ---------------------------------------------------------------------------
 
-const DATABLE = new Set(['income', 'expense', 'saving', 'work', 'fuel', 'maintenance', 'card-payment'])
+const DATABLE = new Set(['income', 'expense', 'saving', 'work', 'fuel', 'maintenance', 'card-payment', 'card-purchase'])
 const ORIGINABLE = new Set(['income', 'expense'])
 
 // Predicados explícitos: sob `strict: false` o TypeScript não estreita união
@@ -1028,6 +1028,7 @@ export function revisedAction(action: ParsedAction, body: string, today: string)
       origin: origin || (replacement.description ? undefined : action.origin), ...(exactDate ? { date: exactDate } : {}) }
   }
 
+  if (action.kind === 'card-purchase' && exactDate && amount === undefined && !place) return { ...action, date: exactDate }
   if (place || exactDate || amount === undefined) return undefined
   if ('amount' in action) return { ...action, amount }
   if ('total' in action) return { ...action, total: amount }
