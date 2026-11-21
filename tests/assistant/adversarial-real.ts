@@ -287,6 +287,37 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       'aguarda correção de compra no futuro e recusa vencimento anterior à compra pelo contrato e pelo executor',
       future.response.mode === 'clarify' && !future.response.actions.length && isValidationFailure(checked)
       && !invalid.applied && invalid.state === state))
+
+    const custom = await send('ontem comprei uma cadeira de 250 em 2x no Nubank. O primeiro vencimento é em 10/12/2026')
+    const customApplied = commit(custom)
+    const [customPlan] = customApplied.state.installmentPlans
+    out.push(result('CD-compra-e-vencimento-explicitos', { reply: custom.response.reply, plan: customPlan, bills: customApplied.state.installments },
+      'compra em 20/11, duas parcelas de R$ 125 em 10/12 e 10/01',
+      customApplied.applied && customPlan?.purchaseDate === ontem && customPlan.firstDueDate === '2026-12-10'
+      && customApplied.state.installments.map(x => x.dueDate).join(',') === '2026-12-10,2027-01-10'
+      && customApplied.state.installments.every(x => x.amount === 125) && /1º vencimento: 10\/12\/2026/.test(custom.response.reply)))
+
+    const firstAndOther = await send('ontem passei 80 no Nubank com primeiro vencimento dia vinte e oito, e paguei 20 de ônibus hoje')
+    const full = commit(await send('em 2x', firstAndOther))
+    out.push(result('CD-vencimento-e-compra-pendente-com-outro-gasto', { firstAndOther, confirmadas: full.results },
+      'a compra de 80 pergunta parcelas, conserva o vencimento em 28/11 e mantém o ônibus como despesa independente',
+      firstAndOther.response.mode === 'clarify' && firstAndOther.response.clarification.field === 'installments'
+      && firstAndOther.response.actions.length === 1 && full.applied && full.state.transactions.length === 1
+      && full.state.transactions[0].amount === 20 && full.state.installmentPlans[0]?.firstDueDate === '2026-11-28'
+      && full.state.installmentPlans[0]?.purchaseDate === ontem && full.state.installmentPlans[0]?.totalAmount === 80))
+
+    const badDue = await send('o primeiro vencimento é dia 19 deste mês', custom)
+    const correctedDue = commit(await send('dia 26', badDue))
+    out.push(result('CD-corrige-vencimento-invalido-sem-mudar-compra', { badDue, correctedDue: correctedDue.results },
+      'oculta a proposta anterior até corrigir o vencimento. Compra continua em 20/11 e vence em 26/11',
+      badDue.response.mode === 'clarify' && badDue.response.clarification.field === 'firstDueDate'
+      && badDue.correctedPending?.length === 0 && !badDue.response.actions.length && correctedDue.applied
+      && correctedDue.state.installmentPlans[0]?.firstDueDate === '2026-11-26'
+      && correctedDue.state.installmentPlans[0]?.purchaseDate === ontem))
+
+    const denied = await send('não comprei 250 em 2x no Nubank, primeiro vencimento dia 25')
+    out.push(result('CD-compra-negada-sem-rascunho', denied.response, 'sem proposta, sem perguntar o valor de uma compra negada',
+      !denied.draft && !denied.response.actions.length && denied.response.mode !== 'clarify'))
   }
 
   {

@@ -14,6 +14,8 @@ import { actionSpec } from './contracts'
 import { parseMoney, todayISO, uid } from '../utils/format'
 import { normalizeNumberWords } from './numbers'
 import { findDate } from './dates'
+import { resolveCardPurchaseDue } from './cardPurchaseDue'
+import { looksNegated } from './clauses'
 import { guessCategory } from '../data/categories'
 import { sentenceCase, normalizeName } from '../utils/text'
 import { maintenanceWithoutCost, compraDeAparelho } from '../services/nlp'
@@ -109,6 +111,7 @@ function semValorDraft(text: string, t: string, caps: AssistantCapabilities): In
 }
 
 export function detectIncomplete(text: string, caps: AssistantCapabilities, today = todayISO()): IncompleteIntent | null {
+  if (looksNegated(text)) return null
   const { text: t } = normalizeNumberWords(text.toLowerCase())
 
   if (caps.isDriver && !/\?|\b(?:quanto|quando|qual|como|n[ãa]o|nunca|jamais)\b/.test(t)) {
@@ -206,6 +209,7 @@ export function questionFor(
     target: 'Qual é o valor da meta?',
     item: 'O que foi trocado?',
     date: 'De qual dia foi?',
+    firstDueDate: 'Qual é a data do primeiro vencimento? Informe o dia e o mês, ou diga "próxima fatura".',
   }
   return { actionKind: kind, field, question: QUESTIONS[field] || `Qual é o valor de ${field}?`, options }
 }
@@ -248,6 +252,17 @@ export function resolveDraftAnswer(
   const resolved: string[] = []
   const { text: norm } = normalizeNumberWords(message)
   const normalized = norm.toLowerCase()
+  if (draft.partial.kind === 'card-purchase' && draft.missingFields[0]?.field === 'firstDueDate') {
+    const useDefault = /^pr[oó]xima\s+fatura[.!]*$/i.test(normalized.trim())
+    const firstDueDate = resolveCardPurchaseDue(message, draft.partial.date || today, today)
+    if (firstDueDate || useDefault) {
+      next.partial = { ...draft.partial, firstDueDate }
+      next.missingFields = draft.missingFields.slice(1)
+      next.status = next.missingFields.length ? 'collecting' : 'ready'
+      return { draft: next, resolved: ['firstDueDate'], unmatched: false }
+    }
+    return { draft: next, resolved: [], unmatched: !/^\s*(?:\d|dia\b|no\s+dia|foi\b|era\b)/i.test(normalized) }
+  }
   const date = findDate(normalized, today)
   const lower = date ? `${normalized.slice(0, date.start)} ${normalized.slice(date.end)}`.trim() : normalized
 

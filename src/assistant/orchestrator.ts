@@ -19,7 +19,7 @@ import type {
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, errorMessage, isValidationFailure, validateAction } from './contracts'
-import { PEDE_APAGAR, analyzeMessage, contestsProposal, datesMentioned, declaresIntention, financialEventActions, isRefundInflow, looksLikeQuestion, looksLikeRetraction, looksNegated, looksPast, looksRecurring, speechForCommands, weekdayChoiceWord } from './clauses'
+import { PEDE_APAGAR, analyzeMessage, contestsProposal, datesMentioned, declaresIntention, financialEventActions, isRefundInflow, looksLikeQuestion, looksLikeRetraction, looksNegated, looksPast, looksRecurring, segment, speechForCommands, weekdayChoiceWord } from './clauses'
 import { categoryDilemma, outOfPatternWarning, withLearnedCategory } from './learning'
 import { explainRequest } from './explain'
 import { answerConversation, isFocusFresh, looksLikeFollowUp } from './conversation'
@@ -31,6 +31,7 @@ import { parseTypedPairs } from './semantic/pairs'
 import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } from './semantic/normalize'
 import { spokenClock } from './semantic/clock'
 import { answerRideOffer } from './rideOffer'
+import { readCardPurchaseDue, resolveCardPurchaseDue } from './cardPurchaseDue'
 import { conflictQuestion, evidenceFor, mergeByField, sameFact } from './semantic/evidence'
 import { classifyLocalDecision } from './semantic/confidence'
 import { modalidadeExplicita, planoContradizModalidade } from './semantic/modality'
@@ -42,7 +43,7 @@ import { rememberQuery } from './conversation'
 import type { RepairedText } from './semantic/normalize'
 import type { ConversationFocus } from './conversation'
 import type { AnalyzedClause, MessageAnalysis, TemporalSignal } from './clauses'
-import { detectIncomplete, isDraftFresh, newDraft, resolveDraftAnswer } from './drafts'
+import { detectIncomplete, isDraftFresh, newDraft, questionFor, resolveDraftAnswer } from './drafts'
 import type { AssistantDraft } from './drafts'
 import { applyCorrection, parseCorrection } from './corrections'
 import type { CorrectionPlan } from './corrections'
@@ -980,7 +981,8 @@ function proposalText(candidates: AssistantCandidateAction[], state: AppState): 
   const lines = candidates.map(c => {
     const d = (c.action as any).date
     const at = 'time' in c.action ? c.action.time : undefined
-    const suffix = (d ? ` · ${dateLabel(d)}` : '') + (at ? ` às ${at}` : '')
+    const due = c.action.kind === 'card-purchase' ? c.action.firstDueDate : undefined
+    const suffix = (d ? ` · ${dateLabel(d)}` : '') + (at ? ` às ${at}` : '') + (due ? ` · 1º vencimento: ${brDate(due)}` : '')
     return `• ${describeAction(c.action, id => state.categories?.find(x => x.id === id)?.name)}${suffix}`
   })
   return `Entendi isso:\n\n${lines.join('\n')}`
@@ -1182,6 +1184,92 @@ function compraNoCartao(mensagem: string, candidates: AssistantCandidateAction[]
   const partial: any = { kind: 'card-purchase', total, ...(purchaseDate ? { date: purchaseDate } : {}), ...(descricao ? { description: descricao } : {}), ...(categoria ? { category: categoria } : {}), ...(cartao ? { cardName: cartao } : {}) }
   const missing = [...(said && said.kind !== 'date' ? ['date'] : []), 'installments', ...(caps.cardNames.length > 1 && !cartao ? ['cardName'] : [])]
   return { partial, missing }
+}
+
+/** Um vencimento explicitamente dito pertence ao parcelamento, não ao registro de caixa. */
+async function purchaseWithFirstDue(input: OrchestratorInput, caps: AssistantCapabilities, today: string): Promise<OrchestratorOutput | undefined> {
+  const mention = readCardPurchaseDue(input.message, today)
+  if (!mention) return undefined
+  const prev = segment(mention.before, today).slice(-1)[0]?.text || ''
+  const normalized = normalizeName(prev)
+  const context = normalizeName(prev + ' ' + mention.after)
+  const activeDraft = isDraftFresh(input.draft) && input.draft?.partial.kind === 'card-purchase' ? input.draft : undefined
+  const pureDue = !mention.message || /^[.!]*$/.test(mention.message)
+  const newPurchase = /\b(?:comprei|passei|parcelei|paguei|gastei|financiei|torrei)\b/.test(normalized)
+    && !looksLikeQuestion(prev) && !declaresIntention(prev) && !/\bfatura\b/.test(normalized)
+    && (/\b(?:cartao|credito|parcelad[oa]|(?:\d+\s*)(?:x|vezes|parcelas))\b/.test(context)
+      || caps.cardNames.some(name => new RegExp(`\\b(?:n[oa]|pel[oa])\\s+${escaparRegex(normalizeName(name))}\\b`).test(context)))
+  const pendingPurchase = pureDue && !activeDraft && input.pending?.some(c => c.action.kind === 'card-purchase')
+  if (!newPurchase && !activeDraft && !pendingPurchase) return undefined
+  if (!pureDue && activeDraft && !newPurchase && looksPast(mention.message)) return undefined
+
+  const result = pureDue
+    ? preparedActionResponse(input.state, { actions: pendingPurchase ? input.pending || [] : [], notes: [], clarification: undefined })
+    : await orchestrate({ ...input, message: mention.message })
+  if (newPurchase && looksNegated(prev)) return result
+  const openDraft = pureDue ? activeDraft : result.draft
+  if (openDraft?.partial.kind === 'card-purchase') {
+    const firstDueDate = resolveCardPurchaseDue(mention.answer, openDraft.partial.date || today, today)
+    const fields = openDraft.missingFields.filter(f => f.field !== 'firstDueDate')
+    const dueField = questionFor('card-purchase', 'firstDueDate', caps)
+    const draft = { ...openDraft, partial: { ...openDraft.partial, firstDueDate },
+      missingFields: firstDueDate ? fields : [...fields, dueField] }
+    const [field] = draft.missingFields
+    if (field) {
+      if (!pureDue && result.response.mode === 'clarify' && field.field === result.response.clarification.field) return { ...result, draft }
+      return { ...preparedActionResponse(input.state, { actions: result.response.actions, notes: [],
+        clarification: { field: field.field, question: field.question, options: field.options } }), draft, keepPending: pureDue || result.keepPending }
+    }
+    const checked = validateAction(draft.partial, caps, today)
+    if (!isValidationFailure(checked)) {
+      const other = input.pending || []
+      const before = other.filter(c => openDraft.companion?.before.includes(c.id))
+      const after = other.filter(c => openDraft.companion?.after.includes(c.id))
+      const actions = [...before, candidate(checked.action, 'local'), ...after]
+      return { ...preparedActionResponse(input.state, { actions, notes: [], clarification: undefined }), correctedPending: actions }
+    }
+  }
+
+  const candidates: AssistantCandidateAction[] = result.response.actions
+  const purchases = candidates.filter(c => c.action.kind === 'card-purchase')
+  const [target, ambiguous] = purchases
+  if (target?.action.kind === 'card-purchase' && !ambiguous) {
+    const firstDueDate = resolveCardPurchaseDue(mention.answer, target.action.date || today, today)
+    const updated = firstDueDate && validateAction({ ...target.action, firstDueDate }, caps, today)
+    if (updated && !isValidationFailure(updated) && result.response.mode !== 'answer') {
+      const actions = candidates.map(c => c.id === target.id ? { ...c, action: updated.action } : c)
+      if (result.response.mode === 'answer_and_actions') {
+        // A resposta composta precisa usar a fatura com o vencimento informado.
+        const analysis = analyzeMessage(mention.message, { today, driver: caps.isDriver })
+        const questions = analysis.clauses.filter(c => c.intent === 'question' && !c.ambiguity)
+        const corrected = answerQuestions(input.state, questions, actions, today, mention.message)
+        const reply = [proposalText(actions, input.state), corrected.text, 'Confirmar?'].filter(Boolean).join('\n\n')
+        return { ...result, focus: corrected.focus || result.focus, response: { ...result.response, actions, reply } }
+      }
+      const reply = result.response.reply
+      const label = `1º vencimento: ${brDate(firstDueDate)}`
+      const previous = proposalText(candidates, input.state)
+      return { ...result, correctedPending: pureDue ? actions : result.correctedPending,
+        response: { ...result.response, actions, reply: reply.includes(previous)
+          ? reply.replace(previous, proposalText(actions, input.state)) : `${reply}\n\n${label}` } }
+    }
+    const draft = newDraft({ partial: target.action, missing: ['firstDueDate'] }, input.message, caps)
+    const at = candidates.indexOf(target)
+    const before = candidates.slice(0, at)
+    const after = candidates.slice(at + 1)
+    draft.companion = { before: before.map(c => c.id), after: after.map(c => c.id) }
+    const [field] = draft.missingFields
+    const others = [...before, ...after]
+    return { ...preparedActionResponse(input.state, { actions: others, notes: [],
+      clarification: { field: field.field, question: field.question, options: field.options } }),
+      correctedPending: pureDue ? others : undefined, draft }
+  }
+  const question = ambiguous
+    ? 'Qual compra tem esse primeiro vencimento? Diga uma compra de cada vez, com o valor e a data do primeiro vencimento.'
+    : 'Qual foi a compra, o valor total e em quantas parcelas? Diga também o dia e o mês do primeiro vencimento.'
+  const actions = ambiguous ? candidates.filter(c => c.action.kind !== 'card-purchase') : []
+  return { ...preparedActionResponse(input.state, { actions, notes: [],
+    clarification: { field: 'firstDueDate', question } }), correctedPending: pureDue ? actions : undefined }
 }
 
 /**
@@ -1409,6 +1497,10 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     return { draft: input.draft || null, keepPending: true, focus: input.focus,
       response: clarification ? { ...response, mode: 'clarify', clarification } : { ...response, mode: 'answer' },
     }
+  }
+  if (!context.length) {
+    const due = await purchaseWithFirstDue(input, caps, today)
+    if (due) return due
   }
 
   // ---- 0) A mensagem escolhe uma opção que o assistente ofereceu? --------

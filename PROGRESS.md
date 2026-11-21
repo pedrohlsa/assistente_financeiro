@@ -6711,3 +6711,14 @@ até auditoria independente.
 - Chrome verificou uma oferta de 18 km e 30 min, a resposta ao cansaço
   e a confirmação de uma única entrada de R$ 22. A suíte passou com
   1.215/1.215 regressões adversariais.
+
+## 21/11/2026 — Primeiro vencimento informado pelo chat
+
+- “Ontem comprei uma cadeira em 2x. O primeiro vencimento é em 10/12”
+  separa a data da compra da data da primeira parcela. O vencimento
+  aparece na proposta e permanece durante as perguntas de preenchimento.
+- A correção de um vencimento inválido retira o cartão de confirmação até
+  receber uma data válida. Compras negadas deixaram de abrir rascunho no
+  fluxo de intenção incompleta.
+- Chrome confirmou compra em 20/11 com parcelas em 28/11 e 28/12, após
+  substituir o vencimento. Suíte com 1.219/1.219 regressões adversariais.
