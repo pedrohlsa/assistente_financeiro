@@ -608,6 +608,25 @@ export function fuelCostBasis(s: AppState, asOf?: string): { kmPerLiter: number;
   }
 }
 
+/**
+ * Km de um mês inteiro, para ratear o custo fixo MENSAL. Dividir pelos km
+ * rodados até hoje no mês corrente fazia o custo fixo valer o dobro no dia 15
+ * e seis vezes mais no dia 1º — e o mínimo recomendado e o "vale a pena?"
+ * herdavam a distorção. Mede os últimos 30 dias (escalados quando o histórico
+ * é mais curto, a partir de uma semana); sem isso, usa a média informada.
+ */
+export function projectedMonthlyKm(s: AppState, today = todayISO()): number {
+  const inicio = addDays(today, -29)
+  const janela = s.workSessions.filter(w => w.date >= inicio && w.date <= today && w.km > 0)
+  const km = janela.reduce((a, w) => a + w.km, 0)
+  const primeiro = s.workSessions.filter(w => w.km > 0 && w.date <= today).reduce((m, w) => (w.date < m ? w.date : m), today)
+  const cobertos = Math.min(30, Math.round((fromISO(today).getTime() - fromISO(primeiro).getTime()) / 86400000) + 1)
+  const informado = (s.vehicle?.averageDailyKm || 0) * 30
+  if (km > 0 && cobertos >= 7) return km / cobertos * 30
+  if (informado > 0) return informado
+  return km > 0 ? km / Math.max(cobertos, 1) * 30 : 0
+}
+
 export function kmCost(s: AppState): KmCost {
   // Sem dados do usuário, permanece zero: nunca inventa consumo ou preço.
   const { kmPerLiter, pricePerLiter } = fuelCostBasis(s)
@@ -615,9 +634,7 @@ export function kmCost(s: AppState): KmCost {
 
   const maintenancePerKm = s.maintenance.reduce((a, m) => a + (m.lifeKm > 0 ? m.cost / m.lifeKm : 0), 0)
 
-  const st = monthStats(s)
-  const informedKmMonth = (s.vehicle?.averageDailyKm || 0) * 30
-  const kmMonth = st.km > 0 ? st.km : informedKmMonth
+  const kmMonth = projectedMonthlyKm(s)
   const fixedPerKm = kmMonth > 0 ? (s.settings.fixedMonthlyCosts || 0) / kmMonth : 0
 
   const operational = fuelPerKm + maintenancePerKm

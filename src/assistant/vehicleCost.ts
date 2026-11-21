@@ -6,11 +6,14 @@ import { normalizeName } from '../utils/text'
 import { parsePeriod } from './query/period'
 
 const VEICULO = String.raw`(?:(?:o|a|meu|minha|seu|sua)\s+)?(?:carro|veiculo|moto)`
-const POR_KM = String.raw`por\s+(?:km|quilometro)`
+const POR_KM = String.raw`(?:por|cada|o)\s+(?:km|quilometro)(?:\s+rodado)?`
+const UM_KM = String.raw`(?:rodar|andar)\s+(?:1|um)\s+(?:km|quilometro)`
+const EU = String.raw`(?:eu\s+)?(?:(?:to|tou|estou|ando)\s+)?`
 const CUSTO_VEICULO = [
-  new RegExp(String.raw`^quanto\s+(?:${VEICULO}\s+)?(?:custa|custou)(?:\s+${VEICULO})?\s+${POR_KM}$`),
-  new RegExp(String.raw`^(?:qual\s+(?:e\s+)?o\s+)?custo\s+(?:d[oa]\s+${VEICULO}\s+)?${POR_KM}(?:\s+d[oa]\s+${VEICULO})?$`),
+  new RegExp(String.raw`^quanto\s+(?:${VEICULO}\s+)?(?:custa|custou|me\s+custa)(?:\s+${VEICULO})?\s+(?:${POR_KM}|${UM_KM})(?:\s+(?:d|com|n)[oa]\s+${VEICULO})?$`),
+  new RegExp(String.raw`^(?:qual\s+(?:e\s+)?(?:o\s+)?)?(?:(?:meu|o)\s+)?custo\s+(?:d[oa]\s+${VEICULO}\s+)?${POR_KM}(?:\s+d[oa]\s+${VEICULO})?$`),
   new RegExp(String.raw`^quanto\s+(?:sai\s+o\s+km|o\s+km\s+sai)(?:\s+d[oa]\s+${VEICULO})?$`),
+  new RegExp(String.raw`^quanto\s+${EU}(?:gasto|gastando)\s+${POR_KM}(?:\s+(?:com|n)[oa]\s+${VEICULO})?$`),
 ]
 const DESPESAS_VEICULO = new Set(['combustivel', 'manutencao', 'estacionamento', 'pedagio'])
 
