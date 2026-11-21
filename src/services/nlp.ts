@@ -839,27 +839,42 @@ function parseCardClause(text: string): ParsedAction[] {
   // "passei" também é compra no crédito ("passei um pc de 4000 em 4x") — só não
   // é quando vem acompanhado de "recebi", e esse caso já foi tratado acima como
   // entrada financiada.
-  if (/(comprei|compra|parcelei|parcelad[oa]|passei)/.test(text)) {
+  // "PAGUEI 2400 no seguro em 12x no nubank", "FIZ o curso em 6x": com o
+  // parcelamento dito, pagar também é compra parcelada (regra 10). Virava uma
+  // despesa avulsa de R$ 2.400 — o dinheiro contado de novo em cada parcela.
+  const parcelamentoDito = /(?:\bem|\bx)\s*(?:[2-9]|\d{2,3})\s*(?:vez(?:es)?|x|parcelas)\b|\b(?:[2-9]|\d{2,3})\s*x\b/i.test(text)
+  if (/(comprei|compra|parcelei|parcelad[oa]|passei)/.test(text) || (parcelamentoDito && /\b(?:paguei|fiz|financiei)\b/.test(text))) {
     const instM = text.match(/(?:em|x)\s*(\d+)\s*(?:vez(?:es)?|x|parcelas?)|(\d+)\s*x\b/i)
+    // "12x DE 200" é o valor da PARCELA: o total é 12 × 200. Lido como total,
+    // a compra de R$ 2.400 virava R$ 200.
+    const porParcela = text.match(new RegExp(String.raw`(\d+)\s*(?:x|vez(?:es)?|parcelas?)\s+(?:de|com)\s+(?:r\$\s*)?${NUM}(?!\s*(?:km|%|mil))`, 'i'))
     const valM = text.match(new RegExp(String.raw`(?:de|por|custou|valor de)\s*(?:r\$)?\s*${NUM}(?:\s*(mil))?`, 'i'))
       || text.match(new RegExp(String.raw`(?:r\$)\s*${NUM}(?:\s*(mil))?`, 'i'))
       // Valor colado no verbo, sem dizer o que foi comprado: "passei 1200 no
       // nubank em 3x". Sem esta forma a compra parcelada inteira se perdia —
       // e nem todo mundo descreve o item ao lançar.
-      || text.match(new RegExp(String.raw`(?:comprei|parcelei|passei)\s+(?:r\$)?\s*${NUM}(?:\s*(mil))?`, 'i'))
+      || text.match(new RegExp(String.raw`(?:comprei|parcelei|passei|paguei|fiz|financiei)\s+(?:r\$)?\s*${NUM}(?:\s*(mil))?`, 'i'))
+      // "O seguro do carro 2400 em 12x": o valor colado no parcelamento.
+      || text.match(new RegExp(String.raw`${NUM}(?:\s*(mil))?\s*(?:reais\s*)?(?=(?:em|x)\s*\d+\s*(?:vez|x|parcela))`, 'i'))
     // Sem valor OU sem parcelas não registra nada: quem pergunta é o assistente.
     if (!valM || !instM) return []
     let total = parseNum(valM[1])
     if (valM[2]) total *= 1000
     const installments = parseInt(instM[1] || instM[2], 10)
+    // O único valor da frase é o da parcela: o total sai da multiplicação.
+    if (porParcela && Math.abs(parseNum(porParcela[2]) - total) < 0.005 && Number(porParcela[1]) === installments) {
+      total = Math.round(total * installments * 100) / 100
+    }
     if (!(total > 0) || !(installments > 0)) return []
     // terminadores precisam ser palavras inteiras, senão "geladeira" vira "gela" + "de"
-    const descM = text.match(/(?:comprei|parcelei|passei)\s+(?:um|uma|o|a|uns|umas)\s+([\wçãõáéíóúâê]+(?:\s+[\wçãõáéíóúâê]+)*?)(?=\s+(?:de|por|em|no|na)\b|\s*r\$|\s*\d)/i)
+    const descM = text.match(/(?:comprei|parcelei|passei|paguei|fiz|financiei)\s+(?:um|uma|o|a|uns|umas)\s+([\wçãõáéíóúâê]+(?:\s+[\wçãõáéíóúâê]+)*?)(?=\s+(?:de|por|em|no|na)\b|\s*r\$|\s*\d)/i)
     return [{
       kind: 'card-purchase',
       description: descM ? descM[1].trim() : undefined,
       total, installments,
-      cardName: matchCardName(text),
+      // "O seguro DO CARRO": numa compra, "do/da" descreve o item. O cartão é
+      // dito com "no/na/pelo" — "do carro" virava o cartão "carro".
+      cardName: matchCardName(text, true),
       category: guessCategory(descM?.[1] || text, 'expense'),
     }]
   }
@@ -867,14 +882,14 @@ function parseCardClause(text: string): ParsedAction[] {
 }
 
 /** Nome do cartão citado depois de "no/na/pelo". Nunca inventa um cartão. */
-function matchCardName(text: string): string | undefined {
+function matchCardName(text: string, compra = false): string | undefined {
   // Percorre TODAS as ocorrências: em "paguei 600 da fatura do Nubank" a
   // primeira ("da fatura") é genérica e a segunda é o nome real. Parar na
   // primeira devolvia `undefined` e o pagamento ficava sem cartão.
   // Trabalhar por PALAVRA em vez de uma captura de duas palavras: com regex a
   // primeira ocorrência engolia "fatura do" e o nome real ficava fora do
   // alcance da busca seguinte.
-  const TRIGGER = /^(?:no|na|pelo|pela|do|da|cart[ãa]o)$/i
+  const TRIGGER = compra ? /^(?:no|na|pelo|pela|cart[ãa]o)$/i : /^(?:no|na|pelo|pela|do|da|cart[ãa]o)$/i
   const GENERIC = /^(?:cart[ãa]o|cr[ée]dito|d[ée]bito|fatura|vezes?|parcelas?|meses?|banco|valor|m[eê]s|conta|compra|dinheiro)$/i
   const PREP = /^(?:no|na|nos|nas|do|da|dos|das|de|pelo|pela|em|com|por|e|o|a|os|as|um|uma|meu|minha)$/i
   const words = text.match(/[a-zà-úà-ÿ][\wçãõáéíóúâêô]*/gi) || []

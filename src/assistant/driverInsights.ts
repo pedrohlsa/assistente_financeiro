@@ -20,6 +20,7 @@
 // os outros perfis (regra 3).
 
 import type { AppState, Transaction, WorkSession } from '../models/types'
+import { fuelSpend } from '../services/calc'
 import { addDays, fmtBRL, fmtNum, fromISO, todayISO } from '../utils/format'
 import { brDate } from './dates'
 import { weekdayName } from '../utils/text'
@@ -252,13 +253,7 @@ function tendencia(s: AppState): string {
 
 function combustivelTipico(s: AppState): string {
   const from = addDays(todayISO(), -(JANELA_DIAS - 1))
-  const gasto = (s.transactions || [])
-    .filter((t: any) => t?.type === 'expense' && t.category === 'combustivel' && t.date >= from)
-    .reduce((a: number, t: any) => a + t.amount, 0)
-  const abastecido = (s.fuelRecords || [])
-    .filter((f: any) => f?.date >= from)
-    .reduce((a: number, f: any) => a + (f.amount || 0), 0)
-  const total = gasto + abastecido
+  const total = fuelSpend(s, from, todayISO())
   if (total <= 0) {
     return 'Ainda não tenho abastecimento registrado nos últimos 30 dias, então não sei qual é o seu gasto típico de combustível.\n\n'
       + 'Registre um ("botei 100 de gasolina") que eu passo a calcular com os seus números.'

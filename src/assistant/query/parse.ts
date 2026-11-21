@@ -32,6 +32,7 @@ import { isDriver } from '../../services/profile'
 import { buildPersonalModel, adaptiveEnabled } from '../personalModel'
 import { pareceChegada, pedeProximaEntrada } from '../arrival'
 import { DIA_TIPICO } from '../driverInsights'
+import { pedeCustoMensalDoVeiculo } from '../vehicleCost'
 import { pedeAteOSalario, pedeFimDoMes, guardarEsteMes, pedeAntecipacaoDeFatura, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeDividaTotal, pedeFimDoParcelamento, pedeListaDeParcelamentos, pedeQuantoPossoGastar, pedeLimite, pedeMaiorParcela, pedeSobraSemCombustivel, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, perguntaDeManutencao, planoDeGuardar } from '../cashQuestions'
 import {
   currentMonthToDate, mesAFrente, monthPeriod, nextMonths, parseFutureMonth, parsePeriod, previousPeriod,
@@ -195,6 +196,7 @@ export function looksLikeDataQuestion(input: string): boolean {
   // "Como é meu dia típico?", "quanto eu faço num dia normal": o RITMO
   // diário, não o total do período — quem responde é o `driverInsight`.
   if (DIA_TIPICO.test(t)) return false
+  if (pedeCustoMensalDoVeiculo(input)) return false
   if (pedeAteOSalario(t) || pedeFimDoMes(t) || guardarEsteMes(t) !== null || pedeReservaDeCaixa(t) || pedeContaQueAperta(t) || pedeTotalGuardado(t) || (fatura && !faturaDaJanela) || pedeAntecipacaoDeFatura(t)
     || pedeContasAPagar(t) || planoDeGuardar(t) || perguntaDeManutencao(t)
     || pedeContasFixas(t) || pedeSobraSemCombustivel(t) || pedeLimite(t)
@@ -698,7 +700,7 @@ function categoriaDaExclusao(state: AppState, valor: string, tipo: 'income' | 'e
 }
 
 function resolverCategoria(
-  state: AppState, nome: string, tipo: 'income' | 'expense', lugar = false,
+  state: AppState, nome: string, tipo: 'income' | 'expense', lugar = false, prefixo = false,
 ): string | undefined {
   const alvo = normalizeName(nome)
   if (!alvo) return undefined
@@ -720,6 +722,19 @@ function resolverCategoria(
     if (!cats.some(c => c.id === id)) continue
     for (const p of palavras) {
       const chave = normalizeName(p)
+      if (!chave) continue
+      // Com `prefixo`, a mesma regra do `guessCategory`: a palavra-chave é o
+      // INÍCIO de uma palavra ("gasolin" cobre "gasolina"), e a que termina em
+      // espaço é a palavra inteira. Só na terceira tentativa — ver o chamador.
+      if (prefixo && !chave.includes(' ')) {
+        const inteira = p.endsWith(' ')
+        const palavrasAlvo = alvo.split(/\s+/)
+        if (!palavrasAlvo.some(w => (inteira ? w === chave : w.startsWith(chave)))) continue
+        const resto = palavrasAlvo.filter(w => !(inteira ? w === chave : w.startsWith(chave)))
+          .filter(w => w.length > 2 && !FUNCIONAIS_ALVO.has(w))
+        if (!resto.length) return id
+        continue
+      }
       if (alvo !== chave && !alvo.includes(` ${chave}`) && !alvo.startsWith(`${chave} `)) continue
       // A palavra-chave só define a categoria quando ela é PRATICAMENTE todo o
       // alvo. "Restaurante do Amarelo" começa com "restaurante", mas o usuário
@@ -1233,6 +1248,12 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
       // "Zé da esquina" pelo outro lado. Sem o lugar, a resposta certa é dizer
       // que não há lançamento com esse nome.
       fallbackCategory = categoriaAprendida(state, alvo.valor, tipoAlvo, hoje)
+        // Terceira tentativa, ainda só quando o texto não achar nada: a palavra
+        // que É inteira uma palavra-chave da categoria. "Quanto gastei de
+        // gasolina" com o abastecimento gravado como "Abastecimento" respondia
+        // "não tenho lançamento". Nome próprio junto ("Restaurante do
+        // Amarelo") continua sem categoria.
+        || (contaFixa ? undefined : resolverCategoria(state, alvo.valor, tipoAlvo, false, true))
       recognized.push(`texto "${alvo.literal}"`)
     }
   } else if (source === 'transactions' && !filter.origin && !filter.origins) {

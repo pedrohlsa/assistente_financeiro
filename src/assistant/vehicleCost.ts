@@ -1,5 +1,6 @@
 import type { AppState } from '../models/types'
-import { kmCost, periodStats } from '../services/calc'
+import { fuelSpend, kmCost, periodStats } from '../services/calc'
+import { addDays } from '../utils/format'
 import { isDriver } from '../services/profile'
 import { fmtBRL, fmtNum, todayISO } from '../utils/format'
 import { normalizeName } from '../utils/text'
@@ -58,4 +59,48 @@ export function answerVehicleCost(s: AppState, input: string, hoje = todayISO())
       + `Custo operacional: ${fmtBRL(kc.operational)}/km\nValor mínimo recomendado: ${fmtBRL(kc.minRecommended)}/km\nMeta confortável: ${fmtBRL(kc.comfort)}/km`,
     explanation: 'É o cálculo da tela Veículo: preço por litro ÷ km por litro, somado ao desgaste das peças por km e aos custos fixos mensais divididos pela quilometragem. Cada parcela depende dos dados cadastrados.',
   }
+}
+
+// ---------------------------------------------------------------------------
+// "Quanto o carro me custa por mês?"
+// ---------------------------------------------------------------------------
+// Respondia "Total gasto por mês", com o mercado e o aluguel dentro. O custo do
+// veículo é o que se gastou COM ele — combustível (contado uma vez), manutenção,
+// pedágio e estacionamento — mais os custos fixos que o usuário configurou.
+
+const CUSTO_MENSAL = [
+  new RegExp(String.raw`^quanto\s+${VEICULO}\s+(?:me\s+)?(?:custa|custou|sai|gasta|consome)(?:\s+(?:por|ao|no|todo)\s+mes)?$`),
+  new RegExp(String.raw`^quanto\s+${EU}(?:gasto|gastei|gastando)\s+com\s+${VEICULO}(?:\s+(?:por|no|ao|esse|este|todo)\s+mes)?$`),
+  new RegExp(String.raw`^(?:qual\s+(?:e\s+)?)?(?:o\s+)?custo\s+(?:mensal\s+)?d[oa]\s+${VEICULO}(?:\s+(?:por|no|ao)\s+mes)?$`),
+]
+
+export function pedeCustoMensalDoVeiculo(input: string): boolean {
+  const t = normalizeName(input).replace(/[.!?]+$/, '').trim()
+  return CUSTO_MENSAL.some(re => re.test(t))
+}
+
+export function answerVehicleMonthly(s: AppState, input: string, hoje = todayISO()): string | null {
+  if (!isDriver(s.settings) || !pedeCustoMensalDoVeiculo(input)) return null
+  const de = addDays(hoje, -29)
+  const porCat = (cat: string) => s.transactions.filter(t => t.type === 'expense' && t.category === cat && t.date >= de && t.date <= hoje)
+    .reduce((a, t) => a + t.amount, 0)
+  const combustivel = fuelSpend(s, de, hoje)
+  const manutencao = porCat('manutencao')
+  const viagem = porCat('pedagio') + porCat('estacionamento')
+  const realizado = combustivel + manutencao + viagem
+  const fixos = s.settings.fixedMonthlyCosts || 0
+  if (realizado <= 0 && fixos <= 0) {
+    return 'Ainda não tenho gasto do veículo registrado nos últimos 30 dias. Registre abastecimentos e manutenções, ou configure os custos fixos (seguro, IPVA, parcela) em Veículo, que eu somo.'
+  }
+  const linhas = [
+    `Nos últimos 30 dias o veículo custou ${fmtBRL(realizado)} em gastos registrados (dado real):`,
+    '',
+    `• Combustível: ${fmtBRL(combustivel)}`,
+    `• Manutenção: ${fmtBRL(manutencao)}`,
+    ...(viagem > 0 ? [`• Pedágio e estacionamento: ${fmtBRL(viagem)}`] : []),
+  ]
+  linhas.push('', fixos > 0
+    ? `Somando os custos fixos que você configurou (${fmtBRL(fixos)} por mês), dá cerca de ${fmtBRL(realizado + fixos)} por mês.`
+    : 'Custos fixos (seguro, IPVA, parcela) não estão configurados em Veículo — se existirem, eles somam a isso.')
+  return linhas.join('\n')
 }

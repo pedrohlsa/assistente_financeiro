@@ -20,6 +20,7 @@ import { autonomoRico, motoristaRico } from '../fixtures/richState'
 import { buildState } from './harness'
 import { PALAVRAS_REAIS_PROTEGIDAS, repairStructuralTypos } from '../../src/assistant/semantic/normalize'
 import { guessCategory } from '../../src/data/categories'
+import { normalizeName } from '../../src/utils/text'
 
 const TODAY = '2026-09-15'
 
@@ -6993,11 +6994,10 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   {
     const rico = autonomoRico(hoje)
     const base = (await turnoHoje(rico, 'consigo guardar 300 esse mês?')).reply
-    const veredito = (r: string) => (/^Pela previsão, (?:não|sim)|^(?:Sim|Não)\b/.exec(r)?.[0] || '').toLowerCase()
     for (const frase of ['dá pra guardar 300 esse mês?', 'daria pra guardar 300 esse mês?', 'tem como guardar 300 esse mês?', 'rola guardar 300 esse mês?']) {
       const r = (await turnoHoje(rico, frase)).reply
       out.push(result(`GE-${frase.replace(/\W+/g, '-')}`, { r, base }, 'mesma resposta de "consigo guardar 300 esse mês?"',
-        !!veredito(base) && veredito(r) === veredito(base) && !/Simula[çc][ãa]o/.test(r)))
+        r.split('\n')[0] === base.split('\n')[0] && /previs[ãa]o/.test(r) && !/Simula[çc][ãa]o/.test(r)))
     }
     // Controle: guardar POR MÊS para uma meta continua sendo simulação.
     const sim = (await turnoHoje(rico, 'se eu guardar 500 por mês, quando chego no notebook?')).reply
@@ -7058,6 +7058,57 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     // Controle: "vale a pena" não é salário nem registro.
     const pena = await turnoHoje(st, 'vale a pena pagar a fatura toda?')
     out.push(result('CL-controle-vale-a-pena', pena.actions, 'sem receita', !pena.actions.some((a: any) => a.kind === 'income')))
+  }
+
+  // Abastecimento grava o registro do veículo E a transação de Combustível; a
+  // média somava os dois ("R$ 200 em combustível" para R$ 100). "Gasolina" na
+  // consulta não virava a categoria, e "quanto o carro me custa por mês"
+  // respondia o gasto TOTAL do mês.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (t: string) => t.replace(/ /g, ' ')
+    let st = buildState({ profile: 'driver' })
+    const r1 = await turnoHoje(st, 'abasteci 100')
+    st = applyBatchPure(st, r1.actions.map((action, i) => ({ id: `cb-${i}`, action })), { now: { date: hoje, time: '09:00' } }).state
+    for (const [id, frase] of [
+      ['CB-media-sem-dobrar', 'quanto gasto de combustível por dia em média'],
+      ['CB-gasolina-e-categoria', 'quanto gastei de gasolina esse mês'],
+      ['CB-gasolina-por-mes', 'quanto to gastando de gasolina por mês'],
+      ['CB-carro-por-mes', 'quanto o carro me custa por mês'],
+      ['CB-gasto-com-o-carro', 'quanto gasto com o carro'],
+    ] as const) {
+      const r = limpa((await turnoHoje(st, frase)).reply)
+      out.push(result(id, r, 'R$ 100,00, nunca R$ 200,00', r.includes(brl(100)) && !r.includes(brl(200)) && !/Posso te ajudar|Não tenho nenhum lançamento/.test(r)))
+    }
+    const total = limpa((await turnoHoje({ ...st, transactions: [...st.transactions,
+      { id: 'cb-mercado', type: 'expense', amount: 300, category: 'alimentacao', description: 'Mercado', date: hoje } as any] }, 'quanto o carro me custa por mês')).reply)
+    out.push(result('CB-carro-sem-mercado', total, 'sem o mercado no custo do carro', total.includes(brl(100)) && !total.includes(brl(400))))
+    // Fora do perfil motorista não há veículo (regra 3).
+    const outro = (await turnoHoje(buildState({ profile: 'autonomo' }), 'quanto o carro me custa por mês')).reply
+    out.push(result('CB-nao-motorista', outro, 'sem resposta de custo do veículo', !/veículo custou/.test(outro)))
+  }
+
+  // Parcelamento dito com "paguei", valor colado no item, "12x DE 200" e o
+  // item "do carro" lido como cartão. "Paguei 2400 no seguro em 12x no nubank"
+  // virava despesa avulsa — a compra contada de novo em cada parcela (regra 10).
+  {
+    const st = buildState({ profile: 'driver', cards: [{ name: 'Nubank' }, { name: 'Inter' }] })
+    for (const [id, frase, total, parcelas, cartao] of [
+      ['PZ-paguei-em-12x-no-nubank', 'paguei 2400 no seguro em 12x no nubank', 2400, 12, 'Nubank'],
+      ['PZ-12x-de-200', 'parcelei o seguro do carro em 12x de 200 no inter', 2400, 12, 'inter'],
+      ['PZ-valor-colado', 'comprei o seguro do carro 2400 em 12x no nubank', 2400, 12, 'nubank'],
+      ['PZ-paguei-colado', 'paguei o seguro do carro 2400 em 12x', 2400, 12, null],
+      ['PZ-total-e-parcela', 'comprei uma tv de 3000 em 10x de 300 no nubank', 3000, 10, 'nubank'],
+    ] as const) {
+      const r = await turnoHoje(st, frase)
+      const a: any = r.actions[0]
+      out.push(result(id, r.actions, `card-purchase ${total} em ${parcelas}x${cartao ? ` no ${cartao}` : ''}, nunca despesa`,
+        r.actions.length === 1 && a.kind === 'card-purchase' && a.total === total && a.installments === parcelas
+          && (cartao ? normalizeName(a.cardName || '') === normalizeName(cartao) : !a.cardName)))
+    }
+    // Controle: pagar uma parcela de financiamento continua sendo despesa.
+    const parcela = await turnoHoje(st, 'paguei 200 da parcela do carro')
+    out.push(result('PZ-controle-parcela-paga', parcela.actions, 'despesa 200', parcela.actions.some((a: any) => a.kind === 'expense' && a.amount === 200)))
   }
 
   return out

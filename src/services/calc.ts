@@ -53,6 +53,26 @@ export function periodStats(s: AppState, from: string, to: string, today = today
   }
 }
 
+/**
+ * Dinheiro de combustível no período, contado UMA vez. Formulário e assistente
+ * gravam o abastecimento duas vezes — o registro do veículo (`fuelRecords`) e
+ * a transação de Combustível —, e somar os dois dobrava o gasto ("R$ 200 em
+ * combustível" para um abastecimento de R$ 100). A transação é o dinheiro; o
+ * registro só entra quando não tem transação do mesmo dia e valor (dado antigo).
+ */
+export function fuelSpend(s: AppState, from: string, to: string): number {
+  const txs = (s.transactions || []).filter(t => t && t.type === 'expense' && t.category === 'combustivel' && t.date >= from && t.date <= to)
+  const usadas = new Set<number>()
+  let avulsos = 0
+  for (const f of s.fuelRecords || []) {
+    if (!f || f.date < from || f.date > to) continue
+    const i = txs.findIndex((t, k) => !usadas.has(k) && t.date === f.date && Math.abs(t.amount - (f.amount || 0)) < 0.005)
+    if (i >= 0) usadas.add(i)
+    else avulsos += f.amount || 0
+  }
+  return txs.reduce((a, t) => a + t.amount, 0) + avulsos
+}
+
 export const todayStats = (s: AppState) => periodStats(s, todayISO(), todayISO())
 export const weekStats = (s: AppState) => periodStats(s, addDays(todayISO(), -6), todayISO())
 export const monthStats = (s: AppState) => {

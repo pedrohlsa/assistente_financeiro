@@ -20,7 +20,7 @@ import { normalizeName, promptSafe, sentenceCase } from '../utils/text'
 import { MAX_COMPOSE_FACTS } from '../assistant/grounding'
 import { MARGEM_EMPATE } from '../assistant/query/answer'
 import {
-  analyzeRide, avgDailyProfit, balanceOutlook, balanceOutlookText, cashObligationsUntil, dailySeries, currentBalance, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
+  analyzeRide, avgDailyProfit, balanceOutlook, balanceOutlookText, cashObligationsUntil, dailySeries, fuelSpend, currentBalance, dailyGoal, fuelEfficiency, kmCost, monthlySavingGoal, upcomingIncomes,
   monthStats, periodStats, prevMonthStats, todayStats, upcomingBills, weekStats, monthlyProjections, budgetUsage,
   describeRecurrence, occurrencesBetween, recurrenceStep, recurringActiveOn, recurringOccurrenceState, savedThisMonth, monthForecast,
 } from './calc'
@@ -33,7 +33,7 @@ import {
 import type { PerguntaDeConta, PerguntaDeFatura, PlanoDeGuardar } from '../assistant/cashQuestions'
 import { describeAction, parseNaturalFull, SAQUE } from './nlp'
 import { driverInsight } from '../assistant/driverInsights'
-import { answerVehicleCost } from '../assistant/vehicleCost'
+import { answerVehicleCost, answerVehicleMonthly } from '../assistant/vehicleCost'
 import { avaliacaoDoDia } from '../assistant/dayReview'
 import { respostaDeChegada, respostaDeProximaEntrada } from '../assistant/arrival'
 import { readInvoiceReference } from '../assistant/invoicePayment'
@@ -470,6 +470,9 @@ export function normalizeQuestion(input: string): string {
 function resolveLocal(s: AppState, input: string): AiReply {
   const t = normalizeQuestion(input)
   const driverMode = isDriver(s.settings)
+  // Antes das rotas de "quanto gastei": sem período, elas devolviam a ajuda.
+  const custoMensal = answerVehicleMonthly(s, t)
+  if (custoMensal) return { text: custoMensal }
   // Meta de COMPRA citada pelo NOME ganha da meta diária e da mensal. O usuário
   // tem as duas, e a palavra "meta" serve às duas — mas quem batizou a meta de
   // "Moto" e pergunta por ela espera ouvir sobre ela.
@@ -1227,13 +1230,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
     const dias = /m[eê]s/.test(t) ? 30 : /semana/.test(t) ? 7 : 1
     const p = { from: addDays(todayISO(), -29), to: todayISO() }
     const st = periodStats(s, p.from, p.to)
-    const gasto = s.transactions
-      .filter(x => x.date >= p.from && x.date <= p.to && x.type === 'expense' && x.category === 'combustivel')
-      .reduce((a, x) => a + x.amount, 0)
-    const abastecido = (s.fuelRecords || [])
-      .filter(x => x.date >= p.from && x.date <= p.to)
-      .reduce((a, x) => a + (x.amount || 0), 0)
-    const total = gasto + abastecido
+    const total = fuelSpend(s, p.from, p.to)
     if (total <= 0) return { text: 'Ainda não tenho abastecimento registrado nos últimos 30 dias. Registre um ("botei 100 de gasolina") e eu te digo a média.' }
     const unidade = dias === 1 ? 'por dia' : dias === 7 ? 'por semana' : 'por mês'
     return {

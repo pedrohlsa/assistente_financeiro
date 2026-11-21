@@ -663,8 +663,15 @@ function runLocal(
     // catálogo.
     if (!actionSpec(a.kind)?.fields.some(f => f.name === 'cardName')) continue
     if (a.cardName) {
-      const known = caps.cardNames.some(n => normalizeName(n) === normalizeName(a.cardName)
+      let known = caps.cardNames.some(n => normalizeName(n) === normalizeName(a.cardName)
         || normalizeName(n).includes(normalizeName(a.cardName)))
+      // "Paguei 2400 NO SEGURO em 12x NO NUBANK": o primeiro "no X" era o item.
+      // Um cartão cadastrado citado pelo nome na frase é o cartão.
+      if (!known && a.kind === 'card-purchase') {
+        const frase = normalizeName(input.message)
+        const citado = caps.cardNames.find(n => new RegExp(`(?<![\\wÀ-ÿ])${escaparRegex(normalizeName(n))}(?![\\wÀ-ÿ])`).test(frase))
+        if (citado) { a.cardName = citado; known = true }
+      }
       if (!known) {
         clarification = clarification || {
           question: caps.cardNames.length
