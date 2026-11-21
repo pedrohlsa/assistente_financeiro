@@ -6866,3 +6866,12 @@ até auditoria independente.
   confirmou só o mercado, retomou a oferta em três turnos e descartou
   o esclarecimento concluído ao voltar ao chat. As 1.302 regressões
   passaram. A matriz própria passou 770 cenários em cada um de três fusos.
+
+## 21/11/2026 — Volta informada na análise de corridas
+
+- Embarque, viagem e retorno entram na distância e no custo quando
+  declarados. “15 km no total mais 10 km de volta” usa 25 km. Se a
+  frase só disser “15 km no total e 10 km de volta”, o chat pergunta
+  se a volta já está incluída.
+- A taxa por hora usa o tempo com retorno. A comparação usa cada
+  rota separadamente. Suíte com 1.307/1.307 regressões.

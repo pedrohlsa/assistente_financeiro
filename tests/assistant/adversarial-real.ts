@@ -7136,6 +7136,31 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
           && actualRide.response.actions.length === 1 && /^Pare em um local seguro/.test(fatigue.response.reply)
           && !fatigue.response.actions.length && answerChoices(ambiguousDistance)?.rideOffer?.value === 35
           && !ambiguousDistance.response.actions.length))
+      for (const [id, text, hourly, minutes] of [
+        ['RP-retorno-com-trechos', 'corrida de 45, 3 km até o passageiro, 12 km de viagem e 10 km de retorno, 30 min no total, compensa?', 65, 30],
+        ['RP-retorno-somado-ao-tempo', 'corrida de 45, 15 km no total mais 10 km de volta, 30 min no total mais 20 min de volta, compensa?', 39, 50],
+        ['RP-retorno-sem-tempo-da-volta', 'corrida de 45, 15 km no total mais 10 km de volta, 5 min até o passageiro e 25 min de viagem, compensa?', undefined, undefined],
+      ] as const) {
+        const r = await rideTurn(text)
+        const reply = limpa(r.response.reply)
+        out.push(result(id, reply, 'R$ 45 sobre 25 km, com custo do retorno e taxa horária quando o tempo é completo',
+          r.response.mode === 'answer' && !r.response.actions.length && reply.includes('25 km no total')
+            && reply.includes('Inclui 10 km de retorno') && reply.includes(`${brl(32.5)} com os custos`)
+            && (hourly ? reply.includes(`${brl(hourly)}/hora líquida nos ${minutes} min`)
+              : !/hora líquida/.test(reply) && /tempo total incluindo o retorno/.test(reply))))
+      }
+      const returnUnknown = await rideTurn('corrida de 45, 15 km no total e 10 km de volta, compensa?')
+      const returnIncluded = await rideTurn('sim', returnUnknown)
+      const returnExtra = await rideTurn('não inclui', returnUnknown)
+      out.push(result('RP-total-e-retorno-definidos-pela-resposta', [returnUnknown.response, returnIncluded.response, returnExtra.response],
+        'pergunta se a volta está incluída, calcula 15 km ou 25 km conforme a resposta',
+        /já incluem os 10 km/.test(returnUnknown.response.reply) && answerChoices(returnUnknown)?.field === 'ride-offer'
+        && /15 km no total/.test(returnIncluded.response.reply) && /25 km no total/.test(returnExtra.response.reply)
+        && [returnUnknown, returnIncluded, returnExtra].every(r => !r.response.actions.length)))
+      const returnComparison = await rideTurn('compare corrida de 45 por 15 km no total mais 10 km de volta ou 30 por 12 km no total, qual paga mais por km?')
+      out.push(result('RP-retorno-muda-comparacao', returnComparison.response.reply, 'segunda paga R$ 2,50/km contra R$ 1,80/km da primeira',
+        /^A segunda paga mais por km/.test(returnComparison.response.reply) && /25 km com 10 km de retorno/.test(returnComparison.response.reply)
+        && limpa(returnComparison.response.reply).includes(`${brl(1.8)}/km bruto`) && !returnComparison.response.actions.length))
       const onlyOne = await turnoHoje(oferta, 'corrida de 40 em 8 ou 10 km, vale?')
       out.push(result('RP-distancia-duvidosa-nao-e-duas-ofertas', onlyOne.reply, 'pede a distância de cada oferta sem criar uma',
         /Diga o valor e a distância/.test(onlyOne.reply) && !onlyOne.actions.length && !/Primeira\./.test(onlyOne.reply)))
