@@ -31,6 +31,7 @@ import { parseTypedPairs } from './semantic/pairs'
 import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } from './semantic/normalize'
 import { spokenClock } from './semantic/clock'
 import { continueRideOffer, interpretRideOffer } from './rideOffer'
+import { reconcileSpokenTotals } from './spokenTotals'
 import { readCardPurchaseDue, resolveCardPurchaseDue } from './cardPurchaseDue'
 import { conflictQuestion, evidenceFor, mergeByField, sameFact } from './semantic/evidence'
 import { classifyLocalDecision } from './semantic/confidence'
@@ -1539,6 +1540,15 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (nominal) input = { ...input, message: nominal }
   const caps = buildCapabilities(input.state)
   const today = input.today || todayISO()
+  if (!input.draft && (!input.pendingClarification || input.pendingClarification.field === 'reported-total')) {
+    const reconciled = reconcileSpokenTotals(input.message, today, isDriver(input.state.settings))
+    if (reconciled?.issue) return {
+      draft: null, keepPending: true, focus: input.focus,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [],
+        reply: reconciled.issue, clarification: { field: 'reported-total', question: reconciled.issue, options: [] } },
+    }
+    if (reconciled?.text) input = { ...input, message: reconciled.text }
+  }
   const { command, context } = speechForCommands(input.message, today)
   if (!command && context.length) {
     const clarification = input.pendingClarification

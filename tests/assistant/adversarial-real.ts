@@ -1670,6 +1670,38 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       pixOnly.focus?.lastQuery?.total === 120.5 && pixOnly.focus?.lastQueryPlan?.filter.text === 'pix'
         && totalSame.focus?.lastQuery?.total === 120.5 && !totalSame.focus.lastQueryPlan?.filter.text))
   }
+  {
+    const s = buildState({ profile: 'driver', cards: [{ name: 'Nubank', dueDay: 20, closingDay: 5 }] })
+    const ask = (message: string, previous?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({
+      state: s, today: TODAY, message, remoteEnabled: false, pendingClarification: answerChoices(previous),
+    })
+    for (const [id, message, amounts, kinds] of [
+      ['frete-incluido', 'paguei 60 incluindo 10 de frete', [60], ['expense']],
+      ['entrega-incluida', 'gastei 150 no mercado dos quais 25 de entrega', [150], ['expense']],
+      ['frete-e-taxa-incluidos', 'paguei 100 no mercado incluindo 10 de frete e 20 de taxa ontem', [100], ['expense']],
+      ['frete-separado', 'paguei 50 no mercado mais 10 de entrega', [50, 10], ['expense', 'expense']],
+      ['taxa-incluida-na-receita', 'recebi 80 da Ana contando os 20 de taxa', [80], ['income']],
+      ['parcela-no-total', 'passei 80 no Nubank em 2x e paguei 40 no Pix, 120 no total', [80, 40], ['card-purchase', 'expense']],
+      ['total-das-origens', 'recebi 100 da Ana e 120 do João, 220 no total', [100, 120], ['income', 'income']],
+      ['total-no-fim-da-lista', 'paguei 100 no mercado e 50 na farmácia, 150 ao todo', [100, 50], ['expense', 'expense']],
+      ['total-dos-dias', 'ontem paguei 100 no Pix e hoje 50 em dinheiro, tudo deu 150', [100, 50], ['expense', 'expense']],
+    ] as const) {
+      const r = await ask(message)
+      const prepared = r.response.actions.map(({ action }) => action)
+      const actual = prepared.map(a => a.kind === 'card-purchase' ? a.total : 'amount' in a ? a.amount : undefined)
+      out.push(result(`A-totais-${id}`, r.response, 'somente os movimentos que compõem o total',
+        r.response.mode === 'propose_actions' && actual.join(',') === amounts.join(',') && prepared.map(a => a.kind).join(',') === kinds.join(',')
+        && (id !== 'frete-e-taxa-incluidos' || ('date' in prepared[0] && prepared[0].date === addDays(TODAY, -1)))))
+    }
+    const conflict = await ask('paguei 100 no mercado e 50 na farmácia, 140 ao todo')
+    const corrected = await ask('paguei 100 no mercado e 40 na farmácia, 140 ao todo', conflict)
+    const badPart = await ask('paguei 60 incluindo 100 de frete')
+    out.push(result('A-totais-conflito-e-correcao', [conflict.response, corrected.response, badPart.response],
+      'vê o conflito antes de propor; correção com compras de 100 e 40 retoma normalmente',
+      answerChoices(conflict)?.field === 'reported-total' && !conflict.response.actions.length
+        && corrected.response.actions.length === 2 && corrected.response.actions.map(({ action }) => 'amount' in action ? action.amount : -1).join(',') === '100,40'
+        && !badPart.response.actions.length && answerChoices(badPart)?.field === 'reported-total'))
+  }
   const directMixed = buildState({ balance: 1000, cards: [{ name: 'Inter', dueDay: 20, closingDay: 5 }] })
   directMixed.settings.balanceAsOf = '2026-09-14T09:00'
   directMixed.installmentPlans = [{ id: 'mixed-plan', description: 'Compra', cardId: 'card0',

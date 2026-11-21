@@ -6891,3 +6891,12 @@ até auditoria independente.
 - Quinhentos metros viram 0,5 km. Caminhada, volta negada e volta como
   passageiro ficam fora da quilometragem do trabalho. Suíte com
   1.322/1.322 regressões.
+
+## 21/11/2026 — Totais e valores já incluídos
+
+- Frete, entrega, juros, taxa e pagamento em Pix explicitamente já
+  incluídos explicam o total. “Paguei 60 incluindo 10 de frete”
+  propõe R$ 60. “Paguei 50 mais 10 de entrega” preserva os dois.
+- Um total declarado no fim da lista é conferido em centavos. Quando
+  diverge dos itens, o chat pede os valores corretos antes de propor.
+  Suíte com 1.332/1.332 regressões.
