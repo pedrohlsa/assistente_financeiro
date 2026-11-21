@@ -436,6 +436,8 @@ export interface AssistantClarification {
   purchaseDueText?: string
   /** Análise local de oferta à espera de valor ou distância. */
   rideOffer?: PendingRideOffer
+  /** Compra dividida que precisa de uma data comum a todos os meios de pagamento. */
+  pendingPaymentText?: string
 }
 
 export interface AssistantUnresolvedClause {

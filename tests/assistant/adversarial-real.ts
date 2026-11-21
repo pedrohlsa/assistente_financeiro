@@ -1720,6 +1720,30 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       'R$ 150 de uma despesa paga fora do crédito. Valores incompletos ou diferentes pedem esclarecimento',
       cash.response.actions.length === 1 && cash.response.actions[0].action.kind === 'expense' && cash.response.actions[0].action.amount === 150
         && [incomplete, diverges].every(r => !r.response.actions.length && answerChoices(r)?.field === 'reported-total')))
+    const undefinedDate = await ask('paguei 100 ontem ou anteontem incluindo 15 de entrega')
+    const statedDate = await ask('não foi ontem, foi anteontem', undefinedDate)
+    const dateExpense = statedDate.response.actions[0]?.action
+    const earlierMonth = await ask('mês passado paguei 100 incluindo 15 de entrega')
+    const foundDay = await ask('dia 15', earlierMonth)
+    out.push(result('A-totais-valores-inclusos-durante-escolha-da-data', [undefinedDate.response, statedDate.response, foundDay.response],
+      'a escolha mantém R$ 100 como o total com a entrega',
+      answerChoices(undefinedDate)?.field === 'date-choice' && !undefinedDate.response.actions.length
+        && statedDate.response.actions.length === 1 && dateExpense?.kind === 'expense' && dateExpense.amount === 100
+        && dateExpense.date === addDays(TODAY, -2) && foundDay.response.actions.length === 1
+        && foundDay.response.actions[0].action.kind === 'expense' && foundDay.response.actions[0].action.amount === 100))
+
+    const unresolvedSplit = await ask('ontem ou anteontem gastei 150 no mercado, 100 no Nubank e 50 no Pix')
+    const chosenSplit = await ask('foi anteontem', unresolvedSplit)
+    const splitComplete = await orchestrate({ state: s, message: 'em 2x', today: TODAY, remoteEnabled: false,
+      draft: chosenSplit.draft, pending: chosenSplit.response.actions, pendingClarification: answerChoices(chosenSplit) })
+    const dated = applyBatchPure(s, splitComplete.response.actions, { now: { date: TODAY, time: '12:00' } })
+    out.push(result('A-pagamento-dividido-escolhe-uma-data-para-as-partes', [unresolvedSplit.response, chosenSplit.response, splitComplete.response],
+      'escolhe um dia para Pix e cartão. R$ 50 no caixa e R$ 100 em 2x na mesma data anterior',
+      answerChoices(unresolvedSplit)?.field === 'date-choice' && !unresolvedSplit.response.actions.length
+        && answerChoices(chosenSplit)?.field === 'installments' && dated.applied
+        && dated.state.transactions.length === 1 && dated.state.transactions[0].amount === 50 && dated.state.transactions[0].date === addDays(TODAY, -2)
+        && dated.state.installmentPlans.length === 1 && dated.state.installmentPlans[0].totalAmount === 100
+        && dated.state.installmentPlans[0].purchaseDate === addDays(TODAY, -2)))
     const conflict = await ask('paguei 100 no mercado e 50 na farmácia, 140 ao todo')
     const corrected = await ask('paguei 100 no mercado e 40 na farmácia, 140 ao todo', conflict)
     const badPart = await ask('paguei 60 incluindo 100 de frete')

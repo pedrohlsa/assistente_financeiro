@@ -6926,3 +6926,12 @@ até auditoria independente.
   continua como horário de relógio e pede a duração.
 - O chat encerra esclarecimentos respondidos sem apagar a proposta
   que ainda pode ser confirmada. Suíte com 1.342/1.342 regressões.
+
+## 21/11/2026 — Totais preservados enquanto falta o dia
+
+- Uma compra dividida entre Pix e crédito pede uma data comum.
+  Escolher anteontem preserva R$ 50 no caixa e R$ 100 na compra.
+  O chat solicita as parcelas em seguida quando necessário.
+- Datas incertas continuam pendentes. Frete já incluído fica no
+  total enquanto a pessoa escolhe o dia, inclusive no mês passado.
+  Suíte com 1.344/1.344 regressões.

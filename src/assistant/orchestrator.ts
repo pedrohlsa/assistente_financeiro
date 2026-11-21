@@ -1560,6 +1560,13 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
       }
       return result
     }
+    if (reconciled && 'dateQuestion' in reconciled && reconciled.dateQuestion && reconciled.text) {
+      const { question, options, window } = reconciled.dateQuestion
+      return { draft: null, keepPending: true, focus: input.focus,
+        response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [], reply: question,
+          clarification: { field: options?.length ? 'date-choice' : 'date', question, options,
+            dateWindow: window, pendingPaymentText: reconciled.text } } }
+    }
     if (reconciled && 'text' in reconciled && reconciled.text) input = { ...input, message: reconciled.text }
   }
   const { command, context } = speechForCommands(input.message, today)
@@ -1580,6 +1587,23 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   // "GNV" logo depois de "gás de cozinha ou GNV?" precisa recuperar o valor e
   // a descrição da mensagem anterior — o usuário não repete nada.
   const pc = input.pendingClarification
+  if (pc?.pendingPaymentText) {
+    const said = normalizeName(input.message).replace(/[.!?]+$/, '').trim()
+    if (/^(?:cancela(?:r)?|esquece|deixa pra la)$/.test(said)) return {
+      draft: null, keepPending: true, focus: input.focus,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
+        reply: 'Certo, descartei esse pagamento.' },
+    }
+    const choice = pc.options?.find(o => normalizeName(o.label) === said || o.value === said)
+    const date = dateInAnswer(choice?.value || input.message, today)
+    const resolved = pc.dateWindow ? resolveDayInWindow(input.message, pc.dateWindow, today) : date?.kind === 'date' ? date.date : undefined
+    if (resolved) return orchestrate({ ...input, pendingClarification: undefined, message: `em ${resolved} ${pc.pendingPaymentText}` })
+    if (!looksPast(input.message) && !looksLikeDataQuestion(input.message)) return {
+      draft: null, keepPending: true, focus: input.focus,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [],
+        reply: pc.question, clarification: pc },
+    }
+  }
   if (pc?.field === 'ride-offer' && pc.rideOffer) {
     const offer = continueRideOffer(input.state, pc.rideOffer, input.message)
     if (offer) return rideOfferReply(input, offer)

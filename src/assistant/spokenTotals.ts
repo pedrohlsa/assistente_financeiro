@@ -3,6 +3,7 @@ import { fmtBRL, parseMoney } from '../utils/format'
 import { normalizeName } from '../utils/text'
 import { analyzeMessage, looksLikeQuestion, looksPast } from './clauses'
 import { normalizeNumberWords } from './numbers'
+import { readDraftPurchaseDate, type IncompleteIntent } from './drafts'
 
 const MONEY = String.raw`(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?!\d|[.,]\d)(?:\s+(?:reais?|contos?|pila))?`
 const INCLUDED_ITEM = String.raw`${MONEY}\s+(?:d[eo]\s+(?:frete|entrega|taxas?|juros|servi[cç]o|gorjetas?)|(?:no|via|por)\s+pix|em\s+dinheiro)\b`
@@ -16,6 +17,8 @@ const CASH_METHOD = /^(?:(?:via|no|por|pelo)\s+pix|em\s+(?:dinheiro|especie)|(?:
 const CREDIT_PREFIX = /^(?:no|na|pelo|pela|em)\s+(?:(?:cartao\s+)(?:d[oa]\s+)?)?/
 const CREDIT_GENERIC = /^(?:no|pelo)\s+(?:cartao(?:\s+de\s+credito)?|credito)$/
 const SHARE_INSTALLMENTS = /\s+(?:em\s+)?\d+\s*(?:x|vezes|parcelas?)$/i
+
+type ReconciledTotal = { text?: string; issue?: string; dateQuestion?: IncompleteIntent['purchaseDateQuestion'] }
 
 type PaymentShare = { amount: number; card?: string; installments?: string }
 
@@ -32,10 +35,12 @@ function paymentShare(text: string, cardNames: string[]): PaymentShare | undefin
   return credit ? { amount, card: credit, installments: installments?.[0].trim() } : undefined
 }
 
-function splitSpokenPayment(text: string, cardNames: string[]): { text?: string; issue?: string } | undefined {
+function splitSpokenPayment(text: string, today: string, cardNames: string[]): ReconciledTotal | undefined {
   const separator = text.match(/(?:,(?!\d)|(?<!\d),|;)\s*(?=(?:r\$\s*)?\d)/i)
   if (!separator) return undefined
-  const head = text.slice(0, separator.index).match(PAYMENT_HEAD)
+  const initial = text.slice(0, separator.index)
+  const date = readDraftPurchaseDate(initial, today)
+  const head = date.remaining.match(PAYMENT_HEAD)
   if (!head || looksLikeQuestion(head[0])) return undefined
   const tail = text.slice(separator.index + separator[0].length)
   const parts = tail.split(/(?:\s+e\s+|[,;]\s+)(?=(?:r\$\s*)?\d)/i)
@@ -52,7 +57,8 @@ function splitSpokenPayment(text: string, cardNames: string[]): { text?: string;
   const label = head[3].replace(/\b(?:no\s+total|ao\s+todo)\b/gi, '').trim()
   const amountText = (amount: number) => String(amount).replace('.', ',')
   const statement = (amount: number) => [head[1].trim(), amountText(amount), label].filter(Boolean).join(' ')
-  if (!cards.length) return { text: statement(total) }
+  const dated = (body: string): ReconciledTotal => ({ text: date.date ? `em ${date.date} ${body}` : body, dateQuestion: date.question })
+  if (!cards.length) return dated(statement(total))
   if (cards.length > 1 || /\b(?:fatura|presta[çc][ãa]o|parcelas?)\b/i.test(label)) {
     return { issue: 'Diga separadamente quanto saiu da conta e quanto foi cobrado em cada cartão.' }
   }
@@ -65,7 +71,7 @@ function splitSpokenPayment(text: string, cardNames: string[]): { text?: string;
     ? [creditPrefix, item ? `um ${item}` : '', `por R$ ${amountText(credit.amount)}`, credit.installments, credit.card]
     : [creditPrefix, amountText(credit.amount), label, credit.card]
   const purchase = cardStatement.filter(Boolean).join(' ')
-  return { text: [cash > 0 ? statement(cash / 100) : '', purchase].filter(Boolean).join(' e ') }
+  return dated([cash > 0 ? statement(cash / 100) : '', purchase].filter(Boolean).join(' e '))
 }
 
 type Movement = { kind: 'in' | 'out'; amount: number }
@@ -81,8 +87,10 @@ function movement(a: ParsedAction): Movement | undefined {
 
 function movements(text: string, today: string, driver: boolean): Movement[] {
   const analysis = analyzeMessage(text, { today, driver })
-  if (analysis.clauses.some(c => c.ambiguity || c.temporal || c.dateAmbiguity || c.intention)) return []
-  const stated = analysis.actions.filter(a => a.kind !== 'work')
+  if (analysis.clauses.some(c => c.ambiguity || c.intention || c.approximateAmount || c.temporal?.plan)) return []
+  // Data pendente segura o lançamento. Os valores ditos ainda podem ser conferidos.
+  const stated = analysis.clauses.flatMap(c => c.temporal?.actions?.length ? c.temporal.actions : c.actions)
+    .filter(a => a.kind !== 'work')
   const mapped = stated.map(movement)
   return mapped.every((m): m is Movement => !!m) ? mapped : []
 }
@@ -90,10 +98,10 @@ function movements(text: string, today: string, driver: boolean): Movement[] {
 const cents = (amount: number): number => Math.round(amount * 100)
 
 /** Totais declarados e parcelas inclusas explicam os itens de um relato. */
-export function reconcileSpokenTotals(message: string, today: string, driver: boolean, cardNames: string[]): { text?: string; issue?: string } | undefined {
+export function reconcileSpokenTotals(message: string, today: string, driver: boolean, cardNames: string[]): ReconciledTotal | undefined {
   if (!looksPast(message)) return undefined
   const text = normalizeNumberWords(message).text.trim()
-  const split = splitSpokenPayment(text, cardNames)
+  const split = splitSpokenPayment(text, today, cardNames)
   if (split) return split
   const included = text.match(INCLUDED)
   if (included) {
