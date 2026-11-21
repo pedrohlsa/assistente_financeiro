@@ -403,6 +403,15 @@ export interface AssistantClarificationOption {
 
 export type FinancialEvent = 'pix' | 'ride' | 'refund'
 
+export type RideOfferMeasures = Partial<Record<'pickup' | 'trip' | 'total' | 'unmarked', number>>
+
+export interface PendingRideOffer {
+  value?: number
+  distance?: RideOfferMeasures
+  duration?: RideOfferMeasures
+  missing: 'value' | 'distance' | 'pickup' | 'trip'
+}
+
 export interface AssistantClarification {
   /** Pergunta única, curta. */
   question: string
@@ -424,6 +433,8 @@ export interface AssistantClarification {
   pendingActions?: ParsedAction[]
   /** No chat local, primeiro vencimento que depende do dia da compra em aberto. */
   purchaseDueText?: string
+  /** Análise local de oferta à espera de valor ou distância. */
+  rideOffer?: PendingRideOffer
 }
 
 export interface AssistantUnresolvedClause {

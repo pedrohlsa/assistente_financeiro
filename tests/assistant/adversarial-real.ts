@@ -7098,6 +7098,44 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('RP-corrida-condicional-fora-do-caixa', conditionalOnly.actions, 'só R$ 25 de despesa, sem dados da corrida na descrição',
         conditionalOnly.actions.length === 1 && conditionalOnly.actions[0].kind === 'expense' && conditionalOnly.actions[0].amount === 25
           && !conditionalOnly.actions[0].description && conditionalOnly.mode !== 'clarify'))
+      const rideTurn = (message: string, previous?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({
+        state: oferta, today: hoje, remoteEnabled: false, message,
+        pending: previous?.response.actions, pendingClarification: answerChoices(previous),
+      })
+      const firstQuote = await rideTurn('tocou corrida de 35 reais, vale a pena?')
+      const pickUp = await rideTurn('são 5 km até o passageiro', firstQuote)
+      const whole = await rideTurn('9 km de viagem e 25 min no total', pickUp)
+      out.push(result('RP-oferta-completa-por-etapas', [firstQuote.response, pickUp.response, whole.response],
+        'preserva R$ 35, soma 14 km e calcula R$ 67,20/h sem proposta',
+        answerChoices(firstQuote)?.field === 'ride-offer' && answerChoices(pickUp)?.rideOffer?.missing === 'trip'
+          && whole.response.mode === 'answer' && /14 km no total/.test(whole.response.reply)
+          && limpa(whole.response.reply).includes(`${brl(67.2)}/hora líquida nos 25 min`)
+          && [firstQuote, pickUp, whole].every(x => !x.response.actions.length)))
+      const distanceOnly = await rideTurn('compensa uma corrida de 8 km ao todo?')
+      const exactValue = await rideTurn('R$ 29', distanceOnly)
+      const uncertainValue = await rideTurn('29 ou 32 reais', distanceOnly)
+      out.push(result('RP-oferta-distancia-primeiro-e-preco-exato', [distanceOnly.response, exactValue.response, uncertainValue.response],
+        'só R$ 29 com distância total de 8 km; alternativas pedem um preço certo',
+        answerChoices(distanceOnly)?.rideOffer?.missing === 'value' && answerChoices(uncertainValue)?.rideOffer?.missing === 'value'
+          && /8 km no total/.test(exactValue.response.reply) && limpa(exactValue.response.reply).includes(`${brl(25)} com os custos`)
+          && [distanceOnly, exactValue, uncertainValue].every(x => !x.response.actions.length)))
+      const mixedOffer = await rideTurn('gastei 25 no mercado e tocou corrida de 35 reais, compensa?')
+      const offerThen = await rideTurn('14 km no total e 25 min', mixedOffer)
+      const onlyOther = applyBatchPure(oferta, mixedOffer.response.actions, { now: { date: hoje, time: '12:00' } })
+      out.push(result('RP-resposta-da-oferta-preserva-despesa-pendente', [mixedOffer.response, offerThen.response],
+        'só confirma o mercado, mantém a análise no próximo turno',
+        answerChoices(mixedOffer)?.field === 'ride-offer' && onlyOther.applied && onlyOther.state.transactions.length === 1
+          && onlyOther.state.transactions[0].amount === 25 && onlyOther.state.workSessions.length === 0
+          && !offerThen.response.actions.length && offerThen.keepPending && /14 km no total/.test(offerThen.response.reply)))
+      const actualRide = await rideTurn('rodei 12 km hoje', firstQuote)
+      const fatigue = await rideTurn('12 km no total, tô com sono', firstQuote)
+      const ambiguousDistance = await rideTurn('10 km ou 15 km?', firstQuote)
+      out.push(result('RP-oferta-aberta-separa-jornada-sono-e-distancia-incerta', [actualRide.response, fatigue.response, ambiguousDistance.response],
+        'jornada é fato; com sono recomenda descanso; duas distâncias retomam a pergunta original',
+        actualRide.response.actions[0]?.action.kind === 'work' && actualRide.response.actions[0].action.km === 12
+          && actualRide.response.actions.length === 1 && /^Pare em um local seguro/.test(fatigue.response.reply)
+          && !fatigue.response.actions.length && answerChoices(ambiguousDistance)?.rideOffer?.value === 35
+          && !ambiguousDistance.response.actions.length))
       const onlyOne = await turnoHoje(oferta, 'corrida de 40 em 8 ou 10 km, vale?')
       out.push(result('RP-distancia-duvidosa-nao-e-duas-ofertas', onlyOne.reply, 'pede a distância de cada oferta sem criar uma',
         /Diga o valor e a distância/.test(onlyOne.reply) && !onlyOne.actions.length && !/Primeira\./.test(onlyOne.reply)))

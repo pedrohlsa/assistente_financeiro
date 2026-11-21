@@ -16,7 +16,7 @@ import { editBlockReason, findGoalByExactName } from './execute'
 import { matchInvoiceChoice, prepareInvoicePayments } from './invoicePayment'
 import type {
   AssistantCandidateAction, AssistantCapabilities, AssistantClarification,
-  AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause,
+  AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause, PendingRideOffer,
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, errorMessage, isValidationFailure, validateAction } from './contracts'
 import { PEDE_APAGAR, analyzeMessage, contestsProposal, datesMentioned, declaresIntention, financialEventActions, isRefundInflow, looksLikeQuestion, looksLikeRetraction, looksNegated, looksPast, looksRecurring, segment, speechForCommands, weekdayChoiceWord } from './clauses'
@@ -30,7 +30,7 @@ import { parseDriverDay } from './semantic/driverDay'
 import { parseTypedPairs } from './semantic/pairs'
 import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } from './semantic/normalize'
 import { spokenClock } from './semantic/clock'
-import { answerRideOffer } from './rideOffer'
+import { continueRideOffer, interpretRideOffer } from './rideOffer'
 import { readCardPurchaseDue, resolveCardPurchaseDue } from './cardPurchaseDue'
 import { conflictQuestion, evidenceFor, mergeByField, sameFact } from './semantic/evidence'
 import { classifyLocalDecision } from './semantic/confidence'
@@ -745,13 +745,26 @@ function runLocal(
  * deixando explícito que o número depende da confirmação. Reaproveita o motor de
  * respostas local inteiro em vez de duplicar regra de cálculo.
  */
+function rideOfferClarification(reply: string, rideOffer: PendingRideOffer): AssistantClarification {
+  return { field: 'ride-offer', question: reply, rideOffer }
+}
+
+function rideOfferReply(input: OrchestratorInput, offer: { reply: string; pending?: PendingRideOffer }): OrchestratorOutput {
+  const response = { version: ASSISTANT_CONTRACT_VERSION, engine: 'local' as const, actions: [] as [], unresolved: [], reply: offer.reply }
+  return { draft: null, keepPending: true, focus: input.focus,
+    response: offer.pending
+      ? { ...response, mode: 'clarify', clarification: rideOfferClarification(offer.reply, offer.pending) }
+      : { ...response, mode: 'answer' },
+  }
+}
+
 function answerQuestions(
   state: AppState,
   questions: AnalyzedClause[],
   candidates: AssistantCandidateAction[],
   today: string,
   message: string,
-): { text: string; answered: AnalyzedClause[]; focus?: ConversationFocus } {
+): { text: string; answered: AnalyzedClause[]; focus?: ConversationFocus; rideClarification?: AssistantClarification } {
   if (!questions.length) return { text: '', answered: [] }
   const projected = candidates.length
     ? planAssistantActions(state, candidates.map(c => ({ id: c.id, action: c.action })), { date: today, time: nowPaymentTime() }).projected
@@ -760,12 +773,14 @@ function answerQuestions(
   const parts: string[] = []
   const answered: AnalyzedClause[] = []
   let focus: ConversationFocus | undefined
+  let rideClarification: AssistantClarification | undefined
   for (const q of questions) {
     const nextRide = candidates.some(c => c.action.kind === 'income' && c.action.description === 'Corrida')
       ? q.text.replace(NEXT_RIDE_DISTANCE, 'outra corrida') : q.text
-    const offer = answerRideOffer(state, nextRide, message)
+    const offer = interpretRideOffer(state, nextRide, message)
     if (offer) {
-      parts.push(offer)
+      parts.push(offer.reply)
+      if (offer.pending && questions.length === 1) rideClarification = rideOfferClarification(offer.reply, offer.pending)
       answered.push(q)
       continue
     }
@@ -789,7 +804,7 @@ function answerQuestions(
     focus = real?.focus || focus
     answered.push(q)
   }
-  return { text: parts.join('\n\n'), answered, focus }
+  return { text: parts.join('\n\n'), answered, focus, rideClarification }
 }
 
 function answerListedDays(state: AppState, question: string, today: string): string | undefined {
@@ -1542,6 +1557,10 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   // "GNV" logo depois de "gás de cozinha ou GNV?" precisa recuperar o valor e
   // a descrição da mensagem anterior — o usuário não repete nada.
   const pc = input.pendingClarification
+  if (pc?.field === 'ride-offer' && pc.rideOffer) {
+    const offer = continueRideOffer(input.state, pc.rideOffer, input.message)
+    if (offer) return rideOfferReply(input, offer)
+  }
   if (pc?.field === 'clock-time' && pc.pendingActions?.length) {
     const withoutPrefix = input.message.trim().replace(/^(?:foi|era)\s+/i, '')
     const explicit = spokenClock(withoutPrefix)
@@ -2458,11 +2477,8 @@ Confirmar?`,
   const temFato = hasBlock(turno, 'record')
   // Uma oferta com quilômetros e tempo pode parecer consulta financeira ou
   // lançamento para os leitores gerais. Esta pergunta tem um cálculo próprio.
-  const oferta = localNotes ? undefined : answerRideOffer(input.state, mensagem)
-  if (oferta) return {
-    draft: null, keepPending: true, focus: input.focus,
-    response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply: oferta },
-  }
+  const oferta = localNotes ? undefined : interpretRideOffer(input.state, mensagem)
+  if (oferta) return rideOfferReply(input, oferta)
   const consultaPedeDia = turno.analysis.clauses.some(c => c.ambiguity?.field === 'query-date')
   const groupedDays = !temFato && !consultaPedeDia && hasBlock(turno, 'query') && !hasBlock(turno, 'scenario')
     ? answerListedDays(input.state, mensagem, today) : undefined
@@ -2752,6 +2768,7 @@ Confirmar?`,
   // ---- 14) Perguntas respondidas localmente -------------------------------
   const questions = analysis.clauses.filter(c => c.intent === 'question' && !semRespostaLocal(c))
   const local_answers = answerQuestions(input.state, questions, candidates, today, mensagem)
+  clarification ||= local_answers.rideClarification
   const answeredIds = new Set(local_answers.answered.map(c => c.id))
   unresolved = unresolved.filter(u => !answeredIds.has(u.clauseId))
 

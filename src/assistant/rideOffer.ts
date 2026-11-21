@@ -5,6 +5,7 @@ import { isDriver } from '../services/profile'
 import { fmtBRL, fmtNum, parseMoney } from '../utils/format'
 import { normalizeName } from '../utils/text'
 import { looksPast } from './clauses'
+import type { PendingRideOffer, RideOfferMeasures as Measures } from './contracts'
 import { PARE_PARA_DESCANSAR, perceivesDrivingFatigue } from './driverAdvice'
 import { normalizeNumberWords } from './numbers'
 import { COMPOUND_DURATION, elapsedMinutes } from './semantic/clock'
@@ -25,10 +26,13 @@ const IS_PICKUP = /\b(?:embarq\w*|buscar|passageir[oa]|aproximacao)\b/
 const IS_TOTAL = new RegExp(String.raw`\b${TOTAL}\b`)
 const DISTANCE = new RegExp(String.raw`(?<![\d.,-])${NUMBER}\s*(kms?|quilometros?|m|metros?)\b`, 'g')
 const TIME = new RegExp(String.raw`(?<![\d.,-])(?:${COMPOUND_DURATION}|${NUMBER}\s*(min|minutos?|h|horas?))\b`, 'gi')
-type Part = 'pickup' | 'trip' | 'total' | 'unmarked'
+type Part = keyof Measures
+type Quote = Omit<PendingRideOffer, 'missing'>
 
-function measured(t: string, units: RegExp, readValue: (match: RegExpMatchArray) => number | undefined): Partial<Record<Part, number>> | undefined {
-  const result: Partial<Record<Part, number>> = {}
+type RideOfferAnswer = { reply: string; pending?: PendingRideOffer }
+
+function measured(t: string, units: RegExp, readValue: (match: RegExpMatchArray) => number | undefined): Measures | undefined {
+  const result: Measures = {}
   for (const match of t.matchAll(units)) {
     const before = t.slice(0, match.index)
     const after = t.slice(match.index + match[0].length)
@@ -41,7 +45,7 @@ function measured(t: string, units: RegExp, readValue: (match: RegExpMatchArray)
   return result
 }
 
-function routeTotal(parts: Partial<Record<Part, number>>): number | undefined {
+function routeTotal(parts: Measures): number | undefined {
   const { pickup, trip, total, unmarked } = parts
   const split = pickup !== undefined && trip !== undefined ? pickup + trip : undefined
   if (total !== undefined && total < Math.max(pickup ?? 0, trip ?? 0)) return undefined
@@ -61,18 +65,20 @@ function amountForOffer(text: string, elliptical = false): number | undefined {
   return prices.length === 1 ? parseMoney(prices[0][1]) : undefined
 }
 
-function offerDistance(text: string) {
-  const parts = measured(text, DISTANCE, m => parseMoney(m[1]) * (m[2].startsWith('m') ? 0.001 : 1))
+function readDistance(text: string): Measures | undefined {
+  return measured(text, DISTANCE, m => parseMoney(m[1]) * (m[2].startsWith('m') ? 0.001 : 1))
+}
+
+function offerDistance(parts?: Measures) {
   const km = parts && routeTotal(parts)
   const complete = !!parts && (parts.total !== undefined || (parts.pickup !== undefined && parts.trip !== undefined))
   return { parts, km, complete }
 }
 
-function offerMinutes(text: string): number | undefined {
-  const times = measured(text, TIME, m => m[2]
+function readDuration(text: string): Measures | undefined {
+  return measured(text, TIME, m => m[2]
     ? parseMoney(m[1]) * (m[2].startsWith('h') ? 60 : 1)
     : elapsedMinutes(m[0]))
-  return times && routeTotal(times)
 }
 
 const ROTA = 'Diga os km totais ou os km até o passageiro e os km da viagem.'
@@ -80,7 +86,9 @@ const DUAS_OFERTAS = 'Diga o valor e a distância de cada oferta. Inclua a ida a
 
 function compareOffers(state: AppState, parts: string[], question: string): string {
   if (parts.length !== 2) return DUAS_OFERTAS
-  const quotes = parts.map(text => ({ value: amountForOffer(text, true), ...offerDistance(text), minutes: offerMinutes(text) }))
+  const quotes = parts.map(text => ({
+    value: amountForOffer(text, true), ...offerDistance(readDistance(text)), minutes: routeTotal(readDuration(text) || {}),
+  }))
   if (quotes.some(q => !(q.value > 0) || !(q.km > 0))) return DUAS_OFERTAS
 
   const cost = kmCost(state)
@@ -113,33 +121,85 @@ function compareOffers(state: AppState, parts: string[], question: string): stri
   return [lead, details.join('\n'), basis].filter(Boolean).join('\n\n')
 }
 
-export function answerRideOffer(state: AppState, input: string, context = input): string | undefined {
+export function interpretRideOffer(state: AppState, input: string, context = input): RideOfferAnswer | undefined {
   const notice = input.match(RIDE_OFFER_NOTICE)
   if (!isDriver(state.settings) || looksPast(notice ? input.replace(RIDE_OFFER_NOTICE, ' ') : input)) return undefined
-  const t = normalizeNumberWords(normalizeName(input)).text
-  const compare = RIDE_COMPARISON_REQUEST.test(t)
-  if ((!RIDE_EVALUATION_REQUEST.test(t) && !compare) || (!notice && !NOME.test(t))) return undefined
-  if (perceivesDrivingFatigue(context)) return PARE_PARA_DESCANSAR
-  if (!/\d/.test(t)) return undefined
-  const alternatives = t.split(OFFER_SEPARATOR)
-  if (compare || alternatives.length > 1) return compareOffers(state, alternatives, t)
-  const value = amountForOffer(t)
-  if (!(value > 0)) return 'Qual é o valor que a corrida paga?'
-  const { parts: km, km: totalKm, complete: knownRoute } = offerDistance(t)
+  const text = normalizeNumberWords(normalizeName(input)).text
+  const compare = RIDE_COMPARISON_REQUEST.test(text)
+  if ((!RIDE_EVALUATION_REQUEST.test(text) && !compare) || (!notice && !NOME.test(text))) return undefined
+  if (perceivesDrivingFatigue(context)) return { reply: PARE_PARA_DESCANSAR }
+  if (!/\d/.test(text) && !notice) return undefined
+  const alternatives = text.split(OFFER_SEPARATOR)
+  if (compare || alternatives.length > 1) return { reply: compareOffers(state, alternatives, text) }
+  return renderOffer(state, { value: amountForOffer(text), distance: readDistance(text), duration: readDuration(text) })
+}
+
+export function answerRideOffer(state: AppState, input: string, context = input): string | undefined {
+  return interpretRideOffer(state, input, context)?.reply
+}
+
+const SPOKEN_AMOUNT = new RegExp(String.raw`^(?:(?:paga|o\s+valor\s+e)\s+)?(?:r\$\s*)?${NUMBER}(?:\s+(?:reais?|contos?|pila))?$`)
+const MEASURE_WORDS = new RegExp(String.raw`\b(?:${PICKUP}|${TRIP}|${TOTAL}|sao|da|deu|pagam?|e|embarque|buscar|tempo|distancia|aproximacao|de|no|na|em|pra|para|ida)\b`, 'g')
+const UNCERTAIN_DETAILS = /\bou\b|\b(?:cerca\s+de|mais\s+ou\s+menos|acho\s+que|talvez)\b/
+
+function combineMeasures(previous?: Measures, next?: Measures, missing?: 'pickup' | 'trip'): Measures | undefined {
+  if (!next || !Object.keys(next).length) return previous
+  if (next.unmarked !== undefined && missing) return { ...previous, [missing]: next.unmarked }
+  if (next.total !== undefined || next.unmarked !== undefined || previous?.unmarked !== undefined) return next
+  return { ...previous, ...next }
+}
+
+/** Um dado curto responde apenas à pergunta sobre a oferta em aberto. */
+export function continueRideOffer(state: AppState, pending: PendingRideOffer, input: string): RideOfferAnswer | undefined {
+  if (!isDriver(state.settings) || looksPast(input)) return undefined
+  if (perceivesDrivingFatigue(input)) return { reply: PARE_PARA_DESCANSAR }
+  const text = normalizeNumberWords(normalizeName(input)).text.replace(/[.!?]+$/, '').trim()
+  const distance = readDistance(text)
+  const duration = readDuration(text)
+  const saysDistance = !!text.match(DISTANCE)
+  const saysDuration = !!text.match(TIME)
+  const mentionsMeasure = saysDistance || saysDuration
+  const mentionsMoney = /\d/.test(text) && pending.missing === 'value' && !/\b(?:gasto|saldo|recebi|ganhei)\b/.test(text)
+  if ((mentionsMeasure || mentionsMoney) && UNCERTAIN_DETAILS.test(text)) return renderOffer(state, pending)
+  const bareAmount = pending.missing === 'value' ? text.match(SPOKEN_AMOUNT)?.[1] : undefined
+  if (bareAmount) return renderOffer(state, { ...pending, value: parseMoney(bareAmount) })
+  if (saysDistance && !distance) return renderOffer(state, pending)
+  const remains = text.replace(DISTANCE, ' ').replace(TIME, ' ').replace(AMOUNT_WITH_CURRENCY, ' ')
+    .replace(MEASURE_WORDS, ' ').replace(/[\s,;:.]+/g, '')
+  if (!mentionsMeasure || remains) return undefined
+  const currentPrice = pending.missing === 'value' ? amountForOffer(text) : undefined
+  return renderOffer(state, {
+    value: currentPrice ?? pending.value,
+    distance: combineMeasures(pending.distance, distance, pending.missing === 'pickup' || pending.missing === 'trip' ? pending.missing : undefined),
+    duration: combineMeasures(pending.duration, duration),
+  })
+}
+
+function renderOffer(state: AppState, quote: Quote): RideOfferAnswer {
+  const { value } = quote
+  if (!(value > 0)) return { reply: 'Qual é o valor que a corrida paga?', pending: { ...quote, missing: 'value' } }
+  const { parts: km, km: totalKm, complete: knownRoute } = offerDistance(quote.distance)
   const cost = kmCost(state)
-  if (!km || totalKm === undefined || !(totalKm > 0)) {
-    if (!km || Object.keys(km).length) return ROTA
-    const reference = cost.minRecommended > 0
-      ? ` Pelo seu mínimo de referência de ${fmtBRL(cost.minRecommended)}/km, ${fmtBRL(value)} cobrem até ${fmtNum(value / cost.minRecommended)} km.`
-      : ' Também preciso do custo por km para estimar se compensa.'
-    return ROTA + reference
+  if (!(totalKm > 0)) {
+    if (km?.pickup !== undefined && km.trip === undefined && km.total === undefined) {
+      return { reply: 'Quantos km tem a viagem depois do embarque?', pending: { ...quote, missing: 'trip' } }
+    }
+    if (km?.trip !== undefined && km.pickup === undefined && km.total === undefined) {
+      return { reply: 'Quantos km faltam até o passageiro?', pending: { ...quote, missing: 'pickup' } }
+    }
+    const reference = km && !Object.keys(km).length
+      ? cost.minRecommended > 0
+        ? ` Pelo seu mínimo de referência de ${fmtBRL(cost.minRecommended)}/km, ${fmtBRL(value)} cobrem até ${fmtNum(value / cost.minRecommended)} km.`
+        : ' Também preciso do custo por km para estimar se compensa.'
+      : ''
+    return { reply: ROTA + reference, pending: { ...quote, missing: 'distance' } }
   }
-  const minutes = offerMinutes(t)
+  const minutes = routeTotal(quote.duration || {})
   const head = `Análise da corrida (${fmtNum(totalKm)} km ${knownRoute ? 'no total' : 'informados'})`
   const gross = `• ${fmtBRL(value / totalKm)}/km bruto`
   const incomplete = knownRoute ? '' : '\n\nSe a distância até o passageiro estiver fora desses km, diga quanto falta para recalcular.'
   if (!(cost.total > 0)) {
-    return `${head}\n\n${gross}\n\nCadastre o custo por km do veículo para estimar o lucro.${incomplete}`
+    return { reply: `${head}\n\n${gross}\n\nCadastre o custo por km do veículo para estimar o lucro.${incomplete}` }
   }
   const result = analyzeRide(state, value, 0, totalKm, minutes ?? 0)
   const rows = [
@@ -149,5 +209,5 @@ export function answerRideOffer(state: AppState, input: string, context = input)
     minutes && minutes > 0 ? `• ${fmtBRL(result.profitPerHour)}/hora líquida nos ${fmtNum(minutes)} min informados` : undefined,
   ]
   const classifica = knownRoute && cost.fuelPerKm > 0 ? `\n\nPela distância e pelos custos cadastrados, classificação ${result.rating.toLowerCase()}.` : ''
-  return `${head}\n\n${rows.filter(Boolean).join('\n')}${classifica}${incomplete}`
+  return { reply: `${head}\n\n${rows.filter(Boolean).join('\n')}${classifica}${incomplete}` }
 }

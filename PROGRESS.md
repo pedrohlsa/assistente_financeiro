@@ -6856,3 +6856,13 @@ até auditoria independente.
   Com nenhum nome ou mais de um, pede a identificação. “E por Pix?”
   combina o meio de pagamento com a origem e o período em foco.
   Suíte com 1.298/1.298 regressões.
+
+## 21/11/2026 — Completar os dados da oferta no chat
+
+- O chat pede o valor ou a distância faltante e aceita a resposta curta.
+  Com R$ 35, 5 km até o passageiro, 9 km de viagem e 25 min no total,
+  a análise soma 14 km e calcula R$ 67,20/h estimados.
+- A confirmação de registros anteriores fica disponível. O Chrome
+  confirmou só o mercado, retomou a oferta em três turnos e descartou
+  o esclarecimento concluído ao voltar ao chat. As 1.302 regressões
+  passaram. A matriz própria passou 770 cenários em cada um de três fusos.
