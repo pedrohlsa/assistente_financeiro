@@ -143,8 +143,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       ['ontem recebi 120 da Casa 2 mais 150 da Casa 1', [[120, 'outros-in', 'Casa 2'], [150, 'outros-in', 'Casa 1']], 0],
       ['recebi 95 do Cliente 1', [[95, 'outros-in', 'Cliente 1']], 0],
       ['recebi 110 no caixa às seis e meia ontem', [[110, 'outros-in', null]], 0],
-      ['recebi 120 da Casa 2 e 80 do Uber', [[120, 'outros-in', 'Casa 2'], [80, 'corridas', null]], 1],
-      ['recebi 120 do Uber e 30 da Casa 2', [[120, 'corridas', null], [30, 'outros-in', 'Casa 2']], 1],
+      ['recebi 120 da Casa 2 e 80 do Uber', [[120, 'outros-in', 'Casa 2'], [80, 'corridas', null]], 0],
+      ['recebi 120 do Uber e 30 da Casa 2', [[120, 'corridas', null], [30, 'outros-in', 'Casa 2']], 0],
       ['recebi 120 da Casa 2 e fiz 5 corridas', [[120, 'outros-in', 'Casa 2']], 5],
       ['recebi 120 de uma corrida pra Casa 2', [[120, 'corridas', null]], 1],
     ] as const
@@ -3733,8 +3733,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const n = await viagens(msg)
       out.push(result(id, n, '12 viagens', n === 12))
     }
+    // Sem quantidade dita, nenhuma viagem (regra 34, decisão de 21/11).
     const so = await viagens('ganhei 260')
-    out.push(result('VG-sem-quantidade-controle', so, '1 viagem inferida (decisão vigente)', so === 1))
+    out.push(result('VG-sem-quantidade-controle', so, 'nenhuma viagem inventada', so === 0))
   }
 
   // "40 litros A 5,89" é o preço do litro: o abastecimento entrava com R$ 5,89,
@@ -5894,10 +5895,10 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       .map(a => `${a.amount}:${a.category}:${a.origin || a.description || '-'}`).sort().join(',')
     const viagens = (acoes: any[]) => acoes.filter(a => a.kind === 'work').reduce((t, a) => t + (a.trips || 0), 0)
     for (const [id, frase, esperado, trips] of [
-      ['MV-casa-e-uber', 'recebi 120 da Casa 2 e 120 do Uber', '120:corridas:Uber,120:outros-in:Casa 2', 1],
-      ['MV-uber-e-casa', 'recebi 120 do Uber e 120 da Casa 2', '120:corridas:Uber,120:outros-in:Casa 2', 1],
+      ['MV-casa-e-uber', 'recebi 120 da Casa 2 e 120 do Uber', '120:corridas:Uber,120:outros-in:Casa 2', 0],
+      ['MV-uber-e-casa', 'recebi 120 do Uber e 120 da Casa 2', '120:corridas:Uber,120:outros-in:Casa 2', 0],
       ['MV-duas-casas', 'recebi 120 da Casa 2 e 120 da Casa 1', '120:outros-in:Casa 1,120:outros-in:Casa 2', 0],
-      ['MV-verbo-repetido', 'recebi 120 da Casa 2 e recebi 120 do Uber', '120:corridas:Uber,120:outros-in:Casa 2', 1],
+      ['MV-verbo-repetido', 'recebi 120 da Casa 2 e recebi 120 do Uber', '120:corridas:Uber,120:outros-in:Casa 2', 0],
     ] as const) {
       const st = buildState({ profile: 'driver', balance: 1000 })
       st.settings.balanceAsOf = `${addDays(hoje, -1)}T00:00:00`
@@ -5927,8 +5928,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     // Valor por extenso: o número não existe no texto original; o pareamento
     // de origem usa o texto com algarismos.
     const extenso = await turnoHoje(buildState({ profile: 'driver' }), 'ontem recebi cento e vinte da Casa 2 e cento e vinte do Uber às nove')
-    out.push(result('MV-extenso-casa-e-uber', extenso.actions, 'Casa 2 em Outros, Uber em Corridas, 1 viagem, às 09:00',
-      receitas(extenso.actions) === '120:corridas:Uber,120:outros-in:Casa 2' && viagens(extenso.actions) === 1
+    out.push(result('MV-extenso-casa-e-uber', extenso.actions, 'Casa 2 em Outros, Uber em Corridas, sem viagem inventada, às 09:00',
+      receitas(extenso.actions) === '120:corridas:Uber,120:outros-in:Casa 2' && viagens(extenso.actions) === 0
         && extenso.actions.filter(a => a.kind === 'income').every((a: any) => a.time === '09:00')))
   }
 
@@ -5942,8 +5943,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         r.actions.some(a => a.kind === 'income' && (a as any).category !== 'corridas') && !r.actions.some(a => a.kind === 'work')))
     }
     const controle = await turnoHoje(buildState({ profile: 'driver' }), 'recebi 110 do uber')
-    out.push(result('MF-uber-continua-corrida', controle.actions, 'Corridas com 1 viagem',
-      controle.actions.some(a => a.kind === 'income' && (a as any).category === 'corridas') && controle.actions.some(a => a.kind === 'work')))
+    // A plataforma é origem: Corridas, mas sem viagem inventada (regra 34).
+    out.push(result('MF-uber-continua-corrida', controle.actions, 'Corridas, sem viagem inventada',
+      controle.actions.some(a => a.kind === 'income' && (a as any).category === 'corridas') && !controle.actions.some(a => a.kind === 'work')))
 
     // Meio-dia e meia-noite com preposição; "meio dia" de trabalho não é 12h.
     const meioDia = await turnoHoje(buildState({ profile: 'autonomo' }), 'ontem paguei 25 na padaria ao meio-dia')
@@ -6686,6 +6688,112 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const r = await turnoHoje(rico, 'quanto gastei essa semana com lazer')
       out.push(result('MN-categoria-depois-do-periodo', r.reply.split('\n')[0], lazer ? `lazer ${brl(lazer)}` : 'sem lazer na semana',
         /lazer/i.test(r.reply) && (lazer ? limpa(r.reply).includes(brl(lazer)) : true)))
+    }
+  }
+
+  // Viagem só existe quando é DITA (regra 34, decisão de 21/11/2026). A
+  // plataforma é uma ORIGEM de receita: "430 na Uber, 399 na 99" num resumo do
+  // dia cravava "2 viagens", e o ganho por viagem dividia o dia inteiro por 2.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/\u00a0/g, ' ')
+    const limpa = (t: string) => t.replace(/\u00a0/g, ' ')
+    const viagensDe = (acoes: any[]) => acoes.filter(a => a.kind === 'work' && a.trips !== undefined)
+      .reduce((t, a) => t + a.trips, 0)
+    const temTrips = (acoes: any[]) => acoes.some(a => a.kind === 'work' && a.trips !== undefined)
+
+    // O relato completo do turno: duas receitas, abastecimento, km e horas.
+    {
+      const st = buildState({ profile: 'driver', balance: 1000 })
+      st.settings.balanceAsOf = `${addDays(hoje, -1)}T00:00:00`
+      const r = await turnoHoje(st, 'Ganhei 430 na Uber, mais 399 na 99, abasteci 163 reais, deu 24 litros, estou com 220.007 km no hodômetro, rodei 161 km e trabalhei 8 horas. Quanto foi meu resultado?')
+      const inc = r.actions.filter((a: any) => a.kind === 'income') as any[]
+      const fuel = r.actions.find((a: any) => a.kind === 'fuel') as any
+      const work = r.actions.find((a: any) => a.kind === 'work') as any
+      out.push(result('VI-turno-completo-proposta', r.actions,
+        'Uber 430 + 99 399 (R$ 829 bruto), abastecimento 163/24 L/220.007 km, trabalho 161 km e 8 h, sem trips',
+        inc.length === 2 && inc.every(a => a.category === 'corridas')
+          && inc.map(a => `${a.amount}:${a.description}`).join(',') === '430:Uber,399:99'
+          && inc.reduce((t, a) => t + a.amount, 0) === 829
+          && fuel?.amount === 163 && fuel?.liters === 24 && fuel?.odometer === 220007
+          && work?.km === 161 && work?.hours === 8 && work?.trips === undefined))
+      out.push(result('VI-turno-completo-texto', r.reply, 'faturamento 829 e nada por viagem',
+        limpa(r.reply).includes(brl(829)) && !/viage[mn]|por corrida/i.test(r.reply)))
+      const aplicado = applyBatchPure(st, r.actions.map((action, i) => ({ id: `vd-${i}`, action })), { now: { date: hoje, time: '20:00' } })
+      const ps = periodStats(aplicado.state, hoje, hoje, hoje)
+      const ws = aplicado.state.workSessions.filter(w => w.date === hoje)
+      out.push(result('VI-turno-completo-estado', { ps, ws },
+        'faturamento 829, 161 km, 8 h, 0 viagens e nenhum ganho por viagem',
+        aplicado.applied && ps.income === 829 && ps.km === 161 && ps.hours === 8 && ps.trips === 0 && ps.perTrip === 0
+          && ws.length === 1 && ws[0].trips === 0
+          && aplicado.state.fuelRecords.some(f => f.amount === 163 && f.liters === 24 && f.odometer === 220007)))
+    }
+
+    // Dia inteiro sem plataforma: a receita e as horas, nenhuma viagem.
+    {
+      const st = buildState({ profile: 'driver' })
+      const r = await turnoHoje(st, 'Hoje rodei 12 horas e fiz 450')
+      const inc = r.actions.filter((a: any) => a.kind === 'income') as any[]
+      const work = r.actions.find((a: any) => a.kind === 'work') as any
+      out.push(result('VI-dia-sem-quantidade', r.actions, 'receita 450, 12 horas, sem trips',
+        inc.length === 1 && inc[0].amount === 450 && work?.hours === 12 && !temTrips(r.actions)))
+      const aplicado = applyBatchPure(st, r.actions.map((action, i) => ({ id: `vd12-${i}`, action })), { now: { date: hoje, time: '22:00' } })
+      out.push(result('VI-dia-sem-quantidade-estado', aplicado.state.workSessions, '12 h e 0 viagens no dia',
+        aplicado.applied && aplicado.state.workSessions.some(w => w.date === hoje && w.hours === 12 && w.trips === 0)))
+    }
+
+    // Quantidade DITA continua valendo — inclusive com várias plataformas.
+    for (const [id, frase, n, receita] of [
+      ['VI-uma-corrida', 'Fiz uma corrida de R$ 35', 1, 35],
+      ['VI-doze-corridas', 'Fiz 12 corridas', 12, 0],
+      ['VI-doze-e-plataformas', 'fiz 12 corridas, 300 na uber e 150 na 99', 12, 450],
+      ['VI-pela-corrida', 'recebi 70 pela corrida', 1, 70],
+      ['VI-corrida-de', 'corrida de 18', 1, 18],
+      ['VI-numa-corrida', 'ganhei 30 numa corrida', 1, 30],
+      ['VI-grupos', 'fiz 3 corridas de 40 e uma de 25', 4, 145],
+      ['VI-duas-nomeadas', 'Fiz uma corrida, ganhei 150 depois fiz mais 47 reais em uma corrida privada', 2, 197],
+    ] as const) {
+      const r = await turnoHoje(buildState({ profile: 'driver' }), frase)
+      const total = r.actions.filter((a: any) => a.kind === 'income').reduce((t: number, a: any) => t + a.amount, 0)
+      out.push(result(id, r.actions, `${n} viagem(ns) e receita ${receita}`, viagensDe(r.actions) === n && total === receita))
+    }
+
+    // Plataforma sem quantidade: origem de receita, sem viagem.
+    for (const [id, frase, receita] of [
+      ['VI-plataforma-so', 'recebi 25 da uber', 25],
+      ['VI-plataforma-dia', 'hoje fiz 300 na uber e 120 na 99', 420],
+      ['VI-de-corrida-e-categoria', 'ganhei 22 de corrida', 22],
+    ] as const) {
+      const r = await turnoHoje(buildState({ profile: 'driver' }), frase)
+      const total = r.actions.filter((a: any) => a.kind === 'income' && a.category === 'corridas').reduce((t: number, a: any) => t + a.amount, 0)
+      out.push(result(id, r.actions, `receita ${receita} em Corridas, sem trips`, total === receita && !temTrips(r.actions)))
+    }
+
+    // Métricas: o dia sem viagens informadas não entra no ganho por viagem.
+    // Antes: (300 + 450) / 10 = R$ 75,00 — com a decisão nova, R$ 30,00.
+    {
+      const ontem = addDays(hoje, -1), anteontem = addDays(hoje, -2)
+      const st = buildState({
+        profile: 'driver',
+        transactions: [
+          { type: 'income', amount: 300, category: 'corridas', date: anteontem, description: 'Uber' },
+          { type: 'income', amount: 450, category: 'corridas', date: ontem, description: 'Uber' },
+        ],
+        workSessions: [{ date: anteontem, km: 100, trips: 10, hours: 5 }, { date: ontem, km: 160, hours: 9 }],
+      })
+      const ps = periodStats(st, anteontem, hoje, hoje)
+      out.push(result('VI-metrica-periodStats', ps, 'perTrip 30 (300 / 10), receita total 750',
+        ps.income === 750 && ps.trips === 10 && Math.abs(ps.perTrip - 30) < 0.001 && ps.incomeWithTrips === 300))
+      const r = await turnoHoje(st, 'qual minha média por viagem?')
+      out.push(result('VI-metrica-resposta', r.reply, 'R$ 30,00 por viagem e os R$ 450 fora da média',
+        limpa(r.reply).includes(brl(30)) && !limpa(r.reply).includes(brl(75)) && limpa(r.reply).includes(brl(450))))
+      const plano: any = validateQueryPlan({
+        source: 'transactions', metric: 'per-trip', filter: { txType: ['income'] },
+        period: { from: anteontem, to: hoje, grain: 'range' },
+      }, st, hoje)
+      const q = plano.ok ? runQuery(st, plano.plan, hoje) : null
+      const valor = q?.total
+      out.push(result('VI-metrica-dsl-igual-calc', { plano, valor }, 'consulta per-trip = periodStats.perTrip (30)',
+        typeof valor === 'number' && Math.abs(valor - ps.perTrip) < 0.005))
     }
   }
 

@@ -153,7 +153,7 @@ export default function Analytics() {
       {/* INDICADORES */}
       <div className="grid-2">
         <div className="mini-card"><div className="mini-value">{fmtBRL(cur.days > 0 ? cur.profit / cur.days : 0)}</div><div className="mini-label">Média diária (lucro)</div></div>
-        <div className="mini-card"><div className="mini-value">{fmtBRL(cur.perTrip)}</div><div className="mini-label">Ticket médio/viagem</div></div>
+        <div className="mini-card"><div className="mini-value">{cur.trips > 0 ? fmtBRL(cur.perTrip) : '—'}</div><div className="mini-label">Ticket médio/viagem</div></div>
         <div className="mini-card"><div className="mini-value">{fmtBRL(cur.costPerKm)}</div><div className="mini-label">Custo por km</div></div>
         <div className="mini-card"><div className="mini-value">{fmtBRL(cur.netPerKm)}</div><div className="mini-label">Lucro por km</div></div>
         <div className="mini-card"><div className="mini-value">{fmtBRL(cur.profitPerHour)}</div><div className="mini-label">Lucro por hora</div></div>

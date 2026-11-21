@@ -64,14 +64,14 @@ export const FALA_REAL: AssistantCase[] = [
   {
     id: 'fr-15', group: 'falareal', ...motorista,
     messages: ['ganhei 200 hj'],
-    expectActions: [{ kind: 'income', amount: 200 }, { kind: 'work', trips: 1 }],
+    expectActions: [{ kind: 'income', amount: 200 }], // regra 34: sem quantidade dita, nenhuma viagem
   },
   {
     id: 'fr-16', group: 'falareal', ...motorista,
     // "conto" vira "reais" na normalização da PERGUNTA, mas o registro lê o
     // texto original — o valor não pode se perder no caminho.
     messages: ['fiz 300 conto hoje'],
-    expectActions: [{ kind: 'income', amount: 300 }, { kind: 'work', trips: 1 }],
+    expectActions: [{ kind: 'income', amount: 300 }], // regra 34: sem quantidade dita, nenhuma viagem
   },
   {
     id: 'fr-17', group: 'falareal', ...motorista,

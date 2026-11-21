@@ -1405,7 +1405,10 @@ function resolveLocal(s: AppState, input: string): AiReply {
     const w = weekStats(s)
     if (w.trips <= 0) return { text: 'Ainda não tenho viagens registradas nos últimos 7 dias. Diga "fiz 14 viagens" que eu calculo sua média por viagem.' }
     return {
-      text: `Nos últimos 7 dias foram ${w.trips} viagens e ${fmtBRL(w.income)} de receita — ${fmtBRL(w.perTrip)} por viagem (dado real).`,
+      text: `Nos últimos 7 dias foram ${w.trips} viagens e ${fmtBRL(w.incomeWithTrips)} de receita nos dias em que elas foram informadas — ${fmtBRL(w.perTrip)} por viagem (dado real).`
+        + (w.income - w.incomeWithTrips > 0.009
+          ? `\n\n${fmtBRL(w.income - w.incomeWithTrips)} entraram em dias sem a quantidade de viagens e ficaram fora dessa média. Diga "fiz 14 viagens" junto com o ganho do dia que eu incluo.`
+          : ''),
     }
   }
 

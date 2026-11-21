@@ -397,13 +397,16 @@ const mediana = (v: number[]): number => {
 function quantidadeTrabalho(state: AppState, from: string, to: string, today: string) {
   let km = 0, hours = 0, trips = 0
   const realizedTo = to < today ? to : today
+  const viagensPorDia = new Map<string, number>()
   for (const w of state.workSessions || []) {
     if (!w || !inRange(w.date, from, realizedTo)) continue
     km += Number(w.km) || 0
     hours += Number(w.hours) || 0
     trips += Number(w.trips) || 0
+    viagensPorDia.set(w.date, (viagensPorDia.get(w.date) || 0) + (Number(w.trips) || 0))
   }
-  return { km, hours, trips }
+  const diasComViagem = new Set([...viagensPorDia].filter(([, n]) => n > 0).map(([d]) => d))
+  return { km, hours, trips, diasComViagem }
 }
 
 /**
@@ -459,8 +462,14 @@ function aplicaMetrica(
       return q.hours > 0 ? numerador(soma, rows, plan) / q.hours : 0
     }
     case 'per-trip': {
+      // Só o dinheiro dos dias em que as viagens foram DITAS: o dia registrado
+      // sem quantidade (regra 34) não tem viagem para dividir, e somá-lo no
+      // numerador inflaria o ganho por viagem. Mesmo recorte de `periodStats`.
       const q = quantidadeTrabalho(state, periodo.from, periodo.to, today)
-      return q.trips > 0 ? numerador(soma, rows, plan) / q.trips : 0
+      if (q.trips <= 0) return 0
+      const comViagem = rows.filter(row => q.diasComViagem.has(row.date))
+      const somaComViagem = comViagem.reduce((a, row) => a + valorDe(row, plan), 0)
+      return numerador(somaComViagem, comViagem, plan) / q.trips
     }
     // `share` é calculado fora: ele precisa da consulta SEM os filtros de
     // conteúdo, e isso não cabe numa função que só enxerga as linhas filtradas.

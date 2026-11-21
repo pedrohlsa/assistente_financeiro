@@ -450,8 +450,8 @@ export const REGISTRO_REAL: AssistantCase[] = [
   },
   {
     id: 'rr-53', group: 'registroreal', ...motorista,
-    // A proposta escrevia "1 viagens".
-    messages: ['ganhei 250 hoje'],
+    // A proposta escrevia "1 viagens". A viagem precisa ser DITA (regra 34).
+    messages: ['fiz uma corrida de 25'],
     expectReply: [/1 viagem\b/],
     forbidReply: [/1 viagens/],
   },
@@ -515,9 +515,7 @@ export const REGISTRO_REAL: AssistantCase[] = [
     messages: ['ontem fiz 280 e hoje 320'],
     expectActions: [
       { kind: 'income', amount: 280, date: '2026-07-14' },
-      { kind: 'work', trips: 1, date: '2026-07-14' },
       { kind: 'income', amount: 320, date: '2026-07-15' },
-      { kind: 'work', trips: 1, date: '2026-07-15' },
     ],
   },
   {

@@ -59,7 +59,7 @@ export const ADVERSARIAL: AssistantCase[] = [
   { id: 'abr-02', group: 'abreviacao', ...other, messages: ['gastei 50 no mercado ontem'],
     expectActions: [{ kind: 'expense', amount: 50, date: '2026-07-14' }] },
   { id: 'abr-03', group: 'abreviacao', ...driver, messages: ['ganhei 50 dps gastei 20'],
-    expectActions: [{ kind: 'income', amount: 50 }, { kind: 'expense', amount: 20 }, { kind: 'work', trips: 1 }] },
+    expectActions: [{ kind: 'income', amount: 50 }, { kind: 'expense', amount: 20 }] }, // regra 34: sem quantidade dita, nenhuma viagem
   { id: 'abr-04', group: 'abreviacao', ...driver, messages: ['gastei 40 de gasolina ontem pq tava vazio'],
     expectActions: [{ kind: 'fuel', amount: 40, date: '2026-07-14' }] },
   { id: 'abr-05', group: 'abreviacao', ...auto, messages: ['rebcbi 1.234,56 da Casa 2 hj'],
@@ -110,8 +110,7 @@ export const ADVERSARIAL: AssistantCase[] = [
     messages: ['ganhei 430 na uber 399 na 99'],
     expectActions: [
       { kind: 'income', amount: 430, description: 'Uber' },
-      { kind: 'income', amount: 399, description: '99' },
-      { kind: 'work', trips: 2 },
+      { kind: 'income', amount: 399, description: '99' }, // regra 34: sem quantidade dita, nenhuma viagem
     ] },
   { id: 'sem-03', group: 'sempontuacao', ...auto,
     messages: ['recebi 1800 da casa 1 e 1750 da casa 2 gastei 200 de obra e 80 de mercado quanto sobrou'],
@@ -131,7 +130,7 @@ export const ADVERSARIAL: AssistantCase[] = [
       { kind: 'income', amount: 399, description: '99' },
       { kind: 'fuel', amount: 163, liters: 24 },
       { kind: 'odometer', value: 220007 },
-      { kind: 'work', km: 161, hours: 8, trips: 2 },
+      { kind: 'work', km: 161, hours: 8, trips: null }, // regra 34: sem quantidade dita, nenhuma viagem
     ] },
 
   // ===== BUG 5 — CONJUNÇÃO VIRANDO NOME DE META =====

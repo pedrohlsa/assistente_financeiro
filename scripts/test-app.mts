@@ -58,7 +58,9 @@ const state = (): AppState => ({
   assert.equal(fuel?.liters, 24)
   const work = actions.find(a => a.kind === 'work')
   assert.equal(work?.km, 161)
-  assert.equal(work?.trips, 2)
+  // Plataforma é origem de receita, não viagem: sem quantidade dita, nada de
+  // "2 viagens" inventadas (regra 34).
+  assert.equal(work?.trips, undefined)
 }
 
 {

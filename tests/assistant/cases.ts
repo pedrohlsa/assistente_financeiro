@@ -19,9 +19,9 @@ const twoCards = { cards: [{ name: 'Nubank' }, { name: 'Inter' }] }
 export const CASES: AssistantCase[] = [
   // ======================= 1. RECEITAS =======================
   { id: 'rec-01', group: 'receitas', ...driver, messages: ['ganhei 250 hoje'],
-    expectActions: [{ kind: 'income', amount: 250, category: 'corridas' }, { kind: 'work', trips: 1 }] },
+    expectActions: [{ kind: 'income', amount: 250, category: 'corridas' }] }, // regra 34: sem quantidade dita, nenhuma viagem
   { id: 'rec-02', group: 'receitas', ...driver, messages: ['ganhei 430 no Uber'],
-    expectActions: [{ kind: 'income', amount: 430, description: 'Uber' }, { kind: 'work', trips: 1 }] },
+    expectActions: [{ kind: 'income', amount: 430, description: 'Uber' }] }, // regra 34: sem quantidade dita, nenhuma viagem
   { id: 'rec-03', group: 'receitas', ...other, messages: ['recebi 500'],
     expectActions: [{ kind: 'income', amount: 500, category: 'outros-in' }] },
   { id: 'rec-04', group: 'receitas', ...clt, messages: ['recebi meu salário de 3000'],
@@ -33,7 +33,7 @@ export const CASES: AssistantCase[] = [
   { id: 'rec-07', group: 'receitas', ...other, messages: ['recebi 900 de vendas'],
     expectActions: [{ kind: 'income', amount: 900, category: 'vendas' }] },
   { id: 'rec-08', group: 'receitas', ...driver, messages: ['recebi 99 reais'],
-    expectActions: [{ kind: 'income', amount: 99 }, { kind: 'work', trips: 1 }] },
+    expectActions: [{ kind: 'income', amount: 99 }] }, // regra 34: sem quantidade dita, nenhuma viagem
   { id: 'rec-09', group: 'receitas', ...other, messages: ['entrou 2500'],
     expectActions: [{ kind: 'income', amount: 2500 }] },
   { id: 'rec-10', group: 'receitas', ...other, messages: ['faturei 1200 esse mês'],
@@ -145,7 +145,7 @@ export const CASES: AssistantCase[] = [
       { kind: 'income', amount: 430, description: 'Uber' },
       { kind: 'income', amount: 399, description: '99' },
       { kind: 'fuel', amount: 163, liters: 24 },
-      { kind: 'work', km: 161, trips: 2 },
+      { kind: 'work', km: 161, trips: null }, // regra 34: sem quantidade dita, nenhuma viagem
     ] },
   { id: 'mul-02', group: 'multi', ...other,
     messages: ['gastei 79 de gás de cozinha, depois gastei mais 190 de cimento'],
@@ -190,7 +190,7 @@ export const CASES: AssistantCase[] = [
     expectActions: [
       { kind: 'income', amount: 300 },
       { kind: 'fuel', amount: 70 },
-      { kind: 'work', km: 120, trips: 1 },
+      { kind: 'work', km: 120, trips: null }, // regra 34: sem quantidade dita, nenhuma viagem
     ] },
   { id: 'mul-08', group: 'multi', ...clt,
     messages: ['Meu salário foi mil seiscentos e vinte e cinco, paguei trezentos e cinquenta e cinco nas contas e guardei cento e cinquenta.'],

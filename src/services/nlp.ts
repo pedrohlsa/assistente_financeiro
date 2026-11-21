@@ -496,6 +496,13 @@ function driverDayResult(input: string, actions: ParsedAction[], dayHint?: boole
 }
 
 /**
+ * Uma corrida NOMEADA no singular: "uma corrida", "numa viagem", "a corrida",
+ * "corrida de 18", "corrida pro aeroporto". "Ganhei 22 DE corrida" é a
+ * categoria da receita, não a contagem — fica de fora.
+ */
+export const UMA_CORRIDA_NOMEADA = /(?<![\p{L}\p{M}])(?:(?:uma|1|numa|outra|mais\s+uma|essa|nessa|esta|nesta|aquela|naquela|daquela|a|na|da|pela|dessa|desta)\s+(?:corrida|viagem)(?![\p{L}\p{M}])|(?<!\bde\s)(?:corrida|viagem)\s+(?:de|por|pro|pra|para|at[eé])\s)/giu
+
+/**
  * Parse completo: além das ações, devolve a pergunta de desambiguação quando o
  * texto não permite decidir com segurança.
  */
@@ -594,13 +601,16 @@ export function parseNaturalFull(
       ? { ...a, category: a.category || 'corridas' }
       : a)
 
-    // Um registro de receita de corrida representa uma viagem quando o usuário
-    // não informou uma quantidade explícita. "Fiz 14 viagens" continua valendo 14.
-    // O resultado do DIA é a exceção: "fechei o dia com 280" não diz nada sobre
-    // quantas viagens foram, e cravar "1 viagem" num dia inteiro destruiria o
-    // ganho por viagem do motorista.
+    // Viagem só entra quando o usuário a DISSE (regra 34). "Fiz 14 viagens"
+    // vale 14, e "fiz UMA corrida de 35" / "corrida de 18" valem 1 — a frase
+    // nomeia uma corrida só. Plataforma não é viagem: "ganhei 430 na Uber"
+    // é uma ORIGEM de receita, quase sempre o dia ou o turno inteiro, e cravar
+    // "1 viagem" por plataforma inventava o número que o ganho por viagem
+    // divide. Sem quantidade dita, o campo fica ausente.
     const hasExplicitTrips = actions.some(a => a.kind === 'work' && a.trips !== undefined)
-    const rideEntries = actions.filter(a => a.kind === 'income' && a.category === 'corridas').length
+    const rideIncomes = actions.filter(a => a.kind === 'income' && a.category === 'corridas').length
+    const corridasNomeadas = input.match(UMA_CORRIDA_NOMEADA)?.length || 0
+    const rideEntries = Math.min(rideIncomes, corridasNomeadas)
     // Gorjeta, bônus e incentivo são receita da corrida, não viagem: "recebi 50
     // de gorjeta" contava 1 viagem e derrubava o ganho por viagem.
     const naoEViagem = /\b(?:gorjetas?|b[oô]nus|incentivos?|promo(?:cao|ção|çao)?|caixinha)\b/i.test(input)

@@ -268,7 +268,7 @@ export const ADAPTATIVO: AssistantCase[] = [
     // Dez dias entre R$ 260 e R$ 370. "3000" é quase certamente um zero a
     // mais — mas pode ser real, então o app avisa e deixa confirmar.
     messages: ['ganhei 3000 hoje'],
-    expectActions: [{ kind: 'income', amount: 3000 }, { kind: 'work', trips: 1 }],
+    expectActions: [{ kind: 'income', amount: 3000 }], // regra 34: sem quantidade dita, nenhuma viagem
     expectWarning: /bem acima|fora do|confere/i,
   },
   {
@@ -276,7 +276,7 @@ export const ADAPTATIVO: AssistantCase[] = [
     state: { transactions: diasDeCorrida as any },
     // Dentro do padrão: nenhum aviso.
     messages: ['ganhei 300 hoje'],
-    expectActions: [{ kind: 'income', amount: 300 }, { kind: 'work', trips: 1 }],
+    expectActions: [{ kind: 'income', amount: 300 }], // regra 34: sem quantidade dita, nenhuma viagem
     expectNoWarning: true,
   },
 
@@ -642,7 +642,6 @@ export const ADAPTATIVO: AssistantCase[] = [
     messages: ['hoje foi 430 na uber e paguei 430 de manutenção'],
     expectActions: [
       { kind: 'income', amount: 430, category: 'corridas' },
-      { kind: 'work', trips: 1 },
       { kind: 'expense', amount: 430, category: 'manutencao' },
     ],
   },

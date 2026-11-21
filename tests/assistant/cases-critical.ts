@@ -52,7 +52,9 @@ export const CRITICAL: AssistantCase[] = [
       { kind: 'income', amount: 430, description: 'Uber' },
       { kind: 'income', amount: 399, description: '99' },
       { kind: 'fuel', amount: 163, liters: 24, odometer: 220007 },
-      { kind: 'work', km: 161, hours: 8, trips: 2 },
+      // Plataforma é origem de receita, não viagem: sem quantidade dita, o
+      // campo fica ausente (regra 34, decisão de 21/11).
+      { kind: 'work', km: 161, hours: 8, trips: null },
     ],
     // A taxa da 99 NUNCA entra sozinha: é confirmação separada depois do registro.
     forbidReply: [/taxa da 99/i],
@@ -177,7 +179,7 @@ export const CRITICAL: AssistantCase[] = [
   { id: 'mt2-01', group: 'motorista2', ...driver, messages: ['fiz 14 viagens'], expectActions: [{ kind: 'work', trips: 14 }] },
   { id: 'mt2-02', group: 'motorista2', ...driver, messages: ['rodei 200 km'], expectActions: [{ kind: 'work', km: 200 }] },
   { id: 'mt2-03', group: 'motorista2', ...driver, messages: ['abasteci 41 litros'], expectActions: [{ kind: 'fuel', liters: 41 }] },
-  { id: 'mt2-04', group: 'motorista2', ...driver, messages: ['ganhei 200 no inDriver'], expectActions: [{ kind: 'income', amount: 200, description: 'inDrive' }, { kind: 'work', trips: 1 }] },
+  { id: 'mt2-04', group: 'motorista2', ...driver, messages: ['ganhei 200 no inDriver'], expectActions: [{ kind: 'income', amount: 200, description: 'inDrive' }] }, // regra 34: sem quantidade dita, nenhuma viagem
   { id: 'mt2-05', group: 'motorista2', ...driver, messages: ['tira 2 viagens'], expectActions: [{ kind: 'work', trips: -2 }] },
   { id: 'mt2-06', group: 'motorista2', ...driver, messages: ['troquei o pneu por 900'], expectActions: [{ kind: 'maintenance', cost: 900 }] },
   { id: 'mt2-07', group: 'motorista2', ...driver,

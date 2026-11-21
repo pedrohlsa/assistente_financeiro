@@ -133,7 +133,7 @@ export const ACTION_CATALOG: ActionSpec[] = [
     anyOf: ['km', 'trips', 'hours'],
     fields: [
       { name: 'km', type: 'quantity', required: false, min: -100_000, max: 100_000, describe: 'quilômetros RODADOS no trabalho (nunca o hodômetro)' },
-      { name: 'trips', type: 'quantity', required: false, min: -999, max: 999, describe: 'número de viagens/corridas' },
+      { name: 'trips', type: 'quantity', required: false, min: -999, max: 999, describe: 'número de viagens/corridas DITO pelo usuário — nunca inferido do valor nem da plataforma (Uber, 99 são origem da receita)' },
       { name: 'hours', type: 'quantity', required: false, min: -24, max: 24, describe: 'horas trabalhadas' },
       dateField,
     ],

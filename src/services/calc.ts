@@ -15,6 +15,8 @@ export interface PeriodStats {
   grossPerKm: number
   netPerKm: number
   costPerKm: number
+  /** Receita só dos dias com viagens informadas — o numerador de `perTrip`. */
+  incomeWithTrips: number
   perTrip: number
   profitPerHour: number
 }
@@ -32,13 +34,21 @@ export function periodStats(s: AppState, from: string, to: string, today = today
   const hours = ws.reduce((a, w) => a + w.hours, 0)
   const profit = income - expense
   const daysSet = new Set(txs.map(t => t.date).concat(ws.map(w => w.date)))
+  // Ganho por viagem divide só o que entrou nos dias em que as viagens foram
+  // DITAS. Um dia registrado sem quantidade (regra 34) não tem viagem, e
+  // somar a receita dele inflaria a média.
+  const viagensPorDia = new Map<string, number>()
+  for (const w of ws) viagensPorDia.set(w.date, (viagensPorDia.get(w.date) || 0) + w.trips)
+  const incomeWithTrips = txs.filter(t => t.type === 'income' && (viagensPorDia.get(t.date) || 0) > 0)
+    .reduce((a, t) => a + t.amount, 0)
   return {
     income, expense, profit, km, trips, hours,
     days: daysSet.size,
     grossPerKm: km > 0 ? income / km : 0,
     netPerKm: km > 0 ? profit / km : 0,
     costPerKm: km > 0 ? expense / km : 0,
-    perTrip: trips > 0 ? income / trips : 0,
+    incomeWithTrips,
+    perTrip: trips > 0 ? incomeWithTrips / trips : 0,
     profitPerHour: hours > 0 ? profit / hours : 0,
   }
 }

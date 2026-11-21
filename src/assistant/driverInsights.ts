@@ -130,7 +130,11 @@ function diaTipico(s: AppState): string {
   if (horas > 0) {
     linhas.push(`• Jornada: ${fmtNum(horas / ds.length)} h por dia — ${fmtBRL(soma(ds.map(d => d.income - d.expense)) / horas)} por hora`)
   } else faltando.push('as horas')
-  if (viagens > 0) linhas.push(`• Viagens: ${fmtNum(viagens / ds.length, 0)} por dia — ${fmtBRL(soma(ds.map(d => d.income)) / viagens)} por viagem`)
+  if (viagens > 0) {
+    // Por viagem só com os dias em que a quantidade foi dita (regra 34).
+    const comViagem = ds.filter(d => d.trips > 0)
+    linhas.push(`• Viagens: ${fmtNum(viagens / comViagem.length, 0)} por dia com viagens informadas — ${fmtBRL(soma(comViagem.map(d => d.income)) / viagens)} por viagem`)
+  }
   else faltando.push('as viagens')
   if (km > 0 && horas > 0) linhas.push(`• Líquido por km: ${fmtBRL(soma(ds.map(d => d.income - d.expense)) / km)}`)
 

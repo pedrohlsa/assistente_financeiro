@@ -8,7 +8,7 @@
 import type { ParsedAction } from '../models/types'
 import type { AssistantConfidence, AssistantIntent, FinancialEvent } from './contracts'
 import { guessCategory } from '../data/categories'
-import { cleanDescription, gruposDeCorrida, looksRecurring, parseNaturalFull } from '../services/nlp'
+import { cleanDescription, gruposDeCorrida, looksRecurring, parseNaturalFull, UMA_CORRIDA_NOMEADA } from '../services/nlp'
 import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
@@ -1063,6 +1063,26 @@ function semViagemInferida(actions: ParsedAction[], text: string): ParsedAction[
   })
 }
 
+/**
+ * "Fiz UMA CORRIDA, ganhei 150": a corrida nomeada ficou numa cláusula sem
+ * valor e a receita na seguinte. A viagem é a que foi dita, então ela passa
+ * para a receita logo depois — e só para ela (regra 34).
+ */
+function corridaNomeadaAntesDoValor(clauses: AnalyzedClause[], driver: boolean): void {
+  if (!driver) return
+  for (let i = 0; i + 1 < clauses.length; i++) {
+    const nomeada = clauses[i], seguinte = clauses[i + 1]
+    if (nomeada.actions.length || !/\b(?:fiz|peguei|tive|rodei|levei)\b/i.test(nomeada.text)) continue
+    if ((nomeada.text.match(UMA_CORRIDA_NOMEADA) || []).length !== 1) continue
+    if (seguinte.text.match(UMA_CORRIDA_NOMEADA)) continue
+    const receitas = seguinte.actions.filter(a => a.kind === 'income' && a.category === 'corridas')
+    if (receitas.length !== 1 || seguinte.actions.some(a => a.kind === 'work' && a.trips !== undefined)) continue
+    const work = seguinte.actions.find(a => a.kind === 'work') as Extract<ParsedAction, { kind: 'work' }> | undefined
+    if (work) work.trips = 1
+    else seguinte.actions.push({ kind: 'work', trips: 1 })
+  }
+}
+
 function semViagemInferidaComQuantidadeDita(clauses: AnalyzedClause[]): void {
   if (!clauses.some(c => QUANTIDADE_DE_VIAGENS.test(c.text) && c.actions.some(a => a.kind === 'work' && a.trips))) return
   for (const c of clauses) c.actions = semViagemInferida(c.actions, c.text)
@@ -1983,6 +2003,7 @@ export function analyzeMessage(
 
   // A quantidade dita vale antes de fundir: depois, a viagem inferida já está
   // somada às ditas.
+  corridaNomeadaAntesDoValor(clauses, !!opts?.driver)
   semViagemInferidaComQuantidadeDita(clauses)
 
   // Registros de trabalho de cláusulas diferentes são o MESMO dia: "rodei 120 km
