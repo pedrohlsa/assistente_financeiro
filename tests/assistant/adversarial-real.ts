@@ -7519,7 +7519,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const h = (await turnoHoje(moto, 'qual o melhor horário pra rodar')).reply
     out.push(result('DR-melhor-horario', h, 'diz que não tem o horário das corridas; sem total do mês', /hor[áa]rio/i.test(h) && !/Total recebido/.test(h)))
     const c = (await turnoHoje(moto, 'to cansado, paro ou continuo?')).reply
-    out.push(result('DR-paro-ou-continuo', c, 'o dia contra a meta, sem decidir pelo usuário', /meta/i.test(c) && !/Posso te ajudar/.test(c)))
+    out.push(result('DR-paro-ou-continuo', c, 'orienta pausa e mantém a conta da meta', /^Pare em um local seguro/i.test(c) && /meta/i.test(c)))
+
+    const datas = [7, 14, 21, 28].map(n => addDays(hoje, -n))
+    const historico = buildState({
+      profile: 'driver',
+      transactions: datas.map((date, i) => ({ type: 'income', category: 'corridas', date, amount: [120, 240, 180, 900][i] })),
+      workSessions: [3, 4, 3].map((hours, i) => ({ date: datas[i], hours, km: 100 })),
+    })
+    historico.transactions.push({ ...historico.transactions[0], id: 'salario', category: 'salario', amount: 3200 })
+    historico.settings.minPerKm = 1.70
+    const feriado = await turnoHoje(historico, 'hoje é feriado, vale rodar?')
+    const respostaFeriado = feriado.reply.replace(/ /g, ' ')
+    out.push(result('DR-feriado-referencia', respostaFeriado, 'receita de 54/h, 3 dias comparáveis e piso de 1,70/km', /não separa feriados/.test(respostaFeriado)
+      && respostaFeriado.includes(brl(54)) && /3 registros/.test(respostaFeriado) && respostaFeriado.includes(brl(1.70)) && !feriado.actions.length))
+
+    const semBase = await turnoHoje(buildState({ profile: 'driver' }), 'feriado, compensa sair pra rodar?')
+    out.push(result('DR-feriado-sem-base', semBase.reply, 'explica o dado que falta, sem simular ganho', /pelo menos três dias/.test(semBase.reply) && !/R\$/.test(semBase.reply) && !semBase.actions.length))
+
+    const cansaco = await turnoHoje(historico, 'hoje vale a pena rodar? não tô cansado mas tô com sono')
+    out.push(result('DR-turno-com-sono', cansaco.reply, 'pausa mesmo quando o sono aparece depois da pergunta', /^Pare em um local seguro/i.test(cansaco.reply) && !/bruta/.test(cansaco.reply) && !cansaco.actions.length))
+    const negado = await turnoHoje(historico, 'hoje vale rodar? não tô com sono')
+    out.push(result('DR-turno-sem-sono', negado.reply, 'interpreta a negação e mantém a referência', /média bruta/.test(negado.reply) && !/^Pare em um local seguro/.test(negado.reply) && !negado.actions.length))
   }
 
   // `\b` antes de "e" casa depois de letra acentuada (regra 67b): o "e" de

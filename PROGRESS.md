@@ -6669,3 +6669,14 @@ até auditoria independente.
   Exige um prazo válido quando o usuário pergunta pelo saldo de outro dia.
 - Chrome confirmou a simulação com preço informado e parcelas intactas.
   A suíte passou com 1.187/1.187 regressões adversariais.
+
+## 21/11/2026 — Referência de turno para o motorista
+
+- “Hoje é feriado, vale rodar?” usa a média bruta ponderada pelos dias do
+  mesmo dia da semana com receita de corridas e horas. A amostra precisa
+  de três dias nas últimas oito semanas. A resposta explica que o histórico
+  ainda não distingue feriados e exibe o piso por km quando configurado.
+- “Tô cansado, paro ou continuo?” começa pela pausa em local seguro.
+  “Vale rodar hoje? Tô com sono” considera a segunda parte da mensagem.
+- A suíte passou com 1.191/1.191 regressões adversariais e ambos os
+  typechecks passaram.

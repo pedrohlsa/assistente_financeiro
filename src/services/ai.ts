@@ -35,6 +35,7 @@ import type { PerguntaDeConta, PerguntaDeFatura, PlanoDeGuardar } from '../assis
 import { CORRIDA_CANCELADA, describeAction, parseNaturalFull, REAJUSTE, SAQUE } from './nlp'
 import { driverInsight } from '../assistant/driverInsights'
 import { answerVehicleCost, answerVehicleMonthly } from '../assistant/vehicleCost'
+import { answerDrivingShift, perceivesDrivingFatigue, PARE_PARA_DESCANSAR } from '../assistant/driverAdvice'
 import { avaliacaoDoDia } from '../assistant/dayReview'
 import { respostaDeAtraso, respostaDeChegada, respostaDeProximaEntrada } from '../assistant/arrival'
 import { readInvoiceReference } from '../assistant/invoicePayment'
@@ -558,9 +559,11 @@ function ondeCortar(s: AppState, t: string): string | undefined {
   ].join('\n')
 }
 
-function resolveLocal(s: AppState, input: string): AiReply {
+function resolveLocal(s: AppState, input: string, context?: { today?: string; message: string }): AiReply {
   const t = normalizeQuestion(input)
   const driverMode = isDriver(s.settings)
+  const turno = answerDrivingShift(s, input, context?.today, context?.message)
+  if (turno) return { text: turno }
   // Antes das rotas de "quanto gastei": sem período, elas devolviam a ajuda.
   const custoMensal = answerVehicleMonthly(s, t)
   if (custoMensal) return { text: custoMensal }
@@ -1012,7 +1015,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
       text: `Com base na sua média real de ${fmtBRL(w.profitPerHour)}/hora (últimos 7 dias), mais ${hoursM[1]}h renderiam aproximadamente ${fmtBRL(extra)} (estimativa).\n\n` +
         (missing > 0
           ? `Faltam ${fmtBRL(missing)} para sua meta de hoje — ${extra >= missing ? 'essas horas devem cobrir a meta. Vale a pena!' : 'mesmo assim ficaria faltando ' + fmtBRL(missing - extra) + '.'}`
-          : 'Você já bateu sua meta de hoje. Horas extras agora são lucro puro, mas descanso também importa. 😉'),
+          : 'Você já bateu sua meta de hoje. O ganho extra ainda depende do valor das corridas e dos custos de rodar.'),
     }
   }
 
@@ -1111,14 +1114,14 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // Vinha depois da composição, que capturava qualquer "meta" e respondia a
   // conta da meta sem dizer se foi batida.
   // "Tô bem na meta?" despejava a composição da meta sem dizer se ia bem.
-  // "Tô cansado, paro ou continuo?": o dia contra a meta e o ritmo — a
-  // decisão é dele. Caía na ajuda genérica.
+  // "Tô cansado, paro ou continuo?": a pausa vem antes da conta da meta.
   if (driverMode && /\b(?:paro|parar|encerro|encerrar|vou\s+embora)\b[^?]*\b(?:ou|continuo|continuar|sigo|seguir|rodo)\b|\bdevo\s+parar\b|\bja\s+da\s+(?:pra|para)\s+parar\b|\bposso\s+parar\b/.test(t)) {
     const ts = todayStats(s)
     const g = dailyGoal(s)
     const falta = round2(g.total - ts.profit)
     const w = weekStats(s)
     const conta = `Hoje: lucro de ${fmtBRL(ts.profit)} contra a meta de ${fmtBRL(g.total)} (dado real).`
+    if (perceivesDrivingFatigue(context?.message ?? t)) return { text: `${PARE_PARA_DESCANSAR} ${conta} ${falta > 0.009 ? `Faltam ${fmtBRL(falta)} para a meta do dia.` : 'A meta do dia está batida.'}` }
     return { text: falta <= 0.009
       ? `${conta} A meta do dia está batida — parar agora não te atrasa no mês.`
       : `${conta} Faltam ${fmtBRL(falta)}`
@@ -2573,7 +2576,7 @@ function habitualSpending(s: AppState, alvo: string, escala: string): string | u
 }
 
 /** Motor de resposta local com marcação de confiança (handled). */
-export function askAssistant(s: AppState, input: string): AiReply {
-  const r = resolveLocal(s, input)
+export function askAssistant(s: AppState, input: string, context?: { today?: string; message: string }): AiReply {
+  const r = resolveLocal(s, input, context)
   return { ...r, engine: 'local', handled: r.handled !== false }
 }

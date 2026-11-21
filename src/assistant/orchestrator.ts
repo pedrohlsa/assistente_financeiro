@@ -748,6 +748,7 @@ function answerQuestions(
   questions: AnalyzedClause[],
   candidates: AssistantCandidateAction[],
   today: string,
+  message: string,
 ): { text: string; answered: AnalyzedClause[]; focus?: ConversationFocus } {
   if (!questions.length) return { text: '', answered: [] }
   const projected = candidates.length
@@ -763,8 +764,8 @@ function answerQuestions(
     // registro, quem responde é o turno normal, que lê a mensagem toda; e um
     // fragmento ("minha reserva tá em | quanto") virava "Total gasto este mês".
     const usaConsulta = candidates.length > 0 && pergunta.trim().split(/\s+/).length >= 3
-    const real = respostaLocal(state, pergunta, today, usaConsulta)
-    const comRegistro = candidates.length ? respostaLocal(projected, pergunta, today, usaConsulta) : real
+    const real = respostaLocal(state, pergunta, today, usaConsulta, message)
+    const comRegistro = candidates.length ? respostaLocal(projected, pergunta, today, usaConsulta, message) : real
     if (!comRegistro) continue
     // Regra 27: o número que conta com o registro ainda não confirmado é
     // hipotético. "Qual meu saldo" mostrava o saldo já descontado como se fosse
@@ -833,7 +834,7 @@ function answerListedDays(state: AppState, question: string, today: string): str
  * sobrou esse mês?" respondia só "se você confirmar, saem R$ 50".
  */
 function respostaLocal(
-  state: AppState, pergunta: string, today: string, usaConsulta: boolean,
+  state: AppState, pergunta: string, today: string, usaConsulta: boolean, message = pergunta,
 ): { text: string; focus?: ConversationFocus } | null {
   const groupedDays = answerListedDays(state, pergunta, today)
   if (groupedDays) return { text: groupedDays }
@@ -842,7 +843,7 @@ function respostaLocal(
   if (conv?.kind === 'explain' && conv.focus.last === 'vehicle') return { text: conv.reply, focus: conv.focus }
   const consulta = conv?.kind === 'query' ? conv : null
   if (consulta?.beyondLegacy) return { text: consulta.reply, focus: consulta.focus }
-  const r = askAssistant(state, pergunta)
+  const r = askAssistant(state, pergunta, { today, message })
   // CUIDADO: `askAssistant` tem parser próprio e, quando acha uma ação, monta
   // "Entendi isso… / Confirmar?". Isso é uma PROPOSTA, não a resposta de uma
   // pergunta — usá-la aqui mostrava a proposta na tela sem nenhum botão para
@@ -2601,7 +2602,7 @@ Confirmar?`,
 
   // ---- 14) Perguntas respondidas localmente -------------------------------
   const questions = analysis.clauses.filter(c => c.intent === 'question' && !semRespostaLocal(c))
-  const local_answers = answerQuestions(input.state, questions, candidates, today)
+  const local_answers = answerQuestions(input.state, questions, candidates, today, mensagem)
   const answeredIds = new Set(local_answers.answered.map(c => c.id))
   unresolved = unresolved.filter(u => !answeredIds.has(u.clauseId))
 
@@ -2897,7 +2898,7 @@ Confirmar?`,
       // Confirmar?" a partir dele. Se o orquestrador decidiu que NÃO há ação
       // (negação, hipótese, perfil), esse texto seria uma promessa falsa: a tela
       // mostraria a proposta sem nenhum botão. Só aproveitamos a RESPOSTA.
-      const local = askAssistant(input.state, mensagem)
+      const local = askAssistant(input.state, mensagem, { today, message: mensagem })
       // AQUI a consulta entra: este é exatamente o ponto onde antes saía o texto
       // genérico de ajuda. Só quando o roteador antigo não soube responder
       // (`handled: false`) — quando ele soube, a resposta dele manda, e é ela que
