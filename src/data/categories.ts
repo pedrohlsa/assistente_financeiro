@@ -64,34 +64,42 @@ export const CATEGORY_KEYWORDS: Record<string, string[]> = {
   // Os termos são RADICAIS de propósito: 'gasolin'/'gazolin' cobrem a grafia
   // certa e o erro de digitação de sempre ("gazolina"), que antes mandava o
   // gasto para "outros" e sumia do custo de combustível do motorista.
-  combustivel: ['gasolin', 'gazolin', 'gasolna', 'etanol', 'alcool', 'álcool', 'diesel', 'dizel', 'disel', 'gnv', 'gás veicular', 'gas veicular', 'gás do carro', 'posto', 'shell', 'ipiranga', 'petrobras', 'br ', 'abasteci', 'combustivel', 'combustível', 'combustievl'],
-  obra: ['cimento', 'areia', 'tijolo', 'bloco', 'brita', 'argamassa', 'rejunte', 'telha', 'madeira', 'vergalhão', 'vergalhao', 'material de construção', 'material de construcao', 'obra', 'construção', 'construcao', 'reforma', 'pedreiro'],
+  combustivel: ['gasolin', 'gazolin', 'gasolna', 'etanol', 'alcool', 'álcool', 'diesel', 'dizel', 'disel', 'gnv', 'gás veicular', 'gas veicular', 'gás do carro', 'posto ', 'postos', 'shell', 'ipiranga', 'petrobras', 'br ', 'abasteci', 'combustivel', 'combustível', 'combustievl'],
+  obra: ['cimento', 'areia', 'tijolo', 'bloco', 'brita', 'argamassa', 'rejunte', 'telha', 'madeira', 'vergalhão', 'vergalhao', 'material de construção', 'material de construcao', 'obra ', 'obras', 'construção', 'construcao', 'reforma', 'pedreiro'],
   // 'almocei' e 'jantei' cobrem o verbo: "quanto almocei esse mês" é
   // Alimentação, e sem eles a pergunta dava o gasto do mês inteiro.
-  alimentacao: ['almoço', 'almoco', 'almocei', 'almoçamos', 'almocamos', 'janta', 'jantar', 'jantei', 'jantamos', 'lanche', 'comida', 'ifood', 'restaurante', 'padaria', 'mercad', 'mercearia', 'sacolão', 'sacolao', 'quitanda', 'café', 'cafe', 'marmita', 'pizza', 'burger', 'hamb', 'salgado', 'coxinha', 'açaí', 'acai', 'sorvete', 'pão', ' pao', 'leite', 'queijo', 'ovos', 'carne', 'frango', 'arroz', 'feijão', 'feijao', 'fruta', 'verdura', 'açougue', 'acougue', 'hortifruti'],
-  manutencao: ['óleo', 'oleo', 'pneu', 'freio', 'pastilha', 'revisão', 'revisao', 'mecânico', 'mecanico', 'oficina', 'borracheiro', 'borracharia', 'funilaria', 'lanternagem', 'alinhamento', 'balanceamento', 'calibragem', 'peça', 'peca', 'filtro', 'vela', 'correia', 'amortecedor', 'manutenção', 'manutencao', 'lavagem', 'lava'],
-  estacionamento: ['estacionamento', 'estacionei', 'zona azul', 'parquímetro', 'parquimetro'],
+  alimentacao: ['almoço', 'almoco', 'almocei', 'almoçamos', 'almocamos', 'janta', 'jantar', 'jantei', 'jantamos', 'lanche', 'comida', 'ifood', 'restaurante', 'padaria', 'mercad', 'supermercad', 'minimercad', 'hipermercad', 'mercearia', 'sacolão', 'sacolao', 'quitanda', 'café', 'cafe', 'marmita', 'marmitex', 'quentinha', 'prato feito', 'pastel', 'esfirra', 'espetinho', 'churrasco', 'refrigerante', 'refri ', 'sanduíche', 'sanduiche', 'cachorro quente', 'tapioca', 'cuscuz', 'pizza', 'burger', 'hamb', 'salgad', 'coxinha', 'açaí', 'acai', 'sorvete', 'pão', 'pao ', 'paes', 'pães', 'pãozinho', 'paozinho', 'leite', 'queijo', 'ovos', 'carne', 'frango', 'arroz', 'feijão', 'feijao', 'fruta', 'verdura', 'açougue', 'acougue', 'hortifruti'],
+  manutencao: ['óleo', 'oleo', 'pneu', 'freio', 'pastilha', 'revisão', 'revisao', 'mecânico', 'mecanico', 'oficina', 'borracheiro', 'borracharia', 'funilaria', 'lanternagem', 'alinhamento', 'balanceamento', 'calibragem', 'peça ', 'peca ', 'peças', 'pecas', 'autopeça', 'autopeca', 'filtro', 'vela ', 'velas', 'correia', 'amortecedor', 'manutenção', 'manutencao', 'lavagem', 'lava ', 'lava jato'],
+  estacionamento: ['estacionamento', 'estacionei', 'flanelinha', 'flanela ', 'zona azul', 'parquímetro', 'parquimetro'],
   pedagio: ['pedágio', 'pedagio', 'sem parar', 'veloe', 'conectcar'],
   assinaturas: ['netflix', 'spotify', 'assinatura', 'plano', 'internet', 'celular', 'amazon prime', 'disney', 'hbo', 'globoplay', 'youtube premium'],
   // "gás" sozinho NÃO entra aqui: é ambíguo (cozinha ou GNV) e o assistente
   // pergunta em vez de escolher — ver isAmbiguousGas() em services/nlp.ts.
-  casa: ['aluguel', 'luz', 'energia', 'água', 'agua', 'gás de cozinha', 'gas de cozinha', 'botijão', 'botijao', 'glp', 'condomínio', 'condominio', 'iptu'],
-  lazer: ['cinema', 'bar', 'balada', 'show', 'jogo', 'festa', 'cerveja', 'passeio'],
-  compras: ['roupa', 'tênis', 'tenis', 'shopping', 'loja', 'presente', 'farmácia', 'farmacia'],
+  casa: ['aluguel', 'luz ', 'energia', 'água ', 'agua ', 'gás de cozinha', 'gas de cozinha', 'botijão', 'botijao', 'glp', 'condomínio', 'condominio', 'iptu'],
+  lazer: ['cinema', 'bar ', 'bares', 'barzinho', 'balada', 'show ', 'shows', 'jogo', 'festa', 'cerveja', 'passeio'],
+  compras: ['roupa', 'tênis', 'tenis', 'shopping', 'loja', 'presente', 'farmácia', 'farmacia', ' camisa', ' camiseta', ' blusa', ' bermuda', ' vestido', ' sapato', ' chinelo', ' sandália', ' sandalia'],
   autocuidado: ['autocuidado', 'auto cuidado', 'cabeleireiro', 'barbeiro', 'barbearia', 'salão', 'salao', 'manicure', 'pedicure', 'cosmético', 'cosmetico', 'skincare', 'academia'],
-  corridas: ['corrida', 'uber', '99', 'indriver', 'app', 'viagem', 'passageiro'],
+  corridas: ['corrida', 'uber', '99 ', 'indriver', 'app ', 'aplicativo', 'viagem', 'passageiro'],
   salario: ['salário', 'salario', 'pagamento', 'holerite'],
   aluguel: ['aluguel', 'aluguéis', 'alugueis', 'inquilino', 'locação', 'locacao', 'imóvel', 'imovel', 'casa alugada'],
   freelance: ['freela', 'freelance', 'bico', 'job'],
   vendas: ['venda', 'vendi'],
+  // Por último: só decide quando nada mais específico casou. São palavras que
+  // SÃO despesa por natureza ("taxa 5", "boleto 300") — sem elas a frase
+  // telegráfica caía na ajuda, porque número com substantivo desconhecido não
+  // vira gasto (é o que impede "casa 1" de virar R$ 1,00).
+  'outros-out': [' taxa', ' tarifa', ' multa', ' boleto', ' juros', ' anuidade'],
 }
 
 export function guessCategory(text: string, type: 'income' | 'expense'): string | undefined {
   // O espaço no começo deixa palavra-chave exigir início de palavra: " pao"
   // casa "pao de queijo", nunca "japao".
-  const t = ` ${text.toLowerCase()}`
+  // Toda palavra-chave casa no INÍCIO de uma palavra: no meio, 'posto' achava
+  // "imposto", 'obra' achava "cobraram" e 'bar' achava "embarque". As curtas
+  // terminam em espaço e só casam a palavra inteira ("bar ", não "barbeiro").
+  const t = ` ${text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ')} `
   for (const [cat, words] of Object.entries(CATEGORY_KEYWORDS)) {
-    if (words.some(w => t.includes(w))) {
+    if (words.some(w => t.includes(w.startsWith(' ') ? w : ` ${w}`))) {
       const isIncomeCat = ['corridas', 'salario', 'aluguel', 'freelance', 'vendas'].includes(cat)
       if ((type === 'income') === isIncomeCat) return cat
     }

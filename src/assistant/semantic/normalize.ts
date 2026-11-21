@@ -88,7 +88,28 @@ const ESTRUTURAL: string[] = [
 // podem ser "consertadas": "meio-dia" virava "maio" (mês) e "meia" virava
 // "meta" — a hora sumia e a descrição ganhava "ao maio".
 const PALAVRAS_DE_HORA = ['meio', 'meia', 'noite', 'hora', 'horas', 'minuto', 'minutos', 'tarde', 'manha', 'madrugada']
+/**
+ * Palavras CORRETAS do dia a dia que ficam a uma letra de um verbo ou unidade
+ * do app. Fora daqui o corretor as "consertava" — e a frase mudava de sentido:
+ * "peguei uma corrida" virava "paguei", "o banco me cobrou 45" virava "me
+ * sobrou", "salão" virava "saldo", "comprando" virava "comparando". A lista
+ * só PROTEGE: nenhuma delas é alvo de correção. A varredura `MA-corretor-nao-troca-
+ * palavra-real` falha se uma destas voltar a ser trocada.
+ */
+export const PALAVRAS_REAIS_PROTEGIDAS = [
+  'cobrou', 'cobrar', 'cobra', 'cobrei', 'cobraram', 'cobrado', 'cobrada', 'cobranca',
+  'peguei', 'pegou', 'pegar', 'pego', 'pega', 'pegaram', 'pegamos',
+  'transferiu', 'depositou', 'gastaram', 'ganharam', 'receberam', 'venderam', 'vendeu',
+  'compraram', 'comprando', 'trocaram', 'trocou', 'tirou', 'botou', 'colocou', 'abasteceu',
+  'custa', 'custam', 'custaram', 'deve', 'devem', 'pagos', 'pagas', 'gasta', 'gastas',
+  'sobras', 'parcelado', 'parcelada', 'abri', 'abriu', 'abrir',
+  'livro', 'livros', 'salao', 'filho', 'filhos', 'sogra', 'sogro',
+  'rendeu', 'renderam', 'rende', 'render', 'tocou', 'pagaram', 'faltaram', 'faltou', 'troco',
+]
+
 const DICIONARIO = new Set([...ESTRUTURAL, ...PALAVRAS_DE_HORA])
+/** Nunca é corrigida — e nunca é ALVO: senão "rendeu" virava "vendeu". */
+const INTOCAVEIS = new Set([...DICIONARIO, ...PALAVRAS_REAIS_PROTEGIDAS])
 
 /** Comprimento mínimo do token que pode ser corrigido. */
 const MIN_LEN = 4
@@ -230,7 +251,7 @@ export function repairStructuralTypos(message: string, state: AppState): Repaire
     const antes = message[at - 1]
     const depois = message[at + bruto.length]
     if ((antes && /\d/.test(antes)) || (depois && /\d/.test(depois))) return bruto
-    if (DICIONARIO.has(token)) return bruto
+    if (INTOCAVEIS.has(token)) return bruto
     if (token.split(' ').some(word => protegidas.has(word))) return bruto
     // Numero por extenso e VALOR, nao vocabulario: "cento", "sete", "vinte" e
     // "cinco" nunca podem ser trocados por palavra parecida.

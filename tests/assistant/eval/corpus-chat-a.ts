@@ -93,7 +93,7 @@ export const CASOS_CHAT_A: CasoChat[] = [
       intencao: intencoes('registrar', 'perguntar', 'registrar-e-responder'),
       acoes: [acao('fuel', { amount: 120 })],
     }),
-  casoChat('c-11', 'clt', 'linguagem', 'remota',
+  casoChat('c-11', 'clt', 'linguagem', 'local',
     'o banco me cobrou 45 de tarifa e 12 de iof sem eu saber',
     'duas cobranças, reclamação no meio; a reclamação não vira terceira ação',
     { intencao: intencoes('registrar', 'registrar-e-responder'), acoes: [acao('expense', { amount: 45 }), acao('expense', { amount: 12 })] }),
