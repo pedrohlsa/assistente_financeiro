@@ -208,10 +208,10 @@ const GASTO = /\bgast(?:ei|o|ou|ando|os?|ar)\b|\bpag(?:uei|o|ou|amento)\b|\btorr
  */
 // "Vou receber", "vai entrar", "quanto ganha": o futuro e o infinitivo também
 // são entrada. Sem eles, "quanto vou receber esse mês" dava o total GASTO.
-const ENTRADA = /\bganh(?:ei|o|ou|ar|a|amos)\b|\breceb(?:i|o|er|e|eu|emos|endo)\b|\bentr(?:ou|ada|adas|aram|ar|a|am)\b|\bfatur(?:ei|o|amento|ou)\b|\breceitas?\b|\brenda\b|\bvend(?:i|as?)\b|\brend(?:e|eu|imento)\b|\bfa(?:co|z(?:endo|er))\b|\bfiz\b|\btir(?:ei|o)\b|\bd[aá]\s+mais\b|\bme\s+d[aá](?![\wÀ-ÿ])/
+const ENTRADA = /\bganh(?:ei|o|ou|ar|a|amos)\b|\breceb(?:i|o|er|e|eu|emos|endo)\b|\bentr(?:ou|ada|adas|aram|ar|a|am)\b|\bfatur(?:ei|o|amento|ou)\b|\breceitas?\b|\brenda\b|\bvend(?:i|as?)\b|\brend(?:e|eu|er|o|imento)\b|\b(?:pra|para)\s+(?:rodar|trabalhar)\b|\bfa(?:co|z(?:endo|er))\b|\bfiz\b|\btir(?:ei|o)\b|\bd[aá]\s+mais\b|\bme\s+d[aá](?![\wÀ-ÿ])/
 const GUARDADO = /\bguard(?:ei|o|ado|ar)\b|\bseparei\b|\breservei\b|\bpoupei\b/
 const CONTAGEM_DE_REGISTROS = /\bquant(?:os|as)\s+(?:lancamentos|registros|movimentacoes)\b/
-const RESULTADO = /\blucr(?:ei|o|ou)\b|\bsobr(?:ou|a|as|ando)\b|\bliquido\b|\bresultado\b|\bmelhor\s+mes\b|\bpior\s+mes\b|\bmelhor\s+semana\b|\bpior\s+semana\b|\bmelhor\s+dia\b|\bpior\s+dia\b/
+const RESULTADO = /\blucr(?:ei|o|ou)\b|\bcompens(?:a|ou|am)\b|\bsobr(?:ou|a|as|ando)\b|\bliquido\b|\bresultado\b|\bmelhor\s+mes\b|\bpior\s+mes\b|\bmelhor\s+semana\b|\bpior\s+semana\b|\bmelhor\s+dia\b|\bpior\s+dia\b/
 
 /**
  * "Qual cliente ME PAGOU mais", "quem me paga melhor": o dinheiro veio para o
@@ -378,6 +378,9 @@ function lerGrupo(t: string, driver: boolean): { valor: QueryGroup; matched: str
     // "Em cada mês" pede a lista: sem a forma, a pergunta virava o total deste mês.
     [/\b(?:em\s+)?qual\s+mes\b|\bque\s+mes\b|\bpor\s+mes\b|\bmes\s+a\s+mes\b|\b(?:em\s+)?cada\s+mes\b|\bmes\s+mais\b|\bmelhor\s+mes\b|\bpior\s+mes\b|\bmeses\s+(?:eu\s+)?(?:tenho|vou)\b/, 'month'],
     [/\b(?:em\s+)?qual\s+semana\b|\bpor\s+semana\b|\b(?:em\s+)?cada\s+semana\b|\bsemana\s+a\s+semana\b|\bmelhor\s+semana\b|\bpior\s+semana\b|\bsemana\s+(?:que\s+)?(?:eu\s+)?mais\b/, 'week'],
+    // Presente HABITUAL pergunta pelo dia da semana: "qual dia eu mais ganho",
+    // "melhor dia pra rodar". Com o passado ("ganhei", "foi") é uma data.
+    [/\b(?:qual|que|melhor|pior)\s+(?:(?:o|e\s+o)\s+)?(?:(?:meu\s+)?(?:melhor|pior)\s+)?dia\b(?![^?]*\b(?:foi|ganhei|faturei|gastei|lucrei|rendeu|tive|fiz)\b)(?=[^?]*\b(?:ganho|faturo|gasto|lucro|rendo|rende|recebo|costum\w*|(?:pra|para)\s+(?:rodar|trabalhar|sair|rodar))\b)/, 'weekday'],
     [/\bqual\s+dia\b|\bmelhor\s+dia\b|\bpior\s+dia\b|\bdia\s+que\s+(?:eu\s+)?mais\b/, 'day'],
     [/\bqual\s+cartao\b|\bpor\s+cartao\b|\bcartao\s+(?:esta|mais)\b|\bqual\s+(?:dos\s+)?(?:meus\s+)?cartoes\b/, 'card'],
     [/\bqual\s+(?:casa|imovel|cliente|origem|fonte)\b|\bpor\s+(?:origem|imovel|cliente)\b/, 'origin'],
@@ -479,6 +482,7 @@ const ESTRUTURAIS = new Set([
   'compras', 'comprei', 'categoria', 'categorias', 'aumentaram', 'aumentou',
   'caiu', 'cairam', 'despesas', 'despesa', 'receitas', 'receita', 'entradas',
   'renda', 'me', 'minhas', 'meus', 'cada', 'todos', 'toda', 'todas', 'algum',
+  'rodar', 'trabalhar', 'compensa', 'costuma', 'render', 'rende',
 ])
 
 const soUteis = (frase: string): string | undefined => {

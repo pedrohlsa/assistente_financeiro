@@ -18,6 +18,8 @@ import { hydrateForTest, reducer } from '../../src/store/store'
 import { addDays, fmtBRL, fmtDateShort, fromISO, MESES_PT_BR, monthShortLabel, nowPaymentTime, nowStamp, todayISO, toISO as toISOdate } from '../../src/utils/format'
 import { autonomoRico, motoristaRico } from '../fixtures/richState'
 import { buildState } from './harness'
+import { PALAVRAS_REAIS_PROTEGIDAS, repairStructuralTypos } from '../../src/assistant/semantic/normalize'
+import { guessCategory } from '../../src/data/categories'
 
 const TODAY = '2026-09-15'
 
@@ -6199,6 +6201,226 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const lavei = await turnoHoje(buildState({ profile: 'driver' }), 'lavei o carro 30')
     out.push(result('MX-lavei-o-carro', lavei.actions, 'Lavagem 30 em Manutenção',
       lavei.actions.length === 1 && lavei.actions[0].amount === 30 && (lavei.actions[0] as any).category === 'manutencao'))
+  }
+
+  // Rodada de 21/11. "Paguei o X de N", sinal da corrida, taxa da 99,
+  // orçamento, "me cobrou"/"me deu", corretor e palavras-chave, custo por km,
+  // dia da semana habitual e avaliação de um dia.
+  {
+    const hoje = todayISO()
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (x: string) => x.replace(/ /g, ' ')
+    const gastos = (a: any[]) => a.filter(x => x.kind === 'expense')
+    const receitas = (a: any[]) => a.filter(x => x.kind === 'income')
+
+    // O "de" depois do item liga o valor.
+    for (const [frase, valor, cat] of [
+      ['paguei o boleto de 300', 300, 'outros-out'], ['paguei a taxa de 5', 5, 'outros-out'],
+      ['paguei uma multa de 130', 130, 'outros-out'], ['comprei uma camisa de 60', 60, 'compras'],
+      ['paguei a conta de luz de 120', 120, 'casa'], ['paguei a taxa de entrega de 8', 8, 'outros-out'],
+    ] as const) {
+      const r = await turnoHoje(buildState({ profile: 'clt' }), frase)
+      out.push(result(`MN-${frase.replace(/\W+/g, '-')}`, r.actions, `despesa de ${valor} em ${cat}`,
+        r.actions.length === 1 && gastos(r.actions)[0]?.amount === valor && gastos(r.actions)[0]?.category === cat))
+    }
+    {
+      const r = await turnoHoje(buildState({ profile: 'clt' }), 'paguei a parcela de 3 meses')
+      out.push(result('MN-de-n-meses-nao-e-valor', r.actions, 'nenhuma despesa de 3', !r.actions.some((a: any) => a.amount === 3)))
+    }
+
+    // O sinal do dinheiro nunca se inverte (regra 34).
+    for (const frase of ['paguei a corrida de 30', 'paguei uma corrida de 30']) {
+      const r = await turnoHoje(buildState({ profile: 'driver' }), frase)
+      out.push(result(`MN-${frase.replace(/\W+/g, '-')}`, r.actions, 'despesa de 30; nenhuma receita, nenhuma viagem',
+        receitas(r.actions).length === 0 && gastos(r.actions).length === 1 && gastos(r.actions)[0].amount === 30
+          && !r.actions.some((a: any) => a.kind === 'work')))
+    }
+    {
+      const r = await turnoHoje(buildState({ profile: 'driver' }), 'paguei 20 de lanche e fiz uma corrida de 30')
+      out.push(result('MN-gasto-e-depois-corrida', r.actions, 'lanche 20 + corrida 30',
+        gastos(r.actions).some((a: any) => a.amount === 20) && receitas(r.actions).some((a: any) => a.amount === 30 && a.category === 'corridas')))
+    }
+
+    // Taxa da 99: o 99 é a plataforma, nunca o valor.
+    for (const [perfil, frase] of [['driver', 'paguei a taxa da 99 de 1 real'], ['driver', 'taxa da 99 1 real'], ['clt', 'paguei a taxa da 99 de 1 real']] as const) {
+      const r = await turnoHoje(buildState({ profile: perfil }), frase)
+      out.push(result(`MN-taxa-99-${perfil}-${frase.replace(/\W+/g, '-')}`, r.actions, 'uma despesa de 1; nada de 99',
+        r.actions.length === 1 && gastos(r.actions)[0]?.amount === 1 && !r.actions.some((a: any) => a.amount === 99)))
+    }
+    {
+      const r = await turn(buildState({ profile: 'driver' }), 'paguei a taxa da 99')
+      out.push(result('MN-taxa-99-sem-valor-pergunta', { mode: r.mode, reply: r.reply }, 'pergunta o valor',
+        r.mode === 'clarify' && r.actions.length === 0 && /valor/i.test(r.reply)))
+    }
+    for (const [frase, valor] of [['taxa 5', 5], ['boleto 300', 300], ['multa 130', 130], ['taxa do banco 12', 12]] as const) {
+      const r = await turnoHoje(buildState({ profile: 'clt' }), frase)
+      out.push(result(`MN-telegrafico-${frase.replace(/\W+/g, '-')}`, r.actions, `despesa de ${valor}`,
+        r.actions.length === 1 && gastos(r.actions)[0]?.amount === valor))
+    }
+
+    // Orçamento e preço no presente não são dinheiro que saiu.
+    for (const frase of ['o mecânico me deu um orçamento de 500', 'orçamento do pneu deu 800', 'pedi orçamento de 500 no mecânico', 'o pneu ta 400 na loja']) {
+      const r = await turnoHoje(buildState({ profile: 'driver' }), frase)
+      out.push(result(`MN-orcamento-${frase.replace(/\W+/g, '-')}`, { reply: r.reply.split('\n')[0], actions: r.actions }, 'nenhuma ação; diz que é orçamento ou preço',
+        r.actions.length === 0 && /orçamento ou um preço/.test(r.reply)))
+    }
+
+    // "Me cobrou" é dinheiro que saiu; "me deu" é dinheiro que entrou.
+    {
+      const r = await turnoHoje(buildState({ profile: 'clt' }), 'o banco me cobrou 45 de tarifa e 12 de iof sem eu saber')
+      out.push(result('MN-banco-me-cobrou', r.actions, 'Tarifa 45 + Iof 12, sem receita e sem "sobrou"',
+        gastos(r.actions).length === 2 && receitas(r.actions).length === 0
+          && gastos(r.actions).some((a: any) => a.amount === 45 && a.description === 'Tarifa')
+          && gastos(r.actions).some((a: any) => a.amount === 12 && a.description === 'Iof')))
+      const r2 = await turnoHoje(buildState({ profile: 'clt' }), 'me cobraram 30 de taxa')
+      out.push(result('MN-me-cobraram-nao-e-obra', r2.actions, 'Taxa 30 em Outros',
+        r2.actions.length === 1 && gastos(r2.actions)[0]?.category === 'outros-out'))
+      const r3 = await turnoHoje(buildState({ profile: 'driver' }), 'o mecânico me cobrou 500')
+      out.push(result('MN-mecanico-me-cobrou', r3.actions, 'despesa 500 em Manutenção',
+        r3.actions.length === 1 && gastos(r3.actions)[0]?.amount === 500 && gastos(r3.actions)[0]?.category === 'manutencao'))
+    }
+    for (const [frase, valor] of [['minha mãe me deu 50', 50], ['meu pai me mandou 200 de pix', 200], ['minha sogra me deu 100', 100], ['meu chefe me passou 200', 200]] as const) {
+      const r = await turnoHoje(buildState({ profile: 'clt' }), frase)
+      out.push(result(`MN-${frase.replace(/\W+/g, '-')}`, r.actions, `receita de ${valor}, sem origem inventada`,
+        r.actions.length === 1 && receitas(r.actions)[0]?.amount === valor && !receitas(r.actions)[0]?.origin))
+    }
+
+    // O corretor de digitação nunca troca uma palavra real por vocabulário do
+    // app — e uma palavra protegida nunca vira ALVO ("rendeu" → "vendeu").
+    {
+      const st = buildState({ profile: 'driver' })
+      const trocadas = [...PALAVRAS_REAIS_PROTEGIDAS, 'salão']
+        .filter(w => repairStructuralTypos(`hoje ${w} 50`, st).text !== `hoje ${w} 50`)
+      out.push(result('MN-corretor-nao-troca-palavra-real', trocadas, 'nenhuma palavra real trocada', trocadas.length === 0))
+      const consertos = [['gasti', 'gastei'], ['recbi', 'recebi'], ['paguii', 'paguei']]
+        .filter(([erro, certo]) => repairStructuralTypos(`hoje ${erro} 50`, st).text !== `hoje ${certo} 50`)
+      out.push(result('MN-corretor-ainda-conserta-erro', consertos, 'erros de digitação continuam corrigidos', consertos.length === 0))
+      const r = await turnoHoje(buildState({ profile: 'driver' }), 'peguei uma corrida de 30')
+      out.push(result('MN-peguei-nao-vira-paguei', r.actions, 'receita de corrida 30',
+        receitas(r.actions).some((a: any) => a.amount === 30 && a.category === 'corridas') && gastos(r.actions).length === 0))
+    }
+
+    // Palavra-chave de categoria casa no início da palavra.
+    {
+      const errados = ([
+        ['imposto', 'expense', undefined], ['barbeiro', 'expense', 'autocuidado'], ['embarque', 'expense', undefined],
+        ['cobraram', 'expense', undefined], ['lavanderia', 'expense', undefined], ['japão', 'expense', undefined],
+        ['manobra', 'expense', undefined], ['supermercado', 'expense', 'alimentacao'], ['posto', 'expense', 'combustivel'],
+        ['bar', 'expense', 'lazer'], ['pão', 'expense', 'alimentacao'], ['conta de luz', 'expense', 'casa'],
+        ['pedreiro', 'expense', 'obra'], ['salgadinho', 'expense', 'alimentacao'], ['happy hour', 'income', undefined],
+      ] as const).filter(([w, tipo, cat]) => guessCategory(w, tipo) !== cat)
+      out.push(result('MN-categoria-no-inicio-da-palavra', errados, 'cada palavra na categoria certa (ou em nenhuma)', errados.length === 0))
+    }
+
+    // Custo fixo por km: rateado por um mês INTEIRO de km, não pelo parcial.
+    {
+      const mot = motoristaRico(hoje)
+      const inicio = addDays(hoje, -29)
+      const km30 = mot.workSessions.filter(w => w.date >= inicio && w.date <= hoje).reduce((a, w) => a + w.km, 0)
+      const esperado = mot.settings.fixedMonthlyCosts / km30
+      const custo = kmCost(mot)
+      out.push(result('MN-custo-fixo-por-km-mes-inteiro', custo.fixedPerKm, esperado, Math.abs(custo.fixedPerKm - esperado) < 1e-9))
+      for (const frase of ['qual meu custo por km', 'quanto custa rodar 1 km', 'quanto to gastando por km rodado', 'quanto custa cada km']) {
+        const r = await turnoHoje(mot, frase)
+        out.push(result(`MN-custo-km-${frase.replace(/\W+/g, '-')}`, r.reply.split('\n')[0], `custo estimado ${brl(custo.total)}/km`,
+          r.actions.length === 0 && limpa(r.reply).includes(`${brl(custo.total)}/km`)))
+      }
+    }
+
+    // "Qual dia eu mais GANHO" (hábito) é dia da semana; "GANHEI" é uma data.
+    {
+      const mot = motoristaRico(hoje)
+      const semana = /segunda|terça|quarta|quinta|sexta|sábado|domingo/i
+      for (const frase of ['qual dia eu mais ganho', 'qual o melhor dia pra rodar', 'qual dia da semana compensa mais rodar']) {
+        const r = await turnoHoje(mot, frase)
+        out.push(result(`MN-habitual-${frase.replace(/\W+/g, '-')}`, r.reply.split('\n')[0], 'dia da semana',
+          semana.test(r.reply.split('\n')[0]) && !/\d{2}\/\d{2}\/\d{4}/.test(r.reply.split('\n')[0]) && !/não consegui ler/.test(r.reply)))
+      }
+      const r = await turnoHoje(mot, 'qual dia eu mais ganhei')
+      out.push(result('MN-passado-e-data', r.reply.split('\n')[0], 'uma data', /\d{2}\/\d{2}\/\d{4}/.test(r.reply.split('\n')[0])))
+    }
+
+    // Avaliação de um dia: sim ou não primeiro, contra o normal com amostra.
+    {
+      const mot = motoristaRico(hoje)
+      const ontem = addDays(hoje, -1)
+      const doDia = (d: string, tipo: string) => mot.transactions.filter(t => t.date === d && t.type === tipo).reduce((a, t) => a + t.amount, 0)
+      const entrou = doDia(ontem, 'income'), saiu = doDia(ontem, 'expense')
+      const porDia = new Map<string, number>()
+      for (const t of mot.transactions) {
+        if (t.type === 'income' && t.date >= addDays(ontem, -30) && t.date <= addDays(ontem, -1)) porDia.set(t.date, (porDia.get(t.date) || 0) + t.amount)
+      }
+      const media = [...porDia.values()].reduce((a, b) => a + b, 0) / porDia.size
+      const rel = (entrou - media) / media
+      const vazio = !entrou && !saiu
+      const casos: [string, (r: string) => boolean, string][] = vazio
+        ? [['ontem rendeu bem?', r => /^Não tenho nada registrado ontem/.test(r), 'nada registrado ontem'],
+          ['como foi ontem?', r => /^Não tenho nada registrado ontem/.test(r), 'nada registrado ontem']]
+        : [
+          ['ontem rendeu bem?', r => (Math.abs(rel) < 0.08 ? /^Foi um dia normal/ : rel > 0 ? /^Sim/ : /^Não/).test(r) && limpa(r).includes(brl(entrou)), 'sim/não pela média'],
+          ['ontem foi fraco?', r => (Math.abs(rel) < 0.08 ? /^Não, ontem ficou dentro/ : rel < 0 ? /^Sim/ : /^Não/).test(r), 'sim/não invertido'],
+          ['como foi ontem?', r => limpa(r).includes(brl(entrou)) && /Seu normal/.test(r), 'números de ontem e o normal'],
+          ['e ontem, como foi?', r => limpa(r).includes(brl(entrou)) && !/^Hoje:/.test(r), 'fala de ontem, não de hoje'],
+        ]
+      for (const [frase, ok, esperado] of casos) {
+        const r = await turnoHoje(mot, frase)
+        out.push(result(`MN-avaliacao-${frase.replace(/\W+/g, '-')}`, r.reply.split('\n')[0], esperado, r.actions.length === 0 && ok(r.reply)))
+      }
+      const novo = await turnoHoje(buildState({ profile: 'driver' }), 'como foi ontem?')
+      out.push(result('MN-avaliacao-sem-registro', novo.reply, 'diz que não há registro', /^Não tenho nada registrado ontem/.test(novo.reply)))
+      const poucos = buildState({ profile: 'driver', transactions: [{ id: 'p1', type: 'income', amount: 300, category: 'corridas', date: ontem }] })
+      const semBase = await turnoHoje(poucos, 'ontem foi bom?')
+      out.push(result('MN-avaliacao-sem-base-nao-julga', semBase.reply, 'mostra o dia e não julga',
+        !/^(Sim|Não)/.test(semBase.reply) && /prefiro não julgar/.test(semBase.reply)))
+      const meta = await turnoHoje(mot, 'como ta minha meta hoje')
+      out.push(result('MN-meta-hoje-nao-vira-avaliacao', meta.reply.split('\n')[0], 'resposta da meta', /meta/i.test(meta.reply) && !/Seu normal/.test(meta.reply)))
+      const semana = await turnoHoje(mot, 'como foi a semana?')
+      out.push(result('MN-como-foi-a-semana', semana.reply.split('\n')[0], 'resumo dos 7 dias', /^Últimos 7 dias/.test(semana.reply)))
+      const mes = await turnoHoje(autonomoRico(hoje), 'to indo bem esse mes?')
+      out.push(result('MN-to-indo-bem-esse-mes', mes.reply.split('\n')[0], 'situação do mês', !/Posso te ajudar/.test(mes.reply) && /m[eê]s/i.test(mes.reply)))
+    }
+
+    // Jornada do motorista: o dia não inventa viagem, e o valor não se perde.
+    {
+      const mot = () => buildState({ profile: 'driver' })
+      const trabalho = (a: any[]) => a.find((x: any) => x.kind === 'work') || {}
+      const r1 = await turnoHoje(mot(), 'rodei 200 km hoje e fiz 380')
+      out.push(result('MN-jornada-com-resultado', r1.actions, 'receita 380 e 200 km',
+        receitas(r1.actions).some((a: any) => a.amount === 380) && trabalho(r1.actions).km === 200))
+      const r2 = await turnoHoje(mot(), 'fiz 10 corridas e rodei 120 km, deu 300')
+      out.push(result('MN-deu-depois-da-jornada', r2.actions, 'receita 300, 10 viagens, 120 km',
+        receitas(r2.actions).some((a: any) => a.amount === 300) && trabalho(r2.actions).trips === 10 && trabalho(r2.actions).km === 120))
+      const r3 = await turnoHoje(mot(), 'fiz 18 corridas 420 reais 9 horas')
+      out.push(result('MN-ditado-corridas-valor-horas', r3.actions, 'receita 420, 18 viagens, 9 horas',
+        receitas(r3.actions).some((a: any) => a.amount === 420) && trabalho(r3.actions).trips === 18 && trabalho(r3.actions).hours === 9))
+      const r4 = await turnoHoje(mot(), 'fiz 12 corridas deu 24 litros')
+      out.push(result('MN-litros-nao-viram-receita', r4.actions, 'nenhuma receita', receitas(r4.actions).length === 0))
+      const r5 = await turnoHoje(mot(), 'botei 30 no tanque')
+      out.push(result('MN-tanque-motorista', r5.actions, 'abastecimento de 30',
+        r5.actions.length === 1 && (r5.actions[0] as any).kind === 'fuel' && (r5.actions[0] as any).amount === 30))
+      const r6 = await turnoHoje(buildState({ profile: 'clt' }), 'enchi o tanque 250')
+      out.push(result('MN-tanque-outro-perfil', r6.actions, 'despesa de combustível 250',
+        r6.actions.length === 1 && gastos(r6.actions)[0]?.category === 'combustivel' && gastos(r6.actions)[0]?.amount === 250))
+    }
+
+    // Verbos de consumo e de dar: o dinheiro saiu.
+    for (const [perfil, frase, valor, cat, desc] of [
+      ['driver', 'dei 20 pro flanelinha', 20, 'estacionamento', 'Flanelinha'],
+      ['driver', 'ontem dei 10 de gorjeta', 10, 'outros-out', 'Gorjeta'],
+      ['clt', 'comi um pastel de 12', 12, 'alimentacao', 'Pastel'],
+      ['clt', 'tomei um café de 8', 8, 'alimentacao', 'Café'],
+    ] as const) {
+      const r = await turnoHoje(buildState({ profile: perfil }), frase)
+      out.push(result(`MN-${frase.replace(/\W+/g, '-')}`, r.actions, `${desc} ${valor} em ${cat}`,
+        r.actions.length === 1 && gastos(r.actions)[0]?.amount === valor && gastos(r.actions)[0]?.category === cat && gastos(r.actions)[0]?.description === desc))
+    }
+    {
+      const r = await turnoHoje(buildState({ profile: 'clt' }), 'o joão me devolveu os 100')
+      out.push(result('MN-me-devolveu-os-100', r.actions, 'receita de 100', r.actions.length === 1 && receitas(r.actions)[0]?.amount === 100))
+      const e = await turnoHoje(buildState({ profile: 'clt' }), 'emprestei 100 pro joão')
+      out.push(result('MN-emprestimo-nao-e-gasto', e.reply.split('\n')[0], 'diz que não é gasto e não registra',
+        e.actions.length === 0 && /^Empréstimo não é gasto/.test(e.reply)))
+    }
   }
 
   return out

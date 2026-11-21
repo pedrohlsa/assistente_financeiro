@@ -34,6 +34,7 @@ import type { PerguntaDeConta, PerguntaDeFatura, PlanoDeGuardar } from '../assis
 import { describeAction, parseNaturalFull } from './nlp'
 import { driverInsight } from '../assistant/driverInsights'
 import { answerVehicleCost } from '../assistant/vehicleCost'
+import { avaliacaoDoDia } from '../assistant/dayReview'
 import { readInvoiceReference } from '../assistant/invoicePayment'
 import { findAllDates } from '../assistant/dates'
 import { currentMonthToDate, parsePeriod } from '../assistant/query/period'
@@ -1035,6 +1036,29 @@ function resolveLocal(s: AppState, input: string): AiReply {
     }
   }
 
+  // Orçamento ou preço com valor, sem verbo de pagar: não é lançamento, e a
+  // ajuda genérica fazia parecer que o app não entendeu nada.
+  if (/\d/.test(t) && !/\b(?:paguei|gastei|comprei|torrei|quitei|acertei|fechei|fechamos)\b/.test(t)
+    && (/or[çc]amento|cota[çc][ãa]o/.test(t) || /(?<![\wÀ-ÿ])(?:t[aá]|est[aá]|custa|custam|cobra|cobram)\s+(?:r\$\s*)?\d/.test(t))) {
+    return { text: 'Isso parece um orçamento ou um preço, não um pagamento — não registrei nada. Quando você pagar, me diga, por exemplo, "paguei 500 no mecânico", que eu lanço.' }
+  }
+
+  // "Emprestei 100 pro João": o dinheiro saiu, mas deve voltar — não é gasto,
+  // e o app não acompanha quem deve ao usuário. Dizer isso é melhor que a
+  // ajuda genérica, e melhor que gravar uma despesa que ele não fez.
+  const emprestimo = t.match(/\bemprestei\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)/)
+  if (emprestimo && !/\b(?:quanto|quem|qual|quando)\b|\?/.test(t)) {
+    const valor = parseMoney(emprestimo[1])
+    if (valor > 0) {
+      return { text: `Empréstimo não é gasto: os ${fmtBRL(valor)} devem voltar, e eu ainda não acompanho quem te deve. Nada foi registrado.\n\n`
+        + `Se o dinheiro saiu da sua conta e você quer o saldo certo, diga "paguei ${fmtNum(valor, valor % 1 ? 2 : 0)} de empréstimo" que eu registro como saída. Quando devolverem, "me devolveram ${fmtNum(valor, valor % 1 ? 2 : 0)}" registra a volta.` }
+    }
+  }
+
+  // "Como foi ontem?", "ontem rendeu bem?": avaliação de UM dia.
+  const avaliacao = avaliacaoDoDia(s, input)
+  if (avaliacao) return { text: avaliacao }
+
   // "como está minha meta" / "minha semana foi boa?"
   if (driverMode && /como est[aá] minha meta|meta de hoje/.test(t)) {
     const ts = todayStats(s)
@@ -1042,7 +1066,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
     const pct = g.total > 0 ? Math.round((ts.profit / g.total) * 100) : 0
     return { text: `Hoje: lucro de ${fmtBRL(ts.profit)} (real) contra meta de ${fmtBRL(g.total)} — ${pct}% concluída.${pct >= 100 ? ' 🎉 Meta batida!' : ` Faltam ${fmtBRL(g.total - ts.profit)}.`}` }
   }
-  if (/semana foi boa|como foi minha semana|t[oô] melhor|estou melhor/.test(t)) {
+  if (/semana foi boa|como foi (?:a |minha |essa |esta )?semana|como (?:ta|t[aá]|esta|est[aá]|anda) (?:a |minha |essa |esta )?semana|semana (?:foi|t[aá]|esta|est[aá]) (?:boa|ruim|fraca|forte)|t[oô] melhor|estou melhor/.test(t)) {
     if (/m[eê]s/.test(t)) {
       const cur = monthStats(s), prev = prevMonthStats(s)
       const diff = cur.profit - prev.profit
@@ -1443,7 +1467,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // resumo geral — o formato muda por perfil: meta diária/km só existem no motorista.
   // "como está meu mês" tinha resposta SÓ no ramo não-motorista; no perfil
   // motorista caía no texto genérico de ajuda.
-  if (/resumo|como estou|situa[çc][aã]o|como\s+(?:esta|foi|vai|anda)\s+(?:o\s+)?meu\s+m[eê]s|meu m[eê]s(?:\s|\?|$)|como\s+(?:esta|foi)\s+(?:o\s+)?m[eê]s/.test(t)) {
+  if (/resumo|como estou|(?:t[oô]|tou|estou)\s+indo\s+(?:bem|mal)|situa[çc][aã]o|como\s+(?:esta|foi|vai|anda)\s+(?:o\s+)?meu\s+m[eê]s|meu m[eê]s(?:\s|\?|$)|como\s+(?:esta|foi)\s+(?:o\s+)?m[eê]s/.test(t)) {
     // "Resumo da semana" pedia a semana e recebia o mês.
     if (!driverMode && /\bsemana\b/.test(t)) {
       const hoje = todayISO()
