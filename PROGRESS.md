@@ -6882,3 +6882,12 @@ até auditoria independente.
   “Três horas e meia” e “35 minutos” também são durações. Os números
   da hora ficam fora do caixa. Duração da viagem como passageiro fica
   fora do trabalho. Suíte com 1.313/1.313 regressões.
+
+## 21/11/2026 — Quilometragem realizada de ida e volta
+
+- A volta declarada soma à ida sem virar dinheiro. “Fiz uma corrida de
+  45 com 15 km e mais 10 km na volta” registra R$ 45, 25 km e uma
+  viagem. Se a volta já integra o total, a distância permanece única.
+- Quinhentos metros viram 0,5 km. Caminhada, volta negada e volta como
+  passageiro ficam fora da quilometragem do trabalho. Suíte com
+  1.322/1.322 regressões.

@@ -8,7 +8,7 @@
 import type { ParsedAction } from '../models/types'
 import type { AssistantConfidence, AssistantIntent, FinancialEvent } from './contracts'
 import { guessCategory } from '../data/categories'
-import { cleanDescription, DECIMO_TERCEIRO, financedCardMentions, gruposDeCorrida, looksRecurring, parseNaturalFull, NEXT_RIDE_DISTANCE, RIDE_COMPARISON_REQUEST, RIDE_CONDITIONAL, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE, UMA_CORRIDA_NOMEADA } from '../services/nlp'
+import { cleanDescription, DECIMO_TERCEIRO, DISTANCE_ON_FOOT, financedCardMentions, gruposDeCorrida, looksRecurring, parseNaturalFull, NEXT_RIDE_DISTANCE, RIDE_COMPARISON_REQUEST, RIDE_CONDITIONAL, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE, UMA_CORRIDA_NOMEADA } from '../services/nlp'
 import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
@@ -245,7 +245,7 @@ const NEGATED_VERBS =
   // Qualquer verbo de dinheiro no passado pode ser NEGADO. A lista acima
   // esquecia troquei, instalei, vendi, depositei e outros — e "nao troquei o
   // oleo por 280" registrava a manutencao mesmo assim.
-  + `|troquei|instalei|vendi|depositei|investi|apliquei|parcelei|passei|tirei|retirei|faturei|lucrei|andei|dirigi|percorri|saiu|entrou|caiu|sobrou|custou|${PIX_SENDING}|${PIX_INCOMING}|${REFUND_FIRST}|${REFUND_THIRD}|${COMPLETED_MONEY}|${RECORD_VERB}`
+  + `|troquei|instalei|vendi|depositei|investi|apliquei|parcelei|passei|tirei|retirei|faturei|lucrei|andei|dirigi|percorri|voltei|saiu|entrou|caiu|sobrou|custou|${PIX_SENDING}|${PIX_INCOMING}|${REFUND_FIRST}|${REFUND_THIRD}|${COMPLETED_MONEY}|${RECORD_VERB}`
 
 /**
  * A vírgula depois do "não" é o jeito mais comum de negar em fala real: "não,
@@ -1336,7 +1336,7 @@ function unaccountedMoney(clause: AnalyzedClause): number[] {
     const anoDeCompetencia = /^(?:19|20)\d{2}$/.test(m[0]) && ANO_DE_COMPETENCIA.test(normalizeName(before))
     if (plataforma99 || anoDeCompetencia || /[\-/]$/.test(before) || /^[\-/]/.test(after)
       || /\b(?:dia|casa|apto|apartamento|numero|número|aro|tamanho|placa|modelo)\s*$/i.test(before)
-      || /^\s*(?:x|vezes|parcelas?|km|quil[oô]metros?|litros?|h\b|horas?|viagens?|corridas?|dias?|semanas?|meses?|anos?|%|k\b)/i.test(after)) continue
+      || /^\s*(?:x|vezes|parcelas?|km|quil[oô]metros?|m\b|metros?\b|litros?|h\b|hrs?\b|horas?|min\b|minutos?\b|viagens?|corridas?|dias?|semanas?|meses?|anos?|%|k\b)/i.test(after)) continue
     // "Comprei 10 SACOS de cimento por 350": quantidade, com o preço depois.
     if (/\b(?:comprei|paguei|gastei|torrei)\s*$/i.test(before) && /^\s+[a-zà-ú]{3,}/i.test(after)
       && /\b(?:por|custou|saiu\s+por|deu|foi)\s*(?:r\$\s*)?\d/i.test(normalized.slice(at + m[0].length))) continue
@@ -1428,6 +1428,8 @@ export function analyzeMessage(
     const localExplanation = specializedInflow || (internalTransfer ? INTERNAL_TRANSFER_REPLY
       : quotedOrExample(part.text) || (declinedRide && !part.text.includes('?') ? 'A corrida não aconteceu. Nenhum lançamento foi preparado.'
       : paymentPending ? 'O recebimento ainda está pendente. Quando o dinheiro entrar, diga o valor e a data.'
+      : opts?.driver && !isQuestion && !negated && DISTANCE_ON_FOOT.test(normalizeNumberWords(part.text).text)
+        ? 'A quilometragem do veículo conta os trechos dirigidos.'
       : thirdPartyReference(part.text) ? 'Esse trecho fala da movimentação de outra pessoa. Se afetou sua conta, diga se o dinheiro entrou ou saiu e qual foi o valor.'
       : undefined))
     const unrealized = !isQuestion && (abandoned || abandonedReply || onlyPlanned || declinedRide || refundDenied || RIDE_CONDITIONAL.test(part.text) || ALMOST_HAPPENED.test(part.text))

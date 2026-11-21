@@ -441,7 +441,8 @@ export const looksRecurring = (t: string): boolean => RECORRENCIA.test(t)
 // Número que carrega unidade não é dinheiro: "8 horas", "120 km", "14 viagens".
 // Unidade de TEMPO também: "nos ultimo 3 mes" virava uma despesa de R$ 3,00,
 // porque o 3 é o tamanho do período e a frase inteira era uma pergunta.
-const UNIT_AFTER = String.raw`\s*(?:h\b|horas?\b|hrs?\b|km\b|quil[oô]metros?\b|viagens?\b|corridas?\b|litros?\b|l\b|%|minutos?\b|min\b|vezes\b|x\b|dias?\b|semanas?\b|m[eê]s(?:es)?\b|anos?\b)`
+const UNIT_AFTER = String.raw`\s*(?:h\b|horas?\b|hrs?\b|km\b|quil[oô]metros?\b|m\b|metros?\b|viagens?\b|corridas?\b|litros?\b|l\b|%|minutos?\b|min\b|vezes\b|x\b|dias?\b|semanas?\b|m[eê]s(?:es)?\b|anos?\b)`
+const MEASURE_AFTER_AMOUNT = new RegExp(`^${UNIT_AFTER}`, 'i')
 
 /**
  * Pergunta, em qualquer posição da frase, inclusive abreviada. "qnto q foi d
@@ -975,6 +976,34 @@ function matchCardName(text: string, compra = false): string | undefined {
   return undefined
 }
 
+const WORK_KM = String.raw`(km|quil[oô]metros?|m|metros?)\b`
+export const DISTANCE_ON_FOOT = new RegExp(String.raw`^\s*(?:(?:eu|hoje|ontem|anteontem)\s+){0,2}(?:andei|caminhei|percorri)\s+${NUM}\s*${WORK_KM}\s+[aà]\s+p[eé](?![\p{L}\p{M}])`, 'iu')
+const ACTUAL_RIDE = String.raw`\b(?:fiz|completei|realizei|terminei)\s+(?:(?:uma|a)\s+)?corrida\b`
+const DISTANCE_ON_RIDE = new RegExp(String.raw`${ACTUAL_RIDE}[^;!?]*?\b(?:com|em|de)\s+${NUM}\s*${WORK_KM}`, 'i')
+const WORK_RETURN = new RegExp(String.raw`\bvoltei\s+(mais\s+)?${NUM}\s*${WORK_KM}\s+(?:vazi[oa]|sem\s+passageiros?|dirigindo)\b`, 'i')
+const NAMED_RETURN_DISTANCE = new RegExp(String.raw`(?:\be\s+|,\s*)(mais\s+)?${NUM}\s*${WORK_KM}\s+(?:(?:na|de)\s+(?:volta|retorno)|voltando)\b`, 'i')
+const DECLARED_WORK_DISTANCE = new RegExp(String.raw`(?<![\d.,])${NUM}\s*${WORK_KM}\s+(?:no\s+total|ao\s+todo|contando|incluindo)\b`, 'i')
+
+function distanceInKm(match: RegExpMatchArray, amountAt = 1): number {
+  return parseNum(match[amountAt]) * (/^m/i.test(match[amountAt + 1]) ? 0.001 : 1)
+}
+
+function distanceWorked(text: string, distance: RegExpMatchArray | null): number | undefined {
+  const afterwards = distance ? text.slice(distance.index + distance[0].length) : ''
+  if (/^\s+(?:[aà]\s+p[eé]|de\s+(?:metr[ôo]|[ôo]nibus))(?![\p{L}\p{M}])/iu.test(afterwards)) return undefined
+  const completedRide = text.match(DISTANCE_ON_RIDE)
+  const route = distance || completedRide
+  const reportedDriving = /\b(?:rodei|dirigi|andei|percorri)\b/i.test(text)
+    || /\b(?:fiz|ganhei|recebi)\b[^;!?]*\b(?:uber|99|indrive[r]?)\b/i.test(text)
+  const declared = route || reportedDriving ? text.match(DECLARED_WORK_DISTANCE) : null
+  const returning = text.match(WORK_RETURN) || ((route || declared) ? text.match(NAMED_RETURN_DISTANCE) : null)
+  const km = declared ? distanceInKm(declared) : route ? distanceInKm(route) : 0
+  // O segmento de volta citado dentro do total já está nos quilômetros.
+  // "Mais 10 km" pode ser uma distância independente, quando foi dita à parte.
+  const extra = returning && (!declared || returning[1]) ? distanceInKm(returning, 2) : 0
+  return km + extra || undefined
+}
+
 function parseClause(input: string): ParsedAction[] {
   const duration = workDuration(input)
   const text = duration.remaining.toLowerCase().trim()
@@ -1281,6 +1310,7 @@ function parseClause(input: string): ParsedAction[] {
       // uma despesa de 190 e uma receita fantasma de 190.
       if (/^mais\b/i.test(inc[0]) && /\b(?:gastei|paguei|comprei|torrei|coloquei|botei|abasteci|juntei|guardei|separei|depositei)\b/i.test(text.slice(0, at))) continue
       const afterAmount = text.slice(at + inc[0].length)
+      if (MEASURE_AFTER_AMOUNT.test(afterAmount)) continue
       const nearbyPlatform = afterAmount.match(/^\s*(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(uber|99|indriver|corrida(?:\s+privada)?)/i)
       const platform = (inc[2] || nearbyPlatform?.[1] || '').trim().toLowerCase()
       const description = platform === 'uber' ? 'Uber'
@@ -1602,11 +1632,11 @@ function parseClause(input: string): ParsedAction[] {
   // no perfil motorista, virava 200 km rodados.
   // "Rodei 8 HORAS" é jornada: o número seguido de hora não é distância (virava
   // 8 km). A trava de dígito impede o recuo que leria "12 horas" como 1 km.
-  const kmM = kmConsumo ? null : text.match(new RegExp(String.raw`\b(?:rodei|andei|dirigi|percorri|consegui\s+rodar)\s*${NUM}(?![\d.,]|\s*(?:horas?|hrs?|h)\b)\s*(?:km|quil[oô]metros?)?`, 'i'))
+  const kmM = kmConsumo ? null : text.match(new RegExp(String.raw`\b(?:rodei|andei|dirigi|percorri|consegui\s+rodar)\s*(?:mais\s+)?${NUM}(?![\d.,]|\s*(?:horas?|hrs?|h)\b)\s*(?:${WORK_KM})?`, 'i'))
     // "Rodei 8h E 150 KM", "fiz 12 corridas E 40 KM": a distância vem depois
     // da outra medida, com a unidade dita.
     || (/\b(?:rodei|andei|dirigi|percorri)\b|\b\d+\s+(?:corridas|viagens)\b/i.test(text)
-      ? text.match(new RegExp(String.raw`(?<![\wÀ-ÿ])(?:e|com)\s+${NUM}\s*(?:km|quil[oô]metros?)\b`, 'i')) : null)
+      ? text.match(new RegExp(String.raw`(?<![\wÀ-ÿ])(?:e|com)\s+${NUM}\s*${WORK_KM}`, 'i')) : null)
   const tripsM = text.match(new RegExp(String.raw`(?:fiz|realizei|completei)?\s*${NUM}\s*(?:viagens|corridas)`, 'i'))
   const hoursM = text.match(new RegExp(String.raw`\b(?:trabalhei|fiquei|rodei(?:\s+por)?)\s*${NUM}\s*(?:horas?|hrs?|h)\b`, 'i'))
     // "Rodei 150 km E 8 HORAS", "fiz 5 corridas E 3 HORAS": a jornada depois.
@@ -1624,11 +1654,12 @@ function parseClause(input: string): ParsedAction[] {
     || text.match(new RegExp(String.raw`\b(?:fiz|ganhei|faturei|tirei)\s+(?:r\$\s*)?\d+(?:[.,]\d+)?\s*(?:reais\s*)?(?:em|durante)\s*${NUM}\s*(?:horas?|hrs?|h)\b`, 'i'))
 
   const hours = duration.minutes ? duration.minutes / 60 : hoursM ? parseNum(hoursM[1]) : undefined
+  const km = distanceWorked(text, kmM)
   const kmIsMaint = m && m[3] // km da manutenção
-  if ((kmM && !kmIsMaint && !kmSubM) || (tripsM && !tripsSubM) || (hours !== undefined && !hoursSubM)) {
+  if ((km && !kmIsMaint && !kmSubM) || (tripsM && !tripsSubM) || (hours !== undefined && !hoursSubM)) {
     actions.push({
       kind: 'work',
-      km: kmM && !kmIsMaint && !kmSubM ? parseNum(kmM[1]) : undefined,
+      km: !kmIsMaint && !kmSubM ? km : undefined,
       trips: tripsM && !tripsSubM ? parseNum(tripsM[1]) : undefined,
       hours: hoursSubM ? undefined : hours,
     })
@@ -1822,7 +1853,7 @@ export function describeAction(a: ParsedAction, categoryName?: (id: string) => s
       // conferir antes de gravar — concordância errada ali passa desleixo.
       const viagem = (n: number) => `${n} ${n === 1 ? 'viagem' : 'viagens'}`
       const parts = []
-      if (a.km) parts.push(a.km > 0 ? `${a.km} km` : `${Math.abs(a.km)} km removidos`)
+      if (a.km) parts.push(a.km > 0 ? `${fmtNum(a.km, 3)} km` : `${fmtNum(Math.abs(a.km), 3)} km removidos`)
       if (a.trips) {
         parts.push(a.trips > 0
           ? viagem(a.trips)

@@ -7231,6 +7231,32 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('RP-tempo-de-passageiro-sem-jornada', riderWithTime.actions,
         'só o gasto de R$ 30, sem atribuir a duração à jornada do motorista',
         riderWithTime.actions.length === 1 && riderWithTime.actions[0].kind === 'expense' && riderWithTime.actions[0].amount === 30))
+      for (const [id, text, km, amount, trip] of [
+        ['RP-trajeto-com-volta', 'rodei 14 km na ida e 10 km na volta', 24, undefined, 0],
+        ['RP-trajeto-com-mais', 'andei 14 km na ida e rodei mais 10 km na volta', 24, undefined, 0],
+        ['RP-corrida-concluida-volta-e-dinheiro', 'fiz uma corrida de 45 com 15 km e mais 10 km na volta', 25, 45, 1],
+        ['RP-corrida-concluida-volta-sem-passageiro', 'fiz uma corrida de 45 e voltei 10 km vazio', 10, 45, 1],
+        ['RP-total-inclui-volta', 'rodei 24 km no total incluindo os 10 km de volta vazio', 24, undefined, 0],
+        ['RP-total-inclui-volta-e-receita', 'fiz 45 na Uber, 24 km contando 10 km de volta', 24, 45, 0],
+        ['RP-retorno-em-metros-nao-e-km', 'voltei 500 metros vazio', 0.5, undefined, 0],
+        ['RP-jornada-em-metros', 'rodei 500 metros', 0.5, undefined, 0],
+      ] as const) {
+        const r = await rideTurn(text)
+        const candidates = r.response.actions.map(x => x.action)
+        const confirm = applyBatchPure(oferta, r.response.actions, { now: { date: hoje, time: '12:00' } })
+        out.push(result(id, r.response, 'soma só as distâncias do trabalho e preserva o dinheiro e a contagem de viagens',
+          confirm.applied && r.response.mode === 'propose_actions' && candidates.length === (amount ? 2 : 1)
+          && receitas(candidates)[0]?.amount === amount && confirm.state.workSessions.length === 1
+          && confirm.state.workSessions[0].km === km && confirm.state.workSessions[0].trips === trip))
+      }
+      const walking = await rideTurn('andei 5 km a pé e gastei 20 no mercado')
+      const refusedWalkBack = await rideTurn('não voltei 10 km vazio')
+      const passengerBack = await rideTurn('voltei 10 km de Uber')
+      out.push(result('RP-caminhada-ou-volta-como-passageiro', [walking.response, refusedWalkBack.response, passengerBack.response],
+        'só R$ 20 de gasto, sem jornada por caminhada, volta negada ou como passageiro',
+        walking.response.actions.length === 1 && walking.response.actions[0].action.kind === 'expense'
+          && walking.response.actions[0].action.amount === 20 && /quilometragem do veículo/.test(walking.response.reply)
+          && !refusedWalkBack.response.actions.length && !passengerBack.response.actions.length))
       const troco = await turnoHoje(mot, 'quando troco o óleo')
       out.push(result('MN-quando-troco-o-oleo', troco.reply.split('\n')[0], 'próxima troca do óleo', /Óleo: próxima troca/.test(troco.reply)))
       const pneu = await turnoHoje(mot, 'quando troco os pneus?')
