@@ -6472,6 +6472,21 @@ Classes de defeito achadas pelas sondas e corrigidas:
 - Rascunho "comprei um celular" → "1200 em 10x" virava despesa avulsa; agora
   vira compra parcelada (regra 10).
 
+Depois do checkpoint (`de33fd6..`):
+- Mês digitado com um erro numa pergunta ("quanto gastei em agsto") é o mês;
+  "de mario" continua sendo pessoa.
+- Compra "no cartão", "no crédito" ou no nome do cartão nunca vira despesa
+  avulsa (regra 10): o rascunho pergunta as parcelas ("à vista" é 1x) e o
+  cartão; "débito" devolve a despesa com data e hora. "Passei 80 no cartão no
+  mercado" mostrava o resumo dos cartões e não registrava nada.
+- Regra 14 no chat: meta com nome que já existe pergunta (atualizar, criar
+  outra, cancelar). "Desisti da meta" diz onde encerrar.
+- "Tirei limpo" é resultado; "quanto a gasolina come do que eu faturo" dava
+  100% (o numerador era lido como receita).
+- Corrida com distância analisada; "quando troco o óleo/os pneus";
+  confirmação digitada aponta o botão; "é salário" no segundo turno; rascunho
+  "comprei um celular" → "1200 em 10x" vira parcelamento.
+
 Decisão de produto deixada para o usuário: no perfil motorista, cada receita
 de plataforma num dia inteiro conta "1 viagem" (`crit-motorista` espera 2
 viagens para Uber + 99 com 161 km e 8 horas). A regra 34 diz que um dia

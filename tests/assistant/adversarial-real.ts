@@ -6636,6 +6636,16 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const pct = `${fatia.toFixed(1).replace('.', ',')}%`
       out.push(result('MN-gasolina-come-do-faturamento', g.reply.split('\n')[0], pct, !/100%/.test(g.reply) && g.reply.includes(pct)))
     }
+
+    // Conversa social não recebe a lista de exemplos; frase com fato continua fato.
+    {
+      for (const [frase, re] of [['obrigado', /^De nada/], ['valeu!', /^De nada/], ['oi', /^Oi!/], ['bom dia', /^Oi!/]] as const) {
+        const r = await turnoHoje(buildState({ profile: 'clt' }), frase)
+        out.push(result(`MN-social-${frase.replace(/\W+/g, '-')}`, r.reply.split('\n')[0], String(re), r.actions.length === 0 && re.test(r.reply)))
+      }
+      const comFato = await turnoHoje(buildState({ profile: 'clt' }), 'oi, gastei 50 no mercado')
+      out.push(result('MN-social-com-fato', comFato.actions, 'despesa 50', comFato.actions.length === 1 && gastos(comFato.actions)[0]?.amount === 50))
+    }
   }
 
   return out

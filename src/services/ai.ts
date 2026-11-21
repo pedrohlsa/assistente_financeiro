@@ -1037,6 +1037,16 @@ function resolveLocal(s: AppState, input: string): AiReply {
     }
   }
 
+  // Conversa social: "obrigado" e "valeu" recebiam a lista de exemplos.
+  const social = t.replace(/[!?.,]+/g, ' ').trim()
+  if (/^(?:muito\s+)?(?:obrigad[oa]|obg|brigad[oa]|valeu|vlw|thanks|agradec\w*)(?:\s+(?:mesmo|demais|ai|viu|cara|mano))*$/.test(social)) {
+    return { text: 'De nada! Quando quiser, é só me contar um gasto, um ganho ou perguntar como está o mês.' }
+  }
+  if (/^(?:oi+|ola|opa|e\s*ai|eai|fala|salve|bom\s+dia|boa\s+tarde|boa\s+noite|tudo\s+bem|tudo\s+bom)(?:\s+(?:tudo\s+bem|tudo\s+bom|assistente|amigo))?$/.test(social)) {
+    const exemplo = driverMode ? '"fiz 300 hoje na uber"' : '"gastei 50 no mercado"'
+    return { text: `Oi! Me conte o que entrou ou saiu — por exemplo, ${exemplo} — ou pergunte "como está meu mês?".` }
+  }
+
   // "O salário já caiu?", "a Casa 2 já pagou?": o que está REGISTRADO.
   const chegada = respostaDeChegada(s, input) || respostaDeProximaEntrada(s, input)
   if (chegada) return { text: chegada }
