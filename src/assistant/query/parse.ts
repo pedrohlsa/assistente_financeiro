@@ -520,6 +520,8 @@ const ESTRUTURAIS = new Set([
   'de', 'do', 'da', 'dos', 'das', 'no', 'na', 'nos', 'nas', 'em', 'com', 'por',
   // Interjeição de fala ("…mês passado HEIN") nunca é nome de nada.
   'hein', 'ne', 'viu', 'uai',
+  // "por dia MESMO", "quanto MESMO": muleta, virava "Gasolina mesmo".
+  'mesmo', 'mesma',
   'para', 'que', 'e', 'ou', 'mais', 'menos', 'muito', 'total', 'media', 'mediana',
   'mes', 'meses', 'semana', 'semanas', 'dia', 'dias', 'ano', 'anos', 'hoje',
   'ontem', 'passado', 'passada', 'este', 'esta', 'esse', 'essa', 'neste', 'nesse',
@@ -583,7 +585,7 @@ function extrairAlvo(t: string): { valor: string; literal: string; matched: stri
   if (uteis * 2 < total) return undefined
   // A busca usa o LITERAL: a interjeição do fim da fala sai dele, senão "no bar
   // hein" procurava o texto "bar hein" e não achava nada.
-  return { valor, literal: m[1].trim().replace(/(?:\s+(?:hein|ne|viu|uai))+$/, ''), matched: m[0] }
+  return { valor, literal: m[1].trim().replace(/(?:\s+(?:hein|ne|viu|uai|mesmo|mesma))+$/, ''), matched: m[0] }
 }
 
 /**

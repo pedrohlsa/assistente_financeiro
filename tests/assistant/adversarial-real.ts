@@ -7260,6 +7260,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('SL-proporcao-do-salario', share, '34,4% do salário', /34[,.]4\s*%/.test(share)))
   }
 
+  // Regex curto sem borda de palavra casava DENTRO de outra palavra:
+  // "desCONTAram" ia para os vencimentos, "METAde" para a composição da meta,
+  // "MESmo" virava mês e ficava no filtro ("Gasolina mesmo").
+  {
+    const moto = motoristaRico(hoje)
+    const metade = (await turnoHoje(moto, 'quando gastei metade do que ganhei')).reply
+    out.push(result('BW-metade-nao-e-meta', metade, 'sem a composição da meta diária', !/Composi[çc][ãa]o/.test(metade)))
+    const mesmo = (await turnoHoje(moto, 'quanto to gastando de gasolina por dia mesmo')).reply
+    out.push(result('BW-mesmo-nao-e-filtro', mesmo, 'sem "mesmo" no rótulo', !/mesmo/i.test(mesmo) && /por dia/.test(mesmo)))
+    const contador = (await turnoHoje(buildState({ profile: 'autonomo' }), 'descontaram 50 do meu salário')).reply
+    out.push(result('BW-desconto-nao-e-conta', contador, 'sem a lista de vencimentos', !/vence até/.test(contador)))
+  }
+
   return out
 }
 

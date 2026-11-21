@@ -1109,7 +1109,9 @@ function resolveLocal(s: AppState, input: string): AiReply {
 
   // "quanto preciso ganhar amanhã?" / "qual minha meta"
   if (driverMode && !metaCitadaPeloNome
-    && /(preciso ganhar|meta)\s*(de)?\s*(amanh[aã]|hoje)?/.test(t) && /(preciso|meta)/.test(t) && !/como est/.test(t)) {
+    // Borda de palavra: "quando gastei METAde do que ganhei" devolvia a
+    // composição da meta diária.
+    && /(?:preciso ganhar|\bmeta\b)\s*(de)?\s*(amanh[aã]|hoje)?/.test(t) && /\bpreciso\b|\bmeta\b/.test(t) && !/como est/.test(t)) {
     const g = dailyGoal(s)
     return {
       text: `Sua meta diária atual é ${fmtBRL(g.total)}. Composição:\n\n` +
@@ -1224,7 +1226,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
     return { text: `Hoje: lucro de ${fmtBRL(ts.profit)} (real) contra meta de ${fmtBRL(g.total)} — ${pct}% concluída.${pct >= 100 ? ' 🎉 Meta batida!' : ` Faltam ${fmtBRL(g.total - ts.profit)}.`}` }
   }
   if (/semana foi boa|como foi (?:a |minha |essa |esta )?semana|como (?:ta|t[aá]|esta|est[aá]|anda) (?:a |minha |essa |esta )?semana|semana (?:foi|t[aá]|esta|est[aá]) (?:boa|ruim|fraca|forte)|t[oô] melhor|estou melhor/.test(t)) {
-    if (/m[eê]s/.test(t)) {
+    if (/\bm[eê]s\b/.test(t)) {
       const cur = monthStats(s), prev = prevMonthStats(s)
       const diff = cur.profit - prev.profit
       return { text: `Este mês: lucro de ${fmtBRL(cur.profit)} até agora.\nMês passado (completo): ${fmtBRL(prev.profit)}.\n\n${diff >= 0 ? `Você está ${fmtBRL(diff)} à frente — bom sinal!` : `Diferença de ${fmtBRL(-diff)}, mas o mês ainda não acabou.`}` }
@@ -1253,7 +1255,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
 
   const metaPeloNome = /quanto\s+(?:falta|(?:eu\s+)?(?:j[áa]\s+)?(?:juntei|guardei|tenho|consegui|separei))/.test(t)
     && s.goals.some(g => !g.done && t.includes(normalizeQuestion(g.name).split(' ')[0]))
-  if (metaPeloNome || /quando\s+(vou|consigo|vou conseguir|poderei)\s+(comprar|atingir|juntar)/.test(t) || /quando.*meta/.test(t) || /quanto\s+falta\s+(?:para|pra)\s+(?:a\s+|o\s+|minha\s+|meu\s+)?meta/.test(t)) {
+  if (metaPeloNome || /quando\s+(vou|consigo|vou conseguir|poderei)\s+(comprar|atingir|juntar)/.test(t) || /quando.*\bmetas?\b/.test(t) || /quanto\s+falta\s+(?:para|pra)\s+(?:a\s+|o\s+|minha\s+|meu\s+)?meta\b/.test(t)) {
     // O nome passa pela MESMA normalização da pergunta: "Câmera" com acento
     // nunca aparecia em "quanto falta pra camera", e a resposta era a primeira meta.
     const goal = s.goals.find(g => !g.done && t.includes(normalizeQuestion(g.name).split(' ')[0])) || s.goals.filter(g => !g.done)[0]
@@ -1312,7 +1314,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
 
   // "quanto to gastando de gasolina por dia"
   if (driverMode && /(?:gastando|gasto|gastei|sai)\s*(?:de|com|em)?\s*(?:gasolina|combust[íi]vel|etanol|[áa]lcool|gnv)\s*(?:por|ao|no)\s*(?:dia|m[eê]s|semana)/.test(t)) {
-    const dias = /m[eê]s/.test(t) ? 30 : /semana/.test(t) ? 7 : 1
+    const dias = /\bm[eê]s\b/.test(t) ? 30 : /\bsemana\b/.test(t) ? 7 : 1
     const p = { from: addDays(todayISO(), -29), to: todayISO() }
     const st = periodStats(s, p.from, p.to)
     const total = fuelSpend(s, p.from, p.to)
