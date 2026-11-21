@@ -1419,8 +1419,14 @@ export function analyzeMessage(
     // 10" arrancado como data logo acima, e o que sobra ("minha conta de luz é
     // 150 todo") não parece mais conta nenhuma. Sem isto o resultado do dia
     // perguntava "esses R$ 150 foram ganho ou gasto?" para uma conta de luz.
+    // "Fiz 18 corridas E TIREI 410": o corte antes do verbo deixa o valor numa
+    // cláusula sem dia, e a jornada da cláusula anterior é o contexto que
+    // faltava — sem ele os R$ 410 eram "não registrei esta parte".
+    const jornadaAntes = !!opts?.driver
+      && !!previousClause?.actions.some(a => a.kind === 'work' && ((a.trips || 0) > 0 || a.km || a.hours))
+      && !previousClause.actions.some(a => a.kind === 'income')
     const dayHint = !looksRecurring(part.text)
-      && [...datesOriginal, ...datesParser].some(d => d.kind === 'date')
+      && ([...datesOriginal, ...datesParser].some(d => d.kind === 'date') || jornadaAntes)
     const lida = semData || forParser
     const fala = invoiceParser.referenceMonth ? lida.replace(/\b(?:antecipei|adiantei)\b/i, 'paguei') : lida
     const pixSent = previousPix && !requestedPix && !isQuestion && !negated ? fala.match(PIX_CONTEXT_SENT) : null

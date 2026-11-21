@@ -31,7 +31,7 @@ import {
   planoDeGuardar, prazoDasContas, retiraDaReserva,
 } from '../assistant/cashQuestions'
 import type { PerguntaDeConta, PerguntaDeFatura, PlanoDeGuardar } from '../assistant/cashQuestions'
-import { describeAction, parseNaturalFull } from './nlp'
+import { describeAction, parseNaturalFull, SAQUE } from './nlp'
 import { driverInsight } from '../assistant/driverInsights'
 import { answerVehicleCost } from '../assistant/vehicleCost'
 import { avaliacaoDoDia } from '../assistant/dayReview'
@@ -1010,16 +1010,29 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // PROGRESSO da meta do dia: "bati a meta?", "quanto falta pra meta de hoje".
   // Vinha depois da composição, que capturava qualquer "meta" e respondia a
   // conta da meta sem dizer se foi batida.
+  // "Tô bem na meta?" despejava a composição da meta sem dizer se ia bem.
+  const pedeQuantoFalta = /\bquanto\s+(?:ainda\s+)?falta\b.*\bmeta\b|\bmeta\b.*\bquanto\s+(?:ainda\s+)?falta\b|\bfalta\s+quanto\b.*\bmeta\b|\bmeta\b.*\bfalta\s+quanto\b/.test(t)
   if (driverMode && !metaCitadaPeloNome
     && (/\bbat(?:i|eu|er)\s+(?:a\s+)?(?:minha\s+)?meta\b/.test(t)
-      || /\bquanto\s+falta\b.*\bmeta\b|\bmeta\b.*\bquanto\s+falta\b/.test(t))) {
+      || pedeQuantoFalta
+      || /\b(?:to|tou|estou|ta|esta|t[oa]\s+indo|estou\s+indo|vou)\s+(?:bem|mal|perto|longe)\s+(?:d?[ao]\s+|n[ao]\s+)?(?:minha\s+)?meta\b/.test(t)
+      || /\bcomo\s+(?:eu\s+)?(?:to|tou|estou|ta|esta)\s+(?:n[ao]\s+|com\s+a\s+)?(?:minha\s+)?meta\b/.test(t))) {
     const ts = todayStats(s)
     const g = dailyGoal(s)
     const falta = round2(g.total - ts.profit)
+    const conta = `lucro de ${fmtBRL(ts.profit)} hoje contra a meta de ${fmtBRL(g.total)} (dado real)`
+    // "Quanto falta?" não é pergunta de sim ou não: a resposta é o valor.
+    if (pedeQuantoFalta) {
+      return {
+        text: falta <= 0.009
+          ? `Nada — você já bateu a meta de hoje: ${conta}. O que vier agora é lucro.`
+          : `Faltam ${fmtBRL(falta)}: ${conta}.`,
+      }
+    }
     return {
       text: falta <= 0.009
-        ? `Sim, bateu: lucro de ${fmtBRL(ts.profit)} hoje contra a meta de ${fmtBRL(g.total)} (dado real). O que vier agora é lucro.`
-        : `Ainda não: lucro de ${fmtBRL(ts.profit)} hoje contra a meta de ${fmtBRL(g.total)} — faltam ${fmtBRL(falta)} (dado real).`,
+        ? `Sim, bateu: ${conta}. O que vier agora é lucro.`
+        : `Ainda não: ${conta} — faltam ${fmtBRL(falta)}.`,
     }
   }
 
@@ -1050,6 +1063,13 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // "O salário já caiu?", "a Casa 2 já pagou?": o que está REGISTRADO.
   const chegada = respostaDeChegada(s, input) || respostaDeProximaEntrada(s, input)
   if (chegada) return { text: chegada }
+
+  // Saque: o dinheiro só mudou de lugar. Para o motorista "tirei 200 do
+  // banco" virava R$ 200 de corrida; "saquei 200" perguntava se foi ganho.
+  if (SAQUE.test(input) && !/\b(?:paguei|gastei|comprei|recebi|ganhei|faturei)\b/.test(t)) {
+    return { text: 'Saque não é ganho nem gasto: o dinheiro continua seu, só saiu da conta para a mão. Não registrei nada.\n\n'
+      + 'Quando gastar esse dinheiro, me diga o gasto — por exemplo, "paguei 50 em dinheiro no mercado" — que eu lanço.' }
+  }
 
   // "Minha conta de água veio 95": a conta CHEGOU. Paga ou não, quem diz é o
   // usuário — registrar como despesa era tirar do saldo um dinheiro que pode

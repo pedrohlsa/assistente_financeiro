@@ -496,6 +496,13 @@ function driverDayResult(input: string, actions: ParsedAction[], dayHint?: boole
 }
 
 /**
+ * Saque do PRÓPRIO dinheiro: "saquei 200", "tirei 200 do banco", "fiz um
+ * saque de 150". Não é ganho nem gasto — o dinheiro só mudou de lugar
+ * (regra 69). Tirar da META ou da reserva é outra operação e fica de fora.
+ */
+export const SAQUE = /(?<![\wÀ-ÿ])(?:saquei|sacamos|fiz\s+um\s+saque|(?:tirei|retirei)\s+(?:r\$\s*)?\d[\d.,]*\s*(?:reais|real|contos?|pila)?\s*(?:d[oa]\s+(?:banco|conta|caixa(?:\s+eletr[oô]nico)?)|n[oa]\s+(?:caixa(?:\s+eletr[oô]nico)?|banco|lot[eé]rica|24\s*horas)|em\s+(?:dinheiro|esp[eé]cie)))(?![\wÀ-ÿ])/i
+
+/**
  * Uma corrida NOMEADA no singular: "uma corrida", "numa viagem", "a corrida",
  * "corrida de 18", "corrida pro aeroporto". "Ganhei 22 DE corrida" é a
  * categoria da receita, não a contagem — fica de fora.
@@ -510,6 +517,8 @@ export function parseNaturalFull(
   input: string,
   opts?: { driver?: boolean; dayHint?: boolean; inheritedKind?: 'income' | 'expense' },
 ): ParseResult {
+  // Saque não vira receita (nem o "resultado do dia" do motorista) nem gasto.
+  if (SAQUE.test(input) && !/\b(?:paguei|gastei|comprei|recebi|ganhei|faturei)\b/i.test(input)) return { actions: [] }
   let actions = parseNatural(input)
   let dayAsk: DayResult['ask']
   let doDia = false

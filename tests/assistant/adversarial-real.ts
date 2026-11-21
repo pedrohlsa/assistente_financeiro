@@ -2283,8 +2283,16 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const lucro = fmtBRL(Math.round(lucroHoje * 100) / 100).replace(/ /g, ' ')
     for (const frase of ['bati a meta?', 'quanto falta pra meta de hoje', 'quanto falta pra bater a meta', 'ja bati a meta de hoje?']) {
       const r = await turnoHoje(st, frase)
-      out.push(result(`P-meta-do-dia-${frase.replace(/\W+/g, '-')}`, r.reply, `sim/não primeiro, com o lucro de hoje ${lucro}`,
-        /^(?:Sim, bateu:|Ainda não:)/.test(r.reply) && r.reply.replace(/ /g, ' ').includes(`lucro de ${lucro}`)))
+      // "Quanto falta" pede o VALOR; "bati?" pede sim ou não (regra 57).
+      const abre = /quanto falta/.test(frase) ? /^(?:Nada — você já bateu|Faltam R\$)/ : /^(?:Sim, bateu:|Ainda não:)/
+      out.push(result(`P-meta-do-dia-${frase.replace(/\W+/g, '-')}`, r.reply, `resposta à forma da pergunta, com o lucro de hoje ${lucro}`,
+        abre.test(r.reply) && r.reply.replace(/\u00a0/g, ' ').includes(`lucro de ${lucro}`)))
+    }
+    // "Tô bem na meta?" despejava a composição sem dizer se ia bem.
+    for (const frase of ['to bem na meta?', 'como to na meta', 'tô longe da meta?', 'estou indo bem na meta?']) {
+      const r = await turnoHoje(st, frase)
+      out.push(result(`MD-meta-${frase.replace(/\W+/g, '-')}`, r.reply, 'sim/não primeiro, com o lucro de hoje',
+        /^(?:Sim, bateu:|Ainda não:)/.test(r.reply) && r.reply.replace(/\u00a0/g, ' ').includes(`lucro de ${lucro}`) && !/Composi/.test(r.reply)))
     }
     const composicao = await turnoHoje(st, 'qual minha meta')
     out.push(result('P-composicao-continua', composicao.reply, 'composição da meta diária', /Composi[çc][ãa]o/.test(composicao.reply)))
@@ -6854,6 +6862,42 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const semana = await turnoHoje(moto, 'qual foi meu pior dia essa semana')
       out.push(result('KR-pior-dia-da-semana', semana.reply, 'diz "últimos 7 dias"', /7 dias/.test(semana.reply)))
     }
+  }
+
+  // "Fiz 18 corridas E TIREI 410": o valor perdia o contexto do dia e virava
+  // "não registrei esta parte". E saque não é ganho nem gasto (regra 69):
+  // "tirei 200 do banco" virava R$ 200 de corrida para o motorista.
+  {
+    const receita = (acoes: any[]) => acoes.filter(a => a.kind === 'income').reduce((t, a) => t + a.amount, 0)
+    for (const [id, frase, valor, viagens] of [
+      ['SQ-corridas-e-tirei', 'hoje fiz 18 corridas e tirei 410', 410, 18],
+      ['SQ-km-e-tirei', 'rodei 150 km e tirei 300', 300, 0],
+    ] as const) {
+      const r = await turnoHoje(buildState({ profile: 'driver' }), frase)
+      const trips = r.actions.filter((a: any) => a.kind === 'work').reduce((t: number, a: any) => t + (a.trips || 0), 0)
+      out.push(result(id, { reply: r.reply, actions: r.actions }, `receita ${valor} e ${viagens} viagens, nada sem registrar`,
+        receita(r.actions) === valor && trips === viagens && !/Não registrei/.test(r.reply)))
+    }
+    for (const perfil of ['driver', 'autonomo'] as const) {
+      for (const [id, frase] of [
+        ['SQ-tirei-do-banco', 'hoje tirei 200 do banco'],
+        ['SQ-saquei', 'saquei 200 no caixa eletrônico'],
+        ['SQ-saquei-hoje', 'hoje saquei 200'],
+        ['SQ-fiz-um-saque', 'fiz um saque de 150'],
+        ['SQ-corridas-e-saque', 'fiz 12 corridas e tirei 200 do banco'],
+      ] as const) {
+        const r = await turnoHoje(buildState({ profile: perfil }), frase)
+        out.push(result(`${id}-${perfil}`, { reply: r.reply, actions: r.actions }, 'nenhuma receita nem despesa; diz que saque não é ganho nem gasto',
+          !r.actions.some((a: any) => a.kind === 'income' || a.kind === 'expense')
+            && /saque/i.test(r.reply) && !/ganhou ou .*gastou|Posso te ajudar/.test(r.reply)))
+      }
+    }
+    // Controle: tirar da META continua sendo retirada da meta, e "tirei 300"
+    // do motorista depois de "hoje" continua sendo o resultado do dia.
+    const meta = await turnoHoje(buildState({ profile: 'driver', goals: [{ name: 'Viagem', target: 2000, saved: 500 }] }), 'tirei 100 da meta viagem')
+    out.push(result('SQ-controle-meta', meta.reply, 'não fala de saque', !/saque/i.test(meta.reply)))
+    const dia = await turnoHoje(buildState({ profile: 'driver' }), 'hoje tirei 300')
+    out.push(result('SQ-controle-resultado-do-dia', dia.actions, 'receita 300', receita(dia.actions) === 300))
   }
 
   return out

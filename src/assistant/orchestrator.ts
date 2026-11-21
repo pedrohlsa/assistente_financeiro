@@ -49,7 +49,7 @@ import { findGoalByName, planAssistantActions } from './execute'
 import { askAssistant, normalizeQuestion, respostaDeMetaCitada } from '../services/ai'
 import { contaDeclarada, perguntaDeFatura, perguntaNominal } from './cashQuestions'
 import { buildCapabilities } from './capabilities'
-import { describeAction, META_OUTRA } from '../services/nlp'
+import { describeAction, META_OUTRA, SAQUE } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
 import { catById, usableCategories } from '../data/categories'
 import { addDays, fmtBRL, MESES_PT_BR, nowTime, parseMoney, todayISO, uid } from '../utils/format'
@@ -1175,7 +1175,10 @@ function compraNoCartao(mensagem: string, candidates: AssistantCandidateAction[]
  * 30 — o usuário confirmava achando que tinha lançado os dois.
  */
 function sobraComValor(unresolved: AssistantUnresolvedClause[]): string {
-  const sobra = unresolved.filter(u => u.reason === 'not-understood' && /\d/.test(u.text))
+  // Saque é entendido: não é ganho nem gasto, e dizer "não registrei, me diga
+  // o que foi" pedia um lançamento que não deve existir (regra 69).
+  const saques = unresolved.filter(u => u.reason === 'not-understood' && SAQUE.test(u.text))
+  const sobra = unresolved.filter(u => u.reason === 'not-understood' && /\d/.test(u.text) && !saques.includes(u))
   // Relato SEM valor ("gastei 30 no mercado e PAGUEI A LUZ"): a segunda metade
   // sumia sem aviso, e o usuário confirmava achando que tinha lançado as duas.
   const semValor = unresolved.filter(u => u.reason === 'not-understood' && !/\d/.test(u.text)
@@ -1184,6 +1187,7 @@ function sobraComValor(unresolved: AssistantUnresolvedClause[]): string {
   let out = ''
   if (sobra.length) out += `\n\nNão registrei ${sobra.length === 1 ? 'esta parte' : 'estas partes'}: ${sobra.map(limpa).join(', ')}. Me diga o que foi que eu lanço.`
   if (semValor.length) out += `\n\nFaltou o valor de ${semValor.map(limpa).join(', ')} — me diga quanto foi que eu lanço também.`
+  if (saques.length) out += `\n\n${saques.map(limpa).join(', ')} é saque: não é ganho nem gasto, então não registrei.`
   return out
 }
 
@@ -2806,7 +2810,9 @@ Confirmar?`,
       // parte da correção — e nada pode sugerir registro.
       reply = 'Entendi que isso não aconteceu — não registrei nada. Se quiser lançar outra coisa, é só me dizer.'
     } else if (notUnderstood.length && (candidates.length || analysis.clauses.some(c => c.handled))) {
-      reply = `Não consegui interpretar esta parte: "${notUnderstood[0].text}". Pode reformular só esse pedaço?`
+      reply = SAQUE.test(notUnderstood[0].text)
+        ? `“${notUnderstood[0].text.trim().replace(/[\s,;]+$/, '')}” é saque: não é ganho nem gasto, então não registrei.`
+        : `Não consegui interpretar esta parte: "${notUnderstood[0].text}". Pode reformular só esse pedaço?`
     } else {
       // CUIDADO: `askAssistant` tem o próprio parser e monta "Entendi isso… /
       // Confirmar?" a partir dele. Se o orquestrador decidiu que NÃO há ação
