@@ -133,6 +133,9 @@ export function normalizeQuery(input: string): string {
 // A frase é uma CONSULTA de dados?
 // ---------------------------------------------------------------------------
 
+/** "Tô gastando muito?", "gastei demais com mercado?": desvio do próprio gasto. */
+export const GASTANDO_MUITO = /\b(?:gastando|torrando|gastei|torrei|gasto|gastamos)\s+(?:muito|demais|bastante|um\s+monte)\b/
+
 const PEDE_DADO = [
   /\bquant[oa]s?\b/, /\bqual\b/, /\bquais\b/, /\bmedia\b/, /\bmediana\b/,
   /\bmaior\b/, /\bmenor\b/, /\bmelhor\b/, /\bpior\b/, /\bmais\b/, /\bmenos\b/,
@@ -151,6 +154,10 @@ const PEDE_DADO = [
   /\bcomo\s+(?:esta|vai|anda)\s+(?:a\s+|minha\s+)?metas?\s+d[aeo]s?\s+\w/,
   // "Gastei fora do normal esse mês?" não tem palavra de medida e caía na ajuda.
   /\b(?:fora|acima)\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:padrao|normal|comum|costume|media)\b/,
+  // "Tô gastando muito com obra?", "gastei demais esse mês?": a mesma
+  // pergunta de desvio, dita como se fala. Caía na ajuda — ou no ritmo do
+  // gasto TOTAL, sem a categoria.
+  GASTANDO_MUITO,
   // "Onde vazou meu dinheiro", "pra onde foi", "onde gastei": DESTINO do
   // dinheiro. Nenhuma palavra de medida aparece, e a frase nem chegava ao
   // planejador — o roteador antigo respondia o total, que diz QUANTO e não ONDE.
@@ -472,7 +479,7 @@ const ANTERIOR = 'periodo-anterior'
 // "Fora do meu padrão" é desvio do que ele costuma gastar — comparação, não a
 // exclusão "fora o aluguel".
 const FORA_DO_PADRAO = /\b(?:fora|acima)\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:padrao|normal|comum|costume|media)\b/
-const CMP_IMPLICITA = /\b(?:fora|acima)\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:padrao|normal|comum|costume|media)\b|\b(?:estou|esta|ando|anda|tou)\s+(?:pior|melhor)\s+(?:de|em|com|no|na)\b|\baument(?:ou|aram|o)\b|\bcai(?:u|ram)\b|\bsubiu\b|\bdesceu\b|\bcresceu\b|\bdiminuiu\b|\bpiorou\b|\bmelhorou\b|\bdiferenca\b|\bmudou\b|\bmudancas?\b|\bque\s+antes\b|\bdo\s+que\s+antes\b|\bmais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:gastava|ganhava|fazia)\b/
+const CMP_IMPLICITA = /\b(?:gastando|torrando|gastei|torrei|gasto|gastamos)\s+(?:muito|demais|bastante|um\s+monte)\b|\b(?:fora|acima)\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:padrao|normal|comum|costume|media)\b|\b(?:estou|esta|ando|anda|tou)\s+(?:pior|melhor)\s+(?:de|em|com|no|na)\b|\baument(?:ou|aram|o)\b|\bcai(?:u|ram)\b|\bsubiu\b|\bdesceu\b|\bcresceu\b|\bdiminuiu\b|\bpiorou\b|\bmelhorou\b|\bdiferenca\b|\bmudou\b|\bmudancas?\b|\bque\s+antes\b|\bdo\s+que\s+antes\b|\bmais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:gastava|ganhava|fazia)\b/
 
 /** "3 meses atrás" dentro de uma comparação = a MESMA janela, deslocada. */
 function deslocaPeriodo(p: QueryPeriod, n: number, unidade: string): QueryPeriod {
@@ -829,6 +836,8 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   // "exceto padrão" — virava o filtro `excludeText: "padrao"`.
   const desvio = t0.match(FORA_DO_PADRAO)
   if (desvio) rest.consome(desvio[0])
+  const muito = t0.match(/\b(?:muito|demais|bastante|um\s+monte)\b/)
+  if (muito && GASTANDO_MUITO.test(t0)) rest.consome(muito[0])
 
   // ---- 1b) denominador da proporção, consumido ANTES do verbo ------------
   // "quanto DAS MINHAS RECEITAS está indo para combustível" tem dois lados: o

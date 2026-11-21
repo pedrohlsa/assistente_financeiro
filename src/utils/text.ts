@@ -13,10 +13,15 @@ export function sentenceCase(s?: string | null): string {
   const t = String(s).trim()
   if (!t) return ''
   if (/[A-ZÀ-ÖØ-Þ]/.test(t)) return t
-  const i = t.search(/[a-zà-öø-ÿ0-9]/)
-  if (i < 0) return t
-  return t.slice(0, i) + t[i].toUpperCase() + t.slice(i + 1)
+  // Sigla digitada em minúsculas é sigla: "iptu" vira "IPTU", nunca "Iptu".
+  const u = t.replace(SIGLAS, m => m.toUpperCase())
+  const i = u.search(/[a-zà-öø-ÿ0-9]/)
+  if (i < 0) return u
+  return u.slice(0, i) + u[i].toUpperCase() + u.slice(i + 1)
 }
+
+/** Siglas comuns em lançamentos. Só palavras que nunca são palavra comum. */
+const SIGLAS = /(?<![\wÀ-ÿ])(?:iptu|ipva|inss|fgts|cnh|dpvat|darf|gnv|mei|irpf|cpf|cnpj)(?![\wÀ-ÿ])/g
 
 /**
  * Chave de comparação de nomes: minúsculas, sem acento, sem espaço duplicado.

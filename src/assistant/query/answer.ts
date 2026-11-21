@@ -175,8 +175,13 @@ export function leadSimNao(t: string, plan: AssistantQueryPlan, total: number, c
   const melhor = /\b(?:melhorou|melhoraram|melhor)\b/.test(t)
   const sobe = /\b(?:aumentou|aumentaram|subiu|subiram|cresceu|mais\s+(?:do\s+)?que)\b|\b(?:fora|acima)\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:padrao|normal|comum|costume|media)\b/.test(t)
   const desce = /\b(?:caiu|cairam|diminuiu|diminuiram|desceu|baixou|menos\s+(?:do\s+)?que)\b/.test(t)
-  if ([pior, melhor, sobe, desce].filter(Boolean).length !== 1) return ''
   const d = Math.round((total - compareTotal) * 100) / 100
+  // "Tô gastando muito?" — o "muito" é contra o próprio passado.
+  if (/\b(?:gastando|torrando|gastei|torrei|gasto|gastamos)\s+(?:muito|demais|bastante|um\s+monte)\b/.test(t)) {
+    if (d === 0) return 'Não, igual ao período anterior. '
+    return d > 0 ? 'Sim, mais que no período anterior. ' : 'Não, menos que no período anterior. '
+  }
+  if ([pior, melhor, sobe, desce].filter(Boolean).length !== 1) return ''
   if (d === 0) return 'Não, ficou igual. '
   const custo = plan.metric !== 'net' && plan.filter.txType?.length === 1 && plan.filter.txType[0] === 'expense'
   const piorou = custo ? d > 0 : d < 0

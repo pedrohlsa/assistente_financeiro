@@ -6945,6 +6945,41 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /já está no seu Planejamento/.test(comLuz.reply) && !/cadastre em Planejamento/.test(comLuz.reply)))
   }
 
+  // "Tô gastando muito com obra?", "gastei demais esse mês?": caíam na ajuda
+  // genérica, e "tô gastando demais com mercado?" respondia o gasto TOTAL.
+  // A resposta começa pelo veredito contra o mesmo pedaço do período anterior.
+  {
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const limpa = (t: string) => t.replace(/ /g, ' ')
+    const rico = autonomoRico(hoje)
+    const h = fromISO(hoje)
+    const fimMesPassado = toISOdate(new Date(h.getFullYear(), h.getMonth(), 0))
+    const ini = toISOdate(new Date(h.getFullYear(), h.getMonth() - 1, 1))
+    const ate = toISOdate(new Date(h.getFullYear(), h.getMonth() - 1, Math.min(h.getDate(), Number(fimMesPassado.slice(8, 10)))))
+    const gasto = (cat: string | null, de: string, a: string) => rico.transactions
+      .filter(x => x.type === 'expense' && (!cat || x.category === cat) && x.date >= de && x.date <= a).reduce((t, x) => t + x.amount, 0)
+    for (const [id, frase, cat] of [
+      ['GX-gastando-muito-obra', 'tô gastando muito com obra?', 'obra'],
+      ['GX-gastando-demais-mercado', 'to gastando demais com mercado?', 'mercado'],
+      ['GX-gastei-muito-mes', 'gastei muito esse mês?', null],
+    ] as const) {
+      const catId = cat === 'mercado' ? (rico.categories.find(c => /mercado/i.test(c.name))?.id ?? 'alimentacao') : cat
+      const agora = cat === 'mercado'
+        ? rico.transactions.filter(x => x.type === 'expense' && /mercado/i.test(`${x.description} ${x.category}`) && x.date >= `${hoje.slice(0, 8)}01` && x.date <= hoje).reduce((t, x) => t + x.amount, 0)
+        : gasto(catId, `${hoje.slice(0, 8)}01`, hoje)
+      const antes = cat === 'mercado'
+        ? rico.transactions.filter(x => x.type === 'expense' && /mercado/i.test(`${x.description} ${x.category}`) && x.date >= ini && x.date <= ate).reduce((t, x) => t + x.amount, 0)
+        : gasto(catId, ini, ate)
+      const r = limpa((await turnoHoje(rico, frase)).reply)
+      const veredito = agora > antes ? /^Sim\b/ : agora < antes ? /^Não\b/ : /^Não, igual/
+      out.push(result(id, r, `${agora > antes ? 'Sim' : 'Não'} primeiro; ${brl(agora)} contra ${brl(antes)}`,
+        veredito.test(r) && r.includes(brl(agora)) && (antes === 0 || r.includes(brl(antes))) && !/Posso te ajudar/.test(r)))
+    }
+    // Sigla escrita em minúsculas é exibida como sigla.
+    const iptu = await turnoHoje(buildState({ profile: 'autonomo' }), 'paguei o iptu 380')
+    out.push(result('GX-sigla-iptu', iptu.reply, 'IPTU', /IPTU/.test(iptu.reply) && !/Iptu/.test(iptu.reply)))
+  }
+
   return out
 }
 
