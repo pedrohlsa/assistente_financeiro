@@ -106,7 +106,7 @@ export function reconcileSpokenTotals(message: string, today: string, driver: bo
   const included = text.match(INCLUDED)
   if (included) {
     const before = text.slice(0, included.index)
-    const parent = looksLikeQuestion(before) ? undefined : movements(before, today, driver).at(-1)
+    const parent = looksLikeQuestion(before) ? undefined : movements(before, today, driver).slice(-1)[0]
     if (parent) {
       const components = [...included[1].matchAll(ITEMS)].reduce((sum, item) => sum + cents(parseMoney(item[1])), 0)
       if (components > cents(parent.amount)) {
