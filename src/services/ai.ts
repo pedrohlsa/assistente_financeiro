@@ -1082,6 +1082,20 @@ function resolveLocal(s: AppState, input: string): AiReply {
   // Vinha depois da composição, que capturava qualquer "meta" e respondia a
   // conta da meta sem dizer se foi batida.
   // "Tô bem na meta?" despejava a composição da meta sem dizer se ia bem.
+  // "Tô cansado, paro ou continuo?": o dia contra a meta e o ritmo — a
+  // decisão é dele. Caía na ajuda genérica.
+  if (driverMode && /\b(?:paro|parar|encerro|encerrar|vou\s+embora)\b[^?]*\b(?:ou|continuo|continuar|sigo|seguir|rodo)\b|\bdevo\s+parar\b|\bja\s+da\s+(?:pra|para)\s+parar\b|\bposso\s+parar\b/.test(t)) {
+    const ts = todayStats(s)
+    const g = dailyGoal(s)
+    const falta = round2(g.total - ts.profit)
+    const w = weekStats(s)
+    const conta = `Hoje: lucro de ${fmtBRL(ts.profit)} contra a meta de ${fmtBRL(g.total)} (dado real).`
+    return { text: falta <= 0.009
+      ? `${conta} A meta do dia está batida — parar agora não te atrasa no mês.`
+      : `${conta} Faltam ${fmtBRL(falta)}`
+        + (w.profitPerHour > 0 ? `, cerca de ${fmtNum(falta / w.profitPerHour)}h no seu ritmo de ${fmtBRL(w.profitPerHour)}/hora.` : '.')
+        + ' Se parar, o que faltar entra na meta dos próximos dias. A decisão é sua — descanso também conta.' }
+  }
   const pedeQuantoFalta = /\bquanto\s+(?:ainda\s+)?falta\b.*\bmeta\b|\bmeta\b.*\bquanto\s+(?:ainda\s+)?falta\b|\bfalta\s+quanto\b.*\bmeta\b|\bmeta\b.*\bfalta\s+quanto\b/.test(t)
   if (driverMode && !metaCitadaPeloNome
     && (/\bbat(?:i|eu|er)\s+(?:a\s+)?(?:minha\s+)?meta\b/.test(t)

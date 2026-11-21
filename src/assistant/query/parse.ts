@@ -199,6 +199,8 @@ export function looksLikeDataQuestion(input: string): boolean {
   // "Como é meu dia típico?", "quanto eu faço num dia normal": o RITMO
   // diário, não o total do período — quem responde é o `driverInsight`.
   if (DIA_TIPICO.test(t)) return false
+  // "Melhor horário pra rodar": o app não sabe a hora das corridas.
+  if (/\b(?:melhor|pior)\s+(?:horario|hora|periodo|turno)\b/.test(t)) return false
   if (pedeCustoMensalDoVeiculo(input)) return false
   if (pedeAteOSalario(t) || pedeFimDoMes(t) || guardarEsteMes(t) !== null || pedeReservaDeCaixa(t) || pedeContaQueAperta(t) || pedeTotalGuardado(t) || (fatura && !faturaDaJanela) || pedeAntecipacaoDeFatura(t)
     || pedeContasAPagar(t) || planoDeGuardar(t) || perguntaDeManutencao(t)
@@ -844,6 +846,18 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     textoComparacao = marcador[1]
     rest.consome(marcador[0])
     sujeitoDaComparacao = soUteis(t0.slice(0, marcador.index))
+  } else if (!marcador && /\b(?:mais|menos|melhor|pior|maior|menor)\b/.test(t0)
+    // "No começo ou no fim do mês" é agrupamento por metade do mês, não escolha
+    // entre dois períodos.
+    && !/\b(?:comeco|inicio|meio|fim|final|primeira|segunda)\b[^?]*\bou\b|\bou\s+(?:n[oa]\s+)?(?:comeco|inicio|meio|fim|final)\b/.test(t0)
+    && t0.match(/\bou\s+(?:n[oa]\s+|o\s+|a\s+)?([^?,.!]{2,30})/)
+    && parsePeriod(t0.match(/\bou\s+(?:n[oa]\s+|o\s+|a\s+)?([^?,.!]{2,30})/)![1], hoje)) {
+    // "Ganhei mais essa semana OU semana passada?": a escolha entre dois
+    // períodos é uma comparação. Lida sem o "ou", a resposta trazia só o
+    // segundo período.
+    const ou = t0.match(/\bou\s+(?:n[oa]\s+|o\s+|a\s+)?([^?,.!]{2,30})/)!
+    textoComparacao = ou[1]
+    rest.consome(ou[0])
   } else if (marcador && /^(?:o\s+|a\s+)?(?:passad[oa]|anterior)\s*$/.test(marcador[1].trim())) {
     // "Comparado com o passado" / "com a anterior": o período imediatamente
     // anterior ao principal. Sem período legível a frase saía da consulta e

@@ -102,6 +102,13 @@ export function driverInsight(s: AppState, input: string): string | undefined {
   const t = norm(input)
 
   if (RE_COMBUSTIVEL_TIPICO.test(t)) return combustivelTipico(s)
+  // "Melhor horário pra rodar": o registro guarda a hora em que o GANHO foi
+  // lançado, não a hora das corridas — e um dia inteiro registrado à noite
+  // diria que a noite rende tudo. Sem esse dado, o app diz o que sabe medir.
+  if (/\b(?:melhor|pior)\s+(?:horario|hora|periodo|turno)\b/.test(t)) {
+    return 'Não consigo dizer o melhor horário: eu guardo a hora em que você REGISTRA cada ganho, não a hora das corridas — um dia inteiro lançado à noite pareceria que só a noite rende.\n\n'
+      + 'O que dá para comparar com os seus números são os dias da semana. Pergunte "qual dia eu mais ganho?".'
+  }
   if (RE_DIAS_FORTES.test(t)) return diasFortes(s, /pior|frac/.test(t))
   if (RE_PLATAFORMA.test(t)) return porPlataforma(s)
   if (RE_TENDENCIA.test(t)) return tendencia(s)

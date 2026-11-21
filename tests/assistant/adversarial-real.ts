@@ -7319,6 +7319,22 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('AB-em-3x-no-inter', j, 'compra de 600 em 3x no Inter', j?.kind === 'card-purchase' && j.total === 600 && j.installments === 3 && /inter/i.test(j.cardName || '')))
   }
 
+  // Perguntas do motorista que respondiam outra coisa: "X ou Y?" mostrava só
+  // Y; "melhor horário" dava o total do mês; "paro ou continuo?" caía na ajuda.
+  {
+    const moto = motoristaRico(hoje)
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const soma = (de: string, ate: string) => moto.transactions.filter(t => t.type === 'income' && t.date >= de && t.date <= ate).reduce((a, t) => a + t.amount, 0)
+    const esta = soma(addDays(hoje, -6), hoje)
+    const passada = soma(addDays(hoje, -13), addDays(hoje, -7))
+    const r = (await turnoHoje(moto, 'ganhei mais essa semana ou semana passada?')).reply.replace(/ /g, ' ')
+    out.push(result('DR-x-ou-y', r, `as duas semanas: ${brl(esta)} e ${brl(passada)}`, r.includes(brl(esta)) && r.includes(brl(passada))))
+    const h = (await turnoHoje(moto, 'qual o melhor horário pra rodar')).reply
+    out.push(result('DR-melhor-horario', h, 'diz que não tem o horário das corridas; sem total do mês', /hor[áa]rio/i.test(h) && !/Total recebido/.test(h)))
+    const c = (await turnoHoje(moto, 'to cansado, paro ou continuo?')).reply
+    out.push(result('DR-paro-ou-continuo', c, 'o dia contra a meta, sem decidir pelo usuário', /meta/i.test(c) && !/Posso te ajudar/.test(c)))
+  }
+
   return out
 }
 
