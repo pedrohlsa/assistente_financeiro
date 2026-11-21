@@ -18,7 +18,10 @@ const POINT = new RegExp(String.raw`(?<![\p{L}\p{M}])[àa]s\s+(${CLOCK})${EDGE}`
 // é METADE de um dia, não 12h.
 const NOON = /(?<![\p{L}\p{M}])(?:ao|à|a|ah)\s+(meio[\s-]?dia|meia[\s-]?noite)(?:\s+e\s+(meia|\d{1,2}|quinze|vinte|trinta|quarenta|quarenta\s+e\s+cinco))?(?:\s+minutos?)?(?![\p{L}\p{M}\d])/giu
 // "Faz meia hora", "há 20 minutos", "tem uma hora": hora RELATIVA à fala.
-const RELATIVE = /(?<![\p{L}\p{M}])(?:faz|h[áa]|tem)\s+(?:uns?\s+|umas?\s+|mais\s+ou\s+menos\s+)?(meia\s+hora|uma\s+hora\s+e\s+meia|\d{1,3}\s*(?:min(?:utos?)?|h(?:oras?)?)|(?:uma?|duas|tr[eê]s|quatro|cinco|dez|quinze|vinte|trinta|quarenta)\s+(?:minutos?|horas?))(?:\s+atr[aá]s)?(?![\p{L}\p{M}\d])/giu
+const APPROX_DURATION = String.raw`(?:uns|umas|mais\s+ou\s+menos|cerca\s+de)\s+`
+const ELAPSED = String.raw`(?:meia\s+hora|\d{1,2}\s*h\s*\d{2}|${HOUR}\s*(?:horas?|h)\s+e\s+(?:meia|${MINUTE}(?:\s+min(?:utos?)?\b|(?=\s*[,.;!?]|$)))|(?:\d{1,3}|${MINUTE})\s*(?:min(?:utos?)?|h(?:oras?)?))`
+const AGO_PREFIX = new RegExp(String.raw`(?<![\p{L}\p{M}])(?:faz|h[áa]|tem)\s+(${APPROX_DURATION})?(${ELAPSED})(\s+e\s+(?:pouco|poucos|minutinhos))?(?:\s+atr[aá]s)?(?![\p{L}\p{M}\d])`, 'giu')
+const AGO_SUFFIX = new RegExp(String.raw`(?<![\p{L}\p{M}\d])(?:\b(${APPROX_DURATION}))?(${ELAPSED})(\s+e\s+(?:pouco|poucos|minutinhos))?\s+atr[aá]s\b`, 'giu')
 const POINT_FIELDS = new RegExp(String.raw`^(${HOUR})(?:\s*(?::|h)\s*(\d{1,2})|\s*h\b|${SPOKEN_MINUTE}|\s+horas?\b)?(?:\s+da\s+(${PART_OF_DAY}))?(?:\s+em\s+ponto)?$`, 'i')
 
 const numeric = (text: string): number => {
@@ -46,7 +49,14 @@ function readPoint(token: string): string | undefined {
 function relativeMinutes(token: string): number | undefined {
   const t = token.toLowerCase().replace(/\s+/g, ' ').trim()
   if (/^meia hora$/.test(t)) return 30
-  if (/^uma hora e meia$/.test(t)) return 90
+  const compound = t.match(/^(\d{1,2})\s*h\s*(\d{2})$/)
+    || t.match(/^(.+?)\s*(?:horas?|h)\s+e\s+(.+?)(?:\s+min(?:utos?)?)?$/)
+  if (compound) {
+    const hours = numeric(compound[1])
+    const extra = compound[2] === 'meia' ? 30 : numeric(compound[2])
+    const total = hours * 60 + extra
+    return extra >= 0 && extra < 60 && total > 0 && total <= 1440 ? total : undefined
+  }
   const m = t.match(/^(\d{1,3}|\S+)\s*(min(?:utos?)?|h(?:oras?)?)$/)
   if (!m) return undefined
   const n = /^\d+$/.test(m[1]) ? Number(m[1]) : numeric(m[1])
@@ -79,6 +89,12 @@ export function spokenClock(text: string): {
   let invalid = false
   const agos: number[] = []
   const stripUncertain = () => { invalid = true; return ' ' }
+  const stripElapsed = (_full: string, approx: string | undefined, quanto: string, uncertain: string | undefined) => {
+    const minutes = relativeMinutes(quanto)
+    if (approx || uncertain || minutes === undefined) invalid = true
+    else agos.push(minutes)
+    return ' '
+  }
   const remaining = withoutRange.replace(ALTERNATIVE, stripUncertain).replace(APPROXIMATE, stripUncertain)
     .replace(NOON, (_full, quando: string, mais?: string) => {
       const base = /^meio/i.test(quando) ? 12 : 0
@@ -87,12 +103,7 @@ export function spokenClock(text: string): {
       times.push(`${String(base).padStart(2, '0')}:${String(minuto).padStart(2, '0')}`)
       return ' '
     })
-    .replace(RELATIVE, (_full, quanto: string) => {
-      const m = relativeMinutes(quanto)
-      if (m === undefined) invalid = true
-      else agos.push(m)
-      return ' '
-    })
+    .replace(AGO_PREFIX, stripElapsed).replace(AGO_SUFFIX, stripElapsed)
     .replace(POINT, (_full, point: string) => {
       const time = readPoint(point)
       if (time) times.push(time)

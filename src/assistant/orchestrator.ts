@@ -1509,9 +1509,16 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   const pc = input.pendingClarification
   if (pc?.field === 'clock-time' && pc.pendingActions?.length) {
     const withoutPrefix = input.message.trim().replace(/^(?:foi|era)\s+/i, '')
-    const reply = spokenClock(/^(?:[àa]s|por\s+volta\s+das)\s+/i.test(withoutPrefix) ? withoutPrefix : `às ${withoutPrefix}`)
-    if (reply.time && !reply.invalid && /^[.!]*$/.test(reply.remaining)) {
-      return proposeDatedActions(input, pc.pendingActions.map(a => a.kind === 'expense' || a.kind === 'income' ? { ...a, time: reply.time } : a), caps, today)
+    const explicit = spokenClock(withoutPrefix)
+    const reply = explicit.remaining !== withoutPrefix ? explicit : spokenClock(`às ${withoutPrefix}`)
+    const rest = reply.remaining.replace(/^[\s,]+|[\s,.!]+$/g, '')
+    const said = rest ? dateInAnswer(rest, today) : undefined
+    if (reply.time && !reply.invalid && (!rest || said?.kind === 'date')) {
+      const dated = pc.pendingActions.map(a => a.kind === 'expense' || a.kind === 'income'
+        ? { ...a, ...(said?.kind === 'date' ? { date: said.date } : {}), time: reply.time } : a)
+      if (today !== todayISO() || reply.time <= nowTime() || dated.every(a => !('time' in a) || ('date' in a && a.date && a.date < today))) {
+        return proposeDatedActions(input, dated, caps, today)
+      }
     }
     if (!looksPast(input.message) && !looksLikeQuestion(input.message)) return {
       draft: null, keepPending: true,

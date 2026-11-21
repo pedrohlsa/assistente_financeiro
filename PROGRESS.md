@@ -6743,3 +6743,13 @@ até auditoria independente.
 - Quando há mais de um imóvel, responder “Casa 2” reaproveita o prazo já
   informado. Se o histórico de recebimentos existe sem previsão cadastrada,
   a média aparece como referência. Suíte com 1.223/1.223 regressões.
+
+## 21/11/2026 — Horário relativo composto
+
+- “Há uma hora e quinze minutos”, “faz 1h30” e “1h30 atrás” usam toda a
+  duração. O tempo em minutos deixa de aparecer como um valor solto.
+- “Faz uns 30 minutos” e “uma hora e pouco” pedem o horário. A resposta
+  pode trazer dia e hora juntos. A conta verifica se a data dita coincide
+  com a data calculada, inclusive na virada da meia-noite.
+- A suíte passou com 1.228/1.228 regressões e 151/151 invariantes.
+  O teste independente confirmou viradas de mês, ano e fevereiro bissexto.

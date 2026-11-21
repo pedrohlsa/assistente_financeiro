@@ -6273,6 +6273,30 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       meiaHora.actions.length === 1 && (meiaHora.actions[0] as any).description === 'Mercado' && (meiaHora.actions[0] as any).time === menos(30)))
     const vinteMin = await turnoHoje(buildState({ profile: 'autonomo' }), 'gastei 40 no posto há 20 minutos')
     out.push(result('MF-ha-vinte-minutos', vinteMin.actions, `às ${menos(20)}`, (vinteMin.actions[0] as any)?.time === menos(20)))
+    for (const [frase, elapsed] of [
+      ['paguei 37 no mercado há uma hora e quinze minutos', 75],
+      ['gastei 37 no mercado faz 1h30', 90],
+      ['gastei 37 no mercado 1h30 atrás', 90],
+    ] as const) {
+      const r = await turnoHoje(buildState({ profile: 'autonomo' }), frase)
+      const [movement] = r.actions
+      out.push(result(`MF-hora-composta-${frase}`, r.actions, `Mercado, apenas R$ 37, às ${menos(elapsed)}`,
+        r.actions.length === 1 && movement.kind === 'expense' && movement.amount === 37
+        && movement.description === 'Mercado' && movement.time === menos(elapsed)))
+    }
+    {
+      const state = buildState({ profile: 'autonomo' })
+      for (const phrase of ['faz uns 30 minutos', 'faz uma hora e pouco']) {
+        const prompt = await orchestrate({ state, message: `gastei 37 no mercado ${phrase}`, today: hoje, remoteEnabled: false })
+        const field = prompt.response.mode === 'clarify' ? prompt.response.clarification : undefined
+        const exact = await orchestrate({ state, message: 'ontem às 23h50', today: hoje, remoteEnabled: false, pendingClarification: field })
+        const [movement] = exact.response.actions.map(x => x.action)
+        out.push(result(`MF-hora-aproximada-${phrase}`, { pending: prompt.response, exact: exact.response },
+          'pede precisão e conserva valor R$ 37 quando recebe dia e horário',
+          field?.field === 'clock-time' && !prompt.response.actions.length && exact.response.actions.length === 1
+          && movement.kind === 'expense' && movement.amount === 37 && movement.time === '23:50' && movement.date === addDays(hoje, -1)))
+      }
+    }
     const contradicao = await turnoHoje(buildState({ profile: 'autonomo' }), 'ontem gastei 30 faz meia hora')
     out.push(result('MF-ontem-e-faz-meia-hora-pergunta', contradicao.reply, 'pergunta o horário, sem proposta',
       contradicao.actions.length === 0 && /hor[áa]rio/i.test(contradicao.reply)))

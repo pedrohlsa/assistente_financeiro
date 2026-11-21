@@ -12,7 +12,7 @@ import { cleanDescription, DECIMO_TERCEIRO, financedCardMentions, gruposDeCorrid
 import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
-import { addDays, fmtBRL, MESES_PT_BR, nowTime, parseMoney, todayISO } from '../utils/format'
+import { addDays, fmtBRL, MESES_PT_BR, nowTime, parseMoney, todayISO, toISO } from '../utils/format'
 import { normalizeName } from '../utils/text'
 import { suspicionReasons } from './semantic/confidence'
 import { spokenClock } from './semantic/clock'
@@ -1538,18 +1538,17 @@ export function analyzeMessage(
     // engolia a orientação de cadastrar a conta nos primeiros dias de cada mês.
     else if (primary && primary.kind === 'ambiguous' && !looksRecurring(part.text)) dateAmbiguity = { question: primary.question, options: primary.options }
 
-    // "Faz meia hora": a hora sai do relógio do aparelho. Só vale quando o
-    // "hoje" desta análise é o dia real e nenhuma outra data foi dita — "ontem,
-    // faz meia hora" é contradição, e vira pergunta de horário. Se a conta
-    // voltar para antes da meia-noite, a data é ontem.
+    // "Faz meia hora": subtrai tempo real do relógio do aparelho antes de
+    // conferir se o dia coincide com uma data explícita (inclusive à meia-noite).
     if (clock.minutesAgo !== undefined) {
-      if (today !== todayISO() || (date && date !== today)) {
+      const reference = new Date()
+      const happened = new Date(reference.getTime() - clock.minutesAgo * 60_000)
+      const elapsedDate = toISO(happened)
+      if (today !== toISO(reference) || date && date !== elapsedDate) {
         clock = { ...clock, invalid: true, minutesAgo: undefined }
       } else {
-        const [h, m] = nowTime().split(':').map(Number)
-        let total = h * 60 + m - clock.minutesAgo
-        if (total < 0) { total += 24 * 60; date = addDays(today, -1); dLabel = 'ontem' }
-        clock = { ...clock, time: `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}` }
+        if (elapsedDate !== today) { date = elapsedDate; dLabel = dateLabel(elapsedDate, today) }
+        clock = { ...clock, time: `${String(happened.getHours()).padStart(2, '0')}:${String(happened.getMinutes()).padStart(2, '0')}` }
       }
     }
 
