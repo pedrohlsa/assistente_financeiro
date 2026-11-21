@@ -105,7 +105,7 @@ export const PALAVRAS_REAIS_PROTEGIDAS = [
   'sobras', 'parcelado', 'parcelada', 'abri', 'abriu', 'abrir',
   'livro', 'livros', 'salao', 'filho', 'filhos', 'sogra', 'sogro',
   'rendeu', 'renderam', 'rende', 'render', 'tocou', 'pagaram', 'faltaram', 'faltou', 'troco',
-  'veio', 'vieram', 'vem', 'chegou', 'chegaram',
+  'veio', 'vieram', 'vem', 'chegou', 'chegaram', 'passeio', 'passeios',
 ]
 
 const DICIONARIO = new Set([...ESTRUTURAL, ...PALAVRAS_DE_HORA])
@@ -197,6 +197,7 @@ const PASSADO = new Set([
   'troquei', 'instalei', 'sobrou', 'entrou', 'saiu', 'custou',
 ])
 
+const MESES = new Set(['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'])
 const ERROS_DE_RECEBIMENTO = new Map([['reci bi', 'recebi'], ['rece bi', 'recebi'], ['rebcbi', 'recebi']])
 const ANTES_DE_RELATO = /(?:^|[,:;.!?]|\b(?:e|mas|depois))\s*(?:(?:eu|j[áa]|ainda|n|ñ|n[ãa]o|nem|hoje|hj|ontem|anteontem)\s+)*$/i
 const VALOR_DE_RELATO = /^\s+(?:r\$\s*)?\d/i
@@ -220,6 +221,11 @@ function melhorCandidato(token: string, temValor: boolean): string | null {
     if (d < melhorDist) { melhorDist = d; candidatos = [alvo] }
     else if (d === melhorDist && !candidatos.includes(alvo)) candidatos.push(alvo)
   }
+  if (!candidatos.length) return null
+  // Distância 2 é longe demais para trocar uma palavra de CONTEÚDO: "banheiro"
+  // virava "janeiro" e a reforma ia para o mês errado na descrição. Só o verbo
+  // de relato no passado ("gastii" → "gastei") justifica um salto desses.
+  if (melhorDist === 2) candidatos = candidatos.filter(c => PASSADO.has(c))
   if (!candidatos.length) return null
   if (candidatos.length === 1) return candidatos[0]
 
@@ -254,6 +260,9 @@ export function repairStructuralTypos(message: string, state: AppState): Repaire
     if ((antes && /\d/.test(antes)) || (depois && /\d/.test(depois))) return bruto
     if (INTOCAVEIS.has(token)) return bruto
     if (token.split(' ').some(word => protegidas.has(word))) return bruto
+    // Maiúscula no meio da frase é NOME: "o cliente Marcos" virava "Marco"
+    // (o mês) e a origem do lançamento saía errada.
+    if (/^[A-ZÀ-Þ]/.test(bruto) && at > 0 && !/[.!?:]\s*$/.test(message.slice(0, at))) return bruto
     // Numero por extenso e VALOR, nao vocabulario: "cento", "sete", "vinte" e
     // "cinco" nunca podem ser trocados por palavra parecida.
     if (NUMBER_WORD_RE.test(token)) return bruto
@@ -264,6 +273,9 @@ export function repairStructuralTypos(message: string, state: AppState): Repaire
       || (semRepeticao !== token && PASSADO.has(semRepeticao) ? semRepeticao : null))
     const alvo = direto || melhorCandidato(token, temValor)
     if (!alvo) return bruto
+    // Mês só com contexto de data: "cliente marcos" não é "março", "maios" não
+    // é "maio". Antes de um mês vem "em", "de", "desde", "até", "mês de".
+    if (MESES.has(alvo) && !/\b(?:em|de|desde|ate|at[ée]|no|todo|cada|m[eê]s\s+de)\s*$/i.test(message.slice(0, at))) return bruto
     if (/\bpix\b/i.test(message) && /^(?:andei|rodei|dirigi|percorri|trabalhei)$/.test(alvo)) return bruto
     corrections.push({ from: bruto, to: alvo, at, estrutural: ehVerboOuTempo(alvo) })
     // Mantém a caixa original da primeira letra: quem escreveu "Gsatei" merece

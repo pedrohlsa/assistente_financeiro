@@ -201,7 +201,12 @@ const REPORTED_SPEECH = /^(?:(?:eu\s+)?(?:falei|disse)|(?:me|nos)\s+(?:falaram|d
 const THIRD_PARTY = /^(?:(?:hoje|ontem|anteontem|j[áa])\s+)?(?:meu|minha|nosso|nossa|o|a)\s+(?:irm[ãa]o|irm[ãa]|marido|esposa|m[ãa]e|pai|filh[oa]|colega|cliente|gerente|amig[oa]|s[óo]ci[oa]|loja|empresa)\s+(?:j[áa]\s+)?(?:gastou|pagou|comprou|recebeu|ganhou|guardou)\b/i
 const NAMED_THIRD_PARTY = /^(?:(?:[OoAa]|ontem|hoje)\s+)?(?!Quanto\b|Quant[ao]s?\b|Quem\b|Quando\b|Onde\b|Como\b|Ontem\b|Hoje\b|Anteontem\b)[\p{Lu}][\p{L}\p{M}]+(?:\s+[\p{Lu}][\p{L}\p{M}]+){0,2}\s+(?:gastou|pagou|comprou|recebeu|ganhou|guardou)\b/u
 
-const thirdPartyReference = (text: string): boolean => THIRD_PARTY.test(text) || NAMED_THIRD_PARTY.test(text)
+// "O cliente PAGOU 300", "a empresa pagou 3000": quem paga o usuário, com o
+// valor logo depois do verbo — o dinheiro entrou para ele. "Meu irmão pagou
+// 50 da conta" e "o cliente pagou 200 NO MERCADO" continuam sendo de outra
+// pessoa: o lugar depois do valor diz onde ELE gastou.
+const FONTE_PAGOU = /^(?:(?:hoje|ontem|anteontem|j[áa])\s+)?(?:o|a|meu|minha)\s+(?:cliente|empresa|patr[ãa]o)(?:\s+[\p{Lu}][\p{L}\p{M}]+)?\s+(?:j[áa]\s+)?pag(?:ou|aram)\s+(?:r\$\s*)?\d+(?:[.,]\d+)*(?![\d.,])(?!\s*(?:reais\s+)?(?:n[oa]s?|em)\s)/iu
+const thirdPartyReference = (text: string): boolean => !FONTE_PAGOU.test(text) && (THIRD_PARTY.test(text) || NAMED_THIRD_PARTY.test(text))
 const PIX_CONTEXT_HEAD = /^(?:(?:eu|j[áa]|ainda|n[ãa]o|nem|[nñ])\s+){0,3}(?:mandei|enviei|transferi|acabei\s+(?:de\s+)?(?:mandar|enviar|transferir|mandando|enviando|transferindo))\b/i
 const PIX_CONTEXT_DENIED = new RegExp(String.raw`^(?:(?:eu|ainda)\s+){0,2}(?:n[ãa]o|nem|[nñ])\s+(?:${PIX_SENDING})(?:\s+(?:o\s+)?pix|\s+${CASH_PAIR_VALUE})?\s*[,;.!]*$`, 'i')
 const PIX_CONTEXT_SENT = new RegExp(String.raw`^(?:(?:eu|j[áa])\s+){0,2}(?:${PIX_SENDING})\s+(?:(?:o\s+|um\s+)?pix\s+(?:de\s+)?)?(?:(?:s[oó]|apenas)\s+)?(${CASH_PAIR_VALUE})(?:\s+(?:via|por|no|pelo)\s+pix)?(?:\s+(?:para|pra|pro)\s+[\p{L}\p{M}\s]{2,45})?[,;.!]*$`, 'iu')
@@ -684,6 +689,10 @@ export function extractOrigins(originalClause: string): { value: string; at: num
   // ainda por cima não bate com a grafia guardada no histórico, fazendo o mesmo
   // imóvel existir duas vezes.
   for (const m of originalClause.matchAll(new RegExp(String.raw`\bd[ao]s?\s+((?:${ORIGIN_NOUNS})\s+(?:d[aeo]s?\s+)?[\wçãõáéíóúâê\d]+)`, 'gi'))) {
+    if (m.index !== undefined) add(m[1], m.index, m.index + m[0].length)
+  }
+  // A fonte como SUJEITO de quem pagou: "a Casa 1 pagou 1800".
+  for (const m of originalClause.matchAll(new RegExp(String.raw`^\s*(?:[aA]|[oO])\s+((?:[cC]asa|[kK]itnet|[aA]partamento|[aA]pto|[lL]oja|[sS]ala)\s+[\wçãõáéíóúâê\d]+|[cC]liente\s+[A-ZÀ-Ý][\wçãõáéíóúâê]+)(?=\s+(?:j[áa]\s+)?pag(?:ou|aram)\b)`, 'g'))) {
     if (m.index !== undefined) add(m[1], m.index, m.index + m[0].length)
   }
   for (const m of originalClause.matchAll(
@@ -1228,6 +1237,9 @@ function unaccountedMoney(clause: AnalyzedClause): number[] {
     if (plataforma99 || anoDeCompetencia || /[\-/]$/.test(before) || /^[\-/]/.test(after)
       || /\b(?:dia|casa|apto|apartamento|numero|número|aro|tamanho|placa|modelo)\s*$/i.test(before)
       || /^\s*(?:x|vezes|parcelas?|km|quil[oô]metros?|litros?|h\b|horas?|viagens?|corridas?|dias?|semanas?|meses?|anos?|%|k\b)/i.test(after)) continue
+    // "Comprei 10 SACOS de cimento por 350": quantidade, com o preço depois.
+    if (/\b(?:comprei|paguei|gastei|torrei)\s*$/i.test(before) && /^\s+[a-zà-ú]{3,}/i.test(after)
+      && /\b(?:por|custou|saiu\s+por|deu|foi)\s*(?:r\$\s*)?\d/i.test(normalized.slice(at + m[0].length))) continue
     const amount = parseMoney(m[0])
     const representedAt = represented.findIndex(v => Math.abs(v - amount) < 0.005)
     if (representedAt >= 0) represented.splice(representedAt, 1)

@@ -226,6 +226,19 @@ const VERBO_DE_GASTO_LISTA = /\b(?:gastei|gasto|paguei|comprei|torrei|abasteci|c
  * outro ("o mecânico me cobrou 500" → "paguei 500 no mecânico"). Sem isso o
  * leitor sem verbo usava a frase inteira como descrição.
  */
+/**
+ * "A Casa 1 PAGOU 1800", "o inquilino da Casa 2 pagou 1200", "o cliente
+ * pagou 300": a fonte do próprio usuário pagou — o dinheiro entrou. Sem
+ * "me", a frase era lida como movimento de outra pessoa e nada era registrado.
+ */
+function fontePagou(input: string): string {
+  const m = input.match(/^\s*(?:a|o)\s+((?:inquilin[oa](?:\s+d[ao]\s+(?:casa|kitnet|apartamento|apto|loja|sala)\s+[\p{L}\d]+)?)|(?:casa|kitnet|apartamento|apto|loja|sala)\s+[\p{L}\d]+|cliente(?:\s+[\p{Lu}][\p{L}]+)?|empresa|patr[ãa]o)\s+(?:j[áa]\s+)?pag(?:ou|aram)\s+((?:r\$\s*)?\d+(?:[.,]\d+)*)(?![\d.,])(?!\s*(?:reais\s+)?(?:n[oa]s?|em)\s)(.*)$/iu)
+  if (!m) return input
+  const fonte = m[1].replace(/^inquilin[oa]\s+d[ao]\s+/i, '')
+  if (/^inquilin[oa]$/i.test(fonte)) return `recebi ${m[2]} do inquilino${m[3]}`
+  return `recebi ${m[2]} d${/^(?:casa|kitnet|loja|sala|empresa)/i.test(fonte) ? 'a' : 'o'} ${fonte}${m[3]}`
+}
+
 function cobrancaRecebida(input: string): string {
   const m = input.match(/^\s*(?:(o|a|os|as)\s+)?((?:[\p{L}]+)(?:\s+[\p{L}]+)?)?\s*\bme\s+cobr(?:ou|aram)\s+(.+)$/iu)
   if (!m || (m[2] && /^(?:eu|ele|ela|eles|elas|voc[eê]|que|quem|quanto)$/i.test(m[2].trim()))) return input
@@ -250,7 +263,7 @@ function verboDeConsumo(input: string): string {
 }
 
 export function parseNatural(input: string): ParsedAction[] {
-  input = verboDeConsumo(cobrancaRecebida(input))
+  input = verboDeConsumo(cobrancaRecebida(fontePagou(input)))
   // Operações de cartão são analisadas na frase INTEIRA antes de qualquer
   // quebra: "passei 2000 em 5 vezes E RECEBI 1850" tem um verbo de comando no
   // meio, e cortar ali transformava uma entrada financiada numa receita de
@@ -1203,7 +1216,13 @@ function parseClause(input: string): ParsedAction[] {
         String.raw`\b(sal[áa]rio|alugu[eé]l|freela|freelance|comiss[ãa]o|venda)\b[^\d]{0,20}?(?:foi|de|d[eo]\s+)\s*(?:r\$)?\s*${NUM}`,
         'i',
       )
-      const ni = text.match(nounIncomeRe)
+      // "Fiz um BICO de 150", "fiz um serviço de 300": o trabalho por conta
+      // própria dito pelo que foi feito.
+      const bico = text.match(new RegExp(String.raw`\bfiz\s+(?:um|uma|mais\s+um|mais\s+uma)\s+(bico|servi[çc]o|trampo|job|di[áa]ria|empreitada|frete)\s+(?:de|por)\s*(?:r\$)?\s*${NUM}(?![\d.,])`, 'i'))
+      if (bico && parseNum(bico[2]) > 0) {
+        actions.push({ kind: 'income', amount: parseNum(bico[2]), category: 'freelance', description: sentenceCase(bico[1].toLowerCase()) })
+      }
+      const ni = bico ? null : text.match(nounIncomeRe)
       if (ni) {
         const noun = ni[1].toLowerCase()
         actions.push({
@@ -1279,7 +1298,13 @@ function parseClause(input: string): ParsedAction[] {
   // seguinte: "paguei 320 de luz 180 de agua" virava uma despesa de 320 com a
   // descrição "Luz 180 de agua", e os R$ 180 sumiam dentro do texto.
   const expRe = new RegExp(String.raw`(?:${expVerbs})\s*${APROX}(?:r\$)?\s*${NUM}(?!\d|[.,]\d|\s*(?:dias|semanas|meses|anos)\b)\s*${MOEDA}?\s*(?:(?:de|com|no|na|em|para|pra|por)\s+)?([\w\p{L}\p{M}\s]*?)(?=\s*\d+(?:[.,]\d+)*\s*(?:${MOEDA})?\s*(?:de|com|no|na|em)\s+\p{L}|[^\w\p{L}\p{M}\s]|$)`, 'iu')
-  const e = text.match(expRe)
+  // "Comprei 10 sacos de cimento POR 350": o primeiro número é a QUANTIDADE,
+  // e o preço vem depois — lida ao contrário, a despesa era de R$ 10,00.
+  const qtd = text.match(new RegExp(String.raw`(?:comprei|paguei|gastei|torrei)\s+(\d+)\s+([a-zà-úçãõ][\wçãõáéíóúâê]*(?:\s+(?:de|do|da)\s+[a-zà-úçãõ][\wçãõáéíóúâê]*)?)\s+(?:por|custou|saiu\s+por|deu|foi|no\s+total\s+de)\s*(?:r\$)?\s*${NUM}(?![\d.,])`, 'i'))
+  if (qtd && !m && !abasteceu && parseNum(qtd[3]) > 0) {
+    actions.push({ kind: 'expense', amount: parseNum(qtd[3]), category: guessCategory(qtd[2], 'expense') || 'outros-out', description: cleanDescription(qtd[2]) })
+  }
+  const e = qtd ? null : text.match(expRe)
   if (e && !m && !abasteceu) {
     const rawDesc = (e[2] || '').trim().split(/\s+e\s+|,/)[0].trim()
     const desc = cleanDescription(rawDesc)

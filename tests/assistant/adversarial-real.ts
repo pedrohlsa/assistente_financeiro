@@ -6490,6 +6490,43 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const pneu = await turnoHoje(mot, 'quando troco os pneus?')
       out.push(result('MN-peca-nao-cadastrada', pneu.reply.split('\n')[0], 'diz que pneu não está cadastrado', /^Não tenho pneu cadastrado/.test(pneu.reply)))
     }
+
+    // Corretor: distância 2 só para verbo; nome próprio e mês sem contexto ficam.
+    {
+      const auto = () => buildState({ profile: 'autonomo' })
+      for (const [frase, desc] of [['gastei 1200 na reforma do banheiro', 'Reforma do banheiro'], ['gastei 80 no passeio', 'Passeio']] as const) {
+        const r = await turnoHoje(auto(), frase)
+        out.push(result(`MN-corretor-${frase.replace(/\W+/g, '-')}`, r.actions, desc, r.actions.length === 1 && gastos(r.actions)[0]?.description === desc))
+      }
+      const marcos = await turnoHoje(auto(), 'o cliente Marcos pagou 450')
+      out.push(result('MN-nome-proprio-nao-vira-mes', marcos.actions, 'receita 450 do cliente Marcos',
+        receitas(marcos.actions)[0]?.amount === 450 && receitas(marcos.actions)[0]?.origin === 'cliente Marcos'))
+      const cimento = await turn(auto(), 'comprei 10 sacos de cimento por 350')
+      out.push(result('MN-quantidade-e-preco', { mode: cimento.mode, actions: cimento.actions }, 'despesa 350, sem perguntar pelos 10',
+        cimento.mode === 'propose_actions' && cimento.actions.length === 1 && (cimento.actions[0] as any).amount === 350))
+      for (const [frase, valor, origem] of [['a casa 1 pagou 1800 hoje', 1800, 'Casa 1'], ['o inquilino da casa 2 pagou 1200', 1200, 'Casa 2'], ['o cliente pagou 300', 300, undefined]] as const) {
+        const r = await turnoHoje(auto(), frase)
+        out.push(result(`MN-fonte-pagou-${frase.replace(/\W+/g, '-')}`, r.actions, `receita ${valor}${origem ? ` da ${origem}` : ''}`,
+          r.actions.length === 1 && receitas(r.actions)[0]?.amount === valor && receitas(r.actions)[0]?.origin?.toLowerCase() === origem?.toLowerCase()))
+      }
+      const mercado = await turnoHoje(auto(), 'o cliente pagou 200 no mercado')
+      out.push(result('MN-cliente-gastou-no-mercado-e-de-outra-pessoa', mercado.actions, 'nenhuma ação', mercado.actions.length === 0))
+      const bico = await turnoHoje(auto(), 'fiz um bico de 150')
+      out.push(result('MN-fiz-um-bico', bico.actions, 'receita 150 em Freelance',
+        bico.actions.length === 1 && receitas(bico.actions)[0]?.amount === 150 && receitas(bico.actions)[0]?.category === 'freelance'))
+    }
+
+    // "Quanto falta pro salário cair?" é a previsão cadastrada, nunca parcelas.
+    {
+      const st = buildState({ profile: 'clt', balance: 500 })
+      st.recurring = [{ id: 'sal-mn', name: 'Salário', amount: 3000, frequency: 'monthly', dueDay: Number(addDays(hoje, 5).slice(8, 10)),
+        startDate: addDays(hoje, 5), category: 'salario', kind: 'income', active: true, interval: 1, intervalUnit: 'month' } as any]
+      const r = await turnoHoje(st, 'quanto falta pro salario cair')
+      out.push(result('MN-quanto-falta-pro-salario', r.reply.split('\n')[0], 'faltam 5 dias, previsão de R$ 3.000,00',
+        /^Faltam 5 dias/.test(r.reply) && limpa(r.reply).includes(brl(3000)) && !/parcelamento/i.test(r.reply)))
+      const sem = await turnoHoje(buildState({ profile: 'clt' }), 'quanto falta pro salario cair')
+      out.push(result('MN-salario-sem-previsao', sem.reply.split('\n')[0], 'diz que não há previsão', /^Não tenho previsão cadastrada para Salário/.test(sem.reply)))
+    }
   }
 
   return out

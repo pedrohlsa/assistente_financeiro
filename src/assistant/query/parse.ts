@@ -30,7 +30,7 @@ import { addDays, fromISO, todayISO, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase } from '../../utils/text'
 import { isDriver } from '../../services/profile'
 import { buildPersonalModel, adaptiveEnabled } from '../personalModel'
-import { pareceChegada } from '../arrival'
+import { pareceChegada, pedeProximaEntrada } from '../arrival'
 import { pedeFimDoMes, guardarEsteMes, pedeAntecipacaoDeFatura, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeDividaTotal, pedeFimDoParcelamento, pedeListaDeParcelamentos, pedeQuantoPossoGastar, pedeLimite, pedeMaiorParcela, pedeSobraSemCombustivel, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, perguntaDeManutencao, planoDeGuardar } from '../cashQuestions'
 import {
   currentMonthToDate, mesAFrente, monthPeriod, nextMonths, parseFutureMonth, parsePeriod, previousPeriod,
@@ -155,7 +155,7 @@ export function looksLikeDataQuestion(input: string): boolean {
   // o plano restringe o pendente às faturas que venceram naquele recorte.
   // "O salário já caiu?", "a Casa 2 já pagou?": chegada de dinheiro, não
   // comparação — "caiu" lido pela DSL respondia "Não, subiu" com o GASTO.
-  if (pareceChegada(input)) return false
+  if (pareceChegada(input) || pedeProximaEntrada(input)) return false
   if (pedeFimDoMes(t) || guardarEsteMes(t) !== null || pedeReservaDeCaixa(t) || pedeContaQueAperta(t) || pedeTotalGuardado(t) || (fatura && !faturaDaJanela) || pedeAntecipacaoDeFatura(t)
     || pedeContasAPagar(t) || planoDeGuardar(t) || perguntaDeManutencao(t)
     || pedeContasFixas(t) || pedeSobraSemCombustivel(t) || pedeLimite(t)

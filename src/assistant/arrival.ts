@@ -127,6 +127,46 @@ export function respostaDeChegada(s: AppState, input: string, hoje = todayISO())
     .sort((a, b) => a.d.localeCompare(b.d))[0]
   if (prevista) partes.push(`Está prevista para ${brDate(prevista.d)}: ${fmtBRL(prevista.r.amount)} (previsão, ainda não confirmada).`)
   if (anterior) partes.push(`A última foi ${fmtBRL(anterior.amount)} em ${brDate(anterior.date)}.`)
-  partes.push(`Se já caiu, me diga — por exemplo, "recebi ${anterior ? Math.round(anterior.amount) : 1000} ${/^(?:casa|cliente|loja|apart|sala|kitnet)/i.test(alvo.rotulo) ? `da ${alvo.rotulo}` : `de ${alvo.rotulo.toLowerCase()}`}" — que eu registro.`)
+  const exemplo = prevista ? prevista.r.amount : anterior ? anterior.amount : 1000
+  partes.push(`Se já caiu, me diga — por exemplo, "recebi ${Math.round(exemplo)} ${/^(?:casa|cliente|loja|apart|sala|kitnet)/i.test(alvo.rotulo) ? `da ${alvo.rotulo}` : `de ${alvo.rotulo.toLowerCase()}`}" — que eu registro.`)
   return partes.join('\n\n')
+}
+
+// ---------------------------------------------------------------------------
+// "Quanto falta pro salário cair?", "quando cai o aluguel da Casa 1?"
+// ---------------------------------------------------------------------------
+// Respondia "Você não tem parcelamentos em aberto com 'salario cair'": a
+// palavra "falta" levava a pergunta para as parcelas. A próxima entrada sai da
+// PREVISÃO cadastrada (regra 18) e é dita como previsão.
+
+const PROXIMA = /\b(?:quanto\s+(?:tempo\s+)?falta|quantos\s+dias\s+falta[m]?|quando)\b[^?]*\b(?:cair|cai|entrar|entra|vem|vir|chegar|chega|receber|recebo|pinga|pingar)\b/
+
+export function pedeProximaEntrada(input: string): boolean {
+  const t = normalizeName(input)
+  return !/\d{2,}/.test(t) && PROXIMA.test(t) && RENDA_QUE_CHEGA.test(t)
+}
+
+export function respostaDeProximaEntrada(s: AppState, input: string, hoje = todayISO()): string | undefined {
+  if (!pedeProximaEntrada(input)) return undefined
+  const t = normalizeName(input).replace(/[?!.,]/g, ' ')
+  const alvo = alvoDe(s, t)
+  if (!alvo) return undefined
+  const ate = new Date(`${hoje}T12:00:00`)
+  ate.setDate(ate.getDate() + 70)
+  const limite = ate.toISOString().slice(0, 10)
+  const proxima = alvo.previstas
+    .flatMap(r => occurrencesBetween(r, hoje, limite).map(d => ({ r, d })))
+    .filter(o => !(o.r.occurrences || []).some((x: any) => x.date === o.d))
+    .sort((a, b) => a.d.localeCompare(b.d))[0]
+  if (proxima) {
+    const dias = Math.round((new Date(`${proxima.d}T12:00:00`).getTime() - new Date(`${hoje}T12:00:00`).getTime()) / 86400000)
+    const abre = dias === 0 ? 'É hoje' : dias === 1 ? 'Falta 1 dia' : `Faltam ${dias} dias`
+    return `${abre}: ${alvo.rotulo} tem previsão para ${brDate(proxima.d)}, de ${fmtBRL(proxima.r.amount)}. É a previsão cadastrada — só vira saldo quando você confirmar que caiu.`
+  }
+  const mes = mesDe(hoje)
+  const doMes = s.transactions.filter(x => alvo.casa(x) && mesDe(x.date) === mes && x.date <= hoje)
+  const ultima = s.transactions.filter(x => alvo.casa(x) && x.date <= hoje).sort((a, b) => b.date.localeCompare(a.date))[0]
+  return `Não tenho previsão cadastrada para ${alvo.rotulo}, então não sei a data.`
+    + (doMes.length ? ` Este mês já está registrado: ${fmtBRL(doMes.reduce((a, x) => a + x.amount, 0))}.` : ultima ? ` A última registrada foi ${fmtBRL(ultima.amount)} em ${brDate(ultima.date)}.` : '')
+    + ' Cadastre em Planejamento, com o dia em que costuma cair, que eu passo a avisar.'
 }

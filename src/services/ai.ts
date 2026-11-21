@@ -35,7 +35,7 @@ import { describeAction, parseNaturalFull } from './nlp'
 import { driverInsight } from '../assistant/driverInsights'
 import { answerVehicleCost } from '../assistant/vehicleCost'
 import { avaliacaoDoDia } from '../assistant/dayReview'
-import { respostaDeChegada } from '../assistant/arrival'
+import { respostaDeChegada, respostaDeProximaEntrada } from '../assistant/arrival'
 import { readInvoiceReference } from '../assistant/invoicePayment'
 import { findAllDates } from '../assistant/dates'
 import { currentMonthToDate, parsePeriod } from '../assistant/query/period'
@@ -1038,7 +1038,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   }
 
   // "O salário já caiu?", "a Casa 2 já pagou?": o que está REGISTRADO.
-  const chegada = respostaDeChegada(s, input)
+  const chegada = respostaDeChegada(s, input) || respostaDeProximaEntrada(s, input)
   if (chegada) return { text: chegada }
 
   // "Minha conta de água veio 95": a conta CHEGOU. Paga ou não, quem diz é o
