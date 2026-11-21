@@ -1607,6 +1607,44 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       (!note || response.reply.includes(note)) && response.actions.length === (kind ? 1 : 0)
         && (!kind || (a?.kind === kind && a.amount === amount && a.category === category && !a.origin))))
   }
+  {
+    const s = buildState({ profile: 'driver', transactions: [
+      { id: 'pagador-ana', date: TODAY, type: 'income', amount: 120.50, category: 'outros-in', origin: 'Ana', description: 'Pix recebido' },
+      { id: 'pagador-ana-paula', date: TODAY, type: 'income', amount: 250, category: 'outros-in', origin: 'Ana Paula' },
+      { id: 'pagador-joao', date: TODAY, type: 'income', amount: 130.50, category: 'outros-in', origin: 'João' },
+      { id: 'pagador-joao-silva', date: TODAY, type: 'income', amount: 450.50, category: 'outros-in', origin: 'João da Silva' },
+      { id: 'pagador-uber', date: TODAY, type: 'income', amount: 910, category: 'corridas', description: 'Uber' },
+      { id: 'pagador-ana-despesa', date: TODAY, type: 'expense', amount: 75, category: 'outros-out', description: 'Ana' },
+    ] })
+    for (const [id, message, amount, origin] of [
+      ['recebi', 'quanto recebi da ana hoje?', 120.50, 'Ana'],
+      ['enviou', 'quanto a ana me mandou de Pix hoje?', 120.50, 'Ana'],
+      ['pagou', 'quanto o joao me pagou hoje?', 130.50, 'João'],
+      ['sobrenome', 'quanto recebi do joão da silva hoje?', 450.50, 'João da Silva'],
+    ] as const) {
+      const r = await turn(s, message)
+      out.push(result(`A-consulta-pagador-${id}`, r.reply, `total exato ${amount} de ${origin}`,
+        !r.actions.length && r.focus?.lastQuery?.total === amount && r.focus?.lastQueryPlan?.filter.origins?.[0] === origin
+          && r.focus?.lastQueryPlan?.period.from === TODAY && r.reply.includes(origin)))
+    }
+    const list = await turn(s, 'quanto recebi da Ana, do João e do Luca, separadamente, hoje?')
+    const groups = list.focus?.lastQuery?.groups.map(x => [x.label, x.value]) || []
+    out.push(result('A-consulta-pagadores-lista', { groups, reply: list.reply }, 'Ana R$ 120,50, João R$ 130,50, Luca sem registro',
+      !list.actions.length && list.focus?.lastQuery?.total === 251 && groups.length === 2
+        && groups.some(([name, value]) => name === 'Ana' && value === 120.5)
+        && groups.some(([name, value]) => name === 'João' && value === 130.5) && /Sem lançamentos de Luca/.test(list.reply)))
+    const desconhecido = await turn(s, 'quanto recebi do Luca hoje?')
+    out.push(result('A-consulta-pagador-sem-historico', desconhecido.reply, 'sem lançamento de Luca, nem faturamento inteiro',
+      !desconhecido.actions.length && desconhecido.focus?.lastQuery?.empty && /de Luca hoje/.test(desconhecido.reply)))
+    const top = await turn(s, 'de quem eu mais recebi hoje?')
+    out.push(result('A-consulta-pagador-ranqueado', top.reply, 'João da Silva entre origens conhecidas',
+      !top.actions.length && top.focus?.lastQuery?.groups[0]?.label === 'João da Silva'
+        && top.focus.lastQuery.groups[0].value === 450.50 && /sem origem registrada/.test(top.reply)))
+    const projected = await turn(s, 'recebi 20 da ana. quanto ela já me pagou hoje?')
+    out.push(result('A-consulta-pagador-e-proposta', projected.reply, 'R$ 140,50 da Ana, condicionado a confirmar R$ 20',
+      projected.actions.length === 1 && projected.actions[0].kind === 'income' && projected.actions[0].amount === 20
+        && /Se você confirmar/.test(projected.reply) && projected.reply.includes(fmtBRL(140.5))))
+  }
   const directMixed = buildState({ balance: 1000, cards: [{ name: 'Inter', dueDay: 20, closingDay: 5 }] })
   directMixed.settings.balanceAsOf = '2026-09-14T09:00'
   directMixed.installmentPlans = [{ id: 'mixed-plan', description: 'Compra', cardId: 'card0',

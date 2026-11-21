@@ -754,7 +754,7 @@ const SPOKEN_PAYER_END = /\s+(?:ontem|anteontem|hoje|amanh[ãa]|agora|cedo|tarde
 const NON_NAME = /^(?:minh[ao]|meu|noss[ao]|seu|su[ao]|a|o|os|as|ele|ela|eles|elas|alguem|ninguem|nada|quem|todo|toda|um|uma|me|nos|banco|pix|conta|cartao|credito|debito|bolso|reembolso|estorno|emprestimo|financiamento|reserva|extrato|total|agora|hoje|ontem|ontm|anteontem|dinheiro|pagamento|saldo|trabalho|dia|mes|semana|ano|cliente|empresa|patrao|inquilino|cobra[nd][co]a?)$/
 
 /** Nome dito junto a uma indicação explícita de quem pagou. */
-function spokenPayerName(text?: string): string | undefined {
+export function spokenPayerName(text?: string): string | undefined {
   const name = text?.trim().split(SPOKEN_PAYER_END, 1)[0].trim().replace(/[.]+$/, '').replace(/\s+e$/i, '')
   if (!name || !/^[\p{L}\p{M}][\p{L}\p{M}'’\-]+(?:\s+(?:(?:d[aeo]s?)\s+)?[\p{L}\p{M}][\p{L}\p{M}'’\-]+){0,2}$/iu.test(name)) return undefined
   const first = normalizeName(name).split(' ')[0]

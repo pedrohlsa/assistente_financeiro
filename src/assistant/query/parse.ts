@@ -29,6 +29,7 @@ import { CATEGORY_KEYWORDS, usableCategories, guessCategory } from '../../data/c
 import { addDays, fromISO, todayISO, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase } from '../../utils/text'
 import { isDriver } from '../../services/profile'
+import { spokenPayerName } from '../clauses'
 import { buildPersonalModel, adaptiveEnabled } from '../personalModel'
 import { pareceChegada, pedeProximaEntrada } from '../arrival'
 import { DIA_TIPICO } from '../driverInsights'
@@ -270,7 +271,8 @@ const RESULTADO = /\blucr(?:ei|o|ou)\b|\bcompens(?:a|ou|am)\b|\blimp[oa]s?\b|\bs
  * usuário. `pagou` está em GASTO (e está certo lá: "quanto eu paguei"), então
  * sem esta leitura a pergunta virava um ranking de DESPESAS por origem.
  */
-const ME_PAGOU = /\bme\s+pag(?:ou|aram|a|am|ava|avam)\b|\bpag(?:ou|aram)\s+(?:pra|para)\s+mim\b/
+const PAYER_VERB = String.raw`(?:pag(?:ou|aram|a|am|ava|avam)|mandou|mandaram|enviou|enviaram|transferiu|transferiram)`
+const ME_PAGOU = new RegExp(String.raw`\b(?:me|nos)\s+${PAYER_VERB}\b|\bpag(?:ou|aram)\s+(?:pra|para)\s+mim\b`)
 
 function tipoBaseDe(t: string): ('income' | 'expense' | 'saving')[] {
   if (ME_PAGOU.test(t)) return ['income']
@@ -439,6 +441,7 @@ function lerGrupo(t: string, driver: boolean): { valor: QueryGroup; matched: str
     [/\b(?:qual|que|melhor|pior)\s+(?:(?:o|e\s+o)\s+)?(?:(?:meu\s+)?(?:melhor|pior)\s+)?dia\b(?![^?]*\b(?:foi|ganhei|faturei|gastei|lucrei|rendeu|tive|fiz)\b)(?=[^?]*\b(?:ganho|faturo|gasto|lucro|rendo|rende|recebo|costum\w*|(?:pra|para)\s+(?:rodar|trabalhar|sair|rodar))\b)/, 'weekday'],
     [/\bqual\s+dia\b|\bmelhor\s+dia\b|\bpior\s+dia\b|\bdia\s+que\s+(?:eu\s+)?mais\b/, 'day'],
     [/\bqual\s+cartao\b|\bpor\s+cartao\b|\bcartao\s+(?:esta|mais)\b|\bqual\s+(?:dos\s+)?(?:meus\s+)?cartoes\b/, 'card'],
+    [/\bde\s+(?:cada\s+pessoa|quem(?:\s+eu)?\s+(?:mais\s+)?receb(?:i|o))\b|\bquem\s+me\s+pag(?:ou|a)\s+mais\b/, 'origin'],
     [/\bqual\s+(?:casa|imovel|cliente|origem|fonte)\b|\bpor\s+(?:origem|imovel|cliente)\b/, 'origin'],
     [/\bqual\s+meta\b|\bpor\s+meta\b|\bmeta\s+(?:esta\s+)?mais\s+per/, 'goal'],
     // "O que mais aumentou?" pede um RANKING por categoria. Sem esta regra o
@@ -672,6 +675,31 @@ function extrairOrigem(t: string): { valor: string; matched: string } | undefine
   const id = m[2]
   if (!/\d/.test(id) && (ESTRUTURAIS.has(id) || id.length < 3)) return undefined
   return { valor: m[1], matched: m[0] }
+}
+
+const RECEBIDO_DE = /\b(?:receb(?:i|o|emos)|entrou|caiu|pingou|veio)(?:\s+(?:mesmo|exatamente|quanto|mais)){0,2}\s+((?:d[aoe]\s+)[^.!?]+)/
+const PAYER_SUBJECT = new RegExp(String.raw`^\s*(?:quanto\s+(?:que\s+)?)?(?:[ao]\s+)?([^.!?;,]+?)\s+(?:ja\s+)?(?:me|nos)\s+${PAYER_VERB}\b`)
+const PAYER_OPTIONS = new RegExp(String.raw`\b(?:quem|qual\s+dos\s+dois)\s+me\s+${PAYER_VERB}\s+mais\s*:\s*([^.!?]+)`)
+const NAMED_PART_END = /\s+(?:d[eo]\s+(?:pix|aluguel|salario|freela|comissao)|via\s+pix|por\s+pix|junt[ao]s?|somad[ao]s?|ao\s+todo|separad[ao]s?|separadamente|mesmo|hein|ne)\b/
+
+function exactPayers(state: AppState, text: string): { names: string[]; consumed: string[] } | undefined {
+  const list = text.match(PAYER_OPTIONS)?.[1] || text.match(RECEBIDO_DE)?.[1]
+  const subject = list ? undefined : text.match(PAYER_SUBJECT)?.[1]
+  const candidate = list || subject
+  if (!candidate) return undefined
+  const parts = candidate.trim().split(/\s*,\s*(?:(?:e|ou)\s+)?|\s+(?:e|ou)\s+/)
+    .map(p => p.split(NAMED_PART_END)[0].trim())
+    .filter(p => p && !/^(?:junt[ao]s?|somad[ao]s?|separad[ao]s?|separadamente|ao\s+todo)$/.test(p))
+  if (!parts.length || parts.length > 10) return undefined
+  const names = parts.map(said => {
+    const name = said.replace(/^(?:(?:d[aoe]|[ao])\s+)/, '').trim()
+    if (!name || ESTRUTURAIS.has(name) || /^(?:ele|ela|eles|elas|uber|99|indrive|in drive|banco|cartao|conta|pix)$/.test(name)) return undefined
+    const known = state.transactions.find(tx => tx.type === 'income' && normalizeName(tx.origin) === name)?.origin
+    if (known) return known
+    return spokenPayerName(name)
+  })
+  return names.every((name): name is string => !!name)
+    ? { names: [...new Set(names)], consumed: parts } : undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -1126,10 +1154,17 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   }
 
   const origem = extrairOrigem(rest.texto)
+  const payerNames = source === 'transactions' && tipoAlvo === 'income' ? exactPayers(state, rest.texto) : undefined
+  const saidPayers = payerNames?.names.length === 1 && normalizeName(payerNames.names[0]) === origem?.valor ? undefined : payerNames
   const origens = [...rest.texto.matchAll(new RegExp(String.raw`\b(?:d?[ao]s?\s+)?((?:${ORIGEM_NOUNS})\s+[\w\d]+)`, 'gi'))]
     .map(m => ({ valor: m[1], matched: m[0] }))
     .filter((v, i, a) => a.findIndex(x => normalizeName(x.valor) === normalizeName(v.valor)) === i)
-  if (origens.length > 1) {
+  if (saidPayers) {
+    for (const part of saidPayers.consumed) rest.consome(part)
+    filter.origins = saidPayers.names
+    if (saidPayers.names.length > 1 && !/\b(?:junt[ao]s?|somad[ao]s?|ao\s+todo)\b/.test(t0)) group = 'origin'
+    recognized.push(`origens ${saidPayers.names.join(', ')}`)
+  } else if (origens.length > 1) {
     for (const o of origens) rest.consome(o.matched)
     filter.origins = origens.map(o => o.valor)
     group = 'origin'
@@ -1218,7 +1253,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   }
   // Sem preposição o leitor de alvo não via o assunto, que sumia da consulta:
   // "gasolina comparado com o mês passado" comparava TODOS os gastos.
-  const sujeito = sujeitoDaComparacao && !filter.categories?.length && !filter.origin
+  const sujeito = sujeitoDaComparacao && !filter.categories?.length && !filter.origin && !filter.origins
     && new RegExp(`(?:^|\\s)${escapaRegex(sujeitoDaComparacao)}(?:\\s|$)`).test(rest.texto)
     ? { valor: sujeitoDaComparacao, literal: sujeitoDaComparacao, matched: sujeitoDaComparacao } : undefined
   const alvo = extrairAlvo(rest.texto) || sujeito
@@ -1415,7 +1450,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     source, field, period, comparePeriod, filter,
     metric,
     group, order,
-    limit: metrica.valor.limit || (group === 'none' ? 1 : 8),
+    limit: metrica.valor.limit || (group === 'none' ? 1 : Math.max(8, filter.origins?.length || 0)),
     shareBase,
     ...(source === 'invoices' && (field === 'amount' || field === 'total') && metric === 'sum' && group === 'none'
       && !comparePeriod && /\b(?:gastei|gastos?|comprei|compras?)\b/.test(t0) ? { showCardPurchases: true } : {}),
@@ -1603,7 +1638,8 @@ function rotulo(
     const x = (state.transactions || []).find(t => normalizeName(t.description) === k || normalizeName(t.origin) === k)
     return x ? (normalizeName(x.description) === k ? x.description! : x.origin!) : sentenceCase(texto)
   }
-  const nome = cat || (filter.origin ? comoEle(filter.origin) : undefined)
+  const exact = filter.origins?.map(comoEle).join(', ')
+  const nome = [exact, cat].filter(Boolean).join(' · ') || (filter.origin ? comoEle(filter.origin) : undefined)
     || (filter.text ? comoEle(filter.text) : undefined) || alvo
   // Filtro que MUDA o número tem que aparecer no texto. "Total recebido na
   // semana passada: R$ 1.433" somava só a Uber, e "Total gasto nos últimos 60

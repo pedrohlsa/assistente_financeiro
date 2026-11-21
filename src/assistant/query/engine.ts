@@ -790,6 +790,15 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
   if (plan.group === 'origin' && rows.length > 0 && !groups.length) {
     caveats.push('Nenhum desses lançamentos tem origem registrada (cliente, imóvel, empresa), então não dá para dizer de quem veio mais.')
   }
+  if (plan.filter.origins && plan.filter.origins.length > 1 && rows.length) {
+    const found = new Set(rows.map(row => normalizeName(row.origin)))
+    const missing = plan.filter.origins.filter(name => !found.has(normalizeName(name)))
+    if (missing.length) caveats.push(`Sem lançamentos de ${missing.join(', ')} no período consultado.`)
+  }
+  if (plan.group === 'origin' && groups.length && plan.metric === 'sum' && rows.some(row => !row.origin?.trim())) {
+    const count = rows.filter(row => !row.origin?.trim()).length
+    caveats.push(count === 1 ? 'Um lançamento do período está sem origem registrada.' : `${count} lançamentos do período estão sem origem registrada.`)
+  }
   if (plan.period.future || rows.every(row => row.estimated) && rows.length > 0) {
     caveats.push('São valores previstos, não realizados.')
   }

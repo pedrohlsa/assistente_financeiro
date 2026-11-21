@@ -211,7 +211,8 @@ export function composeAnswer(r: AssistantQueryResult): string {
       return `Não há entradas recorrentes previstas em aberto ${periodo}. Cadastre as entradas em Planejamento para eu calcular essa previsão.`
     }
     const base = FONTE_VAZIA[p.source] || 'Não tenho dados para isso'
-    const alvo = p.filter.text ? ` com "${p.filter.text}"` : ''
+    const origins = p.filter.origins?.join(', ')
+    const alvo = [origins ? ` de ${origins}` : '', p.filter.text ? ` com "${p.filter.text}"` : ''].join('')
     if (r.lastOutside) {
       // O período foi assumido, não dito: "nada este mês" não é "nunca".
       const u = r.lastOutside
@@ -248,7 +249,7 @@ export function composeAnswer(r: AssistantQueryResult): string {
   } else {
     linhas.push(`${cabecalho(r)}: ${formatValue(r.total, r.unit)}${selo}.`)
     if (p.group !== 'none' && r.groups.length) {
-      const mostra = r.groups.slice(0, p.group === 'weekday' ? 7 : 5)
+      const mostra = r.groups.slice(0, p.group === 'weekday' ? 7 : Math.max(5, p.group === 'origin' ? p.filter.origins?.length || 0 : 0))
       linhas.push(mostra.map(g => `• ${g.label}: ${formatValue(g.value, r.unit)}${sufixoGrupo(g, r)}`).join('\n'))
       if (r.groups.length > mostra.length) {
         linhas.push(`E mais ${r.groups.length - mostra.length} ${plural(r.groups.length - mostra.length, 'item', 'itens')}.`)

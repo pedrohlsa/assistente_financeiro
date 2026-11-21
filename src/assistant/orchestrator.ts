@@ -880,6 +880,11 @@ function caudaDaPergunta(texto: string, candidates: AssistantCandidateAction[]):
  * diz de quê: o assunto é o registro ao lado. Sem ele, a pergunta sumia.
  */
 function perguntaComAssunto(pergunta: string, candidates: AssistantCandidateAction[]): string {
+  const pagador = pergunta.match(/^(\s*(?:e\s+)?quanto\s+(?:que\s+)?)(?:ele|ela)(\s+(?:j[áa]\s+)?me\s+(?:pagou|mandou|enviou|transferiu)\b.*)$/i)
+  if (pagador) {
+    const origins = [...new Set(candidates.flatMap(({ action }) => action.kind === 'income' && action.origin ? [action.origin] : []))]
+    if (origins.length === 1) return `${pagador[1]}${origins[0]}${pagador[2]}`
+  }
   if (!/^\s*(?:e\s+)?quanto\s+(?:ainda\s+)?(?:falta|faltam|resta|restam)\s*\??\s*$/i.test(pergunta)) return pergunta
   const alvos = candidates.map(c => c.action as any).filter(a => a.kind === 'goal-deposit' || a.kind === 'card-payment')
   if (alvos.length !== 1) return pergunta

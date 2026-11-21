@@ -218,11 +218,10 @@ function validateFilter(bruto: any, state: AppState): QueryFilter | QueryErrorCo
   const origin = strOf(raw.origin, 60)
   if (origin) out.origin = origin
   if (raw.origins !== undefined) {
-    if (!Array.isArray(raw.origins) || raw.origins.length < 2 || raw.origins.length > 10) return 'bad-filter'
+    if (!Array.isArray(raw.origins) || raw.origins.length < 1 || raw.origins.length > 10) return 'bad-filter'
     const origins = raw.origins.map((x: unknown) => strOf(x, 60))
     if (origins.some((x: string | undefined) => !x)) return 'bad-filter'
     out.origins = [...new Set<string>(origins as string[])]
-    if (out.origins.length < 2) return 'bad-filter'
   }
   if (out.origin && out.origins) return 'bad-filter'
   const platform = strOf(raw.platform, 30)

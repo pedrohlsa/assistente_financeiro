@@ -6836,3 +6836,14 @@ até auditoria independente.
 - “1h99” não produz taxa por hora. A comparação de 1h30 e 2h calcula
   R$ 16,67/h e R$ 20/h com o custo por km cadastrado. Suíte com
   1.287/1.287 regressões.
+
+## 21/11/2026 — Consultas por nome de quem pagou
+
+- “Quanto recebi da Ana hoje?” usa a origem exata. Ana Paula e a
+  receita da Uber ficam fora da conta. “Quanto a Ana me mandou de Pix?”
+  consulta entrada e preserva o filtro de Pix.
+- A lista de pagadores mostra os valores de cada origem e avisa quais
+  nomes ficaram sem lançamentos. O ranking indica se há entrada sem
+  origem identificada.
+- “Recebi 20 da Ana. Quanto ela já me pagou hoje?” mostra o total
+  projetado da Ana, condicionado à confirmação. Suíte com 1.295/1.295.
