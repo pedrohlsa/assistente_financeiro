@@ -35,6 +35,7 @@ import { describeAction, parseNaturalFull } from './nlp'
 import { driverInsight } from '../assistant/driverInsights'
 import { answerVehicleCost } from '../assistant/vehicleCost'
 import { avaliacaoDoDia } from '../assistant/dayReview'
+import { respostaDeChegada } from '../assistant/arrival'
 import { readInvoiceReference } from '../assistant/invoicePayment'
 import { findAllDates } from '../assistant/dates'
 import { currentMonthToDate, parsePeriod } from '../assistant/query/period'
@@ -1036,6 +1037,10 @@ function resolveLocal(s: AppState, input: string): AiReply {
     }
   }
 
+  // "O salário já caiu?", "a Casa 2 já pagou?": o que está REGISTRADO.
+  const chegada = respostaDeChegada(s, input)
+  if (chegada) return { text: chegada }
+
   // Orçamento ou preço com valor, sem verbo de pagar: não é lançamento, e a
   // ajuda genérica fazia parecer que o app não entendeu nada.
   if (/\d/.test(t) && !/\b(?:paguei|gastei|comprei|torrei|quitei|acertei|fechei|fechamos)\b/.test(t)
@@ -1280,7 +1285,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
   }
 
   // "qual foi meu maior gasto"
-  if (/maior gasto|maior despesa/.test(t)) {
+  if (/maior gasto|maior despesa/.test(t) && !pedeContasFixas(t)) {
     const p = periodFromText(t)
     if (!p) return ajudaGenerica(driverMode)
     const txs = s.transactions.filter(x => x.type === 'expense' && x.date >= p.from && x.date <= p.to)
@@ -1406,7 +1411,7 @@ function resolveLocal(s: AppState, input: string): AiReply {
 
   // "Qual meu gasto fixo", "quais minhas contas fixas": o que se repete, por
   // mês. Listava TODOS os gastos, ou a lista do que vence com as faturas.
-  if (pedeContasFixas(t)) return respostaDasContasFixas(s, driverMode)
+  if (pedeContasFixas(t)) return respostaDasContasFixas(s, driverMode, /\b(?:maior|mais\s+car[ao]|mais\s+pesad[ao])\b/.test(t))
 
   // "meu salário cobre minhas contas?" — pergunta de SIM OU NÃO, e a resposta
   // era a lista de contas. O app sabia responder (`balanceOutlook` calcula
@@ -2141,7 +2146,7 @@ function equivalenteMensal(r: RecurringExpense): number {
  * As contas fixas ativas, cada uma com a regra dela e o peso mensal; o
  * motorista soma o custo fixo do carro que cadastrou em Configurações.
  */
-function respostaDasContasFixas(s: AppState, driverMode: boolean): AiReply {
+function respostaDasContasFixas(s: AppState, driverMode: boolean, pedeMaior = false): AiReply {
   const hoje = todayISO()
   const contas = (s.recurring || []).filter(r => r.kind !== 'income' && r.active !== false && (!r.endDate || r.endDate >= hoje))
   const carro = driverMode ? Math.max(s.settings.fixedMonthlyCosts || 0, 0) : 0
@@ -2156,6 +2161,14 @@ function respostaDasContasFixas(s: AppState, driverMode: boolean): AiReply {
   })
   const somaContas = round2(linhas.reduce((a, l) => a + l.mensal, 0))
   const partes: string[] = []
+  // "Qual a MAIOR": a resposta vem primeiro, a lista depois.
+  if (pedeMaior && contas.length) {
+    const topo = [...linhas].sort((a, b) => b.mensal - a.mensal)
+    const empate = topo.length > 1 && Math.abs(topo[0].mensal - topo[1].mensal) < 0.005
+    partes.push(empate
+      ? `Há empate: as duas maiores pesam ${fmtBRL(topo[0].mensal)} por mês.`
+      : `A maior é ${contas[linhas.indexOf(topo[0])].name.trim()}: ${fmtBRL(topo[0].mensal)} por mês.`)
+  }
   if (contas.length) {
     partes.push(`Suas contas fixas somam ${fmtBRL(somaContas)} por mês:\n${linhas.map(l => l.linha).join('\n')}`)
   }

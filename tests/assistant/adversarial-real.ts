@@ -6421,6 +6421,40 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('MN-emprestimo-nao-e-gasto', e.reply.split('\n')[0], 'diz que não é gasto e não registra',
         e.actions.length === 0 && /^Empréstimo não é gasto/.test(e.reply)))
     }
+
+    // "O salário já caiu?", "a Casa 2 já pagou?": chegada de dinheiro pelo que
+    // está registrado — nunca a comparação de gastos ("Não, subiu").
+    {
+      const rico = autonomoRico(hoje)
+      const mes = hoje.slice(0, 7)
+      const daOrigem = (o: string) => rico.transactions.filter(t => t.type === 'income' && t.origin === o && t.date.startsWith(mes) && t.date <= hoje)
+        .reduce((a, t) => a + t.amount, 0)
+      for (const [frase, origem] of [['a casa 2 já pagou esse mês?', 'Casa 2'], ['o aluguel da casa 1 caiu?', 'Casa 1'], ['recebi da casa 1 esse mes?', 'Casa 1']] as const) {
+        const r = await turnoHoje(rico, frase)
+        const total = daOrigem(origem)
+        out.push(result(`MN-chegada-${frase.replace(/\W+/g, '-')}`, r.reply.split('\n')[0], total ? `sim, ${brl(total)}` : 'ainda não',
+          r.actions.length === 0 && (total ? /^Sim — está registrado/.test(r.reply) && limpa(r.reply).includes(brl(total)) : /^Ainda não/.test(r.reply))))
+      }
+      const sal = await turnoHoje(rico, 'o salário já caiu?')
+      out.push(result('MN-salario-caiu-nao-e-comparacao', sal.reply.split('\n')[0], 'ainda não (sem salário no fixture)',
+        sal.actions.length === 0 && /^Ainda não/.test(sal.reply) && !/subiu|Total gasto/.test(sal.reply)))
+      const gasto = await turnoHoje(rico, 'meu gasto caiu?')
+      out.push(result('MN-gasto-caiu-continua-comparacao', gasto.reply.split('\n')[0], 'comparação de gastos', /gasto/i.test(gasto.reply) && !/registrado/.test(gasto.reply)))
+      const reg = await turnoHoje(rico, 'caiu 3200 do salário')
+      out.push(result('MN-caiu-com-valor-e-registro', reg.actions, 'receita 3200', receitas(reg.actions).some((a: any) => a.amount === 3200)))
+
+      const guardado = rico.transactions.filter(t => t.type === 'saving' && t.date.startsWith(mes) && t.date <= hoje).reduce((a, t) => a + t.amount, 0)
+      for (const frase of ['quanto eu economizei esse mês', 'quanto consegui juntar esse mes']) {
+        const r = await turnoHoje(rico, frase)
+        out.push(result(`MN-${frase.replace(/\W+/g, '-')}`, r.reply.split('\n')[0], `guardado ${brl(guardado)}, nunca o gasto`,
+          !/Total gasto/.test(r.reply) && (guardado ? limpa(r.reply).includes(brl(guardado)) : true)))
+      }
+      const fixa = await turnoHoje(rico, 'qual minha maior despesa fixa')
+      const contas = rico.recurring.filter(r => r.kind !== 'income')
+      const maior = [...contas].sort((a, b) => b.amount - a.amount)[0]
+      out.push(result('MN-maior-despesa-fixa', fixa.reply.split('\n')[0], `a maior é ${maior.name}`,
+        fixa.reply.startsWith(`A maior é ${maior.name}`)))
+    }
   }
 
   return out

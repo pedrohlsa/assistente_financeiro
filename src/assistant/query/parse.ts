@@ -30,6 +30,7 @@ import { addDays, fromISO, todayISO, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase } from '../../utils/text'
 import { isDriver } from '../../services/profile'
 import { buildPersonalModel, adaptiveEnabled } from '../personalModel'
+import { pareceChegada } from '../arrival'
 import { pedeFimDoMes, guardarEsteMes, pedeAntecipacaoDeFatura, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeDividaTotal, pedeFimDoParcelamento, pedeListaDeParcelamentos, pedeQuantoPossoGastar, pedeLimite, pedeMaiorParcela, pedeSobraSemCombustivel, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, perguntaDeManutencao, planoDeGuardar } from '../cashQuestions'
 import {
   currentMonthToDate, mesAFrente, monthPeriod, nextMonths, parseFutureMonth, parsePeriod, previousPeriod,
@@ -152,6 +153,9 @@ export function looksLikeDataQuestion(input: string): boolean {
   const faturaDaJanela = fatura === 'falta' && !!parsePeriod(t)
   // O resumo da fatura de agora inclui os vencidos. Com período informado,
   // o plano restringe o pendente às faturas que venceram naquele recorte.
+  // "O salário já caiu?", "a Casa 2 já pagou?": chegada de dinheiro, não
+  // comparação — "caiu" lido pela DSL respondia "Não, subiu" com o GASTO.
+  if (pareceChegada(input)) return false
   if (pedeFimDoMes(t) || guardarEsteMes(t) !== null || pedeReservaDeCaixa(t) || pedeContaQueAperta(t) || pedeTotalGuardado(t) || (fatura && !faturaDaJanela) || pedeAntecipacaoDeFatura(t)
     || pedeContasAPagar(t) || planoDeGuardar(t) || perguntaDeManutencao(t)
     || pedeContasFixas(t) || pedeSobraSemCombustivel(t) || pedeLimite(t)
@@ -209,7 +213,7 @@ const GASTO = /\bgast(?:ei|o|ou|ando|os?|ar)\b|\bpag(?:uei|o|ou|amento)\b|\btorr
 // "Vou receber", "vai entrar", "quanto ganha": o futuro e o infinitivo também
 // são entrada. Sem eles, "quanto vou receber esse mês" dava o total GASTO.
 const ENTRADA = /\bganh(?:ei|o|ou|ar|a|amos)\b|\breceb(?:i|o|er|e|eu|emos|endo)\b|\bentr(?:ou|ada|adas|aram|ar|a|am)\b|\bfatur(?:ei|o|amento|ou)\b|\breceitas?\b|\brenda\b|\bvend(?:i|as?)\b|\brend(?:e|eu|er|o|imento)\b|\b(?:pra|para)\s+(?:rodar|trabalhar)\b|\bfa(?:co|z(?:endo|er))\b|\bfiz\b|\btir(?:ei|o)\b|\bd[aá]\s+mais\b|\bme\s+d[aá](?![\wÀ-ÿ])/
-const GUARDADO = /\bguard(?:ei|o|ado|ar)\b|\bseparei\b|\breservei\b|\bpoupei\b/
+const GUARDADO = /\bguard(?:ei|o|ado|ar)\b|\bseparei\b|\breservei\b|\bpoup(?:ei|ou|ado|ar)\b|\beconomiz(?:ei|ou|amos|ado|ar)\b|\bjunt(?:ei|ou|amos|ado|ar)\b/
 const CONTAGEM_DE_REGISTROS = /\bquant(?:os|as)\s+(?:lancamentos|registros|movimentacoes)\b/
 const RESULTADO = /\blucr(?:ei|o|ou)\b|\bcompens(?:a|ou|am)\b|\bsobr(?:ou|a|as|ando)\b|\bliquido\b|\bresultado\b|\bmelhor\s+mes\b|\bpior\s+mes\b|\bmelhor\s+semana\b|\bpior\s+semana\b|\bmelhor\s+dia\b|\bpior\s+dia\b/
 
