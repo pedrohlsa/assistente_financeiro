@@ -7273,6 +7273,52 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('BW-desconto-nao-e-conta', contador, 'sem a lista de vencimentos', !/vence até/.test(contador)))
   }
 
+  // Abreviação de unidade e de preposição ficava na descrição: "35 cnto no
+  // mcdonalds" gravava "Cnto no mcdonalds" em Outros, "120 d luz" gravava
+  // "D luz", "40 rs no uber" gravava "Rs no uber".
+  for (const [id, frase, valor, desc, cat] of [
+    ['AB-cnto', 'gastei 35 cnto no mcdonalds', 35, 'Mcdonalds', 'alimentacao'],
+    ['AB-d-de', 'pguei 120 d luz', 120, 'Luz', 'casa'],
+    ['AB-rs', 'gastei 40 rs no bar', 40, 'Bar', 'lazer'],
+    ['AB-pila', 'gastei 15 pila na padaria', 15, 'Padaria', 'alimentacao'],
+  ] as const) {
+    const r = await turnoHoje(buildState({ profile: 'other' }), frase)
+    const a: any = r.actions[0]
+    out.push(result(id, r.actions, `${valor} — ${desc} (${cat})`,
+      r.actions.length === 1 && a.amount === valor && a.description === desc && a.category === cat))
+  }
+
+  // "Comprei um celular" → "1200" → "em 10x" → "no nubank": o "em 10x" com a
+  // despesa na tela caía na ajuda, e a compra parcelada virava despesa avulsa
+  // (regra 10). E "celular" comprado não é Assinatura (a conta do celular é).
+  {
+    const st = buildState({ profile: 'autonomo', cards: [{ name: 'Nubank' }, { name: 'Inter' }] })
+    let draft: any, pending: any, clar: any
+    const passo = async (msg: string) => {
+      const o: any = await orchestrate({ state: st, message: msg, remoteEnabled: false, today: hoje, draft, pending, pendingClarification: clar })
+      draft = o.draft || undefined
+      pending = o.correctedPending ? o.correctedPending : o.response.actions.length ? o.response.actions : o.keepPending ? pending : undefined
+      clar = o.response.mode === 'clarify' ? o.response.clarification : undefined
+      return o
+    }
+    await passo('comprei um celular')
+    const valor = await passo('1200')
+    const v: any = valor.response.actions[0]?.action
+    out.push(result('AB-celular-comprado-nao-e-assinatura', v, 'categoria Compras', v?.category === 'compras'))
+    const parcelas = await passo('em 10x')
+    out.push(result('AB-em-10x-pergunta-cartao', parcelas.response.reply, 'pergunta o cartão', /cart[ãa]o/i.test(parcelas.response.reply) && !/Posso te ajudar/.test(parcelas.response.reply)))
+    const cartao = await passo('no nubank')
+    const c: any = cartao.response.actions[0]?.action
+    out.push(result('AB-em-10x-no-nubank', c, 'compra de 1200 em 10x no Nubank',
+      c?.kind === 'card-purchase' && c.total === 1200 && c.installments === 10 && /nubank/i.test(c.cardName || '')))
+    // Direto, com o cartão junto.
+    draft = pending = clar = undefined
+    await passo('gastei 600 na loja')
+    const junto = await passo('em 3x no inter')
+    const j: any = junto.response.actions[0]?.action
+    out.push(result('AB-em-3x-no-inter', j, 'compra de 600 em 3x no Inter', j?.kind === 'card-purchase' && j.total === 600 && j.installments === 3 && /inter/i.test(j.cardName || '')))
+  }
+
   return out
 }
 

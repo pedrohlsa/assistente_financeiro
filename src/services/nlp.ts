@@ -72,6 +72,9 @@ const CONNECTOR = String.raw`(?:e\s+)?(?:logo\s+)?(?:depois|em\s+seguida|mais\s+
 
 /** Palavras funcionais que nunca são o objeto real da despesa (item 27). */
 const DESC_STOPWORDS = new Set([
+  // Unidade abreviada e o "d" de "de": "35 CNTO no mcdonalds", "120 D luz",
+  // "40 RS no bar" ficavam na descrição.
+  'd', 'rs', 'r', 'cnto', 'cto', 'ctos', 'conto', 'contos', 'pila', 'pilas', 'reais', 'real', 'mango', 'mangos',
   'colocando', 'comprando', 'pagando', 'gastando', 'depois', 'pois', 'logo', 'entao', 'então',
   'tambem', 'também', 'ainda', 'mais', 'de', 'do', 'da', 'no', 'na', 'em', 'com', 'para', 'pra', 'pro', 'pros', 'pras',
   'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas',
@@ -98,6 +101,10 @@ const VERBO_NO_INICIO = new Set(['gasto', 'gastos', 'pago', 'compro'])
 // "12 de iof SEM eu saber" gravava "Iof sem". No início ela pode ser nome
 // ("Sem Parar"), por isso a lista é só do fim.
 const FIM_SOLTO = new Set(['sem', 'que', 'porque', 'mas', 'quando', 'se', 'por', 'ai', 'aí', 'la', 'lá', 'hoje', 'ontem', 'agora', 'tipo', 'ne', 'né', 'veio', 'chegou', 'ficou', 'deu'])
+
+/** "Celular" → "celular" no meio da frase; "IPTU", "iPhone" e "Casa 1" ficam. */
+const noMeioDaFrase = (d: string): string =>
+  /^[A-ZÀ-Þ][a-zà-ÿ]/.test(d) && !/^[A-ZÀ-Þ][a-zà-ÿ]*\s+\d/.test(d) ? d[0].toLowerCase() + d.slice(1) : d
 
 export function cleanDescription(raw?: string): string | undefined {
   if (!raw) return undefined
@@ -207,8 +214,12 @@ export function gruposDeCorrida(text: string): { n: number, v: number, start: nu
  * comprar o aparelho é compra: "comprei um celular de 1200 em 10x" ia para
  * Assinaturas. Só troca a categoria que veio da palavra "celular".
  */
+/** "Comprei um celular": o APARELHO, não a conta do celular (Assinaturas). */
+export const compraDeAparelho = (texto: string): boolean =>
+  /\b(?:comprei|compramos|parcelei|comprar)\s+(?:um|uma|o|a|meu|minha)?\s*(?:novo\s+|nova\s+)?(?:celular|smartphone|iphone|aparelho\s+de\s+celular)\b/i.test(texto)
+
 function aparelhoComprado(texto: string, actions: ParsedAction[]): ParsedAction[] {
-  if (!/\b(?:comprei|compramos|parcelei|comprar)\s+(?:um|uma|o|a|meu|minha)?\s*(?:novo\s+|nova\s+)?(?:celular|smartphone|iphone|aparelho\s+de\s+celular)\b/i.test(texto)) return actions
+  if (!compraDeAparelho(texto)) return actions
   return actions.map(a => (a.kind === 'expense' || a.kind === 'card-purchase') && a.category === 'assinaturas'
     ? { ...a, category: 'compras' } : a)
 }
@@ -1787,7 +1798,9 @@ export function describeAction(a: ParsedAction, categoryName?: (id: string) => s
     case 'goal-deposit': return `Guardar ${fmtBRL(a.amount)}${a.name ? ` na meta "${a.name}"` : ' na meta'}`
     case 'balance': return `Saldo em conta: ${fmtBRL(a.amount)}`
     case 'card-purchase':
-      return `Compra${a.description ? ` de ${a.description}` : ''} de ${fmtBRL(a.total)} em ${a.installments}x${a.cardName ? ` no ${a.cardName}` : ''}`
+      // No meio da frase, a descrição vai em minúscula (regra 13): "Compra de
+      // celular", nunca "Compra de Celular". Sigla e marca ficam como estão.
+      return `Compra${a.description ? ` de ${noMeioDaFrase(a.description)}` : ''} de ${fmtBRL(a.total)} em ${a.installments}x${a.cardName ? ` no ${a.cardName}` : ''}`
     case 'financed-cash-inflow':
       return `Entrada financiada: recebeu ${fmtBRL(a.netReceived)} e deve ${fmtBRL(a.total)} em ${a.installments}x`
     case 'card-payment':

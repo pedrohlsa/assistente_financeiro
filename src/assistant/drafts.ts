@@ -16,7 +16,7 @@ import { normalizeNumberWords } from './numbers'
 import { findDate } from './dates'
 import { guessCategory } from '../data/categories'
 import { sentenceCase, normalizeName } from '../utils/text'
-import { maintenanceWithoutCost } from '../services/nlp'
+import { maintenanceWithoutCost, compraDeAparelho } from '../services/nlp'
 import { MENTIONS_99 } from '../services/profile'
 
 export type DraftStatus = 'collecting' | 'ready' | 'confirmed' | 'cancelled'
@@ -339,12 +339,16 @@ export function newDraft(
   caps: AssistantCapabilities,
 ): AssistantDraft {
   const now = new Date().toISOString()
+  // "Comprei um celular" → "1200": o aparelho é Compras; "celular" sozinho na
+  // lista genérica é a conta do celular (Assinaturas).
+  const partial: any = intent.partial.kind === 'expense' && (intent.partial as any).category === 'assinaturas' && compraDeAparelho(message)
+    ? { ...intent.partial, category: 'compras' } : intent.partial
   return {
     id: uid(),
     createdAt: now,
     updatedAt: now,
     originalMessages: [message],
-    partial: intent.partial,
+    partial,
     missingFields: intent.missing.map(f => questionFor(intent.partial.kind, f, caps)),
     status: 'collecting',
   }

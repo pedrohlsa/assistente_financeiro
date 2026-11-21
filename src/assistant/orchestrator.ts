@@ -1759,6 +1759,38 @@ Confirmar?`,
     }
   }
 
+  // ---- 4c) "Em 10x" sobre a despesa na tela ------------------------------
+  // "Comprei um celular" → "1200" → "em 10x": o parcelamento dito DEPOIS da
+  // proposta caía na ajuda, e a compra ficava como despesa avulsa (regra 10).
+  if (input.pending?.length === 1 && input.pending[0].action.kind === 'expense') {
+    const cmd = normalizeName(command).replace(/[.!]+$/, '').trim()
+    const m = cmd.match(/^(?:foi\s+|era\s+|paguei\s+|parcelei\s+|passei\s+|dividi\s+|na\s+verdade\s+)?(?:parcelad[oa]\s+)?(?:em\s+)?(\d{1,3})\s*(?:x|vezes|parcelas)(?:\s+(?:no|na|pelo|pela)\s+(?:cartao\s+)?([a-z0-9 ]{2,30}?))?$/)
+    const n = m ? Number(m[1]) : 0
+    if (m && n >= 2 && n <= 120) {
+      const a: any = input.pending[0].action
+      const dito = m[2]?.trim()
+      const cartao = dito ? caps.cardNames.find(c => normalizeName(c) === dito || normalizeName(c).includes(dito)) : undefined
+      const partial: any = { kind: 'card-purchase', total: a.amount, installments: n,
+        ...(a.description ? { description: a.description } : {}),
+        ...(a.category && a.category !== 'outros-out' ? { category: a.category === 'assinaturas' ? 'compras' : a.category } : {}),
+        ...(cartao ? { cardName: cartao } : {}) }
+      if (cartao || caps.cardNames.length <= 1) {
+        return proposeClarifiedActions(input.state, [partial], today)
+      }
+      const d = newDraft({ partial, missing: ['cardName'] }, input.message, caps)
+      d.fallbackExpense = { ...a }
+      const q = d.missingFields[0]
+      return {
+        draft: d,
+        response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [],
+          clarification: { question: q.question, field: q.field, options: q.options },
+          reply: q.question,
+        },
+      }
+    }
+  }
+
   // ---- 5) A mensagem corrige a proposta na tela? -------------------------
   // "Pode confirmar", "sim", "isso": o registro só acontece no BOTÃO (regra 8).
   // Antes a frase caía na ajuda genérica, e parecia que o app tinha perdido a
