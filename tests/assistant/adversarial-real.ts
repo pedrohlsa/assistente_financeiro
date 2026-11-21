@@ -1729,6 +1729,37 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && corrected.response.actions.length === 2 && corrected.response.actions.map(({ action }) => 'amount' in action ? action.amount : -1).join(',') === '100,40'
         && !badPart.response.actions.length && answerChoices(badPart)?.field === 'reported-total'))
   }
+  {
+    const state = buildState({ profile: 'driver', balance: 1000 })
+    state.settings.balanceAsOf = `${addDays(TODAY, -2)}T00:00:00`
+    state.settings.ask99Fee = true
+    state.settings.platform99Fee = 5
+    for (const [id, message, date, platform] of [
+      ['bruto-e-recebido', 'fiz 430 bruto na Uber e recebi 380 líquido depois da taxa de 50', TODAY, 'Uber'],
+      ['resumo-da-plataforma', 'na Uber deu 430 bruto, 380 líquido e a taxa ficou em 50', TODAY, 'Uber'],
+      ['valor-recebido-primeiro', 'recebi 380 líquido na Uber, 430 era o bruto', TODAY, 'Uber'],
+      ['taxa-retida-na-99', 'ontem a 99 descontou 50 de taxa e caiu 380 na minha conta', addDays(TODAY, -1), '99'],
+    ] as const) {
+      const r = await orchestrate({ state, today: TODAY, message, remoteEnabled: false })
+      const saved = applyBatchPure(state, r.response.actions, { now: { date: TODAY, time: '12:00' } })
+      const [entry] = saved.state.transactions
+      const [a] = r.response.actions.map(c => c.action)
+      const stripped = validateAction(a, buildCapabilities(state), TODAY, { allowRemoteOnly: true })
+      out.push(result(`A-plataforma-${id}`, r.response, 'entrada líquida de R$ 380, sem saída repetida ou viagem',
+        saved.applied && r.response.actions.length === 1 && a.kind === 'income' && a.feeAlreadyWithheld
+          && entry?.amount === 380 && entry.description === platform && entry.date === date && currentBalance(saved.state, TODAY) === 1380
+          && !saved.state.workSessions.length && isValidationFailure(stripped)))
+    }
+    const bad = await turn(state, 'fiz 430 bruto na Uber e recebi 390 líquido depois da taxa de 50')
+    const distinct = await turn(state, 'fiz 430 na Uber e paguei 50 de taxa agora')
+    const fuel = await turn(state, 'ganhei 430 bruto e gastei 50 de gasolina, sobrou 380 líquido')
+    out.push(result('A-plataforma-confere-liquido-e-preserva-gastos-proprios', [bad, distinct, fuel],
+      'liquidação contraditória pede valor. Taxa paga à parte e combustível continuam saídas',
+      !bad.actions.length && bad.clarification?.field === 'reported-total'
+        && distinct.actions.some(a => a.kind === 'income' && a.amount === 430 && !a.feeAlreadyWithheld)
+        && distinct.actions.some(a => a.kind === 'expense' && a.amount === 50)
+        && fuel.actions.some(a => a.kind === 'income' && a.amount === 430) && fuel.actions.some(a => a.kind === 'fuel' && a.amount === 50)))
+  }
   const directMixed = buildState({ balance: 1000, cards: [{ name: 'Inter', dueDay: 20, closingDay: 5 }] })
   directMixed.settings.balanceAsOf = '2026-09-14T09:00'
   directMixed.installmentPlans = [{ id: 'mixed-plan', description: 'Compra', cardId: 'card0',

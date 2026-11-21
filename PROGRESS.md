@@ -6909,3 +6909,12 @@ até auditoria independente.
 - Pix, dinheiro e débito da mesma compra compõem uma saída pelo total.
   A soma informada precisa bater antes de preparar os registros.
   Suíte com 1.335/1.335 regressões.
+
+## 21/11/2026 — Repasse recebido com taxa já retida
+
+- “Fiz 430 bruto na Uber e recebi 380 líquido depois da taxa de 50”
+  prepara R$ 380, com a origem da plataforma. Uma taxa explicitamente
+  paga à parte e um abastecimento continuam em seus próprios registros.
+- Quando bruto, líquido e taxa divergem, o chat pergunta o valor que
+  entrou. O recebimento após retenção não reabre a oferta de lançar
+  a taxa. A marca só pode vir do leitor local. Suíte com 1.340/1.340.

@@ -24,7 +24,7 @@ export function shouldAsk99Fee(state: AppState, action: ParsedAction): boolean {
   const s = state.settings
   if (!isDriver(s)) return false
   if (!s.ask99Fee || !(s.platform99Fee > 0)) return false
-  if (action.kind !== 'income') return false
+  if (action.kind !== 'income' || action.feeAlreadyWithheld) return false
   return RIDE_INCOME_CATEGORIES.includes(action.category || defaultIncomeCategory(s))
 }
 

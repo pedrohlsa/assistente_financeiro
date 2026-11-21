@@ -104,6 +104,7 @@ export const ACTION_CATALOG: ActionSpec[] = [
       textField('origin', 'fonte informada EXPLICITAMENTE pelo usuário ("Casa 1", "Cliente João"). NUNCA deduza'),
       dateField,
       timeField,
+      { name: 'feeAlreadyWithheld', type: 'flag', required: false, localOnly: true, editable: false, describe: 'recebimento confirmado após taxa retida pela plataforma' },
     ],
     promptHint: 'dinheiro que entrou de verdade',
   },

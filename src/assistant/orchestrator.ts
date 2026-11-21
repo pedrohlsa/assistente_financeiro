@@ -32,6 +32,7 @@ import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } fr
 import { spokenClock } from './semantic/clock'
 import { continueRideOffer, interpretRideOffer } from './rideOffer'
 import { reconcileSpokenTotals } from './spokenTotals'
+import { readPlatformPayout } from './platformPayout'
 import { readCardPurchaseDue, resolveCardPurchaseDue } from './cardPurchaseDue'
 import { conflictQuestion, evidenceFor, mergeByField, sameFact } from './semantic/evidence'
 import { classifyLocalDecision } from './semantic/confidence'
@@ -1541,13 +1542,25 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   const caps = buildCapabilities(input.state)
   const today = input.today || todayISO()
   if (!input.draft && (!input.pendingClarification || input.pendingClarification.field === 'reported-total')) {
-    const reconciled = reconcileSpokenTotals(input.message, today, isDriver(input.state.settings), caps.cardNames)
-    if (reconciled?.issue) return {
+    const payout = readPlatformPayout(input.message)
+    const reconciled = payout || reconcileSpokenTotals(input.message, today, isDriver(input.state.settings), caps.cardNames)
+    const issue = reconciled && 'issue' in reconciled ? reconciled.issue : undefined
+    if (issue) return {
       draft: null, keepPending: true, focus: input.focus,
       response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [],
-        reply: reconciled.issue, clarification: { field: 'reported-total', question: reconciled.issue, options: [] } },
+        reply: issue, clarification: { field: 'reported-total', question: issue, options: [] } },
     }
-    if (reconciled?.text) input = { ...input, message: reconciled.text }
+    if (payout && 'amount' in payout) {
+      const result = await orchestrate({ ...input, message: payout.text, remoteEnabled: false })
+      const first = result.response.actions.findIndex(({ action }) => action.kind === 'income' && action.amount === payout.amount)
+      if (first >= 0) {
+        const initial = result.response.actions[first]
+        const action = { ...initial.action, feeAlreadyWithheld: true } as ParsedAction
+        result.response.actions[first] = { ...initial, action }
+      }
+      return result
+    }
+    if (reconciled && 'text' in reconciled && reconciled.text) input = { ...input, message: reconciled.text }
   }
   const { command, context } = speechForCommands(input.message, today)
   if (!command && context.length) {
