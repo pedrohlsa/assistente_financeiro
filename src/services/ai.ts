@@ -440,6 +440,8 @@ const ABREVIACOES: [RegExp, string][] = [
   [/\bpra\b/g, 'para'], [/\bpro\b/g, 'para'], [/\bpq\b/g, 'porque'],
   [/\bvc\b/g, 'voce'], [/\bq\b/g, 'que'], [/\bcm\b/g, 'com'], [/\bhj\b/g, 'hoje'], [/\bhje\b/g, 'hoje'],
   [/\bontm\b/g, 'ontem'], [/\btb\b/g, 'tambem'], [/\btbm\b/g, 'tambem'],
+  // "Essa SMN", "cadê meu dinheiro": a semana abreviada e o "onde foi parar".
+  [/\bsm(?:n|na)\b/g, 'semana'], [/\bcade\b/g, 'onde foi parar'],
   [/\bqnt\b/g, 'quanto'], [/\bqto\b/g, 'quanto'], [/\bqnd\b/g, 'quando'],
   [/\bmsm\b/g, 'mesmo'], [/\bdps\b/g, 'depois'], [/\bmt\b/g, 'muito'],
   [/\bgrana\b/g, 'dinheiro'], [/\bconto\b/g, 'reais'],
@@ -1486,7 +1488,7 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   // "Tô ferrado esse mês?" é a mesma pergunta de "tô no vermelho?", dita como
   // se diz; caía no menu de ajuda. O aperto também mostra o que vence.
   const aperto = /(?:t[oô]|estou|to|tou)\s+(?:ferrad[oa]|fudid[oa]|lascad[oa]|quebrad[oa]|apertad[oa]|enrolad[oa]|no\s+sufoco|no\s+aperto|mal\s+de\s+grana|zerad[oa])\b/.test(t)
-  if (aperto || /(?:t[oô]|estou|to)\s+(?:tendo|dando|com|ficando\s+(?:no|com))\s+(?:lucro|preju[ií]zo)|(?:t[oô]|estou|to)\s+no\s+lucro|(?:t[oô]|estou)\s+no\s+(?:azul|vermelho)|quanto\s+sobrou\s*\??$|sobrou\s+quanto/.test(t)
+  if (aperto || /(?:t[oô]|estou|to)\s+(?:tendo|dando|com|ficando\s+(?:no|com))\s+(?:lucro|preju[ií]zo)|(?:t[oô]|estou|to)\s+(?:no|de)\s+(?:preju(?:[ií]zo)?|negativo|positivo)\b|(?:t[oô]|estou|to)\s+no\s+lucro|(?:t[oô]|estou)\s+no\s+(?:azul|vermelho)|quanto\s+sobrou\s*\??$|sobrou\s+quanto/.test(t)
     || /(?:gastando|gasto|gastei)\s+mais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:ganho|ganhei|recebo|recebi|entra|faturo)/.test(t)) {
     const p = periodFromText(t, today)
     if (!p) return ajudaGenerica(driverMode)

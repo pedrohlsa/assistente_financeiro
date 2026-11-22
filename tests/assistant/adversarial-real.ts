@@ -8217,6 +8217,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('VK-controle-reais', r.actions, '64 km; os 14 reais não viram km', w2?.km === 64))
   }
 
+  // Gíria e abreviação: "tô no prejuízo?" (até por extenso) caía na ajuda,
+  // "essa smn" virava o mês, "cadê meu dinheiro" caía na ajuda.
+  {
+    const rico = autonomoRico(hoje)
+    for (const frase of ['to no prejuízo?', 'to no prejú?']) {
+      const r = (await turnoHoje(rico, frase)).reply
+      out.push(result(`SG-${frase.replace(/\W+/g, '-')}`, r, 'sim/não sobre o resultado do mês', /^(?:Sim|Não)\b/.test(r) && !/Posso te ajudar/.test(r)))
+    }
+    const smn = (await turnoHoje(rico, 'qto entrou essa smn')).reply
+    out.push(result('SG-smn', smn, 'últimos 7 dias', /7 dias|semana/.test(smn) && !/este mês/.test(smn)))
+    const cade = (await turnoHoje(rico, 'cade meu dinheiro')).reply
+    out.push(result('SG-cade', cade, 'para onde foi (por categoria)', /categoria|Obra/.test(cade) && !/Posso te ajudar/.test(cade)))
+  }
+
   // Meta sem sobra no mês: "ainda não tenho histórico de ganhos" era falso
   // (o histórico existe, o resultado é que ficou negativo). "Em quanto tempo
   // eu compro o notebook" dava só o que falta.

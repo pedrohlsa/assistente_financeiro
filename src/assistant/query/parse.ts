@@ -84,6 +84,8 @@ const ABREV: [RegExp, string][] = [
   // "oq mais pesou" — sem esta troca o "oq" ficava de fora de todo padrão de
   // ranking e a pergunta virava o total do mês.
   [/\boq\b/g, 'o que'],
+  // "Essa SMN" é a semana; "cadê meu dinheiro" pergunta para onde ele foi.
+  [/\bsm(?:n|na)\b/g, 'semana'], [/\bcade\b/g, 'onde foi parar'],
   [/\bq\b/g, 'que'], [/\bpq\b/g, 'porque'], [/\bvc\b/g, 'voce'],
   // "comparado cm semana passada": sem a troca o marcador de comparação não
   // casava e a semana passada virava o período principal.
