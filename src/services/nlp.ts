@@ -1117,7 +1117,9 @@ function parseClause(input: string): ParsedAction[] {
   // ----- saldo em conta: "meu saldo é 1500", "tenho 1500 no banco/na conta", "saldo 1500"
   // "Tô com 3000 na conta" respondia sobre CONTAS A VENCER: a palavra "conta"
   // puxava a pergunta de contas a pagar, e o usuário estava informando o saldo.
-  const balanceRe = new RegExp(String.raw`(?:meu\s+)?saldo\s*(?:atual|em conta|no banco|de|é|e|:)?\s*(?:r\$)?\s*${NUM}|(?:tenho|tem|t[oô]\s+com|estou\s+com|fiquei\s+com)\s*${APROX}(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:no banco|na conta|em conta|de saldo|guardado)`, 'i')
+  // "Atualiza meu saldo PRA 5000", "corrige o saldo para 4.200": o pedido de
+  // ajuste respondia o saldo antigo, ignorando o valor.
+  const balanceRe = new RegExp(String.raw`(?:meu\s+|o\s+)?saldo\s*(?:atual|em conta|no banco|de|é|e|:|(?:pra|para|em|como)(?=\s))?\s*(?:r\$)?\s*${NUM}|(?:tenho|tem|t[oô]\s+com|estou\s+com|fiquei\s+com)\s*${APROX}(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:no banco|na conta|em conta|de saldo|guardado)`, 'i')
   const bal = text.match(balanceRe)
   if (bal) {
     const raw = bal[1] ?? bal[2]

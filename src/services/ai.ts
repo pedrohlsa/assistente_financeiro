@@ -560,6 +560,19 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   // Antes das rotas de "quanto gastei": sem período, elas devolviam a ajuda.
   const custoMensal = answerVehicleMonthly(s, t)
   if (custoMensal) return { text: custoMensal }
+  // "Meu saldo tá certo?": como o número é montado (regra 20) e como corrigir.
+  // Só repetia o saldo.
+  if (/\bsaldo\b[^?]*\b(?:certo|errado|correto|batendo|bate|confere|conferindo)\b|\bde\s+onde\s+(?:vem|veio|sai)\s+(?:esse|o|meu)\s+saldo\b/.test(t)) {
+    if (hasAmbiguousLegacyCardBalance(s)) return { text: AMBIGUOUS_BALANCE_REPLY }
+    const ancora = s.settings.balance || 0
+    const desde = s.settings.balanceAsOf
+    const hoje = currentBalance(s)
+    const mov = round2(hoje - ancora)
+    return { text: `Seu saldo de hoje é ${fmtBRL(hoje)}. Ele parte do valor que você informou${desde ? ` em ${desde.slice(8, 10)}/${desde.slice(5, 7)}` : ''} (${fmtBRL(ancora)})`
+      + ` e soma as movimentações registradas depois: ${mov >= 0 ? '+' : '−'}${fmtBRL(Math.abs(mov))} entre entradas, saídas e faturas pagas com o saldo. O que vai para a reserva fica de fora.\n\n`
+      + 'Se não bater com o banco, me diga o valor certo — por exemplo, "meu saldo é 5000" — que eu corrijo o ponto de partida sem mexer no histórico.' }
+  }
+
   const lista = listaDeLancamentos(s, t)
   if (lista) return { text: lista }
   const corte = ondeCortar(s, t)

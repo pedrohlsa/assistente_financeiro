@@ -8250,6 +8250,16 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('SG-cade', cade, 'para onde foi (por categoria)', /categoria|Obra/.test(cade) && !/Posso te ajudar/.test(cade)))
   }
 
+  // "Atualiza meu saldo pra 5000" respondia o saldo antigo; "meu saldo tá
+  // certo?" só repetia o número.
+  {
+    const rico = autonomoRico(hoje)
+    const up = await turnoHoje(rico, 'atualiza meu saldo pra 5000')
+    out.push(result('SD-atualiza-saldo', up.actions, 'balance 5000', up.actions.some((a: any) => a.kind === 'balance' && a.amount === 5000)))
+    const certo = (await turnoHoje(rico, 'meu saldo tá certo?')).reply
+    out.push(result('SD-saldo-certo', certo, 'explica a âncora e como corrigir', /parte do valor que você informou/.test(certo) && /meu saldo é/.test(certo)))
+  }
+
   // "Meu salário é 3200" e "recebo dia 5" caíam na ajuda; a recorrência de
   // ENTRADA dizia "te avisar do vencimento".
   {
