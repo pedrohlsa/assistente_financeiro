@@ -9222,6 +9222,15 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('DU-duracao-nao-e-sobra', r.reply, 'R$ 1.200 sem pedir para lançar "3 dias"',
         (r.actions[0] as any)?.amount === 1200 && !/Não registrei/.test(r.reply)))
     }
+    {
+      // Sem lançamento nenhum, "Sobra do mês: R$ 0,00" (regra 43); "me ajuda a
+      // economizar" caía na ajuda genérica.
+      const vazio = buildState({ profile: 'other', balance: 2000 })
+      const mes = (await turnoHoje(vazio, 'como tá meu mês')).reply
+      out.push(result('VZ-mes-sem-dado', mes, 'diz que não há lançamento', /Ainda não há lançamentos/.test(mes) && !/R\$ 0,00/.test(mes)))
+      const eco = (await turnoHoje(rico, 'me ajuda a economizar')).reply
+      out.push(result('VZ-ajuda-a-economizar', eco, 'onde mais saiu', !/Posso te ajudar/.test(eco)))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

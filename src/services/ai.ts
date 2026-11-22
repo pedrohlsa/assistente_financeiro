@@ -530,7 +530,7 @@ function valeQuitar(s: AppState, t: string): string | undefined {
  * busca pelo texto "cortar gastos", ou caía na ajuda.
  */
 function ondeCortar(s: AppState, t: string): string | undefined {
-  if (!/\b(?:onde|o\s+que|em\s+que)\b[^?]*\b(?:cortar|economizar|reduzir|enxugar|apertar)\b|\bdicas?\s+(?:pra|para|de)\s+(?:economizar|poupar|guardar\s+mais|gastar\s+menos)\b|\bcomo\s+(?:eu\s+)?(?:economizo|posso\s+economizar|gasto\s+menos|corto\s+gastos)\b/.test(t)) return undefined
+  if (!/\b(?:onde|o\s+que|em\s+que)\b[^?]*\b(?:cortar|economizar|reduzir|enxugar|apertar)\b|\bdicas?\s+(?:pra|para|de)\s+(?:economizar|poupar|guardar\s+mais|gastar\s+menos)\b|\bcomo\s+(?:eu\s+)?(?:economizo|posso\s+economizar|gasto\s+menos|corto\s+gastos)\b|\b(?:me\s+)?ajud(?:a|e)\s+(?:a\s+)?(?:economizar|poupar|gastar\s+menos|guardar\s+mais)\b|\bquero\s+(?:economizar|gastar\s+menos|poupar)\b/.test(t)) return undefined
   const hoje = todayISO()
   const de = `${hoje.slice(0, 8)}01`
   const porCat = new Map<string, number>()
@@ -941,6 +941,13 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     if (/como\s+(?:est[aá]|foi)\s+(?:o\s+)?meu\s+m[eê]s|meu m[eê]s|resultado do m[eê]s|fechamento do m[eê]s/.test(t)) {
       const ambiguousBalance = hasAmbiguousLegacyCardBalance(s)
       const bo = ambiguousBalance ? null : balanceOutlook(s, 7)
+      // Sem nenhum lançamento, "Sobra do mês: R$ 0,00" é número certo com cara
+      // de conclusão (regra 43). O app diz que não há dado e o que registrar.
+      if (!(mg.income > 0) && !(mg.expense > 0) && !(mg.saved > 0)) {
+        return { text: 'Ainda não há lançamentos neste mês, então não tenho como dizer como ele está. '
+          + 'Registre o que entrou e o que saiu — "recebi 1500", "gastei 50 no mercado" — que eu acompanho.'
+          + (ambiguousBalance ? `\n\n${AMBIGUOUS_BALANCE_REPLY}` : bo && (bo.bills.length || bo.unconfirmed.length) ? `\n\n${balanceOutlookText(bo)}` : '') }
+      }
       return {
         text: `Seu mês até agora (dados reais):\n\n` +
           `• Entrou: ${fmtBRL(mg.income)}\n• Saiu: ${fmtBRL(mg.expense)}\n• ${mg.net >= 0 ? 'Sobra do mês' : 'Déficit do mês'}: ${fmtBRL(Math.abs(mg.net))}\n` +
