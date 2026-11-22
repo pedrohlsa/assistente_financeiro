@@ -1357,7 +1357,7 @@ function unaccountedMoney(clause: AnalyzedClause): number[] {
     const anoDeCompetencia = /^(?:19|20)\d{2}$/.test(m[0]) && ANO_DE_COMPETENCIA.test(normalizeName(before))
     if (plataforma99 || anoDeCompetencia || /[\-/]$/.test(before) || /^[\-/]/.test(after)
       || /\b(?:dia|casa|apto|apartamento|numero|número|aro|tamanho|placa|modelo)\s*$/i.test(before)
-      || /^\s*(?:x|vezes|parcelas?|km|quil[oô]metros?|m\b|metros?\b|litros?|h\b|hrs?\b|horas?|min\b|minutos?\b|viagens?|corridas?|dias?|semanas?|meses?|anos?|%|k\b)/i.test(after)) continue
+      || /^\s*(?:x|vezes|parcelas?|km|quil[oô]metros?|m(?![\wÀ-ÿ])|metros?\b|litros?|h(?![\wÀ-ÿ])|hrs?(?![\wÀ-ÿ])|horas?|min(?![\wÀ-ÿ])|minutos?\b|viagens?|corridas?|dias?|semanas?|meses?|anos?|%|k(?![\wÀ-ÿ]))/i.test(after)) continue
     // "Comprei 10 SACOS de cimento por 350": quantidade, com o preço depois.
     if (/\b(?:comprei|paguei|gastei|torrei)\s*$/i.test(before) && /^\s+[a-zà-ú]{3,}/i.test(after)
       && /\b(?:por|custou|saiu\s+por|deu|foi)\s*(?:r\$\s*)?\d/i.test(normalized.slice(at + m[0].length))) continue

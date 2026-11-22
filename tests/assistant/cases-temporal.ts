@@ -223,13 +223,31 @@ export const TEMPORAL: AssistantCase[] = [
   },
   {
     id: 'hint-03', group: 'temporal', ...other,
+    // "Há 3 dias" aponta UM dia (12/07 no relógio do harness): não pergunta. Semanas, meses e o
+    // aproximado continuam perguntando (hint-05 a hint-07).
     messages: ['gastei 50 há 3 dias'],
-    expectMode: 'clarify', expectNoActions: true,
-    expectClarification: /data exata|que dia/i,
+    expectActions: [{ kind: 'expense', amount: 50, date: '2026-07-12' }],
   },
   {
     id: 'hint-04', group: 'temporal', ...other,
     messages: ['gastei 50 3 dias atrás'],
+    expectActions: [{ kind: 'expense', amount: 50, date: '2026-07-12' }],
+  },
+  {
+    id: 'hint-05', group: 'temporal', ...other,
+    messages: ['gastei 50 há 2 semanas'],
+    expectMode: 'clarify', expectNoActions: true,
+    expectClarification: /data exata|que dia/i,
+  },
+  {
+    id: 'hint-06', group: 'temporal', ...other,
+    messages: ['gastei 50 uns 5 dias atrás'],
+    expectMode: 'clarify', expectNoActions: true,
+    expectClarification: /data exata|que dia/i,
+  },
+  {
+    id: 'hint-07', group: 'temporal', ...other,
+    messages: ['gastei 50 faz 3 meses'],
     expectMode: 'clarify', expectNoActions: true,
     expectClarification: /data exata|que dia/i,
   },

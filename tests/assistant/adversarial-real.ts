@@ -8217,6 +8217,25 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('VK-controle-reais', r.actions, '64 km; os 14 reais não viram km', w2?.km === 64))
   }
 
+  // "Tirei 250 bruto e gastei 60 de gás" perdia os R$ 250: sem "hoje", o
+  // resultado do dia não era lido. O qualificador colado ao valor basta.
+  {
+    const st = buildState({ profile: 'driver' })
+    for (const [id, frase, v] of [['BR-tirei-bruto', 'tirei 250 bruto', 250], ['BR-tirei-liquido', 'tirei 180 líquido', 180]] as const) {
+      const r = await turnoHoje(st, frase)
+      out.push(result(id, r.actions, `receita ${v}`, r.actions.some((a: any) => a.kind === 'income' && a.amount === v)))
+    }
+    const misto = await orchestrate({ state: st, message: 'tirei 250 bruto e gastei 60 de gasolina', today: hoje, remoteEnabled: false })
+    const acoes = misto.response.actions.map(a => a.action as any)
+    out.push(result('BR-bruto-e-gasto', acoes, 'receita 250 e gasto 60', acoes.some(a => a.kind === 'income' && a.amount === 250) && acoes.some(a => a.amount === 60)))
+    // `l\b` (litro) casava em "180 Líquido" e `h\b` (hora) em "300 Há"
+    // (regra 67b): o valor virava unidade e sumia.
+    const ha = await turnoHoje(buildState({ profile: 'other' }), 'paguei o conserto de 300 há dois dias')
+    out.push(result('BR-valor-antes-de-ha', ha.actions, `despesa 300 em ${addDays(hoje, -2)}`, ha.actions.some((a: any) => a.kind === 'expense' && a.amount === 300 && a.date === addDays(hoje, -2))))
+    const outro = await turnoHoje(buildState({ profile: 'autonomo' }), 'tirei 250 bruto')
+    out.push(result('BR-controle-nao-motorista', outro.actions, 'sem resultado do dia fora do motorista', !outro.actions.some((a: any) => a.kind === 'income' && a.category === 'corridas')))
+  }
+
   // Gíria e abreviação: "tô no prejuízo?" (até por extenso) caía na ajuda,
   // "essa smn" virava o mês, "cadê meu dinheiro" caía na ajuda.
   {

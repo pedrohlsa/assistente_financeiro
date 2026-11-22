@@ -200,7 +200,7 @@ export function gruposDeCorrida(text: string): { n: number, v: number, start: nu
   const QTD = String.raw`(\d+|uma|um|duas|dois|tres|três|quatro|cinco)`
   const qtd = (s: string) => /^\d+$/.test(s) ? parseInt(s, 10)
     : ({ um: 1, uma: 1, dois: 2, duas: 2, tres: 3, 'três': 3, quatro: 4, cinco: 5 } as Record<string, number>)[s.toLowerCase()] ?? NaN
-  const VALOR = String.raw`\s+(?:de|por)\s*(?:r\$)?\s*${NUM}(?![\d.,]|\s*(?:km|quil|horas?|h\b|litros?|min))`
+  const VALOR = String.raw`\s+(?:de|por)\s*(?:r\$)?\s*${NUM}(?![\d.,]|\s*(?:km|quil|horas?|h(?![\wÀ-ÿ])|litros?|min))`
   const primeiro = text.match(new RegExp(String.raw`\b${QTD}\s+(?:corridas|viagens)${VALOR}`, 'i'))
   if (!primeiro || !(qtd(primeiro[1]) > 1) || !(parseNum(primeiro[2]) > 0)) return []
   const inicio = primeiro.index || 0
@@ -493,7 +493,7 @@ export const looksRecurring = (t: string): boolean => RECORRENCIA.test(t)
 // Número que carrega unidade não é dinheiro: "8 horas", "120 km", "14 viagens".
 // Unidade de TEMPO também: "nos ultimo 3 mes" virava uma despesa de R$ 3,00,
 // porque o 3 é o tamanho do período e a frase inteira era uma pergunta.
-const UNIT_AFTER = String.raw`\s*(?:h\b|horas?\b|hrs?\b|km\b|quil[oô]metros?\b|m\b|metros?\b|viagens?\b|corridas?\b|litros?\b|l\b|%|minutos?\b|min\b|vezes\b|x\b|dias?\b|semanas?\b|m[eê]s(?:es)?\b|anos?\b)`
+const UNIT_AFTER = String.raw`\s*(?:h(?![\wÀ-ÿ])|horas?(?![\wÀ-ÿ])|hrs?(?![\wÀ-ÿ])|km(?![\wÀ-ÿ])|quil[oô]metros?(?![\wÀ-ÿ])|m(?![\wÀ-ÿ])|metros?(?![\wÀ-ÿ])|viagens?(?![\wÀ-ÿ])|corridas?(?![\wÀ-ÿ])|litros?(?![\wÀ-ÿ])|l(?![\wÀ-ÿ])|%|minutos?(?![\wÀ-ÿ])|min(?![\wÀ-ÿ])|vezes(?![\wÀ-ÿ])|x(?![\wÀ-ÿ])|dias?(?![\wÀ-ÿ])|semanas?(?![\wÀ-ÿ])|m[eê]s(?:es)?(?![\wÀ-ÿ])|anos?(?![\wÀ-ÿ]))`
 const MEASURE_AFTER_AMOUNT = new RegExp(`^${UNIT_AFTER}`, 'i')
 
 /**
@@ -534,7 +534,10 @@ function driverDayResult(input: string, actions: ParsedAction[], dayHint?: boole
   // O `dayHint` existe porque quem segmenta a mensagem ARRANCA a expressão de
   // data antes de chamar o parser: "deu 200 hoje" chega aqui como "deu 200".
   // Sem o aviso, o contexto de dia — que é o que dá sentido ao valor — some.
-  if (!dayHint && !DAY_WORD.test(t)) return null
+  // "Tirei 250 BRUTO", "fiz 180 LÍQUIDO": o qualificador colado ao valor já diz
+  // que é o resultado do trabalho — sem "hoje", os R$ 250 se perdiam.
+  const resultadoQualificado = /\d\s*(?:reais\s+|conto\s+|contos\s+)?(?:bruto|brutos|l[íi]quido|l[íi]quidos|limpo|limpos)(?![\wÀ-ÿ])/i.test(t)
+  if (!dayHint && !DAY_WORD.test(t) && !resultadoQualificado) return null
 
   // `work` e `odometer` descrevem o dia, não o dinheiro dele: convivem com a
   // receita do resultado. Qualquer outra ação significa que a frase já foi
@@ -646,7 +649,7 @@ export function parseNaturalFull(
 ): ParseResult {
   // "Gastei ENTRE 40 E 50 no bar": o valor não foi dito. Registrar 50 e
   // perguntar pelos 40 era escolher sozinho; a pergunta oferece os dois.
-  const faixa = input.match(/(?<![\wÀ-ÿ])entre\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s+e\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)(?![\d.,])(?!\s*(?:km|h\b|horas?|dias?|min))/i)
+  const faixa = input.match(/(?<![\wÀ-ÿ])entre\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s+e\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)(?![\d.,])(?!\s*(?:km|h(?![\wÀ-ÿ])|horas?|dias?|min))/i)
   if (faixa) {
     const a = parseNum(faixa[1]), b = parseNum(faixa[2])
     if (a > 0 && b > a) {
@@ -755,7 +758,7 @@ export function parseNaturalFull(
       const rendeu = input.match(new RegExp(String.raw`\b(?:corridas|viagens)\b(?:\s+(?:hoje|ontem))?\s*(?:(?:,|\be\b)\s*(?:${verboResultado})?|(?:${verboResultado}))\s*(?:r\$)?\s*${NUM}\s*${MOEDA}?(?=\s*$|\s*[,;.]|\s+e\b)`, 'i'))
       // A jornada pode vir no meio: "fiz 10 corridas E RODEI 120 KM, deu 300".
       const colado = rendeu ? null : input.match(new RegExp(String.raw`\b(?:corridas|viagens)\s+(?:r\$\s*)?${NUM}(?![\d.,])\s*(?:reais|real|contos?|pilas?)\b`, 'i'))
-      const depoisDaJornada = rendeu || colado ? null : input.match(new RegExp(String.raw`(?:^|[,;]\s*|\s)(?:deu|deram|rendeu|renderam|faturei|tirei|bateu)\s+(?:r\$)?\s*${NUM}(?![\d.,])\s*${MOEDA}?(?!\s*(?:km|h\b|hrs?|horas?|litros?|l\b|corridas|viagens|%))`, 'i'))
+      const depoisDaJornada = rendeu || colado ? null : input.match(new RegExp(String.raw`(?:^|[,;]\s*|\s)(?:deu|deram|rendeu|renderam|faturei|tirei|bateu)\s+(?:r\$)?\s*${NUM}(?![\d.,])\s*${MOEDA}?(?!\s*(?:km|h(?![\wÀ-ÿ])|hrs?|horas?|litros?|l(?![\wÀ-ÿ])|corridas|viagens|%))`, 'i'))
       const valor = rendeu ? parseNum(rendeu[1]) : colado ? parseNum(colado[1]) : depoisDaJornada ? parseNum(depoisDaJornada[1]) : NaN
       if (valor > 0) actions.push({ kind: 'income', amount: valor, category: 'corridas' })
     }
@@ -1612,7 +1615,7 @@ function parseClause(input: string): ParsedAction[] {
     // "paguei o boleto de 300", "comprei uma camisa de 60": o "de" depois do
     // item também liga o valor. O número não pode ser seguido de unidade —
     // "a parcela de 3 meses", "o pacote de 2 kg" não dizem quanto custou.
-    const deRe = new RegExp(String.raw`(?:gastei|paguei|comprei|torrei)\s+${APROX}(?:um|uma|o|a|uns|umas)\s+([a-zà-úçãõ][\wçãõáéíóúâê-]*(?:\s+[\wçãõáéíóúâê-]+){0,3}?)\s+de\s+(?:r\$)?\s*${NUM}\s*${MOEDA}?(?!\s*(?:x\b|vezes|parcelas?|meses|m[eê]s|dias?|anos?|semanas?|horas?|h\b|min|minutos?|km|quil[oô]metros?|litros?|l\b|kg|quilos?|gramas?|g\b|gb|%|por\s*cento|metros?|m\b|unidades?|pe[cç]as?))\s*$`, 'i')
+    const deRe = new RegExp(String.raw`(?:gastei|paguei|comprei|torrei)\s+${APROX}(?:um|uma|o|a|uns|umas)\s+([a-zà-úçãõ][\wçãõáéíóúâê-]*(?:\s+[\wçãõáéíóúâê-]+){0,3}?)\s+de\s+(?:r\$)?\s*${NUM}\s*${MOEDA}?(?!\s*(?:x(?![\wÀ-ÿ])|vezes|parcelas?|meses|m[eê]s|dias?|anos?|semanas?|horas?|h(?![\wÀ-ÿ])|min|minutos?|km|quil[oô]metros?|litros?|l(?![\wÀ-ÿ])|kg|quilos?|gramas?|g(?![\wÀ-ÿ])|gb|%|por\s*cento|metros?|m(?![\wÀ-ÿ])|unidades?|pe[cç]as?))\s*$`, 'i')
     const inv = rideFare || text.match(invRe) || text.match(deRe)
     if (inv) {
       const desc = cleanDescription(inv[1])

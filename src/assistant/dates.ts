@@ -151,6 +151,19 @@ const RULES: Rule[] = [
     build: (_m, t) => ({ kind: 'future', date: addDays(t, 2), label: 'depois de amanhã', relative: true }),
   },
   {
+    // "HÁ dois dias", "faz 3 dias", "3 dias atrás": um dia EXATO, dito contando
+    // para trás. Perguntava "qual foi a data correta?". Semanas, meses, anos e
+    // o aproximado ("uns 5 dias") não apontam um dia só e continuam na barreira
+    // de `findUnresolvedTemporalHint`.
+    re: new RegExp(String.raw`(?<![\wÀ-ÿ])(?<!(?:uns|umas|uns\s+)\s)(?:h[áa]|faz)\s+(${COUNT_RE})\s+(dias?)(?![\wÀ-ÿ])(?!\s+atr[áa]s)|(?<![\wÀ-ÿ])(?<!(?:uns|umas)\s)(${COUNT_RE})\s+(dias?)\s+atr[áa]s(?![\wÀ-ÿ])`, 'i'),
+    build: (m, t) => {
+      const n = countOf(m[1] || m[3])
+      if (!Number.isFinite(n) || n <= 0 || n > 600) return null
+      const iso = addUnits(t, -n, m[2] || m[4])
+      return iso > t ? null : { kind: 'date', date: iso, label: brDate(iso) }
+    },
+  },
+  {
     // "daqui a 3 dias", "daqui há duas semanas". Exige UNIDADE DE TEMPO: sem
     // isso "daqui a pouco" (aviso, não data) viraria lançamento datado.
     re: new RegExp(String.raw`\bdaqui\s+(?:a|h[áa])\s+(${COUNT_RE})\s+(${UNIT_RE})\b`, 'i'),
