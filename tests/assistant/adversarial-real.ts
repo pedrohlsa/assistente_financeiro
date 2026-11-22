@@ -4,7 +4,7 @@ import type { AppState } from '../../src/models/types'
 import { orchestrate } from '../../src/assistant/orchestrator'
 import { segment } from '../../src/assistant/clauses'
 import { findDate } from '../../src/assistant/dates'
-import { balanceOutlook, balanceOutlookText, budgetUsage, cashObligationsUntil, categoryBreakdown, currentBalance, kmCost, monthlyProjections, occurrencesBetween, pendingRecurrings, periodStats, possibleRecurringTransactions, recurringLinkAction, transactionOccurrence, upcomingBills } from '../../src/services/calc'
+import { balanceOutlook, balanceOutlookText, budgetUsage, cashObligationsUntil, dailyGoal as dailyGoalCalc, categoryBreakdown, currentBalance, kmCost, monthlyProjections, occurrencesBetween, pendingRecurrings, periodStats, possibleRecurringTransactions, recurringLinkAction, transactionOccurrence, upcomingBills } from '../../src/services/calc'
 import { buildInstallments, cardInvoice, cardOutstanding, cardsOverview, commitmentTimeline, futureInstallmentPaymentDate, futureInvoicePaymentDate, invoiceOpenAmount, planProgress, splitInstallmentAmounts } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
 import { buildCapabilities } from '../../src/assistant/capabilities'
@@ -8909,6 +8909,33 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const r = (await turnoHoje(rico, frase)).reply
       out.push(result(id, r, 'o que mais saiu no mês, sem filtro de texto', /Onde mais saiu|Ainda não tenho gasto/.test(r) && !/cortar gastos"|Posso te ajudar/.test(r)))
     }
+  }
+
+  // "Bati a meta ontem?" e "quantos dias bati a meta esse mês?" respondiam o
+  // lucro de HOJE. A régua é a da Home (meta de hoje), e a resposta diz isso.
+  {
+    const rico = motoristaRico(hoje)
+    const meta = dailyGoalCalc(rico).total
+    const ontem = addDays(hoje, -1)
+    const lucroOntem = periodStats(rico, ontem, ontem).profit
+    const brl = (v: number) => fmtBRL(v).replace(/ /g, ' ')
+    const norm = (r: string) => r.replace(/ /g, ' ')
+    const r1 = norm((await turnoHoje(rico, 'consegui bater a meta ontem?')).reply)
+    const temOntem = periodStats(rico, ontem, ontem).income + periodStats(rico, ontem, ontem).expense > 0
+    out.push(result('MD-meta-ontem-nao-e-hoje', r1, 'o lucro de ontem contra a meta de hoje, com a régua dita',
+      !/hoje contra a meta/.test(r1) && (temOntem
+        ? r1.startsWith(lucroOntem >= meta - 0.009 ? 'Sim' : 'Não') && r1.includes(brl(lucroOntem)) && /régua/.test(r1)
+        : /Não há lançamentos de ontem/.test(r1))))
+    const r2 = norm((await turnoHoje(rico, 'quantos dias eu bati a meta esse mês')).reply)
+    let dias = 0, batidos = 0
+    for (let d = `${hoje.slice(0, 7)}-01`; d <= hoje; d = addDays(d, 1)) {
+      const st = periodStats(rico, d, d)
+      if (st.days > 0 || st.income > 0 || st.expense > 0) { dias++; if (st.profit >= meta - 0.009) batidos++ }
+    }
+    out.push(result('MD-quantos-dias-bati-a-meta', r2, `${batidos} de ${dias} dias`,
+      dias ? r2.startsWith(`${batidos} de ${dias} `) : /Não há lançamentos este mês/.test(r2)))
+    const r3 = norm((await turnoHoje(rico, 'minha meta de hoje bateu?')).reply)
+    out.push(result('MD-meta-de-hoje-bateu-sim-ou-nao', r3, 'começa por sim ou não', /^(Sim|Ainda não)/.test(r3)))
   }
 
   return out

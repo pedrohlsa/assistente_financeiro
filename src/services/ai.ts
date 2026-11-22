@@ -1136,11 +1136,41 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   const pedeQuantoFalta = /\bquanto\s+(?:ainda\s+)?falta\b.*\bmeta\b|\bmeta\b.*\bquanto\s+(?:ainda\s+)?falta\b|\bfalta\s+quanto\b.*\bmeta\b|\bmeta\b.*\bfalta\s+quanto\b/.test(t)
   if (driverMode && !metaCitadaPeloNome
     && (/\bbat(?:i|eu|er)\s+(?:a\s+)?(?:minha\s+)?meta\b/.test(t)
+      || /\bmeta\b[^?]{0,20}\bbat(?:eu|ida)\b/.test(t)
       || pedeQuantoFalta
       || /\b(?:to|tou|estou|ta|esta|t[oa]\s+indo|estou\s+indo|vou)\s+(?:bem|mal|perto|longe)\s+(?:d?[ao]\s+|n[ao]\s+)?(?:minha\s+)?meta\b/.test(t)
       || /\bcomo\s+(?:eu\s+)?(?:to|tou|estou|ta|esta)\s+(?:n[ao]\s+|com\s+a\s+)?(?:minha\s+)?meta\b/.test(t))) {
-    const ts = todayStats(s)
     const g = dailyGoal(s)
+    // A meta de um dia passado não fica guardada. A régua é a MESMA da Home,
+    // que mede o déficit de ontem contra a meta de hoje — e a resposta diz
+    // isso. Antes "bati a meta ontem?" e "quantos dias bati a meta?"
+    // respondiam o lucro de HOJE.
+    const hoje = todayISO()
+    const regua = `a meta de hoje, ${fmtBRL(g.total)}, como régua — a meta de cada dia passado não fica guardada`
+    const contaDias = /\bquantos\s+dias\b|\bquantas\s+vezes\b/.test(t)
+    if (contaDias) {
+      const semana = /\bsemana\b/.test(t)
+      const inicio = semana ? addDays(hoje, -6) : `${hoje.slice(0, 7)}-01`
+      const dias: { dia: string; lucro: number }[] = []
+      for (let d = inicio; d <= hoje; d = addDays(d, 1)) {
+        const st = periodStats(s, d, d)
+        if (st.days > 0 || st.income > 0 || st.expense > 0) dias.push({ dia: d, lucro: st.profit })
+      }
+      const quando = semana ? 'nos últimos 7 dias' : 'este mês'
+      if (!dias.length) return { text: `Não há lançamentos ${quando} para medir a meta. Registre o ganho do dia — "fiz 250 hoje" — que eu acompanho.` }
+      const batidos = dias.filter(x => x.lucro >= g.total - 0.009).length
+      return { text: `${batidos} de ${dias.length} ${dias.length === 1 ? 'dia registrado' : 'dias registrados'} ${quando} ficaram com lucro igual ou acima de ${fmtBRL(g.total)} (dado real). Usei ${regua}.` }
+    }
+    const diasAtras = /\banteontem\b/.test(t) ? 2 : /\bontem\b/.test(t) ? 1 : 0
+    if (diasAtras) {
+      const dia = addDays(hoje, -diasAtras)
+      const st = periodStats(s, dia, dia)
+      const nome = diasAtras === 1 ? 'ontem' : 'anteontem'
+      if (!(st.days > 0 || st.income > 0 || st.expense > 0)) return { text: `Não há lançamentos de ${nome} (${fromISO(dia).toLocaleDateString('pt-BR')}). Se trabalhou, registre o ganho — "${nome} fiz 250" — que eu comparo com a meta.` }
+      const faltou = round2(g.total - st.profit)
+      return { text: `${faltou <= 0.009 ? 'Sim' : 'Não'}: o lucro de ${nome} foi ${fmtBRL(st.profit)} (dado real)${faltou <= 0.009 ? '' : `, ${fmtBRL(faltou)} abaixo`}. Usei ${regua}.` }
+    }
+    const ts = todayStats(s)
     const falta = round2(g.total - ts.profit)
     const conta = `lucro de ${fmtBRL(ts.profit)} hoje contra a meta de ${fmtBRL(g.total)} (dado real)`
     // "Quanto falta?" não é pergunta de sim ou não: a resposta é o valor.
