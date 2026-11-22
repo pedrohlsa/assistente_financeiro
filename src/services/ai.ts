@@ -1745,6 +1745,11 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     if (!p) return ajudaGenerica(driverMode)
     const st = periodStats(s, p.from, p.to, today)
     const isLucro = /lucrei/.test(t)
+    // "Você faturou R$ 0,00… o lucro foi R$ 0,00": ausência de registro dita
+    // como resultado (regra 43).
+    if (!(st.income > 0) && !(st.expense > 0)) {
+      return { text: `Não há lançamentos ${p.label}. Registre o que entrou — "${driverMode ? 'fiz 250 hoje' : 'recebi 1500'}" — que eu somo.` }
+    }
     return {
       text: isLucro
         ? `Seu lucro ${p.label} foi ${fmtBRL(st.profit)} (${fmtBRL(st.income)} de receitas − ${fmtBRL(st.expense)} de despesas). Dados reais.`

@@ -9228,6 +9228,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const vazio = buildState({ profile: 'other', balance: 2000 })
       const mes = (await turnoHoje(vazio, 'como tá meu mês')).reply
       out.push(result('VZ-mes-sem-dado', mes, 'diz que não há lançamento', /Ainda não há lançamentos/.test(mes) && !/R\$ 0,00/.test(mes)))
+      const ganhei = (await turnoHoje(vazio, 'quanto ganhei esse mês')).reply
+      out.push(result('VZ-ganhei-sem-dado', ganhei, 'sem "R$ 0,00" como resultado', /Não há lançamentos/.test(ganhei) && !/R\$ 0,00/.test(ganhei)))
       const eco = (await turnoHoje(rico, 'me ajuda a economizar')).reply
       out.push(result('VZ-ajuda-a-economizar', eco, 'onde mais saiu', !/Posso te ajudar/.test(eco)))
     }
