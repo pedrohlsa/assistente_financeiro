@@ -8,7 +8,7 @@
 import type { ParsedAction } from '../models/types'
 import type { AssistantConfidence, AssistantIntent, FinancialEvent } from './contracts'
 import { guessCategory } from '../data/categories'
-import { alternateBalances, cleanDescription, contagemDeItens, tanqueCheio, DECIMO_TERCEIRO, GIRIA_DE_COMBUSTIVEL, PAGO_NO_DEBITO, vendaPorUnidade, voltaSemUnidade, DISTANCE_ON_FOOT, financedCardMentions, gruposDeCorrida, INCOME_PLATFORM_PREFIX, looksRecurring, parseNaturalFull, NEXT_RIDE_DISTANCE, RIDE_COMPARISON_REQUEST, RIDE_CONDITIONAL, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE, UMA_CORRIDA_NOMEADA, UNIT_SALE_PENDING, withoutPaymentBalanceContext } from '../services/nlp'
+import { alternateBalances, cleanDescription, contagemDeItens, tanqueCheio, DECIMO_TERCEIRO, GIRIA_DE_COMBUSTIVEL, PAGO_NO_DEBITO, somaEscrita, vendaPorUnidade, voltaSemUnidade, DISTANCE_ON_FOOT, financedCardMentions, gruposDeCorrida, INCOME_PLATFORM_PREFIX, looksRecurring, parseNaturalFull, NEXT_RIDE_DISTANCE, RIDE_COMPARISON_REQUEST, RIDE_CONDITIONAL, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE, UMA_CORRIDA_NOMEADA, UNIT_SALE_PENDING, withoutPaymentBalanceContext } from '../services/nlp'
 import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
@@ -1388,7 +1388,7 @@ function unaccountedMoney(clause: AnalyzedClause): number[] {
       || /^\s*(?:x|vezes|parcelas?|km|quil[oô]metros?|m(?![\wÀ-ÿ])|metros?\b|litros?|h(?![\wÀ-ÿ])|hrs?(?![\wÀ-ÿ])|horas?|min(?![\wÀ-ÿ])|minutos?\b|viagens?|corridas?|dias?|semanas?|meses?|anos?|%|k(?![\wÀ-ÿ]))/i.test(after)) continue
     // "Comprei 10 SACOS de cimento por 350": quantidade, com o preço depois.
     if (/\b(?:comprei|paguei|gastei|torrei)\s*$/i.test(before) && /^\s+[a-zà-ú]{3,}/i.test(after)
-      && /\b(?:por|custou|saiu\s+por|deu|foi)\s*(?:r\$\s*)?\d/i.test(normalized.slice(at + m[0].length))) continue
+      && /\b(?:por|custou|saiu\s+por|deu|foi|de)\s*(?:r\$\s*)?\d/i.test(normalized.slice(at + m[0].length))) continue
     const amount = parseMoney(m[0])
     const representedAt = represented.findIndex(v => Math.abs(v - amount) < 0.005)
     if (representedAt >= 0) represented.splice(representedAt, 1)
@@ -1410,7 +1410,7 @@ export function analyzeMessage(
 ): MessageAnalysis {
   const today = opts?.today || todayISO()
   // "Meu 13º caiu 1600": o 13 é o NOME do salário extra, não R$ 13,00.
-  const original = tanqueCheio(contagemDeItens(vendaPorUnidade(voltaSemUnidade(withoutPaymentBalanceContext(input.trim()
+  const original = tanqueCheio(contagemDeItens(vendaPorUnidade(voltaSemUnidade(withoutPaymentBalanceContext(somaEscrita(input.trim())
     .replace(DECIMO_TERCEIRO, 'décimo terceiro').replace(GIRIA_DE_COMBUSTIVEL, 'gasolina').replace(PAGO_NO_DEBITO, 'paguei $1'))))))
   // Números por extenso viram algarismos ANTES dos regex, para reaproveitar
   // todo o parser já testado em vez de duplicá-lo.

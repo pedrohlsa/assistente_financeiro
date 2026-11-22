@@ -9249,6 +9249,16 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         .map(x => `${x.date.slice(8, 10)}/${x.date.slice(5, 7)} ·`)
       out.push(result('PDIA-lista-respeita-periodo', lista, 'só a semana', !fora.some(d => lista.includes(d))))
     }
+    {
+      // "Comprei 2 pizzas de 45" virava R$ 2,00; "12,50+8" perdia os 8.
+      const aut = buildState({ profile: 'autonomo' })
+      const pz = await turnoHoje(aut, 'comprei 2 pizzas de 45')
+      out.push(result('QT-cada-ou-total', pz.reply, 'pergunta cada ou total, sem R$ 2,00', !pz.actions.length && /cada ou o total/.test(pz.reply)))
+      const tot = await turnoHoje(aut, 'comprei 2 pizzas de 45 no total')
+      out.push(result('QT-no-total', tot.actions, 'R$ 45', tot.actions.length === 1 && (tot.actions[0] as any).amount === 45 && !/mencionou/.test(tot.reply)))
+      const soma = await turnoHoje(aut, 'gastei 12,50+8 de pão e leite')
+      out.push(result('QT-soma-escrita', soma.actions, 'R$ 20,50', soma.actions.length === 1 && (soma.actions[0] as any).amount === 20.5))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

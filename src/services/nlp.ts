@@ -397,6 +397,21 @@ export function soNumeroDeNome(t: string): boolean {
  */
 export const PAGO_NO_DEBITO = /(?<![\wÀ-ÿ])(?:passei|paguei|gastei)\s+((?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s*reais)?)\s+(?:no|em|pelo|via)\s+(?:cart[ãa]o\s+(?:de\s+)?)?d[ée]bito(?![\wÀ-ÿ])/gi
 
+/**
+ * "Gastei 12,50+8 de pão e leite": a soma escrita é UM valor. O "+8" ficava
+ * sem ação e o app perguntava o que eram os R$ 8,00.
+ */
+export function somaEscrita(t: string): string {
+  const N = String.raw`(?:\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?)`
+  return t.replace(new RegExp(String.raw`(?<![\d.,])${N}(?:\s*\+\s*${N})+(?![\d.,])`, 'g'), expr => {
+    // Regra 12: cada parcela passa pelo parser único de dinheiro.
+    const total = expr.split('+').reduce((a, p) => a + parseMoney(p.trim()), 0)
+    if (!Number.isFinite(total) || total <= 0) return expr
+    const r = Math.round(total * 100) / 100
+    return Number.isInteger(r) ? String(r) : r.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  })
+}
+
 /** "Botei 100 de GASOSA": gíria de gasolina, que caía em Outros. */
 export const GIRIA_DE_COMBUSTIVEL = /(?<![\wÀ-ÿ])gasosa(?![\wÀ-ÿ])/gi
 export const DECIMO_TERCEIRO = /(?<=(?<![\wÀ-ÿ])(?:meu|o)\s)13(?![\d.,ºª°\wÀ-ÿ])(?=\s+(?:caiu|entrou|hoje|ontem|veio|de|foi|chegou|\d))|(?<![\d.,])13\s*[º°o](?:\s+sal[áa]rio)?(?![\wÀ-ÿ])|(?<![\d.,])13\s+sal[áa]rio(?![\wÀ-ÿ])/gi
@@ -447,7 +462,7 @@ function valorNoFim(input: string): string {
 
 export function parseNatural(input: string): ParsedAction[] {
   if (soNumeroDeNome(input)) return []
-  input = verboDeConsumo(cobrancaRecebida(fontePagou(mePagou(vendaPorUnidade(valorNoFim(voltaSemUnidade(contagemDeItens(tanqueCheio(dividaPaga(input.replace(DECIMO_TERCEIRO, 'décimo terceiro').replace(GIRIA_DE_COMBUSTIVEL, 'gasolina').replace(PAGO_NO_DEBITO, 'paguei $1'))))).replace(FRACAO_DE, 'parte')))))))
+  input = verboDeConsumo(cobrancaRecebida(fontePagou(mePagou(vendaPorUnidade(valorNoFim(voltaSemUnidade(contagemDeItens(tanqueCheio(dividaPaga(somaEscrita(input.replace(DECIMO_TERCEIRO, 'décimo terceiro').replace(GIRIA_DE_COMBUSTIVEL, 'gasolina').replace(PAGO_NO_DEBITO, 'paguei $1')))))).replace(FRACAO_DE, 'parte')))))))
   // Operações de cartão são analisadas na frase INTEIRA antes de qualquer
   // quebra: "passei 2000 em 5 vezes E RECEBI 1850" tem um verbo de comando no
   // meio, e cortar ali transformava uma entrada financiada numa receita de
@@ -781,6 +796,33 @@ export function parseNaturalFull(
             options: [
               { label: fmtBRL(a), actions: [{ ...alvo[0], amount: a } as ParsedAction] },
               { label: fmtBRL(b), actions: [{ ...alvo[0], amount: b } as ParsedAction] },
+            ],
+          },
+        }
+      }
+    }
+  }
+  // "Comprei 2 pizzas DE 45": cada uma ou as duas? A quantidade virava o
+  // valor (R$ 2,00). Sem "cada" nem "no total", o app pergunta, com as duas
+  // contas prontas. "A 25 cada" já é lido por `vendaPorUnidade`.
+  const porItem = input.match(/^\s*((?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)(comprei|gastei\s+com|paguei)\s+(\d{1,2})\s+([\p{L}][\p{L}-]*s)\s+(?:de|por)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)(?![\d.,])\s*(?:reais)?(\s+(?:no\s+total|ao\s+todo|tudo))?\s*[.!]?\s*$/iu)
+  if (porItem && !/\bcada\b/i.test(input)) {
+    const qtd = Number(porItem[3]), preco = parseNum(porItem[5])
+    if (qtd >= 2 && preco > 0) {
+      const item = porItem[4]
+      const base = parseNatural(`${porItem[1]}comprei ${porItem[5]} de ${item}`)
+      const desp = base.find(x => x.kind === 'expense') as any
+      if (desp) {
+        const total = Math.round(qtd * preco * 100) / 100
+        const desc = `${qtd} ${item}`
+        if (porItem[6]) return { actions: [{ ...desp, amount: preco, description: cleanDescription(desc) } as ParsedAction] }
+        return {
+          actions: [],
+          ambiguity: {
+            question: `${fmtBRL(preco)} era o preço de cada ou o total das ${qtd}?`,
+            options: [
+              { label: `Cada — ${fmtBRL(total)} no total`, actions: [{ ...desp, amount: total, description: cleanDescription(desc) } as ParsedAction] },
+              { label: `O total — ${fmtBRL(preco)}`, actions: [{ ...desp, amount: preco, description: cleanDescription(desc) } as ParsedAction] },
             ],
           },
         }
