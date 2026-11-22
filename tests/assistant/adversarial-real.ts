@@ -1477,6 +1477,26 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && purchaseApplied.applied && purchaseApplied.state.transactions.length === 2 && currentBalance(purchaseApplied.state, TODAY) === 980
       && cardRefunds.every(r => !r.actions.length && /crédito na fatura/.test(r.reply))
       && ambiguousRefunds.every(r => !r.actions.length)))
+  const cardCredits = await Promise.all([
+    'recebi 30 de cashback no Inter e caiu na fatura',
+    'me estornaram 89 e caiu no cartão, não foi Pix',
+  ].map(refundTurn))
+  const bankCredit = await refundTurn('recebi 30 de cashback na minha conta')
+  const receivedOnly = await Promise.all([
+    'me devolveram 40 do mercado que custou 80',
+    'a farmácia fez um estorno de 40 e caiu no meu Pix',
+    'me reembolsaram 40 de um gasto de 80',
+  ].map(refundTurn))
+  const overcharged = await refundTurn('paguei 100 e recebi de volta 20 porque cobraram a mais')
+  out.push(result('H9-estorno-e-cashback-seguem-o-destino-do-credito', { cardCredits, bankCredit, receivedOnly, overcharged },
+    'crédito no cartão fica fora do caixa. Só o valor recebido entra quando cai na conta ou no Pix',
+    cardCredits.every(r => !r.actions.length && /crédito na fatura/.test(r.reply) && !/nenhum lançamento que se encaixe/.test(r.reply))
+    && bankCredit.actions.length === 1 && bankCredit.actions.some(a => a.kind === 'income' && a.amount === 30
+      && a.category === 'outros-in' && a.description === 'Cashback')
+    && receivedOnly.every(r => r.actions.length === 1 && r.actions.some(a => a.kind === 'income' && a.amount === 40
+      && /^Reembolso/.test(a.description || '')) && !r.clarification)
+    && overcharged.actions.length === 2 && overcharged.actions.some(a => a.kind === 'expense' && a.amount === 100)
+    && overcharged.actions.some(a => a.kind === 'income' && a.amount === 20 && a.description === 'Reembolso')))
   {
     const perfil = buildState({ profile: 'driver', balance: 900 })
     perfil.settings.balanceAsOf = addDays(TODAY, -2)

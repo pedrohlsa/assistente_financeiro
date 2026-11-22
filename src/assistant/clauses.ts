@@ -182,6 +182,11 @@ const ORIGIN_FIRST = new RegExp(String.raw`^(d[ao]s?)\s+(.+?)\s+(${CASH_PAIR_VAL
 const REFUND_THIRD = 'devolveu|devolveram|estornou|estornaram|reembolsou|reembolsaram'
 const REFUND_FIRST = 'devolvi|devolvemos|estornei|estornamos'
 const REFUND_VERB = new RegExp(String.raw`\b(?:${REFUND_THIRD}|${REFUND_FIRST})\b`, 'i')
+const CREDIT_RETURN = new RegExp(String.raw`\b(?:cashback|estorno|reembolso|${REFUND_THIRD})\b`, 'i')
+const CREDIT_POSTED_TO_INVOICE = /(?<!\b(?:n[ãa]o|nem)\s)\b(?:caiu|entrou|voltou|foi\s+(?:abatid[oa]|creditad[oa]|lan[cç]ad[oa]))\s+(?:como\s+cr[ée]dito\s+)?n[ao]\s+(?:minha\s+)?fatura\b/i
+const CARD_NOT_PIX = String.raw`cart[ãa]o\s*,?\s+(?:mas\s+)?n[ãa]o\s+foi\s+(?:via\s+)?pix\b`
+const CREDIT_RETURN_DESTINATION = new RegExp(String.raw`\b(?:cashback|estorno|reembolso|${REFUND_THIRD})\b(?:(?!\s+e\s+(?:paguei|gastei|comprei|recebi|ganhei|abasteci)\b)[^.;!?]){0,70}?\s+e\s+(?:caiu|entrou|voltou)\s+(?:como\s+cr[ée]dito\s+)?n[ao]\s+(?:(?:meu|minha|noss[ao])\s+)?(?:${CARD_NOT_PIX}|pix\b|conta\b|cart[ãa]o\b|fatura\b)`, 'gi')
+const CREDIT_CARD_NOT_PIX = new RegExp(String.raw`\b(?:caiu|entrou|voltou)\s+no\s+${CARD_NOT_PIX}`, 'i')
 const THIRD_PERSON_REFUND = new RegExp(String.raw`\b(?:${REFUND_THIRD}|estorno)\b`, 'i')
 const OUTGOING_REFUND = new RegExp(String.raw`\b(?:${REFUND_FIRST})\b`, 'i')
 const REFUND_DENIED = new RegExp(String.raw`(?<![\p{L}\p{M}])(?:n[ãa]o|nem|[nñ])\s+(?:(?:me|nos)\s+)?(?:${REFUND_THIRD}|${REFUND_FIRST})\b`, 'iu')
@@ -491,6 +496,7 @@ const CORRECTION_CONTRAST = /^\s*n[ãa]o\s+(?:foi|era)\s+[^.!?]+?\s+(?:foi|era)\
 const CORRECTED_AMOUNT = /^(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s*(?:reais?|contos?)\b)?/i
 
 const PROTECTED: RegExp[] = [
+  CREDIT_RETURN_DESTINATION,
   /comprei[^.;!?]*?\b(?:em|x)\s*\d+\s*(?:vez(?:es)?|x|parcelas?)/gi,
   /"[^"\n]{1,512}"|“[^”\n]{1,512}”|‘[^’\n]{1,512}’/g,
   new RegExp(String.raw`(?:^|[.!?;]\s+)${EXAMPLE_CUE}(?:[^.!?]|\.(?!\s|$)){1,512}`, 'gi'),
@@ -1200,9 +1206,11 @@ type IncomeAction = Extract<ParsedAction, { kind: 'income' }>
 const VALOR_REEMBOLSO = String.raw`(?:r\$\s*)?([-+]?\d+(?:[.,]\d+)*)(?:\s+(?:real|reais))?`
 const VALOR_DEVOLVIDO = new RegExp(String.raw`\b(?:${REFUND_FIRST})\b[^\d.;!?]{0,30}${VALOR_REEMBOLSO}\b`, 'i')
 const RECEBI_REEMBOLSO = [
+  new RegExp(String.raw`^(?:eu\s+)?(?:recebi|recebemos)\s+de\s+volta\s+${VALOR_REEMBOLSO}\b`, 'i'),
   new RegExp(String.raw`^(?:eu\s+)?(?:recebi|recebemos)\s+(?:mais\s+)?${VALOR_REEMBOLSO}\s+de\s+reembolso\b`, 'i'),
   new RegExp(String.raw`^(?:me\s+)?reembolsaram\s+${VALOR_REEMBOLSO}\b`, 'i'),
   new RegExp(String.raw`^(?:o\s+)?reembolso\s+de\s+${VALOR_REEMBOLSO}(?:\s+(?<referencia>d[aeo]s?\s+[^\d?!;,.]+?))?\s+(?:caiu|entrou)(?:\s+na\s+conta)?[.!]*$`, 'i'),
+  new RegExp(String.raw`\b(?:estorno|reembolso)\s+de\s+${VALOR_REEMBOLSO}\s+(?:e\s+)?(?:caiu|entrou)(?=\s+n[ao]\s+(?:(?:meu|minha|noss[ao])\s+)?(?:pix|conta)\b)`, 'i'),
 ]
 const ME_DEVOLVERAM = [
   // "Me devolveu OS 100": o artigo retoma um valor já conhecido.
@@ -1211,7 +1219,9 @@ const ME_DEVOLVERAM = [
   new RegExp(String.raw`\b(?:${REFUND_THIRD})\s+${VALOR_REEMBOLSO}\s+na\s+(?:minha|nossa)\s+conta\b`, 'i'),
   new RegExp(String.raw`^(?:eu\s+)?recebi\s+(?:o\s+)?estorno\s+(?:de\s+)?${VALOR_REEMBOLSO}\b`, 'i'),
 ]
-const REEMBOLSO_NA_CONTA = /(?:^|\s+)(?:(?:via|por|pelo|no)\s+(?:pix|transfer[êe]ncia)|na\s+(?:(?:minha|nossa)\s+)?conta(?:\s+banc[áa]ria)?)\s*$/i
+const REEMBOLSO_NA_CONTA = /(?:^|\s+)(?:(?:via|por|pelo|no)\s+(?:(?:meu|nosso)\s+)?(?:pix|transfer[êe]ncia)|na\s+(?:(?:minha|nossa)\s+)?conta(?:\s+banc[áa]ria)?)\s*$/i
+const ORIGINAL_REFUND_PRICE = new RegExp(String.raw`(?:\s+que\s+custou\s+${VALOR_REEMBOLSO}|\b((?:gasto|compra|pagamento))\s+de\s+${VALOR_REEMBOLSO})(?=\s*(?:e|mas)?[.!;,]*$)`, 'i')
+const REFUND_REASON = /(?:^|\s+)porque\s+(?:me\s+)?cobraram\s+a\s+mais[.!]*$/i
 const REEMBOLSO_ADICIONAL = new RegExp(String.raw`(?:,\s*mais\s+|\be\s+(?:mais\s+)?)${VALOR_REEMBOLSO}\s+de\s+reembolso\b`, 'i')
 const REEMBOLSO_INCLUIDO = new RegExp(String.raw`(?:\b(?:sendo|dos\s+quais|dess[ea]s?)\s+${VALOR_REEMBOLSO}\s+(?:(?:foi|foram|era|eram)\s+)?(?:de\s+)?reembolso|(?:[,;]\s*|\b(?:mas|porem|so\s+que)\s+)${VALOR_REEMBOLSO}\s+(?:foi|foram|era|eram)\s+(?:de\s+)?reembolso)\b`)
 const PEDIU_REEMBOLSO = /\b(?:pedi|pedimos|solicitei|solicitamos)\s+(?:um\s+|o\s+)?reembolso\b/i
@@ -1230,7 +1240,7 @@ export function isRefundInflow(action: ParsedAction): boolean {
 
 function reembolsoRecebido(match: RegExpMatchArray, frase: string): IncomeAction | undefined {
   const detalhe = match.groups?.referencia || frase.slice((match.index ?? 0) + match[0].length).replace(/[.!]+$/, '')
-    .trim().replace(REEMBOLSO_NA_CONTA, '').trim()
+    .trim().replace(REEMBOLSO_NA_CONTA, '').replace(ORIGINAL_REFUND_PRICE, '$2').replace(REFUND_REASON, '').trim()
   if (detalhe && !/^(?:d[aeo]s?|por|referente\s+a)\s+[^\d?!;,]+$/i.test(detalhe)) return undefined
   if (/\b(?:n[aã]o|mas|recebi|gastei|paguei)\b/i.test(detalhe)) return undefined
   const valor = parseMoney(match[1])
@@ -1329,7 +1339,9 @@ function unaccountedMoney(clause: AnalyzedClause): number[] {
   if (clause.ambiguity || clause.temporal || clause.intention || clause.intent === 'question'
     || clause.intent === 'conversation' || clause.intent === 'correction'
     || /\bse\s+eu\b|\b(?:supondo|imagina)\b|%/.test(clause.text)) return []
-  const normalized = workDuration(normalizeNumberWords(spokenClock(clause.text).remaining).text).remaining
+  const spoken = workDuration(normalizeNumberWords(spokenClock(clause.text).remaining).text).remaining
+  const normalized = clause.actions.some(isRefundInflow)
+    ? spoken.replace(REEMBOLSO_NA_CONTA, '').replace(ORIGINAL_REFUND_PRICE, '$2') : spoken
   if (clause.actions.some(a => a.kind === 'card-payment')) {
     const amounts = clause.actions.filter(a => a.kind === 'expense').map(a => a.amount)
     return [...normalized.matchAll(INVOICE_EXTRA_AMOUNT)].flatMap(m => {
@@ -1463,6 +1475,10 @@ export function analyzeMessage(
       || (/\b(?:mas|por[ée]m|s[oó]\s+que)\s*$/i.test(part.text) && PAYMENT_NOT_RECEIVED.test(following))))
     const localExplanation = specializedInflow || (internalTransfer ? INTERNAL_TRANSFER_REPLY
       : quotedOrExample(part.text) || (declinedRide && !part.text.includes('?') ? 'A corrida não aconteceu. Nenhum lançamento foi preparado.'
+      : !isQuestion && !negated && CREDIT_RETURN.test(part.text) && CREDIT_POSTED_TO_INVOICE.test(part.text)
+        ? 'Esse valor virou crédito na fatura do cartão. Confira o ajuste na fatura do banco.'
+      : !isQuestion && !negated && CREDIT_RETURN.test(part.text) && CREDIT_CARD_NOT_PIX.test(part.text)
+        ? 'O valor voltou pelo cartão. Confira se aparece como crédito na fatura do banco.'
       : UNIT_SALE_PENDING.test(part.text) ? 'Há pagamento pendente nessa venda. Se recebeu uma parte, diga quanto entrou para eu preparar o lançamento.'
       : installmentCompletion ? 'Para baixar parcelas específicas, abra o plano em Cartões e parcelamentos e marque as parcelas que foram pagas.'
       : paymentPending ? 'O recebimento ainda está pendente. Quando o dinheiro entrar, diga o valor e a data.'
@@ -1566,7 +1582,7 @@ export function analyzeMessage(
     const closedPix = sentAmount > 0 || (previousPix && PIX_CONTEXT_DENIED.test(fala))
     if (closedPix) previousClause.ambiguity = undefined
     const receivedPayment = !requestedPix && !isQuestion && !negated && !localExplanation ? readReceivedPayment(fala) : undefined
-    const refundMention = REFUND_VERB.test(fala) || /\b(?:estorno|reembolso)\b/i.test(fala)
+    const refundMention = REFUND_VERB.test(fala) || CREDIT_RETURN.test(fala)
     const caixaDoReembolso = REEMBOLSO_NA_CONTA.test(fala.replace(/[.!]+$/, '').trim())
     const creditoNaFatura = refundMention && !caixaDoReembolso && /\b(?:cart[ãa]o|fatura|cr[ée]dito)\b/i.test(fala)
     const devolveram = !isQuestion && !refundDenied && !creditoNaFatura && (!/\bestorn/i.test(fala) || caixaDoReembolso)
@@ -1621,7 +1637,9 @@ export function analyzeMessage(
     const tireCost = tireIncident ? parseFirstAmount(part.text) : NaN
     const readActions: ParsedAction[] = tireIncident && tireCost > 0
       ? [{ kind: 'expense', amount: tireCost, category: 'manutencao', description: 'Pneu' }]
-      : reembolso && !direcaoIncerta ? primeiroReembolso ? [reembolso] : [...parsed.actions, reembolso] : parsed.actions
+      : reembolso && !direcaoIncerta ? primeiroReembolso ? [reembolso] : [...parsed.actions, reembolso]
+        : /\bcashback\b/i.test(fala) && caixaDoReembolso ? parsed.actions.map(action =>
+          action.kind === 'income' ? { ...action, category: 'outros-in', description: 'Cashback' } : action) : parsed.actions
     const netAmounts = readActions.some(a => a.kind === 'income')
       ? [...comando.matchAll(STATED_NET_CASH)].map(m => parseMoney(m.groups?.before || m.groups?.after)) : []
     const actions0 = netAmounts.length ? readActions.map(action =>
