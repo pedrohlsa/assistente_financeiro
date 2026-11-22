@@ -9418,6 +9418,29 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         const r = (await turnoHoje(moto, frase)).reply
         out.push(result(`PH-${frase.split(' ')[0]}-${frase.split(' ')[1]}`, r, 'divisão por plataforma', /Uber/.test(r) && /99/.test(r) && !/Total gasto|Posso te ajudar/.test(r)))
       }
+      const apps = buildState({ profile: 'driver' })
+      apps.transactions = [
+        ...([['Uber', 600], ['99', 400], ['inDrive', 1250]] as const).map(([description, amount]) =>
+          ({ id: description, type: 'income' as const, description, amount, category: 'corridas', date: TODAY })),
+        { id: 'anterior', type: 'income', description: 'Uber', amount: 170, category: 'corridas', date: '2026-08-10' },
+      ]
+      apps.workSessions = [{ id: 'dia', date: TODAY, hours: 6, km: 120, trips: 8 }]
+      const pair = await Promise.all(['compare Uber e 99 hoje', 'quanto ganhei de Uber versus 99 hoje', 'vale a pena rodar de 99 ou Uber?'].map(frase => turn(apps, frase)))
+      const old = await turn(apps, 'vale a pena rodar de Uber ou 99 mês passado?')
+      const inDrive = await turn(apps, 'vale a pena rodar de inDrive ou Uber?')
+      out.push(result('PH-comparacao-nomeia-apenas-apps-pedidos', [...pair.map(r => r.reply), old.reply, inDrive.reply], 'respeita plataformas, período e dados faltantes',
+        pair.every(r => r.mode === 'answer' && !r.actions.length && /Uber teve a maior receita/.test(r.reply) && /600,00/.test(r.reply)
+          && /400,00/.test(r.reply) && !/inDrive/.test(r.reply)) && /mês passado/.test(old.reply) && /170,00/.test(old.reply)
+        && /99: sem receita/.test(old.reply) && !/600,00/.test(old.reply)
+        && /inDrive teve a maior receita/.test(inDrive.reply) && /1\.250,00/.test(inDrive.reply) && !/400,00/.test(inDrive.reply)))
+      const metrics = await Promise.all(['qual app paga melhor por hora?', 'qual plataforma paga melhor por km?'].map(frase => turn(apps, frase)))
+      const grouped = (['per-hour', 'per-km'] as const).map(metric => runQuery(apps, {
+        version: 2, source: 'transactions', field: 'amount', period: { from: TODAY, to: TODAY, label: 'hoje', grain: 'day' },
+        metric, group: 'platform', filter: { txType: ['income'] }, limit: 8,
+      }, TODAY))
+      out.push(result('PH-metricas-exigem-base-por-app', [...metrics.map(r => r.reply), ...grouped.map(r => r.caveats)], 'horas e km do dia não viram indicadores por plataforma',
+        metrics.every(r => !r.actions.length && /separados por plataforma/.test(r.reply) && !/R\$/.test(r.reply))
+        && grouped.every(r => !r.facts.length && !r.groups.length && /por plataforma/.test(r.caveats.join(' ')))))
       for (const frase of ['hoje fiz 200 na uber em 5 horas', 'fiz 200 trabalhando 5 horas']) {
         const r = await turnoHoje(moto, frase)
         out.push(result(`PH-horas-${frase.split(' ').slice(-3, -2)[0]}`, r.actions, 'R$ 200 e 5 h',

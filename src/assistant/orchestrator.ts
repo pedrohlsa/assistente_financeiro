@@ -23,6 +23,7 @@ import { PEDE_APAGAR, analyzeMessage, contestsProposal, datesMentioned, declares
 import { categoryDilemma, outOfPatternWarning, withLearnedCategory, withLearnedSpelling } from './learning'
 import { explainRequest } from './explain'
 import { answerConversation, isFocusFresh, looksLikeFollowUp } from './conversation'
+import { compareRideApps } from './driverInsights'
 import { buildRemoteConversation } from './conversation/remoteContext'
 import type { RemoteConversationContext, RemoteTurnRelation } from './conversation/remoteContext'
 import { buildTurnPlan, hasBlock } from './semantic/turn'
@@ -1641,6 +1642,11 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   const today = input.today || todayISO()
   const pendingPreview = previewPendingQuery(input, today)
   if (pendingPreview) return pendingPreview
+  const platformComparison = !input.pendingClarification && !input.draft ? compareRideApps(input.state, input.message, today) : undefined
+  if (platformComparison) return withPendingAnswer(input, {
+    draft: null, focus: input.focus,
+    response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply: platformComparison },
+  }, today, state => compareRideApps(state, input.message, today))
   if (!input.draft && (!input.pendingClarification || input.pendingClarification.field === 'reported-total')) {
     const payout = readPlatformPayout(input.message)
     const reconciled = payout || reconcileSpokenTotals(input.message, today, isDriver(input.state.settings), caps.cardNames)

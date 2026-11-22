@@ -599,20 +599,20 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
       sample: { rows: 0, from: plan.period.from, to: plan.period.to }, facts: [], samples: [],
       caveats: [`Não consigo calcular os depósitos nas metas ${plan.period.label}: o app guarda o total acumulado atual, sem histórico completo da data de cada depósito.`] }
   }
+  // "Quanto rendeu a UBER por hora": horas, km e viagens não são guardadas
+  // por plataforma. Dividir a receita da Uber pelas horas de TODAS as
+  // plataformas dava R$ 28,92/hora com cara de dado real.
+  if ((plan.metric === 'per-hour' || plan.metric === 'per-km') && (plan.filter.platform || plan.group === 'platform')) {
+    const unidade = plan.metric === 'per-hour' ? 'horas' : 'quilômetros'
+    return { plan, unit, total: 0, count: 0, groups: [], estimated: false, empty: true, missingDistance: true,
+      sample: { rows: 0, from: plan.period.from, to: plan.period.to }, facts: [], samples: [],
+      caveats: [`Não separo ${unidade} por plataforma. O histórico guarda essas medidas para o dia inteiro. Para ver o total recebido de cada app, pergunte "quanto ganhei na Uber e na 99 esse mês".`] }
+  }
   const semKm = ({ from, to }: AssistantQueryPlan['period']) => quantidadeTrabalho(state, from, to, today).km <= 0
   if (plan.metric === 'per-km' && semKm(plan.period)) {
     return { plan, unit, total: 0, count: 0, groups: [], estimated: false, empty: true, missingDistance: true,
       sample: { rows: 0, from: plan.period.from, to: plan.period.to }, facts: [], samples: [],
       caveats: [`Não tenho quilometragem de trabalho registrada ${plan.period.label} para calcular o valor por km.`] }
-  }
-  // "Quanto rendeu a UBER por hora": horas, km e viagens não são guardadas
-  // por plataforma. Dividir a receita da Uber pelas horas de TODAS as
-  // plataformas dava R$ 28,92/hora com cara de dado real.
-  if ((plan.metric === 'per-hour' || plan.metric === 'per-km' || plan.metric === 'per-trip') && plan.filter.platform) {
-    const unidade = plan.metric === 'per-hour' ? 'horas' : plan.metric === 'per-km' ? 'quilômetros' : 'viagens'
-    return { plan, unit, total: 0, count: 0, groups: [], estimated: false, empty: true, missingDistance: true,
-      sample: { rows: 0, from: plan.period.from, to: plan.period.to }, facts: [], samples: [],
-      caveats: [`Não separo ${unidade} por plataforma: elas são registradas para o dia inteiro. Dividir só o que a ${/^uber$/i.test(plan.filter.platform) ? 'Uber' : plan.filter.platform} pagou por ${unidade === 'horas' ? 'todas as horas' : unidade === 'viagens' ? 'todas as viagens' : 'todos os km'} daria um número errado. Para ver quanto cada uma pagou, pergunte "quanto ganhei na uber e na 99 esse mês".`] }
   }
   // "Quanto eu ganho por hora" sem hora nenhuma respondia "R$ 0,00/hora (dado
   // real)" — número certo de nada. Mesma saída do valor por km sem km.

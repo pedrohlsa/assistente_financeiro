@@ -21,9 +21,13 @@
 
 import type { AppState, Transaction, WorkSession } from '../models/types'
 import { fuelSpend } from '../services/calc'
+import { isDriver } from '../services/profile'
 import { addDays, fmtBRL, fmtNum, fromISO, todayISO } from '../utils/format'
 import { brDate } from './dates'
-import { weekdayName } from '../utils/text'
+import { normalizeName, weekdayName } from '../utils/text'
+import { currentMonthToDate, parsePeriod } from './query/period'
+import { runQuery } from './query/engine'
+import { QUERY_DSL_VERSION } from './query/types'
 
 /** Janela padrão do "meu normal": um mês corrido de trabalho. */
 const JANELA_DIAS = 30
@@ -201,6 +205,50 @@ const PLATAFORMAS: [RegExp, string][] = [
   [/^indrive$/i, 'inDrive'],
   [/corrida privada/i, 'Corrida privada'],
 ]
+
+const NAMED_RIDE_APPS = /(?<![\p{L}\p{N}])(?<!\d[.,])(?:uber|in\s*drive[r]?|99(?!\s*(?:reais?|contos?)\b))(?![\p{L}\p{N}]|[.,]\d)/giu
+const APP_RANKING = /^(?:qual|quais)\s+(?:(?:o|a)\s+)?(?:app|aplicativo|plataforma)s?\b[^?]*\b(?:paga|rende|vale|melhor|compensa)\b/
+const APP_COMPARISON = /^(?:(?:me\s+)?compar(?:a|e|ar)|quanto\s+(?:eu\s+)?(?:ganhei|recebi|fiz|faturei|rendeu)|ganhei\s+mais|qual\s+(?:ganha|rende|paga)\s+mais|vale\s+a\s+pena\s+rodar|compensa\s+rodar)\b/
+
+export function compareRideApps(state: AppState, input: string, today: string): string | undefined {
+  if (!isDriver(state.settings)) return undefined
+  const t = normalizeName(input).trim()
+  if (/\b(?:gastei|paguei|quanto\s+custa|sem\s+contar|somando|juntas?|exceto|acima|abaixo|comparad[oa]\s+(?:com|a))\b/.test(t)) return undefined
+  const names = [...new Set([...t.matchAll(NAMED_RIDE_APPS)].map(m =>
+    m[0] === '99' ? '99' : m[0] === 'uber' ? 'Uber' : 'inDrive'))]
+  const ranking = APP_RANKING.test(t)
+  if (!ranking && !(names.length > 1 && APP_COMPARISON.test(t))) return undefined
+  const saidPeriod = parsePeriod(t, today)?.period
+  if (!saidPeriod && /\b(?:ultima\s+quinzena|ultimos\s+meses)\b/.test(t)) return undefined
+  const metric = t.match(/\bpor\s+(hora|km|quilometro|viagem|corrida)\b/)?.[1]
+  if (metric) {
+    if (metric === 'viagem' || metric === 'corrida') return 'O histórico guarda a quantidade de viagens por dia. Preciso da quantidade por plataforma para calcular o valor por viagem de cada app.'
+    const base = metric === 'hora' ? 'as horas de trabalho' : 'os quilômetros rodados'
+    return `O app guarda ${base} por dia. Para comparar quanto cada plataforma paga por ${metric}, precisaria desses dados separados por plataforma.`
+  }
+  const advice = ranking || /\b(?:vale\s+a\s+pena|compensa)\b/.test(t)
+  const period = saidPeriod || (advice ? {
+    from: addDays(today, -(JANELA_DIAS - 1)), to: today, label: `nos últimos ${JANELA_DIAS} dias`, grain: 'day' as const,
+  } : currentMonthToDate(today))
+  const result = runQuery(state, {
+    version: QUERY_DSL_VERSION, source: 'transactions', field: 'amount', period, group: 'platform',
+    filter: { txType: ['income'], categories: ['corridas'] }, metric: 'sum', order: 'value-desc', limit: 8,
+  }, today)
+  const selected = names.length ? names : ['Uber', '99', 'inDrive'].filter(name => result.groups.some(g => g.key === name))
+  const rows = selected.map(name => ({ name, value: result.groups.find(g => g.key === name) }))
+  const found = rows.flatMap(({ value }) => value ? [value] : []).sort((a, b) => b.value - a.value)
+  if (!found.length) {
+    return `Não tenho receitas por plataforma registradas ${period.label}${names.length ? ` para ${names.join(' e ')}` : ''}.`
+  }
+  const [first, second] = found
+  const lead = second && first.value === second.value ? `O maior total ficou empatado ${period.label}.`
+    : second ? `${first.label} teve a maior receita registrada ${period.label}.`
+      : `Receitas por plataforma ${period.label}.`
+  const lines = rows.map(({ name, value }) => value
+    ? `• ${name}: ${fmtBRL(value.value)} em ${value.count} ${value.count === 1 ? 'registro' : 'registros'}`
+    : `• ${name}: sem receita registrada no período`)
+  return [lead, lines.join('\n'), ...(advice ? ['Esses são os valores recebidos. Para comparar o rendimento por hora, faltam as horas separadas por plataforma.'] : [])].join('\n\n')
+}
 
 function porPlataforma(s: AppState): string {
   const from = addDays(todayISO(), -(JANELA_DIAS - 1))
