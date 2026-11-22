@@ -56,7 +56,7 @@ export interface DriverDay {
 
 /** Verbo que estrutura oração: com ele, quem lê a frase é o parser normal. */
 const TEM_ORACAO = /\b(?:ganhei|recebi|faturei|coloquei|botei|abasteci|rodei|andei|trabalhei|gastei|paguei|comprei|guardei|troquei)\b/i
-const NAO_E_RELATO = /\?|\b(?:nao|nem|nunca|se|talvez|ou|quanto|qual|compara|compensa|vale|somando|total)\b/
+const NAO_E_RELATO = /\?|\b(?:nao|nem|nunca|se|talvez|ou|quanto|qual|compara|compensa|vale|somando|total|vou|pretendo)\b/
 const DURACAO = new RegExp(String.raw`(?<![\d.,])${COMPOUND_DURATION}(?![\p{L}\p{M}\d]|[.,]\d)`, 'gu')
 
 /**

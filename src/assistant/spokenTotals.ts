@@ -4,6 +4,7 @@ import { normalizeName } from '../utils/text'
 import { analyzeMessage, looksLikeQuestion, looksPast, segment } from './clauses'
 import { normalizeNumberWords } from './numbers'
 import { readDraftPurchaseDate, type IncompleteIntent } from './drafts'
+import { parseDriverDay } from './semantic/driverDay'
 
 const MONEY = String.raw`(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?!\d|[.,]\d)(?:\s+(?:reais?|contos?|pila))?`
 const INCLUDED_ITEM = String.raw`${MONEY}\s+(?:d[eo]\s+(?:frete|entrega|taxas?|juros|servi[cç]o|gorjetas?)|(?:no|via|por)\s+pix|em\s+dinheiro)\b`
@@ -22,6 +23,7 @@ const PARTIAL_FROM_TOTAL = new RegExp(String.raw`^${PAYMENT_PREFIX}(?<paid>${MON
 const HALF_FROM_TOTAL = new RegExp(String.raw`^${PAYMENT_PREFIX}(?:a\s+)?(?:metade|1\s*/\s*2)\s+(?:dos|das|de\s+um\s+total\s+de)\s+(?<total>${MONEY})(?<label>\s+d[aeo]s?\s+[^,;!?]+?)?(?:\s*[,;]\s*(?:deu|foram|ficou\s+em)\s+(?<paid>${MONEY}))?\s*[.!]*$`, 'i')
 const NET_VALUE = String.raw`${MONEY}\s+(?:limp[oa]s?|l[íi]quid[oa]s?)(?![\wÀ-ÿ])`
 const DRIVER_RESULT_START = String.raw`(?:(?:eu|hoje|hj|ontem|anteontem|agora|j[áa])\s+){0,4}(?:fiz|fechei|ganhei|faturei|tirei|recebi|deu|ficou|sobrou)\s+`
+const FARE_SUBTOTAL = new RegExp(String.raw`^((?:(?:eu|hoje|hj|ontem|anteontem|agora|j[áa])\s+){0,4})(ganhei|faturei|recebi|fiz)\s+(.+?)(?:\s*[,;]\s*|\s+)(?:somando(?:\s+(?:deu|d[aá]))?|total(?:\s+(?:de|foi))?|ao\s+todo|no\s+total)\s+${MONEY}(?=$|[.,;!]|\s+e\s+)(.*)$`, 'i')
 const OPERATING_COST = String.raw`(?:gastos?|custos?|despesas?|combust[íi]vel|gasolina|etanol|diesel|ped[áa]gio|aluguel\s+d[eo]\s+carro)(?![\wÀ-ÿ])`
 const NET_WITH_COST = new RegExp(String.raw`(?:(?:^|[,;]\s*|\s+e\s+)${DRIVER_RESULT_START}|\b(?:sobrou|sobraram|ficou)\s+|[,;]\s*)${NET_VALUE}\s+(?:j[áa]\s+)?(?:com|depois\s+d[aeo]s?|descontando|tirando|abatendo)\s+(?:[ao]s?\s+)?(?:${MONEY}\s+(?:d[aeo]|em)\s+)?${OPERATING_COST}`, 'i')
 const BOTH_NET_AND_GROSS = new RegExp(String.raw`^${DRIVER_RESULT_START}${MONEY}\s+brut[oa]s?(?:\s+(?:na|no|pela|pelo|da|do)\s+(?:uber|99|in\s*drive[r]?))?(?:\s+e\s+|,\s*)(?:(?:ficou|sobrou|deu|recebi)\s+)?${NET_VALUE}[.!]*$`, 'i')
@@ -182,6 +184,26 @@ const cents = (amount: number): number => Math.round(amount * 100)
 
 function reconcileDriverResult(text: string, today: string): ReconciledTotal | undefined {
   if (text.includes('?')) return undefined
+  const subtotal = text.match(FARE_SUBTOTAL)
+  if (subtotal) {
+    const [, lead, verb, rides, declared, after] = subtotal
+    const confirmedHead = `${lead}${verb} ${rides}`
+    const rest = after.replace(/^(?:\s|[.,;!]|e\s)+/, '').trim()
+    const compactText = `${lead}${rides} ${rest}`.trim()
+    const compact = parseDriverDay(compactText, { driver: true })
+    const rideItems = compact?.actions.flatMap(a => a.kind === 'income' ? [{ kind: 'in', amount: a.amount }] : [])
+      || movements(confirmedHead, today, true)
+    if (rideItems.length >= 2 && rideItems.every(item => item.kind === 'in')) {
+      const sum = rideItems.reduce((amount, item) => amount + cents(item.amount), 0)
+      if (sum !== cents(parseMoney(declared))) return {
+        issue: `As receitas informadas somam ${fmtBRL(sum / 100)}, e você disse ${fmtBRL(parseMoney(declared))} no total. Quais valores entraram em cada app?`,
+      }
+      if (!rest) return { text: confirmedHead }
+      if (compact) return { text: compactText }
+      if (/^(?:abasteci|gastei|paguei|comprei|rodei|trabalhei)\b/i.test(rest)) return { text: `${confirmedHead}; ${rest}` }
+      return { issue: 'O total das receitas confere. Qual valor você gastou e quantos km ou horas dessa jornada quer lançar?' }
+    }
+  }
   const costsIncluded = text.match(NET_WITH_COST)
   if (costsIncluded && !looksLikeQuestion(text.slice(0, costsIncluded.index))) {
     return { issue: `Os ${fmtBRL(parseMoney(costsIncluded[1]))} são o valor que entrou ou quanto sobrou depois dos gastos? Diga quanto entrou e quais custos você pagou à parte.` }

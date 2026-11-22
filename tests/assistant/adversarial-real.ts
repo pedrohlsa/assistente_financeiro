@@ -238,6 +238,18 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && [future, multiDay, negated, query].every(r => !r.response.actions.length) && /665,85/.test(query.response.reply)
       && invalidTime.response.mode === 'clarify' && !amounts(invalidTime).some(a => a.kind === 'work' && a.hours !== undefined)
       && fractionalTrips.response.mode === 'clarify' && !amounts(fractionalTrips).some(a => a.kind === 'work' && a.trips !== undefined)))
+    const summarized = await send('hoje ganhei 430 na Uber e 399 na 99 somando 829, 163 de gasolina, 161 km e 8h30')
+    const subtotalMismatch = await send('ontem ganhei 430 na Uber e 399 na 99 somando 800, 163 de gasolina, 161 km e 8h30')
+    const costsStated = await send('hoje ganhei 430 na Uber e 399 na 99, total 829, rodei 161 km em 8h30')
+    const recap = amounts(summarized)
+    out.push(result('DT-subtotal-nao-converte-combustivel-em-receita', [summarized.response, subtotalMismatch.response, costsStated.response],
+      'R$ 829 é só a soma de duas receitas, R$ 163 é gasolina e o tempo permanece na jornada declarada',
+      recap.length === 4 && recap.filter(a => a.kind === 'income').map(a => a.amount).join(',') === '430,399'
+      && recap.some(a => a.kind === 'fuel' && a.amount === 163) && recap.some(a => a.kind === 'work' && a.km === 161 && a.hours === 8.5)
+      && subtotalMismatch.response.mode === 'clarify' && !subtotalMismatch.response.actions.length
+      && /829,00[\s\S]*800,00/.test(subtotalMismatch.response.reply)
+      && amounts(costsStated).filter(a => a.kind === 'income').length === 2
+      && amounts(costsStated).some(a => a.kind === 'work' && a.hours === 8.5)))
   }
 
   {
