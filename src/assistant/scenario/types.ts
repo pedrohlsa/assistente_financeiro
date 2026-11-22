@@ -71,6 +71,7 @@ export interface AssistantScenarioPlan {
   incomeLossDuration?: IncomeLossDuration
   /** Datas inclusivas do mês que ficaria sem o recebimento. */
   incomeLossWindow?: { from: string; to: string }
+  incomeLossStart?: string
   /** Vacância retira somente aluguel da origem, mesmo se houver outras entradas. */
   incomeLossForRent?: boolean
   category?: string

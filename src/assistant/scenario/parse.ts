@@ -16,7 +16,7 @@ import { normalizeNumberWords } from '../numbers'
 import { SCENARIO_DSL_VERSION } from './types'
 import { guardarEsteMes } from '../cashQuestions'
 import { readPayoffQuote } from './payoff'
-import { describeMissingRentalInput, incomeLossEnd, readIncomeLossDuration, readNamedIncomeLossWindow, rentalSources } from './incomeWindow'
+import { describeMissingRentalInput, incomeLossEnd, readIncomeLossDuration, readIncomeLossTiming, rentalSources } from './incomeWindow'
 import type { AssistantScenarioPlan, DrivingScenario, ScenarioKind } from './types'
 
 const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -367,22 +367,22 @@ function planSingleScenario(
   if (vacancia || /\b(?:nao|n)\s+(?:me\s+)?(?:pagar|pagarem|vier|entrar|cair|depositar|receber)\b|\batrasar\b|\bfalhar\b/.test(t)) {
     const explicitOrigin = origemDe(t)
     let origem = explicitOrigin
-    const incomeLossDuration = parsedDuration.duration
-    const calendar = readNamedIncomeLossWindow(parsedDuration.remaining, opts.today || todayISO())
-    let planningIssue = parsedDuration.issue || (incomeLossDuration && calendar
-      ? 'Quer usar o mês do calendário ou a duração que você informou?' : undefined)
+    const { duration: incomeLossDuration, window: incomeLossWindow, start: incomeLossStart, remaining, issue } =
+      readIncomeLossTiming(t, opts.today || todayISO())
+    let planningIssue = issue
     if (vacancia && !origem) {
       const [only, second] = rentalSources(state, opts.today || todayISO())
       if (only && !second) origem = only
     }
     if (vacancia) {
-      planningIssue ||= describeMissingRentalInput(origem, !!(explicitOrigin || incomeLossDuration || calendar))
+      planningIssue ||= describeMissingRentalInput(origem, !!(incomeLossDuration || incomeLossWindow || (explicitOrigin && !incomeLossStart)))
+    } else if (incomeLossStart) {
+      planningIssue ||= 'Por quanto tempo essa entrada ficaria ausente?'
     }
-    const remaining = calendar?.remaining || parsedDuration.remaining
     const semOrigem = origem ? remaining.replace(origem, ' ') : remaining
     const valor = lerValor(semOrigem)
     return base('income-missing', { origin: origem, amount: valorDeDinheiro(semOrigem, valor), incomeLossDuration,
-      incomeLossWindow: calendar?.window, ...(vacancia ? { incomeLossForRent: true } : {}), planningIssue },
+      incomeLossWindow, incomeLossStart, ...(vacancia ? { incomeLossForRent: true } : {}), planningIssue },
       'uma entrada que não vem')
   }
 

@@ -28,7 +28,7 @@ import type { AssistantQueryPlan } from '../query/types'
 import { answerScenario, rerunScenario } from '../scenario'
 import type { ScenarioAnswer } from '../scenario'
 import { looksLikeScenario, parsePurchaseDelay } from '../scenario/parse'
-import { describeMissingRentalInput, readIncomeLossDuration, readNamedIncomeLossWindow, rentalSources } from '../scenario/incomeWindow'
+import { describeMissingRentalInput, readIncomeLossTiming, rentalSources } from '../scenario/incomeWindow'
 import { normalizeNumberWords } from '../numbers'
 import { analyzeChanges, answerChangeQuestion, changeScopeClarification, composeChangeExplanation, expenseCategoryInQuestion } from '../drivers'
 import { answerVehicleCost } from '../vehicleCost'
@@ -152,20 +152,20 @@ function respondeConversa(
   const awaitingRental = isFocusFresh(focus, agora) && focus?.last === 'scenario' ? focus.lastScenarioPlan : undefined
   if (awaitingRental?.kind === 'income-missing' && awaitingRental.incomeLossForRent && awaitingRental.planningIssue) {
     const said = normalizeName(normalizeNumberWords(message).text).replace(/[.!?]+$/, '').trim()
-    const { duration, remaining, issue } = readIncomeLossDuration(said)
-    const calendar = readNamedIncomeLossWindow(remaining, hoje)
-    const rest = (calendar?.remaining ?? remaining).trim().replace(/^(?:(?:e|foi|seria)\s+)?(?:a\s+)?/, '')
+    const { duration, window, start, remaining, issue } = readIncomeLossTiming(said, hoje, awaitingRental.incomeLossStart)
+    const rest = remaining.trim().replace(/^(?:(?:e|foi|seria)\s+)?(?:a\s+)?/, '')
       .replace(/^\s*(?:e|agora)\s*$/, '').trim()
     const name = rentalSources(state, hoje).find(source => source === rest)
-    if (name || (!rest && (duration || calendar || issue))) {
+    if (name || (!rest && (duration || window || start || issue))) {
       const origin = name || awaitingRental.origin
-      const changePeriod = !!(duration || calendar)
+      const changePeriod = !!(duration || window || start)
       const incomeLossDuration = changePeriod ? duration : awaitingRental.incomeLossDuration
-      const incomeLossWindow = changePeriod ? calendar?.window : awaitingRental.incomeLossWindow
-      const planningIssue = issue || (duration && calendar ? 'Quer usar o mês do calendário ou a duração que você informou?' : undefined)
+      const incomeLossWindow = changePeriod ? window : awaitingRental.incomeLossWindow
+      const planningIssue = issue
         || describeMissingRentalInput(origin, !!(incomeLossDuration || incomeLossWindow))
       return aplicaFollowUp(state, focus, { kind: 'scenario',
-        plan: { ...awaitingRental, origin, incomeLossDuration, incomeLossWindow, planningIssue } }, hoje, agora)
+        plan: { ...awaitingRental, origin, incomeLossDuration, incomeLossWindow,
+          incomeLossStart: changePeriod ? start : awaitingRental.incomeLossStart, planningIssue } }, hoje, agora)
     }
   }
 

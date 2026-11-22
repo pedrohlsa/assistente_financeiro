@@ -31,7 +31,7 @@ import type { AssistantQueryPlan, AssistantQueryResult, FactUnit, QueryFilter, Q
 import type { AssistantScenarioPlan, AssistantScenarioResult } from '../scenario/types'
 import { parsePurchaseDelay } from '../scenario/parse'
 import { readPayoffQuote } from '../scenario/payoff'
-import { INCOME_LOSS_WINDOW_LIMIT, readIncomeLossDuration, validIncomeLossDuration } from '../scenario/incomeWindow'
+import { INCOME_LOSS_WINDOW_LIMIT, MISSING_RENTAL_PERIOD, readIncomeLossDuration, readIncomeLossTiming, validIncomeLossDuration } from '../scenario/incomeWindow'
 import { answerVehicleCost } from '../vehicleCost'
 import type { ChangeAnalysis } from '../drivers'
 import type { ChangeScope } from '../drivers/engine'
@@ -482,6 +482,17 @@ const NUM = String.raw`(\d+(?:[.,]\d+)*)`
 
 function refinaCenario(focus: ConversationFocus, t: string, today: string): AssistantScenarioPlan | null {
   const base = focus.lastScenarioPlan!
+
+  if (base.kind === 'income-missing' && base.origin && base.incomeLossForRent) {
+    const period = t.replace(/^(?:e(?:\s+se)?|agora|entao)\s+(?:no\s+)?/, '').replace(/[.!?]+$/, '').trim()
+    if (period !== t) {
+      const { remaining, window, start, issue } = readIncomeLossTiming(period, today)
+      if (!remaining.trim() && (window || start || issue)) {
+        return { ...base, incomeLossDuration: undefined, incomeLossWindow: window, incomeLossStart: start,
+          planningIssue: issue || (start ? MISSING_RENTAL_PERIOD : undefined) }
+      }
+    }
+  }
 
   if (base.kind === 'income-missing' && base.origin
     && /^(?:(?:e(?:\s+se)?|agora|entao)\s+)(?:(?:por|durante)\s+)?(?:mais\s+)?(?:\d+(?:[.,]\d+)?|um|uma)\s+(?:dias?|semanas?|mes(?:es)?)\s*[.!?]*$/.test(t)) {

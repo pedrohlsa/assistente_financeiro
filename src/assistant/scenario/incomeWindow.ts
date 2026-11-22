@@ -1,7 +1,9 @@
 import type { AppState } from '../../models/types'
 import { occurrencesBetween, recurringOccurrenceState } from '../../services/calc'
-import { addDays, dateForDayOfMonth, fromISO, parseMoney, toISO } from '../../utils/format'
+import { addDays, dateForDayOfMonth, fromISO, MESES_PT_BR, parseMoney, toISO } from '../../utils/format'
 import { normalizeName } from '../../utils/text'
+import { findDate } from '../dates'
+import { parseFutureMonth } from '../query/period'
 import type { IncomeLossDuration } from './types'
 
 const DURATION = /(?<![\d.,])(?:(?:por|durante)\s+)?([-−]?\d+(?:[.,]\d+)?|um|uma)\s+(dias?|semanas?|mes(?:es)?)\b(?!\s+d[eo]\s+aluguel)/g
@@ -65,19 +67,59 @@ export function incomeLossLabel(duration: IncomeLossDuration): string {
   return `${duration.value} ${units[duration.unit][duration.value === 1 ? 0 : 1]}`
 }
 
-export function readNamedIncomeLossWindow(text: string, today: string) {
-  const named = text.match(/\b(?:ate\s+(?:o\s+)?(?:fim|final)\s+d(?:o|este|esse)\s+mes|(?:d?este|d?esse|neste|nesse)\s+mes|mes\s+que\s+vem|proximo\s+mes)\b/)
+type IncomeLossWindow = { from: string; to: string }
+const END_MONTH = new RegExp(String.raw`\bate\s+(?:(?:o\s+)?(?:fim|final)\s+de\s+)?(${MESES_PT_BR.map(normalizeName).join('|')})(?:\s+de\s+(\d{4}))?\b`)
+const END_DATE = /\bate\s+(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)(?![\d/-])/
+const NAMED_WINDOW = /\b(?:(?:a\s+partir\s+d[eo]|comecando(?:\s+n[eo])?|a\s+contar\s+d[eo]|ate(?:\s+o)?)\s+)?(?:(?:o\s+)?(?:fim|final)\s+d(?:o|este|esse)\s+mes|(?:d?este|d?esse|neste|nesse|o)\s+mes(?!(?:\s+que\s+vem))|mes\s+que\s+vem|proximo\s+mes)\b/
+
+function readNamedIncomeLossWindow(text: string, today: string): {
+  remaining: string
+  window?: IncomeLossWindow
+  startsAtMonth?: boolean
+  issue?: string
+} | undefined {
+  const deadline = text.match(END_DATE) || text.match(END_MONTH)
+  if (deadline) {
+    const remaining = text.slice(0, deadline.index) + ' ' + text.slice(deadline.index! + deadline[0].length)
+    const date = findDate(deadline[1], today)
+    const to = date?.kind === 'date' || date?.kind === 'future' ? date.date
+      : parseFutureMonth(deadline[2] ? `${deadline[1]} de ${deadline[2]}` : deadline[1], today)?.to
+    if (!to || to < today || (deadline[2] && !to.startsWith(deadline[2]))) {
+      return { remaining, issue: 'Até que dia ou mês futuro a entrada ficaria ausente?' }
+    }
+    if (to > incomeLossEnd(today, { value: 12, unit: 'months' })) return { remaining, issue: INCOME_LOSS_WINDOW_LIMIT }
+    return { remaining, window: { from: today, to } }
+  }
+  const named = text.match(NAMED_WINDOW)
   if (!named) return undefined
   const next = /\b(?:vem|proximo)\b/.test(named[0])
+  const startsAtMonth = /^(?:a\s+partir|comecando|a\s+contar)/.test(named[0])
   const date = fromISO(today)
   const month = date.getMonth() + (next ? 1 : 0)
   return {
     remaining: text.slice(0, named.index) + ' ' + text.slice(named.index + named[0].length),
+    startsAtMonth,
     window: {
-      from: next ? toISO(new Date(date.getFullYear(), month, 1, 12)) : today,
+      from: next && !named[0].startsWith('ate ') ? toISO(new Date(date.getFullYear(), month, 1, 12)) : today,
       to: toISO(new Date(date.getFullYear(), month + 1, 0, 12)),
     },
   }
+}
+
+export function readIncomeLossTiming(text: string, today: string, pendingStart?: string) {
+  const { duration, remaining, issue } = readIncomeLossDuration(text)
+  const calendar = readNamedIncomeLossWindow(remaining, today)
+  const rest = calendar?.remaining ?? remaining
+  if (issue || calendar?.issue) return { remaining: rest, issue: issue || calendar?.issue }
+  const from = calendar ? (calendar.startsAtMonth ? calendar.window?.from : undefined) : pendingStart
+  if (from) {
+    if (!duration) return { remaining: rest, start: from }
+    return { remaining: rest, window: { from, to: incomeLossEnd(from, duration) } }
+  }
+  if (duration && calendar?.window) {
+    return { remaining: rest, issue: 'Quer usar o mês do calendário ou a duração que você informou?' }
+  }
+  return { remaining: rest, duration, window: calendar?.window }
 }
 
 export function matchesIncomeSource(name: string, origin?: string, description?: string): boolean {

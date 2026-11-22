@@ -242,6 +242,26 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && /01\/12\/2026 a 31\/12\/2026/.test(next.response.reply)
       && /mês do calendário ou a duração/.test(conflicting.response.reply)
       && [current, next, conflicting].every(r => !r.response.actions.length)))
+
+    const nextFromFollowUp = await turn('e no mês que vem?', await turn('e se a Casa 2 ficar vazia por três meses?', undefined, calendar), calendar)
+    const anchored = await turn('e se a Casa 2 ficar vazia três meses começando mês que vem?', undefined, calendar)
+    const startOnly = await turn('e se a Casa 2 ficar vazia começando mês que vem?', undefined, calendar)
+    const anchoredInTwo = await turn('por três meses', startOnly, calendar)
+    const throughMonth = await turn('e se a Casa 2 ficar vazia até fevereiro?', undefined, calendar)
+    const throughDay = await turn('e se a Casa 2 ficar vazia até 27/12/2026?', undefined, calendar)
+    const invalidDates = await Promise.all(['30/02/2027', '20/11/2026', 'fevereiro de 2029'].map(end =>
+      turn(`e se a Casa 2 ficar vazia até ${end}?`, undefined, calendar)))
+    out.push(result('VC-vacancia-calendario-com-deadline-e-comeco', [nextFromFollowUp, anchored, startOnly, anchoredInTwo, throughMonth, throughDay, ...invalidDates].map(r => r.response),
+      'preserva novembro se a vacância começa em dezembro e conta vencimentos até a data final, inclusive',
+      value(nextFromFollowUp, 'Entrada prevista que deixaria de cair') === 1600
+      && value(anchored, 'Entrada prevista que deixaria de cair') === 4800
+      && value(anchored, 'Outras entradas previstas') === 5200
+      && /Por quanto tempo/.test(startOnly.response.reply) && anchoredInTwo.response.reply === anchored.response.reply
+      && /01\/12\/2026 a 28\/02\/2027/.test(anchored.response.reply)
+      && value(throughMonth, 'Entrada prevista que deixaria de cair') === 6400
+      && value(throughDay, 'Entrada prevista que deixaria de cair') === 3200
+      && invalidDates.every(r => value(r, 'Saldo estimado ao fim do intervalo') === undefined && /Até que dia|até 12 meses|não existe/.test(r.response.reply))
+      && [nextFromFollowUp, anchored, startOnly, anchoredInTwo, throughMonth, throughDay, ...invalidDates].every(r => !r.response.actions.length)))
   }
 
   {
