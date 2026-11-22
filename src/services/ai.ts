@@ -1295,7 +1295,8 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
 
   const metaPeloNome = /quanto\s+(?:falta|(?:eu\s+)?(?:j[áa]\s+)?(?:juntei|guardei|tenho|consegui|separei))/.test(t)
     && s.goals.some(g => !g.done && t.includes(normalizeQuestion(g.name).split(' ')[0]))
-  if (metaPeloNome || /quando\s+(vou|consigo|vou conseguir|poderei)\s+(comprar|atingir|juntar)/.test(t) || /quando.*\bmetas?\b/.test(t) || /quanto\s+falta\s+(?:para|pra)\s+(?:a\s+|o\s+|minha\s+|meu\s+)?meta\b/.test(t)) {
+  if (metaPeloNome || /quando\s+(vou|consigo|vou conseguir|poderei)\s+(comprar|atingir|juntar)/.test(t)
+    || /\bem\s+quanto\s+tempo\b[^?]*\b(?:compro|consigo|junto|chego|atinjo|bato)\b/.test(t) || /quando.*\bmetas?\b/.test(t) || /quanto\s+falta\s+(?:para|pra)\s+(?:a\s+|o\s+|minha\s+|meu\s+)?meta\b/.test(t)) {
     // O nome passa pela MESMA normalização da pergunta: "Câmera" com acento
     // nunca aparecia em "quanto falta pra camera", e a resposta era a primeira meta.
     const goal = s.goals.find(g => !g.done && t.includes(normalizeQuestion(g.name).split(' ')[0])) || s.goals.filter(g => !g.done)[0]
@@ -1303,9 +1304,14 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     const remaining = goal.target - goal.saved
     const avg = avgDailyProfit(s)
     if (avg <= 0) {
+      // Histórico existe, mas sem sobra: dizer "não tenho histórico" era falso.
+      const st30 = periodStats(s, addDays(todayISO(), -30), addDays(todayISO(), -1))
+      const motivo = st30.days === 0
+        ? 'Ainda não tenho histórico de ganhos para projetar uma data. Registre seus dias que eu te digo quando chega lá.'
+        : `Nos últimos 30 dias saiu mais do que entrou (resultado de ${fmtBRL(st30.profit)}), então não dá para projetar uma data pelo que sobra. `
+          + `Se você já sabe quanto vai guardar, pergunte "se eu guardar 500 por mês, quando chego no ${goal.name.toLowerCase()}?" que eu simulo.`
       return {
-        text: `Meta "${goal.name}": você já juntou ${fmtBRL(goal.saved)} de ${fmtBRL(goal.target)} — faltam ${fmtBRL(remaining)} (dado real).\n\n`
-          + 'Ainda não tenho histórico de ganhos para projetar uma data. Registre seus dias que eu te digo quando chega lá.',
+        text: `Meta "${goal.name}": você já juntou ${fmtBRL(goal.saved)} de ${fmtBRL(goal.target)} — faltam ${fmtBRL(remaining)} (dado real).\n\n` + motivo,
       }
     }
     const savePerDay = avg * 0.3

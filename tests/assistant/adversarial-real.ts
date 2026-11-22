@@ -8217,6 +8217,21 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('VK-controle-reais', r.actions, '64 km; os 14 reais não viram km', w2?.km === 64))
   }
 
+  // Meta sem sobra no mês: "ainda não tenho histórico de ganhos" era falso
+  // (o histórico existe, o resultado é que ficou negativo). "Em quanto tempo
+  // eu compro o notebook" dava só o que falta.
+  {
+    const rico = autonomoRico(hoje)
+    const de = addDays(hoje, -30), ate = addDays(hoje, -1)
+    const lucro = rico.transactions.filter(t => t.date >= de && t.date <= ate)
+      .reduce((a, t) => a + (t.type === 'income' ? t.amount : t.type === 'expense' ? -t.amount : 0), 0)
+    for (const [id, frase] of [['GO-quanto-falta', 'quanto falta pro notebook'], ['GO-em-quanto-tempo', 'em quanto tempo eu compro o notebook']] as const) {
+      const r = (await turnoHoje(rico, frase)).reply
+      out.push(result(id, r, lucro > 0 ? 'projeção com data' : 'diz que não sobrou, sem "não tenho histórico"',
+        /faltam? R\$/.test(r.replace(/\u00a0/g, ' ')) && !/não tenho histórico/.test(r) && (lucro > 0 ? /Projeção/.test(r) : /saiu mais do que entrou/.test(r))))
+    }
+  }
+
   // Motorista: "quanto falta pra eu tirar 300 hoje" perguntava se era ganho
   // ou gasto; "em quantas horas eu faço 200" era recusada; "meu carro tá
   // bebendo muito?" caía na ajuda.
