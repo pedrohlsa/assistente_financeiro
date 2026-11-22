@@ -62,6 +62,9 @@ export const looksLikeScenario = (input: string): boolean => {
   // "Dá pra guardar 300 ESTE MÊS?" é a sobra prevista do mês (fato
   // projetado, `cashQuestions`), não uma simulação de guardar por mês.
   if (guardarEsteMes(t.replace(/[?!.,]/g, ' ').replace(/\s+/g, ' ')) !== null) return false
+  // "Consigo pagar TUDO / as contas esse mês?": cobertura do que vence pelo
+  // saldo, uma conta de fato (roteador), sem valor hipotético nenhum.
+  if (!/\d/.test(t) && /\b(?:consigo|vou\s+conseguir|da\s+(?:pra|para))\s+pagar\s+(?:tudo|as\s+contas|todas\s+as\s+contas|os\s+boletos)\b/.test(t)) return false
   return HIPOTESE.some(re => re.test(t)) || (/\b(?:da\s+pra|se)\b/.test(t) && HIPOTESE.some(re => re.test(normalizaCenario(t))))
 }
 

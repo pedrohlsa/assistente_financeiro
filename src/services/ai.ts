@@ -513,6 +513,19 @@ function listaDeLancamentos(s: AppState, t: string): string | undefined {
 function valeQuitar(s: AppState, t: string): string | undefined {
   const m = t.match(/\b(?:vale\s+a\s+pena|compensa|devo|e\s+bom|seria\s+bom)\s+(?:eu\s+)?(?:quitar|antecipar|adiantar)\s+(?:o\s+|a\s+|os\s+|as\s+)?(?:parcelamento\s+d[oa]\s+|parcelas\s+d[oa]\s+)?([a-z0-9][a-z0-9 ]*?)\s*\??$/)
   if (!m) return undefined
+  // "Devo quitar o cartão OU GUARDAR?": um dilema, não o nome de um
+  // parcelamento ("Cartao ou guardar"). O app mostra os dois lados com os
+  // números dele e diz o que não sabe — as taxas do cartão.
+  if (/\bou\b/.test(m[1])) {
+    const ov = cardsOverview(s)
+    const reserva = round2((s.transactions || []).filter(x => x.type === 'saving').reduce((a, x) => a + x.amount, 0))
+    const saldo = currentBalance(s)
+    return [
+      `Não decido por você, mas os números são estes (dado real): faturas em aberto ${fmtBRL(ov.openInvoicesTotal)}, parcelamentos restantes ${fmtBRL(ov.totalDebt)}, saldo em conta ${fmtBRL(saldo)} e reserva ${fmtBRL(reserva)}.`,
+      'O que pesa: fatura que não é paga inteira entra no rotativo, que cobra juros; parcela sem juros paga em dia não custa nada a mais, e antecipar só compensa com desconto. Eu não tenho as taxas do seu cartão — confira no app dele.',
+      'Para ver o efeito no seu mês, pergunte "e se eu quitar o computador?".',
+    ].join('\n\n')
+  }
   const { name } = readPayoffQuote(m[1])
   const picked = findPayoffPlan(s, name)
   if ('question' in picked) return picked.question
@@ -584,6 +597,15 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   // de investimento. O app não é consultor e não recomenda produto — e a
   // pergunta respondida aqui não sai para a IA remota, que poderia recomendar.
   // Antes: "Total gasto este mês" ou o menu de ajuda.
+  // "Quanto pago de juros?": o app não separa juros — parcelas são guardadas
+  // pelo valor de cada uma, e o rotativo não é registrado. "Não tenho
+  // lançamento" sugeria que juros zero era um fato.
+  if (/\bjuros\b/.test(t) && /\b(?:quanto|qual|quais|pago|paguei|pagando)\b/.test(t)
+    && !(s.transactions || []).some(x => /juros/i.test(`${x.description || ''}`))) {
+    return { text: 'Não separo juros: cada parcela fica guardada pelo valor dela, e juros de rotativo ou de atraso não são registrados à parte. '
+      + 'Se você pagou juros, registre como despesa ("paguei 35 de juros do cartão") que eu passo a somar. O valor total das suas parcelas está em "quanto eu devo?".' }
+  }
+
   if (PEDE_RECOMENDACAO_DE_INVESTIMENTO.test(t)) {
     return { text: 'Não recomendo investimentos: não sou consultor financeiro, e a escolha depende de prazo, risco e objetivo que só você e um profissional habilitado podem avaliar. '
       + 'O que eu faço é registrar o que você aplicar ("investi 1000 no tesouro" vai para a reserva) e mostrar quanto sobra por mês — pergunte "quanto posso guardar este mês?".' }
@@ -849,7 +871,10 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     // "quanto devo de cartão / minha dívida"
     if (pedeDividaTotal(t) || /(quanto.*(devo|dívida|divida))|d[ií]vida total/.test(t)) {
       return {
-        text: (/\bmuito\b/.test(t) ? 'Não dá para classificar como muito ou pouco só com os dados cadastrados. ' : '')
+        // Regra 57: "tô endividado?" começa por sim ou não — com o que é fato
+        // (há dívida cadastrada ou não), nunca com um juízo de "muito".
+        text: (/\bendividad[oa]\b/.test(t) && !/\bmuito\b/.test(t) ? (ov.totalDebt + ov.openInvoicesTotal > 0.009 ? 'Sim, há dívida cadastrada. ' : 'Não há dívida cadastrada. ') : '')
+          + (/\bmuito\b/.test(t) ? 'Não dá para classificar como muito ou pouco só com os dados cadastrados. ' : '')
           + `Sua dívida parcelada restante é ${fmtBRL(ov.totalDebt)} em ${ov.activePlanCount} ${ov.activePlanCount === 1 ? 'parcelamento' : 'parcelamentos'}.\n\n` +
           `• Faturas em aberto agora: ${fmtBRL(ov.openInvoicesTotal)}\n` +
           `• Parcelas deste mês: ${fmtBRL(ov.installmentsThisMonth)}\n` +
@@ -1875,7 +1900,7 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   // ainda tinha que somar de cabeça. Vem ANTES da lista porque a frase contém
   // "contas" e a lista a capturava primeiro.
   if (/\b(?:cobre|cobrem|cobrir|d[áa]\s+(?:pra|para)\s+pagar|consigo\s+pagar|vou\s+conseguir\s+pagar|tenho\s+(?:saldo|dinheiro)\s+(?:pra|para))\b/.test(t)
-    && /\bcontas?\b|\bvencer\b|\bvencimento\b|\bfatura\b/.test(t)) {
+    && /\bcontas?\b|\bvencer\b|\bvencimento\b|\bfatura\b|\bboletos?\b|\bpagar\s+tudo\b/.test(t)) {
     // Fatura e o que já venceu entram, e o prazo dito ("até dia 10") manda:
     // com só as contas fixas e 15 dias fixos, esta resposta contradizia
     // "qual conta tá me apertando" no mesmo aparelho.

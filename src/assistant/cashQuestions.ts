@@ -262,6 +262,8 @@ export const pedeFimDoParcelamento = (t: string): boolean =>
  * guardar"), que não é dívida.
  */
 export const pedeDividaTotal = (t: string): boolean =>
+  // "Tô endividado?": a mesma pergunta, dita como sim ou não.
+  /\b(?:to|tou|estou|esta|ando)\s+(?:muito\s+)?endividad[oa]\b/.test(t) ||
   (/\b(?:quanto|qual|quais)\b/.test(t) || /\b(?:to|estou|esta)\s+devendo\b/.test(t)
     || /^(?:e\s+)?(?:eu\s+)?devo\s+muito\s*\??$/.test(t))
   && /\b(?:devo|devendo|dividas?)\b/.test(t)

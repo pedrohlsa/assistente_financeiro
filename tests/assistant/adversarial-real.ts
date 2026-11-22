@@ -9325,6 +9325,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const inv = (await turnoHoje(rico, 'quanto eu tenho investido')).reply
       out.push(result('IV-quanto-investido-e-reserva', inv, 'total guardado, não o gasto', !/Total gasto/.test(inv) && /reserva|guardad/i.test(inv)))
     }
+    {
+      // Dívida: "tô endividado?" caía na ajuda; "devo quitar o cartão ou
+      // guardar?" procurava o parcelamento "Cartao ou guardar"; "consigo pagar
+      // tudo esse mês?" virava cenário não suportado; "quanto pago de juros"
+      // dizia que não havia lançamento.
+      const end = (await turnoHoje(rico, 'tô endividado?')).reply
+      out.push(result('DV-endividado', end, 'sim ou não, com a dívida', /^(Sim|Não)/.test(end) && /dívida/.test(end)))
+      const dil = (await turnoHoje(rico, 'devo quitar o cartão ou guardar?')).reply
+      out.push(result('DV-quitar-ou-guardar', dil, 'os dois lados, sem procurar parcelamento', !/Não encontrei um parcelamento/.test(dil) && /Não decido por você/.test(dil)))
+      const tudo = (await turnoHoje(rico, 'consigo pagar tudo esse mês?')).reply
+      out.push(result('DV-consigo-pagar-tudo', tudo, 'cobertura pelo saldo', /^(Sim|Não|Nada cadastrado)/.test(tudo) && !/não sei simular/.test(tudo)))
+      const juros = (await turnoHoje(rico, 'quanto pago de juros')).reply
+      out.push(result('DV-juros-nao-separados', juros, 'diz que não separa juros', /Não separo juros/.test(juros)))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))
