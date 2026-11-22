@@ -749,6 +749,11 @@ function categoriaDaExclusao(state: AppState, valor: string, tipo: 'income' | 'e
   return (state.transactions || []).some(x => palavra.test(normalizeName(x.description))) ? undefined : cat
 }
 
+function classeDeCombustivel(state: AppState, nome: string, tipo: 'income' | 'expense'): string | undefined {
+  const cat = resolverCategoria(state, nome, tipo, false, true)
+  return cat === 'combustivel' ? cat : undefined
+}
+
 function resolverCategoria(
   state: AppState, nome: string, tipo: 'income' | 'expense', lugar = false, prefixo = false,
 ): string | undefined {
@@ -1328,7 +1333,10 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
         // gasolina" com o abastecimento gravado como "Abastecimento" respondia
         // "não tenho lançamento". Nome próprio junto ("Restaurante do
         // Amarelo") continua sem categoria.
-        || (contaFixa ? undefined : resolverCategoria(state, alvo.valor, tipoAlvo, false, true))
+        // Só para palavra de CLASSE (gasolina, etanol → Combustível). Nome de
+        // conta ou item ("IPTU", "luz") é texto: lido pela categoria, "quanto
+        // paguei de IPTU" mostrava a reforma do telhado como "o último".
+        || (contaFixa ? undefined : classeDeCombustivel(state, alvo.valor, tipoAlvo))
       recognized.push(`texto "${alvo.literal}"`)
     }
   } else if (source === 'transactions' && !filter.origin && !filter.origins) {

@@ -217,7 +217,11 @@ export function composeAnswer(r: AssistantQueryResult): string {
       // O período foi assumido, não dito: "nada este mês" não é "nunca".
       const u = r.lastOutside
       const quantos = u.count > 1 ? ` São ${u.count} lançamentos assim antes deste período.` : ''
-      return `${base}${alvo} ${periodo}. O último foi em ${brDate(u.date)}: ${formatValue(u.value, r.unit)} (${u.label}).${quantos}`
+      // Filtro por CATEGORIA (a palavra dita virou a categoria): o último é da
+      // categoria, e a frase diz isso. "Quanto paguei de IPTU" mostrava a
+      // reforma do telhado como se fosse o IPTU.
+      const catNome = p.filter.categories?.length && !p.filter.text ? p.label?.split(' - ')[1]?.replace(/\s+(?:este|neste|nesse|no|na|nos|em)\b.*$/, '') : undefined
+      return `${base}${alvo} ${periodo}. O último${catNome ? ` em ${catNome}` : ''} foi em ${brDate(u.date)}: ${formatValue(u.value, r.unit)} (${u.label}).${quantos}`
     }
     const fixa = r.caveats.find(c => /é conta fixa de R\$/.test(c))
     if (fixa) return `${base}${alvo} ${periodo}. ${fixa}`

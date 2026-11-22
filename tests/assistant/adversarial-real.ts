@@ -8250,6 +8250,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('SG-cade', cade, 'para onde foi (por categoria)', /categoria|Obra/.test(cade) && !/Posso te ajudar/.test(cade)))
   }
 
+  // "Quanto paguei de IPTU" mostrava a reforma do telhado como "o último"
+  // (a terceira tentativa por palavra-chave levava IPTU para Casa). E "a casa
+  // 1 dá lucro?" caía na ajuda.
+  {
+    const rico = autonomoRico(hoje)
+    const iptu = (await turnoHoje(rico, 'quanto paguei de IPTU')).reply
+    out.push(result('IM-iptu-nao-e-casa', iptu, 'o último é dito como de Casa, não como IPTU', !/telhado/i.test(iptu) || /último em Casa/.test(iptu)))
+    const gas = (await turnoHoje(motoristaRico(hoje), 'quanto gastei de gasolina esse mês')).reply
+    out.push(result('IM-controle-gasolina', gas, 'continua Combustível', /Combust[íi]vel|Gasolina/.test(gas) && /R\$/.test(gas)))
+    const lucro = (await turnoHoje(rico, 'a casa 1 dá lucro?')).reply
+    out.push(result('IM-casa-da-lucro', lucro, 'responde sem afirmar lucro sem despesas', /Casa 1/.test(lucro) && !/Posso te ajudar/.test(lucro) && /^(?:Sim|Não)\b/.test(lucro)))
+  }
+
   // Assinaturas: "assinei o youtube premium" gravava o verbo; "cancelei a
   // netflix" caía na ajuda; "quanto gasto com assinaturas" sem registro dizia
   // "R$ 0,00 (0 registros — dado real)".

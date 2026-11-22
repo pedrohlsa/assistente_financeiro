@@ -1208,6 +1208,25 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     return { text: 'Desconto em folha (INSS, imposto, vale-transporte) sai do salário antes de ele cair: não registrei como gasto, para o dinheiro não sair duas vezes.\n\n'
       + 'Registre o salário líquido que entrou — por exemplo, "meu salário caiu 2900".' }
   }
+  // "A Casa 1 dá lucro?": sim ou não exige as DESPESAS ligadas à origem. Sem
+  // elas, o app não afirma lucro — diz o que entrou e o que falta ligar.
+  const daLucro = t.match(/^\s*(?:e\s+)?(?:a|o)\s+(.+?)\s+(?:da|deu|tem\s+dado|esta\s+dando|ta\s+dando|vale\s+a\s+pena|compensa)\s*(?:lucro|dinheiro)?\s*[?!.]*$/)
+  if (daLucro && /lucro|vale|compensa|dinheiro/.test(t)) {
+    const alvoOrigem = normalizeName(daLucro[1])
+    const daOrigem = s.transactions.filter(x => normalizeName(x.origin || '') === alvoOrigem && x.date.slice(0, 4) === todayISO().slice(0, 4) && x.date <= todayISO())
+    if (daOrigem.length) {
+      const nome = daOrigem[0].origin!.trim()
+      const entrou = round2(daOrigem.filter(x => x.type === 'income').reduce((a, x) => a + x.amount, 0))
+      const saiu = round2(daOrigem.filter(x => x.type === 'expense').reduce((a, x) => a + x.amount, 0))
+      if (!saiu) {
+        return { text: `Não dá para afirmar: este ano entraram ${fmtBRL(entrou)} da ${nome} (dado real), mas nenhuma despesa está ligada a ela — sem os gastos do imóvel, o lucro não aparece.\n\n`
+          + `Para medir, registre os gastos dele com a origem — por exemplo, "paguei 350 de condomínio da ${nome}".` }
+      }
+      const res = round2(entrou - saiu)
+      return { text: `${res > 0 ? 'Sim' : 'Não'}: este ano a ${nome} rendeu ${fmtBRL(entrou)} e custou ${fmtBRL(saiu)} nas despesas ligadas a ela — resultado de ${fmtBRL(res)} (dado real).` }
+    }
+  }
+
   // "Cancelei a netflix": cancelamento não é lançamento — onde a assinatura
   // existe é que ela se encerra. Caía na ajuda genérica.
   const cancelou = t.match(/^\s*(?:eu\s+)?(?:cancelei|desassinei|encerrei)\s+(?:a\s+|o\s+|minha\s+|meu\s+)?(?:assinatura\s+d[aeo]\s+)?([a-z0-9][a-z0-9 +]{1,30}?)\s*[.!]*$/)
