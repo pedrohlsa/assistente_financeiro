@@ -547,11 +547,10 @@ const GAS_VEHICLE = /\bgnv\b|g[áa]s\s+veicular|g[áa]s\s+do\s+carro|abasteci\s+
 export interface ParseResult {
   actions: ParsedAction[]
   /**
-   * Pergunta obrigatória antes de qualquer registro. Cada opção já carrega a
-   * lista COMPLETA de ações resolvidas — as demais ações da mensagem são
-   * preservadas em todas as alternativas.
+   * Pergunta obrigatória. As opções carregam as ações que dependem da escolha.
    */
   ambiguity?: {
+    field?: 'gas-kind'
     question: string
     options: { label: string; actions: ParsedAction[] }[]
   }
@@ -993,25 +992,23 @@ export function parseNaturalFull(
   const amount = (actions[idx] as any).amount
   if (!(amount > 0)) return { actions }
 
-  const withReplaced = (replacement: ParsedAction): ParsedAction[] =>
-    actions.map((a, i) => (i === idx ? replacement : a))
-
   return {
-    actions,
+    actions: actions.filter((_, i) => i !== idx),
     ambiguity: {
+      field: 'gas-kind',
       question: 'Você quis dizer gás de cozinha ou GNV?',
       options: [
         {
           label: 'Gás de cozinha',
-          actions: withReplaced({ kind: 'expense', amount, category: 'casa', description: 'Gás de cozinha' }),
+          actions: [{ kind: 'expense', amount, category: 'casa', description: 'Gás de cozinha' }],
         },
         {
           // Motorista tem estrutura de abastecimento; os outros perfis registram
           // como despesa de combustível, sem nada exclusivo de motorista.
           label: 'GNV',
-          actions: withReplaced(opts?.driver
+          actions: [opts?.driver
             ? { kind: 'fuel', amount }
-            : { kind: 'expense', amount, category: 'combustivel', description: 'GNV' }),
+            : { kind: 'expense', amount, category: 'combustivel', description: 'GNV' }],
         },
       ],
     },

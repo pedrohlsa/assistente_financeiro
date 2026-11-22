@@ -658,6 +658,7 @@ function runLocal(
       field: ambiguities.length > 1 ? 'financial-events' : ambiguous.ambiguity.field || 'ambiguity',
       pendingActions: ambiguities.length === 1 ? ambiguous.ambiguity.pendingActions : undefined,
       queryTemplate: ambiguities.length === 1 ? ambiguous.ambiguity.queryTemplate : undefined,
+      dateWindow: ambiguities.length === 1 ? ambiguous.ambiguity.dateWindow : undefined,
       financialEvent: ambiguities.length === 1 ? ambiguous.ambiguity.financialEvent : undefined,
     }
   }
@@ -1163,7 +1164,7 @@ function pendingCorrectionAnswer(choice: AssistantClarification, message: string
   return matches?.length === 1 ? matches[0].value : undefined
 }
 
-function proposeDatedActions(input: OrchestratorInput, actions: ParsedAction[], caps: AssistantCapabilities, today: string): OrchestratorOutput {
+function proposeDatedActions(input: OrchestratorInput, actions: ParsedAction[], caps: AssistantCapabilities, today: string, newFirst = false): OrchestratorOutput {
   const notes: string[] = []
   const choices: AssistantClarification[] = []
   const dueText = input.pendingClarification?.purchaseDueText
@@ -1203,14 +1204,14 @@ function proposeDatedActions(input: OrchestratorInput, actions: ParsedAction[], 
   prepared.notes.push(...notes)
   if (choicesNow.length > 1) prepared.notes.push('Informe separadamente as datas e os vencimentos dos registros que ainda precisam de confirmação.')
   prepared.clarification = choicesNow.length === 1 ? choicesNow[0] : undefined
-  return preparedActionResponse(input.state, prepared, input.pending)
+  return preparedActionResponse(input.state, prepared, input.pending, undefined, newFirst)
 }
 
 function preparedActionResponse(
   state: AppState, prepared: ReturnType<typeof prepareInvoicePayments>,
-  previous: AssistantCandidateAction[] = [], correction?: string,
+  previous: AssistantCandidateAction[] = [], correction?: string, newFirst = false,
 ): OrchestratorOutput {
-  const candidates = [...previous, ...prepared.actions]
+  const candidates = newFirst ? [...prepared.actions, ...previous] : [...previous, ...prepared.actions]
   const reply = [correction, candidates.length ? proposalText(candidates, state) : '', ...prepared.notes,
     prepared.clarification?.question || (candidates.length ? 'Confirmar?' : '')].filter(Boolean).join('\n\n')
   const response = { version: ASSISTANT_CONTRACT_VERSION, engine: 'local' as const, actions: candidates, unresolved: [], reply }
@@ -1834,6 +1835,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const dateChoice = pc.field === 'date' || pc.field === 'date-choice'
     const amountChoice = pc.field === 'amount-choice'
     const directionChoice = pc.field === 'money-direction'
+    const gasChoice = pc.field === 'gas-kind' || pc.field === 'gas-kind-needs-date'
     const pendingCorrection = pc.field?.startsWith('pending-correction')
     // Para dinheiro, só uma resposta inequívoca aceita a ação antiga. "assim"
     // contém "sim", e "sim, mandei só 10" altera o valor da proposta.
@@ -1843,6 +1845,10 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const correctionChoice = pendingCorrection ? pendingCorrectionAnswer(pc, input.message, today) : undefined
     const direction = directionChoice && /^(?:foi\s+)?(?:gasto|despesa|saiu|gastei)$/.test(simpleAnswer) ? 'saida'
       : directionChoice && /^(?:foi\s+)?(?:receita|recebi|entrou|recebimento)$/.test(simpleAnswer) ? 'entrada' : undefined
+    const kitchenGas = gasChoice && /\b(?:cozinha|botijao|glp)\b/.test(simpleAnswer)
+    const vehicleGas = gasChoice && /\b(?:gnv|gas\s+veicular|gas\s+do\s+carro)\b/.test(simpleAnswer)
+    const gasLabel = kitchenGas !== vehicleGas && !/\b(?:nao|nem)\b/.test(simpleAnswer)
+      ? kitchenGas ? 'gas de cozinha' : 'gnv' : undefined
     // "Horário ou mais um gasto?": a resposta raramente repete o rótulo.
     // "Foi o horário", "1", "era hora" escolhem a primeira; "mais 30 na
     // padaria", "outro gasto", "2" escolhem a segunda. Sem casar, NÃO cai no
@@ -1888,6 +1894,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     }
     const hit = invoiceChoice ? matchInvoiceChoice(pc.options, input.message) : pc.options.find(o => amountChoice
       ? (normalizeName(o.label) === simpleAnswer || (amount !== undefined && amount === parseMoney(o.label)))
+      : gasChoice ? normalizeName(o.label) === gasLabel && !looksPast(input.message) && !looksLikeQuestion(input.message)
       : financialEvent || fixedBillChoice || fixedBillLink || dateChoice || pendingCorrection || directionChoice
       ? (normalizeName(o.label) === simpleAnswer || normalizeName(o.value) === simpleAnswer
         || (correctionChoice !== undefined && normalizeName(o.value) === correctionChoice)
@@ -1897,6 +1904,18 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
         (said.length > 2 && (normalizeName(o.label).includes(said) || said.includes(normalizeName(o.label))))))
     if (hit) {
       if (dateChoice && hit.actions?.length) return proposeDatedActions(input, hit.actions, caps, today)
+      if (gasChoice && hit.actions?.length) {
+        if (pc.field === 'gas-kind') return proposeDatedActions(input, hit.actions, caps, today, true)
+        const date = dateInAnswer(input.message, today)
+        if (date?.kind === 'date' && (!pc.dateWindow || (date.date >= pc.dateWindow.from && date.date <= pc.dateWindow.to))) {
+          return proposeDatedActions(input, withDate(hit.actions, date.date), caps, today, true)
+        }
+        const question = 'Em que dia foi esse gasto?'
+        return { draft: null, keepPending: true, focus: input.focus, response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [], reply: question,
+          clarification: { field: 'date', question, pendingActions: hit.actions, dateWindow: pc.dateWindow },
+        } }
+      }
       if (hit.actions?.length) {
         const validated: ParsedAction[] = []
         for (const action of hit.actions) {
@@ -1953,7 +1972,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
         },
       }
     }
-    if ((invoiceChoice || fixedBillLink || amountChoice || pendingCorrection || directionChoice) && !looksPast(input.message) && !looksLikeQuestion(input.message)) {
+    if ((invoiceChoice || fixedBillLink || amountChoice || pendingCorrection || directionChoice || gasChoice) && !looksPast(input.message) && !looksLikeQuestion(input.message)) {
       return {
         draft: null, keepPending: true,
         response: {

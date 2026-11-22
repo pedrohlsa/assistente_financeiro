@@ -173,6 +173,40 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   }
 
   {
+    const results = await Promise.all((['driver', 'autonomo', 'clt', 'other'] as const).map(async profile => {
+      const state = buildState({ profile })
+      const ask = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({
+        state, message, today: TODAY, remoteEnabled: false, focus: prior?.focus, pending: prior?.response.actions,
+        pendingClarification: prior?.response.mode === 'clarify' ? prior.response.clarification : undefined,
+      })
+      const asked = await ask('ontem gastei 45 de gás às 08:30')
+      const [gnv, cozinha, both] = await Promise.all(['foi GNV', 'foi botijão', 'GNV ou gás de cozinha'].map(said => ask(said, asked)))
+      const mix = await ask('ontem gastei 45 de gás e hoje paguei 60 no mercado')
+      const joined = await ask('gás veicular', mix)
+      const missing = await ask('gastei 45 de gás mês passado')
+      const choose = await ask('GNV', missing)
+      const dated = await ask('dia 19', choose)
+      const badDate = await ask('ontem', choose)
+      const g = gnv.response.actions[0]?.action
+      const c = cozinha.response.actions[0]?.action
+      const d = dated.response.actions[0]?.action
+      const ok = asked.response.mode === 'clarify' && !asked.response.actions.length
+        && (g?.kind === 'expense' || g?.kind === 'fuel') && g.date === '2026-09-14' && g.amount === 45
+        && (profile === 'driver' ? g.kind === 'fuel' : g.kind === 'expense' && g.description === 'GNV' && g.time === '08:30')
+        && c?.kind === 'expense' && c.category === 'casa' && c.amount === 45 && c.date === '2026-09-14' && c.time === '08:30'
+        && both.response.mode === 'clarify' && !both.response.actions.length
+        && mix.response.mode === 'clarify' && mix.response.actions.length === 1 && joined.correctedPending?.length === 2
+        && joined.correctedPending.some(a => a.id === mix.response.actions[0].id && a.action.kind === 'expense' && a.action.amount === 60)
+        && choose.response.mode === 'clarify' && !choose.response.actions.length
+        && (d?.kind === 'expense' || d?.kind === 'fuel') && d.date === '2026-08-19'
+        && badDate.response.mode === 'clarify' && !badDate.response.actions.length && !state.transactions.length
+      return { profile, ok, replies: [asked, gnv, cozinha, both, mix, joined, missing, choose, dated, badDate].map(r => r.response.reply) }
+    }))
+    out.push(result('GN-escolha-do-gas-segura-data-hora-e-outro-lancamento', results,
+      'a escolha não muda a data nem perde outro lançamento; uma data incerta precisa de um dia válido', results.every(r => r.ok)))
+  }
+
+  {
     const exact = splitInstallmentAmounts(2.26, 2)
     const uneven = splitInstallmentAmounts(1000, 3)
     out.push(result('GC-parcelas-calculadas-em-centavos-inteiros', { exact, uneven },

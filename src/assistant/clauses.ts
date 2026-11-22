@@ -35,6 +35,7 @@ export interface AnalyzedClause {
   dateLabel?: string
   /** Pergunta de desambiguação levantada pelo parser (ex.: gás). */
   ambiguity?: { question: string; field?: string; pendingActions?: ParsedAction[]; queryTemplate?: string; financialEvent?: FinancialEvent;
+    dateWindow?: { from: string; to: string };
     options: { label: string; value?: string; actions: ParsedAction[]; reply?: string }[] }
   /** Data ambígua: precisa de escolha antes de virar lançamento. */
   dateAmbiguity?: { question: string; options: { label: string; value: string }[] }
@@ -1742,6 +1743,16 @@ export function analyzeMessage(
     }
     if (canShareContext && date && !requestedPix && !rideCue) { inheritedDate = date; inheritedLabel = dLabel }
     else if (canShareContext && !date && inheritedDate && !temporal && !dateAmbiguity) { date = inheritedDate; dLabel = inheritedLabel }
+    if (ambiguity?.field === 'gas-kind') {
+      const missingDate = !date && !!(dateAmbiguity || temporal) && looksPast(part.text)
+      ambiguity = { ...ambiguity, ...(missingDate ? { field: 'gas-kind-needs-date',
+        dateWindow: temporal?.kind === 'period' && temporal.from && temporal.to ? { from: temporal.from, to: temporal.to } : undefined } : {}),
+        options: ambiguity.options.map(option => ({ ...option, actions: option.actions.map(action => {
+        const withDate = date && DATABLE.has(action.kind) ? { ...action, date } : action
+        return clock.time && (withDate.kind === 'expense' || withDate.kind === 'income') ? { ...withDate, time: clock.time } : withDate
+      }) })) }
+      if (missingDate && !actions0.length) { temporal = undefined; dateAmbiguity = undefined }
+    }
     if (unclearDirection) {
       ambiguity = cashPairDirection(unclearDirection, date, !!temporal || !!dateAmbiguity)
       temporal = undefined
