@@ -9293,6 +9293,23 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const sem = await turnoHoje(rico, 'gastei 500 esse mês')
       out.push(result('CF-periodo-nao-e-descricao', sem.actions, 'sem descrição "Esse mês"', !/m[eê]s/i.test((sem.actions[0] as any)?.description || '')))
     }
+    {
+      // "Meu carro tá com 207 mil km" caía na ajuda; "tá com 2 problemas" não
+      // é hodômetro; hodômetro menor que o registrado AVISA; "quanto custa
+      // meu carro por mês" somava o mercado junto.
+      const moto = motoristaRico(hoje)
+      const o1 = await orchestrate({ state: moto, message: 'meu carro tá com 207 mil km', today: todayISO(), remoteEnabled: false })
+      out.push(result('VC-hodometro-pelo-carro', o1.response.actions.map(a => a.action), 'hodômetro 207.000',
+        (o1.response.actions[0]?.action as any)?.value === 207000))
+      const o2 = await turnoHoje(moto, 'meu carro tá com 2 problemas')
+      out.push(result('VC-nao-e-hodometro', o2.actions, 'sem hodômetro de 2 km', !o2.actions.some((a: any) => a.kind === 'odometer')))
+      const atual = moto.vehicle?.odometer || 0
+      const o3 = await orchestrate({ state: moto, message: 'meu carro tá com 85 mil km', today: todayISO(), remoteEnabled: false })
+      out.push(result('VC-hodometro-para-tras-avisa', o3.response.actions.map(a => a.patternWarning), 'aviso de hodômetro menor',
+        atual <= 85000 || /menor/.test(o3.response.actions[0]?.patternWarning || '')))
+      const c = (await turnoHoje(moto, 'quanto custa meu carro por mês')).reply
+      out.push(result('VC-custo-do-carro-por-mes', c, 'custo do veículo, não o total gasto', /veículo/.test(c) && !/^Total gasto/.test(c)))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

@@ -1511,9 +1511,16 @@ function parseClause(input: string): ParsedAction[] {
   )) || text.match(new RegExp(
     String.raw`hod[oô]metro\s*(?:atual\s*)?(?:t[aá]|est[aá]|em|de|:|marca(?:ndo)?)?\s*(?:em\s*)?${NUM}`,
     'i',
+  )) || text.match(new RegExp(
+    // "Meu CARRO tá com 207 mil km", "o carro tá marcando 207.000": o veículo
+    // como sujeito diz que o número é o hodômetro. Caía na ajuda.
+    // Sem unidade, só número com cara de hodômetro (4 dígitos ou mais): "tá
+    // com 2 problemas" não é quilometragem.
+    String.raw`(?:carro|ve[ií]culo|moto)\s+(?:t[aá]|est[aá])\s+(?:com|marcando|em|rodado)\s+(?:${NUM}\s*(?:mil\s*(?:km|quil[oô]metros?)?|km|quil[oô]metros?)|(\d{1,3}(?:\.\d{3})+|\d{4,}))(?![\wÀ-ÿ\d.,])`,
+    'i',
   ))
   if (odoM) {
-    const value = parseKmValue(odoM[1])
+    const value = parseKmValue(odoM[1] || odoM[2])
     const fuel = actions.find(a => a.kind === 'fuel') as Extract<ParsedAction, { kind: 'fuel' }> | undefined
     if (fuel) fuel.odometer = value
     else actions.push({ kind: 'odometer', value })

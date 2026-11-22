@@ -3038,7 +3038,14 @@ Confirmar?`,
     // Valor muito fora do padrão do próprio usuário — quase sempre um zero a
     // mais. AVISA, nunca bloqueia: o dia excepcional existe, e barrá-lo seria
     // pior que o erro que se quer evitar.
-    const pattern = outOfPatternWarning(input.state, c.action, today)
+    // Hodômetro não anda para trás: "tá com 85 mil" com 206.400 registrado
+    // passava calado e desmontava as próximas trocas de manutenção. AVISA.
+    const odoAtual = input.state.vehicle?.odometer || 0
+    const odoNovo = c.action.kind === 'odometer' ? (c.action as any).value : c.action.kind === 'fuel' ? (c.action as any).odometer : undefined
+    const odoMenor = typeof odoNovo === 'number' && odoAtual > 0 && odoNovo < odoAtual
+      ? `O hodômetro registrado é ${odoAtual.toLocaleString('pt-BR')} km, e ${odoNovo.toLocaleString('pt-BR')} km é menor. Confira o número — se trocou de veículo, atualize na tela Veículo.`
+      : undefined
+    const pattern = odoMenor || outOfPatternWarning(input.state, c.action, today)
     const next = warn ? { ...c, duplicateWarning: warn } : c
     return pattern ? { ...next, patternWarning: pattern } : next
   })
