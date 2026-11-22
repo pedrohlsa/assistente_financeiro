@@ -995,8 +995,10 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     }
   }
 
-  // "quanto posso gastar hoje" — usa o saldo (modo banco) quando informado
-  if (pedeQuantoPossoGastar(t)) {
+  // "quanto posso gastar hoje" — usa o saldo (modo banco) quando informado.
+  // "…por dia ATÉ O SALÁRIO" tem prazo próprio: a rota do salário, abaixo,
+  // conta até a véspera dele. Aqui respondia "nos próximos 30 dias".
+  if (pedeQuantoPossoGastar(t) && !pedeAteOSalario(t)) {
     if (hasAmbiguousLegacyCardBalance(s)) return { text: AMBIGUOUS_BALANCE_REPLY }
     const ts = todayStats(s)
     const goal = dailyGoal(s)
@@ -1075,8 +1077,12 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     const certas = cashObligationsUntil(s, ate).filter(o => !o.unconfirmed)
     const total = somaDe(certas)
     const itens = certas.length === 1 ? '1 item' : `${certas.length} itens`
+    // "Meu saldo tá negativo?" pede sim ou não (regra 57).
+    const perguntaNegativo = /\bsaldo\b[^?]*\b(?:negativo|no\s+vermelho|estourado)\b/.test(t)
+    const perguntaPositivo = /\bsaldo\b[^?]*\b(?:positivo|no\s+azul)\b/.test(t)
+    const simNao = perguntaNegativo ? (saldo < 0 ? 'Sim. ' : 'Não. ') : perguntaPositivo ? (saldo > 0 ? 'Sim. ' : 'Não. ') : ''
     return {
-      text: `Seu saldo em conta é ${fmtBRL(saldo)}.` +
+      text: `${simNao}Seu saldo em conta é ${fmtBRL(saldo)}.` +
         (certas.length
           ? saldo >= total - 0.009
             ? ` Cobre os ${fmtBRL(total)} que vencem até ${diaMes(ate)} (${itens}) e ainda sobram ${fmtBRL(round2(saldo - total))}.`

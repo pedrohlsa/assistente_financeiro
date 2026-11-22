@@ -9013,6 +9013,17 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const c = await turnoHoje(buildState({ profile: 'autonomo' }), 'recebi 2000 de comissão')
       out.push(result('OR-comissao-e-venda', c.actions, 'categoria Vendas', (c.actions[0] as any)?.category === 'vendas'))
     }
+    {
+      // "Meu saldo tá negativo?" começava pelo saldo, sem o sim/não (regra 57);
+      // "por dia até o salário" respondia "nos próximos 30 dias".
+      const neg = (await turnoHoje(rico, 'meu saldo tá negativo?')).reply
+      const saldo = currentBalance(rico)
+      out.push(result('SN-saldo-negativo-sim-ou-nao', neg, 'começa por sim ou não conforme o saldo',
+        neg.startsWith(saldo < 0 ? 'Sim.' : 'Não.') || /zerado|ambígu|AMBIG/i.test(neg)))
+      const ate = (await turnoHoje(rico, 'quanto eu posso gastar por dia até o salário')).reply
+      out.push(result('SN-por-dia-ate-o-salario', ate, 'prazo do salário, nunca "próximos 30 dias"',
+        !/próximos 30 dias/.test(ate) && /salário/.test(ate)))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))
