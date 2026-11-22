@@ -1580,6 +1580,16 @@ function respostaDeIntencaoDeReduzir(state: AppState, mensagem: string, today: s
   return `${base} ${historico} Para ver o efeito de um corte, pergunte por exemplo "e se eu reduzir ${nome} em 100 por mês?".`
 }
 
+function periodViewFocus(focus: ConversationFocus | undefined, kind: NonNullable<ConversationFocus['lastPeriodView']>['kind'],
+  question: string, today: string): ConversationFocus {
+  const clean = normalizeQuestion(question).replace(/[.!?]+$/, '').trim()
+  const parsed = parsePeriod(clean, today)
+  const span = parsed?.span ?? parsed?.matched
+  const base = span ? clean.replace(span, ' ').replace(/\s+/g, ' ').trim() : clean
+  return { ...focus, last: 'period-view', lastPeriodView: { kind, question: base },
+    lastQuery: undefined, lastQueryPlan: undefined, lastAnswerExplanation: undefined, updatedAt: Date.now() }
+}
+
 export async function orchestrate(entradaBruta: OrchestratorInput): Promise<OrchestratorOutput> {
   const started = Date.now()
   // FRONTEIRA (regra 46): caractere invisível e de controle saem AQUI, antes de
@@ -1642,11 +1652,20 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   const today = input.today || todayISO()
   const pendingPreview = previewPendingQuery(input, today)
   if (pendingPreview) return pendingPreview
-  const platformComparison = !input.pendingClarification && !input.draft ? compareRideApps(input.state, input.message, today) : undefined
-  if (platformComparison) return withPendingAnswer(input, {
-    draft: null, focus: input.focus,
-    response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply: platformComparison },
-  }, today, state => compareRideApps(state, input.message, today))
+  if (!input.pendingClarification && !input.draft) {
+    const view = isFocusFresh(input.focus) && input.focus?.last === 'period-view' ? input.focus.lastPeriodView : undefined
+    const said = view ? normalizeQuestion(input.message).replace(/[.!?]+$/, '').trim().match(/^e\s+(.+)$/)?.[1] : undefined
+    const period = said ? parsePeriod(said, today) : undefined
+    const followUp = view && said && (period?.span ?? period?.matched) === said ? view : undefined
+    const question = followUp ? `${followUp.question} ${said}` : input.message
+    const kind = followUp?.kind ?? 'ride-apps'
+    const readView = (state: AppState) => kind === 'movements' ? listaDeLancamentos(state, question, today) : compareRideApps(state, question, today)
+    const reply = readView(input.state)
+    if (reply) return withPendingAnswer(input, {
+      draft: null, focus: periodViewFocus(input.focus, kind, question, today),
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply },
+    }, today, readView)
+  }
   if (!input.draft && (!input.pendingClarification || input.pendingClarification.field === 'reported-total')) {
     const payout = readPlatformPayout(input.message)
     const reconciled = payout || reconcileSpokenTotals(input.message, today, isDriver(input.state.settings), caps.cardNames)
@@ -3349,11 +3368,14 @@ ${reply}`
   if (mode === 'answer' && perguntaDeFatura(normalizeQuestion(mensagem)) && cartoesNaFrase(input.state, normalizeName(mensagem)).length === 1) {
     focoFinal = { ...(focoFinal || {}), lastInvoiceQuestion: mensagem, updatedAt: Date.now() }
   }
-  const output = { draft: null, response, focus: focoFinal, keepPending: mode === 'answer' && !!localNotes }
   const normalizedQuestion = normalizeQuestion(mensagem)
-  if (input.pending?.length && mode === 'answer' && listaDeLancamentos(input.state, normalizedQuestion, today) === reply) {
+  if (mode === 'answer' && listaDeLancamentos(input.state, normalizedQuestion, today) === reply) {
+    const output = { draft: null, response, focus: periodViewFocus(focoFinal || input.focus, 'movements', normalizedQuestion, today) }
     return withPendingAnswer(input, output, today, state => listaDeLancamentos(state, normalizedQuestion, today))
   }
+  const noLongerInView = mode === 'answer' && !focoFinal && input.focus?.last === 'period-view'
+    ? { ...input.focus, last: undefined, lastPeriodView: undefined } : undefined
+  const output = { draft: null, response, focus: focoFinal || noLongerInView, keepPending: mode === 'answer' && !!localNotes }
   if (local_answers.answered.length && local_answers.text && !localNotes) {
     return withPendingAnswer(input, output, today, state => answerQuestions(state, questions, [], today, mensagem).text)
   }

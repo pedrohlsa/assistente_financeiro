@@ -147,6 +147,32 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   }
 
   {
+    const state = buildState({ profile: 'autonomo' })
+    state.transactions = [
+      { id: 'luz', type: 'expense', amount: 33, description: 'Luz', category: 'casa', date: TODAY, time: '10:00' },
+      { id: 'mercado', type: 'expense', amount: 20, description: 'Mercado', category: 'alimentacao', date: TODAY, time: '08:00' },
+      { id: 'farmacia', type: 'expense', amount: 44, description: 'Farmácia', category: 'saude', date: '2026-09-14', time: '10:30' },
+      { id: 'onibus', type: 'expense', amount: 75, description: 'Ônibus', category: 'transporte', date: '2026-09-14', time: '06:30' },
+      { id: 'servico', type: 'income', amount: 100, description: 'Serviço', category: 'salario', date: TODAY, time: '11:30' },
+    ]
+    const latest = await turn(state, 'qual foi o último gasto?')
+    const yesterday = await turn(state, 'e ontem?', latest.focus)
+    const empty = await turn(state, 'e anteontem?', yesterday.focus)
+    const range = await turn(state, 'o que gastei de ontem até hoje?')
+    const list = await turn(state, 'e ontem?', range.focus)
+    const income = await turn(state, 'quanto recebi hoje?', list.focus)
+    const back = await turn(state, 'e ontem?', income.focus)
+    const replies = [latest, yesterday, empty, range, list, income, back]
+    out.push(result('ML-lista-e-ultimo-preservam-o-assunto-ao-trocar-data', replies.map(r => r.reply),
+      'um último gasto, listas com o intervalo todo, ou consulta de receita se o usuário trocar de assunto',
+      replies.every(r => r.mode === 'answer' && !r.actions.length) && /33,00/.test(latest.reply) && !/20,00/.test(latest.reply)
+      && /Último gasto registrado ontem[\s\S]*44,00/.test(yesterday.reply) && !/75,00/.test(yesterday.reply)
+      && /Nada registrado anteontem/.test(empty.reply) && /\(4\)/.test(range.reply) && !/100,00/.test(range.reply)
+      && /Registrado ontem \(2\)/.test(list.reply) && /44,00[\s\S]*75,00/.test(list.reply)
+      && /100,00/.test(income.reply) && !/44,00|75,00/.test(back.reply)))
+  }
+
+  {
     const exact = splitInstallmentAmounts(2.26, 2)
     const uneven = splitInstallmentAmounts(1000, 3)
     out.push(result('GC-parcelas-calculadas-em-centavos-inteiros', { exact, uneven },
@@ -9423,16 +9449,22 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         ...([['Uber', 600], ['99', 400], ['inDrive', 1250]] as const).map(([description, amount]) =>
           ({ id: description, type: 'income' as const, description, amount, category: 'corridas', date: TODAY })),
         { id: 'anterior', type: 'income', description: 'Uber', amount: 170, category: 'corridas', date: '2026-08-10' },
+        { id: 'ontem-uber', type: 'income', description: 'Uber', amount: 30, category: 'corridas', date: '2026-09-14' },
+        { id: 'ontem-99', type: 'income', description: '99', amount: 90, category: 'corridas', date: '2026-09-14' },
       ]
       apps.workSessions = [{ id: 'dia', date: TODAY, hours: 6, km: 120, trips: 8 }]
-      const pair = await Promise.all(['compare Uber e 99 hoje', 'quanto ganhei de Uber versus 99 hoje', 'vale a pena rodar de 99 ou Uber?'].map(frase => turn(apps, frase)))
+      const pair = await Promise.all(['compare Uber e 99 hoje', 'quanto ganhei de Uber versus 99 hoje', 'vale a pena rodar de 99 ou Uber hoje?'].map(frase => turn(apps, frase)))
       const old = await turn(apps, 'vale a pena rodar de Uber ou 99 mês passado?')
-      const inDrive = await turn(apps, 'vale a pena rodar de inDrive ou Uber?')
+      const inDrive = await turn(apps, 'vale a pena rodar de inDrive ou Uber hoje?')
       out.push(result('PH-comparacao-nomeia-apenas-apps-pedidos', [...pair.map(r => r.reply), old.reply, inDrive.reply], 'respeita plataformas, período e dados faltantes',
         pair.every(r => r.mode === 'answer' && !r.actions.length && /Uber teve a maior receita/.test(r.reply) && /600,00/.test(r.reply)
           && /400,00/.test(r.reply) && !/inDrive/.test(r.reply)) && /mês passado/.test(old.reply) && /170,00/.test(old.reply)
         && /99: sem receita/.test(old.reply) && !/600,00/.test(old.reply)
         && /inDrive teve a maior receita/.test(inDrive.reply) && /1\.250,00/.test(inDrive.reply) && !/400,00/.test(inDrive.reply)))
+      const followUp = await turn(apps, 'e ontem?', pair[0].focus)
+      out.push(result('PH-comparacao-mantem-os-apps-ao-trocar-o-dia', followUp.reply, 'ontem a 99 teve R$ 90 e a Uber R$ 30',
+        !followUp.actions.length && /99 teve a maior receita registrada ontem/.test(followUp.reply)
+        && /30,00/.test(followUp.reply) && /90,00/.test(followUp.reply) && !/inDrive|600,00/.test(followUp.reply)))
       const metrics = await Promise.all(['qual app paga melhor por hora?', 'qual plataforma paga melhor por km?'].map(frase => turn(apps, frase)))
       const grouped = (['per-hour', 'per-km'] as const).map(metric => runQuery(apps, {
         version: 2, source: 'transactions', field: 'amount', period: { from: TODAY, to: TODAY, label: 'hoje', grain: 'day' },
