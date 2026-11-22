@@ -51,9 +51,10 @@ export function findCardByExactName(s: AppState, name?: string, exceptId?: strin
  */
 export function splitInstallmentAmounts(total: number, count: number): number[] {
   const n = Math.max(Math.floor(count), 1)
-  const base = Math.floor((total * 100) / n) / 100
-  const out = Array(n).fill(base)
-  out[n - 1] = round2(total - base * (n - 1))
+  const cents = Math.round(total * 100)
+  const base = Math.floor(cents / n)
+  const out = Array<number>(n).fill(base / 100)
+  out[n - 1] = (cents - base * (n - 1)) / 100
   return out
 }
 

@@ -5,7 +5,7 @@ import { orchestrate } from '../../src/assistant/orchestrator'
 import { segment } from '../../src/assistant/clauses'
 import { findDate } from '../../src/assistant/dates'
 import { balanceOutlook, balanceOutlookText, budgetUsage, cashObligationsUntil, categoryBreakdown, currentBalance, kmCost, monthlyProjections, occurrencesBetween, pendingRecurrings, periodStats, possibleRecurringTransactions, recurringLinkAction, transactionOccurrence, upcomingBills } from '../../src/services/calc'
-import { buildInstallments, cardInvoice, cardOutstanding, cardsOverview, commitmentTimeline, futureInstallmentPaymentDate, futureInvoicePaymentDate, invoiceOpenAmount, planProgress } from '../../src/services/cards'
+import { buildInstallments, cardInvoice, cardOutstanding, cardsOverview, commitmentTimeline, futureInstallmentPaymentDate, futureInvoicePaymentDate, invoiceOpenAmount, planProgress, splitInstallmentAmounts } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
 import { buildCapabilities } from '../../src/assistant/capabilities'
 import { isValidationFailure, validateAction } from '../../src/assistant/contracts'
@@ -102,6 +102,14 @@ function faturasAPagarEsperadas(rico: AppState, hoje: string): { descricao: stri
 
 export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
+
+  {
+    const exact = splitInstallmentAmounts(2.26, 2)
+    const uneven = splitInstallmentAmounts(1000, 3)
+    out.push(result('GC-parcelas-calculadas-em-centavos-inteiros', { exact, uneven },
+      'R$ 2,26 em duas de R$ 1,13, e R$ 1.000 em 333,33 + 333,33 + 333,34',
+      exact.join(',') === '1.13,1.13' && uneven.join(',') === '333.33,333.33,333.34'))
+  }
 
   {
     const today = '2027-03-09'
