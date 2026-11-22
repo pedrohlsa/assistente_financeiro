@@ -7006,8 +7006,10 @@ item tem bloco próprio em `tests/assistant/adversarial-real.ts`.
   e agora grava "Dívida com meu pai" (`EP-`).
 - "A 99 tá pagando menos?" respondia só o total do mês; agora compara com o
   mesmo pedaço do mês anterior e abre com o veredito (`PG-99-pagando-menos`).
+- Um valor para vários itens ("30 no pão e no leite", "50 de luz e água",
+  "pão, leite e ovo por 25") gravava um item só na descrição (`IT-`).
 
-Gates (relógio 2026-09-15): 736/736 corpus, 1.410/1.410 adversariais, 151/151
+Gates (relógio 2026-09-15): 736/736 corpus, 1.414/1.414 adversariais, 151/151
 invariantes, mutações, fuzz, ditado e remoto offline; typecheck,
 typecheck:api e rubrica (0 perigosa, 0 ruim). `test:calendario` verde depois
 de cada lote. Sem push, merge, deploy, APK ou DeepSeek. **NOT READY** até
