@@ -1192,6 +1192,7 @@ const QUEBRAR_REGRA = [
 
 const pedeParaQuebrarRegra = (t: string): boolean => QUEBRAR_REGRA.some(re => re.test(t))
 
+const PEDE_LEMBRETE = /\b(?:me\s+)?(?:lembr[ae]|lembrar|avis[ae]|avisar)\s+(?:me\s+)?(?:de|que|para|pra|quando)\b[^?]*\b(?:pagar|pago|vence|vencer|vencimento|conta|boleto|fatura|parcela)\b/
 const SEM_CERTEZA = 'Não tenho certeza do que registrar aqui. Pode escrever de outro jeito?'
 
 const escaparRegex = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -3112,6 +3113,13 @@ Confirmar?`,
         + (entrada
           ? 'Cadastre em Planejamento, com o valor e o dia, para eu acompanhar todo mês e te avisar quando ela deve cair.'
           : 'Cadastre em Planejamento para eu acompanhar todo mês e te avisar do vencimento.')
+    } else if (PEDE_LEMBRETE.test(normalizeName(mensagem))) {
+      // "Me lembra de pagar a luz dia 10" caía em "não tenho certeza do que
+      // registrar". Não é lançamento: é aviso de vencimento, e quem avisa é a
+      // conta cadastrada no Planejamento.
+      reply = 'Não registrei nada: isso é um lembrete, não um pagamento. '
+        + 'Cadastre a conta em Planejamento, com o valor e o dia do vencimento — o app avisa antes de vencer. '
+        + 'Quando pagar, me diga "paguei a conta" que eu registro.'
     } else if (PEDE_APAGAR.test(mensagem)) {
       // "Não registrei nada" respondia um pedido de APAGAR como se fosse negação.
       reply = 'Por aqui eu não apago lançamentos salvos. Para remover, abra Movimentações e apague o lançamento. '

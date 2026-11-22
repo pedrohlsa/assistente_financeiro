@@ -8959,6 +8959,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       { id: 'gg2', type: 'expense', amount: 1200, category: 'outros-out', date: ini, time: '11:00' } as any,
     ]
     const r3 = (await turnoHoje(s, 'quanto sobrou esse mês')).reply.replace(/ /g, ' ')
+    const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
+    out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
+      !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))
     out.push(result('GG-sobra-negativa-e-deficit', r3, 'déficit nomeado, sem "-R$"',
       /déficit de R\$ 200,00/i.test(r3) && !/-R\$/.test(r3)))
   }
