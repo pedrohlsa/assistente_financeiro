@@ -39,7 +39,7 @@ export function pedeReservaDeCaixa(t: string): boolean {
  * próprio valor. Pergunta com período ("esse ano") continua na consulta.
  */
 export function pedeTotalGuardado(t: string): boolean {
-  return /\bquanto\s+(?:eu\s+)?(?:tenho|tem|ha)\s+(?:de\s+)?(?:guardado|reservado|na\s+reserva|na\s+poupanca)\b|\breserva\s+(?:esta|ta)\s+em\s+quanto\b|\bquanto\s+(?:esta|ta)\s+(?:a\s+)?(?:minha\s+)?reserva\b|\bsaldo\s+da\s+reserva\b|\bquanto\s+(?:eu\s+)?ja\s+guardei\s*\??$/.test(t)
+  return /\bquanto\s+(?:eu\s+)?(?:tenho|tem|ha)\s+(?:de\s+)?(?:guardado|reservado|investido|aplicado|na\s+reserva|na\s+poupanca)\b|\breserva\s+(?:esta|ta)\s+em\s+quanto\b|\bquanto\s+(?:esta|ta)\s+(?:a\s+)?(?:minha\s+)?reserva\b|\bsaldo\s+da\s+reserva\b|\bquanto\s+(?:eu\s+)?ja\s+guardei\s*\??$/.test(t)
 }
 
 /** "Tirei 300 da reserva": não há lançamento de retirada no app. */

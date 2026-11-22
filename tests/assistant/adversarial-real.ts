@@ -9315,6 +9315,16 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const r = await turnoHoje(buildState({ profile: 'autonomo' }), frase)
       out.push(result(id, r.actions, `reserva — ${desc}`, (r.actions[0] as any)?.kind === 'saving' && (r.actions[0] as any)?.description === desc))
     }
+    {
+      // Recomendação de investimento não é dada (o app não é consultor) e não
+      // vai para a IA remota; "onde eu invisto 1000?" respondia o gasto do mês.
+      for (const frase of ['onde eu invisto 1000?', 'vale a pena investir no tesouro?']) {
+        const r = await turnoHoje(rico, frase)
+        out.push(result(`IV-sem-recomendacao-${frase.split(' ')[0]}`, r.reply, 'declina e oferece o que faz', !r.actions.length && /Não recomendo investimentos/.test(r.reply)))
+      }
+      const inv = (await turnoHoje(rico, 'quanto eu tenho investido')).reply
+      out.push(result('IV-quanto-investido-e-reserva', inv, 'total guardado, não o gasto', !/Total gasto/.test(inv) && /reserva|guardad/i.test(inv)))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

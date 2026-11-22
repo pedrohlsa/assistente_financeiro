@@ -467,6 +467,8 @@ export function normalizeQuestion(input: string): string {
  * regra 17 — descrição, categoria, horário e valor. Somente leitura. Caía na
  * ajuda genérica.
  */
+const PEDE_RECOMENDACAO_DE_INVESTIMENTO = /\b(?:onde|em\s+que|no\s+que|qual|quais|vale\s+a\s+pena|compensa|devo|deveria|melhor|e\s+bom)\b[^?]*\b(?:invisto|investir|investimento|aplico|aplicar|tesouro|cdb|lci|lca|acoes|bolsa|cripto|bitcoin|fundos?|poupanca\s+ou)\b/
+
 function listaDeLancamentos(s: AppState, t: string): string | undefined {
   const pedeO_que = /\bo\s+que\s+(?:eu\s+)?(?:registrei|lancei|anotei|coloquei|botei)\b/.test(t)
   const pedeLista = /^(?:me\s+)?(?:mostra|mostre|lista|liste|listar|ver|quero\s+ver|abre)\s+(?:os\s+|as\s+|meus\s+|minhas\s+)*(?:ultim[oa]s\s+)?(?:gastos|despesas|lancamentos|movimentacoes|registros|receitas|entradas)\b/.test(t)
@@ -576,6 +578,15 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     return { text: `Seu saldo de hoje é ${fmtBRL(hoje)}. Ele parte do valor que você informou${desde ? ` em ${desde.slice(8, 10)}/${desde.slice(5, 7)}` : ''} (${fmtBRL(ancora)})`
       + ` e soma as movimentações registradas depois: ${mov >= 0 ? '+' : '−'}${fmtBRL(Math.abs(mov))} entre entradas, saídas e faturas pagas com o saldo. O que vai para a reserva fica de fora.\n\n`
       + 'Se não bater com o banco, me diga o valor certo — por exemplo, "meu saldo é 5000" — que eu corrijo o ponto de partida sem mexer no histórico.' }
+  }
+
+  // "Onde eu invisto 1000?", "vale a pena o tesouro?": pedido de RECOMENDAÇÃO
+  // de investimento. O app não é consultor e não recomenda produto — e a
+  // pergunta respondida aqui não sai para a IA remota, que poderia recomendar.
+  // Antes: "Total gasto este mês" ou o menu de ajuda.
+  if (PEDE_RECOMENDACAO_DE_INVESTIMENTO.test(t)) {
+    return { text: 'Não recomendo investimentos: não sou consultor financeiro, e a escolha depende de prazo, risco e objetivo que só você e um profissional habilitado podem avaliar. '
+      + 'O que eu faço é registrar o que você aplicar ("investi 1000 no tesouro" vai para a reserva) e mostrar quanto sobra por mês — pergunte "quanto posso guardar este mês?".' }
   }
 
   const lista = listaDeLancamentos(s, t)
