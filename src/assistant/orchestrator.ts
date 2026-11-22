@@ -1040,7 +1040,7 @@ function exactMoneyAnswer(message: string, signed = false): number | undefined {
   return (match[1] ? -1 : 1) * parseMoney(match[2])
 }
 
-function answerFinancialEvent(input: OrchestratorInput, question: AssistantClarification, caps: AssistantCapabilities, today: string): OrchestratorOutput {
+function answerFinancialEvent(input: OrchestratorInput, question: AssistantClarification, caps: AssistantCapabilities, today: string): OrchestratorOutput | null {
   const event = question.financialEvent
   const said = normalizeName(normalizeNumberWords(input.message).text).replace(/[.!]+$/, '').trim()
   const answer = { version: ASSISTANT_CONTRACT_VERSION, engine: 'local' as const, actions: [] as [], unresolved: [] }
@@ -1065,6 +1065,11 @@ function answerFinancialEvent(input: OrchestratorInput, question: AssistantClari
   if (yes && new RegExp(String.raw`^(?:(?:ainda|eu)\s+)?(?:nao|n|nem)\s+(?:${verbs})\b`).test(head)) return denied
   const verb = head.match(eventVerb)
   if (!yes && !verb) {
+    // Um FATO novo não é resposta: "gastei 50 no mercado" depois de "você
+    // devolveu os R$ 100?" repetia a pergunta e a despesa se perdia. A
+    // pergunta antiga cai e a mensagem segue o caminho normal.
+    if (!input.message.trimEnd().endsWith('?')
+      && analyzeMessage(input.message, { driver: caps.isDriver, today }).clauses.some(c => c.actions.length > 0)) return null
     const query = looksLikeDataQuestion(input.message) ? respostaLocal(input.state, input.message, today, true) : null
     return query ? { draft: null, keepPending: true, focus: query.focus || input.focus,
       response: { ...answer, mode: 'clarify', clarification: question, reply: `${query.text}\n\n${question.question}` } }
@@ -1661,7 +1666,12 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
       response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply: 'Descartei a proposta.' },
     }
   }
-  if (pc?.field === 'financial-event' && pc.financialEvent) return answerFinancialEvent(input, pc, caps, today)
+  if (pc?.field === 'financial-event' && pc.financialEvent) {
+    const respondida = answerFinancialEvent(input, pc, caps, today)
+    if (respondida) return respondida
+    // Fato novo: a pergunta antiga sai e a mensagem é lida do zero.
+    return orchestrate({ ...input, pendingClarification: undefined })
+  }
   if (pc?.field === 'query-range-end' && pc.dateWindow && pc.queryTemplate) {
     const said = input.message.replace(/^\s*at[ée]\s+/i, '')
     const date = dateInAnswer(weekdayChoiceWord(said), today)
@@ -1899,6 +1909,12 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
           actions: [], unresolved: [], clarification, reply: clarification.question,
         },
       }
+    }
+    // Sem data na resposta e com um RELATO novo ("recebi 200 do João"), a
+    // pergunta de data cai: repeti-la engolia o lançamento seguinte.
+    if (!corrected && /^\s*(?:(?:eu|hoje|ontem|ja)\s+)?(?:gastei|paguei|recebi|ganhei|comprei|abasteci|vendi|transferi|guardei|fiz|rodei|tirei|entrou|caiu)\b/i.test(input.message)
+      && analyzeMessage(input.message, { driver: caps.isDriver, today }).clauses.some(c => c.actions.length > 0)) {
+      return orchestrate({ ...input, pendingClarification: undefined })
     }
     return {
       draft: null, keepPending: true,

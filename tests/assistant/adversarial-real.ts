@@ -9195,6 +9195,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         /desde \d{2}\/\d{2}\/\d{4}|Não tenho/.test(desde) && !/"sexta/.test(praCa) && /desde \d{2}\/\d{2}\/\d{4}|Não tenho/.test(praCa)
         && /quinzena/.test(quinz)))
     }
+    {
+      // Pergunta pendente não pode engolir o lançamento seguinte: "gastei 50
+      // no mercado" depois de "você devolveu os R$ 100?" repetia a pergunta.
+      const aut = buildState({ profile: 'autonomo' })
+      const seguida = async (a: string, b: string) => {
+        const t1 = await orchestrate({ state: aut, message: a, today: todayISO(), remoteEnabled: false })
+        const pc = t1.response.mode === 'clarify' ? t1.response.clarification : undefined
+        return orchestrate({ state: aut, message: b, today: todayISO(), remoteEnabled: false, pendingClarification: pc, focus: t1.focus })
+      }
+      const dev = await seguida('devolvi os 100 do meu irmão', 'gastei 50 no mercado')
+      out.push(result('PQ-fato-novo-depois-de-devolucao', dev.response.actions.map(a => a.action), 'despesa de R$ 50',
+        (dev.response.actions[0]?.action as any)?.amount === 50))
+      const sim = await seguida('devolvi os 100 do meu irmão', 'sim')
+      out.push(result('PQ-sim-continua-respondendo', sim.response.actions.map(a => a.action), 'saída de R$ 100',
+        (sim.response.actions[0]?.action as any)?.amount === 100))
+      const data = await seguida('gastei 40 ontem ou anteontem no bar', 'recebi 200 do joão')
+      out.push(result('PQ-fato-novo-depois-de-data', data.response.actions.map(a => a.action), 'receita de R$ 200',
+        (data.response.actions[0]?.action as any)?.amount === 200))
+      const escolhe = await seguida('gastei 40 ontem ou anteontem no bar', 'anteontem')
+      out.push(result('PQ-data-continua-respondendo', escolhe.response.actions.map(a => a.action), 'R$ 40 anteontem',
+        (escolhe.response.actions[0]?.action as any)?.date === addDays(todayISO(), -2)))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))
