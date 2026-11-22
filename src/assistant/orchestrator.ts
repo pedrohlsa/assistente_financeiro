@@ -892,6 +892,19 @@ function respostaLocal(
   return consulta ? { text: consulta.reply, focus: consulta.focus } : null
 }
 
+function withPendingAnswer(
+  input: OrchestratorInput, output: OrchestratorOutput, today: string,
+  read: (state: AppState) => string | undefined,
+): OrchestratorOutput {
+  if (output.response.mode !== 'answer' || !input.pending?.length) return output
+  const copy = planAssistantActions(input.state, input.pending, { date: today, time: nowPaymentTime() }).projected
+  const preview = read(copy)
+  const reply = preview && preview !== read(input.state)
+    ? `${output.response.reply}\n\nA proposta anterior aguarda confirmação e ficou fora desta consulta.`
+    : output.response.reply
+  return { ...output, keepPending: true, response: { ...output.response, reply } }
+}
+
 /**
  * "Fiz 280 hoje, foi bom?" chega como uma cláusula só, com registro e pergunta:
  * perguntada inteira ao roteador, a frase virava proposta e a pergunta sumia. Ao
@@ -2626,10 +2639,10 @@ Confirmar?`,
   const consultaPedeDia = turno.analysis.clauses.some(c => c.ambiguity?.field === 'query-date')
   const groupedDays = !temFato && !consultaPedeDia && hasBlock(turno, 'query') && !hasBlock(turno, 'scenario')
     ? answerListedDays(input.state, mensagem, today) : undefined
-  if (groupedDays) return {
+  if (groupedDays) return withPendingAnswer(input, {
     draft: null, keepPending: true, focus: input.focus,
     response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply: groupedDays },
-  }
+  }, today, state => answerListedDays(state, mensagem, today))
 
   // Registrar E simular na mesma frase (regra 27). "Meu salário entrou 1625,
   // paguei 355, guardei 150 e quero saber se consigo comprar um celular de 3000
@@ -2663,7 +2676,7 @@ Confirmar?`,
       version: ASSISTANT_CONTRACT_VERSION, engine: 'local' as const,
       unresolved: [], reply: localNotes ? `${localNotes}\n\n${conversa.reply}` : conversa.reply,
     }
-    return {
+    const output: OrchestratorOutput = {
       draft: null,
       // Perguntar não é cancelar: a proposta na tela continua confirmável.
       keepPending: true,
@@ -2672,6 +2685,9 @@ Confirmar?`,
         ? { ...base, mode: 'clarify', actions: [], clarification: conversa.clarification }
         : { ...base, mode: 'answer', actions: [] },
     }
+    return conversa.kind === 'query'
+      ? withPendingAnswer(input, output, today, state => answerConversation(state, mensagem, { today, focus: input.focus })?.reply)
+      : output
   }
 
   // ---- 11b) O local SABE que não sabe --------------------------------------
@@ -2940,15 +2956,14 @@ Confirmar?`,
       const modalidade = modalidadeExplicita(mensagem, today)
       if (!isQueryFailure(v) && !(modalidade && planoContradizModalidade(v.plan, modalidade))) {
         const r = runQuery(input.state, v.plan, today)
-        return {
+        return withPendingAnswer(input, {
           draft: null,
-          keepPending: true,
           focus: rememberQuery(input.focus, v.plan, r, explainQueryResult(r)),
           response: {
             version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'hybrid',
             actions: [], unresolved: [], reply: composeAnswer(r),
           },
-        }
+        }, today, state => composeAnswer(runQuery(state, v.plan, today)))
       }
     }
   }
@@ -3298,7 +3313,13 @@ ${reply}`
   if (mode === 'answer' && perguntaDeFatura(normalizeQuestion(mensagem)) && cartoesNaFrase(input.state, normalizeName(mensagem)).length === 1) {
     focoFinal = { ...(focoFinal || {}), lastInvoiceQuestion: mensagem, updatedAt: Date.now() }
   }
-  return { draft: null, response, focus: focoFinal, keepPending: mode === 'answer' && !!localNotes }
+  const output = { draft: null, response, focus: focoFinal, keepPending: mode === 'answer' && !!localNotes }
+  if (local_answers.answered.length && local_answers.text && !localNotes) {
+    return withPendingAnswer(input, output, today, state => answerQuestions(state, questions, [], today, mensagem).text)
+  }
+  return conversa?.kind === 'query' && !temFato && !consultaIncompleta
+    ? withPendingAnswer(input, output, today, state => respostaLocal(state, mensagem, today, true)?.text)
+    : output
 }
 
 /**

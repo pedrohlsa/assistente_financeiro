@@ -104,6 +104,37 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const today = '2026-11-22'
+    const state = buildState({ profile: 'other', balance: 500 })
+    state.settings.balanceAsOf = `${today}T00:00`
+    state.transactions = [{ id: 'confirmed-market', type: 'expense', amount: 20, date: today, time: '08:00',
+      description: 'Mercado', category: 'alimentacao' }]
+    const snapshot = JSON.stringify(state)
+    const ask = (message: string, pending?: Awaited<ReturnType<typeof orchestrate>>['response']['actions'],
+      focus?: Awaited<ReturnType<typeof orchestrate>>['focus']) =>
+      orchestrate({ state, today, message, pending, focus, remoteEnabled: false })
+    const proposed = await ask('gastei 50 no mercado')
+    const pending = proposed.response.actions
+    const sameDay = await ask('quanto gastei hoje?', pending)
+    const focused = await ask('quanto gastei de mercado hoje?', pending)
+    const anotherDay = await ask('quanto gastei ontem?', pending)
+    const anotherCategory = await ask('quanto gastei de gasolina hoje?', pending)
+    const grouped = await ask('gastos de hoje e ontem', pending)
+    const bare = await ask('quanto gastei hoje?')
+    const corrected = await ask('não, foi 45', pending, sameDay.focus)
+    const notice = /a proposta anterior aguarda confirmação/i
+    const answers = [sameDay, focused, anotherDay, anotherCategory, grouped, bare]
+    out.push(result('PC-consulta-ignora-proposta-e-mantem-a-confirmacao', answers.map(r => r.response),
+      'mostra R$ 20 confirmados, avisa se a proposta mudaria a consulta e mantém a correção do card anterior',
+      [sameDay, focused, grouped].every(r => /20,00/.test(r.response.reply) && notice.test(r.response.reply) && !/70,00/.test(r.response.reply))
+      && [anotherDay, anotherCategory, bare].every(r => !notice.test(r.response.reply))
+      && answers.every(r => r.response.mode === 'answer' && !r.response.actions.length)
+      && [sameDay, focused, anotherDay, anotherCategory, grouped].every(r => r.keepPending)
+      && corrected.correctedPending && corrected.response.actions[0]?.action.kind === 'expense'
+      && corrected.response.actions[0].action.amount === 45 && JSON.stringify(state) === snapshot))
+  }
+
+  {
     const exact = splitInstallmentAmounts(2.26, 2)
     const uneven = splitInstallmentAmounts(1000, 3)
     out.push(result('GC-parcelas-calculadas-em-centavos-inteiros', { exact, uneven },
