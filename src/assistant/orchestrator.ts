@@ -1675,16 +1675,26 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const issue = reconciled && 'issue' in reconciled ? reconciled.issue : undefined
     if (issue) {
       const platform = payout && 'description' in payout ? payout.description : undefined
-      const dates = platform ? findAllDates(input.message, today) : []
+      const workText = reconciled && 'workText' in reconciled ? reconciled.workText : undefined
+      const workPlatform = reconciled && 'workPlatform' in reconciled ? reconciled.workPlatform : undefined
+      const dates = platform || workText ? findAllDates(input.message, today) : []
       const [date] = dates
-      const pendingActions: ParsedAction[] | undefined = platform && caps.isDriver
-        && (!dates.length || (dates.length === 1 && date.kind === 'date'))
-        ? [{ kind: 'income', amount: 0, category: 'corridas', description: platform, reportedNet: true, feeAlreadyWithheld: true,
+      const pendingActions: ParsedAction[] | undefined = (platform || workText) && caps.isDriver
+        && (!dates.length || (date.kind === 'date' && dates.every(d => d.kind === 'date' && d.date === date.date)))
+        ? [{ kind: 'income', amount: 0, category: 'corridas', description: platform || workPlatform,
+          ...(platform ? { reportedNet: true, feeAlreadyWithheld: true } : {}),
           ...(date?.kind === 'date' ? { date: date.date } : {}) }] : undefined
+      const work = workText && pendingActions
+        ? await orchestrate({ ...input, message: workText, pending: undefined, pendingClarification: undefined, remoteEnabled: false }) : undefined
+      const companions: AssistantCandidateAction[] = work?.response.mode === 'propose_actions' ? work.response.actions : []
+      const keepWork = companions.length > 0 && companions.every(item => item.action.kind === 'work')
+      const previous = input.pending || []
+      const actions = keepWork ? [...previous, ...companions] : []
       return {
-        draft: null, keepPending: true, focus: input.focus,
-        response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [],
-          reply: issue, clarification: { field: pendingActions ? 'exact-amount' : 'reported-total', question: issue, options: [], pendingActions } },
+        draft: null, keepPending: true, focus: input.focus, correctedPending: keepWork && previous.length ? actions : undefined,
+        response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions, unresolved: [],
+          reply: actions.length ? `${proposalText(actions, input.state)}\n\n${issue}` : issue,
+          clarification: { field: pendingActions ? 'exact-amount' : 'reported-total', question: issue, options: [], pendingActions } },
       }
     }
     if (payout && 'amount' in payout) {

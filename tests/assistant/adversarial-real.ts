@@ -250,6 +250,16 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && /829,00[\s\S]*800,00/.test(subtotalMismatch.response.reply)
       && amounts(costsStated).filter(a => a.kind === 'income').length === 2
       && amounts(costsStated).some(a => a.kind === 'work' && a.hours === 8.5)))
+    const closing = await send('ontem fechei o dia em 420 bruto na Uber e 310 líquido, rodei 170 km em 8 horas')
+    const clarified = await orchestrate({ state, today: TODAY, message: 'foi 310', remoteEnabled: false,
+      pending: closing.response.actions, pendingClarification: closing.response.mode === 'clarify' ? closing.response.clarification : undefined })
+    out.push(result('DT-fechamento-bruto-e-liquido-nao-propoe-dinheiro-antes-da-resposta', [closing.response, clarified.response],
+      'mantém 170 km e 8h de ontem, espera o valor recebido e conserva a plataforma ao responder',
+      closing.response.mode === 'clarify' && /420,00 brutos e R\$\s*310,00 líquidos/.test(closing.response.reply)
+      && amounts(closing).length === 1 && amounts(closing).some(a => a.kind === 'work' && a.km === 170 && a.hours === 8 && a.date === '2026-09-14')
+      && amounts(clarified).length === 2 && !!clarified.correctedPending
+      && amounts(clarified).some(a => a.kind === 'income' && a.amount === 310 && a.description === 'Uber' && a.date === '2026-09-14')
+      && !state.transactions.length))
   }
 
   {

@@ -26,7 +26,7 @@ const DRIVER_RESULT_START = String.raw`(?:(?:eu|hoje|hj|ontem|anteontem|agora|j[
 const FARE_SUBTOTAL = new RegExp(String.raw`^((?:(?:eu|hoje|hj|ontem|anteontem|agora|j[áa])\s+){0,4})(ganhei|faturei|recebi|fiz)\s+(.+?)(?:\s*[,;]\s*|\s+)(?:somando(?:\s+(?:deu|d[aá]))?|total(?:\s+(?:de|foi))?|ao\s+todo|no\s+total)\s+${MONEY}(?=$|[.,;!]|\s+e\s+)(.*)$`, 'i')
 const OPERATING_COST = String.raw`(?:gastos?|custos?|despesas?|combust[íi]vel|gasolina|etanol|diesel|ped[áa]gio|aluguel\s+d[eo]\s+carro)(?![\wÀ-ÿ])`
 const NET_WITH_COST = new RegExp(String.raw`(?:(?:^|[,;]\s*|\s+e\s+)${DRIVER_RESULT_START}|\b(?:sobrou|sobraram|ficou)\s+|[,;]\s*)${NET_VALUE}\s+(?:j[áa]\s+)?(?:com|depois\s+d[aeo]s?|descontando|tirando|abatendo)\s+(?:[ao]s?\s+)?(?:${MONEY}\s+(?:d[aeo]|em)\s+)?${OPERATING_COST}`, 'i')
-const BOTH_NET_AND_GROSS = new RegExp(String.raw`^${DRIVER_RESULT_START}${MONEY}\s+brut[oa]s?(?:\s+(?:na|no|pela|pelo|da|do)\s+(?:uber|99|in\s*drive[r]?))?(?:\s+e\s+|,\s*)(?:(?:ficou|sobrou|deu|recebi)\s+)?${NET_VALUE}[.!]*$`, 'i')
+const BOTH_NET_AND_GROSS = new RegExp(String.raw`^(?<lead>(?:(?:eu|hoje|hj|ontem|anteontem|agora|j[áa])\s+){0,4})(?:fechei(?:\s+o\s+dia)?(?:\s+(?:em|com))?|fiz|ganhei|faturei|tirei|recebi|deu|ficou|sobrou)\s+${MONEY}\s+brut[oa]s?(?:\s+(?:na|no|pela|pelo|da|do)\s+(?<platform>uber|99|in\s*drive[r]?))?(?:\s+e\s+|,\s*)(?:(?:ficou|sobrou|deu|recebi)\s+)?${NET_VALUE}(?:(?:\s*,\s*|\s+e\s+)(?<work>(?:rodei|trabalhei|dirigi|andei)\b[^?!]*?))?[.!]*$`, 'i')
 const NET_AFTER_PAYMENTS = new RegExp(String.raw`(?:[,;]\s*|\s+e\s+)(?:sobrou|sobraram|ficou)\s+${NET_VALUE}[.!]*$`, 'i')
 const CARD_PURCHASE_SAID = /^(?:(?:eu|hoje|hj|ontem|anteontem|j[áa])\s+){0,4}(?:comprei|parcelei|passei|paguei|financiei)\b/i
 const CARD_INSTALLMENT_QUOTE = new RegExp(String.raw`(?<![\d.,])(\d+)\s*(?:x|vez(?:es)?|parcelas?)\s+(?:de|com|no\s+valor\s+de)\s+${MONEY}`, 'i')
@@ -37,7 +37,7 @@ const INVOICE_LIST_HEAD = /^(?<lead>(?:(?:eu|hoje|hj|ontem|anteontem|j[áa])\s+)
 const INVOICE_LIST_ITEM = new RegExp(String.raw`^(?:mais\s+)?(?:paguei\s+|quitei\s+)?${MONEY}\s+(?:(da\s+fatura|d[aeo]\s+faturas?)\s+)?d[ao]\s+(.+?)$`, 'i')
 const PAYSLIP_NET = new RegExp(String.raw`^(?<lead>(?:(?:eu|hoje|hj|ontem|anteontem)\s+){0,3})(?:(?:a\s+empresa|o\s+patr[ãa]o)\s+)?(?:me\s+)?descont(?:ou|aram)\s+${MONEY}\s+(?:(?:na|em)\s+folha|d[eo]\s+(?:meu\s+)?sal[áa]rio|de\s+(?:inss|irrf))(?:\s+de\s+pagamento)?(?:\s*[,;]\s*(?:e\s+)?|\s+e\s+)(?<when>(?:hoje|hj|ontem|anteontem)\s+)?(?:recebi|caiu|entrou)\s+(?<received>${MONEY})(?:\s+l[íi]quid[oa]s?)?(?:\s+de\s+sal[áa]rio)?(?<after>\s+(?:hoje|hj|ontem|anteontem))?(?<rest>[.!]*|\s+e\s+(?:paguei|gastei|comprei|abasteci)\b[^?]*?)$`, 'i')
 
-type ReconciledTotal = { text?: string; issue?: string; dateQuestion?: IncompleteIntent['purchaseDateQuestion'] }
+type ReconciledTotal = { text?: string; issue?: string; workText?: string; workPlatform?: string; dateQuestion?: IncompleteIntent['purchaseDateQuestion'] }
 
 type PaymentShare = { amount: number; card?: string; installments?: string }
 
@@ -210,7 +210,11 @@ function reconcileDriverResult(text: string, today: string): ReconciledTotal | u
   }
   const grossAndNet = text.match(BOTH_NET_AND_GROSS)
   if (grossAndNet) {
-    return { issue: `Você informou ${fmtBRL(parseMoney(grossAndNet[1]))} brutos e ${fmtBRL(parseMoney(grossAndNet[2]))} líquidos. Qual valor entrou? Se você pagou algo à parte, diga quanto saiu e com o quê.` }
+    const { lead, work, platform } = grossAndNet.groups
+    const [, , gross, , net] = grossAndNet
+    const workPlatform = platform ? (/^uber$/i.test(platform) ? 'Uber' : platform === '99' ? '99' : 'inDrive') : undefined
+    return { issue: `Você informou ${fmtBRL(parseMoney(gross))} brutos e ${fmtBRL(parseMoney(net))} líquidos. Qual valor entrou? Se você pagou algo à parte, diga quanto saiu e com o quê.`,
+      ...(work ? { workText: `${lead}${work}`.trim(), workPlatform } : {}) }
   }
   const summary = text.match(NET_AFTER_PAYMENTS)
   if (!summary) return undefined
