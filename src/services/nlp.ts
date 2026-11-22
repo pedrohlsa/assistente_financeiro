@@ -144,6 +144,11 @@ export function cleanDescription(raw?: string): string | undefined {
     .replace(/\s+(?:a|à|de|pela|pelo|na|no|hoje|ontem)\s+(?:noite|tarde|manh[ãa]|madrugada|cedinho|cedo|almo[çc]o)$/i, '')
     // Sozinho, o almoço é o que foi comprado ("13 no almoço"); o período não.
     .replace(/^(?:a|à|de|pela|pelo|na|no|hoje|ontem)\s+(?:noite|tarde|manh[ãa]|madrugada|cedinho|cedo)$/i, '')
+    // No INÍCIO, seguido do que foi comprado: "de manhã no café" gravava
+    // "Manhã no café". "Café da manhã" não começa com preposição e fica.
+    .replace(/^(?:a|à|de|pela|pelo|na|no|hoje|ontem)\s+(?:noite|tarde|manh[ãa]|madrugada|cedinho|cedo)\s+(?=\S)/i, '')
+    // A preposição pode já ter saído: "manhã no café" — só com lugar depois.
+    .replace(/^(?:noite|tarde|manh[ãa]|madrugada|cedinho)\s+(?=(?:no|na|em|nos|nas)\s+\S)/i, '')
     // O MEIO de pagamento não é o que foi comprado: "mercado no débito".
     .replace(/\s+(?:no|em|pelo|via|com)\s+(?:d[ée]bito|pix|dinheiro|esp[ée]cie|cart[ãa]o\s+de\s+d[ée]bito)$/i, '')
     .split(/\s+/).filter(Boolean)

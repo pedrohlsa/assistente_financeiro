@@ -9233,6 +9233,22 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const eco = (await turnoHoje(rico, 'me ajuda a economizar')).reply
       out.push(result('VZ-ajuda-a-economizar', eco, 'onde mais saiu', !/Posso te ajudar/.test(eco)))
     }
+    {
+      // Período do dia: o app não guarda a hora em que aconteceu. "De manhã"
+      // virava busca por texto; "à tarde" sumia sem aviso.
+      const moto = motoristaRico(hoje)
+      const tarde = (await turnoHoje(moto, 'quanto ganhei ontem à tarde')).reply
+      const manha = (await turnoHoje(moto, 'quanto ganhei de manhã')).reply
+      out.push(result('PDIA-avisa-e-usa-o-dia', [tarde, manha], 'avisa e responde o dia (hoje quando não dito)',
+        /Não separo por período do dia/.test(tarde) && /ontem/.test(tarde) && /hoje/.test(manha) && !/"manha"/.test(manha)))
+      const cafe = await turnoHoje(moto, 'gastei 30 de manhã no café')
+      out.push(result('PDIA-descricao-sem-periodo', cafe.actions, 'descrição Café', (cafe.actions[0] as any)?.description === 'Café'))
+      // "Mostra meus gastos da semana" listava fora da semana.
+      const lista = (await turnoHoje(moto, 'mostra meus gastos da semana')).reply
+      const fora = moto.transactions.filter(x => x.type === 'expense' && x.date < addDays(hoje, -6))
+        .map(x => `${x.date.slice(8, 10)}/${x.date.slice(5, 7)} ·`)
+      out.push(result('PDIA-lista-respeita-periodo', lista, 'só a semana', !fora.some(d => lista.includes(d))))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

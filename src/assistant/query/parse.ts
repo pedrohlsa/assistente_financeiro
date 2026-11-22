@@ -148,6 +148,9 @@ export function normalizeQuery(input: string): string {
 export const GASTANDO_MUITO = /\b(?:gastando|torrando|gastei|torrei|gasto|gastamos)\s+(?:muito|demais|bastante|um\s+monte)\b/
 
 const PEDE_DADO = [
+  // "Me FALA meu faturamento de agosto", "mostra meus gastos da semana": o
+  // pedido imperativo também pede dado. Caía no menu de ajuda.
+  /\b(?:me\s+)?(?:fala|diz|diga|mostra|mostre|passa|manda|ve|veja)\s+(?:a[ií]\s+)?(?:o\s+|a\s+|os\s+|as\s+)?(?:meu|minha|meus|minhas)\s+(?:faturamento|ganhos?|gastos?|despesas?|receitas?|entradas?|lucro|resultado|saidas?)\b/,
   /\bquant[oa]s?\b/, /\bqual\b/, /\bquais\b/, /\bmedia\b/, /\bmediana\b/,
   /\bmaior\b/, /\bmenor\b/, /\bmelhor\b/, /\bpior\b/, /\bmais\b/, /\bmenos\b/,
   /\bcompar[ao]/, /\bdiferenca\b/, /\baument(?:ou|aram|o)\b/, /\bcai(?:u|ram)\b/,

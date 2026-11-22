@@ -40,7 +40,7 @@ import { modalidadeExplicita, planoContradizModalidade } from './semantic/modali
 import { semAlegacaoDeExecucao } from './claims'
 import { composeAnswer, explainQueryResult, isQueryFailure, runQuery, validateQueryPlan } from './query'
 import { looksLikeDataQuestion, PAYER_PRONOUN_QUERY, planQuery } from './query/parse'
-import { namedCalendarWeek, weekdayInCalendarWeek } from './query/period'
+import { namedCalendarWeek, parsePeriod, weekdayInCalendarWeek } from './query/period'
 import { rememberQuery } from './conversation'
 import type { RepairedText } from './semantic/normalize'
 import type { ConversationFocus } from './conversation'
@@ -1557,6 +1557,23 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   }
   const preferredMessage = applyPreferenceAliases(input.state, input.message)
   if (preferredMessage !== input.message) input = { ...input, message: preferredMessage }
+  // "Quanto ganhei ontem À TARDE", "quanto ganhei DE MANHÃ": o app guarda a
+  // hora em que o valor foi REGISTRADO, não a hora em que aconteceu. "De
+  // manhã" virava busca por texto e "à tarde" sumia sem aviso. A pergunta é
+  // respondida para o dia inteiro, e a resposta diz isso.
+  const parteDoDia = /^\s*(?:e\s+)?(?:quanto|quanta|quantos|quantas|qual|quais)\b/i.test(input.message) && !input.pendingClarification
+    ? input.message.match(/\s*,?\s*(?:de|pela|na|à|a|nessa|nesta|essa|esta|hoje\s+(?:de|à|a))\s+(?:manh[ãa]|tarde|noite|madrugada)(?![\wÀ-ÿ])/i) : null
+  if (parteDoDia) {
+    const semParte = `${input.message.slice(0, parteDoDia.index)} ${input.message.slice((parteDoDia.index || 0) + parteDoDia[0].length)}`.replace(/\s+/g, ' ').trim()
+    // Sem dia dito, "de manhã" é de hoje — não do mês inteiro.
+    const hojeQ = input.today || todayISO()
+    const comDia = findAllDates(semParte, hojeQ).length || parsePeriod(semParte, hojeQ) ? semParte : `${semParte.replace(/[?!.]+$/, '')} hoje`
+    const out = await orchestrate({ ...entradaBruta, message: comDia, pendingClarification: undefined })
+    if (out.response.mode === 'answer') {
+      out.response = { ...out.response, reply: 'Não separo por período do dia: guardo a hora em que cada valor foi registrado, não a hora em que aconteceu. Considerei o dia inteiro.\n\n' + out.response.reply }
+    }
+    return out
+  }
   // "Gastos dessa semana", "saldo?": pergunta telegráfica vira a pergunta com
   // verbo que o app responde. Resposta a uma opção oferecida fica como está.
   const nominal = input.pendingClarification ? null : perguntaNominal(input.message)

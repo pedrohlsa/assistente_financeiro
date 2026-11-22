@@ -477,11 +477,15 @@ function listaDeLancamentos(s: AppState, t: string): string | undefined {
   const dia = /\banteontem\b/.test(t) ? addDays(hoje, -2) : /\bontem\b/.test(t) ? addDays(hoje, -1) : /\bhoje\b/.test(t) ? hoje : undefined
   const tipo = /\b(?:gastos|despesas|gastei)\b/.test(t) ? 'expense' : /\b(?:receitas|entradas|recebi)\b/.test(t) ? 'income' : undefined
   const rotuloDia = dia === hoje ? 'hoje' : dia === addDays(hoje, -1) ? 'ontem' : dia ? 'anteontem' : ''
+  // "Mostra meus gastos DA SEMANA" listava 03/09 com hoje em 15/09: só o dia
+  // seco era lido. O período dito recorta a lista, pelo mesmo leitor da DSL.
+  const periodo = !dia ? parsePeriod(t, hoje)?.period : undefined
   const lista = s.transactions
-    .filter(x => x.date <= hoje && (!dia || x.date === dia) && (!tipo || x.type === tipo))
+    .filter(x => x.date <= hoje && (!dia || x.date === dia) && (!periodo || (x.date >= periodo.from && x.date <= periodo.to)) && (!tipo || x.type === tipo))
     .sort((a, b) => `${b.date}${b.time || ''}`.localeCompare(`${a.date}${a.time || ''}`))
   const oque = tipo === 'expense' ? 'gasto' : tipo === 'income' ? 'entrada' : 'lançamento'
   if (!lista.length) {
+    if (periodo) return `Nada registrado ${periodo.label}${tipo ? ` como ${oque}` : ''}.`
     return dia ? `Nada registrado ${rotuloDia}${tipo ? ` como ${oque}` : ''}. Quando quiser, me conte o que entrou ou saiu.`
       : `Ainda não há nenhum ${oque} registrado.`
   }
@@ -493,7 +497,7 @@ function listaDeLancamentos(s: AppState, t: string): string | undefined {
     const sinal = x.type === 'income' ? '+' : x.type === 'expense' ? '−' : ''
     return `• ${quando ? `${quando} · ` : ''}${nome}${cat && cat !== nome ? ` (${cat})` : ''}: ${sinal}${fmtBRL(x.amount)}`
   }
-  const titulo = dia ? `Registrado ${rotuloDia} (${lista.length}):` : `Seus últimos ${oque === 'lançamento' ? 'lançamentos' : oque === 'gasto' ? 'gastos' : 'entradas'}:`
+  const titulo = dia ? `Registrado ${rotuloDia} (${lista.length}):` : periodo ? `${oque === 'lançamento' ? 'Lançamentos' : oque === 'gasto' ? 'Gastos' : 'Entradas'} ${periodo.label} (${lista.length}):` : `Seus últimos ${oque === 'lançamento' ? 'lançamentos' : oque === 'gasto' ? 'gastos' : 'entradas'}:`
   return [titulo, '', ...mostrados.map(linha),
     ...(lista.length > mostrados.length ? ['', `E mais ${lista.length - mostrados.length}. A lista completa fica em Movimentações.`] : [])].join('\n')
 }
