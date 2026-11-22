@@ -9663,6 +9663,22 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('PH-comparacao-mantem-os-apps-ao-trocar-o-dia', followUp.reply, 'ontem a 99 teve R$ 90 e a Uber R$ 30',
         !followUp.actions.length && /99 teve a maior receita registrada ontem/.test(followUp.reply)
         && /30,00/.test(followUp.reply) && /90,00/.test(followUp.reply) && !/inDrive|600,00/.test(followUp.reply)))
+      apps.transactions.push({ id: 'entregas', type: 'income', description: 'iFood', amount: 1400, category: 'corridas', date: TODAY })
+      const [difference, checksLess, checksMore, topApp, gapNoData] = await Promise.all([
+        'qual a diferença de ganhos entre Uber e 99 hoje?',
+        'a Uber pagou menos que a 99 hoje?',
+        'a Uber me pagou mais que a 99 hoje?',
+        'qual app me pagou mais hoje?',
+        'qual a diferença entre Uber e 99 mês passado?',
+      ].map(message => turn(apps, message)))
+      const gapYesterday = await turn(apps, 'e ontem?', difference.focus)
+      const gapReplies = [difference, checksLess, checksMore, topApp, gapNoData, gapYesterday]
+      out.push(result('PH-diferenca-e-veredito-entre-apps', gapReplies.map(r => r.reply), 'diferença em reais, sim ou não, só os apps pedidos e base para os dois lados',
+        gapReplies.every(r => !r.actions.length) && /Uber registrou R\$\s*200,00 a mais que 99/.test(difference.reply)
+        && /^Não\./.test(checksLess.reply) && /^Sim\./.test(checksMore.reply)
+        && /^iFood teve a maior receita/.test(topApp.reply) && /receitas registradas dos dois apps/.test(gapNoData.reply)
+        && /99 registrou R\$\s*60,00 a mais que Uber/.test(gapYesterday.reply)
+        && !/inDrive|iFood|%/.test(difference.reply)))
       const metrics = await Promise.all(['qual app paga melhor por hora?', 'qual plataforma paga melhor por km?'].map(frase => turn(apps, frase)))
       const grouped = (['per-hour', 'per-km'] as const).map(metric => runQuery(apps, {
         version: 2, source: 'transactions', field: 'amount', period: { from: TODAY, to: TODAY, label: 'hoje', grain: 'day' },

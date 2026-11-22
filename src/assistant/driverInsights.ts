@@ -28,6 +28,7 @@ import { normalizeName, weekdayName } from '../utils/text'
 import { currentMonthToDate, parsePeriod } from './query/period'
 import { runQuery } from './query/engine'
 import { QUERY_DSL_VERSION } from './query/types'
+import { FALTAM_VIAGENS_POR_APP } from './driverAdvice'
 
 /** Janela padrão do "meu normal": um mês corrido de trabalho. */
 const JANELA_DIAS = 30
@@ -209,44 +210,63 @@ const PLATAFORMAS: [RegExp, string][] = [
   [/corrida privada/i, 'Corrida privada'],
 ]
 
-const NAMED_RIDE_APPS = /(?<![\p{L}\p{N}])(?<!\d[.,])(?:uber|in\s*drive[r]?|99(?!\s*(?:reais?|contos?)\b))(?![\p{L}\p{N}]|[.,]\d)/giu
-const APP_RANKING = /^(?:qual|quais)\s+(?:(?:o|a)\s+)?(?:app|aplicativo|plataforma)s?\b[^?]*\b(?:paga|rende|vale|melhor|compensa)\b/
-const APP_COMPARISON = /^(?:(?:me\s+)?compar(?:a|e|ar)|quanto\s+(?:eu\s+)?(?:ganhei|recebi|fiz|faturei|rendeu)|ganhei\s+mais|qual\s+(?:ganha|rende|paga)\s+mais|vale\s+a\s+pena\s+rodar|compensa\s+rodar)\b/
+const NAMED_RIDE_APPS = /(?<![\p{L}\p{N}$])(?<!\d[.,])(?:uber|in\s*drive[r]?|i\s*food|rappi|99(?!\s*(?:reais?|contos?|km|quilometros?|horas?)\b))(?![\p{L}\p{N}]|[.,]\d)/giu
+const RIDE_APP_LABELS = new Map([['uber', 'Uber'], ['99', '99'], ['indrive', 'inDrive'], ['indriver', 'inDrive'], ['ifood', 'iFood'], ['rappi', 'Rappi']])
+const APP_RANKING = /^(?:(?:qual|quais)\s+(?:(?:o|a)\s+)?(?:app|aplicativo|plataforma)s?\b[^?]*\b(?:paga(?:ram|m)?|pagou|rende|vale|melhor|compensa)|ganhei\s+mais\s+em\s+qual\s+(?:app|aplicativo|plataforma))\b/
+const APP_COMPARISON = /^(?:(?:me\s+)?compar(?:a|e|ar)|quanto\s+(?:eu\s+)?(?:ganhei|recebi|fiz|faturei|rendeu)|ganhei\s+mais|(?:qual|quem)\s+(?:ganha|rende|paga|pagou)\s+mais|vale\s+a\s+pena\s+rodar|compensa\s+rodar)\b/
+const APP_GAP = /^(?:qual|quanto)\s+(?:(?:foi|e)\s+)?a\s+diferenca\b/
+const APP_ORDER = /^(?:(?:a|o)\s+)?(?:uber|99|in\s*drive[r]?|i\s*food|rappi)\s+(?:me\s+)?(?:paga|pagou|rende|rendeu)\s+(mais|menos)\s+(?:do\s+)?que\b/
 
 export function compareRideApps(state: AppState, input: string, today: string): string | undefined {
   if (!isDriver(state.settings)) return undefined
   const t = normalizeName(input).trim()
-  if (/\b(?:gastei|paguei|quanto\s+custa|sem\s+contar|somando|juntas?|exceto|acima|abaixo|comparad[oa]\s+(?:com|a))\b/.test(t)) return undefined
-  const names = [...new Set([...t.matchAll(NAMED_RIDE_APPS)].map(m =>
-    m[0] === '99' ? '99' : m[0] === 'uber' ? 'Uber' : 'inDrive'))]
+  if (/\b(?:gastei|paguei|quanto\s+custa|sem\s+contar|somando|juntas?|exceto|acima|abaixo|comparad[oa]\s+(?:com|a))\b/.test(t)
+    || /[,;]\s*(?:eu\s+)?(?:recebi|ganhei|trabalhei|rodei|abasteci)\b/.test(t)) return undefined
+  const names = [...new Set([...t.matchAll(NAMED_RIDE_APPS)].flatMap(m => {
+    if (m[0] === '99' && /r\$\s*$/.test(t.slice(0, m.index))) return []
+    const name = RIDE_APP_LABELS.get(m[0].replace(/\s/g, ''))
+    return name ? [name] : []
+  }))]
   const ranking = APP_RANKING.test(t)
-  if (!ranking && !(names.length > 1 && APP_COMPARISON.test(t))) return undefined
+  const gap = names.length === 2 && APP_GAP.test(t)
+  const direction = names.length === 2 ? t.match(APP_ORDER)?.[1] : undefined
+  if (!ranking && !gap && !direction && !(names.length > 1 && APP_COMPARISON.test(t))) return undefined
   const saidPeriod = parsePeriod(t, today)?.period
   if (!saidPeriod && /\b(?:ultima\s+quinzena|ultimos\s+meses)\b/.test(t)) return undefined
   const metric = t.match(/\bpor\s+(hora|km|quilometro|viagem|corrida)\b/)?.[1]
   if (metric) {
-    if (metric === 'viagem' || metric === 'corrida') return 'O histórico guarda a quantidade de viagens por dia. Preciso da quantidade por plataforma para calcular o valor por viagem de cada app.'
+    if (metric === 'viagem' || metric === 'corrida') return FALTAM_VIAGENS_POR_APP
     const base = metric === 'hora' ? 'as horas de trabalho' : 'os quilômetros rodados'
-    return `O app guarda ${base} por dia. Para comparar quanto cada plataforma paga por ${metric}, precisaria desses dados separados por plataforma.`
+    return `O app guarda ${base} por dia. Para comparar quanto cada plataforma paga por ${metric === 'hora' ? 'hora' : 'km'}, precisaria desses dados separados por plataforma.`
   }
-  const advice = ranking || /\b(?:vale\s+a\s+pena|compensa)\b/.test(t)
-  const period = saidPeriod || (advice ? {
+  const advice = /\b(?:vale\s+a\s+pena|compensa|melhor)\b/.test(t)
+  const period = saidPeriod || (ranking || advice ? {
     from: addDays(today, -(JANELA_DIAS - 1)), to: today, label: `nos últimos ${JANELA_DIAS} dias`, grain: 'day' as const,
   } : currentMonthToDate(today))
   const result = runQuery(state, {
     version: QUERY_DSL_VERSION, source: 'transactions', field: 'amount', period, group: 'platform',
     filter: { txType: ['income'], categories: ['corridas'] }, metric: 'sum', order: 'value-desc', limit: 8,
   }, today)
-  const selected = names.length ? names : ['Uber', '99', 'inDrive'].filter(name => result.groups.some(g => g.key === name))
+  const selected = names.length ? names : result.groups.map(group => group.key)
   const rows = selected.map(name => ({ name, value: result.groups.find(g => g.key === name) }))
   const found = rows.flatMap(({ value }) => value ? [value] : []).sort((a, b) => b.value - a.value)
   if (!found.length) {
     return `Não tenho receitas por plataforma registradas ${period.label}${names.length ? ` para ${names.join(' e ')}` : ''}.`
   }
   const [first, second] = found
-  const lead = second && first.value === second.value ? `O maior total ficou empatado ${period.label}.`
-    : second ? `${first.label} teve a maior receita registrada ${period.label}.`
-      : `Receitas por plataforma ${period.label}.`
+  let lead = second && first.value === second.value ? `O maior total ficou empatado ${period.label}.`
+    : second ? `${first.label} teve a maior receita registrada ${period.label}.` : `Receitas por plataforma ${period.label}.`
+  if (gap || direction) {
+    if (!second) lead = `Para calcular a diferença ${period.label}, preciso de receitas registradas dos dois apps.`
+    else {
+      const delta = first.value - second.value
+      if (!delta) lead = `${direction ? 'Não. ' : ''}Os dois apps tiveram a mesma receita registrada ${period.label}.`
+      else {
+        const agrees = direction === 'mais' ? first.key === names[0] : second.key === names[0]
+        lead = `${direction ? (agrees ? 'Sim. ' : 'Não. ') : ''}${first.label} registrou ${fmtBRL(delta)} a mais que ${second.label} ${period.label}.`
+      }
+    }
+  }
   const lines = rows.map(({ name, value }) => value
     ? `• ${name}: ${fmtBRL(value.value)} em ${value.count} ${value.count === 1 ? 'registro' : 'registros'}`
     : `• ${name}: sem receita registrada no período`)
