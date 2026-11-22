@@ -527,6 +527,8 @@ interface DayResult {
 function driverDayResult(input: string, actions: ParsedAction[], dayHint?: boolean): DayResult | null {
   const t = input.toLowerCase()
   if (STRONG_EXPENSE_VERB.test(t)) return null
+  // "Quanto falta pra eu TIRAR 300 hoje?" é meta perguntada, não resultado dito.
+  if (/^\s*(?:e\s+)?(?:quanto|quantas?|qnto|qto|em\s+quantas|quanto\s+tempo)\b/.test(t)) return null
   // "Todo dia 10" é vencimento de conta, não o resultado do dia de trabalho.
   if (RECORRENCIA.test(t)) return null
   // O `dayHint` existe porque quem segmenta a mensagem ARRANCA a expressão de

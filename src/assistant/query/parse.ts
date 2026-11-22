@@ -204,6 +204,9 @@ export function looksLikeDataQuestion(input: string): boolean {
   // "Como é meu dia típico?", "quanto eu faço num dia normal": o RITMO
   // diário, não o total do período — quem responde é o `driverInsight`.
   if (DIA_TIPICO.test(t)) return false
+  // "Em quantas horas eu faço 200": o ritmo dele contra um alvo — roteador.
+  if (/\b(?:em\s+quantas\s+horas|quanto\s+tempo|quantas\s+horas)\b[^?]*\b(?:faco|tiro|faturo|fazer|tirar|faturar|ganho|ganhar)\s+(?:r\$\s*)?\d/.test(t)) return false
+  if (/\bquanto\s+(?:ainda\s+)?falta\s+(?:pra|para)\s+(?:eu\s+)?(?:tirar|fazer|faturar|bater|chegar)\s+(?:em\s+|a\s+|nos?\s+)?(?:r\$\s*)?\d/.test(t)) return false
   // "Onde dá pra cortar gastos": pedido de orientação, respondido no roteador.
   if (/\b(?:onde|o\s+que|em\s+que)\b[^?]*\b(?:cortar|economizar|reduzir|enxugar|apertar)\b/.test(t)) return false
   // "Melhor horário pra rodar": o app não sabe a hora das corridas.

@@ -1072,6 +1072,36 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   // Vinha depois da composição, que capturava qualquer "meta" e respondia a
   // conta da meta sem dizer se foi batida.
   // "Tô bem na meta?" despejava a composição da meta sem dizer se ia bem.
+  // "Quanto falta pra eu tirar 300 hoje?": a meta que ELE disse, contra o dia.
+  // Perguntava se os R$ 300 eram ganho ou gasto. "Tirar" pode ser bruto ou
+  // limpo, então a resposta dá os dois.
+  const alvoDoDia = driverMode ? t.match(/\bquanto\s+(?:ainda\s+)?falta\s+(?:pra|para)\s+(?:eu\s+)?(?:tirar|fazer|faturar|bater|chegar\s+(?:em|a|nos?))\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)\b/) : null
+  if (alvoDoDia) {
+    const meta = parseMoney(alvoDoDia[1])
+    const ts = todayStats(s)
+    if (meta > 0) {
+      const brutoFalta = round2(meta - ts.income)
+      const limpoFalta = round2(meta - ts.profit)
+      const parte = (falta: number, nome: string) => falta <= 0.009 ? `de ${nome}, você já passou (${fmtBRL(-falta)} acima)` : `de ${nome}, faltam ${fmtBRL(falta)}`
+      const w = weekStats(s)
+      const ritmo = w.hours > 0 && w.income > 0 && brutoFalta > 0.009
+        ? ` No seu ritmo dos últimos 7 dias (${fmtBRL(w.income / w.hours)}/hora de faturamento), dá cerca de ${fmtNum(brutoFalta / (w.income / w.hours))}h.` : ''
+      return { text: `Hoje entraram ${fmtBRL(ts.income)} e o resultado está em ${fmtBRL(ts.profit)} (dado real). Para ${fmtBRL(meta)}: ${parte(brutoFalta, 'faturamento')}; ${parte(limpoFalta, 'limpo')}.${ritmo}` }
+    }
+  }
+
+  // "Em quantas horas eu faço 200?": o ritmo dele, medido.
+  const emHoras = driverMode ? t.match(/\b(?:em\s+quantas\s+horas|quanto\s+tempo|quantas\s+horas)\b[^?]*?\b(?:fa[çc]o|tiro|faturo|fazer|tirar|faturar|ganho|ganhar)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)\b/) : null
+  if (emHoras) {
+    const alvo = parseMoney(emHoras[1])
+    const w = weekStats(s)
+    if (alvo > 0) {
+      if (!(w.hours > 0) || !(w.income > 0)) return { text: 'Ainda não tenho horas registradas nos últimos 7 dias para medir o seu ritmo. Diga "trabalhei 8 horas" junto com o ganho do dia.' }
+      const porHora = w.income / w.hours
+      return { text: `No seu ritmo dos últimos 7 dias, ${fmtBRL(porHora)}/hora de faturamento (${fmtNum(w.hours)}h registradas), ${fmtBRL(alvo)} levam cerca de ${fmtNum(alvo / porHora)}h (dado real). É uma média — o dia pode render mais ou menos.` }
+    }
+  }
+
   // "Tô cansado, paro ou continuo?": a pausa vem antes da conta da meta.
   if (driverMode && /\b(?:paro|parar|encerro|encerrar|vou\s+embora)\b[^?]*\b(?:ou|continuo|continuar|sigo|seguir|rodo)\b|\bdevo\s+parar\b|\bja\s+da\s+(?:pra|para)\s+parar\b|\bposso\s+parar\b/.test(t)) {
     const ts = todayStats(s)
@@ -1696,7 +1726,8 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   }
 
   // consumo
-  if (driverMode && /consumo|km\/l|quantos km por litro/.test(t)) {
+  // "Meu carro tá BEBENDO muito?" é a pergunta do consumo dita como se fala.
+  if (driverMode && /consumo|km\/l|quantos km por litro|\bbeb(?:endo|e|eu)\s+(?:muito|demais|bastante)|\bfazendo\s+quantos\s+km\b|\bquantos\s+km\s+(?:ele|o\s+carro|a\s+moto)\s+faz\b/.test(t)) {
     const eff = fuelEfficiency(s)
     if (!eff) return { text: 'Registre pelo menos 2 abastecimentos com o KM do hodômetro para eu calcular seu consumo real.' }
     return { text: `Seu carro está fazendo ${fmtNum(eff)} km/L, calculado com base nos seus abastecimentos (dado real).` }

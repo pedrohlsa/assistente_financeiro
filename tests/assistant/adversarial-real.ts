@@ -8217,6 +8217,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('VK-controle-reais', r.actions, '64 km; os 14 reais não viram km', w2?.km === 64))
   }
 
+  // Motorista: "quanto falta pra eu tirar 300 hoje" perguntava se era ganho
+  // ou gasto; "em quantas horas eu faço 200" era recusada; "meu carro tá
+  // bebendo muito?" caía na ajuda.
+  {
+    const moto = motoristaRico(hoje)
+    const a = (await turnoHoje(moto, 'quanto falta pra eu tirar 300 hoje')).reply
+    out.push(result('MT-falta-pra-tirar', a, 'faturamento e limpo contra R$ 300', /faturamento/.test(a) && /limpo/.test(a) && !/ganhou ou/.test(a)))
+    const b = (await turnoHoje(moto, 'em quantas horas eu faço 200')).reply
+    out.push(result('MT-quantas-horas', b, 'horas pelo ritmo medido', /\d+(?:,\d+)?h\b/.test(b) && /ritmo/.test(b)))
+    const c = (await turnoHoje(moto, 'meu carro tá bebendo muito?')).reply
+    out.push(result('MT-bebendo-muito', c, 'consumo em km/L', /km\/L/.test(c) || /abastecimentos/.test(c)))
+  }
+
   // "Paguei 3 contas: luz 120, água 80 e internet 100" criava uma despesa de
   // R$ 3,00; "mais ou menos 200" gravava "Ou menos"; "entre 40 e 50"
   // registrava 50 sozinho.
