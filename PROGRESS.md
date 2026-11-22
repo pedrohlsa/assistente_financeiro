@@ -7168,3 +7168,18 @@ Fim da segunda janela (depois de `34af349`):
 - Mantido de propósito: "gastei 45 de gás" pergunta "cozinha ou GNV?" em todos os perfis. Autônomo também tem carro a GNV. Uma tentativa de remover a pergunta foi revertida pelos casos `crit-gas`/`gas-0x`.
 
 Gates em `956ac72` (antes destes três lotes): `npm test` (736, 1.524, 151), typecheck, typecheck:api, test:money, build sem `sk-`, rubrica 0 PERIGOSA / 0 RUIM e a matriz de oito datas. Depois, `npm test` passou em `b5c114c` com 1.531 regressões. **NOT READY**.
+
+## 22/11/2026 — Revisão do Codex com foco no motorista
+
+O trabalho local começou em `d442f3b` e fechou a revisão de código em `09780e8`, na branch `feat/assistant-intelligence-v2`. A matriz também passou em `d442f3b`, incluindo o ajuste original de GNV.
+
+- Resumos de jornada preservam centavos, litros, km decimais e durações como “8h30”. O subtotal informado só confere as receitas. Números sem contexto, dias conflitantes e medidas inválidas pedem esclarecimento. A confirmação continua necessária.
+- Relatos de repasse mantêm o valor recebido, o dia e o aplicativo. “A 99 me pagou 400 com taxa de 20, caíram 380” propõe R$ 380 com a taxa já retida. Um dia com bruto e líquido incertos mantém a jornada visível e pede o dinheiro que entrou.
+- Ofertas de corrida e comparações ficam em modo de análise. O chat distingue a ida do retorno e recalcula com o tempo ou valor acrescentado. R$ 30 em 16 km e 25 min com custo de R$ 0,50/km dão R$ 22 de lucro estimado e R$ 52,80 por hora.
+- Ganhos por hora e km cruzam receitas de corrida com as medidas registradas nos mesmos dias. O líquido desconta os custos de rodagem cadastrados. O padrão diário mostra a amostra de cada indicador. Consultas entre apps respeitam o período e mostram diferenças em reais. Horas, km e viagens continuam registrados por dia, sem atribuição a apps individuais.
+- Consultas factuais mantêm a proposta aberta e avisam quando ela muda o total. Uma inclusão explícita vira simulação. “E ontem?” mantém o tipo de lista, último movimento ou comparação por app. A escolha de gás preserva a data, o horário e os outros registros do relato.
+- Vacância lê o nome cadastrado, datas de início e fim e os vencimentos no intervalo. Simulação de pagamento com a reserva pede o saldo disponível após resgate.
+
+Em `09780e8`, `npm test` passou com 736 casos do corpus, 1.554 regressões reais e 151 invariantes. A matriz das oito datas passou. Também passaram os dois typechecks, `test:money`, o build e 5.184 verificações independentes em três fusos. A rubrica teve 0 respostas perigosas e 0 ruins em 90. Os fluxos no Chrome passaram em viewport padrão e móvel com reconhecimento de voz simulado.
+
+**NOT READY**. Voz real, Android, APK, DeepSeek real e publicação continuam pendentes. O agrupamento `monthday` ainda depende de redeploy autorizado para chegar ao planejador remoto.
