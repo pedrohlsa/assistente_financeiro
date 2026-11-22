@@ -306,7 +306,8 @@ function lerMetrica(t: string): { valor: MetricaLida; matched: string } {
     RESULTADO.test(t) && !GASTO.test(t) ? ['income', 'expense'] : tipoBaseDe(t)
   // Entrada menos saída dividida pela unidade: o rótulo diz que é LÍQUIDO,
   // senão "R$ 24,57 por viagem" se lê como o que a corrida paga.
-  const porUnidade = tipo.length > 1 ? 'Líquido por ' : 'Por '
+  // "Por km: R$ 0,24/km" não dizia se era gasto ou ganho.
+  const porUnidade = tipo.length > 1 ? 'Líquido por ' : tipo[0] === 'income' ? 'Recebido por ' : tipo[0] === 'saving' ? 'Guardado por ' : 'Gasto por '
   const rotuloBase = tipo.length > 1 ? 'Resultado'
     : tipo[0] === 'income' ? 'Total recebido' : tipo[0] === 'saving' ? 'Total guardado' : 'Total gasto'
   const direcaoDosRegistros = t.replace(/\b(?:fiz|fizemos|faco|fazemos|fazer|registrei|anotei|lancei)\b/g, '')

@@ -8962,6 +8962,13 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const geladeira = (await turnoHoje(rico, 'dá pra comprar uma geladeira de 30 mil?')).reply
     out.push(result('GG-simulacao-sem-sobra-negativa', geladeira, 'déficit nomeado na simulação, nunca "sobra … -R$"',
       !/sobra do m[êe]s passaria a -/.test(geladeira.replace(/\u00a0/g, ' '))))
+    {
+      const moto = motoristaRico(hoje)
+      const gk = (await turnoHoje(moto, 'qual meu gasto por km')).reply
+      const rh = (await turnoHoje(moto, 'quanto ganhei por hora ontem')).reply
+      out.push(result('PU-rotulo-por-unidade-diz-o-que-mede', [gk, rh], '"Gasto por km" e "Recebido por hora", nunca "Por km" solto',
+        /^Gasto por km/.test(gk) && /^Recebido por hora/.test(rh)))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

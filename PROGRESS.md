@@ -7071,7 +7071,12 @@ que respondiam outra coisa com número certo:
   aponta o Planejamento, onde a conta ganha o aviso de vencimento. Bloco
   `LB-`.
 
-Gates no fim da rodada: `npm test` (736 corpus, 1.446 adversariais, 151
+- **Rótulo por unidade.** "Qual meu gasto por km" respondia "Por km: R$ 0,24/km";
+  agora diz "Gasto por km", "Recebido por hora" ou "Líquido por km". Bloco `PU-`.
+  **Aberto:** "quanto ganhei por hora ESSA SEMANA" cai no resumo semanal
+  antigo e devolve o total, ignorando o "por hora" ("ontem" funciona).
+
+Gates no fim da rodada: `npm test` (736 corpus, 1.447 adversariais, 151
 invariantes), os dois typechecks, `test:money`, build sem `sk-` em `dist/`,
 rubrica 0 PERIGOSA / 0 RUIM e a matriz de oito datas. **NOT READY**; nada
 foi enviado ao GitHub. Voz real, Android, APK e DeepSeek real continuam
