@@ -1557,6 +1557,20 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   }
   const preferredMessage = applyPreferenceAliases(input.state, input.message)
   if (preferredMessage !== input.message) input = { ...input, message: preferredMessage }
+  // "Rodei 30 mil km ESSE ANO?", "gastei 500 esse mês?": conferência de um
+  // total, não lançamento de um dia (regra 33a). Virava 30.000 km de trabalho
+  // hoje, com "Esse mês" de descrição. Vira a consulta do período.
+  const conferencia = !input.pendingClarification && !input.pending?.length
+    ? input.message.match(/^\s*(?:(?:eu|sera\s+que|será\s+que)\s+)?(gastei|recebi|ganhei|rodei|faturei|fiz|lucrei|paguei)\s+(?:mais\s+de\s+|uns\s+|umas\s+|quase\s+)?(?:r\$\s*)?\d[\d.,]*(?:\s*mil)?\s*(?:reais|km|quil[ôo]metros|corridas|viagens)?\s+((?:n?ess[ea]|n?est[ea])\s+(?:m[eê]s|ano|semana)|no\s+m[eê]s\s+passado|na\s+semana\s+passada|no\s+ano\s+passado)\s*\?\s*$/i) : null
+  if (conferencia) {
+    const verbo = conferencia[1].toLowerCase() === 'fiz' && /corridas|viagens/i.test(input.message) ? 'quantas corridas eu fiz'
+      : conferencia[1].toLowerCase() === 'rodei' ? 'quantos km eu rodei' : `quanto eu ${conferencia[1].toLowerCase()}`
+    const out = await orchestrate({ ...entradaBruta, message: `${verbo} ${conferencia[2]}?` })
+    if (out.response.mode === 'answer' && !out.response.actions.length) {
+      out.response = { ...out.response, reply: `Li como pergunta — nada foi registrado. ${out.response.reply}` }
+      return out
+    }
+  }
   // "Quanto ganhei ontem À TARDE", "quanto ganhei DE MANHÃ": o app guarda a
   // hora em que o valor foi REGISTRADO, não a hora em que aconteceu. "De
   // manhã" virava busca por texto e "à tarde" sumia sem aviso. A pergunta é

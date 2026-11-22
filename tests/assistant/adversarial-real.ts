@@ -9282,6 +9282,17 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('CQ-categoria-da-proposta', t2.response.reply, 'fala da categoria da proposta, mantendo-a',
         !!t2.keepPending && /Alimentação/.test(t2.response.reply) && !/por categoria/.test(t2.response.reply)))
     }
+    {
+      // "Rodei 30 mil km esse ano?" virava 30.000 km de trabalho HOJE; "gastei
+      // 500 esse mês?" virava despesa descrita "Esse mês" (regra 33a).
+      const moto = motoristaRico(hoje)
+      const km = await turnoHoje(moto, 'rodei 30 mil km esse ano?')
+      out.push(result('CF-conferencia-de-km', km, 'consulta, sem ação', !km.actions.length && /Km rodados/.test(km.reply) && /nada foi registrado/.test(km.reply)))
+      const g = await turnoHoje(rico, 'gastei 500 esse mês?')
+      out.push(result('CF-conferencia-de-gasto', g, 'consulta, sem ação', !g.actions.length && /este mês/.test(g.reply)))
+      const sem = await turnoHoje(rico, 'gastei 500 esse mês')
+      out.push(result('CF-periodo-nao-e-descricao', sem.actions, 'sem descrição "Esse mês"', !/m[eê]s/i.test((sem.actions[0] as any)?.description || '')))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

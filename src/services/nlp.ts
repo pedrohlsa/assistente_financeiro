@@ -149,6 +149,8 @@ export function cleanDescription(raw?: string): string | undefined {
     .replace(/^(?:a|à|de|pela|pelo|na|no|hoje|ontem)\s+(?:noite|tarde|manh[ãa]|madrugada|cedinho|cedo)\s+(?=\S)/i, '')
     // A preposição pode já ter saído: "manhã no café" — só com lugar depois.
     .replace(/^(?:noite|tarde|manh[ãa]|madrugada|cedinho)\s+(?=(?:no|na|em|nos|nas)\s+\S)/i, '')
+    // "Gastei 500 ESSE MÊS": o período não é o que foi comprado.
+    .replace(/(?:^|\s+)(?:n?ess[ea]|n?est[ea])\s+(?:m[eê]s|semana|ano|quinzena)$/i, '')
     // O MEIO de pagamento não é o que foi comprado: "mercado no débito".
     .replace(/\s+(?:no|em|pelo|via|com)\s+(?:d[ée]bito|pix|dinheiro|esp[ée]cie|cart[ãa]o\s+de\s+d[ée]bito)$/i, '')
     .split(/\s+/).filter(Boolean)
