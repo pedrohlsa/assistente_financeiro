@@ -327,17 +327,19 @@ export function vendaPorUnidade(input: string): string {
  * fonte, e o valor depois da vírgula é o que entrou.
  */
 function mePagou(input: string): string {
-  const m = input.match(/^\s*(?:(?:o|a)\s+)?([\p{L}][\p{L}\d ]{1,30}?)\s+(?:j[áa]\s+)?me\s+(?:pagou|pagaram|passou|mandou|transferiu|depositou)\s+(?:(?:a\s+)?metade|uma\s+parte|parte|o\s+resto|o\s+sinal|um\s+adiantamento)?\s*[,:]?\s*(?:r\$\s*)?(\d+(?:[.,]\d+)*)\s*(?:reais)?\s*[.!]?\s*$/iu)
-  if (!m || /^(?:eu|ele|ela|eles|elas|voce|você|quem|que)$/i.test(m[1].trim())) return input
-  return `recebi ${m[2]} do ${m[1].trim()}`
+  // "A 99 me pagou 800 ESSA SEMANA": a plataforma começa com dígito, e o
+  // tempo depois do valor fazia a frase inteira cair na ajuda.
+  const m = input.match(/^\s*(?:(?:o|a)\s+)?([\p{L}\d][\p{L}\d ]{1,30}?)\s+(?:j[áa]\s+)?me\s+(?:pagou|pagaram|passou|mandou|transferiu|depositou)\s+(?:(?:a\s+)?metade|uma\s+parte|parte|o\s+resto|o\s+sinal|um\s+adiantamento)?\s*[,:]?\s*(?:r\$\s*)?(\d+(?:[.,]\d+)*)\s*(?:reais)?((?:\s+(?:hoje|ontem|anteontem|(?:n?[ae]ss?a|n?esta|na)\s+semana|no\s+pix|via\s+pix|em\s+dinheiro))*)\s*[.!]?\s*$/iu)
+  if (!m || /^(?:eu|ele|ela|eles|elas|voce|você|quem|que)$/i.test(m[1].trim()) || /^\d+$/.test(m[1].trim()) && m[1].trim() !== '99') return input
+  return `recebi ${m[2]} do ${m[1].trim()}${m[3] || ''}`
 }
 
 function fontePagou(input: string): string {
-  const m = input.match(/^\s*(?:a|o)\s+((?:inquilin[oa](?:\s+d[ao]\s+(?:casa|kitnet|apartamento|apto|loja|sala)\s+[\p{L}\d]+)?)|(?:casa|kitnet|apartamento|apto|loja|sala)\s+[\p{L}\d]+|cliente(?:\s+[\p{Lu}][\p{L}]+)?|empresa|patr[ãa]o)\s+(?:j[áa]\s+)?pag(?:ou|aram)\s+((?:r\$\s*)?\d+(?:[.,]\d+)*)(?![\d.,])(?!\s*(?:reais\s+)?(?:n[oa]s?|em)\s)(.*)$/iu)
+  const m = input.match(/^\s*(?:a|o)\s+((?:inquilin[oa](?:\s+d[ao]\s+(?:casa|kitnet|apartamento|apto|loja|sala)\s+[\p{L}\d]+)?)|(?:casa|kitnet|apartamento|apto|loja|sala)\s+[\p{L}\d]+|cliente(?:\s+[\p{Lu}][\p{L}]+)?|empresa|patr[ãa]o|uber|99|indriver|indrive)\s+(?:j[áa]\s+)?pag(?:ou|aram)\s+((?:r\$\s*)?\d+(?:[.,]\d+)*)(?![\d.,])(?!\s*(?:reais\s+)?(?:n[oa]s?|em)\s+(?!semana\b))(.*)$/iu)
   if (!m) return input
   const fonte = m[1].replace(/^inquilin[oa]\s+d[ao]\s+/i, '')
   if (/^inquilin[oa]$/i.test(fonte)) return `recebi ${m[2]} do inquilino${m[3]}`
-  return `recebi ${m[2]} d${/^(?:casa|kitnet|loja|sala|empresa)/i.test(fonte) ? 'a' : 'o'} ${fonte}${m[3]}`
+  return `recebi ${m[2]} d${/^(?:casa|kitnet|loja|sala|empresa|uber|99)/i.test(fonte) ? 'a' : 'o'} ${fonte}${m[3]}`
 }
 
 function cobrancaRecebida(input: string): string {
@@ -377,6 +379,8 @@ export function voltaSemUnidade(text: string): string {
     (_m, antes: string, n: string, depois: string) => `${antes}${n} km${depois}`)
 }
 
+/** "Botei 100 de GASOSA": gíria de gasolina, que caía em Outros. */
+export const GIRIA_DE_COMBUSTIVEL = /(?<![\wÀ-ÿ])gasosa(?![\wÀ-ÿ])/gi
 export const DECIMO_TERCEIRO = /(?<![\d.,])13\s*[º°o](?:\s+sal[áa]rio)?(?![\wÀ-ÿ])|(?<![\d.,])13\s+sal[áa]rio(?![\wÀ-ÿ])/gi
 
 /**
@@ -424,7 +428,7 @@ function valorNoFim(input: string): string {
 }
 
 export function parseNatural(input: string): ParsedAction[] {
-  input = verboDeConsumo(cobrancaRecebida(fontePagou(mePagou(vendaPorUnidade(valorNoFim(voltaSemUnidade(contagemDeItens(tanqueCheio(dividaPaga(input.replace(DECIMO_TERCEIRO, 'décimo terceiro'))))).replace(FRACAO_DE, 'parte')))))))
+  input = verboDeConsumo(cobrancaRecebida(fontePagou(mePagou(vendaPorUnidade(valorNoFim(voltaSemUnidade(contagemDeItens(tanqueCheio(dividaPaga(input.replace(DECIMO_TERCEIRO, 'décimo terceiro').replace(GIRIA_DE_COMBUSTIVEL, 'gasolina'))))).replace(FRACAO_DE, 'parte')))))))
   // Operações de cartão são analisadas na frase INTEIRA antes de qualquer
   // quebra: "passei 2000 em 5 vezes E RECEBI 1850" tem um verbo de comando no
   // meio, e cortar ali transformava uma entrada financiada numa receita de

@@ -8,7 +8,7 @@
 import type { ParsedAction } from '../models/types'
 import type { AssistantConfidence, AssistantIntent, FinancialEvent } from './contracts'
 import { guessCategory } from '../data/categories'
-import { alternateBalances, cleanDescription, contagemDeItens, tanqueCheio, DECIMO_TERCEIRO, vendaPorUnidade, voltaSemUnidade, DISTANCE_ON_FOOT, financedCardMentions, gruposDeCorrida, INCOME_PLATFORM_PREFIX, looksRecurring, parseNaturalFull, NEXT_RIDE_DISTANCE, RIDE_COMPARISON_REQUEST, RIDE_CONDITIONAL, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE, UMA_CORRIDA_NOMEADA, UNIT_SALE_PENDING, withoutPaymentBalanceContext } from '../services/nlp'
+import { alternateBalances, cleanDescription, contagemDeItens, tanqueCheio, DECIMO_TERCEIRO, GIRIA_DE_COMBUSTIVEL, vendaPorUnidade, voltaSemUnidade, DISTANCE_ON_FOOT, financedCardMentions, gruposDeCorrida, INCOME_PLATFORM_PREFIX, looksRecurring, parseNaturalFull, NEXT_RIDE_DISTANCE, RIDE_COMPARISON_REQUEST, RIDE_CONDITIONAL, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE, UMA_CORRIDA_NOMEADA, UNIT_SALE_PENDING, withoutPaymentBalanceContext } from '../services/nlp'
 import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
@@ -1411,7 +1411,7 @@ export function analyzeMessage(
   const today = opts?.today || todayISO()
   // "Meu 13º caiu 1600": o 13 é o NOME do salário extra, não R$ 13,00.
   const original = tanqueCheio(contagemDeItens(vendaPorUnidade(voltaSemUnidade(withoutPaymentBalanceContext(input.trim()
-    .replace(DECIMO_TERCEIRO, 'décimo terceiro'))))))
+    .replace(DECIMO_TERCEIRO, 'décimo terceiro').replace(GIRIA_DE_COMBUSTIVEL, 'gasolina'))))))
   // Números por extenso viram algarismos ANTES dos regex, para reaproveitar
   // todo o parser já testado em vez de duplicá-lo.
   const { text: normalized } = normalizeNumberWords(original)

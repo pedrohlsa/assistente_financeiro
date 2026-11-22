@@ -851,17 +851,18 @@ export async function runCopilotProperties(): Promise<PropertyReport> {
   await checkAsync(r, 'preferência exige confirmação e só muda entendimento futuro', async () => {
     const st = autonomoRico(HOJE_Q)
     const before = JSON.stringify(st.transactions)
-    const teach = await orchestrate({ state: st, message: 'quando eu falar gasosa é gasolina', today: HOJE_Q, remoteEnabled: false })
+    // "Gasosa" virou gíria nativa em 22/11; o exemplo precisa ser uma palavra que só o ensino explica.
+    const teach = await orchestrate({ state: st, message: 'quando eu falar suco é gasolina', today: HOJE_Q, remoteEnabled: false })
     if (teach.response.actions.length || teach.preferenceMutation?.type !== 'upsert' || st.assistantPreferences?.length) return 'ensino gravou sem confirmação'
     const saved = { ...st, assistantPreferences: [teach.preferenceMutation.preference] }
-    const spent = await orchestrate({ state: saved, message: 'gastei 200 de gasosa', today: HOJE_Q, remoteEnabled: false })
+    const spent = await orchestrate({ state: saved, message: 'gastei 200 de suco', today: HOJE_Q, remoteEnabled: false })
     const money = (spent.response.actions as any[]).find(a => a.action.kind === 'expense')?.action
     if (money?.amount !== 200 || money?.category !== 'combustivel') return `alias não classificou gasolina: ${JSON.stringify(money)}`
     if (JSON.stringify(saved.transactions) !== before) return 'preferência reescreveu o histórico'
     const forget = await orchestrate({ state: saved, message: 'esquece essa preferência', today: HOJE_Q, remoteEnabled: false })
     if (forget.preferenceMutation?.type !== 'remove') return 'remoção não foi proposta'
     const after = { ...saved, assistantPreferences: [] }
-    const spentAgain = await orchestrate({ state: after, message: 'gastei 200 de gasosa', today: HOJE_Q, remoteEnabled: false })
+    const spentAgain = await orchestrate({ state: after, message: 'gastei 200 de suco', today: HOJE_Q, remoteEnabled: false })
     const without = (spentAgain.response.actions as any[]).find(a => a.action.kind === 'expense')?.action
     if (without?.category === 'combustivel') return 'alias continuou após remoção'
     return null

@@ -80,7 +80,7 @@ const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLo
 
 /** Abreviações que o usuário REAL digita. */
 const ABREV: [RegExp, string][] = [
-  [/\bqnt[oa]?\b/g, 'quanto'], [/\bqto\b/g, 'quanto'], [/\bqnd\b/g, 'quando'],
+  [/\bgasosa\b/g, 'gasolina'], [/\bqnt[oa]?\b/g, 'quanto'], [/\bqto\b/g, 'quanto'], [/\bqnd\b/g, 'quando'],
   // "oq mais pesou" — sem esta troca o "oq" ficava de fora de todo padrão de
   // ranking e a pergunta virava o total do mês.
   [/\boq\b/g, 'o que'],

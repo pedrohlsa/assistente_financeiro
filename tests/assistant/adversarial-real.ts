@@ -9051,6 +9051,23 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const r = await turnoHoje(buildState({ profile: 'autonomo' }), frase)
       out.push(result(id, r.actions, desc, r.actions.map((a: any) => a.description).join(',') === desc))
     }
+    {
+      const moto = motoristaRico(hoje)
+      // Plataforma como quem pagou, com tempo depois do valor: caía na ajuda.
+      for (const [id, frase, valor, desc] of [
+        ['UP-uber-me-pagou-na-semana', 'a uber me pagou 1200 na semana', 1200, 'Uber'],
+        ['UP-uber-pagou', 'a uber pagou 1200', 1200, 'Uber'],
+        ['UP-99-me-pagou-essa-semana', 'a 99 me pagou 800 essa semana', 800, '99'],
+      ] as const) {
+        const r = await turnoHoje(moto, frase)
+        const a: any = r.actions[0]
+        out.push(result(id, r.actions, `receita de R$ ${valor} — ${desc}, sem viagem`,
+          r.actions.length === 1 && a.kind === 'income' && a.amount === valor && a.description === desc && !a.trips))
+      }
+      // "Gasosa" é gasolina: virava despesa em Outros.
+      const g = await turnoHoje(moto, 'botei 100 de gasosa')
+      out.push(result('UP-gasosa-e-abastecimento', g.actions, 'abastecimento de R$ 100', g.actions.length === 1 && (g.actions[0] as any).kind === 'fuel'))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))
