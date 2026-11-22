@@ -13,7 +13,7 @@ import type { AppState, InstallmentPlan, Transaction } from '../../models/types'
 import { addDays, dateForDayOfMonth, fmtBRL, fmtNum, fromISO, monthKey, todayISO, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase } from '../../utils/text'
 import {
-  cashObligationsUntil, currentBalance, dailyGoal, monthlyProjections, monthlySavingGoal, periodStats,
+  cashObligationsUntil, currentBalance, dailyGoal, monthlyProjections, nextCashEventTime, periodStats,
   representedRecurringExpenseMonths, todayStats, fuelCostBasis, kmCost,
 } from '../../services/calc'
 import {
@@ -44,7 +44,7 @@ const fato = (
 function comDespesa(state: AppState, amount: number, category: string, hoje: string): AppState {
   const t: Transaction = {
     id: `sim-${fid()}`, type: 'expense', amount, category,
-    description: 'Simulação', date: hoje, time: '12:00', source: 'manual',
+    description: 'Simulação', date: hoje, time: nextCashEventTime(state, hoje, '23:59:59.999', true), source: 'manual',
   }
   return { ...state, transactions: [...(state.transactions || []), t] }
 }
@@ -396,7 +396,7 @@ export function runScenario(
   hoje = todayISO(),
 ): AssistantScenarioResult {
   const r = simulaCenario(state, plan, hoje)
-  const semBase = currentBalance(state, hoje) === 0 && !(state.transactions || []).length
+  const semBase = !state.settings.balanceAsOf && currentBalance(state, hoje) === 0 && !(state.transactions || []).length
     && !(state.recurring || []).some(x => x.kind === 'income' && x.active !== false)
   if (!semBase || r.empty || r.feasible === undefined) return r
   const aviso = 'Seu saldo está zerado no app e não há nada lançado, então não sei dizer se cabe. Me diga "meu saldo é 1500" (com o seu valor) que eu refaço a conta.'
@@ -557,7 +557,7 @@ function simulaCenario(
       const projetado = comDespesa(state, valor, plan.category || 'outros-out', hoje)
       const saldoAntes = currentBalance(state, hoje)
       const saldoDepois = currentBalance(projetado, hoje)
-      const mgDepois = monthlySavingGoal(projetado)
+      const resultadoNoMes = periodStats(projetado, `${monthKey(hoje)}-01`, hoje, hoje).profit
       const obligations = cashObligationsUntil(projetado, addDays(hoje, 7), hoje)
       const certas = obligations.filter(o => !o.unconfirmed)
       const compromissos = r2(certas.reduce((sum, o) => sum + o.amount, 0))
@@ -566,7 +566,7 @@ function simulaCenario(
 
       facts.push(fato('Saldo hoje', saldoAntes, 'BRL', 'saldo atual'))
       facts.push(fato('Saldo depois do gasto', saldoDepois, 'BRL', 'saldo projetado'))
-      facts.push(fato('Sobra do mês depois do gasto', mgDepois.net, 'BRL', 'resultado do mês projetado'))
+      facts.push(fato('Sobra do mês depois do gasto', resultadoNoMes, 'BRL', 'resultado do mês projetado'))
       if (certas.length) {
         facts.push(fato('Compromissos vencidos e dos próximos 7 dias', compromissos, 'BRL', 'contas, faturas e parcelas pendentes cadastradas', certas.length))
         facts.push(fato('Saldo após esses compromissos', livre, 'BRL', 'saldo projetado menos compromissos cadastrados'))
@@ -575,7 +575,7 @@ function simulaCenario(
       const semConfirmacao = obligations.filter(o => o.unconfirmed)
       const podeMudarVeredito = livre - semConfirmacao.reduce((sum, o) => sum + o.amount, 0) < 0
       if (semConfirmacao.length) caveats.push('Há contas vencidas sem confirmação de pagamento. Não as contei como dívida certa; confira essas pendências antes de usar a folga estimada.')
-      if (saldoAntes === 0) caveats.push('Você ainda não informou seu saldo em conta, então o número olha só o resultado do mês.')
+      if (saldoAntes === 0 && !state.settings.balanceAsOf) caveats.push('Você ainda não informou seu saldo em conta, então o número olha só o resultado do mês.')
       return {
         plan, facts, months: [],
         feasible: livre < 0 ? false : podeMudarVeredito ? undefined : true,
@@ -617,7 +617,7 @@ function simulaCenario(
 
       if (!cardNome && plan.cardName) caveats.push(`Não encontrei o cartão "${plan.cardName}" — simulei sem vincular a nenhum.`)
       if (!activeCards(state).length) caveats.push('Você não tem cartão cadastrado; usei o primeiro vencimento 30 dias após a compra.')
-      if (!linhas.some(m => m.before !== 0)) {
+      if (!state.settings.balanceAsOf && !linhas.some(m => m.before !== 0)) {
         caveats.push('Sem contas fixas nem saldo informado, a projeção mostra só o peso da parcela.')
       }
       return { plan, facts, months: linhas, tightest: apertado, feasible: apertado && primeiraNoHorizonte ? apertado.after >= 0 : undefined, caveats, empty: false }

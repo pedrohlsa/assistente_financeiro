@@ -103,6 +103,31 @@ function faturasAPagarEsperadas(rico: AppState, hoje: string): { descricao: stri
 export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
+  {
+    const today = '2027-03-09'
+    const state = buildState({ profile: 'other', balance: 1000 })
+    state.settings.balanceAsOf = `${today}T18:00`
+    state.transactions = [
+      { id: 'before-anchor', type: 'income', date: today, time: '10:00', amount: 200, category: 'outros-in' },
+      { id: 'after-anchor', type: 'income', date: today, time: '19:00', amount: 50, category: 'outros-in' },
+    ]
+    const saved = JSON.stringify(state)
+    const simulate = (sample: AppState = state) => orchestrate({
+      state: sample, today, message: 'e se eu gastar R$ 150 hoje?', remoteEnabled: false,
+    })
+    const resultAfterAnchor = await simulate()
+    const zero = { ...state, settings: { ...state.settings, balance: 0 }, transactions: [] }
+    const resultWithZero = await simulate(zero)
+    const fact = (r: Awaited<ReturnType<typeof simulate>>, label: string) =>
+      r.focus?.lastScenario?.facts.find(f => f.label === label)?.value
+    out.push(result('GC-simulacao-desconta-gasto-depois-da-ancora', [resultAfterAnchor.response, resultWithZero.response],
+      'saldo de R$ 1.050 cai a R$ 900, sobra mensal de março vira R$ 100 e saldo declarado zero comporta R$ 150 negativos',
+      fact(resultAfterAnchor, 'Saldo hoje') === 1050 && fact(resultAfterAnchor, 'Saldo depois do gasto') === 900
+      && fact(resultAfterAnchor, 'Sobra do mês depois do gasto') === 100
+      && fact(resultWithZero, 'Saldo depois do gasto') === -150 && resultWithZero.focus?.lastScenario?.feasible === false
+      && !/ainda não informou/.test(resultWithZero.response.reply)
+      && [resultAfterAnchor, resultWithZero].every(r => !r.response.actions.length) && JSON.stringify(state) === saved))
+  }
 
   {
     const today = '2026-11-21'
