@@ -330,6 +330,11 @@ export const DECIMO_TERCEIRO = /(?<![\d.,])13\s*[º°o](?:\s+sal[áa]rio)?(?![\w
  * descrição. Os dois saem antes da leitura dos valores.
  */
 /** "Enchi o tanque, 250": abastecimento com o valor depois. Caía na ajuda. */
+/** "Paguei 100 DO QUE EU DEVIA pro meu pai": a descrição é a dívida com ele. */
+export function dividaPaga(text: string): string {
+  return text.replace(/(?<![\wÀ-ÿ])do\s+que\s+(?:eu\s+)?(?:devia|devo|tava\s+devendo|estava\s+devendo)\s+(?:pro|pra|para\s+o|para\s+a|para|ao|à|a)\s+/gi, 'da dívida com ')
+}
+
 export function tanqueCheio(text: string): string {
   return text.replace(/(?<![\wÀ-ÿ])(?:enchi|completei)\s+o\s+tanque\s*[,:]?\s*(?:com\s+|de\s+|por\s+|foi\s+|deu\s+)?(?=(?:r\$\s*)?\d)/gi, 'abasteci ')
 }
@@ -361,7 +366,7 @@ function valorNoFim(input: string): string {
 }
 
 export function parseNatural(input: string): ParsedAction[] {
-  input = verboDeConsumo(cobrancaRecebida(fontePagou(mePagou(vendaPorUnidade(valorNoFim(voltaSemUnidade(contagemDeItens(tanqueCheio(input.replace(DECIMO_TERCEIRO, 'décimo terceiro')))).replace(FRACAO_DE, 'parte')))))))
+  input = verboDeConsumo(cobrancaRecebida(fontePagou(mePagou(vendaPorUnidade(valorNoFim(voltaSemUnidade(contagemDeItens(tanqueCheio(dividaPaga(input.replace(DECIMO_TERCEIRO, 'décimo terceiro'))))).replace(FRACAO_DE, 'parte')))))))
   // Operações de cartão são analisadas na frase INTEIRA antes de qualquer
   // quebra: "passei 2000 em 5 vezes E RECEBI 1850" tem um verbo de comando no
   // meio, e cortar ali transformava uma entrada financiada numa receita de

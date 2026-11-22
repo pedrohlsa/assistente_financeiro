@@ -8250,6 +8250,18 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('SG-cade', cade, 'para onde foi (por categoria)', /categoria|Obra/.test(cade) && !/Posso te ajudar/.test(cade)))
   }
 
+  // Empréstimo pessoal: "peguei 500 emprestado com meu pai" caía na ajuda;
+  // "paguei 100 do que eu devia pro meu pai" gravava "Que eu devia pro meu pai".
+  {
+    const st = buildState({ profile: 'other' })
+    const p1 = await turnoHoje(st, 'peguei 500 emprestado com meu pai')
+    out.push(result('EP-peguei-emprestado', { reply: p1.reply, actions: p1.actions }, 'dívida, não receita; nada registrado',
+      !p1.actions.length && /não é receita/.test(p1.reply)))
+    const p2 = await turnoHoje(st, 'paguei 100 do que eu devia pro meu pai')
+    const d: any = p2.actions[0]
+    out.push(result('EP-divida-paga', p2.actions, 'despesa 100 — Dívida com meu pai', d?.amount === 100 && /^D[ií]vida com meu pai$/.test(d?.description || '')))
+  }
+
   // "Quanto paguei de IPTU" mostrava a reforma do telhado como "o último"
   // (a terceira tentativa por palavra-chave levava IPTU para Casa). E "a casa
   // 1 dá lucro?" caía na ajuda.

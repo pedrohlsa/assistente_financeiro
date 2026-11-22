@@ -1298,6 +1298,18 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
       : 'Para encerrar ou apagar uma meta, abra a tela de Metas e escolha a meta. Pelo chat eu não apago meta, e o que já foi guardado continua guardado.' }
   }
 
+  // "Peguei 500 emprestado com meu pai": dinheiro que entrou, mas é DÍVIDA —
+  // não é receita. Caía na ajuda genérica.
+  const pegueiEmprestado = t.match(/\b(?:peguei|pegamos|pedi)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)\s*(?:reais\s+)?emprestad[oa]s?\b|\b(?:me\s+emprestou|me\s+emprestaram)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)/)
+  if (pegueiEmprestado && !/\b(?:quanto|quem|qual|quando)\b|\?/.test(t)) {
+    const valor = parseMoney(pegueiEmprestado[1] || pegueiEmprestado[2])
+    if (valor > 0) {
+      const v = fmtNum(valor, valor % 1 ? 2 : 0)
+      return { text: `Empréstimo não é receita: os ${fmtBRL(valor)} entraram, mas são uma dívida — o app ainda não acompanha quanto você deve. Nada foi registrado.\n\n`
+        + `Se quiser o saldo certo, me diga o saldo atual ("meu saldo é …"). Quando for pagando, "paguei ${v} do empréstimo" registra cada parte.` }
+    }
+  }
+
   // "Emprestei 100 pro João": o dinheiro saiu, mas deve voltar — não é gasto,
   // e o app não acompanha quem deve ao usuário. Dizer isso é melhor que a
   // ajuda genérica, e melhor que gravar uma despesa que ele não fez.
