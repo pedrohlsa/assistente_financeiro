@@ -173,8 +173,9 @@ export function leadSimNao(t: string, plan: AssistantQueryPlan, total: number, c
   if (!/\?\s*$|^\s*(?:e\s+)?(?:eu\s+)?(?:estou|esta|ando|to|tou|meu|minha|gastei|ganhei|fiz|recebi)\b/.test(t)) return ''
   const pior = /\b(?:piorou|pioraram|pior)\b/.test(t)
   const melhor = /\b(?:melhorou|melhoraram|melhor)\b/.test(t)
-  const sobe = /\b(?:aumentou|aumentaram|subiu|subiram|cresceu|mais\s+(?:do\s+)?que)\b|\b(?:fora|acima)\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:padrao|normal|comum|costume|media)\b/.test(t)
-  const desce = /\b(?:caiu|cairam|diminuiu|diminuiram|desceu|baixou|menos\s+(?:do\s+)?que)\b/.test(t)
+  // "A 99 tá PAGANDO MENOS?" pergunta pela queda do que entra.
+  const sobe = /\b(?:pagando|rendendo|dando)\s+mais\b|\b(?:aumentou|aumentaram|subiu|subiram|cresceu|mais\s+(?:do\s+)?que)\b|\b(?:fora|acima)\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:padrao|normal|comum|costume|media)\b/.test(t)
+  const desce = /\b(?:pagando|rendendo|dando)\s+menos\b|\b(?:caiu|cairam|diminuiu|diminuiram|desceu|baixou|menos\s+(?:do\s+)?que)\b/.test(t)
   const d = Math.round((total - compareTotal) * 100) / 100
   // "Tô gastando muito?" — o "muito" é contra o próprio passado.
   if (/\b(?:gastando|torrando|gastei|torrei|gasto|gastamos)\s+(?:muito|demais|bastante|um\s+monte)\b/.test(t)) {

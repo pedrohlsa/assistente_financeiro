@@ -8250,6 +8250,14 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('SG-cade', cade, 'para onde foi (por categoria)', /categoria|Obra/.test(cade) && !/Posso te ajudar/.test(cade)))
   }
 
+  // "A 99 tá pagando menos?" respondia só o total do mês, sem comparar.
+  {
+    const moto = motoristaRico(hoje)
+    const r = (await turnoHoje(moto, 'a 99 tá pagando menos?')).reply
+    out.push(result('PG-99-pagando-menos', r, 'veredito e comparação com o mesmo pedaço anterior',
+      (/^(?:Sim|Não)\b/.test(r) || /não há lançamentos para comparar/.test(r)) && /99/.test(r)))
+  }
+
   // Empréstimo pessoal: "peguei 500 emprestado com meu pai" caía na ajuda;
   // "paguei 100 do que eu devia pro meu pai" gravava "Que eu devia pro meu pai".
   {

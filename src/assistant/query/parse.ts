@@ -504,7 +504,7 @@ const ANTERIOR = 'periodo-anterior'
 // "Fora do meu padrão" é desvio do que ele costuma gastar — comparação, não a
 // exclusão "fora o aluguel".
 const FORA_DO_PADRAO = /\b(?:fora|acima)\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:padrao|normal|comum|costume|media)\b/
-const CMP_IMPLICITA = /\b(?:gastando|torrando|gastei|torrei|gasto|gastamos)\s+(?:muito|demais|bastante|um\s+monte)\b|\b(?:fora|acima)\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:padrao|normal|comum|costume|media)\b|\b(?:estou|esta|ando|anda|tou)\s+(?:pior|melhor)\s+(?:de|em|com|no|na)\b|\baument(?:ou|aram|o)\b|\bcai(?:u|ram)\b|\bsubiu\b|\bdesceu\b|\bcresceu\b|\bdiminuiu\b|\bpiorou\b|\bmelhorou\b|\bdiferenca\b|\bmudou\b|\bmudancas?\b|\bque\s+antes\b|\bdo\s+que\s+antes\b|\bmais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:gastava|ganhava|fazia)\b/
+const CMP_IMPLICITA = /\b(?:pagando|rendendo|dando|pagou|rendeu)\s+(?:menos|mais|pior|melhor)\b|\b(?:gastando|torrando|gastei|torrei|gasto|gastamos)\s+(?:muito|demais|bastante|um\s+monte)\b|\b(?:fora|acima)\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:padrao|normal|comum|costume|media)\b|\b(?:estou|esta|ando|anda|tou)\s+(?:pior|melhor)\s+(?:de|em|com|no|na)\b|\baument(?:ou|aram|o)\b|\bcai(?:u|ram)\b|\bsubiu\b|\bdesceu\b|\bcresceu\b|\bdiminuiu\b|\bpiorou\b|\bmelhorou\b|\bdiferenca\b|\bmudou\b|\bmudancas?\b|\bque\s+antes\b|\bdo\s+que\s+antes\b|\bmais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:gastava|ganhava|fazia)\b/
 
 /** "3 meses atrás" dentro de uma comparação = a MESMA janela, deslocada. */
 function deslocaPeriodo(p: QueryPeriod, n: number, unidade: string): QueryPeriod {
