@@ -9113,6 +9113,16 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('CN-debito-e-despesa', r5.actions, 'despesa de R$ 120 — Mercado',
         r5.actions.length === 1 && (r5.actions[0] as any).kind === 'expense' && (r5.actions[0] as any).description === 'Mercado'))
     }
+    {
+      // Correção de origem: "era da casa 2" gravava "casa 2" ao lado do
+      // "Casa 2" do histórico — dois imóveis (regra 37).
+      const t1 = await orchestrate({ state: rico, message: 'recebi 1800 da casa 1', today: todayISO(), remoteEnabled: false })
+      const pend = t1.response.actions.map((p, i) => ({ id: p.id || `p${i}`, action: p.action, engine: 'local' as const, confidence: 'high' as const }))
+      const t2 = await orchestrate({ state: rico, message: 'era da casa 2', today: todayISO(), remoteEnabled: false, pending: pend, focus: t1.focus })
+      const temCasa2 = rico.transactions.some(x => x.origin === 'Casa 2')
+      out.push(result('GR-correcao-de-origem-com-grafia', t2.response.actions.map(a => a.action), 'origem "Casa 2" como no histórico',
+        !temCasa2 || (t2.response.actions[0]?.action as any)?.origin === 'Casa 2'))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

@@ -20,7 +20,7 @@ import type {
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, errorMessage, isValidationFailure, validateAction } from './contracts'
 import { PEDE_APAGAR, analyzeMessage, contestsProposal, datesMentioned, declaresIntention, financialEventActions, isRefundInflow, looksLikeQuestion, looksLikeRetraction, looksNegated, looksPast, looksRecurring, segment, speechForCommands, weekdayChoiceWord } from './clauses'
-import { categoryDilemma, outOfPatternWarning, withLearnedCategory } from './learning'
+import { categoryDilemma, outOfPatternWarning, withLearnedCategory, withLearnedSpelling } from './learning'
 import { explainRequest } from './explain'
 import { answerConversation, isFocusFresh, looksLikeFollowUp } from './conversation'
 import { buildRemoteConversation } from './conversation/remoteContext'
@@ -2095,7 +2095,9 @@ Confirmar?`,
       }
       const linked = new Set(input.pending.filter(({ id, action }) => action.kind === 'recurring-confirm' && action.transactionId
         && plan.edits.some(edit => edit.id === id)).map(c => c.id))
+      const editados = new Set(plan.edits.map(edit => edit.id))
       const next = applyCorrection(input.pending, plan).filter(c => !linked.has(c.id))
+        .map(c => editados.has(c.id) ? { ...c, action: withLearnedSpelling(input.state, c.action, today) } : c)
       if (linked.size) {
         return preparedActionResponse(input.state, prepareInvoicePayments(input.state, next, today), [],
           'Confira o valor e a data do lançamento existente no Extrato. Depois diga qual conta fixa quer vincular.')

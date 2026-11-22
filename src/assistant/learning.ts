@@ -193,6 +193,28 @@ export function withLearnedCategory(
   return d.applied ? { ...out, category: d.pattern!.value } : out
 }
 
+/**
+ * Só a GRAFIA (descrição e origem), sem tocar em categoria. Para o texto que
+ * chega por correção ("era da casa 2"): ele também tem que bater com o que o
+ * usuário já escreveu, senão "casa 2" e "Casa 2" viram dois imóveis.
+ */
+export function withLearnedSpelling(state: AppState, action: ParsedAction, today = todayISO()): ParsedAction {
+  if (!isMoney(action.kind) || !adaptiveEnabled(state)) return action
+  const a: any = action
+  if (!a.description && !a.origin) return action
+  const model = buildPersonalModel(state, today)
+  let out: any = action
+  if (a.description) {
+    const g = model.spellingFor(a.description, action.kind, 'description')
+    if (g && g.value !== a.description) out = { ...out, description: g.value }
+  }
+  if (a.origin) {
+    const g = model.spellingFor(a.origin, action.kind, 'origin')
+    if (g && g.value !== a.origin) out = { ...out, origin: g.value }
+  }
+  return out
+}
+
 /** A decisão de categoria, sem aplicar — para explicar e para perguntar. */
 export function categoryDecision(
   state: AppState,
