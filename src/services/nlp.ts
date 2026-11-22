@@ -112,7 +112,10 @@ export function cleanDescription(raw?: string): string | undefined {
   // "No ifood ontem À NOITE": a hora do dia não é parte do que foi comprado.
   // Só com preposição — "café da manhã" continua sendo o café da manhã.
   const words = raw.toLowerCase().replace(/[.,;!?]+$/g, '')
+    // Também quando é TUDO o que sobrou: "hj de manhã" gravava "Manhã".
     .replace(/\s+(?:a|à|de|pela|pelo|na|no|hoje|ontem)\s+(?:noite|tarde|manh[ãa]|madrugada|cedinho|cedo|almo[çc]o)$/i, '')
+    // Sozinho, o almoço é o que foi comprado ("13 no almoço"); o período não.
+    .replace(/^(?:a|à|de|pela|pelo|na|no|hoje|ontem)\s+(?:noite|tarde|manh[ãa]|madrugada|cedinho|cedo)$/i, '')
     // O MEIO de pagamento não é o que foi comprado: "mercado no débito".
     .replace(/\s+(?:no|em|pelo|via|com)\s+(?:d[ée]bito|pix|dinheiro|esp[ée]cie|cart[ãa]o\s+de\s+d[ée]bito)$/i, '')
     .split(/\s+/).filter(Boolean)
@@ -124,6 +127,8 @@ export function cleanDescription(raw?: string): string | undefined {
   // Um número sozinho nunca descreve um gasto: "gastei 20 e 30" deixava a
   // descrição "30" no primeiro lançamento, escondendo ali o segundo valor.
   if (!out || /^[\d\s.,r$]+$/i.test(out)) return undefined
+  // Só o período do dia ("manhã", "à noite") não descreve o gasto.
+  if (/^(?:[àa]\s+|de\s+|pela\s+)?(?:noite|tarde|manh[ãa]|madrugada|cedinho|cedo)$/i.test(out)) return undefined
   return sentenceCase(out)
 }
 

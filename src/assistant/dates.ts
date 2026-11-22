@@ -297,6 +297,16 @@ const RULES: Rule[] = [
     },
   },
   {
+    // "Sábado RETRASADO": o da semana anterior à passada. Lido como o sábado
+    // mais recente, o gasto entrava uma semana depois — e "Retrasado" ficava
+    // na descrição.
+    re: new RegExp(String.raw`\b(?:n[ao]\s+)?(${WEEKDAY_RE})(?:-feira)?\s+retrasad[ao](?![\wÀ-ÿ])`, 'i'),
+    build: (m, t) => {
+      const iso = addDays(lastWeekday(weekdayIndex(m[1]), t), -7)
+      return { kind: 'date', date: iso, label: `${weekdayName(fromISO(iso).getDay()).toLowerCase()}, ${brDate(iso)}` }
+    },
+  },
+  {
     // "na segunda passada", "sexta-feira passada"
     re: new RegExp(String.raw`\b(?:n[ao]\s+)?(${WEEKDAY_RE})(?:-feira)?\s+passad[ao]\b`, 'i'),
     build: (m, t) => {

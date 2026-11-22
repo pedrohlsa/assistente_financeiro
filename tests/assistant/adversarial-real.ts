@@ -8217,6 +8217,23 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('VK-controle-reais', r.actions, '64 km; os 14 reais não viram km', w2?.km === 64))
   }
 
+  // "Sábado retrasado" entrava no sábado mais recente; "de manhã" e "à
+  // noite" viravam a descrição quando eram tudo o que sobrava.
+  {
+    const st = buildState({ profile: 'other' })
+    const sab = (() => { let d = addDays(hoje, -1); while (fromISO(d).getDay() !== 6) d = addDays(d, -1); return addDays(d, -7) })()
+    const r1 = await turnoHoje(st, 'gastei 60 sábado retrasado')
+    const a1: any = r1.actions[0]
+    out.push(result('DT-sabado-retrasado', r1.actions, `data ${sab}, sem "Retrasado"`, a1?.date === sab && !/retrasad/i.test(a1?.description || '')))
+    for (const [id, frase] of [['DT-de-manha', 'gastei 30 hj de manhã'], ['DT-a-noite', 'paguei 200 anteontem à noite']] as const) {
+      const r = await turnoHoje(st, frase)
+      const a: any = r.actions[0]
+      out.push(result(id, r.actions, 'sem período do dia na descrição', r.actions.length === 1 && !/manh|noite/i.test(a.description || '')))
+    }
+    const cafe = await turnoHoje(st, 'gastei 15 no café da manhã')
+    out.push(result('DT-controle-cafe-da-manha', cafe.actions, 'Café da manhã', (cafe.actions[0] as any)?.description === 'Café da manhã'))
+  }
+
   // Autônomo: "vendi 3 bolos a 25 cada", "o cliente me pagou metade, 300" e
   // "cobrei 150 mas ele não pagou" caíam na ajuda; faxina e sinal de
   // encomenda iam para Outros.
