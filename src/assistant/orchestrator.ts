@@ -667,6 +667,10 @@ function runLocal(
     // catálogo.
     if (!actionSpec(a.kind)?.fields.some(f => f.name === 'cardName')) continue
     if (a.cardName) {
+      // "no nubank" aparecia em minúsculas na proposta: o cartão cadastrado
+      // tem grafia, e é ela que a confirmação mostra.
+      const grafia = caps.cardNames.find(n => normalizeName(n) === normalizeName(a.cardName))
+      if (grafia) a.cardName = grafia
       let known = caps.cardNames.some(n => normalizeName(n) === normalizeName(a.cardName)
         || normalizeName(n).includes(normalizeName(a.cardName)))
       // "Paguei 2400 NO SEGURO em 12x NO NUBANK": o primeiro "no X" era o item.

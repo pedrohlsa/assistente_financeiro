@@ -8982,6 +8982,18 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && !/lucro|R\$/.test(corr.split('\n')[0])
         && /\dh\b/.test(horas.split('\n')[0]) && !/não consegui ler/.test(horas) && !/diferença é de 0/.test(horas)))
     }
+    {
+      // "Quando acaba o parcelamento do celular" respondia com o Computador.
+      const nomes = rico.installmentPlans.map(p => p.description)
+      const cel = (await turnoHoje(rico, 'quando acaba o parcelamento do celular')).reply
+      out.push(result('PN-parcelamento-nomeado-inexistente', cel, 'diz que não há Celular, sem responder outro',
+        nomes.some(n => /celular/i.test(n)) || (/Não encontrei .*Celular/.test(cel) && !/A última parcela/.test(cel))))
+      const compra = await turnoHoje(rico, 'comprei um celular de 1200 em 10x no nubank')
+      const a: any = compra.actions[0]
+      const cadastrado = rico.cards.find(c => c.name.toLowerCase() === 'nubank')?.name
+      out.push(result('PN-cartao-com-a-grafia-cadastrada', compra.reply, 'proposta mostra o cartão como foi cadastrado',
+        !cadastrado || (a?.cardName === cadastrado && compra.reply.includes(`no ${cadastrado}`))))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

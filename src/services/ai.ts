@@ -2476,7 +2476,9 @@ function respostaDoParcelamento(s: AppState, t: string): AiReply | null {
   // Sem o nome: os parcelamentos do cartão citado, ou todos; o último primeiro.
   if (pedeFimDoParcelamento(t)) {
     const cartoes = cartoesDaPergunta(s, t)
-    const dito = t.match(/\bparcelas?\s+d[oa]s?\s+(?:meu\s+|minha\s+)?(?:cartao\s+(?:d[oa]\s+)?)?([a-z][a-z0-9]*)/)
+    // "Parcelamento DO CELULAR" respondia com o do Computador: só "parcela(s)
+    // do X" era lido como nome pedido.
+    const dito = t.match(/\b(?:parcelas?|parcelamentos?|financiamento)\s+d[oa]s?\s+(?:meu\s+|minha\s+)?(?:cartao\s+(?:d[oa]\s+)?)?([a-z][a-z0-9]*)/)
     if (!cartoes.length && dito && !/^(?:cartao|cartoes|credito|mes|meses|ano|semana|dia|atual|agora|parcelamento|parcelamentos|compra|compras)$/.test(dito[1])) {
       return { text: `Não encontrei cartão nem parcelamento chamado ${sentenceCase(dito[1])}. Seus parcelamentos: ${listaDeNomes(activePlans(s).map(nome))}.` }
     }
