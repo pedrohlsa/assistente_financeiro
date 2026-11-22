@@ -7182,4 +7182,6 @@ O trabalho local começou em `d442f3b` e fechou a revisão de código em `09780e
 
 Em `09780e8`, `npm test` passou com 736 casos do corpus, 1.554 regressões reais e 151 invariantes. A matriz das oito datas passou. Também passaram os dois typechecks, `test:money`, o build e 5.184 verificações independentes em três fusos. A rubrica teve 0 respostas perigosas e 0 ruins em 90. Os fluxos no Chrome passaram em viewport padrão e móvel com reconhecimento de voz simulado.
 
+No ajuste complementar `99585a0`, o chat reconhece “tirou 20 de taxa”, “me passou 380 depois de descontar 50” e “vale a pena a de 30 por 8 km ou a de 80 por 25 km?”. A validação repetida passou com 1.555 regressões, matriz nas oito datas e os mesmos resultados na rubrica e nas sondas independentes.
+
 **NOT READY**. Voz real, Android, APK, DeepSeek real e publicação continuam pendentes. O agrupamento `monthday` ainda depende de redeploy autorizado para chegar ao planejador remoto.
