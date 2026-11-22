@@ -8965,7 +8965,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     {
       const moto = motoristaRico(hoje)
       const gk = (await turnoHoje(moto, 'qual meu gasto por km')).reply
-      const rh = (await turnoHoje(moto, 'quanto ganhei por hora ontem')).reply
+      const rh = (await turnoHoje(moto, 'quanto ganhei por hora essa semana')).reply
       out.push(result('PU-rotulo-por-unidade-diz-o-que-mede', [gk, rh], '"Gasto por km" e "Recebido por hora", nunca "Por km" solto',
         /^Gasto por km/.test(gk) && /^Recebido por hora/.test(rh)))
     }

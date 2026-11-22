@@ -1506,7 +1506,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
 
   return {
     plan, confidence, recognized, fallbackCategory,
-    beyondLegacy: plan.showCardPurchases || (driver && plan.metric === 'per-km' && !!lido) || alemDoAntigo(plan, !!lido || !!periodoComparadoDireto,
+    beyondLegacy: plan.showCardPurchases || (driver && (plan.metric === 'per-km' || plan.metric === 'per-hour' || plan.metric === 'per-trip') && !!lido) || alemDoAntigo(plan, !!lido || !!periodoComparadoDireto,
       /\bpor\s+lancamentos?\b/.test(t0)),
     ...(PAYER_PRONOUN_QUERY.test(t0) ? {
       clarification: { question: 'De quem você quer consultar os recebimentos? Diga o nome da pessoa.', options: [] },
