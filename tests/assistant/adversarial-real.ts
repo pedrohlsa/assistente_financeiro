@@ -8250,6 +8250,23 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('SG-cade', cade, 'para onde foi (por categoria)', /categoria|Obra/.test(cade) && !/Posso te ajudar/.test(cade)))
   }
 
+  // Um valor para vários itens: a descrição ficava com um só ("Pão", "Luz",
+  // "Ovo"). Com dois valores, continuam dois gastos.
+  {
+    const st = buildState({ profile: 'other' })
+    for (const [id, frase, desc, valor] of [
+      ['IT-pao-e-leite', 'gastei 30 no pão e no leite', 'Pão e leite', 30],
+      ['IT-luz-e-agua', 'paguei 50 de luz e água', 'Luz e água', 50],
+      ['IT-lista', 'comprei pão, leite e ovo por 25', 'Pão, leite e ovo', 25],
+    ] as const) {
+      const r = await turnoHoje(st, frase)
+      const a: any = r.actions[0]
+      out.push(result(id, r.actions, `${valor} — ${desc}`, r.actions.length === 1 && a.amount === valor && a.description === desc))
+    }
+    const dois = await turnoHoje(st, 'gastei 30 no pão e 20 no leite')
+    out.push(result('IT-controle-dois-valores', dois.actions, 'dois gastos', dois.actions.length === 2))
+  }
+
   // "A 99 tá pagando menos?" respondia só o total do mês, sem comparar.
   {
     const moto = motoristaRico(hoje)

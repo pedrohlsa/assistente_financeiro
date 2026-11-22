@@ -651,6 +651,28 @@ export const SAQUE = /(?<![\wÀ-ÿ])(?:saquei|sacamos|fiz\s+um\s+saque|(?:tirei|
 export const UMA_CORRIDA_NOMEADA = /(?<![\p{L}\p{M}])(?:(?:uma|1|numa|outra|mais\s+uma|essa|nessa|esta|nesta|aquela|naquela|daquela|a|na|da|pela|dessa|desta)\s+(?:corrida|viagem)(?![\p{L}\p{M}])|(?<!\bde\s)(?:corrida|viagem)\s+(?:de|por|pro|pra|para|at[eé])\s)/giu
 
 /**
+ * Um valor só para vários itens: "gastei 30 no pão E NO LEITE", "paguei 50 de
+ * luz e água", "comprei pão, leite e ovo por 25". A descrição ficava com um
+ * item só ("Pão", "Luz", "Ovo"). Com DOIS valores são dois gastos, e nada muda.
+ */
+function descricaoComItens(input: string, actions: ParsedAction[]): ParsedAction[] {
+  if (actions.length !== 1 || actions[0].kind !== 'expense') return actions
+  const numeros = input.match(/\d+(?:[.,]\d+)*/g) || []
+  if (numeros.length !== 1) return actions
+  const ITEM = String.raw`[a-zà-úç][a-zà-úç ]{1,25}?`
+  const PREP = String.raw`(?:(?:no|na|nos|nas|de|do|da|dos|das|com|em|o|a|os|as)\s+)?`
+  const depois = input.match(new RegExp(String.raw`\d[\d.,]*\s*(?:reais\s+)?${PREP}(${ITEM})\s+e\s+${PREP}(${ITEM})\s*[.!]?\s*$`, 'i'))
+  const antes = input.match(new RegExp(String.raw`^\s*(?:(?:eu|hoje|ontem)\s+)*(?:comprei|paguei|gastei)\s+${PREP}((?:${ITEM}\s*,\s*)+${ITEM})\s+e\s+${PREP}(${ITEM})\s+(?:por|de)\s+(?:r\$\s*)?\d`, 'i'))
+  const itens = depois ? [depois[1], depois[2]] : antes ? [...antes[1].split(/\s*,\s*/), antes[2]] : null
+  if (!itens || itens.some(x => /\b(?:hoje|ontem|cart[ãa]o|pix|d[ée]bito|dinheiro|cr[ée]dito)\b/i.test(x))) return actions
+  const nomes = itens.map(x => x.trim()).filter(Boolean)
+  const descricao = sentenceCase(nomes.length > 2 ? `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}` : nomes.join(' e '))
+  const a = actions[0] as Extract<ParsedAction, { kind: 'expense' }>
+  const categoria = a.category && a.category !== 'outros-out' ? a.category : (guessCategory(nomes.join(' '), 'expense') || a.category)
+  return [{ ...a, description: descricao, ...(categoria ? { category: categoria } : {}) }]
+}
+
+/**
  * Parse completo: além das ações, devolve a pergunta de desambiguação quando o
  * texto não permite decidir com segurança.
  */
@@ -690,7 +712,7 @@ export function parseNaturalFull(
     return { actions: [] }
   }
   if (REAJUSTE.test(input) && !/\b(?:paguei|gastei|recebi|ganhei)\b/i.test(input)) return { actions: [] }
-  let actions = parseNatural(input)
+  let actions = descricaoComItens(input, parseNatural(input))
   let dayAsk: DayResult['ask']
   let doDia = false
 
