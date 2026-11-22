@@ -1,7 +1,7 @@
 import type { ParsedAction } from '../models/types'
 import { fmtBRL, parseMoney } from '../utils/format'
 import { normalizeName } from '../utils/text'
-import { analyzeMessage, looksLikeQuestion, looksPast } from './clauses'
+import { analyzeMessage, looksLikeQuestion, looksPast, segment } from './clauses'
 import { normalizeNumberWords } from './numbers'
 import { readDraftPurchaseDate, type IncompleteIntent } from './drafts'
 
@@ -17,10 +17,31 @@ const CASH_METHOD = /^(?:(?:via|no|por|pelo)\s+pix|em\s+(?:dinheiro|especie)|(?:
 const CREDIT_PREFIX = /^(?:no|na|pelo|pela|em)\s+(?:(?:cartao\s+)(?:d[oa]\s+)?)?/
 const CREDIT_GENERIC = /^(?:no|pelo)\s+(?:cartao(?:\s+de\s+credito)?|credito)$/
 const SHARE_INSTALLMENTS = /\s+(?:em\s+)?\d+\s*(?:x|vezes|parcelas?)$/i
+const PAYMENT_PREFIX = String.raw`(?<prefix>(?:(?:eu|hoje|hj|ontem|anteontem|agora|j[áa])\s+){0,4})(?<verb>paguei|recebi|me\s+pag(?:ou|aram))\s+(?:(?:s[óo]|apenas|somente)\s+)?`
+const PARTIAL_FROM_TOTAL = new RegExp(String.raw`^${PAYMENT_PREFIX}(?<paid>${MONEY})\s+(?:dos|das|de\s+um\s+total\s+de)\s+(?<total>${MONEY})(?=$|[.,;!?]|\s+(?:d[aeo]s?|n[ao]|em|pel[ao]|hoje|ontem|e)\b)(?<tail>[\s\S]*)$`, 'i')
+const HALF_FROM_TOTAL = new RegExp(String.raw`^${PAYMENT_PREFIX}(?:a\s+)?(?:metade|1\s*/\s*2)\s+(?:dos|das|de\s+um\s+total\s+de)\s+(?<total>${MONEY})(?<label>\s+d[aeo]s?\s+[^,;!?]+?)?(?:\s*[,;]\s*(?:deu|foram|ficou\s+em)\s+(?<paid>${MONEY}))?\s*[.!]*$`, 'i')
 
 type ReconciledTotal = { text?: string; issue?: string; dateQuestion?: IncompleteIntent['purchaseDateQuestion'] }
 
 type PaymentShare = { amount: number; card?: string; installments?: string }
+
+function partialSpokenPayment(text: string): ReconciledTotal | undefined {
+  const half = text.match(HALF_FROM_TOTAL)?.groups
+  const part = half || text.match(PARTIAL_FROM_TOTAL)?.groups
+  if (!part) return undefined
+  const total = cents(parseMoney(part.total))
+  const paid = part.paid ? cents(parseMoney(part.paid)) : total / 2
+  if (half && part.paid && Math.abs(paid - total / 2) > 0.5) {
+    return { issue: `Você disse metade de ${fmtBRL(total / 100)} e informou ${fmtBRL(paid / 100)}. Qual valor realmente foi pago?` }
+  }
+  if (!(paid > 0) || paid > total || !Number.isInteger(paid)) {
+    return { issue: 'Qual foi o valor pago, em reais e centavos? Use o valor que entrou ou saiu da conta.' }
+  }
+  const verb = /^me\s+/i.test(part.verb) ? 'recebi' : part.verb
+  const label = part.tail ?? part.label ?? ''
+  const partialBill = /^paguei$/i.test(verb) && paid < total && /^\s+d[aeo]s?\s+(?!fatura\b)/i.test(label)
+  return { text: `${part.prefix}${verb} ${String(paid / 100).replace('.', ',')}${partialBill ? ' de parte' : ''}${label}` }
+}
 
 function paymentShare(text: string, cardNames: string[]): PaymentShare | undefined {
   const part = text.trim().replace(/[.!]+$/, '').match(PAYMENT_SHARE)
@@ -99,8 +120,15 @@ const cents = (amount: number): number => Math.round(amount * 100)
 
 /** Totais declarados e parcelas inclusas explicam os itens de um relato. */
 export function reconcileSpokenTotals(message: string, today: string, driver: boolean, cardNames: string[]): ReconciledTotal | undefined {
-  if (!looksPast(message)) return undefined
   const text = normalizeNumberWords(message).text.trim()
+  if (/\b(?:dos|das|de\s+um\s+total\s+de)\s+(?:r\$\s*)?\d/i.test(text)) {
+    const parts = looksLikeQuestion(text) ? segment(text, today) : []
+    const first = parts.length > 1 && !looksLikeQuestion(parts[0].text) ? parts[0] : undefined
+    const partial = first ? partialSpokenPayment(first.text) : !parts.length ? partialSpokenPayment(text) : undefined
+    if (partial?.text && first) return { text: `${partial.text.trimEnd()} ${text.slice(first.end).trimStart()}` }
+    if (partial) return partial
+  }
+  if (!looksPast(message)) return undefined
   const split = splitSpokenPayment(text, today, cardNames)
   if (split) return split
   const included = text.match(INCLUDED)

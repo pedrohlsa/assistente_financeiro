@@ -7990,6 +7990,38 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       hoje.slice(8, 10) === '01' ? d?.kind === 'expense' : d?.date === `${hoje.slice(0, 7)}-01`))
   }
 
+  {
+    const date = '2026-11-22'
+    const state = buildState({ profile: 'other', balance: 1000 })
+    state.settings.balanceAsOf = `${date}T08:00`
+    state.recurring = [{ id: 'partial-light', name: 'Luz', kind: 'expense', category: 'casa',
+      frequency: 'monthly', active: true, amount: 150, dueDay: 22, startDate: date }]
+    const send = (message: string) => orchestrate({ state, today: date, message, remoteEnabled: false })
+    const paid = await send('paguei metade dos 150 da luz, deu 75')
+    const applied = applyBatchPure(state, paid.response.actions, { now: { date, time: '15:00' } })
+    const mixed = await send('paguei 60 dos 150 da luz e quanto já saiu este mês?')
+    const full = await send('paguei 150 da luz')
+    out.push(result('FR-pagamento-parcial-nao-quita-a-conta-fixa', { paid: paid.response, mixed: mixed.response, full: full.response },
+      'lança R$ 75 avulsos e deixa a ocorrência do dia 22 em aberto',
+      paid.response.actions.length === 1 && paid.response.actions[0].action.kind === 'expense'
+      && applied.state.transactions[0]?.amount === 75 && currentBalance(applied.state, date) === 925
+      && !applied.state.recurring[0].occurrences?.length
+      && mixed.response.mode === 'answer_and_actions' && mixed.response.actions.length === 1
+      && mixed.response.actions.some(({ action }) => action.kind === 'expense' && action.amount === 60 && action.category === 'casa')
+      && full.response.actions[0]?.action.kind === 'recurring-confirm'))
+
+    const received = await send('ontem me pagaram só noventa dos duzentos')
+    const mismatch = await send('paguei metade dos 150 da luz, deu 70')
+    const fraction = await send('paguei metade dos 150,01 da luz')
+    const question = await send('paguei metade dos 150 da luz?')
+    out.push(result('FR-valor-efetivo-e-contradicoes', [received, mismatch, fraction, question].map(r => r.response),
+      'recebe R$ 90 na data dita e pede o valor real quando a parte é contraditória ou imprecisa',
+      received.response.actions.length === 1 && received.response.actions.some(({ action }) =>
+        action.kind === 'income' && action.amount === 90 && action.date === '2026-11-21')
+      && [mismatch, fraction].every(r => r.response.mode === 'clarify' && !r.response.actions.length)
+      && !question.response.actions.length))
+  }
+
   // "Paguei o aluguel, 400": valor depois da vírgula perdia a descrição; com
   // dois-pontos ("paguei o mecânico: 350") nada era registrado.
   for (const [id, frase, valor, desc] of [

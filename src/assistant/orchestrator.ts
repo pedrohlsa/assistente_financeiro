@@ -1430,6 +1430,9 @@ function recurringLinkChoice(
 function resolveRecurringStatement(
   state: AppState, payment: RecurringStatement, text: string, caps: AssistantCapabilities, today: string,
 ): RecurringResolution | null {
+  // Uma parte paga pode entrar como despesa avulsa. Confirmar a ocorrência
+  // daria baixa no vencimento inteiro, inclusive no saldo ainda a pagar.
+  if (/^parte\s+d[aeo]s?\b/i.test(payment.description || '')) return null
   const reference = text.match(/(?:[,;]\s*|\s+(?:com\s+)?)vencimento\s+(?:d[eo]\s+)?(.+)$/i)
   const due = reference && findDate(reference[1], today)
   const occurrenceDate = due && (due.kind === 'date' || due.kind === 'future') ? due.date : undefined
