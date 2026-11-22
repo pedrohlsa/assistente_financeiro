@@ -128,6 +128,10 @@ export function normalizeQuery(input: string): string {
     const mes = mesDigitadoErrado(w.toLowerCase())
     return mes ? `${prep} ${mes}` : m
   })
+  // "Qual FOI o mês mais apertado": no passado é o pior mês FECHADO, não a
+  // projeção dos próximos meses (que respondia com parcelas futuras).
+  t = t.replace(/\b(?:qual|que)\s+(?:foi|era)\s+(?:o\s+)?(?:meu\s+)?mes\s+mais\s+(?:apertado|pesado|dificil|ruim|complicado|puxado)\b/g, 'qual foi meu pior mes')
+    .replace(/\b(?:o\s+)?mes\s+mais\s+(?:apertado|pesado|dificil|ruim|complicado|puxado)\s+(?:foi|que\s+(?:eu\s+)?(?:tive|passei))\b/g, 'meu pior mes foi')
   // "Quanto falta PRA QUITAR o computador": o verbo ficava no filtro de texto,
   // e a resposta era "você não tem parcelamentos com 'quitar o computador'".
   t = t.replace(/\b(?:pra|para)\s+(?:quitar|terminar\s+de\s+pagar|acabar\s+de\s+pagar)\s+(o|a|os|as)\s+/g, (_m, art: string) => `d${art} `)

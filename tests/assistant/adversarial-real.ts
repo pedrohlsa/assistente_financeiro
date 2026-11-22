@@ -8217,6 +8217,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('VK-controle-reais', r.actions, '64 km; os 14 reais não viram km', w2?.km === 64))
   }
 
+  // "Qual FOI o mês mais apertado" respondia com a previsão dos próximos
+  // meses (parcelas futuras). No passado, é o pior mês fechado; no futuro,
+  // continua a projeção.
+  {
+    const rico = autonomoRico(hoje)
+    const pior = (await turnoHoje(rico, 'qual foi meu pior mês')).reply
+    const passado = (await turnoHoje(rico, 'qual foi o mês mais apertado')).reply
+    out.push(result('MP-apertado-no-passado', passado, 'a mesma resposta de "qual foi meu pior mês", sem previsão',
+      passado.split('\n')[0] === pior.split('\n')[0] && !/previs/i.test(passado)))
+    const futuro = (await turnoHoje(rico, 'qual vai ser o mês mais apertado')).reply
+    out.push(result('MP-controle-futuro', futuro, 'previsão', /previs/i.test(futuro)))
+  }
+
   // Oferta já analisada: "na verdade o retorno era 7 km" caía em "não tenho
   // proposta na tela para corrigir". A revisão refaz a conta, acumulando.
   {
