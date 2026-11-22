@@ -8206,6 +8206,33 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result(id, r.reply, 'ritmo diário (faturamento por dia)',
         /por dia/.test(r.reply) && /Faturamento/.test(r.reply) && !/Posso te ajudar/.test(r.reply)))
     }
+    const work = buildState({ profile: 'driver' })
+    work.transactions = [
+      { id: 'r0', type: 'income', amount: 400, category: 'corridas', date: TODAY },
+      { id: 'r1', type: 'income', amount: 200, category: 'corridas', date: '2026-09-14' },
+      { id: 'r2', type: 'income', amount: 300, category: 'corridas', date: '2026-09-13' },
+      { id: 'independente', type: 'income', amount: 5000, category: 'aluguel', date: TODAY },
+      { id: 'pessoal', type: 'expense', amount: 200, category: 'alimentacao', date: TODAY },
+      { id: 'operacao', type: 'expense', amount: 65, category: 'combustivel', date: TODAY },
+      { id: 'operacao-ontem', type: 'expense', amount: 40, category: 'combustivel', date: '2026-09-14' },
+      { id: 'so-manutencao', type: 'expense', amount: 70, category: 'manutencao', date: '2026-09-12' },
+    ]
+    work.workSessions = [
+      { id: 'h0', date: TODAY, hours: 2, km: 100, trips: 4 },
+      { id: 'h1', date: '2026-09-14', hours: 4, km: 80, trips: 6 },
+      { id: 'h2', date: '2026-09-12', hours: 10, km: 400, trips: 0 },
+    ]
+    const typical = await turn(work, 'qual meu rendimento típico por dia no volante?')
+    const best = await turn(work, 'quais dias rendem mais nas corridas?')
+    const receiptsOnly = { ...work, workSessions: [], transactions: work.transactions.filter(t => t.type === 'expense') }
+    const withoutWork = await turn(receiptsOnly, 'quanto costumo gastar de combustível por dia trabalhado?')
+    out.push(result('KR-ritmo-de-corrida-cita-amostra-de-cada-indicador', [typical.reply, best.reply, withoutWork.reply],
+      'faturamento de R$ 300 por dia, sobra de R$ 265 por dia, R$ 82,50 por hora e R$ 2,75 por km com 2 dias em comum',
+      /3 dias com registro[\s\S]*300,00 por dia[\s\S]*265,00 por dia/.test(typical.reply)
+      && /2 na amostra[\s\S]*82,50 líquidos por hora/.test(typical.reply)
+      && /60,00 por viagem[\s\S]*2,75/.test(typical.reply) && /quais dias da semana rendem mais/.test(best.reply)
+      && /preciso de dias de trabalho registrados/.test(withoutWork.reply)
+      && [typical, best, withoutWork].every(r => !r.actions.length)))
     {
       const doMes = new Map<string, number>()
       for (const t of moto.transactions) {

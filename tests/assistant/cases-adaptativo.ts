@@ -23,6 +23,7 @@
 // 17/08/2026, e o número é o rastro dessa origem.
 
 import type { AssistantCase } from './harness'
+import { TODAY } from './harness'
 import { addDays, todayISO } from '../../src/utils/format'
 
 const other = { profile: 'other' as const }
@@ -119,13 +120,10 @@ const habitoQueMudou = {
  * sessões de trabalho com km, horas e viagens. É a base de tudo que o app pode
  * afirmar sobre o ritmo dele — e do que ele NÃO pode afirmar sem isso.
  *
- * As datas saem de `todayISO()`, não da data fixa do corpus, porque estas
- * perguntas passam por `resolveLocal`, que usa o RELÓGIO REAL da máquina
- * (regra 35). Com datas fixas o cenário envelhecia para fora da janela de 30
- * dias e o teste passava a medir a passagem do tempo, não o comportamento.
+ * O padrão da jornada usa a data injetada pelo corpus, igual à consulta.
  */
 const DIAS_RODADOS = 21
-const diaDeTrabalho = (i: number) => addDays(todayISO(), -(DIAS_RODADOS - i))
+const diaDeTrabalho = (i: number) => addDays(TODAY, -(DIAS_RODADOS - i))
 const rodados = <T>(f: (i: number) => T): T[] => Array.from({ length: DIAS_RODADOS }, (_, i) => f(i))
 
 const semanaDeMotorista = {
@@ -167,10 +165,10 @@ const padocaRecente = Array.from({ length: 6 }, (_, i) => ({
 const tresDiasDeMotorista = {
   transactions: Array.from({ length: 3 }, (_, i) => ({
     id: `t${i}`, type: 'income', amount: 300, category: 'corridas',
-    description: 'Uber', date: addDays(todayISO(), -(3 - i)),
+    description: 'Uber', date: addDays(TODAY, -(3 - i)),
   })),
   workSessions: Array.from({ length: 3 }, (_, i) => ({
-    id: `tw${i}`, date: addDays(todayISO(), -(3 - i)), km: 160, hours: 9, trips: 20,
+    id: `tw${i}`, date: addDays(TODAY, -(3 - i)), km: 160, hours: 9, trips: 20,
   })),
 }
 

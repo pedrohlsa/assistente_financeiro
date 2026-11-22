@@ -33,7 +33,7 @@ import {
 } from '../assistant/cashQuestions'
 import type { PerguntaDeConta, PerguntaDeFatura, PlanoDeGuardar } from '../assistant/cashQuestions'
 import { COBRADO_SEM_PAGAR, CORRIDA_CANCELADA, describeAction, parseNaturalFull, REAJUSTE, SAQUE } from './nlp'
-import { driverInsight } from '../assistant/driverInsights'
+import { COMBUSTIVEL_POR_DIA_TRABALHADO, driverInsight } from '../assistant/driverInsights'
 import { answerVehicleCost, answerVehicleMonthly } from '../assistant/vehicleCost'
 import { answerDrivingShift, perceivesDrivingFatigue, FALTAM_VIAGENS_POR_APP, PARE_PARA_DESCANSAR } from '../assistant/driverAdvice'
 import { answerRideOffer } from '../assistant/rideOffer'
@@ -1763,6 +1763,10 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   // não sobre o total do período, e o nome da coisa é o DELE: o motorista que
   // chama combustível de "suco" não é atendido por uma lista de palavras do
   // app. Quem sabe o que é "suco" é o histórico dele.
+  if (driverMode && COMBUSTIVEL_POR_DIA_TRABALHADO.test(t)) {
+    const insight = driverInsight(s, input, today)
+    if (insight) return { text: insight }
+  }
   const habitualM = t.match(
     /quanto\s+(?:eu\s+)?(?:costumo|costuma|normalmente|geralmente|em m[ée]dia)\s*(?:gast\w+|pag\w+|torr\w+)?\s*(?:de|com|em|n[oa]s?)\s+([\wçãõáéíóú\s]+?)\s*(?:por\s+(dia|semana|m[eê]s)|\?|$)/,
   )
@@ -2040,7 +2044,7 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   // respostas de motorista porque as perguntas acima são mais específicas —
   // "quanto gastei com gasolina esse mês" pede um total, não um padrão.
   if (driverMode) {
-    const insight = driverInsight(s, input)
+    const insight = driverInsight(s, input, context?.today)
     if (insight) return { text: insight }
   }
 

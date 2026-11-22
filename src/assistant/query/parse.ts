@@ -32,7 +32,7 @@ import { isDriver } from '../../services/profile'
 import { spokenPayerName } from '../clauses'
 import { buildPersonalModel, adaptiveEnabled } from '../personalModel'
 import { pareceChegada, pedeProximaEntrada } from '../arrival'
-import { DIA_TIPICO } from '../driverInsights'
+import { COMBUSTIVEL_POR_DIA_TRABALHADO, DIAS_DE_CORRIDA, DIA_TIPICO } from '../driverInsights'
 import { pedeCustoMensalDoVeiculo } from '../vehicleCost'
 import { pedeAteOSalario, pedeFimDoMes, guardarEsteMes, pedeAntecipacaoDeFatura, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeDividaTotal, pedeFimDoParcelamento, pedeListaDeParcelamentos, pedeQuantoPossoGastar, pedeLimite, pedeMaiorParcela, pedeSobraSemCombustivel, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, perguntaDeManutencao, planoDeGuardar } from '../cashQuestions'
 import {
@@ -909,6 +909,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
 
   const driver = isDriver(state.settings)
   const normalized = normalizeQuery(input)
+  if (driver && (DIAS_DE_CORRIDA.test(normalized) || COMBUSTIVEL_POR_DIA_TRABALHADO.test(normalized))) return null
   const allRideApps = /\bem\s+todas\s+as\s+plataformas(?:\s+juntas?)?\b/
   const t0 = driver && !GASTO.test(normalized) && /\b(?:por\s+(?:hora|km|quilometro|viagem|corrida)|a\s+hora|hora\s+trabalhada)\b/.test(normalized)
     ? normalized.replace(/\b(?:no\s+volante|dirigindo|rodando|em\s+todas\s+as\s+plataformas(?:\s+juntas?)?)\b/g, ' ')

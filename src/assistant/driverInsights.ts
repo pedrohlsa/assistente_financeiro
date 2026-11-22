@@ -21,7 +21,7 @@
 
 import type { AppState, Transaction, WorkSession } from '../models/types'
 import { fuelSpend } from '../services/calc'
-import { isDriver } from '../services/profile'
+import { isDriver, isDrivingExpense, RIDE_INCOME_CATEGORIES } from '../services/profile'
 import { addDays, fmtBRL, fmtNum, fromISO, todayISO } from '../utils/format'
 import { brDate } from './dates'
 import { normalizeName, weekdayName } from '../utils/text'
@@ -48,9 +48,8 @@ interface Dia {
 }
 
 /** Os dias em que ele realmente trabalhou, dentro da janela. */
-function dias(s: AppState, janela = JANELA_DIAS): Dia[] {
-  const from = addDays(todayISO(), -(janela - 1))
-  const to = todayISO()
+function dias(s: AppState, to: string, janela = JANELA_DIAS): Dia[] {
+  const from = addDays(to, -(janela - 1))
   const porDia = new Map<string, Dia>()
   const get = (d: string) => {
     let x = porDia.get(d)
@@ -59,8 +58,8 @@ function dias(s: AppState, janela = JANELA_DIAS): Dia[] {
   }
   for (const t of (s.transactions || []) as Transaction[]) {
     if (!t?.date || t.date < from || t.date > to) continue
-    if (t.type === 'income') get(t.date).income += t.amount
-    else if (t.type === 'expense') get(t.date).expense += t.amount
+    if (t.type === 'income' && RIDE_INCOME_CATEGORIES.includes(t.category)) get(t.date).income += t.amount
+    else if (t.type === 'expense' && isDrivingExpense(t.category, t.description)) get(t.date).expense += t.amount
   }
   for (const w of (s.workSessions || []) as WorkSession[]) {
     if (!w?.date || w.date < from || w.date > to) continue
@@ -72,7 +71,7 @@ function dias(s: AppState, janela = JANELA_DIAS): Dia[] {
   // Dia sem receita e sem km não é dia de trabalho: incluí-lo puxaria a média
   // para baixo com uma folga, e o motorista sabe que não rodou naquele dia.
   return [...porDia.values()]
-    .filter(d => d.income > 0 || d.km > 0 || d.trips > 0)
+    .filter(d => d.income > 0 || d.km > 0 || d.hours > 0 || d.trips > 0)
     .sort((a, b) => a.date.localeCompare(b.date))
 }
 
@@ -91,7 +90,9 @@ const semBase = (o_que: string) =>
 // ---------------------------------------------------------------------------
 
 /** "Dia típico", "dia normal", "um dia comum": o ritmo diário dele. */
-export const DIA_TIPICO = /\bdias?\s+(?:\w+\s+)?(?:tipic\w+|normal|normais|comum|comuns)\b|\b(?:tipic\w+|normal|comum)\s+dia\b/
+export const DIA_TIPICO = /\bdias?\s+(?:\w+\s+)?(?:tipic\w+|normal|normais|comum|comuns)\b|\b(?:tipic\w+|normal|comum)\s+(?:por\s+)?dia\b/
+export const DIAS_DE_CORRIDA = /^(?:quais|qual)\s+dias?\s+(?:da\s+semana\s+)?rend\w*\s+(?:mais|menos)\s+(?:nas\s+corridas|no\s+volante)\s*[?.!]*$/
+export const COMBUSTIVEL_POR_DIA_TRABALHADO = /^quanto\s+(?:eu\s+)?(?:costumo\s+gastar|gasto)\s+(?:de|com)\s+combustivel\s+por\s+dia\s+trabalhado\s*[?.!]*$/
 const RE_TIPICO = /\b(?:costum\w+|tipic\w+|normal|em m[ée]dia|m[ée]dia)\b[^?]*\b(?:por dia|no dia|dia|dias)\b|\b(?:quanto|qual)[^?]*\b(?:costum\w+|tipic\w+)\b/
 const RE_DIAS_FORTES = /\b(?:dias?|dia)\b[^?]*\b(?:mais fort\w+|melhor\w*|que rende\w*|mais rende\w*|mais forte)\b|\bmelhores? dias?\b|\bpiores? dias?\b|\bdias? (?:mais )?frac\w+\b/
 const RE_PLATAFORMA = /\b(?:uber|99|indrive|indriver|plataformas?|aplicativos?|apps?)\b[^?]*\b(?:mais|melhor|rende|vem|d[áa]|paga|compensa)\b|\b(?:vale\s+a\s+pena|compensa)\b[^?]*\b(?:uber|99)\b[^?]*\bou\b|\b(?:de onde|qual)\b[^?]*\b(?:vem mais|rende mais|paga mais)\b|\bdistribui[çc][ãa]o\b/
@@ -102,10 +103,10 @@ const RE_COMBUSTIVEL_TIPICO = /\b(?:costum\w+|tipic\w+|em m[ée]dia|quanto)\b[^?
  * Resposta pronta, ou `undefined` quando a pergunta não é uma destas.
  * Determinística e offline: nada aqui chega perto da IA remota.
  */
-export function driverInsight(s: AppState, input: string): string | undefined {
+export function driverInsight(s: AppState, input: string, today = todayISO()): string | undefined {
   const t = norm(input)
 
-  if (RE_COMBUSTIVEL_TIPICO.test(t)) return combustivelTipico(s)
+  if (RE_COMBUSTIVEL_TIPICO.test(t)) return combustivelTipico(s, today)
   // "Melhor horário pra rodar": o registro guarda a hora em que o GANHO foi
   // lançado, não a hora das corridas — e um dia inteiro registrado à noite
   // diria que a noite rende tudo. Sem esse dado, o app diz o que sabe medir.
@@ -113,44 +114,46 @@ export function driverInsight(s: AppState, input: string): string | undefined {
     return 'Não consigo dizer o melhor horário: eu guardo a hora em que você REGISTRA cada ganho, não a hora das corridas — um dia inteiro lançado à noite pareceria que só a noite rende.\n\n'
       + 'O que dá para comparar com os seus números são os dias da semana. Pergunte "qual dia eu mais ganho?".'
   }
-  if (RE_DIAS_FORTES.test(t)) return diasFortes(s, /pior|frac/.test(t))
-  if (RE_PLATAFORMA.test(t)) return porPlataforma(s)
-  if (RE_TENDENCIA.test(t)) return tendencia(s)
-  if (RE_TIPICO.test(t) || DIA_TIPICO.test(t)) return diaTipico(s)
+  if (RE_DIAS_FORTES.test(t) || DIAS_DE_CORRIDA.test(t)) return diasFortes(s, /pior|frac|menos/.test(t), today)
+  if (RE_PLATAFORMA.test(t)) return porPlataforma(s, today)
+  if (RE_TENDENCIA.test(t)) return tendencia(s, today)
+  if (RE_TIPICO.test(t) || DIA_TIPICO.test(t)) return diaTipico(s, today)
   return undefined
 }
 
-function diaTipico(s: AppState): string {
-  const ds = dias(s)
-  if (ds.length < MIN_DIAS) return semBase('dia de trabalho registrado')
+function diaTipico(s: AppState, today: string): string {
+  const ds = dias(s, today).filter(d => d.income > 0)
+  if (ds.length < MIN_DIAS) return semBase('dias com receita de corridas')
 
   const receita = soma(ds.map(d => d.income)) / ds.length
   const despesa = soma(ds.map(d => d.expense)) / ds.length
-  const km = soma(ds.map(d => d.km))
-  const horas = soma(ds.map(d => d.hours))
-  const viagens = soma(ds.map(d => d.trips))
   const lucro = receita - despesa
+  const comKm = ds.filter(d => d.km > 0)
+  const comHoras = ds.filter(d => d.hours > 0)
+  const comViagens = ds.filter(d => d.trips > 0)
+  const km = soma(comKm.map(d => d.km))
+  const horas = soma(comHoras.map(d => d.hours))
+  const viagens = soma(comViagens.map(d => d.trips))
 
   const linhas = [
-    `No seu ritmo dos últimos dias (dado real, ${amostra(ds)}):`,
+    `No seu ritmo de corridas (dado real, ${amostra(ds)}):`,
     '',
     `• Faturamento: ${fmtBRL(receita)} por dia`,
-    `• Despesas: ${fmtBRL(despesa)} por dia`,
+    `• Despesas de rodagem: ${fmtBRL(despesa)} por dia`,
     `• Sobra: ${fmtBRL(lucro)} por dia`,
   ]
   const faltando: string[] = []
-  if (km > 0) linhas.push(`• Rodagem: ${fmtNum(km / ds.length, 0)} km por dia`)
+  if (km > 0) linhas.push(`• Rodagem: ${fmtNum(km / comKm.length)} km por dia com quilometragem (${comKm.length} na amostra)`)
   else faltando.push('os km')
   if (horas > 0) {
-    linhas.push(`• Jornada: ${fmtNum(horas / ds.length)} h por dia — ${fmtBRL(soma(ds.map(d => d.income - d.expense)) / horas)} por hora`)
+    linhas.push(`• Jornada: ${fmtNum(horas / comHoras.length)} h por dia com horas (${comHoras.length} na amostra) — ${fmtBRL(soma(comHoras.map(d => d.income - d.expense)) / horas)} líquidos por hora`)
   } else faltando.push('as horas')
   if (viagens > 0) {
     // Por viagem só com os dias em que a quantidade foi dita (regra 34).
-    const comViagem = ds.filter(d => d.trips > 0)
-    linhas.push(`• Viagens: ${fmtNum(viagens / comViagem.length, 0)} por dia com viagens informadas — ${fmtBRL(soma(comViagem.map(d => d.income)) / viagens)} por viagem`)
+    linhas.push(`• Viagens: ${fmtNum(viagens / comViagens.length)} por dia com viagens informadas (${comViagens.length} na amostra) — ${fmtBRL(soma(comViagens.map(d => d.income)) / viagens)} por viagem`)
   }
   else faltando.push('as viagens')
-  if (km > 0 && horas > 0) linhas.push(`• Líquido por km: ${fmtBRL(soma(ds.map(d => d.income - d.expense)) / km)}`)
+  if (km > 0) linhas.push(`• Líquido por km: ${fmtBRL(soma(comKm.map(d => d.income - d.expense)) / km)}`)
 
   if (faltando.length) {
     linhas.push('', `Ainda não tenho ${faltando.join(' nem ')} — registre junto com o ganho do dia que eu completo essa conta.`)
@@ -158,8 +161,8 @@ function diaTipico(s: AppState): string {
   return linhas.join('\n')
 }
 
-function diasFortes(s: AppState, pior: boolean): string {
-  const ds = dias(s, 60)
+function diasFortes(s: AppState, pior: boolean, today: string): string {
+  const ds = dias(s, today, 60).filter(d => d.income > 0)
   if (ds.length < MIN_DIAS) return semBase('dia de trabalho registrado')
 
   const porSemana = new Map<number, { total: number; n: number }>()
@@ -250,12 +253,12 @@ export function compareRideApps(state: AppState, input: string, today: string): 
   return [lead, lines.join('\n'), ...(advice ? ['Esses são os valores recebidos. Para comparar o rendimento por hora, faltam as horas separadas por plataforma.'] : [])].join('\n\n')
 }
 
-function porPlataforma(s: AppState): string {
-  const from = addDays(todayISO(), -(JANELA_DIAS - 1))
+function porPlataforma(s: AppState, today: string): string {
+  const from = addDays(today, -(JANELA_DIAS - 1))
   const total = new Map<string, { valor: number; n: number }>()
   let outras = 0
   for (const t of (s.transactions || []) as Transaction[]) {
-    if (t?.type !== 'income' || t.category !== 'corridas' || t.date < from) continue
+    if (t?.type !== 'income' || t.category !== 'corridas' || t.date < from || t.date > today) continue
     const nome = PLATAFORMAS.find(([re]) => re.test((t.description || '').trim()))?.[1]
     if (!nome) { outras += t.amount; continue }
     const cur = total.get(nome) || { valor: 0, n: 0 }
@@ -278,9 +281,9 @@ function porPlataforma(s: AppState): string {
     + `${top[0]} é a sua maior fonte no período. Isso é o que foi registrado — plataforma que você não citar na mensagem eu não tenho como separar.`
 }
 
-function tendencia(s: AppState): string {
-  const recentes = dias(s, 7)
-  const todos = dias(s, JANELA_DIAS)
+function tendencia(s: AppState, today: string): string {
+  const todos = dias(s, today).filter(d => d.income > 0)
+  const recentes = todos.filter(d => d.date >= addDays(today, -6))
   if (todos.length < MIN_DIAS || !recentes.length) return semBase('dia de trabalho registrado')
 
   const mediaDe = (ds: Dia[]) => soma(ds.map(d => d.income - d.expense)) / ds.length
@@ -296,28 +299,26 @@ function tendencia(s: AppState): string {
   const normal = mediaDe(anteriores)
   const dif = agora - normal
   const pct = normal !== 0 ? Math.round((dif / Math.abs(normal)) * 100) : 0
+  const diagnosis = normal === 0 && dif !== 0 ? `Sua média anterior foi zero. Agora a sobra diária está ${fmtBRL(Math.abs(dif))} ${dif > 0 ? 'acima' : 'abaixo'} dela.`
+    : Math.abs(pct) < 8 ? 'Está dentro do seu ritmo de sempre. Dados reais, sem projeção.'
+      : `Você está ${Math.abs(pct)}% ${dif > 0 ? 'acima' : 'abaixo'} do seu normal. Dados reais, sem projeção.`
 
   return `Últimos 7 dias: ${fmtBRL(agora)} de sobra por dia (${recentes.length} ${recentes.length === 1 ? 'dia' : 'dias'} com registro).\n`
     + `Seu normal antes disso: ${fmtBRL(normal)} por dia (${anteriores.length} dias, dentro dos últimos ${JANELA_DIAS}).\n\n`
-    + (Math.abs(pct) < 8
-      ? 'Está dentro do seu ritmo de sempre. Dados reais, sem projeção.'
-      : dif > 0
-        ? `Você está ${pct}% acima do seu normal. 💪 Dados reais, sem projeção.`
-        : `Você está ${Math.abs(pct)}% abaixo do seu normal. Dados reais — pode ser só a semana, mas vale olhar.`)
+    + diagnosis
 }
 
-function combustivelTipico(s: AppState): string {
-  const from = addDays(todayISO(), -(JANELA_DIAS - 1))
-  const total = fuelSpend(s, from, todayISO())
+function combustivelTipico(s: AppState, today: string): string {
+  const from = addDays(today, -(JANELA_DIAS - 1))
+  const total = fuelSpend(s, from, today)
   if (total <= 0) {
     return 'Ainda não tenho abastecimento registrado nos últimos 30 dias, então não sei qual é o seu gasto típico de combustível.\n\n'
       + 'Registre um ("botei 100 de gasolina") que eu passo a calcular com os seus números.'
   }
-  const ds = dias(s)
+  const ds = dias(s, today)
   const receita = soma(ds.map(d => d.income))
-  const porDia = ds.length ? total / ds.length : total / JANELA_DIAS
   return `Combustível nos últimos ${JANELA_DIAS} dias: ${fmtBRL(total)} (dado real).\n\n`
-    + `• Por dia trabalhado: ${fmtBRL(porDia)}${ds.length ? ` (${amostra(ds)})` : ''}\n`
+    + (ds.length ? `• Por dia trabalhado registrado: ${fmtBRL(total / ds.length)} (${amostra(ds)})\n` : 'Para calcular por dia trabalhado, preciso de dias de trabalho registrados.\n')
     + (receita > 0 ? `• Fatia do que você faturou: ${fmtNum((total / receita) * 100)}%\n` : '')
     + '\nSão os seus lançamentos, não uma média genérica.'
 }
