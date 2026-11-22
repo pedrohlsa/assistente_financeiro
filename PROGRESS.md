@@ -6995,8 +6995,14 @@ item tem bloco próprio em `tests/assistant/adversarial-real.ts`.
 - Assinaturas: "assinei o youtube premium" gravava o verbo; "cancelei a
   netflix" caía na ajuda e agora diz onde encerrar; "quanto gasto com
   assinaturas" sem registro dizia "R$ 0,00 (0 registros — dado real)" (`AS-`).
+- "Quanto paguei de IPTU" respondia "O último foi em 16/08: R$ 2.400,00
+  (Reforma do telhado)", como se fosse o IPTU: a palavra vira a categoria
+  Casa e a linha não dizia isso. Agora: "O último em Casa foi…". A terceira
+  tentativa por palavra-chave (21/11) ficou restrita a combustível. "A casa 1
+  dá lucro?" caía na ajuda; sem despesas ligadas à origem, o app diz que não
+  dá para afirmar (`IM-`).
 
-Gates (relógio 2026-09-15): 736/736 corpus, 1.404/1.404 adversariais, 151/151
+Gates (relógio 2026-09-15): 736/736 corpus, 1.407/1.407 adversariais, 151/151
 invariantes, mutações, fuzz, ditado e remoto offline; typecheck,
 typecheck:api e rubrica (0 perigosa, 0 ruim). `test:calendario` verde depois
 de cada lote. Sem push, merge, deploy, APK ou DeepSeek. **NOT READY** até
