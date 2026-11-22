@@ -7045,3 +7045,34 @@ escolhida e o ditado simulado de uma despesa e um reembolso manteve a data
 dos dois lançamentos. **NOT READY**. Voz real, Android, APK e DeepSeek real
 continuam pendentes.
 
+
+## 22/11/2026 — Depois da revisão do Codex (Claude, `2922a2c` em diante)
+
+Quatro correções, cada uma com regressão escrita antes, sobre perguntas
+que respondiam outra coisa com número certo:
+
+- **Meta do motorista por período.** "Bati a meta ontem?" e "quantos dias
+  bati a meta esse mês?" respondiam o lucro de HOJE. Agora medem o período
+  pedido contra a meta de hoje — a mesma régua que a Home usa para o
+  déficit de ontem — e dizem que a meta de cada dia passado não fica
+  guardada. Sem lançamento no dia, o app cala e diz o que registrar
+  (regra 43). "Minha meta de hoje bateu?" começa por sim ou não (regra 57).
+  Bloco `MD-`.
+- **Gasto contra ganho.** "Gastei mais que ganhei esse mês?" ia para a DSL
+  como comparação entre períodos e respondia "Não, ficou igual" — o mês
+  comparado com ele mesmo. `GASTO_CONTRA_GANHO` (`query/parse.ts`) manda a
+  pergunta para a rota de resultado, que pesa saída contra entrada do mesmo
+  período; "ganhei menos do que gastei em agosto?" também. Bloco `GG-`.
+- **Déficit nomeado (regra 21).** "Quanto sobrou mês passado" mostrava
+  "Resultado: -R$ 202,00", e a simulação de compra dizia "a sobra do mês
+  passaria a -R$ 1.953,00". Os dois agora dizem déficit.
+- **Lembrete não é lançamento.** "Me lembra de pagar a luz dia 10" caía em
+  "não tenho certeza do que registrar"; agora diz que nada foi registrado e
+  aponta o Planejamento, onde a conta ganha o aviso de vencimento. Bloco
+  `LB-`.
+
+Gates no fim da rodada: `npm test` (736 corpus, 1.446 adversariais, 151
+invariantes), os dois typechecks, `test:money`, build sem `sk-` em `dist/`,
+rubrica 0 PERIGOSA / 0 RUIM e a matriz de oito datas. **NOT READY**; nada
+foi enviado ao GitHub. Voz real, Android, APK e DeepSeek real continuam
+pendentes.
