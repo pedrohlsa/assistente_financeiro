@@ -8491,6 +8491,31 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('AU-sinal', r5.actions, 'Vendas', r5.actions.some((a: any) => a.kind === 'income' && a.amount === 200 && a.category === 'vendas')))
     const r6 = await turnoHoje(st, 'comprei 2 pneus a 300 cada')
     out.push(result('AU-compra-por-unidade', r6.actions, 'despesa 600', r6.actions.some((a: any) => a.kind === 'expense' && a.amount === 600)))
+
+    const partials = await Promise.all([
+      'vendi 3 bolos a 25 cada e recebi só 50',
+      'vendi 3 bolos a 25 cada e recebi 50',
+      'vendi três bolos a vinte e cinco cada um e só recebi cinquenta',
+      'vendi 3 bolos a 25 cada, recebi 50 e falta 25',
+      'ontem vendi 3 bolos a 25 cada e recebi só 50 hoje',
+    ].map(text => turnoHoje(st, text)))
+    out.push(result('AU-venda-por-unidade-registra-apenas-o-recebido', partials.map(r => r.actions),
+      'uma receita de R$ 50 em Vendas, com a data do recebimento quando informada',
+      partials.every(r => r.actions.length === 1 && r.actions.every(a => a.kind === 'income' && a.amount === 50
+        && a.category === 'vendas' && a.description === 'Bolos')) && partials[4].actions[0]?.date === hoje))
+    const pending = await turnoHoje(st, 'vendi 3 bolos a 25 cada mas um não pagou')
+    const mixed = await turnoHoje(st, 'vendi 3 bolos a 25 cada, um ainda vai pagar; gastei 15 com farinha')
+    const pix = await turnoHoje(st, 'vendi 3 bolos a 25 cada, só recebi 50 no pix e gastei 19 de farinha')
+    const independent = await turnoHoje(st, 'vendi 3 bolos a 25 cada e recebi 50 da faxina')
+    out.push(result('AU-pagamento-pendente-e-outras-operacoes', { pending, mixed, pix, independent },
+      'pergunta quanto entrou na venda pendente e mantém a despesa e as receitas de outras fontes',
+      !pending.actions.length && /pagamento pendente/.test(pending.reply)
+      && mixed.actions.length === 1 && mixed.actions[0].kind === 'expense' && mixed.actions[0].amount === 15
+      && /pagamento pendente/.test(mixed.reply)
+      && pix.actions.length === 2 && pix.actions.some(a => a.kind === 'income' && a.amount === 50 && a.category === 'vendas')
+      && pix.actions.some(a => a.kind === 'expense' && a.amount === 19)
+      && independent.actions.length === 2 && independent.actions.some(a => a.kind === 'income' && a.amount === 75 && a.category === 'vendas')
+      && independent.actions.some(a => a.kind === 'income' && a.amount === 50 && a.category === 'freelance')))
   }
 
   // "Qual FOI o mês mais apertado" respondia com a previsão dos próximos

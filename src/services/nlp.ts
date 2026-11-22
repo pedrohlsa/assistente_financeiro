@@ -5,6 +5,7 @@ import { ParsedAction } from '../models/types'
 import { DEFAULT_CATEGORIES, guessCategory } from '../data/categories'
 import { fmtBRL, fmtNum, fromISO, parseMoney, todayISO } from '../utils/format'
 import { normalizeName, sentenceCase } from '../utils/text'
+import { normalizeNumberWords } from '../assistant/numbers'
 import { workDuration } from '../assistant/semantic/clock'
 
 // Captura valores com QUALQUER combinação de separadores ("100.000,00",
@@ -258,13 +259,41 @@ const VERBO_DE_GASTO_LISTA = /\b(?:gastei|gasto|paguei|comprei|torrei|abasteci|c
  * "Vendi 3 bolos A 25 CADA": quantidade × preço unitário. Caía na ajuda —
  * nenhum leitor via o valor depois de "a ... cada".
  */
+const UNIT_SALE = /^\s*((?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)(vendi|comprei|paguei|gastei)\s+(\d{1,4})\s+([\p{L}][\p{L}\s-]{1,30}?)\s+(?:a|por|de)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)\s*(?:reais\s+)?(?:cada\s+um[a]?|cada|a\s+unidade|o\s+kg|a\s+pe[çc]a)(?![\wÀ-ÿ])(.*)$/iu
+const AFTER_UNIT_SALE = String.raw`^\s*[,;]?\s*(?:(?:e|mas|por[ée]m|s[óo]\s+que)\s+)?`
+const ONLY_AMOUNT = String.raw`(?:s[óo]|apenas|somente)`
+const RECEIPT_DAY = String.raw`(?:hoje|hj|ontem|anteontem|amanh[ãa]|\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}(?:/\d{2,4})?)(?![\wÀ-ÿ/])`
+const PAID_UNIT_SALE = new RegExp(String.raw`${AFTER_UNIT_SALE}(?:(${RECEIPT_DAY})\s+)?(?:${ONLY_AMOUNT}\s+)?recebi\s+(?:${ONLY_AMOUNT}\s+)?(?:r\$\s*)?${NUM}(?![\d.,]\d)(?:\s+${MOEDA}\b)?(?:\s+(?:de\s+sinal|de\s+entrada|adiantado|dessa\s+venda|no\s+pix|via\s+pix|em\s+dinheiro)\b)*(?:\s+(?:em\s+)?(${RECEIPT_DAY}))?`, 'i')
+const SALE_REMAINDER = new RegExp(String.raw`^\s*[,;]?\s*(?:e\s+|mas\s+)?(?:ainda\s+)?(?:falta(?:m|ram|va|vam)?|ficou\s+faltando)\s+(?:receber\s+)?(?:r\$\s*)?${NUM}(?:\s+${MOEDA}\b)?(?:\s+(?:pra|para)\s+receber)?(?=\s*(?:[.!?,;]|$|e\s+\p{L}))`, 'iu')
+const UNPAID_SALE = new RegExp(String.raw`${AFTER_UNIT_SALE}(?:(?:um[a]?|1|alguns|algumas|ningu[ée]m|(?:o\s+)?cliente|(?:a\s+)?cliente)\s+)?(?:(?:ainda\s+)?n[ãa]o\s+(?:(?:me\s+)?pag(?:ou|aram)|recebi|caiu|entrou)|(?:ainda\s+)?va(?:i|o|ão)\s+(?:me\s+)?pagar|s[óo]\s+recebo)(?![\wÀ-ÿ])[^.;!?]*?(?=\s+(?:e\s+)?(?:paguei|gastei|comprei|abasteci|vendi|recebi)\b|[.;!?]|$)`, 'i')
+export const UNIT_SALE_PENDING = /^a\s+venda\s+d[aeo]\s+[^.;!?]+\s+ficou\s+com\s+pagamento\s+pendente\b/i
+
 export function vendaPorUnidade(input: string): string {
-  const m = input.match(/^\s*((?:(?:eu|hoje|hj|ontem)\s+)*)(vendi|comprei|paguei|gastei)\s+(\d{1,4})\s+([\p{L}][\p{L}\s-]{1,30}?)\s+(?:a|por|de)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*(?:reais\s+)?(?:cada|a\s+unidade|cada\s+um[a]?|o\s+kg|a\s+pe[çc]a)\b(.*)$/iu)
+  if (!/\b(?:cada|unidade|pe[çc]a|kg)\b/i.test(input)) return input
+  const m = normalizeNumberWords(input).text.match(UNIT_SALE)
   if (!m) return input
-  const total = Math.round(parseNum(m[3]) * parseNum(m[5]) * 100) / 100
+  const [, prefix, verb, quantity, item, unitPrice, tail] = m
+  const total = Math.round(parseNum(quantity) * parseNum(unitPrice) * 100) / 100
   if (!(total > 0)) return input
+  if (/^vendi$/i.test(verb)) {
+    const pending = `a venda de ${item.trim()} ficou com pagamento pendente`
+    const payment = tail.match(PAID_UNIT_SALE)
+    if (payment) {
+      const [matched, before, amount, after] = payment
+      const rest = tail.slice(matched.length).replace(SALE_REMAINDER, '')
+      if (!rest.trim() || /^\s*(?:[.,;!]|(?:e\s+)?(?:paguei|gastei|comprei|abasteci|vendi|recebi)\b)/i.test(rest)) {
+        const date = after || before
+        return parseNum(amount) > 0
+          ? `${date ? `${date} ` : prefix}${verb} ${item.trim()} por ${amount}${rest}`
+          : `${pending}${rest}`
+      }
+    }
+    const unpaid = tail.match(UNPAID_SALE)
+    if (unpaid) return pending + tail.slice(unpaid[0].length)
+    if (SALE_REMAINDER.test(tail)) return pending + tail.replace(SALE_REMAINDER, '')
+  }
   // "Vendi bolos POR 75" é a forma que o parser lê com a descrição.
-  return `${m[1]}${m[2]} ${m[4].trim()} por ${String(total).replace('.', ',')}${m[6]}`
+  return `${prefix}${verb} ${item.trim()} por ${String(total).replace('.', ',')}${tail}`
 }
 
 /**

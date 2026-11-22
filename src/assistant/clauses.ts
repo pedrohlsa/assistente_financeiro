@@ -8,7 +8,7 @@
 import type { ParsedAction } from '../models/types'
 import type { AssistantConfidence, AssistantIntent, FinancialEvent } from './contracts'
 import { guessCategory } from '../data/categories'
-import { cleanDescription, contagemDeItens, tanqueCheio, DECIMO_TERCEIRO, vendaPorUnidade, voltaSemUnidade, DISTANCE_ON_FOOT, financedCardMentions, gruposDeCorrida, INCOME_PLATFORM_PREFIX, looksRecurring, parseNaturalFull, NEXT_RIDE_DISTANCE, RIDE_COMPARISON_REQUEST, RIDE_CONDITIONAL, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE, UMA_CORRIDA_NOMEADA } from '../services/nlp'
+import { cleanDescription, contagemDeItens, tanqueCheio, DECIMO_TERCEIRO, vendaPorUnidade, voltaSemUnidade, DISTANCE_ON_FOOT, financedCardMentions, gruposDeCorrida, INCOME_PLATFORM_PREFIX, looksRecurring, parseNaturalFull, NEXT_RIDE_DISTANCE, RIDE_COMPARISON_REQUEST, RIDE_CONDITIONAL, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE, UMA_CORRIDA_NOMEADA, UNIT_SALE_PENDING } from '../services/nlp'
 import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
@@ -1449,6 +1449,7 @@ export function analyzeMessage(
       || (/\b(?:mas|por[ée]m|s[oó]\s+que)\s*$/i.test(part.text) && PAYMENT_NOT_RECEIVED.test(following))))
     const localExplanation = specializedInflow || (internalTransfer ? INTERNAL_TRANSFER_REPLY
       : quotedOrExample(part.text) || (declinedRide && !part.text.includes('?') ? 'A corrida não aconteceu. Nenhum lançamento foi preparado.'
+      : UNIT_SALE_PENDING.test(part.text) ? 'Há pagamento pendente nessa venda. Se recebeu uma parte, diga quanto entrou para eu preparar o lançamento.'
       : paymentPending ? 'O recebimento ainda está pendente. Quando o dinheiro entrar, diga o valor e a data.'
       : opts?.driver && !isQuestion && !negated && DISTANCE_ON_FOOT.test(normalizeNumberWords(part.text).text)
         ? 'A quilometragem do veículo conta os trechos dirigidos.'
