@@ -28,7 +28,7 @@ import type { AssistantQueryPlan } from '../query/types'
 import { answerScenario, rerunScenario } from '../scenario'
 import type { ScenarioAnswer } from '../scenario'
 import { looksLikeScenario, parsePurchaseDelay, readScenarioBalanceReply, SCENARIO_BALANCE_QUESTION } from '../scenario/parse'
-import { describeMissingRentalInput, readIncomeLossTiming, rentalSources } from '../scenario/incomeWindow'
+import { describeMissingRentalInput, mentionedRentals, readIncomeLossTiming } from '../scenario/incomeWindow'
 import { normalizeNumberWords } from '../numbers'
 import { analyzeChanges, answerChangeQuestion, changeScopeClarification, composeChangeExplanation, expenseCategoryInQuestion } from '../drivers'
 import { answerVehicleCost } from '../vehicleCost'
@@ -165,7 +165,8 @@ function respondeConversa(
     const { duration, window, start, remaining, issue } = readIncomeLossTiming(said, hoje, awaitingRental.incomeLossStart)
     const rest = remaining.trim().replace(/^(?:(?:e|foi|seria)\s+)?(?:a\s+)?/, '')
       .replace(/^\s*(?:e|agora)\s*$/, '').trim()
-    const name = rentalSources(state, hoje).find(source => source === rest)
+    const [property, otherProperty] = mentionedRentals(state, rest, hoje).filter(source => source.said === rest)
+    const name = otherProperty ? undefined : property?.origin
     if (name || (!rest && (duration || window || start || issue))) {
       const origin = name || awaitingRental.origin
       const changePeriod = !!(duration || window || start)

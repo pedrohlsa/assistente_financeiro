@@ -55,6 +55,22 @@ export function rentalSources(state: AppState, today: string): string[] {
   return [...names].filter(Boolean)
 }
 
+export function mentionedRentals(state: AppState, text: string, today: string): { origin: string; said: string }[] {
+  const names = rentalSources(state, today).flatMap(origin => {
+    const short = origin.replace(/^aluguel\s+(?:(?:d[aeo]|d[ao]s)\s+)?/, '')
+    return [...new Set([origin, short])].filter(Boolean).map(said => ({ origin, said }))
+  }).sort((a, b) => b.said.length - a.said.length)
+  let remaining = ` ${normalizeName(text).replace(/[^\p{L}\p{N} -]+/gu, ' ')} `
+  const found = new Map<string, { origin: string; said: string }>()
+  for (const name of names) {
+    const token = ` ${name.said} `
+    if (!remaining.includes(token)) continue
+    for (const match of names.filter(candidate => candidate.said === name.said)) found.set(match.origin, match)
+    remaining = remaining.split(token).join(' ')
+  }
+  return [...found.values()]
+}
+
 /** Fim inclusivo. Ex.: de 21/11 por 3 meses cobre até 20/02. */
 export function incomeLossEnd(today: string, duration: IncomeLossDuration): string {
   if (duration.unit !== 'months') return addDays(today, duration.value * (duration.unit === 'weeks' ? 7 : 1) - 1)

@@ -16,7 +16,7 @@ import { normalizeNumberWords } from '../numbers'
 import { SCENARIO_DSL_VERSION } from './types'
 import { guardarEsteMes } from '../cashQuestions'
 import { readPayoffQuote } from './payoff'
-import { describeMissingRentalInput, incomeLossEnd, readIncomeLossDuration, readIncomeLossTiming, rentalSources } from './incomeWindow'
+import { describeMissingRentalInput, incomeLossEnd, mentionedRentals, readIncomeLossDuration, readIncomeLossTiming, rentalSources } from './incomeWindow'
 import type { AssistantScenarioPlan, DrivingScenario, ScenarioKind } from './types'
 
 const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -423,23 +423,29 @@ function planSingleScenario(
   // Por quanto tempo uma fonte fica sem pagar. O número do imóvel ou do
   // período nunca entra no valor em reais.
   const parsedDuration = readIncomeLossDuration(t)
-  const vacancia = /\b(?:ficar|ficasse)\s+(?:vazi[ao]|sem\s+inquilino)\b|\bdesocupar\b|\bsem\s+receber\s+(?:o\s+)?aluguel\b|\binquilino\b[^?;]*\b(?:sair|saisse|for\s+embora)\b/.test(parsedDuration.remaining)
+  const vacancia = /\b(?:ficar(?:em)?|ficasse(?:m)?)\s+(?:vazi[ao]s?|sem\s+inquilino)\b|\bdesocupar\b|\bsem\s+receber\s+(?:o\s+)?aluguel\b|\binquilino\b[^?;]*\b(?:sair|saisse|for\s+embora)\b/.test(parsedDuration.remaining)
   if (vacancia || /\b(?:nao|n)\s+(?:me\s+)?(?:pagar|pagarem|vier|entrar|cair|depositar|receber)\b|\batrasar\b|\bfalhar\b/.test(t)) {
-    const explicitOrigin = origemDe(t)
+    const today = opts.today || todayISO()
+    const rentals = vacancia ? mentionedRentals(state, t, today) : []
+    const explicitOrigin = rentals[0]?.origin || origemDe(t)
     let origem = explicitOrigin
     const { duration: incomeLossDuration, window: incomeLossWindow, start: incomeLossStart, remaining, issue } =
-      readIncomeLossTiming(t, opts.today || todayISO())
+      readIncomeLossTiming(t, today)
     let planningIssue = issue
     if (vacancia && !origem) {
-      const [only, second] = rentalSources(state, opts.today || todayISO())
+      const [only, second] = rentalSources(state, today)
       if (only && !second) origem = only
     }
-    if (vacancia) {
+    if (rentals.length > 1) {
+      origem = undefined
+      planningIssue ||= 'Qual dos imóveis você quer simular primeiro? Informe um imóvel por vez.'
+    } else if (vacancia) {
       planningIssue ||= describeMissingRentalInput(origem, !!(incomeLossDuration || incomeLossWindow || (explicitOrigin && !incomeLossStart)))
     } else if (incomeLossStart) {
       planningIssue ||= 'Por quanto tempo essa entrada ficaria ausente?'
     }
-    const semOrigem = origem ? remaining.replace(origem, ' ') : remaining
+    const saidOrigin = rentals[0]?.said || origem
+    const semOrigem = saidOrigin ? remaining.replace(saidOrigin, ' ') : remaining
     const valor = lerValor(semOrigem)
     return base('income-missing', { origin: origem, amount: valorDeDinheiro(semOrigem, valor), incomeLossDuration,
       incomeLossWindow, incomeLossStart, ...(vacancia ? { incomeLossForRent: true } : {}), planningIssue },

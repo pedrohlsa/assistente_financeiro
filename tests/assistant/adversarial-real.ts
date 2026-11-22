@@ -380,6 +380,24 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const value = (answer: Awaited<ReturnType<typeof orchestrate>>, label: string) =>
       answer.focus?.lastScenario?.facts.find(f => f.label === label)?.value
     const saved = JSON.stringify(state)
+    const rentals = { ...state, recurring: [
+      ...state.recurring,
+      { ...monthly, id: 'fundo', kind: 'income' as const, category: 'aluguel', name: 'Aluguel da Kitnet do Fundo', amount: 1400, dueDay: 8 },
+      { ...monthly, id: 'frente', kind: 'income' as const, category: 'aluguel', name: 'Aluguel da Kitnet da Frente', origin: 'Kitnet da Frente', amount: 1800, dueDay: 12 },
+    ] }
+    const rear = await turn('e se a kitnet do fundo ficar vazia por três meses?', undefined, rentals)
+    const front = await turn('e se o inquilino da kitnet da frente sair por três meses?', undefined, rentals)
+    const plural = await turn('e se a Casa 2 e a Casa 20 ficarem vazias por dois meses?', undefined, rentals)
+    const pick = await turn('Casa 20', plural, rentals)
+    const unspecified = await turn('e se a casa ficar vazia por dois meses?', undefined, rentals)
+    const knownAlias = await turn('Kitnet do Fundo', unspecified, rentals)
+    const rentReplies = [rear, front, plural, pick, unspecified, knownAlias]
+    out.push(result('VC-reconhece-imoveis-pelo-nome-completo-ou-apelido', rentReplies.map(r => r.response),
+      'usa o nome cadastrado inteiro, distingue Casa 2 de Casa 20 e pede o alvo quando aparecem dois imóveis',
+      value(rear, 'Entrada prevista que deixaria de cair') === 4200 && value(front, 'Entrada prevista que deixaria de cair') === 5400
+      && value(plural, 'Entrada prevista que deixaria de cair') === undefined && /Qual dos imóveis/.test(plural.response.reply)
+      && value(pick, 'Entrada prevista que deixaria de cair') === 1600 && value(knownAlias, 'Entrada prevista que deixaria de cair') === 2800
+      && rentReplies.every(r => !r.response.actions.length)))
     const three = await turn('E se a Casa 2 ficar vazia por três meses?')
     const more = await turn('e por mais um mês?', three)
     const short = await turn('se a Casa 2 ficar vazia por duas semanas?')
