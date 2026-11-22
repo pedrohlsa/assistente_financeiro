@@ -8250,6 +8250,21 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('SG-cade', cade, 'para onde foi (por categoria)', /categoria|Obra/.test(cade) && !/Posso te ajudar/.test(cade)))
   }
 
+  // Assinaturas: "assinei o youtube premium" gravava o verbo; "cancelei a
+  // netflix" caía na ajuda; "quanto gasto com assinaturas" sem registro dizia
+  // "R$ 0,00 (0 registros — dado real)".
+  {
+    const st = buildState({ profile: 'other' })
+    const a = await turnoHoje(st, 'assinei o youtube premium por 24,90')
+    out.push(result('AS-assinei', a.actions, 'sem "Assinei" na descrição', a.actions.length === 1 && !/assinei/i.test((a.actions[0] as any).description || '')))
+    const c = await turnoHoje(st, 'cancelei a netflix')
+    out.push(result('AS-cancelei', { reply: c.reply, actions: c.actions }, 'não registra; diz onde encerrar', !c.actions.length && /Planejamento|cart[ãa]o/.test(c.reply) && !/Posso te ajudar/.test(c.reply)))
+    const z = (await turnoHoje(st, 'quanto gasto com assinaturas')).reply
+    out.push(result('AS-zero-nao-e-dado', z, 'sem R$ 0,00 como dado real', !/R\$\s0,00/.test(z.replace(/\u00a0/g, ' '))))
+    const corrida = await turnoHoje(buildState({ profile: 'driver' }), 'cancelei a corrida de 40')
+    out.push(result('AS-controle-corrida-cancelada', corrida.reply, 'continua a resposta de corrida cancelada', /cancelad/i.test(corrida.reply) && /taxa de cancelamento/.test(corrida.reply)))
+  }
+
   // Abastecimento: "100 de etanol a 3,99" virava dois abastecimentos (R$ 100
   // e R$ 3,99); "enchi o tanque, 250" caía na ajuda; o hodômetro gerava "R$
   // 85.400 mencionado".

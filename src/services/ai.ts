@@ -966,6 +966,8 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
       const txs = s.transactions.filter(x => x.type === 'income' && x.category === catId && x.date >= p.from && validPaymentDate(x.date, p.to))
       const total = txs.reduce((a, x) => a + x.amount, 0)
       const cat = catById(s.categories, catId)
+      // Zero registros não é "R$ 0,00 (dado real)": é ausência de dado (regra 43).
+      if (!txs.length) return { text: `Não tenho entrada de ${cat.name} registrada ${p.label}.` }
       return { text: `Você recebeu ${fmtBRL(total)} em ${cat.name} ${p.label} (${txs.length} registro${txs.length === 1 ? '' : 's'} — dado real).` }
     }
   }
@@ -1206,6 +1208,19 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     return { text: 'Desconto em folha (INSS, imposto, vale-transporte) sai do salário antes de ele cair: não registrei como gasto, para o dinheiro não sair duas vezes.\n\n'
       + 'Registre o salário líquido que entrou — por exemplo, "meu salário caiu 2900".' }
   }
+  // "Cancelei a netflix": cancelamento não é lançamento — onde a assinatura
+  // existe é que ela se encerra. Caía na ajuda genérica.
+  const cancelou = t.match(/^\s*(?:eu\s+)?(?:cancelei|desassinei|encerrei)\s+(?:a\s+|o\s+|minha\s+|meu\s+)?(?:assinatura\s+d[aeo]\s+)?([a-z0-9][a-z0-9 +]{1,30}?)\s*[.!]*$/)
+  if (cancelou && !/\b(?:corrida|compra|pedido|viagem)\b/.test(cancelou[1])) {
+    const nome = cancelou[1].trim()
+    const prevista = (s.recurring || []).find(r => r.active !== false && normalizeName(r.name).includes(normalizeName(nome)))
+    const noCartao = (s.cardCharges || []).find((c: any) => !c.removedAt && normalizeName(c.description || '').includes(normalizeName(nome)))
+    return { text: `Cancelar não é um lançamento, então não registrei nada.`
+      + (prevista ? ` ${sentenceCase(prevista.name)} está no seu Planejamento: encerre lá para ela sair da previsão.`
+        : noCartao ? ` Ela está como assinatura no cartão: remova em Cartões e parcelamentos para parar de entrar nas faturas.`
+          : ` Se ela estiver cadastrada no Planejamento ou como assinatura de cartão, encerre lá para sair da previsão.`) }
+  }
+
   // "Meu salário é 3200", "recebo dia 5": o salário DECLARADO, não recebido.
   // É previsão (regra 18) — e caía na ajuda genérica.
   if (/^\s*(?:o\s+)?meu\s+salario\s+(?:e|eh|esta|fica)\s+(?:de\s+|em\s+)?(?:r\$\s*)?\d/.test(t)
@@ -1609,6 +1624,7 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     // consulta conhece mais nomes e, sem base, diz que não tem.
     if (!catGuess && !txs.length) return ajudaGenerica(driverMode)
     const total = txs.reduce((a, x) => a + x.amount, 0)
+    if (!txs.length) return { text: `Não tenho gasto com ${catGuess ? catGuess.name : what} registrado ${p.label}.` }
     return { text: `Você gastou ${fmtBRL(total)} com ${catGuess ? catGuess.name : what} ${p.label} (${txs.length} registro${txs.length === 1 ? '' : 's'} — dado real).` }
   }
 

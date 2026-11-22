@@ -96,7 +96,8 @@ const DESC_STOPWORDS = new Set([
  * Remoção no meio destruiria nomes legítimos ("gás de cozinha",
  * "material de construção"), por isso nunca é feita.
  */
-const VERBO_NO_INICIO = new Set(['gasto', 'gastos', 'pago', 'compro'])
+// "Assinei o youtube premium": o verbo não é o nome da assinatura.
+const VERBO_NO_INICIO = new Set(['gasto', 'gastos', 'pago', 'compro', 'assinei', 'renovei', 'contratei'])
 
 // Palavra que só sobra no FIM de uma descrição cortada no meio da frase:
 // "12 de iof SEM eu saber" gravava "Iof sem". No início ela pode ser nome
