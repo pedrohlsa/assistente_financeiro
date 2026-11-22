@@ -113,24 +113,35 @@ function readScenarioBalance(input: string) {
   return { remaining, balance }
 }
 
-/** "4000 em 10x", "4 mil em 10 vezes", "3600 em 12 parcelas". */
-function lerCompra(t: string): { total: number; installments: number } | null {
-  // As bordas de dígito são obrigatórias: sem elas "24 vezes" era partido em
-  // "2" (o valor) e "4" (as parcelas), e a moto de 12 mil virava R$ 4,00 em 2x.
-  const m = t.match(new RegExp(String.raw`(?:r\$\s*)?${NUM}(?!\d|[.,]\d)\s*(?:reais\s*)?(?:em|x|de)?\s*(?:em\s*)?(?<!\d|\d[.,])(\d{1,3})\s*(?:x|vezes|parcelas|prestacoes)\b`))
-    || t.match(new RegExp(String.raw`(?<!\d|\d[.,])(\d{1,3})\s*(?:x|vezes|parcelas)\b[^\d]{0,20}(?:r\$\s*)?${NUM}`))
-  if (!m) return null
-  const a = parseMoney(m[1])
-  const b = Number(m[2])
-  // A ordem pode vir invertida ("em 10x um pc de 4000"): o maior é o preço.
-  const total = Math.max(a, b)
-  const parcelas = Math.min(a, b)
-  if (!(total > 0) || !(parcelas >= 1) || parcelas > 120) return null
-  // O preço tem que ser DINHEIRO. "e se em vez de 10x eu fizer 12" fala de
-  // parcelas, não de uma compra de R$ 12,00 — e sem esta trava a hipótese sem
-  // base virava uma simulação com valor inventado.
-  if (valorDeDinheiro(t, total) === undefined) return null
-  return { total, installments: Math.round(parcelas) }
+const INSTALLMENT_COUNT = String.raw`(?<!\d|\d[.,])(\d+)\s*(?:x|vezes|parcelas|prestacoes)\b`
+const TOTAL_BEFORE_INSTALLMENTS = new RegExp(String.raw`(?<![\d.,−-])(?:r\$\s*)?${NUM}(?!\d|[.,]\d)\s*(?:reais\s*)?(?:em|x|de)?\s*(?:em\s*)?${INSTALLMENT_COUNT}`)
+const TOTAL_AFTER_INSTALLMENTS = new RegExp(String.raw`${INSTALLMENT_COUNT}[^\d;!?−-]{0,40}?(?:r\$\s*)?${NUM}(?!\d|[.,]\d)`)
+const INSTALLMENT_PRICE = new RegExp(String.raw`${INSTALLMENT_COUNT}\s+(?:de|no\s+valor\s+de)\s+(?:r\$\s*)?${NUM}(?!\d|[.,]\d)`)
+
+/** O preço e a quantidade têm funções distintas, mesmo quando o preço é menor. */
+function lerCompra(t: string): { total: number; installments: number } | { issue: string } | null {
+  const forward = t.match(TOTAL_BEFORE_INSTALLMENTS)
+  const unit = t.match(INSTALLMENT_PRICE)
+  const reverse = forward || unit ? null : t.match(TOTAL_AFTER_INSTALLMENTS)
+  if (!forward && !unit && !reverse) return null
+  const installments = Number(forward?.[2] ?? unit?.[1] ?? reverse?.[1])
+  const saidTotal = forward ? parseMoney(forward[1]) : reverse ? parseMoney(reverse[2]) : undefined
+  const unitTotal = unit ? Math.round(parseMoney(unit[2]) * 100) * installments / 100 : undefined
+  const total = saidTotal ?? unitTotal
+  const priceAt = forward?.index ?? (reverse ? reverse.index! + reverse[0].lastIndexOf(reverse[2]) : 0)
+  const directlyNamed = /\b(?:por|de|comprar|pagar)\s+(?:r\$\s*)?$/.test(t.slice(0, priceAt))
+  // "E se em vez de 10x eu fizer 12?" fala de duas quantidades.
+  if (unitTotal === undefined && valorDeDinheiro(t, total) === undefined && !directlyNamed) return null
+  if (!Number.isInteger(installments) || installments < 1 || installments > 120) {
+    return { issue: 'Em quantas parcelas seria a compra? Informe entre 1 e 120.' }
+  }
+  if (saidTotal !== undefined && unitTotal !== undefined && Math.round(saidTotal * 100) !== Math.round(unitTotal * 100)) {
+    return { issue: 'O valor total e o valor das parcelas informadas dão contas diferentes. Qual valor total devo usar?' }
+  }
+  if (!Number.isFinite(total) || total > 99_999_999 || Math.round(total * 100) < installments) {
+    return { issue: 'Qual seria o valor total da compra? Cada parcela precisa ter pelo menos um centavo.' }
+  }
+  return { total, installments }
 }
 
 function lerValor(t: string): number {
@@ -482,7 +493,8 @@ function planSingleScenario(
   const compra = financiada
     ? { total: parseMoney(financiada[1]) + parseMoney(financiada[2]), installments: Number(financiada[3]), financed: parseMoney(financiada[2]), entry: parseMoney(financiada[1]) }
     : lerCompra(t)
-  if (compra) {
+  if (compra && 'issue' in compra) return base('purchase', { planningIssue: compra.issue }, 'comprar parcelado')
+  if (compra && 'total' in compra) {
     const atraso = parsePurchaseDelay(opts.fullText || t)
     const entrada = financiada || t.match(new RegExp(String.raw`\b(?:der|dar|dando|com|de)\s+${NUM}\s*(?:reais\s*)?de\s+entrada\b`))
       || t.match(new RegExp(String.raw`\bentrada\s+de\s+(?:r\$\s*)?${NUM}`))

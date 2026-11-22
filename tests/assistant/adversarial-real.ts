@@ -155,6 +155,21 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && fact(picked, 'Saldo depois do gasto') === 400
       && [stated, words, negative, revised, alternatives, picked].every(r => !r.response.actions.length)
       && JSON.stringify(state) === saved))
+
+    const lowPrice = await send('e se eu comprar um celular de 90 em 120x?')
+    const reversed = await send('e se eu fizer em 120 vezes uma compra de 90 reais?')
+    const perMonth = await send('e se eu comprar em 12x de 100?')
+    const inconsistent = await send('e se eu comprar por 1.000 em 12x de 100?')
+    const overLimit = await send('e se eu comprar por 900 em 121x?')
+    const noPrice = await send('e se em vez de 10x eu fizer 12?')
+    const quotes = [lowPrice, reversed, perMonth, inconsistent, overLimit, noPrice]
+    out.push(result('GC-parcelamento-respeita-preco-quantidade-e-cotacao', quotes.map(r => r.response),
+      '90 em 120x dá 0,75. 12x de 100 dá total de 1.200. Inconsistência pede esclarecimento',
+      [lowPrice, reversed].every(r => fact(r, 'Valor da compra') === 90 && fact(r, 'Parcela em 120x') === 0.75)
+      && fact(perMonth, 'Valor da compra') === 1200 && fact(perMonth, 'Parcela em 12x') === 100
+      && /contas diferentes/.test(inconsistent.response.reply) && /1 e 120/.test(overLimit.response.reply)
+      && [inconsistent, overLimit, noPrice].every(r => fact(r, 'Valor da compra') === undefined)
+      && quotes.every(r => !r.response.actions.length)))
   }
 
   {
