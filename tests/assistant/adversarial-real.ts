@@ -8250,6 +8250,17 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('SG-cade', cade, 'para onde foi (por categoria)', /categoria|Obra/.test(cade) && !/Posso te ajudar/.test(cade)))
   }
 
+  // "Domingo compensa rodar?" caía na ajuda; "vale a pena rodar domingo?"
+  // já era respondido.
+  {
+    const moto = motoristaRico(hoje)
+    const base = (await turnoHoje(moto, 'vale a pena rodar domingo?')).reply
+    for (const frase of ['domingo compensa rodar?', 'sábado vale a pena?']) {
+      const r = (await turnoHoje(moto, frase)).reply
+      out.push(result(`WD-${frase.replace(/\W+/g, '-')}`, r, 'resposta do dia da semana', !/Posso te ajudar/.test(r) && (frase.startsWith('domingo') ? r.split('\n')[0] === base.split('\n')[0] : /s[áa]bado/i.test(r))))
+    }
+  }
+
   // Meta sem sobra no mês: "ainda não tenho histórico de ganhos" era falso
   // (o histórico existe, o resultado é que ficou negativo). "Em quanto tempo
   // eu compro o notebook" dava só o que falta.

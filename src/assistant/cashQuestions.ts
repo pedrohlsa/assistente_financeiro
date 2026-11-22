@@ -291,6 +291,8 @@ const DIAS_DA_SEMANA = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sext
  */
 export function diaDaSemanaPedido(t: string): number | null {
   const m = t.match(/\b(?:vale\s+a\s+pena|compensa|e\s+bom|da\s+para\s+ganhar\s+bem)\s+(?:eu\s+)?(?:rodar|trabalhar|sair|abrir)\s+(?:n[oa]s?\s+|d[ea]\s+|aos?\s+|as\s+)?(domingo|segunda|terca|quarta|quinta|sexta|sabado)s?\b/)
+    // "DOMINGO compensa rodar?", "sábado vale a pena?": o dia vem antes.
+    || t.match(/^\s*(?:e\s+)?(?:n[oa]s?\s+)?(domingo|segunda|terca|quarta|quinta|sexta|sabado)s?(?:-feira)?\s+(?:vale\s+a\s+pena|compensa|e\s+bom|rende|da\s+(?:para|pra)\s+ganhar)\b(?:\s+(?:eu\s+)?(?:rodar|trabalhar|sair))?\s*[?!.]*\s*$/)
   return m ? DIAS_DA_SEMANA.indexOf(m[1]) : null
 }
 
