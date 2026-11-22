@@ -16,7 +16,7 @@ import { normalizeNumberWords } from '../numbers'
 import { SCENARIO_DSL_VERSION } from './types'
 import { guardarEsteMes } from '../cashQuestions'
 import { readPayoffQuote } from './payoff'
-import { incomeLossEnd, MISSING_RENTAL_SOURCE, readIncomeLossDuration, readNamedIncomeLossWindow, rentalSources } from './incomeWindow'
+import { describeMissingRentalInput, incomeLossEnd, readIncomeLossDuration, readNamedIncomeLossWindow, rentalSources } from './incomeWindow'
 import type { AssistantScenarioPlan, DrivingScenario, ScenarioKind } from './types'
 
 const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -36,6 +36,7 @@ const HIPOTESE = [
   // "se a Casa 1 não pagar": entre o artigo e o verbo cabe um nome com número
   // ("casa 1", "cliente joão silva"), e exigir uma palavra só deixava a frase
   // mais comum do dono de imóvel de fora.
+  /\bse\s+(?:o|um)\s+inquilino\b[^?;]*\b(?:sair|saisse|for\s+embora)\b/,
   /\bse\s+(?:a|o|as|os)\s+[\w\s]{2,24}?\s(?:nao|n|atrasar|atrasarem|falhar|sumir|ficar\s+(?:vazi[ao]|sem\s+inquilino)|desocupar)\b/,
   // "só quero saber se 500 de obra cabe esse mês" — hipótese sem "eu", dita do
   // jeito mais direto possível. Sem estas formas ela caía no texto genérico de
@@ -127,8 +128,8 @@ function cartaoDe(state: AppState, t: string, cards = activeCards(state)): strin
 
 /** Fonte que deixaria de pagar: "se a Casa 1 não pagar", "se o Cliente João atrasar". */
 function origemDe(t: string): string | undefined {
-  const m = t.match(/\b(?:casa|cliente|empresa|loja|kitnet|apart\w*|inquilin\w+|contrato|sala|ponto|unidade)\s+([\w\d]+)/)
-  return m && !/^(?:ficar|ficasse|vazia|vazio|nao|n|atrasar|falhar|desocupar|sumir|por|durante)$/.test(m[1]) ? m[0] : undefined
+  return [...t.matchAll(/\b(?:casa|cliente|empresa|loja|kitnet|apart\w*|inquilin\w+|contrato|sala|ponto|unidade)\s+([\w\d]+)/g)]
+    .find(m => !/^(?:ficar|ficasse|vazia|vazio|nao|n|atrasar|falhar|desocupar|sumir|sair|por|durante|da|do|de)$/.test(m[1]))?.[0]
 }
 
 /**
@@ -361,10 +362,11 @@ function planSingleScenario(
 
   // Por quanto tempo uma fonte fica sem pagar. O número do imóvel ou do
   // período nunca entra no valor em reais.
-  const vacancia = /\b(?:ficar|ficasse)\s+(?:vazi[ao]|sem\s+inquilino)\b|\bdesocupar\b/.test(t)
+  const parsedDuration = readIncomeLossDuration(t)
+  const vacancia = /\b(?:ficar|ficasse)\s+(?:vazi[ao]|sem\s+inquilino)\b|\bdesocupar\b|\bsem\s+receber\s+(?:o\s+)?aluguel\b|\binquilino\b[^?;]*\b(?:sair|saisse|for\s+embora)\b/.test(parsedDuration.remaining)
   if (vacancia || /\b(?:nao|n)\s+(?:me\s+)?(?:pagar|pagarem|vier|entrar|cair|depositar|receber)\b|\batrasar\b|\bfalhar\b/.test(t)) {
-    let origem = origemDe(t)
-    const parsedDuration = readIncomeLossDuration(t)
+    const explicitOrigin = origemDe(t)
+    let origem = explicitOrigin
     const incomeLossDuration = parsedDuration.duration
     const calendar = readNamedIncomeLossWindow(parsedDuration.remaining, opts.today || todayISO())
     let planningIssue = parsedDuration.issue || (incomeLossDuration && calendar
@@ -372,7 +374,9 @@ function planSingleScenario(
     if (vacancia && !origem) {
       const [only, second] = rentalSources(state, opts.today || todayISO())
       if (only && !second) origem = only
-      else planningIssue ||= MISSING_RENTAL_SOURCE
+    }
+    if (vacancia) {
+      planningIssue ||= describeMissingRentalInput(origem, !!(explicitOrigin || incomeLossDuration || calendar))
     }
     const remaining = calendar?.remaining || parsedDuration.remaining
     const semOrigem = origem ? remaining.replace(origem, ' ') : remaining

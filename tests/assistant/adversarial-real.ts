@@ -193,6 +193,31 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && /já estava sem essa entrada/.test(fromHistory.response.reply)
       && [noSource, overLimit, fromHistory].every(t => !t.response.actions.length)))
 
+    const missing = await turn('e se a casa ficar vazia?')
+    const both = await turn('Casa 2 por três meses', missing)
+    const property = await turn('Casa 2', missing)
+    const period = await turn('por três meses', missing)
+    const completed = await Promise.all([
+      turn('por três meses', property),
+      turn('Casa 2', period),
+      turn('e se eu ficar três meses sem receber o aluguel da Casa 2?'),
+      turn('e se o inquilino da Casa 2 sair por três meses?'),
+    ])
+    const corrected = await turn('Casa 2 por dois meses', noSource)
+    out.push(result('VC-aceita-prazo-e-imovel-em-qualquer-ordem', [both, property, period, ...completed, corrected].map(r => r.response),
+      'aceita imóvel e prazo juntos ou em turnos separados e respeita um prazo corrigido',
+      /Por quanto tempo/.test(property.response.reply) && /Qual imóvel/.test(period.response.reply)
+      && [both, ...completed].every(r => value(r, 'Entrada prevista que deixaria de cair') === 4800)
+      && value(corrected, 'Entrada prevista que deixaria de cair') === 3200
+      && [both, property, period, ...completed, corrected].every(r => !r.response.actions.length)))
+
+    const uncertain = await Promise.all(['3 ou 4 meses', 'uns 3 meses', '-3 meses'].map(duration =>
+      turn(`e se a casa 2 ficar ${duration} vazia?`)))
+    out.push(result('VC-prazo-ambiguo-nao-projeta', uncertain.map(r => r.response),
+      'pede uma duração única e válida sem calcular o saldo com um prazo presumido',
+      uncertain.every(r => !r.response.actions.length && /prazo|duração/.test(r.response.reply)
+        && value(r, 'Entrada prevista que deixaria de cair') === undefined)))
+
     const firstPayment = await turn('e se a Casa 2 ficar vazia por 45 dias?', undefined, {
       ...state, transactions: [{ id: 'vacancy-paid', type: 'income', category: 'aluguel', origin: 'Casa 2',
         recurringId: 'vacancy-rent', occurrenceDate: '2026-12-10', amount: 1600, date: today, time: '08:00' }],

@@ -4,9 +4,16 @@ import { addDays, dateForDayOfMonth, fromISO, parseMoney, toISO } from '../../ut
 import { normalizeName } from '../../utils/text'
 import type { IncomeLossDuration } from './types'
 
-const DURATION = /(?<![\d.,])(?:(?:por|durante)\s+)?(\d+(?:[.,]\d+)?|um|uma)\s+(dias?|semanas?|mes(?:es)?)\b(?!\s+d[eo]\s+aluguel)/g
+const DURATION = /(?<![\d.,])(?:(?:por|durante)\s+)?([-−]?\d+(?:[.,]\d+)?|um|uma)\s+(dias?|semanas?|mes(?:es)?)\b(?!\s+d[eo]\s+aluguel)/g
 export const INCOME_LOSS_WINDOW_LIMIT = 'Informe um prazo inteiro de até 12 meses, 52 semanas ou 365 dias.'
-export const MISSING_RENTAL_SOURCE = 'Qual imóvel ficaria sem aluguel? Diga a origem, como Casa 2, e o prazo.'
+export const MISSING_RENTAL_SOURCE = 'Qual imóvel ficaria sem aluguel? Diga a origem, como Casa 2.'
+export const MISSING_RENTAL_PERIOD = 'Por quanto tempo o imóvel ficaria sem aluguel?'
+
+export function describeMissingRentalInput(origin?: string, hasPeriod = false): string | undefined {
+  if (!origin) return MISSING_RENTAL_SOURCE
+  if (!hasPeriod) return MISSING_RENTAL_PERIOD
+  return undefined
+}
 
 export function validIncomeLossDuration(d: IncomeLossDuration): boolean {
   const limit = { days: 365, weeks: 52, months: 12 }[d.unit]
@@ -19,8 +26,14 @@ export function readIncomeLossDuration(text: string) {
   const remaining = text.replace(DURATION, ' ')
   if (matches.length > 1) return { remaining, issue: 'Informe uma única duração para esta simulação de entrada ausente.' }
   if (!first) return { remaining }
+  const before = text.slice(0, first.index)
+  const approximate = before.match(/\b(?:uns|umas|aproximadamente|cerca\s+de|mais\s+ou\s+menos|entre\s+\d+\s+e|\d+\s+ou)\s*$/i)
+  if (approximate) {
+    return { remaining: before.slice(0, approximate.index) + ' ' + text.slice(first.index + first[0].length),
+      issue: 'Qual duração devo usar? Diga um prazo único em dias, semanas ou meses.' }
+  }
   const duration: IncomeLossDuration = {
-    value: /^uma?$/.test(first[1]) ? 1 : parseMoney(first[1]), unit: /^dia/.test(first[2]) ? 'days' : /^semana/.test(first[2]) ? 'weeks' : 'months',
+    value: /^uma?$/.test(first[1]) ? 1 : parseMoney(first[1].replace('−', '-')), unit: /^dia/.test(first[2]) ? 'days' : /^semana/.test(first[2]) ? 'weeks' : 'months',
   }
   return validIncomeLossDuration(duration) ? { remaining, duration } : { remaining, issue: INCOME_LOSS_WINDOW_LIMIT }
 }

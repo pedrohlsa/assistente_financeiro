@@ -28,7 +28,8 @@ import type { AssistantQueryPlan } from '../query/types'
 import { answerScenario, rerunScenario } from '../scenario'
 import type { ScenarioAnswer } from '../scenario'
 import { looksLikeScenario, parsePurchaseDelay } from '../scenario/parse'
-import { MISSING_RENTAL_SOURCE, rentalSources } from '../scenario/incomeWindow'
+import { describeMissingRentalInput, readIncomeLossDuration, readNamedIncomeLossWindow, rentalSources } from '../scenario/incomeWindow'
+import { normalizeNumberWords } from '../numbers'
 import { analyzeChanges, answerChangeQuestion, changeScopeClarification, composeChangeExplanation, expenseCategoryInQuestion } from '../drivers'
 import { answerVehicleCost } from '../vehicleCost'
 import {
@@ -149,11 +150,23 @@ function respondeConversa(
   const agora = opts.now ?? Date.now()
   const focus = opts.focus
   const awaitingRental = isFocusFresh(focus, agora) && focus?.last === 'scenario' ? focus.lastScenarioPlan : undefined
-  if (awaitingRental?.kind === 'income-missing' && awaitingRental.planningIssue === MISSING_RENTAL_SOURCE) {
-    const said = normalizeName(message).replace(/^(?:(?:e|foi|seria)\s+)?(?:a\s+)?/, '').replace(/[.!?]+$/, '').trim()
-    const name = rentalSources(state, hoje).find(source => source === said)
-    if (name) return aplicaFollowUp(state, focus, { kind: 'scenario',
-      plan: { ...awaitingRental, origin: name, planningIssue: undefined } }, hoje, agora)
+  if (awaitingRental?.kind === 'income-missing' && awaitingRental.incomeLossForRent && awaitingRental.planningIssue) {
+    const said = normalizeName(normalizeNumberWords(message).text).replace(/[.!?]+$/, '').trim()
+    const { duration, remaining, issue } = readIncomeLossDuration(said)
+    const calendar = readNamedIncomeLossWindow(remaining, hoje)
+    const rest = (calendar?.remaining ?? remaining).trim().replace(/^(?:(?:e|foi|seria)\s+)?(?:a\s+)?/, '')
+      .replace(/^\s*(?:e|agora)\s*$/, '').trim()
+    const name = rentalSources(state, hoje).find(source => source === rest)
+    if (name || (!rest && (duration || calendar || issue))) {
+      const origin = name || awaitingRental.origin
+      const changePeriod = !!(duration || calendar)
+      const incomeLossDuration = changePeriod ? duration : awaitingRental.incomeLossDuration
+      const incomeLossWindow = changePeriod ? calendar?.window : awaitingRental.incomeLossWindow
+      const planningIssue = issue || (duration && calendar ? 'Quer usar o mês do calendário ou a duração que você informou?' : undefined)
+        || describeMissingRentalInput(origin, !!(incomeLossDuration || incomeLossWindow))
+      return aplicaFollowUp(state, focus, { kind: 'scenario',
+        plan: { ...awaitingRental, origin, incomeLossDuration, incomeLossWindow, planningIssue } }, hoje, agora)
+    }
   }
 
   const driverPending = isFocusFresh(focus, agora) ? focus?.pendingDriverClarification : undefined
