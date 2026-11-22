@@ -6967,8 +6967,22 @@ item tem bloco próprio em `tests/assistant/adversarial-real.ts`.
 - "Paguei 3 contas: luz 120, água 80 e internet 100" criava uma despesa de
   R$ 3,00; "mais ou menos 200" gravava "Ou menos"; "entre 40 e 50" registrava
   50 sozinho e agora pergunta (`QV-`).
+- Motorista: "quanto falta pra eu tirar 300 hoje" perguntava se era ganho
+  ou gasto; "em quantas horas eu faço 200" era recusada; "meu carro tá
+  bebendo muito?" caía na ajuda (`MT-falta-pra-tirar`, `MT-quantas-horas`,
+  `MT-bebendo-muito`). "Tirei 250 bruto e gastei 60" perdia os R$ 250; e
+  "180 líquido" virava litros, porque `l\b` casa entre "l" e "í" — as
+  unidades de uma letra (h, m, l, x, g, k) ganharam borda explícita em cinco
+  padrões (`BR-`).
+- Meta: com histórico e sem sobra, a resposta dizia "não tenho histórico";
+  agora diz que saiu mais do que entrou e aponta a simulação (`GO-`).
+- Gíria: "tô no prejuízo?" (até por extenso), "essa smn", "cadê meu
+  dinheiro" (`SG-`).
+- "Há 3 dias", "faz 3 dias", "3 dias atrás" datam o lançamento (um dia
+  exato). Decisão: semanas, meses, anos e "uns 5 dias" continuam perguntando
+  — `hint-03`/`hint-04` mudaram de expectativa e `hint-05..07` travam o resto.
 
-Gates (relógio 2026-09-15): 733/733 corpus, 1.374/1.374 adversariais, 151/151
+Gates (relógio 2026-09-15): 736/736 corpus, 1.388/1.388 adversariais, 151/151
 invariantes, mutações, fuzz, ditado e remoto offline; typecheck,
 typecheck:api e rubrica (0 perigosa, 0 ruim). `test:calendario` verde depois
 de cada lote. Sem push, merge, deploy, APK ou DeepSeek. **NOT READY** até
