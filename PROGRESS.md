@@ -7082,3 +7082,36 @@ invariantes), os dois typechecks, `test:money`, build sem `sk-` em `dist/`,
 rubrica 0 PERIGOSA / 0 RUIM e a matriz de oito datas. **NOT READY**; nada
 foi enviado ao GitHub. Voz real, Android, APK e DeepSeek real continuam
 pendentes.
+
+### 22/11/2026 — segunda janela (Claude, depois de `84c25e0`)
+
+Sondas por perfil, cada defeito com regressão antes da correção:
+
+- **Valores que sumiam ou viravam outra coisa.**
+  - "Paguei o pedreiro 600 conto E MAIS 180 de areia" virava CONSULTA ("Total gasto - Areia"), e as duas despesas sumiam. O leitor de valor no fim aceita a continuação, e relato no passado sem pergunta não é mais aceito como consulta (`EM-`; caso de avaliação c-02 agora é local).
+  - "O João ME pagou 300" sumia como movimento de terceiro (`MP-`).
+  - "Paguei 100 pro João e 50 pra Maria" e "dei 100 pra minha mãe e mais 50 pro meu pai" perdiam o segundo valor.
+  - "A uber me pagou 1200 na semana", "a uber pagou 1200" e "a 99 me pagou 800 essa semana" caíam na ajuda (`UP-`).
+  - "Recebi o aluguel da casa 2, 1200" caía na ajuda, e "a casa 1 atrasou o aluguel" perguntava por R$ 1,00. Número que só nomeia o imóvel não é valor (`CN-`).
+  - Gírias e formas faladas: "gasosa" é gasolina, "passei 120 no débito" é despesa, "meu 13" é o décimo terceiro.
+- **Respostas sobre outra coisa.**
+  - "Quanto gastei de ifood" dava o total de Alimentação. Marca é estabelecimento, não classe (regra 41; `IF-`).
+  - "Quando acaba o parcelamento do celular" respondia sobre o Computador (`PN-`).
+  - "Em quanto tempo junto 10 mil" respondia sobre a primeira meta (`JM-`).
+  - "Ganhei mais na uber ou na 99?" e "quanto ganhei na uber e na 99" davam só o total da Uber (`PL-`).
+  - "Qual dia eu rodo mais km / fiz mais corridas / trabalho mais horas" respondia em reais ou por lucro (`RK-`).
+  - "Tô ganhando menos que o normal?" media as DESPESAS. A métrica agora segue o verbo e a régua é a fatia real do mês anterior, não uma proporção — a proporção chegava a inverter a conclusão de quem recebe aluguel em dia fixo (`RT-`).
+  - "Minha média por km" do motorista era o custo (`PU-`).
+- **Uma régua só.**
+  - "Quero juntar 5 mil até dezembro, dá?" criava a meta "Objetivo"; agora responde sim ou não.
+  - A projeção da meta ("quanto falta pro notebook") e a viabilidade ("consigo completar até dezembro?") usam a mesma média dos meses completos (`sobraMedia`). O motorista mantém a projeção diária (regra 2).
+- **Forma da resposta.**
+  - "Meu saldo tá negativo?" começa por sim ou não, e "por dia até o salário" usa o prazo do salário (`SN-`).
+  - Empate exato é dito como empate.
+  - Cabeçalho agrupado diz o período.
+  - Cartão aparece com a grafia cadastrada.
+  - Correção de origem usa a grafia do histórico (`GR-`).
+  - "Não, 280" corrige o valor, e "foi etanol" explica que o tipo não é guardado (`CR-`).
+  - "IPTU da casa 2" sem "Da".
+
+O invariante de preferência passou a ensinar "suco" em vez de "gasosa", que agora é nativa.
