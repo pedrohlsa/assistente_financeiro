@@ -8673,8 +8673,12 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       .reduce((a, t) => a + (t.type === 'income' ? t.amount : t.type === 'expense' ? -t.amount : 0), 0)
     for (const [id, frase] of [['GO-quanto-falta', 'quanto falta pro notebook'], ['GO-em-quanto-tempo', 'em quanto tempo eu compro o notebook']] as const) {
       const r = (await turnoHoje(rico, frase)).reply
-      out.push(result(id, r, lucro > 0 ? 'projeção com data' : 'diz que não sobrou, sem "não tenho histórico"',
-        /faltam? R\$/.test(r.replace(/\u00a0/g, ' ')) && !/não tenho histórico/.test(r) && (lucro > 0 ? /Projeção/.test(r) : /saiu mais do que entrou/.test(r))))
+      // Desde 22/11 a régua é a média dos meses completos (`sobraMedia`), a
+      // mesma de "consigo completar o notebook até dezembro?".
+      void lucro
+      out.push(result(id, r, 'projeção pela sobra média dos meses completos, ou o porquê de não projetar',
+        /faltam? R\$/.test(r.replace(/\u00a0/g, ' ')) && !/não tenho histórico/.test(r)
+        && /sobraram em média R\$|não sobrou dinheiro|mês completo registrado/.test(r.replace(/\u00a0/g, ' '))))
     }
   }
 

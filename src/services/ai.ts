@@ -1428,6 +1428,19 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     if (!goal && ativas.length > 1) return { text: `De qual meta? Você tem ${listaDeNomes(ativas.map(g => g.name))}.` }
     if (!goal) return { text: 'Você ainda não tem metas de compra cadastradas. Diga algo como "quero comprar um celular de 5000 em 6 meses" que eu crio para você.' }
     const remaining = goal.target - goal.saved
+    // Fora do motorista, a régua é a de "consigo completar até dezembro?"
+    // (`sobraMedia`). Com réguas diferentes, a mesma meta "não dava para
+    // projetar" numa resposta e "dava, sim" na outra.
+    if (!driverMode) {
+      const sobra = sobraMedia(s)
+      const cabeca = `Meta "${goal.name}": você já juntou ${fmtBRL(goal.saved)} de ${fmtBRL(goal.target)} — faltam ${fmtBRL(remaining)} (dado real).`
+      if (remaining <= 0.009) return { text: `Meta "${goal.name}" completa: ${fmtBRL(goal.saved)} de ${fmtBRL(goal.target)}.` }
+      if (!sobra) return { text: `${cabeca}\n\nAinda não tenho um mês completo registrado para projetar uma data pelo que sobra.` }
+      const quando = sobra.meses === 1 ? 'no último mês completo' : `nos últimos ${sobra.meses} meses completos`
+      if (sobra.media <= 0) return { text: `${cabeca}\n\n${quando[0].toUpperCase() + quando.slice(1)} não sobrou dinheiro (média de ${fmtBRL(sobra.media)} por mês), então não dá para projetar uma data pelo que sobra.` }
+      const meses = Math.ceil(remaining / sobra.media)
+      return { text: `${cabeca}\n\n${quando[0].toUpperCase() + quando.slice(1)} sobraram em média ${fmtBRL(sobra.media)} por mês. Guardando tudo o que sobra, faltam cerca de ${meses} ${meses === 1 ? 'mês' : 'meses'}; guardando metade, cerca de ${Math.ceil(remaining / (sobra.media / 2))}. É uma estimativa: o que sobrou antes não garante o que vai sobrar.` }
+    }
     const avg = avgDailyProfit(s)
     if (avg <= 0) {
       // Histórico existe, mas sem sobra: dizer "não tenho histórico" era falso.
