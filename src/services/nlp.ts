@@ -323,6 +323,17 @@ export function voltaSemUnidade(text: string): string {
 
 export const DECIMO_TERCEIRO = /(?<![\d.,])13\s*[º°o](?:\s+sal[áa]rio)?(?![\wÀ-ÿ])|(?<![\d.,])13\s+sal[áa]rio(?![\wÀ-ÿ])/gi
 
+/**
+ * "Paguei 3 CONTAS: luz 120, água 80…": a contagem dos itens que vêm a seguir
+ * virava uma despesa de R$ 3,00. "Mais ou menos 200" deixava "Ou menos" na
+ * descrição. Os dois saem antes da leitura dos valores.
+ */
+export function contagemDeItens(text: string): string {
+  return text
+    .replace(/(?<![\d.,])(\d{1,2})\s+(?:contas|coisas|itens|boletos|compras|gastos|despesas|lan[çc]amentos)\s*[:,-]\s*/gi, '')
+    .replace(/(?<![\wÀ-ÿ])mais\s+ou\s+menos\s+(?=(?:r\$\s*)?\d)/gi, 'uns ')
+}
+
 /** "1/3 do aluguel", "1/2 da conta": fração de algo, nunca valor nem data. */
 export const FRACAO_DE = /(?<![\d\/.,])(\d{1,2})\s*\/\s*(\d{1,2})(?![\d\/])(?=\s+d[oa]s?\s)/g
 
@@ -344,7 +355,7 @@ function valorNoFim(input: string): string {
 }
 
 export function parseNatural(input: string): ParsedAction[] {
-  input = verboDeConsumo(cobrancaRecebida(fontePagou(mePagou(vendaPorUnidade(valorNoFim(voltaSemUnidade(input.replace(DECIMO_TERCEIRO, 'décimo terceiro')).replace(FRACAO_DE, 'parte')))))))
+  input = verboDeConsumo(cobrancaRecebida(fontePagou(mePagou(vendaPorUnidade(valorNoFim(voltaSemUnidade(contagemDeItens(input.replace(DECIMO_TERCEIRO, 'décimo terceiro'))).replace(FRACAO_DE, 'parte')))))))
   // Operações de cartão são analisadas na frase INTEIRA antes de qualquer
   // quebra: "passei 2000 em 5 vezes E RECEBI 1850" tem um verbo de comando no
   // meio, e cortar ali transformava uma entrada financiada numa receita de
@@ -631,6 +642,28 @@ export function parseNaturalFull(
   input: string,
   opts?: { driver?: boolean; dayHint?: boolean; inheritedKind?: 'income' | 'expense' },
 ): ParseResult {
+  // "Gastei ENTRE 40 E 50 no bar": o valor não foi dito. Registrar 50 e
+  // perguntar pelos 40 era escolher sozinho; a pergunta oferece os dois.
+  const faixa = input.match(/(?<![\wÀ-ÿ])entre\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s+e\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)(?![\d.,])(?!\s*(?:km|h\b|horas?|dias?|min))/i)
+  if (faixa) {
+    const a = parseNum(faixa[1]), b = parseNum(faixa[2])
+    if (a > 0 && b > a) {
+      const base = parseNatural(input.replace(faixa[0], `${faixa[2]}`))
+      const alvo = base.filter(x => (x.kind === 'expense' || x.kind === 'income') && Math.abs((x as any).amount - b) < 0.005)
+      if (base.length === 1 && alvo.length === 1) {
+        return {
+          actions: [],
+          ambiguity: {
+            question: `Você disse entre ${fmtBRL(a)} e ${fmtBRL(b)}. Qual valor eu registro?`,
+            options: [
+              { label: fmtBRL(a), actions: [{ ...alvo[0], amount: a } as ParsedAction] },
+              { label: fmtBRL(b), actions: [{ ...alvo[0], amount: b } as ParsedAction] },
+            ],
+          },
+        }
+      }
+    }
+  }
   // Saque não vira receita (nem o "resultado do dia" do motorista) nem gasto.
   if (SAQUE.test(input) && !/\b(?:paguei|gastei|comprei|recebi|ganhei|faturei)\b/i.test(input)) return { actions: [] }
   if (CORRIDA_CANCELADA.test(input) && !/\btaxa\s+de\s+cancelamento\b/i.test(input)) return { actions: [] }

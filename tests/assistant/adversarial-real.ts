@@ -8217,6 +8217,23 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('VK-controle-reais', r.actions, '64 km; os 14 reais não viram km', w2?.km === 64))
   }
 
+  // "Paguei 3 contas: luz 120, água 80 e internet 100" criava uma despesa de
+  // R$ 3,00; "mais ou menos 200" gravava "Ou menos"; "entre 40 e 50"
+  // registrava 50 sozinho.
+  {
+    const st = buildState({ profile: 'other' })
+    const r1 = await turnoHoje(st, 'paguei 3 contas: luz 120, água 80 e internet 100')
+    const v1 = r1.actions.map((a: any) => a.amount).sort((x: number, y: number) => x - y).join(',')
+    out.push(result('QV-contagem-de-itens', r1.actions, '80,100,120 e nada de R$ 3', v1 === '80,100,120'))
+    const r2 = await turnoHoje(st, 'gastei mais ou menos 200')
+    out.push(result('QV-mais-ou-menos', r2.actions, '200, sem "Ou menos"', (r2.actions[0] as any)?.amount === 200 && !/menos/i.test((r2.actions[0] as any)?.description || '')))
+    const r3 = await turnoHoje(st, 'gastei entre 40 e 50 no bar')
+    out.push(result('QV-entre-dois-valores', { reply: r3.reply, actions: r3.actions }, 'pergunta 40 ou 50, nada registrado',
+      !r3.actions.length && /R\$\s40,00/.test(r3.reply.replace(/\u00a0/g, ' ')) && /R\$\s50,00/.test(r3.reply.replace(/\u00a0/g, ' '))))
+    const km = await turnoHoje(buildState({ profile: 'driver' }), 'rodei entre 100 e 120 km')
+    out.push(result('QV-controle-km', km.reply, 'não vira pergunta de dinheiro', !/Qual valor eu registro/.test(km.reply)))
+  }
+
   // "Sábado retrasado" entrava no sábado mais recente; "de manhã" e "à
   // noite" viravam a descrição quando eram tudo o que sobrava.
   {
