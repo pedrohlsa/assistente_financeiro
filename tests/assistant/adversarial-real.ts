@@ -8969,6 +8969,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('PU-rotulo-por-unidade-diz-o-que-mede', [gk, rh], '"Gasto por km" e "Recebido por hora", nunca "Por km" solto',
         /^Gasto por km/.test(gk) && /^Recebido por hora/.test(rh)))
     }
+    {
+      // "Qual dia eu rodo MAIS KM" respondia o ranking em reais; "fiz mais
+      // corridas" respondia o melhor dia por LUCRO; "trabalho mais horas"
+      // recusava "eu trabalho" como trecho não lido.
+      const moto = motoristaRico(hoje)
+      const km = (await turnoHoje(moto, 'qual dia da semana eu rodo mais km')).reply
+      const corr = (await turnoHoje(moto, 'qual dia eu fiz mais corridas')).reply
+      const horas = (await turnoHoje(moto, 'em que dia eu trabalho mais horas')).reply
+      out.push(result('RK-ranking-na-unidade-pedida', [km, corr, horas], 'km em km, corridas em contagem, horas em h',
+        /\d km\b/.test(km.split('\n')[0]) && !/R\$/.test(km.split('\n')[0])
+        && !/lucro|R\$/.test(corr.split('\n')[0])
+        && /\dh\b/.test(horas.split('\n')[0]) && !/não consegui ler/.test(horas) && !/diferença é de 0/.test(horas)))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

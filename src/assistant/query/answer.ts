@@ -326,7 +326,10 @@ function empateNoTopo(r: AssistantQueryResult): string | null {
   const nomes = juntos.map(g => g.label).join(', ')
   return juntos.length > 2
     ? `Mas é praticamente empate: ${nomes} ficam a menos de ${Math.round(MARGEM_EMPATE * 100)}% um do outro.`
-    : `Mas é praticamente empate com ${b.label} (${formatValue(b.value, r.unit)}) — a diferença é de ${formatValue(Math.abs(a.value - b.value), r.unit)}.`
+    : Math.abs(a.value - b.value) < 0.005
+      // "A diferença é de 0h" coroava um dos dois sem diferença nenhuma.
+      ? `Mas é empate exato com ${b.label}, que também tem ${formatValue(b.value, r.unit)}.`
+      : `Mas é praticamente empate com ${b.label} (${formatValue(b.value, r.unit)}) — a diferença é de ${formatValue(Math.abs(a.value - b.value), r.unit)}.`
 }
 
 function respostaDeRanking(r: AssistantQueryResult, top: QueryGroupResult): string {

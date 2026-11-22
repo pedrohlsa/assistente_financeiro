@@ -1633,7 +1633,9 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   }
 
   // "qual foi meu melhor dia"
-  if (/melhor dia|pior dia|(?:qual|que)\s+dia\s+(?:eu\s+)?(?:fiz|ganhei|faturei|rendeu)\s+mais|dia\s+que\s+(?:eu\s+)?mais\s+(?:fiz|ganhei)/.test(t)) {
+  // "Qual dia eu fiz mais CORRIDAS" pede contagem de viagens, não lucro.
+  if (/melhor dia|pior dia|(?:qual|que)\s+dia\s+(?:eu\s+)?(?:fiz|ganhei|faturei|rendeu)\s+mais|dia\s+que\s+(?:eu\s+)?mais\s+(?:fiz|ganhei)/.test(t)
+    && !/\bmais\s+(?:corridas|viagens|km|quilometros?|horas)\b/.test(t)) {
     // O período DITO manda: "melhor dia esse mês" respondia com 29/08, de
     // outro mês, porque a janela era sempre os últimos 30 dias.
     const hoje = todayISO()

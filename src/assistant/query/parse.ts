@@ -432,6 +432,11 @@ function lerFonte(t: string, driver: boolean, metas: string[] = []): { valor: Fo
       [/\bquantas?\s+horas\b|\bhoras\s+(?:trabalhad|na\s+rua)/, { source: 'work', field: 'hours' }],
       [/\bquantas?\s+(?:viagens|corridas)\b/, { source: 'work', field: 'trips' }],
       [/\bsemana\s+(?:que\s+)?(?:eu\s+)?(?:mais\s+)?rode[iu]\b|\brode[iu]\s+mais\b/, { source: 'work', field: 'km' }],
+      // "Qual dia eu rodo MAIS KM": a pergunta é de distância. Respondia em
+      // reais, com o ranking do faturamento.
+      [/\b(?:mais|menos)\s+(?:km|quilometros?)\b/, { source: 'work', field: 'km' }],
+      [/\b(?:mais|menos)\s+horas\b/, { source: 'work', field: 'hours' }],
+      [/\b(?:mais|menos)\s+(?:viagens|corridas)\b/, { source: 'work', field: 'trips' }],
       [/\blitros?\b|\bconsumo\b|\bkm\s*\/\s*l\b/, { source: 'fuel', field: 'liters' }],
     ]
     return primeira(t, dr)
@@ -456,7 +461,7 @@ function lerGrupo(t: string, driver: boolean): { valor: QueryGroup; matched: str
     [/\b(?:em\s+)?qual\s+semana\b|\bpor\s+semana\b|\b(?:em\s+)?cada\s+semana\b|\bsemana\s+a\s+semana\b|\bmelhor\s+semana\b|\bpior\s+semana\b|\bsemana\s+(?:que\s+)?(?:eu\s+)?mais\b/, 'week'],
     // Presente HABITUAL pergunta pelo dia da semana: "qual dia eu mais ganho",
     // "melhor dia pra rodar". Com o passado ("ganhei", "foi") é uma data.
-    [/\b(?:qual|que|melhor|pior)\s+(?:(?:o|e\s+o)\s+)?(?:(?:meu\s+)?(?:melhor|pior)\s+)?dia\b(?![^?]*\b(?:foi|ganhei|faturei|gastei|lucrei|rendeu|tive|fiz)\b)(?=[^?]*\b(?:ganho|faturo|gasto|lucro|rendo|rende|recebo|costum\w*|(?:pra|para)\s+(?:rodar|trabalhar|sair|rodar))\b)/, 'weekday'],
+    [/\b(?:qual|que|melhor|pior)\s+(?:(?:o|e\s+o)\s+)?(?:(?:meu\s+)?(?:melhor|pior)\s+)?dia\b(?![^?]*\b(?:foi|ganhei|faturei|gastei|lucrei|rendeu|tive|fiz)\b)(?=[^?]*\b(?:ganho|faturo|gasto|lucro|rendo|rende|recebo|faco|rodo|trabalho|costum\w*|(?:pra|para)\s+(?:rodar|trabalhar|sair|rodar))\b)/, 'weekday'],
     [/\bqual\s+dia\b|\bmelhor\s+dia\b|\bpior\s+dia\b|\bdia\s+que\s+(?:eu\s+)?mais\b/, 'day'],
     [/\bqual\s+cartao\b|\bpor\s+cartao\b|\bcartao\s+(?:esta|mais)\b|\bqual\s+(?:dos\s+)?(?:meus\s+)?cartoes\b/, 'card'],
     [/\bde\s+(?:cada\s+pessoa|quem(?:\s+eu)?\s+(?:mais\s+)?receb(?:i|o))\b|\bquem\s+me\s+pag(?:ou|a)\s+mais\b/, 'origin'],
@@ -563,6 +568,7 @@ const ESTRUTURAIS = new Set([
   'caiu', 'cairam', 'despesas', 'despesa', 'receitas', 'receita', 'entradas',
   'renda', 'me', 'minhas', 'meus', 'cada', 'todos', 'toda', 'todas', 'algum',
   'rodar', 'trabalhar', 'compensa', 'costuma', 'render', 'rende',
+  'trabalho', 'trabalhei',
 ])
 
 const soUteis = (frase: string): string | undefined => {
@@ -589,7 +595,7 @@ const PARADA = String.raw`(?=\s*(?:\?|$|,|\.|!|\be\b|\bou\b|\bnos?\b|\bnas?\b|\b
  * pergunta mal lida ("200 reais", "500 eu fiz desde", "ultima quinzena",
  * "gasosa rodado", "dezembro") sempre tem.
  */
-const VOCABULARIO_DA_PERGUNTA = /\b(?:reais?|conto|contos|pila|desde|ate|ultim[ao]s?|quinzenas?|semanas?|fins?|mes|meses|dias?|anos?|rodad[oa]s?|acima|abaixo|maior(?:es)?|menor(?:es)?|eu|fiz|gastei|paguei|recebi|ganhei|mais|menos|hein|vezes|km|horas?|janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/
+const VOCABULARIO_DA_PERGUNTA = /\b(?:reais?|conto|contos|pila|desde|ate|ultim[ao]s?|quinzenas?|semanas?|fins?|mes|meses|dias?|anos?|rodad[oa]s?|acima|abaixo|maior(?:es)?|menor(?:es)?|eu|fiz|faco|rodo|trabalho|gastei|paguei|recebi|ganhei|mais|menos|hein|vezes|km|horas?|janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/
 
 /** A sobra do planejador é pedaço de pergunta que ele não entendeu? */
 export function ehResiduo(literal: string): boolean {
