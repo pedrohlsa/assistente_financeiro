@@ -8190,6 +8190,21 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('BW-desconto-nao-e-conta', contador, 'sem a lista de vencimentos', !/vence até/.test(contador)))
   }
 
+  // "FATURAmento" casava com /fatura/ sem borda: "quanto foi meu faturamento
+  // esse mês" respondia "você ainda não cadastrou cartões". E "quanto FOI meu
+  // faturamento" abria com o gasto do mês.
+  {
+    const moto = motoristaRico(hoje)
+    const brl = (v: number) => fmtBRL(v).replace(/\u00a0/g, ' ')
+    const entrou = moto.transactions.filter(t => t.type === 'income' && t.date >= `${hoje.slice(0, 8)}01` && t.date <= hoje).reduce((a, t) => a + t.amount, 0)
+    for (const [id, frase] of [['BW-faturamento-nao-e-fatura', 'quanto foi meu faturamento esse mês'], ['BW-qual-faturamento', 'qual meu faturamento']] as const) {
+      const r = (await turnoHoje(moto, frase)).reply.replace(/\u00a0/g, ' ')
+      out.push(result(id, r, `o que entrou no mês: ${brl(entrou)}`, r.includes(brl(entrou)) && !/cart[õo]es|Você gastou/.test(r)))
+    }
+    const lucro = (await turnoHoje(moto, 'quanto foi meu lucro essa semana')).reply
+    out.push(result('BW-quanto-foi-lucro', lucro, 'resultado, não gasto', !/^Você gastou/.test(lucro) && /Resultado|lucro/i.test(lucro)))
+  }
+
   // Abreviação de unidade e de preposição ficava na descrição: "35 cnto no
   // mcdonalds" gravava "Cnto no mcdonalds" em Outros, "120 d luz" gravava
   // "D luz", "40 rs no uber" gravava "Rs no uber".

@@ -282,6 +282,7 @@ export function composeAnswer(r: AssistantQueryResult): string {
 
   // ---- amostra e ressalvas ----------------------------------------------
   const am = amostra(r)
+  if (r.netParts && p.group === 'none') linhas.push(`Entraram ${fmtBRL(r.netParts.income)} e saíram ${fmtBRL(r.netParts.expense)}.`)
   if (am && p.group === 'none') linhas.push(`Base: ${am}.`)
   for (const c of r.caveats) linhas.push(c)
 

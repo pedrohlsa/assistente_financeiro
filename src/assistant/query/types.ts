@@ -305,5 +305,7 @@ export interface AssistantQueryResult {
    * preenchido quando `plan.period.implicit` e a fonte é de lançamentos.
    */
   lastOutside?: { date: string; value: number; label: string; count: number }
+  /** Resultado líquido: o que entrou e o que saiu, para a conta aparecer. */
+  netParts?: { income: number; expense: number }
   cardPurchases?: { total: number; count: number }
 }

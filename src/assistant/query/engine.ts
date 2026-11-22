@@ -863,8 +863,21 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
     }
   }
 
+  // "Quanto foi meu resultado?": o líquido sozinho escondia a conta — R$ 666
+  // sem dizer que entraram R$ 829 e saíram R$ 163.
+  let netParts: AssistantQueryResult['netParts']
+  if (plan.metric === 'net' && plan.group === 'none' && plan.source === 'transactions' && (plan.field || 'amount') === 'amount') {
+    let income = 0, expense = 0
+    for (const row of rows) {
+      if (row.txType === 'income') income += row.value
+      else if (row.txType === 'expense') expense += row.value
+    }
+    if (income > 0 && expense > 0) netParts = { income: r2(income), expense: r2(expense) }
+  }
+
   return {
     plan,
+    ...(netParts ? { netParts } : {}),
     ...(lastOutside ? { lastOutside } : {}),
     ...(cardPurchases ? { cardPurchases } : {}),
     total: (plan.metric === 'share' ? r4 : r2)(total),

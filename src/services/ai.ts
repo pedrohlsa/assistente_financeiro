@@ -763,7 +763,9 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   const ov = cardsOverview(s)
   // "Limite no Nubank" é pergunta de cartão mesmo sem a palavra "cartão"; e
   // "quando acaba a geladeira" é do parcelamento, citado pelo nome.
-  if (/parcela|fatura|cart[ãa]o|parcelamento|d[ií]vida/.test(t) || (pedeLimite(t) && s.cards?.length > 0) || pedeDividaTotal(t)
+  // "FATURAmento" não é fatura: sem borda, "quanto foi meu faturamento" ia
+  // para os cartões ("você ainda não cadastrou cartões").
+  if (/\bparcel|\bfaturas?\b|\bcart(?:[ãa]o|oes|ões)\b|\bd[ií]vidas?\b/.test(t) || (pedeLimite(t) && s.cards?.length > 0) || pedeDividaTotal(t)
     || pedeListaDeParcelamentos(t)
     || (planoCitado(s, t) && (FIM_DO_PLANO.test(t) || COMPRA_DO_PLANO.test(t) || /\b(?:antecip|adiantei\b|adiantar\b)/.test(t)))) {
     const sobreFatura = perguntaDeFatura(t)
@@ -782,7 +784,7 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     const resposta = respostaDoParcelamento(s, t)
     if (resposta) return resposta
     // "quanto tenho de parcela no mês que vem?"
-    if (/(m[eê]s que vem|pr[oó]ximo m[eê]s)/.test(t) && /parcela|fatura|cart[ãa]o/.test(t)) {
+    if (/(m[eê]s que vem|pr[oó]ximo m[eê]s)/.test(t) && /\bparcel|\bfaturas?\b|\bcart(?:[ãa]o|oes|ões)\b/.test(t)) {
       return {
         text: `No próximo mês vencem ${fmtBRL(ov.installmentsNextMonth)} em parcelas e assinaturas (dado real, com base no que você cadastrou).` +
           (ov.installmentsThisMonth > 0 ? `\n\nNeste mês são ${fmtBRL(ov.installmentsThisMonth)}.` : ''),
@@ -801,7 +803,7 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
 
     // "quanto vou pagar de cartão nos próximos três meses?"
     const nextM = t.match(/pr[oó]ximos?\s*(\d+|tr[eê]s|dois|quatro|cinco|seis)\s*(?:meses|m[eê]s)/)
-    if (nextM && /cart[ãa]o|parcela|fatura/.test(t)) {
+    if (nextM && /\bcart(?:[ãa]o|oes|ões)\b|\bparcel|\bfaturas?\b/.test(t)) {
       const word = new Map<string, number>(Object.entries({ dois: 2, 'três': 3, tres: 3, quatro: 4, cinco: 5, seis: 6 }))
       const n = Math.min(parseInt(nextM[1], 10) || word.get(nextM[1]) || 3, 12)
       const proj = monthlyProjections(s, n)
@@ -1288,7 +1290,10 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   if (/quanto\s+(?:eu\s+)?(?:j[áa]\s+)?(?:gastei|gastou|torrei|saiu|foi)\b(?!\s*(?:com|de|em)\s+[a-zà-ú])/.test(t)
     && !/\b(?:com|de|em|no|na|nos|nas)\s+(?!r\$)[a-zà-ú]{3,}/.test(semPeriodo.slice(semPeriodo.search(/gastei|gastou|torrei|saiu|foi/)))
     && !/quanto\s+(?:eu\s+)?(?:posso|da\s+para|consigo)/.test(t)
-    && !/\bpor\s+(?:dia|semana|mes)\b|\bao\s+dia\b|\bdiari[oa]\b|\bmedia\b/.test(t)) {
+    && !/\bpor\s+(?:dia|semana|mes)\b|\bao\s+dia\b|\bdiari[oa]\b|\bmedia\b/.test(t)
+    // "Quanto FOI meu faturamento/lucro/resultado": o verbo é de ligação, e o
+    // assunto é o dinheiro que entrou — não o gasto.
+    && !/\b(?:faturamento|receitas?|renda|ganhos?|lucro|resultado|sobra|saldo|entradas?|salario|aluguel)\b/.test(t)) {
     const p = periodFromText(t, today)
     if (!p) return ajudaGenerica(driverMode)
     const st = periodStats(s, p.from, p.to, today)
