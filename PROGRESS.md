@@ -7001,8 +7001,11 @@ item tem bloco próprio em `tests/assistant/adversarial-real.ts`.
   tentativa por palavra-chave (21/11) ficou restrita a combustível. "A casa 1
   dá lucro?" caía na ajuda; sem despesas ligadas à origem, o app diz que não
   dá para afirmar (`IM-`).
+- "Peguei 500 emprestado com meu pai" caía na ajuda (é dívida, não receita);
+  "paguei 100 do que eu devia pro meu pai" gravava "Que eu devia pro meu pai"
+  e agora grava "Dívida com meu pai" (`EP-`).
 
-Gates (relógio 2026-09-15): 736/736 corpus, 1.407/1.407 adversariais, 151/151
+Gates (relógio 2026-09-15): 736/736 corpus, 1.409/1.409 adversariais, 151/151
 invariantes, mutações, fuzz, ditado e remoto offline; typecheck,
 typecheck:api e rubrica (0 perigosa, 0 ruim). `test:calendario` verde depois
 de cada lote. Sem push, merge, deploy, APK ou DeepSeek. **NOT READY** até
