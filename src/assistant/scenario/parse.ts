@@ -59,6 +59,8 @@ const HIPOTESE = [
 
 export const looksLikeScenario = (input: string): boolean => {
   const t = semAcento(input)
+  if (/\b(?:posso|consigo|daria\s+pra|da\s+(?:pra|para))\s+(?:pagar|comprar|bancar)\b/.test(t)
+    && withoutReserveFunding(input) !== undefined) return true
   // "Dá pra guardar 300 ESTE MÊS?" é a sobra prevista do mês (fato
   // projetado, `cashQuestions`), não uma simulação de guardar por mês.
   if (guardarEsteMes(t.replace(/[?!.,]/g, ' ').replace(/\s+/g, ' ')) !== null) return false
@@ -76,8 +78,22 @@ const BALANCE_CONTEXT = [
   new RegExp(String.raw`(?<![\wÀ-ÿ])(?:com|considerando|partindo\s+de|(?:e\s+)?se\s+(?:eu\s+)?tiver)\s+${CASH_ASSUMPTION}\s+(?:de\s+saldo|n[ao]\s+(?:(?:minha|meu)\s+)?(?:conta|banco))\b${CASH_ASSUMPTION_END}`, 'gi'),
 ]
 const CASH_ALTERNATE = new RegExp(String.raw`^\s+ou\s+${CASH_ASSUMPTION}${CASH_ASSUMPTION_END}`, 'i')
-const CASH_BALANCE_REPLY = new RegExp(String.raw`^(?:(?:usa|use|foi|e|o\s+de|use\s+o\s+de)\s+)?${CASH_ASSUMPTION}[.!?]*$`, 'i')
+const CASH_BALANCE_REPLY = new RegExp(String.raw`^(?:(?:usa|use|foi|e|o\s+de|use\s+o\s+de|fica(?:m|ria|riam)?|vou\s+ficar\s+com)\s+)?${CASH_ASSUMPTION}[.!?]*$`, 'i')
 export const SCENARIO_BALANCE_QUESTION = 'Qual saldo em conta devo usar nesta simulação? Diga um valor só.'
+export const RESERVE_SPEND_BALANCE_QUESTION = 'Qual valor ficará disponível na conta depois do resgate? O app guarda os depósitos na reserva, mas não acompanha os resgates.'
+
+const RESERVE = String.raw`(?:(?:a|minha|nossa)\s+)*(?:reserva|poupanca)\b`
+const FUNDING_WITH_RESERVE = [
+  new RegExp(String.raw`\b(?:com|considerando)\s+(?:(?:o|um|meu)\s+)?saldo\b[^?!;]{0,48}?\s+(?:da|na)\s+${RESERVE}`),
+  new RegExp(String.raw`\b(?:usando|usar|tirando|tirar|retirando|retirar|sacando|sacar|resgatando|resgatar)\s+[^?!;]{0,36}?\b(?:da|na)\s+${RESERVE}`),
+  new RegExp(String.raw`\b(?:com|usando|usar)\s+${RESERVE}(?:\s+de\s+${CASH_ASSUMPTION})?`),
+]
+
+function withoutReserveFunding(input: string): string | undefined {
+  const t = normalizaCenario(input)
+  const source = FUNDING_WITH_RESERVE.map(pattern => t.match(pattern)).find(Boolean)
+  return source ? t.replace(source[0], ' ') : undefined
+}
 
 const parseScenarioBalance = (raw: string): number =>
   parseMoney(raw.replace(/−|menos\s+/i, '-'))
@@ -552,7 +568,8 @@ export function planScenario(
   state: AppState, input: string, opts: { today?: string; focusCategory?: string } = {},
 ): AssistantScenarioPlan | null {
   if (!looksLikeScenario(input)) return null
-  const cash = readScenarioBalance(input)
+  const funding = withoutReserveFunding(input)
+  const cash = readScenarioBalance(funding ?? input)
   input = cash.remaining
   const partes = input.split(/,(?=\s*[a-zA-ZÀ-ÿ])|\s+(?:e\s+|depois\s+)(?=(?:eu\s+)?(?:ainda\s+|tamb[eé]m\s+)?(?:continuar\s+guardando|pagar|quitar|guardar|poupar|reduzir|diminuir|baixar|parar|cortar|investir|aplicar|ajudar|comprar|gastar)\b)/i)
     .map(p => p.trim()).filter(Boolean)
@@ -575,7 +592,9 @@ export function planScenario(
     d.setMonth(d.getMonth() + horizonte(normalized, opts.today || todayISO()) - 1)
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   })()
-  const issue = cash.issue || planningIssue || (startMonth && startMonth > endMonth
+  const reserveIssue = funding !== undefined ? RESERVE_SPEND_BALANCE_QUESTION : undefined
+  const balance = reserveIssue ? undefined : cash.balance
+  const issue = reserveIssue || cash.issue || planningIssue || (startMonth && startMonth > endMonth
     ? 'O início da reserva fica depois do horizonte final; me diga outras datas.' : undefined)
   if (separateSteps.length > 1) {
     const today = opts.today || todayISO()
@@ -589,7 +608,7 @@ export function planScenario(
     return {
       version: SCENARIO_DSL_VERSION,
       kind: 'compound',
-      declaredBalance: cash.balance,
+      declaredBalance: balance,
       steps: separateSteps.map(step => ({ ...step, months })),
       months,
       planningIssue: issue || (maxIncomeWindow > 12 ? 'Para combinar as mudanças, informe um prazo que caiba nos próximos 12 meses do calendário.'
@@ -599,7 +618,9 @@ export function planScenario(
     }
   }
   const plan = separateSteps[0] || planSingleScenario(state, input, opts)
-  return plan ? { ...plan, declaredBalance: cash.balance, planningIssue: issue || plan.planningIssue, unsupportedFragments } : null
+  if (plan) return { ...plan, declaredBalance: balance, planningIssue: issue || plan.planningIssue, unsupportedFragments }
+  return reserveIssue ? { version: SCENARIO_DSL_VERSION, kind: 'spend', label: 'pagar com a reserva',
+    planningIssue: 'Diga o valor do pagamento e quanto ficará disponível na conta depois do resgate. Exemplo de pergunta: “Com saldo em conta de R$ 1.200, dá pra pagar R$ 800?”' } : null
 }
 
 /** O objeto da compra, quando a frase o nomeia ("um pc de 4000 em 10x"). */

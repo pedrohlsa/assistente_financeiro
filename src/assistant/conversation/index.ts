@@ -27,7 +27,7 @@ import type { QueryAnswer } from '../query'
 import type { AssistantQueryPlan } from '../query/types'
 import { answerScenario, rerunScenario } from '../scenario'
 import type { ScenarioAnswer } from '../scenario'
-import { looksLikeScenario, parsePurchaseDelay, readScenarioBalanceReply, SCENARIO_BALANCE_QUESTION } from '../scenario/parse'
+import { looksLikeScenario, parsePurchaseDelay, readScenarioBalanceReply, RESERVE_SPEND_BALANCE_QUESTION, SCENARIO_BALANCE_QUESTION } from '../scenario/parse'
 import { describeMissingRentalInput, mentionedRentals, readIncomeLossTiming } from '../scenario/incomeWindow'
 import { normalizeNumberWords } from '../numbers'
 import { analyzeChanges, answerChangeQuestion, changeScopeClarification, composeChangeExplanation, expenseCategoryInQuestion } from '../drivers'
@@ -151,7 +151,7 @@ function respondeConversa(
   const focus = opts.focus
   const activeScenario = isFocusFresh(focus, agora) && focus?.last === 'scenario' ? focus.lastScenarioPlan : undefined
   if (activeScenario) {
-    const awaitingBalance = activeScenario.planningIssue === SCENARIO_BALANCE_QUESTION
+    const awaitingBalance = activeScenario.planningIssue === SCENARIO_BALANCE_QUESTION || activeScenario.planningIssue === RESERVE_SPEND_BALANCE_QUESTION
     const balance = awaitingBalance || /\bsaldo\b/i.test(message) ? readScenarioBalanceReply(message, awaitingBalance) : undefined
     if (balance !== undefined) {
       return aplicaFollowUp(state, focus, { kind: 'scenario',

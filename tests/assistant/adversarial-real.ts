@@ -303,6 +303,21 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && [stated, words, negative, revised, alternatives, picked].every(r => !r.response.actions.length)
       && JSON.stringify(state) === saved))
 
+    const viaReserve = await Promise.all([
+      'dá pra pagar 800 com saldo de mil na poupança?',
+      'dá pra pagar 800 usando mil da reserva?',
+      'posso pagar 800 com minha reserva?',
+    ].map(message => send(message)))
+    const spendFromReserve = await send('ficariam 1000', viaReserve[0])
+    const noReservePrice = await send('e se eu tirar 300 da reserva pra pagar o aluguel?')
+    const answers = [...viaReserve, spendFromReserve, noReservePrice]
+    out.push(result('GC-gasto-com-reserva-pede-caixa-apos-o-resgate', answers.map(r => r.response),
+      'não usa o saldo em conta nem o total depositado antes de confirmar o valor líquido, mantém o preço de R$ 800',
+      viaReserve.every(r => /depois do resgate/.test(r.response.reply) && fact(r, 'Saldo depois do gasto') === undefined)
+      && fact(spendFromReserve, 'Saldo depois do gasto') === 200 && /como saldo inicial informado/.test(spendFromReserve.response.reply)
+      && /valor do pagamento/.test(noReservePrice.response.reply) && fact(noReservePrice, 'Saldo depois do gasto') === undefined
+      && answers.every(r => !r.response.actions.length) && JSON.stringify(state) === saved))
+
     const lowPrice = await send('e se eu comprar um celular de 90 em 120x?')
     const reversed = await send('e se eu fizer em 120 vezes uma compra de 90 reais?')
     const perMonth = await send('e se eu comprar em 12x de 100?')
