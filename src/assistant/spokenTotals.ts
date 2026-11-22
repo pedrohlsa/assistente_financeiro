@@ -20,6 +20,12 @@ const SHARE_INSTALLMENTS = /\s+(?:em\s+)?\d+\s*(?:x|vezes|parcelas?)$/i
 const PAYMENT_PREFIX = String.raw`(?<prefix>(?:(?:eu|hoje|hj|ontem|anteontem|agora|j[áa])\s+){0,4})(?<verb>paguei|recebi|me\s+pag(?:ou|aram))\s+(?:(?:s[óo]|apenas|somente)\s+)?`
 const PARTIAL_FROM_TOTAL = new RegExp(String.raw`^${PAYMENT_PREFIX}(?<paid>${MONEY})\s+(?:dos|das|de\s+um\s+total\s+de)\s+(?<total>${MONEY})(?=$|[.,;!?]|\s+(?:d[aeo]s?|n[ao]|em|pel[ao]|hoje|ontem|e)\b)(?<tail>[\s\S]*)$`, 'i')
 const HALF_FROM_TOTAL = new RegExp(String.raw`^${PAYMENT_PREFIX}(?:a\s+)?(?:metade|1\s*/\s*2)\s+(?:dos|das|de\s+um\s+total\s+de)\s+(?<total>${MONEY})(?<label>\s+d[aeo]s?\s+[^,;!?]+?)?(?:\s*[,;]\s*(?:deu|foram|ficou\s+em)\s+(?<paid>${MONEY}))?\s*[.!]*$`, 'i')
+const NET_VALUE = String.raw`${MONEY}\s+(?:limp[oa]s?|l[íi]quid[oa]s?)(?![\wÀ-ÿ])`
+const DRIVER_RESULT_START = String.raw`(?:(?:eu|hoje|hj|ontem|anteontem|agora|j[áa])\s+){0,4}(?:fiz|fechei|ganhei|faturei|tirei|recebi|deu|ficou|sobrou)\s+`
+const OPERATING_COST = String.raw`(?:gastos?|custos?|despesas?|combust[íi]vel|gasolina|etanol|diesel|ped[áa]gio|aluguel\s+d[eo]\s+carro)(?![\wÀ-ÿ])`
+const NET_WITH_COST = new RegExp(String.raw`(?:(?:^|[,;]\s*|\s+e\s+)${DRIVER_RESULT_START}|\b(?:sobrou|sobraram|ficou)\s+|[,;]\s*)${NET_VALUE}\s+(?:j[áa]\s+)?(?:com|depois\s+d[aeo]s?|descontando|tirando|abatendo)\s+(?:[ao]s?\s+)?(?:${MONEY}\s+(?:d[aeo]|em)\s+)?${OPERATING_COST}`, 'i')
+const BOTH_NET_AND_GROSS = new RegExp(String.raw`^${DRIVER_RESULT_START}${MONEY}\s+brut[oa]s?(?:\s+(?:na|no|pela|pelo|da|do)\s+(?:uber|99|in\s*drive[r]?))?(?:\s+e\s+|,\s*)(?:(?:ficou|sobrou|deu|recebi)\s+)?${NET_VALUE}[.!]*$`, 'i')
+const NET_AFTER_PAYMENTS = new RegExp(String.raw`(?:[,;]\s*|\s+e\s+)(?:sobrou|sobraram|ficou)\s+${NET_VALUE}[.!]*$`, 'i')
 
 type ReconciledTotal = { text?: string; issue?: string; dateQuestion?: IncompleteIntent['purchaseDateQuestion'] }
 
@@ -118,9 +124,36 @@ function movements(text: string, today: string, driver: boolean): Movement[] {
 
 const cents = (amount: number): number => Math.round(amount * 100)
 
+function reconcileDriverResult(text: string, today: string): ReconciledTotal | undefined {
+  if (text.includes('?')) return undefined
+  const costsIncluded = text.match(NET_WITH_COST)
+  if (costsIncluded && !looksLikeQuestion(text.slice(0, costsIncluded.index))) {
+    return { issue: `Os ${fmtBRL(parseMoney(costsIncluded[1]))} são o valor que entrou ou quanto sobrou depois dos gastos? Diga quanto entrou e quais custos você pagou à parte.` }
+  }
+  const grossAndNet = text.match(BOTH_NET_AND_GROSS)
+  if (grossAndNet) {
+    return { issue: `Você informou ${fmtBRL(parseMoney(grossAndNet[1]))} brutos e ${fmtBRL(parseMoney(grossAndNet[2]))} líquidos. Qual valor entrou? Se você pagou algo à parte, diga quanto saiu e com o quê.` }
+  }
+  const summary = text.match(NET_AFTER_PAYMENTS)
+  if (!summary) return undefined
+  const body = text.slice(0, summary.index)
+  if (looksLikeQuestion(body) || (!/\bbrut[oa]s?\b/i.test(body) && !new RegExp(OPERATING_COST, 'i').test(body))) return undefined
+  const items = movements(body, today, true)
+  if (!items.some(item => item.kind === 'in') || !items.some(item => item.kind === 'out')) return undefined
+  const net = items.reduce((sum, { kind, amount }) => sum + (kind === 'in' ? 1 : -1) * cents(amount), 0)
+  const reported = cents(parseMoney(summary[1]))
+  return net === reported ? { text: body } : {
+    issue: `As entradas menos os gastos informados dão ${fmtBRL(net / 100)}, e você disse que sobraram ${fmtBRL(reported / 100)}. Quais valores realmente entraram e saíram?`,
+  }
+}
+
 /** Totais declarados e parcelas inclusas explicam os itens de um relato. */
 export function reconcileSpokenTotals(message: string, today: string, driver: boolean, cardNames: string[]): ReconciledTotal | undefined {
   const text = normalizeNumberWords(message).text.trim()
+  if (driver) {
+    const result = reconcileDriverResult(text, today)
+    if (result) return result
+  }
   if (/\b(?:dos|das|de\s+um\s+total\s+de)\s+(?:r\$\s*)?\d/i.test(text)) {
     const parts = looksLikeQuestion(text) ? segment(text, today) : []
     const first = parts.length > 1 && !looksLikeQuestion(parts[0].text) ? parts[0] : undefined

@@ -1827,12 +1827,22 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const bad = await turn(state, 'fiz 430 bruto na Uber e recebi 390 líquido depois da taxa de 50')
     const distinct = await turn(state, 'fiz 430 na Uber e paguei 50 de taxa agora')
     const fuel = await turn(state, 'ganhei 430 bruto e gastei 50 de gasolina, sobrou 380 líquido')
+    const inconsistentFuel = await turn(state, 'ganhei 430 bruto e gastei 50 de gasolina, sobrou 400 líquido')
     out.push(result('A-plataforma-confere-liquido-e-preserva-gastos-proprios', [bad, distinct, fuel],
       'liquidação contraditória pede valor. Taxa paga à parte e combustível continuam saídas',
       !bad.actions.length && bad.clarification?.field === 'reported-total'
         && distinct.actions.some(a => a.kind === 'income' && a.amount === 430 && !a.feeAlreadyWithheld)
         && distinct.actions.some(a => a.kind === 'expense' && a.amount === 50)
+        && fuel.actions.length === 2 && !fuel.clarification
         && fuel.actions.some(a => a.kind === 'income' && a.amount === 430) && fuel.actions.some(a => a.kind === 'fuel' && a.amount === 50)))
+    const netAlone = await turn(state, 'deu 200 limpo já com combustível')
+    const netPlusFuel = await turn(state, 'fiz 200 limpo depois de 50 de combustível')
+    const netAndGross = await turn(state, 'fiz 250 bruto e 200 limpo')
+    out.push(result('A-resultado-liquido-depois-de-gastos-nao-e-outra-receita',
+      [netAlone, netPlusFuel, netAndGross, inconsistentFuel], 'pergunta quanto entrou ou saiu sem propor receita líquida como faturamento e sem duplicar o custo',
+      [netAlone, netPlusFuel, netAndGross, inconsistentFuel].every(r => !r.actions.length && r.clarification?.field === 'reported-total')
+      && /depois dos gastos/.test(netAlone.reply) && /entrou/.test(netAndGross.reply)
+      && /380,00/.test(inconsistentFuel.reply) && /400,00/.test(inconsistentFuel.reply)))
   }
   const directMixed = buildState({ balance: 1000, cards: [{ name: 'Inter', dueDay: 20, closingDay: 5 }] })
   directMixed.settings.balanceAsOf = '2026-09-14T09:00'
