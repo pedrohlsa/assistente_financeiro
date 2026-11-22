@@ -112,6 +112,50 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   }
 
   {
+    const today = '2026-11-21'
+    const state = buildState({ profile: 'other', balance: 1000, cards: [{ name: 'Nubank' }, { name: 'Inter' }] })
+    const firstDueDate = '2026-11-25'
+    state.settings.balanceAsOf = `${today}T08:00`
+    state.cards = state.cards.map(card => ({ ...card, closingDay: 20, dueDay: 25 }))
+    state.installmentPlans = state.cards.map((card, i) => ({
+      id: `elliptic-bills-${i}`, cardId: card.id, description: `Compra ${i + 1}`, totalAmount: 500,
+      installmentCount: 1, firstDueDate, purchaseDate: '2026-11-10', createdAt: '2026-11-10',
+      status: 'active', operationType: 'card-purchase',
+    }))
+    let sequence = 0
+    state.installments = state.installmentPlans.flatMap(plan => buildInstallments(plan, () => `elliptic-item-${++sequence}`))
+    const send = (message: string) => orchestrate({ state, message, today, remoteEnabled: false })
+    const both = await send('paguei 280 do Nubank e mais 100 da fatura do Inter')
+    const applied = applyBatchPure(state, both.response.actions, { now: { date: today, time: '14:00' } })
+    out.push(result('GC-fatura-herda-verbo-e-tipo-do-pagamento', both.response,
+      'R$ 280 pagos no Nubank, R$ 100 no Inter, sem receita ou despesa avulsa',
+      both.response.actions.length === 2 && both.response.actions.every(({ action }) => action.kind === 'card-payment')
+      && applied.applied && currentBalance(applied.state, today) === 620 && !applied.state.transactions.length
+      && applied.state.cardPayments.map(event => [event.cardId, event.amount].join(':')).sort().join(',')
+        === [state.cards[0].id + ':280', state.cards[1].id + ':100'].sort().join(',')))
+    const atOnce = await send('comprei ontem um fone de 180 no Nubank à vista')
+    const cash = await send('comprei um fone de 180 em dinheiro à vista')
+    const inconsistent = await send('comprei um PC de 1000 em 12x de 100 no Nubank')
+    out.push(result('GC-compra-cartao-a-vista-e-total-contraditorio', [atOnce, cash, inconsistent].map(r => r.response),
+      'compra à vista no cartão vira 1x na data do relato. Dinheiro continua despesa e total contraditório pergunta o valor',
+      atOnce.response.actions.length === 1 && atOnce.response.actions.some(({ action }) =>
+        action.kind === 'card-purchase' && action.installments === 1 && action.total === 180 && action.date === '2026-11-20')
+      && cash.response.actions.length === 1 && cash.response.actions[0]?.action.kind === 'expense'
+      && inconsistent.response.mode === 'clarify' && !inconsistent.response.actions.length
+      && /1\.200,00/.test(inconsistent.response.reply) && /1\.000,00/.test(inconsistent.response.reply)))
+    const oneOfTwelve = await send('paguei 1 de 12 parcelas de 200 do PC')
+    const newPlan = await send('comprei o note por 1200 em 12x no Nubank e já paguei a primeira')
+    const ordinary = await send('paguei 200 da parcela do carro')
+    out.push(result('GC-quantidade-de-parcelas-pagas-nao-e-dinheiro', [oneOfTwelve, newPlan, ordinary].map(r => r.response),
+      'quantidade de parcelas já pagas orienta a baixa do plano e mantém compra ou pagamento avulso ditos separadamente',
+      !oneOfTwelve.response.actions.length && /marque as parcelas/.test(oneOfTwelve.response.reply)
+      && newPlan.response.actions.length === 1 && newPlan.response.actions[0]?.action.kind === 'card-purchase'
+      && /marque as parcelas/.test(newPlan.response.reply)
+      && ordinary.response.actions.length === 1 && ordinary.response.actions.some(({ action }) =>
+        action.kind === 'expense' && action.amount === 200)))
+  }
+
+  {
     const today = '2027-03-09'
     const state = buildState({ profile: 'other', balance: 1000 })
     state.settings.balanceAsOf = `${today}T18:00`

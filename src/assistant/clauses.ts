@@ -1322,6 +1322,8 @@ function esclareceReembolsos(clauses: AnalyzedClause[], original: string, today:
 const ANO_DE_COMPETENCIA = new RegExp(String.raw`\b(?:${MESES_PT_BR.map(normalizeName).join('|')})\s+de\s*$`, 'i')
 const INVOICE_EXTRA_AMOUNT = /\s+e\s+(?:mais\s+)?((?:r\$\s*)?\d+(?:[.,]\d+)*)(?:\s+reais?)?\s+(?=(?:no|na|em|de|do|da)\s+[a-zà-ú])/gi
 const INVOICE_CONTEXT = /\b(?:faturas?|cart[aã]o|cr[eé]dito|parcelas?|juros|tarifas?|descontos?|pix)\b/i
+const PAID_INSTALLMENT_COUNT = /^(?:(?:eu|hoje|hj|ontem|anteontem|j[áa])\s+){0,4}(?:paguei|quitei)\s+(?:\d+|a\s+primeira|a\s+segunda|a\s+terceira)\s+(?:de|das)\s+\d+\s+parcelas?\b/i
+const PAID_FIRST_INSTALLMENT = /^(?:j[áa]\s+)?paguei\s+(?:a\s+primeira(?:\s+parcela)?|(?:as\s+)?\d+(?:\s+parcelas?)?)[.!]*$/i
 
 function unaccountedMoney(clause: AnalyzedClause): number[] {
   if (clause.ambiguity || clause.temporal || clause.intention || clause.intent === 'question'
@@ -1449,6 +1451,10 @@ export function analyzeMessage(
     const followsInflow = linkedPair && CASH_LIST_ITEM.test(normalizeNumberWords(part.text).text)
       && (inheritedKind === 'income' || !!(previousClause && INCOMING_CASH.test(previousClause.text)))
     const specializedInflow = !isQuestion && !negated ? inflowGuard(part.text, followsInflow) : undefined
+    const installmentCompletion = !isQuestion && !negated && /\b(?:paguei|quitei)\b/i.test(part.text)
+      && (PAID_INSTALLMENT_COUNT.test(normalizeNumberWords(part.text).text)
+        || (previousClause?.actions.some(action => action.kind === 'card-purchase')
+          && PAID_FIRST_INSTALLMENT.test(normalizeNumberWords(part.text).text)))
     const internalTransfer = !isQuestion && !negated && looksPast(part.text)
       && /\b(?:pix|transferi)\b/i.test(part.text) && OWN_ACCOUNTS.test(part.text)
     const receiptMention = RECIPIENT_OF_PAYMENT.test(part.text) || /\brecebi\b[^.;!?]*\bpix\b/i.test(part.text)
@@ -1458,6 +1464,7 @@ export function analyzeMessage(
     const localExplanation = specializedInflow || (internalTransfer ? INTERNAL_TRANSFER_REPLY
       : quotedOrExample(part.text) || (declinedRide && !part.text.includes('?') ? 'A corrida não aconteceu. Nenhum lançamento foi preparado.'
       : UNIT_SALE_PENDING.test(part.text) ? 'Há pagamento pendente nessa venda. Se recebeu uma parte, diga quanto entrou para eu preparar o lançamento.'
+      : installmentCompletion ? 'Para baixar parcelas específicas, abra o plano em Cartões e parcelamentos e marque as parcelas que foram pagas.'
       : paymentPending ? 'O recebimento ainda está pendente. Quando o dinheiro entrar, diga o valor e a data.'
       : opts?.driver && !isQuestion && !negated && DISTANCE_ON_FOOT.test(normalizeNumberWords(part.text).text)
         ? 'A quilometragem do veículo conta os trechos dirigidos.'

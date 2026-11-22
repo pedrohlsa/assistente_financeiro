@@ -26,10 +26,65 @@ const OPERATING_COST = String.raw`(?:gastos?|custos?|despesas?|combust[íi]vel|g
 const NET_WITH_COST = new RegExp(String.raw`(?:(?:^|[,;]\s*|\s+e\s+)${DRIVER_RESULT_START}|\b(?:sobrou|sobraram|ficou)\s+|[,;]\s*)${NET_VALUE}\s+(?:j[áa]\s+)?(?:com|depois\s+d[aeo]s?|descontando|tirando|abatendo)\s+(?:[ao]s?\s+)?(?:${MONEY}\s+(?:d[aeo]|em)\s+)?${OPERATING_COST}`, 'i')
 const BOTH_NET_AND_GROSS = new RegExp(String.raw`^${DRIVER_RESULT_START}${MONEY}\s+brut[oa]s?(?:\s+(?:na|no|pela|pelo|da|do)\s+(?:uber|99|in\s*drive[r]?))?(?:\s+e\s+|,\s*)(?:(?:ficou|sobrou|deu|recebi)\s+)?${NET_VALUE}[.!]*$`, 'i')
 const NET_AFTER_PAYMENTS = new RegExp(String.raw`(?:[,;]\s*|\s+e\s+)(?:sobrou|sobraram|ficou)\s+${NET_VALUE}[.!]*$`, 'i')
+const CARD_PURCHASE_SAID = /^(?:(?:eu|hoje|hj|ontem|anteontem|j[áa])\s+){0,4}(?:comprei|parcelei|passei|paguei|financiei)\b/i
+const CARD_INSTALLMENT_QUOTE = new RegExp(String.raw`(?<![\d.,])(\d+)\s*(?:x|vez(?:es)?|parcelas?)\s+(?:de|com|no\s+valor\s+de)\s+${MONEY}`, 'i')
+const CARD_TOTAL_SAID = new RegExp(String.raw`\b(?:por|de|custou|total(?:\s+de|\s+foi)?|comprei|parcelei|passei|paguei|financiei)\s+${MONEY}(?=\s*(?:$|no\s|na\s|pelo\s|pela\s))`, 'i')
+const AT_ONCE = /(?<![\wÀ-ÿ])[àa]\s+vista(?![\wÀ-ÿ])/i
+const CASH_PURCHASE_TENDER = /(?<![\wÀ-ÿ])(?:(?:via|por|no|pelo)\s+pix|em\s+(?:dinheiro|esp[ée]cie)|(?:no|por|em)\s+(?:cart[ãa]o\s+de\s+)?d[ée]bito)(?![\wÀ-ÿ])/i
+const INVOICE_LIST_HEAD = /^(?<lead>(?:(?:eu|hoje|hj|ontem|anteontem|j[áa])\s+){0,4})(?:paguei|quitei)\s+/i
+const INVOICE_LIST_ITEM = new RegExp(String.raw`^(?:mais\s+)?(?:paguei\s+|quitei\s+)?${MONEY}\s+(?:(da\s+fatura|d[aeo]\s+faturas?)\s+)?d[ao]\s+(.+?)$`, 'i')
 
 type ReconciledTotal = { text?: string; issue?: string; dateQuestion?: IncompleteIntent['purchaseDateQuestion'] }
 
 type PaymentShare = { amount: number; card?: string; installments?: string }
+
+function linkedInvoicePayments(text: string, cardNames: string[]): ReconciledTotal | undefined {
+  const lead = text.match(INVOICE_LIST_HEAD)
+  if (!lead || !/\bfatura\b/i.test(text) || cardNames.length < 2) return undefined
+  const parts = text.slice(lead[0].length).replace(/[.!]+$/, '').split(/\s+e\s+|[,;]\s+(?:e\s+)?/)
+  if (parts.length < 2 || parts.length > 4) return undefined
+  const bills = parts.map(part => part.trim().match(INVOICE_LIST_ITEM))
+  if (!bills.every(Boolean) || !bills.some(item => item[2])) return undefined
+  const known = bills.map(item => cardNames.find(name => normalizeName(name) === normalizeName(item[3])))
+  if (!known.every(Boolean)) return undefined
+  return { text: lead.groups.lead + bills.map((item, i) => `paguei R$ ${item[1]} da fatura do ${known[i]}`).join(' e ') }
+}
+
+function creditPurchaseTerms(text: string, today: string, cardNames: string[]): ReconciledTotal | undefined {
+  if (!AT_ONCE.test(text) && !CARD_INSTALLMENT_QUOTE.test(text) && !CASH_PURCHASE_TENDER.test(text)) return undefined
+  let rewritten = text
+  for (const part of segment(text, today).reverse()) {
+    const phrase = part.text
+    if (!CARD_PURCHASE_SAID.test(phrase) || looksLikeQuestion(phrase)) continue
+    const perInstallment = phrase.match(CARD_INSTALLMENT_QUOTE)
+    if (perInstallment) {
+      const before = phrase.slice(0, perInstallment.index).replace(/\s+em\s*$/i, '').trimEnd()
+      const price = before.match(CARD_TOTAL_SAID)
+      const itemized = Number(perInstallment[1]) * cents(parseMoney(perInstallment[2]))
+      if (price && cents(parseMoney(price[1])) !== itemized) {
+        return { issue: `As parcelas somam ${fmtBRL(itemized / 100)}, e você informou ${fmtBRL(parseMoney(price[1]))} no total. Qual foi o total cobrado no cartão?` }
+      }
+      continue
+    }
+    if (/\b(?:faturas?|parcelas?)\b|\d+\s*(?:x|vezes)\b/i.test(phrase)) continue
+    const tender = phrase.match(CASH_PURCHASE_TENDER)
+    const target = normalizeName(tender ? phrase.replace(tender[0], ' ') : phrase)
+    const credit = /\b(?:no|pelo)\s+(?:cartao|credito)\b/.test(target)
+      || cardNames.some(name => {
+        const card = normalizeName(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        return new RegExp(String.raw`(?<![\wÀ-ÿ])(?:n[ao]|pel[ao])\s+${card}(?![\wÀ-ÿ])`).test(target)
+      })
+    if (tender && !credit && /\bcomprei\b/i.test(phrase)
+      && !/\b(?:mas|por[ée]m|s[óo]\s+que)\b/i.test(phrase)) {
+      const replacement = phrase.replace(tender[0], ' ').replace(AT_ONCE, ' ')
+      rewritten = rewritten.slice(0, part.start) + replacement + rewritten.slice(part.start + phrase.length)
+    } else if (!tender && credit && AT_ONCE.test(phrase)) {
+      const at = part.start + phrase.search(AT_ONCE)
+      rewritten = rewritten.slice(0, at) + 'em 1x' + rewritten.slice(at + phrase.match(AT_ONCE)[0].length)
+    }
+  }
+  return rewritten !== text ? { text: rewritten } : undefined
+}
 
 function partialSpokenPayment(text: string): ReconciledTotal | undefined {
   const half = text.match(HALF_FROM_TOTAL)?.groups
@@ -162,6 +217,12 @@ export function reconcileSpokenTotals(message: string, today: string, driver: bo
     if (partial) return partial
   }
   if (!looksPast(message)) return undefined
+  if (!looksLikeQuestion(text)) {
+    const bills = linkedInvoicePayments(text, cardNames)
+    if (bills) return bills
+  }
+  const credit = creditPurchaseTerms(text, today, cardNames)
+  if (credit) return credit
   const split = splitSpokenPayment(text, today, cardNames)
   if (split) return split
   const included = text.match(INCLUDED)
