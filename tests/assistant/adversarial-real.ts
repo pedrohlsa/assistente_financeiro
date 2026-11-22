@@ -9275,6 +9275,13 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const lim = (await turnoHoje(rico, 'meu limite do nubank')).reply
       out.push(result('CQ-limite-telegrafico', lim, 'limite do Nubank', /limite/.test(lim) && !/Posso te ajudar/.test(lim)))
     }
+    {
+      const t1 = await orchestrate({ state: rico, message: 'gastei 50 no mercado', today: todayISO(), remoteEnabled: false })
+      const pend = t1.response.actions.map((p, i) => ({ id: p.id || `p${i}`, action: p.action, engine: 'local' as const, confidence: 'high' as const }))
+      const t2 = await orchestrate({ state: rico, message: 'qual a categoria?', today: todayISO(), remoteEnabled: false, pending: pend, focus: t1.focus })
+      out.push(result('CQ-categoria-da-proposta', t2.response.reply, 'fala da categoria da proposta, mantendo-a',
+        !!t2.keepPending && /Alimentação/.test(t2.response.reply) && !/por categoria/.test(t2.response.reply)))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

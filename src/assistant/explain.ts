@@ -85,6 +85,9 @@ export function explainRequest(input: ExplainInput): string | undefined {
   if (RE_VALOR.test(t)) return respostaValor(input)
   if (RE_QUANTAS.test(t) && !NOMEIA_ALVO.test(t)) return respostaQuantas(input)
   if (RE_CATEGORIA.test(t) || RE_CATEGORIA_ALT.test(t)) return respostaCategoria(input)
+  // "Qual a categoria?" com a proposta na tela fala DELA — respondia o resumo
+  // de gastos por categoria do mês.
+  if (alvo(input) && /^(?:e\s+)?(?:qual|que|em\s+que|em\s+qual)\s+(?:e\s+|foi\s+|ficou\s+)?(?:a\s+)?categoria(?:\s+(?:disso|dessa|desse|dele|dela|ai))?$/.test(t.replace(/[?!.]+$/, '').trim())) return respostaCategoria(input)
   return undefined
 }
 
