@@ -9005,6 +9005,14 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const r = await turnoHoje(buildState({ profile: 'autonomo' }), 'o joão pagou 300 do serviço')
       out.push(result('MP-joao-pagou-sem-me-continua-de-terceiro', r, 'sem ação', !r.actions.length))
     }
+    {
+      // "Casa da DONA Maria" gravava a origem "casa da dona"; comissão caía em Outros.
+      const r = await turnoHoje(buildState({ profile: 'autonomo' }), 'recebi 800 do serviço de pintura da casa da dona maria')
+      const a: any = r.actions[0]
+      out.push(result('OR-origem-com-tratamento-e-nome', a?.origin, 'casa da dona maria', /dona maria$/i.test(a?.origin || '')))
+      const c = await turnoHoje(buildState({ profile: 'autonomo' }), 'recebi 2000 de comissão')
+      out.push(result('OR-comissao-e-venda', c.actions, 'categoria Vendas', (c.actions[0] as any)?.category === 'vendas'))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

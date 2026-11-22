@@ -749,7 +749,9 @@ export function extractOrigins(originalClause: string): { value: string; at: num
   // própria preposição e a origem virava "kitnet do" — um nome truncado que
   // ainda por cima não bate com a grafia guardada no histórico, fazendo o mesmo
   // imóvel existir duas vezes.
-  for (const m of originalClause.matchAll(new RegExp(String.raw`\bd[ao]s?\s+((?:${ORIGIN_NOUNS})\s+(?:d[aeo]s?\s+)?[\wçãõáéíóúâê\d]+)`, 'gi'))) {
+  // "Casa da DONA Maria": o pronome de tratamento não é o nome — parar nele
+  // gravava a origem "casa da dona".
+  for (const m of originalClause.matchAll(new RegExp(String.raw`\bd[ao]s?\s+((?:${ORIGIN_NOUNS})\s+(?:d[aeo]s?\s+)?(?:(?:dona|seu|sr|sra|dr|dra)\.?\s+)?[\wçãõáéíóúâê\d]+)`, 'gi'))) {
     if (m.index !== undefined) add(m[1], m.index, m.index + m[0].length)
   }
   // A fonte como SUJEITO de quem pagou: "a Casa 1 pagou 1800".

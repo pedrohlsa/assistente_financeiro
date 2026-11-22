@@ -84,7 +84,7 @@ export const CATEGORY_KEYWORDS: Record<string, string[]> = {
   salario: ['salário', 'salario', 'pagamento', 'holerite', 'vale ', 'adiantamento', 'decimo terceiro', 'décimo terceiro', '13o salario', 'ferias', 'férias'],
   aluguel: ['aluguel', 'aluguéis', 'alugueis', 'inquilino', 'locação', 'locacao', 'imóvel', 'imovel', 'casa alugada'],
   freelance: ['freela', 'freelance', 'bico', 'job', 'faxina', 'diaria', 'diária', 'servico ', 'serviço ', 'conserto', 'manicure em', 'aula particular'],
-  vendas: ['venda', 'vendi', 'sinal ', 'encomenda'],
+  vendas: ['venda', 'vendi', 'sinal ', 'encomenda', 'comissao', 'comissão'],
   // Por último: só decide quando nada mais específico casou. São palavras que
   // SÃO despesa por natureza ("taxa 5", "boleto 300") — sem elas a frase
   // telegráfica caía na ajuda, porque número com substantivo desconhecido não
