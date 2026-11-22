@@ -448,6 +448,15 @@ export function parseCorrection(
     }
   }
 
+  // "Foi etanol" com um abastecimento na tela: o registro não guarda o tipo
+  // de combustível. Dizer isso é melhor que o menu de ajuda — e a proposta
+  // segue intacta.
+  if (pending.every(p => p.action.kind === 'fuel')
+    && /^\s*(?:(?:n[ãa]o[\s,]+)?(?:foi|era|é|e)\s+)?(?:de\s+)?(?:gasolina(?:\s+aditivada|\s+comum)?|etanol|[áa]lcool|diesel|gnv)\s*[.!]?\s*$/i.test(t)) {
+    plan.summary.push('O abastecimento não guarda o tipo de combustível, então a proposta continua igual.')
+    return plan
+  }
+
   // Cancelar tudo.
   if (/\b(?:cancela|cancelar|esquece|esquecer|deixa\s+pra\s+l[áa]|n[ãa]o\s+registra\s+(?:nada|isso\s+tudo))\b/.test(t)
     && !/\b(?:primeir|segund|terceir|[úu]ltim|s[óo]\s+)/.test(t)) {
@@ -496,7 +505,8 @@ export function parseCorrection(
     String.raw`|(?:(?:na\s+verdade|na\s+real|quer\s+dizer|queria\s+dizer|ou\s+melhor|melhor\s+dizendo|corrigindo|errei|me\s+enganei|foi\s+mal)\b[^\d]{0,12}(?:r\$)?\s*${NUMBER}${MIL})` +
     // A mensagem inteira é um número: com a proposta na tela isso só pode ser
     // o valor certo. Sem proposta, `parseCorrection` nem é chamada.
-    String.raw`|(?:^\s*(?:r\$)?\s*${NUMBER}${MIL}\s*(?:reais)?${REFORCO}\s*$)`,
+    // "Não, 280": o "não" seco na frente é o mesmo conserto.
+    String.raw`|(?:^\s*(?:(?:n[ãa]o|[nñ]|ops|opa|epa)[\s,.!]+)?(?:r\$)?\s*${NUMBER}${MIL}\s*(?:reais)?${REFORCO}\s*$)`,
     'i',
   )
   const vm = t.match(valueRe)

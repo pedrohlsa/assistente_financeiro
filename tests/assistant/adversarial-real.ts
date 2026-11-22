@@ -9123,6 +9123,21 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('GR-correcao-de-origem-com-grafia', t2.response.actions.map(a => a.action), 'origem "Casa 2" como no histórico',
         !temCasa2 || (t2.response.actions[0]?.action as any)?.origin === 'Casa 2'))
     }
+    {
+      // "Não, 280" com a receita na tela não era entendido; "foi etanol" com
+      // um abastecimento caía no menu de ajuda.
+      const moto = motoristaRico(hoje)
+      const doisTurnos = async (a: string, b: string) => {
+        const t1 = await orchestrate({ state: moto, message: a, today: todayISO(), remoteEnabled: false })
+        const pend = t1.response.actions.map((p, i) => ({ id: p.id || `p${i}`, action: p.action, engine: 'local' as const, confidence: 'high' as const }))
+        return orchestrate({ state: moto, message: b, today: todayISO(), remoteEnabled: false, pending: pend, focus: t1.focus })
+      }
+      const v = await doisTurnos('fiz 250', 'não, 280')
+      out.push(result('CR-nao-virgula-valor', v.response.actions.map(a => a.action), 'R$ 280', (v.response.actions[0]?.action as any)?.amount === 280))
+      const e = await doisTurnos('abasteci 100', 'foi etanol')
+      out.push(result('CR-tipo-de-combustivel', e.response.reply, 'explica e mantém a proposta',
+        (e.response.actions[0]?.action as any)?.amount === 100 && /tipo de combustível/.test(e.response.reply)))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))
