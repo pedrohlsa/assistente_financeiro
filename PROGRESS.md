@@ -7153,3 +7153,18 @@ repositório inteiro depois disso: nenhum outro caractere de controle.
 
 Pendente desta leva: "quanto gastei hoje?" com uma despesa ainda na tela não
 lembra que ela não foi confirmada.
+
+Fim da segunda janela (depois de `34af349`):
+
+- **Rascunho aberto não engole o relato seguinte.** Depois de "recebi meu salário" → "qual foi o valor?", "gastei com uber 25 e ifood 40" virava R$ 25 de salário. "Recebi 3500" continua respondendo o rascunho (`RD-`).
+- **Sem divisão por plataforma do que não é por plataforma.** "Quanto rendeu a uber por hora" dividia a Uber pelas horas de todas as plataformas e chamava de dado real. Agora explica por que não calcula. "Qual app paga melhor" e "vale a pena rodar de 99 ou uber?" mostram a divisão por plataforma. "Fiz 200 na uber em 5 horas" guarda as horas (`PH-`).
+- **Dívida e investimento.**
+  - "Tô endividado?" começa por sim ou não.
+  - "Devo quitar o cartão ou guardar?" mostra os dois lados sem inventar taxa.
+  - "Consigo pagar tudo esse mês?" é a cobertura pelo saldo.
+  - "Quanto pago de juros" diz que juros não são separados (`DV-`).
+  - Pedido de recomendação de investimento é recusado no aparelho (o app não é consultor) e não vai à IA remota.
+  - "Investi 1000 no tesouro" vira reserva (`IV-`).
+- Mantido de propósito: "gastei 45 de gás" pergunta "cozinha ou GNV?" em todos os perfis. Autônomo também tem carro a GNV. Uma tentativa de remover a pergunta foi revertida pelos casos `crit-gas`/`gas-0x`.
+
+Gates em `956ac72` (antes destes três lotes): `npm test` (736, 1.524, 151), typecheck, typecheck:api, test:money, build sem `sk-`, rubrica 0 PERIGOSA / 0 RUIM e a matriz de oito datas. Depois, `npm test` passou em `b5c114c` com 1.531 regressões. **NOT READY**.
