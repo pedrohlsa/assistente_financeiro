@@ -6992,8 +6992,11 @@ item tem bloco próprio em `tests/assistant/adversarial-real.ts`.
   par. Agora é um abastecimento de R$ 100 a R$ 3,99/L. "Enchi o tanque, 250"
   caía na ajuda; o hodômetro gerava "R$ 85.400 mencionado"
   (`AB-etanol-a-preco`, `AB-enchi-o-tanque`, `AB-hodometro-nao-e-dinheiro`).
+- Assinaturas: "assinei o youtube premium" gravava o verbo; "cancelei a
+  netflix" caía na ajuda e agora diz onde encerrar; "quanto gasto com
+  assinaturas" sem registro dizia "R$ 0,00 (0 registros — dado real)" (`AS-`).
 
-Gates (relógio 2026-09-15): 736/736 corpus, 1.400/1.400 adversariais, 151/151
+Gates (relógio 2026-09-15): 736/736 corpus, 1.404/1.404 adversariais, 151/151
 invariantes, mutações, fuzz, ditado e remoto offline; typecheck,
 typecheck:api e rubrica (0 perigosa, 0 ruim). `test:calendario` verde depois
 de cada lote. Sem push, merge, deploy, APK ou DeepSeek. **NOT READY** até
