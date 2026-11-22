@@ -7115,3 +7115,41 @@ Sondas por perfil, cada defeito com regressão antes da correção:
   - "IPTU da casa 2" sem "Da".
 
 O invariante de preferência passou a ensinar "suco" em vez de "gasosa", que agora é nativa.
+
+Continuação da segunda janela (depois de `4fcd62c`):
+
+- **Pergunta pendente não engole o próximo lançamento.** Depois de "você
+  devolveu os R$ 100?" ou "em qual dessas datas?", um relato novo ("gastei
+  50 no mercado", "recebi 200 do João") repetia a pergunta, e o dinheiro novo
+  se perdia. O fato novo derruba a pergunta e é lido do zero; "sim", "não" e
+  a data continuam respondendo (`PQ-`).
+- **Pergunta não edita a proposta.** "O que tem na fatura do Inter?", com o
+  pagamento do Nubank na tela, trocava o cartão; mensagem que começa com
+  palavra de pergunta não entra no leitor de correção (`CQ-`). Com proposta
+  na tela, "qual a categoria?" explica a categoria dela.
+- **Conferência não é lançamento (regra 33a).** "Rodei 30 mil km esse ano?"
+  propunha 30.000 km de trabalho hoje; "gastei 500 esse mês?" propunha uma
+  despesa descrita "Esse mês". Agora viram a consulta do período (`CF-`).
+- **Período.** "Desde segunda" e "de sexta pra cá" vão até hoje; "nessa
+  quinzena" é a metade corrente; "no dia 4 do mês passado" é aquele dia; a DSL
+  ganhou o agrupamento `monthday` ("qual dia do mês eu mais gasto"), e as
+  linhas de ranking dizem o período (`PD-`, `DM-`).
+- **Período do dia.** O app guarda a hora do REGISTRO, não do fato: "quanto
+  ganhei de manhã" e "ontem à tarde" respondem o dia inteiro e dizem isso
+  (`PDIA-`).
+- **Sem dado, sem número.** "Como tá meu mês" e "quanto ganhei" com o mês
+  vazio diziam "R$ 0,00" como conclusão (regra 43; `VZ-`).
+- **Valores.** "Comprei 2 pizzas de 45" virava R$ 2,00 e agora pergunta se
+  é cada ou total; "12,50+8" é um valor só, via `parseMoney`; "a casa 2 pagou
+  1200 mas atrasou 3 dias" não pede para lançar os "3 dias" (`QT-`, `DU-`).
+- **Veículo.** "Meu carro tá com 207 mil km" é hodômetro; hodômetro menor que
+  o registrado avisa na proposta; "quanto custa meu carro por mês" chega ao
+  custo do veículo (`VC-`).
+- **Abreviação.** "c" é "com" ("gastei qnto c mercado").
+
+Lição de processo: um script Python sem string raw gravou `\b` como
+backspace (0x08) em `period.ts` — o caso exato da regra 59. Varredura do
+repositório inteiro depois disso: nenhum outro caractere de controle.
+
+Pendente desta leva: "quanto gastei hoje?" com uma despesa ainda na tela não
+lembra que ela não foi confirmada.
