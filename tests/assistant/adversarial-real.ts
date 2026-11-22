@@ -9138,6 +9138,17 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('CR-tipo-de-combustivel', e.response.reply, 'explica e mantém a proposta',
         (e.response.actions[0]?.action as any)?.amount === 100 && /tipo de combustível/.test(e.response.reply)))
     }
+    {
+      // "Quanto ganhei na uber E NA 99 esse mês" e "ganhei mais na uber ou
+      // na 99?" respondiam só o total da Uber: a 99 sumia.
+      const moto = motoristaRico(hoje)
+      for (const [id, frase] of [['PL-uber-e-99', 'quanto ganhei na uber e na 99 esse mês'], ['PL-uber-ou-99', 'ganhei mais na uber ou na 99?']] as const) {
+        const r = (await turnoHoje(moto, frase)).reply
+        out.push(result(id, r, 'Uber e 99 lado a lado', /Uber/.test(r) && /99/.test(r.replace(/R\$\s*[\d.,]+/g, ''))))
+      }
+      const g = (await turnoHoje(moto, 'quanto gastei por categoria mês passado')).reply
+      out.push(result('PL-grupo-diz-o-periodo', g, 'cabeçalho agrupado com o período', /por categoria no mês passado/.test(g) || /Não tenho/.test(g)))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

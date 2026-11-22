@@ -497,7 +497,10 @@ function lerGrupo(t: string, driver: boolean): { valor: QueryGroup; matched: str
   if (achou) return achou
   if (driver) {
     const dr: [RegExp, QueryGroup][] = [
-      [/\bqual\s+plataforma\b|\bpor\s+plataforma\b|\buber\s+ou\s+(?:a\s+)?99\b|\b99\s+ou\s+(?:a\s+)?uber\b/, 'platform'],
+      // "Quanto ganhei na uber E NA 99", "ganhei mais na uber ou na 99?": as
+      // duas plataformas lado a lado. Só "uber ou 99" colado era lido; com a
+      // preposição no meio, a 99 sumia e a resposta era o total da Uber.
+      [/\bqual\s+plataforma\b|\bpor\s+plataforma\b|(?<!\b(?:tirando|sem|exceto|fora|excluindo|menos)\s+(?:[ao]\s+)?)\buber\b[^?]{0,25}?\b(?:e|ou|x|versus|vs)\s+(?:(?:n|d|pel)?[ao]\s+)?99\b|(?<!\b(?:tirando|sem|exceto|fora|excluindo|menos)\s+(?:[ao]\s+)?)\b99\b[^?]{0,25}?\b(?:e|ou|x|versus|vs)\s+(?:(?:n|d|pel)?[ao]\s+)?uber\b/, 'platform'],
     ]
     return primeira(t, dr)
   }
@@ -1532,7 +1535,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
 
   return {
     plan, confidence, recognized, fallbackCategory,
-    beyondLegacy: plan.showCardPurchases || (driver && (plan.metric === 'per-km' || plan.metric === 'per-hour' || plan.metric === 'per-trip') && !!lido) || alemDoAntigo(plan, !!lido || !!periodoComparadoDireto,
+    beyondLegacy: plan.showCardPurchases || (driver && plan.group === 'platform' && !!lido) || (driver && (plan.metric === 'per-km' || plan.metric === 'per-hour' || plan.metric === 'per-trip') && !!lido) || alemDoAntigo(plan, !!lido || !!periodoComparadoDireto,
       /\bpor\s+lancamentos?\b/.test(t0)),
     ...(PAYER_PRONOUN_QUERY.test(t0) ? {
       clarification: { question: 'De quem você quer consultar os recebimentos? Diga o nome da pessoa.', options: [] },

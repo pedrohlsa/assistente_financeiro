@@ -394,17 +394,19 @@ function cabecalho(r: AssistantQueryResult): string {
   if (p.group === 'none') {
     return `${nome} ${p.period.label}`.replace(/\s+/g, ' ').trim()
   }
+  // Grupo que não é de TEMPO precisa dizer o período: "Total recebido por
+  // plataforma: R$ 5.393,00" não dizia de quando era.
   switch (p.group) {
-    case 'category': return `${nome} por categoria`
+    case 'category': return `${nome} por categoria ${p.period.label}`.replace(/\s+/g, ' ').trim()
     case 'month': return `${nome} por mês`
     case 'week': return `${nome} por semana`
     case 'day': return `${nome} por dia`
     case 'weekday': return `${nome} por dia da semana`
-    case 'card': return `${nome} por cartão`
-    case 'origin': return `${nome} por origem`
+    case 'card': return `${nome} por cartão ${p.period.label}`.replace(/\s+/g, ' ').trim()
+    case 'origin': return `${nome} por origem ${p.period.label}`.replace(/\s+/g, ' ').trim()
     case 'goal': return 'Suas metas'
     case 'plan': return 'Seus parcelamentos'
-    case 'platform': return `${nome} por plataforma`
+    case 'platform': return `${nome} por plataforma ${p.period.label}`.replace(/\s+/g, ' ').trim()
     default: return nome
   }
 }
