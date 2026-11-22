@@ -1982,7 +1982,18 @@ Confirmar?`,
   }
 
   // ---- 4) A mensagem responde a uma pergunta pendente? -------------------
-  if (isDraftFresh(input.draft)) {
+  // Um RELATO novo, com verbo e valor próprios, não é a resposta do rascunho:
+  // depois de "recebi meu salário" → "qual foi o valor?", "gastei com uber 25
+  // e ifood 40" virava R$ 25 de salário, e as duas despesas sumiam.
+  const relatoNovo = isDraftFresh(input.draft)
+    && /^\s*(?:(?:eu|hoje|ontem|ja|já)\s+)?(?:gastei|paguei|recebi|ganhei|comprei|abasteci|vendi|transferi|guardei|rodei|tirei)\b/i.test(input.message)
+    && (() => {
+      // Uma única ação do MESMO tipo ("recebi 3500" depois de "recebi meu
+      // salário") ainda é a resposta do rascunho.
+      const novas = analyzeMessage(input.message, { driver: caps.isDriver, today }).clauses.flatMap(c => c.actions)
+      return novas.length > 1 || (novas.length === 1 && novas[0].kind !== input.draft!.partial.kind)
+    })()
+  if (isDraftFresh(input.draft) && !relatoNovo) {
     const placement = input.draft?.companion
     const before = input.pending?.filter(p => placement?.before.includes(p.id)) ?? []
     const after = input.pending?.filter(p => placement?.after.includes(p.id)) ?? []

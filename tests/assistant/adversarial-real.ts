@@ -9361,6 +9361,18 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
           r.actions.some((a: any) => a.kind === 'income' && a.amount === 200) && r.actions.some((a: any) => a.kind === 'work' && a.hours === 5)))
       }
     }
+    {
+      // Rascunho aberto ("recebi meu salário" → "qual foi o valor?") não pode
+      // engolir um relato novo; "recebi 3500" continua sendo a resposta.
+      const clt = buildState({ profile: 'clt' })
+      const r1 = await turnoHoje(clt, 'recebi meu salário')
+      const novo = await orchestrate({ state: clt, message: 'gastei com uber 25 e ifood 40', today: todayISO(), remoteEnabled: false, draft: (await orchestrate({ state: clt, message: 'recebi meu salário', today: todayISO(), remoteEnabled: false })).draft || undefined, focus: r1.focus })
+      out.push(result('RD-relato-novo-derruba-rascunho', novo.response.actions.map(a => a.action), 'duas despesas, sem salário de R$ 25',
+        novo.response.actions.length === 2 && novo.response.actions.every(a => a.action.kind === 'expense')))
+      const resp = await orchestrate({ state: clt, message: 'recebi 3500', today: todayISO(), remoteEnabled: false, draft: (await orchestrate({ state: clt, message: 'recebi meu salário', today: todayISO(), remoteEnabled: false })).draft || undefined })
+      out.push(result('RD-mesmo-tipo-responde-o-rascunho', resp.response.actions.map(a => a.action), 'salário de R$ 3.500',
+        (resp.response.actions[0]?.action as any)?.category === 'salario' && (resp.response.actions[0]?.action as any)?.amount === 3500))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))
