@@ -115,6 +115,8 @@ const PRECISO = String.raw`(?:preciso|tenho\s+que|tenho\s+de|devo|teria\s+que|pr
  */
 export function planoDeGuardar(t: string): PlanoDeGuardar | null {
   const consigo = /\b(?:consigo|conseguiria|vou\s+conseguir|da\s+para|e\s+possivel)\s+(?:completar|juntar|atingir|comprar|chegar|fechar|guardar)\b/.test(t)
+    // "Quero juntar 5 mil até dezembro, DÁ?": a mesma pergunta, com o "dá" no fim.
+    || /\b(?:quero|queria|preciso)\s+(?:juntar|guardar)\b[^?]*\b(?:da|consigo|rola|cabe)\s*\??\s*$/.test(t)
   // "QUANDO consigo comprar" pede a data, e quem a projeta já responde.
   if (consigo && !/\bquando\b|\b(?:esse|este|nesse|neste)\s+mes\b|\bmeta\s+(?:de\s+hoje|do\s+dia|diaria|do\s+mes|mensal)\b/.test(t)) {
     return { kind: 'meta', viavel: true }

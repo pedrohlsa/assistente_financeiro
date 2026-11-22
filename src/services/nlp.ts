@@ -1328,7 +1328,10 @@ function parseClause(input: string): ParsedAction[] {
   // ilegível e o usuário não sabe qual é qual.
   const goalRe = new RegExp(String.raw`(?:quero|queria|vou|preciso)\s+(?:comprar|juntar|guardar)(?:\s+(?:uma|um|para|pra|o|a))?\s*([\wçãõáéíóú\s]*?)\s*(?:de|por|no valor de)?\s*(?:r\$)?\s*${NUM}(?:\s*(?:reais|mil|conto[s]?))?(?:\s*(?:pra|para|pro|p\/)\s+(?:uma?\s+|o\s+|a\s+|meu\s+|minha\s+)?([a-zà-úçãõ][\wçãõáéíóú]*(?:\s+(?!(?:e|mas|que|ate|até|em|daqui)(?![\wà-ú]))[a-zà-úçãõ][\wçãõáéíóú]*){0,2}))?(?:\s*em\s*(\d+)\s*(mes(?:es)?|dias?|semanas?))?`, 'i')
   const g = text.match(goalRe)
-  if (g && !m) {
+  // "Quero juntar 5 mil até dezembro, DÁ?": a pergunta é se cabe — criar a
+  // meta respondia outra coisa (regra 33a: pergunta com valor não vira ação).
+  const perguntaSeDa = /(?:\b(?:d[áa]|consigo|rola|ser[áa]\s+que|tem\s+como|cabe)\s*\?|\?\s*$)/i.test(text)
+  if (g && !m && !perguntaSeDa) {
     let target = parseNum(g[2])
     if (/(\d+(?:[.,]\d+)?)\s*mil/.test(text)) target = target < 100 ? target * 1000 : target
     let months: number | undefined

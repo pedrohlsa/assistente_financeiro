@@ -16,7 +16,7 @@ import { buildCapabilities } from '../assistant/capabilities'
 import type { OrchestratorInput } from '../assistant/orchestrator'
 import type { RemoteConversationContext } from '../assistant/conversation/remoteContext'
 import {
-  addDays, dueLabel, fmtBRL, fmtNum, fromISO, monthKey, todayISO, toISO, daysInMonth, parseMoney, daysBetween } from '../utils/format'
+  addDays, dueLabel, fmtBRL, fmtNum, fromISO, monthKey, todayISO, toISO, daysInMonth, parseMoney, daysBetween, MESES_PT_BR } from '../utils/format'
 import { normalizeName, promptSafe, sentenceCase } from '../utils/text'
 import { MAX_COMPOSE_FACTS } from '../assistant/grounding'
 import { MARGEM_EMPATE } from '../assistant/query/answer'
@@ -1411,12 +1411,14 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     if (valorDito) {
       const alvo = parseMoney(valorDito[1]) * (valorDito[2] ? 1000 : 1)
       if (alvo > 0) {
-        const st30 = periodStats(s, addDays(todayISO(), -30), addDays(todayISO(), -1))
-        if (st30.days === 0) return { text: `Para juntar ${fmtBRL(alvo)} eu preciso do seu ritmo, e ainda não há lançamentos nos últimos 30 dias. Registre seus ganhos e gastos que eu projeto.` }
-        if (st30.profit <= 0) return { text: `Nos últimos 30 dias saiu mais do que entrou (déficit de ${fmtBRL(-st30.profit)}), então não dá para projetar quando você junta ${fmtBRL(alvo)} pelo que sobra. `
-          + `Separando um valor fixo: ${[500, 1000].map(v => `${fmtBRL(v)} por mês levam ${Math.ceil(alvo / v)} meses`).join('; ')}.` }
-        const meses = Math.ceil(alvo / st30.profit)
-        return { text: `Nos últimos 30 dias sobraram ${fmtBRL(st30.profit)} (dado real). Guardando tudo o que sobra nesse ritmo, ${fmtBRL(alvo)} levam cerca de ${meses} ${meses === 1 ? 'mês' : 'meses'} (estimativa). Guardando metade, cerca de ${Math.ceil(alvo / (st30.profit / 2))} meses.` }
+        // Mesma régua de "consigo juntar X até dezembro?" (`sobraMedia`).
+        const sobra = sobraMedia(s)
+        const fixo = `Separando um valor fixo: ${[500, 1000].map(v => `${fmtBRL(v)} por mês levam ${Math.ceil(alvo / v)} meses`).join('; ')}.`
+        if (!sobra) return { text: `Para juntar ${fmtBRL(alvo)} eu preciso de um mês completo registrado para medir o quanto sobra. ${fixo}` }
+        const quando = sobra.meses === 1 ? 'no último mês completo' : `nos últimos ${sobra.meses} meses completos`
+        if (sobra.media <= 0) return { text: `${quando[0].toUpperCase() + quando.slice(1)} não sobrou dinheiro (média de ${fmtBRL(sobra.media)} por mês), então não dá para projetar quando você junta ${fmtBRL(alvo)} pelo que sobra. ${fixo}` }
+        const meses = Math.ceil(alvo / sobra.media)
+        return { text: `${quando[0].toUpperCase() + quando.slice(1)} sobraram em média ${fmtBRL(sobra.media)} por mês. Guardando tudo o que sobra nesse ritmo, ${fmtBRL(alvo)} levam cerca de ${meses} ${meses === 1 ? 'mês' : 'meses'}; guardando metade, cerca de ${Math.ceil(alvo / (sobra.media / 2))}. É uma estimativa: o que sobrou antes não garante o que vai sobrar.` }
       }
     }
     const ativas = s.goals.filter(g => !g.done)
@@ -2284,6 +2286,25 @@ function respostaDePlano(s: AppState, t: string, plano: PlanoDeGuardar, driverMo
     return { text: `Para juntar ${fmtBRL(plano.valor)}, contando de agora e sem o que você já tem guardado: ${depositosAte(meses).replace(/^É|^São/, m => m.toLowerCase())}, de ${fmtBRL(porMesAcima(plano.valor, meses.length))} por mês.` }
   }
   const meta = metaCitada(s, t)
+  // "Consigo juntar 5 mil até dezembro?": sem meta citada, o VALOR dito é o
+  // alvo. Antes: "não encontrei essa meta" — ou, com "quero … dá?", uma meta
+  // "Objetivo" criada no lugar da resposta.
+  const valorDoPlano = !meta ? t.match(/\b(?:juntar|guardar|ter|completar)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)\s*(mil|k)?\b/) : null
+  if (!meta && valorDoPlano) {
+    const valor = Number(valorDoPlano[1].replace(/\.(?=\d{3}\b)/g, '').replace(',', '.')) * (valorDoPlano[2] ? 1000 : 1)
+    const meses = mesesAtePrazo(t, hoje)
+    if (valor > 0 && meses) {
+      const mensal = porMesAcima(valor, meses.length)
+      // A MESMA régua da pergunta sobre uma meta cadastrada (`sobraMedia`):
+      // com duas réguas, o mesmo valor "dava" por uma resposta e não pela outra.
+      const sobra = sobraMedia(s)
+      const quando = sobra ? (sobra.meses === 1 ? 'do último mês completo' : `dos últimos ${sobra.meses} meses completos`) : ''
+      const lead = !sobra ? 'Depende do quanto sobra por mês, e ainda não tenho um mês completo para comparar.'
+        : mensal <= sobra.media + 0.009 ? `Sim, no ritmo ${quando}: sobraram em média ${fmtBRL(sobra.media)} por mês.`
+          : `Não no ritmo ${quando}: sobraram em média ${fmtBRL(sobra.media)} por mês — faltariam ${fmtBRL(round2(mensal - Math.max(sobra.media, 0)))} por mês.`
+      return { text: `${lead}\n\nPara juntar ${fmtBRL(valor)}, contando de agora e sem o que você já tem guardado: ${depositosAte(meses).replace(/^É|^São/, m => m.toLowerCase())}, de ${fmtBRL(mensal)} por mês. É uma estimativa: o que sobrou antes não garante o que vai sobrar. Nada foi registrado; para acompanhar, crie a meta: "quero juntar ${fmtNum(valor)} até ${MESES_PT_BR[Number(meses[meses.length - 1].split('-')[1]) - 1]}".` }
+    }
+  }
   if (!meta) {
     const ativas = (s.goals || []).filter(g => !g.done)
     if (!ativas.length) return null

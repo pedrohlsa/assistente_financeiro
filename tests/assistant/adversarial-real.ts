@@ -9074,6 +9074,16 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const dez = (await turnoHoje(rico, 'em quanto tempo eu junto 10 mil')).reply.replace(/\u00a0/g, ' ')
       out.push(result('JM-valor-dito-nao-e-meta', dez, 'projeta R$ 10.000, sem citar outra meta',
         /R\$ 10\.000,00/.test(dez) && !rico.goals.some(g => dez.includes(`"${g.name}"`)) && !/resultado de -/.test(dez)))
+      // "Quero juntar 5 mil até dezembro, DÁ?" criava a meta "Objetivo" em vez
+      // de responder; "consigo juntar 5 mil até dezembro?" dizia "não encontrei
+      // essa meta". A régua é a mesma da meta cadastrada.
+      for (const [id, frase] of [['JM-quero-juntar-da', 'quero juntar 5 mil até dezembro, dá?'], ['JM-consigo-juntar-valor', 'consigo juntar 5 mil até dezembro?']] as const) {
+        const r = await turnoHoje(rico, frase)
+        out.push(result(id, r, 'sim/não com o valor por mês, sem criar meta',
+          !r.actions.length && /^(Sim|Não|Depende)/.test(r.reply) && /R\$ 5\.000,00/.test(r.reply.replace(/\u00a0/g, ' ')) && !/não encontrei essa meta/i.test(r.reply)))
+      }
+      const cria = await turnoHoje(rico, 'quero juntar 5 mil até dezembro')
+      out.push(result('JM-sem-pergunta-continua-criando-meta', cria.actions, 'proposta de meta', (cria.actions[0] as any)?.kind === 'goal'))
       const moto = (await turnoHoje(rico, 'quando vou conseguir comprar uma moto')).reply
       const temMoto = rico.goals.some(g => /moto/i.test(g.name))
       out.push(result('JM-coisa-sem-meta', moto, 'diz que não há meta Moto', temMoto || /não tem meta chamada Moto/.test(moto)))
