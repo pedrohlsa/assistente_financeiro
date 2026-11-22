@@ -9068,6 +9068,16 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const g = await turnoHoje(moto, 'botei 100 de gasosa')
       out.push(result('UP-gasosa-e-abastecimento', g.actions, 'abastecimento de R$ 100', g.actions.length === 1 && (g.actions[0] as any).kind === 'fuel'))
     }
+    {
+      // "Em quanto tempo eu junto 10 mil" respondia sobre a meta Notebook;
+      // "comprar uma moto" sem meta Moto também caía na primeira meta.
+      const dez = (await turnoHoje(rico, 'em quanto tempo eu junto 10 mil')).reply.replace(/\u00a0/g, ' ')
+      out.push(result('JM-valor-dito-nao-e-meta', dez, 'projeta R$ 10.000, sem citar outra meta',
+        /R\$ 10\.000,00/.test(dez) && !rico.goals.some(g => dez.includes(`"${g.name}"`)) && !/resultado de -/.test(dez)))
+      const moto = (await turnoHoje(rico, 'quando vou conseguir comprar uma moto')).reply
+      const temMoto = rico.goals.some(g => /moto/i.test(g.name))
+      out.push(result('JM-coisa-sem-meta', moto, 'diz que não há meta Moto', temMoto || /não tem meta chamada Moto/.test(moto)))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

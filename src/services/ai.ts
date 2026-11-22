@@ -1404,7 +1404,26 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     || /\bem\s+quanto\s+tempo\b[^?]*\b(?:compro|consigo|junto|chego|atinjo|bato)\b/.test(t) || /quando.*\bmetas?\b/.test(t) || /quanto\s+falta\s+(?:para|pra)\s+(?:a\s+|o\s+|minha\s+|meu\s+)?meta\b/.test(t)) {
     // O nome passa pela MESMA normalização da pergunta: "Câmera" com acento
     // nunca aparecia em "quanto falta pra camera", e a resposta era a primeira meta.
-    const goal = s.goals.find(g => !g.done && t.includes(normalizeQuestion(g.name).split(' ')[0])) || s.goals.filter(g => !g.done)[0]
+    const nomeada = s.goals.find(g => !g.done && t.includes(normalizeQuestion(g.name).split(' ')[0]))
+    // "Em quanto tempo eu junto 10 mil": o alvo é o VALOR dito, não a primeira
+    // meta cadastrada — a resposta falava do Notebook.
+    const valorDito = !nomeada ? t.match(/\b(?:junt(?:o|ar)|guard(?:o|ar)|chego\s+(?:em|a|n[oa]s?)|ter)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*(mil|k)?\b/) : null
+    if (valorDito) {
+      const alvo = parseMoney(valorDito[1]) * (valorDito[2] ? 1000 : 1)
+      if (alvo > 0) {
+        const st30 = periodStats(s, addDays(todayISO(), -30), addDays(todayISO(), -1))
+        if (st30.days === 0) return { text: `Para juntar ${fmtBRL(alvo)} eu preciso do seu ritmo, e ainda não há lançamentos nos últimos 30 dias. Registre seus ganhos e gastos que eu projeto.` }
+        if (st30.profit <= 0) return { text: `Nos últimos 30 dias saiu mais do que entrou (déficit de ${fmtBRL(-st30.profit)}), então não dá para projetar quando você junta ${fmtBRL(alvo)} pelo que sobra. `
+          + `Separando um valor fixo: ${[500, 1000].map(v => `${fmtBRL(v)} por mês levam ${Math.ceil(alvo / v)} meses`).join('; ')}.` }
+        const meses = Math.ceil(alvo / st30.profit)
+        return { text: `Nos últimos 30 dias sobraram ${fmtBRL(st30.profit)} (dado real). Guardando tudo o que sobra nesse ritmo, ${fmtBRL(alvo)} levam cerca de ${meses} ${meses === 1 ? 'mês' : 'meses'} (estimativa). Guardando metade, cerca de ${Math.ceil(alvo / (st30.profit / 2))} meses.` }
+      }
+    }
+    const ativas = s.goals.filter(g => !g.done)
+    const goal = nomeada || (ativas.length === 1 ? ativas[0] : undefined)
+    const coisa = !nomeada ? t.match(/\b(?:comprar|compro|juntar\s+pra|juntar\s+para)\s+(?:o\s+|a\s+|um\s+|uma\s+|meu\s+|minha\s+)?([a-z]{3,})/)?.[1] : undefined
+    if (!goal && coisa) return { text: `Você não tem meta chamada ${sentenceCase(coisa)}${ativas.length ? ` — suas metas são ${listaDeNomes(ativas.map(g => g.name))}` : ''}. Para criar, diga o valor e o prazo, por exemplo: "quero comprar ${coisa === 'moto' ? 'uma moto' : coisa} de 15000 em 12 meses".` }
+    if (!goal && ativas.length > 1) return { text: `De qual meta? Você tem ${listaDeNomes(ativas.map(g => g.name))}.` }
     if (!goal) return { text: 'Você ainda não tem metas de compra cadastradas. Diga algo como "quero comprar um celular de 5000 em 6 meses" que eu crio para você.' }
     const remaining = goal.target - goal.saved
     const avg = avgDailyProfit(s)
@@ -1413,7 +1432,7 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
       const st30 = periodStats(s, addDays(todayISO(), -30), addDays(todayISO(), -1))
       const motivo = st30.days === 0
         ? 'Ainda não tenho histórico de ganhos para projetar uma data. Registre seus dias que eu te digo quando chega lá.'
-        : `Nos últimos 30 dias saiu mais do que entrou (resultado de ${fmtBRL(st30.profit)}), então não dá para projetar uma data pelo que sobra. `
+        : `Nos últimos 30 dias saiu mais do que entrou (déficit de ${fmtBRL(-st30.profit)}), então não dá para projetar uma data pelo que sobra. `
           + `Se você já sabe quanto vai guardar, pergunte "se eu guardar 500 por mês, quando chego no ${goal.name.toLowerCase()}?" que eu simulo.`
       return {
         text: `Meta "${goal.name}": você já juntou ${fmtBRL(goal.saved)} de ${fmtBRL(goal.target)} — faltam ${fmtBRL(remaining)} (dado real).\n\n` + motivo,
