@@ -8250,6 +8250,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('SG-cade', cade, 'para onde foi (por categoria)', /categoria|Obra/.test(cade) && !/Posso te ajudar/.test(cade)))
   }
 
+  // Abastecimento: "100 de etanol a 3,99" virava dois abastecimentos (R$ 100
+  // e R$ 3,99); "enchi o tanque, 250" caía na ajuda; o hodômetro gerava "R$
+  // 85.400 mencionado".
+  {
+    const st = buildState({ profile: 'driver' })
+    const a = await orchestrate({ state: st, message: 'abasteci 100 de etanol a 3,99', today: hoje, remoteEnabled: false })
+    const fa: any[] = a.response.actions.map(x => x.action)
+    out.push(result('AB-etanol-a-preco', fa, 'um abastecimento de 100 a 3,99/L', fa.length === 1 && fa[0].amount === 100 && fa[0].pricePerLiter === 3.99))
+    const t = await turnoHoje(st, 'enchi o tanque, 250')
+    out.push(result('AB-enchi-o-tanque', t.actions, 'abastecimento 250', t.actions.some((x: any) => x.kind === 'fuel' && x.amount === 250)))
+    const h = await turnoHoje(st, 'abasteci 150 e o hodômetro tá 85.400')
+    out.push(result('AB-hodometro-nao-e-dinheiro', h.reply, 'sem "R$ 85.400 mencionado"', !/mencionou/.test(h.reply) && h.actions.some((x: any) => x.kind === 'fuel' && x.amount === 150)))
+  }
+
   // "Atualiza meu saldo pra 5000" respondia o saldo antigo; "meu saldo tá
   // certo?" só repetia o número.
   {

@@ -328,6 +328,11 @@ export const DECIMO_TERCEIRO = /(?<![\d.,])13\s*[º°o](?:\s+sal[áa]rio)?(?![\w
  * virava uma despesa de R$ 3,00. "Mais ou menos 200" deixava "Ou menos" na
  * descrição. Os dois saem antes da leitura dos valores.
  */
+/** "Enchi o tanque, 250": abastecimento com o valor depois. Caía na ajuda. */
+export function tanqueCheio(text: string): string {
+  return text.replace(/(?<![\wÀ-ÿ])(?:enchi|completei)\s+o\s+tanque\s*[,:]?\s*(?:com\s+|de\s+|por\s+|foi\s+|deu\s+)?(?=(?:r\$\s*)?\d)/gi, 'abasteci ')
+}
+
 export function contagemDeItens(text: string): string {
   return text
     .replace(/(?<![\d.,])(\d{1,2})\s+(?:contas|coisas|itens|boletos|compras|gastos|despesas|lan[çc]amentos)\s*[:,-]\s*/gi, '')
@@ -355,7 +360,7 @@ function valorNoFim(input: string): string {
 }
 
 export function parseNatural(input: string): ParsedAction[] {
-  input = verboDeConsumo(cobrancaRecebida(fontePagou(mePagou(vendaPorUnidade(valorNoFim(voltaSemUnidade(contagemDeItens(input.replace(DECIMO_TERCEIRO, 'décimo terceiro'))).replace(FRACAO_DE, 'parte')))))))
+  input = verboDeConsumo(cobrancaRecebida(fontePagou(mePagou(vendaPorUnidade(valorNoFim(voltaSemUnidade(contagemDeItens(tanqueCheio(input.replace(DECIMO_TERCEIRO, 'décimo terceiro')))).replace(FRACAO_DE, 'parte')))))))
   // Operações de cartão são analisadas na frase INTEIRA antes de qualquer
   // quebra: "passei 2000 em 5 vezes E RECEBI 1850" tem um verbo de comando no
   // meio, e cortar ali transformava uma entrada financiada numa receita de
@@ -1306,7 +1311,15 @@ function parseClause(input: string): ParsedAction[] {
     const amount = f && !fSaoLitros ? parseNum(f[1])
       : precoDoLitro ? Math.round(precoDoLitro * liters! * 100) / 100
         : porValor ? parseNum(porValor[1]) : undefined
-    actions.push({ kind: 'fuel', amount, liters, ...(precoDoLitro ? { pricePerLiter: precoDoLitro } : {}) })
+    // "Abasteci 100 de etanol A 3,99": o total e o preço do litro. Os litros
+    // saem da conta; antes o 3,99 virava um segundo abastecimento.
+    const precoDepoisDoTotal = f && !fSaoLitros && !liters
+      ? text.slice((f.index || 0) + f[0].length).match(new RegExp(String.raw`^\s*(?:reais\s+)?(?:(?:de|d[eo])\s+(?:gasolina|etanol|[áa]lcool|diesel|gnv)\s+)?a\s+(?:r\$\s*)?(\d{1,2}[.,]\d{1,3})(?:\s*(?:o|por|cada)\s+litro)?(?![\d.,])`, 'i'))
+      : null
+    const precoUnit = precoDepoisDoTotal ? parseNum(precoDepoisDoTotal[1]) : NaN
+    if (amount && precoUnit > 0 && precoUnit < 20) {
+      actions.push({ kind: 'fuel', amount, liters: Math.round((amount / precoUnit) * 100) / 100, pricePerLiter: precoUnit })
+    } else actions.push({ kind: 'fuel', amount, liters, ...(precoDoLitro ? { pricePerLiter: precoDoLitro } : {}) })
   }
   // Abastecimento lido pelos LITROS também é o lançamento da frase: sem esta
   // trava, a leitura genérica de despesa ainda criava "R$ 40,00 — Litros a 5".

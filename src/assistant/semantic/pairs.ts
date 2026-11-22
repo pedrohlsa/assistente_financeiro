@@ -79,6 +79,9 @@ function tokeniza(message: string): Item[] | null {
     if (/^\d+(?:[.,]\d+)*$/.test(t)) {
       const valor = parseMoney(t)
       if (!(valor > 0)) return null
+      // "Etanol A 3,99": valor depois de "a" é preço unitário, não um par —
+      // virava um segundo abastecimento de R$ 3,99. "A 99" é a plataforma.
+      if (anterior === 'a' && t !== '99') return null
       if (t === '99') {
         // Com artigo antes ("a 99", "na 99") é a plataforma, sem dúvida.
         if (ARTIGO.test(anterior)) itens.push({ k: 'ent', ent: renda('99') })

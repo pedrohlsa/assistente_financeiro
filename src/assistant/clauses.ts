@@ -8,7 +8,7 @@
 import type { ParsedAction } from '../models/types'
 import type { AssistantConfidence, AssistantIntent, FinancialEvent } from './contracts'
 import { guessCategory } from '../data/categories'
-import { cleanDescription, contagemDeItens, DECIMO_TERCEIRO, vendaPorUnidade, voltaSemUnidade, DISTANCE_ON_FOOT, financedCardMentions, gruposDeCorrida, INCOME_PLATFORM_PREFIX, looksRecurring, parseNaturalFull, NEXT_RIDE_DISTANCE, RIDE_COMPARISON_REQUEST, RIDE_CONDITIONAL, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE, UMA_CORRIDA_NOMEADA } from '../services/nlp'
+import { cleanDescription, contagemDeItens, tanqueCheio, DECIMO_TERCEIRO, vendaPorUnidade, voltaSemUnidade, DISTANCE_ON_FOOT, financedCardMentions, gruposDeCorrida, INCOME_PLATFORM_PREFIX, looksRecurring, parseNaturalFull, NEXT_RIDE_DISTANCE, RIDE_COMPARISON_REQUEST, RIDE_CONDITIONAL, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE, UMA_CORRIDA_NOMEADA } from '../services/nlp'
 import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
@@ -1339,7 +1339,8 @@ function unaccountedMoney(clause: AnalyzedClause): number[] {
   // vira um abastecimento de R$ 235,60, e os 5,89 estão nele.
   const represented = clause.actions.flatMap(a => {
     const v: any = a
-    return [v.amount ?? v.cost, v.pricePerLiter]
+    // O hodômetro também é número dito e guardado ("o hodômetro tá 85.400").
+    return [v.amount ?? v.cost, v.pricePerLiter, v.odometer, v.value]
   }).filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
   if (clause.unpaidRideAmount !== undefined) represented.push(clause.unpaidRideAmount)
   // "3 corridas de 40 e uma de 25": quantidade e valor de cada grupo estão no
@@ -1382,7 +1383,7 @@ export function analyzeMessage(
 ): MessageAnalysis {
   const today = opts?.today || todayISO()
   // "Meu 13º caiu 1600": o 13 é o NOME do salário extra, não R$ 13,00.
-  const original = contagemDeItens(vendaPorUnidade(voltaSemUnidade(input.trim().replace(DECIMO_TERCEIRO, 'décimo terceiro'))))
+  const original = tanqueCheio(contagemDeItens(vendaPorUnidade(voltaSemUnidade(input.trim().replace(DECIMO_TERCEIRO, 'décimo terceiro')))))
   // Números por extenso viram algarismos ANTES dos regex, para reaproveitar
   // todo o parser já testado em vez de duplicá-lo.
   const { text: normalized } = normalizeNumberWords(original)
