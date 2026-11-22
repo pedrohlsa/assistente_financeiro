@@ -42,6 +42,7 @@ import { respostaDeAtraso, respostaDeChegada, respostaDeProximaEntrada } from '.
 import { readInvoiceReference } from '../assistant/invoicePayment'
 import { findAllDates, findUnresolvedTemporalHint } from '../assistant/dates'
 import { currentMonthToDate, parsePeriod } from '../assistant/query/period'
+import { GASTO_CONTRA_GANHO } from '../assistant/query/parse'
 import { adaptiveEnabled, buildPersonalModel } from '../assistant/personalModel'
 import { catById } from '../data/categories'
 import { isDriver } from './profile'
@@ -1585,7 +1586,7 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   // se diz; caía no menu de ajuda. O aperto também mostra o que vence.
   const aperto = /(?:t[oô]|estou|to|tou)\s+(?:ferrad[oa]|fudid[oa]|lascad[oa]|quebrad[oa]|apertad[oa]|enrolad[oa]|no\s+sufoco|no\s+aperto|mal\s+de\s+grana|zerad[oa])\b/.test(t)
   if (aperto || /(?:t[oô]|estou|to)\s+(?:tendo|dando|com|ficando\s+(?:no|com))\s+(?:lucro|preju[ií]zo)|(?:t[oô]|estou|to)\s+(?:no|de)\s+(?:preju(?:[ií]zo)?|negativo|positivo)\b|(?:t[oô]|estou|to)\s+no\s+lucro|(?:t[oô]|estou)\s+no\s+(?:azul|vermelho)|quanto\s+sobrou\s*\??$|sobrou\s+quanto/.test(t)
-    || /(?:gastando|gasto|gastei)\s+mais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:ganho|ganhei|recebo|recebi|entra|faturo)/.test(t)) {
+    || GASTO_CONTRA_GANHO.test(t)) {
     const p = periodFromText(t, today)
     if (!p) return ajudaGenerica(driverMode)
     const st = periodStats(s, p.from, p.to, today)
@@ -1600,7 +1601,7 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     // - "tô no lucro?" e "tô no vermelho?" pedem sim/não com polaridade
     //   OPOSTA. Um "Sim" fixo respondia "sim, você está no vermelho" para quem
     //   tinha sobra — a resposta certa com o número certo, e ainda assim errada.
-    const perguntaNegativa = aperto || /vermelho|preju|no\s+negativo|gastando\s+mais|gasto\s+mais|gastei\s+mais/.test(t)
+    const perguntaNegativa = aperto || GASTO_CONTRA_GANHO.test(t) || /vermelho|preju|no\s+negativo/.test(t)
     const perguntaSimNao = perguntaNegativa || /lucro|azul/.test(t)
     const positivo = saldo > 0
     const prefixo = !perguntaSimNao || saldo === 0

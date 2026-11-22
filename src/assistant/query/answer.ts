@@ -251,6 +251,11 @@ export function composeAnswer(r: AssistantQueryResult): string {
     }
   } else if (TEMPO[p.group] && (p.metric === 'sum' || p.metric === 'net') && r.groups.length > 0) {
     linhas.push(...linhasPorTempo(r, selo))
+  } else if (p.metric === 'net' && p.group === 'none' && !p.comparePeriod && r.netParts && r.total < 0 && /^Resultado\b/.test(cabecalho(r))) {
+    // Regra 21: resultado negativo é DÉFICIT. "Resultado: -R$ 202,00" para
+    // "quanto sobrou?" deixava o sinal de menos fazer o trabalho da palavra.
+    const resto = cabecalho(r).replace(/^Resultado\s*/, '')
+    linhas.push(`Não sobrou: déficit de ${formatValue(-r.total, r.unit)} ${resto}${selo}.`)
   } else {
     linhas.push(`${cabecalho(r)}: ${formatValue(r.total, r.unit)}${selo}.`)
     if (p.group !== 'none' && r.groups.length) {

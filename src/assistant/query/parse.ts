@@ -216,6 +216,10 @@ export function looksLikeDataQuestion(input: string): boolean {
   // "Melhor horário pra rodar": o app não sabe a hora das corridas.
   if (/\b(?:melhor|pior)\s+(?:horario|hora|periodo|turno)\b/.test(t)) return false
   if (pedeCustoMensalDoVeiculo(input)) return false
+  // "Gastei mais do que ganhei esse mês?" compara SAÍDA com ENTRADA do mesmo
+  // período; a DSL lia "mais que" como comparação entre períodos e respondia
+  // "Não, ficou igual" comparando o mês com ele mesmo.
+  if (GASTO_CONTRA_GANHO.test(t)) return false
   if (pedeAteOSalario(t) || pedeFimDoMes(t) || guardarEsteMes(t) !== null || pedeReservaDeCaixa(t) || pedeContaQueAperta(t) || pedeTotalGuardado(t) || (fatura && !faturaDaJanela) || pedeAntecipacaoDeFatura(t)
     || pedeContasAPagar(t) || planoDeGuardar(t) || perguntaDeManutencao(t)
     || pedeContasFixas(t) || pedeSobraSemCombustivel(t) || pedeLimite(t)
@@ -504,6 +508,7 @@ const ANTERIOR = 'periodo-anterior'
 // "Fora do meu padrão" é desvio do que ele costuma gastar — comparação, não a
 // exclusão "fora o aluguel".
 const FORA_DO_PADRAO = /\b(?:fora|acima)\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:padrao|normal|comum|costume|media)\b/
+export const GASTO_CONTRA_GANHO = /\b(?:gastando|gasto|gastei|gastou|torrei|saiu|sai|saindo)\s+mais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:ganho|ganhei|recebo|recebi|entra|entrou|faturo|faturei|ganhando|recebendo|entrando)\b|\b(?:ganhei|ganho|recebi|recebo|entrou|entra|faturei)\s+menos\s+(?:do\s+)?que\s+(?:eu\s+)?(?:gasto|gastei|saiu|sai|paguei)\b/
 const CMP_IMPLICITA = /\b(?:pagando|rendendo|dando|pagou|rendeu)\s+(?:menos|mais|pior|melhor)\b|\b(?:gastando|torrando|gastei|torrei|gasto|gastamos)\s+(?:muito|demais|bastante|um\s+monte)\b|\b(?:fora|acima)\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:padrao|normal|comum|costume|media)\b|\b(?:estou|esta|ando|anda|tou)\s+(?:pior|melhor)\s+(?:de|em|com|no|na)\b|\baument(?:ou|aram|o)\b|\bcai(?:u|ram)\b|\bsubiu\b|\bdesceu\b|\bcresceu\b|\bdiminuiu\b|\bpiorou\b|\bmelhorou\b|\bdiferenca\b|\bmudou\b|\bmudancas?\b|\bque\s+antes\b|\bdo\s+que\s+antes\b|\bmais\s+(?:do\s+)?que\s+(?:eu\s+)?(?:gastava|ganhava|fazia)\b/
 
 /** "3 meses atrás" dentro de uma comparação = a MESMA janela, deslocada. */

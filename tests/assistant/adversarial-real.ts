@@ -8938,6 +8938,31 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('MD-meta-de-hoje-bateu-sim-ou-nao', r3, 'começa por sim ou não', /^(Sim|Ainda não)/.test(r3)))
   }
 
+  // "Gastei mais que ganhei esse mês?" virava comparação do mês com ele mesmo
+  // ("Não, ficou igual"). É saída contra entrada do MESMO período.
+  {
+    const rico = autonomoRico(hoje)
+    const inicio = `${hoje.slice(0, 7)}-01`
+    const mes = periodStats(rico, inicio, hoje)
+    const r1 = (await turnoHoje(rico, 'gastei mais que ganhei esse mês?')).reply
+    out.push(result('GG-gastei-mais-que-ganhei', r1, 'sim/não pelo sinal de entradas − saídas do mês',
+      !/ficou igual|exatamente o mesmo/.test(r1) && (mes.income === 0 && mes.expense === 0
+        ? /Não tenho nada registrado/.test(r1)
+        : r1.startsWith(mes.expense > mes.income ? 'Sim' : mes.expense < mes.income ? 'Não' : 'Este'))))
+    const r2 = (await turnoHoje(rico, 'ganhei menos do que gastei mês passado?')).reply
+    out.push(result('GG-ganhei-menos-que-gastei', r2, 'sim/não com entradas e saídas do mês passado',
+      /^(Sim|Não) — no mês passado entraram/.test(r2) || /Não tenho nada registrado/.test(r2)))
+    const s = buildState({ profile: 'other' })
+    const ini = `${hoje.slice(0, 7)}-01`
+    s.transactions = [
+      { id: 'gg1', type: 'income', amount: 1000, category: 'outros-in', date: ini, time: '10:00' } as any,
+      { id: 'gg2', type: 'expense', amount: 1200, category: 'outros-out', date: ini, time: '11:00' } as any,
+    ]
+    const r3 = (await turnoHoje(s, 'quanto sobrou esse mês')).reply.replace(/ /g, ' ')
+    out.push(result('GG-sobra-negativa-e-deficit', r3, 'déficit nomeado, sem "-R$"',
+      /déficit de R\$ 200,00/i.test(r3) && !/-R\$/.test(r3)))
+  }
+
   return out
 }
 
