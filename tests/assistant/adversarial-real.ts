@@ -2146,6 +2146,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       ['taxa-retida-na-99', 'ontem a 99 descontou 50 de taxa e caiu 380 na minha conta', addDays(TODAY, -1), '99'],
       ['taxa-retida-sem-valor', 'a 99 pagou 380 já com a taxa descontada', TODAY, '99'],
       ['taxa-retida-com-virgula', 'recebi 380 líquido da 99, descontada a taxa de 5', TODAY, '99'],
+      ['taxa-e-repasse-no-mesmo-relato', 'a 99 me pagou 400 com taxa de 20, caíram 380', TODAY, '99'],
+      ['repasse-caiu-ontem', 'a Uber repassou 430 bruto menos taxa de 50 e entraram 380 ontem', addDays(TODAY, -1), 'Uber'],
       ['saldo-da-plataforma', 'o saldo da Uber veio 380 líquido com a taxa já descontada', TODAY, 'Uber'],
     ] as const) {
       const r = await orchestrate({ state, today: TODAY, message, remoteEnabled: false })
@@ -2165,11 +2167,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const inconsistentFuel = await turn(state, 'ganhei 430 bruto e gastei 50 de gasolina, sobrou 400 líquido')
     out.push(result('A-plataforma-confere-liquido-e-preserva-gastos-proprios', [bad, distinct, fuel],
       'liquidação contraditória pede valor. Taxa paga à parte e combustível continuam saídas',
-      !bad.actions.length && bad.clarification?.field === 'reported-total'
+      !bad.actions.length && bad.clarification?.field === 'exact-amount'
         && distinct.actions.some(a => a.kind === 'income' && a.amount === 430 && !a.feeAlreadyWithheld)
         && distinct.actions.some(a => a.kind === 'expense' && a.amount === 50)
         && fuel.actions.length === 2 && !fuel.clarification
         && fuel.actions.some(a => a.kind === 'income' && a.amount === 430) && fuel.actions.some(a => a.kind === 'fuel' && a.amount === 50)))
+    const verifyPayout = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({
+      state, message, today: TODAY, remoteEnabled: false,
+      pendingClarification: prior?.response.mode === 'clarify' ? prior.response.clarification : undefined,
+    })
+    const unresolved = await verifyPayout('ontem a 99 me pagou 400 com taxa de 20, caíram 370')
+    const incomplete = await verifyPayout('ontem a 99 me pagou 400 com taxa de 20')
+    const [fixed, informed] = await Promise.all([verifyPayout('foi 380', unresolved), verifyPayout('380', incomplete)])
+    const mixed = await verifyPayout('a 99 me pagou 400 com taxa de 20, caíram 380 e gastei 25 no mercado')
+    out.push(result('A-plataforma-esclarece-repasse-e-preserva-data-e-taxa', [unresolved, incomplete, fixed, informed, mixed].map(r => r.response),
+      'corrige valor bruto/retido sem registrar duas vezes, conserva data anterior e mantém despesa separada',
+      [unresolved, incomplete].every(r => r.response.mode === 'clarify' && !r.response.actions.length)
+      && [fixed, informed].every(r => {
+        const [action] = r.response.actions.map(c => c.action)
+        return r.response.actions.length === 1 && action.kind === 'income' && action.amount === 380 && action.date === addDays(TODAY, -1)
+          && action.description === '99' && action.feeAlreadyWithheld && !shouldAsk99Fee(state, action)
+      }) && mixed.response.actions.map(c => c.action).some(a => a.kind === 'expense' && a.amount === 25)
+      && mixed.response.actions.length === 2 && state.transactions.length === 0))
     const netAlone = await turn(state, 'deu 200 limpo já com combustível')
     const netPlusFuel = await turn(state, 'fiz 200 limpo depois de 50 de combustível')
     const netAndGross = await turn(state, 'fiz 250 bruto e 200 limpo')

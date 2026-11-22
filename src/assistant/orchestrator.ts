@@ -1673,10 +1673,19 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const payout = readPlatformPayout(input.message)
     const reconciled = payout || reconcileSpokenTotals(input.message, today, isDriver(input.state.settings), caps.cardNames)
     const issue = reconciled && 'issue' in reconciled ? reconciled.issue : undefined
-    if (issue) return {
-      draft: null, keepPending: true, focus: input.focus,
-      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [],
-        reply: issue, clarification: { field: 'reported-total', question: issue, options: [] } },
+    if (issue) {
+      const platform = payout && 'description' in payout ? payout.description : undefined
+      const dates = platform ? findAllDates(input.message, today) : []
+      const [date] = dates
+      const pendingActions: ParsedAction[] | undefined = platform && caps.isDriver
+        && (!dates.length || (dates.length === 1 && date.kind === 'date'))
+        ? [{ kind: 'income', amount: 0, category: 'corridas', description: platform, reportedNet: true, feeAlreadyWithheld: true,
+          ...(date?.kind === 'date' ? { date: date.date } : {}) }] : undefined
+      return {
+        draft: null, keepPending: true, focus: input.focus,
+        response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [],
+          reply: issue, clarification: { field: pendingActions ? 'exact-amount' : 'reported-total', question: issue, options: [], pendingActions } },
+      }
     }
     if (payout && 'amount' in payout) {
       const result = await orchestrate({ ...input, message: payout.text, remoteEnabled: false })
