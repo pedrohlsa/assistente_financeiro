@@ -366,6 +366,12 @@ function chaveDe(row: QueryRow, plan: AssistantQueryPlan, state: AppState): { ke
       const d = fromISO(row.date).getDay()
       return { key: String(d), label: weekdayName(d) }
     }
+    // "Qual dia DO MÊS eu mais gasto": o dia do calendário somado entre meses
+    // (o aluguel do dia 5, o mercado do dia 10). Era respondido por dia da semana.
+    case 'monthday': {
+      const dia = fromISO(row.date).getDate()
+      return { key: String(dia).padStart(2, '0'), label: `dia ${dia}` }
+    }
     case 'month-half': {
       const dia = fromISO(row.date).getDate()
       return dia <= 15

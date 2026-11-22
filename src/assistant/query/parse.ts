@@ -464,6 +464,7 @@ function lerFonte(t: string, driver: boolean, metas: string[] = []): { valor: Fo
 function lerGrupo(t: string, driver: boolean): { valor: QueryGroup; matched: string } | null {
   const tabela: [RegExp, QueryGroup][] = [
     [/\bdia\s+da\s+semana\b/, 'weekday'],
+    [/\bdias?\s+do\s+mes\b(?!\s+(?:passado|que\s+vem|anterior))/, 'monthday'],
     // O "do mês" faz parte da expressão e precisa ser CONSUMIDO junto: sobrando
     // no texto, ele era lido como o período "este mês", e a pergunta comparava
     // as duas metades dentro de uma quinzena só.
@@ -879,6 +880,8 @@ function janelaParaGrupo(group: QueryGroup, hoje: string): QueryPeriod | null {
       return { from: addDays(hoje, -59), to: hoje, label: 'nos últimos 60 dias', grain: 'day' }
     case 'month-half':
       return { from: toISO(new Date(d.getFullYear(), d.getMonth() - 2, 1)), to: hoje, label: 'nos últimos 3 meses', grain: 'month' }
+    case 'monthday':
+      return { from: toISO(new Date(d.getFullYear(), d.getMonth() - 2, 1)), to: hoje, label: 'nos últimos 3 meses', grain: 'month' }
     default:
       return null
   }
@@ -1103,7 +1106,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
       period = janelaParaGrupo(group, hoje)
         || (habito ? { from: addDays(hoje, -89), to: hoje, label: 'nos últimos 90 dias', grain: 'day' as const } : currentMonthToDate(hoje))
       if (habito) periodoExplicito = true
-      if (group === 'month' || group === 'week' || group === 'day' || group === 'weekday' || group === 'month-half') {
+      if (group === 'month' || group === 'week' || group === 'day' || group === 'weekday' || group === 'month-half' || group === 'monthday') {
         // Janela ampliada por causa do agrupamento: perguntar "qual mês foi o
         // pior" olhando só o mês atual devolveria um ranking de um item só.
         periodoExplicito = true
@@ -1594,7 +1597,7 @@ const VOCABULARIO_DO_APP = /^(?:(?:meu|minha|meus|minhas|o|a|os|as)\s+)?(?:cart(
  * Uber ou 99?" é respondida pelo ritmo do motorista, medido no histórico dele).
  * Tomar a frente ali trocaria uma resposta melhor por uma pior.
  */
-const GRUPOS_NOVOS = new Set(['category', 'month', 'week', 'weekday', 'month-half', 'origin', 'goal', 'plan'])
+const GRUPOS_NOVOS = new Set(['category', 'month', 'week', 'weekday', 'month-half', 'monthday', 'origin', 'goal', 'plan'])
 
 /**
  * O plano usa algo que o roteador antigo COMPROVADAMENTE não expressa?

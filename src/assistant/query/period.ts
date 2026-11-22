@@ -177,6 +177,23 @@ export function parsePeriod(input: string, hoje = todayISO()): { period: QueryPe
   const ano = fromISO(hoje).getFullYear()
   const mesAtual = fromISO(hoje).getMonth()
 
+  // --- um DIA de um mês: "no dia 10 do mês passado", "dia 10 de agosto" ----
+  // O mês vencia o dia: a resposta era o mês inteiro, com rótulo honesto mas
+  // para outra pergunta.
+  const diaDoMes = t.match(new RegExp(String.raw`\b(?:no\s+)?dia\s+(\d{1,2})\s+(?:do\s+mes\s+passado|d[eo]\s+(${MES_RE}))(?:\s+de\s+(20\d{2}))?\b`))
+  if (diaDoMes) {
+    const dia = Number(diaDoMes[1])
+    let y = ano, mi = mesAtual - 1
+    if (diaDoMes[2]) {
+      mi = mesIndex(diaDoMes[2])
+      y = diaDoMes[3] ? Number(diaDoMes[3]) : (mi > mesAtual ? ano - 1 : ano)
+    } else if (mi < 0) { mi = 11; y = ano - 1 }
+    if (mi >= 0 && dia >= 1 && dia <= fromISO(ultimoDia(y, mi)).getDate()) {
+      const d = toISO(new Date(y, mi, dia))
+      return { period: P(d, d, `em ${fromISO(d).toLocaleDateString('pt-BR')}`, 'day', hoje), matched: diaDoMes[0] }
+    }
+  }
+
   // --- intervalo por mês: "desde março", "de março até junho" -----------
   // Precisa vir antes do mês isolado. Caso contrário, "desde março" virava
   // somente março e "de março até junho" ignorava silenciosamente a metade

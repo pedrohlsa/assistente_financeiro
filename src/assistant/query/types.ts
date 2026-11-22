@@ -167,11 +167,11 @@ export const QUERY_METRICS: QueryMetric[] = [
 
 export type QueryGroup =
   | 'none' | 'category' | 'origin' | 'card' | 'month' | 'week' | 'day'
-  | 'weekday' | 'month-half' | 'description' | 'goal' | 'plan' | 'platform'
+  | 'weekday' | 'month-half' | 'monthday' | 'description' | 'goal' | 'plan' | 'platform'
 
 export const QUERY_GROUPS: QueryGroup[] = [
   'none', 'category', 'origin', 'card', 'month', 'week', 'day',
-  'weekday', 'month-half', 'description', 'goal', 'plan', 'platform',
+  'weekday', 'month-half', 'monthday', 'description', 'goal', 'plan', 'platform',
 ]
 
 /**

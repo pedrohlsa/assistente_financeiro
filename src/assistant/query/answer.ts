@@ -357,7 +357,9 @@ function respostaDeRanking(r: AssistantQueryResult, top: QueryGroupResult): stri
     case 'month': return `O ${posicao} foi ${top.label}, com ${valor}`
     case 'week': return `A ${posicao} foi a ${top.label}, com ${valor}`
     case 'day': return `O ${posicao} foi ${top.label}, com ${valor}`
-    case 'weekday': return `${maiuscula(top.label)}, com ${valor}`
+    // O período vai junto: "Quarta-feira, com R$ 660" não dizia de quando.
+    case 'weekday': return `${maiuscula(top.label)}, com ${valor} ${p.period.label}`.replace(/\s+/g, ' ').trim()
+    case 'monthday': return `${maiuscula(top.label)}, com ${valor} ${p.period.label}`.replace(/\s+/g, ' ').trim()
     case 'description': return `Foi ${top.label}, de ${valor}`
     case 'card': return `${top.label}, com ${valor}`
     case 'goal': return `${top.label} — ${valor}`
@@ -402,6 +404,7 @@ function cabecalho(r: AssistantQueryResult): string {
     case 'week': return `${nome} por semana`
     case 'day': return `${nome} por dia`
     case 'weekday': return `${nome} por dia da semana`
+    case 'monthday': return `${nome} por dia do mês ${p.period.label}`.replace(/\s+/g, ' ').trim()
     case 'card': return `${nome} por cartão ${p.period.label}`.replace(/\s+/g, ' ').trim()
     case 'origin': return `${nome} por origem ${p.period.label}`.replace(/\s+/g, ' ').trim()
     case 'goal': return 'Suas metas'

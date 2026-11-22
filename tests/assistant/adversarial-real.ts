@@ -9172,6 +9172,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const r = (await turnoHoje(moto, 'qual minha média por km')).reply
       out.push(result('PU-media-por-km-e-ganho', r, 'recebido por km, não gasto', /^Recebido por km/.test(r)))
     }
+    {
+      // "Qual dia DO MÊS eu mais gasto" respondia por dia da semana; "no dia
+      // 4 do mês passado" respondia o mês inteiro.
+      const r1 = (await turnoHoje(rico, 'qual dia do mês eu mais gasto')).reply
+      out.push(result('DM-dia-do-mes', r1, '"Dia N" com o período, nunca dia da semana',
+        /^Dia \d{1,2}, com R\$/.test(r1) && /últimos 3 meses/.test(r1) && !/-feira|sábado|domingo/i.test(r1.split('\n')[0]) || /Não tenho/.test(r1)))
+      const ant = addDays(`${hoje.slice(0, 7)}-01`, -1).slice(0, 7)
+      const dia4 = `${ant}-04`
+      const gasto4 = rico.transactions.filter(x => x.type === 'expense' && x.date === dia4).reduce((a, x) => a + x.amount, 0)
+      const r2 = (await turnoHoje(rico, 'quanto gastei no dia 4 do mês passado')).reply.replace(/\u00a0/g, ' ')
+      out.push(result('DM-dia-n-do-mes-passado', r2, `só o dia ${dia4}`,
+        r2.includes(fromISO(dia4).toLocaleDateString('pt-BR')) && (gasto4 > 0 ? r2.includes(fmtBRL(gasto4).replace(/\u00a0/g, ' ')) : /Não tenho/.test(r2))))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))
