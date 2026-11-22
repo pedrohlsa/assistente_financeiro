@@ -9092,6 +9092,27 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const temMoto = rico.goals.some(g => /moto/i.test(g.name))
       out.push(result('JM-coisa-sem-meta', moto, 'diz que não há meta Moto', temMoto || /não tem meta chamada Moto/.test(moto)))
     }
+    {
+      // Número que é NOME ("Casa 1") não é valor; valor depois do nome com
+      // número no meio ("o aluguel da casa 2, 1200") caía na ajuda.
+      const aut = buildState({ profile: 'autonomo' })
+      const r1 = await turnoHoje(aut, 'recebi o aluguel da casa 2, 1200')
+      const a1: any = r1.actions[0]
+      out.push(result('CN-aluguel-com-nome-numerado', r1.actions, 'receita de R$ 1.200 da Casa 2',
+        r1.actions.length === 1 && a1.kind === 'income' && a1.amount === 1200 && /casa 2/i.test(a1.origin || '')))
+      const r2 = await turnoHoje(aut, 'a casa 1 atrasou o aluguel')
+      out.push(result('CN-casa-1-nao-e-um-real', r2, 'sem ação nem "R$ 1,00"', !r2.actions.length && !/R\$\s*1,00/.test(r2.reply)))
+      const r3 = await turnoHoje(aut, 'paguei o iptu da casa 2, 850')
+      out.push(result('CN-iptu-da-casa-2', r3.actions, 'despesa de R$ 850 descrita como IPTU, sem "Da" maiúsculo',
+        (r3.actions[0] as any)?.amount === 850 && /^IPTU da/.test((r3.actions[0] as any)?.description || '')))
+      // "Meu 13" sem o º, e débito que é saída de conta.
+      const r4 = await turnoHoje(aut, 'recebi meu 13 hoje 1500')
+      out.push(result('CN-meu-13-e-decimo-terceiro', r4.actions, 'R$ 1.500 em Salário',
+        (r4.actions[0] as any)?.amount === 1500 && (r4.actions[0] as any)?.category === 'salario'))
+      const r5 = await turnoHoje(aut, 'passei 120 no débito no mercado')
+      out.push(result('CN-debito-e-despesa', r5.actions, 'despesa de R$ 120 — Mercado',
+        r5.actions.length === 1 && (r5.actions[0] as any).kind === 'expense' && (r5.actions[0] as any).description === 'Mercado'))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

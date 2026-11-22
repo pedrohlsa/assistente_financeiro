@@ -379,9 +379,22 @@ export function voltaSemUnidade(text: string): string {
     (_m, antes: string, n: string, depois: string) => `${antes}${n} km${depois}`)
 }
 
+const NOME_COM_NUMERO = /(?<![\wÀ-ÿ])(?:casa|kitnet|apto|apartamento|loja|sala|quarto|cliente|unidade|bloco|lote)\s+\d{1,3}(?!\d|[.,]\d)/gi
+/** Todo número da frase é parte de um nome ("Casa 1", "loja 3"): não há valor. */
+export function soNumeroDeNome(t: string): boolean {
+  return /\d/.test(t) && !/\d/.test(t.replace(NOME_COM_NUMERO, ' '))
+}
+
+/**
+ * "Passei 120 NO DÉBITO no mercado": débito é dinheiro que saiu da conta, não
+ * compra no cartão de crédito. Caía na ajuda; com "paguei" o método virava a
+ * descrição ("Débito no mercado").
+ */
+export const PAGO_NO_DEBITO = /(?<![\wÀ-ÿ])(?:passei|paguei|gastei)\s+((?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s*reais)?)\s+(?:no|em|pelo|via)\s+(?:cart[ãa]o\s+(?:de\s+)?)?d[ée]bito(?![\wÀ-ÿ])/gi
+
 /** "Botei 100 de GASOSA": gíria de gasolina, que caía em Outros. */
 export const GIRIA_DE_COMBUSTIVEL = /(?<![\wÀ-ÿ])gasosa(?![\wÀ-ÿ])/gi
-export const DECIMO_TERCEIRO = /(?<![\d.,])13\s*[º°o](?:\s+sal[áa]rio)?(?![\wÀ-ÿ])|(?<![\d.,])13\s+sal[áa]rio(?![\wÀ-ÿ])/gi
+export const DECIMO_TERCEIRO = /(?<=(?<![\wÀ-ÿ])(?:meu|o)\s)13(?![\d.,ºª°\wÀ-ÿ])(?=\s+(?:caiu|entrou|hoje|ontem|veio|de|foi|chegou|\d))|(?<![\d.,])13\s*[º°o](?:\s+sal[áa]rio)?(?![\wÀ-ÿ])|(?<![\d.,])13\s+sal[áa]rio(?![\wÀ-ÿ])/gi
 
 /**
  * "Paguei 3 CONTAS: luz 120, água 80…": a contagem dos itens que vêm a seguir
@@ -416,7 +429,7 @@ function valorNoFim(input: string): string {
   // "Paguei o pedreiro 600 E MAIS 180 de areia": o valor do primeiro item não
   // é o fim da frase. Sem aceitar a continuação nada era lido, e a mensagem
   // virava CONSULTA — as duas despesas sumiam.
-  const m = input.match(/^(\s*(?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)(gastei|paguei|comprei|torrei|recebi|ganhei|dei)\s+([^\d,:;?]{2,60}?)\s*([,:;]?)\s*(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real|contos?|pila)?(\s+e\s+(?:mais\s+)?(?:r\$\s*)?\d[^?]*?)?\s*[.!]?\s*$/i)
+  const m = input.match(/^(\s*(?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)(gastei|paguei|comprei|torrei|recebi|ganhei|dei)\s+((?:(?:casa|kitnet|apto|apartamento|loja|sala|quarto)\s+\d{1,3}(?!\d|[.,]\d)|[^\d,:;?]){2,60}?)\s*([,:;]?)\s*(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real|contos?|pila)?(\s+e\s+(?:mais\s+)?(?:r\$\s*)?\d[^?]*?)?\s*[.!]?\s*$/i)
   if (!m) return input
   // Sem vírgula ("paguei a pensão 600"), o número pode ser parte de um NOME:
   // "a parcela 3", "a casa 2", "o cliente 1". Aí não é valor.
@@ -428,7 +441,8 @@ function valorNoFim(input: string): string {
 }
 
 export function parseNatural(input: string): ParsedAction[] {
-  input = verboDeConsumo(cobrancaRecebida(fontePagou(mePagou(vendaPorUnidade(valorNoFim(voltaSemUnidade(contagemDeItens(tanqueCheio(dividaPaga(input.replace(DECIMO_TERCEIRO, 'décimo terceiro').replace(GIRIA_DE_COMBUSTIVEL, 'gasolina'))))).replace(FRACAO_DE, 'parte')))))))
+  if (soNumeroDeNome(input)) return []
+  input = verboDeConsumo(cobrancaRecebida(fontePagou(mePagou(vendaPorUnidade(valorNoFim(voltaSemUnidade(contagemDeItens(tanqueCheio(dividaPaga(input.replace(DECIMO_TERCEIRO, 'décimo terceiro').replace(GIRIA_DE_COMBUSTIVEL, 'gasolina').replace(PAGO_NO_DEBITO, 'paguei $1'))))).replace(FRACAO_DE, 'parte')))))))
   // Operações de cartão são analisadas na frase INTEIRA antes de qualquer
   // quebra: "passei 2000 em 5 vezes E RECEBI 1850" tem um verbo de comando no
   // meio, e cortar ali transformava uma entrada financiada numa receita de
@@ -743,6 +757,9 @@ export function parseNaturalFull(
   input: string,
   opts?: { driver?: boolean; dayHint?: boolean; inheritedKind?: 'income' | 'expense' },
 ): ParseResult {
+  // "A Casa 1 atrasou o aluguel": o único número é o NOME do imóvel. Lido
+  // como valor, o app perguntava se foram R$ 1,00 recebidos ou pagos.
+  if (soNumeroDeNome(input)) return { actions: [] }
   // "Gastei ENTRE 40 E 50 no bar": o valor não foi dito. Registrar 50 e
   // perguntar pelos 40 era escolher sozinho; a pergunta oferece os dois.
   const faixa = input.match(/(?<![\wÀ-ÿ])entre\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s+e\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)(?![\d.,])(?!\s*(?:km|h(?![\wÀ-ÿ])|horas?|dias?|min))/i)
