@@ -62,10 +62,56 @@ export const looksLikeScenario = (input: string): boolean => {
   // "Dá pra guardar 300 ESTE MÊS?" é a sobra prevista do mês (fato
   // projetado, `cashQuestions`), não uma simulação de guardar por mês.
   if (guardarEsteMes(t.replace(/[?!.,]/g, ' ').replace(/\s+/g, ' ')) !== null) return false
-  return HIPOTESE.some(re => re.test(t))
+  return HIPOTESE.some(re => re.test(t)) || (/\b(?:da\s+pra|se)\b/.test(t) && HIPOTESE.some(re => re.test(normalizaCenario(t))))
 }
 
 const NUM = String.raw`(\d+(?:[.,]\d+)*)`
+const CASH_ASSUMPTION = String.raw`(?:r\$\s*)?((?:[-−]\s*|menos\s+)?(?:r\$\s*)?\d+(?:[.,]\d+)*)(?![\d.,]\d)(?:\s+(?:reais?|contos?))?`
+const CASH_ASSUMPTION_END = String.raw`(?=\s*(?:$|[?,;.!]|(?:e\s+)?(?:d[aá]\s+pra|daria\s+pra|consigo|posso|cabe|pagar|gastar|comprar|quitar|guardar|ou)\b))`
+const BALANCE_CONTEXT = [
+  new RegExp(String.raw`(?<![\wÀ-ÿ])(?:com|considerando|partindo\s+de|(?:e\s+)?se\s+(?:eu\s+)?tiver)\s+(?:(?:um|o|meu)\s+)?saldo(?:\s+(?:dispon[íi]vel|em\s+conta|n[ao]\s+(?:conta|banco)))?(?:\s+de)?\s+${CASH_ASSUMPTION}${CASH_ASSUMPTION_END}`, 'gi'),
+  new RegExp(String.raw`(?<![\wÀ-ÿ])(?:com|considerando|partindo\s+de|(?:e\s+)?se\s+(?:eu\s+)?tiver)\s+${CASH_ASSUMPTION}\s+(?:de\s+saldo|n[ao]\s+(?:(?:minha|meu)\s+)?(?:conta|banco))\b${CASH_ASSUMPTION_END}`, 'gi'),
+]
+const CASH_ALTERNATE = new RegExp(String.raw`^\s+ou\s+${CASH_ASSUMPTION}${CASH_ASSUMPTION_END}`, 'i')
+const CASH_BALANCE_REPLY = new RegExp(String.raw`^(?:(?:usa|use|foi|e|o\s+de|use\s+o\s+de)\s+)?${CASH_ASSUMPTION}[.!?]*$`, 'i')
+export const SCENARIO_BALANCE_QUESTION = 'Qual saldo em conta devo usar nesta simulação? Diga um valor só.'
+
+const parseScenarioBalance = (raw: string): number =>
+  parseMoney(raw.replace(/−|menos\s+/i, '-'))
+
+const validScenarioBalance = (balance: number): boolean => Number.isFinite(balance) && Math.abs(balance) <= 99_999_999
+
+export function readScenarioBalanceReply(message: string, awaitingValue: boolean): number | undefined {
+  const explicit = readScenarioBalance(message)
+  if (explicit.balance !== undefined && /^(?:e|agora|entao)?[\s.!?]*$/.test(semAcento(explicit.remaining).trim())) return explicit.balance
+  if (!awaitingValue) return undefined
+  const said = normalizeNumberWords(message).text.trim()
+  const raw = said.match(CASH_BALANCE_REPLY)?.[1]
+  const amount = raw ? parseScenarioBalance(raw) : NaN
+  return validScenarioBalance(amount) ? amount : undefined
+}
+
+function readScenarioBalance(input: string) {
+  const text = normalizeNumberWords(input).text
+  const matches = BALANCE_CONTEXT.flatMap(pattern => [...text.matchAll(pattern)])
+  if (!matches.length) return { remaining: input }
+  const amounts = new Set<number>()
+  let remaining = text
+  for (const match of matches.sort((a, b) => b.index! - a.index!)) {
+    const start = match.index!
+    const tail = text.slice(start + match[0].length)
+    const alternate = tail.match(CASH_ALTERNATE)
+    for (const raw of [match[1], alternate?.[1]]) {
+      if (raw) amounts.add(parseScenarioBalance(raw))
+    }
+    remaining = remaining.slice(0, start) + ' ' + remaining.slice(start + match[0].length + (alternate?.[0].length || 0))
+  }
+  const [balance] = amounts
+  if (amounts.size !== 1 || !validScenarioBalance(balance)) {
+    return { remaining, issue: SCENARIO_BALANCE_QUESTION }
+  }
+  return { remaining, balance }
+}
 
 /** "4000 em 10x", "4 mil em 10 vezes", "3600 em 12 parcelas". */
 function lerCompra(t: string): { total: number; installments: number } | null {
@@ -464,7 +510,8 @@ function planSingleScenario(
     // O valor tem que ser DINHEIRO: um "1" solto quase sempre e identificador
     // ("Casa 1", "unidade 2"), e simular um gasto de R$ 1,00 e pior que nao
     // simular nada.
-    const valor = valorDeDinheiro(t, lerValor(t))
+    const direct = t.match(new RegExp(String.raw`\b(?:gastar|gastasse|pagar|comprar|meter|torrar)\s+(?:r\$\s*)?${NUM}(?![\d.,]\d)(?!\s*(?:x\b|vezes\b|parcelas?\b|dias?\b|semanas?\b|mes(?:es)?\b|anos?\b|%))`))
+    const valor = direct ? parseMoney(direct[1]) : valorDeDinheiro(t, lerValor(t))
     if (valor !== undefined) {
       // "Gastar 500 esse mês" não é gasto de hoje: o texto da simulação diz quando.
       const when = /\b(?:d?esse|d?este|nesse|neste|no)\s+mes\b/.test(t) ? 'este mês' : undefined
@@ -484,6 +531,8 @@ export function planScenario(
   state: AppState, input: string, opts: { today?: string; focusCategory?: string } = {},
 ): AssistantScenarioPlan | null {
   if (!looksLikeScenario(input)) return null
+  const cash = readScenarioBalance(input)
+  input = cash.remaining
   const partes = input.split(/,(?=\s*[a-zA-ZÀ-ÿ])|\s+(?:e\s+|depois\s+)(?=(?:eu\s+)?(?:ainda\s+|tamb[eé]m\s+)?(?:continuar\s+guardando|pagar|quitar|guardar|poupar|reduzir|diminuir|baixar|parar|cortar|investir|aplicar|ajudar|comprar|gastar)\b)/i)
     .map(p => p.trim()).filter(Boolean)
   const planned = partes.map(p => ({ fragment: p, plan: planSingleScenario(state, p, { ...opts, fullText: input }, true) }))
@@ -504,7 +553,7 @@ export function planScenario(
     d.setMonth(d.getMonth() + horizonte(normalized, opts.today || todayISO()) - 1)
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   })()
-  const issue = planningIssue || (startMonth && startMonth > endMonth
+  const issue = cash.issue || planningIssue || (startMonth && startMonth > endMonth
     ? 'O início da reserva fica depois do horizonte final; me diga outras datas.' : undefined)
   if (separateSteps.length > 1) {
     const today = opts.today || todayISO()
@@ -518,6 +567,7 @@ export function planScenario(
     return {
       version: SCENARIO_DSL_VERSION,
       kind: 'compound',
+      declaredBalance: cash.balance,
       steps: separateSteps.map(step => ({ ...step, months })),
       months,
       planningIssue: issue || (maxIncomeWindow > 12 ? 'Para combinar as mudanças, informe um prazo que caiba nos próximos 12 meses do calendário.'
@@ -527,7 +577,7 @@ export function planScenario(
     }
   }
   const plan = separateSteps[0] || planSingleScenario(state, input, opts)
-  return plan ? { ...plan, planningIssue: issue || plan.planningIssue, unsupportedFragments } : null
+  return plan ? { ...plan, declaredBalance: cash.balance, planningIssue: issue || plan.planningIssue, unsupportedFragments } : null
 }
 
 /** O objeto da compra, quando a frase o nomeia ("um pc de 4000 em 10x"). */

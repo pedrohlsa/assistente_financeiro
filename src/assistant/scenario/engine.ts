@@ -395,9 +395,16 @@ export function runScenario(
   plan: AssistantScenarioPlan,
   hoje = todayISO(),
 ): AssistantScenarioResult {
-  const r = simulaCenario(state, plan, hoje)
-  const semBase = !state.settings.balanceAsOf && currentBalance(state, hoje) === 0 && !(state.transactions || []).length
-    && !(state.recurring || []).some(x => x.kind === 'income' && x.active !== false)
+  const initial = plan.declaredBalance
+  const from = initial === undefined ? state : {
+    ...state, settings: { ...state.settings, balance: initial, balanceAsOf: `${hoje}T${nextCashEventTime(state, hoje, '23:59:59.999', true)}` },
+  }
+  const r = simulaCenario(from, plan, hoje)
+  if (initial !== undefined && !r.empty) {
+    return { ...r, caveats: [`Usei ${fmtBRL(initial)} como saldo inicial informado para esta simulação.`, ...r.caveats] }
+  }
+  const semBase = !from.settings.balanceAsOf && currentBalance(from, hoje) === 0 && !(from.transactions || []).length
+    && !(from.recurring || []).some(x => x.kind === 'income' && x.active !== false)
   if (!semBase || r.empty || r.feasible === undefined) return r
   const aviso = 'Seu saldo está zerado no app e não há nada lançado, então não sei dizer se cabe. Me diga "meu saldo é 1500" (com o seu valor) que eu refaço a conta.'
   return { ...r, feasible: undefined, caveats: [...r.caveats.filter(c => !/ainda não informou seu saldo/.test(c)), aviso] }

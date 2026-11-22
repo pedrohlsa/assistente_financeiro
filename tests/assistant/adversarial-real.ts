@@ -127,6 +127,26 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && fact(resultWithZero, 'Saldo depois do gasto') === -150 && resultWithZero.focus?.lastScenario?.feasible === false
       && !/ainda não informou/.test(resultWithZero.response.reply)
       && [resultAfterAnchor, resultWithZero].every(r => !r.response.actions.length) && JSON.stringify(state) === saved))
+
+    const send = (message: string, prior?: Awaited<ReturnType<typeof simulate>>) =>
+      orchestrate({ state, message, today, focus: prior?.focus, remoteEnabled: false })
+    const stated = await send('com saldo de 1000 dá pra pagar 800?')
+    const words = await send('com saldo de mil, dá pra pagar oitenta?')
+    const negative = await send('dá pra pagar 800 com saldo de menos 200?')
+    const revised = await send('e com saldo de 900?', stated)
+    const alternatives = await send('com saldo de 1000 ou 1200, dá pra pagar 800?')
+    const picked = await send('usa 1200', alternatives)
+    out.push(result('GC-saldo-informado-e-valor-do-gasto-sao-distintos', [stated, words, negative, revised, alternatives, picked].map(r => r.response),
+      'usa o saldo informado só na simulação, preserva o gasto e permite escolher ou revisar o saldo',
+      fact(stated, 'Saldo hoje') === 1000 && fact(stated, 'Saldo depois do gasto') === 200
+      && /como saldo inicial informado/.test(stated.response.reply)
+      && fact(words, 'Saldo depois do gasto') === 920
+      && fact(negative, 'Saldo depois do gasto') === -1000
+      && fact(revised, 'Saldo depois do gasto') === 100
+      && fact(alternatives, 'Saldo depois do gasto') === undefined
+      && fact(picked, 'Saldo depois do gasto') === 400
+      && [stated, words, negative, revised, alternatives, picked].every(r => !r.response.actions.length)
+      && JSON.stringify(state) === saved))
   }
 
   {

@@ -27,7 +27,7 @@ import type { QueryAnswer } from '../query'
 import type { AssistantQueryPlan } from '../query/types'
 import { answerScenario, rerunScenario } from '../scenario'
 import type { ScenarioAnswer } from '../scenario'
-import { looksLikeScenario, parsePurchaseDelay } from '../scenario/parse'
+import { looksLikeScenario, parsePurchaseDelay, readScenarioBalanceReply, SCENARIO_BALANCE_QUESTION } from '../scenario/parse'
 import { describeMissingRentalInput, readIncomeLossTiming, rentalSources } from '../scenario/incomeWindow'
 import { normalizeNumberWords } from '../numbers'
 import { analyzeChanges, answerChangeQuestion, changeScopeClarification, composeChangeExplanation, expenseCategoryInQuestion } from '../drivers'
@@ -149,7 +149,17 @@ function respondeConversa(
   const hoje = opts.today || todayISO()
   const agora = opts.now ?? Date.now()
   const focus = opts.focus
-  const awaitingRental = isFocusFresh(focus, agora) && focus?.last === 'scenario' ? focus.lastScenarioPlan : undefined
+  const activeScenario = isFocusFresh(focus, agora) && focus?.last === 'scenario' ? focus.lastScenarioPlan : undefined
+  if (activeScenario) {
+    const awaitingBalance = activeScenario.planningIssue === SCENARIO_BALANCE_QUESTION
+    const balance = awaitingBalance || /\bsaldo\b/i.test(message) ? readScenarioBalanceReply(message, awaitingBalance) : undefined
+    if (balance !== undefined) {
+      return aplicaFollowUp(state, focus, { kind: 'scenario',
+        plan: { ...activeScenario, declaredBalance: balance,
+          planningIssue: awaitingBalance ? undefined : activeScenario.planningIssue } }, hoje, agora)
+    }
+  }
+  const awaitingRental = activeScenario
   if (awaitingRental?.kind === 'income-missing' && awaitingRental.incomeLossForRent && awaitingRental.planningIssue) {
     const said = normalizeName(normalizeNumberWords(message).text).replace(/[.!?]+$/, '').trim()
     const { duration, window, start, remaining, issue } = readIncomeLossTiming(said, hoje, awaitingRental.incomeLossStart)

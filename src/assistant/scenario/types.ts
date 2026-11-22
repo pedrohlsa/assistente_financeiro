@@ -47,6 +47,8 @@ export interface AssistantScenarioPlan {
   kind: ScenarioKind
   /** Valor central: gasto, preço da compra, quanto guardar por mês, receita que falta. */
   amount?: number
+  /** Saldo disponível informado só para a simulação. */
+  declaredBalance?: number
   installments?: number
   /** Entrada dada na compra — sai do bolso hoje e reduz o financiado. */
   downPayment?: number
