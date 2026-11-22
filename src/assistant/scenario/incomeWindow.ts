@@ -3,7 +3,7 @@ import { occurrencesBetween, recurringOccurrenceState } from '../../services/cal
 import { addDays, dateForDayOfMonth, fromISO, MESES_PT_BR, parseMoney, toISO } from '../../utils/format'
 import { normalizeName } from '../../utils/text'
 import { findDate } from '../dates'
-import { parseFutureMonth } from '../query/period'
+import { parseCalendarRange, parseFutureMonth } from '../query/period'
 import type { IncomeLossDuration } from './types'
 
 const DURATION = /(?<![\d.,])(?:(?:por|durante)\s+)?([-−]?\d+(?:[.,]\d+)?|um|uma)\s+(dias?|semanas?|mes(?:es)?)\b(?!\s+d[eo]\s+aluguel)/g
@@ -84,27 +84,88 @@ export function incomeLossLabel(duration: IncomeLossDuration): string {
 }
 
 type IncomeLossWindow = { from: string; to: string }
-const END_MONTH = new RegExp(String.raw`\bate\s+(?:(?:o\s+)?(?:fim|final)\s+de\s+)?(${MESES_PT_BR.map(normalizeName).join('|')})(?:\s+de\s+(\d{4}))?\b`)
-const END_DATE = /\bate\s+(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)(?![\d/-])/
+const MONTH = String.raw`(?:${MESES_PT_BR.map(normalizeName).join('|')})(?:\s+de\s+\d{4})?\b`
+const DATE = String.raw`(?:\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)(?![\d/-])`
+const END_MONTH = new RegExp(String.raw`\bate\s+(?:(?:o\s+)?(?:fim|final)\s+de\s+)?(${MONTH})`)
+const END_DATE = new RegExp(String.raw`\bate\s+(${DATE})`)
+const DATE_RANGE = new RegExp(String.raw`\bde\s+(${DATE})\s+(?:a|ate)\s+(${DATE})`)
+const MONTH_RANGE = new RegExp(String.raw`\bde\s+(${MONTH})\s+(?:a|ate)\s+(${MONTH})`)
+const START = new RegExp(String.raw`\b(?:a\s+partir\s+d[eo]|comecando(?:\s+(?:em|n[eo]))?|a\s+contar\s+d[eo])\s+(${DATE}|(?:dia\s+)?\d{1,2}\s+de\s+${MONTH}|${MONTH})`)
+const IN_MONTH = new RegExp(String.raw`\bem\s+(${MONTH})`)
 const NAMED_WINDOW = /\b(?:(?:a\s+partir\s+d[eo]|comecando(?:\s+n[eo])?|a\s+contar\s+d[eo]|ate(?:\s+o)?)\s+)?(?:(?:o\s+)?(?:fim|final)\s+d(?:o|este|esse)\s+mes|(?:d?este|d?esse|neste|nesse|o)\s+mes(?!(?:\s+que\s+vem))|mes\s+que\s+vem|proximo\s+mes)\b/
 
-function readNamedIncomeLossWindow(text: string, today: string): {
+type WindowReading = {
   remaining: string
   window?: IncomeLossWindow
-  startsAtMonth?: boolean
+  start?: string
   issue?: string
-} | undefined {
-  const deadline = text.match(END_DATE) || text.match(END_MONTH)
+}
+
+function projectedWindow(remaining: string, today: string, from?: string, to?: string): WindowReading {
+  if (!from || !to || from < today || to < from) {
+    return { remaining, issue: 'Informe as datas inicial e final da simulação, a partir de hoje.' }
+  }
+  if (to > incomeLossEnd(today, { value: 12, unit: 'months' })) return { remaining, issue: INCOME_LOSS_WINDOW_LIMIT }
+  return { remaining, window: { from, to } }
+}
+
+function futureNamedMonth(text: string, from: string) {
+  const month = parseFutureMonth(text, from)
+  const year = text.match(/\b\d{4}$/)?.[0]
+  return month && (!year || month.from.startsWith(year)) ? month : undefined
+}
+
+function futureCalendarDay(text: string, from: string): string | undefined {
+  const value = findDate(text, from)
+  if ((value?.kind === 'date' || value?.kind === 'future') && value.date >= from) return value.date
+  // "31/01", dito em dezembro numa hipótese futura, é janeiro do ano seguinte.
+  if (!/^\d{1,2}[/-]\d{1,2}$/.test(text)) return undefined
+  const next = findDate(`${text}/${Number(from.slice(0, 4)) + 1}`, from)
+  return next?.kind === 'future' || next?.kind === 'date' ? next.date : undefined
+}
+
+function readNamedIncomeLossWindow(text: string, today: string): WindowReading | undefined {
+  const exactRange = text.match(DATE_RANGE)
+  if (exactRange) {
+    const from = futureCalendarDay(exactRange[1], today)
+    const to = from && futureCalendarDay(exactRange[2], from)
+    return projectedWindow(text.replace(exactRange[0], ' '), today, from, to)
+  }
+  const dayRange = parseCalendarRange(text, today)
+  if (dayRange) return projectedWindow(text.replace(dayRange.matched, ' '), today, dayRange.period?.from, dayRange.period?.to)
+  const months = text.match(MONTH_RANGE)
+  if (months) {
+    const first = futureNamedMonth(months[1], today)
+    const last = first && futureNamedMonth(months[2], first.from)
+    return projectedWindow(text.replace(months[0], ' '), today,
+      first && first.to >= today ? (first.from < today ? today : first.from) : undefined, last?.to)
+  }
+  const anchor = text.match(START)
+  const remainingFromAnchor = anchor ? text.replace(anchor[0], ' ') : text
+  let from = today
+  if (anchor) {
+    const month = /^\d|^dia\b/.test(anchor[1]) ? undefined : futureNamedMonth(anchor[1], today)
+    const start = month && month.to >= today ? (month.from < today ? today : month.from) : futureCalendarDay(anchor[1], today)
+    if (!start || start < today) return { remaining: remainingFromAnchor, issue: 'Em que data futura a entrada deixaria de cair?' }
+    if (start > incomeLossEnd(today, { value: 12, unit: 'months' })) return { remaining: remainingFromAnchor, issue: INCOME_LOSS_WINDOW_LIMIT }
+    from = start
+  }
+  const endDay = remainingFromAnchor.match(END_DATE)
+  const deadline = endDay || remainingFromAnchor.match(END_MONTH)
   if (deadline) {
-    const remaining = text.slice(0, deadline.index) + ' ' + text.slice(deadline.index! + deadline[0].length)
-    const date = findDate(deadline[1], today)
-    const to = date?.kind === 'date' || date?.kind === 'future' ? date.date
-      : parseFutureMonth(deadline[2] ? `${deadline[1]} de ${deadline[2]}` : deadline[1], today)?.to
-    if (!to || to < today || (deadline[2] && !to.startsWith(deadline[2]))) {
+    const remaining = remainingFromAnchor.replace(deadline[0], ' ')
+    const to = endDay ? futureCalendarDay(deadline[1], from) : futureNamedMonth(deadline[1], from)?.to
+    if (!to || to < from) {
       return { remaining, issue: 'Até que dia ou mês futuro a entrada ficaria ausente?' }
     }
-    if (to > incomeLossEnd(today, { value: 12, unit: 'months' })) return { remaining, issue: INCOME_LOSS_WINDOW_LIMIT }
-    return { remaining, window: { from: today, to } }
+    return projectedWindow(remaining, today, from, to)
+  }
+  if (anchor) return { remaining: remainingFromAnchor, start: from }
+  const during = text.match(IN_MONTH)
+  if (during) {
+    const month = futureNamedMonth(during[1], today)
+    return projectedWindow(text.replace(during[0], ' '), today,
+      month && month.to >= today ? (month.from < today ? today : month.from) : undefined, month?.to)
   }
   const named = text.match(NAMED_WINDOW)
   if (!named) return undefined
@@ -112,25 +173,22 @@ function readNamedIncomeLossWindow(text: string, today: string): {
   const startsAtMonth = /^(?:a\s+partir|comecando|a\s+contar)/.test(named[0])
   const date = fromISO(today)
   const month = date.getMonth() + (next ? 1 : 0)
+  from = next && !named[0].startsWith('ate ') ? toISO(new Date(date.getFullYear(), month, 1, 12)) : today
   return {
     remaining: text.slice(0, named.index) + ' ' + text.slice(named.index + named[0].length),
-    startsAtMonth,
-    window: {
-      from: next && !named[0].startsWith('ate ') ? toISO(new Date(date.getFullYear(), month, 1, 12)) : today,
-      to: toISO(new Date(date.getFullYear(), month + 1, 0, 12)),
-    },
+    ...(startsAtMonth ? { start: from } : { window: { from, to: toISO(new Date(date.getFullYear(), month + 1, 0, 12)) } }),
   }
 }
 
-export function readIncomeLossTiming(text: string, today: string, pendingStart?: string) {
+export function readIncomeLossTiming(text: string, today: string, pendingStart?: string): WindowReading & { duration?: IncomeLossDuration } {
   const { duration, remaining, issue } = readIncomeLossDuration(text)
   const calendar = readNamedIncomeLossWindow(remaining, today)
   const rest = calendar?.remaining ?? remaining
   if (issue || calendar?.issue) return { remaining: rest, issue: issue || calendar?.issue }
-  const from = calendar ? (calendar.startsAtMonth ? calendar.window?.from : undefined) : pendingStart
+  const from = calendar ? calendar.start : pendingStart
   if (from) {
     if (!duration) return { remaining: rest, start: from }
-    return { remaining: rest, window: { from, to: incomeLossEnd(from, duration) } }
+    return projectedWindow(rest, today, from, incomeLossEnd(from, duration))
   }
   if (duration && calendar?.window) {
     return { remaining: rest, issue: 'Quer usar o mês do calendário ou a duração que você informou?' }

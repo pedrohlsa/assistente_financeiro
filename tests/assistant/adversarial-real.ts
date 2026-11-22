@@ -496,6 +496,29 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && value(throughDay, 'Entrada prevista que deixaria de cair') === 3200
       && invalidDates.every(r => value(r, 'Saldo estimado ao fim do intervalo') === undefined && /Até que dia|até 12 meses|não existe/.test(r.response.reply))
       && [nextFromFollowUp, anchored, startOnly, anchoredInTwo, throughMonth, throughDay, ...invalidDates].every(r => !r.response.actions.length)))
+
+    const [beforeRent, onRent, yearTurn, civilMonths, delayed, namedMonth, conflictingDates, invalidRange] = await Promise.all([
+      'e se a Casa 2 ficar vazia de 24/12 a 26/12?',
+      'e se a Casa 2 ficar vazia a partir de 26/12 por dois dias?',
+      'e se a Casa 2 ficar vazia de 31/12 a 02/01?',
+      'e se a Casa 2 ficar vazia de dezembro até janeiro?',
+      'e se a Casa 2 ficar vazia a partir de janeiro por três meses?',
+      'e se a Casa 2 não pagar em dezembro?',
+      'e se a Casa 2 ficar vazia de dezembro até janeiro por três meses?',
+      'e se a Casa 2 ficar vazia de 29/02/2027 a 15/03/2027?',
+    ].map(message => turn(message, undefined, calendar)))
+    const explicit = [beforeRent, onRent, yearTurn, civilMonths, delayed, namedMonth, conflictingDates, invalidRange]
+    out.push(result('VC-janelas-explicitas-de-dias-e-meses', explicit.map(r => r.response),
+      'respeita datas inclusive na virada de ano, inclui o aluguel só se cair no intervalo e pede correção de datas inválidas',
+      value(beforeRent, 'Entrada prevista que deixaria de cair') === 0 && /24\/12\/2026 a 26\/12\/2026/.test(beforeRent.response.reply)
+      && value(onRent, 'Entrada prevista que deixaria de cair') === 1600 && /26\/12\/2026 a 27\/12\/2026/.test(onRent.response.reply)
+      && /31\/12\/2026 a 02\/01\/2027/.test(yearTurn.response.reply) && value(yearTurn, 'Entrada prevista que deixaria de cair') === 0
+      && value(civilMonths, 'Entrada prevista que deixaria de cair') === 3200 && /01\/12\/2026 a 31\/01\/2027/.test(civilMonths.response.reply)
+      && value(delayed, 'Entrada prevista que deixaria de cair') === 4800 && /01\/01\/2027 a 31\/03\/2027/.test(delayed.response.reply)
+      && value(namedMonth, 'Entrada prevista que deixaria de cair') === 1700 && /01\/12\/2026 a 31\/12\/2026/.test(namedMonth.response.reply)
+      && value(conflictingDates, 'Saldo estimado ao fim do intervalo') === undefined && /duração/.test(conflictingDates.response.reply)
+      && value(invalidRange, 'Saldo estimado ao fim do intervalo') === undefined && /datas inicial e final|não existe/.test(invalidRange.response.reply)
+      && explicit.every(r => !r.response.actions.length)))
   }
 
   {

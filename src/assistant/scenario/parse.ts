@@ -568,7 +568,8 @@ export function planScenario(
     .map(p => p.fragment)
   const normalized = semAcento(normalizeNumberWords(input).text)
   const planningIssue = horizonProblem(normalized, opts.today || todayISO())
-  const startMonth = firstSavingMonth(normalized, opts.today || todayISO())
+  const startMonth = separateSteps.some(step => step.kind === 'save' || step.kind === 'save-share')
+    ? firstSavingMonth(normalized, opts.today || todayISO()) : undefined
   const endMonth = (() => {
     const d = new Date(`${opts.today || todayISO()}T12:00:00`)
     d.setMonth(d.getMonth() + horizonte(normalized, opts.today || todayISO()) - 1)

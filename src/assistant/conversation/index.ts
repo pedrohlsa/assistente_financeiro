@@ -77,7 +77,7 @@ export function answerConversation(
   if (looksLikeQuestion(message) && !pedeReservaDeCaixa(queryText)) {
     const today = opts.today || todayISO()
     const invalid = findAllDates(message, today).find(d => d.kind === 'invalid')
-    const interval = parseCalendarRange(queryText, today)
+    const interval = looksLikeScenario(message) ? undefined : parseCalendarRange(queryText, today)
     const realized = /\b(?:gastei|paguei|recebi|ganhei|guardei|faturei|entrou|saiu)\b/.test(queryText)
     const futureEnd = interval?.period && interval.period.to > today && realized && !/\b(?:vou|vai|sera|previsto)\b/.test(queryText)
     const question = invalid?.kind === 'invalid' ? invalid.question : interval?.question
