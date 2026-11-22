@@ -1,7 +1,7 @@
 import type { AppState } from '../models/types'
 import { fuelSpend, kmCost, periodStats } from '../services/calc'
 import { addDays } from '../utils/format'
-import { isDriver } from '../services/profile'
+import { isDriver, VEHICLE_EXPENSE_CATEGORIES } from '../services/profile'
 import { fmtBRL, fmtNum, todayISO } from '../utils/format'
 import { normalizeName } from '../utils/text'
 import { parsePeriod } from './query/period'
@@ -16,7 +16,6 @@ const CUSTO_VEICULO = [
   new RegExp(String.raw`^quanto\s+(?:sai\s+o\s+km|o\s+km\s+sai)(?:\s+d[oa]\s+${VEICULO})?$`),
   new RegExp(String.raw`^quanto\s+${EU}(?:gasto|gastando)\s+${POR_KM}(?:\s+(?:com|n)[oa]\s+${VEICULO})?$`),
 ]
-const DESPESAS_VEICULO = new Set(['combustivel', 'manutencao', 'estacionamento', 'pedagio'])
 
 export function answerVehicleCost(s: AppState, input: string, hoje = todayISO()): { text: string; explanation: string } | null {
   if (!isDriver(s.settings)) return null
@@ -34,7 +33,7 @@ export function answerVehicleCost(s: AppState, input: string, hoje = todayISO())
     const explanation = 'A conta divide as despesas registradas de combustível, manutenção, pedágio e estacionamento pelos km de trabalho do mesmo período. Os custos fixos configurados hoje entram só na estimativa atual.'
     if (from > hoje) return { text: `Ainda não há despesas realizadas ${label}. Você pode pedir o custo atual estimado do veículo.`, explanation }
     const ate = to < hoje ? to : hoje
-    const expenses = s.transactions.filter(tx => tx.type === 'expense' && DESPESAS_VEICULO.has(tx.category)
+    const expenses = s.transactions.filter(tx => tx.type === 'expense' && VEHICLE_EXPENSE_CATEGORIES.has(tx.category)
       && tx.date >= from && tx.date <= ate)
     const dados = periodStats({ ...s, transactions: expenses }, from, ate, hoje)
     if (!dados.km || !expenses.length) {

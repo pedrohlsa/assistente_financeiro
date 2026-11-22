@@ -9644,6 +9644,40 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('PH-metricas-exigem-base-por-app', [...metrics.map(r => r.reply), ...grouped.map(r => r.caveats)], 'horas e km do dia não viram indicadores por plataforma',
         metrics.every(r => !r.actions.length && /separados por plataforma/.test(r.reply) && !/R\$/.test(r.reply))
         && grouped.every(r => !r.facts.length && !r.groups.length && /por plataforma/.test(r.caveats.join(' ')))))
+      const aligned = buildState({ profile: 'driver' })
+      aligned.transactions = [
+        { id: 'turno', type: 'income', amount: 400, description: 'Uber', category: 'corridas', date: TODAY },
+        { id: 'aluguel', type: 'income', amount: 5000, description: 'Aluguel', category: 'aluguel', date: TODAY },
+        { id: 'mercado', type: 'expense', amount: 200, description: 'Mercado', category: 'alimentacao', date: TODAY },
+        { id: 'gnv', type: 'expense', amount: 50, description: 'GNV', category: 'combustivel', date: TODAY },
+        { id: 'pedagio', type: 'expense', amount: 10, description: 'Pedágio', category: 'pedagio', date: TODAY },
+        { id: 'taxa', type: 'expense', amount: 5, description: 'Taxa 99', category: 'outros-out', date: TODAY },
+        { id: 'pagamento-sem-dia-trabalhado', type: 'income', amount: 600, description: '99', category: 'corridas', date: '2026-09-14' },
+      ]
+      aligned.workSessions = [
+        { id: 'trabalho-com-ganho', date: TODAY, hours: 2, km: 100, trips: 4 },
+        { id: 'trabalho-sem-ganho', date: '2026-09-13', hours: 4, km: 40, trips: 0 },
+      ]
+      const [hour, km, profit, allTrips, mismatch, ownCosts, dayRange] = await Promise.all([
+        'quanto rendeu a hora no volante hoje?',
+        'quanto ganhei limpo por km rodado hoje?',
+        'quanto foi meu lucro por hora em corridas hoje?',
+        'qual minha média por viagem em todas as plataformas?',
+        'quanto ganhei por hora nos últimos 2 dias comparado com os 2 dias anteriores?',
+        'quanto gastei por km hoje?',
+        'quanto ganhei por km este mês?',
+      ].map(frase => turn(aligned, frase)))
+      const rateReplies = [hour, km, profit, allTrips, mismatch, ownCosts, dayRange]
+      out.push(result('PH-horas-e-km-cruzam-apenas-a-operacao-da-jornada', rateReplies.map(r => r.reply), 'preserva a receita das corridas e os custos de rodagem, sem aluguel ou dias desencontrados',
+        rateReplies.every(r => !r.actions.length) && /200,00\/hora/.test(hour.reply) && /3,35\/km/.test(km.reply)
+        && /167,50\/hora/.test(profit.reply) && /100,00 por viagem/.test(allTrips.reply)
+        && mismatch.focus?.lastQueryPlan?.comparePeriod?.from === '2026-09-12' && mismatch.focus.lastQueryPlan.comparePeriod.to === '2026-09-13'
+        && /não há lançamentos para comparar/.test(mismatch.reply)
+        && /2,65\/km/.test(ownCosts.reply) && /4,00\/km/.test(dayRange.reply)))
+      const unsynced = { ...aligned, transactions: aligned.transactions.filter(t => t.date !== TODAY) }
+      const missingDay = await turn(unsynced, 'quanto ganhei por hora esta semana?')
+      out.push(result('PH-sem-horas-e-receitas-nos-mesmos-dias', missingDay.reply, 'pede dias com as duas medidas sem dividir valores de dias diferentes',
+        !missingDay.actions.length && /nos mesmos dias/.test(missingDay.reply) && !/R\$/.test(missingDay.reply)))
       for (const frase of ['hoje fiz 200 na uber em 5 horas', 'fiz 200 trabalhando 5 horas']) {
         const r = await turnoHoje(moto, frase)
         out.push(result(`PH-horas-${frase.split(' ').slice(-3, -2)[0]}`, r.actions, 'R$ 200 e 5 h',

@@ -905,10 +905,15 @@ const janelaAberta = (hoje: string): QueryPeriod =>
 
 export function planQuery(state: AppState, input: string, ctx: PlanContext = {}): PlannedQuery | null {
   const hoje = ctx.today || todayISO()
-  const t0 = normalizeQuery(input)
   if (!looksLikeDataQuestion(input)) return null
 
   const driver = isDriver(state.settings)
+  const normalized = normalizeQuery(input)
+  const allRideApps = /\bem\s+todas\s+as\s+plataformas(?:\s+juntas?)?\b/
+  const t0 = driver && !GASTO.test(normalized) && /\b(?:por\s+(?:hora|km|quilometro|viagem|corrida)|a\s+hora|hora\s+trabalhada)\b/.test(normalized)
+    ? normalized.replace(/\b(?:no\s+volante|dirigindo|rodando|em\s+todas\s+as\s+plataformas(?:\s+juntas?)?)\b/g, ' ')
+      .replace(/\b(km|quilometro)\s+rodado\b/g, '$1').replace(/\s+/g, ' ').trim()
+    : normalized
   const recognized: string[] = []
   const rest = new Restante(t0)
   const periodoVago = /\b(?:nos?\s+)?ultimos\s+meses\b/.test(t0)
@@ -1150,7 +1155,12 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   if (pedeComparacao) {
     if (textoComparacao && textoComparacao !== ANTERIOR) {
       const atras = textoComparacao.match(/(\d{1,3})\s+(dias?|semanas?|mes(?:es)?|anos?)\s+atras/)
-      if (atras) comparePeriod = deslocaPeriodo(period, Number(atras[1]), atras[2])
+      const priorDays = Number(textoComparacao.trim().match(/^([1-9]\d{0,2})\s+dias?\s+anteriores?$/)?.[1])
+      if (priorDays > 0) comparePeriod = {
+        from: addDays(period.from, -priorDays), to: addDays(period.from, -1), grain: 'range',
+        label: priorDays === 1 ? 'no dia anterior ao período' : `nos ${priorDays} dias anteriores ao período`,
+      }
+      else if (atras) comparePeriod = deslocaPeriodo(period, Number(atras[1]), atras[2])
       else comparePeriod = parsePeriod(textoComparacao, hoje)?.period
       // "Gastei mais que o mês passado?" no dia 15: o mês passado INTEIRO
       // contra 15 dias deste dava "Não, caiu (-52%)" por construção. Quando o
@@ -1553,7 +1563,9 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
 
   return {
     plan, confidence, recognized, fallbackCategory,
-    beyondLegacy: plan.showCardPurchases || (driver && plan.group === 'platform' && !!lido) || (driver && (plan.metric === 'per-km' || plan.metric === 'per-hour' || plan.metric === 'per-trip') && !!lido) || alemDoAntigo(plan, !!lido || !!periodoComparadoDireto,
+    beyondLegacy: plan.showCardPurchases || (driver && plan.group === 'platform' && !!lido)
+      || (driver && (plan.metric === 'per-km' || plan.metric === 'per-hour') && (!!lido || !!filter.txType?.includes('income')))
+      || (driver && plan.metric === 'per-trip' && (!!lido || allRideApps.test(normalized))) || alemDoAntigo(plan, !!lido || !!periodoComparadoDireto,
       /\bpor\s+lancamentos?\b/.test(t0)),
     ...(PAYER_PRONOUN_QUERY.test(t0) ? {
       clarification: { question: 'De quem você quer consultar os recebimentos? Diga o nome da pessoa.', options: [] },

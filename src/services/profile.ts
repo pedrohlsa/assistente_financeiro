@@ -1,6 +1,7 @@
 // Regras de perfil — fonte única de verdade sobre o que cada tipo de usuário vê.
 // profile: 'driver' (motorista de app) | 'autonomo' | 'clt' | 'business' (legado) | 'other'
 import { AppState, ParsedAction, Settings } from '../models/types'
+import { normalizeName } from '../utils/text'
 
 export type ProfileId = Settings['profile']
 
@@ -9,6 +10,10 @@ export const isDriver = (s: Settings): boolean => s.profile === 'driver'
 
 /** Categorias de receita ligadas a transporte por aplicativo. */
 export const RIDE_INCOME_CATEGORIES = ['corridas']
+export const VEHICLE_EXPENSE_CATEGORIES = new Set(['combustivel', 'manutencao', 'estacionamento', 'pedagio'])
+
+export const isDrivingExpense = (category?: string, description?: string): boolean =>
+  VEHICLE_EXPENSE_CATEGORIES.has(category || '') || /^taxa\s+(?:d[ao]\s+)?99$/.test(normalizeName(description))
 
 /** Categoria padrão de receita quando o texto não deixa claro a origem. */
 export function defaultIncomeCategory(s: Settings): string {

@@ -17,7 +17,7 @@ import {
   cardById, cardInvoice, cardOutstanding, invoiceOpenAmount, planProgress,
 } from '../../services/cards'
 import { monthlyProjections, occurrencesBetween, recurringActiveOn, recurringOccurrenceState } from '../../services/calc'
-import { RIDE_INCOME_CATEGORIES } from '../../services/profile'
+import { isDriver, isDrivingExpense, RIDE_INCOME_CATEGORIES } from '../../services/profile'
 import { FALTAM_VIAGENS_POR_APP } from '../driverAdvice'
 import type {
   AssistantFact, AssistantQueryPlan, AssistantQueryResult, FactUnit,
@@ -405,19 +405,34 @@ const mediana = (v: number[]): number => {
 function quantidadeTrabalho(state: AppState, from: string, to: string, today: string) {
   let km = 0, hours = 0, trips = 0
   const realizedTo = to < today ? to : today
-  const viagensPorDia = new Map<string, number>()
+  const porDia = new Map<string, { km: number; hours: number; trips: number }>()
   for (const w of state.workSessions || []) {
     if (!w || !inRange(w.date, from, realizedTo)) continue
-    km += Number(w.km) || 0
-    hours += Number(w.hours) || 0
-    trips += Number(w.trips) || 0
-    viagensPorDia.set(w.date, (viagensPorDia.get(w.date) || 0) + (Number(w.trips) || 0))
+    const workKm = Number(w.km) || 0, workHours = Number(w.hours) || 0, workTrips = Number(w.trips) || 0
+    const day = porDia.get(w.date) || { km: 0, hours: 0, trips: 0 }
+    porDia.set(w.date, { km: day.km + workKm, hours: day.hours + workHours, trips: day.trips + workTrips })
+    km += workKm
+    hours += workHours
+    trips += workTrips
   }
-  return { km, hours, trips, viagensPorDia }
+  return { km, hours, trips, porDia }
 }
 
 const incluiReceitaDeCorridas = (plan: AssistantQueryPlan) =>
   !plan.filter.txType?.length || plan.filter.txType.includes('income')
+
+const isRideRevenue = (row: QueryRow) => row.txType === 'income' && RIDE_INCOME_CATEGORIES.includes(row.category || '')
+
+/** Para ganhos do motorista por hora/km, cruzamos as duas bases pelo dia. */
+function drivingRateMeasure(state: AppState, plan: AssistantQueryPlan): 'hours' | 'km' | undefined {
+  const f = plan.filter
+  if (!isDriver(state.settings) || plan.source !== 'transactions' || !f.txType?.includes('income')
+    || f.platform || f.text || f.origin || f.origins?.length || f.cardNames?.length
+    || [f.excludeText, ...(f.excludeTexts || [])].some(text => !!plataformaDe(text))
+    || f.categories?.some(category => !RIDE_INCOME_CATEGORIES.includes(category))
+    || !['none', 'day', 'week', 'weekday', 'month', 'monthday', 'month-half'].includes(plan.group)) return undefined
+  return plan.metric === 'per-hour' ? 'hours' : plan.metric === 'per-km' ? 'km' : undefined
+}
 
 /**
  * Numerador das métricas "por unidade". Quando o recorte tem entradas E saídas,
@@ -463,19 +478,20 @@ function aplicaMetrica(
       const dias = Math.max(Math.round((fromISO(ate).getTime() - fromISO(periodo.from).getTime()) / 86400000) + 1, 1)
       return numerador(soma, rows, plan) / dias
     }
-    case 'per-km': {
-      const q = quantidadeTrabalho(state, periodo.from, periodo.to, today)
-      return q.km > 0 ? numerador(soma, rows, plan) / q.km : 0
-    }
+    case 'per-km':
     case 'per-hour': {
       const q = quantidadeTrabalho(state, periodo.from, periodo.to, today)
-      return q.hours > 0 ? numerador(soma, rows, plan) / q.hours : 0
+      const scoped = drivingRateMeasure(state, plan)
+      const days = scoped ? new Set(rows.map(row => row.date)) : undefined
+      const base = days && scoped ? [...days].reduce((sum, day) => sum + (q.porDia.get(day)?.[scoped] || 0), 0)
+        : plan.metric === 'per-hour' ? q.hours : q.km
+      return base > 0 ? numerador(soma, rows, plan) / base : 0
     }
     case 'per-trip': {
       const q = quantidadeTrabalho(state, periodo.from, periodo.to, today)
       const dates = new Set(rows.filter(row => !incluiReceitaDeCorridas(plan) || row.txType === 'income').map(row => row.date))
       const trips = incluiReceitaDeCorridas(plan) || plan.group !== 'none'
-        ? [...dates].reduce((sum, day) => sum + (q.viagensPorDia.get(day) || 0), 0)
+        ? [...dates].reduce((sum, day) => sum + (q.porDia.get(day)?.trips || 0), 0)
         : q.trips
       return trips > 0 ? numerador(soma, rows, plan) / trips : 0
     }
@@ -510,10 +526,18 @@ interface Agregado { total: number; count: number; groups: Map<string, { label: 
 function agrega(state: AppState, plan: AssistantQueryPlan, periodo: { from: string; to: string }, today: string): { ag: Agregado; rows: QueryRow[] } {
   const planoNoPeriodo: AssistantQueryPlan = { ...plan, period: { ...plan.period, ...periodo } }
   const brutas = rowsOf(state, planoNoPeriodo, today)
-  let rows = brutas.filter(row => passa(row, planoNoPeriodo, state))
+  const driving = drivingRateMeasure(state, plan)
+  const withoutRideCategory = driving && plan.filter.categories?.length
+    ? { ...planoNoPeriodo, filter: { ...plan.filter, categories: undefined } } : planoNoPeriodo
+  let rows = brutas.filter(row => passa(row, row.txType === 'expense' ? withoutRideCategory : planoNoPeriodo, state))
+  if (driving) {
+    const { porDia } = quantidadeTrabalho(state, periodo.from, periodo.to, today)
+    const days = new Set(rows.filter(row => isRideRevenue(row) && (porDia.get(row.date)?.[driving] || 0) > 0).map(row => row.date))
+    rows = rows.filter(row => days.has(row.date) && (isRideRevenue(row) || (row.txType === 'expense' && isDrivingExpense(row.category, row.label))))
+  }
   if (plan.metric === 'per-trip') {
-    const { viagensPorDia } = quantidadeTrabalho(state, periodo.from, periodo.to, today)
-    rows = rows.filter(row => (viagensPorDia.get(row.date) || 0) > 0)
+    const { porDia } = quantidadeTrabalho(state, periodo.from, periodo.to, today)
+    rows = rows.filter(row => (porDia.get(row.date)?.trips || 0) > 0)
     if (incluiReceitaDeCorridas(plan)) {
       const fromRides = (row: QueryRow) => row.txType === 'income' && RIDE_INCOME_CATEGORIES.includes(row.category || '')
         && Number.isFinite(row.value) && row.value > 0
@@ -608,6 +632,14 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
       sample: { rows: 0, from: plan.period.from, to: plan.period.to }, facts: [], samples: [],
       caveats: [`Não separo ${unidade} por plataforma. O histórico guarda essas medidas para o dia inteiro. Para ver o total recebido de cada app, pergunte "quanto ganhei na Uber e na 99 esse mês".`] }
   }
+  const f = plan.filter
+  if (isDriver(state.settings) && plan.source === 'transactions' && (plan.metric === 'per-hour' || plan.metric === 'per-km')
+    && f.txType?.includes('income') && !drivingRateMeasure(state, plan)) {
+    const measure = plan.metric === 'per-hour' ? 'As horas' : 'Os quilômetros'
+    return { plan, unit, total: 0, count: 0, groups: [], estimated: false, empty: true, missingDistance: true,
+      sample: { rows: 0, from: plan.period.from, to: plan.period.to }, facts: [], samples: [],
+      caveats: [`${measure} de trabalho ficam no total do dia. Para calcular um ganho por ${plan.metric === 'per-hour' ? 'hora' : 'km'} nesse recorte, faltam dados de trabalho específicos dele.`] }
+  }
   const semKm = ({ from, to }: AssistantQueryPlan['period']) => quantidadeTrabalho(state, from, to, today).km <= 0
   if (plan.metric === 'per-km' && semKm(plan.period)) {
     return { plan, unit, total: 0, count: 0, groups: [], estimated: false, empty: true, missingDistance: true,
@@ -626,6 +658,13 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
   }
   const { ag, rows } = agrega(state, plan, plan.period, today)
   const caveats: string[] = []
+  const driving = drivingRateMeasure(state, plan)
+  if (driving) {
+    const measure = driving === 'km' ? 'quilometragem' : 'horas de trabalho'
+    caveats.push(rows.length
+      ? `Considerei apenas os dias com receita de corridas e ${measure}. ${plan.filter.txType?.includes('expense') ? 'O líquido desconta os custos de rodagem lançados nesses dias.' : 'O valor é a receita antes dos custos.'}`
+      : `Preciso de receita de corridas e ${measure} registradas nos mesmos dias para fazer essa conta.`)
+  }
   if (plan.metric === 'per-trip' && incluiReceitaDeCorridas(plan) && !rows.length) {
     caveats.push('Preciso de receitas de corridas e quantidades de viagens registradas nos mesmos dias deste período.')
   }
@@ -912,6 +951,7 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
       || (plan.source === 'plans' && plan.field !== 'paid') || (rows.length > 0 && rows.every(row => !!row.estimated)),
     sample: { rows: rows.length, from: datas[0] || plan.period.from, to: datas[datas.length - 1] || plan.period.to },
     empty: rows.length === 0,
+    ...(driving && !rows.length ? { missingDistance: true } : {}),
     caveats,
     facts,
     samples: rows.slice(0, 6),
