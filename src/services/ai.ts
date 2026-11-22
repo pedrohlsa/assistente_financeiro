@@ -439,7 +439,7 @@ function periodFromText(t: string, today = todayISO()): { from: string; to: stri
 const ABREVIACOES: [RegExp, string][] = [
   [/\bta\b/g, 'esta'], [/\btah\b/g, 'esta'], [/\bto\b/g, 'estou'], [/\btou\b/g, 'estou'],
   [/\bpra\b/g, 'para'], [/\bpro\b/g, 'para'], [/\bpq\b/g, 'porque'],
-  [/\bvc\b/g, 'voce'], [/\bq\b/g, 'que'], [/\bcm\b/g, 'com'], [/\bhj\b/g, 'hoje'], [/\bhje\b/g, 'hoje'],
+  [/\bvc\b/g, 'voce'], [/\bq\b/g, 'que'], [/\bcm\b/g, 'com'], [/(?<![\wÀ-ÿ])c(?=\s+[a-zà-ú]{3,})/g, 'com'], [/\bhj\b/g, 'hoje'], [/\bhje\b/g, 'hoje'],
   [/\bontm\b/g, 'ontem'], [/\btb\b/g, 'tambem'], [/\btbm\b/g, 'tambem'],
   // "Essa SMN", "cadê meu dinheiro": a semana abreviada e o "onde foi parar".
   [/\bsm(?:n|na)\b/g, 'semana'], [/\bcade\b/g, 'onde foi parar'],

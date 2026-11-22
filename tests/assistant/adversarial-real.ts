@@ -9259,6 +9259,11 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const soma = await turnoHoje(aut, 'gastei 12,50+8 de pão e leite')
       out.push(result('QT-soma-escrita', soma.actions, 'R$ 20,50', soma.actions.length === 1 && (soma.actions[0] as any).amount === 20.5))
     }
+    for (const frase of ['gastei qnto c mercado', 'gastei quanto c mercado']) {
+      // "c" é "com": a pergunta virava "Qual foi o valor?" ou o total de Alimentação.
+      const r = (await turnoHoje(rico, frase)).reply
+      out.push(result(`AB-c-e-com-${frase.split(' ')[1]}`, r, 'total do Mercado', /Mercado/.test(r) && !/Qual foi o valor|Alimentação/.test(r)))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

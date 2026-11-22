@@ -89,7 +89,7 @@ const ABREV: [RegExp, string][] = [
   [/\bq\b/g, 'que'], [/\bpq\b/g, 'porque'], [/\bvc\b/g, 'voce'],
   // "comparado cm semana passada": sem a troca o marcador de comparação não
   // casava e a semana passada virava o período principal.
-  [/\bcm\b/g, 'com'],
+  [/\bcm\b/g, 'com'], [/(?<![\wÀ-ÿ])c(?=\s+[a-zà-ú]{3,})/g, 'com'],
   [/\bhj\b/g, 'hoje'], [/\bontm\b/g, 'ontem'], [/\bmsm\b/g, 'mesmo'],
   [/\bmt\b/g, 'muito'], [/\btbm?\b/g, 'tambem'], [/\bta[h]?\b/g, 'esta'],
   [/\bto[u]?\b/g, 'estou'], [/\bpra\b/g, 'para'], [/\bpro\b/g, 'para'],
