@@ -21,6 +21,7 @@ import { buildState } from './harness'
 import { PALAVRAS_REAIS_PROTEGIDAS, repairStructuralTypos } from '../../src/assistant/semantic/normalize'
 import { guessCategory } from '../../src/data/categories'
 import { normalizeName } from '../../src/utils/text'
+import { shouldAsk99Fee } from '../../src/services/profile'
 
 const TODAY = '2026-09-15'
 
@@ -1808,6 +1809,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       ['resumo-da-plataforma', 'na Uber deu 430 bruto, 380 líquido e a taxa ficou em 50', TODAY, 'Uber'],
       ['valor-recebido-primeiro', 'recebi 380 líquido na Uber, 430 era o bruto', TODAY, 'Uber'],
       ['taxa-retida-na-99', 'ontem a 99 descontou 50 de taxa e caiu 380 na minha conta', addDays(TODAY, -1), '99'],
+      ['taxa-retida-sem-valor', 'a 99 pagou 380 já com a taxa descontada', TODAY, '99'],
+      ['taxa-retida-com-virgula', 'recebi 380 líquido da 99, descontada a taxa de 5', TODAY, '99'],
+      ['saldo-da-plataforma', 'o saldo da Uber veio 380 líquido com a taxa já descontada', TODAY, 'Uber'],
     ] as const) {
       const r = await orchestrate({ state, today: TODAY, message, remoteEnabled: false })
       const saved = applyBatchPure(state, r.response.actions, { now: { date: TODAY, time: '12:00' } })
@@ -1815,7 +1819,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const [a] = r.response.actions.map(c => c.action)
       const stripped = validateAction(a, buildCapabilities(state), TODAY, { allowRemoteOnly: true })
       out.push(result(`A-plataforma-${id}`, r.response, 'entrada líquida de R$ 380, sem saída repetida ou viagem',
-        saved.applied && r.response.actions.length === 1 && a.kind === 'income' && a.feeAlreadyWithheld
+        saved.applied && r.response.actions.length === 1 && a.kind === 'income' && a.feeAlreadyWithheld && a.reportedNet
+          && !shouldAsk99Fee(state, a) && /informado como líquido/.test(r.response.reply)
           && entry?.amount === 380 && entry.description === platform && entry.date === date && currentBalance(saved.state, TODAY) === 1380
           && !saved.state.workSessions.length && isValidationFailure(stripped)))
     }

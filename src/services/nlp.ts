@@ -1938,7 +1938,7 @@ export function describeActionDetailed(a: ParsedAction, opts?: { fee?: number; c
       if ((a as any).origin) lines.push(`Origem: ${sentenceCase((a as any).origin)}`)
       if (a.description) lines.push(`Descrição: ${sentenceCase(a.description)}`)
       lines.push('Data: Hoje')
-      if (a.kind === 'income' && (a.category === 'corridas' || a.is99)) {
+      if (a.kind === 'income' && !a.feeAlreadyWithheld && (a.category === 'corridas' || a.is99)) {
         lines.push('A taxa da 99 só será incluída se você confirmar o saque separadamente.')
       }
       break
