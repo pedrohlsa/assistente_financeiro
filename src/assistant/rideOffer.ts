@@ -33,7 +33,7 @@ const TIME = new RegExp(String.raw`(?<![\d.,-])(?:${COMPOUND_DURATION}|${NUMBER}
 type Part = keyof Measures
 type Quote = Omit<PendingRideOffer, 'missing'>
 
-type RideOfferAnswer = { reply: string; pending?: PendingRideOffer }
+type RideOfferAnswer = { reply: string; pending?: PendingRideOffer; done?: Quote }
 
 function measured(t: string, units: RegExp, readValue: (match: RegExpMatchArray) => number | undefined): Measures | undefined {
   const result: Measures = {}
@@ -260,5 +260,39 @@ function renderOffer(state: AppState, quote: Quote): RideOfferAnswer {
     minutes && minutes > 0 ? `• ${fmtBRL(result.profitPerHour)}/hora líquida nos ${fmtNum(minutes)} min informados` : undefined,
   ]
   const classifica = knownRoute && cost.fuelPerKm > 0 ? `\n\nPela distância e pelos custos cadastrados, classificação ${result.rating.toLowerCase()}.` : ''
-  return { reply: `${head}\n\n${rows.filter(Boolean).join('\n')}${routeNote}${durationNote}${classifica}${incomplete}` }
+  return { reply: `${head}\n\n${rows.filter(Boolean).join('\n')}${routeNote}${durationNote}${classifica}${incomplete}`, done: quote }
+}
+
+const REVISAO = /^(?:na\s+verdade|alias|corrigindo|errei|me\s+enganei|ops|e\s+se|e\s+com|e\s+(?:o|a)|mas)\b/
+const PARTE_DA_ROTA = /\b(?:retorno|volta|voltando|embarque|passageiro|buscar|viagem|corrida|tempo|minutos?|min|horas?|km|quilometros?|paga|pagando|valor|reais|r\$)\b/
+
+/**
+ * "Na verdade o retorno era 7 km", "e se pagasse 30?": a análise JÁ DADA é
+ * refeita com o dado trocado. Antes, a correção sem nada na tela era lida
+ * como "não tenho proposta para corrigir", e o motorista ficava com a conta
+ * velha.
+ */
+export function reviseRideOffer(state: AppState, last: Quote, input: string): RideOfferAnswer | undefined {
+  if (!isDriver(state.settings) || looksPast(input)) return undefined
+  const text = normalizeNumberWords(normalizeName(input)).text.replace(/[.!?]+$/, '').trim()
+  if (!REVISAO.test(text) || !PARTE_DA_ROTA.test(text) || !/\d/.test(text)) return undefined
+  if (/\b(?:paguei|gastei|recebi|ganhei|rodei|fiz|abasteci)\b/.test(text)) return undefined
+  let distance = readDistance(text)
+  // "O retorno ERA 7 km": o verbo no meio esconde o trecho do leitor de
+  // distâncias, e o 7 sem rótulo trocava a rota inteira por 7 km.
+  if (distance && distance.unmarked !== undefined && Object.keys(distance).length === 1) {
+    const trecho = /\b(?:retorno|volta|voltando)\b/.test(text) ? 'return'
+      : /\b(?:passageiro|embarque|buscar)\b/.test(text) ? 'pickup'
+        : /\bviagem\b/.test(text) ? 'trip' : undefined
+    if (trecho) distance = { [trecho]: distance.unmarked } as Measures
+  }
+  const duration = readDuration(text)
+  const precoNovo = /\b(?:paga|pagasse|pagando|valor|reais|r\$)\b/.test(text) ? amountForOffer(text) : undefined
+  if (!distance && !duration && !(precoNovo && precoNovo > 0)) return undefined
+  return renderOffer(state, {
+    ...last,
+    value: precoNovo && precoNovo > 0 ? precoNovo : last.value,
+    distance: combineMeasures(last.distance, distance),
+    duration: combineMeasures(last.duration, duration),
+  })
 }

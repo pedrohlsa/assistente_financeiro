@@ -283,6 +283,16 @@ function verboDeConsumo(input: string): string {
 }
 
 /** "13º", "13o salário": o décimo terceiro, nunca R$ 13. */
+/**
+ * "Rodei 64 km e 14 VOLTANDO": a volta herda a unidade da distância dita
+ * antes — o 14 virava "R$ 14,00 mencionado". "14 reais na volta" tem unidade
+ * própria e continua dinheiro.
+ */
+export function voltaSemUnidade(text: string): string {
+  return text.replace(/(\d[\d.,]*\s*(?:km|quil[oô]metros?)(?![\wÀ-ÿ])[^;!?\d]*?(?:(?<![\wÀ-ÿ])e\s+|,\s*)(?:mais\s+)?)(\d[\d.,]*)(\s+(?:voltando|(?:na|de)\s+(?:volta|retorno)|no\s+retorno|pra\s+voltar))/gi,
+    (_m, antes: string, n: string, depois: string) => `${antes}${n} km${depois}`)
+}
+
 export const DECIMO_TERCEIRO = /(?<![\d.,])13\s*[º°o](?:\s+sal[áa]rio)?(?![\wÀ-ÿ])|(?<![\d.,])13\s+sal[áa]rio(?![\wÀ-ÿ])/gi
 
 /** "1/3 do aluguel", "1/2 da conta": fração de algo, nunca valor nem data. */
@@ -306,7 +316,7 @@ function valorNoFim(input: string): string {
 }
 
 export function parseNatural(input: string): ParsedAction[] {
-  input = verboDeConsumo(cobrancaRecebida(fontePagou(valorNoFim(input.replace(DECIMO_TERCEIRO, 'décimo terceiro').replace(FRACAO_DE, 'parte')))))
+  input = verboDeConsumo(cobrancaRecebida(fontePagou(valorNoFim(voltaSemUnidade(input.replace(DECIMO_TERCEIRO, 'décimo terceiro')).replace(FRACAO_DE, 'parte')))))
   // Operações de cartão são analisadas na frase INTEIRA antes de qualquer
   // quebra: "passei 2000 em 5 vezes E RECEBI 1850" tem um verbo de comando no
   // meio, e cortar ali transformava uma entrada financiada numa receita de

@@ -8205,6 +8205,40 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('BW-quanto-foi-lucro', lucro, 'resultado, não gasto', !/^Você gastou/.test(lucro) && /Resultado|lucro/i.test(lucro)))
   }
 
+  // "Rodei 64 km e 14 voltando": a volta herda o km (o 14 virava R$ 14
+  // mencionado). "14 reais na volta" continua dinheiro.
+  {
+    const st = buildState({ profile: 'driver' })
+    const v = await turnoHoje(st, 'rodei 64 km e 14 voltando')
+    const w: any = v.actions.find((a: any) => a.kind === 'work')
+    out.push(result('VK-volta-herda-km', { reply: v.reply, actions: v.actions }, '78 km, sem R$ 14', w?.km === 78 && !/R\$ 14/.test(v.reply)))
+    const r = await turnoHoje(st, 'rodei 64 km e 14 reais na volta')
+    const w2: any = r.actions.find((a: any) => a.kind === 'work')
+    out.push(result('VK-controle-reais', r.actions, '64 km; os 14 reais não viram km', w2?.km === 64))
+  }
+
+  // Oferta já analisada: "na verdade o retorno era 7 km" caía em "não tenho
+  // proposta na tela para corrigir". A revisão refaz a conta, acumulando.
+  {
+    const moto = motoristaRico(hoje)
+    let focus: any
+    const passo = async (msg: string) => {
+      const o = await orchestrate({ state: moto, message: msg, remoteEnabled: false, today: hoje, focus })
+      focus = o.focus || focus
+      return o.response.reply
+    }
+    const base = await passo('corrida de 25 reais, 8 km até o passageiro e 12 km de viagem, vale a pena?')
+    const ret = await passo('na verdade o retorno era 7 km')
+    const preco = await passo('e se pagasse 30 reais?')
+    const pass = await passo('e se o passageiro estiver a 3 km')
+    out.push(result('RV-oferta-base', base, '20 km no total', /20 km no total/.test(base)))
+    out.push(result('RV-retorno', ret, '27 km, com 7 de retorno', /27 km no total/.test(ret) && /7 km de retorno/.test(ret)))
+    out.push(result('RV-preco', preco, 'R$ 30 sobre 27 km', /27 km no total/.test(preco) && /R\$\s1,11\/km bruto/.test(preco.replace(/\u00a0/g, ' '))))
+    out.push(result('RV-passageiro', pass, '3 + 12 + 7 = 22 km', /22 km no total/.test(pass)))
+    const semOferta = (await turnoHoje(buildState({ profile: 'driver' }), 'na verdade o retorno era 7 km')).reply
+    out.push(result('RV-sem-oferta', semOferta, 'sem análise inventada', !/Análise da corrida/.test(semOferta)))
+  }
+
   // Abreviação de unidade e de preposição ficava na descrição: "35 cnto no
   // mcdonalds" gravava "Cnto no mcdonalds" em Outros, "120 d luz" gravava
   // "D luz", "40 rs no uber" gravava "Rs no uber".

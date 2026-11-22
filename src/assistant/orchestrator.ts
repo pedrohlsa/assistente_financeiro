@@ -30,7 +30,7 @@ import { parseDriverDay } from './semantic/driverDay'
 import { parseTypedPairs } from './semantic/pairs'
 import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } from './semantic/normalize'
 import { elapsedMinutes, spokenClock } from './semantic/clock'
-import { continueRideOffer, interpretRideOffer } from './rideOffer'
+import { continueRideOffer, interpretRideOffer, reviseRideOffer } from './rideOffer'
 import { reconcileSpokenTotals } from './spokenTotals'
 import { readPlatformPayout } from './platformPayout'
 import { readCardPurchaseDue, resolveCardPurchaseDue } from './cardPurchaseDue'
@@ -751,9 +751,14 @@ function rideOfferClarification(reply: string, rideOffer: PendingRideOffer): Ass
   return { field: 'ride-offer', question: reply, rideOffer }
 }
 
-function rideOfferReply(input: OrchestratorInput, offer: { reply: string; pending?: PendingRideOffer }): OrchestratorOutput {
+function rideOfferReply(input: OrchestratorInput, offer: { reply: string; pending?: PendingRideOffer; done?: Omit<PendingRideOffer, 'missing'> }): OrchestratorOutput {
   const response = { version: ASSISTANT_CONTRACT_VERSION, engine: 'local' as const, actions: [] as [], unresolved: [], reply: offer.reply }
-  return { draft: null, keepPending: true, focus: input.focus,
+  // A análise completa fica no foco para a revisão seguinte ("na verdade o
+  // retorno era 7 km").
+  const focus = offer.done
+    ? { ...(input.focus || {}), lastRideOffer: { ...offer.done } as PendingRideOffer, updatedAt: Date.now() }
+    : input.focus
+  return { draft: null, keepPending: true, focus,
     response: offer.pending
       ? { ...response, mode: 'clarify', clarification: rideOfferClarification(offer.reply, offer.pending) }
       : { ...response, mode: 'answer' },
@@ -1607,6 +1612,10 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (pc?.field === 'ride-offer' && pc.rideOffer) {
     const offer = continueRideOffer(input.state, pc.rideOffer, input.message)
     if (offer) return rideOfferReply(input, offer)
+  }
+  if (!pc && !input.pending?.length && input.focus?.lastRideOffer && isFocusFresh(input.focus)) {
+    const revista = reviseRideOffer(input.state, input.focus.lastRideOffer, input.message)
+    if (revista) return rideOfferReply(input, revista)
   }
   if (pc?.field === 'work-duration' && pc.pendingActions?.length) {
     const said = normalizeNumberWords(input.message).text.trim()

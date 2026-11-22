@@ -102,6 +102,11 @@ export interface ConversationFocus {
   lastInvoiceQuestion?: string
   /** A origem anterior quando a conversa trocou de origem ("e da Casa 2?"). */
   previousOrigin?: string
+  /**
+   * A última corrida analisada por completo, só em memória: "na verdade o
+   * retorno era 7 km" refaz a conta. Nunca vai ao remoto (regra 61).
+   */
+  lastRideOffer?: import('../contracts').PendingRideOffer
   updatedAt: number
 }
 
