@@ -307,12 +307,16 @@ function tipoBaseDe(t: string): ('income' | 'expense' | 'saving')[] {
   return ['expense']
 }
 
-function lerMetrica(t: string): { valor: MetricaLida; matched: string } {
+function lerMetrica(t: string, driver = false): { valor: MetricaLida; matched: string } {
   // "Lucro por km" é (entrou − saiu) / km. Sem isto, `tipoBaseDe` não achava
   // verbo de receita em "lucro" e a conta virava DESPESA por km — um número
   // seis vezes menor, com a mesma cara de resposta certa.
+  // "Minha MÉDIA por km tá boa?": para o motorista, média por km sem palavra
+  // de gasto é o que o km RENDE. Lida como despesa, respondia o custo por km.
   const tipo: ('income' | 'expense' | 'saving')[] =
-    RESULTADO.test(t) && !GASTO.test(t) ? ['income', 'expense'] : tipoBaseDe(t)
+    RESULTADO.test(t) && !GASTO.test(t) ? ['income', 'expense']
+      : driver && /\bmedia\s+(?:por|de)\s+(?:km|quilometro|hora|viagem|corrida)\b/.test(t) && !GASTO.test(t) && !/\b(?:custo|custa|gasto|gasta)\b/.test(t) ? ['income']
+        : tipoBaseDe(t)
   // Entrada menos saída dividida pela unidade: o rótulo diz que é LÍQUIDO,
   // senão "R$ 24,57 por viagem" se lê como o que a corrida paga.
   // "Por km: R$ 0,24/km" não dizia se era gasto ou ganho.
@@ -963,7 +967,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   // maior gasto" — a pergunta perdia o "por lançamento" e devolvia só um número
   // solto, sem dizer QUAL foi o gasto.
   const base = rest.texto
-  const metrica = lerMetrica(base)
+  const metrica = lerMetrica(base, driver)
   const fonteLida = lerFonte(base, driver, (state.goals || [])
     .filter(g => !g.done)
     .map(g => normalizeName(g.name))

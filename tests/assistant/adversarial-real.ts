@@ -9167,6 +9167,11 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const r2 = (await turnoHoje(rico, 'tô indo melhor que mês passado?')).reply
       out.push(result('RT-indo-melhor-nao-vira-busca', r2, 'resultado do mês, nunca busca por "indo"', !/"indo"/.test(r2) && /resultado/.test(r2)))
     }
+    {
+      const moto = motoristaRico(hoje)
+      const r = (await turnoHoje(moto, 'qual minha média por km')).reply
+      out.push(result('PU-media-por-km-e-ganho', r, 'recebido por km, não gasto', /^Recebido por km/.test(r)))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))
