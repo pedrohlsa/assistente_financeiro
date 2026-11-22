@@ -9217,6 +9217,11 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('PQ-data-continua-respondendo', escolhe.response.actions.map(a => a.action), 'R$ 40 anteontem',
         (escolhe.response.actions[0]?.action as any)?.date === addDays(todayISO(), -2)))
     }
+    {
+      const r = await turnoHoje(buildState({ profile: 'autonomo' }), 'a casa 2 pagou 1200 mas atrasou 3 dias')
+      out.push(result('DU-duracao-nao-e-sobra', r.reply, 'R$ 1.200 sem pedir para lançar "3 dias"',
+        (r.actions[0] as any)?.amount === 1200 && !/Não registrei/.test(r.reply)))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

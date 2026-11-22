@@ -1349,7 +1349,10 @@ function sobraComValor(unresolved: AssistantUnresolvedClause[]): string {
   // Saque é entendido: não é ganho nem gasto, e dizer "não registrei, me diga
   // o que foi" pedia um lançamento que não deve existir (regra 69).
   const saques = unresolved.filter(u => u.reason === 'not-understood' && SAQUE.test(u.text))
-  const sobra = unresolved.filter(u => u.reason === 'not-understood' && /\d/.test(u.text) && !saques.includes(u))
+  // Número que é DURAÇÃO não é valor (regra 62): "mas atrasou 3 dias" pedia
+  // "me diga o que foi que eu lanço" para um prazo.
+  const soDuracao = (txt: string) => !/\d/.test(txt.replace(/\d+(?:[.,]\d+)?\s*(?:dias?|semanas?|m[eê]s(?:es)?|horas?|h(?![\wÀ-ÿ])|min(?:utos)?|anos?|vezes)(?![\wÀ-ÿ])/gi, ' '))
+  const sobra = unresolved.filter(u => u.reason === 'not-understood' && /\d/.test(u.text) && !saques.includes(u) && !soDuracao(u.text))
   // Relato SEM valor ("gastei 30 no mercado e PAGUEI A LUZ"): a segunda metade
   // sumia sem aviso, e o usuário confirmava achando que tinha lançado as duas.
   const semValor = unresolved.filter(u => u.reason === 'not-understood' && !/\d/.test(u.text)
