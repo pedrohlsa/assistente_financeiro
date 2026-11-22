@@ -6981,8 +6981,14 @@ item tem bloco próprio em `tests/assistant/adversarial-real.ts`.
 - "Há 3 dias", "faz 3 dias", "3 dias atrás" datam o lançamento (um dia
   exato). Decisão: semanas, meses, anos e "uns 5 dias" continuam perguntando
   — `hint-03`/`hint-04` mudaram de expectativa e `hint-05..07` travam o resto.
+- "Domingo compensa rodar?" e "sábado vale a pena?" (o dia antes) caíam na
+  ajuda (`WD-`). "Meu salário é de 3.200" virava receita recebida; "meu
+  salário é 3200" e "recebo dia 5" caíam na ajuda — salário declarado é
+  previsão; a recorrência de entrada não fala mais em "vencimento" (`RC-`).
+  "Atualiza meu saldo pra 5000" respondia o saldo antigo; "meu saldo tá
+  certo?" agora explica a âncora e como corrigir (`SD-`).
 
-Gates (relógio 2026-09-15): 736/736 corpus, 1.388/1.388 adversariais, 151/151
+Gates (relógio 2026-09-15): 736/736 corpus, 1.397/1.397 adversariais, 151/151
 invariantes, mutações, fuzz, ditado e remoto offline; typecheck,
 typecheck:api e rubrica (0 perigosa, 0 ruim). `test:calendario` verde depois
 de cada lote. Sem push, merge, deploy, APK ou DeepSeek. **NOT READY** até
