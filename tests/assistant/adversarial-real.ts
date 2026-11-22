@@ -9373,6 +9373,13 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('RD-mesmo-tipo-responde-o-rascunho', resp.response.actions.map(a => a.action), 'salário de R$ 3.500',
         (resp.response.actions[0]?.action as any)?.category === 'salario' && (resp.response.actions[0]?.action as any)?.amount === 3500))
     }
+    {
+      // Autônomo também tem carro a GNV: o tipo dito fica na descrição, para
+      // "quanto gastei de GNV" achar o lançamento depois.
+      const r = await turnoHoje(buildState({ profile: 'autonomo' }), 'abasteci 150 de gnv')
+      out.push(result('GN-gnv-na-descricao-fora-do-motorista', r.actions, 'despesa de combustível descrita GNV',
+        (r.actions[0] as any)?.category === 'combustivel' && (r.actions[0] as any)?.description === 'GNV'))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

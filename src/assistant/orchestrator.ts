@@ -363,10 +363,14 @@ function temporalClarification(t: TemporalSignal): AssistantClarification {
   }
 }
 
-function actionForProfile(action: ParsedAction, caps: AssistantCapabilities): ParsedAction {
+function actionForProfile(action: ParsedAction, caps: AssistantCapabilities, mensagem = ''): ParsedAction {
   if (caps.isDriver) return action
   if (action.kind === 'fuel' && action.amount > 0) {
-    return { kind: 'expense', amount: action.amount, category: 'combustivel', description: 'Combustível', date: action.date }
+    // O combustível DITO fica na descrição: "abasteci 150 de GNV" gravava
+    // "Combustível", e "quanto gastei de GNV" nunca achava o lançamento.
+    const tipo = normalizeName(mensagem).match(/(?<![\wÀ-ÿ])(gnv|etanol|alcool|diesel|gasolina)(?![\wÀ-ÿ])/)?.[1]
+    const nome = tipo === 'gnv' ? 'GNV' : tipo === 'alcool' ? 'Álcool' : tipo ? tipo[0].toUpperCase() + tipo.slice(1) : 'Combustível'
+    return { kind: 'expense', amount: action.amount, category: 'combustivel', description: nome, date: action.date }
   }
   if (action.kind === 'maintenance') {
     return { kind: 'expense', amount: action.cost, category: 'manutencao', description: `Troca de ${action.item}`, date: action.date }
@@ -588,7 +592,7 @@ function runLocal(
       // estrutura de veículo do app. Em vez de descartar o lançamento (o
       // usuário gastou o dinheiro de verdade), ele vira despesa da categoria
       // correspondente. `work` e `odometer` não têm equivalente e são recusados.
-      action = actionForProfile(action, caps)
+      action = actionForProfile(action, caps, clause.text)
 
       // O vocabulário do usuário entra ANTES da validação: a categoria que ele
       // mesmo usa precisa passar pelas mesmas regras de qualquer outra.
@@ -1123,7 +1127,7 @@ function proposeDatedActions(input: OrchestratorInput, actions: ParsedAction[], 
   const dueText = input.pendingClarification?.purchaseDueText
   let dueDraft: AssistantDraft | undefined
   const candidates = actions.flatMap(raw => {
-    const validated = validateAction(actionForProfile(raw, caps), caps, today)
+    const validated = validateAction(actionForProfile(raw, caps, input.message), caps, today)
     if (isValidationFailure(validated)) {
       notes.push(errorMessage(validated.code, validated.detail))
       return []
