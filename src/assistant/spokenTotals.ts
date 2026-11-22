@@ -33,6 +33,7 @@ const AT_ONCE = /(?<![\wÀ-ÿ])[àa]\s+vista(?![\wÀ-ÿ])/i
 const CASH_PURCHASE_TENDER = /(?<![\wÀ-ÿ])(?:(?:via|por|no|pelo)\s+pix|em\s+(?:dinheiro|esp[ée]cie)|(?:no|por|em)\s+(?:cart[ãa]o\s+de\s+)?d[ée]bito)(?![\wÀ-ÿ])/i
 const INVOICE_LIST_HEAD = /^(?<lead>(?:(?:eu|hoje|hj|ontem|anteontem|j[áa])\s+){0,4})(?:paguei|quitei)\s+/i
 const INVOICE_LIST_ITEM = new RegExp(String.raw`^(?:mais\s+)?(?:paguei\s+|quitei\s+)?${MONEY}\s+(?:(da\s+fatura|d[aeo]\s+faturas?)\s+)?d[ao]\s+(.+?)$`, 'i')
+const PAYSLIP_NET = new RegExp(String.raw`^(?<lead>(?:(?:eu|hoje|hj|ontem|anteontem)\s+){0,3})(?:(?:a\s+empresa|o\s+patr[ãa]o)\s+)?(?:me\s+)?descont(?:ou|aram)\s+${MONEY}\s+(?:(?:na|em)\s+folha|d[eo]\s+(?:meu\s+)?sal[áa]rio|de\s+(?:inss|irrf))(?:\s+de\s+pagamento)?(?:\s*[,;]\s*(?:e\s+)?|\s+e\s+)(?<when>(?:hoje|hj|ontem|anteontem)\s+)?(?:recebi|caiu|entrou)\s+(?<received>${MONEY})(?:\s+l[íi]quid[oa]s?)?(?:\s+de\s+sal[áa]rio)?(?<after>\s+(?:hoje|hj|ontem|anteontem))?(?<rest>[.!]*|\s+e\s+(?:paguei|gastei|comprei|abasteci)\b[^?]*?)$`, 'i')
 
 type ReconciledTotal = { text?: string; issue?: string; dateQuestion?: IncompleteIntent['purchaseDateQuestion'] }
 
@@ -205,6 +206,11 @@ function reconcileDriverResult(text: string, today: string): ReconciledTotal | u
 /** Totais declarados e parcelas inclusas explicam os itens de um relato. */
 export function reconcileSpokenTotals(message: string, today: string, driver: boolean, cardNames: string[]): ReconciledTotal | undefined {
   const text = normalizeNumberWords(message).text.trim()
+  const payslip = text.match(PAYSLIP_NET)?.groups
+  if (payslip) {
+    const date = (payslip.after || payslip.when || payslip.lead).trim()
+    return { text: `${date ? date + ' ' : ''}recebi ${payslip.received} líquido de salário${payslip.rest}` }
+  }
   if (driver) {
     const result = reconcileDriverResult(text, today)
     if (result) return result

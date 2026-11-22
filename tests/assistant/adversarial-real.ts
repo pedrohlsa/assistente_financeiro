@@ -8405,6 +8405,16 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const inss = await turnoHoje(st, 'descontaram 300 de INSS')
     out.push(result('SL-desconto-em-folha', { reply: inss.reply, actions: inss.actions }, 'não registra; fala do salário líquido',
       !inss.actions.length && /líquido/.test(inss.reply)))
+    const payroll = await turnoHoje(st, 'me descontaram 150 em folha, recebi 1800')
+    const payrollAndExpense = await turnoHoje(st, 'ontem a empresa descontou 150 do meu salário e recebi 1800 e paguei 25 no mercado')
+    const explicitOther = await turnoHoje(st, 'me descontaram 150 em folha, recebi 1800 de aluguel')
+    out.push(result('SL-salario-liquido-e-gasto-proprio', { payroll, payrollAndExpense, explicitOther },
+      'registra o que entrou e as despesas efetivamente pagas, preservando a data e qualquer origem diferente de salário',
+      payroll.actions.length === 1 && payroll.actions.some(a => a.kind === 'income' && a.category === 'salario' && a.amount === 1800 && a.reportedNet)
+      && payrollAndExpense.actions.length === 2 && payrollAndExpense.actions.some(a => a.kind === 'income'
+        && a.category === 'salario' && a.amount === 1800 && a.date === addDays(hoje, -1))
+      && payrollAndExpense.actions.some(a => a.kind === 'expense' && a.amount === 25)
+      && explicitOther.actions.length === 1 && explicitOther.actions.some(a => a.kind === 'income' && a.category === 'aluguel' && a.amount === 1800)))
     const hora = (await turnoHoje(st, 'quanto eu ganho por hora')).reply
     out.push(result('SL-por-hora-sem-horas', hora, 'sem R$ 0,00/hora; diz que não há horas', !/R\$ 0,00\/hora/.test(hora) && /horas/.test(hora)))
     const share = (await turnoHoje(st, 'quanto do meu salário vai pro aluguel')).reply.replace(/ /g, ' ')
