@@ -1805,16 +1805,36 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     return { text: `Com o hodômetro em ${fmtNum(odo, 0)} km:\n\n${lines.join('\n')}` }
   }
 
-  // "tô gastando demais esse mês?"
-  if (/gastando demais|gastei demais|(?:estou|to)\s+(?:ganhando|faturando|indo)\s+(?:mais|melhor|pior|menos)|(?:ganhei|fiz|faturei)\s+mais\s+que\s+(?:o\s+)?m[eê]s\s+passado|comparado\s+(?:ao|com)\s+(?:o\s+)?m[eê]s\s+passado/.test(t)) {
+  // "tô gastando demais esse mês?" — e "tô GANHANDO menos que o normal?",
+  // "tô indo melhor?". A rota media sempre a DESPESA: quem perguntou do ganho
+  // ouvia "R$ 566 em despesas… abaixo do ritmo 👏". A métrica sai do verbo.
+  if (/gastando demais|gastei demais|(?:estou|to)\s+(?:ganhando|faturando|indo|rendendo|lucrando)\s+(?:mais|melhor|pior|menos|bem|mal)|(?:ganhei|fiz|faturei)\s+mais\s+que\s+(?:o\s+)?m[eê]s\s+passado|comparado\s+(?:ao|com)\s+(?:o\s+)?m[eê]s\s+passado/.test(t)) {
     const cur = monthStats(s), prev = prevMonthStats(s)
     const day = fromISO(todayISO()).getDate()
-    const prevPace = prev.expense > 0 ? (prev.expense / daysInMonth(addDays(todayISO(), -day))) * day : 0
-    if (prevPace === 0) return { text: `Este mês você gastou ${fmtBRL(cur.expense)}. Ainda não tenho o mês anterior completo para comparar o ritmo.` }
-    const diff = cur.expense - prevPace
+    const diasAntes = daysInMonth(addDays(todayISO(), -day))
+    const metrica: 'income' | 'profit' | 'expense' = /\b(?:ganhando|faturando|rendendo|ganhei|fiz|faturei)\b/.test(t) ? 'income'
+      : /\b(?:indo|lucrando)\b/.test(t) ? 'profit' : 'expense'
+    const valor = (st: { income: number; expense: number }) => metrica === 'income' ? st.income : metrica === 'expense' ? st.expense : st.income - st.expense
+    const nome = metrica === 'income' ? 'em entradas' : metrica === 'expense' ? 'em despesas' : 'de resultado (entradas − despesas)'
+    if (!(prev.income > 0 || prev.expense > 0)) return { text: `Este mês: ${fmtBRL(valor(cur))} ${nome}. Ainda não tenho o mês anterior registrado para comparar o ritmo.` }
+    // A FATIA real do mês anterior (do dia 1º ao mesmo dia), a mesma da
+    // consulta (regra 58). A proporção enganava quem recebe em dia fixo: o
+    // aluguel do dia 5 virava "um terço" no dia 10.
+    const hojeISO = todayISO()
+    const iniAnt = `${addDays(`${hojeISO.slice(0, 7)}-01`, -1).slice(0, 7)}-01`
+    const fimAnt = addDays(iniAnt, Math.min(day, diasAntes) - 1)
+    const fatia = periodStats(s, iniAnt, fimAnt, hojeISO)
+    const prevPace = round2(valor(fatia))
+    const rotuloAnt = `De 1º a ${fromISO(fimAnt).getDate()} de ${MESES_PT_BR[fromISO(fimAnt).getMonth()]}`
+    const diff = round2(valor(cur) - prevPace)
+    const melhor = metrica === 'expense' ? diff < 0 : diff > 0
+    const lead = /\b(?:mais|melhor|bem)\b/.test(t) ? (melhor ? 'Sim. ' : 'Não. ')
+      : /\b(?:menos|pior|mal|demais)\b/.test(t) ? (metrica === 'expense' ? (diff > 0 ? 'Sim. ' : 'Não. ') : (melhor ? 'Não. ' : 'Sim. ')) : ''
+    const direcao = diff === 0 ? 'igual ao mesmo trecho do mês passado'
+      : `${fmtBRL(Math.abs(diff))} ${diff > 0 ? 'acima' : 'abaixo'} do mesmo trecho do mês passado`
+    const dica = metrica === 'expense' && diff > 0 ? ' Vale olhar as categorias na aba Análises.' : ''
     return {
-      text: `Este mês: ${fmtBRL(cur.expense)} em despesas.\nNo mesmo ponto do mês passado: ~${fmtBRL(prevPace)} (estimativa proporcional).\n\n` +
-        (diff > 0 ? `Você está gastando ${fmtBRL(diff)} a mais que o ritmo do mês passado. Vale olhar as categorias na aba Análises.` : `Está ${fmtBRL(-diff)} abaixo do ritmo do mês passado. 👏`),
+      text: `${lead}Este mês: ${fmtBRL(valor(cur))} ${nome}.\n${rotuloAnt}: ${fmtBRL(prevPace)} (dado real).\n\nVocê está ${direcao}.${dica}`,
     }
   }
 

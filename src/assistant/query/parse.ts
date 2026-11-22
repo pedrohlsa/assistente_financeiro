@@ -225,6 +225,10 @@ export function looksLikeDataQuestion(input: string): boolean {
   // período; a DSL lia "mais que" como comparação entre períodos e respondia
   // "Não, ficou igual" comparando o mês com ele mesmo.
   if (GASTO_CONTRA_GANHO.test(t)) return false
+  // "Tô indo melhor que mês passado?", "tô rendendo bem?": o ritmo do mês
+  // contra o anterior, respondido pelo roteador com a métrica do verbo. A DSL
+  // procurava o texto "indo".
+  if (/\b(?:estou|to|tou)\s+(?:indo|rendendo|lucrando)\s+(?:mais|melhor|pior|menos|bem|mal)\b/.test(t)) return false
   if (pedeAteOSalario(t) || pedeFimDoMes(t) || guardarEsteMes(t) !== null || pedeReservaDeCaixa(t) || pedeContaQueAperta(t) || pedeTotalGuardado(t) || (fatura && !faturaDaJanela) || pedeAntecipacaoDeFatura(t)
     || pedeContasAPagar(t) || planoDeGuardar(t) || perguntaDeManutencao(t)
     || pedeContasFixas(t) || pedeSobraSemCombustivel(t) || pedeLimite(t)

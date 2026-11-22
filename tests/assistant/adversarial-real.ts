@@ -9149,6 +9149,24 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const g = (await turnoHoje(moto, 'quanto gastei por categoria mês passado')).reply
       out.push(result('PL-grupo-diz-o-periodo', g, 'cabeçalho agrupado com o período', /por categoria no mês passado/.test(g) || /Não tenho/.test(g)))
     }
+    {
+      // "Tô ganhando menos que o normal?" respondia o ritmo das DESPESAS ("👏"),
+      // e a proporção enganava quem recebe em dia fixo. Agora: a métrica do
+      // verbo, contra a fatia real do mês anterior (regra 58).
+      const dia = Number(hoje.slice(8, 10))
+      const iniAnt = `${addDays(`${hoje.slice(0, 7)}-01`, -1).slice(0, 7)}-01`
+      const diasAnt = Number(addDays(`${hoje.slice(0, 7)}-01`, -1).slice(8, 10))
+      const fimAnt = addDays(iniAnt, Math.min(dia, diasAnt) - 1)
+      const ant = periodStats(rico, iniAnt, fimAnt)
+      const atual = periodStats(rico, `${hoje.slice(0, 7)}-01`, hoje)
+      const brl = (v: number) => fmtBRL(v).replace(/\u00a0/g, ' ')
+      const r = (await turnoHoje(rico, 'tô ganhando menos que o normal?')).reply.replace(/\u00a0/g, ' ')
+      const temAnt = rico.transactions.some(x => x.date >= iniAnt && x.date < `${hoje.slice(0, 7)}-01`)
+      out.push(result('RT-ganhando-menos-mede-entradas', r, 'entradas contra o mesmo trecho do mês anterior',
+        !temAnt || (r.startsWith(atual.income < ant.income ? 'Sim.' : 'Não.') && r.includes(brl(atual.income)) && r.includes(brl(ant.income)) && !/despesas/.test(r))))
+      const r2 = (await turnoHoje(rico, 'tô indo melhor que mês passado?')).reply
+      out.push(result('RT-indo-melhor-nao-vira-busca', r2, 'resultado do mês, nunca busca por "indo"', !/"indo"/.test(r2) && /resultado/.test(r2)))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))
