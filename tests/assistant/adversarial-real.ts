@@ -9185,6 +9185,16 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('DM-dia-n-do-mes-passado', r2, `só o dia ${dia4}`,
         r2.includes(fromISO(dia4).toLocaleDateString('pt-BR')) && (gasto4 > 0 ? r2.includes(fmtBRL(gasto4).replace(/\u00a0/g, ' ')) : /Não tenho/.test(r2))))
     }
+    {
+      // "Desde segunda" cobria só a segunda; "de sexta pra cá" virava busca de
+      // texto; "nessa quinzena" era o mês inteiro.
+      const desde = (await turnoHoje(rico, 'quanto gastei desde segunda')).reply
+      const praCa = (await turnoHoje(rico, 'quanto gastei de sexta pra cá')).reply
+      const quinz = (await turnoHoje(rico, 'quanto gastei nessa quinzena')).reply
+      out.push(result('PD-desde-dia-da-semana', [desde, praCa, quinz], 'intervalo até hoje e a quinzena corrente',
+        /desde \d{2}\/\d{2}\/\d{4}|Não tenho/.test(desde) && !/"sexta/.test(praCa) && /desde \d{2}\/\d{2}\/\d{4}|Não tenho/.test(praCa)
+        && /quinzena/.test(quinz)))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

@@ -332,6 +332,22 @@ export function parsePeriod(input: string, hoje = todayISO()): { period: QueryPe
   if (/\bontem\b/.test(t)) return { period: P(addDays(hoje, -1), addDays(hoje, -1), 'ontem', 'day', hoje), matched: 'ontem' }
   if (/\bhoje\b|\bhj\b/.test(t)) return { period: P(hoje, hoje, 'hoje', 'day', hoje), matched: 'hoje' }
 
+  // "DESDE segunda", "de sexta PRA CÁ": do dia dito até hoje. O "desde" era
+  // ignorado e a resposta cobria só a segunda; "pra cá" virava texto de busca.
+  const desdeDia = t.match(new RegExp(String.raw`\b(?:desde|a\s+partir\s+d[ea])\s+(?:(?:a|o)\s+)?(?:ultim[ao]\s+)?(${DIA_SEMANA})\b|\bd[ea]\s+(?:(?:a|o)\s+)?(${DIA_SEMANA})\s+(?:pra|para)\s+ca\b`, 'i'))
+  if (desdeDia) {
+    const day = findDate(desdeDia[1] || desdeDia[2], hoje)
+    if (day?.kind === 'date' && day.date <= hoje) {
+      return { period: P(day.date, hoje, `desde ${br(day.date)}`, 'range', hoje), matched: desdeDia[0] }
+    }
+  }
+  // "Nessa quinzena": a metade do mês em que hoje está.
+  const quinzena = t.match(/\b(?:n?ess[ae]|n?est[ae]|d?ess[ae])\s+quinzena\b/)
+  if (quinzena) {
+    const dia = fromISO(hoje).getDate()
+    const ini = `${hoje.slice(0, 7)}-${dia <= 15 ? '01' : '16'}`
+    return { period: P(ini, hoje, dia <= 15 ? 'nesta quinzena (desde o dia 1º)' : 'nesta quinzena (desde o dia 16)', 'range', hoje), matched: quinzena[0] }
+  }
   const diaDaSemana = t.match(new RegExp(String.raw`\b(?:(?:no|na|em)\s+)?(${DIA_SEMANA})\b(?=\s*[,!?]|\s*$|\s+(?:na|no|de|com|sem)\s)`, 'i'))
   const rankingDeDia = /\b(?:pior|melhor|maior|menor)\s+(?:domingo|segunda|terca|quarta|quinta|sexta|sabado)(?:-feira)?\b(?!\s+passad[oa])/i.test(t)
   if (diaDaSemana && !rankingDeDia) {
