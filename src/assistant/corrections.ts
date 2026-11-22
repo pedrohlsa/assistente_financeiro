@@ -404,6 +404,10 @@ export function parseCorrection(
   today = todayISO(),
 ): CorrectionPlan | null {
   if (!pending.length) return null
+  // Pergunta não é conserto: "o que tem na fatura do Inter?" com o pagamento
+  // do Nubank na tela TROCAVA o cartão da proposta. Quem pergunta quer saber;
+  // a proposta fica como está e a pergunta segue para o roteador.
+  if (/^\s*(?:e\s+)?(?:o\s+que|qual|quais|quanto|quanta|quantos|quantas|quando|onde|como|cad[eê]|por\s*que|ser[áa]\s+que)(?![\wÀ-ÿ])/i.test(message)) return null
   const { text: norm } = normalizeNumberWords(message)
   const t = norm.toLowerCase()
   const plan: CorrectionPlan = { remove: [], edits: [], cancelAll: false, summary: [] }

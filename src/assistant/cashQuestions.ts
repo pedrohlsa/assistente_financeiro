@@ -217,6 +217,12 @@ export function perguntaNominal(texto: string): string | null {
   const n = texto.toLowerCase().replace(/[?.!]+\s*$/, '').trim()
   const fim = String.raw`(?![\wà-ú])`
   if (new RegExp(String.raw`^(?:e\s+)?(?:o\s+|meu\s+)?saldo(?:\s+(?:atual|de\s+hoje|agora))?$`).test(n)) return 'qual meu saldo?'
+  // "Meu limite do Nubank", "limite do inter?": caía no menu de ajuda.
+  const limite = n.match(/^(?:e\s+)?(?:o\s+|meu\s+)?limite(?:\s+(?:dispon[ií]vel|livre))?(?:\s+(?:do|da|no|na)\s+(.+))?$/)
+  if (limite) return `qual meu limite${limite[1] ? ` do ${limite[1]}` : ''}?`
+  // "Fatura do Nubank", "minha fatura?".
+  const fatura = n.match(/^(?:e\s+)?(?:a\s+|minha\s+)?fatura(?:\s+(?:do|da|no|na)\s+(.+))?$/)
+  if (fatura) return `quanto está minha fatura${fatura[1] ? ` do ${fatura[1]}` : ''}?`
   const m = n.match(/^(?:e\s+)?(?:(?:os|as|meus|minhas)\s+)?(gastos?|despesas?|sa[ií]das?|entradas?|receitas?|ganhos?)\s+(.+)$/)
   if (!m) return null
   const verbo = /^(?:gasto|despesa|sa[ií]da)/.test(m[1]) ? 'gastei' : 'recebi'

@@ -9264,6 +9264,17 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const r = (await turnoHoje(rico, frase)).reply
       out.push(result(`AB-c-e-com-${frase.split(' ')[1]}`, r, 'total do Mercado', /Mercado/.test(r) && !/Qual foi o valor|Alimentação/.test(r)))
     }
+    {
+      // Pergunta com proposta na tela não é conserto: "o que tem na fatura do
+      // Inter" trocava o cartão do pagamento do Nubank.
+      const t1 = await orchestrate({ state: rico, message: 'paguei a fatura do nubank', today: todayISO(), remoteEnabled: false })
+      const pend = t1.response.actions.map((p, i) => ({ id: p.id || `p${i}`, action: p.action, engine: 'local' as const, confidence: 'high' as const }))
+      const t2 = await orchestrate({ state: rico, message: 'o que tem na fatura do inter', today: todayISO(), remoteEnabled: false, pending: pend, focus: t1.focus })
+      out.push(result('CQ-pergunta-nao-troca-o-cartao', t2.response.reply, 'resposta, sem "Troquei o cartão"',
+        !t2.correctedPending && !/Troquei o cartão/.test(t2.response.reply)))
+      const lim = (await turnoHoje(rico, 'meu limite do nubank')).reply
+      out.push(result('CQ-limite-telegrafico', lim, 'limite do Nubank', /limite/.test(lim) && !/Posso te ajudar/.test(lim)))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))
