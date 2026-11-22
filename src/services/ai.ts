@@ -32,7 +32,7 @@ import {
   planoDeGuardar, prazoDasContas, RESERVE_WITHDRAWAL_REPLY, retiraDaReserva,
 } from '../assistant/cashQuestions'
 import type { PerguntaDeConta, PerguntaDeFatura, PlanoDeGuardar } from '../assistant/cashQuestions'
-import { CORRIDA_CANCELADA, describeAction, parseNaturalFull, REAJUSTE, SAQUE } from './nlp'
+import { COBRADO_SEM_PAGAR, CORRIDA_CANCELADA, describeAction, parseNaturalFull, REAJUSTE, SAQUE } from './nlp'
 import { driverInsight } from '../assistant/driverInsights'
 import { answerVehicleCost, answerVehicleMonthly } from '../assistant/vehicleCost'
 import { answerDrivingShift, perceivesDrivingFatigue, FALTAM_VIAGENS_POR_APP, PARE_PARA_DESCANSAR } from '../assistant/driverAdvice'
@@ -1160,6 +1160,12 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     && !/\b(?:paguei|gastei|quanto|quantos)\b/.test(t)) {
     return { text: 'Desconto em folha (INSS, imposto, vale-transporte) sai do salário antes de ele cair: não registrei como gasto, para o dinheiro não sair duas vezes.\n\n'
       + 'Registre o salário líquido que entrou — por exemplo, "meu salário caiu 2900".' }
+  }
+  if (COBRADO_SEM_PAGAR.test(input)) {
+    const v = input.match(/(?:r\$\s*)?(\d+(?:[.,]\d+)*)/)
+    const valor = v ? parseMoney(v[1]) : NaN
+    return { text: `Entendi: ${Number.isFinite(valor) && valor > 0 ? `${fmtBRL(valor)} ` : ''}a receber — não registrei, porque o dinheiro ainda não entrou.\n\n`
+      + `Quando pagar, diga "recebi ${Number.isFinite(valor) && valor > 0 ? fmtNum(valor, valor % 1 ? 2 : 0) : '150'} do cliente" que eu lanço.` }
   }
   if (CORRIDA_CANCELADA.test(input) && !/\btaxa\s+de\s+cancelamento\b/.test(t)) {
     return { text: 'Corrida cancelada não é receita: não registrei nada.\n\n'

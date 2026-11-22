@@ -248,6 +248,29 @@ const VERBO_DE_GASTO_LISTA = /\b(?:gastei|gasto|paguei|comprei|torrei|abasteci|c
  * pagou 300": a fonte do próprio usuário pagou — o dinheiro entrou. Sem
  * "me", a frase era lida como movimento de outra pessoa e nada era registrado.
  */
+/**
+ * "Vendi 3 bolos A 25 CADA": quantidade × preço unitário. Caía na ajuda —
+ * nenhum leitor via o valor depois de "a ... cada".
+ */
+export function vendaPorUnidade(input: string): string {
+  const m = input.match(/^\s*((?:(?:eu|hoje|hj|ontem)\s+)*)(vendi|comprei|paguei|gastei)\s+(\d{1,4})\s+([\p{L}][\p{L}\s-]{1,30}?)\s+(?:a|por|de)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*(?:reais\s+)?(?:cada|a\s+unidade|cada\s+um[a]?|o\s+kg|a\s+pe[çc]a)\b(.*)$/iu)
+  if (!m) return input
+  const total = Math.round(parseNum(m[3]) * parseNum(m[5]) * 100) / 100
+  if (!(total > 0)) return input
+  // "Vendi bolos POR 75" é a forma que o parser lê com a descrição.
+  return `${m[1]}${m[2]} ${m[4].trim()} por ${String(total).replace('.', ',')}${m[6]}`
+}
+
+/**
+ * "O cliente me pagou METADE, 300", "a Casa 2 me pagou 900": quem paga é a
+ * fonte, e o valor depois da vírgula é o que entrou.
+ */
+function mePagou(input: string): string {
+  const m = input.match(/^\s*(?:(?:o|a)\s+)?([\p{L}][\p{L}\d ]{1,30}?)\s+(?:j[áa]\s+)?me\s+(?:pagou|pagaram|passou|mandou|transferiu|depositou)\s+(?:(?:a\s+)?metade|uma\s+parte|parte|o\s+resto|o\s+sinal|um\s+adiantamento)?\s*[,:]?\s*(?:r\$\s*)?(\d+(?:[.,]\d+)*)\s*(?:reais)?\s*[.!]?\s*$/iu)
+  if (!m || /^(?:eu|ele|ela|eles|elas|voce|você|quem|que)$/i.test(m[1].trim())) return input
+  return `recebi ${m[2]} do ${m[1].trim()}`
+}
+
 function fontePagou(input: string): string {
   const m = input.match(/^\s*(?:a|o)\s+((?:inquilin[oa](?:\s+d[ao]\s+(?:casa|kitnet|apartamento|apto|loja|sala)\s+[\p{L}\d]+)?)|(?:casa|kitnet|apartamento|apto|loja|sala)\s+[\p{L}\d]+|cliente(?:\s+[\p{Lu}][\p{L}]+)?|empresa|patr[ãa]o)\s+(?:j[áa]\s+)?pag(?:ou|aram)\s+((?:r\$\s*)?\d+(?:[.,]\d+)*)(?![\d.,])(?!\s*(?:reais\s+)?(?:n[oa]s?|em)\s)(.*)$/iu)
   if (!m) return input
@@ -316,7 +339,7 @@ function valorNoFim(input: string): string {
 }
 
 export function parseNatural(input: string): ParsedAction[] {
-  input = verboDeConsumo(cobrancaRecebida(fontePagou(valorNoFim(voltaSemUnidade(input.replace(DECIMO_TERCEIRO, 'décimo terceiro')).replace(FRACAO_DE, 'parte')))))
+  input = verboDeConsumo(cobrancaRecebida(fontePagou(mePagou(vendaPorUnidade(valorNoFim(voltaSemUnidade(input.replace(DECIMO_TERCEIRO, 'décimo terceiro')).replace(FRACAO_DE, 'parte')))))))
   // Operações de cartão são analisadas na frase INTEIRA antes de qualquer
   // quebra: "passei 2000 em 5 vezes E RECEBI 1850" tem um verbo de comando no
   // meio, e cortar ali transformava uma entrada financiada numa receita de
@@ -548,6 +571,12 @@ function driverDayResult(input: string, actions: ParsedAction[], dayHint?: boole
  * Corrida CANCELADA não pagou nada: "cancelaram a corrida de 30" virava R$ 30
  * de receita e 1 viagem. A taxa de cancelamento, quando dita, é receita.
  */
+/**
+ * "Cobrei 150 do cliente mas ele não pagou ainda": dinheiro A RECEBER. Não é
+ * receita até entrar (regra 69).
+ */
+export const COBRADO_SEM_PAGAR = /(?<![\wÀ-ÿ])(?:cobrei|mandei\s+a\s+cobran[çc]a|emiti\s+(?:a\s+)?(?:nota|cobran[çc]a))\b[^.;!?]*?(?:\b(?:mas|e|so\s+que|só\s+que)\s+)?(?:ele|ela|eles|elas|o\s+cliente|a\s+cliente|ninguem|ningu[ée]m)?\s*(?:ainda\s+)?n[ãa]o\s+(?:me\s+)?(?:pagou|pagaram|caiu|entrou|recebi)/i
+
 export const CORRIDA_CANCELADA = /(?<![\wÀ-ÿ])(?:cancel(?:aram|ou|ei|amos)\b[^.;!?]*\bcorridas?\b|corridas?\b[^.;!?]*\bcancelad[ao]s?\b)/i
 
 export const RIDE_EVALUATION_REQUEST = /\b(?:vale(?:\s+a\s+pena)?|compensa|aceito|pego|(?:devo|posso|vale)\s+(?:aceitar|pegar)|(?:d[áa]|serve)\s+(?:pra|para)\s+(?:aceitar|pegar))\b/i
@@ -600,6 +629,7 @@ export function parseNaturalFull(
   // Saque não vira receita (nem o "resultado do dia" do motorista) nem gasto.
   if (SAQUE.test(input) && !/\b(?:paguei|gastei|comprei|recebi|ganhei|faturei)\b/i.test(input)) return { actions: [] }
   if (CORRIDA_CANCELADA.test(input) && !/\btaxa\s+de\s+cancelamento\b/i.test(input)) return { actions: [] }
+  if (COBRADO_SEM_PAGAR.test(input)) return { actions: [] }
   if (RIDE_OFFER_NOTICE.test(input) && !/\b(?:paguei|gastei|recebi|ganhei|faturei|entrou|me\s+pagaram)\b/i.test(input.replace(RIDE_OFFER_NOTICE, ' '))) {
     return { actions: [] }
   }

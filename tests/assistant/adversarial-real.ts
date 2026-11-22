@@ -8217,6 +8217,27 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('VK-controle-reais', r.actions, '64 km; os 14 reais não viram km', w2?.km === 64))
   }
 
+  // Autônomo: "vendi 3 bolos a 25 cada", "o cliente me pagou metade, 300" e
+  // "cobrei 150 mas ele não pagou" caíam na ajuda; faxina e sinal de
+  // encomenda iam para Outros.
+  {
+    const st = buildState({ profile: 'autonomo' })
+    const r1 = await turnoHoje(st, 'vendi 3 bolos a 25 cada')
+    const a1: any = r1.actions[0]
+    out.push(result('AU-venda-por-unidade', r1.actions, 'receita 75 em Vendas', r1.actions.length === 1 && a1.kind === 'income' && a1.amount === 75 && a1.category === 'vendas'))
+    const r2 = await turnoHoje(st, 'o cliente me pagou metade, 300')
+    const a2: any = r2.actions[0]
+    out.push(result('AU-me-pagou-metade', r2.actions, 'receita 300', r2.actions.length === 1 && a2.kind === 'income' && a2.amount === 300))
+    const r3 = await turnoHoje(st, 'cobrei 150 do cliente mas ele não pagou ainda')
+    out.push(result('AU-cobrado-sem-pagar', { reply: r3.reply, actions: r3.actions }, 'a receber, nada registrado', !r3.actions.length && /a receber/.test(r3.reply)))
+    const r4 = await turnoHoje(st, 'fiz uma faxina e recebi 180')
+    out.push(result('AU-faxina', r4.actions, 'Freelance', r4.actions.some((a: any) => a.kind === 'income' && a.amount === 180 && a.category === 'freelance')))
+    const r5 = await turnoHoje(st, 'recebi 200 de sinal da encomenda')
+    out.push(result('AU-sinal', r5.actions, 'Vendas', r5.actions.some((a: any) => a.kind === 'income' && a.amount === 200 && a.category === 'vendas')))
+    const r6 = await turnoHoje(st, 'comprei 2 pneus a 300 cada')
+    out.push(result('AU-compra-por-unidade', r6.actions, 'despesa 600', r6.actions.some((a: any) => a.kind === 'expense' && a.amount === 600)))
+  }
+
   // "Qual FOI o mês mais apertado" respondia com a previsão dos próximos
   // meses (parcelas futuras). No passado, é o pior mês fechado; no futuro,
   // continua a projeção.

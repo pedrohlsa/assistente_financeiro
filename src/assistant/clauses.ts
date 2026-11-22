@@ -8,7 +8,7 @@
 import type { ParsedAction } from '../models/types'
 import type { AssistantConfidence, AssistantIntent, FinancialEvent } from './contracts'
 import { guessCategory } from '../data/categories'
-import { cleanDescription, DECIMO_TERCEIRO, voltaSemUnidade, DISTANCE_ON_FOOT, financedCardMentions, gruposDeCorrida, INCOME_PLATFORM_PREFIX, looksRecurring, parseNaturalFull, NEXT_RIDE_DISTANCE, RIDE_COMPARISON_REQUEST, RIDE_CONDITIONAL, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE, UMA_CORRIDA_NOMEADA } from '../services/nlp'
+import { cleanDescription, DECIMO_TERCEIRO, vendaPorUnidade, voltaSemUnidade, DISTANCE_ON_FOOT, financedCardMentions, gruposDeCorrida, INCOME_PLATFORM_PREFIX, looksRecurring, parseNaturalFull, NEXT_RIDE_DISTANCE, RIDE_COMPARISON_REQUEST, RIDE_CONDITIONAL, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE, UMA_CORRIDA_NOMEADA } from '../services/nlp'
 import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
@@ -1163,6 +1163,27 @@ function corridaNomeadaAntesDoValor(clauses: AnalyzedClause[], driver: boolean):
   }
 }
 
+/**
+ * "Fiz uma FAXINA e recebi 180": o serviço ficou na cláusula sem valor, e a
+ * receita da seguinte caía em Outros. A cláusula anterior empresta categoria e
+ * descrição — só para uma receita genérica, e só quando a palavra é de uma
+ * categoria de renda.
+ */
+function servicoAntesDaReceita(clauses: AnalyzedClause[]): void {
+  for (let i = 0; i + 1 < clauses.length; i++) {
+    const antes = clauses[i], depois = clauses[i + 1]
+    if (antes.actions.length || /\d/.test(antes.text)) continue
+    const m = antes.text.match(/^\s*(?:eu\s+)?(?:hoje\s+|ontem\s+)?(?:fiz|terminei|entreguei|dei)\s+(?:uma?\s+|o\s+|a\s+)?([\p{L}][\p{L}\s]{2,30}?)[\s,]*(?:e)?\s*$/iu)
+    if (!m) continue
+    const receitas = depois.actions.filter(a => a.kind === 'income') as Extract<ParsedAction, { kind: 'income' }>[]
+    if (receitas.length !== 1 || (receitas[0].category && receitas[0].category !== 'outros-in') || receitas[0].description) continue
+    const cat = guessCategory(m[1], 'income')
+    if (!cat || cat === 'outros-in' || cat === 'corridas') continue
+    receitas[0].category = cat
+    receitas[0].description = cleanDescription(m[1])
+  }
+}
+
 function semViagemInferidaComQuantidadeDita(clauses: AnalyzedClause[]): void {
   if (!clauses.some(c => QUANTIDADE_DE_VIAGENS.test(c.text) && c.actions.some(a => a.kind === 'work' && a.trips))) return
   for (const c of clauses) c.actions = semViagemInferida(c.actions, c.text)
@@ -1361,7 +1382,7 @@ export function analyzeMessage(
 ): MessageAnalysis {
   const today = opts?.today || todayISO()
   // "Meu 13º caiu 1600": o 13 é o NOME do salário extra, não R$ 13,00.
-  const original = voltaSemUnidade(input.trim().replace(DECIMO_TERCEIRO, 'décimo terceiro'))
+  const original = vendaPorUnidade(voltaSemUnidade(input.trim().replace(DECIMO_TERCEIRO, 'décimo terceiro')))
   // Números por extenso viram algarismos ANTES dos regex, para reaproveitar
   // todo o parser já testado em vez de duplicá-lo.
   const { text: normalized } = normalizeNumberWords(original)
@@ -2122,6 +2143,7 @@ export function analyzeMessage(
   // A quantidade dita vale antes de fundir: depois, a viagem inferida já está
   // somada às ditas.
   corridaNomeadaAntesDoValor(clauses, !!opts?.driver)
+  servicoAntesDaReceita(clauses)
   semViagemInferidaComQuantidadeDita(clauses)
 
   // Registros de trabalho de cláusulas diferentes são o MESMO dia: "rodei 120 km
