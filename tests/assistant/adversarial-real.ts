@@ -9043,6 +9043,14 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('EM-relato-nao-vira-consulta', s2.reply, 'nunca "não tenho lançamento" para um relato',
         !/Não tenho nenhum lançamento|Total gasto|dado real/.test(s2.reply)))
     }
+    for (const [id, frase, desc] of [
+      ['EM-pra-quem-e-item', 'paguei 100 pro joão e 50 pra maria', 'João,Maria'],
+      ['EM-e-mais-pra-quem', 'dei 100 pra minha mãe e mais 50 pro meu pai', 'Minha mãe,Meu pai'],
+    ] as const) {
+      // Quem recebeu também é item enumerado: os R$ 50 ficavam sem ação.
+      const r = await turnoHoje(buildState({ profile: 'autonomo' }), frase)
+      out.push(result(id, r.actions, desc, r.actions.map((a: any) => a.description).join(',') === desc))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

@@ -1746,11 +1746,13 @@ function parseClause(input: string): ParsedAction[] {
   // itens enumerados após o verbo, nas duas ordens:
   // "gastei 20 de pedágio e 40 de gasolina, 15 de lanche"
   // "comprei cimento por 190 e depois areia por 150"
-  if (/(gastei|paguei|comprei|torrei|coloquei|botei)/.test(text) && !m) {
+  if (/(gastei|paguei|comprei|torrei|coloquei|botei|\bdei\b)/.test(text) && !m) {
     // `,(?!\d)` é essencial: sem isso a vírgula decimal de "1.234,56" era lida
     // como separador de itens e inventava uma segunda despesa de R$ 56.
     const sep = String.raw`(?:\se\s|,(?!\d)|;|\s(?:${CONNECTOR}))`
-    const enumRe = new RegExp(String.raw`${sep}\s*(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:de|com|no|na|em)\s+([a-zà-úçãõ]+(?:\s+[a-zà-úçãõ]+)?)`, 'gi')
+    // "Paguei 100 pro João E 50 PRA MARIA": quem recebeu também é item. Só
+    // "de/no/em" eram lidos, e os R$ 50 ficavam sem ação.
+    const enumRe = new RegExp(String.raw`${sep}\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:de|com|no|na|em|pra|pro|para)\s+(?!(?:hoje|ontem|amanh[ãa]|semana|m[êe]s|dia)\b)([a-zà-úçãõ]+(?:\s+[a-zà-úçãõ]+)?)`, 'gi')
     for (const mm of text.matchAll(enumRe)) {
       const rawDesc = mm[2].trim()
       const amount = parseNum(mm[1])
