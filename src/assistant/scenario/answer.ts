@@ -50,7 +50,8 @@ export function composeScenario(r: AssistantScenarioResult): string {
       const livre = valor('Saldo após esses compromissos')
       linhas.push(`Se você gastar ${fmtBRL(p.amount || 0)} ${p.when || 'hoje'}:`)
       const itens = [`• Saldo em conta ficaria em ${fmtBRL(depois ?? 0)}`]
-      if (sobra !== undefined) itens.push(`• A sobra do mês passaria a ${fmtBRL(sobra)}`)
+      // Regra 21: resultado negativo é déficit, nunca "sobra de -R$".
+      if (sobra !== undefined) itens.push(sobra < 0 ? `• O mês passaria a fechar com déficit de ${fmtBRL(-sobra)}` : `• A sobra do mês passaria a ${fmtBRL(sobra)}`)
       if (contas) itens.push(`• Compromissos cadastrados vencidos e dos próximos 7 dias: ${fmtBRL(contas)}${faturas ? ` (inclui ${fmtBRL(faturas)} em faturas)` : ''}`)
       if (livre !== undefined) itens.push(`• Saldo após esses compromissos: ${fmtBRL(livre)}`)
       linhas.push(itens.join('\n'))

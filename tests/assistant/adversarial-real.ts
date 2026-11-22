@@ -2902,7 +2902,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const t3 = await turnoHoje(st, 'volta', t2.focus)
     const t4 = await turnoHoje(st, 'e se for 50000?', t2.focus)
     const t5 = await turnoHoje(st, 'da ruim?', t4.focus)
-    const veredito = (r: string) => /sobra do m[êe]s passaria a -R\$/.test(r) || /saldo em conta ficaria em -R\$/i.test(r.replace(/ /g, ' '))
+    const veredito = (r: string) => /fechar com d[ée]ficit de R\$/.test(r) || /saldo em conta ficaria em -R\$/i.test(r.replace(/ /g, ' '))
     const esperado = (r: string) => /saldo em conta ficaria em -R\$/i.test(r.replace(/ /g, ' ')) ? /^D[áa] ruim\./
       : veredito(r) ? /^O saldo aguenta, mas aperta/ : /^N[ãa]o d[áa] ruim\./
     out.push(result('L-da-ruim-com-veredito', [t2.reply, t5.reply], 'veredito primeiro, coerente com a sobra mostrada',
@@ -8959,6 +8959,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       { id: 'gg2', type: 'expense', amount: 1200, category: 'outros-out', date: ini, time: '11:00' } as any,
     ]
     const r3 = (await turnoHoje(s, 'quanto sobrou esse mês')).reply.replace(/ /g, ' ')
+    const geladeira = (await turnoHoje(rico, 'dá pra comprar uma geladeira de 30 mil?')).reply
+    out.push(result('GG-simulacao-sem-sobra-negativa', geladeira, 'déficit nomeado na simulação, nunca "sobra … -R$"',
+      !/sobra do m[êe]s passaria a -/.test(geladeira.replace(/\u00a0/g, ' '))))
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))
