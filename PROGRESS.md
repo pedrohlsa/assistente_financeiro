@@ -7015,3 +7015,33 @@ typecheck:api e rubrica (0 perigosa, 0 ruim). `test:calendario` verde depois
 de cada lote. Sem push, merge, deploy, APK ou DeepSeek. **NOT READY** até
 auditoria independente.
 
+## 22/11/2026 — Revisão do Codex após `4b33876`
+
+Dezesseis commits funcionais até `53ea5af`. O handoff local detalha os
+casos reproduzidos, as limitações e os comandos de validação.
+
+- Vacância combina imóvel e duração em um ou mais turnos e aplica somente os
+  vencimentos atingidos pela janela. Prazos contraditórios pedem confirmação.
+- Vendas por unidade lançam o valor recebido quando a pessoa também diz
+  quanto vendeu ou quanto falta. Pagamento parcial de conta recorrente fica
+  como movimento avulso e o vencimento segue em aberto.
+- O chat distingue valor líquido informado, taxa retida pela plataforma e
+  resultado depois de gastos. Preserva a fonte do motorista e a regra de
+  quantidade de viagens declarada.
+- Saldo zero ou negativo pode ser informado. Contexto de pagamento não
+  sobrescreve o caixa. Cenários usam o horário correto da âncora e aceitam um
+  saldo hipotético, separado do valor do gasto.
+- Parcelas são divididas em centavos inteiros. Compra à vista no crédito
+  registra 1x. Pagamentos de duas faturas mantêm a direção e totais
+  contraditórios pedem esclarecimento.
+- Estorno e cashback seguem o destino do crédito. Transferência para uma
+  conta própria mantém o caixa. Desconto em folha fica fora do lançamento
+  quando foi informado o salário que entrou.
+
+A suíte chegou a 736 casos de corpus, 1.438 regressões adversariais e 151
+invariantes. Testes independentes passaram em São Paulo, Los Angeles e
+Kiritimati. No Chrome com dados fictícios, compra manual guardou a data
+escolhida e o ditado simulado de uma despesa e um reembolso manteve a data
+dos dois lançamentos. **NOT READY**. Voz real, Android, APK e DeepSeek real
+continuam pendentes.
+
