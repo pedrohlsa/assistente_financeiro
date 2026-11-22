@@ -8250,6 +8250,21 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('SG-cade', cade, 'para onde foi (por categoria)', /categoria|Obra/.test(cade) && !/Posso te ajudar/.test(cade)))
   }
 
+  // "Meu salário é 3200" e "recebo dia 5" caíam na ajuda; a recorrência de
+  // ENTRADA dizia "te avisar do vencimento".
+  {
+    const st = buildState({ profile: 'clt' })
+    for (const frase of ['meu salário é 3200', 'recebo dia 5', 'meu salário é de 3.200']) {
+      const r = await turnoHoje(st, frase)
+      out.push(result(`RC-${frase.replace(/\W+/g, '-')}`, { reply: r.reply, actions: r.actions }, 'previsão, nada registrado, aponta Planejamento',
+        !r.actions.length && /Planejamento/.test(r.reply) && !/Posso te ajudar/.test(r.reply)))
+    }
+    const ent = (await turnoHoje(st, 'meu salário cai todo dia 5, 3200')).reply
+    out.push(result('RC-entrada-nao-vence', ent, 'quando deve cair, sem "vencimento"', /deve cair/.test(ent) && !/vencimento/.test(ent)))
+    const conta = (await turnoHoje(st, 'pago 900 de aluguel todo mês')).reply
+    out.push(result('RC-conta-vence', conta, 'vencimento', /vencimento/.test(conta)))
+  }
+
   // "Domingo compensa rodar?" caía na ajuda; "vale a pena rodar domingo?"
   // já era respondido.
   {

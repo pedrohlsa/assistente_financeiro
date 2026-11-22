@@ -1193,6 +1193,13 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     return { text: 'Desconto em folha (INSS, imposto, vale-transporte) sai do salário antes de ele cair: não registrei como gasto, para o dinheiro não sair duas vezes.\n\n'
       + 'Registre o salário líquido que entrou — por exemplo, "meu salário caiu 2900".' }
   }
+  // "Meu salário é 3200", "recebo dia 5": o salário DECLARADO, não recebido.
+  // É previsão (regra 18) — e caía na ajuda genérica.
+  if (/^\s*(?:o\s+)?meu\s+salario\s+(?:e|eh|esta|fica)\s+(?:de\s+|em\s+)?(?:r\$\s*)?\d/.test(t)
+    || /^\s*(?:eu\s+)?(?:recebo|meu\s+salario\s+cai|o\s+salario\s+cai|me\s+pagam)\s+(?:sempre\s+)?(?:todo\s+)?(?:n[oa]\s+)?(?:dia|quinto\s+dia\s+util)\s*\d{0,2}\s*[?!.]*$/.test(t)) {
+    return { text: 'Isso é o seu salário previsto, não um dinheiro que entrou agora — então não registrei nada.\n\n'
+      + 'Cadastre em Planejamento, com o valor e o dia em que cai, para eu acompanhar todo mês, avisar quando deve cair e usar na previsão. Quando cair, diga "meu salário caiu" que eu lanço.' }
+  }
   if (COBRADO_SEM_PAGAR.test(input)) {
     const v = input.match(/(?:r\$\s*)?(\d+(?:[.,]\d+)*)/)
     const valor = v ? parseMoney(v[1]) : NaN

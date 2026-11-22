@@ -3100,9 +3100,14 @@ Confirmar?`,
       // Conta que se repete é previsão: registrar como gasto de hoje somaria ao
       // mês um dinheiro que ainda não saiu (regra 18). O cadastro de recorrência
       // não é por conversa — a tela certa faz isso com data e frequência.
+      // Entrada não "vence": o aviso de salário é de quando ele deve cair.
+      const entrada = /\b(?:salario|recebo|ganho|ganha|faturo|renda|pensao|aluguel\s+que\s+recebo|cai|caem|entra|entram)\b/.test(normalizeName(mensagem))
+        && !/\b(?:pago|pagamos|gasto|vence|vencem)\b/.test(normalizeName(mensagem))
       reply = 'Isso se repete todo período, então não registrei como movimentação de hoje — '
         + 'é uma previsão, não algo que já entrou ou saiu.\n\n'
-        + 'Cadastre em Planejamento para eu acompanhar todo mês e te avisar do vencimento.'
+        + (entrada
+          ? 'Cadastre em Planejamento, com o valor e o dia, para eu acompanhar todo mês e te avisar quando ela deve cair.'
+          : 'Cadastre em Planejamento para eu acompanhar todo mês e te avisar do vencimento.')
     } else if (PEDE_APAGAR.test(mensagem)) {
       // "Não registrei nada" respondia um pedido de APAGAR como se fosse negação.
       reply = 'Por aqui eu não apago lançamentos salvos. Para remover, abra Movimentações e apague o lançamento. '

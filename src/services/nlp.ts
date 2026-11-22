@@ -673,6 +673,8 @@ export function parseNaturalFull(
   if (SAQUE.test(input) && !/\b(?:paguei|gastei|comprei|recebi|ganhei|faturei)\b/i.test(input)) return { actions: [] }
   if (CORRIDA_CANCELADA.test(input) && !/\btaxa\s+de\s+cancelamento\b/i.test(input)) return { actions: [] }
   if (COBRADO_SEM_PAGAR.test(input)) return { actions: [] }
+  // "Meu salário É (de) 3.200": o valor do salário, não um recebimento.
+  if (/^\s*(?:o\s+)?meu\s+sal[áa]rio\s+(?:é|e|eh|est[áa]|fica)\s+(?:de\s+|em\s+)?(?:r\$\s*)?\d/i.test(input)) return { actions: [] }
   if (RIDE_OFFER_NOTICE.test(input) && !/\b(?:paguei|gastei|recebi|ganhei|faturei|entrou|me\s+pagaram)\b/i.test(input.replace(RIDE_OFFER_NOTICE, ' '))) {
     return { actions: [] }
   }
