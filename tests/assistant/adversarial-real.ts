@@ -9024,6 +9024,25 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('SN-por-dia-ate-o-salario', ate, 'prazo do salário, nunca "próximos 30 dias"',
         !/próximos 30 dias/.test(ate) && /salário/.test(ate)))
     }
+    {
+      // "Quanto gastei de ifood" respondia o total de Alimentação, mercado junto.
+      const com = structuredClone(rico)
+      com.transactions.push({ id: 'if-1', type: 'expense', amount: 42, category: 'alimentacao', description: 'iFood', date: `${hoje.slice(0, 7)}-01`, time: '20:00' } as any)
+      const r1 = (await turnoHoje(com, 'quanto gastei de ifood esse mês')).reply.replace(/\u00a0/g, ' ')
+      const r2 = (await turnoHoje(rico, 'quanto gastei de ifood esse mês')).reply
+      out.push(result('IF-marca-filtra-por-texto', [r1, r2], 'R$ 42 do iFood; sem iFood, nada — nunca o total de Alimentação',
+        /R\$ 42,00/.test(r1) && !/Alimentação/.test(r1) && !/Alimentação/.test(r2)))
+    }
+    {
+      // "Paguei o pedreiro 600 conto E MAIS 180 de areia" virava CONSULTA
+      // ("Total gasto - Areia") e as duas despesas sumiam.
+      const r = await turnoHoje(buildState({ profile: 'autonomo' }), 'paguei o pedreiro 600 conto e mais 180 de areia')
+      out.push(result('EM-valor-antes-de-e-mais', r.actions, 'R$ 600 + R$ 180, sem consulta',
+        r.actions.map((a: any) => a.amount).join(',') === '600,180' && !/Total gasto/.test(r.reply)))
+      const s2 = await turnoHoje(rico, 'paguei a casa 2 e mais 100')
+      out.push(result('EM-relato-nao-vira-consulta', s2.reply, 'nunca "não tenho lançamento" para um relato',
+        !/Não tenho nenhum lançamento|Total gasto|dado real/.test(s2.reply)))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

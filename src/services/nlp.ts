@@ -409,7 +409,10 @@ export const FRACAO_DE = /(?<![\d\/.,])(\d{1,2})\s*\/\s*(\d{1,2})(?![\d\/])(?=\s
  * registrado. Reescrito como "paguei 400 o aluguel", a forma que o parser lê.
  */
 function valorNoFim(input: string): string {
-  const m = input.match(/^(\s*(?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)(gastei|paguei|comprei|torrei|recebi|ganhei|dei)\s+([^\d,:;?]{2,60}?)\s*([,:;]?)\s*(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real|contos?|pila)?\s*[.!]?\s*$/i)
+  // "Paguei o pedreiro 600 E MAIS 180 de areia": o valor do primeiro item não
+  // é o fim da frase. Sem aceitar a continuação nada era lido, e a mensagem
+  // virava CONSULTA — as duas despesas sumiam.
+  const m = input.match(/^(\s*(?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)(gastei|paguei|comprei|torrei|recebi|ganhei|dei)\s+([^\d,:;?]{2,60}?)\s*([,:;]?)\s*(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real|contos?|pila)?(\s+e\s+(?:mais\s+)?(?:r\$\s*)?\d[^?]*?)?\s*[.!]?\s*$/i)
   if (!m) return input
   // Sem vírgula ("paguei a pensão 600"), o número pode ser parte de um NOME:
   // "a parcela 3", "a casa 2", "o cliente 1". Aí não é valor.
@@ -417,7 +420,7 @@ function valorNoFim(input: string): string {
   // "Um celular DE 900", "a taxa DA 99": a preposição já liga o número à coisa
   // — a frase está na forma que o parser lê, e "99" ali é a plataforma.
   if (/(?:^|\s)(?:de|da|do|das|dos|na|no|nas|nos|pela|pelo|em|com|por|a|o)$/i.test(m[3].trim())) return input
-  return `${m[1]}${m[2]} ${m[5]} ${m[3].trim()}`
+  return `${m[1]}${m[2]} ${m[5]} ${m[3].trim()}${m[6] || ''}`
 }
 
 export function parseNatural(input: string): ParsedAction[] {

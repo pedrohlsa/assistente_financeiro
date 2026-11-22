@@ -36,9 +36,9 @@ export const CASOS_CHAT_A: CasoChat[] = [
     'coloquei na reserva quinhentos reais digo quatrocentos',
     'autocorreção falada no meio da frase: propor os 500 é registrar o valor que o usuário corrigiu',
     { intencao: 'registrar', acoes: [acao('saving', { amount: 400 })] }),
-  casoChat('c-02', 'autonomo', 'linguagem', 'remota',
+  casoChat('c-02', 'autonomo', 'linguagem', 'local',
     'paguei o pedreiro 600 conto e mais 180 de areia',
-    'gíria de dinheiro + duas despesas coladas por "e mais"; o motor local não entende nenhuma das duas',
+    'gíria de dinheiro + duas despesas coladas por "e mais"; desde 22/11 o motor local lê as duas (antes virava consulta)',
     {
       intencao: 'registrar',
       acoes: [

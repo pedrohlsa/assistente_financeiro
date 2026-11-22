@@ -194,6 +194,11 @@ const faltaDaFatura = (t: string): RegExpMatchArray | null => /\bfaturas?\b/.tes
 export function looksLikeDataQuestion(input: string): boolean {
   const t = normalizeQuery(input)
   if (NAO_E_CONSULTA.some(re => re.test(t))) return false
+  // Relato no passado, com valor e sem nada de pergunta, é REGISTRO: quando o
+  // parser não o lê, a resposta é pedir de outro jeito, nunca somar um total.
+  // "Paguei a casa 2 e mais 100" respondia "não tenho lançamento".
+  if (!input.includes('?') && /^(?:(?:eu|hoje|ontem|anteontem|agora|ja)\s+){0,2}(?:paguei|gastei|comprei|recebi|ganhei|dei|transferi|depositei|vendi|torrei)\b/.test(t)
+    && /\d/.test(t) && !/\b(?:quanto|quanta|quantos|quantas|qual|quais|quando|onde|como|sera|sabe|lembra|ou|ultim[oa]s?)\b|\b(?:mais|menos)\s+(?:em|no|na|nos|nas|com|de|do|da|que)\b/.test(t)) return false
   // Caixa FUTURO: a DSL soma o passado, e estas perguntas olham o que ainda
   // vai vencer. O roteador antigo responde com `cashObligationsUntil()`.
   const fatura = perguntaDeFatura(t)
@@ -815,6 +820,8 @@ function resolverCategoria(
   return undefined
 }
 
+const MARCAS = /^(?:ifood|i food|mcdonalds?|mc donalds?|mequi|burger king|bk|subway|habibs?|netflix|spotify|amazon|disney|hbo|globoplay|uber eats|rappi|99 food|shopee|mercado livre|magalu)$/
+
 /** Palavras que não acrescentam identidade a um alvo ("mercado DO bairro"). */
 const FUNCIONAIS_ALVO = new Set([
   'do', 'da', 'dos', 'das', 'de', 'no', 'na', 'nos', 'nas', 'em', 'com',
@@ -1322,7 +1329,20 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     // telhado) porque "luz" está na lista genérica de Casa. Os pagamentos
     // confirmados da conta levam o nome dela na descrição.
     const contaFixa = (state.recurring || []).some(r => r && r.kind !== 'income' && normalizeName(r.name) === normalizeName(alvo.valor))
-    const cat = contaFixa ? undefined : resolverCategoria(state, alvo.valor, tipoAlvo, /^(?:no|na|nos|nas)\s/.test(alvo.matched.trim()))
+    const porLista = contaFixa ? undefined : resolverCategoria(state, alvo.valor, tipoAlvo, /^(?:no|na|nos|nas)\s/.test(alvo.matched.trim()))
+    // "Quanto gastei de IFOOD": a palavra está na lista de Alimentação, mas o
+    // usuário nomeou o que ele mesmo grava na descrição. Com o nome no
+    // histórico dele, o filtro é de texto (regra 41) e a categoria fica de
+    // segunda tentativa — antes vinha o total de Alimentação, mercado junto.
+    const nomeDaCategoria = porLista && usableCategories(state.categories || [])
+      .some(c => c.id === porLista && normalizeName(c.name) === normalizeName(alvo.valor))
+    const escrito = new RegExp(`(?<![\\wÀ-ÿ])${normalizeName(alvo.valor).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\wÀ-ÿ])`)
+    const noHistorico = !!porLista && !nomeDaCategoria
+      && (state.transactions || []).some(x => x && escrito.test(normalizeName(`${x.description || ''} ${x.origin || ''}`)))
+    // Marca é estabelecimento, não CLASSE (regra 41): sem iFood no histórico,
+    // "quanto gastei de ifood" não é o total de Alimentação.
+    const marca = !!porLista && MARCAS.test(normalizeName(alvo.valor))
+    const cat = noHistorico || marca ? undefined : porLista
     if (cat) {
       filter.categories = [cat]
       recognized.push(`categoria ${alvo.valor}`)
@@ -1348,7 +1368,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
         // Só para palavra de CLASSE (gasolina, etanol → Combustível). Nome de
         // conta ou item ("IPTU", "luz") é texto: lido pela categoria, "quanto
         // paguei de IPTU" mostrava a reforma do telhado como "o último".
-        || (contaFixa ? undefined : classeDeCombustivel(state, alvo.valor, tipoAlvo))
+        || (contaFixa ? undefined : noHistorico ? porLista : classeDeCombustivel(state, alvo.valor, tipoAlvo))
       recognized.push(`texto "${alvo.literal}"`)
     }
   } else if (source === 'transactions' && !filter.origin && !filter.origins) {
