@@ -7557,6 +7557,34 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const oferta = buildState({ profile: 'driver' })
       oferta.settings.fuelPricePerLiter = 6
       oferta.settings.kmPerLiter = 12
+      const offerTurn = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({
+        state: oferta, message, today: TODAY, remoteEnabled: false, focus: prior?.focus,
+        pendingClarification: prior?.response.mode === 'clarify' ? prior.response.clarification : undefined,
+      })
+      const bothOptions = await offerTurn('corrida de 30 em 10 km ou corrida de 32 em 11 km, qual dá mais lucro total?')
+      const elliptical = await offerTurn('vale mais a de 20 e 5 km, ou a de 35 e 10 km?')
+      const distant = await offerTurn('chegou uma corrida da 99 que paga 32 pra rodar 9 km, vale?')
+      const spoken = await offerTurn('35 reais pra 2km passageiro e 7km viagem, vale?')
+      const pixThereBack = await offerTurn('corrida de 18 no Pix em 6 km contando ida e volta, vale a pena?')
+      const estimated = await offerTurn('tocou corrida de 30 reais, 2 km até o passageiro, 8 km da viagem, 6 km voltando sem passageiro e 20 min da viagem, pego?')
+      const withTime = await offerTurn('25 min no total', estimated)
+      const newPrice = await offerTurn('e se pagasse 40?', withTime)
+      const ambiguous = await offerTurn('tocou corrida de 40, 18 km no total e 5 km de volta, vale?')
+      const included = await offerTurn('já inclui a volta', ambiguous)
+      const outward = await offerTurn('os 18 são só de ida', ambiguous)
+      const replies = [bothOptions, elliptical, distant, spoken, pixThereBack, estimated, withTime, newPrice, ambiguous, included, outward]
+      out.push(result('RP-ofertas-faladas-separam-preco-tempo-retorno-e-realizacao', replies.map(r => r.response),
+        'compara as duas ofertas sem gravar, respeita valor da 99, embarque/volta e retoma a mesma conta ao receber tempo ou valor',
+        replies.every(r => !r.response.actions.length)
+        && /A segunda tem maior lucro[\s\S]*25,00[\s\S]*26,50/.test(bothOptions.response.reply)
+        && /A primeira paga mais por km[\s\S]*4,00\/km/.test(elliptical.response.reply)
+        && /9 km informados[\s\S]*3,56\/km/.test(distant.response.reply) && !/99,00/.test(distant.response.reply)
+        && /9 km no total[\s\S]*30,50/.test(spoken.response.reply) && /6 km no total/.test(pixThereBack.response.reply)
+        && /tempo total incluindo o retorno/.test(estimated.response.reply) && !/\/hora/.test(estimated.response.reply)
+        && /16 km no total[\s\S]*52,80\/hora/.test(withTime.response.reply)
+        && /16 km no total[\s\S]*32,00[\s\S]*76,80\/hora/.test(newPrice.response.reply)
+        && ambiguous.response.mode === 'clarify' && /18 km no total[\s\S]*31,00/.test(included.response.reply)
+        && /23 km no total[\s\S]*28,50/.test(outward.response.reply)))
       for (const [id, frase, km, bruto, lucro, hora] of [
         ['RP-embarque-viagem-total', 'vale a pena corrida de 52 reais, 5 km até o passageiro, 13 km de viagem e 30 minutos no total?', 18, 2.89, 43, 86],
         ['RP-tempos-separados', 'corrida de 17 reais, 2 km pra buscar, 7 km de trajeto, 3 min até o passageiro e 15 min de viagem, compensa?', 9, 1.89, 12.5, 41.67],

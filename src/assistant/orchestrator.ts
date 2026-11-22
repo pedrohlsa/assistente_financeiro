@@ -1666,6 +1666,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
       draft: null, focus: periodViewFocus(input.focus, kind, question, today),
       response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply },
     }, today, readView)
+    const offer = interpretRideOffer(input.state, input.message)
+    if (offer) return rideOfferReply(input, offer)
   }
   if (!input.draft && (!input.pendingClarification || input.pendingClarification.field === 'reported-total')) {
     const payout = readPlatformPayout(input.message)

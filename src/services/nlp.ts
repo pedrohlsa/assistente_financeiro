@@ -722,7 +722,8 @@ const DISTINCT_INCOME_SOURCE = /^\s*d[aoe]\s+(?!(?:pix|dinheiro|transfer[eê]nci
 const AVISO_DE_CORRIDA = String.raw`(?:oferta|chamada|proposta|solicita[çc][ãa]o)`
 const UMA_OFERTA = String.raw`(?:(?:uma|a|outra|nova|essa|esta)\s+)?`
 export const RIDE_OFFER_NOTICE = new RegExp(
-  String.raw`(?<![\p{L}\p{M}])(?:(?:tocou|chamou|apareceu|caiu|(?:me\s+)?oferece(?:u|ram))\s+${UMA_OFERTA}corrida|`
+  String.raw`(?<![\p{L}\p{M}])(?:(?:tocou|chamou|apareceu|chegou|caiu|(?:me\s+)?oferece(?:u|ram))\s+${UMA_OFERTA}corrida|`
+  + String.raw`(?:tocou|apareceu|chegou)\s+uma\s+de\s+(?=(?:r\$\s*)?\d[^.;!?]*\d\s*(?:km|quil[oô]metros?|metros?)\b)|`
   + String.raw`(?:recebi|me\s+(?:mandou|mandaram|enviou|enviaram|ofereceu|ofereceram))\s+${UMA_OFERTA}${AVISO_DE_CORRIDA}`
   + String.raw`(?:\s+de\s+corrida|\s+d[ao]\s+${APP_DE_CORRIDA}|(?=[^.;!?\n]*\s+(?:na|no|da|do|pela|pelo)\s+${APP_DE_CORRIDA}\b)))(?![\p{L}\p{M}])`,
   'iu',
