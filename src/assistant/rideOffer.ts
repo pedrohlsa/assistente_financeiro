@@ -18,7 +18,7 @@ const AMOUNT_PROSPECTIVE = new RegExp(String.raw`\b(?:tiraria|ganharia|receberia
 const AMOUNT_BEFORE_DISTANCE = new RegExp(String.raw`(?<![\w.,-])${NUMBER}\s+(?:por|em|pra|para|com|e)\s+\d+(?:[.,]\d+)*\s*(?:kms?|quilometros?|metros?)\b`, 'g')
 const ONE_OFFER_SHORT = new RegExp(String.raw`\b(?:tocou|apareceu|chegou)\s+uma\s+de\s+${NUMBER}(?!\s*(?:km|quilometros?|metros?|min|minutos?|horas?)\b)`)
 const OFFER_SEPARATOR = /\s+(?:ou|contra|e(?=\s+(?:a\s+)?outra\b))\s+/
-const COMPARA_DOIS = /\b(?:qual\s+(?:da|tem)\s+(?:mais\s+lucro|maior\s+lucro)|vale\s+mais)\b/
+const COMPARA_DOIS = /\b(?:qual\s+(?:da|tem)\s+(?:mais\s+lucro|maior\s+lucro)|vale\s+mais)\b|^vale\s+a\s+pena\s+a\s+de\b/
 const PICKUP = String.raw`(?:ate\s+(?:(?:o|a)\s+)?(?:passageir[oa]|embarque)|(?:pra|para)\s+(?:(?:o|a)\s+)?(?:buscar|embarcar|embarque)|(?:de|do|pro|para\s+o)\s+embarque|(?:de\s+)?aproximacao|passageir[oa])`
 const TRIP = String.raw`(?:(?:d[aeo]\s+)?(?:corrida|viagem|trajeto)|ate\s+(?:o\s+)?destino)`
 const RETURN = String.raw`(?:(?:d[aeo]\s+|na\s+)?(?:retorno|volta)(?:\s+(?:vazi[oa]|sem\s+passageiro))?|(?:pra|para)\s+voltar(?:\s+(?:vazi[oa]|sem\s+passageiro))?|voltando(?:\s+(?:vazi[oa]|sem\s+passageiro))?)`

@@ -2170,6 +2170,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       ['taxa-retida-com-virgula', 'recebi 380 líquido da 99, descontada a taxa de 5', TODAY, '99'],
       ['taxa-e-repasse-no-mesmo-relato', 'a 99 me pagou 400 com taxa de 20, caíram 380', TODAY, '99'],
       ['repasse-caiu-ontem', 'a Uber repassou 430 bruto menos taxa de 50 e entraram 380 ontem', addDays(TODAY, -1), 'Uber'],
+      ['plataforma-recebeu-e-repassou', 'a Uber recebeu 430 e me passou 380 depois de descontar 50', TODAY, 'Uber'],
       ['saldo-da-plataforma', 'o saldo da Uber veio 380 líquido com a taxa já descontada', TODAY, 'Uber'],
     ] as const) {
       const r = await orchestrate({ state, today: TODAY, message, remoteEnabled: false })
@@ -2200,11 +2201,12 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     })
     const unresolved = await verifyPayout('ontem a 99 me pagou 400 com taxa de 20, caíram 370')
     const incomplete = await verifyPayout('ontem a 99 me pagou 400 com taxa de 20')
+    const tookFee = await verifyPayout('ontem a 99 me pagou 400 e tirou 20 de taxa')
     const [fixed, informed] = await Promise.all([verifyPayout('foi 380', unresolved), verifyPayout('380', incomplete)])
     const mixed = await verifyPayout('a 99 me pagou 400 com taxa de 20, caíram 380 e gastei 25 no mercado')
-    out.push(result('A-plataforma-esclarece-repasse-e-preserva-data-e-taxa', [unresolved, incomplete, fixed, informed, mixed].map(r => r.response),
+    out.push(result('A-plataforma-esclarece-repasse-e-preserva-data-e-taxa', [unresolved, incomplete, tookFee, fixed, informed, mixed].map(r => r.response),
       'corrige valor bruto/retido sem registrar duas vezes, conserva data anterior e mantém despesa separada',
-      [unresolved, incomplete].every(r => r.response.mode === 'clarify' && !r.response.actions.length)
+      [unresolved, incomplete, tookFee].every(r => r.response.mode === 'clarify' && !r.response.actions.length)
       && [fixed, informed].every(r => {
         const [action] = r.response.actions.map(c => c.action)
         return r.response.actions.length === 1 && action.kind === 'income' && action.amount === 380 && action.date === addDays(TODAY, -1)
@@ -7604,6 +7606,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       })
       const bothOptions = await offerTurn('corrida de 30 em 10 km ou corrida de 32 em 11 km, qual dá mais lucro total?')
       const elliptical = await offerTurn('vale mais a de 20 e 5 km, ou a de 35 e 10 km?')
+      const worth = await offerTurn('vale a pena a de 30 reais por 8 km ou a de 80 reais por 25 km?')
       const distant = await offerTurn('chegou uma corrida da 99 que paga 32 pra rodar 9 km, vale?')
       const spoken = await offerTurn('35 reais pra 2km passageiro e 7km viagem, vale?')
       const pixThereBack = await offerTurn('corrida de 18 no Pix em 6 km contando ida e volta, vale a pena?')
@@ -7613,12 +7616,13 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const ambiguous = await offerTurn('tocou corrida de 40, 18 km no total e 5 km de volta, vale?')
       const included = await offerTurn('já inclui a volta', ambiguous)
       const outward = await offerTurn('os 18 são só de ida', ambiguous)
-      const replies = [bothOptions, elliptical, distant, spoken, pixThereBack, estimated, withTime, newPrice, ambiguous, included, outward]
+      const replies = [bothOptions, elliptical, worth, distant, spoken, pixThereBack, estimated, withTime, newPrice, ambiguous, included, outward]
       out.push(result('RP-ofertas-faladas-separam-preco-tempo-retorno-e-realizacao', replies.map(r => r.response),
         'compara as duas ofertas sem gravar, respeita valor da 99, embarque/volta e retoma a mesma conta ao receber tempo ou valor',
         replies.every(r => !r.response.actions.length)
         && /A segunda tem maior lucro[\s\S]*25,00[\s\S]*26,50/.test(bothOptions.response.reply)
         && /A primeira paga mais por km[\s\S]*4,00\/km/.test(elliptical.response.reply)
+        && /A primeira paga mais por km[\s\S]*3,75\/km[\s\S]*3,20\/km/.test(worth.response.reply)
         && /9 km informados[\s\S]*3,56\/km/.test(distant.response.reply) && !/99,00/.test(distant.response.reply)
         && /9 km no total[\s\S]*30,50/.test(spoken.response.reply) && /6 km no total/.test(pixThereBack.response.reply)
         && /tempo total incluindo o retorno/.test(estimated.response.reply) && !/\/hora/.test(estimated.response.reply)
