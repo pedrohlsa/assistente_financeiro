@@ -1029,10 +1029,11 @@ function proposeClarifiedActions(
   return preparedActionResponse(state, prepareInvoicePayments(state, actions.map(a => candidate(a, 'local')), today), previous)
 }
 
-function exactMoneyAnswer(message: string): number | undefined {
+function exactMoneyAnswer(message: string, signed = false): number | undefined {
   const normalized = normalizeName(normalizeNumberWords(message).text).replace(/[.!?]+$/g, '').trim()
-  const match = normalized.match(/^(?:(?:foi|e|deu)\s+)?(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s+(?:reais?|contos?))?(?:\s+(?:exat[oa]s?|certinh[oa]s?))?$/i)
-  return match ? parseMoney(match[1]) : undefined
+  const match = normalized.match(/^(?:(?:foi|e|deu)\s+)?(?:r\$\s*)?([-−]\s*|menos\s+)?(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s+(?:reais?|contos?))?(?:\s+(?:exat[oa]s?|certinh[oa]s?))?$/i)
+  if (!match || (match[1] && !signed)) return undefined
+  return (match[1] ? -1 : 1) * parseMoney(match[2])
 }
 
 function answerFinancialEvent(input: OrchestratorInput, question: AssistantClarification, caps: AssistantCapabilities, today: string): OrchestratorOutput {
@@ -1717,7 +1718,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     // contém "sim", e "sim, mandei só 10" altera o valor da proposta.
     const simpleAnswer = said.replace(/[.!?]+$/g, '').trim()
     const negativeAnswer = financialEvent && /^(?:nao|nem)(?:\b|$)/.test(simpleAnswer)
-    const amount = amountChoice ? exactMoneyAnswer(input.message) : undefined
+    const amount = amountChoice ? exactMoneyAnswer(input.message, pc.options.some(o => o.actions?.some(a => a.kind === 'balance'))) : undefined
     const correctionChoice = pendingCorrection ? pendingCorrectionAnswer(pc, input.message, today) : undefined
     const direction = directionChoice && /^(?:foi\s+)?(?:gasto|despesa|saiu|gastei)$/.test(simpleAnswer) ? 'saida'
       : directionChoice && /^(?:foi\s+)?(?:receita|recebi|entrou|recebimento)$/.test(simpleAnswer) ? 'entrada' : undefined
@@ -1765,7 +1766,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
       }
     }
     const hit = invoiceChoice ? matchInvoiceChoice(pc.options, input.message) : pc.options.find(o => amountChoice
-      ? (normalizeName(o.label) === simpleAnswer || (amount > 0 && amount === parseMoney(o.label)))
+      ? (normalizeName(o.label) === simpleAnswer || (amount !== undefined && amount === parseMoney(o.label)))
       : financialEvent || fixedBillChoice || fixedBillLink || dateChoice || pendingCorrection || directionChoice
       ? (normalizeName(o.label) === simpleAnswer || normalizeName(o.value) === simpleAnswer
         || (correctionChoice !== undefined && normalizeName(o.value) === correctionChoice)

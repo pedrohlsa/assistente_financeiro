@@ -18,6 +18,32 @@ const parseNum = (s: string) => parseMoney(s)
 // o objeto do gasto: sem isto "gastei 30 pila no lanche" gravava a descrição
 // "Pila no lanche". Uma fonte só — todo regex de valor consome esta lista.
 const MOEDA = String.raw`(?:reais|real|conto[s]?|pila[s]?|mang[oa]s?|pau[s]?|prata[s]?)`
+const BALANCE_VALUE = String.raw`((?:r\$\s*)?(?:[-−]\s*|menos\s+)?(?:r\$\s*)?\d+(?:[.,]\d+)*)`
+const BALANCE_LEAD = String.raw`(?:(?:agora|hoje|eu|j[áa]|s[óo]|somente|apenas|tipo|a[íi]|cara|olha|ent[ãa]o|mano),?\s+)*`
+const BALANCE_STATEMENT = new RegExp(String.raw`^${BALANCE_LEAD}(?:(?:atuali[zs]\w*|corrig\w*|ajust\w*|mud\w*|coloc\w*|defin\w*)\s+|(?:t[oô]|estou|fiquei)\s+com\s+)?(?:o\s+)?(?:meu\s+)?saldo(?:\s+(?:atual|agora|dispon[íi]vel|em\s+conta|na\s+conta|no\s+banco))*(?:\s+(?:d[eé]|[ée]|t[áa]|est[áa]|ficou\s+em|pra|para|em|como))?\s*:?\s*${BALANCE_VALUE}(?![\d.,]\d)(?:\s+${MOEDA})?(?:\s+(negativ[oa]))?`, 'i')
+const BALANCE_ON_HAND = new RegExp(String.raw`^${BALANCE_LEAD}(?:tenho|tem|t[oô]\s+com|estou\s+com|fiquei\s+com)\s+${BALANCE_VALUE}(?![\d.,]\d)(?:\s+${MOEDA})?(?:\s+(negativ[oa]))?\s+(?:no\s+banco|na\s+conta|em\s+conta|de\s+saldo|guardados?)\b`, 'i')
+const ZERO_BALANCE = new RegExp(String.raw`^${BALANCE_LEAD}(?:(?:meu|o)\s+)?saldo\s+(?:(?:ficou|est[áa]|t[áa]|[ée])\s+)?zerado[.!]*$`, 'i')
+const NEGATIVE_BALANCE = new RegExp(String.raw`^${BALANCE_LEAD}(?:(?:minha\s+conta|meu\s+saldo)\s+(?:(?:est[áa]|t[áa]|ficou|[ée])\s+)?negativ[oa]\s+em\s+${BALANCE_VALUE}|(?:estou|t[oô])\s+${BALANCE_VALUE}\s+negativ[oa]\s+(?:na\s+conta|no\s+banco))(?:\s+${MOEDA})?[.!]*$`, 'i')
+const ALTERNATE_BALANCE = new RegExp(String.raw`^\s+ou\s+${BALANCE_VALUE}(?:\s+${MOEDA})?\s*[.!]*$`, 'i')
+const PAYMENT_BALANCE_CONTEXT = new RegExp(String.raw`^(?<paid>(?:(?:eu|hoje|hj|ontem|anteontem|j[áa])\s+)*(?:paguei|gastei|comprei|abasteci|quite[ií])\s+[^;!?\n]*?\d[^;!?\n]*?)\s+(?:usando\s+|com\s+|d[eo]\s+)(?:(?:o|meu|o\s+meu)\s+)?saldo\s*(?:(?:de|que\s+era)\s+)?${BALANCE_VALUE}(?![\d.,]\d)(?:\s+${MOEDA})?(?=\s*(?:[,.;!?]|$|e\s+(?:meu\s+saldo|(?:gastei|paguei|abasteci|recebi|ganhei|fiquei|quanto|qual)\b)))`, 'i')
+
+export function withoutPaymentBalanceContext(text: string): string {
+  if (!/\bsaldo\b/i.test(text)) return text
+  const hasSpokenNumber = normalizeNumberWords(text).text
+  const without = hasSpokenNumber.replace(PAYMENT_BALANCE_CONTEXT, '$<paid>')
+  return without !== hasSpokenNumber ? without : text
+}
+
+const readSignedBalance = (raw: string): number => parseNum(raw.replace(/−|menos\s+/i, '-'))
+
+export function alternateBalances(text: string): number[] | undefined {
+  const balance = text.match(BALANCE_STATEMENT)
+  if (!balance) return undefined
+  const alternate = text.slice(balance[0].length).match(ALTERNATE_BALANCE)
+  if (!alternate) return undefined
+  const first = readSignedBalance(balance[1])
+  return [balance[2] ? -Math.abs(first) : first, readSignedBalance(alternate[1])]
+}
 
 // Valor aproximado, como se fala quando não se lembra o centavo: "gastei UNS
 // 50", "botei MAIS OU MENOS 80". Sem consumir isso o número não fica logo
@@ -1182,12 +1208,15 @@ function parseClause(input: string): ParsedAction[] {
   // puxava a pergunta de contas a pagar, e o usuário estava informando o saldo.
   // "Atualiza meu saldo PRA 5000", "corrige o saldo para 4.200": o pedido de
   // ajuste respondia o saldo antigo, ignorando o valor.
-  const balanceRe = new RegExp(String.raw`(?:meu\s+|o\s+)?saldo\s*(?:atual|em conta|no banco|de|é|e|:|(?:pra|para|em|como)(?=\s))?\s*(?:r\$)?\s*${NUM}|(?:tenho|tem|t[oô]\s+com|estou\s+com|fiquei\s+com)\s*${APROX}(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:no banco|na conta|em conta|de saldo|guardado)`, 'i')
-  const bal = text.match(balanceRe)
+  const bal = text.match(BALANCE_STATEMENT) || text.match(BALANCE_ON_HAND)
   if (bal) {
-    const raw = bal[1] ?? bal[2]
-    if (raw) return [{ kind: 'balance', amount: parseNum(raw) }]
+    if (alternateBalances(text)) return []
+    const amount = readSignedBalance(bal[1])
+    return [{ kind: 'balance', amount: bal[2] ? -Math.abs(amount) : amount }]
   }
+  const negative = text.match(NEGATIVE_BALANCE)
+  if (negative) return [{ kind: 'balance', amount: -Math.abs(readSignedBalance(negative[1] || negative[2])) }]
+  if (ZERO_BALANCE.test(text)) return [{ kind: 'balance', amount: 0 }]
 
   // ----- manutenção: "troquei o óleo por 280 com 84 mil km"
   const maintRe = new RegExp(String.raw`(?:troquei|trocar|coloquei|instalei)\s+(?:o|a|os|as)?\s*(${MAINT_ITEMS.join('|')})[^\d]*(?:por|de)?\s*(?:r\$)?\s*${NUM}(?:\s*${MOEDA})?(?:.*?com\s+(\d+(?:[.,]\d+)?\s*(?:mil)?)\s*km)?`, 'i')

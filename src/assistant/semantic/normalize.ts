@@ -274,7 +274,9 @@ export function repairStructuralTypos(message: string, state: AppState): Repaire
     const direto = emRelato && (ERROS_DE_RECEBIMENTO.get(token)
       || (semRepeticao !== token && PASSADO.has(semRepeticao) ? semRepeticao : null))
     const alvo = direto || melhorCandidato(token, temValor)
-    if (!alvo) return bruto
+    // Uma correção também não pode CRIAR um número. "Meu saldo tá certo?"
+    // virava "meu saldo tá cento" e propunha alterar o saldo para R$ 100.
+    if (!alvo || NUMBER_WORD_RE.test(alvo)) return bruto
     // Mês só com contexto de data: "cliente marcos" não é "março", "maios" não
     // é "maio". Antes de um mês vem "em", "de", "desde", "até", "mês de".
     if (MESES.has(alvo) && !/\b(?:em|de|desde|ate|at[ée]|no|todo|cada|m[eê]s\s+de)\s*$/i.test(message.slice(0, at))) return bruto

@@ -8,7 +8,7 @@
 import type { ParsedAction } from '../models/types'
 import type { AssistantConfidence, AssistantIntent, FinancialEvent } from './contracts'
 import { guessCategory } from '../data/categories'
-import { cleanDescription, contagemDeItens, tanqueCheio, DECIMO_TERCEIRO, vendaPorUnidade, voltaSemUnidade, DISTANCE_ON_FOOT, financedCardMentions, gruposDeCorrida, INCOME_PLATFORM_PREFIX, looksRecurring, parseNaturalFull, NEXT_RIDE_DISTANCE, RIDE_COMPARISON_REQUEST, RIDE_CONDITIONAL, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE, UMA_CORRIDA_NOMEADA, UNIT_SALE_PENDING } from '../services/nlp'
+import { alternateBalances, cleanDescription, contagemDeItens, tanqueCheio, DECIMO_TERCEIRO, vendaPorUnidade, voltaSemUnidade, DISTANCE_ON_FOOT, financedCardMentions, gruposDeCorrida, INCOME_PLATFORM_PREFIX, looksRecurring, parseNaturalFull, NEXT_RIDE_DISTANCE, RIDE_COMPARISON_REQUEST, RIDE_CONDITIONAL, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE, UMA_CORRIDA_NOMEADA, UNIT_SALE_PENDING, withoutPaymentBalanceContext } from '../services/nlp'
 import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
 import { normalizeNumberWords } from './numbers'
@@ -542,7 +542,10 @@ export function segment(text: string, today = todayISO()): { text: string; start
   for (const m of text.matchAll(/\s+e\s+(?=(?:(?:meu|o)\s+)?saldo\b)/gi)) {
     push((m.index || 0) + m[0].length)
   }
-  for (const m of text.matchAll(/\s+(?:agora\s+)?(?=(?:(?:meu|o)\s+)?saldo\s*(?:atual|[ée]|:)?\s*(?:r\$\s*)?\d)/gi)) {
+  for (const m of text.matchAll(/\s+e\s+(?=fiquei\s+com\s+(?:r\$\s*)?[-−]?\d[\d.,]*\s+(?:(?:reais?|negativ[oa])\s+)?(?:na\s+conta|no\s+banco|de\s+saldo)\b)/gi)) {
+    push((m.index || 0) + m[0].length)
+  }
+  for (const m of text.matchAll(/\s+(?:agora\s+)?(?=(?:(?:meu|o)\s+)?saldo\s*(?:(?:atual|agora)\s*)?(?:[ée]|:)?\s*(?:r\$\s*)?(?:[-−]|menos\s+)?\s*\d)/gi)) {
     if (/\d/.test(text.slice(0, m.index))) push((m.index || 0) + m[0].length)
   }
   // Ditado sem pontuação: "fiz 20 reais gastei 40 ... furando o pneu foi
@@ -1387,7 +1390,8 @@ export function analyzeMessage(
 ): MessageAnalysis {
   const today = opts?.today || todayISO()
   // "Meu 13º caiu 1600": o 13 é o NOME do salário extra, não R$ 13,00.
-  const original = tanqueCheio(contagemDeItens(vendaPorUnidade(voltaSemUnidade(input.trim().replace(DECIMO_TERCEIRO, 'décimo terceiro')))))
+  const original = tanqueCheio(contagemDeItens(vendaPorUnidade(voltaSemUnidade(withoutPaymentBalanceContext(input.trim()
+    .replace(DECIMO_TERCEIRO, 'décimo terceiro'))))))
   // Números por extenso viram algarismos ANTES dos regex, para reaproveitar
   // todo o parser já testado em vez de duplicá-lo.
   const { text: normalized } = normalizeNumberWords(original)
@@ -1615,7 +1619,12 @@ export function analyzeMessage(
       ? [...comando.matchAll(STATED_NET_CASH)].map(m => parseMoney(m.groups?.before || m.groups?.after)) : []
     const actions0 = netAmounts.length ? readActions.map(action =>
       action.kind === 'income' && netAmounts.includes(action.amount) ? { ...action, reportedNet: true } : action) : readActions
-    let ambiguity: AnalyzedClause['ambiguity'] = primeiroReembolso && reembolso ? undefined : parsed.ambiguity
+    const possibleBalances = canShareContext ? alternateBalances(comando) : undefined
+    let ambiguity: AnalyzedClause['ambiguity'] = possibleBalances ? {
+      field: 'amount-choice',
+      question: 'Qual é o saldo atual da conta?',
+      options: possibleBalances.map(amount => ({ label: fmtBRL(amount), value: fmtBRL(amount), actions: [{ kind: 'balance', amount }] })),
+    } : primeiroReembolso && reembolso ? undefined : parsed.ambiguity
     if (!ambiguity && direcaoIncerta && reembolso) {
       ambiguity = { question: `O reembolso de ${fmtBRL(reembolso.amount)} entrou ou saiu da sua conta?`, options: [] }
     }

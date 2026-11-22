@@ -194,7 +194,7 @@ export const ACTION_CATALOG: ActionSpec[] = [
   },
   {
     kind: 'balance', label: 'Saldo em conta', remoteAllowed: true,
-    fields: [money('amount', 'saldo atual informado pelo usuário')],
+    fields: [{ ...money('amount', 'saldo atual informado pelo usuário, que pode ser negativo ou zero'), min: -99_999_999 }],
     promptHint: 'só quando o usuário INFORMA o saldo ("meu saldo é 1500")',
   },
   {

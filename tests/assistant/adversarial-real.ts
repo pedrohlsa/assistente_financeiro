@@ -8445,6 +8445,44 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('SD-atualiza-saldo', up.actions, 'balance 5000', up.actions.some((a: any) => a.kind === 'balance' && a.amount === 5000)))
     const certo = (await turnoHoje(rico, 'meu saldo tá certo?')).reply
     out.push(result('SD-saldo-certo', certo, 'explica a âncora e como corrigir', /parte do valor que você informou/.test(certo) && /meu saldo é/.test(certo)))
+
+    const state = buildState({ profile: 'other', balance: 1500 })
+    state.settings.balanceAsOf = `${TODAY}T00:00`
+    const send = (message: string) => orchestrate({ state, today: TODAY, message, remoteEnabled: false })
+    const explicitZero = await send('meu saldo é zero')
+    const negative = await send('meu saldo agora é menos 150,40')
+    const negativeColloquial = await send('tô 150,40 negativo na conta')
+    const checkBalance = await send('meu saldo tá certo?')
+    const saved = applyBatchPure(state, negative.response.actions, { now: { date: TODAY, time: '14:00' } })
+    const zeroed = applyBatchPure(state, explicitZero.response.actions, { now: { date: TODAY, time: '14:00' } })
+    const ambiguous = await send('meu saldo é -150,40 ou zero')
+    const picked = ambiguous.response.mode === 'clarify' ? await orchestrate({
+      state, today: TODAY, message: 'foi menos 150,40', remoteEnabled: false,
+      pendingClarification: ambiguous.response.clarification,
+    }) : undefined
+    out.push(result('SD-saldo-zero-negativo-e-escolha', [explicitZero, negative, negativeColloquial, checkBalance, ambiguous, picked].map(r => r?.response),
+      'aceita zero e saldo devedor, e pede para escolher quando ouve dois saldos',
+      explicitZero.response.actions.length === 1 && zeroed.applied && currentBalance(zeroed.state, TODAY) === 0
+      && negative.response.actions.length === 1 && saved.applied && currentBalance(saved.state, TODAY) === -150.4
+      && negativeColloquial.response.actions[0]?.action.kind === 'balance'
+      && !checkBalance.response.actions.length && /parte do valor que você informou/.test(checkBalance.response.reply)
+      && ambiguous.response.mode === 'clarify' && !ambiguous.response.actions.length
+      && picked?.response.actions[0]?.action.kind === 'balance' && picked.response.actions[0].action.amount === -150.4))
+
+    const contextOnly = await Promise.all([
+      'paguei 80 de luz com saldo de 1000',
+      'paguei oitenta de luz usando meu saldo de mil',
+      'paguei 80 de luz com saldo 1000',
+      'paguei 80 de luz do meu saldo que era 1000',
+    ].map(send))
+    const snapshot = await send('paguei 80 de luz e fiquei com 1000 na conta')
+    const snapshotSaved = applyBatchPure(state, snapshot.response.actions, { now: { date: TODAY, time: '14:00' } })
+    out.push(result('SD-saldo-contextual-nao-atualiza-o-caixa', [...contextOnly, snapshot].map(r => r.response),
+      'os quatro pagamentos preparam somente R$ 80; a frase com saldo posterior registra a despesa e ancora R$ 1.000',
+      contextOnly.every(r => r.response.actions.length === 1 && r.response.actions[0].action.kind === 'expense'
+        && r.response.actions[0].action.amount === 80)
+      && snapshot.response.actions.map(({ action }) => action.kind).join(',') === 'expense,balance'
+      && snapshotSaved.applied && currentBalance(snapshotSaved.state, TODAY) === 1000))
   }
 
   // "Meu salário é 3200" e "recebo dia 5" caíam na ajuda; a recorrência de
