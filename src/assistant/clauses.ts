@@ -241,6 +241,9 @@ const PAID_ELSEWHERE = /\bpag(?:ou|aram)\s+(?:r\$\s*)?\d+(?:[.,]\d+)*\s+(?:reais
 const FONTE_PAGOU = /^(?:(?:hoje|ontem|anteontem|j[áa])\s+)?(?:o|a|meu|minha)\s+(?:cliente|empresa|patr[ãa]o)(?:\s+[\p{Lu}][\p{L}\p{M}]+)?\s+(?:j[áa]\s+)?pag(?:ou|aram)\s+(?:r\$\s*)?\d+(?:[.,]\d+)*(?![\d.,])(?!\s*(?:reais\s+)?(?:n[oa]s?|em)\s)/iu
 function thirdPartyReference(text: string): boolean {
   if (FONTE_PAGOU.test(text) && !PAID_ELSEWHERE.test(text)) return false
+  // "O João ME pagou 300": o pronome diz que o dinheiro veio para o usuário.
+  // O sujeito lido era "joão me", e a receita sumia como coisa de outra pessoa.
+  if (/(?<![\wÀ-ÿ])(?:me|nos)\s+(?:j[áa]\s+)?(?:pagou|pagaram|deu|deram|mandou|mandaram|transferiu|transferiram|devolveu|devolveram)(?![\wÀ-ÿ])/i.test(text) && !PAID_ELSEWHERE.test(text)) return false
   const subject = normalizeNumberWords(text).text.match(NAMED_THIRD_PARTY)?.[1]
   return THIRD_PARTY.test(text) || !!spokenPayerName(subject)
 }

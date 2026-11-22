@@ -8994,6 +8994,17 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('PN-cartao-com-a-grafia-cadastrada', compra.reply, 'proposta mostra o cartão como foi cadastrado',
         !cadastrado || (a?.cardName === cadastrado && compra.reply.includes(`no ${cadastrado}`))))
     }
+    for (const [id, frase, valor] of [['MP-joao-me-pagou', 'o joão me pagou 300 do serviço', 300], ['MP-maria-me-deu', 'a maria me deu 50', 50]] as const) {
+      // "Me pagou" tem direção: o dinheiro entrou para o usuário. O sujeito
+      // lido era "joão me" e a receita sumia como movimentação de terceiro.
+      const r = await turnoHoje(buildState({ profile: 'autonomo' }), frase)
+      const a: any = r.actions[0]
+      out.push(result(id, r, `receita de R$ ${valor}`, r.actions.length === 1 && a.kind === 'income' && a.amount === valor && !/outra pessoa/.test(r.reply)))
+    }
+    {
+      const r = await turnoHoje(buildState({ profile: 'autonomo' }), 'o joão pagou 300 do serviço')
+      out.push(result('MP-joao-pagou-sem-me-continua-de-terceiro', r, 'sem ação', !r.actions.length))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))
