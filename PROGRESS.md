@@ -6942,3 +6942,35 @@ até auditoria independente.
   mantêm a plataforma em Corridas sem inventar viagens.
 - Em “na Uber recebi 120 da Maria”, o nome declarado continua como
   a origem. Suíte com 1.348/1.348 regressões.
+
+## 22/11/2026 — Depois da rodada 2 do Codex (Claude)
+
+Retomada no HEAD `83461ab` do Codex, com a suíte verde (1.348/1.348). Cada
+item tem bloco próprio em `tests/assistant/adversarial-real.ts`.
+
+- "Quanto foi meu FATURAmento esse mês" respondia "você ainda não cadastrou
+  cartões": o roteador casava `/fatura/` dentro da palavra. Cartão, parcela e
+  fatura ganharam borda. "Quanto FOI meu lucro" abria com o gasto do mês, e
+  o resultado líquido agora mostra o que entrou e o que saiu
+  (`BW-faturamento-*`, `BW-quanto-foi-lucro`).
+- "Rodei 64 km e 14 voltando" perguntava pelos "R$ 14,00"; a volta herda o
+  km (`VK-volta-*`). Uma corrida já analisada aceita revisão: "na verdade o
+  retorno era 7 km", "e se pagasse 30?", "e se o passageiro estiver a 3 km"
+  refazem a conta, acumulando; a oferta fica só no foco em memória (`RV-`).
+- "Qual FOI o mês mais apertado" respondia com a previsão de parcelas
+  futuras; no passado é o pior mês fechado (`MP-apertado-*`).
+- Autônomo: "vendi 3 bolos a 25 cada", "o cliente me pagou metade, 300",
+  "cobrei 150 mas ele não pagou" (a receber, nada registrado), "fiz uma
+  faxina e recebi 180" (Freelance — Faxina) (`AU-`).
+- "Sábado retrasado" entrava uma semana depois; "hj de manhã" gravava a
+  descrição "Manhã" (`DT-sabado-retrasado`, `DT-de-manha`, `DT-a-noite`).
+- "Paguei 3 contas: luz 120, água 80 e internet 100" criava uma despesa de
+  R$ 3,00; "mais ou menos 200" gravava "Ou menos"; "entre 40 e 50" registrava
+  50 sozinho e agora pergunta (`QV-`).
+
+Gates (relógio 2026-09-15): 733/733 corpus, 1.374/1.374 adversariais, 151/151
+invariantes, mutações, fuzz, ditado e remoto offline; typecheck,
+typecheck:api e rubrica (0 perigosa, 0 ruim). `test:calendario` verde depois
+de cada lote. Sem push, merge, deploy, APK ou DeepSeek. **NOT READY** até
+auditoria independente.
+
