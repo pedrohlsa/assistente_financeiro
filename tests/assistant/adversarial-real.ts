@@ -1756,6 +1756,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const internalPix = await Promise.all([
     'fiz um Pix de 40 entre minhas contas',
     'transferi 40 da minha conta do Inter pra minha conta do Nubank',
+    'transferi 1000 do Nubank pra minha conta do Inter',
+    'enviei quarenta reais para mim mesmo ontem',
+    'mandei 40 de uma conta minha para outra',
   ].map(message => pixBank(message)))
   out.push(result('A-pix-entrada-sem-inventar-corrida-e-transferencia-propria', { received: receivedPix.response, thirdPerson: thirdPersonPix.response,
     incomplete: incompletePix.response, exact: chosenPix.response, internal: internalPix.map(r => r.response) },
@@ -1766,6 +1769,13 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && !incompletePix.response.actions.length && answerChoices(incompletePix)?.field === 'exact-amount'
       && chosenPix.response.actions.length === 1 && chosenPix.response.actions.map(a => a.action).some(a => a.kind === 'income' && a.amount === 74.50 && a.date === addDays(TODAY, -1))
       && internalPix.every(r => !r.response.actions.length && /contas próprias/.test(r.response.reply))))
+  const selfAndFuel = await turn(pixDriver, 'transferi 100 para mim e gastei 45 de gasolina')
+  const paidSomeone = await turn(pixDriver, 'transferi 100 para minha mãe')
+  out.push(result('A-transferencia-propria-preserva-outra-saida', { selfAndFuel, paidSomeone },
+    'transferir para si mantém o caixa; envio à mãe e compra de gasolina continuam movimentos de saída',
+    selfAndFuel.actions.length === 1 && selfAndFuel.actions.some(a => a.kind === 'fuel' && a.amount === 45)
+    && /contas próprias/.test(selfAndFuel.reply)
+    && paidSomeone.actions.length === 1 && paidSomeone.actions.some(a => a.kind === 'expense' && a.amount === 100)))
   for (const [id, message, kind, amount, category, note] of [
     ['banco-via-pix', 'recebi 300 do banco via Pix', 'income', 300, 'outros-in'],
     ['conta-e-destino', 'entrou 50 na conta do Nubank', 'income', 50, 'outros-in'],

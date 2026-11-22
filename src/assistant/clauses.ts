@@ -200,7 +200,8 @@ const RECIPIENT_OF_PAYMENT = new RegExp(String.raw`\b(?:me|nos)\s+(?:pagou|pagar
 const PAYMENT_NOT_RECEIVED = /^(?:(?:o\s+)?(?:pix|dinheiro|pagamento)\s+)?(?:ainda\s+)?(?:n[ãa]o|nem|[nñ])\s+(?:caiu|entrou|foi\s+creditado)\b/i
 const NAMED_PAYMENT_PENDING = /\b(?:pix|dinheiro|pagamento)\s+(?:ainda\s+)?n[ãa]o\s+(?:caiu|entrou|foi\s+creditado)\b/i
 const PAYMENT_DENIED = new RegExp(String.raw`(?<![\p{L}\p{M}])(?:n[ãa]o|nem|[nñ]|ningu[eé]m)\s+(?:me|nos)\s+(?:pagou|pagaram|${PIX_INCOMING}|${GAVE_TO_ME})\b`, 'iu')
-const OWN_ACCOUNTS = /\bentre\s+(?:as\s+)?(?:(?:minhas|nossas)\s+(?:duas\s+)?contas|contas\s+pr[óo]prias)\b|\b(?:da|de)\s+(?:minha|nossa)\s+conta\b[^.;!?]{0,55}\b(?:para|pra)\s+(?:a\s+)?(?:minha|nossa)\s+conta\b/i
+const OWN_ACCOUNTS = /\bentre\s+(?:as\s+)?(?:(?:minhas|nossas)\s+(?:duas\s+)?contas|contas\s+pr[óo]prias)\b|\b(?:da|de)\s+(?:minha|nossa)\s+conta\b[^.;!?]{0,55}\b(?:para|pra)\s+(?:a\s+)?(?:minha|nossa)\s+conta\b|\bde\s+uma\s+conta\s+(?:minha|nossa)\s+(?:pra|para)\s+(?:a\s+)?outra\b/i
+const TO_OWN_ACCOUNT = new RegExp(String.raw`^(?:(?:eu|hoje|hj|ontem|anteontem|j[áa])\s+){0,4}(?:(?:transferi|mandei|enviei)\s+(?:(?:um\s+)?pix(?:\s+de)?\s+)?|fiz\s+(?:um\s+)?pix(?:\s+de)?\s+)${RECORD_NUMBER}(?:\s+d[aeo]\s+(?:nubank|inter|ita[uú]|bradesco|santander|caixa|picpay|banco\s+do\s+brasil|(?:meu|minha)\s+[\p{L}][\p{L}\s]{1,25}?))?\s+(?:pra|para)\s+(?:mim(?:\s+mesm[oa])?|(?:a\s+)?(?:minha|nossa)\s+(?:(?:outra|pr[óo]pria)\s+)?conta(?:\s+d[aeo]\s+[\p{L}][\p{L}\s]{1,25}?)?)(?!\s+(?:e|ou)\s+(?:pra|para)\b)(?=\s*(?:[,;.!]|$|e\s*$|(?:hoje|ontem|anteontem)\b))`, 'iu')
 const INCOMING_CASH = /^(?:(?:eu|hoje|ontem|anteontem|j[áa]|agora)\s+){0,3}(?:recebi|caiu|entrou|pingou|me\s+(?:pagaram|enviaram|mandaram))\b/i
 const NET_QUALIFIER = String.raw`(?:l[íi]quid[oa]s?|limp[oa]s?)(?![\wÀ-ÿ])`
 const RIDE_SOURCE = String.raw`(?:n[ao]|d[ao]|pel[ao])\s+(uber|99|in\s*drive[r]?)(?![\wÀ-ÿ])`
@@ -1468,7 +1469,8 @@ export function analyzeMessage(
         || (previousClause?.actions.some(action => action.kind === 'card-purchase')
           && PAID_FIRST_INSTALLMENT.test(normalizeNumberWords(part.text).text)))
     const internalTransfer = !isQuestion && !negated && looksPast(part.text)
-      && /\b(?:pix|transferi)\b/i.test(part.text) && OWN_ACCOUNTS.test(part.text)
+      && (TO_OWN_ACCOUNT.test(normalizeNumberWords(part.text).text)
+        || (/\b(?:pix|transferi|mandei|enviei)\b/i.test(part.text) && OWN_ACCOUNTS.test(part.text)))
     const receiptMention = RECIPIENT_OF_PAYMENT.test(part.text) || /\brecebi\b[^.;!?]*\bpix\b/i.test(part.text)
     const standalonePending = /^(?:o\s+)?(?:pix|dinheiro|pagamento)\s+/i.test(part.text) && PAYMENT_NOT_RECEIVED.test(part.text)
     const paymentPending = standalonePending || PAYMENT_DENIED.test(part.text) || (receiptMention && (NAMED_PAYMENT_PENDING.test(part.text)
