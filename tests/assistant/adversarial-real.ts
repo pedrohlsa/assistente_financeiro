@@ -9310,6 +9310,11 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const c = (await turnoHoje(moto, 'quanto custa meu carro por mês')).reply
       out.push(result('VC-custo-do-carro-por-mes', c, 'custo do veículo, não o total gasto', /veículo/.test(c) && !/^Total gasto/.test(c)))
     }
+    for (const [id, frase, desc] of [['IV-tesouro', 'investi 1000 no tesouro', 'Tesouro'], ['IV-cdb', 'apliquei 500 no cdb', 'CDB']] as const) {
+      // Investir é guardar (type saving): "investi 1000 no tesouro" caía na ajuda.
+      const r = await turnoHoje(buildState({ profile: 'autonomo' }), frase)
+      out.push(result(id, r.actions, `reserva — ${desc}`, (r.actions[0] as any)?.kind === 'saving' && (r.actions[0] as any)?.description === desc))
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

@@ -28,7 +28,7 @@ export function sentenceCase(s?: string | null): string {
 /** Marcas com grafia própria: "ifood" é "iFood", nunca "Ifood". */
 const MARCA_GRAFIA: Record<string, string> = { ifood: 'iFood', iphone: 'iPhone', ipad: 'iPad' }
 const MARCAS = /(?<![\wÀ-ÿ])(?:ifood|iphone|ipad)(?![\wÀ-ÿ])/gi
-const SIGLAS = /(?<![\wÀ-ÿ])(?:iptu|ipva|inss|fgts|cnh|dpvat|darf|gnv|mei|irpf|cpf|cnpj)(?![\wÀ-ÿ])/g
+const SIGLAS = /(?<![\wÀ-ÿ])(?:iptu|ipva|inss|fgts|cnh|dpvat|darf|gnv|mei|irpf|cpf|cnpj|cdb|lci|lca)(?![\wÀ-ÿ])/g
 
 /**
  * Chave de comparação de nomes: minúsculas, sem acento, sem espaço duplicado.

@@ -1334,7 +1334,7 @@ function parseClause(input: string): ParsedAction[] {
   const savingRe = new RegExp(
     // "Mandei 200 pra poupança" é reserva; sem destino de reserva, "mandei" segue
     // para a transferência a alguém, mais abaixo.
-    String.raw`(?:guardei|guardar|guarda|separei|separar|separa|reservei|poupei|apliquei|investi|coloquei|botei|depositei|joguei|meti|mandei|transferi|enviei)\s*${APROX}(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:(?:na|no|em|para|pra|pro)\s+(?:a\s+|o\s+)?(?:minha\s+|meu\s+)?(reserva|poupan[çc]a|investimento|investir|guardado|caixinha|cofrinho))?`,
+    String.raw`(?:guardei|guardar|guarda|separei|separar|separa|reservei|poupei|apliquei|investi|coloquei|botei|depositei|joguei|meti|mandei|transferi|enviei)\s*${APROX}(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:(?:na|no|em|para|pra|pro)\s+(?:a\s+|o\s+)?(?:minha\s+|meu\s+)?(reserva|poupan[çc]a|investimento|investir|guardado|caixinha|cofrinho|tesouro(?:\s+direto)?|cdb|lci|lca|fundos?(?:\s+de\s+investimento)?|a[çc][õo]es|bolsa|previd[êe]ncia(?:\s+privada)?))?`,
     'i',
   )
   const sav = text.match(savingRe)
