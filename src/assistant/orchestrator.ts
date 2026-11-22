@@ -905,6 +905,34 @@ function withPendingAnswer(
   return { ...output, keepPending: true, response: { ...output.response, reply } }
 }
 
+function previewPendingQuery(input: OrchestratorInput, today: string): OrchestratorOutput | undefined {
+  if (!input.pending?.length || input.pendingClarification || input.draft) return undefined
+  const text = normalizeName(input.message).replace(/[?!.]+$/, '').trim()
+  const confirm = String.raw`se\s+(?:eu\s+)?confirmar(?:\s+(?:isso|essa\s+proposta|o\s+registro|os\s+registros))?`
+  const includesProposal = String.raw`(?:${confirm}|(?:contando|incluindo|considerando)\s+(?:ess[ea]\s+(?:proposta|despesa|receita|registro)|o\s+pendente|a\s+proposta|ess[ea])(?:\s+tambem)?|com\s+a\s+proposta)`
+  const before = text.match(new RegExp(String.raw`^(${confirm}),?\s+(.+)$`))
+  const after = text.match(new RegExp(String.raw`^(.+?),?\s+${includesProposal}$`))
+  const queryPlan = isFocusFresh(input.focus) && input.focus?.last === 'query' ? input.focus.lastQueryPlan : undefined
+  const reuse = !!queryPlan && new RegExp(String.raw`^(?:e\s+)?${confirm}$`).test(text)
+  const explicit = reuse ? undefined : before?.[2] || after?.[1]
+  if (!explicit && !reuse) return undefined
+  const question = explicit?.replace(/\bgastaria\b/g, 'gastei').replace(/\breceberia\b/g, 'recebi').replace(/\bganharia\b/g, 'ganhei')
+  if (!reuse && (!question || !/^(?:e\s+)?(?:quanto|qual)\b/.test(question) || !looksLikeDataQuestion(question))) return undefined
+  const scopedQuestion = question && /\b(?:gastei|ganhei|recebi)\b/.test(question) && !parsePeriod(question, today)
+    ? `${question} hoje` : question
+  const read = (state: AppState) => reuse ? composeAnswer(runQuery(state, queryPlan!, today))
+    : respostaLocal(state, scopedQuestion!, today, true)?.text
+  const real = read(input.state)
+  if (!real) return undefined
+  const { projected, ok } = planAssistantActions(input.state, input.pending, { date: today, time: nowPaymentTime() })
+  const preview = ok ? read(projected) : undefined
+  const reply = preview
+    ? `Se você confirmar a proposta da tela:\n${semDadoReal(preview)}\n\nA proposta segue aguardando confirmação.`
+    : 'A proposta mudou ou tem um dado pendente. Revise o que está na tela para eu conseguir simular a confirmação.'
+  return { draft: null, keepPending: true, focus: input.focus,
+    response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply } }
+}
+
 /**
  * "Fiz 280 hoje, foi bom?" chega como uma cláusula só, com registro e pergunta:
  * perguntada inteira ao roteador, a frase virava proposta e a pergunta sumia. Ao
@@ -1611,6 +1639,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (nominal) input = { ...input, message: nominal }
   const caps = buildCapabilities(input.state)
   const today = input.today || todayISO()
+  const pendingPreview = previewPendingQuery(input, today)
+  if (pendingPreview) return pendingPreview
   if (!input.draft && (!input.pendingClarification || input.pendingClarification.field === 'reported-total')) {
     const payout = readPlatformPayout(input.message)
     const reconciled = payout || reconcileSpokenTotals(input.message, today, isDriver(input.state.settings), caps.cardNames)

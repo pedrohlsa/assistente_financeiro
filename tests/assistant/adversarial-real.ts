@@ -132,6 +132,18 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && [sameDay, focused, anotherDay, anotherCategory, grouped].every(r => r.keepPending)
       && corrected.correctedPending && corrected.response.actions[0]?.action.kind === 'expense'
       && corrected.response.actions[0].action.amount === 45 && JSON.stringify(state) === snapshot))
+    const previews = await Promise.all([
+      ask('quanto gastaria se eu confirmar?', pending),
+      ask('quanto gastei hoje contando esse também?', pending),
+      ask('e se eu confirmar?', pending, sameDay.focus),
+    ])
+    const realAgain = await ask('quanto gastei hoje?', pending, previews[2].focus)
+    out.push(result('PC-incluir-proposta-explicitamente-e-simulacao', [...previews, realAgain].map(r => r.response),
+      'R$ 70 aparecem em simulação sem ação e R$ 20 continuam sendo o total confirmado',
+      previews.every(r => r.keepPending && !r.response.actions.length && /se você confirmar/i.test(r.response.reply)
+        && /70,00/.test(r.response.reply) && !/dado real/.test(r.response.reply))
+      && /20,00/.test(realAgain.response.reply) && !/70,00/.test(realAgain.response.reply)
+      && JSON.stringify(state) === snapshot))
   }
 
   {
