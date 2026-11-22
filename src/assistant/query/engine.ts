@@ -605,6 +605,15 @@ export function runQuery(state: AppState, plan: AssistantQueryPlan, today = toda
       sample: { rows: 0, from: plan.period.from, to: plan.period.to }, facts: [], samples: [],
       caveats: [`Não tenho quilometragem de trabalho registrada ${plan.period.label} para calcular o valor por km.`] }
   }
+  // "Quanto rendeu a UBER por hora": horas, km e viagens não são guardadas
+  // por plataforma. Dividir a receita da Uber pelas horas de TODAS as
+  // plataformas dava R$ 28,92/hora com cara de dado real.
+  if ((plan.metric === 'per-hour' || plan.metric === 'per-km' || plan.metric === 'per-trip') && plan.filter.platform) {
+    const unidade = plan.metric === 'per-hour' ? 'horas' : plan.metric === 'per-km' ? 'quilômetros' : 'viagens'
+    return { plan, unit, total: 0, count: 0, groups: [], estimated: false, empty: true, missingDistance: true,
+      sample: { rows: 0, from: plan.period.from, to: plan.period.to }, facts: [], samples: [],
+      caveats: [`Não separo ${unidade} por plataforma: elas são registradas para o dia inteiro. Dividir só o que a ${/^uber$/i.test(plan.filter.platform) ? 'Uber' : plan.filter.platform} pagou por ${unidade === 'horas' ? 'todas as horas' : unidade === 'viagens' ? 'todas as viagens' : 'todos os km'} daria um número errado. Para ver quanto cada uma pagou, pergunte "quanto ganhei na uber e na 99 esse mês".`] }
+  }
   // "Quanto eu ganho por hora" sem hora nenhuma respondia "R$ 0,00/hora (dado
   // real)" — número certo de nada. Mesma saída do valor por km sem km.
   const q0 = (plan.metric === 'per-hour' || plan.metric === 'per-trip') ? quantidadeTrabalho(state, plan.period.from, plan.period.to, today) : undefined

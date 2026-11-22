@@ -9344,6 +9344,23 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('DV-sem-cartao', [e0, l0], 'começa por "Não há dívida"; limite sem menu de ajuda',
         /^Não há dívida cadastrada/.test(e0) && !/Posso te ajudar/.test(l0)))
     }
+    {
+      // Horas não são separadas por plataforma: "quanto rendeu a uber por
+      // hora" dividia a Uber pelas horas de todas e chamava de dado real.
+      const moto = motoristaRico(hoje)
+      const ph = await turnoHoje(moto, 'quanto rendeu a uber por hora')
+      out.push(result('PH-por-hora-por-plataforma-recusa', ph.reply, 'não divide receita de uma por horas de todas',
+        !/R\$\s*[\d.,]+\/hora/.test(ph.reply) && /Não separo horas por plataforma/.test(ph.reply)))
+      for (const frase of ['qual app paga melhor', 'vale a pena rodar de 99 ou uber?']) {
+        const r = (await turnoHoje(moto, frase)).reply
+        out.push(result(`PH-${frase.split(' ')[0]}-${frase.split(' ')[1]}`, r, 'divisão por plataforma', /Uber/.test(r) && /99/.test(r) && !/Total gasto|Posso te ajudar/.test(r)))
+      }
+      for (const frase of ['hoje fiz 200 na uber em 5 horas', 'fiz 200 trabalhando 5 horas']) {
+        const r = await turnoHoje(moto, frase)
+        out.push(result(`PH-horas-${frase.split(' ').slice(-3, -2)[0]}`, r.actions, 'R$ 200 e 5 h',
+          r.actions.some((a: any) => a.kind === 'income' && a.amount === 200) && r.actions.some((a: any) => a.kind === 'work' && a.hours === 5)))
+      }
+    }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',
       !lembrete.actions.length && /lembrete/.test(lembrete.reply) && /Planejamento/.test(lembrete.reply)))

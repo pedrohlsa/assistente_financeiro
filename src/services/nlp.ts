@@ -1932,7 +1932,10 @@ function parseClause(input: string): ParsedAction[] {
     // perdia inteira, porque nenhum dos padrões acima cobre "em N horas".
     || text.match(new RegExp(String.raw`(?:km|quil[oô]metros?|viagens|corridas)\s*(?:em|durante)\s*${NUM}\s*(?:horas?|hrs?|h)\b`, 'i'))
     // "Fiz 450 EM 12 HORAS": o resultado do dia e a jornada na mesma frase.
-    || text.match(new RegExp(String.raw`\b(?:fiz|ganhei|faturei|tirei)\s+(?:r\$\s*)?\d+(?:[.,]\d+)?\s*(?:reais\s*)?(?:em|durante)\s*${NUM}\s*(?:horas?|hrs?|h)\b`, 'i'))
+    // A plataforma pode vir no meio: "fiz 200 NA UBER em 5 horas".
+    || text.match(new RegExp(String.raw`\b(?:fiz|ganhei|faturei|tirei)\s+(?:r\$\s*)?\d+(?:[.,]\d+)?\s*(?:reais\s*)?(?:(?:n[ao]|pel[ao]|d[ao])\s+(?:uber|99|indrive|indriver)\s+)?(?:em|durante)\s*${NUM}\s*(?:horas?|hrs?|h)\b`, 'i'))
+    // "Fiz 200 TRABALHANDO 5 horas": o gerúndio antes da jornada.
+    || text.match(new RegExp(String.raw`\b(?:trabalhando|rodando|dirigindo)\s+(?:por\s+)?${NUM}\s*(?:horas?|hrs?|h)\b`, 'i'))
 
   const hours = duration.minutes ? duration.minutes / 60 : hoursM ? parseNum(hoursM[1]) : undefined
   const km = distanceWorked(text, kmM)

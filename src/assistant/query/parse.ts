@@ -228,6 +228,10 @@ export function looksLikeDataQuestion(input: string): boolean {
   // período; a DSL lia "mais que" como comparação entre períodos e respondia
   // "Não, ficou igual" comparando o mês com ele mesmo.
   if (GASTO_CONTRA_GANHO.test(t)) return false
+  // "Qual APP paga melhor", "vale a pena rodar de 99 ou uber?": a divisão por
+  // plataforma do roteador. A DSL respondia o total gasto do mês.
+  if ((/\b(?:apps?|aplicativos?|plataformas?)\b[^?]*\b(?:paga|rende|compensa|melhor)\b|\b(?:vale\s+a\s+pena|compensa)\b[^?]*\b(?:uber|99)\b[^?]*\bou\b/.test(t))
+    && !/\bpor\s+(?:hora|km|viagem|corrida)\b/.test(t) && !parsePeriod(t)) return false
   // "Tô indo melhor que mês passado?", "tô rendendo bem?": o ritmo do mês
   // contra o anterior, respondido pelo roteador com a métrica do verbo. A DSL
   // procurava o texto "indo".
