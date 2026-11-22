@@ -9338,6 +9338,11 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       out.push(result('DV-consigo-pagar-tudo', tudo, 'cobertura pelo saldo', /^(Sim|Não|Nada cadastrado)/.test(tudo) && !/não sei simular/.test(tudo)))
       const juros = (await turnoHoje(rico, 'quanto pago de juros')).reply
       out.push(result('DV-juros-nao-separados', juros, 'diz que não separa juros', /Não separo juros/.test(juros)))
+      const semCartao = buildState({ profile: 'other', balance: 2000 })
+      const e0 = (await turnoHoje(semCartao, 'tô endividado?')).reply
+      const l0 = (await turnoHoje(semCartao, 'meu limite')).reply
+      out.push(result('DV-sem-cartao', [e0, l0], 'começa por "Não há dívida"; limite sem menu de ajuda',
+        /^Não há dívida cadastrada/.test(e0) && !/Posso te ajudar/.test(l0)))
     }
     const lembrete = await turnoHoje(rico, 'me lembra de pagar a luz dia 10')
     out.push(result('LB-lembrete-nao-e-lancamento', lembrete, 'sem ação, aponta o Planejamento',

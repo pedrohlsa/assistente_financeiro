@@ -818,13 +818,15 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   // "quando acaba a geladeira" é do parcelamento, citado pelo nome.
   // "FATURAmento" não é fatura: sem borda, "quanto foi meu faturamento" ia
   // para os cartões ("você ainda não cadastrou cartões").
-  if (/\bparcel|\bfaturas?\b|\bcart(?:[ãa]o|oes|ões)\b|\bd[ií]vidas?\b/.test(t) || (pedeLimite(t) && s.cards?.length > 0) || pedeDividaTotal(t)
+  if (/\bparcel|\bfaturas?\b|\bcart(?:[ãa]o|oes|ões)\b|\bd[ií]vidas?\b/.test(t) || pedeLimite(t) || pedeDividaTotal(t)
     || pedeListaDeParcelamentos(t)
     || (planoCitado(s, t) && (FIM_DO_PLANO.test(t) || COMPRA_DO_PLANO.test(t) || /\b(?:antecip|adiantei\b|adiantar\b)/.test(t)))) {
     const sobreFatura = perguntaDeFatura(t)
     if ((sobreFatura === 'pagamentos' || sobreFatura === 'valor-pago') && s.cards?.length) return respostaDaFatura(s, t, sobreFatura)
     if (!ov.hasData) {
-      return { text: 'Você ainda não cadastrou cartões nem parcelamentos. Você pode adicionar em Mais → Cartões e parcelamentos.' }
+      // "Tô endividado?" sem cartão nenhum: a resposta começa pelo fato.
+      const lead = /\bendividad[oa]\b/.test(t) || pedeDividaTotal(t) ? 'Não há dívida cadastrada. ' : ''
+      return { text: `${lead}Você ainda não cadastrou cartões nem parcelamentos. Você pode adicionar em Mais → Cartões e parcelamentos.` }
     }
     if (pedeAntecipacaoDeFatura(t)) return { text: 'Para preparar uma antecipação no chat, diga qual cartão você já pagou, o valor e o mês de vencimento da fatura. Em Mais → Cartões e parcelamentos, você pode conferir a fatura desse mês.' }
     if (sobreFatura && s.cards?.length) return respostaDaFatura(s, t, sobreFatura)
