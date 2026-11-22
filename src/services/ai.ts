@@ -469,15 +469,26 @@ export function normalizeQuestion(input: string): string {
  */
 const PEDE_RECOMENDACAO_DE_INVESTIMENTO = /\b(?:onde|em\s+que|no\s+que|qual|quais|vale\s+a\s+pena|compensa|devo|deveria|melhor|e\s+bom)\b[^?]*\b(?:invisto|investir|investimento|aplico|aplicar|tesouro|cdb|lci|lca|acoes|bolsa|cripto|bitcoin|fundos?|poupanca\s+ou)\b/
 
-function listaDeLancamentos(s: AppState, t: string): string | undefined {
+export function listaDeLancamentos(s: AppState, t: string, hoje = todayISO()): string | undefined {
+  const limpa = t.trim().replace(/[.!?]+$/, '').trim()
+  const fato = limpa.match(/^o\s+que\s+(?:eu\s+)?(gastei|paguei|comprei|recebi|ganhei)\b(.*)$/)
+  const ultimo = limpa.match(/^(?:(?:qual|quanto)\s+(?:foi|e)\s+)?(?:(?:o|a)\s+)?(?:meu\s+|minha\s+)?ultim[oa]\s+(gasto|despesa|lancamento|movimentacao|compra|receita|entrada)\b(.*)$/)
+  const novo = fato || ultimo
+  if (novo) {
+    // Uma lista simples pode ter período; nomes de estabelecimentos e
+    // filtros adicionais ficam para a consulta que entende essas condições.
+    const resto = novo[2].trim()
+    const parsed = resto && parsePeriod(resto, hoje)
+    if (resto && (!parsed || (parsed.span ?? parsed.matched) !== resto)) return undefined
+  }
   const pedeO_que = /\bo\s+que\s+(?:eu\s+)?(?:registrei|lancei|anotei|coloquei|botei)\b/.test(t)
   const pedeLista = /^(?:me\s+)?(?:mostra|mostre|lista|liste|listar|ver|quero\s+ver|abre)\s+(?:os\s+|as\s+|meus\s+|minhas\s+)*(?:ultim[oa]s\s+)?(?:gastos|despesas|lancamentos|movimentacoes|registros|receitas|entradas)\b/.test(t)
     || /\bquais\s+(?:foram\s+)?(?:os\s+|as\s+|meus\s+|minhas\s+)*(?:ultim[oa]s\s+)?(?:gastos|despesas|lancamentos|movimentacoes|registros|receitas|entradas)\b/.test(t)
-  if (!pedeO_que && !pedeLista) return undefined
-  if (/\b(?:quanto|quantos|quantas|maior|menor|total)\b/.test(t)) return undefined
-  const hoje = todayISO()
+  if (!novo && !pedeO_que && !pedeLista) return undefined
+  if (!ultimo && /\b(?:quanto|quantos|quantas|maior|menor|total)\b/.test(t)) return undefined
   const dia = /\banteontem\b/.test(t) ? addDays(hoje, -2) : /\bontem\b/.test(t) ? addDays(hoje, -1) : /\bhoje\b/.test(t) ? hoje : undefined
-  const tipo = /\b(?:gastos|despesas|gastei)\b/.test(t) ? 'expense' : /\b(?:receitas|entradas|recebi)\b/.test(t) ? 'income' : undefined
+  const tipo = /\b(?:gastos?|despesas?|gastei|paguei|compr(?:a|ei))\b/.test(t) ? 'expense'
+    : /\b(?:receitas?|entradas?|recebi|ganhei)\b/.test(t) ? 'income' : undefined
   const rotuloDia = dia === hoje ? 'hoje' : dia === addDays(hoje, -1) ? 'ontem' : dia ? 'anteontem' : ''
   // "Mostra meus gastos DA SEMANA" listava 03/09 com hoje em 15/09: só o dia
   // seco era lido. O período dito recorta a lista, pelo mesmo leitor da DSL.
@@ -491,7 +502,7 @@ function listaDeLancamentos(s: AppState, t: string): string | undefined {
     return dia ? `Nada registrado ${rotuloDia}${tipo ? ` como ${oque}` : ''}. Quando quiser, me conte o que entrou ou saiu.`
       : `Ainda não há nenhum ${oque} registrado.`
   }
-  const mostrados = lista.slice(0, 8)
+  const mostrados = lista.slice(0, ultimo ? 1 : 8)
   const linha = (x: Transaction) => {
     const cat = s.categories.find(c => c.id === x.category)?.name
     const nome = sentenceCase(x.description || cat || 'Lançamento')
@@ -500,6 +511,7 @@ function listaDeLancamentos(s: AppState, t: string): string | undefined {
     return `• ${quando ? `${quando} · ` : ''}${nome}${cat && cat !== nome ? ` (${cat})` : ''}: ${sinal}${fmtBRL(x.amount)}`
   }
   const titulo = dia ? `Registrado ${rotuloDia} (${lista.length}):` : periodo ? `${oque === 'lançamento' ? 'Lançamentos' : oque === 'gasto' ? 'Gastos' : 'Entradas'} ${periodo.label} (${lista.length}):` : `Seus últimos ${oque === 'lançamento' ? 'lançamentos' : oque === 'gasto' ? 'gastos' : 'entradas'}:`
+  if (ultimo) return [oque === 'entrada' ? 'Última entrada registrada' : `Último ${oque} registrado`, '', linha(mostrados[0])].join('\n')
   return [titulo, '', ...mostrados.map(linha),
     ...(lista.length > mostrados.length ? ['', `E mais ${lista.length - mostrados.length}. A lista completa fica em Movimentações.`] : [])].join('\n')
 }
@@ -611,7 +623,7 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
       + 'O que eu faço é registrar o que você aplicar ("investi 1000 no tesouro" vai para a reserva) e mostrar quanto sobra por mês — pergunte "quanto posso guardar este mês?".' }
   }
 
-  const lista = listaDeLancamentos(s, t)
+  const lista = listaDeLancamentos(s, t, context?.today)
   if (lista) return { text: lista }
   const corte = ondeCortar(s, t)
   if (corte) return { text: corte }

@@ -50,7 +50,7 @@ import type { AssistantDraft } from './drafts'
 import { applyCorrection, parseCorrection } from './corrections'
 import type { CorrectionPlan } from './corrections'
 import { findGoalByName, planAssistantActions } from './execute'
-import { askAssistant, normalizeQuestion, respostaDeMetaCitada } from '../services/ai'
+import { askAssistant, listaDeLancamentos, normalizeQuestion, respostaDeMetaCitada } from '../services/ai'
 import { contaDeclarada, perguntaDeFatura, perguntaNominal } from './cashQuestions'
 import { buildCapabilities } from './capabilities'
 import { describeAction, META_OUTRA, NEXT_RIDE_DISTANCE, SAQUE } from '../services/nlp'
@@ -3314,6 +3314,10 @@ ${reply}`
     focoFinal = { ...(focoFinal || {}), lastInvoiceQuestion: mensagem, updatedAt: Date.now() }
   }
   const output = { draft: null, response, focus: focoFinal, keepPending: mode === 'answer' && !!localNotes }
+  const normalizedQuestion = normalizeQuestion(mensagem)
+  if (input.pending?.length && mode === 'answer' && listaDeLancamentos(input.state, normalizedQuestion, today) === reply) {
+    return withPendingAnswer(input, output, today, state => listaDeLancamentos(state, normalizedQuestion, today))
+  }
   if (local_answers.answered.length && local_answers.text && !localNotes) {
     return withPendingAnswer(input, output, today, state => answerQuestions(state, questions, [], today, mensagem).text)
   }

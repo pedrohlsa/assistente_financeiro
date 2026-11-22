@@ -8374,6 +8374,26 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       g.includes('Mercado') && g.includes('Cinema') && !g.includes('Site')))
     const vazio = (await turnoHoje(buildState({ profile: 'autonomo' }), 'o que eu registrei hoje?')).reply
     out.push(result('LS-nada-hoje', vazio, 'diz que não há nada hoje', /Nada registrado hoje|não há nada registrado hoje/i.test(vazio)))
+
+    const date = '2027-03-03'
+    st.transactions = [
+      { id: 'market-new', type: 'expense', amount: 42, category: 'alimentacao', description: 'Mercado', date, time: '11:00' },
+      { id: 'lunch-new', type: 'expense', amount: 11, category: 'alimentacao', description: 'Almoço', date, time: '09:00' },
+      { id: 'fuel-old', type: 'expense', amount: 79, category: 'combustivel', description: 'Gasolina', date: '2027-03-02' },
+      { id: 'income-new', type: 'income', amount: 300, category: 'freelance', description: 'Site', date },
+    ]
+    const send = (message: string) => orchestrate({ state: st, message, today: date, remoteEnabled: false })
+    const [listToday, last, lastYesterday, income] = await Promise.all([
+      send('o que gastei hoje?'), send('quanto foi o último gasto?'),
+      send('qual foi meu último gasto ontem?'), send('o que recebi hoje?'),
+    ])
+    out.push(result('LS-lista-do-dia-e-ultimo-lancamento-usam-o-relogio-do-chat', [listToday, last, lastYesterday, income].map(r => r.response),
+      'lista os dois gastos em 03/03/2027, limita o último a um gasto e separa entradas',
+      /Mercado/.test(listToday.response.reply) && /Almoço/.test(listToday.response.reply) && !/Gasolina|Site/.test(listToday.response.reply)
+      && /Mercado/.test(last.response.reply) && !/Almoço|Gasolina|Site/.test(last.response.reply)
+      && /Gasolina/.test(lastYesterday.response.reply) && !/Mercado|Almoço/.test(lastYesterday.response.reply)
+      && /Site/.test(income.response.reply) && !/Mercado|Almoço/.test(income.response.reply)
+      && [listToday, last, lastYesterday, income].every(r => !r.response.actions.length)))
   }
 
   // "Posso parcelar uma geladeira de 3000 em 10x?" mostrava a situação dos
