@@ -105,6 +105,7 @@ export const ACTION_CATALOG: ActionSpec[] = [
       dateField,
       timeField,
       { name: 'feeAlreadyWithheld', type: 'flag', required: false, localOnly: true, editable: false, describe: 'recebimento confirmado após taxa retida pela plataforma' },
+      { name: 'reportedNet', type: 'flag', required: false, localOnly: true, editable: false, describe: 'valor informado pelo usuário como líquido' },
     ],
     promptHint: 'dinheiro que entrou de verdade',
   },

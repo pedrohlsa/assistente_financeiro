@@ -8305,6 +8305,22 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const misto = await orchestrate({ state: st, message: 'tirei 250 bruto e gastei 60 de gasolina', today: hoje, remoteEnabled: false })
     const acoes = misto.response.actions.map(a => a.action as any)
     out.push(result('BR-bruto-e-gasto', acoes, 'receita 250 e gasto 60', acoes.some(a => a.kind === 'income' && a.amount === 250) && acoes.some(a => a.amount === 60)))
+    const net = await Promise.all([
+      ['fiz 200 limpo hoje', 200, undefined],
+      ['recebi 180 líquido da Uber', 180, 'Uber'],
+      ['na 99 tirei 180 limpo', 180, '99'],
+      ['recebi 180 na 99 líquido', 180, '99'],
+      ['hoje fiz líquido 200', 200, undefined],
+    ].map(async ([message, amount, platform]) => ({
+      r: await turnoHoje(st, String(message)), amount, platform,
+    })))
+    const gross = await turnoHoje(st, 'fiz 99 reais bruto')
+    out.push(result('BR-receita-informada-liquida-conserva-a-plataforma', { net, gross },
+      'diz que o valor foi informado como líquido, conserva a plataforma e nunca usa o nome 99 como preço',
+      net.every(({ r, amount, platform }) => r.actions.length === 1 && r.actions.some(a =>
+        a.kind === 'income' && a.amount === amount && a.description === platform && a.reportedNet && !a.feeAlreadyWithheld)
+        && /valor informado como líquido/.test(r.reply))
+      && gross.actions.length === 1 && gross.actions.some(a => a.kind === 'income' && a.amount === 99 && !a.reportedNet)))
     // `l\b` (litro) casava em "180 Líquido" e `h\b` (hora) em "300 Há"
     // (regra 67b): o valor virava unidade e sumia.
     const ha = await turnoHoje(buildState({ profile: 'other' }), 'paguei o conserto de 300 há dois dias')

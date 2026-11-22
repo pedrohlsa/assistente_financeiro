@@ -588,7 +588,8 @@ function driverDayResult(input: string, actions: ParsedAction[], dayHint?: boole
   const weak = monetary.length === 1 && monetary[0].kind === 'expense' ? monetary[0] : null
   if (monetary.length && !weak) return null
 
-  const amount = weak ? (weak as any).amount : moneyValuesIn(t)[0]
+  const withoutPlatformId = t.replace(/\b(?:n[ao]|d[ao]|pel[ao])\s+99\b/g, ' ')
+  const amount = weak ? weak.amount : moneyValuesIn(withoutPlatformId)[0]
   if (!(amount > 0)) return null
 
   const rest = actions.filter(a => a !== weak)
@@ -1931,7 +1932,7 @@ export function describeActionDetailed(a: ParsedAction, opts?: { fee?: number; c
   switch (a.kind) {
     case 'income':
     case 'expense': {
-      lines.push(`${a.kind === 'income' ? 'Receita' : 'Despesa'} de ${money(a.amount)}`)
+      lines.push(`${a.kind === 'income' ? 'Receita' : 'Despesa'} de ${money(a.amount)}${a.kind === 'income' && a.reportedNet ? ' · valor informado como líquido' : ''}`)
       const c = catName(a.category)
       if (c) lines.push(`Categoria: ${sentenceCase(c)}`)
       if ((a as any).origin) lines.push(`Origem: ${sentenceCase((a as any).origin)}`)
@@ -2009,7 +2010,7 @@ export function describeAction(a: ParsedAction, categoryName?: (id: string) => s
       const extra = [a.origin, a.description]
         .filter((x, i, xs): x is string => !!x?.trim() && xs.findIndex(y => normalizeName(y) === normalizeName(x)) === i
           && !nomeCat.startsWith(normalizeName(x).replace(/s$/, '')))
-      return `Receita de ${fmtBRL(a.amount)}${cat(a.category)}${extra.length ? ` — ${extra.map(x => sentenceCase(x)).join(' · ')}` : ''}${a.is99 ? ' — plataforma 99' : ''}`
+      return `Receita de ${fmtBRL(a.amount)}${cat(a.category)}${extra.length ? ` — ${extra.map(x => sentenceCase(x)).join(' · ')}` : ''}${a.is99 ? ' — plataforma 99' : ''}${a.reportedNet ? ' · valor informado como líquido' : ''}`
     }
     case 'expense': return `Despesa de ${fmtBRL(a.amount)}${cat(a.category)}${a.description ? ` — ${a.description}` : ''}`
     // Sem este caso o `switch` caía fora e a linha da proposta virava "undefined".

@@ -197,6 +197,10 @@ const NAMED_PAYMENT_PENDING = /\b(?:pix|dinheiro|pagamento)\s+(?:ainda\s+)?n[ãa
 const PAYMENT_DENIED = new RegExp(String.raw`(?<![\p{L}\p{M}])(?:n[ãa]o|nem|[nñ]|ningu[eé]m)\s+(?:me|nos)\s+(?:pagou|pagaram|${PIX_INCOMING}|${GAVE_TO_ME})\b`, 'iu')
 const OWN_ACCOUNTS = /\bentre\s+(?:as\s+)?(?:(?:minhas|nossas)\s+(?:duas\s+)?contas|contas\s+pr[óo]prias)\b|\b(?:da|de)\s+(?:minha|nossa)\s+conta\b[^.;!?]{0,55}\b(?:para|pra)\s+(?:a\s+)?(?:minha|nossa)\s+conta\b/i
 const INCOMING_CASH = /^(?:(?:eu|hoje|ontem|anteontem|j[áa]|agora)\s+){0,3}(?:recebi|caiu|entrou|pingou|me\s+(?:pagaram|enviaram|mandaram))\b/i
+const NET_QUALIFIER = String.raw`(?:l[íi]quid[oa]s?|limp[oa]s?)(?![\wÀ-ÿ])`
+const RIDE_SOURCE = String.raw`(?:n[ao]|d[ao]|pel[ao])\s+(uber|99|in\s*drive[r]?)(?![\wÀ-ÿ])`
+const STATED_NET_CASH = new RegExp(String.raw`(?<![\wÀ-ÿ\d.,])(?:r\$\s*)?(?<before>\d+(?:[.,]\d+)*)(?:\s+(?:reais?|contos?))?(?:\s+${RIDE_SOURCE})?\s+${NET_QUALIFIER}|(?<![\wÀ-ÿ])${NET_QUALIFIER}\s+(?:de\s+)?(?:r\$\s*)?(?<after>\d+(?:[.,]\d+)*)`, 'gi')
+const RIDE_AFTER_NET = new RegExp(String.raw`\b${NET_QUALIFIER}\s+${RIDE_SOURCE}`, 'i')
 const LOAN_SOURCE = /\b(?:empr[ée]stimo|dinheiro\s+emprestado)\b/i
 const OWN_CASH_SOURCE = /\bda\s+(?:minha|nossa)\s+(?:outra|pr[óo]pria)\s+conta\b/i
 const RESERVE_SOURCE = /\bda\s+(?:(?:minha|nossa)\s+)?(?:reserva|poupan[çc]a)\b/i
@@ -1604,9 +1608,13 @@ export function analyzeMessage(
     // concluída. O verbo "foi" isolado é ambíguo no perfil motorista.
     const tireIncident = /\b(?:furando|furou|furei)\s+(?:o\s+)?pneu\b/i.test(part.text)
     const tireCost = tireIncident ? parseFirstAmount(part.text) : NaN
-    const actions0: ParsedAction[] = tireIncident && tireCost > 0
+    const readActions: ParsedAction[] = tireIncident && tireCost > 0
       ? [{ kind: 'expense', amount: tireCost, category: 'manutencao', description: 'Pneu' }]
       : reembolso && !direcaoIncerta ? primeiroReembolso ? [reembolso] : [...parsed.actions, reembolso] : parsed.actions
+    const netAmounts = readActions.some(a => a.kind === 'income')
+      ? [...comando.matchAll(STATED_NET_CASH)].map(m => parseMoney(m.groups?.before || m.groups?.after)) : []
+    const actions0 = netAmounts.length ? readActions.map(action =>
+      action.kind === 'income' && netAmounts.includes(action.amount) ? { ...action, reportedNet: true } : action) : readActions
     let ambiguity: AnalyzedClause['ambiguity'] = primeiroReembolso && reembolso ? undefined : parsed.ambiguity
     if (!ambiguity && direcaoIncerta && reembolso) {
       ambiguity = { question: `O reembolso de ${fmtBRL(reembolso.amount)} entrou ou saiu da sua conta?`, options: [] }
@@ -1772,6 +1780,10 @@ export function analyzeMessage(
         const before = incomePositions.length === 1
           ? textoPareamento.match(/^\s*(d[ao]\s+.+?)\s+(?:eu\s+)?(?:recebi|ganhei|caiu|entrou)\b/i)?.[1] : undefined
         next.origin = payerAfterAmount(textoPareamento.slice(at, incomeEnd)) || (before ? explicitSpokenPayer(before) : undefined)
+      }
+      if (a.kind === 'income' && a.reportedNet && !next.origin && !hasRidePlatform) {
+        const platform = incomeText.match(RIDE_AFTER_NET)?.[1]?.toLowerCase()
+        if (platform) next.description = platform === 'uber' ? 'Uber' : platform === '99' ? '99' : 'inDrive'
       }
       // Receita com origem própria ("da Casa 2") não é corrida só porque a
       // frase cita Uber em outra parte. Vale para todo perfil; só o motorista
