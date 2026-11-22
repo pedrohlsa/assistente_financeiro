@@ -2621,19 +2621,54 @@ ${response.reply}`,
   // defeito — ele confirma o que vê e nunca descobre o que faltou.
   //
   // Só assume quando reconhece MAIS coisas que o parser normal já tinha achado.
-  const diaTelegrafico = parseDriverDay(mensagem, { driver: caps.isDriver })
+  const datasDoDia = caps.isDriver ? findAllDates(mensagem, today) : []
+  const diasDitos = new Set(datasDoDia.flatMap(date => date.kind === 'date' ? [date.date] : []))
+  const semDatasDoDia = datasDoDia.reduceRight((text, date) => `${text.slice(0, date.start)} ${text.slice(date.end)}`, mensagem)
+  const asksSummary = semDatasDoDia.match(/^\s*quanto\s+(?:sobra|sobrou|sobraria|fica\s+liquido)\s+(?:de|com)\s+(.+?)[.!?]*\s*$/i)?.[1]
+  const quotedSummary = asksSummary ? parseDriverDay(asksSummary, { driver: caps.isDriver }) : undefined
+  if (quotedSummary) {
+    const received = quotedSummary.actions.reduce((sum, action) => sum + (action.kind === 'income' ? Math.round(action.amount * 100) : 0), 0)
+    const fuel = quotedSummary.actions.find(action => action.kind === 'fuel')?.amount
+    const reply = quotedSummary.unclassifiedAmounts.length || !(fuel > 0)
+      ? 'Para calcular a sobra dessa jornada, confirme quanto recebeu e quais valores foram gastos.'
+      : `Pelos valores informados, você recebeu ${fmtBRL(received / 100)} e gastou ${fmtBRL(fuel)} em combustível. Depois desse gasto, sobraram ${fmtBRL((received - Math.round(fuel * 100)) / 100)}. Nada foi registrado.`
+    return { draft: null, keepPending: true, focus: input.focus, response: {
+      version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply,
+    } }
+  }
+  const openingNegation = semDatasDoDia.match(/^\s*(?:nao|não|nem|nunca)\s*[,;:]?\s*/i)
+  if (openingNegation && parseDriverDay(semDatasDoDia.slice(openingNegation[0].length), { driver: caps.isDriver })) {
+    return { draft: null, keepPending: true, focus: input.focus, response: {
+      version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
+      reply: 'Entendi que esse resumo não aconteceu. Nada foi registrado.',
+    } }
+  }
+  const diaTelegrafico = parseDriverDay(semDatasDoDia, { driver: caps.isDriver })
   if (diaTelegrafico) {
     const jaAchou = turno.blocks.reduce((n, b) => n + b.actions.length, 0)
-    if (diaTelegrafico.actions.length > jaAchou) {
-      const dataDoDia = turno.blocks.find(b => b.clause.date)?.clause.date
+    if (diaTelegrafico.actions.length >= jaAchou) {
+      const dataIncerta = datasDoDia.some(d => d.kind !== 'date') || diasDitos.size > 1
+      const dataDoDia = [...diasDitos][0]
       const cands: AssistantCandidateAction[] = []
-      for (const bruta of diaTelegrafico.actions) {
+      for (const bruta of dataIncerta ? [] : diaTelegrafico.actions) {
         const comData: any = { ...bruta }
         if (dataDoDia && actionSpec(bruta.kind)?.fields.some(f => f.name === 'date')) comData.date = dataDoDia
         const v = validateAction(withLearnedCategory(input.state, comData, today, mensagem), caps, today)
         if (!isValidationFailure(v)) cands.push(candidate(v.action, 'local'))
       }
-      if (cands.length) {
+      const valores = [...new Set(diaTelegrafico.unclassifiedAmounts)].slice(0, 4).map(value => fmtBRL(value)).join(', ')
+      const question = dataIncerta ? 'Em que dia aconteceu essa jornada? Se houve mais de um dia, diga o resumo de cada dia separadamente.'
+        : cands.length !== diaTelegrafico.actions.length ? 'Algum número está fora dos limites do registro. Confira os valores, a quilometragem e a duração da jornada.'
+          : diaTelegrafico.invalidWork ? 'Qual foi a duração ou a quantidade inteira de viagens dessa jornada?'
+            : valores ? `O que aconteceu com ${valores}? Diga se foi receita, taxa ou outro gasto.` : undefined
+      if (question) {
+        return { draft: null, keepPending: !cands.length, focus: input.focus, response: {
+          version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', unresolved: [], actions: cands,
+          reply: [cands.length ? proposalText(cands, input.state) : '', question].filter(Boolean).join('\n\n'),
+          clarification: { question, options: [] },
+        } }
+      }
+      if (cands.length === diaTelegrafico.actions.length) {
         return {
           draft: null,
           focus: input.focus,

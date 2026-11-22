@@ -207,6 +207,40 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   }
 
   {
+    const state = buildState({ profile: 'driver' })
+    const send = (message: string) => orchestrate({ state, today: TODAY, message, remoteEnabled: false })
+    const sample = '430,50 uber 399,25 99 163,90 de gasosa 24,5l 161,8km'
+    const [decimal, clock, named, unknown, future, multiDay, negated, query, invalidTime, fractionalTrips] = await Promise.all([
+      `hj deu ${sample} 8,5h`,
+      'ontem 1.430,50 Uber 399,25 99 163,90 de gás 24,5l 161,8km 8h30 12 viagens',
+      '430 na Uber 399 na 99 líquido, 163 de gasolina, 161km, 8h',
+      '430 uber 399 99 24l de gasolina 163 reais 161km 8h',
+      `amanhã ${sample} 8h30`,
+      'ontem 430 uber e hoje 399 99 163 gasosa 24l 161km 8h',
+      `não ${sample} 8h30`,
+      `quanto sobra de ${sample} 8h30?`,
+      `${sample} 8h99`,
+      `${sample} 8h 7,5 viagens`,
+    ].map(send))
+    const amounts = (a: Awaited<ReturnType<typeof send>>) => a.response.actions.map(({ action }) => action)
+    const resultState = applyBatchPure(state, clock.response.actions, { now: { date: TODAY, time: '12:00' } }).state
+    const all = [decimal, clock, named, unknown, future, multiDay, negated, query, invalidTime, fractionalTrips]
+    out.push(result('DT-dia-telegráfico-conserva-centavos-tempo-e-datas', all.map(r => r.response),
+      'centavos, litros e 8h30 permanecem exatos, sem criar receitas a partir de combustível, horas ou perguntas',
+      amounts(decimal).some(a => a.kind === 'income' && a.description === 'Uber' && a.amount === 430.5)
+      && amounts(decimal).some(a => a.kind === 'fuel' && a.liters === 24.5 && a.amount === 163.9)
+      && amounts(decimal).some(a => a.kind === 'work' && a.km === 161.8 && a.hours === 8.5 && a.trips === undefined)
+      && resultState.transactions.length === 3 && resultState.transactions.some(t => t.type === 'income' && t.amount === 1430.5 && t.date === '2026-09-14')
+      && resultState.workSessions.some(w => w.date === '2026-09-14' && w.hours === 8.5 && w.trips === 12)
+      && amounts(named).filter(a => a.kind === 'income').length === 2
+      && amounts(named).some(a => a.kind === 'income' && a.amount === 399 && a.description === '99' && a.reportedNet)
+      && unknown.response.mode === 'clarify' && /R\$\s*163,00/.test(unknown.response.clarification.question)
+      && [future, multiDay, negated, query].every(r => !r.response.actions.length) && /665,85/.test(query.response.reply)
+      && invalidTime.response.mode === 'clarify' && !amounts(invalidTime).some(a => a.kind === 'work' && a.hours !== undefined)
+      && fractionalTrips.response.mode === 'clarify' && !amounts(fractionalTrips).some(a => a.kind === 'work' && a.trips !== undefined)))
+  }
+
+  {
     const exact = splitInstallmentAmounts(2.26, 2)
     const uneven = splitInstallmentAmounts(1000, 3)
     out.push(result('GC-parcelas-calculadas-em-centavos-inteiros', { exact, uneven },

@@ -2152,7 +2152,7 @@ export function describeAction(a: ParsedAction, categoryName?: (id: string) => s
       }
       return `Trabalho: ${parts.join(', ')}`
     }
-    case 'fuel': return `Abastecimento${a.amount ? ` de ${fmtBRL(a.amount)}` : ''}${a.liters ? ` (${a.liters} L)` : ''}${a.odometer ? ` · hodômetro ${a.odometer.toLocaleString('pt-BR')} km` : ''}`
+    case 'fuel': return `Abastecimento${a.amount ? ` de ${fmtBRL(a.amount)}` : ''}${a.liters ? ` (${fmtNum(a.liters)} L)` : ''}${a.odometer ? ` · hodômetro ${a.odometer.toLocaleString('pt-BR')} km` : ''}`
     case 'odometer': return `Hodômetro atual: ${a.value.toLocaleString('pt-BR')} km`
     // O intervalo aparece na proposta porque é ele que faz o lembrete de troca
     // existir — confirmar sem ver isso esconde metade do que foi entendido.
