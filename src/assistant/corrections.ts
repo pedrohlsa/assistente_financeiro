@@ -412,6 +412,23 @@ export function parseCorrection(
   caps: AssistantCapabilities,
   today = todayISO(),
 ): CorrectionPlan | null {
+  const plan = parseCorrectionWithMarker(message, pending, caps, today)
+  if (!plan) return plan
+  // O marcador da 99 só serve para ACHAR o item; nunca vira valor gravado
+  // nem texto ("Troquei para Appzz").
+  // Plataforma com a grafia de sempre: "era indrive" gravava "Indrive".
+  const volta = (v: any) => typeof v === 'string'
+    ? v.replace(new RegExp(APP_99, 'gi'), '99').replace(/\bin\s*driver?\b/gi, 'inDrive').replace(/^uber$/i, 'Uber') : v
+  return { ...plan, edits: plan.edits.map(e => ({ ...e, value: volta(e.value) })), summary: plan.summary.map(volta),
+    ...(plan.independentStatement ? { independentStatement: volta(plan.independentStatement) } : {}) }
+}
+
+function parseCorrectionWithMarker(
+  message: string,
+  pending: AssistantCandidateAction[],
+  caps: AssistantCapabilities,
+  today = todayISO(),
+): CorrectionPlan | null {
   if (!pending.length) return null
   if (pending.some(p => ['description', 'origin'].some(k => normalizeName((p.action as any)[k] || '') === '99'))) {
     message = message.replace(/(^|\b(?:d|n)?[ao]s?\s+)99(?![\d.,]|\s*(?:reais|real|contos?|pila)\b)/gi, `$1${APP_99}`)
@@ -448,7 +465,9 @@ export function parseCorrection(
   const withdrawn = withdrawDeniedProposal(norm, pending, today, plan)
   if (withdrawn) return withdrawn
   if (/^\s*(?:n[ãa]o|[nñ])\s+(?:foi|era|fui)\b/i.test(t)) return null
-  const repair = norm.match(/^\s*(?:(?:na\s+(?:real|verdade)|ou\s+melhor|quer\s+dizer|ops)[\s,:]+)?(?:foi|era|veio|troca\s+o\s+valor\s+(?:pra|para))\s+(.+)$/i)
+  // "Não, foi na 99": com a vírgula, o "não" recusa a proposta e o resto a
+  // conserta. Sem vírgula ("não foi na 99") continua sendo negação, acima.
+  const repair = norm.match(/^\s*(?:(?:na\s+(?:real|verdade)|ou\s+melhor|quer\s+dizer|ops|n[ãa]o\s*,)[\s,:]+)?(?:foi|era|veio|troca\s+o\s+valor\s+(?:pra|para))\s+(.+)$/i)
   if (repair && !looksLikeQuestion(norm.replace(/\?+$/, ''))) {
     const target = resolveTarget(norm, pending)
     const targets = target && 'id' in target ? pending.filter(p => p.id === target.id) : pending

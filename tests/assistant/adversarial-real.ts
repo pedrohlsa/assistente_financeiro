@@ -10367,6 +10367,25 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && JSON.stringify(resumo(soReceita)) === JSON.stringify(['income:300', 'work://14'])))
   }
 
+  // ---- UN-: trocar a plataforma na proposta e a resposta de conserto vago ----
+  {
+    const vazio = buildState({ profile: 'driver', balance: 500 })
+    const dois = async (primeiro: string, segundo: string) => {
+      const p = await orchestrate({ state: vazio, message: primeiro, today: TODAY, remoteEnabled: false })
+      return orchestrate({ state: vazio, message: segundo, today: TODAY, remoteEnabled: false, pending: p.response.actions })
+    }
+    const [nao99, inDrive, para99, vago] = await Promise.all([
+      dois('fiz 300 na uber', 'nao, foi na 99'), dois('fiz 300', 'era indrive'),
+      dois('fiz 280 na uber, 120 na 99', 'foi na 99'), dois('gastei 40 no lanche', 'foi na conta da manutenção, era oleo'),
+    ])
+    const desc = (r: Awaited<ReturnType<typeof orchestrate>>) => r.response.actions.map(c => (c.action as any).description)
+    out.push(result('UN-plataforma-trocada-na-proposta', [desc(nao99), desc(inDrive), desc(para99), vago.response.reply],
+      '99; inDrive com a grafia certa; o marcador interno nunca aparece; conserto vago não diz que não há proposta',
+      JSON.stringify(desc(nao99)) === '["99"]' && JSON.stringify(desc(inDrive)) === '["inDrive"]'
+      && !desc(para99).some(d => /appzz/i.test(d || '')) && !/appzz/i.test(para99.response.reply)
+      && !/Não tenho nenhuma proposta na tela/.test(vago.response.reply)))
+  }
+
   return out
 }
 

@@ -3445,8 +3445,12 @@ Confirmar?`,
       // CORREÇÃO sem alvo, não negação. "Isso não aconteceu" era falso.
       reply = negadas.every(c => looksNegated(c.text))
         ? 'Entendi que isso não aconteceu — não registrei nada. Se quiser lançar outra coisa, é só me dizer.'
-        : 'Não tenho nenhuma proposta na tela para corrigir, então não mudei nada. '
-          + 'Se for um lançamento já salvo, me diga qual e o que mudar — por exemplo, "o mercado de hoje foi 45 e não 54".'
+        // Com proposta na tela, dizer que não há proposta é falso: o conserto
+        // não foi entendido, e a proposta continua lá.
+        : input.pending?.length
+          ? 'Entendi que tem algo errado na proposta, mas não peguei o quê. Me diga o que mudar ("foi 80", "foi na 99", "a categoria é manutenção") — ou toque em Cancelar se preferir descartar.'
+          : 'Não tenho nenhuma proposta na tela para corrigir, então não mudei nada. '
+            + 'Se for um lançamento já salvo, me diga qual e o que mudar — por exemplo, "o mercado de hoje foi 45 e não 54".'
     } else if (notUnderstood.length && (candidates.length || analysis.clauses.some(c => c.handled))) {
       reply = SAQUE.test(notUnderstood[0].text)
         ? `“${notUnderstood[0].text.trim().replace(/[\s,;]+$/, '')}” é saque: não é ganho nem gasto, então não registrei.`
