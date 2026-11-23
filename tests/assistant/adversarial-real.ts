@@ -10297,6 +10297,21 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && (direto.actions[0] as any)?.fuelType === 'Etanol' && /etanol/.test(corrigida.response.reply)))
   }
 
+  // ---- UJ-: turno dito por partes do dia, virada e dias repetidos -----------
+  {
+    const vazio = buildState({ profile: 'driver', balance: 500 })
+    const [partes, virada, telegrafico, cada] = await Promise.all([
+      'fiz 180 de manhã e 220 a tarde', 'virei a noite, 12 horas, 410 reais', '12 horas, 410 reais', 'ontem e hoje fiz 300 cada',
+    ].map(m => orchestrate({ state: vazio, message: m, today: TODAY, remoteEnabled: false })))
+    const acoes = (r: Awaited<ReturnType<typeof orchestrate>>) => r.response.actions.map(c => c.action as any)
+    out.push(result('UJ-turno-por-partes-e-dias', [partes, virada, telegrafico, cada].map(acoes),
+      '180 e 220; 410 com 12h (duas formas); 300 ontem e 300 hoje sem aviso de repetição',
+      JSON.stringify(acoes(partes).map(a => a.amount)) === '[180,220]'
+      && [virada, telegrafico].every(r => acoes(r).some(a => a.kind === 'income' && a.amount === 410) && acoes(r).some(a => a.kind === 'work' && a.hours === 12))
+      && JSON.stringify(acoes(cada).map(a => a.date)) === JSON.stringify([addDays(TODAY, -1), TODAY])
+      && cada.response.actions.every((c: any) => !c.duplicateWarning)))
+  }
+
   return out
 }
 

@@ -56,7 +56,7 @@ import { findGoalByName, planAssistantActions } from './execute'
 import { askAssistant, listaDeLancamentos, normalizeQuestion, respostaDeCorridasAMais, respostaDeMetaCitada } from '../services/ai'
 import { contaDeclarada, perguntaDeFatura, perguntaNominal } from './cashQuestions'
 import { buildCapabilities } from './capabilities'
-import { describeAction, META_OUTRA, NEXT_RIDE_DISTANCE, SAQUE, totalComDoisPontos } from '../services/nlp'
+import { describeAction, META_OUTRA, NEXT_RIDE_DISTANCE, SAQUE, partesDoDia, totalComDoisPontos } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
 import { catById, guessCategory, usableCategories } from '../data/categories'
 import { addDays, fmtBRL, MESES_PT_BR, nowPaymentTime, nowTime, parseMoney, todayISO, uid } from '../utils/format'
@@ -1699,7 +1699,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (nominal) input = { ...input, message: nominal }
   // "Entrou 500: 300 uber, 200 99": o total com a lista que o soma. Os leitores
   // que rodam antes das cláusulas (dia telegráfico) também precisam da lista.
-  const semTotalDito = input.pendingClarification ? input.message : totalComDoisPontos(input.message)
+  const semTotalDito = input.pendingClarification ? input.message : partesDoDia(totalComDoisPontos(input.message))
   if (semTotalDito !== input.message) input = { ...input, message: semTotalDito }
   const caps = buildCapabilities(input.state)
   const today = input.today || todayISO()
@@ -3263,7 +3263,8 @@ Confirmar?`,
   candidates = candidates.map(c => {
     const a: any = c.action
     const dupState = findPossibleDuplicate(input.state, c.action)
-    const key = `${c.action.kind}:${a.amount ?? a.total ?? ''}:${(a.description || '').toLowerCase()}`
+    // A data entra na chave: "ontem e hoje fiz 300 cada" são dois dias, não repetição.
+    const key = `${c.action.kind}:${a.amount ?? a.total ?? ''}:${(a.description || '').toLowerCase()}:${a.date || today}`
     const n = (batchSeen.get(key) || 0) + 1
     batchSeen.set(key, n)
     let warn: string | undefined

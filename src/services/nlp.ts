@@ -483,6 +483,17 @@ export function totalComDoisPontos(text: string): string {
   return `${m[1]}${resto}`
 }
 
+/**
+ * Partes do dia e dias repetidos ditos em paralelo: "fiz 180 de manhã e 220 à
+ * tarde" (os 220 viravam "o que aconteceu com esse valor?") e "ontem e hoje
+ * fiz 300 cada" (só um dia entrava). Viram as formas que o parser já lê.
+ */
+export function partesDoDia(text: string): string {
+  return text
+    .replace(/(\d)\s+(?:de|pela|na)\s+(manh[ãa]|tarde|noite|madrugada)\s+e\s+(?:mais\s+)?((?:r\$\s*)?\d)/gi, '$1 de $2 e mais $3')
+    .replace(/^(\s*)(ontem|anteontem)\s+e\s+hoje\s+(fiz|ganhei|tirei|faturei|recebi)\s+((?:r\$\s*)?\d+(?:[.,]\d+)?)\s*(?:reais\s+)?cada\b/i, '$1$3 $4 $2 e $4 hoje')
+}
+
 export function tanqueCheio(text: string): string {
   return text.replace(/(?<![\wÀ-ÿ])(?:enchi|completei)\s+o\s+tanque\s*[,:]?\s*(?:com\s+|de\s+|por\s+|foi\s+|deu\s+)?(?=(?:r\$\s*)?\d)/gi, 'abasteci ')
 }
@@ -637,7 +648,7 @@ export function isAmbiguousGas(text: string): boolean {
 
 /** Verbo de gasto explícito. Onde ele aparece, a leitura é gasto e ponto. */
 const STRONG_EXPENSE_VERB = /\b(?:gastei|paguei|comprei|torrei|coloquei|botei|abasteci|enchi|parcelei|passei|guardei|separei|dei|comi|tomei|bebi)\b/i
-const DAY_WORD = /\b(?:hoje|hj|ontem|anteontem|o\s+dia|no\s+dia|dia|na\s+rua|de\s+rua|no\s+corre|na\s+ativa|na\s+labuta|no\s+trampo|rodando|at[eé]\s+agora|at[eé]\s+o\s+momento|por\s+enquanto)(?![\wÀ-ÿ])/i
+const DAY_WORD = /\b(?:hoje|hj|ontem|anteontem|o\s+dia|no\s+dia|dia|na\s+rua|de\s+rua|no\s+corre|na\s+ativa|na\s+labuta|no\s+trampo|rodando|at[eé]\s+agora|at[eé]\s+o\s+momento|por\s+enquanto|virei\s+a\s+noite|turno|plant[aã]o|\d+\s*(?:horas?|hrs?)\s*,)(?![\wÀ-ÿ])/i
 const DAY_RESULT_VERB = /\b(?:deu|deram|fez|fiz|foi|fechei|fechou|tirei|tirou|rendeu|rendi|saiu|bati|consegui|entrou)\b/i
 const DAY_QUALIFIER = /\b(?:fraco|fraca|fraquinho|bom|boa|[óo]tim[oa]|ruim|puxad[oa]|parad[oa]|movimentad[oa]|tranquil[oa]|l[íi]quido|limpo|s[óo]|apenas|somente)\b/i
 const MONEY_MARK = /r\$|\breais\b|\bconto?s?\b|\bpila\b|\bmang[oa]s?\b/i
