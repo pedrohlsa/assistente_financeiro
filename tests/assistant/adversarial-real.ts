@@ -9892,6 +9892,47 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && liquido?.kind === 'income' && liquido.amount === 220 && liquido.description === 'Uber' && liquido.category === 'corridas'))
   }
 
+  // ---- TV-: o turno contado como se fala, do bom dia ao encerramento -------
+  {
+    const s = buildState({ profile: 'driver', balance: 500 })
+    const ler = (m: string) => turnoHoje(s, m)
+    const trabalho = (r: { actions: unknown[] }) => r.actions.find((a: any) => a.kind === 'work') as any
+    // "Bom dia" tem "bom" e "dia": o hodômetro virava R$ 45.000 de faturamento.
+    const [bomDia, encerrei] = await Promise.all(['bom dia, comecei agora, painel 45000', 'encerrei, painel 45210, 9h rodando'].map(ler))
+    out.push(result('TV-saudacao-e-painel-nao-sao-dinheiro', [bomDia.actions, encerrei.actions], 'só hodômetro (e a jornada no fim)',
+      bomDia.actions.length === 1 && (bomDia.actions[0] as any).kind === 'odometer' && (bomDia.actions[0] as any).value === 45000
+      && encerrei.actions.length === 2 && (encerrei.actions[0] as any).value === 45210 && trabalho(encerrei)?.hours === 9
+      && ![bomDia, encerrei].some(r => r.actions.some((a: any) => a.kind === 'income' || a.kind === 'expense'))))
+    // A distância dita no relato telegráfico sumia: "190km" ficava de fora.
+    const telegraficos = await Promise.all([
+      'hj 190km 10h 22 corridas', 'rodei 10h, 190km', '10 horas e 190 km', '190km e 10h',
+      'fechei o dia com 280 liquido em 10 horas e 190 km', 'hj rodei 10h, 190km, 22 corridas, faturei 410',
+    ].map(ler))
+    out.push(result('TV-relato-telegrafico-guarda-km-e-horas', telegraficos.map(r => r.actions), '190 km e 10 h em todos',
+      telegraficos.every(r => trabalho(r)?.km === 190 && trabalho(r)?.hours === 10)
+      && trabalho(telegraficos[0])?.trips === 22 && (telegraficos[5].actions.find((a: any) => a.kind === 'income') as any)?.amount === 410))
+    // Clock e hodômetro não viram jornada nem distância.
+    const [relogio, odo, consumo] = await Promise.all(['comecei as 10h, rodei 150km', 'estou com 45000 km, rodei 8h', 'meu carro faz 12 km por litro, rodei 8h'].map(ler))
+    out.push(result('TV-hora-de-relogio-e-hodometro-ficam-fora', [relogio.actions, odo.actions, consumo.actions], '150 km sem 10h; 8h sem km',
+      trabalho(relogio)?.km === 150 && !trabalho(relogio)?.hours && trabalho(odo)?.hours === 8 && !trabalho(odo)?.km
+      && trabalho(consumo)?.hours === 8 && !trabalho(consumo)?.km))
+    // "Até agora" é o resultado parcial do dia.
+    const parcial = await ler('fiz 3 corridas ate agora, 62 reais')
+    out.push(result('TV-ate-agora-e-resultado-parcial', parcial.actions, 'R$ 62 de corridas e 3 viagens',
+      (parcial.actions.find((a: any) => a.kind === 'income') as any)?.amount === 62 && trabalho(parcial)?.trips === 3))
+    // O assunto dito antes do verbo é do gasto único da mensagem.
+    const [almoco, mercado, dois] = await Promise.all(['parei pra almoçar, gastei 25', 'fui no mercado e gastei 80', 'fui no mercado, gastei 80 e 30 no posto'].map(ler))
+    out.push(result('TV-assunto-antes-do-verbo', [almoco.actions, mercado.actions, dois.actions], 'Alimentação nos dois primeiros; com dois gastos, não escolhe',
+      (almoco.actions[0] as any)?.category === 'alimentacao' && (mercado.actions[0] as any)?.category === 'alimentacao'
+      && (dois.actions[0] as any)?.category === 'outros-out'))
+    // O valor do combustível não vira também corrida; valor repetido no texto continua valendo duas vezes.
+    const [semKm, doisCinquenta] = await Promise.all(['430 na Uber 399 na 99 líquido, 163 de gasolina', 'recebi 50 e gastei 50 no mercado'].map(ler))
+    out.push(result('TV-valor-do-gasto-nao-vira-corrida', [semKm.actions, doisCinquenta.actions], 'sem receita de R$ 163; R$ 50 dos dois lados',
+      !semKm.actions.some((a: any) => a.kind === 'income' && a.amount === 163) && semKm.actions.some((a: any) => a.kind === 'fuel' && a.amount === 163)
+      && doisCinquenta.actions.some((a: any) => a.kind === 'income' && a.amount === 50)
+      && doisCinquenta.actions.some((a: any) => a.kind === 'expense' && a.amount === 50)))
+  }
+
   return out
 }
 

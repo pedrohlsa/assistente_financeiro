@@ -56,7 +56,7 @@ import { contaDeclarada, perguntaDeFatura, perguntaNominal } from './cashQuestio
 import { buildCapabilities } from './capabilities'
 import { describeAction, META_OUTRA, NEXT_RIDE_DISTANCE, SAQUE } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
-import { catById, usableCategories } from '../data/categories'
+import { catById, guessCategory, usableCategories } from '../data/categories'
 import { addDays, fmtBRL, MESES_PT_BR, nowPaymentTime, nowTime, parseMoney, todayISO, uid } from '../utils/format'
 import { matchRecurringPayment, occurrencesBetween, possibleRecurringTransactions, recurringActiveOn, recurringLinkAction } from '../services/calc'
 import { normalizeName, sentenceCase } from '../utils/text'
@@ -615,6 +615,15 @@ function runLocal(
       // o usuário só descobre depois de confirmar.
       const withDefaults: any = { ...res.action }
       if (withDefaults.kind === 'income' && !withDefaults.category) withDefaults.category = defaultIncomeCategory(input.state.settings)
+      // "Fui no mercado E gastei 80", "parei pra almoçar, gastei 25": o assunto
+      // ficou na cláusula anterior, sem valor. Com um único lançamento de
+      // dinheiro na mensagem, ele é desse gasto — com dois, poderia ser de
+      // qualquer um, e o app não escolhe.
+      if (withDefaults.kind === 'expense' && !withDefaults.category && !withDefaults.description
+        && analysis.actions.filter(a => a.kind === 'expense' || a.kind === 'income' || a.kind === 'fuel').length === 1) {
+        const assunto = guessCategory(input.message, 'expense')
+        if (assunto && assunto !== 'outros-out' && caps.categories.some(c => c.id === assunto && c.type === 'expense')) withDefaults.category = assunto
+      }
       if (withDefaults.kind === 'expense' && !withDefaults.category) withDefaults.category = 'outros-out'
       if (clause.dateAmbiguity) {
         const held = waitingForDate.get(clause) || []

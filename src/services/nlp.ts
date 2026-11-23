@@ -520,11 +520,9 @@ export function parseNatural(input: string): ParsedAction[] {
     if (typeof v === 'number' && v > 0) porValor.set(v, (porValor.get(v) || 0) + 1)
   }
   const ocorrencias = new Map<number, number>()
-  if (copias.length) {
-    for (const match of input.matchAll(/(?<![\d.,-])\d+(?:[.,]\d+)*(?!\d|[.,]\d)/g)) {
-      const valor = parseNum(match[0])
-      ocorrencias.set(valor, (ocorrencias.get(valor) || 0) + 1)
-    }
+  for (const match of input.matchAll(/(?<![\d.,-])\d+(?:[.,]\d+)*(?!\d|[.,]\d)/g)) {
+    const valor = parseNum(match[0])
+    ocorrencias.set(valor, (ocorrencias.get(valor) || 0) + 1)
   }
   const voltam = new Set<ParsedAction>()
   for (const a of copias) {
@@ -533,7 +531,20 @@ export function parseNatural(input: string): ParsedAction[] {
     const n = porValor.get(v) || 0
     if (n < (ocorrencias.get(v) || 1)) { voltam.add(a); porValor.set(v, n + 1) }
   }
-  return actions.filter(a => unicas.includes(a) || voltam.has(a))
+  const lidas = actions.filter(a => unicas.includes(a) || voltam.has(a))
+  // O mesmo número lido como gasto E como receita genérica: "430 na Uber 399
+  // na 99, 163 de gasolina" tinha os R$ 163 do combustível também como
+  // corrida. Com mais ações do que ocorrências do valor, sai a receita SEM
+  // descrição — a outra leitura diz o que o dinheiro foi.
+  const saem = new Set<ParsedAction>()
+  for (const a of lidas) {
+    const v = (a as any).amount
+    if (a.kind !== 'income' || (a as any).description || (a as any).origin || !(typeof v === 'number' && v > 0)) continue
+    const outraLeitura = lidas.some(b => b !== a && (b.kind === 'fuel' || b.kind === 'expense') && (b as any).amount === v)
+    const comValor = lidas.filter(b => !saem.has(b) && (b as any).amount === v).length
+    if (outraLeitura && comValor > (ocorrencias.get(v) || 0)) saem.add(a)
+  }
+  return lidas.filter(a => !saem.has(a))
 }
 
 // ---------- AMBIGUIDADE DO "GÁS" (item 26) ----------
@@ -572,7 +583,7 @@ export function isAmbiguousGas(text: string): boolean {
 
 /** Verbo de gasto explícito. Onde ele aparece, a leitura é gasto e ponto. */
 const STRONG_EXPENSE_VERB = /\b(?:gastei|paguei|comprei|torrei|coloquei|botei|abasteci|enchi|parcelei|passei|guardei|separei|dei|comi|tomei|bebi)\b/i
-const DAY_WORD = /\b(?:hoje|hj|ontem|anteontem|o\s+dia|no\s+dia|dia|na\s+rua|de\s+rua|no\s+corre|na\s+ativa|na\s+labuta|no\s+trampo|rodando)\b/i
+const DAY_WORD = /\b(?:hoje|hj|ontem|anteontem|o\s+dia|no\s+dia|dia|na\s+rua|de\s+rua|no\s+corre|na\s+ativa|na\s+labuta|no\s+trampo|rodando|at[eé]\s+agora|at[eé]\s+o\s+momento|por\s+enquanto)(?![\wÀ-ÿ])/i
 const DAY_RESULT_VERB = /\b(?:deu|deram|fez|fiz|foi|fechei|fechou|tirei|tirou|rendeu|rendi|saiu|bati|consegui|entrou)\b/i
 const DAY_QUALIFIER = /\b(?:fraco|fraca|fraquinho|bom|boa|[óo]tim[oa]|ruim|puxad[oa]|parad[oa]|movimentad[oa]|tranquil[oa]|l[íi]quido|limpo|s[óo]|apenas|somente)\b/i
 const MONEY_MARK = /r\$|\breais\b|\bconto?s?\b|\bpila\b|\bmang[oa]s?\b/i
@@ -633,7 +644,9 @@ interface DayResult {
 }
 
 function driverDayResult(input: string, actions: ParsedAction[], dayHint?: boolean): DayResult | null {
-  const t = input.toLowerCase()
+  // "Bom dia, painel 45000": a saudação tem "bom" e "dia", e o hodômetro virava
+  // R$ 45.000,00 de faturamento.
+  const t = input.toLowerCase().replace(/^\s*(?:bom\s+dia|boa\s+tarde|boa\s+noite)(?![\wÀ-ÿ])[\s,.!]*/, '')
   if (STRONG_EXPENSE_VERB.test(t)) return null
   // "Quanto falta pra eu TIRAR 300 hoje?" é meta perguntada, não resultado dito.
   if (/^\s*(?:e\s+)?(?:quanto|quantas?|qnto|qto|em\s+quantas|quanto\s+tempo)\b/.test(t)) return null
@@ -657,7 +670,8 @@ function driverDayResult(input: string, actions: ParsedAction[], dayHint?: boole
   if (monetary.length && !weak) return null
 
   const withoutPlatformId = t.replace(/\b(?:n[ao]|d[ao]|pel[ao])\s+99\b/g, ' ')
-  const amount = weak ? weak.amount : moneyValuesIn(withoutPlatformId)[0]
+  const odometros = actions.filter(a => a.kind === 'odometer').map(a => (a as Extract<ParsedAction, { kind: 'odometer' }>).value)
+  const amount = weak ? weak.amount : moneyValuesIn(withoutPlatformId).find(v => !odometros.includes(v))
   if (!(amount > 0)) return null
 
   const rest = actions.filter(a => a !== weak)
@@ -1229,6 +1243,8 @@ function matchCardName(text: string, compra = false): string | undefined {
 }
 
 const WORK_KM = String.raw`(km|quil[oô]metros?|m|metros?)\b`
+/** Frase que relata o turno: só nela um "190km" solto é distância trabalhada. */
+const TURNO_DITO = /\b(?:rodei|rodando|trabalhei|corridas|viagens|horas?|turno|hj|hoje|fechei|faturei|encerrei)\b|\d\s*h\b/i
 export const DISTANCE_ON_FOOT = new RegExp(String.raw`^\s*(?:(?:eu|hoje|ontem|anteontem)\s+){0,2}(?:andei|caminhei|percorri)\s+${NUM}\s*${WORK_KM}\s+[aà]\s+p[eé](?![\p{L}\p{M}])`, 'iu')
 const ACTUAL_RIDE = String.raw`\b(?:fiz|completei|realizei|terminei)\s+(?:(?:uma|a)\s+)?corrida\b`
 const DISTANCE_ON_RIDE = new RegExp(String.raw`${ACTUAL_RIDE}[^;!?]*?\b(?:com|em|de)\s+${NUM}\s*${WORK_KM}`, 'i')
@@ -1516,7 +1532,7 @@ function parseClause(input: string): ParsedAction[] {
     // com 2 problemas" não é quilometragem.
     // "O PAINEL marca 45320", "odômetro mostrando 45.320": o mostrador é o
     // hodômetro, e o número virava R$ 45.320,00 sem ação.
-    String.raw`(?:(?:carro|ve[ií]culo|moto)\s+(?:t[aá]|est[aá])\s+(?:com|marcando|em|rodado)|(?:painel|od[oô]metro|marcador)(?:\s+(?:(?:t[aá]|est[aá])\s+)?(?:com|marca(?:ndo)?|mostra(?:ndo)?|em|no))?\s*:?)\s*(?:${NUM}\s*(?:mil\s*(?:km|quil[oô]metros?)?|km|quil[oô]metros?)|(\d{1,3}(?:\.\d{3})+|\d{4,}))(?![\wÀ-ÿ\d.,])`,
+    String.raw`(?:(?:carro|ve[ií]culo|moto)\s+(?:t[aá]|est[aá])\s+(?:com|marcando|em|rodado)|(?:painel|od[oô]metro|marcador)(?:\s+(?:(?:t[aá]|est[aá])\s+)?(?:com|marca(?:ndo)?|mostra(?:ndo)?|em|no))?\s*:?)\s*(?:${NUM}\s*(?:mil\s*(?:km|quil[oô]metros?)?|km|quil[oô]metros?)|(\d{1,3}(?:\.\d{3})+|\d{4,}))(?![\wÀ-ÿ\d]|[.,]\d)`,
     'i',
   ))
   if (odoM) {
@@ -1918,6 +1934,14 @@ function parseClause(input: string): ParsedAction[] {
     // da outra medida, com a unidade dita.
     || (/\b(?:rodei|andei|dirigi|percorri)\b|\b\d+\s+(?:corridas|viagens)\b/i.test(text)
       ? text.match(new RegExp(String.raw`(?<![\wÀ-ÿ])(?:e|com)\s+${NUM}\s*${WORK_KM}`, 'i')) : null)
+    // Relato telegráfico do turno: "hj 190km 10h 22 corridas", "rodei 10h,
+    // 190km". A unidade dita e o contexto de turno bastam; sem esta leitura a
+    // distância sumia inteira do lançamento. Hodômetro e consumo ficam fora, e
+    // um número de hodômetro (milhares de km) nunca é distância do dia.
+    || (TURNO_DITO.test(text) && !/hod[oô]metro|od[oô]metro|\bpainel\b|\bmarcador\b|\b(?:estou|t[oô]|t[aá]|est[aá])\s+com\s+\d|\bpassageir|\bpaguei\b/i.test(text)
+      && !WORK_RETURN.test(text) && !NAMED_RETURN_DISTANCE.test(text) && !DECLARED_WORK_DISTANCE.test(text)
+      ? (([...text.matchAll(new RegExp(String.raw`(?<![\d.,])${NUM}\s*(km|quil[oô]metros?)(?![\wÀ-ÿ/])(?!\s*(?:por|\/)\s*(?:l|litro)\b)`, 'gi'))]
+        .find(x => parseNum(x[1]) > 0 && parseNum(x[1]) <= 1500)) || null) : null)
   const tripsM = text.match(new RegExp(String.raw`(?:fiz|realizei|completei)?\s*${NUM}\s*(?:viagens|corridas)`, 'i'))
   const hoursM = text.match(new RegExp(String.raw`\b(?:trabalhei|fiquei|rodei(?:\s+por)?)\s*${NUM}\s*(?:horas?|hrs?|h)\b`, 'i'))
     // "Rodei 150 km E 8 HORAS", "fiz 5 corridas E 3 HORAS": a jornada depois.
@@ -1926,8 +1950,12 @@ function parseClause(input: string): ParsedAction[] {
     // reais 9 horas". Sem conector nenhum, as horas se perdiam.
     || (/\b\d+\s+(?:corridas|viagens)\b/i.test(text) ? text.match(new RegExp(String.raw`(?<![\d.,])${NUM}\s*(?:horas|hrs?)\b`, 'i')) : null)
     || text.match(new RegExp(String.raw`${NUM}\s*horas?\s*(?:online|trabalhad)`, 'i'))
+    // "190km 10h", "10 horas e 190 km": com a distância dita, o número com
+    // "h" é a jornada — exceto hora de relógio ("às 10h", "até 22h").
+    || (/\d\s*(?:km|quil[oô]metros?)(?![\wÀ-ÿ])/i.test(text)
+      ? text.match(new RegExp(String.raw`(?<![\d.,])(?<!\b(?:as|às|das|ate|até|pelas|desde|a\s+partir\s+das)\s+)${NUM}\s*(?:horas?|hrs?|h)\b`, 'i')) : null)
     // Jornada como o motorista fala: "8 horas na rua", "10 horas rodando".
-    || text.match(new RegExp(String.raw`${NUM}\s*(?:horas?|hrs?)\s+(?:na\s+rua|de\s+rua|rodando|na\s+ativa|no\s+corre|na\s+labuta|no\s+trampo|trabalhando|de\s+trabalho)`, 'i'))
+    || text.match(new RegExp(String.raw`${NUM}\s*(?:horas?|hrs?|h)\s+(?:na\s+rua|de\s+rua|rodando|na\s+ativa|no\s+corre|na\s+labuta|no\s+trampo|trabalhando|de\s+trabalho)`, 'i'))
     // "rodei 200 km EM 10 HORAS" — a jornada vinha junto da distância e se
     // perdia inteira, porque nenhum dos padrões acima cobre "em N horas".
     || text.match(new RegExp(String.raw`(?:km|quil[oô]metros?|viagens|corridas)\s*(?:em|durante)\s*${NUM}\s*(?:horas?|hrs?|h)\b`, 'i'))
