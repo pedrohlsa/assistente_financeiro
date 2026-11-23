@@ -7272,8 +7272,26 @@ Gates em cada lote: `npm test`, typecheck, typecheck:api, rubrica (0 PERIGOSA, 0
 
 Uma execução da matriz reprovou o fuzz por tempo (327 ms contra o teto de 246 ms numa entrada de 60 dígitos). Repetida sem sondas rodando em paralelo, passou (pior caso de 106 ms). Era carga da máquina: não rodar sondas durante a matriz.
 
+Depois, ainda em 23/11 (`UG-` … `UI-`):
+
+- **Alvo dito contra o ritmo medido.**
+  - "Quantas corridas preciso pra fazer 300", "quantos dias preciso rodar pra juntar 2000" e "quanto preciso rodar pra pagar a parcela de 1200" eram recusadas.
+  - Agora dividem o alvo pelo ritmo dos últimos 30 dias: a sobra, para juntar ou pagar; o faturamento, para fazer ou tirar.
+  - Sem amostra, o app não estima.
+- **Totais de dois dias.** "Quanto rodei ontem e hoje" soma km e viagens, não só dinheiro.
+- **Sugestões da tela.**
+  - Sem lançamentos, "Como está meu mês?" diz isso em vez de "lucro de R$ 0,00 (meta R$ 0,00)".
+  - "Como está minha meta?" não é tratada como sim ou não.
+  - Resultado negativo no resumo é déficit.
+- **Tipo de combustível.**
+  - O abastecimento ganhou o campo opcional `fuelType`.
+  - "Não, foi etanol" com a proposta na tela anota o tipo, e "abasteci 100 de etanol" já nasce com ele. Gasolina é o padrão e não é anotada.
+  - O registro guarda o tipo, e o preço do litro passa a dizer de qual combustível é.
+  - O caso `CR-tipo-de-combustivel` foi atualizado: antes exigia a explicação de que o tipo não era guardado.
+  - Como o catálogo de ações mudou, o prompt remoto só recebe o campo depois de um redeploy autorizado.
+
 Ainda abertos:
 
-- tipo de combustível nas correções ("não, foi etanol"), que exigiria mudar o contrato do abastecimento;
 - categoria para aluguel ou diária do carro de app;
-- "1000 de cada casa".
+- "1000 de cada casa";
+- correção pelo chat de horas de trabalho já salvas.
