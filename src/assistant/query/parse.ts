@@ -693,7 +693,9 @@ function categoriasCitadas(
     for (const nome of candidatos) {
       const n = normalizeName(nome)
       if (n.length < 4 || /\s/.test(n) && n.length < 6) continue
-      const m = new RegExp(`(^|\\s)(${escapaRegex(n)})(?=\\s|$)`).exec(t)
+      // O "aluguel" dentro de "aluguel do carro" não cita a categoria Casa.
+      const vehicleRental = c.id === 'casa' && n === 'aluguel' ? String.raw`(?!\s+d[aeo]\s+(?:carro|moto|veiculo)\b)` : ''
+      const m = new RegExp(`(^|\\s)(${escapaRegex(n)})${vehicleRental}(?=\\s|$)`).exec(t)
       if (m && (!melhor || m.index < melhor.at)) melhor = { matched: m[2], at: m.index + m[1].length }
     }
     if (melhor) achadas.push({ id: c.id, ...melhor })

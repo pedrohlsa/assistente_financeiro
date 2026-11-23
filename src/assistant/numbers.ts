@@ -162,8 +162,11 @@ export function findNumberWords(text: string): NumberWordMatch[] {
     if (!isNumberWord(tokens[i].w)) { i++; continue }
     let j = i
     const seq: string[] = []
+    const platform = /\b(?:na|no|da|do|pela|pelo|via|app)\s*$/i.test(text.slice(Math.max(0, tokens[i].start - 12), tokens[i].start))
+      && /^noventa\s+e\s+nove\s+e\s+/i.test(text.slice(tokens[i].start))
+    const limit = platform ? Math.min(i + 3, tokens.length) : tokens.length
     // Consome palavras numéricas e os conectores "e"/"de" entre elas.
-    while (j < tokens.length) {
+    while (j < limit) {
       const t = tokens[j]
       if (isNumberWord(t.w)) { seq.push(t.w); j++; continue }
       if (FILLER.has(strip(t.w)) && j + 1 < tokens.length && isNumberWord(tokens[j + 1].w)) {

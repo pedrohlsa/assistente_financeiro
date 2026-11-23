@@ -10414,6 +10414,320 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && [inicio, fim, invalido, noite, outro].every(r => !r.actions.length) && !motor.workSessions.length))
   }
 
+  // Mesmo estado de conversa mantido pelo Chat, sem acionar o botão de confirmação.
+  {
+    const hoje = todayISO()
+    const ontem = addDays(hoje, -1)
+    const anteontem = addDays(hoje, -2)
+    for (const [fixture, state] of [['vazio', buildState({ profile: 'driver' })], ['rico', motoristaRico(hoje)]] as const) {
+      state.settings.fuelPricePerLiter = 6
+      state.settings.kmPerLiter = 12
+      const snapshot = JSON.stringify(state)
+      const chat = () => {
+        type Input = Parameters<typeof orchestrate>[0]
+        let context: Pick<Input, 'pending' | 'pendingClarification' | 'draft' | 'focus'> = {}
+        return async (message: string) => {
+          const output = await orchestrate({ state, today: hoje, message, remoteEnabled: false, ...context })
+          const response = output.response
+          context = {
+            pending: response.actions.length ? response.actions.map(({ id, action, engine, confidence }) => ({ id, action, engine, confidence }))
+              : output.keepPending && !output.correctedPending ? context.pending : undefined,
+            pendingClarification: response.mode === 'clarify' ? response.clarification : undefined,
+            draft: output.draft || undefined,
+            focus: output.focus || context.focus,
+          }
+          const candidates: Parameters<typeof orchestrate>[0]['pending'] = response.actions
+          return { ...output, candidates, actions: candidates.map(c => c.action), reply: response.reply, mode: response.mode }
+        }
+      }
+      for (const [phrase, amount, cost, hours, date] of [
+        ['Fechei 8 horas no volante, com 320 de corrida e 90 de combustível.', 320, 90, 8, undefined],
+        ['Anteontem fechei oito horas e meia no volante com trezentos e vinte reais e cinquenta centavos de corridas e noventa reais e vinte e cinco centavos de gasolina.', 320.50, 90.25, 8.5, anteontem],
+        ['fechei 8h no volante com 320,50 de corridas e 90,25 de combustível ontem', 320.50, 90.25, 8, ontem],
+        ['ontem trabalhei 8 horas e ganhei R$ 320,50 de corridas e 90,25 de combustível', 320.50, 90.25, 8, ontem],
+      ] as const) {
+        const r = await chat()(phrase)
+        out.push(result(`MOTOR-fechamento-${fixture}-${phrase.slice(0, 33)}`, r.actions, { amount, cost, hours, date },
+          r.mode === 'propose_actions' && r.actions.length === 3 && /Confirmar\?/.test(r.reply)
+          && r.actions.some(a => a.kind === 'income' && a.amount === amount && a.category === 'corridas' && a.date === date)
+          && r.actions.some(a => a.kind === 'fuel' && a.amount === cost && a.date === date)
+          && r.actions.some(a => a.kind === 'work' && a.hours === hours && a.date === date && a.trips === undefined)))
+      }
+
+      const pendingPayout = chat()
+      const first = await pendingPayout('Deu 800 de corridas e 150 de gasolina, mas 300 ainda não caiu na conta.')
+      const unsure = await pendingPayout('não sei')
+      const differentTotal = await pendingPayout('já está nos 900')
+      const included = await pendingPayout('já está nos 800')
+      const direct = await pendingPayout('confirmar')
+      const otherPayout = chat()
+      const other = await otherPayout('ontem deu oitocentos reais e cinquenta centavos de corrida na noventa e nove e cento e cinquenta de gasolina mas trezentos reais ainda não entraram')
+      const excluded = await otherPayout('é por fora')
+      const explicit = await chat()('dos 800 de corridas, 300 ainda não caiu na conta e gastei 150 em gasolina')
+      const received = await chat()('recebi 800 de corrida e 300 ainda estão para cair e gastei 150 de gasolina')
+      const payout = (r: Awaited<ReturnType<ReturnType<typeof chat>>>, amount: number, date?: string, platform?: string) =>
+        r.mode === 'propose_actions' && r.actions.length === 2 && /Confirmar\?/.test(r.reply)
+        && r.actions.some(a => a.kind === 'income' && a.amount === amount && a.date === date && a.description === platform)
+        && r.actions.some(a => a.kind === 'fuel' && a.amount === 150 && a.date === date)
+      out.push(result(`MOTOR-repasse-parcial-${fixture}`, [first, unsure, included, direct, other, excluded, explicit, received, differentTotal].map(r => [r.mode, r.actions, r.reply]),
+        'pergunta se 300 está incluído nos 800, retém só o gasto, propõe apenas a parte recebida e exige o botão',
+        [first, other].every(r => r.mode === 'clarify' && /300,00[\s\S]+(?:inclu|dentro|parte)[\s\S]+800,/.test(r.reply)
+          && r.actions.length === 1 && r.actions[0].kind === 'fuel' && r.actions[0].amount === 150)
+        && [unsure, differentTotal].every(r => r.mode === 'clarify' && r.actions.length === 0 && /300,00/.test(r.reply))
+        && payout(included, 500) && payout(excluded, 800.50, ontem, '99')
+        && payout(explicit, 500) && payout(received, 800)
+        && direct.actions.length === 0 && /botão/.test(direct.reply)))
+
+      for (const [amountPhrase, workPhrase, removePhrase, correctedAmount] of [
+        ['a da 99 foi 150', 'foram 180 km', 'tira a 99', 150],
+        ['a da noventa e nove foi cento e cinquenta reais e cinquenta centavos', 'foram cento e oitenta quilômetros', 'tira a noventa e nove', 150.50],
+      ] as const) {
+        const turn = chat()
+        const start = await turn('ontem fiz 280 na uber, 120 na 99, abasteci 80 e trabalhei 8 horas rodando 160 km')
+        const amount = await turn(amountPhrase)
+        const work = await turn(workPhrase)
+        const removed = await turn(removePhrase)
+        const acted = await turn('confirmar')
+        const withChanges = (app99?: number, km = 160) => start.candidates.flatMap(c => {
+          const a = c.action
+          if (a.kind === 'income' && a.description === '99') return app99 === undefined ? [] : [{ ...c, action: { ...a, amount: app99 } }]
+          return [{ ...c, action: a.kind === 'work' ? { ...a, km } : a }]
+        })
+        const sameItems = (actual: typeof start, expected: typeof start.candidates) =>
+          actual.mode === 'propose_actions' && JSON.stringify(actual.candidates.map(({ id, action }) => ({ id, action })))
+          === JSON.stringify(expected.map(({ id, action }) => ({ id, action })))
+        out.push(result(`MOTOR-correcao-${fixture}-${correctedAmount}`, [start, amount, work, removed, acted].map(r => [r.actions, r.reply]),
+          'mesmos itens e datas, mudando apenas o valor da 99, depois km, depois retirando a 99',
+          start.actions.length === 4 && start.actions.every(a => 'date' in a && a.date === ontem)
+          && start.actions.some(a => a.kind === 'income' && a.description === 'Uber' && a.amount === 280)
+          && start.actions.some(a => a.kind === 'income' && a.description === '99' && a.amount === 120)
+          && start.actions.some(a => a.kind === 'fuel' && a.amount === 80)
+          && start.actions.some(a => a.kind === 'work' && a.hours === 8 && a.km === 160)
+          && sameItems(amount, withChanges(correctedAmount)) && sameItems(work, withChanges(correctedAmount, 180))
+          && sameItems(removed, withChanges(undefined, 180)) && !acted.actions.length && /botão/.test(acted.reply)))
+      }
+
+      const compare = await chat()('corrida de 40 reais, 2 km até o passageiro, 8 km de viagem, 5 km de volta vazia e 20 minutos de viagem ou corrida de 36 reais, 12 km no total e 25 minutos no total, qual paga mais por hora?')
+      const compareFull = await chat()('corrida de quarenta reais e cinquenta centavos, dois km até o passageiro, oito km de viagem, cinco km de volta vazia e trinta minutos no total ou corrida de trinta e seis reais, doze km no total e vinte e cinco minutos no total, qual tem mais lucro total?')
+      const onlyOutboundTime = await chat()('corrida de 30 por 10 km no total, 12 min de ida ou corrida de 50 por 20 km no total e 32 min no total, qual paga mais por hora?')
+      out.push(result(`MOTOR-ofertas-${fixture}`, [compare, compareFull, onlyOutboundTime].map(r => [r.actions, r.reply]),
+        'soma embarque e retorno; só calcula taxa com tempo suficiente; respeita a pergunta sobre lucro total',
+        [compare, compareFull, onlyOutboundTime].every(r => r.mode === 'answer' && !r.actions.length)
+        && /^Para comparar por hora/.test(compare.reply) && /15 km com 5 km de retorno/.test(compare.reply)
+        && compare.reply.includes(fmtBRL(40 - 15 * kmCost(state).total))
+        && !/20 min|Primeira[^\n]+\/h[.\s]/.test(compare.reply)
+        && compare.reply.includes(fmtBRL((36 - 12 * kmCost(state).total) * 60 / 25) + '/h')
+        && /^A primeira tem maior lucro estimado/.test(compareFull.reply) && /40,50/.test(compareFull.reply)
+        && compareFull.reply.includes(fmtBRL(40.5 - 15 * kmCost(state).total))
+        && /^Para comparar por hora/.test(onlyOutboundTime.reply) && !/12 min|Primeira[^\n]+\/h[.\s]/.test(onlyOutboundTime.reply)))
+
+      for (const [phrase, missing] of [
+        ['quanto ganhei por hora na Uber ontem?', /horas/],
+        ['quanto ganhei por km na 99 ontem?', /quilômetros/],
+        ['quanto a Uber e a 99 renderam por corrida?', /viagens/],
+        ['qual plataforma rende mais por hora?', /horas/],
+        ['qual app paga mais por quilômetro?', /quilômetros/],
+        ['ganho por hora da Uber e da 99', /horas/],
+      ] as const) {
+        const r = await chat()(phrase)
+        out.push(result(`MOTOR-granularidade-${fixture}-${phrase}`, r.reply, 'pede a medida por app, sem taxa nem lançamento',
+          r.mode === 'answer' && !r.actions.length && missing.test(r.reply) && /por dia|dia inteiro/.test(r.reply)
+          && /por plataforma/.test(r.reply) && !/R\$\s*\d/.test(r.reply)))
+      }
+
+      const sameApps = chat()
+      const twoDays = await sameApps('ontem fiz 110 na 99 e hoje fiz 120 na 99')
+      const oneDay = await sameApps('tira a 99 de ontem')
+      const amountDay = chat()
+      const both = await amountDay('ontem fiz 280 na uber e hoje fiz 120 na uber')
+      const changedDay = await amountDay('a da Uber de ontem foi 150')
+      const wrongApp = await amountDay('tira a noventa e nove')
+      const wrongAmount = await amountDay('a da 99 foi 160')
+      const wrongFuel = chat()
+      await wrongFuel('abasteci 99')
+      const keptFuel = await wrongFuel('a da 99 foi 150')
+      out.push(result(`MOTOR-app-alvo-exato-${fixture}`, [oneDay, changedDay, wrongApp, wrongAmount, keptFuel].map(r => [r.mode, r.actions, r.reply]),
+        'seleciona o app e o dia pedidos e mantém o card para referências sem correspondência',
+        oneDay.mode === 'propose_actions' && oneDay.candidates.length === 1 && oneDay.candidates[0].id === twoDays.candidates[1]?.id
+        && changedDay.mode === 'propose_actions' && changedDay.candidates.every((c, i) => c.id === both.candidates[i]?.id)
+        && changedDay.actions.length === 2 && changedDay.actions.every((a, i) =>
+          a.kind === 'income' && a.amount === [150, 120][i] && a.date === [ontem, hoje][i])
+        && [wrongApp, wrongAmount, keptFuel].every(r => !r.actions.length && r.keepPending && /99/i.test(r.reply))))
+
+      const workDays = chat()
+      const original = await workDays('ontem trabalhei 6 horas e rodei 100 km. hoje trabalhei 8 horas e rodei 160 km')
+      const workDay = await workDays('foram 180 km ontem')
+      const ambiguous = await workDays('foram 12 horas')
+      const chosen = await workDays(ambiguous.response.mode === 'clarify' ? ambiguous.response.clarification.options?.[1]?.label || 'hoje' : 'hoje')
+      out.push(result(`MOTOR-jornada-alvo-exato-${fixture}`, [workDay, ambiguous, chosen].map(r => [r.mode, r.actions, r.reply]),
+        'edita só a distância de ontem e escolhe qual dia recebe a alteração de horas',
+        workDay.mode === 'propose_actions' && workDay.candidates.every((c, i) => c.id === original.candidates[i]?.id)
+        && workDay.actions.length === 2 && workDay.actions.every((a, i) =>
+          a.kind === 'work' && a.km === [180, 160][i] && a.hours === [6, 8][i] && a.date === [ontem, hoje][i])
+        && ambiguous.mode === 'clarify' && /qual .*dia|qual jornada/i.test(ambiguous.reply) && !ambiguous.actions.length
+        && chosen.mode === 'propose_actions' && chosen.actions.length === 2 && chosen.actions.every((a, i) =>
+          a.kind === 'work' && a.km === [180, 160][i] && a.hours === [6, 12][i] && a.date === [ontem, hoje][i])))
+
+      const paid = chat()
+      const alt = await paid('ontem deu 800 na Uber e gastei 150 de gasolina, só que 300 ficaram pra cair')
+      const answer = await paid('os 800 já caíram')
+      const explicitlyIncluded = await chat()('ontem fiz 800 de corridas, incluindo 300 que ainda não caíram, e paguei 150 de gasolina')
+      const unpaidApp = chat()
+      const pendingApp = await unpaidApp('deu 800 de corrida mas 300 da Uber ainda não caiu')
+      const includedApp = await unpaidApp('os 300 estão nos 800')
+      const withoutPending = await chat()('ontem deu 800 de corridas e 150 de gasolina')
+      out.push(result(`MOTOR-repasse-variacoes-${fixture}`, [alt, answer, explicitlyIncluded, pendingApp, includedApp, withoutPending].map(r => [r.mode, r.actions, r.reply]),
+        'parte a receber nunca entra; a origem do restante vem do total; resposta com os valores esclarece',
+        alt.mode === 'clarify' && alt.actions.length === 1 && alt.actions[0].kind === 'fuel' && payout(answer, 800, ontem, 'Uber')
+        && payout(explicitlyIncluded, 500, ontem) && pendingApp.mode === 'clarify' && !pendingApp.actions.length
+        && includedApp.mode === 'propose_actions' && includedApp.actions.length === 1
+        && includedApp.actions[0].kind === 'income' && includedApp.actions[0].amount === 500 && !includedApp.actions[0].description
+        && payout(withoutPending, 800, ontem)))
+
+      const grossComparison = await chat()('compare corrida de 40 reais, 2 km pro passageiro, 8 km de viagem, 5 km de volta vazia, 30 min no total ou corrida de 36 reais, 12 km no total e 25 minutos no total')
+      const netKm = await chat()('compare o lucro por km: corrida de 40 por 15 km no total e 25 min no total ou corrida de 30 por 12 km no total e 20 min no total')
+      const rate = await chat()('compare Uber e 99 por R$/h')
+      const spokenRate = await chat()('rendimento da noventa e nove por hora')
+      const profitByApp = await chat()('qual foi o lucro por app essa semana?')
+      out.push(result(`MOTOR-oferta-e-metrica-${fixture}`, [grossComparison, netKm, rate, spokenRate, profitByApp].map(r => [r.mode, r.actions, r.reply]),
+        'ida até passageiro entra na rota; lucro por km é líquido; custos e horas sem desagregação impedem lucro ou taxa por app',
+        [grossComparison, netKm, rate, spokenRate, profitByApp].every(r => r.mode === 'answer' && !r.actions.length)
+        && /15 km com 5 km de retorno/.test(grossComparison.reply)
+        && /^A primeira tem maior lucro por km estimado/.test(netKm.reply)
+        && netKm.reply.includes(fmtBRL(40 / 15 - kmCost(state).total) + '/km líquido')
+        && [rate, spokenRate].every(r => /horas/.test(r.reply) && /por plataforma/.test(r.reply) && !/R\$\s*\d/.test(r.reply))
+        && /custos/.test(profitByApp.reply) && /por plataforma/.test(profitByApp.reply) && !/R\$\s*\d/.test(profitByApp.reply)))
+
+      const partialReplies = await Promise.all([
+        'faturei 800 na Uber ontem, mas ainda falta cair 300',
+        'deu 800 na Uber e 150 de gasolina, mas ainda tem 300 pra cair',
+      ].map(phrase => chat()(phrase)))
+      const counted = await chat()('dos 800 da Uber ainda faltam 300 pra cair')
+      const actualReceipt = await chat()('deu 800 de corridas e 150 de gasolina mas só caiu 500 na conta')
+      const yesAmount = chat()
+      await yesAmount('deu 800 de corrida e 150 de gasolina, mas 300 ainda não entrou na conta')
+      const includedAmount = await yesAmount('sim, já inclui os 300')
+      const correctReceipt = chat()
+      await correctReceipt('ontem deu 800 na 99 e 150 de gasolina, mas 300 ainda não caiu')
+      const changedFuel = await correctReceipt('a gasolina foi 140')
+      const receivedAmount = await correctReceipt('não, recebi só 475')
+      out.push(result(`MOTOR-repasse-falta-cair-${fixture}`,
+        [...partialReplies, counted, actualReceipt, includedAmount, changedFuel, receivedAmount].map(r => [r.mode, r.actions, r.reply]),
+        'reconhece parte a receber antes ou depois do valor, mantém combustível e aceita quanto efetivamente caiu',
+        partialReplies.every(r => r.mode === 'clarify' && !r.actions.some(a => a.kind === 'income') && /300,00.*inclu.*800,00/.test(r.reply))
+        && counted.mode === 'propose_actions' && counted.actions.length === 1
+        && counted.actions[0].kind === 'income' && counted.actions[0].amount === 500 && counted.actions[0].description === 'Uber'
+        && payout(actualReceipt, 500) && payout(includedAmount, 500)
+        && changedFuel.mode === 'clarify' && changedFuel.actions.length === 1 && changedFuel.actions[0].kind === 'fuel'
+        && changedFuel.actions[0].amount === 140
+        && receivedAmount.mode === 'propose_actions' && receivedAmount.actions.length === 2
+        && receivedAmount.actions.some(a => a.kind === 'income' && a.amount === 475 && a.description === '99' && a.date === ontem)
+        && receivedAmount.actions.some(a => a.kind === 'fuel' && a.amount === 140 && a.date === ontem)))
+
+      const fuelType = chat()
+      const withFuel = await fuelType('fiz 280 na Uber, 120 na 99, abasteci 80 e trabalhei 8 horas')
+      const etanol = await fuelType('foi etanol')
+      const contrast = await fuelType('a da 99 foi 150, não 120')
+      out.push(result(`MOTOR-combustivel-e-valor-corrigidos-${fixture}`, [etanol, contrast].map(r => [r.mode, r.actions, r.reply]),
+        'troca o tipo de combustível e corrige apenas a receita da 99 mesmo com o valor anterior no ditado',
+        withFuel.actions.length === 4 && [etanol, contrast].every(r => r.mode === 'propose_actions' && r.actions.length === 4
+          && r.candidates.every((c, i) => c.id === withFuel.candidates[i]?.id)
+          && r.actions.some(a => a.kind === 'fuel' && a.amount === 80 && a.fuelType === 'Etanol'))
+        && contrast.actions.some(a => a.kind === 'income' && a.description === '99' && a.amount === 150)))
+
+      const gross = await chat()('corrida de 30 por 10 km no total e 20 min no total ou 50 por 20 km no total e 25 min no total, qual o ganho bruto por hora?')
+      const better = await chat()('qual corrida é melhor, 30 por 10 km ou 45 por 20 km?')
+      const appRates = await Promise.all(['R$/km da Uber semana passada', 'R$/hora por app hoje', 'qual a taxa média por distância em cada app?'].map(phrase => chat()(phrase)))
+      const independentMoney = await chat()('quanto de lucro se fizesse 99 por dia')
+      out.push(result(`MOTOR-consultas-ditadas-${fixture}`, [gross, better, ...appRates, independentMoney].map(r => [r.mode, r.actions, r.reply]),
+        'compara a taxa bruta explicitamente pedida e preserva o escopo de aplicativo e de valor em reais',
+        [gross, better, ...appRates].every(r => r.mode === 'answer' && !r.actions.length)
+        && /^A segunda tem maior receita por hora/.test(gross.reply) && /90,00\/h bruto[\s\S]+120,00\/h bruto/.test(gross.reply)
+        && /^A primeira paga mais por km/.test(better.reply)
+        && appRates.every(r => /por plataforma/.test(r.reply) && !/R\$\s*\d/.test(r.reply))
+        && !/por plataforma/.test(independentMoney.reply)))
+
+
+      const perMinute = await chat()('corrida de 25 por 10 km no total e 25 min no total ou 40 por 15 km no total e 30 min no total, qual dá mais por minuto?')
+      const minuteWithGap = await chat()('compare corrida de 25 por 10 km no total e 25 min de viagem ou 40 por 15 km no total e 30 min no total, por minuto')
+      out.push(result(`MOTOR-oferta-por-minuto-${fixture}`, [perMinute.reply, minuteWithGap.reply], 'taxa por minuto e só com tempos completos',
+        [perMinute, minuteWithGap].every(r => r.mode === 'answer' && !r.actions.length)
+        && /^A segunda tem maior lucro por minuto/.test(perMinute.reply)
+        && perMinute.reply.includes(fmtBRL((40 - 15 * kmCost(state).total) / 30) + '/min')
+        && /^Para comparar por minuto/.test(minuteWithGap.reply)))
+
+      const confirmed = await chat()('ontem rodei 180 km, trabalhei 8 horas e gastei 100 de aluguel do carro')
+      const rental = confirmed.actions.find(a => a.kind === 'expense')
+      const dayRate = await chat()('paguei cento e vinte reais e cinquenta centavos de diária do carro anteontem')
+      const house = await chat()('ontem paguei 800 de aluguel da casa')
+      const afterButton = applyBatchPure(state, confirmed.candidates, { now: { date: hoje, time: '15:00' } })
+      const rentalLookup = await orchestrate({ state: afterButton.state, message: 'quanto gastei com aluguel do carro ontem?', today: hoje, remoteEnabled: false })
+      out.push(result(`MOTOR-aluguel-do-veiculo-${fixture}`, [confirmed.actions, dayRate.actions, house.actions, rentalLookup.response.reply],
+        'aluguel e diária do veículo têm categoria própria, entram só após confirmação e podem ser consultados; aluguel residencial continua em Casa',
+        confirmed.mode === 'propose_actions' && rental?.category === 'aluguel-veiculo' && rental.amount === 100 && rental.date === ontem
+        && dayRate.actions.some(a => a.kind === 'expense' && a.category === 'aluguel-veiculo' && a.amount === 120.50 && a.date === anteontem)
+        && house.actions.some(a => a.kind === 'expense' && a.category === 'casa' && a.amount === 800 && a.date === ontem)
+        && afterButton.applied && afterButton.state.transactions.filter(t => t.category === 'aluguel-veiculo').length === 1
+        && rentalLookup.response.mode === 'answer' && /100,00/.test(rentalLookup.response.reply)))
+
+
+      const withPlatform = await chat()('fechei 8 horas no volante com 320 na Uber e 90 de etanol ontem')
+      const bareHours = await chat()('fiz 280 de Uber, 120 da 99, 8 horas e gastei 80 de gasolina')
+      out.push(result(`MOTOR-jornada-valor-na-fala-${fixture}`, [withPlatform.actions, bareHours.actions],
+        'fecha a jornada com o nome do app e o tipo de combustível; mantém horas sem verbo em uma lista com apps',
+        withPlatform.mode === 'propose_actions' && withPlatform.actions.length === 3
+        && withPlatform.actions.some(a => a.kind === 'income' && a.amount === 320 && a.description === 'Uber' && a.date === ontem)
+        && withPlatform.actions.some(a => a.kind === 'fuel' && a.amount === 90 && a.fuelType === 'Etanol' && a.date === ontem)
+        && withPlatform.actions.some(a => a.kind === 'work' && a.hours === 8 && a.date === ontem)
+        && bareHours.mode === 'propose_actions' && bareHours.actions.length === 4
+        && bareHours.actions.some(a => a.kind === 'work' && a.hours === 8)))
+
+
+      const newTopic = chat()
+      const lookedUp = await newTopic('quanto ganhei na Uber esse mês?')
+      const marketDraft = await newTopic('gastei no mercado')
+      const payoutInstead = await newTopic('deu 800 de corridas e 150 de gasolina, mas 300 ainda não caiu')
+      const repeatedPayout = await newTopic('Deu 800 de corridas e 150 de gasolina, mas 300 ainda não caiu.')
+      const receiptInstead = await newTopic('sim')
+      const previousOffer = chat()
+      const offerPending = await previousOffer('corrida de 40, 18 km no total e 5 km de volta, vale?')
+      const newPayout = await previousOffer('fiz 800 na Uber, mas 300 ainda não caiu')
+      const excludedFromPayout = await previousOffer('não')
+      out.push(result(`MOTOR-repasse-mudanca-de-assunto-${fixture}`,
+        [marketDraft, payoutInstead, receiptInstead, offerPending, newPayout, excludedFromPayout].map(r => [r.mode, r.actions, r.reply]),
+        'repasse substitui a pergunta aberta e não completa o rascunho de mercado nem a análise de corrida',
+        !!lookedUp.focus && !!marketDraft.draft && marketDraft.mode === 'clarify'
+        && payoutInstead.mode === 'clarify' && !payoutInstead.draft && payoutInstead.actions.length === 1
+        && payoutInstead.actions[0].kind === 'fuel' && /300,00.*inclu.*800,00/.test(payoutInstead.reply)
+        && repeatedPayout.mode === 'clarify' && repeatedPayout.actions.length === 1
+        && repeatedPayout.actions[0].kind === 'fuel' && repeatedPayout.actions[0].amount === 150
+        && payout(receiptInstead, 500)
+        && offerPending.response.mode === 'clarify' && !!offerPending.response.clarification.rideOffer
+        && newPayout.mode === 'clarify' && !newPayout.actions.length && /300,00.*inclu.*800,00/.test(newPayout.reply)
+        && excludedFromPayout.mode === 'propose_actions' && excludedFromPayout.actions.length === 1
+        && excludedFromPayout.actions[0].kind === 'income' && excludedFromPayout.actions[0].amount === 800
+        && excludedFromPayout.actions[0].description === 'Uber'))
+
+      const unspecified = chat()
+      const howMuch = await unspecified('recebi 800 de corrida mas não caiu tudo ainda')
+      const only = await unspecified('recebi 400')
+      const withWork = await chat()('fiz 800 na Uber e 150 de gasolina, mas 300 ainda não caiu. Rodei 100 km')
+      const delayed = await chat()('deu 800 de corridas, mas 300 só cai amanhã')
+      const wallet = await chat()('deu 800 na Uber, mas 300 não saiu da carteira do app ainda')
+      const unpaidRental = await chat()('reservei 150 da diária do carro mas ainda não paguei')
+      out.push(result(`MOTOR-repasse-sem-antecipar-${fixture}`, [howMuch, only, withWork, delayed, wallet, unpaidRental].map(r => [r.mode, r.actions, r.reply]),
+        'não propõe dinheiro ainda não recebido nem a diária ainda não paga e retém combustível e distância informados',
+        howMuch.mode === 'clarify' && !howMuch.actions.length && /quanto já caiu/.test(howMuch.reply)
+        && only.mode === 'propose_actions' && only.actions.length === 1 && only.actions[0].kind === 'income' && only.actions[0].amount === 400
+        && withWork.mode === 'clarify' && withWork.actions.length === 2 && withWork.actions.some(a => a.kind === 'work' && a.km === 100)
+        && withWork.actions.some(a => a.kind === 'fuel' && a.amount === 150)
+        && [delayed, wallet].every(r => r.mode === 'clarify' && !r.actions.length && /300,00.*inclu.*800,00/.test(r.reply))
+        && !unpaidRental.actions.length && /pagamento|pagou/.test(unpaidRental.reply)))
+
+      out.push(result(`MOTOR-sem-gravacao-${fixture}`, JSON.stringify(state) === snapshot, true, JSON.stringify(state) === snapshot))
+    }
+  }
+
   return out
 }
 

@@ -24,7 +24,45 @@ import type { ParsedAction } from '../../models/types'
 import { parseMoney } from '../../utils/format'
 import { normalizeName } from '../../utils/text'
 import { normalizeNumberWords } from '../numbers'
+import { findAllDates } from '../dates'
 import { COMPOUND_DURATION, elapsedMinutes } from './clock'
+
+
+
+const REPORTED_MONEY = String.raw`(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?`
+const PLATFORM_INCOME = String.raw`(?:na|no|da|do|de|pela|pelo)\s+(?:uber|99|in\s*driver?)\b`
+const RIDE_INCOME = String.raw`(?<income>${REPORTED_MONEY}\s+(?:de\s+corridas?(?:\s+${PLATFORM_INCOME})?|${PLATFORM_INCOME}))`
+const FUEL_SPEND = String.raw`(?:\s+e\s+(?<fuel>${REPORTED_MONEY}\s+de\s+(?:combust[íi]vel|gasolina|gasosa|etanol|[áa]lcool|diesel|gnv)))?`
+const REPORTED_DURATION = String.raw`(?:${COMPOUND_DURATION}|\d+(?:[.,]\d+)?\s*(?:h|hrs?|horas?))`
+const CLOSED_SHIFT = new RegExp(
+  String.raw`^fechei\s+(?<duration>${REPORTED_DURATION})\s+(?:no\s+volante|de\s+trabalho|dirigindo)(?:,?\s+(?:com|e)\s+${RIDE_INCOME}${FUEL_SPEND})?[.!]*$`,
+  'i',
+)
+const RIDE_RESULT = new RegExp(String.raw`^(?:deu|deram)\s+${RIDE_INCOME}${FUEL_SPEND}[.!]*$`, 'i')
+const HOURS_AFTER_PLATFORM = new RegExp(
+  String.raw`(${REPORTED_MONEY}\s+${PLATFORM_INCOME}\s*,\s*)(${REPORTED_DURATION})(?=\s*(?:[,;.!]|e\s+(?:gastei|paguei|abasteci|rodei)\b|$))`,
+  'i',
+)
+
+/** Dá verbos próprios aos valores e medidas em um relato compacto de uma só jornada. */
+export function expandDriverReport(message: string, today: string): string {
+  if (!/\b(?:fechei|deu|deram|fiz|faturei|ganhei)\b/i.test(message) || /[?]|\b(?:n[aã]o|nem|nunca|se|talvez|ou)\b/i.test(message)) return message
+  const text = normalizeNumberWords(message).text.trim()
+  const dates = findAllDates(text, today)
+  const [date] = dates
+  if (dates.length > 1) return message
+  const withoutDate = (date ? text.slice(0, date.start) + text.slice(date.end) : text).trim().replace(/^,\s*/, '')
+  const parts = (withoutDate.match(CLOSED_SHIFT) || withoutDate.match(RIDE_RESULT))?.groups
+  if (!parts) {
+    if (!/^(?:eu\s+)?(?:fiz|faturei|ganhei)\s/i.test(withoutDate)) return message
+    const repaired = text.replace(HOURS_AFTER_PLATFORM, '$1trabalhei $2')
+    return repaired === text ? message : repaired
+  }
+  const { duration, income, fuel } = parts
+  const when = date ? text.slice(date.start, date.end) : ''
+  return [when, duration && 'trabalhei ' + duration, income && (duration ? 'e ganhei ' : 'ganhei ') + income,
+    fuel && 'e gastei ' + fuel].filter(Boolean).join(' ')
+}
 
 /** Plataformas de onde o dinheiro vem. O nome vira a descrição do lançamento. */
 const PLATAFORMAS: [RegExp, string][] = [
@@ -80,6 +118,7 @@ export function parseDriverDay(message: string, opts: { driver: boolean }): Driv
   let reconhecidos = 0
   const work: { km?: number; hours?: number; trips?: number } = {}
   const fuel: { amount?: number; liters?: number } = {}
+  const fuels = new Set<string>()
   const unclassifiedAmounts: number[] = []
   let invalidWork = false
   let rendaSemPlataforma = 0
@@ -111,6 +150,7 @@ export function parseDriverDay(message: string, opts: { driver: boolean }): Driv
 
     // --- combustível: "163 de gasosa" ou "163 gasolina" ------------------
     if (isFuel(seguinte) || (seguinte === 'de' && isFuel(depois))) {
+      fuels.add((seguinte === 'de' ? depois : seguinte).replace(/^alcool$/, 'etanol'))
       fuel.amount = (fuel.amount || 0) + valor
       reconhecidos += /^de$/i.test(seguinte) ? 3 : 2
       i += /^de$/i.test(seguinte) ? 2 : 1
@@ -145,10 +185,9 @@ export function parseDriverDay(message: string, opts: { driver: boolean }): Driv
     actions.unshift({ kind: 'income', amount: rendaSemPlataforma, category: 'corridas' })
   }
   if (fuel.amount !== undefined || fuel.liters !== undefined) {
-    const f: any = { kind: 'fuel' }
-    if (fuel.amount !== undefined) f.amount = fuel.amount
-    if (fuel.liters !== undefined) f.liters = fuel.liters
-    actions.push(f as ParsedAction)
+    const [type] = fuels
+    const fuelType = fuels.size === 1 ? { etanol: 'Etanol', diesel: 'Diesel', gnv: 'GNV' }[type] : undefined
+    actions.push({ kind: 'fuel', ...fuel, ...(fuelType ? { fuelType } : {}) })
   }
   if (work.km !== undefined || work.hours !== undefined || work.trips !== undefined) {
     actions.push({ kind: 'work', ...work } as ParsedAction)

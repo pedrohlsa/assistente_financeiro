@@ -189,7 +189,7 @@ const VERBO_DE_RECEBER = /\b(?:recebi|recebeu|recebemos|ganhei|ganhou|caiu|caira
  * A lista é curta e fechada porque é uma decisão de TIPO: um substantivo a mais
  * aqui transforma um registro que funciona numa pergunta desnecessária.
  */
-const SUBSTANTIVO_AMBIGUO = /\b(alugu[eé]l|alugu[eé]is|vale(?:\s+(?:alimenta[çc][ãa]o|refei[çc][ãa]o|transporte))?)\b/i
+const SUBSTANTIVO_AMBIGUO = /\b(alugu[eé]l(?:\s+d[aeo]\s+(?:carro|moto|ve[íi]culo))?|alugu[eé]is|vale(?:\s+(?:alimenta[çc][ãa]o|refei[çc][ãa]o|transporte))?)\b/i
 
 /**
  * O que pode existir ENTRE o substantivo ambíguo e o valor dele: preposição,
@@ -1597,7 +1597,7 @@ function parseClause(input: string): ParsedAction[] {
   // a pergunta "o que aconteceu com este valor?". Só item que não é
   // combustível, com preposição e valor próprios.
   if (abasteceu) {
-    const depois = new RegExp(String.raw`(?:\se\s|,\s*)(?:mais\s+)?(?:r\$\s*)?${NUM}\s*(?:reais\s+)?(?:de|d[oa]|n[oa]|com|em)\s+(?!(?:gasolina|etanol|[aá]lcool|diesel|gnv|combust[ií]vel|litros?)\b)([a-zà-úçãõ][a-zà-úçãõáéíóúâê]+(?:\s+[a-zà-úçãõ][a-zà-úçãõáéíóúâê]+)?)`, 'gi')
+    const depois = new RegExp(String.raw`(?:\se\s|,(?!\d)\s*)(?:mais\s+)?(?:r\$\s*)?${NUM}\s*(?:reais\s+)?(?:de|d[oa]|n[oa]|com|em)\s+(?!(?:gasolina|etanol|[aá]lcool|diesel|gnv|combust[ií]vel|litros?)\b)([a-zà-úçãõ][a-zà-úçãõáéíóúâê]+(?:\s+[a-zà-úçãõ][a-zà-úçãõáéíóúâê]+)?)`, 'gi')
     for (const m of text.matchAll(depois)) {
       const amount = parseNum(m[1])
       if (!(amount > 0)) continue

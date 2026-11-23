@@ -401,6 +401,77 @@ function parseClockCorrection(message: string, pending: AssistantCandidateAction
   return true
 }
 
+const DRIVER_APP = String.raw`(?<app>uber|99|${APP_99}|in\s*driver?)\b`
+const DRIVER_REMOVE = new RegExp(String.raw`^(?:tira|retira|remove|exclui|apaga)\s+(?:[ao]\s+)?${DRIVER_APP}(?<when>.*)$`)
+const DRIVER_AMOUNT = new RegExp(String.raw`^[ao]\s+d[ao]\s+${DRIVER_APP}(?<when>.*?)\s+(?:foi|era|deu)\s+(?:r\$\s*)?(?<amount>\d+(?:[.,]\d+)*)(?:\s+reais?)?(?:(?:,\s*|\s+e\s+)nao\s+(?:foi\s+)?(?:r\$\s*)?(?<previous>\d+(?:[.,]\d+)*)(?:\s+reais?)?)?$`)
+const WORK_MEASURE = /^\s*(?:n[ãa]o[\s,]+)?(?:(?:na\s+(?:real|verdade)|ops|ou\s+melhor)[\s,]+)?(?:foram|foi|era|eram|s[ãa]o)?\s*(\d+(?:[.,]\d+)?)\s*(km|quil[oô]metros?|h|hrs?|horas?|corridas?|viagens?)\s*(?:e\s+n[ãa]o\s+\d+(?:[.,]\d+)?\s*\S*)?\s*$/
+
+function correctDriverProposal(message: string, pending: AssistantCandidateAction[], caps: AssistantCapabilities, today: string,
+  plan: CorrectionPlan): CorrectionPlan | null {
+  const text = normalizeName(message).replace(/[.!]+$/, '').trim()
+  if (!caps.isDriver || text.includes('?')) return null
+  const remove = text.match(DRIVER_REMOVE)
+  const changeApp = remove ? null : text.match(DRIVER_AMOUNT)
+  const selector = remove || changeApp
+  let targets = pending.filter(p => p.action.kind === 'work')
+  if (!selector && !targets.length) return null
+  const targetText = selector ? selector.groups.when.trim() : text
+  const date = findDate(targetText, today)
+  const withoutDate = (date ? targetText.slice(0, date.start) + ' ' + targetText.slice(date.end) : targetText).trim()
+  if (selector && withoutDate && (!date || !/^(?:d[eo]|no dia|no|na)?$/.test(withoutDate))) return null
+  const medida = selector ? null : withoutDate.match(WORK_MEASURE)
+  if (!selector && !medida) return null
+
+  let app: string | undefined
+  if (selector) {
+    const named = selector.groups.app
+    app = /in\s*driv/.test(named) ? 'inDrive' : named === 'uber' ? 'Uber' : '99'
+    targets = pending.filter(({ action }) => action.kind === 'income' && action.category === 'corridas'
+      && (normalizeName(action.description) === normalizeName(app) || normalizeName(action.origin) === normalizeName(app)))
+  }
+  if (date) targets = targets.filter(({ action }) => date.kind === 'date' && 'date' in action && (action.date || today) === date.date)
+  const previous = changeApp?.groups.previous
+  if (previous) targets = targets.filter(({ action }) => action.kind === 'income' && action.amount === parseMoney(previous))
+  if (!targets.length) {
+    plan.ambiguous = { question: app ? `Não encontrei receita da ${app}${date ? ' nesse dia' : ''} na proposta. Qual item você quer alterar?`
+      : 'Não encontrei jornada nesse dia na proposta. Qual dia você quer corrigir?' }
+    return plan
+  }
+
+  const field = !medida ? 'amount' : /^(?:km|quil)/.test(medida[2]) ? 'km' : /^(?:corrida|viage)/.test(medida[2]) ? 'trips' : 'hours'
+  const value = parseMoney(medida?.[1] || changeApp?.groups.amount)
+  const revise = (item: AssistantCandidateAction): ParsedAction => ({ ...item.action, [field]: value })
+  if (!remove && targets.some(item => !validateAction(revise(item), caps, today).ok)) {
+    plan.ambiguous = { question: medida ? 'Confira a medida da jornada e diga o valor correto.' : 'Qual é o valor correto dessa receita?' }
+    return plan
+  }
+  if (targets.length > 1) {
+    plan.ambiguous = {
+      field: 'pending-correction',
+      question: app ? `Qual receita da ${app} você quer ${remove ? 'retirar' : 'corrigir'}?` : 'Qual jornada você quer corrigir?',
+      options: targets.map((item, i) => ({
+        value: String(i + 1),
+        label: `${correctionLabel(item, i)} · ${brDate(('date' in item.action && item.action.date) || today)}`,
+        actions: remove ? pending.filter(p => p.id !== item.id).map(p => p.action)
+          : pending.map(p => p.id === item.id ? revise(p) : p.action),
+      })),
+    }
+    return plan
+  }
+  const [item] = targets
+  if (remove) {
+    plan.remove.push(item.id)
+    plan.summary.push(`Retirei a receita da ${app} da proposta.`)
+  } else {
+    const before = (item.action as unknown as Record<string, unknown>)[field]
+    plan.edits.push({ id: item.id, field, value, was: before })
+    const label = field === 'km' ? `${value} km` : field === 'trips' ? `${value} viagens` : field === 'hours' ? `${value}h` : fmtBRL(value)
+    const detail = field === 'km' ? 'a distância' : field === 'trips' ? 'as viagens' : field === 'hours' ? 'as horas' : `a receita da ${app}`
+    plan.summary.push(`Atualizei ${detail} para ${label}.`)
+  }
+  return plan
+}
+
 /**
  * Interpreta uma frase de correção contra a proposta pendente.
  * Devolve `null` quando a frase não é uma correção reconhecível — nesse caso o
@@ -431,7 +502,7 @@ function parseCorrectionWithMarker(
 ): CorrectionPlan | null {
   if (!pending.length) return null
   if (pending.some(p => ['description', 'origin'].some(k => normalizeName((p.action as any)[k] || '') === '99'))) {
-    message = message.replace(/(^|\b(?:d|n)?[ao]s?\s+)99(?![\d.,]|\s*(?:reais|real|contos?|pila)\b)/gi, `$1${APP_99}`)
+    message = message.replace(/(^|\b(?:d|n)?[ao]s?\s+)(?:99|noventa\s+e\s+nove)(?![\wÀ-ÿ]|[.,]\d|\s*(?:reais|real|contos?|pila)\b)/gi, `$1${APP_99}`)
   }
   // Pergunta não é conserto: "o que tem na fatura do Inter?" com o pagamento
   // do Nubank na tela TROCAVA o cartão da proposta. Quem pergunta quer saber;
@@ -440,25 +511,8 @@ function parseCorrectionWithMarker(
   const { text: norm } = normalizeNumberWords(message)
   const t = norm.toLowerCase()
   const plan: CorrectionPlan = { remove: [], edits: [], cancelAll: false, summary: [] }
-  // "Foram 180 km", "não, foram 10 horas", "foram 14 corridas" com a jornada na
-  // tela: a MEDIDA muda, o resto da proposta fica. Caía na ajuda, ou trocava a
-  // proposta inteira por um trabalho novo e a receita sumia.
-  const medida = t.match(/^\s*(?:n[ãa]o[\s,]+)?(?:(?:na\s+(?:real|verdade)|ops|ou\s+melhor)[\s,]+)?(?:foram|foi|era|eram|s[ãa]o)?\s*(\d+(?:[.,]\d+)?)\s*(km|quil[oô]metros?|h|hrs?|horas?|corridas?|viagens?)\s*(?:e\s+n[ãa]o\s+\d+(?:[.,]\d+)?\s*\S*)?\s*[.!]*\s*$/i)
-  const trabalhos = pending.filter(p => p.action.kind === 'work')
-  if (medida && trabalhos.length === 1) {
-    const unidade = medida[2].toLowerCase()
-    const campo = /^(?:km|quil)/.test(unidade) ? 'km' : /^(?:corrida|viage)/.test(unidade) ? 'trips' : 'hours'
-    const valor = parseMoney(medida[1])
-    if (valor > 0 && (campo !== 'trips' || Number.isInteger(valor))) {
-      const alvo = trabalhos[0]
-      const antes = (alvo.action as any)[campo]
-      const nome = campo === 'km' ? 'a distância' : campo === 'trips' ? 'as viagens' : 'as horas'
-      const fmt = (v: number) => campo === 'km' ? `${v} km` : campo === 'trips' ? `${v} ${v === 1 ? 'viagem' : 'viagens'}` : `${v}h`
-      plan.edits.push({ id: alvo.id, field: campo, value: valor, was: antes })
-      plan.summary.push(antes ? `Troquei ${nome} de ${fmt(antes)} para ${fmt(valor)}.` : `Acrescentei ${fmt(valor)} ao trabalho.`)
-      return plan
-    }
-  }
+  const driverCorrection = correctDriverProposal(norm, pending, caps, today, plan)
+  if (driverCorrection) return driverCorrection
   if (parseClockCorrection(message, pending, today, plan)) return plan
   const contrasted = parseContrastCorrection(norm, pending, caps, today, plan)
   if (contrasted) return contrasted
@@ -507,12 +561,19 @@ function parseCorrectionWithMarker(
   // segue intacta.
   // "Foi etanol" com um abastecimento na tela: o tipo vai para o registro.
   // Antes a proposta seguia igual e o tipo dito se perdia.
-  const tipoDito = pending.every(p => p.action.kind === 'fuel')
+  const abastecimentos = pending.filter(p => p.action.kind === 'fuel')
+  const tipoDito = abastecimentos.length > 0
     ? t.match(/^\s*(?:(?:n[ãa]o[\s,]+)?(?:foi|era|é|e)\s+)?(?:de\s+)?(gasolina(?:\s+aditivada|\s+comum)?|etanol|[áa]lcool|diesel|gnv)\s*[.!]?\s*$/i) : null
   if (tipoDito) {
     const bruto = tipoDito[1].toLowerCase()
     const tipo = /^gnv$/.test(bruto) ? 'GNV' : /^[áa]lcool$/.test(bruto) ? 'Etanol' : bruto.charAt(0).toUpperCase() + bruto.slice(1)
-    for (const p of pending) plan.edits.push({ id: p.id, field: 'fuelType', value: tipo, was: (p.action as any).fuelType })
+    if (abastecimentos.length > 1) {
+      plan.ambiguous = { question: 'Qual abastecimento foi desse tipo? Informe o valor ou a data.' }
+      return plan
+    }
+    const [p] = abastecimentos
+    const was = p.action.kind === 'fuel' ? p.action.fuelType : undefined
+    plan.edits.push({ id: p.id, field: 'fuelType', value: tipo, was })
     plan.summary.push(`Anotei que o abastecimento foi de ${tipo.toLowerCase()}.`)
     return plan
   }

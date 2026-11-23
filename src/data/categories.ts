@@ -12,6 +12,7 @@ export const DEFAULT_CATEGORIES: Category[] = [
   { id: 'combustivel', name: 'Combustível', type: 'expense', icon: '⛽' },
   { id: 'alimentacao', name: 'Alimentação', type: 'expense', icon: '🍔' },
   { id: 'manutencao', name: 'Manutenção', type: 'expense', icon: '🔧' },
+  { id: 'aluguel-veiculo', name: 'Locação de veículo', type: 'expense', icon: '🚙' },
   { id: 'estacionamento', name: 'Estacionamento', type: 'expense', icon: '🅿️' },
   { id: 'pedagio', name: 'Pedágio', type: 'expense', icon: '🛣️' },
   { id: 'assinaturas', name: 'Assinaturas', type: 'expense', icon: '📱' },
@@ -69,6 +70,12 @@ export const CATEGORY_KEYWORDS: Record<string, string[]> = {
   // 'almocei' e 'jantei' cobrem o verbo: "quanto almocei esse mês" é
   // Alimentação, e sem eles a pergunta dava o gasto do mês inteiro.
   alimentacao: ['mcdonald', 'mc donald', 'burger', 'subway', 'habib', 'pizza', 'lanchonete', 'acai', 'açaí', 'almoço', 'almoco', 'almocei', 'almoçar', 'almocar', 'lanchar', 'lanchei', 'almoçamos', 'almocamos', 'janta', 'jantar', 'jantei', 'jantamos', 'lanche', 'comida', 'ifood', 'restaurante', 'padaria', 'mercad', 'supermercad', 'minimercad', 'hipermercad', 'mercearia', 'sacolão', 'sacolao', 'quitanda', 'café', 'cafe', 'marmita', 'marmitex', 'quentinha', 'prato feito', 'pastel', 'esfirra', 'espetinho', 'churrasco', 'refrigerante', 'refri ', 'sanduíche', 'sanduiche', 'cachorro quente', 'x tudo', 'x salada', 'x bacon', 'x egg', 'x burg', 'tapioca', 'cuscuz', 'pizza', 'burger', 'hamb', 'salgad', 'coxinha', 'açaí', 'acai', 'sorvete', 'pão', 'pao ', 'paes', 'pães', 'pãozinho', 'paozinho', 'leite', 'queijo', 'ovos', 'carne', 'frango', 'arroz', 'feijão', 'feijao', 'fruta', 'verdura', 'açougue', 'acougue', 'hortifruti'],
+  'aluguel-veiculo': [
+    'aluguel do carro', 'aluguel de carro', 'aluguel do veículo', 'aluguel de veículo', 'aluguel do veiculo', 'aluguel de veiculo',
+    'aluguel da moto', 'aluguel de moto', 'diária do carro', 'diaria do carro', 'diária de carro', 'diaria de carro',
+    'diária do veículo', 'diaria do veiculo', 'diária da moto', 'diaria da moto',
+    'locação de carro', 'locacao de carro', 'locação do carro', 'locacao do carro', 'locação de veículo', 'locacao de veiculo',
+  ],
   manutencao: ['óleo', 'oleo', 'pneu', 'freio', 'pastilha', 'revisão', 'revisao', 'mecânico', 'mecanico', 'oficina', 'borracheiro', 'borracharia', 'funilaria', 'lanternagem', 'alinhamento', 'balanceamento', 'calibragem', 'peça ', 'peca ', 'peças', 'pecas', 'autopeça', 'autopeca', 'filtro', 'vela ', 'velas', 'correia', 'amortecedor', 'manutenção', 'manutencao', 'lavagem', 'lava ', 'lava jato'],
   estacionamento: ['estacionamento', 'estacionei', 'flanelinha', 'flanela ', 'zona azul', 'parquímetro', 'parquimetro'],
   pedagio: ['pedágio', 'pedagio', 'sem parar', 'veloe', 'conectcar'],

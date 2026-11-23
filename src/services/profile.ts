@@ -10,7 +10,7 @@ export const isDriver = (s: Settings): boolean => s.profile === 'driver'
 
 /** Categorias de receita ligadas a transporte por aplicativo. */
 export const RIDE_INCOME_CATEGORIES = ['corridas']
-export const VEHICLE_EXPENSE_CATEGORIES = new Set(['combustivel', 'manutencao', 'estacionamento', 'pedagio'])
+export const VEHICLE_EXPENSE_CATEGORIES = new Set(['combustivel', 'manutencao', 'estacionamento', 'pedagio', 'aluguel-veiculo'])
 
 export const isDrivingExpense = (category?: string, description?: string): boolean =>
   VEHICLE_EXPENSE_CATEGORIES.has(category || '') || /^taxa\s+(?:d[ao]\s+)?99$/.test(normalizeName(description))

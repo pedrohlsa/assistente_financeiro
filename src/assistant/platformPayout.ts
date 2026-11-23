@@ -1,5 +1,6 @@
 import { fmtBRL, parseMoney } from '../utils/format'
 import { normalizeNumberWords } from './numbers'
+import { normalizeName } from '../utils/text'
 
 const MONEY = (name: string) => String.raw`(?:r\$\s*)?(?<${name}>\d+(?:[.,]\d+)*)(?!\d|[.,]\d)(?:\s+reais?)?`
 const PLATFORM = String.raw`(?<platform>uber|99|indrive[r]?)\b`
@@ -86,4 +87,60 @@ export function readPlatformPayout(message: string): PlatformPayout | undefined 
   if (!cash) return undefined
   const payment = [lead.trim(), whenNet, cash, whenTail].filter(Boolean).join(' ')
   return { amount, text: `${payment}${tail || ''}`.trim() }
+}
+
+const PAYOUT_DAY = String.raw`(?:hoje|hj|ontem|anteontem|ha\s+\d+\s+dias?|\d+\s+dias?\s+atras|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)`
+const PAYOUT_APP = String.raw`(?:uber|99|indrive[r]?)\b`
+const PAYOUT_SOURCE = String.raw`(?:de\s+corridas?|d[aeo]\s+ganhos?\s+d[aeo]\s+app)(?:\s+(?:n[ao]|pel[ao]|d[ao])\s+(?<platform>${PAYOUT_APP}))?|(?:n[ao]|pel[ao]|d[ao])\s+(?<app>${PAYOUT_APP})`
+
+const FUEL_COST = (key: string) => String.raw`(?<${key}>(?:(?:gastei|paguei)\s+)?${MONEY(key + 'Amount')}\s+(?:de|em|com)\s+(?:gasolina|gasosa|etanol|alcool|diesel|gnv|combustivel)\b|abasteci\s+${MONEY(key + 'Fill')})`
+const UNPAID_LINK = String.raw`(?:mas|porem|so\s+que|e|sendo|incluindo|d[eo]s\s+quais|dess[ea]s?)`
+const UNPAID_STATUS = String.raw`(?:(?:ainda\s+)?nao\s+(?:caiu|cairam|entrou|entraram|recebi|recebid[oa]s?)|(?:ainda\s+)?(?:vai|vao|(?:esta|estao|ficou|ficaram)\s+(?:para|pra))\s+(?:cair|entrar)|(?:ainda\s+)?(?:ta|tao|esta|estao|ficou|ficaram)\s+pendentes?|(?:so\s+)?(?:cai|entra)(?=\s+amanha)|nao\s+saiu\s+da\s+carteira(?:\s+do\s+app)?(?:\s+ainda)?)`
+const UNPAID_AFTER_VALUE = String.raw`(?:(?:os|as)\s+)?${MONEY('unpaid')}(?:\s+(?:d[ao]|n[ao])\s+(?<unpaidApp>${PAYOUT_APP}))?\s+(?:que\s+)?${UNPAID_STATUS}`
+const UNPAID_BEFORE_VALUE = String.raw`(?:ainda\s+)?(?:faltam?\s+(?:(?:cair|entrar)\s+)?|ficou\s+faltando\s+|tem\s+(?=${MONEY('waiting')}\s+(?:pra|para)\s+(?:cair|entrar)))${MONEY('missing')}(?:\s+(?:pra|para)\s+(?:cair|entrar))?`
+const RECEIVED_VALUE = String.raw`(?:so|apenas)\s+(?:caiu|cairam|entrou|entraram|recebi)\s+${MONEY('received')}`
+
+const UNPAID_UNSIZED = String.raw`(?<notAll>(?:ainda\s+)?nao\s+(?:caiu|entrou|recebi)\s+(?:tudo|o\s+valor\s+todo|inteir[oa])(?:\s+ainda)?)`
+const PAYOUT_WORK = String.raw`(?<work>(?:rodei|trabalhei|dirigi)\s+(?:por\s+)?\d+(?:[.,]\d+)*\s*(?:km|quilometros?|h|horas?))`
+const PARTIAL_RIDE_PAYOUT = new RegExp([
+  String.raw`^(?:(?<lead>${PAYOUT_DAY})\s*,?\s+)?(?:eu\s+)?(?<verb>deu|deram|fiz|ganhei|faturei|recebi|entrou|caiu|d[eo]s?)\s+${MONEY('total')}\s+(?:${PAYOUT_SOURCE})(?:\s+(?<day>${PAYOUT_DAY}))?`,
+  String.raw`(?:,?\s+(?:e\s+)?${FUEL_COST('before')}(?:\s+(?<beforeDay>${PAYOUT_DAY}))?)?`,
+  String.raw`(?:,\s*|\s+)(?:(?<link>${UNPAID_LINK})\s+)?(?:(?<extra>mais|outr[oa]s?)\s+)?(?:${UNPAID_AFTER_VALUE}|${UNPAID_BEFORE_VALUE}|${RECEIVED_VALUE}|${UNPAID_UNSIZED})`,
+  String.raw`(?:\s+na\s+(?:minha\s+)?conta)?(?:\s+(?<settlementDay>${PAYOUT_DAY}|amanha))?`,
+  String.raw`(?:[,;]?\s+e\s+${FUEL_COST('after')}(?:\s+(?<afterDay>${PAYOUT_DAY}))?)?`,
+  String.raw`(?:(?:[.;,]\s*|\s+e\s+)${PAYOUT_WORK}(?:\s+(?<workDay>${PAYOUT_DAY}))?)?[.!]*$`,
+].join(''))
+
+export function readPartialRidePayout(message: string) {
+  if (!/\b(?:ainda|n[aã]o|cair|caiu|ca[ií]ram|entrar|entrou|entraram|cai|entra|falta(?:m|ndo)?|recebi|pendentes?)\b/i.test(message)) return undefined
+  const parts = normalizeName(normalizeNumberWords(message).text).trim().match(PARTIAL_RIDE_PAYOUT)?.groups
+  if (!parts) return undefined
+  const { lead, verb, platform, app, day, before, beforeDay, after, afterDay, link, extra, unpaidApp, settlementDay, notAll, work, workDay } = parts
+  const total = parseMoney(parts.total)
+  const received = parts.received === undefined ? undefined : parseMoney(parts.received)
+  const unpaid = notAll ? undefined : received === undefined ? parseMoney(parts.unpaid || parts.missing)
+    : (Math.round(total * 100) - Math.round(received * 100)) / 100
+  const paid = /^(?:recebi|entrou|caiu)$/.test(verb)
+  const saysIncluded = /^d[eo]s?$/.test(verb) || /^(?:sendo|incluindo|d[eo]s\s+quais|dess[ea]s?)$/.test(link || '')
+  const differentApps = (platform || app) && unpaidApp && platformLabel(platform || app) !== platformLabel(unpaidApp)
+  const inclusion = notAll ? undefined : received !== undefined ? true : saysIncluded ? paid || extra || differentApps ? undefined : true : extra || paid || differentApps ? false : undefined
+  const companions = [{ text: before, date: beforeDay }, { text: after, date: afterDay }]
+    .filter(cost => !!cost.text).map(cost => ({ kind: 'fuel' as const, text: cost.text, date: cost.date || day || lead }))
+  return { total, unpaid, received, inclusion, date: received === undefined ? day || lead : settlementDay || day || lead,
+    companions: [...companions, ...(work ? [{ kind: 'work' as const, text: work, date: workDay || lead }] : [])],
+    platform: platform || app ? platformLabel(platform || app) : undefined }
+}
+
+export function partialRidePayoutChoice(message: string, total?: number, unpaid?: number): string | undefined {
+  const text = normalizeName(normalizeNumberWords(message).text).replace(/[.!]+$/, '').trim()
+  const confirmedUnpaid = text.match(/^(?:(?:sim|isso),?\s+)?(?:ja\s+)?inclu(?:i|em|ia)\s+(?:os\s+)?(?:r\$\s*)?([\d.,]+)(?:\s+reais?)?$/)
+  if (confirmedUnpaid && parseMoney(confirmedUnpaid[1]) === unpaid) return 'included'
+  const included = text.match(/^(?:(?:os\s+)?([\d.,]+)\s+)?(?:sim|(?:sim,?\s+)?(?:ja\s+)?(?:(?:esta|estao|ta|tao)\s+)?incluid[oa]s?|(?:ja\s+)?(?:esta|estao|ta|tao|entram?)\s+(?:nos|dentro(?:\s+d[eo]s)?|incluid[oa]s?\s+(?:nos|no\s+total))(?:\s+(?:r\$\s*)?([\d.,]+)(?:\s+reais?)?)?|faz(?:em)?\s+parte(?:\s+do\s+total)?)$/)
+  if (included && (!included[1] || parseMoney(included[1]) === unpaid)
+    && (!included[2] || parseMoney(included[2]) === total)) return 'included'
+  const outside = text.match(/^(?:os\s+)?(?:r\$\s*)?([\d.,]+)(?:\s+reais?)?\s+(?:e|sao)\s+(?:de fora|por fora|a parte|a mais)$/)
+  if (outside && parseMoney(outside[1]) === unpaid) return 'excluded'
+  const excluded = text.match(/^(?:nao|nao,?\s+(?:(?:esta|estao|ta|tao)\s+)?incluid[oa]s?|(?:(?:e|sao|ficou|ficaram)\s+)?(?:por\s+fora|a\s+parte|a\s+mais)|(?:os\s+)?([\d.,]+)\s+ja\s+(?:cairam|entraram)(?:\s+(?:inteir[oa]s?|todos))?)$/)
+  if (excluded && (!excluded[1] || parseMoney(excluded[1]) === total)) return 'excluded'
+  return undefined
 }

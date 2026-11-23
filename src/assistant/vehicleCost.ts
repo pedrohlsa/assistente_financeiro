@@ -32,7 +32,7 @@ export function answerVehicleCost(s: AppState, input: string, hoje = todayISO())
 
   if (leitura) {
     const { from, to, label } = leitura.period
-    const explanation = 'A conta divide as despesas registradas de combustível, manutenção, pedágio e estacionamento pelos km de trabalho do mesmo período. Os custos fixos configurados hoje entram só na estimativa atual.'
+    const explanation = 'A conta divide as despesas registradas de combustível, manutenção, pedágio, estacionamento e aluguel do veículo pelos km de trabalho do mesmo período. Os custos fixos configurados hoje entram só na estimativa atual.'
     if (from > hoje) return { text: `Ainda não há despesas realizadas ${label}. Você pode pedir o custo atual estimado do veículo.`, explanation }
     const ate = to < hoje ? to : hoje
     const expenses = s.transactions.filter(tx => tx.type === 'expense' && VEHICLE_EXPENSE_CATEGORIES.has(tx.category)
@@ -109,7 +109,8 @@ export function answerVehicleMonthly(s: AppState, input: string, hoje = todayISO
   const combustivel = fuelSpend(s, de, ate)
   const manutencao = porCat('manutencao')
   const viagem = porCat('pedagio') + porCat('estacionamento')
-  const realizado = combustivel + manutencao + viagem
+  const aluguel = porCat('aluguel-veiculo')
+  const realizado = combustivel + manutencao + viagem + aluguel
   const fixos = s.settings.fixedMonthlyCosts || 0
   if (realizado <= 0 && periodo && periodo.grain !== 'month') return `Não há gasto do veículo registrado ${rotulo}.`
   if (realizado <= 0 && fixos <= 0) {
@@ -120,12 +121,17 @@ export function answerVehicleMonthly(s: AppState, input: string, hoje = todayISO
     '',
     `• Combustível: ${fmtBRL(combustivel)}`,
     `• Manutenção: ${fmtBRL(manutencao)}`,
+    ...(aluguel > 0 ? [`• Aluguel do veículo: ${fmtBRL(aluguel)}`] : []),
     ...(viagem > 0 ? [`• Pedágio e estacionamento: ${fmtBRL(viagem)}`] : []),
   ]
   // Mês fechado ou em curso: o fixo do mês soma inteiro. Semana: não cabe
   // somar um custo mensal a sete dias.
   if (periodo && periodo.grain !== 'month') {
     if (fixos > 0) linhas.push('', `Os custos fixos configurados (${fmtBRL(fixos)} por mês) não entram numa conta de ${periodo.grain === 'day' ? 'um dia' : 'semana'}.`)
+    return linhas.join('\n')
+  }
+  if (aluguel > 0 && fixos > 0) {
+    linhas.push('', `Custos fixos configurados: ${fmtBRL(fixos)} por mês. Confira se já incluem o aluguel do veículo antes de somá-los aos gastos registrados.`)
     return linhas.join('\n')
   }
   linhas.push('', fixos > 0

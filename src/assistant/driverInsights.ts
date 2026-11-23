@@ -28,6 +28,7 @@ import { normalizeName, weekdayName } from '../utils/text'
 import { currentMonthToDate, parsePeriod } from './query/period'
 import { runQuery } from './query/engine'
 import { QUERY_DSL_VERSION } from './query/types'
+import { normalizeNumberWords } from './numbers'
 import { FALTAM_VIAGENS_POR_APP } from './driverAdvice'
 
 /** Janela padrão do "meu normal": um mês corrido de trabalho. */
@@ -155,7 +156,10 @@ export function rodandoNoPrejuizo(s: AppState, today = todayISO(), pergunta = 'p
   const sobra = receita - gasto
   const fixos = s.settings.fixedMonthlyCosts || 0
   const comFixos = sobra - fixos
-  const base = `Este mês as corridas renderam ${fmtBRL(receita)} e o carro custou ${fmtBRL(gasto)} em gastos registrados (combustível, manutenção, pedágio e estacionamento) — ${sobra >= 0 ? `sobram ${fmtBRL(sobra)}` : `faltam ${fmtBRL(-sobra)}`} (dado real, ${amostra(ds)}).`
+  const base = `Este mês as corridas renderam ${fmtBRL(receita)} e o carro custou ${fmtBRL(gasto)} em gastos registrados (combustível, manutenção, pedágio, estacionamento e aluguel do veículo) — ${sobra >= 0 ? `sobram ${fmtBRL(sobra)}` : `faltam ${fmtBRL(-sobra)}`} (dado real, ${amostra(ds)}).`
+  const aluguelRegistrado = s.transactions.some(t => t.type === 'expense' && t.category === 'aluguel-veiculo'
+    && t.date >= inicio && t.date <= today)
+  if (aluguelRegistrado && fixos > 0) return `${base}\n\nCustos fixos configurados: ${fmtBRL(fixos)} por mês. Confira se já incluem o aluguel antes de somar.`
   const fixo = fixos > 0
     ? `\n\nContando os custos fixos que você configurou pelo mês inteiro (${fmtBRL(fixos)}), ${comFixos >= 0 ? `ainda sobram ${fmtBRL(comFixos)}` : `faltam ${fmtBRL(-comFixos)} para cobri-los`}.`
     : '\n\nCustos fixos do carro (seguro, IPVA, parcela) não estão configurados em Veículo — se existirem, saem dessa sobra.'
@@ -381,8 +385,8 @@ const APP_GAP = /^(?:qual|quanto)\s+(?:(?:foi|e)\s+)?a\s+diferenca\b|^quanto\s+(
 const APP_ORDER = /^(?:(?:a|o)\s+)?(?:uber|99|in\s*drive[r]?|i\s*food|rappi)\s+(?:me\s+)?(?:paga|pagou|rende|rendeu)\s+(mais|menos)\s+(?:do\s+)?que\b/
 
 export function compareRideApps(state: AppState, input: string, today: string): string | undefined {
-  if (!isDriver(state.settings)) return undefined
-  const t = normalizeName(input).trim()
+  if (!isDriver(state.settings) || !/\b(?:uber|99|noventa|in\s*drive[r]?|i\s*food|rappi|apps?|aplicativos?|plataformas?)\b/i.test(input)) return undefined
+  const t = normalizeName(normalizeNumberWords(input).text).trim()
   if (/\b(?:gastei|paguei|quanto\s+custa|sem\s+contar|somando|juntas?|exceto|acima|abaixo|comparad[oa]\s+(?:com|a))\b/.test(t)
     || /[,;]\s*(?:eu\s+)?(?:recebi|ganhei|trabalhei|rodei|abasteci)\b/.test(t)) return undefined
   const names = [...new Set([...t.matchAll(NAMED_RIDE_APPS)].flatMap(m => {
@@ -393,14 +397,26 @@ export function compareRideApps(state: AppState, input: string, today: string): 
   const ranking = APP_RANKING.test(t)
   const gap = names.length === 2 && APP_GAP.test(t)
   const direction = names.length === 2 ? t.match(APP_ORDER)?.[1] : undefined
-  if (!ranking && !gap && !direction && !(names.length > 1 && APP_COMPARISON.test(t))) return undefined
+  const shorthand = /r\$\s*\/\s*(h|hora|km|viagem|corrida)\b/
+  const unit = t.match(/\bpor\s+(hora|km|quilometro|distancia|viagem|corrida)\b/)?.[1] || t.match(shorthand)?.[1]
+  const metric = unit === 'h' ? 'hora' : unit === 'distancia' ? 'km' : unit
+  const platform99 = /\b(?:da|na|pela|via|app|aplicativo)\s+99\b|\b99\s+(?:e|ou|versus|vs|contra)\b/.test(t)
+  const appScope = names.some(name => name !== '99') || platform99
+    || /\b(?:por|em cada|de cada)\s+(?:app|aplicativo|plataforma)s?\b/.test(t)
+  const namedRate = metric && appScope && (shorthand.test(t)
+    || /^(?:e\s+)?(?:quanto|qual|quais|ganho|receita|faturamento|lucro|valor|media|rendimento)\b/.test(t))
+  if (appScope && /\b(?:lucro|prejuizo|resultado\s+liquido)\b/.test(t)
+    && (/^(?:e\s+)?(?:quanto|qual|compara|compare|lucro|prejuizo)\b/.test(t) || t.endsWith('?'))) {
+    return 'Para calcular o lucro por plataforma, preciso dos custos de cada app. O histórico guarda os custos em conjunto. Posso consultar o total recebido de cada plataforma.'
+  }
+  if (!ranking && !gap && !direction && !namedRate && !(names.length > 1 && APP_COMPARISON.test(t))) return undefined
   const saidPeriod = parsePeriod(t, today)?.period
   if (!saidPeriod && /\b(?:ultima\s+quinzena|ultimos\s+meses)\b/.test(t)) return undefined
-  const metric = t.match(/\bpor\s+(hora|km|quilometro|viagem|corrida)\b/)?.[1]
   if (metric) {
     if (metric === 'viagem' || metric === 'corrida') return FALTAM_VIAGENS_POR_APP
-    const base = metric === 'hora' ? 'as horas de trabalho' : 'os quilômetros rodados'
-    return `O app guarda ${base} por dia. Para comparar quanto cada plataforma paga por ${metric === 'hora' ? 'hora' : 'km'}, precisaria desses dados separados por plataforma.`
+    const measure = metric === 'hora' ? 'horas' : 'quilômetros'
+    if (ranking) return `O app guarda os dados de ${measure} por dia. Para comparar quanto cada app paga por ${metric === 'hora' ? 'hora' : 'km'}, preciso desses dados separados por plataforma.`
+    return `Não separo ${measure} por plataforma. O histórico guarda essas medidas para o dia inteiro. Posso consultar o total recebido de cada plataforma.`
   }
   const advice = /\b(?:vale\s+a\s+pena|compensa|melhor)\b/.test(t)
   const period = saidPeriod || (ranking || advice ? {

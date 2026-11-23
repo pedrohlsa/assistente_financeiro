@@ -5,6 +5,7 @@
 // trecho é analisado separadamente e carrega o próprio veredito — é isso que
 // permite dizer "entendi esta parte, não entendi aquela" em vez de chutar.
 
+import { expandDriverReport } from './semantic/driverDay'
 import type { ParsedAction } from '../models/types'
 import type { AssistantConfidence, AssistantIntent, FinancialEvent } from './contracts'
 import { guessCategory } from '../data/categories'
@@ -1425,7 +1426,7 @@ export function analyzeMessage(
 ): MessageAnalysis {
   const today = opts?.today || todayISO()
   // "Meu 13º caiu 1600": o 13 é o NOME do salário extra, não R$ 13,00.
-  const original = partesDoDia(totalComDoisPontos(abastecimentosRepetidos(valorPorCorrida(marcoDaRevisao(tanqueCheio(contagemDeItens(vendaPorUnidade(voltaSemUnidade(withoutPaymentBalanceContext(somaEscrita(input.trim())
+  const original = partesDoDia(totalComDoisPontos(abastecimentosRepetidos(valorPorCorrida(marcoDaRevisao(tanqueCheio(contagemDeItens(vendaPorUnidade(voltaSemUnidade(withoutPaymentBalanceContext(somaEscrita(opts?.driver ? expandDriverReport(input.trim(), today) : input.trim())
     .replace(DECIMO_TERCEIRO, 'décimo terceiro').replace(GIRIA_DE_COMBUSTIVEL, 'gasolina').replace(PAGO_NO_DEBITO, 'paguei $1')))))))))))
   // Números por extenso viram algarismos ANTES dos regex, para reaproveitar
   // todo o parser já testado em vez de duplicá-lo.
