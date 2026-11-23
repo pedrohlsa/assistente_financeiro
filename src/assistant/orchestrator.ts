@@ -1053,6 +1053,13 @@ function semSomaDasPartes(candidates: AssistantCandidateAction[], today: string)
 function acrescimoAProposta(pending: AssistantCandidateAction[], mensagem: string): string | null {
   const relato = mensagem.trim().match(/^(?:e\s+(?:tamb[ée]m\s+)?|tamb[ée]m\s+)(.+)$/i)?.[1]
   if (relato && looksPast(relato) && !looksLikeQuestion(relato)) return relato
+  // "Foram 14 corridas" com a receita do dia na tela e sem jornada: a medida
+  // completa o dia. Substituía a proposta e a receita sumia.
+  const medida = mensagem.trim().match(/^(?:(?:e|foram|foi|s[ãa]o)\s+)?(\d+(?:[.,]\d+)?)\s*(km|quil[oô]metros?|h|hrs?|horas?|corridas?|viagens?)\s*[.!]*$/i)
+  if (medida && !pending.some(p => p.action.kind === 'work') && pending.some(p => p.action.kind === 'income' && (p.action as any).category === 'corridas')) {
+    const u = medida[2].toLowerCase()
+    return /^(?:km|quil)/.test(u) ? `rodei ${medida[1]} km` : /^(?:corrida|viage)/.test(u) ? `fiz ${medida[1]} corridas` : `trabalhei ${medida[1]} horas`
+  }
   const tipos = new Set(pending.map(p => p.action.kind).filter(k => k === 'expense' || k === 'income'))
   if (tipos.size !== 1) return null
   // "Ontem fiz 280" → "E HOJE 320" (ou "e 320 ontem"): outro dia, mesmo tipo

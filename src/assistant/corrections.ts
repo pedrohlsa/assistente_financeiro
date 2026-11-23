@@ -423,6 +423,25 @@ export function parseCorrection(
   const { text: norm } = normalizeNumberWords(message)
   const t = norm.toLowerCase()
   const plan: CorrectionPlan = { remove: [], edits: [], cancelAll: false, summary: [] }
+  // "Foram 180 km", "não, foram 10 horas", "foram 14 corridas" com a jornada na
+  // tela: a MEDIDA muda, o resto da proposta fica. Caía na ajuda, ou trocava a
+  // proposta inteira por um trabalho novo e a receita sumia.
+  const medida = t.match(/^\s*(?:n[ãa]o[\s,]+)?(?:(?:na\s+(?:real|verdade)|ops|ou\s+melhor)[\s,]+)?(?:foram|foi|era|eram|s[ãa]o)?\s*(\d+(?:[.,]\d+)?)\s*(km|quil[oô]metros?|h|hrs?|horas?|corridas?|viagens?)\s*(?:e\s+n[ãa]o\s+\d+(?:[.,]\d+)?\s*\S*)?\s*[.!]*\s*$/i)
+  const trabalhos = pending.filter(p => p.action.kind === 'work')
+  if (medida && trabalhos.length === 1) {
+    const unidade = medida[2].toLowerCase()
+    const campo = /^(?:km|quil)/.test(unidade) ? 'km' : /^(?:corrida|viage)/.test(unidade) ? 'trips' : 'hours'
+    const valor = parseMoney(medida[1])
+    if (valor > 0 && (campo !== 'trips' || Number.isInteger(valor))) {
+      const alvo = trabalhos[0]
+      const antes = (alvo.action as any)[campo]
+      const nome = campo === 'km' ? 'a distância' : campo === 'trips' ? 'as viagens' : 'as horas'
+      const fmt = (v: number) => campo === 'km' ? `${v} km` : campo === 'trips' ? `${v} ${v === 1 ? 'viagem' : 'viagens'}` : `${v}h`
+      plan.edits.push({ id: alvo.id, field: campo, value: valor, was: antes })
+      plan.summary.push(antes ? `Troquei ${nome} de ${fmt(antes)} para ${fmt(valor)}.` : `Acrescentei ${fmt(valor)} ao trabalho.`)
+      return plan
+    }
+  }
   if (parseClockCorrection(message, pending, today, plan)) return plan
   const contrasted = parseContrastCorrection(norm, pending, caps, today, plan)
   if (contrasted) return contrasted

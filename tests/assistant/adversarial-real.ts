@@ -10344,6 +10344,29 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && JSON.stringify(resumo(troca)) === JSON.stringify(['income:280:Uber', 'income:150:99', 'fuel:80:'])))
   }
 
+  // ---- UM-: corrigir a medida da jornada sem perder o dinheiro --------------
+  {
+    const vazio = buildState({ profile: 'driver', balance: 500 })
+    const dois = async (primeiro: string, segundo: string) => {
+      const p = await orchestrate({ state: vazio, message: primeiro, today: TODAY, remoteEnabled: false })
+      return orchestrate({ state: vazio, message: segundo, today: TODAY, remoteEnabled: false, pending: p.response.actions })
+    }
+    const resumo = (r: Awaited<ReturnType<typeof orchestrate>>) => r.response.actions.map(c => {
+      const a: any = c.action
+      return a.kind === 'work' ? `work:${a.km ?? ''}/${a.hours ?? ''}/${a.trips ?? ''}` : `${a.kind}:${a.amount}`
+    }).sort()
+    const [km, horas, corridas, soReceita] = await Promise.all([
+      dois('fiz 280 e rodei 150km', 'foram 180 km'), dois('fiz 280 em 9 horas', 'nao, foram 10 horas'),
+      dois('fiz 12 corridas e 300 reais', 'foram 14 corridas'), dois('fiz 300', 'foram 14 corridas'),
+    ])
+    out.push(result('UM-medida-da-jornada-corrigida', [km, horas, corridas, soReceita].map(resumo),
+      'troca km, horas e viagens mantendo a receita; sem jornada, acrescenta',
+      JSON.stringify(resumo(km)) === JSON.stringify(['income:280', 'work:180//'])
+      && JSON.stringify(resumo(horas)) === JSON.stringify(['income:280', 'work:/10/'])
+      && JSON.stringify(resumo(corridas)) === JSON.stringify(['income:300', 'work://14'])
+      && JSON.stringify(resumo(soReceita)) === JSON.stringify(['income:300', 'work://14'])))
+  }
+
   return out
 }
 
