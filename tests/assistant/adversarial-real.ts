@@ -10331,6 +10331,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && esqueci.response.actions.some(c => (c.action as any).description === 'Uber')))
   }
 
+  // ---- UL-: a 99 citada pelo nome na correção da proposta ------------------
+  {
+    const vazio = buildState({ profile: 'driver', balance: 500 })
+    const proposta = await orchestrate({ state: vazio, message: 'fiz 280 na uber, 120 na 99 e abasteci 80', today: TODAY, remoteEnabled: false })
+    const pending = proposta.response.actions
+    const [tira, troca] = await Promise.all(['tira a 99', 'a da 99 foi 150'].map(message =>
+      orchestrate({ state: vazio, message, today: TODAY, remoteEnabled: false, pending })))
+    const resumo = (r: Awaited<ReturnType<typeof orchestrate>>) => r.response.actions.map(c => `${c.action.kind}:${(c.action as any).amount}:${(c.action as any).description || ''}`)
+    out.push(result('UL-correcao-pela-99', [resumo(tira), resumo(troca)], 'tira só a 99; troca só o valor da 99',
+      JSON.stringify(resumo(tira)) === JSON.stringify(['income:280:Uber', 'fuel:80:'])
+      && JSON.stringify(resumo(troca)) === JSON.stringify(['income:280:Uber', 'income:150:99', 'fuel:80:'])))
+  }
+
   return out
 }
 

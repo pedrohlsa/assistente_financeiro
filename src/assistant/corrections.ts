@@ -86,6 +86,7 @@ function resolveTarget(
   {
     const hits = pending.filter(p => {
       const nome = normalizeName(String((p.action as any).description || (p.action as any).origin || ''))
+      if (nome === '99') return new RegExp(`\\b${APP_99}\\b`).test(t)
       return nome.length >= 3 && new RegExp(`\\b${nome.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(t)
     })
     if (hits.length === 1) return { id: hits[0].id }
@@ -128,10 +129,18 @@ const JUST_A_PLAN = /^(?:(?:nao|n)\s*,?\s*)?(?:(?:(?:isso\s+tudo\s+)?(?:foi|era)
 const DENIED_EVENT = new RegExp(String.raw`^(?:eu\s+|ainda\s+){0,2}(?:nao|nem|n)\s*,?\s*(?:eu\s+)?(${[...DENIED_KINDS.keys()].join('|')})\b\s*(.*?)\s*[.!]*$`)
 const EXPLICIT_REFERENCE = /^(?:nada\s+)?(?:na|no|nas|nos|em|de|da|do|com|por)\s+(.+)$/
 
+/**
+ * "A da 99 foi 150", "tira a 99": o nome da plataforma é um número, e o
+ * leitor de correção o tomava por valor — a proposta inteira era trocada por
+ * uma despesa de R$ 150. Com uma receita da 99 na tela, o nome vira um
+ * marcador antes da leitura.
+ */
+const APP_99 = 'appzz'
+
 function matchesReference(action: ParsedAction, reference: string): boolean {
   const details = [('description' in action && action.description), ('origin' in action && action.origin),
     ('item' in action && action.item), ('cardName' in action && action.cardName)]
-  return details.some(value => value && normalizeName(value) === reference)
+  return details.some(value => value && (normalizeName(value) === reference || (normalizeName(value) === '99' && reference === APP_99)))
     || (action.kind === 'fuel' && /^(?:gasolina|etanol|diesel|gnv|combustivel)$/.test(reference))
 }
 
@@ -404,6 +413,9 @@ export function parseCorrection(
   today = todayISO(),
 ): CorrectionPlan | null {
   if (!pending.length) return null
+  if (pending.some(p => ['description', 'origin'].some(k => normalizeName((p.action as any)[k] || '') === '99'))) {
+    message = message.replace(/(^|\b(?:d|n)?[ao]s?\s+)99(?![\d.,]|\s*(?:reais|real|contos?|pila)\b)/gi, `$1${APP_99}`)
+  }
   // Pergunta não é conserto: "o que tem na fatura do Inter?" com o pagamento
   // do Nubank na tela TROCAVA o cartão da proposta. Quem pergunta quer saber;
   // a proposta fica como está e a pergunta segue para o roteador.
