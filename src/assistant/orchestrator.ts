@@ -23,7 +23,7 @@ import { PEDE_APAGAR, analyzeMessage, contestsProposal, datesMentioned, declares
 import { categoryDilemma, outOfPatternWarning, withLearnedCategory, withLearnedSpelling } from './learning'
 import { explainRequest } from './explain'
 import { answerConversation, isFocusFresh, looksLikeFollowUp } from './conversation'
-import { compareRideApps } from './driverInsights'
+import { compareRideApps, PEDE_MINIMO_POR_KM } from './driverInsights'
 import { buildRemoteConversation } from './conversation/remoteContext'
 import type { RemoteConversationContext, RemoteTurnRelation } from './conversation/remoteContext'
 import { buildTurnPlan, hasBlock } from './semantic/turn'
@@ -1660,6 +1660,18 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (nominal) input = { ...input, message: nominal }
   const caps = buildCapabilities(input.state)
   const today = input.today || todayISO()
+  // "Meu carro faz 10 km por litro e a gasolina tá 6 reais, quanto cobrar por
+  // km?": o consumo e o preço ditos são os DADOS da pergunta. Cortada em
+  // cláusulas, a pergunta chegava sozinha e a resposta ignorava os dois — ou a
+  // frase virava "isso parece um orçamento".
+  if (!input.pendingClarification && !input.draft && caps.isDriver) {
+    const q = normalizeQuestion(input.message)
+    if (PEDE_MINIMO_POR_KM.test(q) && /\d\s*km\s*(?:por\s*)?(?:l\b|litro)/.test(q) && /\d\s*(?:reais\s*)?(?:o|por|cada|\/)\s*(?:o\s*)?litro/.test(q)) {
+      const reply = askAssistant(input.state, input.message, { today, message: input.message }).text
+      return { draft: null, keepPending: true, focus: input.focus,
+        response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply } }
+    }
+  }
   const pendingPreview = previewPendingQuery(input, today)
   if (pendingPreview) return pendingPreview
   if (!input.pendingClarification && !input.draft) {

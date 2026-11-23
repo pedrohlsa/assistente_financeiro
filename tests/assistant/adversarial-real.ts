@@ -9933,6 +9933,61 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && doisCinquenta.actions.some((a: any) => a.kind === 'expense' && a.amount === 50)))
   }
 
+  // ---- TW-: custo por km, mínimo da corrida e meta do mês -------------------
+  {
+    const hoje = todayISO()
+    const moto = motoristaRico(hoje)
+    const kc = kmCost(moto)
+    // O exemplo da própria tela de ajuda respondia "não tenho lançamento".
+    const minimos = await Promise.all(['qual o valor minimo de corrida que vale a pena?', 'qual o minimo por km pra valer a pena', 'quanto devo cobrar por km?'].map(m => turnoHoje(moto, m)))
+    const minimo = Math.round(kc.minRecommended * 100) / 100
+    out.push(result('TW-minimo-por-km-na-regua-do-veiculo', minimos.map(r => r.reply), `mínimo ${fmtBRL(minimo)}/km, o mesmo da tela Veículo`,
+      minimos.every(r => r.reply.includes(`no mínimo ${fmtBRL(minimo)}/km`) && /^Seu custo por km/.test(r.reply)
+        && r.reply.includes(fmtBRL(Math.round(minimo * 10 * 100) / 100)) && !/lançamento que se encaixe|Gasto por km/.test(r.reply))))
+    const semCusto = await turnoHoje(buildState({ profile: 'driver', balance: 500 }), 'qual o valor minimo de corrida que vale a pena?')
+    out.push(result('TW-minimo-sem-custo-cala', semCusto.reply, 'sem custo conhecido, não inventa R$ 0,50/km',
+      /Ainda não sei o seu custo por km/.test(semCusto.reply) && !/R\$/.test(semCusto.reply)))
+    // Consumo e preço ditos na frase são os dados da conta, antes ou depois da pergunta.
+    const informados = await Promise.all([
+      'meu carro faz 10 km por litro e a gasolina ta 6 reais o litro, quanto cobrar por km?',
+      'quanto cobrar por km se meu carro faz 10 km por litro e a gasolina ta 6 reais o litro?',
+    ].map(m => turnoHoje(moto, m)))
+    out.push(result('TW-minimo-com-consumo-e-preco-ditos', informados.map(r => r.reply), 'combustível R$ 0,60/km na conta',
+      informados.every(r => /^Com o consumo e preço que você passou/.test(r.reply) && r.reply.includes(`combustível ${fmtBRL(0.6)}`) && !/orçamento/.test(r.reply))))
+    // "Quanto tá custando meu km rodado" é custo, não o total de km.
+    const custando = await turnoHoje(moto, 'quanto ta custando meu km rodado')
+    out.push(result('TW-custo-do-km-rodado', custando.reply, 'custo estimado por km',
+      /^O custo estimado do veículo é/.test(custando.reply) && !/Km rodados/.test(custando.reply)))
+    // Viagem, km e hora por dia não são dinheiro.
+    const porDia = await Promise.all(['quantas corridas faço por dia', 'quantos km rodo por dia', 'quantas horas trabalho por dia'].map(m => turnoHoje(moto, m)))
+    out.push(result('TW-quantidade-por-dia-sem-reais', porDia.map(r => r.reply), 'N por dia, N km por dia, Nh por dia',
+      porDia.every(r => !/R\$/.test(r.reply.split('\n')[0])) && /\d por dia/.test(porDia[0].reply)
+      && / km por dia/.test(porDia[1].reply) && /h por dia/.test(porDia[2].reply)))
+    // Carro hoje/ontem: o dia pedido, não um filtro de texto "o carro".
+    const [carroHoje, carroOntem] = await Promise.all(['quanto gastei com o carro hoje', 'quanto gastei com o carro ontem'].map(m => turnoHoje(moto, m)))
+    out.push(result('TW-custo-do-carro-no-dia', [carroHoje.reply, carroOntem.reply], 'hoje e ontem, sem filtro de texto',
+      /^Hoje o veículo custou|^Não há gasto do veículo registrado hoje/.test(carroHoje.reply)
+      && /^Ontem o veículo custou|^Não há gasto do veículo registrado ontem/.test(carroOntem.reply)
+      && ![carroHoje, carroOntem].some(r => /lançamento que se encaixe|conta de semana/.test(r.reply))))
+
+    // Meta do MÊS: objetivo de lucro contra o resultado e as contas que faltam.
+    const meta = buildState({ profile: 'driver', balance: 500 })
+    meta.settings.monthlyProfitTarget = 4000
+    const fim = (() => { const d = fromISO(hoje); return toISOdate(new Date(d.getFullYear(), d.getMonth() + 1, 0)) })()
+    const restantes = Math.round((fromISO(fim).getTime() - fromISO(hoje).getTime()) / 86400000) + 1
+    const g = dailyGoalCalc(meta)
+    const [falta, porDiaMes, dias] = await Promise.all(['quanto falta pra bater a meta do mes', 'quanto preciso rodar por dia pra fechar o mes', 'quantos dias faltam pra acabar o mes'].map(m => turnoHoje(meta, m)))
+    const esperadoPorDia = Math.round(4000 / Math.max(g.workDaysLeft, 1) * 100) / 100
+    out.push(result('TW-meta-do-mes', [falta.reply, porDiaMes.reply, dias.reply], 'faltam R$ 4.000; por dia = falta ÷ dias de trabalho; dias corridos e de trabalho',
+      falta.reply.startsWith(`Faltam ${fmtBRL(4000)} para o objetivo do mês`)
+      && porDiaMes.reply.startsWith(`Nos ${Math.max(g.workDaysLeft, 1)} ${g.workDaysLeft === 1 ? 'dia' : 'dias'} de trabalho que restam, dá ${fmtBRL(esperadoPorDia)} de lucro por dia`)
+      && dias.reply.startsWith(`Faltam ${restantes} ${restantes === 1 ? 'dia' : 'dias'} para o fim do mês`)
+      && ![falta, porDiaMes, dias].some(r => /meta de hoje|lançamento que se encaixe/.test(r.reply))))
+    const semObjetivo = await turnoHoje(buildState({ profile: 'driver', balance: 500 }), 'quanto falta pra bater a meta do mes')
+    out.push(result('TW-meta-do-mes-sem-objetivo', semObjetivo.reply, 'diz que não há objetivo',
+      /ainda não definiu o objetivo de lucro do mês/.test(semObjetivo.reply) && !/R\$/.test(semObjetivo.reply)))
+  }
+
   return out
 }
 

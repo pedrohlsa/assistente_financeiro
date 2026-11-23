@@ -27,6 +27,12 @@ export function formatValue(v: number, unit: FactUnit): string {
     case 'per-hour': return `${fmtBRL(v)}/hora`
     case 'per-trip': return `${fmtBRL(v)} por viagem`
     case 'per-day': return `${fmtBRL(v)} por dia`
+    // Viagem, km, hora e litro por dia não são dinheiro: "R$ 13,20 por dia"
+    // para quem perguntou quantas corridas faz por dia.
+    case 'count-per-day': return `${fmtNum(v, 1)} por dia`
+    case 'km-per-day': return `${fmtNum(v, 0)} km por dia`
+    case 'hours-per-day': return `${fmtNum(v, 1)}h por dia`
+    case 'liters-per-day': return `${fmtNum(v, 1)} L por dia`
     default: return fmtBRL(v)
   }
 }

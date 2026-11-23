@@ -165,6 +165,9 @@ export function rodandoNoPrejuizo(s: AppState, today = todayISO(), pergunta = 'p
   return `${prejuizo === perguntaPeloPrejuizo ? 'Sim' : 'Não'}. ${base}${fixo}${nota}`
 }
 
+/** "Qual o valor mínimo de corrida que vale a pena?", "quanto devo cobrar por km": texto sem acento. */
+export const PEDE_MINIMO_POR_KM = /valor minimo|minimo (?:de|da|pra|para|por|que)|sair lucrando|quanto (?:eu\s+)?(?:devo\s+|tenho\s+que\s+|preciso\s+)?cobrar|devo aceitar|vale a pena aceitar|aceitar\s+a\s+partir\s+de\s+quanto/
+
 export const COMBUSTIVEL_POR_DIA_TRABALHADO = /^quanto\s+(?:eu\s+)?(?:costumo\s+gastar|gasto)\s+(?:de|com)\s+combustivel\s+por\s+dia\s+trabalhado\s*[?.!]*$/
 const RE_TIPICO = /\b(?:costum\w+|tipic\w+|normal|em m[ée]dia|m[ée]dia)\b[^?]*\b(?:por dia|no dia|dia|dias)\b|\b(?:quanto|qual)[^?]*\b(?:costum\w+|tipic\w+)\b/
 const RE_DIAS_FORTES = /\b(?:dias?|dia)\b[^?]*\b(?:mais fort\w+|melhor\w*|que rende\w*|mais rende\w*|mais forte)\b|\bmelhores? dias?\b|\bpiores? dias?\b|\bdias? (?:mais )?frac\w+\b/

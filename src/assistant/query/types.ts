@@ -260,6 +260,7 @@ export interface QueryGroupResult {
 }
 
 export type FactUnit = 'BRL' | 'count' | 'km' | 'hours' | 'liters' | 'pct' | 'per-km' | 'per-hour' | 'per-trip' | 'per-day'
+  | 'count-per-day' | 'km-per-day' | 'hours-per-day' | 'liters-per-day'
 
 /**
  * Um número pronto, com tudo que é preciso para justificá-lo. É o átomo da

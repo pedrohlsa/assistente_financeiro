@@ -33,7 +33,7 @@ import {
 } from '../assistant/cashQuestions'
 import type { PerguntaDeConta, PerguntaDeFatura, PlanoDeGuardar } from '../assistant/cashQuestions'
 import { COBRADO_SEM_PAGAR, CORRIDA_CANCELADA, describeAction, parseNaturalFull, REAJUSTE, SAQUE } from './nlp'
-import { answerFuelPrice, COMBUSTIVEL_POR_DIA_TRABALHADO, driverInsight } from '../assistant/driverInsights'
+import { answerFuelPrice, COMBUSTIVEL_POR_DIA_TRABALHADO, driverInsight, PEDE_MINIMO_POR_KM } from '../assistant/driverInsights'
 import { answerVehicleCost, answerVehicleMonthly } from '../assistant/vehicleCost'
 import { answerDrivingShift, perceivesDrivingFatigue, FALTAM_VIAGENS_POR_APP, PARE_PARA_DESCANSAR } from '../assistant/driverAdvice'
 import { answerRideOffer } from '../assistant/rideOffer'
@@ -610,6 +610,47 @@ export function respostaDeCorridasAMais(s: AppState, input: string): string | nu
   if (falta <= 0.009) return `Você já bateu: ${conta}. Mais ${fmtBRL(extra)} fica acima da meta.\n\n${ressalva}`
   if (extra >= falta) return `Sim: faltam ${fmtBRL(falta)} e ${dito} — ${extra - falta > 0.009 ? `sobram ${fmtBRL(round2(extra - falta))} acima da meta` : 'fecha a meta na conta exata'}. Base: ${conta}.\n\n${ressalva}`
   return `Ainda não: faltam ${fmtBRL(falta)} e ${dito} — ficariam faltando ${fmtBRL(round2(falta - extra))}. Base: ${conta}.\n\n${ressalva}`
+}
+
+/**
+ * A meta do MÊS do motorista: o objetivo de lucro contra o resultado
+ * realizado, mais as contas fixas que ainda vencem neste mês. "Quanto falta
+ * pra bater a meta do mês" respondia a meta de HOJE; "quanto preciso rodar
+ * por dia pra fechar o mês" e "quantos dias faltam" caíam num filtro de texto.
+ * Por dia, a régua é a MESMA meta diária da Home — esta resposta não cria
+ * um segundo número para a mesma pergunta.
+ */
+export function respostaDaMetaDoMes(s: AppState, t: string, today: string): string | null {
+  const diasQueFaltam = /\bquantos\s+dias\s+(?:(?:de\s+trabalho|uteis)\s+)?(?:faltam|falta|restam|tem)\b[^?]*\b(?:mes|acabar|fim|fechar)\b/.test(t)
+  const doMes = /\bmeta\s+(?:do|deste|desse|pro|para\s+o)\s+mes\b|\bobjetivo\s+(?:de\s+lucro\s+)?(?:do|deste|desse)\s+mes\b|\b(?:fechar|bater)\s+o\s+mes\b/.test(t)
+  if (!diasQueFaltam && !doMes) return null
+  const d = fromISO(today)
+  const fimDoMes = toISO(new Date(d.getFullYear(), d.getMonth() + 1, 0))
+  const corridos = Math.round((fromISO(fimDoMes).getTime() - d.getTime()) / 86400000) + 1
+  const g = dailyGoal(s)
+  if (diasQueFaltam && !doMes) {
+    return `Faltam ${corridos} ${corridos === 1 ? 'dia' : 'dias'} para o fim do mês, contando hoje — ${g.workDaysLeft} ${g.workDaysLeft === 1 ? 'é dia' : 'são dias'} de trabalho na sua configuração.`
+  }
+  const alvo = s.settings.monthlyProfitTarget || 0
+  if (!(alvo > 0)) {
+    return 'Você ainda não definiu o objetivo de lucro do mês. Defina em Configurações que eu passo a dizer quanto falta e quanto rodar por dia.'
+  }
+  const inicio = `${today.slice(0, 7)}-01`
+  const resultado = round2(periodStats(s, inicio, today).profit)
+  const contas = upcomingBills(s, corridos - 1, today).filter(b => b.date <= fimDoMes)
+  const aVencer = round2(contas.reduce((a, b) => a + b.amount, 0))
+  const falta = round2(alvo - resultado + aVencer)
+  const base = `Objetivo de lucro do mês: ${fmtBRL(alvo)}. Resultado até agora: ${fmtBRL(resultado)} (dado real)`
+    + (aVencer > 0 ? `, e ainda vencem ${fmtBRL(aVencer)} em contas fixas até ${fromISO(fimDoMes).toLocaleDateString('pt-BR')}` : '') + '.'
+  if (falta <= 0.009) return `Você já bateu o objetivo do mês. ${base}\n\nO que vier daqui para frente é lucro acima do objetivo.`
+  const dias = Math.max(g.workDaysLeft, 1)
+  const porDia = round2(falta / dias)
+  // A meta diária da Home reparte o objetivo pelo mês INTEIRO; esta conta usa
+  // só o que falta e os dias que restam. Os dois aparecem, com o porquê.
+  const contaPorDia = `Nos ${dias} ${dias === 1 ? 'dia' : 'dias'} de trabalho que restam, dá ${fmtBRL(porDia)} de lucro por dia.`
+    + (Math.abs(porDia - g.total) >= 0.01 ? ` A meta diária da tela inicial (${fmtBRL(g.total)}) reparte o objetivo pelo mês inteiro e soma margem e déficits; esta conta usa só o que falta e os dias que restam.` : '')
+  if (/\bpor\s+dia\b|\bao\s+dia\b|\bdiari[oa]\b/.test(t)) return `${contaPorDia}\n\nFaltam ${fmtBRL(falta)} para o objetivo do mês. ${base}`
+  return `Faltam ${fmtBRL(falta)} para o objetivo do mês. ${base}\n\n${contaPorDia}`
 }
 
 /** Sem objetivo configurado, a meta diária é zero — "bateu a meta de R$ 0,00" é número certo com cara de mentira. */
@@ -1234,6 +1275,8 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
         + (w.profitPerHour > 0 ? `, cerca de ${fmtNum(falta / w.profitPerHour)}h no seu ritmo de ${fmtBRL(w.profitPerHour)}/hora.` : '.')
         + ' Se parar, o que faltar entra na meta dos próximos dias. A decisão é sua — descanso também conta.' }
   }
+  const doMes = driverMode ? respostaDaMetaDoMes(s, t, today) : null
+  if (doMes) return { text: doMes }
   const corridasAMais = respostaDeCorridasAMais(s, input)
   if (corridasAMais) return { text: corridasAMais }
 
@@ -1423,6 +1466,8 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   // Orçamento ou preço com valor, sem verbo de pagar: não é lançamento, e a
   // ajuda genérica fazia parecer que o app não entendeu nada.
   if (/\d/.test(t) && !/\b(?:paguei|gastei|comprei|torrei|quitei|acertei|fechei|fechamos)\b/.test(t)
+    // O preço do litro dito numa pergunta de quanto cobrar é DADO da conta.
+    && !(driverMode && PEDE_MINIMO_POR_KM.test(t))
     && (/or[çc]amento|cota[çc][ãa]o/.test(t) || /(?<![\wÀ-ÿ])(?:t[aá]|est[aá]|custa|custam|cobra|cobram)\s+(?:r\$\s*)?\d/.test(t))) {
     return { text: 'Isso parece um orçamento ou um preço, não um pagamento — não registrei nada. Quando você pagar, me diga, por exemplo, "paguei 500 no mecânico", que eu lanço.' }
   }
@@ -2058,7 +2103,7 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   }
 
   // "qual o valor mínimo de corrida / pra sair lucrando / quanto cobrar por km"
-  if (driverMode && /valor m[ií]nimo|m[ií]nimo (?:de|da|pra|para|por)|sair lucrando|quanto cobrar|devo aceitar|vale a pena aceitar/.test(t)) {
+  if (driverMode && PEDE_MINIMO_POR_KM.test(t)) {
     const kc = kmCost(s)
     // usa consumo e preço informados na própria frase, se houver
     const consM = t.match(/(\d+(?:[.,]\d+)?)(?:\s*\/\s*\d+)?\s*km\s*(?:por\s*)?(?:l\b|litro)/)
@@ -2069,11 +2114,21 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
       if (kml > 0 && price > 0) { fuelPerKm = price / kml; usouInformado = true }
     }
     const totalPerKm = fuelPerKm + kc.maintenancePerKm + kc.fixedPerKm
-    const min = Math.max(totalPerKm * 2, totalPerKm + 0.5)
-    const confort = Math.max(totalPerKm * 2.6, totalPerKm + 1)
+    // Sem custo nenhum, "aceite no mínimo R$ 0,50/km" era um número inventado.
+    if (!(totalPerKm > 0) && !(s.settings.minPerKm > 0)) {
+      return { text: 'Ainda não sei o seu custo por km, então não tenho como dizer o mínimo que paga a corrida.\n\n'
+        + 'Registre um abastecimento com litros e o km do hodômetro, ou preencha consumo e preço em Veículo — aí eu calculo o mínimo com os SEUS custos.' }
+    }
+    // A régua é a da tela Veículo (`kmCost`): o mínimo configurado pelo
+    // usuário, ou o custo × 2. A conta antiga (máximo entre ×2 e +R$ 0,50)
+    // dava outro número para a mesma pergunta.
+    // Em centavos antes de multiplicar: "mínimo R$ 0,96/km" e "10 km a partir
+    // de R$ 9,59" na mesma resposta pareciam conta errada.
+    const min = round2(usouInformado ? round2(totalPerKm) * 2 : kc.minRecommended)
+    const confort = round2(usouInformado ? round2(totalPerKm) * 2.6 : kc.comfort)
     return {
-      text: (usouInformado ? `Com o consumo e preço que você passou, ` : ``) +
-        `seu custo por km é de cerca de ${fmtBRL(totalPerKm)} (combustível ${fmtBRL(fuelPerKm)} + manutenção ${fmtBRL(kc.maintenancePerKm)} + fixos ${fmtBRL(kc.fixedPerKm)}).\n\n` +
+      text: (usouInformado ? `Com o consumo e preço que você passou, seu` : `Seu`) +
+        ` custo por km é de cerca de ${fmtBRL(totalPerKm)} (combustível ${fmtBRL(fuelPerKm)} + manutenção ${fmtBRL(kc.maintenancePerKm)} + fixos ${fmtBRL(kc.fixedPerKm)}).\n\n` +
         `Para sair lucrando, aceite no mínimo ${fmtBRL(min)}/km — o ideal é ${fmtBRL(confort)}/km.\n\n` +
         `Na prática: corrida de 5 km vale a partir de ${fmtBRL(min * 5)}; de 10 km, ${fmtBRL(min * 10)}.` +
         (usouInformado ? '' : `\n\nDica: registre um abastecimento com o km do hodômetro que eu calculo isso com o consumo real do seu carro.`),

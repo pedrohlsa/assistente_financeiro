@@ -513,7 +513,11 @@ function unidadeDe(plan: AssistantQueryPlan): FactUnit {
   if (plan.metric === 'per-km') return 'per-km'
   if (plan.metric === 'per-hour') return 'per-hour'
   if (plan.metric === 'per-trip') return 'per-trip'
-  if (plan.metric === 'per-day') return 'per-day'
+  if (plan.metric === 'per-day') {
+    const base = UNIDADE[plan.field || 'amount']
+    return base === 'count' ? 'count-per-day' : base === 'km' ? 'km-per-day' : base === 'hours' ? 'hours-per-day'
+      : base === 'liters' ? 'liters-per-day' : 'per-day'
+  }
   return UNIDADE[plan.field || 'amount'] || 'BRL'
 }
 

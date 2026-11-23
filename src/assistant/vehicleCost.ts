@@ -15,6 +15,8 @@ const CUSTO_VEICULO = [
   new RegExp(String.raw`^(?:qual\s+(?:e\s+)?(?:o\s+)?)?(?:(?:meu|o)\s+)?custo\s+(?:d[oa]\s+${VEICULO}\s+)?${POR_KM}(?:\s+d[oa]\s+${VEICULO})?$`),
   new RegExp(String.raw`^quanto\s+(?:sai\s+o\s+km|o\s+km\s+sai)(?:\s+d[oa]\s+${VEICULO})?$`),
   new RegExp(String.raw`^quanto\s+${EU}(?:gasto|gastando)\s+${POR_KM}(?:\s+(?:com|n)[oa]\s+${VEICULO})?$`),
+  // "Quanto tá custando meu km rodado": respondia o TOTAL de km rodados.
+  new RegExp(String.raw`^quanto\s+(?:(?:ta|esta|tah)\s+)?(?:me\s+)?(?:custa|custando|sai|saindo)\s+(?:o\s+|meu\s+|cada\s+)?(?:km|quilometro)(?:\s+rodado)?(?:\s+d[oa]\s+${VEICULO})?$`),
 ]
 
 export function answerVehicleCost(s: AppState, input: string, hoje = todayISO()): { text: string; explanation: string } | null {
@@ -80,7 +82,7 @@ const CUSTO_MENSAL = [
  * Sem ele a resposta é a janela de 30 dias; com ele, o período pedido — "quanto
  * gastei com o carro esse mês" devolvia os últimos 30 dias, outro número.
  */
-const PERIODO_DITO = /\s+(?:(?:n?esse|n?este|no)\s+mes(?:\s+passado)?|mes\s+passado|(?:n?essa|n?esta|na)\s+semana(?:\s+passada)?|semana\s+passada|(?:em|de|no\s+mes\s+de)\s+(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro))$/
+const PERIODO_DITO = /\s+(?:hoje|ontem|anteontem|(?:n?esse|n?este|no)\s+mes(?:\s+passado)?|mes\s+passado|(?:n?essa|n?esta|na)\s+semana(?:\s+passada)?|semana\s+passada|(?:em|de|no\s+mes\s+de)\s+(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro))$/
 
 function lerPergunta(input: string): { t: string; periodo?: string } {
   const t = normalizeName(input).replace(/[.!?]+$/, '').trim()
@@ -107,6 +109,7 @@ export function answerVehicleMonthly(s: AppState, input: string, hoje = todayISO
   const viagem = porCat('pedagio') + porCat('estacionamento')
   const realizado = combustivel + manutencao + viagem
   const fixos = s.settings.fixedMonthlyCosts || 0
+  if (realizado <= 0 && periodo && periodo.grain !== 'month') return `Não há gasto do veículo registrado ${rotulo}.`
   if (realizado <= 0 && fixos <= 0) {
     return `Ainda não tenho gasto do veículo registrado ${rotulo}. Registre abastecimentos e manutenções, ou configure os custos fixos (seguro, IPVA, parcela) em Veículo, que eu somo.`
   }
@@ -120,7 +123,7 @@ export function answerVehicleMonthly(s: AppState, input: string, hoje = todayISO
   // Mês fechado ou em curso: o fixo do mês soma inteiro. Semana: não cabe
   // somar um custo mensal a sete dias.
   if (periodo && periodo.grain !== 'month') {
-    if (fixos > 0) linhas.push('', `Os custos fixos configurados (${fmtBRL(fixos)} por mês) não entram numa conta de semana.`)
+    if (fixos > 0) linhas.push('', `Os custos fixos configurados (${fmtBRL(fixos)} por mês) não entram numa conta de ${periodo.grain === 'day' ? 'um dia' : 'semana'}.`)
     return linhas.join('\n')
   }
   linhas.push('', fixos > 0
