@@ -1255,6 +1255,8 @@ function matchCardName(text: string, compra = false): string | undefined {
   return undefined
 }
 
+/** Dinheiro que o motorista recebe além da corrida: gorjeta, bônus, promoção, taxas. */
+const EXTRA_DE_CORRIDA = String.raw`gorjeta|b[oô]nus|promo[cç][aã]o|incentivo|taxa\s+de\s+(?:cancelamento|limpeza|espera)`
 const WORK_KM = String.raw`(km|quil[oô]metros?|m|metros?)\b`
 /** Frase que relata o turno: só nela um "190km" solto é distância trabalhada. */
 const TURNO_DITO = /\b(?:rodei|rodando|trabalhei|corridas|viagens|horas?|turno|hj|hoje|fechei|faturei|encerrei)\b|\d\s*h\b/i
@@ -1614,7 +1616,9 @@ function parseClause(input: string): ParsedAction[] {
     const incRe = new RegExp(
       // "Caiu" é o verbo mais natural para salário e pagamento que chega na
       // conta — sem ele, "caiu 500 na conta hoje" não registrava nada.
-      String.raw`(?:\b(?:ganhei|recebi|faturei|lucrei|entrou|caiu|cairam|pingou|fiz)\s*(?:mais\s+)?|\bmais\s+)(?:r\$)?\s*${NUM}\s*${MOEDA}?(?:\s+(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(uber|99|indriver|corrida(?:\s+privada)?))?`,
+      // "O passageiro ME DEU 10 de gorjeta", "a Uber me deu 50 de bônus": o
+      // dinheiro veio para ele (regra 69). Caía na ajuda.
+      String.raw`(?:\b(?:ganhei|recebi|faturei|lucrei|entrou|caiu|cairam|pingou|fiz|me\s+(?:deu|deram|mandou|mandaram))\s*(?:mais\s+)?|\bmais\s+)(?:r\$)?\s*${NUM}\s*${MOEDA}?(?:\s+(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(uber|99|indriver|corrida(?:\s+privada)?))?`,
       'gi',
     )
     const prefixPlatform = text.match(INCOME_PLATFORM_PREFIX)
@@ -1628,14 +1632,21 @@ function parseClause(input: string): ParsedAction[] {
       if (/^mais\b/i.test(inc[0]) && /\b(?:gastei|paguei|comprei|torrei|coloquei|botei|abasteci|juntei|guardei|separei|depositei)\b/i.test(text.slice(0, at))) continue
       const afterAmount = text.slice(at + inc[0].length)
       if (MEASURE_AFTER_AMOUNT.test(afterAmount)) continue
-      const nearbyPlatform = afterAmount.match(/^\s*(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(uber|99|indriver|corrida(?:\s+privada)?)/i)
+      // "O carro me deu 200 de prejuízo" não é dinheiro que entrou.
+      if (/^me\s/i.test(inc[0]) && /^\s*(?:reais\s+)?de\s+(?:preju|despesa|gasto|multa|conta|trabalho|dor)/i.test(afterAmount)) continue
+      const nearbyPlatform = afterAmount.match(new RegExp(String.raw`^\s*(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(?:(?:${EXTRA_DE_CORRIDA})\s+(?:(?:d[ao]|n[ao]|pel[ao])\s+)?)?(uber|99|indriver|corrida(?:\s+privada)?)`, 'i'))
       const firstPlatform = prefixPlatform?.[0].length === at && !DISTINCT_INCOME_SOURCE.test(afterAmount) ? prefixPlatform[1] : undefined
       const platform = (inc[2] || nearbyPlatform?.[1] || firstPlatform || '').trim().toLowerCase().replace(/\s+/g, '')
+      // Gorjeta, bônus e taxas pagas ao motorista têm nome; sem plataforma, o
+      // nome vira a descrição. Com plataforma, ela manda: é o que separa o
+      // ganho por app.
+      const extra = text.slice(at).match(new RegExp(String.raw`^[^,;.!?]{0,40}?\bde\s+(${EXTRA_DE_CORRIDA})`, 'i'))?.[1]
       const description = platform === 'uber' ? 'Uber'
         : platform === '99' ? '99'
           : /^indriver?$/.test(platform) ? 'inDrive'
             : platform.includes('privada') ? 'Corrida privada'
-              : undefined
+              : extra ? sentenceCase(extra.toLowerCase().replace(/^bonus\b/, 'bônus').replace(/^promocao\b/, 'promoção'))
+                : undefined
       const context = platform || (VERBO_DE_PAGAR.test(text) ? janelaLocal(text, at, at + inc[0].trimEnd().length) : text)
       valoresLidos.add(posicaoDoValor(at, inc[1]))
       actions.push({

@@ -3021,7 +3021,10 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       temHoje
         ? /^Resultado hoje/.test(limpa(hojeOntem.reply)) && limpa(hojeOntem.reply).includes(brl(soma(hoje, hoje)))
           && (temOntem ? limpa(hojeOntem.reply).includes(brl(soma(ontem, ontem))) : /Ontem não há lançamentos/.test(hojeOntem.reply))
-        : /hoje/.test(hojeOntem.reply) && !/R\$/.test(hojeOntem.reply)))
+        // Sem lançamento hoje: diz isso, sem número para HOJE. O de ontem, que
+        // existe, é a outra metade da comparação e pode aparecer.
+        : /hoje/.test(hojeOntem.reply) && !new RegExp(`hoje[^.]*R\\$`).test(hojeOntem.reply)
+          && (!temOntem || limpa(hojeOntem.reply).includes(brl(soma(ontem, ontem))))))
     const gasolina = await turnoHoje(st, 'gasolina comparado com o mes passado')
     const inicioMes = `${hoje.slice(0, 8)}01`
     out.push(result('H-sujeito-sem-preposicao', gasolina.reply, 'gasto com gasolina, não o gasto total',
@@ -10046,6 +10049,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /^(?:Sim\.|Não\.|Dá, mas aperta: o mês fecha no vermelho\.) Se você gastar R\$\s600,00/.test(comPreco.reply) && !comPreco.actions.length
       && /^Seu saldo em conta é .*Quanto custa o pneu\?/.test(semPreco.reply)
       && /cadastrad[oa] em Manutenção|próxima troca/.test(quando.reply) && ![comPreco, semPreco].some(r => /Tenho dinheiro"|próxima troca/.test(r.reply))))
+  }
+
+  // ---- TZ-: gorjeta, bônus e comparações separadas ---------------------------
+  {
+    const hoje = todayISO()
+    const s = buildState({ profile: 'driver', balance: 500 })
+    const extras = await Promise.all([
+      'recebi 30 de gorjeta', 'passageiro me deu 10 de gorjeta', 'a uber me deu 50 de bonus', 'ganhei 80 de promoção da 99',
+      'cancelaram a corrida e recebi 5 de taxa de cancelamento', 'o carro me deu 200 de prejuizo',
+    ].map(m => turnoHoje(s, m)))
+    const lidas = extras.map(r => r.actions.map((a: any) => `${a.kind}:${a.amount}:${a.description || ''}`).join('|'))
+    out.push(result('TZ-gorjeta-bonus-e-taxas-do-motorista', lidas,
+      'receitas de corrida com o nome do extra ou a plataforma; "prejuízo" não é receita',
+      JSON.stringify(lidas.slice(0, 5)) === JSON.stringify(['income:30:Gorjeta', 'income:10:Gorjeta', 'income:50:Bônus', 'income:80:99', 'income:5:Taxa de cancelamento'])
+      && extras.slice(0, 5).every(r => (r.actions[0] as any)?.category === 'corridas') && !extras[5].actions.length))
+    // "Gastei MAIS de gasolina esse mês QUE no passado?": compara e diz sim/não.
+    const moto = motoristaRico(hoje)
+    const cmps = await Promise.all(['gastei mais de gasolina esse mes que no mes passado?', 'fiz mais corrida essa semana que na passada?', 'faturei mais hoje que ontem?'].map(m => turnoHoje(moto, m)))
+    out.push(result('TZ-comparacao-com-mais-e-que-separados', cmps.map(r => r.reply), 'sim/não + os dois períodos; corridas é contagem de viagens',
+      // Sem lançamento no período comparado, não há veredito: o app diz que falta.
+      cmps.every(r => /^(?:Sim|Não), (?:subiu|caiu)\.|^Não, ficou igual\./.test(r.reply) || /não há lançamentos/.test(r.reply))
+      && !/esse no mês/.test(cmps[0].reply) && /Viagens/.test(cmps[1].reply) && /Ontem/.test(cmps[2].reply)))
   }
 
   return out

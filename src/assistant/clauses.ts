@@ -930,6 +930,8 @@ function readReceivedPayment(text: string): { action: IncomeAction; uncertain: b
   const amount = received ? parseFirstAmount(received[2]) : NaN
   if (!(amount > 0)) return undefined
   const tail = payer.body.slice(received[0].length).trim()
+  // "O carro me deu 200 DE PREJUÍZO": o "me deu" é de prejuízo, não de dinheiro.
+  if (/^(?:reais\s+)?de\s+(?:preju[ií]zo|despesa|gasto|multa|trabalho|dor\s+de\s+cabe[çc]a|problema)/i.test(tail)) return undefined
   const uncertainty = /^(?:[,\s]*ou\s+(?:talvez\s+)?(?:r\$\s*)?\d|e\s+(?:poucos?|uns\s+(?:quebrados|trocados|centavos)|alguns\s+centavos)\b)/i.test(tail)
   const detail = tail.split(/(?:^|\s+)(?:e\s+(?:mais\s+)?|mais\s+)(?=(?:r\$\s*)?\d)/i)[0]
   const source = extractOrigins(detail)[0]?.value || detail.match(/^de\s+([\p{Lu}][\p{L}\p{M}]+(?:\s+[\p{Lu}][\p{L}\p{M}]+)*)/u)?.[1] || payer.origin

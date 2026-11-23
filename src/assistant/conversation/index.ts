@@ -100,10 +100,13 @@ export function answerConversation(
   // caminho que tenha terminado numa comparação: consulta nova ou refino.
   const plan = out?.kind === 'query' ? out.focus?.lastQueryPlan : undefined
   const q = out?.kind === 'query' ? out.focus?.lastQuery : undefined
-  if (out && plan && q && !q.empty) {
+  // Período atual vazio com o comparado preenchido também tem resposta: zero
+  // contra alguma coisa.
+  if (out && plan && q && (!q.empty || (q.compareCount || 0) > 0)) {
     const anterior = q.compareCount === 0 ? undefined : q.compareTotal
     const lead = leadSimNao(queryText, plan, q.total, anterior, q.groups?.[0]?.delta)
-    if (lead && !/^(?:sim|n[ãa]o)\b/i.test(out.reply)) return { ...out, reply: `${lead}${out.reply}` }
+    // "Não tenho nenhum lançamento…" começa com "Não" mas não É o veredito.
+    if (lead && !/^(?:sim|n[ãa]o)\s*[,.!:—-]/i.test(out.reply)) return { ...out, reply: `${lead}${out.reply}` }
   }
   const cenario = out?.kind === 'scenario' ? out.focus?.lastScenario : undefined
   if (out && cenario) return { ...out, reply: releCenario(queryText, out.reply, cenario) }

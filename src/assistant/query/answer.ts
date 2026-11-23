@@ -176,12 +176,13 @@ export function leadSimNao(t: string, plan: AssistantQueryPlan, total: number, c
     && /\btem\s+(?:alguma\s+coisa|algo|alguma|algum)\b/.test(t)) return topDelta > 0 ? 'Sim. ' : 'Não. '
   if (compareTotal === undefined || plan.group !== 'none' || !plan.comparePeriod) return ''
   if (/^\s*(?:e\s+)?(?:qual|quais|quanto|quanta|quantos|quantas|quando|onde|como|por\s*que|pq)\b/.test(t)) return ''
-  if (!/\?\s*$|^\s*(?:e\s+)?(?:eu\s+)?(?:estou|esta|ando|to|tou|meu|minha|gastei|ganhei|fiz|recebi)\b/.test(t)) return ''
+  if (!/\?\s*$|^\s*(?:e\s+)?(?:eu\s+)?(?:estou|esta|ando|to|tou|meu|minha|gastei|ganhei|fiz|recebi|faturei|rodei)\b/.test(t)) return ''
   const pior = /\b(?:piorou|pioraram|pior)\b/.test(t)
   const melhor = /\b(?:melhorou|melhoraram|melhor)\b/.test(t)
   // "A 99 tá PAGANDO MENOS?" pergunta pela queda do que entra.
-  const sobe = /\b(?:pagando|rendendo|dando)\s+mais\b|\b(?:aumentou|aumentaram|subiu|subiram|cresceu|mais\s+(?:do\s+)?que)\b|\b(?:fora|acima)\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:padrao|normal|comum|costume|media)\b/.test(t)
-  const desce = /\b(?:pagando|rendendo|dando)\s+menos\b|\b(?:caiu|cairam|diminuiu|diminuiram|desceu|baixou|menos\s+(?:do\s+)?que)\b/.test(t)
+  // "Gastei MAIS de gasolina esse mês QUE no passado?": o "que" vem depois do assunto.
+  const sobe = /\b(?:pagando|rendendo|dando)\s+mais\b|\b(?:aumentou|aumentaram|subiu|subiram|cresceu|mais\s+(?:do\s+)?que)\b|\bmais\b[^?]*\bque\b(?!\s+(?:eu|voce))|\b(?:fora|acima)\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:padrao|normal|comum|costume|media)\b/.test(t)
+  const desce = /\b(?:pagando|rendendo|dando)\s+menos\b|\b(?:caiu|cairam|diminuiu|diminuiram|desceu|baixou|menos\s+(?:do\s+)?que)\b|\bmenos\b[^?]*\bque\b(?!\s+(?:eu|voce))/.test(t)
   const d = Math.round((total - compareTotal) * 100) / 100
   // "Tô gastando muito?" — o "muito" é contra o próprio passado.
   if (/\b(?:gastando|torrando|gastei|torrei|gasto|gastamos)\s+(?:muito|demais|bastante|um\s+monte)\b/.test(t)) {
@@ -229,6 +230,12 @@ export function composeAnswer(r: AssistantQueryResult): string {
       // reforma do telhado como se fosse o IPTU.
       const catNome = p.filter.categories?.length && !p.filter.text ? p.label?.split(' - ')[1]?.replace(/\s+(?:este|neste|nesse|no|na|nos|em)\b.*$/, '') : undefined
       return `${base}${alvo} ${periodo}. O último${catNome ? ` em ${catNome}` : ''} foi em ${brDate(u.date)}: ${formatValue(u.value, r.unit)} (${u.label}).${quantos}`
+    }
+    // "Faturei mais hoje que ontem?" com hoje vazio: o outro período ainda
+    // responde. A comparação inteira sumia atrás de "não tenho lançamento".
+    if (p.comparePeriod && p.group === 'none' && r.compareCount && r.compareTotal !== undefined) {
+      const outro = p.comparePeriod.label.charAt(0).toUpperCase() + p.comparePeriod.label.slice(1)
+      return `${base}${alvo} ${periodo}. ${outro}: ${formatValue(r.compareTotal, r.unit)} (dado real).`
     }
     const fixa = r.caveats.find(c => /é conta fixa de R\$/.test(c))
     if (fixa) return `${base}${alvo} ${periodo}. ${fixa}`

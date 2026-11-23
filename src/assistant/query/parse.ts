@@ -456,7 +456,7 @@ function lerFonte(t: string, driver: boolean, metas: string[] = []): { valor: Fo
       // reais, com o ranking do faturamento.
       [/\b(?:mais|menos)\s+(?:km|quilometros?)\b/, { source: 'work', field: 'km' }],
       [/\b(?:mais|menos)\s+horas\b/, { source: 'work', field: 'hours' }],
-      [/\b(?:mais|menos)\s+(?:viagens|corridas)\b/, { source: 'work', field: 'trips' }],
+      [/\b(?:mais|menos)\s+(?:viagens?|corridas?)\b(?!\s+(?:d[ao]|n[ao])\s+(?:uber|99))/, { source: 'work', field: 'trips' }],
       [/\blitros?\b|\bconsumo\b|\bkm\s*\/\s*l\b/, { source: 'fuel', field: 'liters' }],
     ]
     return primeira(t, dr)
@@ -913,10 +913,22 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     // "Quanto falta pra fechar o dia" é a meta do dia, não parcelamento a fechar.
     || /\b(?:fechar|bater)\s+o\s+(?:dia|mes)\b|\bquantos\s+dias\s+(?:(?:de\s+trabalho|uteis)\s+)?(?:faltam|falta|restam)\b/.test(normalized))) return null
   const allRideApps = /\bem\s+todas\s+as\s+plataformas(?:\s+juntas?)?\b/
-  const t0 = driver && !GASTO.test(normalized) && /\b(?:por\s+(?:hora|km|quilometro|viagem|corrida)|a\s+hora|hora\s+trabalhada)\b/.test(normalized)
+  let t0 = driver && !GASTO.test(normalized) && /\b(?:por\s+(?:hora|km|quilometro|viagem|corrida)|a\s+hora|hora\s+trabalhada)\b/.test(normalized)
     ? normalized.replace(/\b(?:no\s+volante|dirigindo|rodando|em\s+todas\s+as\s+plataformas(?:\s+juntas?)?)\b/g, ' ')
       .replace(/\b(km|quilometro)\s+rodado\b/g, '$1').replace(/\s+/g, ' ').trim()
     : normalized
+  // "Gastei MAIS de gasolina esse mês QUE no mês passado?": o "mais" e o "que"
+  // ficam separados pelo assunto e pelo período, e o marcador de comparação
+  // só reconhecia "mais que" junto. A pergunta respondia só o mês passado.
+  const cmpSeparado = /\b(?:mais|menos)\b/.test(t0)
+    ? t0.match(/\b((?:n?esse|n?este|nest[ae]|n?essa|n?esta|hoje)(?:\s+(?:mes|semana|ano))?)\s+(?:do\s+)?que\s+(?:n[oa]s?\s+|o\s+|a\s+)?((?:(?:mes|semana|ano)\s+(?:passad[oa]|retrasad[oa]|anterior))|passad[oa]|anterior|ontem|(?:em\s+)?(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro))\b/)
+    : null
+  if (cmpSeparado) {
+    // "Essa semana que NA PASSADA": a unidade elíptica vem do período dito antes.
+    const unidade = /\bsemana\b/.test(cmpSeparado[1]) ? 'semana passada' : /\bano\b/.test(cmpSeparado[1]) ? 'ano passado' : 'mes passado'
+    const outro = /^(?:passad[oa]|anterior)$/.test(cmpSeparado[2]) ? unidade : cmpSeparado[2]
+    t0 = t0.replace(cmpSeparado[0], `${cmpSeparado[1]} comparado com ${outro}`)
+  }
   const recognized: string[] = []
   const rest = new Restante(t0)
   const periodoVago = /\b(?:nos?\s+)?ultimos\s+meses\b/.test(t0)
