@@ -15,7 +15,7 @@ import { runQuery } from '../../src/assistant/query/engine'
 import { isRevertFailure, revertBatchPure } from '../../src/assistant/journal'
 import { applyPreferenceAliases } from '../../src/assistant/preferences'
 import { hydrateForTest, reducer } from '../../src/store/store'
-import { addDays, fmtBRL, fmtDateShort, fromISO, MESES_PT_BR, monthShortLabel, nowPaymentTime, nowStamp, todayISO, toISO as toISOdate } from '../../src/utils/format'
+import { addDays, fmtBRL, fmtDateShort, fmtNum, fromISO, MESES_PT_BR, monthShortLabel, nowPaymentTime, nowStamp, todayISO, toISO as toISOdate } from '../../src/utils/format'
 import { autonomoRico, motoristaRico } from '../fixtures/richState'
 import { buildState } from './harness'
 import { PALAVRAS_REAIS_PROTEGIDAS, repairStructuralTypos } from '../../src/assistant/semantic/normalize'
@@ -10132,6 +10132,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('UB-bruto-e-liquido-sem-plataforma', [...liquidos.map(r => r.actions), incoerente.reply], 'receita de R$ 310 líquida; líquido maior que bruto pergunta',
       liquidos.every(r => r.actions.length === 1 && (r.actions[0] as any).amount === 310 && (r.actions[0] as any).reportedNet)
       && !incoerente.actions.length && /Qual foi o valor que entrou na conta/.test(incoerente.reply)))
+  }
+
+  // ---- UC-: passageiro e hodômetro --------------------------------------------
+  {
+    const hoje = todayISO()
+    const [p1, p2] = await Promise.all(['peguei um uber de 30', 'chamei um 99, deu 18'].map(m => turnoHoje(autonomoRico(hoje), m)))
+    out.push(result('UC-viagem-de-passageiro-e-gasto', [p1.actions, p2.actions], 'despesas de R$ 30 e R$ 18',
+      (p1.actions[0] as any)?.kind === 'expense' && (p1.actions[0] as any)?.amount === 30
+      && (p2.actions[0] as any)?.kind === 'expense' && (p2.actions[0] as any)?.amount === 18))
+    const moto = motoristaRico(hoje)
+    const odo = moto.vehicle?.odometer || 0
+    const [h1, h2] = await Promise.all(['quanto ta o hodometro', 'qual o km do meu carro'].map(m => turnoHoje(moto, m)))
+    out.push(result('UC-hodometro-nao-e-gasto', [h1.reply, h2.reply], 'leitura do hodômetro',
+      [h1, h2].every(r => /^O hodômetro está em/.test(r.reply) && r.reply.includes(fmtNum(odo, 0)) && !/Total gasto|Gasto por km/.test(r.reply))))
   }
 
   return out

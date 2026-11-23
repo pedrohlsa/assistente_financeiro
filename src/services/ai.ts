@@ -33,7 +33,7 @@ import {
 } from '../assistant/cashQuestions'
 import type { PerguntaDeConta, PerguntaDeFatura, PlanoDeGuardar } from '../assistant/cashQuestions'
 import { COBRADO_SEM_PAGAR, CORRIDA_CANCELADA, describeAction, parseNaturalFull, REAJUSTE, SAQUE } from './nlp'
-import { answerFuelPrice, COMBUSTIVEL_POR_DIA_TRABALHADO, driverInsight, PEDE_MINIMO_POR_KM } from '../assistant/driverInsights'
+import { answerFuelPrice, answerOdometer, COMBUSTIVEL_POR_DIA_TRABALHADO, driverInsight, PEDE_MINIMO_POR_KM } from '../assistant/driverInsights'
 import { answerVehicleCost, answerVehicleMonthly } from '../assistant/vehicleCost'
 import { answerDrivingShift, perceivesDrivingFatigue, FALTAM_VIAGENS_POR_APP, PARE_PARA_DESCANSAR } from '../assistant/driverAdvice'
 import { answerRideOffer } from '../assistant/rideOffer'
@@ -2085,6 +2085,8 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     return { text: `${lead}\n\nA comissão que a 99 retém de cada corrida não passa por aqui: o que conta é o valor que caiu na sua conta.` }
   }
 
+  const hodometro = answerOdometer(s, t)
+  if (hodometro) return { text: hodometro }
   const precoLitro = answerFuelPrice(s, t, today)
   if (precoLitro) return { text: precoLitro }
 

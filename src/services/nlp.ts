@@ -890,7 +890,11 @@ export function parseNaturalFull(
       ? input.trim().match(new RegExp(String.raw`^(?:mais\s+)?(?:r\$\s*)?${NUM}\s*${MOEDA}?\s+d[aoe]s?\s+(?:um\s+|uma\s+|o\s+|a\s+)?([a-zà-ú][\wçãõáéíóúâê]*(?:\s+\d+)?)\s*$`, 'i'))
       : null
     if (comOrigem && parseNum(comOrigem[1]) > 0) {
-      actions = [{ kind: 'income', amount: parseNum(comOrigem[1]), category: guessCategory(comOrigem[2], 'income') } as ParsedAction]
+      // "E 15 de ÁGUA" depois do aluguel recebido: o item é de gasto, não origem.
+      const gasto = guessCategory(comOrigem[2], 'expense')
+      actions = [gasto && gasto !== 'outros-out' && !guessCategory(comOrigem[2], 'income')
+        ? { kind: 'expense', amount: parseNum(comOrigem[1]), category: gasto, description: cleanDescription(comOrigem[2]) } as ParsedAction
+        : { kind: 'income', amount: parseNum(comOrigem[1]), category: guessCategory(comOrigem[2], 'income') } as ParsedAction]
     }
   }
 
@@ -930,7 +934,13 @@ export function parseNaturalFull(
       // caminho normal (com a viagem implícita) em vez do resultado do dia, e a
       // mesma frase não trata os dois dias de forma diferente.
       if (dia.ask && opts?.inheritedKind) {
-        const escolhida = dia.ask.options.find(o => o.actions[0]?.kind === opts.inheritedKind)
+        // "E 15 de ÁGUA" depois de uma receita: o item diz que foi gasto. Herdar
+        // o sentido da proposta fazia a água virar corrida.
+        const item = input.match(/\bde\s+([a-zà-úçãõ][\wçãõáéíóúâê]+(?:\s+[a-zà-úçãõ][\wçãõáéíóúâê]+)?)/i)?.[1]
+        const deGasto = !!item && !/^(?:corridas?|uber|99|indrive|viagens?|gorjeta|b[oô]nus)$/i.test(item)
+          && (() => { const c = guessCategory(item, 'expense'); return !!c && c !== 'outros-out' && !guessCategory(item, 'income') })()
+        const sentido = deGasto ? 'expense' : opts.inheritedKind
+        const escolhida = dia.ask.options.find(o => o.actions[0]?.kind === sentido)
         if (escolhida) {
           actions = escolhida.actions
           dayAsk = undefined
@@ -1564,6 +1574,17 @@ function parseClause(input: string): ParsedAction[] {
     const servico = text.match(new RegExp(String.raw`(?:^\s*|\b(?:fiz|mandei\s+fazer|paguei)\s+)(?:o\s+|a\s+|uma?\s+)?((?:alinhamento|balanceamento|cambagem|revis[aã]o|funilaria|polimento|higieniza[çc][aã]o|martelinho|geometria)(?:\s+(?:e|com|d[aoe]s?)\s+[a-zà-úçãõ]+)*(?:\s+(?:d[aoe]s?\s+)?\d+(?:[.,]\d+)?\s*(?:mil\s*)?km)?)\s*(?:,\s*)?(?:por\s+|de\s+|paguei\s+|deu\s+|saiu\s+|foi\s+)?(?:r\$\s*)?${NUM}(?![\d.,]|\s*(?:mil\b|km\b|quil))`, 'i'))
     if (servico && parseNum(servico[2]) > 0) {
       actions.push({ kind: 'expense', amount: parseNum(servico[2]), category: 'manutencao', description: cleanDescription(servico[1]) })
+    }
+  }
+
+  // ----- "peguei um uber de 30", "chamei um 99, deu 18": a viagem como
+  // PASSAGEIRO é gasto, em qualquer perfil. Caía na ajuda. O motorista diz
+  // "peguei uma CORRIDA" para a que ele fez — essa forma não entra aqui.
+  if (!actions.some(a => a.kind === 'expense' || a.kind === 'income' || a.kind === 'fuel')) {
+    const passageiro = text.match(new RegExp(String.raw`\b(?:peguei|chamei|pedi|tomei)\s+(?:um|uma)\s+(uber|99|t[aá]xi|indrive[r]?)\b[^\d]{0,20}?(?:,\s*)?(?:de|por|deu|saiu|foi|custou|paguei)?\s*(?:r\$\s*)?${NUM}(?![\d.,]|\s*(?:km|quil|min|h\b|horas?))`, 'i'))
+    if (passageiro && parseNum(passageiro[2]) > 0) {
+      const nome = /^uber$/i.test(passageiro[1]) ? 'Uber' : /^99$/.test(passageiro[1]) ? '99' : /^indrive/i.test(passageiro[1]) ? 'inDrive' : 'Táxi'
+      actions.push({ kind: 'expense', amount: parseNum(passageiro[2]), category: 'outros-out', description: `${nome} (passageiro)` })
     }
   }
 

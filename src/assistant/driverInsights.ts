@@ -168,6 +168,23 @@ export function rodandoNoPrejuizo(s: AppState, today = todayISO(), pergunta = 'p
 /** "Qual o valor mínimo de corrida que vale a pena?", "quanto devo cobrar por km": texto sem acento. */
 export const PEDE_MINIMO_POR_KM = /valor minimo|minimo (?:de|da|pra|para|por|que)|sair lucrando|quanto (?:eu\s+)?(?:devo\s+|tenho\s+que\s+|preciso\s+)?cobrar|devo aceitar|vale a pena aceitar|aceitar\s+a\s+partir\s+de\s+quanto/
 
+/** "Quanto tá o hodômetro?", "qual o km do meu carro?": a leitura do painel, não gasto por km. */
+export const PEDE_HODOMETRO = /\b(?:quanto|qual|quantos)\b[^?]*\b(?:hodometro|odometro|painel|quilometragem\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:carro|moto|veiculo)|km\s+d[oa]\s+(?:meu\s+|minha\s+)?(?:carro|moto|veiculo))\b|\bquanto\s+(?:eu\s+)?(?:ja\s+)?rodei\s+com\s+(?:esse|este|o|meu|essa|esta|a|minha)\s+(?:carro|moto|veiculo)\b|\bquantos\s+km\s+(?:tem|esta|ta)\s+(?:o\s+|meu\s+|minha\s+|a\s+)?(?:carro|moto|veiculo)\b/
+
+export function answerOdometer(s: AppState, t: string): string | null {
+  if (!isDriver(s.settings) || !PEDE_HODOMETRO.test(t)) return null
+  const odo = s.vehicle?.odometer || 0
+  if (!(odo > 0)) return 'Ainda não tenho o hodômetro registrado. Diga, por exemplo, "o painel marca 45000" que eu guardo.'
+  const comLeitura = (s.fuelRecords || []).filter(f => (f.odometer || 0) > 0).sort((a, b) => b.date.localeCompare(a.date))[0]
+  const quando = comLeitura && comLeitura.odometer === odo ? ` (leitura do abastecimento de ${brDate(comLeitura.date)})` : ''
+  const linhas = [`O hodômetro está em ${fmtNum(odo, 0)} km${quando}.`]
+  if (/\brodei\s+com\b/.test(t)) {
+    const trabalhados = (s.workSessions || []).reduce((a, w) => a + (w.km || 0), 0)
+    linhas.push(`Esse é o total do veículo, não só o que você rodou com ele.${trabalhados > 0 ? ` Os km de trabalho que você registrou somam ${fmtNum(trabalhados, 0)} km.` : ''}`)
+  }
+  return linhas.join('\n\n')
+}
+
 export const COMBUSTIVEL_POR_DIA_TRABALHADO = /^quanto\s+(?:eu\s+)?(?:costumo\s+gastar|gasto)\s+(?:de|com)\s+combustivel\s+por\s+dia\s+trabalhado\s*[?.!]*$/
 const RE_TIPICO = /\b(?:costum\w+|tipic\w+|normal|em m[ée]dia|m[ée]dia)\b[^?]*\b(?:por dia|no dia|dia|dias)\b|\b(?:quanto|qual)[^?]*\b(?:costum\w+|tipic\w+)\b/
 const RE_DIAS_FORTES = /\b(?:dias?|dia)\b[^?]*\b(?:mais fort\w+|melhor\w*|que rende\w*|mais rende\w*|mais forte)\b|\bmelhores? dias?\b|\bpiores? dias?\b|\bdias? (?:mais )?frac\w+\b/
