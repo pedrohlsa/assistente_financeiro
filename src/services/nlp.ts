@@ -450,6 +450,15 @@ export function valorPorCorrida(text: string): string {
   return text.replace(/(?<![\d.,])(\d+)\s+(corridas|viagens)((?:\s+(?!de\b|e\b|cada\b)[a-zà-úç]+){0,2})\s*,?\s*(?:de\s+)?(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*(?:reais\s+)?cada\b/gi, '$1 $2 de $4$3')
 }
 
+/**
+ * "Abasteci 2x hoje, 100 e 80": o "2x" é quantas vezes, e cada valor é um
+ * abastecimento. Virava um abastecimento de R$ 2,00 e dois valores soltos.
+ */
+export function abastecimentosRepetidos(text: string): string {
+  return text.replace(/\babasteci\s+(?:\d|duas|tr[eê]s)\s*(?:x|vezes)\b(\s+(?:hoje|hj|ontem|anteontem))?\s*[,:]?\s*(?:de\s+|com\s+)?((?:r\$\s*)?\d+(?:[.,]\d+)?)\s*(?:reais\s+)?(?:,\s*|\s+e\s+)((?:r\$\s*)?\d+(?:[.,]\d+)?)(?:\s*(?:,\s*|\s+e\s+)((?:r\$\s*)?\d+(?:[.,]\d+)?))?/gi,
+    (_m, dia = '', a, b, c) => `abasteci ${a}${dia} e abasteci ${b}${dia}${c ? ` e abasteci ${c}${dia}` : ''}`)
+}
+
 export function tanqueCheio(text: string): string {
   return text.replace(/(?<![\wÀ-ÿ])(?:enchi|completei)\s+o\s+tanque\s*[,:]?\s*(?:com\s+|de\s+|por\s+|foi\s+|deu\s+)?(?=(?:r\$\s*)?\d)/gi, 'abasteci ')
 }

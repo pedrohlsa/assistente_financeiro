@@ -72,6 +72,8 @@ export function answerVehicleCost(s: AppState, input: string, hoje = todayISO())
 const CUSTO_MENSAL = [
   new RegExp(String.raw`^quanto\s+${VEICULO}\s+(?:me\s+)?(?:custa|custou|sai|gasta|consome)(?:\s+(?:por|ao|no|todo)\s+mes)?$`),
   new RegExp(String.raw`^quanto\s+${EU}(?:gasto|gastei|gastando)\s+com\s+${VEICULO}(?:\s+(?:por|no|ao|esse|este|todo)\s+mes)?$`),
+  // "Quanto gasto POR MÊS com o carro": o período antes do veículo.
+  new RegExp(String.raw`^quanto\s+${EU}(?:gasto|gastei|gastando)\s+(?:por|no|ao|todo)\s+mes\s+com\s+${VEICULO}$`),
   new RegExp(String.raw`^(?:qual\s+(?:e\s+)?)?(?:o\s+)?custo\s+(?:mensal\s+)?d[oa]\s+${VEICULO}(?:\s+(?:por|no|ao)\s+mes)?$`),
   // "Quanto CUSTA meu carro por mês": o verbo antes do veículo.
   new RegExp(String.raw`^quanto\s+(?:me\s+)?(?:custa|custou|sai|gasta)\s+${VEICULO}(?:\s+(?:por|ao|no|todo)\s+mes)?$`),

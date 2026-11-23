@@ -1018,6 +1018,31 @@ const escapaRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
  * fluxo normal ler e a resposta juntar à proposta. Só quando todos os itens de
  * dinheiro pendentes são do mesmo tipo e a frase não tem verbo.
  */
+/**
+ * "Fiz 300 hj, 250 na uber e 50 na 99", "gastei 100 hj, 60 de gasolina e 40
+ * de almoço": o valor genérico É a soma das partes, e o dia contava em dobro.
+ * Só quando a soma fecha no centavo, no mesmo dia, com pelo menos duas partes
+ * nomeadas — qualquer diferença é outra conversa, e o app não escolhe.
+ */
+function semSomaDasPartes(candidates: AssistantCandidateAction[], today: string): { candidates: AssistantCandidateAction[]; nota?: string } {
+  const dia = (a: any) => a.date || today
+  const valor = (a: any) => typeof a.amount === 'number' ? a.amount : NaN
+  const sentido = (a: ParsedAction) => a.kind === 'income' ? 'in' : a.kind === 'expense' || a.kind === 'fuel' ? 'out' : undefined
+  const generico = (a: any) => (a.kind === 'income' || a.kind === 'expense') && !a.origin && (!a.description || /^total$/i.test(a.description))
+  let out = candidates
+  const notas: string[] = []
+  for (const total of candidates.filter(c => generico(c.action))) {
+    const lado = sentido(total.action)
+    const partes = out.filter(c => c !== total && sentido(c.action) === lado && !generico(c.action) && dia(c.action) === dia(total.action))
+    const soma = Math.round(partes.reduce((a, c) => a + valor(c.action), 0) * 100) / 100
+    if (partes.length >= 2 && Math.abs(soma - valor(total.action)) < 0.005) {
+      out = out.filter(c => c !== total)
+      notas.push(`Os ${fmtBRL(valor(total.action))} são a soma das partes, então registrei só as partes.`)
+    }
+  }
+  return { candidates: out, ...(notas.length ? { nota: notas.join(' ') } : {}) }
+}
+
 function acrescimoAProposta(pending: AssistantCandidateAction[], mensagem: string): string | null {
   const relato = mensagem.trim().match(/^(?:e\s+(?:tamb[ée]m\s+)?|tamb[ée]m\s+)(.+)$/i)?.[1]
   if (relato && looksPast(relato) && !looksLikeQuestion(relato)) return relato
@@ -2718,13 +2743,14 @@ ${response.reply}`,
         } }
       }
       if (cands.length === diaTelegrafico.actions.length) {
+        const semTotal = semSomaDasPartes(cands, today)
         return {
           draft: null,
           focus: input.focus,
           response: {
             version: ASSISTANT_CONTRACT_VERSION, mode: 'propose_actions', engine: 'local',
-            actions: cands, unresolved: [],
-            reply: `${proposalText(cands, input.state)}\n\nConfirmar?`,
+            actions: semTotal.candidates, unresolved: [],
+            reply: `${proposalText(semTotal.candidates, input.state)}${semTotal.nota ? `\n\n${semTotal.nota}` : ''}\n\nConfirmar?`,
           },
         }
       }
@@ -3208,6 +3234,17 @@ Confirmar?`,
     notasDeContaFixa.push({ text: 'Há pagamentos com mais de uma ocorrência possível. Informe separadamente a origem ou o vencimento de cada conta fixa.' })
   } else if (escolhasDeContaFixa.length && clarification !== escolhasDeContaFixa[0]) {
     notasDeContaFixa.push({ text: escolhasDeContaFixa[0].question })
+  }
+
+  // ---- 16b) Total dito junto das partes --------------------------------
+  // "Fiz 300 hj, 250 na uber e 50 na 99", "gastei 100 hj, 60 de gasolina e 40
+  // de almoço": o primeiro valor É a soma das partes, e o dia contava em dobro.
+  // Só quando a soma fecha no centavo, no mesmo dia, com pelo menos duas partes
+  // nomeadas — qualquer diferença é outra conversa, e o app não escolhe.
+  {
+    const semTotal = semSomaDasPartes(candidates, today)
+    candidates = semTotal.candidates
+    if (semTotal.nota) notasDeContaFixa.push({ text: semTotal.nota })
   }
 
   // ---- 17) Avisos de duplicidade (contra o estado E dentro do lote) -------

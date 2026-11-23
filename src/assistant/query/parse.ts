@@ -1500,7 +1500,12 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
 
   // Média agrupada por mês é a média dos TOTAIS mensais (ver `runQuery`), não
   // por lançamento — o rótulo antigo dizia uma coisa e o número outra.
-  if (metric === 'avg' && (group === 'month' || group === 'week') && metrica.valor.label === 'Média por lançamento') metrica.valor.label = 'Média'
+  // "Média por mês" sem dizer DE QUÊ: o tipo assumido (gasto, receita) vai
+  // no rótulo. "Média por mês: R$ 1.505,43" não dizia que eram gastos.
+  if (metric === 'avg' && (group === 'month' || group === 'week') && metrica.valor.label === 'Média por lançamento') {
+    const tipo = metrica.valor.txType || []
+    metrica.valor.label = tipo.length !== 1 ? 'Média' : tipo[0] === 'income' ? 'Média de receitas' : tipo[0] === 'saving' ? 'Média guardada' : 'Média de gastos'
+  }
 
   // ---- 8) campo e ordem --------------------------------------------------
   let field: QueryField = fonteLida?.valor.field

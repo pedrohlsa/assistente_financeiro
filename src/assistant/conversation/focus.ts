@@ -914,6 +914,25 @@ function refinaConsulta(
       dentroDoAssunto ? 'onde, dentro do assunto' : 'por categoria')
   }
 
+  // ---- "e o lucro?", "e os gastos?" — o mesmo período, outra medida -------
+  // Depois de "quanto fiz no mês", "e o lucro?" virava filtro de texto "lucro"
+  // e a resposta dizia que não havia lançamento.
+  const medida = base.source === 'transactions' && base.group === 'none' && base.metric !== 'count'
+    ? t.match(/^(?:e\s+)?(?:o\s+|a\s+|os\s+|as\s+|meu\s+|minha\s+)?(lucro|liquido|resultado|sobra|gastos?|despesas?|custos?|faturamento|bruto|receitas?|entradas?)\s*[?.!]*$/) : null
+  if (medida) {
+    const m = medida[1]
+    const liquido = /^(?:lucro|liquido|resultado|sobra)$/.test(m)
+    const gasto = /^(?:gastos?|despesas?|custos?)$/.test(m)
+    const porUnidadeBase = (['per-km', 'per-hour', 'per-trip', 'per-day'] as AssistantQueryPlan['metric'][]).includes(base.metric)
+    const filter = { ...base.filter, txType: liquido ? ['income', 'expense'] as const : gasto ? ['expense'] as const : ['income'] as const }
+    delete filter.text
+    const metric = porUnidadeBase ? base.metric : liquido ? 'net' : 'sum'
+    const nome = porUnidadeBase ? `${liquido ? 'Líquido' : gasto ? 'Gasto' : 'Recebido'} por ${base.label.split(' por ')[1] || ''}`.trim()
+      : liquido ? 'Resultado' : gasto ? 'Total gasto' : 'Total recebido'
+    const assunto = base.label?.includes(' - ') ? ` - ${base.label.split(' - ').slice(1).join(' - ')}` : ''
+    return planned({ ...base, metric, filter: filter as any, comparePeriod: undefined, label: `${nome}${assunto}` }, m)
+  }
+
   // ---- "e por km?" — o mesmo recorte, outra unidade ---------------------
   // Depois de "quanto ganhei por hora", o motorista pergunta "e por km?" e
   // "e por corrida?". Sem esta troca a elipse caía no texto genérico de ajuda.

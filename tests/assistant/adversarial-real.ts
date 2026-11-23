@@ -3269,7 +3269,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     ] })
     const r = await turn(st, 'quanto eu ganho por mes em media')
     out.push(result('Q-media-mensal-de-totais', r.reply, 'R$ 2.000,00 = (1.000 + 2.000 + 3.000) / 3; setembro aberto fica fora',
-      /^M[ée]dia por m[êe]s: R\$\s2\.000,00/.test(r.reply) && /3 meses completos/.test(r.reply) && !/por lan[çc]amento/.test(r.reply)))
+      /^M[ée]dia (?:de receitas )?por m[êe]s: R\$\s2\.000,00/.test(r.reply) && /3 meses completos/.test(r.reply) && !/por lan[çc]amento/.test(r.reply)))
     const atual = buildState({ profile: 'autonomo', transactions: [
       { id: 'm-atual', type: 'income', amount: 610, category: 'outros-in', date: hoje },
     ] })
@@ -3294,7 +3294,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const media = meses.reduce((a, k) => a + (porMes.get(k) || 0), 0) / Math.max(meses.length, 1)
     const esperado = fmtBRL(Math.round(media * 100) / 100).replace(/ /g, ' ')
     const rr = await turnoHoje(rico, 'quanto eu ganho por mes em media')
-    out.push(result('Q-media-mensal-fixture', rr.reply, esperado, rr.reply.replace(/ /g, ' ').startsWith(`Média por mês: ${esperado}`)))
+    out.push(result('Q-media-mensal-fixture', rr.reply, esperado, rr.reply.replace(/ /g, ' ').startsWith(`Média de receitas por mês: ${esperado}`)))
   }
 
   // Guardado ≠ saldo em conta. "Quanto eu tenho guardado" respondia o saldo,
@@ -7208,7 +7208,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const rico = autonomoRico(hoje)
     const semana = (await turnoHoje(rico, 'quanto gastei em média por semana no mercado')).reply
     out.push(result('MT-media-por-semana', semana, 'rótulo "Média" (não "por lançamento") e semanas completas',
-      /^Média - Mercado por semana: R\$/.test(semana) && !/por lançamento/.test(semana) && /semanas? completas?/.test(semana)))
+      /^Média(?: de gastos)? - Mercado por semana: R\$/.test(semana) && !/por lançamento/.test(semana) && /semanas? completas?/.test(semana)))
     // "cm" e "c/" são "com"; "30 cm de cano" continua medida.
     const cm = await turnoHoje(buildState({ profile: 'autonomo' }), 'gstei 30 cm uber')
     out.push(result('MT-cm-e-com', cm.actions, 'despesa de 30 com descrição Uber', cm.actions.length === 1 && (cm.actions[0] as any).description === 'Uber'))
@@ -10187,6 +10187,34 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     // Data solta ganha o "em".
     const dia10 = await turnoHoje(rico, 'quanto fiz dia 10')
     out.push(result('UD-data-com-em', dia10.reply, '"em dd/mm/aaaa"', !/R\$\s[\d.,]+ \d{2}\/\d{2}\/\d{4}/.test(dia10.reply)))
+  }
+
+  // ---- UE-: total junto das partes, "2x", troca de medida e rótulos --------
+  {
+    const hoje = todayISO()
+    const vazio = buildState({ profile: 'driver', balance: 500 })
+    const valores = (r: { actions: unknown[] }) => r.actions.map((a: any) => a.amount).sort((x: number, y: number) => x - y)
+    const [receitas, telegrafico, gastos, diferente, duasVezes] = await Promise.all([
+      'fiz 300 hj, 250 na uber e 50 na 99', 'hj deu 410, 280 uber 130 99', 'gastei 100 hj, 60 de gasolina e 40 de almoço',
+      'fiz 300 hj, 250 na uber e 40 na 99', 'abasteci 2x hoje, 100 e 80',
+    ].map(m => turnoHoje(vazio, m)))
+    out.push(result('UE-total-dito-com-as-partes-nao-conta-em-dobro', [receitas, telegrafico, gastos, diferente, duasVezes].map(valores),
+      'só as partes quando somam o total; total diferente fica; 2x são dois abastecimentos',
+      JSON.stringify(valores(receitas)) === '[50,250]' && JSON.stringify(valores(telegrafico)) === '[130,280]'
+      && JSON.stringify(valores(gastos)) === '[40,60]' && /soma das partes/.test(receitas.reply)
+      && valores(diferente).length === 3
+      && JSON.stringify(valores(duasVezes)) === '[80,100]' && duasVezes.actions.every((a: any) => a.kind === 'fuel')))
+    // "E o lucro?" troca a medida no mesmo período.
+    const moto = motoristaRico(hoje)
+    const mes = await turnoHoje(moto, 'quanto fiz esse mes')
+    const lucro = await turnoHoje(moto, 'e o lucro?', mes.focus)
+    const gastosMes = await turnoHoje(moto, 'e os gastos?', lucro.focus)
+    out.push(result('UE-elipse-troca-a-medida', [lucro.reply, gastosMes.reply], 'resultado e total gasto do mês',
+      /^Resultado este mês/.test(lucro.reply) && /^Total gasto este mês/.test(gastosMes.reply)
+      && ![lucro, gastosMes].some(r => /lançamento que se encaixe/.test(r.reply))))
+    const [media, carro] = await Promise.all(['media por mes esse ano', 'quanto gasto por mes com o carro'].map(m => turnoHoje(moto, m)))
+    out.push(result('UE-media-diz-de-que-e-carro-por-mes', [media.reply, carro.reply], 'média de gastos; custo do veículo',
+      /^Média de gastos por mês/.test(media.reply) && /veículo custou/.test(carro.reply)))
   }
 
   return out
