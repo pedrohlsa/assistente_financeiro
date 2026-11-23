@@ -666,6 +666,14 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   // Antes das rotas de "quanto gastei": sem período, elas devolviam a ajuda.
   const custoMensal = answerVehicleMonthly(s, t)
   if (custoMensal) return { text: custoMensal }
+  // "Tenho dinheiro pra trocar o pneu?" sem o preço: o saldo e o pedido do
+  // valor. Com o preço, a frase vai para a simulação de gasto.
+  if (/^(?:e\s+)?(?:eu\s+)?tenho\s+(?:dinheiro|grana|saldo|bala)\s+(?:pra|para|suficiente\s+(?:pra|para))\b/.test(t) && !/\d/.test(t)) {
+    if (hasAmbiguousLegacyCardBalance(s)) return { text: AMBIGUOUS_BALANCE_REPLY }
+    const coisa = t.replace(/^.*?\b(?:pra|para)\s+/, '').replace(/[?!.]+$/, '').replace(/^(?:pagar|comprar|trocar|fazer|consertar)\s+/, '').trim()
+    return { text: `Seu saldo em conta é ${fmtBRL(currentBalance(s, today))}. Quanto custa${coisa ? ` ${coisa}` : ''}? `
+      + 'Diga o valor — por exemplo "tenho dinheiro pra um pneu de 600?" — que eu simulo como fica o saldo e o mês, sem registrar nada.' }
+  }
   // "Meu saldo tá certo?": como o número é montado (regra 20) e como corrigir.
   // Só repetia o saldo.
   if (/\bsaldo\b[^?]*\b(?:certo|errado|correto|batendo|bate|confere|conferindo)\b|\bde\s+onde\s+(?:vem|veio|sai)\s+(?:esse|o|meu)\s+saldo\b/.test(t)) {
@@ -1147,13 +1155,18 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
       const hoje = todayISO()
       const d = fromISO(hoje)
       const doMes = /\b(?:esse|este|nesse|neste|no)\s+mes\b|\bate\s+o\s+fim\s+do\s+mes\b/.test(t)
+      // "Essa semana": sete dias da régua de 30. Respondia só o valor por dia.
+      const daSemana = !doMes && /\b(?:essa|esta|nessa|nesta|na)\s+semana\b/.test(t)
       const fimDoMes = new Date(d.getFullYear(), d.getMonth() + 1, 0)
       const ate = doMes ? toISO(fimDoMes) : addDays(hoje, 29)
       const dias = doMes ? fimDoMes.getDate() - d.getDate() + 1 : 30
       const todas = cashObligationsUntil(s, ate)
       const certas = todas.filter(o => !o.unconfirmed)
       const contas = somaDe(certas)
-      const guardar = round2(monthlySavingGoal(s).missing)
+      // No motorista o mesmo campo é o objetivo de LUCRO do mês (regra 4), não
+      // dinheiro a separar do saldo: a resposta o tirava do saldo como "meta de
+      // guardar".
+      const guardar = driverMode ? 0 : round2(monthlySavingGoal(s).missing)
       const saldo = currentBalance(s)
       const livre = round2(saldo - contas - guardar)
       const tirando = [
@@ -1167,7 +1180,10 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
       const porDia = round2(livre / dias)
       const abre = doMes
         ? `Até ${diaMes(ate)} dá para gastar até ${fmtBRL(livre)}, uns ${fmtBRL(porDia)} por dia.`
-        : `Dá uns ${fmtBRL(porDia)} por dia nos próximos 30 dias.`
+        // A semana usa a MESMA régua dos 30 dias: dividir o saldo inteiro por 7
+        // convidaria a gastar em uma semana o que precisa durar o mês.
+        : daSemana ? `Nesta semana dá uns ${fmtBRL(round2(porDia * 7))}: ${fmtBRL(porDia)} por dia${certas.length ? ', guardando o que vence nos próximos 30 dias' : ' na conta de 30 dias'}.`
+          : `Dá uns ${fmtBRL(porDia)} por dia nos próximos 30 dias.`
       const conta = `Seu saldo é ${fmtBRL(saldo)}${tirando.length ? `; tirando ${listaDeNomes(tirando)}, sobram ${fmtBRL(livre)}` : ''}, sem contar o que ainda vai entrar. (estimativa)`
       // Fim de mês perto: o que vence logo depois também é desse saldo.
       const depois = doMes ? round2(somaDe(cashObligationsUntil(s, addDays(hoje, 29)).filter(o => !o.unconfirmed)) - contas) : 0
@@ -1929,7 +1945,8 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
 
   // "quando preciso trocar meu óleo"
   // "Falta muito pra TROCA de óleo?" é o mesmo pedido com o substantivo.
-  if (driverMode && (/trocar.*(óleo|oleo|pneu|pastilha|filtro)/.test(t) || /quando.*troca/.test(t) || perguntaDeManutencao(t))) {
+  if (driverMode && !/\btenho\s+(?:dinheiro|grana|saldo|bala)\b|\b(?:d[aá]|daria)\s+(?:pra|para)\s+(?:pagar|bancar|trocar)\b|\bconsigo\s+(?:pagar|bancar)\b/.test(t)
+    && (/trocar.*(óleo|oleo|pneu|pastilha|filtro)/.test(t) || /quando.*troca/.test(t) || perguntaDeManutencao(t))) {
     if (!s.maintenance.length) return { text: 'Você ainda não registrou manutenções. Diga por exemplo: "troquei o óleo por 280 com 84 mil km".' }
     const odo = s.vehicle?.odometer || 0
     // Sem o intervalo (`lifeKm`), NÃO existe "próxima troca": a conta virava

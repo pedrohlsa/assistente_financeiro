@@ -10012,6 +10012,42 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && !/este mês ficou|De 1º/.test(qual.reply)))
   }
 
+  // ---- TY-: oferta implícita, fechamento do dia e o dinheiro do motorista ----
+  {
+    const hoje = todayISO()
+    const moto = motoristaRico(hoje)
+    // "Uma de 40 pra 30 km, vale?": corrida implícita no "uma de".
+    const ofertas = await Promise.all(['uma de 40 pra 30km vale?', 'e essa de 15 pra 4km, pego?'].map(m => turnoHoje(moto, m)))
+    out.push(result('TY-oferta-implicita-no-uma-de', ofertas.map(r => r.reply), 'análise com R$ 1,33/km e R$ 3,75/km',
+      /^Análise da corrida \(30 km/.test(ofertas[0].reply) && ofertas[0].reply.includes(`${fmtBRL(40 / 30)}/km bruto`)
+      && /^Análise da corrida \(4 km/.test(ofertas[1].reply) && ofertas[1].reply.includes(`${fmtBRL(3.75)}/km bruto`)
+      && ofertas.every(r => !r.actions.length)))
+    // "Fechamento do dia" e "resumo de hoje" são o dia, não a ajuda nem o mês.
+    const [fechamento, resumoHoje, comoFoi] = await Promise.all(['fechamento do dia', 'resumo de hoje', 'como foi meu dia?'].map(m => turnoHoje(moto, m)))
+    out.push(result('TY-fechamento-do-dia', [fechamento.reply, resumoHoje.reply], 'a mesma resposta de "como foi meu dia?"',
+      fechamento.reply === comoFoi.reply && resumoHoje.reply === comoFoi.reply && /^Hoje/.test(comoFoi.reply) && !/Posso te ajudar|Resumo rápido/.test(comoFoi.reply)))
+    // "Posso gastar quanto hj?" é a pergunta da ajuda com a ordem invertida.
+    const [invertida, direta, semana, paraMim] = await Promise.all([
+      'posso gastar quanto hj?', 'quanto posso gastar hoje?', 'quanto posso gastar essa semana?', 'quanto posso tirar pra mim essa semana?',
+    ].map(m => turnoHoje(moto, m)))
+    const porDia = direta.reply.match(/Dá uns (R\$\s[\d.,]+) por dia/)?.[1]
+    out.push(result('TY-quanto-posso-gastar-em-qualquer-ordem', [invertida.reply, direta.reply, semana.reply, paraMim.reply], 'mesma régua de 30 dias; semana = 7 dias dela',
+      !!porDia && invertida.reply === direta.reply && !/Total gasto/.test(invertida.reply)
+      && semana.reply.includes(`${porDia} por dia`) && /^Nesta semana dá uns/.test(semana.reply) && paraMim.reply === semana.reply))
+    // No motorista o objetivo do mês é de LUCRO: não sai do saldo como "meta de guardar".
+    out.push(result('TY-objetivo-de-lucro-nao-e-meta-de-guardar', direta.reply, 'sem "meta de guardar" no motorista',
+      !/meta de guardar/.test(direta.reply)))
+    const auto = await turnoHoje(autonomoRico(hoje), 'quanto posso gastar hoje?')
+    out.push(result('TY-autonomo-mantem-a-meta-de-guardar', auto.reply, 'autônomo continua descontando a meta de guardar',
+      /meta de guardar/.test(auto.reply)))
+    // "Tenho dinheiro pra trocar o pneu (de 600)?": pergunta de saldo.
+    const [comPreco, semPreco, quando] = await Promise.all(['tenho dinheiro pra trocar o pneu de 600?', 'tenho dinheiro pra trocar o pneu?', 'quando troco o pneu?'].map(m => turnoHoje(moto, m)))
+    out.push(result('TY-tenho-dinheiro-pra', [comPreco.reply, semPreco.reply, quando.reply], 'simulação com Sim/Não; sem preço, pede o valor; "quando troco" continua manutenção',
+      /^(?:Sim\.|Não\.|Dá, mas aperta: o mês fecha no vermelho\.) Se você gastar R\$\s600,00/.test(comPreco.reply) && !comPreco.actions.length
+      && /^Seu saldo em conta é .*Quanto custa o pneu\?/.test(semPreco.reply)
+      && /cadastrad[oa] em Manutenção|próxima troca/.test(quando.reply) && ![comPreco, semPreco].some(r => /Tenho dinheiro"|próxima troca/.test(r.reply))))
+  }
+
   return out
 }
 

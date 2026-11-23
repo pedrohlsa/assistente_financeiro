@@ -44,6 +44,9 @@ const HIPOTESE = [
   /\bse\s+(?:r\$\s*)?\d/,
   /\bcabe\b/, /\bd[áa]\s+pra\b[^?]*\d/, /\bdaria\s+pra\b/,
   /\bconsigo\s+(?:comprar|pagar|bancar)\b/, /\bs[óo]\s+quero\s+saber\s+se\b/,
+  // "Tenho dinheiro pra trocar o pneu de 600?": a pergunta de sempre, com o
+  // saldo como sujeito. Virava busca por um lançamento chamado "Tenho dinheiro".
+  /\btenho\s+(?:dinheiro|grana|saldo|bala)\s+(?:pra|para)\b[^?]*\d/,
   // "Posso parcelar uma geladeira de 3000 em 10x?" mostrava a situação dos
   // cartões; "posso comprar um celular de 1500?" caía na ajuda.
   /\bposso\s+(?:comprar|parcelar|financiar|bancar)\b/,
@@ -543,7 +546,7 @@ function planSingleScenario(
   // mês: "só quero saber se 500 de obra CABE esse mês". Sem elas a frase caía
   // no texto genérico de ajuda — logo a frase de quem DIZ que não quer
   // registrar nada, e que é justamente quem mais precisa da simulação.
-  if (/\bgastar\b|\bgastasse\b|\bpagar\b|\bcomprar\b|\bmeter\b|\btorrar\b|\bcabe\b|\bcaberia\b|\bd[áa]\s+pra\b|\bdaria\s+pra\b/.test(t)) {
+  if (/\bgastar\b|\bgastasse\b|\bpagar\b|\bcomprar\b|\bmeter\b|\btorrar\b|\bcabe\b|\bcaberia\b|\bd[áa]\s+pra\b|\bdaria\s+pra\b|\btenho\s+(?:dinheiro|grana|saldo|bala)\s+(?:pra|para)\b/.test(t)) {
     // O valor tem que ser DINHEIRO: um "1" solto quase sempre e identificador
     // ("Casa 1", "unidade 2"), e simular um gasto de R$ 1,00 e pior que nao
     // simular nada.

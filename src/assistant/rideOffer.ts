@@ -11,6 +11,11 @@ import { normalizeNumberWords } from './numbers'
 import { COMPOUND_DURATION, elapsedMinutes } from './semantic/clock'
 
 const NOME = /\b(?:corridas?|viagem|chamada)\b/
+/**
+ * "Uma de 40 pra 30 km, vale?": a corrida fica implícita no "uma de", com valor
+ * e distância ditos. Sem "corrida" nem "tocou", a pergunta caía na ajuda.
+ */
+const UMA_DE_COM_DISTANCIA = /^(?:e\s+)?(?:(?:e\s+)?(?:essa|esta|uma|a)\s+)de\s+(?:r\$\s*)?\d+(?:[.,]\d+)?\s*(?:reais?|contos?|pila)?\s+(?:pra|para|por|em|com|de)\s+\d+(?:[.,]\d+)?\s*(?:kms?|quilometros?)\b/
 const NUMBER = String.raw`(\d+(?:[.,]\d+)*)(?!\d|[.,]\d)`
 const AMOUNT_WITH_CURRENCY = new RegExp(String.raw`(?<!-)r\$\s*${NUMBER}|(?<![\w.,-])${NUMBER}\s*(?:reais?|contos?|pila)\b`, 'g')
 const AMOUNT_AFTER_NOUN = new RegExp(String.raw`\b(?:corridas?|viagem|chamada)\s+(?:(?:da|do|na|no|pela|pelo|via)\s+(?:uber|99|indrive[r]?)\s+)?(?:(?:de|por|no\s+valor\s+de|que\s+(?:paga|rende|da|oferece))\s+)?${NUMBER}(?!\s*(?:kms?|quilometros?|m|metros?|h|horas?|min|minutos?|segundos?)\b)`)
@@ -87,6 +92,7 @@ function amountForOffer(text: string, elliptical = false): number | undefined {
   const explicit = new Set([...text.matchAll(AMOUNT_WITH_CURRENCY)].map(m => parseMoney(m[1] || m[2])))
   if (explicit.size) return explicit.size === 1 ? explicit.values().next().value : undefined
   const afterNoun = text.match(AMOUNT_AFTER_NOUN)?.[1] || text.match(AMOUNT_PROSPECTIVE)?.[1] || text.match(ONE_OFFER_SHORT)?.[1]
+    || (UMA_DE_COM_DISTANCIA.test(text) ? text.match(/\bde\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)/)?.[1] : undefined)
   if (afterNoun) return parseMoney(afterNoun)
   if (!elliptical) return undefined
   const prices = [...text.matchAll(AMOUNT_BEFORE_DISTANCE)].filter(m =>
@@ -162,7 +168,7 @@ export function interpretRideOffer(state: AppState, input: string, context = inp
   const alternatives = text.split(OFFER_SEPARATOR)
   const comparesTwo = alternatives.length === 2 && COMPARA_DOIS.test(text)
     && alternatives.every(part => amountForOffer(part, true) !== undefined && !!part.match(DISTANCE))
-  if ((!RIDE_EVALUATION_REQUEST.test(text) && !compare && !comparesTwo) || (!notice && !NOME.test(text) && !comparesTwo)) return undefined
+  if ((!RIDE_EVALUATION_REQUEST.test(text) && !compare && !comparesTwo) || (!notice && !NOME.test(text) && !comparesTwo && !UMA_DE_COM_DISTANCIA.test(text))) return undefined
   if (perceivesDrivingFatigue(context)) return { reply: PARE_PARA_DESCANSAR }
   if (!/\d/.test(text) && !notice) return undefined
   if (compare || alternatives.length > 1) return { reply: compareOffers(state, alternatives, text) }

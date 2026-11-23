@@ -128,7 +128,7 @@ function releCenario(t: string, reply: string, c: NonNullable<ConversationFocus[
   // sim ou não. "Não dá ruim" para quem perguntou se cabe não responde nada.
   const pergunta = /\b(?:da|de)\s+ruim\b|\b(?:esta|fica|ficou|e)\s+ruim\b|\bvale\s+a\s+pena\b|\bcompensa\b|\baguento\b/.test(t) ? 'ruim'
     : /\bcabe\b/.test(t) ? 'cabe'
-      : /\b(?:consigo|conseguiria|da\s+para|posso|e\s+possivel)\b/.test(t) ? 'sim' : null
+      : /\b(?:consigo|conseguiria|da\s+para|posso|e\s+possivel)\b|\btenho\s+(?:dinheiro|grana|saldo|bala)\b/.test(t) ? 'sim' : null
   if (!pergunta || c.feasible === undefined) return reply
   if (/^(?:sim|n[ãa]o|d[áa]\s+ruim|d[áa],|aperta|cabe|o\s+saldo\s+aguenta)\b/i.test(reply)) return reply
   const mesNegativo = c.facts.some(f => /sobra do m[eê]s/i.test(f.label) && f.value < 0)

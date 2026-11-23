@@ -168,6 +168,8 @@ export function mesesAtePrazo(t: string, hoje: string, prazoDaMeta?: string): st
  */
 export function perguntaDeManutencao(t: string): boolean {
   if (/\b(?:gastei|gasto|gastou|paguei|custou|custa|custo)\b/.test(t)) return false
+  // "Tenho dinheiro pra trocar o pneu?" pergunta pelo SALDO, não pela próxima troca.
+  if (/\btenho\s+(?:dinheiro|grana|saldo|bala)\b|\b(?:d[aá]|daria)\s+(?:pra|para)\s+(?:pagar|bancar)\b|\bconsigo\s+(?:pagar|bancar)\b/.test(t)) return false
   return /\btroc(?:a|o|ar|ando)\w*\b[^?]*\b(?:oleo|pneus?|pastilhas?|filtros?|correia)\b|\b(?:oleo|pneus?|pastilhas?|filtros?|correia)\b[^?]*\btroc(?:a|o|ar|ando)\w*\b/.test(t)
 }
 
@@ -203,6 +205,9 @@ export function pedeSobraSemCombustivel(t: string): boolean {
 export function pedeResumoDoDia(t: string): boolean {
   return /^\s*(?:e\s+)?como\s+(?:foi|esta|ficou|vai|anda)(?:\s+(?:(?:o\s+)?(?:meu\s+)?dia(?:\s+de\s+hoje)?|hoje))?\s*\??\s*$/.test(t)
     || /^\s*(?:e\s+)?(?:(?:o\s+)?(?:meu\s+)?dia\s+|hoje\s+)?(?:foi|esta|tava|estava)\s+(?:um\s+dia\s+)?(?:bom|boa|fraco|ruim|bem|razoavel|legal|forte)\s*(?:hoje)?\s*\??\s*$/.test(t)
+    // "Fechamento do dia", "resumo de hoje", "me dá o balanço do dia": o dia
+    // dele. "Fechamento do dia" caía na ajuda; "resumo de hoje" no resumo do MÊS.
+    || /^\s*(?:me\s+(?:da|de|passa|manda)\s+)?(?:o\s+)?(?:resumo|fechamento|balanco)\s+(?:d[eo]\s+)?(?:meu\s+)?(?:hoje|dia)(?:\s+de\s+hoje)?\s*\??\s*$/.test(t)
 }
 
 /**
@@ -288,6 +293,9 @@ export const pedeListaDeParcelamentos = (t: string): boolean =>
  */
 export const pedeQuantoPossoGastar = (t: string): boolean =>
   /\bquanto\s+(?:eu\s+)?(?:posso|devo|deveria|da\s+para|consigo|poderia)\s+gastar\b|\bda\s+para\s+gastar\s+quanto\b/.test(t)
+  // "Posso gastar quanto hj?": a ordem invertida respondia o total GASTO hoje.
+  // "Quanto posso tirar pra mim": a retirada do motorista é a mesma pergunta.
+  || /\b(?:posso|consigo|da\s+(?:pra|para))\s+gastar\s+quanto\b|\bquanto\s+(?:eu\s+)?(?:posso|consigo)\s+(?:tirar|retirar|sacar|pegar)\s+(?:pra|para)\s+mim\b|\b(?:posso|consigo)\s+(?:tirar|retirar)\s+quanto\s+(?:pra|para)\s+mim\b/.test(t)
 
 /** "Qual a maior parcela", "a parcela mais cara". */
 export const pedeMaiorParcela = (t: string): boolean =>

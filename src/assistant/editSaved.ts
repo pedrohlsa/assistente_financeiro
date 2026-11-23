@@ -93,6 +93,9 @@ export function parseEditRequest(
   // solto reconhece pelo verbo, então precisa desviar delas explicitamente.
   const outraCoisa = /\bmetas?\b|\bcart[ãa]o\b|\bfatura\b|\bparcelas?\b|\bhod[oô]metro\b/i.test(message)
   if (!generico && (outraCoisa || !PEDIDO_SOLTO.test(message))) return null
+  // "Tenho dinheiro pra TROCAR o pneu de 600?" pergunta pelo saldo; não é
+  // correção de um lançamento chamado "Tenho dinheiro".
+  if (/\btenho\s+(?:dinheiro|grana|saldo|bala)\s+(?:pra|para)\b|\b(?:d[aá]|daria)\s+(?:pra|para)\s+(?:trocar|pagar|comprar)\b/i.test(message)) return null
   const loose = !generico
 
   const corte = message.search(SEPARADOR)
