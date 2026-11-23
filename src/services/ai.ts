@@ -33,7 +33,7 @@ import {
 } from '../assistant/cashQuestions'
 import type { PerguntaDeConta, PerguntaDeFatura, PlanoDeGuardar } from '../assistant/cashQuestions'
 import { COBRADO_SEM_PAGAR, CORRIDA_CANCELADA, describeAction, parseNaturalFull, REAJUSTE, SAQUE } from './nlp'
-import { COMBUSTIVEL_POR_DIA_TRABALHADO, driverInsight } from '../assistant/driverInsights'
+import { answerFuelPrice, COMBUSTIVEL_POR_DIA_TRABALHADO, driverInsight } from '../assistant/driverInsights'
 import { answerVehicleCost, answerVehicleMonthly } from '../assistant/vehicleCost'
 import { answerDrivingShift, perceivesDrivingFatigue, FALTAM_VIAGENS_POR_APP, PARE_PARA_DESCANSAR } from '../assistant/driverAdvice'
 import { answerRideOffer } from '../assistant/rideOffer'
@@ -584,6 +584,37 @@ function ondeCortar(s: AppState, t: string): string | undefined {
     `Para ver se algum está acima do normal, pergunte por exemplo "tô gastando muito com ${nome(top[0][0]).toLowerCase()}?".`,
   ].join('\n')
 }
+
+/**
+ * "Se eu fizer mais 3 corridas de 25 eu bato?": a conta é com os números DA
+ * FRASE contra a meta do dia. Caía em "esse tipo de cenário eu não sei
+ * simular", e a pergunta mais comum do fim de turno ficava sem resposta.
+ */
+export function respostaDeCorridasAMais(s: AppState, input: string): string | null {
+  if (!isDriver(s.settings)) return null
+  const t = normalizeQuestion(input)
+  if (/\d+\s*(?:h|horas?)\b/.test(t)) return null
+  const m = t.match(/\bse\s+(?:eu\s+)?(?:fizer|fazer|pegar|tirar|ganhar|rodar|conseguir|faturar)\s+mais\s+(?:(\d+)\s+(?:corridas?|viagens?)\s+(?:de\s+)?(?:r\$\s*)?(\d+(?:[.,]\d+)?)|(?:r\$\s*)?(\d+(?:[.,]\d+)?)(?:\s+reais)?)(?![\d.,])/)
+  if (!m || !/\bbat(?:o|er|e|emos)\b|\bmeta\b|\bfech(?:o|ar)\s+o\s+dia\b|\bchego\b/.test(t)) return null
+  const n = m[1] ? Number(m[1]) : 1
+  const unit = parseMoney(m[2] || m[3])
+  if (!(n > 0) || !(unit > 0)) return null
+  const g = dailyGoal(s)
+  if (!(g.total > 0)) return SEM_META_DIARIA
+  const extra = round2(n * unit)
+  const ts = todayStats(s)
+  const falta = round2(g.total - ts.profit)
+  const dito = m[1] ? `${n} ${n === 1 ? 'corrida' : 'corridas'} de ${fmtBRL(unit)} dão ${fmtBRL(extra)}` : `${fmtBRL(extra)} a mais`
+  const conta = `lucro de ${fmtBRL(ts.profit)} hoje contra a meta de ${fmtBRL(g.total)} (dado real)`
+  const ressalva = 'A conta usa o valor bruto que você disse; o combustível dessas corridas sai do lucro. Simulação — nada foi registrado.'
+  if (falta <= 0.009) return `Você já bateu: ${conta}. Mais ${fmtBRL(extra)} fica acima da meta.\n\n${ressalva}`
+  if (extra >= falta) return `Sim: faltam ${fmtBRL(falta)} e ${dito} — ${extra - falta > 0.009 ? `sobram ${fmtBRL(round2(extra - falta))} acima da meta` : 'fecha a meta na conta exata'}. Base: ${conta}.\n\n${ressalva}`
+  return `Ainda não: faltam ${fmtBRL(falta)} e ${dito} — ficariam faltando ${fmtBRL(round2(falta - extra))}. Base: ${conta}.\n\n${ressalva}`
+}
+
+/** Sem objetivo configurado, a meta diária é zero — "bateu a meta de R$ 0,00" é número certo com cara de mentira. */
+const SEM_META_DIARIA = 'Você ainda não tem meta diária: ela sai do objetivo de lucro do mês e das contas que você cadastrar. '
+  + 'Defina o objetivo de lucro em Configurações que eu passo a dizer quanto falta a cada dia.'
 
 function resolveLocal(s: AppState, input: string, context?: { today?: string; message: string }): AiReply {
   const t = normalizeQuestion(input)
@@ -1203,14 +1234,21 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
         + (w.profitPerHour > 0 ? `, cerca de ${fmtNum(falta / w.profitPerHour)}h no seu ritmo de ${fmtBRL(w.profitPerHour)}/hora.` : '.')
         + ' Se parar, o que faltar entra na meta dos próximos dias. A decisão é sua — descanso também conta.' }
   }
+  const corridasAMais = respostaDeCorridasAMais(s, input)
+  if (corridasAMais) return { text: corridasAMais }
+
   const pedeQuantoFalta = /\bquanto\s+(?:ainda\s+)?falta\b.*\bmeta\b|\bmeta\b.*\bquanto\s+(?:ainda\s+)?falta\b|\bfalta\s+quanto\b.*\bmeta\b|\bmeta\b.*\bfalta\s+quanto\b/.test(t)
+    // "Quanto falta pra fechar o dia": fechar o dia é bater a meta do dia.
+    || /\b(?:quanto\s+(?:ainda\s+)?falta|falta\s+quanto)\s+(?:pra|para)\s+(?:eu\s+)?fechar\s+o\s+dia\b/.test(t)
   if (driverMode && !metaCitadaPeloNome
-    && (/\bbat(?:i|eu|er)\s+(?:a\s+)?(?:minha\s+)?meta\b/.test(t)
+    && (/\bbat(?:i|eu|er|endo|o|emos)\s+(?:a\s+)?(?:minha\s+)?meta\b/.test(t)
+      || (/\b(?:ja\s+)?fech(?:ei|ou|o)\s+o\s+dia\b/.test(t) && !/\d/.test(t))
       || /\bmeta\b[^?]{0,20}\bbat(?:eu|ida)\b/.test(t)
       || pedeQuantoFalta
       || /\b(?:to|tou|estou|ta|esta|t[oa]\s+indo|estou\s+indo|vou)\s+(?:bem|mal|perto|longe)\s+(?:d?[ao]\s+|n[ao]\s+)?(?:minha\s+)?meta\b/.test(t)
       || /\bcomo\s+(?:eu\s+)?(?:to|tou|estou|ta|esta)\s+(?:n[ao]\s+|com\s+a\s+)?(?:minha\s+)?meta\b/.test(t))) {
     const g = dailyGoal(s)
+    if (!(g.total > 0)) return { text: SEM_META_DIARIA }
     // A meta de um dia passado não fica guardada. A régua é a MESMA da Home,
     // que mede o déficit de ontem contra a meta de hoje — e a resposta diz
     // isso. Antes "bati a meta ontem?" e "quantos dias bati a meta?"
@@ -1964,6 +2002,9 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
       text: [abre, linhasDeObrigacao(certas), pendentes].filter(Boolean).join('\n\n'),
     }
   }
+
+  const precoLitro = answerFuelPrice(s, t, today)
+  if (precoLitro) return { text: precoLitro }
 
   // consumo
   // "Meu carro tá BEBENDO muito?" é a pergunta do consumo dita como se fala.

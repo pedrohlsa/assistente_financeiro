@@ -51,7 +51,7 @@ import type { AssistantDraft } from './drafts'
 import { applyCorrection, parseCorrection } from './corrections'
 import type { CorrectionPlan } from './corrections'
 import { findGoalByName, planAssistantActions } from './execute'
-import { askAssistant, listaDeLancamentos, normalizeQuestion, respostaDeMetaCitada } from '../services/ai'
+import { askAssistant, listaDeLancamentos, normalizeQuestion, respostaDeCorridasAMais, respostaDeMetaCitada } from '../services/ai'
 import { contaDeclarada, perguntaDeFatura, perguntaNominal } from './cashQuestions'
 import { buildCapabilities } from './capabilities'
 import { describeAction, META_OUTRA, NEXT_RIDE_DISTANCE, SAQUE } from '../services/nlp'
@@ -2839,7 +2839,7 @@ Confirmar?`,
   // notebook": a META existe e o plano dela responde. Lida como hipótese, a
   // frase ganhava "esse tipo de cenário eu ainda não sei simular".
   if (hipoteseSemPlano && !temFato) {
-    const daMeta = respostaDeMetaCitada(input.state, mensagem)
+    const daMeta = respostaDeMetaCitada(input.state, mensagem) || respostaDeCorridasAMais(input.state, mensagem)
     if (daMeta) {
       return {
         draft: null, keepPending: true, focus: input.focus,

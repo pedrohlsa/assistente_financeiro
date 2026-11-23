@@ -888,6 +888,22 @@ function refinaConsulta(
       dentroDoAssunto ? 'onde, dentro do assunto' : 'por categoria')
   }
 
+  // ---- "e por km?" — o mesmo recorte, outra unidade ---------------------
+  // Depois de "quanto ganhei por hora", o motorista pergunta "e por km?" e
+  // "e por corrida?". Sem esta troca a elipse caía no texto genérico de ajuda.
+  const unidade = t.match(/^(?:e\s+)?(?:(?:o|a)\s+)?(?:por|cada|o|a)\s+(km|quilometro|hora|corrida|viagem|dia)\s*[?.!]*$/)
+  const porUnidade = (['per-km', 'per-hour', 'per-trip', 'per-day'] as AssistantQueryPlan['metric'][]).includes(base.metric)
+  if (unidade && base.source === 'transactions' && (porUnidade || base.metric === 'sum')
+    && (porUnidade || !/^(?:e\s+)?(?:o|a)\s/.test(t))) {
+    const nome = unidade[1] === 'quilometro' ? 'km' : unidade[1] === 'corrida' ? 'viagem' : unidade[1]
+    const metric = ({ km: 'per-km', hora: 'per-hour', viagem: 'per-trip', dia: 'per-day' } as const)[nome as 'km' | 'hora' | 'viagem' | 'dia']
+    const tipo = base.filter.txType || []
+    const prefixo = tipo.length > 1 ? 'Líquido por ' : tipo[0] === 'income' ? 'Recebido por ' : tipo[0] === 'saving' ? 'Guardado por ' : 'Gasto por '
+    const assunto = base.label?.includes(' - ') ? ` - ${base.label.split(' - ').slice(1).join(' - ')}` : ''
+    return planned({ ...base, metric, group: 'none', order: undefined, comparePeriod: undefined,
+      label: `${prefixo}${nome}${assunto}` }, `por ${nome}`)
+  }
+
   const agrupamento = grupoPedido(t)
   if (agrupamento) {
     const cmp = agrupamento.exigeComparacao ? (base.comparePeriod || previousPeriod(base.period)) : base.comparePeriod

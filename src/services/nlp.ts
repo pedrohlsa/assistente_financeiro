@@ -1514,7 +1514,9 @@ function parseClause(input: string): ParsedAction[] {
     // como sujeito diz que o número é o hodômetro. Caía na ajuda.
     // Sem unidade, só número com cara de hodômetro (4 dígitos ou mais): "tá
     // com 2 problemas" não é quilometragem.
-    String.raw`(?:carro|ve[ií]culo|moto)\s+(?:t[aá]|est[aá])\s+(?:com|marcando|em|rodado)\s+(?:${NUM}\s*(?:mil\s*(?:km|quil[oô]metros?)?|km|quil[oô]metros?)|(\d{1,3}(?:\.\d{3})+|\d{4,}))(?![\wÀ-ÿ\d.,])`,
+    // "O PAINEL marca 45320", "odômetro mostrando 45.320": o mostrador é o
+    // hodômetro, e o número virava R$ 45.320,00 sem ação.
+    String.raw`(?:(?:carro|ve[ií]culo|moto)\s+(?:t[aá]|est[aá])\s+(?:com|marcando|em|rodado)|(?:painel|od[oô]metro|marcador)(?:\s+(?:(?:t[aá]|est[aá])\s+)?(?:com|marca(?:ndo)?|mostra(?:ndo)?|em|no))?\s*:?)\s*(?:${NUM}\s*(?:mil\s*(?:km|quil[oô]metros?)?|km|quil[oô]metros?)|(\d{1,3}(?:\.\d{3})+|\d{4,}))(?![\wÀ-ÿ\d.,])`,
     'i',
   ))
   if (odoM) {

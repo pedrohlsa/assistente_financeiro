@@ -9779,6 +9779,119 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /déficit de R\$ 200,00/i.test(r3) && !/-R\$/.test(r3)))
   }
 
+  // ---- TU-: fim de turno do motorista, em fala real ------------------------
+  {
+    const hoje = todayISO()
+    const moto = motoristaRico(hoje)
+    // "E por km?" depois de "quanto ganhei por hora": mesma medida, outra
+    // unidade. Caía no texto genérico de ajuda.
+    const porHora = await turnoHoje(moto, 'quanto ganhei por hora?')
+    const porKm = await turnoHoje(moto, 'e por km?', porHora.focus)
+    const porCorrida = await turnoHoje(moto, 'e por corrida?', porKm.focus)
+    out.push(result('TU-elipse-troca-a-unidade', [porKm.reply, porCorrida.reply], 'recebido por km e por viagem, sem ajuda genérica',
+      /Recebido por km/.test(porKm.reply) && /\/km/.test(porKm.reply) && /Recebido por viagem/.test(porCorrida.reply)
+      && ![porKm, porCorrida].some(r => /Posso te ajudar/.test(r.reply) || r.actions.length)))
+    // "Tirando" no gerúndio é GANHO para quem roda; virava "Gasto por km".
+    const tirando = await turnoHoje(moto, 'quanto to tirando por km rodado')
+    const ganhando = await turnoHoje(moto, 'quanto eu to ganhando por hora')
+    out.push(result('TU-gerundio-de-ganho', [tirando.reply, ganhando.reply], 'recebido, nunca gasto',
+      /Recebido por km/.test(tirando.reply) && /Recebido por hora/.test(ganhando.reply)
+      && !/Gasto por/.test(tirando.reply + ganhando.reply)))
+
+    // Preço do litro é preço, não volume: respondia "96 L".
+    const posto = buildState({ profile: 'driver', balance: 500 })
+    const outro = hoje.slice(8) > '03' ? addDays(hoje, -3) : hoje
+    posto.fuelRecords = [
+      { id: 'f-hoje', date: hoje, amount: 120, liters: 20, pricePerLiter: 6 },
+      { id: 'f-antes', date: outro, amount: 100, liters: 20, pricePerLiter: 5 },
+    ]
+    const litro = await turnoHoje(posto, 'quanto ta o litro')
+    const pago = await turnoHoje(posto, 'quanto paguei no litro esse mes')
+    const litros = await turnoHoje(posto, 'quantos litros eu coloquei esse mes')
+    const semPosto = await turnoHoje(buildState({ profile: 'driver', balance: 500 }), 'quanto ta o litro')
+    out.push(result('TU-preco-do-litro', [litro.reply, pago.reply, litros.reply, semPosto.reply],
+      'último R$ 6,00 e média R$ 5,50; litros continua em litros; sem abastecimento, cala',
+      [litro, pago].every(r => r.reply.includes(fmtBRL(6)) && r.reply.includes(`${fmtBRL(5.5)} por litro`) && !/^Combustível/.test(r.reply))
+      && /^Média este mês/.test(pago.reply) && /40 L/.test(litros.reply) && !/por litro/.test(litros.reply)
+      && /Ainda não tenho abastecimento/.test(semPosto.reply) && !/R\$/.test(semPosto.reply)))
+
+    // Meta do dia em fala de fim de turno.
+    const meta = buildState({ profile: 'driver', balance: 500 })
+    meta.settings.monthlyProfitTarget = 4000
+    meta.transactions = [{ id: 'dia', type: 'income', amount: 60, date: hoje, time: '10:00', description: 'Uber', category: 'corridas' }]
+    const alvo = dailyGoalCalc(meta).total
+    const falta = Math.round((alvo - periodStats(meta, hoje, hoje).profit) * 100) / 100
+    const [batendo, fechar, tres, muito] = await Promise.all([
+      'to batendo a meta hj?', 'quanto falta pra fechar o dia', 'se eu fizer mais 3 corridas de 25 eu bato?', 'se eu tirar mais 1000 bato a meta?',
+    ].map(m => turnoHoje(meta, m)))
+    const tresBate = 75 >= falta
+    out.push(result('TU-meta-do-dia-em-fala-de-turno', [alvo, falta, batendo.reply, fechar.reply, tres.reply, muito.reply],
+      'sim/não primeiro; fechar o dia é a meta; corridas a mais contadas com os números da frase',
+      falta > 0 && /^Ainda não/.test(batendo.reply) && fechar.reply.startsWith(`Faltam ${fmtBRL(falta)}`)
+      && (tresBate ? /^Sim/.test(tres.reply) : /^Ainda não/.test(tres.reply)) && tres.reply.includes(fmtBRL(75))
+      && /nada foi registrado/i.test(tres.reply) && /^Sim/.test(muito.reply)
+      && [batendo, fechar, tres, muito].every(r => !r.actions.length && !/parcelament|não sei simular/i.test(r.reply))))
+    const semMeta = buildState({ profile: 'driver', balance: 500 })
+    semMeta.transactions = meta.transactions
+    const [sm1, sm2] = await Promise.all(['to batendo a meta hj?', 'se eu fizer mais 3 corridas de 25 eu bato?'].map(m => turnoHoje(semMeta, m)))
+    out.push(result('TU-sem-objetivo-nao-ha-meta-de-zero', [sm1.reply, sm2.reply], 'diz que não há meta, nunca "meta de R$ 0,00"',
+      [sm1, sm2].every(r => /não tem meta diária/.test(r.reply) && !/R\$\s*0,00/.test(r.reply))))
+
+    // Custo do carro no período DITO, não nos últimos 30 dias.
+    const [carroMes, carroPassado, carroPadrao] = await Promise.all(
+      ['quanto gastei com o carro esse mes', 'quanto gastei com o carro mes passado', 'quanto o carro me custa por mes'].map(m => turnoHoje(moto, m)))
+    out.push(result('TU-custo-do-carro-no-periodo-dito', [carroMes.reply, carroPassado.reply, carroPadrao.reply], 'este mês, mês passado, 30 dias',
+      /^Este mês o veículo custou/.test(carroMes.reply) && /^No mês passado o veículo custou/.test(carroPassado.reply)
+      && /^Nos últimos 30 dias/.test(carroPadrao.reply)))
+
+    // Horário das corridas não é guardado: "manhã ou noite" virava filtro de texto.
+    const horarios = await Promise.all(['qual horario rende mais?', 'rende mais de manha ou de noite?', 'compensa mais rodar de noite ou de manha'].map(m => turnoHoje(moto, m)))
+    out.push(result('TU-horario-diz-o-que-nao-mede', horarios.map(r => r.reply), 'explica que não guarda a hora das corridas',
+      horarios.every(r => /Não consigo dizer o melhor horário/.test(r.reply) && !/Uber: R\$|lançamento que se encaixe/.test(r.reply))))
+
+    // "Tô rodando no prejuízo?" e "tá compensando?": sinais opostos.
+    const roda = (receita: number, gasto: number, fixos = 0) => {
+      const s = buildState({ profile: 'driver', balance: 500 })
+      s.settings.fixedMonthlyCosts = fixos
+      s.transactions = [
+        { id: 'r', type: 'income', amount: receita, date: hoje, time: '10:00', description: 'Uber', category: 'corridas' },
+        { id: 'g', type: 'expense', amount: gasto, date: hoje, time: '11:00', description: 'Gasolina', category: 'combustivel' },
+        { id: 'p', type: 'expense', amount: 3000, date: hoje, time: '12:00', description: 'Aluguel', category: 'casa' },
+      ]
+      return s
+    }
+    const perguntas = ['to rodando no prejuizo?', 'ta compensando rodar?']
+    const [p1, c1] = await Promise.all(perguntas.map(m => turnoHoje(roda(100, 150), m)))
+    const [p2, c2] = await Promise.all(perguntas.map(m => turnoHoje(roda(500, 100), m)))
+    const [p3] = await Promise.all(perguntas.map(m => turnoHoje(roda(500, 100, 1000), m)))
+    out.push(result('TU-prejuizo-de-rodar-sim-nao-pelo-sinal-da-pergunta', [p1.reply, c1.reply, p2.reply, c2.reply, p3.reply],
+      'prejuízo: Sim/Não; compensa: Não/Sim; custo fixo descoberto diz que não cobre; conta pessoal fora',
+      /^Sim\./.test(p1.reply) && /^Não\./.test(c1.reply) && /^Não\./.test(p2.reply) && /^Sim\./.test(c2.reply)
+      && /^Ainda não cobre tudo/.test(p3.reply) && p2.reply.includes(fmtBRL(400)) && !/3\.000/.test(p2.reply)))
+
+    // O painel é o hodômetro: "o painel marca 45320" virava R$ 45.320 sem ação.
+    const vazio = buildState({ profile: 'driver', balance: 500 })
+    const [painel, painelAbast] = await Promise.all(['rodei 180km e o painel marca 45320', 'abasteci 100, painel 45320'].map(m => turnoHoje(vazio, m)))
+    const kinds = (r: { actions: { kind: string }[] }) => r.actions.map(a => a.kind).join(',')
+    out.push(result('TU-painel-e-hodometro', [painel, painelAbast], 'hodômetro 45.320 km, nunca dinheiro',
+      kinds(painel) === 'odometer,work' && (painel.actions[0] as any).value === 45320
+      && kinds(painelAbast) === 'fuel' && (painelAbast.actions[0] as any).odometer === 45320
+      && ![painel, painelAbast].some(r => /45\.?320,00/.test(r.reply))))
+
+    // A parte que a plataforma fica não é gasto nem valor: pergunta o líquido.
+    const plataforma = await Promise.all(['a 99 ficou com 30 hoje', 'a uber me descontou 25% hoje', 'fiz 300 bruto e a uber ficou com 75']
+      .map(message => orchestrate({ state: moto, message, today: hoje, remoteEnabled: false })))
+    const resposta = await orchestrate({ state: moto, message: '220', today: hoje, remoteEnabled: false,
+      pendingClarification: plataforma[1].response.mode === 'clarify' ? plataforma[1].response.clarification : undefined })
+    const liquido = resposta.response.actions[0]?.action as any
+    out.push(result('TU-parte-da-plataforma-pergunta-o-liquido', [...plataforma.map(r => r.response.reply), liquido],
+      'sem R$ 99,00, sem despesa; o líquido dito vira receita da Uber',
+      plataforma.every(r => r.response.mode === 'clarify' && !r.response.actions.length && !/R\$\s*99,00|ganhou ou o que você gastou/.test(r.response.reply))
+      && /Quanto você recebeu da 99/.test(plataforma[0].response.reply) && /25%/.test(plataforma[1].response.reply)
+      && /R\$\s300,00 brutos/.test(plataforma[2].response.reply)
+      && liquido?.kind === 'income' && liquido.amount === 220 && liquido.description === 'Uber' && liquido.category === 'corridas'))
+  }
+
   return out
 }
 

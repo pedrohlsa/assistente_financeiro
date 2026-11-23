@@ -75,33 +75,56 @@ const CUSTO_MENSAL = [
   new RegExp(String.raw`^quanto\s+(?:me\s+)?(?:custa|custou|sai|gasta)\s+${VEICULO}(?:\s+(?:por|ao|no|todo)\s+mes)?$`),
 ]
 
-export function pedeCustoMensalDoVeiculo(input: string): boolean {
+/**
+ * Período DITO no fim da pergunta ("esse mês", "mês passado", "em agosto").
+ * Sem ele a resposta é a janela de 30 dias; com ele, o período pedido — "quanto
+ * gastei com o carro esse mês" devolvia os últimos 30 dias, outro número.
+ */
+const PERIODO_DITO = /\s+(?:(?:n?esse|n?este|no)\s+mes(?:\s+passado)?|mes\s+passado|(?:n?essa|n?esta|na)\s+semana(?:\s+passada)?|semana\s+passada|(?:em|de|no\s+mes\s+de)\s+(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro))$/
+
+function lerPergunta(input: string): { t: string; periodo?: string } {
   const t = normalizeName(input).replace(/[.!?]+$/, '').trim()
+  const m = t.match(PERIODO_DITO)
+  return m ? { t: t.slice(0, m.index).trim(), periodo: m[0].trim() } : { t }
+}
+
+export function pedeCustoMensalDoVeiculo(input: string): boolean {
+  const { t } = lerPergunta(input)
   return CUSTO_MENSAL.some(re => re.test(t))
 }
 
 export function answerVehicleMonthly(s: AppState, input: string, hoje = todayISO()): string | null {
   if (!isDriver(s.settings) || !pedeCustoMensalDoVeiculo(input)) return null
-  const de = addDays(hoje, -29)
-  const porCat = (cat: string) => s.transactions.filter(t => t.type === 'expense' && t.category === cat && t.date >= de && t.date <= hoje)
+  const dito = lerPergunta(input).periodo
+  const periodo = dito ? parsePeriod(dito, hoje)?.period : undefined
+  const de = periodo?.from || addDays(hoje, -29)
+  const ate = periodo ? (periodo.to < hoje ? periodo.to : hoje) : hoje
+  const rotulo = periodo?.label || 'nos últimos 30 dias'
+  const porCat = (cat: string) => s.transactions.filter(t => t.type === 'expense' && t.category === cat && t.date >= de && t.date <= ate)
     .reduce((a, t) => a + t.amount, 0)
-  const combustivel = fuelSpend(s, de, hoje)
+  const combustivel = fuelSpend(s, de, ate)
   const manutencao = porCat('manutencao')
   const viagem = porCat('pedagio') + porCat('estacionamento')
   const realizado = combustivel + manutencao + viagem
   const fixos = s.settings.fixedMonthlyCosts || 0
   if (realizado <= 0 && fixos <= 0) {
-    return 'Ainda não tenho gasto do veículo registrado nos últimos 30 dias. Registre abastecimentos e manutenções, ou configure os custos fixos (seguro, IPVA, parcela) em Veículo, que eu somo.'
+    return `Ainda não tenho gasto do veículo registrado ${rotulo}. Registre abastecimentos e manutenções, ou configure os custos fixos (seguro, IPVA, parcela) em Veículo, que eu somo.`
   }
   const linhas = [
-    `Nos últimos 30 dias o veículo custou ${fmtBRL(realizado)} em gastos registrados (dado real):`,
+    `${rotulo.charAt(0).toUpperCase()}${rotulo.slice(1)} o veículo custou ${fmtBRL(realizado)} em gastos registrados (dado real):`,
     '',
     `• Combustível: ${fmtBRL(combustivel)}`,
     `• Manutenção: ${fmtBRL(manutencao)}`,
     ...(viagem > 0 ? [`• Pedágio e estacionamento: ${fmtBRL(viagem)}`] : []),
   ]
+  // Mês fechado ou em curso: o fixo do mês soma inteiro. Semana: não cabe
+  // somar um custo mensal a sete dias.
+  if (periodo && periodo.grain !== 'month') {
+    if (fixos > 0) linhas.push('', `Os custos fixos configurados (${fmtBRL(fixos)} por mês) não entram numa conta de semana.`)
+    return linhas.join('\n')
+  }
   linhas.push('', fixos > 0
-    ? `Somando os custos fixos que você configurou (${fmtBRL(fixos)} por mês), dá cerca de ${fmtBRL(realizado + fixos)} por mês.`
+    ? `Somando os custos fixos que você configurou (${fmtBRL(fixos)} por mês), ${periodo ? `o mês fica em cerca de ${fmtBRL(realizado + fixos)}` : `dá cerca de ${fmtBRL(realizado + fixos)} por mês`}.`
     : 'Custos fixos (seguro, IPVA, parcela) não estão configurados em Veículo — se existirem, eles somam a isso.')
   return linhas.join('\n')
 }

@@ -93,6 +93,78 @@ const semBase = (o_que: string) =>
 /** "Dia típico", "dia normal", "um dia comum": o ritmo diário dele. */
 export const DIA_TIPICO = /\bdias?\s+(?:\w+\s+)?(?:tipic\w+|normal|normais|comum|comuns)\b|\b(?:tipic\w+|normal|comum)\s+(?:por\s+)?dia\b/
 export const DIAS_DE_CORRIDA = /^(?:quais|qual)\s+dias?\s+(?:da\s+semana\s+)?rend\w*\s+(?:mais|menos)\s+(?:nas\s+corridas|no\s+volante)\s*[?.!]*$/
+/**
+ * "Quanto tá o litro?", "quanto paguei no litro", "preço médio do litro": é
+ * PREÇO, não volume. A consulta de litros respondia "96 L" para quem queria
+ * saber quanto pagou em cada litro.
+ */
+export const PRECO_DO_LITRO = /\b(?:preco|valor)\s+(?:medio\s+)?(?:d[oe]|por|pelo)\s+litro\b|\b(?:quanto|qnto|qto)\s+(?:(?:eu|que\s+eu)\s+)?(?:ta|esta|estava|tava|paguei|pago|to\s+pagando|estou\s+pagando|tou\s+pagando|custa|custou|sai|saiu|saindo|deu)\s+(?:no\s+|o\s+|pelo\s+|por\s+|cada\s+)?litro\b|\blitro\s+(?:ta|esta|tava|custa|custou|sai|saiu|saindo)\s+(?:quanto|a\s+quanto)\b|\bmedia\s+(?:do|por|de)\s+litro\b|\ba\s+quanto\s+(?:ta|esta|tava|paguei)\s+(?:o\s+)?litro\b|^(?:e\s+)?(?:quanto|qnto|qto)\s+(?:ta|esta|tava)\s+(?:a\s+|o\s+)?(?:gasolina|etanol|alcool|diesel)\s*[?.!]*$/
+
+/**
+ * Preço pago por litro: o do último abastecimento e a média ponderada do
+ * período (valor total ÷ litros), só com abastecimento que tem os dois.
+ */
+export function answerFuelPrice(state: AppState, t: string, hoje = todayISO()): string | null {
+  if (!isDriver(state.settings) || !PRECO_DO_LITRO.test(t)) return null
+  const lido = parsePeriod(t, hoje)
+  const periodo = lido?.period || currentMonthToDate(hoje)
+  const validos = (state.fuelRecords || []).filter(f => f.liters > 0 && f.amount > 0 && f.date <= hoje)
+  if (!validos.length) {
+    return 'Ainda não tenho abastecimento com valor e litros registrados, então não sei quanto você paga no litro.\n\n'
+      + 'Registre o próximo assim: "abasteci 100, 17 litros".'
+  }
+  const ultimo = [...validos].sort((a, b) => b.date.localeCompare(a.date))[0]
+  const precoUltimo = ultimo.amount / ultimo.liters
+  const tipo = ultimo.fuelType ? ` de ${ultimo.fuelType.toLowerCase()}` : ''
+  const linhas = [`No último abastecimento${tipo} (${brDate(ultimo.date)}) o litro saiu ${fmtBRL(precoUltimo)} (dado real).`]
+  const noPeriodo = validos.filter(f => f.date >= periodo.from && f.date <= periodo.to)
+  if (noPeriodo.length >= 2) {
+    const valor = noPeriodo.reduce((a, f) => a + f.amount, 0)
+    const litros = noPeriodo.reduce((a, f) => a + f.liters, 0)
+    const media = `Média ${periodo.label}: ${fmtBRL(valor / litros)} por litro, em ${noPeriodo.length} abastecimentos (${fmtNum(litros, litros % 1 ? 1 : 0)} L por ${fmtBRL(valor)} — dado real).`
+    // Período dito: a média DELE é a resposta; o último litro vira contexto.
+    if (lido) linhas.unshift(media)
+    else linhas.push(media)
+  } else if (lido && !noPeriodo.length) {
+    linhas.unshift(`Não tenho abastecimento com litros ${periodo.label}.`)
+  }
+  return linhas.join('\n')
+}
+
+/** "Qual horário rende mais", "de manhã ou de noite?": hora das corridas, que o app não guarda. */
+export const PEDE_HORARIO = /\b(?:melhor|pior)\s+(?:horario|hora|periodo|turno)\b|\b(?:qual|que|em\s+que)\s+(?:horario|periodo\s+do\s+dia|turno)\b|\bhorario\b[^?]*\b(?:rende|compensa|paga|mais|melhor)\b|\b(?:de\s+)?(?:manha|tarde|noite|madrugada)\s+ou\s+(?:de\s+|a\s+|na\s+)?(?:manha|tarde|noite|madrugada)\b/
+/** "Tô rodando no prejuízo?", "tá compensando rodar?": as corridas contra o que o carro custou. */
+export const PEDE_PREJUIZO_DE_RODAR = /\b(?:rodando|rodar|dirigindo|no\s+volante|com\s+(?:o\s+)?carro|com\s+(?:as\s+)?corridas|de\s+(?:uber|99|app|aplicativo))\b[^?]*\bprejuizo\b|\bprejuizo\b[^?]*\b(?:rodando|rodar|corridas?|carro|uber|99|app)\b|\b(?:ta|esta|tá|tah)\s+compensando\s+(?:rodar|dirigir|fazer\s+(?:uber|corrida|app))\b|\b(?:compensa|vale\s+a\s+pena)\s+(?:continuar\s+)?rodando\b|\b(?:to|tou|estou)\s+(?:tendo\s+)?(?:lucro|prejuizo)\s+(?:rodando|com\s+(?:as\s+)?corridas|no\s+(?:uber|app))\b/
+
+/**
+ * As corridas do mês contra o que o carro custou nelas. Sim/não primeiro
+ * (regra 57). Os custos fixos configurados entram à parte, pelo mês inteiro:
+ * sem eles, "sobra" esconderia o seguro e a parcela do carro.
+ */
+export function rodandoNoPrejuizo(s: AppState, today = todayISO(), pergunta = 'prejuizo'): string {
+  // "Tô no prejuízo?" e "tá compensando?" pedem respostas de sinal oposto.
+  const perguntaPeloPrejuizo = /\bprejuizo\b/.test(pergunta)
+  const inicio = `${today.slice(0, 7)}-01`
+  const ds = dias(s, today, Math.round((fromISO(today).getTime() - fromISO(inicio).getTime()) / 864e5) + 1)
+  const receita = soma(ds.map(d => d.income))
+  const gasto = soma(ds.map(d => d.expense))
+  if (!(receita > 0)) {
+    return 'Não tenho receita de corridas registrada este mês para dizer se está compensando.\n\n'
+      + 'Registre o dia ("fiz 280 hoje, abasteci 80") que eu comparo o que entrou com o que o carro custou.'
+  }
+  const sobra = receita - gasto
+  const fixos = s.settings.fixedMonthlyCosts || 0
+  const comFixos = sobra - fixos
+  const base = `Este mês as corridas renderam ${fmtBRL(receita)} e o carro custou ${fmtBRL(gasto)} em gastos registrados (combustível, manutenção, pedágio e estacionamento) — ${sobra >= 0 ? `sobram ${fmtBRL(sobra)}` : `faltam ${fmtBRL(-sobra)}`} (dado real, ${amostra(ds)}).`
+  const fixo = fixos > 0
+    ? `\n\nContando os custos fixos que você configurou pelo mês inteiro (${fmtBRL(fixos)}), ${comFixos >= 0 ? `ainda sobram ${fmtBRL(comFixos)}` : `faltam ${fmtBRL(-comFixos)} para cobri-los`}.`
+    : '\n\nCustos fixos do carro (seguro, IPVA, parcela) não estão configurados em Veículo — se existirem, saem dessa sobra.'
+  const nota = '\n\nSuas contas pessoais não entram nesta conta: é só o que rodar rendeu contra o que o carro custou.'
+  if (fixos > 0 && sobra >= 0 && comFixos < 0) return `Ainda não cobre tudo. ${base}${fixo}${nota}`
+  const prejuizo = sobra < 0
+  return `${prejuizo === perguntaPeloPrejuizo ? 'Sim' : 'Não'}. ${base}${fixo}${nota}`
+}
+
 export const COMBUSTIVEL_POR_DIA_TRABALHADO = /^quanto\s+(?:eu\s+)?(?:costumo\s+gastar|gasto)\s+(?:de|com)\s+combustivel\s+por\s+dia\s+trabalhado\s*[?.!]*$/
 const RE_TIPICO = /\b(?:costum\w+|tipic\w+|normal|em m[ée]dia|m[ée]dia)\b[^?]*\b(?:por dia|no dia|dia|dias)\b|\b(?:quanto|qual)[^?]*\b(?:costum\w+|tipic\w+)\b/
 const RE_DIAS_FORTES = /\b(?:dias?|dia)\b[^?]*\b(?:mais fort\w+|melhor\w*|que rende\w*|mais rende\w*|mais forte)\b|\bmelhores? dias?\b|\bpiores? dias?\b|\bdias? (?:mais )?frac\w+\b/
@@ -111,7 +183,8 @@ export function driverInsight(s: AppState, input: string, today = todayISO()): s
   // "Melhor horário pra rodar": o registro guarda a hora em que o GANHO foi
   // lançado, não a hora das corridas — e um dia inteiro registrado à noite
   // diria que a noite rende tudo. Sem esse dado, o app diz o que sabe medir.
-  if (/\b(?:melhor|pior)\s+(?:horario|hora|periodo|turno)\b/.test(t)) {
+  if (PEDE_PREJUIZO_DE_RODAR.test(t)) return rodandoNoPrejuizo(s, today, t)
+  if (PEDE_HORARIO.test(t)) {
     return 'Não consigo dizer o melhor horário: eu guardo a hora em que você REGISTRA cada ganho, não a hora das corridas — um dia inteiro lançado à noite pareceria que só a noite rende.\n\n'
       + 'O que dá para comparar com os seus números são os dias da semana. Pergunte "qual dia eu mais ganho?".'
   }

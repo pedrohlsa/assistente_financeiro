@@ -32,7 +32,7 @@ import { isDriver } from '../../services/profile'
 import { spokenPayerName } from '../clauses'
 import { buildPersonalModel, adaptiveEnabled } from '../personalModel'
 import { pareceChegada, pedeProximaEntrada } from '../arrival'
-import { COMBUSTIVEL_POR_DIA_TRABALHADO, DIAS_DE_CORRIDA, DIA_TIPICO } from '../driverInsights'
+import { COMBUSTIVEL_POR_DIA_TRABALHADO, DIAS_DE_CORRIDA, DIA_TIPICO, PEDE_HORARIO, PEDE_PREJUIZO_DE_RODAR, PRECO_DO_LITRO } from '../driverInsights'
 import { pedeCustoMensalDoVeiculo } from '../vehicleCost'
 import { pedeAteOSalario, pedeFimDoMes, guardarEsteMes, pedeAntecipacaoDeFatura, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeDividaTotal, pedeFimDoParcelamento, pedeListaDeParcelamentos, pedeQuantoPossoGastar, pedeLimite, pedeMaiorParcela, pedeSobraSemCombustivel, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, perguntaDeManutencao, planoDeGuardar } from '../cashQuestions'
 import {
@@ -292,7 +292,7 @@ const GASTO = /\bgast(?:ei|o|ou|ando|os?|ar)\b|\bpag(?:uei|o|ou|amento)\b|\btorr
  */
 // "Vou receber", "vai entrar", "quanto ganha": o futuro e o infinitivo também
 // são entrada. Sem eles, "quanto vou receber esse mês" dava o total GASTO.
-const ENTRADA = /\bganh(?:ei|o|ou|ar|a|amos)\b|\breceb(?:i|o|er|e|eu|emos|endo)\b|\bentr(?:ou|ada|adas|aram|ar|a|am)\b|\bfatur(?:ei|o|amento|ou)\b|\breceitas?\b|\brenda\b|\bvend(?:i|as?)\b|\brend(?:e|eu|er|o|imento)\b|\b(?:pra|para)\s+(?:rodar|trabalhar)\b|\bfa(?:co|z(?:endo|er))\b|\bfiz\b|\btir(?:ei|o)\b|\bd[aá]\s+mais\b|\bme\s+d[aá](?![\wÀ-ÿ])/
+const ENTRADA = /\bganh(?:ei|o|ou|ar|a|amos)\b|\breceb(?:i|o|er|e|eu|emos|endo)\b|\bentr(?:ou|ada|adas|aram|ar|a|am)\b|\bfatur(?:ei|o|amento|ou)\b|\breceitas?\b|\brenda\b|\bvend(?:i|as?)\b|\brend(?:e|eu|er|o|imento)\b|\b(?:pra|para)\s+(?:rodar|trabalhar)\b|\bfa(?:co|z(?:endo|er))\b|\bfiz\b|\btir(?:ei|o|ou)\b|\b(?:to|tou|tô|estou|ta|tá|esta|está|tava|estava|tamo|estamos)\s+(?:tirando|ganhando|faturando|lucrando|fazendo)\b|\bganhando\b|\bfaturando\b|\bd[aá]\s+mais\b|\bme\s+d[aá](?![\wÀ-ÿ])/
 const GUARDADO = /\bguard(?:ei|o|ado|ar)\b|\bseparei\b|\breservei\b|\bpoup(?:ei|ou|ado|ar)\b|\beconomiz(?:ei|ou|amos|ado|ar)\b|\bjunt(?:ei|ou|amos|ado|ar)\b/
 const CONTAGEM_DE_REGISTROS = /\bquant(?:os|as)\s+(?:lancamentos|registros|movimentacoes)\b/
 const RESULTADO = /\blucr(?:ei|o|ou)\b|\bcompens(?:a|ou|am)\b|\blimp[oa]s?\b|\bsobr(?:ou|a|as|ando)\b|\bliquido\b|\bresultado\b|\bmelhor\s+mes\b|\bpior\s+mes\b|\bmelhor\s+semana\b|\bpior\s+semana\b|\bmelhor\s+dia\b|\bpior\s+dia\b/
@@ -909,7 +909,9 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
 
   const driver = isDriver(state.settings)
   const normalized = normalizeQuery(input)
-  if (driver && (DIAS_DE_CORRIDA.test(normalized) || COMBUSTIVEL_POR_DIA_TRABALHADO.test(normalized))) return null
+  if (driver && (DIAS_DE_CORRIDA.test(normalized) || COMBUSTIVEL_POR_DIA_TRABALHADO.test(normalized) || PRECO_DO_LITRO.test(normalized) || PEDE_HORARIO.test(normalized) || PEDE_PREJUIZO_DE_RODAR.test(normalized)
+    // "Quanto falta pra fechar o dia" é a meta do dia, não parcelamento a fechar.
+    || /\bfechar\s+o\s+dia\b/.test(normalized))) return null
   const allRideApps = /\bem\s+todas\s+as\s+plataformas(?:\s+juntas?)?\b/
   const t0 = driver && !GASTO.test(normalized) && /\b(?:por\s+(?:hora|km|quilometro|viagem|corrida)|a\s+hora|hora\s+trabalhada)\b/.test(normalized)
     ? normalized.replace(/\b(?:no\s+volante|dirigindo|rodando|em\s+todas\s+as\s+plataformas(?:\s+juntas?)?)\b/g, ' ')

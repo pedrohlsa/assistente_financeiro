@@ -14,6 +14,19 @@ const STATED_FEE = String.raw`(?:com\s+(?:a\s+)?taxa\s+de|(?:j[áa]\s+)?menos\s+
 const PAID_WITH_FEE = new RegExp(String.raw`^${DATE_LEAD}${PLATFORM_PAYMENT}\s+${STATED_FEE}${TAIL}`, 'iu')
 const PAID_AND_TOOK_FEE = new RegExp(String.raw`^${DATE_LEAD}${PLATFORM_PAYMENT},?\s+e\s+(?:tirou|descontou|reteve)\s+${MONEY('fee')}\s+de\s+taxa${TAIL}`, 'iu')
 
+/**
+ * "A Uber ficou com 80", "a 99 me descontou 25%", "fiz 300 bruto e a Uber
+ * levou 75": a parte da plataforma, sem o que caiu na conta. Não é gasto
+ * (ela nunca passou pela mão dele) e o líquido não é presumido — pergunta.
+ * Antes, "a 99 ficou com 30" perguntava se "R$ 99,00" foi ganho ou gasto.
+ */
+const KEPT = String.raw`(?:ficou\s+com|levou|comeu|tirou|descontou|reteve|pegou|abocanhou)`
+const SHARE = String.raw`(?:(?<pct>\d+(?:[.,]\d+)?)\s*(?:%|por\s*cento)|${MONEY('fee')})`
+const KEPT_SHARE = String.raw`(?:a\s+|o\s+)?${PLATFORM}\s+(?:me\s+)?${KEPT}\s+(?:(?:de\s+)?mim\s+)?${SHARE}(?:\s+de\s+(?:taxa|mim|comiss[aã]o))?`
+const WHEN = String.raw`(?:\s+(?:hoje|ontem|anteontem))?`
+const GROSS_THEN_KEPT = new RegExp(String.raw`^${DATE_LEAD}(?:fiz|ganhei|faturei|deu|rodei)\s+${MONEY('gross')}(?:\s+${GROSS})?(?:\s+(?:n[ao]|pel[ao])\s+(?:uber|99|indrive[r]?))?${WHEN},?\s+(?:e|mas)\s+${KEPT_SHARE}${WHEN}${TAIL}`, 'iu')
+const ONLY_KEPT = new RegExp(String.raw`^${DATE_LEAD}${KEPT_SHARE}${WHEN}${TAIL}`, 'iu')
+
 const PAYOUT_PATTERNS = [
   new RegExp(String.raw`^${DATE_LEAD}(?:a\s+|o\s+)?${PLATFORM}\s+recebeu\s+${MONEY('gross')},?\s+e\s+(?:me\s+)?(?:passou|repassou)\s+${MONEY('net')}\s+(?:depois\s+de\s+descontar|j[áa]\s+descontando)\s+${MONEY('fee')}(?:\s+de\s+taxa)?${TAIL}`, 'iu'),
   new RegExp(String.raw`^${DATE_LEAD}${PLATFORM_PAYMENT}\s+${STATED_FEE}(?:,\s*|\s+e\s+|\s+)(?:caiu|ca[ií]ram|entrou|entraram|recebi)\s+(?:(?<whenNet>hoje|ontem|anteontem)\s+)?${MONEY('net')}(?:\s+${NET})?(?:\s+na\s+(?:minha\s+)?conta)?(?:\s+(?<whenTail>hoje|ontem|anteontem))?${TAIL}`, 'iu'),
@@ -32,10 +45,19 @@ const platformLabel = (platform: string): string => /^indriv/i.test(platform) ? 
 
 /** Prepara o dinheiro que entrou quando a plataforma já reteve uma taxa. */
 export function readPlatformPayout(message: string): PlatformPayout | undefined {
-  if (!/\b(?:brut[oa]s?|l[íi]quid[oa]s?|limp[oa]s?|taxa|retida|descont(?:ou|ad[oa]|ar|ando))\b/i.test(message) || message.includes('?')) return undefined
+  if (!/\b(?:brut[oa]s?|l[íi]quid[oa]s?|limp[oa]s?|taxa|retida|descont(?:ou|ad[oa]|ar|ando)|ficou\s+com|levou|comeu|tirou|reteve|pegou|abocanhou)\b/i.test(message) || message.includes('?')) return undefined
   const text = normalizeNumberWords(message).text.trim()
   const match = PAYOUT_PATTERNS.map(pattern => text.match(pattern)).find(Boolean)
   if (!match) {
+    const kept = text.match(GROSS_THEN_KEPT) || text.match(ONLY_KEPT)
+    if (kept) {
+      const { platform, gross, fee, pct } = kept.groups
+      const nome = platformLabel(platform)
+      const parte = pct ? `${pct.replace('.', ',')}%` : fmtBRL(parseMoney(fee))
+      return { description: nome, issue: gross
+        ? `Você informou ${fmtBRL(parseMoney(gross))} brutos, e a ${nome} ficou com ${parte}. Qual foi o valor que realmente entrou na conta?`
+        : `A parte que a ${nome} fica (${parte}) não entra como gasto: o que vale é o que caiu na sua conta. Quanto você recebeu da ${nome}?` }
+    }
     const partial = text.match(PAID_WITH_FEE) || text.match(PAID_AND_TOOK_FEE)
     if (!partial) return undefined
     const { platform, gross, fee } = partial.groups
