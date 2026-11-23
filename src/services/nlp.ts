@@ -492,6 +492,9 @@ const DIA_FALADO = String.raw`(?:segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bad
 
 export function partesDoDia(text: string): string {
   return text
+    // "Comecei 6h e parei 18h": o turno dito como início e fim é "das 6 às 18",
+    // a forma que o leitor de jornada já entende. Caía na ajuda.
+    .replace(/\b(?:comecei|entrei|sa[ií]|peguei)\s+(?:a\s+rodar\s+)?(?:[àa]s\s+)?(\d{1,2}(?:h|:\d{2}|h\d{2})?)\s*(?:,|\be\b)\s*(?:parei|terminei|encerrei|larguei|voltei|cheguei)\s+(?:[àa]s\s+)?(\d{1,2}(?:h|:\d{2}|h\d{2})?)\b/gi, 'rodei das $1 às $2')
     // "Esqueci de lançar ontem: 290 uber…": o pedido não é o relato, e os
     // dois-pontos depois do dia separavam o dia dos valores.
     .replace(/^(\s*)(?:esqueci\s+de\s+(?:lan[çc]ar|registrar|anotar|colocar|botar)|lan[çc]a\s+(?:pra|para)\s+mim|anota\s+(?:a[ií]\s+|pra\s+mim\s+)?|registra\s+(?:a[ií]\s+|pra\s+mim\s+)?)\s*(?:o\s+(?:dia\s+)?de\s+)?/i, '$1')

@@ -10398,6 +10398,22 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && /a mais que|a menos que/.test(gap.reply) && /Uber/.test(gap.reply) && /99/.test(gap.reply) && !/lançamento que se encaixe/.test(gap.reply)))
   }
 
+  {
+    const motor = buildState({ profile: 'driver' })
+    const [inteiro, datado, inicio, fim, invalido, noite] = await Promise.all([
+      'comecei 6h e parei 18h', 'ontem comecei às 06:30 e parei às 18:15',
+      'comecei 6h30', 'parei 18h15', 'comecei 99h', 'comecei 22h e parei 06h',
+    ].map(frase => turn(motor, frase)))
+    const outro = await turn(buildState({ profile: 'other' }), 'comecei 6h e parei 18h')
+    out.push(result('UP-inicio-e-fim-de-turno', [inteiro, datado, inicio, fim, invalido, noite, outro].map(r => [r.reply, r.actions]),
+      'turno completo propõe as horas, horários isolados mantêm minutos, turno noturno pede confirmação do dia',
+      inteiro.actions.length === 1 && inteiro.actions[0].kind === 'work' && inteiro.actions[0].hours === 12
+      && datado.actions.length === 1 && datado.actions[0].kind === 'work' && datado.actions[0].hours === 11.75 && datado.actions[0].date === addDays(TODAY, -1)
+      && /6h30/.test(inicio.reply) && /18h15/.test(fim.reply) && /horário correto/.test(invalido.reply)
+      && noite.mode === 'clarify' && /meia-noite.*8h/.test(noite.reply)
+      && [inicio, fim, invalido, noite, outro].every(r => !r.actions.length) && !motor.workSessions.length))
+  }
+
   return out
 }
 

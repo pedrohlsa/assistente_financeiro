@@ -10,7 +10,7 @@ import { findPayoffPlan, readPayoffQuote } from '../assistant/scenario/payoff'
 // pergunta factual nunca dependa de rede nem de modelo.
 
 import { AppState, ParsedAction, RecurringExpense, Transaction } from '../models/types'
-import { validateAction, isValidationFailure } from '../assistant/contracts'
+import { validateAction, isValidationFailure, isCashClock } from '../assistant/contracts'
 import type { AssistantErrorCode } from '../assistant/contracts'
 import { buildCapabilities } from '../assistant/capabilities'
 import type { OrchestratorInput } from '../assistant/orchestrator'
@@ -2110,6 +2110,20 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     return { text: `${lead}\n\nA comissão que a 99 retém de cada corrida não passa por aqui: o que conta é o valor que caiu na sua conta.` }
   }
 
+  // "Comecei 6h" ou "parei 18h" sozinhos: metade do turno. Diz como registrar
+  // as horas em vez da lista de exemplos.
+  const metadeDoTurno = driverMode ? t.match(/^\s*(?:hoje\s+)?(comecei|entrei|parei|terminei|encerrei|larguei)\s+(?:a\s+rodar\s+)?(?:[àa]s\s+)?(\d{1,2})(?:(?:h|:)(\d{2})|h)?\s*(?:hoje)?\s*[.!]*$/) : null
+  if (metadeDoTurno) {
+    const [, verbo, hora, minutos = '00'] = metadeDoTurno
+    if (!isCashClock(`${hora.padStart(2, '0')}:${minutos}`)) {
+      return { text: 'Qual foi o horário correto? Diga, por exemplo, “comecei às 6h30”.' }
+    }
+    const horario = `${Number(hora)}h${minutos === '00' ? '' : minutos}`
+    const inicio = /^(?:comecei|entrei)$/.test(verbo)
+    return { text: inicio
+      ? `Você começou às ${horario}. Quando parar, diga os dois horários. Por exemplo, “rodei das ${horario} às 18h”.`
+      : `Que horas você começou? Diga os dois horários. Por exemplo, “rodei das 6h às ${horario}”.` }
+  }
   // "Hj não rodei, folga", "carro na oficina, fiquei parado": aviso do dia, não
   // pergunta nem lançamento. Caía na lista de exemplos.
   if (driverMode && !/\d|\?|\b(?:quant\w*|qual|quais|quando|como|posso|devo)\b/.test(t)
