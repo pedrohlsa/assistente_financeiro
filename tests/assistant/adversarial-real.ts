@@ -10386,6 +10386,18 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && !/Não tenho nenhuma proposta na tela/.test(vago.response.reply)))
   }
 
+  // ---- UO-: "minha semana" contra "a passada"; o excedente entre apps -------
+  {
+    const hoje = todayISO()
+    const rico = motoristaRico(hoje)
+    const [semana, outra, gap] = await Promise.all(['minha semana foi melhor que a passada?', 'essa semana rendeu mais que a outra?', 'quanto a uber pagou a mais que a 99 esse mes'].map(m => turnoHoje(rico, m)))
+    out.push(result('UO-semana-contra-a-passada-e-excedente-entre-apps', [semana.reply, outra.reply, gap.reply],
+      'semana contra semana; o excedente da Uber sobre a 99',
+      /^(?:Sim, melhorou|Não, piorou|Não, ficou igual)/.test(semana.reply) && /semana passada|período anterior/i.test(semana.reply) && !/De 1º a|mês passado/.test(semana.reply)
+      && /^(?:Sim|Não), (?:subiu|caiu)/.test(outra.reply)
+      && /a mais que|a menos que/.test(gap.reply) && /Uber/.test(gap.reply) && /99/.test(gap.reply) && !/lançamento que se encaixe/.test(gap.reply)))
+  }
+
   return out
 }
 

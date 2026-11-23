@@ -934,6 +934,14 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   const cmpSeparado = /\b(?:mais|menos)\b/.test(t0)
     ? t0.match(/\b((?:n?esse|n?este|nest[ae]|n?essa|n?esta|hoje)(?:\s+(?:mes|semana|ano))?)\s+(?:do\s+)?que\s+(?:n[oa]s?\s+|o\s+|a\s+)?((?:(?:mes|semana|ano)\s+(?:passad[oa]|retrasad[oa]|anterior))|passad[oa]|anterior|ontem|(?:em\s+)?(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro))\b/)
     : null
+  // "MINHA semana foi melhor que A PASSADA?": a semana dele é esta, e "a
+  // passada" é a semana passada. Sem isto o período era o mês e a comparação,
+  // com o mês anterior.
+  t0 = t0.replace(/\b(?:minha|nossa)\s+(semana|mes|ano)\b/, (_m, u) => u === 'semana' ? 'esta semana' : u === 'mes' ? 'este mes' : 'este ano')
+  {
+    const unidade = /\bsemana\b/.test(t0) ? 'a semana passada' : /\bano\b/.test(t0) ? 'o ano passado' : /\bmes\b/.test(t0) ? 'o mes passado' : undefined
+    if (unidade) t0 = t0.replace(/\b(mais|menos|melhor|pior|maior|menor)\s+(?:do\s+)?que\s+(?:a|o|na|no)\s+(?:passad[ao]|anterior)\b/, `$1 que ${unidade}`)
+  }
   // "A gasolina tá PESANDO quanto NO meu faturamento" é "representa quanto DO
   // meu faturamento": a mesma fatia, com a base que a leitura de fatia conhece.
   t0 = t0.replace(/\b(?:pesa|pesando|pesou)\b(\s+quanto)?\s+n([oa])\s+(meu|minha|meus|minhas)\s+/, 'representa$1 d$2 $3 ')

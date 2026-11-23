@@ -376,7 +376,8 @@ const NAMED_RIDE_APPS = /(?<![\p{L}\p{N}$])(?<!\d[.,])(?:uber|in\s*drive[r]?|i\s
 const RIDE_APP_LABELS = new Map([['uber', 'Uber'], ['99', '99'], ['indrive', 'inDrive'], ['indriver', 'inDrive'], ['ifood', 'iFood'], ['rappi', 'Rappi']])
 const APP_RANKING = /^(?:(?:qual|quais)\s+(?:(?:o|a)\s+)?(?:app|aplicativo|plataforma)s?\b[^?]*\b(?:paga(?:ram|m)?|pagou|rende|vale|melhor|compensa)|ganhei\s+mais\s+em\s+qual\s+(?:app|aplicativo|plataforma))\b/
 const APP_COMPARISON = /^(?:(?:me\s+)?compar(?:a|e|ar)|quanto\s+(?:eu\s+)?(?:ganhei|recebi|fiz|faturei|rendeu)|ganhei\s+mais|(?:qual|quem)\s+(?:ganha|rende|paga|pagou)\s+mais|vale\s+a\s+pena\s+rodar|compensa\s+rodar)\b/
-const APP_GAP = /^(?:qual|quanto)\s+(?:(?:foi|e)\s+)?a\s+diferenca\b/
+// "Quanto a Uber pagou A MAIS que a 99": a diferença perguntada pelo excedente.
+const APP_GAP = /^(?:qual|quanto)\s+(?:(?:foi|e)\s+)?a\s+diferenca\b|^quanto\s+(?:(?:a|o)\s+)?(?:uber|99|in\s*drive[r]?)\s+(?:me\s+)?(?:pagou|paga|rendeu|rende|deu|fez)\s+a\s+(?:mais|menos)\s+(?:do\s+)?que\b|^quanto\s+(?:eu\s+)?(?:fiz|ganhei|faturei|tirei)\s+a\s+mais\s+n[ao]\s+(?:uber|99|in\s*drive[r]?)\b/
 const APP_ORDER = /^(?:(?:a|o)\s+)?(?:uber|99|in\s*drive[r]?|i\s*food|rappi)\s+(?:me\s+)?(?:paga|pagou|rende|rendeu)\s+(mais|menos)\s+(?:do\s+)?que\b/
 
 export function compareRideApps(state: AppState, input: string, today: string): string | undefined {
