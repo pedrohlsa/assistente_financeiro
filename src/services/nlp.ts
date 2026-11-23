@@ -488,8 +488,16 @@ export function totalComDoisPontos(text: string): string {
  * tarde" (os 220 viravam "o que aconteceu com esse valor?") e "ontem e hoje
  * fiz 300 cada" (só um dia entrava). Viram as formas que o parser já lê.
  */
+const DIA_FALADO = String.raw`(?:segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo)(?:-feira)?|ontem|anteontem|hoje|hj`
+
 export function partesDoDia(text: string): string {
   return text
+    // "Esqueci de lançar ontem: 290 uber…": o pedido não é o relato, e os
+    // dois-pontos depois do dia separavam o dia dos valores.
+    .replace(/^(\s*)(?:esqueci\s+de\s+(?:lan[çc]ar|registrar|anotar|colocar|botar)|lan[çc]a\s+(?:pra|para)\s+mim|anota\s+(?:a[ií]\s+|pra\s+mim\s+)?|registra\s+(?:a[ií]\s+|pra\s+mim\s+)?)\s*(?:o\s+(?:dia\s+)?de\s+)?/i, '$1')
+    .replace(new RegExp(String.raw`^(\s*(?:${DIA_FALADO}))\s*:\s*`, 'i'), '$1 ')
+    // "Segunda fiz 320, terça 280": o verbo vale para o segundo dia também.
+    .replace(new RegExp(String.raw`\b(fiz|ganhei|tirei|faturei|recebi|gastei|paguei)\s+((?:r\$\s*)?\d+(?:[.,]\d+)?)(\s*(?:reais)?\s*(?:,|\be\b)\s*(?:e\s+)?)(${DIA_FALADO})\s+((?:r\$\s*)?\d+(?:[.,]\d+)?)(?![\d.,]|\s*(?:km|h\b|hrs?\b|horas?|corridas|viagens|litros?))`, 'gi'), '$1 $2$3$4 $1 $5')
     .replace(/(\d)\s+(?:de|pela|na)\s+(manh[ãa]|tarde|noite|madrugada)\s+e\s+(?:mais\s+)?((?:r\$\s*)?\d)/gi, '$1 de $2 e mais $3')
     .replace(/^(\s*)(ontem|anteontem)\s+e\s+hoje\s+(fiz|ganhei|tirei|faturei|recebi)\s+((?:r\$\s*)?\d+(?:[.,]\d+)?)\s*(?:reais\s+)?cada\b/i, '$1$3 $4 $2 e $4 hoje')
 }

@@ -698,6 +698,18 @@ export function segment(text: string, today = todayISO()): { text: string; start
   }
   for (const m of text.matchAll(/[,;—–]\s*(?=era\b)/gi)) push((m.index || 0) + m[0].length)
 
+  // "Sexta fiz 300, SÁBADO fiz 350": o dia que abre a segunda metade é dela.
+  // O corte antes do verbo deixava "sábado" na primeira metade, e os 350
+  // herdavam a sexta. O corte vai para ANTES do dia, e o de antes do verbo sai.
+  const DIA_QUE_ABRE = String.raw`(?:segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo)(?:-feira)?|ontem|anteontem|hoje|hj`
+  for (const m of text.matchAll(new RegExp(String.raw`(?:[,;]\s*(?:e\s+)?|\s+e\s+)(?=(?:${DIA_QUE_ABRE})\s+(?:${COMMAND_VERBS})\b)`, 'gi'))) {
+    const inicioDoDia = (m.index || 0) + m[0].length
+    if (!/\d/.test(text.slice(0, m.index))) continue
+    push(inicioDoDia)
+    const dia = text.slice(inicioDoDia).match(new RegExp(String.raw`^(?:${DIA_QUE_ABRE})\s+`, 'i'))
+    if (dia) cuts.delete(inicioDoDia + dia[0].length)
+  }
+
   const sorted = [...cuts].sort((a, b) => a - b)
   const out: { text: string; start: number; end: number }[] = []
   let start = sorted[0]

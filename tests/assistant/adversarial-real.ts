@@ -10312,6 +10312,25 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && cada.response.actions.every((c: any) => !c.duplicateWarning)))
   }
 
+  // ---- UK-: cada dia da semana com a sua data; pedido de lançar atrasado ----
+  {
+    const vazio = buildState({ profile: 'driver', balance: 500 })
+    const ask = (message: string) => orchestrate({ state: vazio, message, today: TODAY, remoteEnabled: false })
+    const datas = (r: Awaited<ReturnType<typeof orchestrate>>) => r.response.actions.map(c => `${(c.action as any).amount}@${(c.action as any).date}`)
+    const [sextaSabado, segundaQuarta, segundaSemVerbo, esqueci] = await Promise.all([
+      ask('sexta fiz 300, sábado fiz 350'), ask('segunda fiz 320 e quarta fiz 280'), ask('segunda fiz 320, quarta 280'),
+      ask('esqueci de lançar ontem: 290 uber, 60 gasolina'),
+    ])
+    const dia = (wd: number) => { let d = addDays(TODAY, -1); while (fromISO(d).getDay() !== wd) d = addDays(d, -1); return d }
+    out.push(result('UK-cada-dia-com-a-sua-data', [sextaSabado, segundaQuarta, segundaSemVerbo, esqueci].map(datas),
+      'sexta e sábado distintos; segunda e quarta distintas, com ou sem verbo repetido; ontem com Uber e gasolina',
+      JSON.stringify(datas(sextaSabado)) === JSON.stringify([`300@${dia(5)}`, `350@${dia(6)}`])
+      && JSON.stringify(datas(segundaQuarta)) === JSON.stringify([`320@${dia(1)}`, `280@${dia(3)}`])
+      && JSON.stringify(datas(segundaSemVerbo)) === JSON.stringify([`320@${dia(1)}`, `280@${dia(3)}`])
+      && esqueci.response.actions.length === 2 && esqueci.response.actions.every(c => (c.action as any).date === addDays(TODAY, -1))
+      && esqueci.response.actions.some(c => (c.action as any).description === 'Uber')))
+  }
+
   return out
 }
 
