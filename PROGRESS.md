@@ -7185,3 +7185,65 @@ Em `09780e8`, `npm test` passou com 736 casos do corpus, 1.554 regressões reais
 No ajuste complementar `99585a0`, o chat reconhece “tirou 20 de taxa”, “me passou 380 depois de descontar 50” e “vale a pena a de 30 por 8 km ou a de 80 por 25 km?”. A validação repetida passou com 1.555 regressões, matriz nas oito datas e os mesmos resultados na rubrica e nas sondas independentes.
 
 **NOT READY**. Voz real, Android, APK, DeepSeek real e publicação continuam pendentes. O agrupamento `monthday` ainda depende de redeploy autorizado para chegar ao planejador remoto.
+
+## 22/11/2026 — Rodada do Claude no motorista (fala de fim de turno)
+
+Sondas de conversa em vários turnos, como a tela (`pending`, `pendingClarification`, `draft`, `focus`), com o fixture rico e com estado vazio. Cada defeito ganhou um caso que falhava antes. Os blocos estão em `adversarial-real.ts`: `TU-`, `TV-`, `TW-`, `TX-`, `TY-`, `TZ-`, `UA-` e `UB-`.
+
+Defeitos que davam número errado com cara de certo:
+
+- "O painel marca 45320" e "bom dia, painel 45000" viravam R$ 45.320 sem ação, ou R$ 45.000 de faturamento. O painel é o hodômetro, e a saudação não é resultado do dia.
+- "Revisão dos 50 mil 900 reais" virava despesa de R$ 50.000. O número é o marco da revisão.
+- "Quanto tô tirando por km" respondia o GASTO por km.
+- "Quanto tá o litro" respondia o volume (96 L). Agora dá o preço do último abastecimento e a média do período.
+- "Quantas corridas faço por dia" saía como "R$ 13,20 por dia". O mesmo erro valia para km e horas.
+- "Posso gastar quanto hj?" (o exemplo da ajuda, invertido) respondia o total GASTO hoje.
+- No motorista, o objetivo de lucro do mês saía do saldo como "meta de guardar" (regra 4).
+- O valor do combustível virava também uma receita de corrida.
+- "O carro me deu 200 de prejuízo" virava receita.
+- "Quanto gastei de gasolina se a gasolina estivesse 7 reais" respondia o gasto real e ignorava a hipótese.
+- O mínimo por km tinha fórmula própria (R$ 0,98) diferente da tela Veículo (R$ 0,96). Sem custo nenhum, inventava R$ 0,50. Agora usa `kmCost` (regra 58) e cala sem dados.
+
+Perguntas que caíam na ajuda, num filtro de texto ou em outra pergunta:
+
+- **Unidade e elipse.** "E por km?" e "e por corrida?" depois de uma medida por hora. "Meu lucro por km" e "lucro por corrida" sem verbo. "Quanto sobra por km depois da gasolina".
+- **Meta do dia.**
+  - "Tô batendo a meta hj?" agora responde sim ou não.
+  - "Quanto falta pra fechar o dia" antes respondia sobre parcelamento.
+  - "Se eu fizer mais 3 corridas de 25 eu bato?" é calculado com os números da frase.
+  - Sem objetivo configurado, o app diz isso em vez de "meta de R$ 0,00".
+- **Meta do mês.** Quanto falta para o objetivo de lucro, quanto por dia de trabalho restante (com a diferença para a meta diária explicada) e quantos dias faltam.
+- **Turno inteiro.**
+  - Relato telegráfico ("hj 190km 10h 22 corridas", "rodei 10h, 190km") guardava as corridas e perdia km e horas.
+  - "Até agora" e "por enquanto" marcam o resultado parcial do dia.
+  - "Fui no mercado e gastei 80" usa o assunto dito antes do verbo.
+  - "Fechamento do dia" e "resumo de hoje" respondem o dia.
+- **Plataforma.**
+  - "E na Uber?" depois da 99 troca a plataforma. Antes, o app dizia que não havia lançamento.
+  - "Qual rendeu mais?" compara as plataformas, e "quanto fiz em cada app" separa por app.
+  - "A Uber ficou com 80" e "me descontou 25%" perguntam o líquido recebido.
+  - "400 bruto 310 líquido" registra os 310. Sem plataforma, "limpo" continua perguntando (decisão do Codex).
+  - Gorjeta, bônus, promoção e taxa de cancelamento são receita de corrida.
+- **Veículo.**
+  - Custo do carro respeita o período dito (hoje, ontem, esse mês, mês passado).
+  - "Quanto tá custando meu km rodado" é custo, não o total de km.
+  - "Fiz alinhamento e balanceamento 120" é manutenção.
+  - Abastecimento repetido recebe aviso de duplicidade.
+- **Hipóteses.**
+  - "E se a gasolina subir pra 7 reais?" é simulado.
+  - "Se eu trocar pra um carro que faz 15 km/l" simula o consumo novo contra o atual (campo `kmPerLiter` no cenário).
+  - "Tenho dinheiro pra trocar o pneu de 600?" simula com sim ou não; sem preço, mostra o saldo e pergunta o valor.
+- **Diversos.**
+  - "Qual horário rende mais" explica que a hora das corridas não é guardada.
+  - "Tô rodando no prejuízo?" e "tá compensando rodar?" respondem sim ou não com o sinal certo para cada forma.
+  - "Qual a taxa da 99?" mostra a taxa de saque configurada e as lançadas.
+  - "Uma de 40 pra 30 km, vale?" é oferta.
+  - "Gastei mais de gasolina esse mês que no mês passado?" compara e diz sim ou não.
+
+Gates em cada lote: `npm test`, typecheck, typecheck:api, rubrica (0 PERIGOSA, 0 RUIM) e a matriz das oito datas. Três oráculos foram afrouxados com justificativa no próprio caso:
+
+- `TY-` aceita "Dá, mas aperta".
+- `TZ-` aceita a falta de veredito quando o período comparado está vazio.
+- `H-como-foi-hoje-ontem` aceita o número real de ontem quando hoje está vazio.
+
+**NOT READY**. Também ficaram de fora: categoria própria para aluguel ou diária de carro de app, e correção por chat de horas de trabalho já salvas.
