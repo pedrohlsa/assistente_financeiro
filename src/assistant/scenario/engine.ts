@@ -413,12 +413,13 @@ export function runScenario(
 function simulaRodagem(
   state: AppState, plan: AssistantScenarioPlan, driving: DrivingScenario, hoje: string, caveats: string[],
 ): AssistantScenarioResult {
-  const { metric, distanceChange, fuelPriceChange, fuelPricePerLiter, extraDaysPerWeek } = driving
+  const { metric, distanceChange, fuelPriceChange, fuelPricePerLiter, extraDaysPerWeek, kmPerLiter: consumoSimulado } = driving
   const kmAvulsos = plan.extraKm ?? 0
   if (!Number.isFinite(kmAvulsos) || kmAvulsos < 0
     || (distanceChange !== undefined && (!Number.isFinite(distanceChange) || distanceChange < -1))
     || (fuelPriceChange !== undefined && (!Number.isFinite(fuelPriceChange) || fuelPriceChange < -1))
-    || (fuelPricePerLiter !== undefined && (!Number.isFinite(fuelPricePerLiter) || fuelPricePerLiter < 0))) {
+    || (fuelPricePerLiter !== undefined && (!Number.isFinite(fuelPricePerLiter) || fuelPricePerLiter < 0))
+    || (consumoSimulado !== undefined && (!Number.isFinite(consumoSimulado) || consumoSimulado <= 0 || consumoSimulado > 100))) {
     return vazio(plan, caveats, 'Confira os números informados. Distância e preço por litro não podem ficar abaixo de zero.')
   }
   if (distanceChange !== undefined && kmAvulsos) {
@@ -460,7 +461,8 @@ function simulaRodagem(
   const { kmPerLiter, pricePerLiter } = fuelCostBasis(state, hoje)
   const positive = (v: number) => Number.isFinite(v) && v > 0
   const price = fuelPricePerLiter ?? pricePerLiter * (1 + (fuelPriceChange ?? 0))
-  const litros = km / kmPerLiter
+  // O carro hipotético muda o consumo do CENÁRIO; a referência é o carro atual.
+  const litros = km / (consumoSimulado ?? kmPerLiter)
   const litrosBase = kmBase / kmPerLiter
   let estimativa: number
   let referencia: number | undefined
@@ -488,10 +490,13 @@ function simulaRodagem(
       if (fuelPriceChange !== undefined || fuelPricePerLiter !== undefined) {
         caveats.push(`Usei ${fmtBRL(price)} por litro na simulação${positive(pricePerLiter) ? `, com ${fmtBRL(pricePerLiter)} por litro de referência` : ''}.`)
       }
+      if (consumoSimulado !== undefined) {
+        caveats.push(`Usei ${fmtNum(consumoSimulado)} km/L no carro simulado, contra ${fmtNum(kmPerLiter)} km/L do seu carro hoje (medido nos abastecimentos).`)
+      }
       if (metric === 'fuel-cost') {
         estimativa = litros * price
         formula = 'litros estimados × preço por litro'
-        if (positive(pricePerLiter) && (!somenteDistanciaDita || fuelPriceChange !== undefined || fuelPricePerLiter !== undefined)) {
+        if (positive(pricePerLiter) && (!somenteDistanciaDita || fuelPriceChange !== undefined || fuelPricePerLiter !== undefined || consumoSimulado !== undefined)) {
           referencia = litrosBase * pricePerLiter
         }
         caveats.push('A conta cobre apenas o combustível.')

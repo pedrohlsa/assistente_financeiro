@@ -2065,6 +2065,26 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     }
   }
 
+  // "Qual a taxa da 99?", "quanto paguei de taxa pra 99 esse mês": a taxa de
+  // SAQUE que o app conhece (configurada) e o que foi lançado como ela. Caía
+  // em "não tenho nenhum lançamento", sem dizer qual é a taxa.
+  if (driverMode && /\btaxas?\b/.test(t) && /(?<![\d.,])99(?![\d.,])/.test(t) && !/\d{3,}|\bse\b/.test(t.replace(/(?<![\d.,])99(?![\d.,])/g, ''))) {
+    const lido = parsePeriod(t, today)
+    const periodo = lido?.period || currentMonthToDate(today)
+    const ate = periodo.to < today ? periodo.to : today
+    const taxas = s.transactions.filter(x => x.type === 'expense' && /^taxa\s+(?:d[ao]\s+)?99$/i.test(normalizeName(x.description || ''))
+      && x.date >= periodo.from && x.date <= ate)
+    const total = round2(taxas.reduce((a, x) => a + x.amount, 0))
+    const config = s.settings.ask99Fee && s.settings.platform99Fee > 0
+      ? `A taxa de saque da 99 configurada é ${fmtBRL(s.settings.platform99Fee)} por saque; eu pergunto se houve saque quando você registra um ganho da 99.`
+      : 'A pergunta da taxa de saque da 99 está desligada em Configurações, então eu não registro essa taxa.'
+    const lancado = taxas.length
+      ? `${periodo.label.charAt(0).toUpperCase()}${periodo.label.slice(1)}: ${taxas.length} ${taxas.length === 1 ? 'taxa registrada' : 'taxas registradas'}, ${fmtBRL(total)} (dado real).`
+      : `Nenhuma taxa da 99 registrada ${periodo.label}.`
+    const lead = /\b(?:paguei|pago|cobrou|cobrando|descontou|gastei|quanto)\b/.test(t) && !/\bqual\b/.test(t) ? `${lancado} ${config}` : `${config} ${lancado}`
+    return { text: `${lead}\n\nA comissão que a 99 retém de cada corrida não passa por aqui: o que conta é o valor que caiu na sua conta.` }
+  }
+
   const precoLitro = answerFuelPrice(s, t, today)
   if (precoLitro) return { text: precoLitro }
 

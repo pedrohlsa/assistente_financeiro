@@ -909,7 +909,8 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
 
   const driver = isDriver(state.settings)
   const normalized = normalizeQuery(input)
-  if (driver && (DIAS_DE_CORRIDA.test(normalized) || COMBUSTIVEL_POR_DIA_TRABALHADO.test(normalized) || PRECO_DO_LITRO.test(normalized) || PEDE_HORARIO.test(normalized) || PEDE_MINIMO_POR_KM.test(normalized) || PEDE_PREJUIZO_DE_RODAR.test(normalized)
+  if (driver && (DIAS_DE_CORRIDA.test(normalized) || COMBUSTIVEL_POR_DIA_TRABALHADO.test(normalized) || PRECO_DO_LITRO.test(normalized) || PEDE_HORARIO.test(normalized)
+    || (/\btaxas?\b/.test(normalized) && /(?<![\d.,])99(?![\d.,])/.test(normalized)) || PEDE_MINIMO_POR_KM.test(normalized) || PEDE_PREJUIZO_DE_RODAR.test(normalized)
     // "Quanto falta pra fechar o dia" é a meta do dia, não parcelamento a fechar.
     || /\b(?:fechar|bater)\s+o\s+(?:dia|mes)\b|\bquantos\s+dias\s+(?:(?:de\s+trabalho|uteis)\s+)?(?:faltam|falta|restam)\b/.test(normalized))) return null
   const allRideApps = /\bem\s+todas\s+as\s+plataformas(?:\s+juntas?)?\b/

@@ -34,6 +34,8 @@ export interface DrivingScenario {
   distanceChange?: number
   fuelPriceChange?: number
   fuelPricePerLiter?: number
+  /** Consumo simulado (km/L): "um carro que faz 15 km por litro". */
+  kmPerLiter?: number
   extraDaysPerWeek?: number
 }
 

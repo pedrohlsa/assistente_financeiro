@@ -96,6 +96,8 @@ export function parseEditRequest(
   // "Tenho dinheiro pra TROCAR o pneu de 600?" pergunta pelo saldo; não é
   // correção de um lançamento chamado "Tenho dinheiro".
   if (/\btenho\s+(?:dinheiro|grana|saldo|bala)\s+(?:pra|para)\b|\b(?:d[aá]|daria)\s+(?:pra|para)\s+(?:trocar|pagar|comprar)\b/i.test(message)) return null
+  // "SE EU TROCAR pra um carro que faz 15 km/l": hipótese, não correção.
+  if (/^\s*(?:e\s+)?se\s+(?:eu\s+)?(?:troc|mud|compr|vend)/i.test(message)) return null
   const loose = !generico
 
   const corte = message.search(SEPARADOR)

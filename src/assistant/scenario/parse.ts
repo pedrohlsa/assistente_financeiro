@@ -58,6 +58,9 @@ const HIPOTESE = [
   // como fato ("Resultado este mês: R$ 3.439,90 (dado real)").
   /\bse\s+(?:a|o)\s+(?:gasolina|combustivel|etanol|diesel)\s*[+-]\s*\d/,
   /\bse\s+(?:a|o|as|os|meu|minha|meus|minhas)\s+[\w\s]{2,30}?\s(?:aumentar|aumentasse|aumentarem|subir|subisse|subirem|cair|caisse|cairem|baixar|baixasse|dobrar|dobrasse|diminuir|diminuisse|ficar|ficasse|ficarem|custar|custasse|encarecer)\b/,
+  // "Se a gasolina ESTIVESSE 7 reais o litro": o imperfeito do subjuntivo é
+  // hipótese sobre o passado. A pergunta era respondida com o gasto REAL.
+  /\bse\s+(?:a|o)\s+(?:gasolina|combustivel|etanol|alcool|diesel|gnv|litro)\s+(?:estivesse|fosse|custasse|tivesse\s+custado)\b/,
 ]
 
 export const looksLikeScenario = (input: string): boolean => {
@@ -274,15 +277,25 @@ function drivingAdjustments(t: string): Omit<DrivingScenario, 'metric'> {
   const fuelSign = t.match(new RegExp(String.raw`\b${FUEL}\s*([+-])\s*${PERCENT}`))
   const fuelNumber = fuelVerb?.[2] || fuelAdjective?.[1] || fuelSign?.[2]
   const fuelDown = fuelSign?.[1] === '-' || /^(?:cai|baix|diminu|reduz|barat)/.test(fuelVerb?.[1] || fuelAdjective?.[2] || '')
-  const fuelPrice = t.match(new RegExp(String.raw`\b${FUEL}\s+(?:(?:for|ficar|custar|passar|subir|cair|aumentar|baixar)\s+)?(?:de\s+(?:r\$\s*)?\d+(?:[.,]\d+)*\s+para\s+|(?:a|por|para)\s+)?(?:r\$\s*)?${NUM}\s*(?:reais?\s+)?(?:/\s*l\b|(?:o|por)\s+litro\b)`))
+  const fuelPrice = t.match(new RegExp(String.raw`\b${FUEL}\s+(?:(?:for|fosse|estivesse|ficar|ficasse|custar|custasse|passar|subir|cair|aumentar|baixar)\s+)?(?:de\s+(?:r\$\s*)?\d+(?:[.,]\d+)*\s+para\s+|(?:a|por|para)\s+)?(?:r\$\s*)?${NUM}\s*(?:reais?\s+)?(?:/\s*l\b|(?:o|por)\s+litro\b)`))
 
+  // "E se a gasolina subir PRA 7 REAIS?": o preço do litro dito sem "o litro".
+  // Só vale com verbo de preço e valor de bomba (até R$ 20): acima disso é
+  // gasto, não preço por litro.
+  const fuelPriceLoose = fuelPrice ? null : t.match(new RegExp(String.raw`\b${FUEL}\s+(?:for|ficar|ficasse|custar|custasse|passar|passasse|subir|subisse|cair|caisse|aumentar|aumentasse|baixar|baixasse)\s+(?:para|pra|a)\s+(?:r\$\s*)?${NUM}(?:\s*reais?)?(?![\d.,]|\s*(?:%|por\s+cento))`))
+  const precoSolto = fuelPriceLoose && parseMoney(fuelPriceLoose[1]) > 0 && parseMoney(fuelPriceLoose[1]) <= 20 ? fuelPriceLoose[1] : undefined
+  // "Se eu trocar pra um carro que faz 15 km por litro": o consumo do carro
+  // hipotético. Caía em "não sei simular" — e antes, numa busca por "Se eu".
+  const consumo = /\b(?:troc\w*|outro|nov[oa]|compr\w*|se\s+(?:o\s+|meu\s+)?carro\s+fize(?:r|sse))\b/.test(t)
+    ? t.match(new RegExp(String.raw`\b(?:faz|fizesse|fizer|fazendo|que\s+faz)\s+${NUM}\s*(?:km\s*(?:\/\s*l\b|por\s+litro\b|com\s+(?:um|1)\s+litro\b)|km\/l\b)`)) : null
   const daysBefore = t.match(new RegExp(String.raw`\b${DRIVE}\s+mais\s+(\d+)\s+dias?\s+(?:por|a\s+cada)\s+semana\b`))
   const daysAfter = t.match(new RegExp(String.raw`\b${DRIVE}\s+(\d+)\s+dias?\s+a\s+mais\s+(?:por|a\s+cada)\s+semana\b`))
   const days = daysBefore?.[1] || daysAfter?.[1]
   return {
     distanceChange: kmNumber ? parseMoney(kmNumber) / 100 * (kmDirection === 'menos' ? -1 : 1) : undefined,
     fuelPriceChange: fuelNumber ? parseMoney(fuelNumber) / 100 * (fuelDown ? -1 : 1) : undefined,
-    fuelPricePerLiter: fuelPrice ? parseMoney(fuelPrice[1]) : undefined,
+    fuelPricePerLiter: fuelPrice ? parseMoney(fuelPrice[1]) : precoSolto ? parseMoney(precoSolto) : undefined,
+    kmPerLiter: consumo ? parseMoney(consumo[1]) : undefined,
     extraDaysPerWeek: days ? Number(days) : undefined,
   }
 }
@@ -359,6 +372,7 @@ function planSingleScenario(
       const fuelOnly = combustivel && !ganho && !manutencao
       const metric: DrivingScenario['metric'] = litros ? 'fuel-volume'
         : manutencao ? 'maintenance' : fuelOnly || (!ganho && custo && adjustments.fuelPriceChange !== undefined)
+          || (!ganho && adjustments.kmPerLiter !== undefined)
           ? 'fuel-cost' : 'profit'
       const precoSemUnidade = new RegExp(String.raw`\b${FUEL}\s+(?:(?:for|ficar|custar|passar|subir|cair|aumentar|baixar)\s+)?(?:para\s+|a\s+|por\s+)?r\$\s*\d`).test(inteira)
         && adjustments.fuelPricePerLiter === undefined

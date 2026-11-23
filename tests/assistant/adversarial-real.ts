@@ -10073,6 +10073,34 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && !/esse no mês/.test(cmps[0].reply) && /Viagens/.test(cmps[1].reply) && /Ontem/.test(cmps[2].reply)))
   }
 
+  // ---- UA-: "e se" do motorista e a taxa da 99 -------------------------------
+  {
+    const hoje = todayISO()
+    const moto = motoristaRico(hoje)
+    // Preço do litro dito sem "o litro", e hipótese no subjuntivo.
+    const [subir, estivesse] = await Promise.all(['e se a gasolina subir pra 7 reais?', 'quanto gastei de gasolina se a gasolina estivesse 7 reais o litro?'].map(m => turnoHoje(moto, m)))
+    out.push(result('UA-preco-do-litro-hipotetico', [subir.reply, estivesse.reply], 'simulação com R$ 7,00 por litro; nunca o gasto real',
+      [subir, estivesse].every(r => r.reply.includes(`Usei ${fmtBRL(7)} por litro`) && /Simulação — nada foi registrado/.test(r.reply)
+        && !/dado real\)\.?$/.test(r.reply.split('\n')[0]) && !r.actions.length)))
+    // Carro que faz N km/L: o consumo do cenário muda; a referência é o carro atual.
+    const troca = await turnoHoje(moto, 'se eu trocar pra um carro que faz 15 km por litro quanto economizo?')
+    out.push(result('UA-consumo-do-carro-hipotetico', troca.reply, 'simula 15 km/L contra o consumo atual',
+      /Usei 15 km\/L no carro simulado/.test(troca.reply) && /Referência sem a mudança/.test(troca.reply)
+      && !/Não achei nenhum lançamento|não sei simular/.test(troca.reply)))
+    // A taxa da 99 é a de saque configurada, mais o que foi lançado como ela.
+    const comTaxa = buildState({ profile: 'driver', balance: 500 })
+    comTaxa.transactions = [
+      { id: 'fee1', type: 'expense', amount: 1, date: hoje, time: '10:00', description: 'Taxa 99', category: 'outros-out' },
+      { id: 'fee2', type: 'expense', amount: 1, date: hoje, time: '18:00', description: 'Taxa 99', category: 'outros-out' },
+    ]
+    const [qual, quanto] = await Promise.all(['qual a taxa da 99?', 'quanto paguei de taxa pra 99 esse mes'].map(m => turnoHoje(comTaxa, m)))
+    out.push(result('UA-taxa-da-99', [qual.reply, quanto.reply], 'taxa configurada de R$ 1,00 e as 2 lançadas (R$ 2,00)',
+      /^A taxa de saque da 99 configurada é R\$\s1,00/.test(qual.reply) && /^Este mês: 2 taxas registradas, R\$\s2,00/.test(quanto.reply)
+      && [qual, quanto].every(r => !/lançamento que se encaixe/.test(r.reply))))
+    const autonomo = await turnoHoje(buildState({ profile: 'autonomo', balance: 500 }), 'qual a taxa da 99?')
+    out.push(result('UA-taxa-da-99-so-no-motorista', autonomo.reply, 'fora do motorista não fala da taxa de saque', !/taxa de saque da 99/.test(autonomo.reply)))
+  }
+
   return out
 }
 
