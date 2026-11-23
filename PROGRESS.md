@@ -7247,3 +7247,33 @@ Gates em cada lote: `npm test`, typecheck, typecheck:api, rubrica (0 PERIGOSA, 0
 - `H-como-foi-hoje-ontem` aceita o número real de ontem quando hoje está vazio.
 
 **NOT READY**. Também ficaram de fora: categoria própria para aluguel ou diária de carro de app, e correção por chat de horas de trabalho já salvas.
+
+### 23/11/2026 — continuação da rodada do motorista (`UC-` … `UF-`)
+
+- **Contagem em dobro.**
+  - "Fiz 300 hj, 250 na uber e 50 na 99" e "gastei 100 hj, 60 de gasolina e 40 de almoço" lançavam o total e as partes. Agora, quando o valor genérico fecha no centavo com duas ou mais partes nomeadas do mesmo dia, ficam só as partes, e a resposta avisa. Total diferente da soma continua como está.
+  - "Gastei 150 no total: 90 gasolina e 60 lavagem" e "entrou 500: 300 uber, 200 99" leem a lista.
+  - "Abasteci 2x hoje, 100 e 80" são dois abastecimentos; antes era um de R$ 2,00.
+- **Herança errada de sentido.** "E 15 de água" com uma receita na tela virava receita. "E 50 de gorjeta" depois de um gasto virava gasto.
+- **Plataforma e origem.**
+  - "A uber caiu 820 da semana", "repasse da 99 caiu 650" e "ganhei 1200 essa semana na uber" mantêm o app.
+  - "Passageiro pagou 35 no pix" é corrida.
+  - "Peguei um uber de 30" é gasto de passageiro.
+  - "Quanto recebi de bônus" filtra o tipo, não uma origem chamada "Bonus".
+- **Contagens que respondiam dinheiro.**
+  - "Quantos dias eu rodei", "quantas folgas tirei" e "quantos dias de folga tenho por semana" (pela configuração) agora contam dias.
+  - "Quanto tá o hodômetro" e "qual o km do meu carro" respondem a leitura do hodômetro.
+- **Elipses e telegráficas.**
+  - "E o lucro?" e "e os gastos?" trocam a medida no mesmo período.
+  - "Qnto preciso fazer hj" é a meta do dia.
+  - "Gasolina tá pesando quanto no meu faturamento" é a participação do combustível.
+  - "Média por mês" diz se é de gastos ou de receitas; três oráculos antigos foram ajustados para o rótulo novo.
+- **Avisos de folga.** "Hj não rodei, folga" e "carro na oficina" são reconhecidos sem lançar nada; a oficina pede o custo.
+
+Uma execução da matriz reprovou o fuzz por tempo (327 ms contra o teto de 246 ms numa entrada de 60 dígitos). Repetida sem sondas rodando em paralelo, passou (pior caso de 106 ms). Era carga da máquina: não rodar sondas durante a matriz.
+
+Ainda abertos:
+
+- tipo de combustível nas correções ("não, foi etanol"), que exigiria mudar o contrato do abastecimento;
+- categoria para aluguel ou diária do carro de app;
+- "1000 de cada casa".
