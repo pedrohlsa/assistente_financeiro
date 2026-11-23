@@ -33,7 +33,7 @@ import {
 } from '../assistant/cashQuestions'
 import type { PerguntaDeConta, PerguntaDeFatura, PlanoDeGuardar } from '../assistant/cashQuestions'
 import { COBRADO_SEM_PAGAR, CORRIDA_CANCELADA, describeAction, parseNaturalFull, REAJUSTE, SAQUE } from './nlp'
-import { answerFuelPrice, answerOdometer, answerWorkedDays, COMBUSTIVEL_POR_DIA_TRABALHADO, driverInsight, PEDE_MINIMO_POR_KM } from '../assistant/driverInsights'
+import { answerFuelPrice, answerOdometer, answerTarget, answerWorkedDays, COMBUSTIVEL_POR_DIA_TRABALHADO, driverInsight, PEDE_MINIMO_POR_KM } from '../assistant/driverInsights'
 import { answerVehicleCost, answerVehicleMonthly } from '../assistant/vehicleCost'
 import { answerDrivingShift, perceivesDrivingFatigue, FALTAM_VIAGENS_POR_APP, PARE_PARA_DESCANSAR } from '../assistant/driverAdvice'
 import { answerRideOffer } from '../assistant/rideOffer'
@@ -665,6 +665,10 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
   const driverMode = isDriver(s.settings)
   const turno = answerDrivingShift(s, input, context?.today, context?.message)
   if (turno) return { text: turno }
+  // Alvo dito ("pra pagar a parcela de 1200") antes das rotas de parcela e
+  // de meta, que leriam a palavra e responderiam outra pergunta.
+  const alvoDito = answerTarget(s, t, today)
+  if (alvoDito) return { text: alvoDito }
   // Antes das rotas de "quanto gastei": sem período, elas devolviam a ajuda.
   const custoMensal = answerVehicleMonthly(s, t)
   if (custoMensal) return { text: custoMensal }
@@ -1349,6 +1353,12 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
           ? `Nada — você já bateu a meta de hoje: ${conta}. O que vier agora é lucro.`
           : `Faltam ${fmtBRL(falta)}: ${conta}.`,
       }
+    }
+    // "Como está minha meta?" não é pergunta de sim ou não.
+    if (/^\s*(?:e\s+)?como\s+(?:esta|ta|anda|vai)\s+(?:a\s+)?minha\s+meta\b/.test(t)) {
+      return { text: falta <= 0.009
+        ? `Meta de hoje batida: ${conta}. O que vier agora é lucro.`
+        : `Faltam ${fmtBRL(falta)} para a meta de hoje: ${conta}.` }
     }
     return {
       text: falta <= 0.009
@@ -2161,8 +2171,14 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
       }
     }
     const ts = todayStats(s); const w = weekStats(s); const m2 = monthStats(s); const g = dailyGoal(s)
+    // Sem nada lançado no mês, "lucro de R$ 0,00 (meta R$ 0,00)" é número com
+    // cara de resposta (regra 43). Negativo é déficit (regra 21).
+    if (!(m2.income > 0) && !(m2.expense > 0) && !(w.income > 0) && !(w.expense > 0)) {
+      return { text: 'Ainda não há lançamentos este mês, então não tenho resumo para mostrar. Me conte o dia — "fiz 280 hoje, abasteci 80, rodei 9 horas" — que eu começo a acompanhar.' }
+    }
+    const res = (v: number) => v < 0 ? `déficit de ${fmtBRL(-v)}` : `lucro de ${fmtBRL(v)}`
     return {
-      text: `Resumo rápido:\n\n• Hoje: lucro de ${fmtBRL(ts.profit)} (meta ${fmtBRL(g.total)})\n• 7 dias: lucro de ${fmtBRL(w.profit)}\n• Mês: receitas ${fmtBRL(m2.income)}, despesas ${fmtBRL(m2.expense)}, lucro ${fmtBRL(m2.profit)}` +
+      text: `Resumo rápido:\n\n• Hoje: ${res(ts.profit)}${g.total > 0 ? ` (meta ${fmtBRL(g.total)})` : ''}\n• 7 dias: ${res(w.profit)}\n• Mês: receitas ${fmtBRL(m2.income)}, despesas ${fmtBRL(m2.expense)}, ${res(m2.profit)}` +
         (m2.km > 0 ? `\n• ${fmtNum(m2.km, 0)} km rodados, ${fmtBRL(m2.netPerKm)}/km líquido` : ''),
     }
   }

@@ -10252,6 +10252,36 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       precisa.reply.startsWith(`Sua meta de hoje é ${fmtBRL(dailyGoalCalc(meta).total)}`) && !/Total recebido/.test(precisa.reply)))
   }
 
+  // ---- UG-: alvo dito contra o ritmo medido; total de km em dois dias ------
+  {
+    const hoje = todayISO()
+    const rico = motoristaRico(hoje)
+    const [pagar, juntar, corridas] = await Promise.all([
+      'quanto preciso rodar pra pagar a parcela do carro de 1200', 'quantos dias preciso rodar pra juntar 2000', 'quantas corridas preciso pra fazer 300',
+    ].map(m => turnoHoje(rico, m)))
+    out.push(result('UG-alvo-no-ritmo-medido', [pagar.reply, juntar.reply, corridas.reply], 'dias de sobra para 1200 e 2000; corridas de faturamento para 300',
+      /^Cerca de [\d.,]+ dias de trabalho: você tira em média/.test(pagar.reply) && pagar.reply.includes(fmtBRL(1200))
+      && /^Cerca de [\d.,]+ dias de trabalho/.test(juntar.reply) && juntar.reply.includes(fmtBRL(2000))
+      && /^Cerca de [\d.,]+ corridas: no seu ritmo cada corrida rende/.test(corridas.reply)
+      && [pagar, juntar, corridas].every(r => /estimativa no SEU ritmo/.test(r.reply) && !r.actions.length)))
+    const semHistorico = await turnoHoje(buildState({ profile: 'driver', balance: 500 }), 'quantas corridas preciso pra fazer 300')
+    out.push(result('UG-alvo-sem-amostra-cala', semHistorico.reply, 'sem amostra, não estima', !/^Cerca de/.test(semHistorico.reply) && /prefiro não inventar/.test(semHistorico.reply)))
+    const km = await turnoHoje(rico, 'quanto rodei ontem e hoje')
+    out.push(result('UG-total-de-km-em-dois-dias', km.reply, 'os dois dias e o total em km', /Total dos dois dias: [\d.]+ km\./.test(km.reply)))
+  }
+
+  // ---- UH-: sugestões da própria tela do motorista ---------------------------
+  {
+    const hoje = todayISO()
+    const vazio = buildState({ profile: 'driver', balance: 500 })
+    const meta = buildState({ profile: 'driver', balance: 500 })
+    meta.settings.monthlyProfitTarget = 4000
+    const [mesVazio, comoMeta] = await Promise.all([turnoHoje(vazio, 'Como está meu mês?'), turnoHoje(meta, 'Como está minha meta?')])
+    out.push(result('UH-sugestoes-sem-numero-de-faz-de-conta', [mesVazio.reply, comoMeta.reply], 'mês sem lançamento diz isso; "como está a meta" não começa por sim/não',
+      /^Ainda não há lançamentos este mês/.test(mesVazio.reply) && !/R\$/.test(mesVazio.reply)
+      && /^(?:Faltam R\$|Meta de hoje batida)/.test(comoMeta.reply) && !/^(?:Sim|Ainda não)\b/.test(comoMeta.reply)))
+  }
+
   return out
 }
 

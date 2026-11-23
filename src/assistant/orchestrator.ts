@@ -28,6 +28,8 @@ import { buildRemoteConversation } from './conversation/remoteContext'
 import type { RemoteConversationContext, RemoteTurnRelation } from './conversation/remoteContext'
 import { buildTurnPlan, hasBlock } from './semantic/turn'
 import { parseDriverDay } from './semantic/driverDay'
+import { formatValue } from './query/answer'
+import type { FactUnit } from './query/types'
 import { parseTypedPairs } from './semantic/pairs'
 import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } from './semantic/normalize'
 import { elapsedMinutes, spokenClock } from './semantic/clock'
@@ -869,12 +871,17 @@ function answerListedDays(state: AppState, question: string, today: string): str
   const summaries = readings.map(r => r.focus.lastQuery)
   const separate = /\b(?:separadamente|em\s+cada\s+dia)\b/i.test(question)
   const metric = readings[0]?.focus.lastQueryPlan?.metric
-  const unit = metric === 'sum' ? 'BRL' : metric === 'count' ? 'count' : undefined
-  const additive = days.length > 1 && !separate && unit
+  // Km, horas e viagens também somam: "quanto rodei ontem e hoje" ficava sem
+  // o total, que só existia para dinheiro.
+  const unit = metric === 'sum' ? summaries[0]?.unit : metric === 'count' ? 'count' : undefined
+  const additive = days.length > 1 && !separate && unit && ['BRL', 'km', 'hours', 'liters', 'count'].includes(unit)
     && readings.every(r => r.focus.lastQueryPlan?.metric === metric && r.focus.lastQueryPlan?.group === 'none')
     && summaries.every(s => s?.unit === unit)
   const total = additive ? summaries.reduce((sum, s) => sum + s.total, 0) : undefined
-  const summary = total === undefined ? '' : `\n\nTotal dos ${days.length === 2 ? 'dois' : days.length} dias: ${unit === 'BRL' ? fmtBRL(total) : `${total} ${total === 1 ? 'lançamento' : 'lançamentos'}`}.`
+  const viagens = readings[0]?.focus.lastQueryPlan?.field === 'trips'
+  const totalTexto = total === undefined ? '' : metric === 'count' ? `${total} ${total === 1 ? 'lançamento' : 'lançamentos'}`
+    : viagens ? `${total} ${total === 1 ? 'viagem' : 'viagens'}` : formatValue(total, unit as FactUnit)
+  const summary = total === undefined ? '' : `\n\nTotal dos ${days.length === 2 ? 'dois' : days.length} dias: ${totalTexto}.`
   return readings.map(r => r.reply).join('\n\n') + summary
 }
 

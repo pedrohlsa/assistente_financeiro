@@ -217,6 +217,43 @@ export function answerWorkedDays(s: AppState, t: string, hoje = todayISO()): str
   return [folga ? linhaFolga : linhaRodou, folga ? linhaRodou : linhaFolga, nota].join('\n\n')
 }
 
+/**
+ * "Quantas corridas preciso pra fazer 300", "quantos dias preciso rodar pra
+ * juntar 2000", "quanto preciso rodar pra pagar a parcela de 1200": o alvo DITO
+ * dividido pelo ritmo MEDIDO dele. Juntar/pagar usa a sobra; fazer/tirar usa o
+ * faturamento. Eram recusadas como "não consegui ler esta parte".
+ */
+export const PEDE_ALVO = /\b(?:quant[oa]s?\s+(dias|corridas|viagens|horas|km)|quanto(?:\s+tempo)?)\s+(?:eu\s+)?(?:preciso|tenho\s+que|devo|vou\s+ter\s+que)?\s*(?:rodar|fazer|trabalhar|ficar\s+na\s+rua)?\s*(?:pra|para)\s+(fazer|tirar|juntar|pagar|ganhar|faturar|guardar|bater|cobrir|quitar)\b[^\d?]*?(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*(mil)?/
+
+export function answerTarget(s: AppState, t: string, today = todayISO()): string | null {
+  if (!isDriver(s.settings)) return null
+  const m = t.match(PEDE_ALVO)
+  if (!m) return null
+  const valor = parseFloat(m[3].replace(/\./g, '').replace(',', '.')) * (m[4] ? 1000 : 1)
+  if (!(valor > 0)) return null
+  const unidade = m[1] === 'viagens' ? 'corridas' : m[1] || 'dias'
+  const sobra = /^(?:juntar|pagar|guardar|cobrir|quitar)$/.test(m[2])
+  const ds = dias(s, today)
+  if (ds.filter(d => d.income > 0).length < MIN_DIAS) return semBase('dias com receita de corridas')
+  const comReceita = ds.filter(d => d.income > 0)
+  const receitaDia = soma(comReceita.map(d => d.income)) / comReceita.length
+  const lucroDia = soma(comReceita.map(d => d.income - d.expense)) / comReceita.length
+  const fim = `\n\nÉ uma estimativa no SEU ritmo (${amostra(ds)}): dia bom e dia ruim mudam isso.`
+  if (unidade === 'dias') {
+    const base = sobra ? lucroDia : receitaDia
+    if (!(base > 0)) return 'No seu ritmo recente não sobra dinheiro depois dos custos de rodagem, então não dá para estimar em quantos dias você junta esse valor.'
+    return `Cerca de ${fmtNum(valor / base)} dias de trabalho: você ${sobra ? `tira em média ${fmtBRL(lucroDia)} de sobra por dia, depois dos custos de rodagem` : `fatura em média ${fmtBRL(receitaDia)} por dia`}, e o alvo é ${fmtBRL(valor)}.`
+      + (sobra ? ' Suas contas pessoais não estão nessa conta.' : '') + fim
+  }
+  const campo = unidade === 'corridas' ? 'trips' : unidade === 'horas' ? 'hours' : 'km'
+  const comMedida = comReceita.filter(d => d[campo] > 0)
+  if (comMedida.length < MIN_DIAS) return semBase(unidade === 'corridas' ? 'dias com corridas contadas' : unidade === 'horas' ? 'dias com horas registradas' : 'dias com km registrados')
+  const porUnidade = soma(comMedida.map(d => sobra ? d.income - d.expense : d.income)) / soma(comMedida.map(d => d[campo]))
+  if (!(porUnidade > 0)) return null
+  const nome = unidade === 'corridas' ? 'corrida' : unidade === 'horas' ? 'hora' : 'km'
+  return `Cerca de ${fmtNum(valor / porUnidade, unidade === 'km' ? 0 : 1)} ${unidade}: no seu ritmo cada ${nome} rende ${fmtBRL(porUnidade)} ${sobra ? 'de sobra, depois dos custos de rodagem' : 'de faturamento, antes dos custos'}, e o alvo é ${fmtBRL(valor)}.` + fim
+}
+
 export const COMBUSTIVEL_POR_DIA_TRABALHADO = /^quanto\s+(?:eu\s+)?(?:costumo\s+gastar|gasto)\s+(?:de|com)\s+(?:combustivel|gasolina|gasosa|etanol|alcool|gnv|diesel)\s+por\s+dia\s+(?:trabalhado|de\s+trabalho|rodado)\s*[?.!]*$/
 const RE_TIPICO = /\b(?:costum\w+|tipic\w+|normal|em m[ée]dia|m[ée]dia)\b[^?]*\b(?:por dia|no dia|dia|dias)\b|\b(?:quanto|qual)[^?]*\b(?:costum\w+|tipic\w+)\b/
 const RE_DIAS_FORTES = /\b(?:dias?|dia)\b[^?]*\b(?:mais fort\w+|melhor\w*|que rende\w*|mais rende\w*|mais forte)\b|\bmelhores? dias?\b|\bpiores? dias?\b|\bdias? (?:mais )?frac\w+\b/
