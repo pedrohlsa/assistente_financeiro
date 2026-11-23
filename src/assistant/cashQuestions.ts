@@ -228,6 +228,14 @@ export function perguntaNominal(texto: string): string | null {
   // "Fatura do Nubank", "minha fatura?".
   const fatura = n.match(/^(?:e\s+)?(?:a\s+|minha\s+)?fatura(?:\s+(?:do|da|no|na)\s+(.+))?$/)
   if (fatura) return `quanto está minha fatura${fatura[1] ? ` do ${fatura[1]}` : ''}?`
+  // "Meu lucro por km", "lucro por corrida", "ganho por hora": a medida por
+  // unidade, sem verbo. Caía na ajuda; com "qual" a pergunta já funcionava.
+  const porUnidade = n.match(/^(?:e\s+)?(?:o\s+|meu\s+)?(lucro|ganho|faturamento|liquido|líquido|gasto|custo)\s+(por\s+(?:km|quil[oô]metro|hora|corrida|viagem|dia)(?:\s+(?:hoje|ontem|(?:n?esse|n?este|no)\s+m[eê]s(?:\s+passado)?|(?:n?essa|n?esta|na)\s+semana(?:\s+passada)?|semana\s+passada|m[eê]s\s+passado))?)$/)
+  if (porUnidade) {
+    const medida = porUnidade[1]
+    return /^(?:gasto|custo)$/.test(medida) ? `quanto gastei ${porUnidade[2]}?`
+      : /^(?:ganho|faturamento)$/.test(medida) ? `quanto ganhei ${porUnidade[2]}?` : `qual meu lucro ${porUnidade[2]}?`
+  }
   const m = n.match(/^(?:e\s+)?(?:(?:os|as|meus|minhas)\s+)?(gastos?|despesas?|sa[ií]das?|entradas?|receitas?|ganhos?)\s+(.+)$/)
   if (!m) return null
   const verbo = /^(?:gasto|despesa|sa[ií]da)/.test(m[1]) ? 'gastei' : 'recebi'

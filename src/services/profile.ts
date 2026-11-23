@@ -48,12 +48,18 @@ export const MENTIONS_99 = /\b(?:d[ao]|pel[ao]|n[ao]|via|app|aplicativo|platafor
  * Não bloqueia — serve para pedir confirmação extra.
  */
 export function findPossibleDuplicate(state: AppState, action: ParsedAction) {
-  if (action.kind !== 'income' && action.kind !== 'expense') return undefined
+  // Abastecimento repetido ("abasteci 120" duas vezes) também merece o aviso:
+  // ele vira uma despesa de Combustível, e é com ela que se compara.
+  const abastecimento = action.kind === 'fuel'
+  if (action.kind !== 'income' && action.kind !== 'expense' && !abastecimento) return undefined
+  const kind = abastecimento ? 'expense' : action.kind
   const today = new Date()
   const norm = (x?: string) => (x || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
   const a = action as any
+  if (!(a.amount > 0)) return undefined
   return state.transactions.find(t => {
-    if (t.type !== action.kind) return false
+    if (t.type !== kind) return false
+    if (abastecimento && t.category !== 'combustivel') return false
     if (Math.abs(t.amount - action.amount) > 0.009) return false
     const diffDays = Math.abs((today.getTime() - new Date(t.date + 'T12:00:00').getTime()) / 86400000)
     if (diffDays > 1.5) return false
@@ -61,7 +67,7 @@ export function findPossibleDuplicate(state: AppState, action: ParsedAction) {
     // Ausentes = não discriminam (valor + tipo + data já bastam para avisar).
     const o1 = norm(t.origin), o2 = norm(a.origin)
     if (o1 && o2 && o1 !== o2) return false
-    const d1 = norm(t.description), d2 = norm(a.description)
+    const d1 = norm(t.description), d2 = abastecimento ? '' : norm(a.description)
     if (d1 && d2 && !(d1 === d2 || d1.includes(d2) || d2.includes(d1))) return false
     return true
   })

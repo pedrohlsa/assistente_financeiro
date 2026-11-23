@@ -7,6 +7,8 @@ const DATE_LEAD = String.raw`(?<lead>(?:(?:eu|hoje|ontem|anteontem|j[áa])\s+){0
 const TAIL = String.raw`(?<tail>\s*(?:[.;]\s*(?=[\p{L}])|(?:,\s*|\s+)e\s+(?=(?:gastei|paguei|comprei|abasteci|guardei|recebi|ganhei|rodei|trabalhei)\b))[^?]*|[.!]*\s*)$`
 const NET = String.raw`(?:l[íi]quid[oa]s?|limp[oa]s?)(?![\wÀ-ÿ])`
 const GROSS = String.raw`brut[oa]s?\b`
+/** Sem plataforma, só "líquido": "limpo" pode ser depois dos CUSTOS, e aí o app pergunta. */
+const SO_LIQUIDO = String.raw`l[íi]quid[oa]s?(?![\wÀ-ÿ])`
 const FEE = String.raw`(?:depois\s+d[aeo]\s+taxa|com\s+a\s+taxa\s+descontada)\s+de\s+${MONEY('fee')}`
 const WITHHELD_FEE = String.raw`,?\s+(?:j[áa]\s+)?(?:com\s+(?:a\s+)?taxa\s+(?:j[áa]\s+)?(?:retida|descontada)|(?:retida|descontad[oa])\s+(?:a\s+)?taxa)(?:\s+de\s+${MONEY('fee')})?`
 const PLATFORM_PAYMENT = String.raw`(?:a\s+|o\s+)?${PLATFORM}\s+(?:(?:me\s+)?pagou|depositou|repassou)\s+${MONEY('gross')}(?:\s+${GROSS})?`
@@ -37,6 +39,12 @@ const PAYOUT_PATTERNS = [
   new RegExp(String.raw`^${DATE_LEAD}(?<reported>(?:recebi|caiu|entrou)\s+${MONEY('net')}(?:\s+(?:n[ao]|d[ao]|pel[ao])\s+${PLATFORM})?)\s+(?:j[áa]\s+)?descontad[oa]\s+(?:a\s+)?taxa\s+de\s+${MONEY('fee')}${TAIL}`, 'iu'),
   new RegExp(String.raw`^${DATE_LEAD}(?:recebi|caiu|entrou)\s+${MONEY('net')}(?:\s+${NET})?\s+(?:n[ao]|d[ao]|pel[ao])\s+${PLATFORM}(?:\s+${NET})?${WITHHELD_FEE}${TAIL}`, 'iu'),
   new RegExp(String.raw`^${DATE_LEAD}(?:(?:o\s+)?(?:saldo|dep[óo]sito)\s+d[ao]\s+|[oa]\s+)?${PLATFORM}\s+(?:veio|caiu|entrou|(?:me\s+)?pagou)\s+${MONEY('net')}(?:\s+${NET})?${WITHHELD_FEE}${TAIL}`, 'iu'),
+  // "Faturei 400 bruto, líquido 310", "400 bruto 310 líquido", "bruto 400
+  // líquido 310": sem plataforma. O bruto virava a receita e o líquido, que é
+  // o dinheiro que entrou, ficava como "o que aconteceu com ele?".
+  new RegExp(String.raw`^${DATE_LEAD}(?:(?:fiz|ganhei|faturei|deu|foram|tirei)\s+)?${MONEY('gross')}\s+${GROSS}\s*,?\s+(?:e\s+)?(?:(?:recebi|caiu|entrou|ficou|sobrou|deu|foram)\s+)?(?:o\s+)?${SO_LIQUIDO}\s+(?:(?:foi|deu|ficou)\s+)?${MONEY('net')}${TAIL}`, 'iu'),
+  new RegExp(String.raw`^${DATE_LEAD}(?:(?:fiz|ganhei|faturei|deu|foram|tirei)\s+)?${MONEY('gross')}\s+${GROSS}\s*,?\s+(?:e\s+)?(?:(?:recebi|caiu|entrou|ficou|sobrou|deu|foram)\s+)?${MONEY('net')}\s+${SO_LIQUIDO}${TAIL}`, 'iu'),
+  new RegExp(String.raw`^${DATE_LEAD}(?:o\s+)?${GROSS}\s+(?:(?:foi|deu)\s+)?${MONEY('gross')}\s*,?\s+(?:e\s+)?(?:o\s+)?${SO_LIQUIDO}\s+(?:(?:foi|deu|ficou)\s+)?${MONEY('net')}${TAIL}`, 'iu'),
 ]
 
 export type PlatformPayout = { text: string; amount: number } | { issue: string; description?: string }
@@ -74,7 +82,7 @@ export function readPlatformPayout(message: string): PlatformPayout | undefined 
     return { issue: `Você disse ${fmtBRL(beforeFee)} brutos, ${fmtBRL(amount)} líquidos${fee ? ` e ${fmtBRL(withheld)} de taxa` : ''}. Qual foi o valor que entrou na conta?`, description }
   }
   const normalizedPlatform = /^indriv/i.test(platform || '') ? 'no inDrive' : platform ? `na ${platform}` : ''
-  const cash = platform ? `recebi R$ ${net} ${normalizedPlatform} líquido` : reported ? `${reported} líquido` : undefined
+  const cash = platform ? `recebi R$ ${net} ${normalizedPlatform} líquido` : reported ? `${reported} líquido` : gross ? `recebi R$ ${net} líquido` : undefined
   if (!cash) return undefined
   const payment = [lead.trim(), whenNet, cash, whenTail].filter(Boolean).join(' ')
   return { amount, text: `${payment}${tail || ''}`.trim() }

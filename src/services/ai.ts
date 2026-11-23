@@ -2667,6 +2667,19 @@ function respostaSobraSemCombustivel(s: AppState, t: string, hoje: string): AiRe
   const outras = soma(x => x.type === 'expense' && x.category !== 'combustivel')
   if (!entradas && !combustivel) return { text: `Não tenho entradas nem combustível registrados ${p.label}.` }
   const dias = Math.round((fromISO(p.to).getTime() - fromISO(p.from).getTime()) / 86400000) + 1
+  // "Quanto sobra POR KM depois da gasolina": a sobra de corridas menos o
+  // combustível, dividida pelos km dos MESMOS dias (a régua do custo por km).
+  // Respondia o total do mês.
+  if (/\bpor\s+(?:km|quilometro)\b/.test(t)) {
+    const kmPorDia = new Map<string, number>()
+    for (const w of s.workSessions || []) if (w.date >= p.from && w.date <= p.to && w.km > 0) kmPorDia.set(w.date, (kmPorDia.get(w.date) || 0) + w.km)
+    const km = [...kmPorDia.values()].reduce((a, v) => a + v, 0)
+    const nosDias = (x: typeof txs[number]) => kmPorDia.has(x.date)
+    const corridas = soma(x => x.type === 'income' && x.category === 'corridas' && nosDias(x))
+    const comb = soma(x => x.type === 'expense' && x.category === 'combustivel' && nosDias(x))
+    if (!(km > 0) || !(corridas > 0)) return { text: `Não tenho receita de corridas e quilometragem registradas nos mesmos dias ${p.label} para calcular por km.` }
+    return { text: `Tirando o combustível, sobram ${fmtBRL(round2((corridas - comb) / km))} por km ${p.label} (dado real): ${fmtBRL(corridas)} de corridas menos ${fmtBRL(comb)} de combustível, em ${fmtNum(km, 0)} km.\n\nUsei só os ${kmPorDia.size} ${kmPorDia.size === 1 ? 'dia' : 'dias'} com quilometragem registrada.` }
+  }
   const porDia = /\bpor\s+dia\b|\bao\s+dia\b|\bdiari[oa]\b/.test(t) && dias > 1
   const sobra = round2(entradas - combustivel)
   const conta = `${fmtBRL(entradas)} de entradas menos ${fmtBRL(combustivel)} de combustível`

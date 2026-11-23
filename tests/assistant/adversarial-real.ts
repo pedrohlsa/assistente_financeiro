@@ -10101,6 +10101,39 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('UA-taxa-da-99-so-no-motorista', autonomo.reply, 'fora do motorista não fala da taxa de saque', !/taxa de saque da 99/.test(autonomo.reply)))
   }
 
+  // ---- UB-: por app, por unidade, abastecimento repetido e bruto/líquido ----
+  {
+    const hoje = todayISO()
+    const moto = motoristaRico(hoje)
+    const cada = await turnoHoje(moto, 'quanto fiz em cada app esse mes')
+    out.push(result('UB-em-cada-app', cada.reply, 'ranking por plataforma, não o total', /por plataforma/.test(cada.reply) && /Uber/.test(cada.reply) && /99/.test(cada.reply)))
+    // Medida por unidade sem verbo: "meu lucro por km" caía na ajuda.
+    const [lucroKm, lucroCorrida, ganhoHora] = await Promise.all(['meu lucro por km', 'lucro por corrida', 'ganho por hora'].map(m => turnoHoje(moto, m)))
+    out.push(result('UB-medida-por-unidade-telegrafica', [lucroKm.reply, lucroCorrida.reply, ganhoHora.reply], 'líquido por km/viagem e recebido por hora',
+      /^Líquido por km/.test(lucroKm.reply) && /^Líquido por viagem/.test(lucroCorrida.reply) && /^Recebido por hora/.test(ganhoHora.reply)))
+    // "Sobra por km depois da gasolina": corridas menos combustível ÷ km dos mesmos dias.
+    const sobraKm = await turnoHoje(moto, 'quanto sobra por km depois da gasolina')
+    out.push(result('UB-sobra-por-km-depois-do-combustivel', sobraKm.reply, 'valor por km, não o total do mês',
+      /^Tirando o combustível, sobram R\$\s[\d.,]+ por km/.test(sobraKm.reply) || /Não tenho receita de corridas e quilometragem/.test(sobraKm.reply)))
+    // Abastecimento repetido recebe o mesmo aviso de duplicidade da receita.
+    const posto = buildState({ profile: 'driver', balance: 500 })
+    const primeiro = await orchestrate({ state: posto, message: 'abasteci 120', today: hoje, remoteEnabled: false })
+    const salvo = applyBatchPure(posto, primeiro.response.actions, { now: { date: hoje, time: '10:00' } }).state
+    const repetido = await orchestrate({ state: salvo, message: 'abasteci 120', today: hoje, remoteEnabled: false })
+    const outro = await orchestrate({ state: salvo, message: 'abasteci 80', today: hoje, remoteEnabled: false })
+    out.push(result('UB-abastecimento-repetido-avisa', [repetido.response.actions[0]?.duplicateWarning, outro.response.actions[0]?.duplicateWarning],
+      'aviso no mesmo valor; nenhum em valor diferente',
+      !!repetido.response.actions[0]?.duplicateWarning && !outro.response.actions[0]?.duplicateWarning
+      && repetido.response.actions[0]?.action.kind === 'fuel'))
+    // Bruto e líquido sem plataforma: entra o líquido.
+    const vazio = buildState({ profile: 'driver', balance: 500 })
+    const liquidos = await Promise.all(['faturei 400 bruto, liquido 310', '400 bruto 310 liquido', 'bruto 400 liquido 310', 'fiz 400 bruto e 310 liquido'].map(m => turnoHoje(vazio, m)))
+    const incoerente = await turnoHoje(vazio, '400 bruto 450 liquido')
+    out.push(result('UB-bruto-e-liquido-sem-plataforma', [...liquidos.map(r => r.actions), incoerente.reply], 'receita de R$ 310 líquida; líquido maior que bruto pergunta',
+      liquidos.every(r => r.actions.length === 1 && (r.actions[0] as any).amount === 310 && (r.actions[0] as any).reportedNet)
+      && !incoerente.actions.length && /Qual foi o valor que entrou na conta/.test(incoerente.reply)))
+  }
+
   return out
 }
 

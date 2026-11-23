@@ -516,7 +516,8 @@ function lerGrupo(t: string, driver: boolean): { valor: QueryGroup; matched: str
       // "Quanto ganhei na uber E NA 99", "ganhei mais na uber ou na 99?": as
       // duas plataformas lado a lado. Só "uber ou 99" colado era lido; com a
       // preposição no meio, a 99 sumia e a resposta era o total da Uber.
-      [/\bqual\s+plataforma\b|\bpor\s+plataforma\b|(?<!\b(?:tirando|sem|exceto|fora|excluindo|menos)\s+(?:[ao]\s+)?)\buber\b[^?]{0,25}?\b(?:e|ou|x|versus|vs)\s+(?:(?:n|d|pel)?[ao]\s+)?99\b|(?<!\b(?:tirando|sem|exceto|fora|excluindo|menos)\s+(?:[ao]\s+)?)\b99\b[^?]{0,25}?\b(?:e|ou|x|versus|vs)\s+(?:(?:n|d|pel)?[ao]\s+)?uber\b/, 'platform'],
+      // "Quanto fiz EM CADA APP esse mês" respondia o total do mês.
+      [/\bqual\s+plataforma\b|\bpor\s+plataforma\b|\b(?:em|de|n[oa]|pra|para)?\s*cada\s+(?:app|aplicativo|plataforma)\b|\bpor\s+(?:app|aplicativo)\b|(?<!\b(?:tirando|sem|exceto|fora|excluindo|menos)\s+(?:[ao]\s+)?)\buber\b[^?]{0,25}?\b(?:e|ou|x|versus|vs)\s+(?:(?:n|d|pel)?[ao]\s+)?99\b|(?<!\b(?:tirando|sem|exceto|fora|excluindo|menos)\s+(?:[ao]\s+)?)\b99\b[^?]{0,25}?\b(?:e|ou|x|versus|vs)\s+(?:(?:n|d|pel)?[ao]\s+)?uber\b/, 'platform'],
     ]
     return primeira(t, dr)
   }
