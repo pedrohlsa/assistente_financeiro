@@ -249,6 +249,8 @@ const CONTINUACAO = [
   // acabou de falar de obra recebia o total do mês inteiro.
   /^qual\s+(?:foi\s+)?(?:o\s+)?(?:pior|melhor)\s*\??$/,
   /^qual\s+d[oa]s\s+(?:duas|dois)\b/,
+  // "Qual rendeu mais?" logo depois de "e na Uber?": as plataformas em foco.
+  /^qual\s+(?:(?:delas|deles|dos\s+dois|das\s+duas)\s+)?(?:rendeu|rende|pagou|paga|faturou)\s+(?:mais|melhor)\s*\??$/,
   // "Dá ruim?" depois de uma simulação pergunta pela simulação.
   /^(?:d[áa]\s+ruim|ficou\s+ruim|t[áa]\s+ruim|[ée]\s+ruim|vale\s+a\s+pena)\s*\??$/,
   // "O maior gasto DISSO" e "somando as duas" só fazem sentido sobre o que
@@ -619,6 +621,30 @@ function refinaConsulta(
 ): FollowUp | null {
   const planned = (plan: AssistantQueryPlan, motivo: string): FollowUp =>
     ({ kind: 'query', planned: { plan, confidence: 'high', recognized: [motivo] } })
+
+  // ---- "e na Uber?" depois de "quanto fiz na 99": TROCA a plataforma -------
+  // A elipse virava filtro de texto "uber" somado à plataforma 99, e a resposta
+  // dizia que não havia lançamento — para quem tinha Uber registrada.
+  const nomeDaPlataforma = (p: string) => /in\s*drive/i.test(p) ? 'inDrive' : /^uber$/i.test(p) ? 'Uber' : p
+  const outraPlataforma = base.filter.platform
+    ? t.match(/^(?:e\s+)?(?:n[ao]|d[ao]|pel[ao]|com\s+[ao])\s+(uber|99|indrive|in\s*drive)\s*[?.!]*$/) : null
+  if (outraPlataforma) {
+    const nova = /in\s*drive/.test(outraPlataforma[1]) ? 'inDrive' : outraPlataforma[1]
+    const anterior = base.filter.platform!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const prefixo = base.label.replace(new RegExp(`\\s+n[ao]\\s+${anterior}$`, 'i'), '')
+    return planned({ ...base, filter: { ...base.filter, platform: nova }, label: `${prefixo} na ${nomeDaPlataforma(nova)}` }, `plataforma ${nova}`)
+  }
+  // "Qual rendeu mais?" com uma plataforma em foco: as plataformas lado a lado
+  // no mesmo período. Comparava o mês com o anterior.
+  if (base.filter.platform && base.source === 'transactions'
+    && /^(?:e\s+)?qual\s+(?:(?:delas|deles|dos\s+dois|das\s+duas)\s+)?(?:rendeu|rende|deu|pagou|paga|faturou|fez)\s+(?:mais|melhor)\b/.test(t)) {
+    const filter = { ...base.filter }
+    delete filter.platform
+    const anterior = base.filter.platform.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const prefixo = base.label.replace(new RegExp(`\\s+n[ao]\\s+${anterior}$`, 'i'), '')
+    return planned({ ...base, filter, group: 'platform', order: 'value-desc', limit: 6, comparePeriod: undefined,
+      label: `${prefixo} por plataforma` }, 'por plataforma')
+  }
 
   // A modalidade dita agora prevalece sobre o plano anterior. Trocar só o
   // período deixava "recebi" preso em recorrências e "previsão" no passado.

@@ -429,6 +429,19 @@ export function dividaPaga(text: string): string {
   return text.replace(/(?<![\wÀ-ÿ])do\s+que\s+(?:eu\s+)?(?:devia|devo|tava\s+devendo|estava\s+devendo)\s+(?:pro|pra|para\s+o|para\s+a|para|ao|à|a)\s+/gi, 'da dívida com ')
 }
 
+/**
+ * "Revisão dos 50 mil", "revisão de 10k": o número é o MARCO de quilometragem
+ * da revisão, não o preço. "Revisão dos 50 mil 900 reais" virava uma despesa
+ * de R$ 50.000,00. A unidade é posta por extenso para o leitor de dinheiro
+ * reconhecer a distância.
+ */
+export function marcoDaRevisao(text: string): string {
+  return text.replace(/(revis[aã]o\s+(?:d[aoe]s?\s+)?)(\d+(?:[.,]\d+)?)\s*(?:mil|k)(?:\s*(?:km|quil[oô]metros?))?(?![\wÀ-ÿ])/gi, '$1$2 mil km')
+    // "Revisão DOS 10000": o plural já diz que é o marco ("dos 10 mil"), e o
+    // normalizador pode ter transformado "10k" em "10000" antes daqui.
+    .replace(/(revis[aã]o\s+d[oa]s\s+)(\d{1,3}(?:\.\d{3})+|\d{4,6})(?![\d.,]|\s*(?:mil\b|km\b|quil|reais\b))/gi, '$1$2 km')
+}
+
 export function tanqueCheio(text: string): string {
   return text.replace(/(?<![\wÀ-ÿ])(?:enchi|completei)\s+o\s+tanque\s*[,:]?\s*(?:com\s+|de\s+|por\s+|foi\s+|deu\s+)?(?=(?:r\$\s*)?\d)/gi, 'abasteci ')
 }
@@ -1540,6 +1553,16 @@ function parseClause(input: string): ParsedAction[] {
     const fuel = actions.find(a => a.kind === 'fuel') as Extract<ParsedAction, { kind: 'fuel' }> | undefined
     if (fuel) fuel.odometer = value
     else actions.push({ kind: 'odometer', value })
+  }
+
+  // ----- "fiz alinhamento e balanceamento 120", "fiz a revisão dos 50 mil km
+  // por 900": serviço do carro dito com "fiz" e o valor depois. Caía na ajuda —
+  // e, para o motorista, "fiz 120" é faturamento, então o serviço decide antes.
+  if (!actions.some(a => a.kind === 'expense' || a.kind === 'maintenance' || a.kind === 'fuel')) {
+    const servico = text.match(new RegExp(String.raw`(?:^\s*|\b(?:fiz|mandei\s+fazer|paguei)\s+)(?:o\s+|a\s+|uma?\s+)?((?:alinhamento|balanceamento|cambagem|revis[aã]o|funilaria|polimento|higieniza[çc][aã]o|martelinho|geometria)(?:\s+(?:e|com|d[aoe]s?)\s+[a-zà-úçãõ]+)*(?:\s+(?:d[aoe]s?\s+)?\d+(?:[.,]\d+)?\s*(?:mil\s*)?km)?)\s*(?:,\s*)?(?:por\s+|de\s+|paguei\s+|deu\s+|saiu\s+|foi\s+)?(?:r\$\s*)?${NUM}(?![\d.,]|\s*(?:mil\b|km\b|quil))`, 'i'))
+    if (servico && parseNum(servico[2]) > 0) {
+      actions.push({ kind: 'expense', amount: parseNum(servico[2]), category: 'manutencao', description: cleanDescription(servico[1]) })
+    }
   }
 
   // ----- "lavei o carro 30", "lavei o carro por 40": o verbo é o serviço, e o

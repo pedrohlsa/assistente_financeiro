@@ -9988,6 +9988,30 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /ainda não definiu o objetivo de lucro do mês/.test(semObjetivo.reply) && !/R\$/.test(semObjetivo.reply)))
   }
 
+  // ---- TX-: oficina e plataforma em foco -------------------------------------
+  {
+    const hoje = todayISO()
+    const moto = motoristaRico(hoje)
+    // "Revisão dos 50 mil" é o marco da revisão: virava despesa de R$ 50.000.
+    const revisoes = await Promise.all([
+      'revisao dos 50 mil 900 reais', 'fiz a revisao de 50 mil km, paguei 900', 'fiz a revisao dos 10k por 450', 'fiz alinhamento e balanceamento 120',
+    ].map(m => turnoHoje(moto, m)))
+    const valores = revisoes.map(r => r.actions.filter((a: any) => a.kind === 'expense').map((a: any) => a.amount))
+    out.push(result('TX-marco-da-revisao-nao-e-preco', valores, '[900], [900], [450], [120], todos em Manutenção',
+      JSON.stringify(valores) === JSON.stringify([[900], [900], [450], [120]])
+      && revisoes.every(r => r.actions.every((a: any) => a.category === 'manutencao'))))
+    // "E na Uber?" troca a plataforma; "qual rendeu mais?" põe as duas lado a lado.
+    const na99 = await turnoHoje(moto, 'quanto fiz na 99 essa semana')
+    const naUber = await turnoHoje(moto, 'e na uber?', na99.focus)
+    const qual = await turnoHoje(moto, 'qual rendeu mais?', naUber.focus)
+    const validado: any = naUber.focus?.lastQueryPlan ? validateQueryPlan(naUber.focus.lastQueryPlan, moto, hoje) : undefined
+    const uber = validado?.plan ? runQuery(moto, validado.plan, hoje).total : NaN
+    out.push(result('TX-troca-de-plataforma-no-acompanhamento', [na99.reply, naUber.reply, qual.reply], 'Uber com o total dela; ranking das duas',
+      /^Total recebido na Uber/.test(naUber.reply) && naUber.reply.includes(fmtBRL(uber)) && uber > 0
+      && !/lançamento que se encaixe/.test(naUber.reply) && /Uber/.test(qual.reply) && /99/.test(qual.reply)
+      && !/este mês ficou|De 1º/.test(qual.reply)))
+  }
+
   return out
 }
 
