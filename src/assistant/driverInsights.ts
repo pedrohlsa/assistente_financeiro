@@ -185,6 +185,38 @@ export function answerOdometer(s: AppState, t: string): string | null {
   return linhas.join('\n\n')
 }
 
+/** "Quantos dias eu rodei esse mês?", "quantas folgas tirei?": contagem de DIAS, não dinheiro. */
+export const PEDE_DIAS_TRABALHADOS = /\bquantos\s+dias\s+(?:eu\s+)?(?:ja\s+)?(?:rodei|trabalhei|rodando|trabalhando|sai\s+(?:pra|para)\s+rodar|fiz\s+corrida)\b|\bquantas\s+folgas\b|\bquantos\s+dias\s+(?:de\s+)?folga\b|\bquantos\s+dias\s+(?:eu\s+)?(?:fiquei\s+)?(?:parado|sem\s+rodar)\b/
+
+export function answerWorkedDays(s: AppState, t: string, hoje = todayISO()): string | null {
+  if (!isDriver(s.settings) || !PEDE_DIAS_TRABALHADOS.test(t)) return null
+  // "Quantos dias de folga eu TENHO POR SEMANA?": a configuração, não o histórico.
+  if (/\bpor\s+semana\b|\bna\s+semana\b(?!\s+passada)/.test(t) && /\b(?:tenho|tiro|costumo|devo)\b/.test(t)) {
+    const dias = [...(s.settings.workDays || [])].sort((a, b) => a - b)
+    const folgas = [0, 1, 2, 3, 4, 5, 6].filter(d => !dias.includes(d))
+    return `Na sua configuração você trabalha ${dias.length} ${dias.length === 1 ? 'dia' : 'dias'} por semana${folgas.length ? ` e folga ${folgas.length === 1 ? 'no' : 'nos dias:'} ${folgas.map(d => weekdayName(d).toLowerCase()).join(', ')}` : ', sem folga fixa'}. `
+      + 'É com esses dias que eu reparto a meta do mês. Para mudar, ajuste os dias de trabalho em Configurações.'
+  }
+  const periodo = parsePeriod(t, hoje)?.period || currentMonthToDate(hoje)
+  const ate = periodo.to < hoje ? periodo.to : hoje
+  if (periodo.from > ate) return `O período ${periodo.label} ainda não começou.`
+  const rodados = new Set<string>()
+  for (const w of (s.workSessions || []) as WorkSession[]) {
+    if (w?.date >= periodo.from && w.date <= ate && ((w.km || 0) > 0 || (w.hours || 0) > 0 || (w.trips || 0) > 0)) rodados.add(w.date)
+  }
+  for (const x of (s.transactions || []) as Transaction[]) {
+    if (x?.type === 'income' && RIDE_INCOME_CATEGORIES.includes(x.category) && x.date >= periodo.from && x.date <= ate) rodados.add(x.date)
+  }
+  const corridos = Math.round((fromISO(ate).getTime() - fromISO(periodo.from).getTime()) / 864e5) + 1
+  const n = rodados.size
+  const sem = corridos - n
+  const folga = /\bfolga|parado|sem\s+rodar\b/.test(t)
+  const linhaRodou = `Você rodou ${n} ${n === 1 ? 'dia' : 'dias'} ${periodo.label}, de ${corridos} ${corridos === 1 ? 'dia corrido' : 'dias corridos'} (dado real).`
+  const linhaFolga = `${sem} ${sem === 1 ? 'dia ficou' : 'dias ficaram'} sem corrida nem rodagem registrada ${periodo.label}.`
+  const nota = 'Contei os dias com receita de corridas ou com km, horas ou viagens registradas. Dia trabalhado sem nada lançado aparece como folga.'
+  return [folga ? linhaFolga : linhaRodou, folga ? linhaRodou : linhaFolga, nota].join('\n\n')
+}
+
 export const COMBUSTIVEL_POR_DIA_TRABALHADO = /^quanto\s+(?:eu\s+)?(?:costumo\s+gastar|gasto)\s+(?:de|com)\s+combustivel\s+por\s+dia\s+trabalhado\s*[?.!]*$/
 const RE_TIPICO = /\b(?:costum\w+|tipic\w+|normal|em m[ée]dia|m[ée]dia)\b[^?]*\b(?:por dia|no dia|dia|dias)\b|\b(?:quanto|qual)[^?]*\b(?:costum\w+|tipic\w+)\b/
 const RE_DIAS_FORTES = /\b(?:dias?|dia)\b[^?]*\b(?:mais fort\w+|melhor\w*|que rende\w*|mais rende\w*|mais forte)\b|\bmelhores? dias?\b|\bpiores? dias?\b|\bdias? (?:mais )?frac\w+\b/

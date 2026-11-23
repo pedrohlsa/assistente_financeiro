@@ -33,7 +33,7 @@ import {
 } from '../assistant/cashQuestions'
 import type { PerguntaDeConta, PerguntaDeFatura, PlanoDeGuardar } from '../assistant/cashQuestions'
 import { COBRADO_SEM_PAGAR, CORRIDA_CANCELADA, describeAction, parseNaturalFull, REAJUSTE, SAQUE } from './nlp'
-import { answerFuelPrice, answerOdometer, COMBUSTIVEL_POR_DIA_TRABALHADO, driverInsight, PEDE_MINIMO_POR_KM } from '../assistant/driverInsights'
+import { answerFuelPrice, answerOdometer, answerWorkedDays, COMBUSTIVEL_POR_DIA_TRABALHADO, driverInsight, PEDE_MINIMO_POR_KM } from '../assistant/driverInsights'
 import { answerVehicleCost, answerVehicleMonthly } from '../assistant/vehicleCost'
 import { answerDrivingShift, perceivesDrivingFatigue, FALTAM_VIAGENS_POR_APP, PARE_PARA_DESCANSAR } from '../assistant/driverAdvice'
 import { answerRideOffer } from '../assistant/rideOffer'
@@ -422,7 +422,9 @@ function periodFromText(t: string, today = todayISO()): { from: string; to: stri
   const days = dates.filter(d => d.kind === 'date' || d.kind === 'future')
   if (new Set(days.map(d => d.date)).size > 1 && read?.grain !== 'range') return null
   const [day] = days
-  const period = read ?? (day ? { from: day.date, to: day.date, label: day.label } : undefined)
+  const lido = read ?? (day ? { from: day.date, to: day.date, label: day.label } : undefined)
+  // "Você faturou R$ 369,00 10/09/2026": data solta precisa do "em".
+  const period = lido && /^\d/.test(lido.label) ? { ...lido, label: `em ${lido.label}` } : lido
   if (period) return period.from > today ? null : { ...period, to: period.to > today ? today : period.to }
   if (findUnresolvedTemporalHint(t) || /\b(?:\d{1,4}\s*(?:dias|semanas|meses|mes|anos)|desde|quinzena|entre\s+(?:os\s+)?dias)\b/.test(t)) return null
   if (/\bsemana\b/.test(t)) return { from: addDays(today, -6), to: today, label: 'nos últimos 7 dias' }
@@ -2085,6 +2087,17 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     return { text: `${lead}\n\nA comissão que a 99 retém de cada corrida não passa por aqui: o que conta é o valor que caiu na sua conta.` }
   }
 
+  // "Hj não rodei, folga", "carro na oficina, fiquei parado": aviso do dia, não
+  // pergunta nem lançamento. Caía na lista de exemplos.
+  if (driverMode && !/\d|\?|\b(?:quant\w*|qual|quais|quando|como|posso|devo)\b/.test(t)
+    && /\bfolga\b|\bnao\s+(?:rodei|trabalhei|sai\s+(?:pra|para)\s+rodar)\b|\bfiquei\s+parad[oa]\b|\bdia\s+parad[oa]\b|\bcarro\s+(?:na\s+oficina|quebrado|quebrou|parado)\b/.test(t)) {
+    const oficina = /\boficina|quebr|mecanic/.test(t)
+    return { text: 'Anotado aqui na conversa: dia sem rodar não precisa de lançamento, então não registrei nada.'
+      + (oficina ? ' Se o conserto teve custo, me diga quanto foi — por exemplo "paguei 300 na oficina" — que eu lanço como manutenção.' : '')
+      + ' Quando voltar a rodar, é só me mandar o dia.' }
+  }
+  const diasRodados = answerWorkedDays(s, t, today)
+  if (diasRodados) return { text: diasRodados }
   const hodometro = answerOdometer(s, t)
   if (hodometro) return { text: hodometro }
   const precoLitro = answerFuelPrice(s, t, today)

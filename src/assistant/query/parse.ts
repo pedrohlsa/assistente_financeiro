@@ -32,7 +32,7 @@ import { isDriver } from '../../services/profile'
 import { spokenPayerName } from '../clauses'
 import { buildPersonalModel, adaptiveEnabled } from '../personalModel'
 import { pareceChegada, pedeProximaEntrada } from '../arrival'
-import { COMBUSTIVEL_POR_DIA_TRABALHADO, DIAS_DE_CORRIDA, DIA_TIPICO, PEDE_HODOMETRO, PEDE_HORARIO, PEDE_MINIMO_POR_KM, PEDE_PREJUIZO_DE_RODAR, PRECO_DO_LITRO } from '../driverInsights'
+import { COMBUSTIVEL_POR_DIA_TRABALHADO, DIAS_DE_CORRIDA, DIA_TIPICO, PEDE_DIAS_TRABALHADOS, PEDE_HODOMETRO, PEDE_HORARIO, PEDE_MINIMO_POR_KM, PEDE_PREJUIZO_DE_RODAR, PRECO_DO_LITRO } from '../driverInsights'
 import { pedeCustoMensalDoVeiculo } from '../vehicleCost'
 import { pedeAteOSalario, pedeFimDoMes, guardarEsteMes, pedeAntecipacaoDeFatura, pedeContaQueAperta, pedeContasAPagar, pedeContasFixas, pedeDividaTotal, pedeFimDoParcelamento, pedeListaDeParcelamentos, pedeQuantoPossoGastar, pedeLimite, pedeMaiorParcela, pedeSobraSemCombustivel, pedeReservaDeCaixa, pedeTotalGuardado, perguntaDeFatura, perguntaDeManutencao, planoDeGuardar } from '../cashQuestions'
 import {
@@ -458,6 +458,11 @@ function lerFonte(t: string, driver: boolean, metas: string[] = []): { valor: Fo
       [/\b(?:mais|menos)\s+horas\b/, { source: 'work', field: 'hours' }],
       [/\b(?:mais|menos)\s+(?:viagens?|corridas?)\b(?!\s+(?:d[ao]|n[ao])\s+(?:uber|99))/, { source: 'work', field: 'trips' }],
       [/\blitros?\b|\bconsumo\b|\bkm\s*\/\s*l\b/, { source: 'fuel', field: 'liters' }],
+      // "Média de horas por dia", "média de km por dia": a medida do trabalho.
+      // Sobrava "horas" como pedaço não entendido.
+      [/\bmedia\s+de\s+horas\b/, { source: 'work', field: 'hours' }],
+      [/\bmedia\s+de\s+(?:km|quilometros?)\b/, { source: 'work', field: 'km' }],
+      [/\bmedia\s+de\s+(?:corridas|viagens)\b/, { source: 'work', field: 'trips' }],
     ]
     return primeira(t, dr)
   }
@@ -910,7 +915,7 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
 
   const driver = isDriver(state.settings)
   const normalized = normalizeQuery(input)
-  if (driver && (DIAS_DE_CORRIDA.test(normalized) || COMBUSTIVEL_POR_DIA_TRABALHADO.test(normalized) || PRECO_DO_LITRO.test(normalized) || PEDE_HORARIO.test(normalized) || PEDE_HODOMETRO.test(normalized)
+  if (driver && (DIAS_DE_CORRIDA.test(normalized) || COMBUSTIVEL_POR_DIA_TRABALHADO.test(normalized) || PRECO_DO_LITRO.test(normalized) || PEDE_HORARIO.test(normalized) || PEDE_HODOMETRO.test(normalized) || PEDE_DIAS_TRABALHADOS.test(normalized)
     || (/\btaxas?\b/.test(normalized) && /(?<![\d.,])99(?![\d.,])/.test(normalized)) || PEDE_MINIMO_POR_KM.test(normalized) || PEDE_PREJUIZO_DE_RODAR.test(normalized)
     // "Quanto falta pra fechar o dia" é a meta do dia, não parcelamento a fechar.
     || /\b(?:fechar|bater)\s+o\s+(?:dia|mes)\b|\bquantos\s+dias\s+(?:(?:de\s+trabalho|uteis)\s+)?(?:faltam|falta|restam)\b/.test(normalized))) return null

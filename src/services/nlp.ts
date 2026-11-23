@@ -442,6 +442,14 @@ export function marcoDaRevisao(text: string): string {
     .replace(/(revis[aã]o\s+d[oa]s\s+)(\d{1,3}(?:\.\d{3})+|\d{4,6})(?![\d.,]|\s*(?:mil\b|km\b|quil|reais\b))/gi, '$1$2 km')
 }
 
+/**
+ * "Fiz 2 corridas particulares, 80 cada": o valor é POR corrida. Vira a forma
+ * que o leitor de grupos já entende ("2 corridas de 80"), mantendo o adjetivo.
+ */
+export function valorPorCorrida(text: string): string {
+  return text.replace(/(?<![\d.,])(\d+)\s+(corridas|viagens)((?:\s+(?!de\b|e\b|cada\b)[a-zà-úç]+){0,2})\s*,?\s*(?:de\s+)?(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*(?:reais\s+)?cada\b/gi, '$1 $2 de $4$3')
+}
+
 export function tanqueCheio(text: string): string {
   return text.replace(/(?<![\wÀ-ÿ])(?:enchi|completei)\s+o\s+tanque\s*[,:]?\s*(?:com\s+|de\s+|por\s+|foi\s+|deu\s+)?(?=(?:r\$\s*)?\d)/gi, 'abasteci ')
 }
@@ -743,9 +751,12 @@ export const NEXT_RIDE_DISTANCE = /^\s*(?:a\s+)?outra(?=\s+(?:de|por)\s+[^.;!?]*
 
 const APP_DE_CORRIDA = String.raw`(?:uber|99|in\s*drive[r]?)`
 export const INCOME_PLATFORM_PREFIX = new RegExp(
-  String.raw`^\s*(?:(?:hoje|ontem|anteontem|eu|j[áa])\s+){0,3}(?:n[ao]|pel[ao]|d[ao])\s+(${APP_DE_CORRIDA})\s+(?:(?:hoje|ontem|anteontem|eu|j[áa])\s+){0,3}(?=(?:fiz|ganhei|recebi|faturei|entrou|caiu|pingou)\b)`, 'i',
+  // "A UBER caiu 820", "o REPASSE DA 99 caiu 650": a plataforma como sujeito
+  // ou dona do repasse. Só "na/da Uber" era reconhecido, e o repasse semanal
+  // entrava sem app — fora da divisão por plataforma.
+  String.raw`^\s*(?:(?:hoje|ontem|anteontem|eu|j[áa])\s+){0,3}(?:n[ao]\s+|pel[ao]\s+|d[ao]\s+|[ao]\s+|(?:o\s+)?(?:repasse|pagamento|saldo|dep[óo]sito|pix|semanal)\s+d[ao]\s+)(${APP_DE_CORRIDA})\s+(?:(?:hoje|ontem|anteontem|eu|j[áa])\s+){0,3}(?=(?:fiz|ganhei|recebi|faturei|entrou|caiu|pingou|depositou|pagou)\b)`, 'i',
 )
-const DISTINCT_INCOME_SOURCE = /^\s*d[aoe]\s+(?!(?:pix|dinheiro|transfer[eê]ncia|corridas?)\b)\p{L}/iu
+const DISTINCT_INCOME_SOURCE = /^\s*d[aoe]\s+(?!(?:pix|dinheiro|transfer[eê]ncia|corridas?|semana|quinzena|m[eê]s|dia|hoje|ontem|repasse)\b)\p{L}/iu
 const AVISO_DE_CORRIDA = String.raw`(?:oferta|chamada|proposta|solicita[çc][ãa]o)`
 const UMA_OFERTA = String.raw`(?:(?:uma|a|outra|nova|essa|esta)\s+)?`
 export const RIDE_OFFER_NOTICE = new RegExp(
@@ -1575,6 +1586,14 @@ function parseClause(input: string): ParsedAction[] {
     if (servico && parseNum(servico[2]) > 0) {
       actions.push({ kind: 'expense', amount: parseNum(servico[2]), category: 'manutencao', description: cleanDescription(servico[1]) })
     }
+  }
+
+  // ----- "O passageiro pagou 35 no pix", "passageiro me deu 40 em dinheiro":
+  // o pagamento da corrida que ELE fez. Caía na ajuda. Só com a frase inteira
+  // sendo isso: "o cliente pagou 200 no mercado" é dinheiro de outra pessoa.
+  if (!actions.some(a => a.kind === 'expense' || a.kind === 'income' || a.kind === 'fuel')) {
+    const pagou = text.match(new RegExp(String.raw`^\s*(?:(?:hoje|ontem|agora)\s+)?(?:o\s+|a\s+|um\s+|uma\s+)?passageir[oa]\s+(?:me\s+)?(?:pagou|deu|mandou|passou|fez\s+um\s+pix\s+de)\s+(?:r\$\s*)?${NUM}\s*(?:reais|real|conto|contos|pila)?(?:\s+(?:no|por|via|em|de)\s+(?:pix|dinheiro|esp[eé]cie|cart[aã]o|d[eé]bito|cr[eé]dito))?(?:\s+(?:hoje|ontem|agora))?\s*[.!]*$`, 'i'))
+    if (pagou && parseNum(pagou[1]) > 0) actions.push({ kind: 'income', amount: parseNum(pagou[1]), category: 'corridas', description: 'Corrida' })
   }
 
   // ----- "peguei um uber de 30", "chamei um 99, deu 18": a viagem como

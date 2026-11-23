@@ -10148,6 +10148,47 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       [h1, h2].every(r => /^O hodômetro está em/.test(r.reply) && r.reply.includes(fmtNum(odo, 0)) && !/Total gasto|Gasto por km/.test(r.reply))))
   }
 
+  // ---- UD-: acréscimo, repasse, dias trabalhados e folga -------------------
+  {
+    const hoje = todayISO()
+    const pend = (action: any) => [{ id: 'p', action, engine: 'local' as const, confidence: 'high' as const }]
+    const moto = buildState({ profile: 'driver', balance: 500 })
+    // "E 15 de água" com uma receita na tela é gasto; "e 50 de gorjeta" com um gasto é ganho.
+    const agua = await orchestrate({ state: moto, message: 'e 15 de agua', today: hoje, remoteEnabled: false,
+      pending: pend({ kind: 'income', amount: 280, category: 'corridas', date: hoje }) })
+    const gorjeta = await orchestrate({ state: moto, message: 'e 50 de gorjeta', today: hoje, remoteEnabled: false,
+      pending: pend({ kind: 'expense', amount: 30, category: 'alimentacao', description: 'Mercado', date: hoje }) })
+    const novaAgua = agua.response.actions.map(c => c.action).find((a: any) => a.amount === 15) as any
+    const novaGorjeta = gorjeta.response.actions.map(c => c.action).find((a: any) => a.amount === 50) as any
+    out.push(result('UD-acrescimo-segue-o-item-nao-a-proposta', [novaAgua, novaGorjeta], 'água é gasto; gorjeta é ganho',
+      novaAgua?.kind === 'expense' && novaGorjeta?.kind === 'income' && agua.response.actions.length === 2))
+    // Repasse com a plataforma como sujeito, passageiro que pagou, valor por corrida.
+    const [repasse, repasse99, passageiro, cada] = await Promise.all([
+      'a uber caiu 820 da semana', 'repasse da 99 caiu 650', 'passageiro pagou 35 no pix', 'fiz 2 corridas particulares, 80 cada',
+    ].map(m => turnoHoje(moto, m)))
+    const receita = (r: { actions: unknown[] }) => r.actions.find((a: any) => a.kind === 'income') as any
+    out.push(result('UD-repasse-passageiro-e-valor-por-corrida', [repasse.actions, repasse99.actions, passageiro.actions, cada.actions],
+      'Uber 820, 99 650, corrida 35, 160 em 2 viagens',
+      receita(repasse)?.amount === 820 && receita(repasse)?.description === 'Uber'
+      && receita(repasse99)?.amount === 650 && receita(repasse99)?.description === '99'
+      && receita(passageiro)?.amount === 35 && receita(passageiro)?.category === 'corridas'
+      && receita(cada)?.amount === 160 && (cada.actions.find((a: any) => a.kind === 'work') as any)?.trips === 2))
+    // Dias rodados e folgas contam DIAS, não dinheiro.
+    const rico = motoristaRico(hoje)
+    const [rodei, folgas, config] = await Promise.all(['quantos dias eu rodei esse mes', 'quantas folgas tirei esse mes', 'quantos dias de folga eu tenho por semana?'].map(m => turnoHoje(rico, m)))
+    out.push(result('UD-dias-rodados-e-folgas', [rodei.reply, folgas.reply, config.reply], 'contagem de dias e a configuração semanal',
+      /^Você rodou \d+ dias? este mês, de \d+ dias? corridos?/.test(rodei.reply) && /^\d+ dias? (?:ficou|ficaram) sem corrida/.test(folgas.reply)
+      && /^Na sua configuração você trabalha \d dias? por semana/.test(config.reply)
+      && ![rodei, folgas, config].some(r => /R\$/.test(r.reply))))
+    // Aviso de folga não é pergunta nem lançamento.
+    const [folga, oficina] = await Promise.all(['hj nao rodei, folga', 'hoje fiquei parado, carro na oficina'].map(m => turnoHoje(moto, m)))
+    out.push(result('UD-aviso-de-folga', [folga.reply, oficina.reply], 'sem lançamento; oficina pede o custo',
+      [folga, oficina].every(r => !r.actions.length && /não registrei nada/.test(r.reply)) && /paguei 300 na oficina/.test(oficina.reply)))
+    // Data solta ganha o "em".
+    const dia10 = await turnoHoje(rico, 'quanto fiz dia 10')
+    out.push(result('UD-data-com-em', dia10.reply, '"em dd/mm/aaaa"', !/R\$\s[\d.,]+ \d{2}\/\d{2}\/\d{4}/.test(dia10.reply)))
+  }
+
   return out
 }
 

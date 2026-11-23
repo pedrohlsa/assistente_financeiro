@@ -1033,7 +1033,14 @@ function acrescimoAProposta(pending: AssistantCandidateAction[], mensagem: strin
   }
   const m = mensagem.trim().match(/^(?:e\s+)?(?:mais\s+|tamb[ée]m\s+)?(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real|conto|contos|pila)?\s+(de|do|da|dos|das|no|na|nos|nas|em|com|pro|pra|para)\s+([a-zà-úç][a-zà-úç0-9\s]{1,40}?)\s*[?.!]*$/i)
   if (!m) return null
-  return `${tipos.has('income') ? 'recebi' : 'gastei'} ${m[1]} ${m[2]} ${m[3]}`
+  // "E 15 de ÁGUA" com uma receita na tela: o item diz que foi gasto. Herdar o
+  // verbo da proposta fazia a água virar corrida. O inverso vale para "e 50 de
+  // gorjeta" depois de um gasto.
+  const item = m[3].trim()
+  const deGasto = (() => { const c = guessCategory(item, 'expense'); return !!c && c !== 'outros-out' && !guessCategory(item, 'income') })()
+  const deGanho = /^(?:gorjeta|b[oô]nus|promo[cç][aã]o|corridas?|uber|99|sal[aá]rio|aluguel|freela)\b/i.test(item)
+  const verbo = tipos.has('income') ? (deGasto ? 'gastei' : 'recebi') : (deGanho ? 'recebi' : 'gastei')
+  return `${verbo} ${m[1]} ${m[2]} ${m[3]}`
 }
 
 /**
