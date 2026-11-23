@@ -10217,6 +10217,41 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /^Média de gastos por mês/.test(media.reply) && /veículo custou/.test(carro.reply)))
   }
 
+  // ---- UF-: total com dois-pontos, item sem preposição, bônus e fatia -------
+  {
+    const hoje = todayISO()
+    const vazio = buildState({ profile: 'driver', balance: 500 })
+    const valores = (r: { actions: unknown[] }) => r.actions.map((a: any) => a.amount).sort((x: number, y: number) => x - y)
+    const [doisPontos, entrou, semPrep, semana] = await Promise.all([
+      'gastei 150 no total: 90 gasolina e 60 lavagem', 'hoje entrou 500: 300 uber, 200 99', 'gastei 90 gasolina e 60 lavagem', 'ganhei 1200 essa semana na uber',
+    ].map(m => turnoHoje(vazio, m)))
+    out.push(result('UF-lista-depois-do-total-e-item-sem-preposicao', [doisPontos, entrou, semPrep, semana].map(r => r.actions),
+      'partes no lugar do total; Uber e 99; lavagem em Manutenção; Uber mesmo com o período no meio',
+      JSON.stringify(valores(doisPontos)) === '[60,90]' && JSON.stringify(valores(entrou)) === '[200,300]'
+      && JSON.stringify(valores(semPrep)) === '[60,90]' && (semPrep.actions.find((a: any) => a.amount === 60) as any)?.category === 'manutencao'
+      && entrou.actions.some((a: any) => a.description === '99') && (semana.actions[0] as any)?.description === 'Uber'))
+    // "Quanto recebi de bônus": tipo do ganho, não quem pagou.
+    const ganhos = buildState({ profile: 'driver', balance: 500 })
+    ganhos.transactions = [
+      { id: 'b', type: 'income', amount: 50, date: hoje, time: '10:00', description: 'Bônus', category: 'corridas' },
+      { id: 'g', type: 'income', amount: 30, date: hoje, time: '11:00', description: 'Gorjeta', category: 'corridas' },
+    ]
+    const [bonus, gorjeta] = await Promise.all(['quanto recebi de bonus', 'quanto ganhei de gorjeta'].map(m => turnoHoje(ganhos, m)))
+    out.push(result('UF-bonus-e-gorjeta-sao-tipo-de-ganho', [bonus.reply, gorjeta.reply], 'R$ 50 de bônus e R$ 30 de gorjeta',
+      bonus.reply.includes(fmtBRL(50)) && gorjeta.reply.includes(fmtBRL(30)) && ![bonus, gorjeta].some(r => /lançamento que se encaixe/.test(r.reply))))
+    // A gasolina "pesando" no faturamento é a fatia, e combustível por dia trabalhado.
+    const rico = motoristaRico(hoje)
+    const [peso, porDia] = await Promise.all(['gasolina ta pesando quanto no meu faturamento', 'quanto gasto de gasolina por dia trabalhado'].map(m => turnoHoje(rico, m)))
+    out.push(result('UF-peso-do-combustivel', [peso.reply, porDia.reply], 'participação do combustível; gasto por dia de trabalho',
+      /^Participação - Combustível/.test(peso.reply) && !/100%/.test(peso.reply) && /por dia/.test(porDia.reply) && !/lançamento que se encaixe/.test(porDia.reply)))
+    // "Qnto preciso fazer hj" é a meta do dia, não o que já entrou.
+    const meta = buildState({ profile: 'driver', balance: 500 })
+    meta.settings.monthlyProfitTarget = 4000
+    const precisa = await turnoHoje(meta, 'qnto preciso fazer hj')
+    out.push(result('UF-quanto-preciso-fazer-hoje', precisa.reply, 'meta de hoje e quanto falta',
+      precisa.reply.startsWith(`Sua meta de hoje é ${fmtBRL(dailyGoalCalc(meta).total)}`) && !/Total recebido/.test(precisa.reply)))
+  }
+
   return out
 }
 

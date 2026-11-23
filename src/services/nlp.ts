@@ -459,6 +459,30 @@ export function abastecimentosRepetidos(text: string): string {
     (_m, dia = '', a, b, c) => `abasteci ${a}${dia} e abasteci ${b}${dia}${c ? ` e abasteci ${c}${dia}` : ''}`)
 }
 
+/**
+ * "Gastei 150 no total: 90 gasolina e 60 lavagem", "entrou 500: 300 uber, 200
+ * 99": o total seguido da lista. Quando a lista soma o total, fica só a lista
+ * com o verbo — o total era lançado e as partes viravam "o que aconteceu com
+ * esse valor?". Soma diferente não mexe na frase.
+ */
+export function totalComDoisPontos(text: string): string {
+  const m = text.match(/^(.*?\b(?:gastei|paguei|recebi|entrou|entraram|fiz|ganhei|faturei|deu|caiu)\s+)(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*(?:reais\s*)?(?:(?:no\s+total|ao\s+todo|total)\s*)?:\s*(.+)$/i)
+  if (!m) return text
+  const resto = m[3]
+  const valores: number[] = []
+  let fimAnterior = -10
+  for (const v of resto.matchAll(/(?<![\w.,])(\d+(?:[.,]\d+)?)(?![\d.,]|\s*(?:km|h\b|horas?|litros?|l\b|%))/gi)) {
+    const ini = v.index || 0
+    // "200 99": o 99 colado a outro valor é a plataforma, não dinheiro.
+    if (v[1] === '99' && /^\s+$/.test(resto.slice(fimAnterior, ini))) { fimAnterior = ini + v[0].length; continue }
+    valores.push(parseNum(v[1]))
+    fimAnterior = ini + v[0].length
+  }
+  const soma = Math.round(valores.reduce((a, x) => a + x, 0) * 100) / 100
+  if (valores.length < 2 || Math.abs(soma - parseNum(m[2])) > 0.005) return text
+  return `${m[1]}${resto}`
+}
+
 export function tanqueCheio(text: string): string {
   return text.replace(/(?<![\wÀ-ÿ])(?:enchi|completei)\s+o\s+tanque\s*[,:]?\s*(?:com\s+|de\s+|por\s+|foi\s+|deu\s+)?(?=(?:r\$\s*)?\d)/gi, 'abasteci ')
 }
@@ -1683,7 +1707,8 @@ function parseClause(input: string): ParsedAction[] {
       if (MEASURE_AFTER_AMOUNT.test(afterAmount)) continue
       // "O carro me deu 200 de prejuízo" não é dinheiro que entrou.
       if (/^me\s/i.test(inc[0]) && /^\s*(?:reais\s+)?de\s+(?:preju|despesa|gasto|multa|conta|trabalho|dor)/i.test(afterAmount)) continue
-      const nearbyPlatform = afterAmount.match(new RegExp(String.raw`^\s*(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(?:(?:${EXTRA_DE_CORRIDA})\s+(?:(?:d[ao]|n[ao]|pel[ao])\s+)?)?(uber|99|indriver|corrida(?:\s+privada)?)`, 'i'))
+      // "Ganhei 1200 ESSA SEMANA na uber": o período no meio não separa o valor do app.
+      const nearbyPlatform = afterAmount.match(new RegExp(String.raw`^\s*(?:(?:hoje|hj|ontem|(?:n?essa|n?esta)\s+semana|(?:n?esse|n?este)\s+m[eê]s)\s+)?(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(?:(?:${EXTRA_DE_CORRIDA})\s+(?:(?:d[ao]|n[ao]|pel[ao])\s+)?)?(uber|99|indriver|corrida(?:\s+privada)?)`, 'i'))
       const firstPlatform = prefixPlatform?.[0].length === at && !DISTINCT_INCOME_SOURCE.test(afterAmount) ? prefixPlatform[1] : undefined
       const platform = (inc[2] || nearbyPlatform?.[1] || firstPlatform || '').trim().toLowerCase().replace(/\s+/g, '')
       // Gorjeta, bônus e taxas pagas ao motorista têm nome; sem plataforma, o
@@ -1941,6 +1966,18 @@ function parseClause(input: string): ParsedAction[] {
       } else {
         actions.push({ kind: 'expense', amount, category: guessCategory(rawDesc, 'expense'), description: cleanDescription(rawDesc) })
       }
+    }
+    // "Gastei 90 gasolina E 60 LAVAGEM": valor e item sem preposição. Só item
+    // que o app reconhece como gasto — "e 60 reais" e "e 2 horas" não entram.
+    const enumNuRe = new RegExp(String.raw`${sep}\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*${MOEDA}?\s+(?!(?:de|com|no|na|em|pra|pro|para|reais|real|horas?|km|litros?|viagens|corridas|hoje|ontem)\b)([a-zà-úçãõ]{3,}(?:\s+[a-zà-úçãõ]+)?)`, 'gi')
+    for (const mm of text.matchAll(enumNuRe)) {
+      const rawDesc = mm[2].trim()
+      const amount = parseNum(mm[1])
+      if (!(amount > 0) || actions.some(a => (a as any).amount === amount)) continue
+      const isFuel = /gasolina|etanol|alcool|álcool|diesel|combust/.test(rawDesc)
+      const cat = guessCategory(rawDesc, 'expense')
+      if (isFuel) { if (!abasteceu) actions.push({ kind: 'fuel', amount }) }
+      else if (cat && cat !== 'outros-out') actions.push({ kind: 'expense', amount, category: cat, description: cleanDescription(rawDesc) })
     }
     // Itens JUSTAPOSTOS, sem conector nenhum: "paguei 320 de luz 180 de agua".
     // É como se lê a conta de casa em voz alta, e o separador simplesmente não

@@ -347,7 +347,8 @@ function lerMetrica(t: string, driver = false): { valor: MetricaLida; matched: s
     [/\bquantas?\s+vezes\b/, { metric: 'count', txType: tipo, label: 'Quantidade' }],
     [/\bquantas?\s+parcelas\b/, { metric: 'count', txType: tipo, label: 'Parcelas' }],
     // "Quanto a gasolina COME do que eu faturo": a fatia, dita como gente fala.
-    [/\brepresent\w*\b|\bporcentagem\b|\bproporcao\b|\bpercentual\b|\bquantos?\s*%|\b(?:come|consome|leva|morde|engole)\b(?=[^?]*\bd[aeo]\s+(?:que|meu|minha|meus|minhas)\b)/,
+    // "A gasolina tá PESANDO quanto NO meu faturamento": a fatia, também.
+    [/\brepresent\w*\b|\bporcentagem\b|\bproporcao\b|\bpercentual\b|\bquantos?\s*%|\b(?:come|consome|leva|morde|engole|pesa|pesando|pesou)\b(?=[^?]*\b(?:d[aeo]|n[oa])\s+(?:que|meu|minha|meus|minhas)\b)/,
       { metric: 'share', txType: tipo, label: 'Participação' }],
     [/\bquanto\s+d[aeo]s?\s+(?:minhas?\s+|meus?\s+)?(?:receitas?|entradas?|renda|faturamento|ganhos)\b/,
       { metric: 'share', txType: tipo, label: 'Participação' }],
@@ -742,6 +743,9 @@ function exactPayers(state: AppState, text: string): { names: string[]; consumed
   const subject = list ? undefined : text.match(PAYER_SUBJECT)?.[1]
   const candidate = list || subject
   if (!candidate) return undefined
+  // "Quanto recebi de BÔNUS", "de gorjeta": é o tipo do ganho, não quem pagou.
+  // Lido como origem "Bonus", não achava o lançamento "Bônus".
+  if (/^(?:d[aoe]\s+)?(?:gorjetas?|b[oô]nus|promo[cç](?:[aã]o|oes)|incentivos?|taxas?\s+de\s+\w+)\b/.test(candidate.trim())) return undefined
   const parts = candidate.trim().split(/\s*,\s*(?:(?:e|ou)\s+)?|\s+(?:e|ou)\s+/)
     .map(p => p.split(NAMED_PART_END)[0].trim())
     .filter(p => p && !/^(?:junt[ao]s?|somad[ao]s?|separad[ao]s?|separadamente|ao\s+todo)$/.test(p))
@@ -930,6 +934,9 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
   const cmpSeparado = /\b(?:mais|menos)\b/.test(t0)
     ? t0.match(/\b((?:n?esse|n?este|nest[ae]|n?essa|n?esta|hoje)(?:\s+(?:mes|semana|ano))?)\s+(?:do\s+)?que\s+(?:n[oa]s?\s+|o\s+|a\s+)?((?:(?:mes|semana|ano)\s+(?:passad[oa]|retrasad[oa]|anterior))|passad[oa]|anterior|ontem|(?:em\s+)?(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro))\b/)
     : null
+  // "A gasolina tá PESANDO quanto NO meu faturamento" é "representa quanto DO
+  // meu faturamento": a mesma fatia, com a base que a leitura de fatia conhece.
+  t0 = t0.replace(/\b(?:pesa|pesando|pesou)\b(\s+quanto)?\s+n([oa])\s+(meu|minha|meus|minhas)\s+/, 'representa$1 d$2 $3 ')
   if (cmpSeparado) {
     // "Essa semana que NA PASSADA": a unidade elíptica vem do período dito antes.
     const unidade = /\bsemana\b/.test(cmpSeparado[1]) ? 'semana passada' : /\bano\b/.test(cmpSeparado[1]) ? 'ano passado' : 'mes passado'

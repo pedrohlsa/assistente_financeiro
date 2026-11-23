@@ -1357,6 +1357,19 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     }
   }
 
+  // "Qnto preciso fazer hj?", "quanto tenho que tirar hoje": a meta de HOJE e
+  // quanto já entrou. Respondia "Total recebido hoje", que é o que já foi feito.
+  if (driverMode && !metaCitadaPeloNome && !/\bamanha\b|\bpor\s+dia\b|\bmes\b|\bsemana\b|\d/.test(t)
+    && /\b(?:quanto|qnto|qto)\s+(?:eu\s+)?(?:preciso|tenho\s+que|devo)\s+(?:fazer|tirar|faturar|ganhar|rodar)\b/.test(t)) {
+    const g = dailyGoal(s)
+    if (!(g.total > 0)) return { text: SEM_META_DIARIA }
+    const ts = todayStats(s)
+    const falta = round2(g.total - ts.profit)
+    return { text: `Sua meta de hoje é ${fmtBRL(g.total)} de lucro. ${falta <= 0.009
+      ? `Você já bateu: lucro de ${fmtBRL(ts.profit)} hoje (dado real).`
+      : `Até agora o lucro é ${fmtBRL(ts.profit)} (dado real) — faltam ${fmtBRL(falta)}.`}` }
+  }
+
   // "quanto preciso ganhar amanhã?" / "qual minha meta"
   if (driverMode && !metaCitadaPeloNome
     // Borda de palavra: "quando gastei METAde do que ganhei" devolvia a

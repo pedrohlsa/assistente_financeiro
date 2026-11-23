@@ -54,7 +54,7 @@ import { findGoalByName, planAssistantActions } from './execute'
 import { askAssistant, listaDeLancamentos, normalizeQuestion, respostaDeCorridasAMais, respostaDeMetaCitada } from '../services/ai'
 import { contaDeclarada, perguntaDeFatura, perguntaNominal } from './cashQuestions'
 import { buildCapabilities } from './capabilities'
-import { describeAction, META_OUTRA, NEXT_RIDE_DISTANCE, SAQUE } from '../services/nlp'
+import { describeAction, META_OUTRA, NEXT_RIDE_DISTANCE, SAQUE, totalComDoisPontos } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
 import { catById, guessCategory, usableCategories } from '../data/categories'
 import { addDays, fmtBRL, MESES_PT_BR, nowPaymentTime, nowTime, parseMoney, todayISO, uid } from '../utils/format'
@@ -1690,6 +1690,10 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   // verbo que o app responde. Resposta a uma opção oferecida fica como está.
   const nominal = input.pendingClarification ? null : perguntaNominal(input.message)
   if (nominal) input = { ...input, message: nominal }
+  // "Entrou 500: 300 uber, 200 99": o total com a lista que o soma. Os leitores
+  // que rodam antes das cláusulas (dia telegráfico) também precisam da lista.
+  const semTotalDito = input.pendingClarification ? input.message : totalComDoisPontos(input.message)
+  if (semTotalDito !== input.message) input = { ...input, message: semTotalDito }
   const caps = buildCapabilities(input.state)
   const today = input.today || todayISO()
   // "Meu carro faz 10 km por litro e a gasolina tá 6 reais, quanto cobrar por

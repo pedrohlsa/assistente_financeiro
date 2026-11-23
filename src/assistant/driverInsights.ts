@@ -217,7 +217,7 @@ export function answerWorkedDays(s: AppState, t: string, hoje = todayISO()): str
   return [folga ? linhaFolga : linhaRodou, folga ? linhaRodou : linhaFolga, nota].join('\n\n')
 }
 
-export const COMBUSTIVEL_POR_DIA_TRABALHADO = /^quanto\s+(?:eu\s+)?(?:costumo\s+gastar|gasto)\s+(?:de|com)\s+combustivel\s+por\s+dia\s+trabalhado\s*[?.!]*$/
+export const COMBUSTIVEL_POR_DIA_TRABALHADO = /^quanto\s+(?:eu\s+)?(?:costumo\s+gastar|gasto)\s+(?:de|com)\s+(?:combustivel|gasolina|gasosa|etanol|alcool|gnv|diesel)\s+por\s+dia\s+(?:trabalhado|de\s+trabalho|rodado)\s*[?.!]*$/
 const RE_TIPICO = /\b(?:costum\w+|tipic\w+|normal|em m[ée]dia|m[ée]dia)\b[^?]*\b(?:por dia|no dia|dia|dias)\b|\b(?:quanto|qual)[^?]*\b(?:costum\w+|tipic\w+)\b/
 const RE_DIAS_FORTES = /\b(?:dias?|dia)\b[^?]*\b(?:mais fort\w+|melhor\w*|que rende\w*|mais rende\w*|mais forte)\b|\bmelhores? dias?\b|\bpiores? dias?\b|\bdias? (?:mais )?frac\w+\b/
 const RE_PLATAFORMA = /\b(?:uber|99|indrive|indriver|plataformas?|aplicativos?|apps?)\b[^?]*\b(?:mais|melhor|rende|vem|d[áa]|paga|compensa)\b|\b(?:vale\s+a\s+pena|compensa)\b[^?]*\b(?:uber|99)\b[^?]*\bou\b|\b(?:de onde|qual)\b[^?]*\b(?:vem mais|rende mais|paga mais)\b|\bdistribui[çc][ãa]o\b/
