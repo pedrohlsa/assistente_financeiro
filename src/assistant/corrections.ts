@@ -455,9 +455,15 @@ export function parseCorrection(
   // "Foi etanol" com um abastecimento na tela: o registro não guarda o tipo
   // de combustível. Dizer isso é melhor que o menu de ajuda — e a proposta
   // segue intacta.
-  if (pending.every(p => p.action.kind === 'fuel')
-    && /^\s*(?:(?:n[ãa]o[\s,]+)?(?:foi|era|é|e)\s+)?(?:de\s+)?(?:gasolina(?:\s+aditivada|\s+comum)?|etanol|[áa]lcool|diesel|gnv)\s*[.!]?\s*$/i.test(t)) {
-    plan.summary.push('O abastecimento não guarda o tipo de combustível, então a proposta continua igual.')
+  // "Foi etanol" com um abastecimento na tela: o tipo vai para o registro.
+  // Antes a proposta seguia igual e o tipo dito se perdia.
+  const tipoDito = pending.every(p => p.action.kind === 'fuel')
+    ? t.match(/^\s*(?:(?:n[ãa]o[\s,]+)?(?:foi|era|é|e)\s+)?(?:de\s+)?(gasolina(?:\s+aditivada|\s+comum)?|etanol|[áa]lcool|diesel|gnv)\s*[.!]?\s*$/i) : null
+  if (tipoDito) {
+    const bruto = tipoDito[1].toLowerCase()
+    const tipo = /^gnv$/.test(bruto) ? 'GNV' : /^[áa]lcool$/.test(bruto) ? 'Etanol' : bruto.charAt(0).toUpperCase() + bruto.slice(1)
+    for (const p of pending) plan.edits.push({ id: p.id, field: 'fuelType', value: tipo, was: (p.action as any).fuelType })
+    plan.summary.push(`Anotei que o abastecimento foi de ${tipo.toLowerCase()}.`)
     return plan
   }
 

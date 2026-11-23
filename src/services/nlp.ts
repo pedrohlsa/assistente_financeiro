@@ -2100,6 +2100,14 @@ function parseClause(input: string): ParsedAction[] {
   // Último recurso: nem verbo, nem preposição, só o item e o preço.
   if (!actions.length) actions.push(...parseSemVerbo(text))
 
+  // "Abasteci 100 de ETANOL": o tipo dito acompanha o abastecimento. Gasolina é
+  // o padrão e não é anotada; dois tipos na frase não se pareiam aqui.
+  const tiposDitos = [...new Set([...text.matchAll(/\b(gasolina|etanol|[áa]lcool|diesel|gnv)\b/gi)].map(m => m[1].toLowerCase().replace(/^[áa]lcool$/, 'etanol')))]
+  if (tiposDitos.length === 1 && tiposDitos[0] !== 'gasolina') {
+    const tipo = tiposDitos[0] === 'gnv' ? 'GNV' : tiposDitos[0].charAt(0).toUpperCase() + tiposDitos[0].slice(1)
+    for (const a of actions) if (a.kind === 'fuel' && !(a as any).fuelType) (a as any).fuelType = tipo
+  }
+
   // dedupe: receita detectada dentro de frase de meta
   return actions
 }
@@ -2303,7 +2311,7 @@ export function describeAction(a: ParsedAction, categoryName?: (id: string) => s
       }
       return `Trabalho: ${parts.join(', ')}`
     }
-    case 'fuel': return `Abastecimento${a.amount ? ` de ${fmtBRL(a.amount)}` : ''}${a.liters ? ` (${fmtNum(a.liters)} L)` : ''}${a.odometer ? ` · hodômetro ${a.odometer.toLocaleString('pt-BR')} km` : ''}`
+    case 'fuel': return `Abastecimento${a.amount ? ` de ${fmtBRL(a.amount)}` : ''}${a.liters ? ` (${fmtNum(a.liters)} L)` : ''}${a.fuelType ? ` · ${a.fuelType.toLowerCase()}` : ''}${a.odometer ? ` · hodômetro ${a.odometer.toLocaleString('pt-BR')} km` : ''}`
     case 'odometer': return `Hodômetro atual: ${a.value.toLocaleString('pt-BR')} km`
     // O intervalo aparece na proposta porque é ele que faz o lembrete de troca
     // existir — confirmar sem ver isso esconde metade do que foi entendido.

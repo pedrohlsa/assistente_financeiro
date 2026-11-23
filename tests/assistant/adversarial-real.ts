@@ -9451,8 +9451,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const v = await doisTurnos('fiz 250', 'não, 280')
       out.push(result('CR-nao-virgula-valor', v.response.actions.map(a => a.action), 'R$ 280', (v.response.actions[0]?.action as any)?.amount === 280))
       const e = await doisTurnos('abasteci 100', 'foi etanol')
-      out.push(result('CR-tipo-de-combustivel', e.response.reply, 'explica e mantém a proposta',
-        (e.response.actions[0]?.action as any)?.amount === 100 && /tipo de combustível/.test(e.response.reply)))
+      // O abastecimento passou a guardar o tipo: a correção anota em vez de só explicar.
+      out.push(result('CR-tipo-de-combustivel', e.response.reply, 'mantém o valor e anota o etanol',
+        (e.response.actions[0]?.action as any)?.amount === 100 && (e.response.actions[0]?.action as any)?.fuelType === 'Etanol' && /etanol/.test(e.response.reply)))
     }
     {
       // "Quanto ganhei na uber E NA 99 esse mês" e "ganhei mais na uber ou
@@ -10280,6 +10281,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     out.push(result('UH-sugestoes-sem-numero-de-faz-de-conta', [mesVazio.reply, comoMeta.reply], 'mês sem lançamento diz isso; "como está a meta" não começa por sim/não',
       /^Ainda não há lançamentos este mês/.test(mesVazio.reply) && !/R\$/.test(mesVazio.reply)
       && /^(?:Faltam R\$|Meta de hoje batida)/.test(comoMeta.reply) && !/^(?:Sim|Ainda não)\b/.test(comoMeta.reply)))
+  }
+
+  // ---- UI-: o tipo de combustível dito fica no abastecimento ----------------
+  {
+    const hoje = todayISO()
+    const moto = buildState({ profile: 'driver', balance: 500 })
+    const proposta = await orchestrate({ state: moto, message: 'abasteci 80', today: hoje, remoteEnabled: false })
+    const corrigida = await orchestrate({ state: moto, message: 'não, foi etanol', today: hoje, remoteEnabled: false, pending: proposta.response.actions })
+    const acao = corrigida.response.actions[0]?.action as any
+    const salvo = applyBatchPure(moto, corrigida.response.actions, { now: { date: hoje, time: '10:00' } }).state
+    const direto = await turnoHoje(moto, 'abasteci 100 de etanol')
+    out.push(result('UI-tipo-de-combustivel', [acao, salvo.fuelRecords[0], direto.actions], 'Etanol na proposta, no registro e na frase direta',
+      acao?.kind === 'fuel' && acao.fuelType === 'Etanol' && acao.amount === 80 && salvo.fuelRecords[0]?.fuelType === 'Etanol'
+      && (direto.actions[0] as any)?.fuelType === 'Etanol' && /etanol/.test(corrigida.response.reply)))
   }
 
   return out

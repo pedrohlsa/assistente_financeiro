@@ -148,6 +148,7 @@ export const ACTION_CATALOG: ActionSpec[] = [
       { name: 'liters', type: 'quantity', required: false, min: 0.01, max: 500, describe: 'litros abastecidos' },
       { name: 'pricePerLiter', type: 'quantity', required: false, min: 0.01, max: 100, describe: 'preço por litro' },
       { name: 'odometer', type: 'quantity', required: false, min: 0, max: 9_999_999, describe: 'hodômetro no momento do abastecimento' },
+      { name: 'fuelType', type: 'text', required: false, maxLength: 20, describe: 'tipo do combustível quando dito (Gasolina, Etanol, GNV, Diesel)' },
       dateField,
     ],
     promptHint: 'gera UMA ação fuel — nunca fuel + expense duplicados',

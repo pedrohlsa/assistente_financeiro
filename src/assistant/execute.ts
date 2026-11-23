@@ -199,6 +199,8 @@ export function applyActionPure(
         liters: Math.round(liters * 100) / 100,
         pricePerLiter: Math.round(price * 100) / 100,
         odometer: action.odometer,
+        // O tipo dito ("foi etanol") fica no registro do abastecimento.
+        ...(action.fuelType ? { fuelType: action.fuelType } : {}),
       }
       let next: AppState = {
         ...state,

@@ -367,7 +367,7 @@ export type ParsedAction =
   | { kind: 'expense'; amount: number; category?: string; description?: string; origin?: string; date?: string; time?: string }
   | { kind: 'saving'; amount: number; description?: string; date?: string }
   | { kind: 'work'; km?: number; trips?: number; hours?: number; date?: string }
-  | { kind: 'fuel'; amount?: number; liters?: number; pricePerLiter?: number; odometer?: number; date?: string }
+  | { kind: 'fuel'; amount?: number; liters?: number; pricePerLiter?: number; odometer?: number; fuelType?: string; date?: string }
   | { kind: 'odometer'; value: number }
   | { kind: 'maintenance'; item: string; cost: number; km?: number; lifeKm?: number; date?: string }
   | { kind: 'goal'; name: string; target: number; months?: number }
