@@ -102,17 +102,18 @@ export function readPlatformPayout(message: string): PlatformPayout | undefined 
 }
 
 const PAYOUT_DAY = String.raw`(?:hoje|hj|ontem|anteontem|ha\s+\d+\s+dias?|\d+\s+dias?\s+atras|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)`
+const PAYOUT_SCHEDULE = String.raw`(?:${PAYOUT_DAY}|amanha|(?:na\s+)?(?:segunda|terca|quarta|quinta|sexta)(?:-feira)?|(?:no\s+)?(?:sabado|domingo))`
 const PAYOUT_SOURCE = String.raw`(?:de\s+corridas?|d[aeo]\s+ganhos?\s+d[aeo]\s+app)(?:\s+(?:n[ao]|pel[ao]|d[ao])\s+(?<platform>${PAYOUT_APP}))?|(?:n[ao]|pel[ao]|d[ao])\s+(?<app>${PAYOUT_APP})`
 
 const FUEL_LABEL = String.raw`(?:gasolina|gasosa|etanol|alcool|diesel|gnv|combustivel)\b`
 const FUEL_COST = (key: string) => [
-  String.raw`(?<${key}>(?:(?:gastei|paguei)\s+)?${MONEY(key + 'Amount')}\s+(?:(?:de|em|com)\s+)?${FUEL_LABEL}`,
+  String.raw`(?<${key}>(?:(?:gastei|paguei|botei|coloquei)\s+)?${MONEY(key + 'Amount')}\s+(?:(?:de|em|com)\s+)?${FUEL_LABEL}`,
   String.raw`abasteci\s+${MONEY(key + 'Fill')}`,
   String.raw`(?<${key}Label>${FUEL_LABEL})\s+${MONEY(key + 'AfterLabel')}`,
   String.raw`(?<${key}Liters>\d+(?:[.,]\d+)?)\s*(?:litros?|l)\s+de\s+(?<${key}VolumeFuel>${FUEL_LABEL})\s+(?:(?:que\s+)?cust(?:ou|aram)|por)\s+${MONEY(key + 'VolumeCost')})`,
 ].join('|')
 const UNPAID_LINK = String.raw`(?:mas|porem|so\s+que|e|sendo|incluindo|d[eo]s\s+quais|dess[ea]s?|com)`
-const UNPAID_STATUS = String.raw`(?:(?:ainda\s+)?nao\s+(?:caiu|cairam|entrou|entraram|recebi|recebid[oa]s?)|(?:ainda\s+)?(?:vai|vao|(?:esta|estao|ficou|ficaram)\s+(?:para|pra))\s+(?:cair|entrar)|(?:ainda\s+)?(?:ta|tao|esta|estao|ficou|ficaram)\s+pendentes?|(?:so\s+)?(?:cai|entra)(?=\s+amanha)|nao\s+saiu\s+da\s+carteira(?:\s+do\s+app)?(?:\s+ainda)?)`
+const UNPAID_STATUS = String.raw`(?:(?:ainda\s+)?nao\s+(?:caiu|cairam|entrou|entraram|recebi|recebid[oa]s?)|(?:ainda\s+)?(?:vai|vao|(?:ta|tao|esta|estao|ficou|ficaram)\s+(?:para|pra)|ainda\s+(?:para|pra))\s+(?:cair|entrar)|(?:ainda\s+)?(?:ta|tao|esta|estao|ficou|ficaram)\s+pendentes?|(?:so\s+)?(?:cai|entra)(?=\s+amanha)|nao\s+saiu\s+da\s+carteira(?:\s+do\s+app)?(?:\s+ainda)?)`
 const UNPAID_AFTER_VALUE = String.raw`(?:(?:os|as)\s+)?${MONEY('unpaid')}(?:\s+(?:d[ao]|n[ao])\s+(?<unpaidApp>${PAYOUT_APP}))?\s+(?:que\s+)?${UNPAID_STATUS}(?:\s+ainda)?`
 const TELEGRAPHIC_UNPAID = String.raw`${MONEY('pendingAmount')}\s+pendentes?(?:\s+(?:n[ao]|d[ao])\s+(?<pendingApp>${PAYOUT_APP}))?`
 const UNPAID_BEFORE_VALUE = String.raw`(?:ainda\s+)?(?:faltam?\s+(?:(?:cair|entrar)\s+)?|(?:ficou|ta|esta)\s+faltando\s+|tem\s+(?=${MONEY('waiting')}\s+(?:pra|para)\s+(?:cair|entrar)))${MONEY('missing')}(?:\s+(?:pra|para)\s+(?:cair|entrar)|\s+do\s+repasse)?(?:\s+(?:so\s+)?(?:d[ao]|n[ao])\s+(?<missingApp>${PAYOUT_APP}))?`
@@ -130,7 +131,7 @@ const PARTIAL_RIDE_PAYOUT = new RegExp([
   String.raw`^(?:(?<lead>${PAYOUT_DAY})\s*,?\s+)?(?:(?:n[ao]|pel[ao]|d[ao])\s+(?<initialApp>${PAYOUT_APP})\s+)?(?:(?:eu\s+)?(?<verb>deu|deram|fiz|ganhei|faturei|recebi|entrou|caiu|d[eo]s?|(?:o\s+)?total\s+foi)\s+)?(?:(?:d[ao]|n[ao]|pel[ao])\s+(?<platformBeforeValue>${PAYOUT_APP})\s+)?${MONEY('total')}(?:\s+(?:(?<source>${PAYOUT_SOURCE})|(?:em|durante)\s+${INITIAL_WORK}))?(?:\s+(?<day>${PAYOUT_DAY}))?`,
   String.raw`(?:,?\s+(?:e\s+)?${FUEL_COST('before')}(?:\s+(?<beforeDay>${PAYOUT_DAY}))?)?`,
   String.raw`(?:[,.]\s*|\s+)(?:(?<link>${UNPAID_LINK})\s+)?(?:(?<extra>mais|(?:(?:os|as)\s+)?outr[oa]s?)\s+)?(?:${UNPAID_AFTER_VALUE}|${TELEGRAPHIC_UNPAID}|${UNPAID_BEFORE_VALUE}|${RECEIVED_VALUE}|${UNPAID_UNSIZED}|${UNPAID_ALL}|${HELD_PAYOUT})`,
-  String.raw`(?:\s+(?:na\s+(?:minha\s+)?conta|no\s+pix))?(?:\s+(?<settlementDay>${PAYOUT_DAY}|amanha))?`,
+  String.raw`(?:\s+(?:na\s+(?:minha\s+)?conta|no\s+pix))?(?:\s+(?<settlementDay>${PAYOUT_SCHEDULE}))?`,
   String.raw`${RECEIVED_REMAINDER}?`,
   String.raw`(?:(?:[,;]\s*(?:e\s+)?|\s+e\s+)${FUEL_COST('after')}(?:\s+(?<afterDay>${PAYOUT_DAY}))?)?`,
   String.raw`(?:(?:[.;,]\s*|\s+e\s+)${PAYOUT_WORK}(?:\s+(?<workDay>${PAYOUT_DAY}))?)?[.!]*$`,
@@ -177,7 +178,7 @@ export function readPartialRidePayout(message: string) {
 }
 
 const SHIFT_WITH_UNPAID_PAYOUT = new RegExp(
-  String.raw`^(?<shift>.+?)(?:[,.;]\s*|\s+)(?:mas|porem|so\s+que)\s+(?:${UNPAID_AFTER_VALUE}|${UNPAID_BEFORE_VALUE})(?:\s+na\s+(?:minha\s+)?conta)?[.!]*$`,
+  String.raw`^(?<shift>.+?)(?:[,.;]\s*|\s+)(?:mas|porem|so\s+que)\s+(?:${UNPAID_AFTER_VALUE}|${UNPAID_BEFORE_VALUE})(?:\s+na\s+(?:minha\s+)?conta)?(?:\s+${PAYOUT_SCHEDULE})?[.!]*$`,
 )
 
 export function readShiftWithUnpaidPayout(message: string) {
@@ -191,7 +192,7 @@ export function readShiftWithUnpaidPayout(message: string) {
 }
 
 const RIDE_SETTLEMENT = new RegExp(
-  String.raw`^(?:[ao]\s+)?(?<payer>${PAYOUT_APP})\s+(?:me\s+)?(?:pagou|repassou|depositou|transferiu)\s+(?:(?<reference>os|o|mais)\s+)?${MONEY('amount')}(?:\s+(?:d[ao]|pel[ao])\s+(?<origin>${PAYOUT_APP}))?[.!]*$`,
+  String.raw`^(?:[ao]\s+)?(?<payer>${PAYOUT_APP})\s+(?:me\s+)?(?:pagou|repassou|depositou|transferiu)\s+(?:(?<reference>os|o|mais|so|apenas|somente)\s+)?${MONEY('amount')}(?:\s+dos\s+${MONEY('coveredTotal')})?(?:\s+(?:d[ao]|pel[ao])\s+(?<origin>${PAYOUT_APP}))?[.!]*$`,
 )
 
 export function readRideSettlement(message: string) {
@@ -201,6 +202,7 @@ export function readRideSettlement(message: string) {
   const amount = parseMoney(parts.amount)
   if (!(amount > 0)) return undefined
   return { amount, payer: ridePayoutPlatformName(parts.payer), reference: parts.reference,
+    coveredTotal: parts.coveredTotal ? parseMoney(parts.coveredTotal) : undefined,
     origin: parts.origin ? ridePayoutPlatformName(parts.origin) : undefined }
 }
 

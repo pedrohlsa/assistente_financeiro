@@ -11151,6 +11151,104 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && cashAfterLiters.mode === 'propose_actions' && cashAfterLiters.actions.length === 3
         && cashAfterLiters.actions.some(a => a.kind === 'income' && a.description === 'Uber' && a.amount === 500)))
 
+      const splitHours = await chat()('Ontem fiquei oito horas no volante, três horas e meia Uber e quatro e meia 99, faturei 300 na Uber e 200 na 99')
+      const shiftWithFuel = await chat()('anteontem fechei 8h no volante, 3h30 na Uber e 4h30 na 99, faturei 300,25 na Uber e 200,50 na 99 e gastei 90 de gasolina')
+      const unequalHours = chat()
+      const unequalShift = await unequalHours('ontem trabalhei 8 horas no volante, 3h na Uber e 4h na 99, faturei 300 na Uber e 200 na 99')
+      const changedIncome = await unequalHours('a da 99 foi 150')
+      const confirmHours = await unequalHours('foram 8 horas')
+      const accountChat = chat()
+      await accountChat('fiz 800 na Uber e 150 de gasolina, 300 ainda não caiu')
+      const statedBalance = await accountChat('tenho só 625 na conta ontem')
+      const afterBalance = await accountChat('sim')
+      const nestedChat = chat()
+      await nestedChat('fiz 800 na Uber e 150 de gasolina, 300 ainda não caiu')
+      await nestedChat('450 na conta ontem')
+      const clarifiedBalance = await nestedChat('meu saldo era de quinhentos e vinte e cinco reais na conta')
+      const outsideAfterBalance = await nestedChat('não')
+      out.push(result(`MOTOR-jornada-com-horas-por-app-${fixture}`,
+        [splitHours, shiftWithFuel, unequalShift, changedIncome, confirmHours].map(r => [r.mode, r.actions, r.reply]),
+        'preserva receitas e grava uma jornada diária, pedindo o total quando a divisão diverge',
+        splitHours.mode === 'propose_actions' && splitHours.actions.length === 3
+        && splitHours.actions.some(a => a.kind === 'work' && a.hours === 8 && a.date === ontem)
+        && splitHours.actions.some(a => a.kind === 'income' && a.description === 'Uber' && a.amount === 300 && a.date === ontem)
+        && splitHours.actions.some(a => a.kind === 'income' && a.description === '99' && a.amount === 200 && a.date === ontem)
+        && shiftWithFuel.mode === 'propose_actions' && shiftWithFuel.actions.length === 4
+        && shiftWithFuel.actions.some(a => a.kind === 'work' && a.hours === 8 && a.date === anteontem)
+        && shiftWithFuel.actions.some(a => a.kind === 'income' && a.amount === 300.25 && a.description === 'Uber')
+        && shiftWithFuel.actions.some(a => a.kind === 'income' && a.amount === 200.5 && a.description === '99')
+        && shiftWithFuel.actions.some(a => a.kind === 'fuel' && a.amount === 90 && a.date === anteontem)
+        && unequalShift.mode === 'clarify' && unequalShift.actions.length === 2
+        && unequalShift.actions.every(a => a.kind === 'income') && /8\s*h.*7\s*h/.test(unequalShift.reply)
+        && changedIncome.mode === 'clarify' && changedIncome.actions.length === 2
+        && changedIncome.actions.some(a => a.kind === 'income' && a.description === '99' && a.amount === 150)
+        && confirmHours.mode === 'propose_actions' && confirmHours.actions.length === 3
+        && confirmHours.actions.some(a => a.kind === 'income' && a.description === '99' && a.amount === 150)
+        && confirmHours.actions.some(a => a.kind === 'work' && a.hours === 8 && a.date === ontem)))
+      out.push(result(`MOTOR-saldo-declarado-preserva-repasse-${fixture}`,
+        [statedBalance, afterBalance, clarifiedBalance, outsideAfterBalance].map(r => [r.mode, r.actions, r.reply]),
+        'trata saldo declarado como contexto e volta à pergunta de inclusão',
+        statedBalance.mode === 'clarify' && !statedBalance.actions.length && /625,00.*saldo|saldo.*625,00/i.test(statedBalance.reply)
+        && afterBalance.mode === 'propose_actions' && afterBalance.actions.length === 2
+        && afterBalance.actions.some(a => a.kind === 'income' && a.amount === 500 && a.description === 'Uber')
+        && clarifiedBalance.mode === 'clarify' && !clarifiedBalance.actions.length
+        && /525,00.*saldo|saldo.*525,00/i.test(clarifiedBalance.reply)
+        && /300,00.*800,00/.test(clarifiedBalance.reply)
+        && outsideAfterBalance.mode === 'propose_actions' && outsideAfterBalance.actions.length === 2
+        && outsideAfterBalance.actions.some(a => a.kind === 'income' && a.amount === 800 && a.description === 'Uber')))
+
+      const otherHourFormats = await Promise.all([
+        ['Ontem trabalhei 8h divididas em 3h30 na Uber e 4h30 na 99, faturei 300 na Uber e 200 na 99', ontem],
+        ['Trabalhei 8h, sendo 3h30 na Uber e 4h30 na 99, faturei 300 na Uber e 200 na 99', undefined],
+        ['Fechei 8h no volante: Uber 3h30, 99 4h30. Ganhei 300 na Uber e 200 na 99', undefined],
+      ].map(async ([message, date]) => [await chat()(message), date] as const))
+      const paidAfterHours = chat()
+      const pendingAfterHours = await paidAfterHours('Fechei 8h no volante, 3h30 na Uber e 4h30 na 99, fiz 800 na Uber mas 300 ainda não caiu')
+      const actualAfterHours = await paidAfterHours('sim')
+      const onTheWay = await chat()('fiz 800 na Uber, mais 300 ainda pra cair, botei 80 de gasolina ontem')
+      const expectedWeekday = chat()
+      const weekdayPending = await expectedWeekday('ontem Uber 900 e 99 250, mas 300 da Uber vai cair segunda')
+      const weekdayChoice = await expectedWeekday('incluído na Uber')
+      const narrowReceipt = chat()
+      await narrowReceipt('fiz 800 na Uber e 150 de gasolina, 300 ainda não caiu')
+      await narrowReceipt('450 na conta ontem')
+      const explicitReceipt = await narrowReceipt('não é saldo, recebi 500 ontem')
+      const reverseOrder = await chat()('hoje a 99 depositou os 250 e ontem foram 900 da Uber e 250 da 99 e 80 de gasolina')
+      const partialSettlement = await chat()('ontem foram 900 da Uber e 250 da 99. Hoje a 99 me pagou só 150 dos 250')
+      out.push(result(`MOTOR-horas-por-app-em-mais-formatos-${fixture}`,
+        otherHourFormats.map(([r]) => [r.mode, r.actions, r.reply]),
+        'reconhece horas antes e depois do app e os marcadores de divisão',
+        otherHourFormats.every(([r, date]) => r.mode === 'propose_actions' && r.actions.length === 3
+          && r.actions.some(a => a.kind === 'work' && a.hours === 8 && a.date === date)
+          && r.actions.some(a => a.kind === 'income' && a.description === 'Uber' && a.amount === 300 && a.date === date)
+          && r.actions.some(a => a.kind === 'income' && a.description === '99' && a.amount === 200 && a.date === date))))
+      out.push(result(`MOTOR-jornada-com-valor-ainda-pra-cair-${fixture}`,
+        [pendingAfterHours, actualAfterHours, onTheWay, weekdayPending, weekdayChoice, explicitReceipt].map(r => [r.mode, r.actions, r.reply]),
+        'mantém a jornada e a receita independente, tratando dinheiro futuro como pendência',
+        pendingAfterHours.mode === 'clarify' && pendingAfterHours.actions.length === 1
+        && pendingAfterHours.actions.some(a => a.kind === 'work' && a.hours === 8)
+        && actualAfterHours.mode === 'propose_actions' && actualAfterHours.actions.length === 2
+        && actualAfterHours.actions.some(a => a.kind === 'income' && a.amount === 500)
+        && onTheWay.mode === 'propose_actions' && onTheWay.actions.length === 2
+        && onTheWay.actions.some(a => a.kind === 'income' && a.amount === 800 && a.description === 'Uber')
+        && onTheWay.actions.some(a => a.kind === 'fuel' && a.amount === 80 && a.date === ontem)
+        && weekdayPending.mode === 'clarify' && weekdayPending.actions.length === 1
+        && weekdayPending.actions.some(a => a.kind === 'income' && a.amount === 250 && a.description === '99' && a.date === ontem)
+        && weekdayChoice.mode === 'propose_actions' && weekdayChoice.actions.length === 2
+        && weekdayChoice.actions.some(a => a.kind === 'income' && a.amount === 600 && a.description === 'Uber' && a.date === ontem)
+        && explicitReceipt.mode === 'propose_actions' && explicitReceipt.actions.length === 2
+        && explicitReceipt.actions.some(a => a.kind === 'income' && a.amount === 500 && a.description === 'Uber' && a.date === ontem)))
+      out.push(result(`MOTOR-repasse-parcial-datado-em-ordens-diferentes-${fixture}`,
+        [reverseOrder, partialSettlement].map(r => [r.mode, r.actions, r.reply]),
+        'liga o recebimento total ou parcial ao rendimento da outra data, evitando contagem dupla',
+        reverseOrder.mode === 'propose_actions' && reverseOrder.actions.length === 3
+        && reverseOrder.actions.some(a => a.kind === 'income' && a.amount === 900 && a.description === 'Uber' && a.date === ontem)
+        && reverseOrder.actions.some(a => a.kind === 'fuel' && a.amount === 80 && a.date === ontem)
+        && reverseOrder.actions.some(a => a.kind === 'income' && a.amount === 250 && a.description === '99' && a.date === hoje)
+        && partialSettlement.mode === 'propose_actions' && partialSettlement.actions.length === 2
+        && partialSettlement.actions.some(a => a.kind === 'income' && a.amount === 900 && a.description === 'Uber' && a.date === ontem)
+        && partialSettlement.actions.some(a => a.kind === 'income' && a.amount === 150 && a.description === '99' && a.date === hoje)))
+
       out.push(result(`MOTOR-sem-gravacao-${fixture}`, JSON.stringify(state) === snapshot, true, JSON.stringify(state) === snapshot))
     }
   }

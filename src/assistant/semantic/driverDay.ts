@@ -79,6 +79,63 @@ export function expandDriverReport(message: string, today: string): string {
     fuel && 'e gastei ' + fuel].filter(Boolean).join(' ')
 }
 
+const SHIFT_WITH_APP_HOURS = new RegExp([
+  String.raw`^(?:eu\s+)?(?:fiquei|passei|trabalhei|dirigi|fechei)\s+(?:por\s+)?(?<duration>${REPORTED_DURATION})`,
+  String.raw`(?:\s+(?:no\s+volante|dirigindo|de\s+trabalho))?`,
+  String.raw`(?:\s*[,;:]\s*(?:sendo\s+)?|\s+(?:sendo|dividid[oa]s?\s+em)\s+)(?<rest>.+)$`,
+].join(''), 'i')
+const APP_NAMES = String.raw`(?:uber|99|in\s*driver?|ifood|rappi)\b`
+const APP_DURATION = String.raw`(?:${REPORTED_DURATION}|\d{1,2}\s+e\s+meia)`
+const HOURS_THEN_APP = new RegExp(String.raw`^(?<duration>${APP_DURATION})\s+(?:(?:na|no|pela|pelo|de)\s+)?(?<platform>${APP_NAMES})`, 'i')
+const APP_THEN_HOURS = new RegExp(String.raw`^(?:(?:na|no|pela|pelo)\s+)?(?<platform>${APP_NAMES})\s+(?:por\s+)?(?<duration>${APP_DURATION})`, 'i')
+const SHIFT_CLAUSE_START = /^(?:ganhei|faturei|recebi|fiz|gastei|paguei|abasteci|rodei|dirigi)\b/i
+
+/** Lê uma duração de jornada em minutos, inclusive decimal e meia hora elíptica. */
+export function reportedWorkMinutes(text: string): number | undefined {
+  const said = normalizeNumberWords(text).text.trim().replace(/[.!]+$/, '').replace(/^(?:foram|foi|deu|trabalhei(?:\s+por)?)\s+/i, '')
+  const duration = said.replace(/^(\d{1,2})\s+e\s+meia$/i, '$1 horas e meia')
+  const simple = duration.match(/^(\d+(?:[.,]\d+)?)\s*(?:h|hrs?|horas?)$/i)
+  const minutes = simple ? Math.round(Number(simple[1].replace(',', '.')) * 60) : elapsedMinutes(duration)
+  return minutes > 0 && minutes <= 1440 ? minutes : undefined
+}
+
+export function readShiftWithAppHours(message: string, today: string) {
+  if (!/\b(?:uber|99|noventa|in\s*drive[r]?|ifood|rappi)\b/i.test(message) || message.includes('?')) return undefined
+  const text = normalizeNumberWords(message).text.trim()
+  const dates = findAllDates(text, today)
+  const [day] = dates
+  if (dates.length > 1 || (day && (day.kind !== 'date' || text.slice(0, day.start).trim()))) return undefined
+  const body = day ? text.slice(day.end).replace(/^[\s,]+/, '') : text
+  const head = body.match(SHIFT_WITH_APP_HOURS)?.groups
+  if (!head) return undefined
+  const minutes = reportedWorkMinutes(head.duration)
+  if (!minutes) return undefined
+
+  let rest = head.rest
+  let sum = 0
+  const apps = new Set<string>()
+  while (rest) {
+    const part = rest.match(HOURS_THEN_APP) || rest.match(APP_THEN_HOURS)
+    if (!part) return undefined
+    const portion = reportedWorkMinutes(part.groups.duration)
+    const app = normalizeName(part.groups.platform).replace(/\s+/g, '').replace(/^indriver$/, 'indrive')
+    if (!portion || apps.has(app)) return undefined
+    apps.add(app)
+    sum += portion
+    const after = rest.slice(part[0].length).trim()
+    if (!after || /^[.!]+$/.test(after)) {
+      rest = ''
+      break
+    }
+    const separator = after.match(/^(?:[,;.]\s*(?:e\s+)?|e\s+)/i)?.[0]
+    if (!separator) return undefined
+    rest = after.slice(separator.length)
+    if (SHIFT_CLAUSE_START.test(rest)) break
+  }
+  if (apps.size < 2) return undefined
+  return { minutes, sum, rest, date: day?.kind === 'date' ? day.date : undefined, when: day?.text }
+}
+
 /** Plataformas de onde o dinheiro vem. O nome vira a descrição do lançamento. */
 const PLATAFORMAS: [RegExp, string][] = [
   [/^uber$/i, 'Uber'],
