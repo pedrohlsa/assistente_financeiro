@@ -11429,6 +11429,78 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && [simpleReceivedPix, delayedReceipt].every(r => r.mode === 'propose_actions' && r.actions.length === 1
           && r.actions.some(a => a.kind === 'income' && a.amount === 250 && a.description === '99' && a.date === hoje))))
 
+      const unnamedReceipt = chat()
+      const possibleDuplicate = await unnamedReceipt('dia 26 do mês passado fiz 250 na 99, caiu 250 ontem')
+      const sameRepayment = await unnamedReceipt('é o mesmo')
+      const explicitlyThatReceipt = await chat()('anteontem fiz 250 na 99, caíram os 250 ontem')
+      const unknownReceipt = chat()
+      const undisclosedAmount = await unknownReceipt('ontem ganhei 250 na 99, e recebi hoje')
+      const saidReceiptAmount = await unknownReceipt('caiu cento e cinquenta reais e vinte e cinco centavos')
+      const wrongDayAnnotation = chat()
+      const dayClash = await wrongDayAnnotation('A 99 pagou 250 ontem mas 150 são de hoje')
+      const belongsToFirst = await wrongDayAnnotation('já estão nos 250')
+      out.push(result(`MOTOR-repasse-com-origem-implicita-em-mais-de-um-dia-${fixture}`,
+        [possibleDuplicate, sameRepayment, explicitlyThatReceipt, undisclosedAmount, saidReceiptAmount].map(r => [r.mode, r.actions, r.reply]),
+        'carrega o app dito no mesmo relato, evita somar duas vezes e pergunta pelo valor realmente recebido',
+        possibleDuplicate.mode === 'clarify' && !possibleDuplicate.actions.length && /mesmo.*repasse|repasse.*mesmo/.test(possibleDuplicate.reply)
+        && [sameRepayment, explicitlyThatReceipt].every(r => r.mode === 'propose_actions' && r.actions.length === 1
+          && r.actions.some(a => a.kind === 'income' && a.description === '99' && a.amount === 250 && a.date === ontem))
+        && undisclosedAmount.mode === 'clarify' && !undisclosedAmount.actions.length && /250,00.*quanto|quanto.*250,00/i.test(undisclosedAmount.reply)
+        && saidReceiptAmount.mode === 'propose_actions' && saidReceiptAmount.actions.length === 1
+        && saidReceiptAmount.actions.some(a => a.kind === 'income' && a.description === '99' && a.amount === 150.25 && a.date === hoje)))
+      out.push(result(`MOTOR-origem-de-parte-do-repasse-com-data-diferente-${fixture}`,
+        [dayClash, belongsToFirst].map(r => [r.mode, r.actions, r.reply]),
+        'distingue data do repasse e da origem de parte do dinheiro',
+        dayClash.mode === 'clarify' && !dayClash.actions.length && /150,00.*250,00/.test(dayClash.reply)
+        && belongsToFirst.mode === 'propose_actions' && belongsToFirst.actions.length === 1
+        && belongsToFirst.actions.some(a => a.kind === 'income' && a.description === '99' && a.amount === 250 && a.date === ontem)))
+
+      const noPunctuationDeposit = await chat()('tenho 500 na conta e veio 300 da Uber hoje')
+      const noPunctuationPart = await chat()('ontem fiz 250 na 99 só caiu 150 hoje')
+      const withdrawPixQuestion = chat()
+      await withdrawPixQuestion('gastei 80 de gasolina')
+      await withdrawPixQuestion('pix na conta deu 500 e 300 da 99 ainda tá pra cair')
+      const stoppedPixQuestion = await withdrawPixQuestion('cancela')
+      const stillHasFuel = await withdrawPixQuestion('foi 85')
+      const withdrawDateQuestion = chat()
+      await withdrawDateQuestion('gastei 80 de gasolina')
+      await withdrawDateQuestion('A 99 pagou 250 ontem mas 150 são de hoje')
+      const stoppedDateQuestion = await withdrawDateQuestion('cancela')
+      const fuelStillPending = await withdrawDateQuestion('foi 85')
+      out.push(result(`MOTOR-ditado-sem-pontuacao-e-cancelamento-de-pergunta-${fixture}`,
+        [noPunctuationDeposit, noPunctuationPart, stoppedPixQuestion, stillHasFuel, stoppedDateQuestion, fuelStillPending].map(r => [r.mode, r.actions, r.reply]),
+        'reconhece a relação sem pontuação e cancela só a pergunta de repasse',
+        noPunctuationDeposit.mode === 'propose_actions' && noPunctuationDeposit.actions.length === 2
+        && noPunctuationDeposit.actions.some(a => a.kind === 'income' && a.amount === 300 && a.description === 'Uber' && a.date === hoje)
+        && noPunctuationDeposit.actions.some(a => a.kind === 'balance' && a.amount === 500)
+        && noPunctuationPart.mode === 'propose_actions' && noPunctuationPart.actions.length === 1
+        && noPunctuationPart.actions.some(a => a.kind === 'income' && a.amount === 150 && a.description === '99' && a.date === hoje)
+        && [stoppedPixQuestion, stoppedDateQuestion].every(r => r.mode === 'answer' && !r.actions.length && r.keepPending)
+        && [stillHasFuel, fuelStillPending].every(r => r.mode === 'propose_actions' && r.actions.length === 1
+          && r.actions.some(a => a.kind === 'fuel' && a.amount === 85))))
+
+      const unknownSourceChat = chat()
+      const twoSources = await unknownSourceChat('ontem foram 300 da Uber, 300 da 99 e 80 de gasolina. Caiu 300 hoje')
+      const chose99 = await unknownSourceChat('da 99')
+      const sameBySource = await unknownSourceChat('é o mesmo')
+      const implicitSameChat = chat()
+      const definiteTwoSources = await implicitSameChat('anteontem foram 900 da Uber e 250 da 99. Caíram os 250 ontem')
+      const saidFrom99 = await implicitSameChat('99')
+      out.push(result(`MOTOR-separa-origem-e-vinculo-de-repasse-sem-app-${fixture}`,
+        [twoSources, chose99, sameBySource, definiteTwoSources, saidFrom99].map(r => [r.mode, r.actions, r.reply]),
+        'pergunta só o que falta para atribuir um repasse sem duplicar receitas do fechamento',
+        twoSources.mode === 'clarify' && twoSources.actions.length === 1 && /qual.*plataforma/i.test(twoSources.reply)
+        && twoSources.actions.some(a => a.kind === 'fuel' && a.amount === 80 && a.date === ontem)
+        && chose99.mode === 'clarify' && /mesmo repasse/.test(chose99.reply)
+        && chose99.actions.some(a => a.kind === 'income' && a.amount === 300 && a.description === 'Uber' && a.date === ontem)
+        && sameBySource.mode === 'propose_actions' && sameBySource.actions.length === 3
+        && sameBySource.actions.some(a => a.kind === 'income' && a.amount === 300 && a.description === '99' && a.date === hoje)
+        && !sameBySource.actions.some(a => a.kind === 'income' && a.description === '99' && a.date === ontem)
+        && definiteTwoSources.mode === 'clarify' && /plataforma/i.test(definiteTwoSources.reply)
+        && saidFrom99.mode === 'propose_actions' && saidFrom99.actions.length === 2
+        && saidFrom99.actions.some(a => a.kind === 'income' && a.amount === 900 && a.description === 'Uber' && a.date === anteontem)
+        && saidFrom99.actions.some(a => a.kind === 'income' && a.amount === 250 && a.description === '99' && a.date === ontem)))
+
       out.push(result(`MOTOR-sem-gravacao-${fixture}`, JSON.stringify(state) === snapshot, true, JSON.stringify(state) === snapshot))
     }
   }

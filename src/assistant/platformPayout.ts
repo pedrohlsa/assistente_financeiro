@@ -217,6 +217,35 @@ export function readRideSettlement(message: string) {
     origin: parts.origin ? ridePayoutPlatformName(parts.origin) : undefined }
 }
 
+const REPORTED_THEN_RECEIVED = new RegExp([
+  String.raw`^(?<report>.+?)`,
+  String.raw`(?:[,;.]+\s*(?:e\s+)?|\s+e\s+)(?:(?<only>so|apenas|somente)\s+)?(?:recebi|caiu|cairam|entrou|entraram|veio|vieram)`,
+  String.raw`(?:\s+(?:(?<reference>os|o|so|apenas|somente|mais)\s+)?${MONEY('net')}(?:\s+na\s+(?:minha\s+)?conta)?)?\s*[.!]*$`,
+].join(''))
+const SINGLE_RIDE_REPORT = new RegExp(
+  String.raw`^(?:eu\s+)?(?<earned>fiz|ganhei|faturei)\s+${MONEY('total')}\s+(?:n[ao]|d[ao]|pel[ao])\s+${PLATFORM}$`,
+)
+const PAYOUT_DATE_PART = new RegExp(
+  String.raw`^\s*,?\s*mas\s+${MONEY('part')}\s+(?:e|sao|era|eram|foi|foram)\s+d[eoa]\s*$`,
+)
+
+export function readRideReportThenReceipt(text: string) {
+  const parts = normalizeName(normalizeNumberWords(text).text).trim().match(REPORTED_THEN_RECEIVED)?.groups
+  if (!parts) return undefined
+  const report = parts.report.trim()
+  const named = report.match(SINGLE_RIDE_REPORT)?.groups
+  const amount = parts.net === undefined ? undefined : parseMoney(parts.net)
+  if (amount !== undefined && !(amount > 0)) return undefined
+  const relation: 'same' | 'separate' | undefined = parts.reference === 'mais' ? 'separate' : parts.only || parts.reference || named?.earned === 'faturei' ? 'same' : undefined
+  return { report, platform: named ? ridePayoutPlatformName(named.platform) : undefined, total: named ? parseMoney(named.total) : undefined, amount, relation }
+}
+
+export function readPayoutDatePart(text: string): number | undefined {
+  const parts = normalizeName(normalizeNumberWords(text).text).match(PAYOUT_DATE_PART)?.groups
+  const value = parseMoney(parts?.part)
+  return value > 0 ? value : undefined
+}
+
 const DEBT_PERIOD = String.raw`(?:${PAYOUT_DAY}|(?:(?:da|na)\s+)?semana\s+passada|(?:d[eo]|n[eo])\s+mes\s+passado|(?:d?ess[ea]|d?est[ea])\s+(?:semana|mes))`
 const DEBT_CONTEXT = String.raw`(?:\s+(?:d[aeo]s?|pel[ao]s?)\s+corridas?)?(?:\s+(?:de\s+)?${DEBT_PERIOD})?(?:\s+ainda)?`
 const DEBT_TAIL = String.raw`(?:(?:\s+e\s+|\s*[.;,]\s*)(?<tail>(?:${PAYOUT_DAY}\s+)?(?:abasteci|paguei|gastei|rodei|trabalhei|recebi)\b[^?]*))?[.!]*$`

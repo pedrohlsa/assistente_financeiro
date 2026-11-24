@@ -36,7 +36,7 @@ import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } fr
 import { elapsedMinutes, spokenClock } from './semantic/clock'
 import { continueRideOffer, interpretRideOffer, reviseRideOffer } from './rideOffer'
 import { reconcileSpokenTotals } from './spokenTotals'
-import { hasRideSettlementVerb, partialRidePayoutChoice, readPartialRidePayout, readPlatformPayout, readRideDebt, readRideSettlement, readRideWallet, readShiftWithUnpaidPayout, ridePayoutPlatformName } from './platformPayout'
+import { hasRideSettlementVerb, partialRidePayoutChoice, readPartialRidePayout, readPayoutDatePart, readPlatformPayout, readRideDebt, readRideReportThenReceipt, readRideSettlement, readRideWallet, readShiftWithUnpaidPayout, ridePayoutPlatformName } from './platformPayout'
 import { readCardPurchaseDue, resolveCardPurchaseDue } from './cardPurchaseDue'
 import { conflictQuestion, evidenceFor, mergeByField, sameFact } from './semantic/evidence'
 import { classifyLocalDecision } from './semantic/confidence'
@@ -1423,6 +1423,87 @@ function prepareRideSettlement(input: OrchestratorInput, caps: AssistantCapabili
     } }
 }
 
+function keepActionsAwaitingClarification(input: OrchestratorInput, result: OrchestratorOutput,
+  clarification: AssistantClarification): OrchestratorOutput {
+  const reply = [result.response.actions.length ? proposalText(result.response.actions, input.state) : '', clarification.question].filter(Boolean).join('\n\n')
+  return { ...result, keepPending: true, focus: input.focus,
+    response: { ...result.response, mode: 'clarify', reply, clarification } }
+}
+
+function prepareRideReceiptAcrossDates(input: OrchestratorInput, caps: AssistantCapabilities, today: string): OrchestratorOutput | undefined {
+  if (!/\b(?:pagou|repassou|depositou|transferiu|recebi|caiu|ca[ií]ram|entrou|entraram|veio|vieram)\b/i.test(input.message)
+    || input.message.includes('?')) return undefined
+  const dates = findAllDates(input.message, today)
+  const [earnedOn, paidOn] = dates
+  if (dates.length !== 2 || earnedOn.kind !== 'date' || paidOn.kind !== 'date' || earnedOn.date >= paidOn.date) return undefined
+  const head = input.message.slice(0, earnedOn.start).trim()
+  const between = input.message.slice(earnedOn.end, paidOn.start)
+  const tail = input.message.slice(paidOn.end).trim()
+  const income = (platform: string, amount: number, date: string): Extract<ParsedAction, { kind: 'income' }> =>
+    ({ kind: 'income', amount, description: platform, category: 'corridas', date })
+
+  if (head) {
+    if (!/^[.!]*$/.test(tail)) return undefined
+    const original = readRideSettlement(head)
+    const portion = readPayoutDatePart(between)
+    if (!original || original.origin || original.coveredTotal || !portion) return undefined
+    const paid = income(original.payer, original.amount, earnedOn.date)
+    const other = income(original.payer, portion, paidOn.date)
+    const options: AssistantClarification['options'] = [
+      ...(portion <= original.amount ? [{ label: 'Já estão incluídos', value: 'included', actions: [paid] }] : []),
+      { label: 'Recebi em outro repasse', value: 'separate', actions: [paid, other] },
+      { label: 'Ainda não recebi essa parte', value: 'unpaid', actions: [paid] },
+    ]
+    const question = `Os ${fmtBRL(portion)} são parte dos ${fmtBRL(original.amount)} que caíram em ${brDate(earnedOn.date)}, entraram em outro repasse ou ainda não caíram?`
+    return keepPendingClarification(input, { field: 'ride-payout-date-part', question, options, pendingActions: [paid, other] })
+  }
+
+  // A segunda data precisa estar junto do verbo de recebimento.
+  if (!/(?:[,;.]\s*(?:e\s*)?|\s+e)\s*$/i.test(between)
+    && !/(?:[,;.]\s*|\s+e\s+)(?:e\s+)?(?:(?:s[oó]|apenas|somente)\s+)?(?:recebi|caiu|ca[ií]ram|entrou|entraram|veio|vieram)\b/i.test(between)) {
+    return undefined
+  }
+  const facts = readRideReportThenReceipt(between + ' ' + tail)
+  if (!facts) return undefined
+  if (!facts.platform && facts.amount) {
+    if (!/^(?:(?:foram|deu|deram|fiz|ganhei|faturei)\s+)?(?:r\$\s*)?\d/.test(facts.report)) return undefined
+    const dayActions = readDriverShiftActions(facts.report)
+    if (!dayActions) return undefined
+    const dated = semSomaDasPartes(withDate(dayActions, earnedOn.date).map(action => candidate(action, 'local')), today)
+      .candidates.map(item => item.action)
+    if ((input.pending?.length || 0) + dated.length + 1 > MAX_ACTIONS_PER_BATCH) return {
+      draft: null, keepPending: true, focus: input.focus,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
+        reply: 'Confirme ou retire alguns itens da proposta antes de acrescentar o fechamento e o repasse.' },
+    }
+    const prior = dated.filter((action): action is Extract<ParsedAction, { kind: 'income' }> => action.kind === 'income')
+    if (prior.length < 2 || prior.some(action => !action.description || action.category !== 'corridas')
+      || new Set(prior.map(action => action.description)).size !== prior.length
+      || dated.some(action => isValidationFailure(validateAction(action, caps, today)))) return undefined
+    const result = proposeDatedActions(input, dated.filter(action => action.kind !== 'income'), caps, today)
+    const clarification: AssistantClarification = {
+      field: 'ride-multi-source',
+      question: `O repasse de ${fmtBRL(facts.amount)} veio de qual plataforma?`,
+      pendingActions: prior,
+      rideSettlementRelation: facts.relation,
+      options: prior.map(action => ({ label: action.description, value: normalizeName(action.description),
+        actions: [income(action.description, facts.amount, paidOn.date)] })),
+    }
+    return keepActionsAwaitingClarification(input, result, clarification)
+  }
+  if (!facts.platform || !(facts.total > 0)) return undefined
+  const reported = income(facts.platform, facts.total, earnedOn.date)
+  const received = income(facts.platform, facts.amount ?? facts.total, paidOn.date)
+  if (facts.amount === undefined) {
+    const question = `Dos ${fmtBRL(facts.total)} na ${facts.platform}, quanto você recebeu em ${brDate(paidOn.date)}?`
+    return keepPendingClarification(input, { field: 'ride-payout-inclusion', question, pendingActions: [received],
+      options: [{ label: 'Recebi tudo', value: 'all', actions: [received] }] })
+  }
+  if (facts.relation === 'separate') return proposeDatedActions(input, [reported, received], caps, today)
+  if (facts.relation === 'same' && facts.amount <= facts.total) return proposeDatedActions(input, [received], caps, today)
+  return keepPendingClarification(input, payoutLinkChoice(reported, received))
+}
+
 function prepareShiftWithUnpaidPayout(input: OrchestratorInput, caps: AssistantCapabilities, today: string): OrchestratorOutput | undefined {
   const payout = readShiftWithUnpaidPayout(input.message)
   if (!payout) return undefined
@@ -1530,7 +1611,7 @@ function statedAccountBalance(said: string): number | undefined {
 function prepareDriverBankReport(input: OrchestratorInput, caps: AssistantCapabilities, today: string): OrchestratorOutput | undefined {
   if (!/\bconta\b/i.test(input.message) || input.message.includes('?')) return undefined
   const text = normalizeName(normalizeNumberWords(input.message).text).trim().replace(/[.!]+$/, '')
-  const pieces = text.split(/;\s*|,\s+(?=\S)|,(?=[\p{L}])/u)
+  const pieces = text.split(/;\s*|,\s+(?=\S)|,(?=[\p{L}])|\s+e\s+(?=(?:veio|caiu|cairam|entrou|entraram|recebi)\b|(?:r\$\s*)?\d)/u)
   if (pieces.length !== 2) return undefined
   const [account, activity] = pieces
   const balance = /^(?:eu\s+)?(?:tenho|(?:estou|to)\s+com|(?:o\s+|meu\s+)?saldo(?:\s+d[ae]\s+conta)?\s+e)\b/.test(account)
@@ -2163,6 +2244,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     if (shiftPayout) return shiftPayout
     const partialPayout = preparePartialRidePayout(input, caps, today)
     if (partialPayout) return partialPayout
+    const datedReceipt = prepareRideReceiptAcrossDates(input, caps, today)
+    if (datedReceipt) return datedReceipt
     const wallet = readRideWallet(input.message)
     const heldCash = wallet || readRideDebt(input.message)
     if (heldCash) {
@@ -2334,6 +2417,24 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const corrected = await correctPendingKeepingClarification(input, command, pc, caps, today)
     return corrected || keepPendingClarification(input, pc)
   }
+  if ((pc?.field === 'ride-payout-date-part' || pc?.field === 'driver-bank-pix')
+    && /^(?:cancela(?:r)?|esquece|deixa pra la)[.!]*$/.test(normalizeName(input.message))) {
+    return { draft: null, keepPending: true, focus: input.focus,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
+        reply: 'Deixei esse repasse em aberto.' },
+    }
+  }
+  if (pc?.field === 'ride-payout-date-part') {
+    const [paid, part] = (pc.pendingActions || []).filter(action => action.kind === 'income')
+    if (!paid || !part) return keepPendingClarification(input, pc)
+    const said = normalizeName(input.message).replace(/[.!]+$/, '').trim()
+    const inclusion = partialRidePayoutChoice(input.message, paid.amount, part.amount)
+    const choice = inclusion === 'included' ? 'included'
+      : /^(?:foram dois (?:pagamentos|repasses)|foi outro repasse)$/.test(said) ? 'separate' : undefined
+    const picked = pc.options?.find(option => option.value === choice || normalizeName(option.label) === said)
+    if (picked?.actions?.length) return proposeDatedActions(input, picked.actions, caps, today, true)
+    return keepPendingClarification(input, pc)
+  }
   if (pc?.field === 'driver-bank-pix') {
     const account = pc.pendingActions?.find(action => action.kind === 'income')
     const said = normalizeName(input.message).replace(/[.!]+$/, '').trim()
@@ -2397,11 +2498,11 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     if (corrected) return corrected
     return keepPendingClarification(input, pc)
   }
-  if (pc?.field === 'ride-settlement-app' || pc?.field === 'ride-settlement-match' || pc?.field === 'ride-shift-payout') {
+  if (pc?.field === 'ride-settlement-app' || pc?.field === 'ride-settlement-match' || pc?.field === 'ride-shift-payout' || pc?.field === 'ride-multi-source') {
     const said = normalizeName(normalizeNumberWords(input.message).text).replace(/[.!]+$/, '').trim()
     const app = said.match(/^(?:foi\s+)?(?:(?:[ao]|d[ao]|n[ao]|pel[ao])\s+)?(.+)$/)?.[1]
     let choice: string | undefined
-    if (pc.field === 'ride-settlement-app') choice = app
+    if (pc.field === 'ride-settlement-app' || pc.field === 'ride-multi-source') choice = app
     if (pc.field === 'ride-shift-payout') {
       const includedApp = said.match(/^(?:(?:ja\s+)?(?:esta|estao|ta|e|foi)\s+)?(?:incluid[oa]s?|dentro)\s+(?:n[ao]|d[ao])\s+(.+)$/)?.[1]
       choice = /^(?:(?:e|sao|foi|foram)\s+)?(?:por\s+fora|a\s+parte|a\s+mais)$/.test(said) ? 'excluded' : includedApp || app
@@ -2413,6 +2514,19 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     if (choice && /^in\s*drive[r]?$/.test(choice)) choice = 'indrive'
     const picked = pc.options?.find(option => option.value === choice || normalizeName(option.label) === said)
     if (picked?.actions) {
+      if (pc.field === 'ride-multi-source') {
+        const receipt = picked.actions.find(action => action.kind === 'income')
+        const before = pc.pendingActions || []
+        const linked = before.find(action => action.kind === 'income' && action.description === receipt?.description)
+        if (receipt && linked?.kind === 'income') {
+          const others = before.filter(action => action !== linked)
+          if (pc.rideSettlementRelation === 'separate') return proposeDatedActions(input, [...before, receipt], caps, today)
+          if (pc.rideSettlementRelation === 'same' && receipt.amount <= linked.amount) {
+            return proposeDatedActions(input, [...others, receipt], caps, today)
+          }
+          return keepActionsAwaitingClarification(input, proposeDatedActions(input, others, caps, today), payoutLinkChoice(linked, receipt))
+        }
+      }
       if (pc.field === 'ride-settlement-app') {
         const prior = pc.pendingActions?.find(action => action.kind === 'income')
         const receipt = picked.actions.find(action => action.kind === 'income')
