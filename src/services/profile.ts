@@ -47,7 +47,7 @@ export const MENTIONS_99 = /\b(?:d[ao]|pel[ao]|n[ao]|via|app|aplicativo|platafor
  * mesmo valor, data igual ou próxima e descrição/origem semelhante.
  * Não bloqueia — serve para pedir confirmação extra.
  */
-export function findPossibleDuplicate(state: AppState, action: ParsedAction) {
+export function findPossibleDuplicate(state: AppState, action: ParsedAction, exactDate?: string) {
   // Abastecimento repetido ("abasteci 120" duas vezes) também merece o aviso:
   // ele vira uma despesa de Combustível, e é com ela que se compara.
   const abastecimento = action.kind === 'fuel'
@@ -61,8 +61,12 @@ export function findPossibleDuplicate(state: AppState, action: ParsedAction) {
     if (t.type !== kind) return false
     if (abastecimento && t.category !== 'combustivel') return false
     if (Math.abs(t.amount - action.amount) > 0.009) return false
-    const diffDays = Math.abs((today.getTime() - new Date(t.date + 'T12:00:00').getTime()) / 86400000)
-    if (diffDays > 1.5) return false
+    if (exactDate) {
+      if (t.date !== exactDate) return false
+    } else {
+      const diffDays = Math.abs((today.getTime() - new Date(t.date + 'T12:00:00').getTime()) / 86400000)
+      if (diffDays > 1.5) return false
+    }
     // Origem/descrição só DESCARTAM o alerta quando ambas existem e divergem.
     // Ausentes = não discriminam (valor + tipo + data já bastam para avisar).
     const o1 = norm(t.origin), o2 = norm(a.origin)

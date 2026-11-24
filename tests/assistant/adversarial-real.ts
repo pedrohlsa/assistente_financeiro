@@ -11519,6 +11519,36 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && namedThird.actions.some(a => a.kind === 'income' && a.description === 'inDrive' && a.amount === 150 && a.date === hoje)
         && namedThird.actions.some(a => a.kind === 'income' && a.description === '99' && a.amount === 250 && a.date === ontem)))
 
+      const repeatedHistory: AppState = { ...state, transactions: [
+        { id: 'pix-hoje', type: 'income', amount: 734.56, category: 'corridas', description: '99', date: hoje },
+        { id: 'pix-antigo', type: 'income', amount: 734.56, category: 'corridas', description: '99', date: anteontem },
+      ] }
+      const [sameDayPix, otherDayPix, olderPix, otherAppPix] = await Promise.all([
+        'a 99 fez o Pix de R$ 734,56 hoje', 'a 99 fez o Pix de R$ 734,56 ontem',
+        'a 99 fez o Pix de R$ 734,56 anteontem', 'a Uber fez o Pix de R$ 734,56 hoje',
+      ].map(message => orchestrate({ state: repeatedHistory, message, today: hoje, remoteEnabled: false })))
+      out.push(result(`MOTOR-repasse-avisa-duplicidade-da-data-certa-${fixture}`,
+        [sameDayPix, otherDayPix, olderPix, otherAppPix].map(r => r.response.actions),
+        'avisa se o mesmo repasse já consta na data informada, sem confundir datas ou plataformas',
+        [sameDayPix, otherDayPix, olderPix, otherAppPix].every(r => r.response.mode === 'propose_actions' && r.response.actions.length === 1)
+        && !!sameDayPix.response.actions[0]?.duplicateWarning && !!olderPix.response.actions[0]?.duplicateWarning
+        && !otherDayPix.response.actions[0]?.duplicateWarning && !otherAppPix.response.actions[0]?.duplicateWarning))
+
+      const timeToDestination = chat()
+      await timeToDestination('tocou uma de 40 por 15 km no total com 20 minutos só com passageiro, vale?')
+      const timeForRoute = await timeToDestination('são 25 min até o destino, com embarque')
+      const timeWithEmptyReturn = chat()
+      await timeWithEmptyReturn('tocou corrida de 40, 2 km até o passageiro, 8 km de viagem e 5 km de retorno, vale a pena?')
+      const partialReturnTime = await timeWithEmptyReturn('são 25 min até o destino, com embarque')
+      const fullReturnTime = await timeWithEmptyReturn('mais 10 min de volta')
+      out.push(result(`MOTOR-oferta-retoma-tempo-ate-o-destino-${fixture}`,
+        [timeForRoute, partialReturnTime, fullReturnTime].map(r => [r.mode, r.actions, r.reply]),
+        'aceita o tempo até o destino com embarque e permite completar os minutos da volta separadamente',
+        [timeForRoute, partialReturnTime, fullReturnTime].every(r => r.mode === 'answer' && !r.actions.length)
+        && /hora líquida.*25 min/.test(timeForRoute.reply)
+        && /tempo total incluindo o retorno/.test(partialReturnTime.reply) && !/hora líquida/.test(partialReturnTime.reply)
+        && /hora líquida.*35 min/.test(fullReturnTime.reply)))
+
       out.push(result(`MOTOR-sem-gravacao-${fixture}`, JSON.stringify(state) === snapshot, true, JSON.stringify(state) === snapshot))
     }
   }

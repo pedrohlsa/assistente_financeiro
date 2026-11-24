@@ -1600,7 +1600,7 @@ function preparePartialRidePayout(input: OrchestratorInput, caps: AssistantCapab
       reply: unpaid === total ? 'A receita fica fora da proposta até o pagamento cair.' : undefined }] : []),
     { label: 'Não, são por fora', value: 'excluded', actions: received(false) },
   ]
-  const actions = [...previous, ...additions]
+  const actions = [...previous, ...proposalWarnings(input.state, additions, today, previous)]
   return {
     draft: null, keepPending: true, focus: input.focus, correctedPending: previous.length && additions.length ? actions : undefined,
     response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions, unresolved: [],
@@ -1722,6 +1722,33 @@ function pendingCorrectionAnswer(choice: AssistantClarification, message: string
   return matches?.length === 1 ? matches[0].value : undefined
 }
 
+function proposalWarnings(state: AppState, candidates: AssistantCandidateAction[], today: string,
+  previous: AssistantCandidateAction[] = []): AssistantCandidateAction[] {
+  // A origem e o dia distinguem repasses no mesmo valor.
+  const key = ({ action }: AssistantCandidateAction) => {
+    const amount = 'amount' in action ? action.amount : 'total' in action ? action.total : ''
+    const description = 'description' in action ? action.description : ''
+    const date = 'date' in action ? action.date : undefined
+    return `${action.kind}:${amount ?? ''}:${normalizeName(description)}:${date || today}`
+  }
+  const seen = new Set(previous.map(key))
+  return candidates.map(c => {
+    const action = c.action
+    const exactDate = isDriver(state.settings) && action.kind === 'income' && action.category === 'corridas' ? action.date : undefined
+    const duplicate = findPossibleDuplicate(state, action, exactDate)
+    const token = key(c)
+    const warn = seen.has(token) ? 'Esse valor aparece mais de uma vez nesta proposta. Confira os itens antes de confirmar.'
+      : duplicate ? `Já existe ${duplicate.type === 'income' ? 'uma receita' : 'uma despesa'} parecida de ${fmtBRL(duplicate.amount)} registrada ${exactDate ? `em ${brDate(exactDate)}` : 'recentemente'}.` : undefined
+    seen.add(token)
+    const currentOdometer = state.vehicle?.odometer || 0
+    const odometer = action.kind === 'odometer' ? action.value : action.kind === 'fuel' ? action.odometer : undefined
+    const pattern = typeof odometer === 'number' && currentOdometer > 0 && odometer < currentOdometer
+      ? `O hodômetro registrado é ${currentOdometer.toLocaleString('pt-BR')} km, e ${odometer.toLocaleString('pt-BR')} km é menor. Confira o número — se trocou de veículo, atualize na tela Veículo.`
+      : outOfPatternWarning(state, action, today)
+    return { ...c, ...(warn ? { duplicateWarning: warn } : {}), ...(pattern ? { patternWarning: pattern } : {}) }
+  })
+}
+
 function proposeDatedActions(input: OrchestratorInput, actions: ParsedAction[], caps: AssistantCapabilities, today: string, newFirst = false): OrchestratorOutput {
   const notes: string[] = []
   const choices: AssistantClarification[] = []
@@ -1752,6 +1779,7 @@ function proposeDatedActions(input: OrchestratorInput, actions: ParsedAction[], 
     return 'action' in fixed ? [candidate(fixed.action, 'local')] : []
   })
   const prepared = prepareInvoicePayments(input.state, candidates, today)
+  prepared.actions = proposalWarnings(input.state, prepared.actions, today, input.pending)
   if (dueDraft) {
     const [field] = dueDraft.missingFields
     dueDraft.companion = { before: [...(input.pending || []), ...prepared.actions].map(c => c.id), after: [] }
@@ -4044,33 +4072,7 @@ Confirmar?`,
   }
 
   // ---- 17) Avisos de duplicidade (contra o estado E dentro do lote) -------
-  const batchSeen = new Map<string, number>()
-  candidates = candidates.map(c => {
-    const a: any = c.action
-    const dupState = findPossibleDuplicate(input.state, c.action)
-    // A data entra na chave: "ontem e hoje fiz 300 cada" são dois dias, não repetição.
-    const key = `${c.action.kind}:${a.amount ?? a.total ?? ''}:${(a.description || '').toLowerCase()}:${a.date || today}`
-    const n = (batchSeen.get(key) || 0) + 1
-    batchSeen.set(key, n)
-    let warn: string | undefined
-    if (n > 1) warn = 'Esta é a segunda vez que esse mesmo valor aparece nesta mensagem. Pode ser proposital — confira antes de confirmar.'
-    else if (dupState) {
-      warn = `Já existe ${dupState.type === 'income' ? 'uma receita' : 'uma despesa'} parecida de ${fmtBRL(dupState.amount)} registrada recentemente.`
-    }
-    // Valor muito fora do padrão do próprio usuário — quase sempre um zero a
-    // mais. AVISA, nunca bloqueia: o dia excepcional existe, e barrá-lo seria
-    // pior que o erro que se quer evitar.
-    // Hodômetro não anda para trás: "tá com 85 mil" com 206.400 registrado
-    // passava calado e desmontava as próximas trocas de manutenção. AVISA.
-    const odoAtual = input.state.vehicle?.odometer || 0
-    const odoNovo = c.action.kind === 'odometer' ? (c.action as any).value : c.action.kind === 'fuel' ? (c.action as any).odometer : undefined
-    const odoMenor = typeof odoNovo === 'number' && odoAtual > 0 && odoNovo < odoAtual
-      ? `O hodômetro registrado é ${odoAtual.toLocaleString('pt-BR')} km, e ${odoNovo.toLocaleString('pt-BR')} km é menor. Confira o número — se trocou de veículo, atualize na tela Veículo.`
-      : undefined
-    const pattern = odoMenor || outOfPatternWarning(input.state, c.action, today)
-    const next = warn ? { ...c, duplicateWarning: warn } : c
-    return pattern ? { ...next, patternWarning: pattern } : next
-  })
+  candidates = proposalWarnings(input.state, candidates, today)
 
   // ---- 18) Texto final ----------------------------------------------------
   const hypo = questions.length && candidates.length && !local_answers.text ? hypotheticalSummary(candidates) : null

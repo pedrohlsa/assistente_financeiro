@@ -415,7 +415,7 @@ export interface AssistantClarificationOption {
 
 export type FinancialEvent = 'pix' | 'ride' | 'refund'
 
-export type RideOfferMeasures = Partial<Record<'pickup' | 'trip' | 'outbound' | 'return' | 'extraReturn' | 'total' | 'unmarked', number>>
+export type RideOfferMeasures = Partial<Record<'pickup' | 'trip' | 'outbound' | 'outboundWithPickup' | 'return' | 'extraReturn' | 'total' | 'unmarked', number>>
 
 export interface PendingRideOffer {
   value?: number

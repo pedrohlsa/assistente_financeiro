@@ -34,9 +34,11 @@ const COMPARA_DOIS = /\bqual\s+(?:(?:das?\s+)?(?:corridas?|ofertas?)\s+)?(?:(?:d
 const PICKUP = String.raw`(?:ate\s+(?:(?:o|a)\s+)?(?:passageir[oa]|embarque)|(?:(?:pra|para)\s+(?:(?:o|a)\s+)?(?:buscar|embarcar|embarque|passageir[oa])|(?:pro|pra)\s+passageir[oa])|(?:de|do|pro|para\s+o)\s+embarque|(?:de\s+)?aproximacao|passageir[oa])`
 const TRIP = String.raw`(?:(?:d[aeo]\s+)?(?:corrida|viagem|trajeto)|com\s+(?:[ao]\s+)?passageir[oa]|ate\s+(?:o\s+)?destino)`
 const RETURN = String.raw`(?:(?:d[aeo]\s+|na\s+)?(?:retorno|volta)(?:\s+(?:vazi[oa]|sem\s+passageiro))?|(?:pra|para)\s+voltar(?:\s+(?:vazi[oa]|sem\s+passageiro))?|voltando(?:\s+(?:vazi[oa]|sem\s+passageiro))?|vazi[oa]s?\s+na\s+volta|(?:vou\s+)?voltar(?:\s+(?:uns|umas|aproximadamente|cerca\s+de))?)`
+const OUTBOUND_WITH_PICKUP = String.raw`ate\s+(?:o\s+)?destino\s*,?\s+(?:com|contando|incluindo)\s+(?:o\s+)?embarque`
+const INCLUDES_PICKUP = new RegExp(String.raw`^${OUTBOUND_WITH_PICKUP}$`)
 const OUTBOUND = String.raw`(?:(?:d[aeo]|na)\s+)?ida`
 const TOTAL = String.raw`(?:no\s+total|ao\s+todo|tota(?:l|is)|contando\s+(?:a\s+)?ida\s+${PICKUP}|(?:(?:contando|de)\s+)?(?:a\s+)?ida\s+e\s+(?:a\s+)?volta)`
-const SUFFIX = new RegExp(String.raw`^\s+(?:(?:so|somente|apenas)\s+)?(${TOTAL}|${PICKUP}|${TRIP}|${RETURN}|${OUTBOUND})\b`)
+const SUFFIX = new RegExp(String.raw`^\s+(?:(?:so|somente|apenas)\s+)?(${TOTAL}|${OUTBOUND_WITH_PICKUP}|${PICKUP}|${TRIP}|${RETURN}|${OUTBOUND})\b`)
 const PREFIX = new RegExp(String.raw`\b(embarque|buscar|passageiro|distancia\s+${PICKUP}|tempo\s+${PICKUP}|distancia\s+${TRIP}|tempo\s+${TRIP}|trajeto|viagem|volto|(?:distancia\s+|tempo\s+)?${RETURN}|${OUTBOUND}|${TOTAL})(?:[\s:]+(?:de|e))?[\s:]+$`)
 const IS_PICKUP = /\b(?:embarq\w*|buscar|passageir[oa]|aproximacao)\b/
 const IS_RETURN = /\b(?:retorno|volta|volto|voltar|voltando)\b/
@@ -59,6 +61,7 @@ function measured(t: string, units: RegExp, readValue: (match: RegExpMatchArray)
     let part: Part = 'unmarked'
     if (role) {
       if (IS_TOTAL.test(role)) part = 'total'
+      else if (INCLUDES_PICKUP.test(role)) part = 'outboundWithPickup'
       else if (IS_RETURN.test(role)) part = /\b(?:mais|outros)\s*$/i.test(before) ? 'extraReturn' : 'return'
       else if (IS_OUTBOUND.test(role)) part = 'outbound'
       else if (IS_PICKUP.test(role) && !WITH_PASSENGER.test(role)) part = 'pickup'
@@ -72,7 +75,9 @@ function measured(t: string, units: RegExp, readValue: (match: RegExpMatchArray)
 }
 
 function routeTotal(parts: Measures): number | undefined {
-  const { pickup, trip, outbound, return: returning, extraReturn, total, unmarked } = parts
+  const { pickup, trip, outbound: reportedOutbound, outboundWithPickup, return: returning, extraReturn, total, unmarked } = parts
+  if (reportedOutbound !== undefined && outboundWithPickup !== undefined && Math.abs(reportedOutbound - outboundWithPickup) > 0.05) return undefined
+  const outbound = outboundWithPickup ?? reportedOutbound
   const pickupAndTrip = pickup !== undefined && trip !== undefined ? pickup + trip : undefined
   const outward = outbound ?? pickupAndTrip
   if (outbound !== undefined && (outbound < Math.max(pickup ?? 0, trip ?? 0)
@@ -92,7 +97,7 @@ function returnDistance(parts?: Measures): number {
 }
 
 function minutesIncludingReturn(duration: Measures | undefined, distance?: Measures): number | undefined {
-  const onlyOutbound = duration?.outbound !== undefined && distance?.outbound === undefined
+  const onlyOutbound = duration?.outbound !== undefined && distance?.outbound === undefined && distance?.outboundWithPickup === undefined
   const noReturnTime = duration?.total === undefined && duration?.return === undefined && duration?.extraReturn === undefined
   if (noReturnTime && (returnDistance(distance) > 0 || onlyOutbound)) return undefined
   return routeTotal(duration || {})
@@ -116,7 +121,7 @@ function readDistance(text: string): Measures | undefined {
 
 function offerDistance(parts?: Measures) {
   const km = parts && routeTotal(parts)
-  const complete = !!parts && (parts.total !== undefined || (parts.pickup !== undefined && parts.trip !== undefined))
+  const complete = !!parts && (parts.total !== undefined || parts.outboundWithPickup !== undefined || (parts.pickup !== undefined && parts.trip !== undefined))
   return { parts, km, complete }
 }
 
@@ -222,7 +227,7 @@ export function answerRideOffer(state: AppState, input: string, context = input)
 }
 
 const SPOKEN_AMOUNT = new RegExp(String.raw`^(?:(?:paga|o\s+valor\s+e)\s+)?(?:r\$\s*)?${NUMBER}(?:\s+(?:reais?|contos?|pila))?$`)
-const MEASURE_WORDS = new RegExp(String.raw`\b(?:${PICKUP}|${TRIP}|${RETURN}|${OUTBOUND}|${TOTAL}|mais|volto|sao|da|deu|pagam?|e|embarque|buscar|tempo|distancia|aproximacao|de|no|na|em|pra|para|ida)\b`, 'g')
+const MEASURE_WORDS = new RegExp(String.raw`\b(?:${OUTBOUND_WITH_PICKUP}|${PICKUP}|${TRIP}|${RETURN}|${OUTBOUND}|${TOTAL}|mais|volto|sao|da|deu|pagam?|e|embarque|buscar|tempo|distancia|aproximacao|de|no|na|em|pra|para|ida)\b`, 'g')
 const UNCERTAIN_DETAILS = /\bou\b|\b(?:cerca\s+de|mais\s+ou\s+menos|acho\s+que|talvez)\b/
 
 function onlyRideMeasures(text: string): boolean {
@@ -238,7 +243,7 @@ function combineMeasures(previous?: Measures, next?: Measures, missing?: 'pickup
 
 function asksAboutReturn(distance?: Measures): boolean {
   return distance?.total !== undefined && distance.return > 0
-    && distance.outbound === undefined && (distance.trip === undefined || distance.pickup === undefined)
+    && distance.outbound === undefined && distance.outboundWithPickup === undefined && (distance.trip === undefined || distance.pickup === undefined)
 }
 
 /** Um dado curto responde apenas à pergunta sobre a oferta em aberto. */
