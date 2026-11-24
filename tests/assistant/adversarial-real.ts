@@ -10445,6 +10445,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         ['Fechei 8 horas no volante, com 320 de corrida e 90 de combustível.', 320, 90, 8, undefined],
         ['Anteontem fechei oito horas e meia no volante com trezentos e vinte reais e cinquenta centavos de corridas e noventa reais e vinte e cinco centavos de gasolina.', 320.50, 90.25, 8.5, anteontem],
         ['fechei 8h no volante com 320,50 de corridas e 90,25 de combustível ontem', 320.50, 90.25, 8, ontem],
+        ['Ontem fechei 8 horas no volante, R$ 320,50 de corrida e 90,25 de combustível.', 320.50, 90.25, 8, ontem],
+        ['ganhei 320 de corrida e 90 de combustível em 8 horas, anteontem', 320, 90, 8, anteontem],
         ['ontem trabalhei 8 horas e ganhei R$ 320,50 de corridas e 90,25 de combustível', 320.50, 90.25, 8, ontem],
       ] as const) {
         const r = await chat()(phrase)
@@ -11035,6 +11037,119 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && genericGross.actions.some(a => a.kind === 'fuel' && a.amount === 120)
         && genericReceived.mode === 'propose_actions' && genericReceived.actions.length === 2
         && genericReceived.actions.some(a => a.kind === 'income' && a.amount === 500 && !a.description)))
+
+      const uncertainDateChat = chat()
+      await uncertainDateChat('fiz 800 na Uber e 150 de gasolina, 300 ainda não caiu')
+      const payoutQuestion = await uncertainDateChat('caiu 500 ontem?')
+      const futureReceipt = await uncertainDateChat('caiu 500 amanhã')
+      const stillFuture = await uncertainDateChat('amanhã')
+      const correctedReceipt = await uncertainDateChat('foi ontem')
+      const splitPendingChat = chat()
+      await splitPendingChat('800 na Uber 250 na 99 e 90 de gasolina com 8 horas ontem, mas 150 não entrou')
+      const workCorrection = await splitPendingChat('foram 180 km')
+      const bothApps = await splitPendingChat('nos dois')
+      const wrongSplit = await splitPendingChat('80 da Uber e 80 da 99')
+      const exactSplit = await splitPendingChat('sessenta reais e vinte e cinco centavos da Uber e 89,75 da noventa e nove')
+      out.push(result(`MOTOR-repasse-data-futura-corrigida-${fixture}`,
+        [payoutQuestion, futureReceipt, stillFuture, correctedReceipt].map(r => [r.mode, r.actions, r.reply]),
+        'guarda o valor do repasse, pede uma data válida e aceita a data sozinha',
+        payoutQuestion.mode === 'clarify' && !payoutQuestion.actions.length
+        && futureReceipt.mode === 'clarify' && !futureReceipt.actions.length && /dia.*500,00|500,00.*dia/.test(futureReceipt.reply)
+        && !futureReceipt.clarification?.options?.length
+        && stillFuture.mode === 'clarify' && !stillFuture.actions.length
+        && correctedReceipt.mode === 'propose_actions' && correctedReceipt.actions.length === 2
+        && correctedReceipt.actions.some(a => a.kind === 'income' && a.description === 'Uber' && a.amount === 500 && a.date === ontem)
+        && correctedReceipt.actions.some(a => a.kind === 'fuel' && a.amount === 150)))
+      out.push(result(`MOTOR-repasse-pendente-repartido-entre-apps-${fixture}`,
+        [workCorrection, bothApps, wrongSplit, exactSplit].map(r => [r.mode, r.actions, r.reply]),
+        'corrige km durante a pergunta e só usa o rateio de pendências que fecha no centavo',
+        workCorrection.mode === 'clarify' && workCorrection.actions.length === 2
+        && workCorrection.actions.some(a => a.kind === 'work' && a.hours === 8 && a.km === 180 && a.date === ontem)
+        && [bothApps, wrongSplit].every(r => r.mode === 'clarify' && !r.actions.length)
+        && /quanto.*Uber.*99/.test(bothApps.reply) && /150,00/.test(wrongSplit.reply)
+        && exactSplit.mode === 'propose_actions' && exactSplit.actions.length === 4
+        && exactSplit.actions.some(a => a.kind === 'income' && a.description === 'Uber' && a.amount === 739.75 && a.date === ontem)
+        && exactSplit.actions.some(a => a.kind === 'income' && a.description === '99' && a.amount === 160.25 && a.date === ontem)
+        && exactSplit.actions.some(a => a.kind === 'work' && a.hours === 8 && a.km === 180)
+        && exactSplit.actions.some(a => a.kind === 'fuel' && a.amount === 90)))
+
+      const walletOnly = await chat()('a carteira da 99 está com trezentos reais')
+      const walletAndPaid = await chat()('carteira da Uber ficou com 300 e recebi 500 ontem')
+      const walletWithFuel = await chat()('a carteira da In Drive ainda está com 150. ontem abasteci 80')
+      const inDriveChat = chat()
+      const inDriveConflict = await inDriveChat('a 99 transferiu R$ 250 do In Drive hoje')
+      const inDriveAnswer = await inDriveChat('foi do in drive')
+      out.push(result(`MOTOR-saldo-em-carteira-e-repasse-${fixture}`,
+        [walletOnly, walletAndPaid, walletWithFuel, inDriveConflict, inDriveAnswer].map(r => [r.mode, r.actions, r.reply]),
+        'separa saldo da carteira de dinheiro pago e reconhece o aplicativo inDrive com espaço',
+        walletOnly.mode === 'answer' && !walletOnly.actions.length && /300,00.*carteira.*99/.test(walletOnly.reply)
+        && walletAndPaid.mode === 'propose_actions' && walletAndPaid.actions.length === 1
+        && walletAndPaid.actions.some(a => a.kind === 'income' && a.description === 'Uber' && a.amount === 500 && a.date === ontem)
+        && walletWithFuel.mode === 'propose_actions' && walletWithFuel.actions.length === 1
+        && walletWithFuel.actions.some(a => a.kind === 'fuel' && a.amount === 80 && a.date === ontem)
+        && inDriveConflict.mode === 'clarify' && !inDriveConflict.actions.length && /99.*inDrive/.test(inDriveConflict.reply)
+        && inDriveAnswer.mode === 'propose_actions' && inDriveAnswer.actions.length === 1
+        && inDriveAnswer.actions.some(a => a.kind === 'income' && a.description === 'inDrive' && a.amount === 250 && a.date === hoje)))
+
+      const twoAmounts = await chat()('800 na Uber e 250 na 99, mas 150 ainda não caiu')
+      const onlyDated = await chat()('Hoje a 99 me pagou os 250')
+      const twoDated = await chat()('ontem 900 da Uber e 250 da 99. Hoje a 99 me pagou os 250')
+      out.push(result(`MOTOR-repasses-em-relatos-de-duas-partes-${fixture}`,
+        [twoAmounts, onlyDated, twoDated].map(r => [r.mode, r.actions, r.reply]),
+        'aplica a leitura de repasses mesmo sem um terceiro item no relato',
+        twoAmounts.mode === 'clarify' && !twoAmounts.actions.length && /150,00.*Uber.*99/.test(twoAmounts.reply)
+        && onlyDated.mode === 'propose_actions' && onlyDated.actions.length === 1
+        && onlyDated.actions.some(a => a.kind === 'income' && a.description === '99' && a.amount === 250 && a.date === hoje)
+        && twoDated.mode === 'propose_actions' && twoDated.actions.length === 2
+        && twoDated.actions.some(a => a.kind === 'income' && a.description === 'Uber' && a.amount === 900 && a.date === ontem)
+        && twoDated.actions.some(a => a.kind === 'income' && a.description === '99' && a.amount === 250 && a.date === hoje)))
+
+      const lateDebt = await chat()('faltou cair 300 na Uber e hoje abasteci 80')
+      const cashThenDebt = await chat()('recebi da Uber 500 ontem, os outros 300 vão cair amanhã')
+      const directDate = await chat()('a 99 me pagou 250 de ontem hoje')
+      const directDateFirst = await chat()('hoje a 99 me pagou 250 de ontem')
+      const informalShift = chat()
+      const informalPayout = await informalShift('fiz 800 reais na Uber mas tá faltando 300, combustível 150, rodei 8 horas')
+      const informalReceived = await informalShift('está incluído')
+      const tourTime = await chat()('80 reais pra 20 km contando a ida até o passageiro, e 20 minutos só da viagem, vale?')
+      const comparedTime = await chat()('comparar corrida de 40 reais, 2 km de embarque, 8 km de viagem, 5 km voltando, 20 min totais ou corrida de 45 reais, 12 km total e 25 min no total, qual lucra mais por hora?')
+      out.push(result(`MOTOR-repasses-com-ordem-e-data-informais-${fixture}`,
+        [lateDebt, cashThenDebt, directDate, directDateFirst, informalPayout, informalReceived].map(r => [r.mode, r.actions, r.reply]),
+        'mantém o valor recebido e a data do repasse, e deixa em aberto o dinheiro pendente',
+        lateDebt.mode === 'propose_actions' && lateDebt.actions.length === 1
+        && lateDebt.actions.some(a => a.kind === 'fuel' && a.amount === 80 && a.date === hoje)
+        && cashThenDebt.mode === 'propose_actions' && cashThenDebt.actions.length === 1
+        && cashThenDebt.actions.some(a => a.kind === 'income' && a.description === 'Uber' && a.amount === 500 && a.date === ontem)
+        && [directDate, directDateFirst].every(r => r.mode === 'propose_actions' && r.actions.length === 1
+          && r.actions.some(a => a.kind === 'income' && a.description === '99' && a.amount === 250 && a.date === hoje))
+        && informalPayout.mode === 'clarify' && informalPayout.actions.length === 2
+        && informalPayout.actions.some(a => a.kind === 'work' && a.hours === 8)
+        && informalPayout.actions.some(a => a.kind === 'fuel' && a.amount === 150)
+        && informalReceived.mode === 'propose_actions' && informalReceived.actions.length === 3
+        && informalReceived.actions.some(a => a.kind === 'income' && a.description === 'Uber' && a.amount === 500)))
+      out.push(result(`MOTOR-oferta-com-tempo-parcial-ou-total-ditado-${fixture}`,
+        [tourTime, comparedTime].map(r => [r.mode, r.actions, r.reply]),
+        'usa tempo total quando informado e pede o tempo total quando ouviu só o trecho com passageiro',
+        tourTime.mode === 'answer' && !tourTime.actions.length && /tempo total/.test(tourTime.reply)
+        && !/R\$\s*[\d.,]+\/hora/.test(tourTime.reply)
+        && comparedTime.mode === 'answer' && !comparedTime.actions.length
+        && /maior lucro por hora estimado|mesmo lucro por hora estimado/.test(comparedTime.reply)
+        && /15 km com 5 km de retorno e 20 min/.test(comparedTime.reply)))
+
+      const litersOnly = await chat()('abasteci 20 litros de gasolina por R$ 130')
+      const litersChat = chat()
+      const litersInShift = await litersChat('fiz 800 na Uber, 300 pendente e 20 litros de gasolina que custou 130 e 8 horas no volante')
+      const cashAfterLiters = await litersChat('sim, está incluído')
+      out.push(result(`MOTOR-jornada-com-abastecimento-em-litros-e-repasse-${fixture}`,
+        [litersOnly, litersInShift, cashAfterLiters].map(r => [r.mode, r.actions, r.reply]),
+        'mantém litros, custo e trabalho enquanto espera a confirmação do valor que entrou',
+        litersOnly.mode === 'propose_actions' && litersOnly.actions.length === 1
+        && litersOnly.actions.some(a => a.kind === 'fuel' && a.amount === 130 && a.liters === 20)
+        && litersInShift.mode === 'clarify' && litersInShift.actions.length === 2
+        && litersInShift.actions.some(a => a.kind === 'fuel' && a.amount === 130 && a.liters === 20)
+        && litersInShift.actions.some(a => a.kind === 'work' && a.hours === 8)
+        && cashAfterLiters.mode === 'propose_actions' && cashAfterLiters.actions.length === 3
+        && cashAfterLiters.actions.some(a => a.kind === 'income' && a.description === 'Uber' && a.amount === 500)))
 
       out.push(result(`MOTOR-sem-gravacao-${fixture}`, JSON.stringify(state) === snapshot, true, JSON.stringify(state) === snapshot))
     }

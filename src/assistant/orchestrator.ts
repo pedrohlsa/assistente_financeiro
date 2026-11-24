@@ -36,7 +36,7 @@ import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } fr
 import { elapsedMinutes, spokenClock } from './semantic/clock'
 import { continueRideOffer, interpretRideOffer, reviseRideOffer } from './rideOffer'
 import { reconcileSpokenTotals } from './spokenTotals'
-import { partialRidePayoutChoice, readPartialRidePayout, readPlatformPayout, readRideDebt, readRideSettlement, readShiftWithUnpaidPayout, ridePayoutPlatformName } from './platformPayout'
+import { partialRidePayoutChoice, readPartialRidePayout, readPlatformPayout, readRideDebt, readRideSettlement, readRideWallet, readShiftWithUnpaidPayout, ridePayoutPlatformName } from './platformPayout'
 import { readCardPurchaseDue, resolveCardPurchaseDue } from './cardPurchaseDue'
 import { conflictQuestion, evidenceFor, mergeByField, sameFact } from './semantic/evidence'
 import { classifyLocalDecision } from './semantic/confidence'
@@ -1268,37 +1268,58 @@ function prepareWorkHoursEdit(input: OrchestratorInput, caps: AssistantCapabilit
   return others.length !== previous.length ? { ...result, correctedPending: result.response.actions } : result
 }
 
+function readDriverShiftActions(text: string): ParsedAction[] | undefined {
+  const shift = parseDriverDay(text, { driver: true })
+  if (shift) return shift.invalidWork || shift.unclassifiedAmounts.length ? undefined : shift.actions
+  return parseTypedPairs(normalizeName(normalizeNumberWords(text).text).trim(), { driver: true }) || undefined
+}
+
 function prepareRideSettlement(input: OrchestratorInput, caps: AssistantCapabilities, today: string): OrchestratorOutput | undefined {
   if (!/\b(?:pagou|repassou|depositou|transferiu)\b/i.test(input.message) || input.message.includes('?')) return undefined
   const dates = findAllDates(input.message, today)
   if (dates.length > 2 || dates.some(date => date.kind !== 'date')) return undefined
   const [day, paidOn] = dates.filter(date => date.kind === 'date')
   const separator = /(?:[,;.]?\s+e|[,;.])\s*$/
-  if (paidOn && (!day || day.date === paidOn.date || input.message.slice(0, day.start).trim()
-    || !separator.test(input.message.slice(day.end, paidOn.start)))) return undefined
-  const payoutText = paidOn ? input.message.slice(paidOn.end)
-    : day ? input.message.slice(0, day.start) + ' ' + input.message.slice(day.end) : input.message
+  let paymentDay = day
+  let payoutText = day ? input.message.slice(0, day.start) + ' ' + input.message.slice(day.end) : input.message
+  let shiftText: string | undefined
+  if (day && paidOn) {
+    const head = input.message.slice(0, day.start)
+    const between = input.message.slice(day.end, paidOn.start)
+    const tail = input.message.slice(paidOn.end)
+    const serviceDate = /\s+de\s*$/i
+    if (!head.trim() && day.date !== paidOn.date && separator.test(between)) {
+      shiftText = between.replace(separator, '')
+      paymentDay = paidOn
+      payoutText = tail
+    } else if (serviceDate.test(head) && !between.trim() && /^[.!\s]*$/.test(tail)) {
+      paymentDay = paidOn
+      payoutText = head.replace(serviceDate, '')
+    } else if (!head.trim() && serviceDate.test(between) && /^[.!\s]*$/.test(tail)) {
+      payoutText = between.replace(serviceDate, '')
+    } else return undefined
+  }
   const payout = readRideSettlement(payoutText.trim().replace(/^[,;]\s*/, ''))
   if (!payout) return undefined
   const { amount, payer, origin, reference } = payout
   const conflict = origin && payer !== origin
-  if (!paidOn && !conflict) return undefined
+  const definiteReference = reference === 'os' || reference === 'o'
+  if (!paidOn && !conflict && !definiteReference) return undefined
 
   const todayReceipt = (description: string): ParsedAction => ({
-    kind: 'income', category: 'corridas', description, amount, date: (paidOn || day)?.date,
+    kind: 'income', category: 'corridas', description, amount, date: paymentDay?.date,
   })
   if (isValidationFailure(validateAction(todayReceipt(payer), caps, today))) return undefined
 
   let shiftActions: ParsedAction[] = []
   let matchingAction: ParsedAction | undefined
-  if (day && paidOn) {
-    const shift = parseDriverDay(input.message.slice(day.end, paidOn.start).replace(separator, ''), { driver: true })
-    if (!shift || shift.invalidWork || shift.unclassifiedAmounts.length) return undefined
-    const datedShift = withDate(shift.actions, day.date)
+  if (shiftText) {
+    const shift = readDriverShiftActions(shiftText)
+    if (!shift) return undefined
+    const datedShift = withDate(shift, day.date)
     const shiftWithoutTotal = semSomaDasPartes(datedShift.map(action => candidate(action, 'local')), today).candidates.map(item => item.action)
     const matching = shiftWithoutTotal.filter((action): action is Extract<ParsedAction, { kind: 'income' }> =>
       action.kind === 'income' && action.amount === amount && action.description === (origin || payer))
-    const definiteReference = reference === 'os' || reference === 'o'
     if ((definiteReference && matching.length !== 1) || (reference !== 'mais' && matching.length > 1)) return undefined
     matchingAction = reference !== 'mais' && matching.length === 1 ? matching[0] : undefined
     shiftActions = shiftWithoutTotal.filter(action => action !== matchingAction)
@@ -1338,9 +1359,9 @@ function prepareShiftWithUnpaidPayout(input: OrchestratorInput, caps: AssistantC
   const [day] = dates
   if (dates.length > 1 || (day && day.kind !== 'date')) return undefined
   const text = day ? payout.text.slice(0, day.start) + ' ' + payout.text.slice(day.end) : payout.text
-  const shift = parseDriverDay(text, { driver: true })
-  if (!shift || shift.invalidWork || shift.unclassifiedAmounts.length) return undefined
-  const datedShift = day?.kind === 'date' ? withDate(shift.actions, day.date) : shift.actions
+  const shift = readDriverShiftActions(text)
+  if (!shift) return undefined
+  const datedShift = day?.kind === 'date' ? withDate(shift, day.date) : shift
   const actions = semSomaDasPartes(datedShift.map(action => candidate(action, 'local')), today).candidates.map(item => item.action)
   const income = actions.filter((action): action is Extract<ParsedAction, { kind: 'income' }> => action.kind === 'income')
   if (income.length < 2 || income.some(action => !action.description)
@@ -1370,7 +1391,7 @@ function prepareShiftWithUnpaidPayout(input: OrchestratorInput, caps: AssistantC
   return { ...result, keepPending: true, focus: input.focus,
     response: { ...result.response, mode: 'clarify',
       reply: [result.response.actions.length ? proposalText(result.response.actions, input.state) : '', question].filter(Boolean).join('\n\n'),
-      clarification: { field: 'ride-shift-payout', question, options } },
+      clarification: { field: 'ride-shift-payout', question, options, pendingActions: affected, rideShiftUnpaid: payout.amount } },
   }
 }
 
@@ -1427,6 +1448,47 @@ function preparePartialRidePayout(input: OrchestratorInput, caps: AssistantCapab
       clarification: { field: 'ride-payout-inclusion', question, options,
         pendingActions: !needsDate && total > 0 && (unpaid === undefined || !!issue) ? received(false) : undefined } },
   }
+}
+
+function keepPayoutQuestion(input: OrchestratorInput, clarification: AssistantClarification, reply = clarification.question): OrchestratorOutput {
+  return { draft: null, keepPending: true, focus: input.focus,
+    response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [], reply, clarification } }
+}
+
+async function correctPendingDuringPayout(input: OrchestratorInput, command: string, pc: AssistantClarification, caps: AssistantCapabilities, today: string) {
+  if (!input.pending?.length || !parseCorrection(command, input.pending, caps, today)) return undefined
+  const corrected = await orchestrate({ ...input, pendingClarification: undefined })
+  if (corrected.response.mode !== 'propose_actions' || !corrected.correctedPending) return undefined
+  return { ...corrected, response: { ...corrected.response, mode: 'clarify' as const, clarification: pc,
+    reply: corrected.response.reply.replace(/\n\nConfirmar\?$/, '') + '\n\n' + pc.question } }
+}
+
+function allocateUnpaidShift(input: OrchestratorInput, pc: AssistantClarification, said: string, caps: AssistantCapabilities, today: string): OrchestratorOutput | undefined {
+  const income = (pc.pendingActions || []).filter((a): a is Extract<ParsedAction, { kind: 'income' }> => a.kind === 'income')
+  if (income.length < 2 || pc.rideShiftUnpaid === undefined || input.message.includes('?')) return undefined
+  const breakdownQuestion = `Diga quanto ainda não caiu de cada plataforma (${income.map(a => a.description).join(' e ')}).`
+  if (/^(?:n[oa]s?\s+(?:dois|duas|amb[oa]s)|nas duas plataformas|em ambas)$/.test(said)) {
+    return keepPayoutQuestion(input, pc, breakdownQuestion)
+  }
+  if (findAllDates(said, today).length) return undefined
+  const pairs = parseTypedPairs(said, { driver: true })
+  if (!pairs) return undefined
+  const unpaidByApp = new Map<string, number>()
+  for (const pair of pairs) {
+    if (pair.kind !== 'income' || !pair.description || unpaidByApp.has(pair.description)
+      || !income.some(item => item.description === pair.description)) return keepPayoutQuestion(input, pc, breakdownQuestion)
+    unpaidByApp.set(pair.description, Math.round(pair.amount * 100))
+  }
+  const totalUnpaid = [...unpaidByApp.values()].reduce((a, b) => a + b, 0)
+  if (totalUnpaid !== Math.round(pc.rideShiftUnpaid * 100)) {
+    return keepPayoutQuestion(input, pc, `As partes somam ${fmtBRL(totalUnpaid / 100)}. O valor em aberto informado foi ${fmtBRL(pc.rideShiftUnpaid)}. ${breakdownQuestion}`)
+  }
+  const received = income.map(item => ({ ...item,
+    amount: (Math.round(item.amount * 100) - (unpaidByApp.get(item.description) || 0)) / 100 }))
+  if (received.some(item => item.amount < 0)) {
+    return keepPayoutQuestion(input, pc, `Uma parte em aberto é maior que o valor informado para esse app. ${breakdownQuestion}`)
+  }
+  return proposeDatedActions(input, received.filter(item => item.amount > 0), caps, today, true)
 }
 
 function pendingCorrectionAnswer(choice: AssistantClarification, message: string, today: string): string | undefined {
@@ -1970,11 +2032,13 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     if (shiftPayout) return shiftPayout
     const partialPayout = preparePartialRidePayout(input, caps, today)
     if (partialPayout) return partialPayout
-    const debt = readRideDebt(input.message)
-    if (debt) {
-      const note = `${debt.platform} ainda deve ${fmtBRL(debt.amount)} pelas corridas. Quando receber, diga quanto caiu e em que dia.`
-      if (debt.tail) {
-        const rest = await orchestrate({ ...input, message: debt.tail, draft: undefined, pendingClarification: undefined })
+    const wallet = readRideWallet(input.message)
+    const heldCash = wallet || readRideDebt(input.message)
+    if (heldCash) {
+      const note = wallet ? `Você informou ${fmtBRL(wallet.amount)} de saldo na carteira da ${wallet.platform}.` + (wallet.tail ? '' : ' Quando receber, diga quanto caiu na conta e em que dia.')
+        : `${heldCash.platform} ainda deve ${fmtBRL(heldCash.amount)} pelas corridas. Quando receber, diga quanto caiu e em que dia.`
+      if (heldCash.tail) {
+        const rest = await orchestrate({ ...input, message: heldCash.tail, draft: undefined, pendingClarification: undefined })
         return { ...rest, response: { ...rest.response, reply: `${note}\n\n${rest.response.reply}` } }
       }
       return { draft: null, keepPending: true, focus: input.focus,
@@ -2114,6 +2178,20 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
       response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply: 'Descartei a proposta.' },
     }
   }
+  if (pc?.field === 'ride-payout-date') {
+    const date = input.message.includes('?') ? undefined : dateInAnswer(weekdayChoiceWord(input.message), today)
+    if (date?.kind === 'date' && pc.pendingActions?.length) {
+      return proposeDatedActions(input, withDate(pc.pendingActions, date.date), caps, today, true)
+    }
+    if (/^(?:cancela(?:r)?|esquece|deixa pra la)[.!]*$/.test(normalizeName(input.message))) return {
+      draft: null, keepPending: true, focus: input.focus,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
+        reply: 'Deixei esse repasse em aberto.' },
+    }
+    const corrected = await correctPendingDuringPayout(input, command, pc, caps, today)
+    if (corrected) return corrected
+    return keepPayoutQuestion(input, pc)
+  }
   if (pc?.field === 'ride-settlement-app' || pc?.field === 'ride-settlement-match' || pc?.field === 'ride-shift-payout') {
     const said = normalizeName(normalizeNumberWords(input.message).text).replace(/[.!]+$/, '').trim()
     const app = said.match(/^(?:foi\s+)?(?:(?:[ao]|d[ao]|n[ao]|pel[ao])\s+)?(.+)$/)?.[1]
@@ -2127,6 +2205,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
       if (/^(?:(?:e|foi|era)\s+)?(?:o\s+)?mesmo(?:\s+(?:valor|repasse))?$/.test(said)) choice = 'same'
       if (/^(?:(?:e|foi|era)\s+)?(?:um\s+)?(?:outro(?:\s+repasse)?|repasse\s+separado|separados?)$/.test(said)) choice = 'separate'
     }
+    if (choice && /^in\s*drive[r]?$/.test(choice)) choice = 'indrive'
     const picked = pc.options?.find(option => option.value === choice || normalizeName(option.label) === said)
     if (picked?.actions) return proposeDatedActions(input, picked.actions, caps, today, true)
     if (/^(?:cancela(?:r)?|esquece|deixa pra la)$/.test(said)) return {
@@ -2134,6 +2213,12 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
       response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
         reply: 'Deixei esse repasse em aberto.' },
     }
+    if (pc.field === 'ride-shift-payout') {
+      const split = allocateUnpaidShift(input, pc, said, caps, today)
+      if (split) return split
+    }
+    const corrected = await correctPendingDuringPayout(input, command, pc, caps, today)
+    if (corrected) return corrected
     if (looksPast(input.message) && !looksLikeQuestion(input.message)) return orchestrate({ ...input, pendingClarification: undefined })
     return { draft: null, keepPending: true, focus: input.focus,
       response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [],
@@ -2161,23 +2246,22 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     }
     const income = (inclusionOptions?.find(o => o.value === 'excluded')?.actions || pc.pendingActions)?.find(a => a.kind === 'income')
     const total = income?.amount
-    const receiptText = normalizeName(normalizeNumberWords(input.message).text).replace(/[.!]+$/, '')
+    const receiptText = normalizeName(normalizeNumberWords(input.message).text).replace(/[.!?]+$/, '')
     const dates = findAllDates(receiptText, today)
     const receiptDay = dates[0]
     const undated = dates.reduceRight((text, date) => text.slice(0, date.start) + ' ' + text.slice(date.end), receiptText)
       .trim().replace(/^[, ]+|[, ]+$/g, '').replace(/\s+/g, ' ')
-    const namedApp = undated.match(/\s+(?:d[ao]|n[ao]|pel[ao])\s+(uber|99|indrive[r]?)$/)
+    const namedApp = undated.match(/\s+(?:d[ao]|n[ao]|pel[ao])\s+(uber|99|in\s*drive[r]?)$/)
     const platform = namedApp && ridePayoutPlatformName(namedApp[1])
     const receipt = namedApp ? undated.slice(0, namedApp.index) : undated
     const afterVerb = receipt.match(/^(?:nao\s*,\s*)?(?:eu\s+)?(?:recebi|caiu|cairam|entrou|entraram)\s+(?:so\s+|apenas\s+|somente\s+)?(.+?)(?:\s+na\s+(?:minha\s+)?conta)?$/)
     const beforeVerb = receipt.match(/^(.+?)\s+(?:caiu|cairam|entrou|entraram)(?:\s+na\s+(?:minha\s+)?conta)?$/)
     const value = exactMoneyAnswer(afterVerb?.[1] || beforeVerb?.[1] || '')
     const noPayment = /^(?:eu\s+)?(?:ainda\s+)?nao\s+(?:recebi|caiu|entrou)\s+(?:nada|nem\s+um\s+centavo)(?:\s+ainda)?$/.test(receipt)
-    const clarify = (reply: string, clarification = pc): OrchestratorOutput => ({
-      draft: null, keepPending: true, focus: input.focus,
-      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [],
-        reply, clarification },
-    })
+    const clarify = (reply: string, clarification = pc) => keepPayoutQuestion(input, clarification, reply)
+    if (input.message.includes('?') && (value !== undefined || noPayment)) {
+      return clarify(`Para propor esse repasse, diga o valor que realmente entrou e o dia. ${pc.question}`)
+    }
     if ((value !== undefined || noPayment) && platform && income?.description && platform !== income.description) {
       return clarify(`O repasse em aberto foi informado como ${income.description}. ${pc.question}`)
     }
@@ -2190,9 +2274,13 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const dateIsUsable = !dates.length || (dates.length === 1 && receiptDay.kind === 'date')
     const date = receiptDay?.kind === 'date' ? receiptDay.date : income?.date
     if (income && value !== undefined && value > 0) {
-      if (!dateIsUsable) return clarify(`Preciso de uma data de recebimento que já passou ou seja hoje. ${pc.question}`)
       if (value > income.amount) return clarify(`Esse valor passa dos ${fmtBRL(income.amount)} que você informou para essas corridas. ${pc.question}`)
-      return proposeDatedActions(input, [{ ...income, amount: value, date, description: platform || income.description }], caps, today, true)
+      const action = { ...income, amount: value, date, description: platform || income.description }
+      if (!dateIsUsable) {
+        const question = `Em que dia os ${fmtBRL(value)} entraram? Informe uma data até hoje.`
+        return keepPayoutQuestion(input, { field: 'ride-payout-date', question, pendingActions: [action] })
+      }
+      return proposeDatedActions(input, [action], caps, today, true)
     }
     const accountAmount = exactMoneyAnswer(receipt.match(/^(.+?)\s+na\s+(?:minha\s+)?conta$/)?.[1] || '')
     if (income && accountAmount !== undefined && accountAmount > 0 && accountAmount <= income.amount && !platform && dateIsUsable) {
@@ -2213,13 +2301,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
           reply: option.reply },
       }
     }
-    if (input.pending?.length && parseCorrection(command, input.pending, caps, today)) {
-      const corrected = await orchestrate({ ...input, pendingClarification: undefined })
-      if (corrected.response.mode === 'propose_actions' && corrected.correctedPending) return {
-        ...corrected, response: { ...corrected.response, mode: 'clarify', clarification: pc,
-          reply: corrected.response.reply.replace(/\n\nConfirmar\?$/, '') + '\n\n' + pc.question },
-      }
-    }
+    const corrected = await correctPendingDuringPayout(input, command, pc, caps, today)
+    if (corrected) return corrected
     if (value == null && looksPast(input.message) && !looksLikeQuestion(input.message)) return orchestrate({ ...input, pendingClarification: undefined })
     const query = looksLikeQuestion(input.message) && looksLikeDataQuestion(input.message) ? respostaLocal(input.state, input.message, today, true) : undefined
     return { draft: null, keepPending: true, focus: query?.focus || input.focus,

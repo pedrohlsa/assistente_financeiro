@@ -1565,9 +1565,10 @@ function parseClause(input: string): ParsedAction[] {
     // "abasteci 24 litros por 180" lia 24 como valor e jogava os 180 fora.
     const fSaoLitros = !!(f && litersM && parseNum(f[1]) === parseNum(litersM[1])
       && /^\s*(?:l|litros?)\b/i.test(text.slice((f.index || 0) + f[0].length)))
-    const depoisDosLitros = litersM ? text.slice((litersM.index || 0) + litersM[0].length) : ''
+    const depoisDosLitros = litersM ? text.slice((litersM.index || 0) + litersM[0].length)
+      .replace(new RegExp(String.raw`^\s+de\s+${COMBUSTIVEL}\b`, 'i'), '') : ''
     const porValor = (!f || fSaoLitros) && litersM
-      ? depoisDosLitros.match(new RegExp(String.raw`^\s*(?:por|a|custou|saiu\s+por)\s*(?:r\$)?\s*${NUM}`, 'i'))
+      ? depoisDosLitros.match(new RegExp(String.raw`^\s*(?:por|a|(?:que\s+)?cust(?:ou|aram)|saiu\s+por)\s*(?:r\$)?\s*${NUM}`, 'i'))
       : null
     const liters = litersM ? parseNum(litersM[1]) : undefined
     // "40 litros A 5,89" (ou "a 6,10 o litro") é o PREÇO do litro, não o total:

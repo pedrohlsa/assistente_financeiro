@@ -32,8 +32,8 @@ const PICKUP = String.raw`(?:ate\s+(?:(?:o|a)\s+)?(?:passageir[oa]|embarque)|(?:
 const TRIP = String.raw`(?:(?:d[aeo]\s+)?(?:corrida|viagem|trajeto)|ate\s+(?:o\s+)?destino)`
 const RETURN = String.raw`(?:(?:d[aeo]\s+|na\s+)?(?:retorno|volta)(?:\s+(?:vazi[oa]|sem\s+passageiro))?|(?:pra|para)\s+voltar(?:\s+(?:vazi[oa]|sem\s+passageiro))?|voltando(?:\s+(?:vazi[oa]|sem\s+passageiro))?)`
 const OUTBOUND = String.raw`(?:(?:d[aeo]|na)\s+)?ida`
-const TOTAL = String.raw`(?:no\s+total|ao\s+todo|total|(?:(?:contando|de)\s+)?(?:a\s+)?ida\s+e\s+(?:a\s+)?volta)`
-const SUFFIX = new RegExp(String.raw`^\s+(${TOTAL}|${PICKUP}|${TRIP}|${RETURN}|${OUTBOUND})\b`)
+const TOTAL = String.raw`(?:no\s+total|ao\s+todo|tota(?:l|is)|contando\s+(?:a\s+)?ida\s+${PICKUP}|(?:(?:contando|de)\s+)?(?:a\s+)?ida\s+e\s+(?:a\s+)?volta)`
+const SUFFIX = new RegExp(String.raw`^\s+(?:(?:so|somente|apenas)\s+)?(${TOTAL}|${PICKUP}|${TRIP}|${RETURN}|${OUTBOUND})\b`)
 const PREFIX = new RegExp(String.raw`\b(embarque|buscar|passageiro|distancia\s+${PICKUP}|tempo\s+${PICKUP}|distancia\s+${TRIP}|tempo\s+${TRIP}|trajeto|viagem|volto|(?:distancia\s+|tempo\s+)?${RETURN}|${OUTBOUND}|${TOTAL})(?:[\s:]+(?:de|e))?[\s:]+$`)
 const IS_PICKUP = /\b(?:embarq\w*|buscar|passageir[oa]|aproximacao)\b/
 const IS_RETURN = /\b(?:retorno|volta|volto|voltar|voltando)\b/
@@ -293,8 +293,8 @@ function renderOffer(state: AppState, quote: Quote): RideOfferAnswer {
   const minutes = minutesIncludingReturn(quote.duration, km)
   const returning = returnDistance(km)
   const routeNote = returning ? `\n\nInclui ${fmtNum(returning)} km de retorno.` : ''
-  const durationNote = returning && !minutes
-    ? '\n\nPara calcular por hora, informe o tempo total incluindo o retorno.' : ''
+  const durationNote = !minutes && (returning || (quote.duration && Object.keys(quote.duration).length))
+    ? `\n\nPara calcular por hora, informe o tempo total${returning ? ' incluindo o retorno' : ' do trajeto'}.` : ''
   const head = `Análise da corrida (${fmtNum(totalKm)} km ${knownRoute ? 'no total' : 'informados'})`
   const gross = `• ${fmtBRL(value / totalKm)}/km bruto`
   const incomplete = knownRoute ? '' : '\n\nSe a distância até o passageiro estiver fora desses km, diga quanto falta para recalcular.'

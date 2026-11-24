@@ -39,11 +39,15 @@ const FUEL_RESULT = new RegExp(
 const FUEL_SPEND = String.raw`(?:\s+e\s+${FUEL_EXPENSE})?`
 const REPORTED_DURATION = String.raw`(?:${COMPOUND_DURATION}|\d+(?:[.,]\d+)?\s*(?:h|hrs?|horas?))`
 const CLOSED_SHIFT = new RegExp(
-  String.raw`^fechei\s+(?<duration>${REPORTED_DURATION})\s+(?:no\s+volante|de\s+trabalho|dirigindo)(?:,?\s+(?:com|e)\s+${RIDE_INCOME}${FUEL_SPEND})?[.!]*$`,
+  String.raw`^fechei\s+(?<duration>${REPORTED_DURATION})\s+(?:no\s+volante|de\s+trabalho|dirigindo)(?:(?:,\s*(?:(?:com|e)\s+)?|\s+(?:com|e)\s+)${RIDE_INCOME}${FUEL_SPEND})?[.!]*$`,
   'i',
 )
 const CLOSED_DAY_AFTER_WORK = new RegExp(
   String.raw`^fechei\s+(?:meu|o)\s+(?:dia|turno)\s+com\s+${RIDE_INCOME}(?:\s+e\s+(?:gastei|paguei|abasteci)\s+${FUEL_EXPENSE})?\s+depois\s+de\s+(?:trabalhar|rodar|dirigir)\s+(?<duration>${REPORTED_DURATION})[.!]*$`,
+  'i',
+)
+const RIDE_RESULT_WITH_DURATION = new RegExp(
+  String.raw`^(?:ganhei|faturei)\s+${RIDE_INCOME}${FUEL_SPEND}\s+(?:em|durante)\s+(?<duration>${REPORTED_DURATION})[.!]*$`,
   'i',
 )
 const RIDE_RESULT = new RegExp(String.raw`^(?:deu|deram)\s+${RIDE_INCOME}${FUEL_SPEND}[.!]*$`, 'i')
@@ -61,8 +65,9 @@ export function expandDriverReport(message: string, today: string): string {
   const dates = findAllDates(text, today)
   const [date] = dates
   if (dates.length > 1) return withFuel
-  const withoutDate = (date ? text.slice(0, date.start) + text.slice(date.end) : text).trim().replace(/^,\s*/, '')
-  const parts = (withoutDate.match(CLOSED_SHIFT) || withoutDate.match(CLOSED_DAY_AFTER_WORK) || withoutDate.match(RIDE_RESULT))?.groups
+  const withoutDate = (date ? text.slice(0, date.start) + text.slice(date.end) : text).trim().replace(/^,\s*|[,;]$/g, '').trim()
+  const parts = (withoutDate.match(CLOSED_SHIFT) || withoutDate.match(CLOSED_DAY_AFTER_WORK)
+    || withoutDate.match(RIDE_RESULT_WITH_DURATION) || withoutDate.match(RIDE_RESULT))?.groups
   if (!parts) {
     if (!/^(?:eu\s+)?(?:fiz|faturei|ganhei)\s/i.test(withoutDate)) return withFuel
     const repaired = text.replace(HOURS_AFTER_PLATFORM, '$1trabalhei $2')
