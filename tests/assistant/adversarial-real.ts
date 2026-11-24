@@ -11678,12 +11678,25 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const receiptWithWallet = await Promise.all([
         ['recebi 400 hoje da 99 mas 250 já estavam na carteira ontem', 400, hoje, '99'],
         ['recebi quatrocentos e vinte reais e trinta centavos da Uber anteontem, mas 150,25 ficaram na carteira', 420.30, anteontem, 'Uber'],
+        ['recebi 400 da Uber ontem mas 250 ficaram na carteira da 99 anteontem', 400, ontem, 'Uber'],
+        ['recebi 400 da Uber ontem mas 250 já estavam no saldo da carteira', 400, ontem, 'Uber'],
       ].map(async ([say, amount, date, app]) => ({ turn: await chat()(String(say)), amount, date, app })))
       out.push(result(`MOTOR-recebimento-e-saldo-que-ja-estava-na-carteira-${fixture}`, receiptWithWallet,
         'propõe o que entrou com sua data e identifica o saldo da carteira sem gerar outro recebimento',
         receiptWithWallet.every(({ turn, amount, date, app }) => turn.mode === 'propose_actions' && turn.actions.length === 1
           && turn.actions.some(a => a.kind === 'income' && a.amount === amount && a.date === date && a.description === app)
           && /saldo na carteira/.test(turn.reply))))
+
+      const receiptWithDebt = await Promise.all([
+        ['ontem recebi 450 da Uber; hoje ela deve mais 200', 450, ontem, 'Uber', 'Uber'],
+        ['recebi 400 da Uber e 250 ainda vão cair da 99', 400, undefined, 'Uber', '99'],
+        ['recebi 500 da 99, mas a Uber ainda não depositou 300', 500, undefined, '99', 'Uber'],
+      ].map(async ([say, amount, day, app, debtor]) => ({ turn: await chat()(String(say)), amount, day, app, debtor })))
+      out.push(result(`MOTOR-recebimento-e-outro-repasse-em-aberto-${fixture}`, receiptWithDebt,
+        'reconhece um repasse pendente sem mudar o valor, a data ou a origem do recebimento',
+        receiptWithDebt.every(({ turn, amount, day, app, debtor }) => turn.mode === 'propose_actions' && turn.actions.length === 1
+          && turn.actions.some(a => a.kind === 'income' && a.amount === amount && a.date === day && a.description === app)
+          && turn.reply.includes(`${debtor} ainda deve`))))
 
       const scaledRate = await Promise.all(['quanto a Uber me pagou por 100 km ontem?',
         'qual foi o ganho a cada cem quilômetros na 99 ontem?', 'qual pagou mais a cada dez viagens ontem Uber ou 99?'].map(say => chat()(say)))

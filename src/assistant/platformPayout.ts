@@ -258,7 +258,7 @@ const DEBT_PERIOD = String.raw`(?:${PAYOUT_SCHEDULE}|(?:(?:da|na)\s+)?semana\s+p
 const DEBT_CONTEXT = String.raw`(?:\s+(?:d[aeo]s?|pel[ao]s?)\s+corridas?)?(?:\s+(?:(?:de|desde)\s+)?${DEBT_PERIOD})?(?:\s+ainda)?`
 const DEBT_TAIL = String.raw`(?:(?:\s+e\s+|\s*[.;,]\s*(?:(?:mas|e)\s+)?)(?<tail>(?:${PAYOUT_DAY}\s+)?(?:abasteci|paguei|gastei|rodei|trabalhei|recebi)\b[^?]*))?[.!]*$`
 const RIDE_DEBT = new RegExp(
-  String.raw`^(?:[ao]\s+)?(?<platform>${PAYOUT_APP})\s+(?:ainda\s+)?(?:me\s+deve|(?:ta|esta)\s+(?:me\s+)?devendo|nao\s+(?:me\s+)?(?:pagou|repassou|depositou))\s+(?:(?:o|os|meus)\s+)?${MONEY('amount')}${DEBT_CONTEXT}${DEBT_TAIL}`,
+  String.raw`^(?:${PAYOUT_DAY}\s+)?(?:[ao]\s+)?(?<platform>${PAYOUT_APP})\s+(?:ainda\s+)?(?:(?:me\s+)?deve|(?:ta|esta)\s+(?:me\s+)?devendo|nao\s+(?:me\s+)?(?:pagou|repassou|depositou))\s+(?:(?:o|os|meus|mais)\s+)?${MONEY('amount')}${DEBT_CONTEXT}${DEBT_TAIL}`,
 )
 const DEBT_SOURCE = String.raw`\s+(?:d[ao]|n[ao]|pel[ao])\s+(?<platform>${PAYOUT_APP})${DEBT_CONTEXT}${DEBT_TAIL}`
 const RIDE_DEBT_REVERSED = new RegExp(String.raw`^(?:ainda\s+)?me\s+devem\s+${MONEY('amount')}${DEBT_SOURCE}`)
@@ -270,6 +270,9 @@ const RIDE_DEBT_PENDING = new RegExp(
 )
 const RIDE_DEBT_STATUS = new RegExp(
   String.raw`^(?:${PAYOUT_DAY}\s+)?(?:(?:ainda\s+)?tem\s+)?${UNPAID_AFTER_VALUE}(?:\s+${PAYOUT_SCHEDULE})?${DEBT_TAIL}`,
+)
+const RIDE_DEBT_AMOUNT_THEN_STATUS = new RegExp(
+  String.raw`^(?:os\s+)?${MONEY('amount')}\s+${UNPAID_STATUS}${DEBT_SOURCE}`,
 )
 const RIDE_DEBT_BALANCE = new RegExp(
   String.raw`^(?:ganhei|fiz|faturei)\s+(?:d[ao]|n[ao]|pel[ao])\s+(?<platform>${PAYOUT_APP})\s+(?:um\s+)?(?:saldo|repasse)\s+de\s+${MONEY('amount')}\s+(?:que\s+)?${UNPAID_STATUS}(?:\s+${PAYOUT_SCHEDULE})?${DEBT_TAIL}`,
@@ -286,7 +289,8 @@ export function readRideDebt(message: string): { platform: string; amount: numbe
   if (!/\b(?:devendo|devem?|pagou|repassou|depositou|pagar|depositar|repassar|receber|cair|caiu|ca[ií]ram|entrar|entrou|entraram|pendente|esperando|aguardando|espero|pres[oa]s?|bloquead[oa]s?)\b/i.test(message)) return undefined
   const text = normalizeName(normalizeNumberWords(message).text)
   const parts = (text.match(RIDE_DEBT) || text.match(RIDE_DEBT_REVERSED) || text.match(RIDE_DEBT_EXPECTED) || text.match(RIDE_DEBT_PENDING)
-    || text.match(RIDE_DEBT_STATUS) || text.match(RIDE_DEBT_BALANCE) || text.match(RIDE_DEBT_WAITING) || text.match(RIDE_DEBT_WILL_PAY))?.groups
+    || text.match(RIDE_DEBT_STATUS) || text.match(RIDE_DEBT_AMOUNT_THEN_STATUS) || text.match(RIDE_DEBT_BALANCE)
+    || text.match(RIDE_DEBT_WAITING) || text.match(RIDE_DEBT_WILL_PAY))?.groups
   const platform = parts?.platform || parts?.unpaidApp
   if (!platform) return undefined
   const amount = parseMoney(parts.amount || parts.unpaid)

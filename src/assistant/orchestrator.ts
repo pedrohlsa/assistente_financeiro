@@ -1658,26 +1658,38 @@ function readPayoutReceiptAnswer(message: string, today: string) {
   return { dates, receiptDay, undated, platform, receipt, value, noPayment }
 }
 
-function prepareReceiptWithWalletBalance(input: OrchestratorInput, caps: AssistantCapabilities, today: string): OrchestratorOutput | undefined {
-  if (!/\bcarteira\b/i.test(input.message) || input.message.includes('?')) return undefined
-  const pieces = input.message.trim().match(/^(.+?)(?:,\s*|\s+)mas\s+(.+)$/i)
-  if (!pieces) return undefined
-  const balance = normalizeName(pieces[2]).replace(/[.!]+$/, '')
-    .match(/^(.+?)\s+(?:ja\s+)?(?:estavam?|ficou|ficaram|continuou|continuaram)\s+na\s+carteira(?:\s+do\s+app)?(?:\s+(.+))?$/)
+function walletBalanceNote(text: string, today: string) {
+  const balance = text.replace(/[.!]+$/, '').match(/^(.+?)\s+(?:ja\s+)?(?:estavam?|ficou|ficaram|continuou|continuaram)\s+(?:na\s+carteira|no\s+saldo\s+da\s+carteira)(?:\s+d[ao]\s+(app|uber|99|in\s*driver?))?(?:\s+(.+))?$/)
   if (!balance) return undefined
-  const balanceDay = balance[2] && findDate(balance[2], today)
-  if (balance[2] && (!balanceDay || balanceDay.start !== 0 || balanceDay.end !== balance[2].length)) return undefined
+  const balanceDay = balance[3] && findDate(balance[3], today)
+  if (balance[3] && (!balanceDay || balanceDay.start !== 0 || balanceDay.end !== balance[3].length)) return undefined
   const amount = exactMoneyAnswer(balance[1])
-  const { value, platform, dates, receiptDay } = readPayoutReceiptAnswer(pieces[1], today)
-  if (!(amount >= 0) || !(value > 0) || !platform || dates.length > 1) return undefined
-  if (receiptDay && receiptDay.kind !== 'date') {
-    return keepPendingClarification(input, { field: 'date', question: payoutReceiptDateQuestion(value),
-      pendingActions: [{ kind: 'income', amount: value, category: 'corridas', description: platform }] })
+  const app = balance[2] && readRidePayoutApp(balance[2])
+  if (amount >= 0) return `Você informou ${fmtBRL(amount)} de saldo na carteira${app ? ` da ${app}` : ''}.`
+}
+
+function rideDebtNote(debt: { platform: string; amount: number }) {
+  return `${debt.platform} ainda deve ${fmtBRL(debt.amount)} pelas corridas. Quando receber, diga quanto caiu e em que dia.`
+}
+
+function prepareReceiptWithHeldCash(input: OrchestratorInput, caps: AssistantCapabilities, today: string): OrchestratorOutput | undefined {
+  if (input.message.includes('?') || !/\b(?:carteira|deve|devendo|pagou|repassou|depositou|cair|caiu|ca[ií]ram|entrar|entrou|entraram|pendente)\b/i.test(input.message)) return undefined
+  const separators = /(?:,\s+|;\s*|,(?=mas\b))(?:(?:e|mas)\s+)?|\s+(?:e|mas)\s+/gi
+  for (const split of input.message.matchAll(separators)) {
+    const { value, platform, dates, receiptDay } = readPayoutReceiptAnswer(input.message.slice(0, split.index), today)
+    if (!(value > 0) || !platform || dates.length > 1) continue
+    const tail = normalizeName(normalizeNumberWords(input.message.slice(split.index + split[0].length)).text)
+    const relatedTail = tail.replace(/^((?:hoje|hj|ontem|anteontem)\s+)?(?:ele|ela)\s+/, `$1${platform.toLowerCase()} `)
+    const debt = readRideDebt(relatedTail)
+    const note = debt && !debt.tail ? rideDebtNote(debt) : walletBalanceNote(tail, today)
+    if (!note) continue
+    const receipt: ParsedAction = { kind: 'income', amount: value, category: 'corridas', description: platform,
+      ...(receiptDay?.kind === 'date' ? { date: receiptDay.date } : {}) }
+    const result = receiptDay && receiptDay.kind !== 'date'
+      ? keepPendingClarification(input, { field: 'date', question: payoutReceiptDateQuestion(value), pendingActions: [receipt] })
+      : proposeDatedActions(input, [receipt], caps, today)
+    return { ...result, response: { ...result.response, reply: `${note}\n\n${result.response.reply}` } }
   }
-  const result = proposeDatedActions(input, [{ kind: 'income', amount: value, category: 'corridas', description: platform,
-    ...(receiptDay?.kind === 'date' ? { date: receiptDay.date } : {}) }], caps, today)
-  return { ...result, response: { ...result.response,
-    reply: `Você informou ${fmtBRL(amount)} de saldo na carteira.\n\n${result.response.reply}` } }
 }
 
 function noRidePayment(input: OrchestratorInput): OrchestratorOutput {
@@ -2298,6 +2310,10 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (caps.isDriver) {
     const settlement = prepareRideSettlement(input, caps, today)
     if (settlement) return settlement
+    if (!input.draft && !input.pendingClarification) {
+      const receiptWithHeldCash = prepareReceiptWithHeldCash(input, caps, today)
+      if (receiptWithHeldCash) return receiptWithHeldCash
+    }
     const shiftPayout = prepareShiftWithUnpaidPayout(input, caps, today)
     if (shiftPayout) return shiftPayout
     const partialPayout = preparePartialRidePayout(input, caps, today)
@@ -2308,7 +2324,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const heldCash = wallet || readRideDebt(input.message) || readRideDebtAfterActivity(input.message)
     if (heldCash) {
       const note = wallet ? `Você informou ${fmtBRL(wallet.amount)} de saldo na carteira da ${wallet.platform}.` + (wallet.tail ? '' : ' Quando receber, diga quanto caiu na conta e em que dia.')
-        : `${heldCash.platform} ainda deve ${fmtBRL(heldCash.amount)} pelas corridas. Quando receber, diga quanto caiu e em que dia.`
+        : rideDebtNote(heldCash)
       if (heldCash.tail) {
         const rest = await orchestrate({ ...input, message: heldCash.tail, draft: undefined, pendingClarification: undefined })
         return { ...rest, response: { ...rest.response, reply: `${note}\n\n${rest.response.reply}` } }
@@ -2319,8 +2335,6 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const workHours = prepareWorkHoursEdit(input, caps, today)
     if (workHours) return workHours
     if (!input.draft && !input.pendingClarification) {
-      const walletBalance = prepareReceiptWithWalletBalance(input, caps, today)
-      if (walletBalance) return walletBalance
       const bankReport = prepareDriverBankReport(input, caps, today)
       if (bankReport) return bankReport
       const platformHours = await prepareShiftWithAppHours(input, caps, today)
