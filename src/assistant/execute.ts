@@ -18,7 +18,7 @@ import { JOURNAL_LIMIT, diffForJournal, isRevertFailure, revertBatchPure } from 
 import { findInvoicePaymentCards, invoicePaymentIssue } from './invoicePayment'
 import { addDays, monthKey, nowPaymentTime, nowStamp, todayISO, uid } from '../utils/format'
 import { normalizeName, sameName } from '../utils/text'
-import { defaultIncomeCategory } from '../services/profile'
+import { defaultIncomeCategory, isDriver } from '../services/profile'
 import { matchRecurringPayment, nextCashEventTime, occurrencesBetween, possibleRecurringTransactions, recurringOccurrenceState } from '../services/calc'
 import { buildInstallments, cardInvoice, directInstallmentPaidAmount, futureInvoicePaymentDate,
   invoiceOpenAmount, settleableInstallmentIds, suggestedFirstDueDate, unpaidPriorInvoiceMonths,
@@ -187,6 +187,23 @@ export function applyActionPure(
           : w)
         : [{ id: gen(), date: d, km: action.km || 0, trips: action.trips || 0, hours: action.hours || 0 }, ...state.workSessions]
       return { state: { ...state, workSessions }, result: { ok: true, actionId } }
+    }
+    case 'edit-work-hours': {
+      if (!isDriver(state.settings)) return { state, result: fail(actionId, 'profile-forbidden', undefined, false) }
+      if (!action.date || !isPlausibleDate(action.date, date)) return { state, result: fail(actionId, 'invalid-date') }
+      if (!Number.isFinite(action.hours) || action.hours < 0 || action.hours > 24) {
+        return { state, result: fail(actionId, 'invalid-number', 'Informe de 0 a 24 horas.') }
+      }
+      const matches = state.workSessions.filter(w => w.date === action.date)
+      const [session] = matches
+      if (matches.length !== 1 || session.id !== action.workId || Math.round(session.hours * 1000) / 1000 !== action.expectedHours
+        || state.workSessions.filter(w => w.id === action.workId).length !== 1) {
+        return { state, result: fail(actionId, 'edit-not-allowed', 'As horas salvas mudaram ou a jornada deixou de ser única. Peça a correção de novo.', false) }
+      }
+      return {
+        state: { ...state, workSessions: state.workSessions.map(w => w === session ? { ...w, hours: action.hours } : w) },
+        result: { ok: true, actionId, entityId: session.id },
+      }
     }
     case 'fuel': {
       const liters = action.liters

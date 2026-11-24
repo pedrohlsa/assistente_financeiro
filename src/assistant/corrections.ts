@@ -413,13 +413,15 @@ function correctDriverProposal(message: string, pending: AssistantCandidateActio
   const remove = text.match(DRIVER_REMOVE)
   const changeApp = remove ? null : text.match(DRIVER_AMOUNT)
   const selector = remove || changeApp
-  let targets = pending.filter(p => p.action.kind === 'work')
+  let targets = pending.filter(p => p.action.kind === 'work' || p.action.kind === 'edit-work-hours')
   if (!selector && !targets.length) return null
   const targetText = selector ? selector.groups.when.trim() : text
   const date = findDate(targetText, today)
   const withoutDate = (date ? targetText.slice(0, date.start) + ' ' + targetText.slice(date.end) : targetText).trim()
   if (selector && withoutDate && (!date || !/^(?:d[eo]|no dia|no|na)?$/.test(withoutDate))) return null
-  const medida = selector ? null : withoutDate.match(WORK_MEASURE)
+  const implicitHours = targets.length === 1 && pending.length === 1 && targets[0].action.kind === 'edit-work-hours'
+    && /^(?:(?:na\s+(?:real|verdade)|ops|ou\s+melhor)[\s,]+|(?:foi|foram|era)\s+)\d+(?:[.,]\d+)?$/.test(withoutDate)
+  const medida = selector ? null : (implicitHours ? withoutDate + ' horas' : withoutDate).match(WORK_MEASURE)
   if (!selector && !medida) return null
 
   let app: string | undefined
@@ -439,6 +441,13 @@ function correctDriverProposal(message: string, pending: AssistantCandidateActio
   }
 
   const field = !medida ? 'amount' : /^(?:km|quil)/.test(medida[2]) ? 'km' : /^(?:corrida|viage)/.test(medida[2]) ? 'trips' : 'hours'
+  if (!selector && field !== 'hours') {
+    targets = targets.filter(p => p.action.kind === 'work')
+    if (!targets.length) {
+      plan.ambiguous = { question: 'A proposta corrige o total de horas. Diga a nova duração em horas.' }
+      return plan
+    }
+  }
   const value = parseMoney(medida?.[1] || changeApp?.groups.amount)
   const revise = (item: AssistantCandidateAction): ParsedAction => ({ ...item.action, [field]: value })
   if (!remove && targets.some(item => !validateAction(revise(item), caps, today).ok)) {

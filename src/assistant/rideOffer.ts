@@ -23,6 +23,9 @@ const AMOUNT_PROSPECTIVE = new RegExp(String.raw`\b(?:tiraria|ganharia|receberia
 const AMOUNT_BEFORE_DISTANCE = new RegExp(String.raw`(?<![\w.,-])${NUMBER}\s+(?:por|em|pra|para|com|e)\s+\d+(?:[.,]\d+)*\s*(?:kms?|quilometros?|metros?)\b`, 'g')
 const ONE_OFFER_SHORT = new RegExp(String.raw`\b(?:tocou|apareceu|chegou)\s+uma\s+de\s+${NUMBER}(?!\s*(?:km|quilometros?|metros?|min|minutos?|horas?)\b)`)
 const OFFER_SEPARATOR = /\s+(?:ou|contra|e(?=\s+(?:a\s+)?outra\b))\s+/
+const ENUMERATED_OFFERS = /\b(?:(?:2|duas)\s+(?:corridas|ofertas)|primeir[ao]\s+(?:corrida|oferta))\b/
+const SECOND_OFFER = /[\s.,;]+(?=(?:a\s+)?segund[ao]\s+(?:corrida|oferta)\b)/
+const JOINED_OFFERS = new RegExp(String.raw`\s+e\s+(?=(?:(?:a\s+)?(?:corrida|oferta)\b|r\$\s*\d|\d+(?:[.,]\d+)*\s+reais?\b))`)
 const COMPARA_DOIS = /\bqual\s+(?:(?:das?\s+)?(?:corridas?|ofertas?)\s+)?(?:(?:da|tem)\s+(?:mais\s+lucro|maior\s+lucro)|(?:paga|rende|da)\s+mais|e\s+(?:a\s+)?melhor|[oa]\s+(?:melhor\s+)?(?:ganho|lucro|rendimento|receita)\s+(?:(?:brut[oa]|liquid[oa])\s+)?por\s+(?:hora|minuto|km|quilometro))\b|\bvale\s+mais\b|^vale\s+a\s+pena\s+a\s+de\b/
 const PICKUP = String.raw`(?:ate\s+(?:(?:o|a)\s+)?(?:passageir[oa]|embarque)|(?:(?:pra|para)\s+(?:(?:o|a)\s+)?(?:buscar|embarcar|embarque|passageir[oa])|(?:pro|pra)\s+passageir[oa])|(?:de|do|pro|para\s+o)\s+embarque|(?:de\s+)?aproximacao|passageir[oa])`
 const TRIP = String.raw`(?:(?:d[aeo]\s+)?(?:corrida|viagem|trajeto)|ate\s+(?:o\s+)?destino)`
@@ -173,18 +176,26 @@ function compareOffers(state: AppState, parts: string[], question: string): stri
   return [lead, details.join('\n'), basis].filter(Boolean).join('\n\n')
 }
 
+function splitOffers(text: string): string[] {
+  const alternatives = text.split(OFFER_SEPARATOR)
+  if (alternatives.length > 1 || !ENUMERATED_OFFERS.test(text)) return alternatives
+  const numbered = text.split(SECOND_OFFER)
+  return numbered.length > 1 ? numbered : text.split(JOINED_OFFERS)
+}
+
 export function interpretRideOffer(state: AppState, input: string, context = input): RideOfferAnswer | undefined {
   const notice = input.match(RIDE_OFFER_NOTICE)
   if (!isDriver(state.settings) || looksPast(notice ? input.replace(RIDE_OFFER_NOTICE, ' ') : input)) return undefined
   const text = normalizeNumberWords(normalizeName(input)).text
   const compare = RIDE_COMPARISON_REQUEST.test(text)
-  const alternatives = text.split(OFFER_SEPARATOR)
+  const alternatives = splitOffers(text)
+  const enumerated = ENUMERATED_OFFERS.test(text) && COMPARA_DOIS.test(text)
   const comparesTwo = alternatives.length === 2 && COMPARA_DOIS.test(text)
     && alternatives.every(part => amountForOffer(part, true) !== undefined && !!part.match(DISTANCE))
-  if ((!RIDE_EVALUATION_REQUEST.test(text) && !compare && !comparesTwo) || (!notice && !NOME.test(text) && !comparesTwo && !UMA_DE_COM_DISTANCIA.test(text))) return undefined
+  if ((!RIDE_EVALUATION_REQUEST.test(text) && !compare && !comparesTwo && !enumerated) || (!notice && !NOME.test(text) && !comparesTwo && !enumerated && !UMA_DE_COM_DISTANCIA.test(text))) return undefined
   if (perceivesDrivingFatigue(context)) return { reply: PARE_PARA_DESCANSAR }
   if (!/\d/.test(text) && !notice) return undefined
-  if (compare || alternatives.length > 1) return { reply: compareOffers(state, alternatives, text) }
+  if (compare || enumerated || alternatives.length > 1) return { reply: compareOffers(state, alternatives, text) }
   return renderOffer(state, { value: amountForOffer(text), distance: readDistance(text), duration: readDuration(text) })
 }
 

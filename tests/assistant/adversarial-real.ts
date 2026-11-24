@@ -10724,8 +10724,182 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && [delayed, wallet].every(r => r.mode === 'clarify' && !r.actions.length && /300,00.*inclu.*800,00/.test(r.reply))
         && !unpaidRental.actions.length && /pagamento|pagou/.test(unpaidRental.reply)))
 
+      const delayedShift = await chat()('fechei o dia com 320 de corridas e gastei 90 de combustível depois de trabalhar 8 horas')
+      const spokenShift = await chat()('anteontem fechei o dia com trezentos e vinte reais e cinquenta centavos na Uber e paguei noventa reais e vinte e cinco centavos de etanol depois de rodar oito horas e meia')
+      const expectedShift = (r: typeof delayedShift, income: number, fuel: number, hours: number, date?: string, app?: string) =>
+        r.mode === 'propose_actions' && r.actions.length === 3
+        && r.actions.some(a => a.kind === 'income' && a.amount === income && a.date === date && a.description === app)
+        && r.actions.some(a => a.kind === 'fuel' && a.amount === fuel && a.date === date)
+        && r.actions.some(a => a.kind === 'work' && a.hours === hours && a.date === date)
+      out.push(result(`MOTOR-fechamento-depois-de-rodar-${fixture}`, [delayedShift.actions, spokenShift.actions],
+        'receita, combustível e duração na mesma jornada, com centavos e data comuns',
+        expectedShift(delayedShift, 320, 90, 8) && expectedShift(spokenShift, 320.50, 90.25, 8.5, anteontem, 'Uber')))
+
+      const telegraphic = chat()
+      const pendingCash = await telegraphic('800 de corridas, 300 pendentes na Uber e 150 de gasolina')
+      const cash = await telegraphic('sim')
+      const unspecifiedApp = await chat()('ontem oitocentos reais de corridas, trezentos pendentes na noventa e nove e cento e cinquenta de etanol')
+      const owed = chat()
+      const unpaid = await owed('a Uber me deve 300 das corridas de ontem')
+      const nowPaid = await owed('caiu 300 da Uber hoje')
+      out.push(result(`MOTOR-repasse-telegrafico-e-divida-${fixture}`, [pendingCash, cash, unspecifiedApp, unpaid, nowPaid].map(r => [r.mode, r.actions, r.reply]),
+        'pergunta se a parte pendente integra o total e só propõe receita quando o pagamento é informado',
+        pendingCash.mode === 'clarify' && /300,00.*inclu.*800,00/.test(pendingCash.reply)
+        && pendingCash.actions.length === 1 && pendingCash.actions[0].kind === 'fuel' && payout(cash, 500)
+        && unspecifiedApp.mode === 'clarify' && /300,00.*inclu.*800,00/.test(unspecifiedApp.reply)
+        && unspecifiedApp.actions.length === 1 && unspecifiedApp.actions[0].kind === 'fuel'
+        && unspecifiedApp.actions[0].fuelType === 'Etanol' && unspecifiedApp.actions[0].date === ontem
+        && unpaid.mode === 'answer' && !unpaid.actions.length && /Uber.*300,00.*receber/.test(unpaid.reply)
+        && nowPaid.mode === 'propose_actions' && nowPaid.actions.length === 1
+        && nowPaid.actions[0].kind === 'income' && nowPaid.actions[0].amount === 300
+        && nowPaid.actions[0].description === 'Uber' && nowPaid.actions[0].date === hoje))
+
+      const mixedDate = chat()
+      await mixedDate('ontem fiz 800 na Uber e 150 de gasolina, 300 ainda não caiu')
+      const todayPaid = await mixedDate('recebi 500 hoje')
+      const reverse = chat()
+      await reverse('fiz 800 na Uber e 150 de gasolina, 300 ainda não caiu')
+      const yesterdayPaid = await reverse('500 entrou ontem')
+      const noPayment = []
+      for (const reply of ['ainda não recebi nada', 'caiu 0']) {
+        const followUp = chat()
+        await followUp('fiz 800 na Uber e 150 de gasolina, 300 ainda não caiu')
+        const zero = await followUp(reply)
+        const confirmFuel = await followUp('confirma')
+        noPayment.push([zero, confirmFuel])
+      }
+      out.push(result(`MOTOR-repasse-resposta-com-data-${fixture}`, [todayPaid, yesterdayPaid, ...noPayment.flat()].map(r => [r.mode, r.actions, r.reply]),
+        'mantém plataforma e combustível, separa data do recebimento da data do gasto e aceita que nada entrou',
+        [todayPaid, yesterdayPaid].every((r, i) => r.mode === 'propose_actions' && r.actions.length === 2
+          && r.actions.some(a => a.kind === 'income' && a.amount === 500 && a.description === 'Uber' && a.date === (i ? ontem : hoje))
+          && r.actions.some(a => a.kind === 'fuel' && a.amount === 150 && a.date === (i ? undefined : ontem)))
+        && noPayment.every(([zero, confirm]) => zero.mode === 'answer' && zero.keepPending && !zero.actions.length
+          && /recebeu|recebimento/.test(zero.reply) && /botão/.test(confirm.reply))))
+
+      const offered = [
+        ['tocaram duas corridas, uma de quarenta reais com dez km de ida e outra de trinta reais com sete km de ida, qual vale mais?', 40, 30, 10, 7],
+        ['tocaram duas corridas: 40 reais ida de 10 km e 30 reais ida de 7 km, qual vale mais?', 40, 30, 10, 7],
+        ['primeira corrida 45 reais, 3 km até o passageiro mais 12 km de viagem. segunda corrida 39 reais, 2 km até o passageiro e 10 km de viagem. qual paga mais por km?', 45, 39, 15, 12],
+        ['duas ofertas: corrida de 40 por 10 km e corrida de 30 por 7 km, qual paga mais por km?', 40, 30, 10, 7],
+      ] as const
+      const compared = await Promise.all(offered.map(([phrase]) => chat()(phrase)))
+      out.push(result(`MOTOR-ofertas-enumeradas-${fixture}`, compared.map(r => [r.mode, r.actions, r.reply]),
+        'compara preços e distâncias de cada oferta, sem lançar receita nem trabalho',
+        compared.every((r, i) => {
+          const [, a, b, kmA, kmB] = offered[i]
+          return r.mode === 'answer' && !r.actions.length && /A segunda/.test(r.reply)
+            && r.reply.includes(`${fmtBRL(a)} em ${kmA} km`) && r.reply.includes(`${fmtBRL(b)} em ${kmB} km`)
+        })))
+
+      const creditNotice = await chat()('a noventa e nove tá me devendo trezentos e cinquenta das corridas de anteontem')
+      const notPaid = await chat()('a Uber ainda não pagou 300 das corridas de ontem')
+      const independentFuel = await chat()('a Uber me deve 300 das corridas de ontem e hoje abasteci 90 de gasolina')
+      out.push(result(`MOTOR-divida-com-outros-fatos-${fixture}`, [creditNotice, notPaid, independentFuel].map(r => [r.mode, r.actions, r.reply]),
+        'descreve o repasse pendente sem receita e preserva o abastecimento confirmado pelo relato',
+        creditNotice.mode === 'answer' && !creditNotice.actions.length && /99.*350,00.*receber/.test(creditNotice.reply)
+        && notPaid.mode === 'answer' && !notPaid.actions.length && /Uber.*300,00.*receber/.test(notPaid.reply)
+        && independentFuel.mode === 'propose_actions' && independentFuel.actions.length === 1 && /Uber.*300,00/.test(independentFuel.reply)
+        && independentFuel.actions[0].kind === 'fuel' && independentFuel.actions[0].amount === 90 && independentFuel.actions[0].date === hoje))
+
+      const partialShift = await chat()('fiz 320 em 8 horas, 90 de combustível, mas faltam 150 pra cair')
+      const firstApp = await chat()('hoje na Uber deu 350 os 150 estão pendentes ainda')
+      const connector = chat()
+      const pendingFuel = await connector('deu 350 na Uber com 150 ainda não caiu e gastei 90 gasolina')
+      const spokenReceipt = await connector('recebi 200 da Uber hoje')
+      const reverseDebt = await chat()('me devem 350 da Uber pelas corridas de ontem')
+      out.push(result(`MOTOR-repasse-na-jornada-${fixture}`, [partialShift, firstApp, pendingFuel, spokenReceipt, reverseDebt].map(r => [r.mode, r.actions, r.reply]),
+        'segura o total potencial em relatos de jornada e preserva o combustível com a confirmação de recebimento',
+        [partialShift, firstApp, pendingFuel].every(r => r.mode === 'clarify' && !r.actions.some(a => a.kind === 'income') && /150,00.*inclu/.test(r.reply))
+        && partialShift.actions.length === 2 && partialShift.actions.some(a => a.kind === 'fuel' && a.amount === 90)
+        && partialShift.actions.some(a => a.kind === 'work' && a.hours === 8)
+        && spokenReceipt.mode === 'propose_actions' && spokenReceipt.actions.length === 2
+        && spokenReceipt.actions.some(a => a.kind === 'income' && a.description === 'Uber' && a.amount === 200 && a.date === hoje)
+        && spokenReceipt.actions.some(a => a.kind === 'fuel' && a.amount === 90)
+        && reverseDebt.mode === 'answer' && !reverseDebt.actions.length && /Uber.*350,00.*receber/.test(reverseDebt.reply)))
+
+      const terseApps = await chat()('400 de 99 e 250 de Uber, 22 corridas e 8h, 80 de gasolina')
+      const clockAndFuel = await chat()('rodei das seis as treze e meia, fiz 400 na 99 e deu 85 gasolina')
+      out.push(result(`MOTOR-lista-de-apps-e-combustivel-${fixture}`, [terseApps, clockAndFuel].map(r => [r.mode, r.actions, r.reply]),
+        'mantém os dois apps como receita e não perde o combustível separado no ditado',
+        terseApps.mode === 'propose_actions' && terseApps.actions.length === 4
+        && terseApps.actions.some(a => a.kind === 'income' && a.amount === 400 && a.description === '99')
+        && terseApps.actions.some(a => a.kind === 'income' && a.amount === 250 && a.description === 'Uber')
+        && terseApps.actions.some(a => a.kind === 'work' && a.hours === 8 && a.trips === 22)
+        && terseApps.actions.some(a => a.kind === 'fuel' && a.amount === 80)
+        && clockAndFuel.mode === 'propose_actions' && clockAndFuel.actions.length === 3
+        && clockAndFuel.actions.some(a => a.kind === 'income' && a.amount === 400 && a.description === '99')
+        && clockAndFuel.actions.some(a => a.kind === 'work' && a.hours === 7.5)
+        && clockAndFuel.actions.some(a => a.kind === 'fuel' && a.amount === 85)))
+
       out.push(result(`MOTOR-sem-gravacao-${fixture}`, JSON.stringify(state) === snapshot, true, JSON.stringify(state) === snapshot))
     }
+  }
+
+  {
+    const hoje = todayISO()
+    const ontem = addDays(hoje, -1)
+    const anteontem = addDays(hoje, -2)
+    const state = buildState({ profile: 'driver' })
+    state.workSessions = [
+      { id: 'ontem', date: ontem, hours: 8, trips: 14, km: 170 },
+      { id: 'anteontem', date: anteontem, hours: 0, trips: 9, km: 115 },
+    ]
+    const turn = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>) =>
+      orchestrate({ state, today: hoje, message, remoteEnabled: false, pending: prior?.response.actions,
+        pendingClarification: prior?.response.mode === 'clarify' ? prior.response.clarification : undefined,
+        draft: prior?.draft || undefined, focus: prior?.focus })
+    const snapshot = JSON.stringify(state)
+    const edit = await turn('corrige as horas de ontem para 6')
+    const amended = await turn('na verdade 7 horas', edit)
+    const zero = await turn('corrige as horas de ontem para zero')
+    const polite = await turn('pode corrigir as horas de ontem para seis?')
+    const wholeShift = await turn('corrige a jornada de ontem, trabalhei 6 horas')
+    const amendedBare = await turn('na verdade 7', edit)
+    const spoken = await turn('as horas de ontem foram seis horas e meia, não oito')
+    const ambiguous = await turn('corrige as horas de trabalho para seis')
+    const alternateIntent = await turn('800 de corridas, 300 pendentes na Uber e 150 de gasolina', ambiguous)
+    const dated = await turn('foi anteontem', ambiguous)
+    const noOp = await turn('corrige as horas de ontem para 8')
+    const missing = await turn('corrige as horas de hoje para 6')
+    const wrongOld = await turn('as horas de ontem foram 6 e não 9')
+    const future = await turn('corrige as horas de amanhã para 6')
+    const question = await turn('quantas horas trabalhei ontem?')
+    const duplicate = await orchestrate({ state: { ...state, workSessions: [...state.workSessions, { ...state.workSessions[0], id: 'outro' }] },
+      message: 'corrige as horas de ontem para 6', today: hoje, remoteEnabled: false })
+    const now = { date: hoje, time: '15:20' }
+    const confirmation = await turn('confirmar', edit)
+    const applied = applyBatchPure(state, edit.response.actions, { now, batchId: 'hours-edit' })
+    const appliedZero = applyBatchPure(state, zero.response.actions, { now })
+    const remote = validateAction(edit.response.actions[0]?.action, buildCapabilities(state), hoje, { allowRemoteOnly: true })
+    const otherProfile = applyBatchPure({ ...state, settings: { ...state.settings, profile: 'other' } }, edit.response.actions, { now })
+    const retry = applyBatchPure(applied.state, edit.response.actions, { now })
+    const concurrent = { ...state, workSessions: state.workSessions.map(w => w.id === 'ontem' ? { ...w, hours: 9 } : w) }
+    const stale = applyBatchPure(concurrent, edit.response.actions, { now })
+    const reverted = revertBatchPure(applied.state, 'hours-edit', hoje + 'T15:21')
+    const exposesAction = (output: typeof edit, date: string, hours: number, expectedHours: number) =>
+      output.response.mode === 'propose_actions' && output.response.actions.length === 1 && /Confirmar[?]/.test(output.response.reply)
+      && output.response.actions.some(({ action }) => {
+        const data = action as unknown as Record<string, unknown>
+        return data.kind === 'edit-work-hours' && data.date === date && data.hours === hours && data.expectedHours === expectedHours
+      })
+    out.push(result('MOTOR-horas-salvas-substituem-e-exigem-confirmacao',
+      [edit, amended, amendedBare, zero, polite, wholeShift, spoken, ambiguous, alternateIntent, dated, noOp, missing, wrongOld, future, question, duplicate, confirmation].map(r => r.response),
+      'seleciona a data sem gravar, recusa conflito e mantém as outras medidas após confirmar',
+      exposesAction(edit, ontem, 6, 8) && exposesAction(spoken, ontem, 6.5, 8)
+      && exposesAction(amended, ontem, 7, 8) && exposesAction(amendedBare, ontem, 7, 8) && !/R\$/.test(amended.response.reply)
+      && exposesAction(zero, ontem, 0, 8) && exposesAction(polite, ontem, 6, 8) && exposesAction(wholeShift, ontem, 6, 8)
+      && alternateIntent.response.mode === 'clarify' && /300,00.*inclu.*800,00/.test(alternateIntent.response.reply)
+      && alternateIntent.response.actions.length === 1 && alternateIntent.response.actions[0].action.kind === 'fuel'
+      && ambiguous.response.mode === 'clarify' && !ambiguous.response.actions.length && exposesAction(dated, anteontem, 6, 0)
+      && [noOp, missing, wrongOld, future, question, duplicate, confirmation].every(r => !r.response.actions.length)
+      && /botão/.test(confirmation.response.reply) && JSON.stringify(state) === snapshot
+      && applied.applied && applied.state.workSessions.length === 2
+      && JSON.stringify(applied.state.workSessions[0]) === JSON.stringify({ ...state.workSessions[0], hours: 6 })
+      && applied.state.workSessions[1] === state.workSessions[1] && applied.state.transactions === state.transactions
+      && appliedZero.applied && appliedZero.state.workSessions[0].hours === 0
+      && isValidationFailure(remote) && remote.code === 'unsupported-action' && !otherProfile.applied
+      && !stale.applied && stale.state === concurrent && !retry.applied && retry.state === applied.state
+      && !isRevertFailure(reverted) && JSON.stringify(reverted.state.workSessions) === JSON.stringify(state.workSessions)))
   }
 
   return out

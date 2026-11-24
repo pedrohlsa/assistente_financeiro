@@ -12,6 +12,7 @@ import type { AppState, AssistantJournalEntry, ParsedAction, Transaction } from 
 import { isRevertFailure, lastReversibleBatch, revertBatchPure } from './journal'
 import { editActionFor, findEditCandidates, parseEditRequest, parseSpokenCorrection } from './editSaved'
 import type { EditableTxField } from './editSaved'
+import { readWorkHoursEdit } from './editWorkHours'
 import { editBlockReason, findGoalByExactName } from './execute'
 import { matchInvoiceChoice, prepareInvoicePayments } from './invoicePayment'
 import type {
@@ -35,7 +36,7 @@ import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } fr
 import { elapsedMinutes, spokenClock } from './semantic/clock'
 import { continueRideOffer, interpretRideOffer, reviseRideOffer } from './rideOffer'
 import { reconcileSpokenTotals } from './spokenTotals'
-import { partialRidePayoutChoice, readPartialRidePayout, readPlatformPayout } from './platformPayout'
+import { partialRidePayoutChoice, readPartialRidePayout, readPlatformPayout, readRideDebt, ridePayoutPlatformName } from './platformPayout'
 import { readCardPurchaseDue, resolveCardPurchaseDue } from './cardPurchaseDue'
 import { conflictQuestion, evidenceFor, mergeByField, sameFact } from './semantic/evidence'
 import { classifyLocalDecision } from './semantic/confidence'
@@ -59,7 +60,7 @@ import { buildCapabilities } from './capabilities'
 import { describeAction, META_OUTRA, NEXT_RIDE_DISTANCE, SAQUE, partesDoDia, totalComDoisPontos } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
 import { catById, guessCategory, usableCategories } from '../data/categories'
-import { addDays, fmtBRL, MESES_PT_BR, nowPaymentTime, nowTime, parseMoney, todayISO, uid } from '../utils/format'
+import { addDays, fmtBRL, fmtNum, MESES_PT_BR, nowPaymentTime, nowTime, parseMoney, todayISO, uid } from '../utils/format'
 import { matchRecurringPayment, occurrencesBetween, possibleRecurringTransactions, recurringActiveOn, recurringLinkAction } from '../services/calc'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { normalizeNumberWords } from './numbers'
@@ -1206,6 +1207,64 @@ function answerFinancialEvent(input: OrchestratorInput, question: AssistantClari
   return proposeClarifiedActions(input.state, validated, today, input.pending)
 }
 
+function prepareWorkHoursEdit(input: OrchestratorInput, caps: AssistantCapabilities, today: string): OrchestratorOutput | undefined {
+  const request = readWorkHoursEdit(input.message, today)
+  const pending = input.pendingClarification?.workHoursEdit
+  if (!request && !pending) return undefined
+
+  const edit = request?.edit || pending
+  const dates = request?.dates
+  const date = dates?.length === 1 ? dates[0] : request ? undefined : dateInAnswer(input.message, today)
+  const response = { version: ASSISTANT_CONTRACT_VERSION, engine: 'local' as const, actions: [] as [], unresolved: [] }
+  const context = { draft: null, keepPending: true, focus: input.focus }
+  const answer = (reply: string): OrchestratorOutput => ({ ...context, response: { ...response, mode: 'answer', reply } })
+
+  if (!request && !date) {
+    const text = normalizeName(input.message).replace(/[.!]+$/, '')
+    if (/^(?:cancela|cancelar|esquece|deixa pra la)$/.test(text)) return answer('Descartei o pedido de correção das horas.')
+    if (looksLikeQuestion(input.message) || looksPast(input.message)) return undefined
+  }
+  if (!Number.isFinite(edit.hours) || edit.hours < 0 || edit.hours > 24
+    || (edit.previousHours !== undefined && !Number.isFinite(edit.previousHours))) {
+    return answer('Informe o total correto de horas do dia, de 0 a 24.')
+  }
+
+  if (date?.kind !== 'date') {
+    if (!input.state.workSessions.length) return answer('Você ainda não tem uma jornada salva para corrigir.')
+    const question = date?.kind === 'future'
+      ? 'Essa data ainda não chegou. De que dia é a jornada que você quer corrigir?'
+      : 'De que dia é a jornada que você quer corrigir?'
+    return { ...context, response: { ...response, mode: 'clarify', reply: question,
+      clarification: { field: 'work-hours-date', question, workHoursEdit: edit } } }
+  }
+
+  const sessions = input.state.workSessions.filter(w => w.date === date.date)
+  const [session] = sessions
+  const day = brDate(date.date)
+  if (!session) return answer(`Não encontrei uma jornada salva em ${day}. Diga a data do registro que quer corrigir.`)
+  if (sessions.length !== 1 || !session.id || !Number.isFinite(session.hours)
+    || input.state.workSessions.filter(w => w.id === session.id).length !== 1) {
+    return answer(`Encontrei registros de jornada que precisam ser conferidos em ${day}. Preciso de uma única jornada para corrigir as horas do dia.`)
+  }
+
+  const storedHours = Math.round(session.hours * 1000) / 1000
+  if (edit.previousHours !== undefined && edit.previousHours !== storedHours) {
+    return answer(`Em ${day} tenho ${fmtNum(storedHours, 3)}h salvas. Confira o dia e o valor que quer corrigir.`)
+  }
+  if (edit.hours === storedHours) return answer(`A jornada de ${day} já está com ${fmtNum(storedHours, 3)}h.`)
+
+  const previous = input.pending || []
+  if (previous.some(p => p.action.kind === 'work' && (p.action.date || today) === date.date)) {
+    return answer(`Há um registro de trabalho de ${day} aguardando confirmação. Resolva esse registro antes de corrigir as horas salvas.`)
+  }
+  const others = previous.filter(p => p.action.kind !== 'edit-work-hours' || p.action.workId !== session.id)
+  if (others.length >= MAX_ACTIONS_PER_BATCH) return answer('Confirme ou retire algum item da proposta antes de acrescentar a correção das horas.')
+
+  const action: ParsedAction = { kind: 'edit-work-hours', workId: session.id, date: date.date, hours: edit.hours, expectedHours: storedHours }
+  const result = proposeDatedActions({ ...input, pending: others }, [action], caps, today)
+  return others.length !== previous.length ? { ...result, correctedPending: result.response.actions } : result
+}
+
 function preparePartialRidePayout(input: OrchestratorInput, caps: AssistantCapabilities, today: string): OrchestratorOutput | undefined {
   const payout = readPartialRidePayout(input.message)
   if (!payout) return undefined
@@ -1798,6 +1857,18 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (caps.isDriver) {
     const partialPayout = preparePartialRidePayout(input, caps, today)
     if (partialPayout) return partialPayout
+    const debt = readRideDebt(input.message)
+    if (debt) {
+      const note = `${debt.platform} ainda deve ${fmtBRL(debt.amount)} pelas corridas. Quando receber, diga quanto caiu e em que dia.`
+      if (debt.tail) {
+        const rest = await orchestrate({ ...input, message: debt.tail, draft: undefined, pendingClarification: undefined })
+        return { ...rest, response: { ...rest.response, reply: `${note}\n\n${rest.response.reply}` } }
+      }
+      return { draft: null, keepPending: true, focus: input.focus,
+        response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply: note } }
+    }
+    const workHours = prepareWorkHoursEdit(input, caps, today)
+    if (workHours) return workHours
   }
   if (caps.isDriver && /^(?:(?:eu|hoje|ontem|anteontem)\s+)*reservei\b[^?;.!]*\bmas\s+(?:ainda\s+)?n[aã]o\s+paguei[.!]*$/i.test(input.message)
     && guessCategory(input.message, 'expense') === 'aluguel-veiculo') {
@@ -1939,10 +2010,31 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     }
     const income = (pc.options?.find(o => o.value === 'excluded')?.actions || pc.pendingActions)?.find(a => a.kind === 'income')
     const total = income?.amount
-    const exact = normalizeName(normalizeNumberWords(input.message).text).match(/^(?:nao\s*,\s*)?(?:eu\s+)?(?:recebi|caiu|cairam|entrou|entraram)\s+(?:so\s+|apenas\s+)?(.+?)(?:\s+na\s+conta)?[.!]*$/)
-    const value = exact && exactMoneyAnswer(exact[1])
-    if (income && value > 0 && value <= total) {
-      return proposeDatedActions(input, [{ ...income, amount: value }], caps, today, true)
+    const receiptText = normalizeName(normalizeNumberWords(input.message).text).replace(/[.!]+$/, '')
+    const dates = findAllDates(receiptText, today)
+    const receiptDay = dates[0]
+    const undated = dates.reduceRight((text, date) => text.slice(0, date.start) + ' ' + text.slice(date.end), receiptText)
+      .trim().replace(/^[, ]+|[, ]+$/g, '').replace(/\s+/g, ' ')
+    const namedApp = undated.match(/\s+(?:d[ao]|n[ao]|pel[ao])\s+(uber|99|indrive[r]?)$/)
+    const platform = namedApp && ridePayoutPlatformName(namedApp[1])
+    const receipt = namedApp ? undated.slice(0, namedApp.index) : undated
+    const afterVerb = receipt.match(/^(?:nao\s*,\s*)?(?:eu\s+)?(?:recebi|caiu|cairam|entrou|entraram)\s+(?:so\s+|apenas\s+)?(.+?)(?:\s+na\s+conta)?$/)
+    const beforeVerb = receipt.match(/^(.+?)\s+(?:caiu|cairam|entrou|entraram)(?:\s+na\s+conta)?$/)
+    const value = exactMoneyAnswer(afterVerb?.[1] || beforeVerb?.[1] || '')
+    const noPayment = /^(?:eu\s+)?(?:ainda\s+)?nao\s+(?:recebi|caiu|entrou)\s+(?:nada|nem\s+um\s+centavo)(?:\s+ainda)?$/.test(undated)
+    if (value === 0 || noPayment) return {
+      draft: null, keepPending: true, focus: input.focus,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
+        reply: 'Você ainda não recebeu por essas corridas. Quando o repasse cair, diga o valor e o dia do recebimento.' },
+    }
+    if (income && value > 0 && value <= total && (!dates.length || (dates.length === 1 && receiptDay.kind === 'date'))) {
+      if (platform && income.description && normalizeName(platform) !== normalizeName(income.description)) return {
+        draft: null, keepPending: true, focus: input.focus,
+        response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [],
+          reply: `O repasse em aberto foi informado como ${income.description}. ${pc.question}`, clarification: pc },
+      }
+      const date = receiptDay?.kind === 'date' ? receiptDay.date : income.date
+      return proposeDatedActions(input, [{ ...income, amount: value, date, description: platform || income.description }], caps, today, true)
     }
     const included = pc.options?.find(o => o.value === 'included')
     const received = included?.actions?.find(a => a.kind === 'income')?.amount || 0

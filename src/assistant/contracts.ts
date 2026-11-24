@@ -261,6 +261,15 @@ export const ACTION_CATALOG: ActionSpec[] = [
     ],
   },
   {
+    kind: 'edit-work-hours', label: 'Corrigir horas trabalhadas', driverOnly: true, remoteAllowed: false,
+    fields: [
+      { ...textField('workId', 'identificador da jornada salva', 128), required: true, editable: false },
+      { ...dateField, required: true, editable: false },
+      { name: 'hours', type: 'quantity', required: true, min: 0, max: 24, describe: 'novo total de horas do dia' },
+      { name: 'expectedHours', type: 'quantity', required: true, editable: false, describe: 'horas salvas antes da proposta' },
+    ],
+  },
+  {
     kind: 'recurring-confirm', label: 'Confirmar conta fixa',
     // Nasce de uma despesa com o nome de uma conta fixa em aberto: em vez de
     // recusar e mandar para a Home, o chat propõe confirmar a ocorrência. A IA
@@ -440,6 +449,7 @@ export interface AssistantClarification {
   rideOffer?: PendingRideOffer
   /** Compra dividida que precisa de uma data comum a todos os meios de pagamento. */
   pendingPaymentText?: string
+  workHoursEdit?: import('./editWorkHours').WorkHoursEdit
 }
 
 export interface AssistantUnresolvedClause {
@@ -608,7 +618,7 @@ export function validateAction(
       case 'quantity': {
         if (!isFiniteNum(v)) return { ok: false, code: 'invalid-number', detail: f.name }
         if (v < (f.min ?? -Infinity) || v > (f.max ?? Infinity)) return { ok: false, code: 'invalid-number', detail: f.name }
-        if (v === 0) continue // zero não acrescenta nada
+        if (v === 0 && !f.required) continue // zero não acrescenta nada em medidas opcionais
         out[f.name] = Math.round(v * 1000) / 1000
         break
       }

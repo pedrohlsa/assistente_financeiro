@@ -27,15 +27,23 @@ import { normalizeNumberWords } from '../numbers'
 import { findAllDates } from '../dates'
 import { COMPOUND_DURATION, elapsedMinutes } from './clock'
 
-
-
 const REPORTED_MONEY = String.raw`(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?`
 const PLATFORM_INCOME = String.raw`(?:na|no|da|do|de|pela|pelo)\s+(?:uber|99|in\s*driver?)\b`
 const RIDE_INCOME = String.raw`(?<income>${REPORTED_MONEY}\s+(?:de\s+corridas?(?:\s+${PLATFORM_INCOME})?|${PLATFORM_INCOME}))`
-const FUEL_SPEND = String.raw`(?:\s+e\s+(?<fuel>${REPORTED_MONEY}\s+de\s+(?:combust[íi]vel|gasolina|gasosa|etanol|[áa]lcool|diesel|gnv)))?`
+const FUEL_WORD = 'combust[íi]vel|gasolina|gasosa|etanol|[áa]lcool|diesel|gnv'
+const FUEL_EXPENSE = String.raw`(?<fuel>${REPORTED_MONEY}\s+de\s+(?:${FUEL_WORD}))`
+const FUEL_RESULT = new RegExp(
+  String.raw`(^|(?:[,;.]\s*|\s+e\s+))deu\s+(${REPORTED_MONEY})\s+(?:de\s+)?(${FUEL_WORD})(?=\s*(?:[.!]|$))`,
+  'i',
+)
+const FUEL_SPEND = String.raw`(?:\s+e\s+${FUEL_EXPENSE})?`
 const REPORTED_DURATION = String.raw`(?:${COMPOUND_DURATION}|\d+(?:[.,]\d+)?\s*(?:h|hrs?|horas?))`
 const CLOSED_SHIFT = new RegExp(
   String.raw`^fechei\s+(?<duration>${REPORTED_DURATION})\s+(?:no\s+volante|de\s+trabalho|dirigindo)(?:,?\s+(?:com|e)\s+${RIDE_INCOME}${FUEL_SPEND})?[.!]*$`,
+  'i',
+)
+const CLOSED_DAY_AFTER_WORK = new RegExp(
+  String.raw`^fechei\s+(?:meu|o)\s+(?:dia|turno)\s+com\s+${RIDE_INCOME}(?:\s+e\s+(?:gastei|paguei|abasteci)\s+${FUEL_EXPENSE})?\s+depois\s+de\s+(?:trabalhar|rodar|dirigir)\s+(?<duration>${REPORTED_DURATION})[.!]*$`,
   'i',
 )
 const RIDE_RESULT = new RegExp(String.raw`^(?:deu|deram)\s+${RIDE_INCOME}${FUEL_SPEND}[.!]*$`, 'i')
@@ -47,16 +55,18 @@ const HOURS_AFTER_PLATFORM = new RegExp(
 /** Dá verbos próprios aos valores e medidas em um relato compacto de uma só jornada. */
 export function expandDriverReport(message: string, today: string): string {
   if (!/\b(?:fechei|deu|deram|fiz|faturei|ganhei)\b/i.test(message) || /[?]|\b(?:n[aã]o|nem|nunca|se|talvez|ou)\b/i.test(message)) return message
-  const text = normalizeNumberWords(message).text.trim()
+  const normalized = normalizeNumberWords(message).text.trim()
+  const text = normalized.replace(FUEL_RESULT, '$1gastei $2 de $3')
+  const withFuel = text === normalized ? message : text
   const dates = findAllDates(text, today)
   const [date] = dates
-  if (dates.length > 1) return message
+  if (dates.length > 1) return withFuel
   const withoutDate = (date ? text.slice(0, date.start) + text.slice(date.end) : text).trim().replace(/^,\s*/, '')
-  const parts = (withoutDate.match(CLOSED_SHIFT) || withoutDate.match(RIDE_RESULT))?.groups
+  const parts = (withoutDate.match(CLOSED_SHIFT) || withoutDate.match(CLOSED_DAY_AFTER_WORK) || withoutDate.match(RIDE_RESULT))?.groups
   if (!parts) {
-    if (!/^(?:eu\s+)?(?:fiz|faturei|ganhei)\s/i.test(withoutDate)) return message
+    if (!/^(?:eu\s+)?(?:fiz|faturei|ganhei)\s/i.test(withoutDate)) return withFuel
     const repaired = text.replace(HOURS_AFTER_PLATFORM, '$1trabalhei $2')
-    return repaired === text ? message : repaired
+    return repaired === text ? withFuel : repaired
   }
   const { duration, income, fuel } = parts
   const when = date ? text.slice(date.start, date.end) : ''
@@ -158,9 +168,12 @@ export function parseDriverDay(message: string, opts: { driver: boolean }): Driv
     }
 
     // --- receita por plataforma: "430 uber" ------------------------------
-    const plat = plataformaDe(seguinte) || (/^(?:na|no|da|do|pela|pelo)$/i.test(seguinte) ? plataformaDe(depois) : null)
+    const directApp = plataformaDe(seguinte)
+    const depoisDoApp = tokens[i + 3] || ''
+    const countInsteadOfApp = seguinte === 'de' && depois === '99' && /^(?:corridas?|viagens?|reais?|km|horas?)$/.test(depoisDoApp)
+    const plat = directApp || (!countInsteadOfApp && /^(?:na|no|de|da|do|pela|pelo)$/.test(seguinte) ? plataformaDe(depois) : null)
     if (plat) {
-      const used = plataformaDe(seguinte) ? 1 : 2
+      const used = directApp ? 1 : 2
       const reportedNet = LIQUIDO.test(tokens[i + used + 1] || '')
       actions.push({ kind: 'income', amount: valor, category: 'corridas', description: plat, ...(reportedNet ? { reportedNet } : {}) })
       reconhecidos += 1 + used + Number(reportedNet)

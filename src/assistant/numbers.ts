@@ -160,6 +160,11 @@ export function findNumberWords(text: string): NumberWordMatch[] {
   let i = 0
   while (i < tokens.length) {
     if (!isNumberWord(tokens[i].w)) { i++; continue }
+    // "Uma de quarenta reais": "uma" refere-se ao item e quarenta é seu preço.
+    if (/^(?:um|uma|dois|duas)$/.test(strip(tokens[i].w)) && strip(tokens[i + 1]?.w || '') === 'de') {
+      i++
+      continue
+    }
     let j = i
     const seq: string[] = []
     const platform = /\b(?:na|no|da|do|pela|pelo|via|app)\s*$/i.test(text.slice(Math.max(0, tokens[i].start - 12), tokens[i].start))

@@ -2355,6 +2355,7 @@ export function describeAction(a: ParsedAction, categoryName?: (id: string) => s
       return `Assinatura${a.description ? ` ${a.description}` : ''} de ${fmtBRL(a.amount)}/mês${a.cardName ? ` no ${a.cardName}` : ''}`
     case 'reset': return 'Apagar TODOS os dados do app'
     case 'undo-batch': return 'Desfazer o último registro do assistente'
+    case 'edit-work-hours': return `Corrigir horas trabalhadas de ${fmtNum(a.expectedHours, 3)}h para ${fmtNum(a.hours, 3)}h`
     case 'edit-transaction': return 'Corrigir um lançamento já salvo'
     case 'recurring-confirm': {
       const venc = /^\d{4}-\d{2}-\d{2}$/.test(a.occurrenceDate || '') ? a.occurrenceDate.split('-').reverse().join('/') : ''
