@@ -11633,6 +11633,90 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         spacedPlatform.every(([r, amount, date]) => r.mode === 'propose_actions' && r.actions.length === 1
           && r.actions.some(a => a.kind === 'income' && a.description === 'inDrive' && a.amount === amount && a.date === date))))
 
+      const waitingShort = await chat()('esperando 300 da Uber e gastei 90 de gasolina ontem')
+      const expenseBeforeDebt = await chat()('paguei 80 de gasolina hoje mas 300 da 99 ainda não entrou')
+      const debtAfterFuel = await chat()('ontem abasteci 80 e a 99 ainda me deve 300')
+      const debtBeforeExpense = await chat()('ainda tem 200 da 99 pra cair, gastei 60,55 de gasolina ontem')
+      const knownReceipt = await chat()('do total 800 na Uber recebi só 500, os outros 300 não caíram e abasteci 70')
+      const approximatePending = await chat()('hoje foi 350 da Uber e uns 150 não caiu, com 80 de gasolina')
+      const grossWithPending = chat()
+      const shorthandPending = await grossWithPending('800 da Uber com 300 pra cair, 90 de gasolina ontem')
+      const includeShorthand = await grossWithPending('já está no total')
+      const payoutAfterShift = chat()
+      const pendingFromUber = await payoutAfterShift('ontem fiz 800 de corridas mas a Uber ainda não pagou 300, rodei 180 km')
+      const includeUber = await payoutAfterShift('sim')
+      const fuelOnly = (r: typeof waitingShort, amount: number, date: string, app: string) =>
+        r.mode === 'propose_actions' && r.actions.length === 1
+        && r.actions.some(a => a.kind === 'fuel' && a.amount === amount && a.date === date) && r.reply.includes(app)
+      out.push(result(`MOTOR-repasse-pendente-depois-da-despesa-${fixture}`,
+        [waitingShort, expenseBeforeDebt, debtAfterFuel, debtBeforeExpense].map(r => [r.mode, r.actions, r.reply]),
+        'reconhece o dinheiro ainda pendente e conserva a despesa, na ordem em que foi dita',
+        fuelOnly(waitingShort, 90, ontem, 'Uber')
+        && fuelOnly(expenseBeforeDebt, 80, hoje, '99')
+        && fuelOnly(debtAfterFuel, 80, ontem, '99')
+        && fuelOnly(debtBeforeExpense, 60.55, ontem, '99')))
+      out.push(result(`MOTOR-repasse-com-valor-recebido-e-restante-${fixture}`, [knownReceipt, approximatePending],
+        'usa o valor recebido quando é exato e pergunta quanto caiu quando o restante é aproximado',
+        knownReceipt.mode === 'propose_actions' && knownReceipt.actions.length === 2
+        && knownReceipt.actions.some(a => a.kind === 'income' && a.amount === 500 && a.description === 'Uber')
+        && knownReceipt.actions.some(a => a.kind === 'fuel' && a.amount === 70)
+        && approximatePending.mode === 'clarify' && /quanto já caiu/.test(approximatePending.reply)
+        && approximatePending.actions.length === 1
+        && approximatePending.actions.some(a => a.kind === 'fuel' && a.amount === 80 && a.date === hoje)))
+      out.push(result(`MOTOR-total-da-jornada-e-pendencia-em-ordens-informais-${fixture}`,
+        [shorthandPending, includeShorthand, pendingFromUber, includeUber].map(r => [r.mode, r.actions, r.reply]),
+        'preserva lançamentos independentes enquanto esclarece se a pendência faz parte do faturamento',
+        shorthandPending.mode === 'clarify' && shorthandPending.actions.length === 1 && /300,00.*800,00/.test(shorthandPending.reply)
+        && shorthandPending.actions.some(a => a.kind === 'fuel' && a.amount === 90 && a.date === ontem)
+        && includeShorthand.mode === 'propose_actions' && includeShorthand.actions.length === 2
+        && includeShorthand.actions.some(a => a.kind === 'income' && a.amount === 500 && a.description === 'Uber')
+        && pendingFromUber.mode === 'clarify' && pendingFromUber.actions.length === 1
+        && pendingFromUber.actions.some(a => a.kind === 'work' && a.km === 180 && a.date === ontem)
+        && includeUber.mode === 'propose_actions' && includeUber.actions.length === 2
+        && includeUber.actions.some(a => a.kind === 'income' && a.amount === 500 && a.date === ontem && !a.description)))
+
+      const receiptWithWallet = await Promise.all([
+        ['recebi 400 hoje da 99 mas 250 já estavam na carteira ontem', 400, hoje, '99'],
+        ['recebi quatrocentos e vinte reais e trinta centavos da Uber anteontem, mas 150,25 ficaram na carteira', 420.30, anteontem, 'Uber'],
+      ].map(async ([say, amount, date, app]) => ({ turn: await chat()(String(say)), amount, date, app })))
+      out.push(result(`MOTOR-recebimento-e-saldo-que-ja-estava-na-carteira-${fixture}`, receiptWithWallet,
+        'propõe o que entrou com sua data e identifica o saldo da carteira sem gerar outro recebimento',
+        receiptWithWallet.every(({ turn, amount, date, app }) => turn.mode === 'propose_actions' && turn.actions.length === 1
+          && turn.actions.some(a => a.kind === 'income' && a.amount === amount && a.date === date && a.description === app)
+          && /saldo na carteira/.test(turn.reply))))
+
+      const scaledRate = await Promise.all(['quanto a Uber me pagou por 100 km ontem?',
+        'qual foi o ganho a cada cem quilômetros na 99 ontem?', 'qual pagou mais a cada dez viagens ontem Uber ou 99?'].map(say => chat()(say)))
+      out.push(result(`MOTOR-indicador-por-quantidade-e-plataforma-${fixture}`, scaledRate,
+        'explica que o histórico diário não permite calcular a taxa por plataforma, mesmo com denominador explícito',
+        scaledRate.every(r => r.mode === 'answer' && !r.actions.length && /dia|di[aá]ri/.test(r.reply) && !/R\$\s*\d/.test(r.reply))
+          && scaledRate.slice(0, 2).every(r => /quilômetros/.test(r.reply)) && /viagens/.test(scaledRate[2].reply)))
+
+      const compositeCorrection = chat()
+      const compositeStart = await compositeCorrection('ganhei 350 na Uber, 150 na 99, abasteci 80 de gasolina e trabalhei 7 horas ontem')
+      const compositeEnd = await compositeCorrection('tira a da 99 e bota cento e sessenta vírgula cinco quilômetros')
+      out.push(result(`MOTOR-retira-app-e-corrige-jornada-na-mesma-frase-${fixture}`, [compositeStart, compositeEnd],
+        'retira só a receita da 99 e altera os km da jornada pendente, preservando os demais campos',
+        compositeStart.actions.length === 4 && compositeEnd.mode === 'propose_actions' && compositeEnd.actions.length === 3
+        && compositeEnd.actions.some(a => a.kind === 'income' && a.amount === 350 && a.description === 'Uber')
+        && compositeEnd.actions.some(a => a.kind === 'fuel' && a.amount === 80)
+        && compositeEnd.actions.some(a => a.kind === 'work' && a.hours === 7 && a.km === 160.5 && a.date === ontem)))
+
+      const retarget = chat()
+      await retarget('ontem fiz 800 na Uber, 150 de gasolina e 300 ainda não caiu')
+      const originalApp = await retarget('sim')
+      const correctedApp = await retarget('foi da noventa e nove')
+      const ambiguousApp = chat()
+      await ambiguousApp('ganhei 350 na Uber, 150 na 99, abasteci 80 de gasolina e trabalhei 7 horas ontem')
+      const whichApp = await ambiguousApp('foi da in drive')
+      out.push(result(`MOTOR-corrige-apenas-origem-de-um-recebimento-de-corridas-${fixture}`, [originalApp, correctedApp, whichApp],
+        'corrige a única receita de corridas e pede o item quando há mais de uma',
+        originalApp.actions.some(a => a.kind === 'income' && a.amount === 500 && a.description === 'Uber' && a.date === ontem)
+        && correctedApp.mode === 'propose_actions' && correctedApp.actions.length === 2
+        && correctedApp.actions.some(a => a.kind === 'income' && a.amount === 500 && a.description === '99' && a.date === ontem)
+        && correctedApp.actions.some(a => a.kind === 'fuel' && a.amount === 150)
+        && whichApp.mode === 'clarify' && whichApp.keepPending && /qual receita/i.test(whichApp.reply)))
+
       out.push(result(`MOTOR-sem-gravacao-${fixture}`, JSON.stringify(state) === snapshot, true, JSON.stringify(state) === snapshot))
     }
   }

@@ -402,14 +402,45 @@ function parseClockCorrection(message: string, pending: AssistantCandidateAction
 }
 
 const DRIVER_APP = String.raw`(?<app>uber|99|${APP_99}|in\s*driver?)\b`
-const DRIVER_REMOVE = new RegExp(String.raw`^(?:tira|retira|remove|exclui|apaga)\s+(?:[ao]\s+)?${DRIVER_APP}(?<when>.*)$`)
+const DRIVER_REMOVE = new RegExp(String.raw`^(?:tira|retira|remove|exclui|apaga)\s+(?:[ao]\s+)?(?:d[ao]\s+)?${DRIVER_APP}(?<when>.*)$`)
 const DRIVER_AMOUNT = new RegExp(String.raw`^[ao]\s+d[ao]\s+${DRIVER_APP}(?<when>.*?)\s+(?:foi|era|deu)\s+(?:r\$\s*)?(?<amount>\d+(?:[.,]\d+)*)(?:\s+reais?)?(?:(?:,\s*|\s+e\s+)nao\s+(?:foi\s+)?(?:r\$\s*)?(?<previous>\d+(?:[.,]\d+)*)(?:\s+reais?)?)?$`)
+const DRIVER_SOURCE = new RegExp(String.raw`^(?:foi|era|veio)\s+(?:d[ao]|n[ao]|pel[ao])\s+${DRIVER_APP}$`)
 const WORK_MEASURE = /^\s*(?:n[ãa]o[\s,]+)?(?:(?:na\s+(?:real|verdade)|ops|ou\s+melhor)[\s,]+)?(?:foram|foi|era|eram|s[ãa]o)?\s*(\d+(?:[.,]\d+)?)\s*(km|quil[oô]metros?|h|hrs?|horas?|corridas?|viagens?)\s*(?:e\s+n[ãa]o\s+\d+(?:[.,]\d+)?\s*\S*)?\s*$/
 
 function correctDriverProposal(message: string, pending: AssistantCandidateAction[], caps: AssistantCapabilities, today: string,
   plan: CorrectionPlan): CorrectionPlan | null {
   const text = normalizeName(message).replace(/[.!]+$/, '').trim()
   if (!caps.isDriver || text.includes('?')) return null
+  const source = pending.length > 1 && text.match(DRIVER_SOURCE)?.groups.app
+  if (source) {
+    const rides = pending.filter(p => p.action.kind === 'income' && p.action.category === 'corridas')
+    if (rides.length > 1) {
+      plan.ambiguous = { question: 'Qual receita de corridas você quer corrigir? Diga o valor atual e a plataforma certa.' }
+      return plan
+    }
+    const [ride] = rides
+    if (ride?.action.kind === 'income') {
+      const revision = revisedAction(ride.action, `da ${source === normalizeName(APP_99) ? '99' : source}`, today)
+      if (revision?.kind !== 'income' || !validateAction(revision, caps, today).ok) return null
+      for (const field of ['description', 'origin', 'is99'] as const) {
+        if (ride.action[field] !== revision[field]) plan.edits.push({ id: ride.id, field, value: revision[field], was: ride.action[field] })
+      }
+      plan.summary.push(plan.edits.length ? `Atualizei a plataforma para ${revision.description}.` : 'Essa receita já está com a plataforma informada.')
+      return plan
+    }
+  }
+  const compound = text.match(/^(.+?)\s*,?\s+e\s+(?:bota|poe|coloca|atualiza(?:\s+para)?)\s+(.+)$/)
+  if (compound && DRIVER_REMOVE.test(compound[1]) && WORK_MEASURE.test(compound[2])) {
+    const blank = { ...plan, edits: [], remove: [], summary: [] }
+    const removal = correctDriverProposal(compound[1], pending, caps, today, blank)
+    const work = correctDriverProposal(compound[2], pending, caps, today, plan)
+    if (!removal?.remove.length || !work?.edits.length) {
+      return { ...blank, remove: [], summary: [], ambiguous: {
+        question: 'Qual receita quer retirar e qual jornada quer corrigir? Pode indicar os dias ou mandar cada correção separadamente.',
+      } }
+    }
+    return { ...work, remove: removal.remove, summary: [...removal.summary, ...work.summary] }
+  }
   const remove = text.match(DRIVER_REMOVE)
   const changeApp = remove ? null : text.match(DRIVER_AMOUNT)
   const selector = remove || changeApp

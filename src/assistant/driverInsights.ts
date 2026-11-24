@@ -408,8 +408,9 @@ export function compareRideApps(state: AppState, input: string, today: string): 
   const gap = names.length === 2 && APP_GAP.test(t)
   const direction = names.length === 2 ? t.match(APP_ORDER)?.[1] : undefined
   const shorthand = /r\$\s*\/\s*(h|hora|min|minuto|km|viagem|corrida)\b/
-  const unit = t.match(/\bpor\s+(hora|minutos?|km|quilometro|distancia|viagem|corrida)\b/)?.[1] || t.match(shorthand)?.[1]
-  const metric = unit === 'h' ? 'hora' : unit === 'distancia' ? 'km' : /^min/.test(unit || '') ? 'minuto' : unit
+  const unit = t.match(/\b(?:por|a\s+cada)\s+(?:\d+(?:[.,]\d+)?\s+)?(horas?|minutos?|km|quilometros?|distancia|viage(?:m|ns)|corridas?)\b/)?.[1] || t.match(shorthand)?.[1]
+  const metric = unit && (/^h/.test(unit) ? 'hora' : /^(?:quil|dist)/.test(unit) ? 'km'
+    : /^min/.test(unit) ? 'minuto' : /^viage/.test(unit) ? 'viagem' : unit.replace(/s$/, ''))
   const platform99 = /\b(?:da|do|na|no|pela|pelo|a|o|via|app|aplicativo)\s+99\b|\b99\s+(?:e|ou|versus|vs|contra)\b/.test(t)
   const appScope = names.some(name => name !== '99') || platform99
     || /\b(?:por|em cada|de cada)\s+(?:app|aplicativo|plataforma)s?\b/.test(t)
