@@ -11501,6 +11501,24 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && saidFrom99.actions.some(a => a.kind === 'income' && a.amount === 900 && a.description === 'Uber' && a.date === anteontem)
         && saidFrom99.actions.some(a => a.kind === 'income' && a.amount === 250 && a.description === '99' && a.date === ontem)))
 
+      const roughDates = chat()
+      const unpunctuated = await roughDates('ontem 900 da Uber e 250 da 99 hoje caiu 150 e o resto não entrou')
+      const sourcedToday = await roughDates('da 99')
+      const bothDatesTrailing = await chat()('anteontem foram 900 da Uber e 250 da 99. A 99 pagou só 150 dos 250 ontem')
+      const outsideApps = chat()
+      await outsideApps('ontem foram 900 da Uber e 250 da 99. Caiu 150 hoje')
+      const namedThird = await outsideApps('foi do in drive')
+      out.push(result(`MOTOR-repasse-com-data-no-fim-ou-aplicativo-novo-${fixture}`,
+        [unpunctuated, sourcedToday, bothDatesTrailing, namedThird].map(r => [r.mode, r.actions, r.reply]),
+        'preserva a origem e a data do recebimento com conectivos dispensáveis e app fora do fechamento',
+        unpunctuated.mode === 'clarify' && !unpunctuated.actions.length && /plataforma/.test(unpunctuated.reply)
+        && [sourcedToday, bothDatesTrailing].every((r, i) => r.mode === 'propose_actions' && r.actions.length === 2
+          && r.actions.some(a => a.kind === 'income' && a.description === 'Uber' && a.amount === 900 && a.date === (i ? anteontem : ontem))
+          && r.actions.some(a => a.kind === 'income' && a.description === '99' && a.amount === 150 && a.date === (i ? ontem : hoje)))
+        && namedThird.mode === 'propose_actions' && namedThird.actions.length === 3
+        && namedThird.actions.some(a => a.kind === 'income' && a.description === 'inDrive' && a.amount === 150 && a.date === hoje)
+        && namedThird.actions.some(a => a.kind === 'income' && a.description === '99' && a.amount === 250 && a.date === ontem)))
+
       out.push(result(`MOTOR-sem-gravacao-${fixture}`, JSON.stringify(state) === snapshot, true, JSON.stringify(state) === snapshot))
     }
   }

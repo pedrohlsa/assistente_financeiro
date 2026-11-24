@@ -36,7 +36,7 @@ import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } fr
 import { elapsedMinutes, spokenClock } from './semantic/clock'
 import { continueRideOffer, interpretRideOffer, reviseRideOffer } from './rideOffer'
 import { reconcileSpokenTotals } from './spokenTotals'
-import { hasRideSettlementVerb, partialRidePayoutChoice, readPartialRidePayout, readPayoutDatePart, readPlatformPayout, readRideDebt, readRideReportThenReceipt, readRideSettlement, readRideWallet, readShiftWithUnpaidPayout, ridePayoutPlatformName } from './platformPayout'
+import { hasRideSettlementVerb, partialRidePayoutChoice, readPartialRidePayout, readPayoutDatePart, readPlatformPayout, readRideDebt, readRidePayoutApp, readRideReportThenReceipt, readRideSettlement, readRideWallet, readShiftWithUnpaidPayout, ridePayoutPlatformName } from './platformPayout'
 import { readCardPurchaseDue, resolveCardPurchaseDue } from './cardPurchaseDue'
 import { conflictQuestion, evidenceFor, mergeByField, sameFact } from './semantic/evidence'
 import { classifyLocalDecision } from './semantic/confidence'
@@ -1351,6 +1351,13 @@ function prepareRideSettlement(input: OrchestratorInput, caps: AssistantCapabili
       payoutText = head.replace(serviceDate, '')
     } else if (!head.trim() && serviceDate.test(between) && /^[.!\s]*$/.test(tail)) {
       payoutText = between.replace(serviceDate, '')
+    } else if (!head.trim() && /^[.!\s]*$/.test(tail)) {
+      const split = [...between.matchAll(/(?:[.;,]\s+(?:e\s+)?|\s+e\s+)/gi)]
+        .find(part => readRideSettlement(between.slice(part.index + part[0].length).trim()))
+      if (!split) return undefined
+      shiftText = between.slice(0, split.index)
+      payoutText = between.slice(split.index + split[0].length)
+      paymentDay = paidOn
     } else return undefined
   }
   const payout = readRideSettlement(payoutText.trim().replace(/^[,;]\s*/, ''))
@@ -1458,12 +1465,13 @@ function prepareRideReceiptAcrossDates(input: OrchestratorInput, caps: Assistant
     return keepPendingClarification(input, { field: 'ride-payout-date-part', question, options, pendingActions: [paid, other] })
   }
 
-  // A segunda data precisa estar junto do verbo de recebimento.
-  if (!/(?:[,;.]\s*(?:e\s*)?|\s+e)\s*$/i.test(between)
-    && !/(?:[,;.]\s*|\s+e\s+)(?:e\s+)?(?:(?:s[oó]|apenas|somente)\s+)?(?:recebi|caiu|ca[ií]ram|entrou|entraram|veio|vieram)\b/i.test(between)) {
-    return undefined
-  }
-  const facts = readRideReportThenReceipt(between + ' ' + tail)
+  // A segunda data pertence ao recebimento quando vem junto de seu verbo.
+  const receiptStarts = /^(?:(?:s[oó]|apenas|somente)\s+)?(?:recebi|caiu|ca[ií]ram|entrou|entraram|veio|vieram)\b/i.test(tail)
+  const explicitSeparator = /(?:[,;.]\s*(?:e\s*)?|\s+e)\s*$/i.test(between)
+  const receiptBeforeDate = /(?:[,;.]\s*|\s+e\s+)(?:e\s+)?(?:(?:s[oó]|apenas|somente)\s+)?(?:recebi|caiu|ca[ií]ram|entrou|entraram|veio|vieram)\b/i.test(between)
+  if (!receiptStarts && !receiptBeforeDate && !explicitSeparator) return undefined
+  const bridge = receiptStarts && !explicitSeparator ? ', ' : ' '
+  const facts = readRideReportThenReceipt(between.trimEnd() + bridge + tail)
   if (!facts) return undefined
   if (!facts.platform && facts.amount) {
     if (!/^(?:(?:foram|deu|deram|fiz|ganhei|faturei)\s+)?(?:r\$\s*)?\d/.test(facts.report)) return undefined
@@ -2513,6 +2521,13 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     }
     if (choice && /^in\s*drive[r]?$/.test(choice)) choice = 'indrive'
     const picked = pc.options?.find(option => option.value === choice || normalizeName(option.label) === said)
+    if (!picked && pc.field === 'ride-multi-source' && choice) {
+      const platform = readRidePayoutApp(choice)
+      const receipt = pc.options?.[0]?.actions?.find(action => action.kind === 'income')
+      if (platform && receipt) return proposeDatedActions(input, [
+        ...(pc.pendingActions || []), { ...receipt, description: platform },
+      ], caps, today)
+    }
     if (picked?.actions) {
       if (pc.field === 'ride-multi-source') {
         const receipt = picked.actions.find(action => action.kind === 'income')

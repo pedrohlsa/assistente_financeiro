@@ -217,10 +217,16 @@ export function readRideSettlement(message: string) {
     origin: parts.origin ? ridePayoutPlatformName(parts.origin) : undefined }
 }
 
+const EXACT_PAYOUT_APP = new RegExp(String.raw`^${PAYOUT_APP}$`, 'i')
+
+export function readRidePayoutApp(text: string): string | undefined {
+  return EXACT_PAYOUT_APP.test(text) ? ridePayoutPlatformName(text) : undefined
+}
+
 const REPORTED_THEN_RECEIVED = new RegExp([
   String.raw`^(?<report>.+?)`,
   String.raw`(?:[,;.]+\s*(?:e\s+)?|\s+e\s+)(?:(?<only>so|apenas|somente)\s+)?(?:recebi|caiu|cairam|entrou|entraram|veio|vieram)`,
-  String.raw`(?:\s+(?:(?<reference>os|o|so|apenas|somente|mais)\s+)?${MONEY('net')}(?:\s+na\s+(?:minha\s+)?conta)?)?\s*[.!]*$`,
+  String.raw`(?:\s+(?:(?<reference>os|o|so|apenas|somente|mais)\s+)?${MONEY('net')}(?:\s+na\s+(?:minha\s+)?conta)?)?${SETTLEMENT_REMAINDER}?\s*[.!]*$`,
 ].join(''))
 const SINGLE_RIDE_REPORT = new RegExp(
   String.raw`^(?:eu\s+)?(?<earned>fiz|ganhei|faturei)\s+${MONEY('total')}\s+(?:n[ao]|d[ao]|pel[ao])\s+${PLATFORM}$`,
@@ -236,7 +242,7 @@ export function readRideReportThenReceipt(text: string) {
   const named = report.match(SINGLE_RIDE_REPORT)?.groups
   const amount = parts.net === undefined ? undefined : parseMoney(parts.net)
   if (amount !== undefined && !(amount > 0)) return undefined
-  const relation: 'same' | 'separate' | undefined = parts.reference === 'mais' ? 'separate' : parts.only || parts.reference || named?.earned === 'faturei' ? 'same' : undefined
+  const relation: 'same' | 'separate' | undefined = parts.pendingRest ? 'same' : parts.reference === 'mais' ? 'separate' : parts.only || parts.reference || named?.earned === 'faturei' ? 'same' : undefined
   return { report, platform: named ? ridePayoutPlatformName(named.platform) : undefined, total: named ? parseMoney(named.total) : undefined, amount, relation }
 }
 
