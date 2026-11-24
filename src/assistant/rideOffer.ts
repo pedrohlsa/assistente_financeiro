@@ -48,10 +48,22 @@ const IS_OUTBOUND = /\bida\b/
 const IS_TOTAL = new RegExp(String.raw`\b${TOTAL}\b`)
 const DISTANCE = new RegExp(String.raw`(?<![\d.,-])${NUMBER}\s*(kms?|quilometros?|m|metros?)\b`, 'g')
 const TIME = new RegExp(String.raw`(?<![\d.,-])(?:${COMPOUND_DURATION}|${NUMBER}\s*(min|minutos?|h|horas?))\b`, 'gi')
+const SHARED_ROUTE_ROLE = String.raw`(?:${PICKUP}|d[aeo]\s+(?:viagem|trajeto)|${RIDER_ON_BOARD}|${RETURN})\b`
+const ROUTE_LIST_SEPARATOR = String.raw`(?:,\s*(?:e\s+)?|\s+e\s+)`
+const ROUTE_LIST_VALUE = String.raw`${ROUTE_LIST_SEPARATOR}${NUMBER}\s+${SHARED_ROUTE_ROLE}`
+const ROUTE_UNIT_LIST = new RegExp(String.raw`\b\d+(?:[.,]\d+)*\s*(?<unit>kms?|quilometros?|min|minutos?)\s+${SHARED_ROUTE_ROLE}(?<items>(?:${ROUTE_LIST_VALUE})+)`, 'g')
+const UNITLESS_ROUTE_MEASURE = new RegExp(String.raw`(${ROUTE_LIST_SEPARATOR})${NUMBER}(?=\s+${SHARED_ROUTE_ROLE})`, 'g')
 type Part = keyof Measures
 type Quote = Omit<PendingRideOffer, 'missing'>
 
 type RideOfferAnswer = { reply: string; pending?: PendingRideOffer; done?: Quote }
+
+function expandSharedRouteUnits(text: string): string {
+  return text.replace(ROUTE_UNIT_LIST, (whole, ...captures) => {
+    const { unit, items } = captures[captures.length - 1] as { unit: string; items: string }
+    return whole.slice(0, -items.length) + items.replace(UNITLESS_ROUTE_MEASURE, `$1$2 ${unit}`)
+  })
+}
 
 function measured(t: string, units: RegExp, readValue: (match: RegExpMatchArray) => number | undefined): Measures | undefined {
   const result: Measures = {}
@@ -207,7 +219,7 @@ function splitOffers(text: string): string[] {
 export function interpretRideOffer(state: AppState, input: string, context = input): RideOfferAnswer | undefined {
   const notice = input.match(RIDE_OFFER_NOTICE)
   if (!isDriver(state.settings) || looksPast(notice ? input.replace(RIDE_OFFER_NOTICE, ' ') : input)) return undefined
-  const text = normalizeNumberWords(normalizeName(input)).text
+  const text = expandSharedRouteUnits(normalizeNumberWords(normalizeName(input)).text)
   const compare = RIDE_COMPARISON_REQUEST.test(text)
   const alternatives = splitOffers(text)
   const enumerated = ENUMERATED_OFFERS.test(text) && COMPARA_DOIS.test(text)
@@ -228,7 +240,7 @@ export function answerRideOffer(state: AppState, input: string, context = input)
 }
 
 const SPOKEN_AMOUNT = new RegExp(String.raw`^(?:(?:paga|o\s+valor\s+e)\s+)?(?:r\$\s*)?${NUMBER}(?:\s+(?:reais?|contos?|pila))?$`)
-const MEASURE_WORDS = new RegExp(String.raw`\b(?:${OUTBOUND_WITH_PICKUP}|${PICKUP}|${TRIP}|${RETURN}|${OUTBOUND}|${TOTAL}|mais|volto|sao|da|deu|pagam?|e|embarque|buscar|tempo|distancia|aproximacao|de|no|na|em|pra|para|ida)\b`, 'g')
+const MEASURE_WORDS = new RegExp(String.raw`\b(?:${OUTBOUND_WITH_PICKUP}|${PICKUP}|${TRIP}|${RETURN}|${OUTBOUND}|${TOTAL}|mais|volto|sao|da|deu|pagam?|e|embarque|buscar|tempo|distancia|aproximacao|de|no|na|em|pra|para|ida|[ao])\b`, 'g')
 const UNCERTAIN_DETAILS = /\bou\b|\b(?:cerca\s+de|mais\s+ou\s+menos|acho\s+que|talvez)\b/
 
 function onlyRideMeasures(text: string): boolean {
@@ -251,7 +263,7 @@ function asksAboutReturn(distance?: Measures): boolean {
 export function continueRideOffer(state: AppState, pending: PendingRideOffer, input: string): RideOfferAnswer | undefined {
   if (!isDriver(state.settings) || looksPast(input)) return undefined
   if (perceivesDrivingFatigue(input)) return { reply: PARE_PARA_DESCANSAR }
-  const text = normalizeNumberWords(normalizeName(input)).text.replace(/[.!?]+$/, '').trim()
+  const text = expandSharedRouteUnits(normalizeNumberWords(normalizeName(input)).text).replace(/[.!?]+$/, '').trim()
   const saidIncluded = /^(?:sim|(?:ja\s+)?inclu(?:i|em)(?:\s+(?:a\s+)?volta|\s+(?:o\s+)?retorno)?)$/.test(text)
   const saidExcluded = /^(?:nao(?:\s+inclu(?:i|em)(?:\s+(?:a\s+)?volta|\s+(?:o\s+)?retorno)?)?|(?:so|somente)\s+(?:a\s+|de\s+)?ida)$/.test(text)
   const saidOutward = text.match(/^(?:os\s+)?(\d+(?:[.,]\d+)*)(?:\s*km)?\s+(?:sao|e)\s+(?:so|somente)\s+(?:a\s+|de\s+)?ida$/)
@@ -340,7 +352,7 @@ const PARTE_DA_ROTA = /\b(?:retorno|volta|voltando|embarque|passageiro|buscar|vi
  */
 export function reviseRideOffer(state: AppState, last: Quote, input: string): RideOfferAnswer | undefined {
   if (!isDriver(state.settings) || looksPast(input)) return undefined
-  const text = normalizeNumberWords(normalizeName(input)).text.replace(/[.!?]+$/, '').trim()
+  const text = expandSharedRouteUnits(normalizeNumberWords(normalizeName(input)).text).replace(/[.!?]+$/, '').trim()
   const addMeasures = (/\d/.test(text) && onlyRideMeasures(text))
   if ((!addMeasures && (!REVISAO.test(text) || !PARTE_DA_ROTA.test(text))) || !/\d/.test(text)) return undefined
   if (/\b(?:paguei|gastei|recebi|ganhei|rodei|fiz|abasteci)\b/.test(text)) return undefined
