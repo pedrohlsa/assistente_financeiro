@@ -65,6 +65,13 @@ function expandSharedRouteUnits(text: string): string {
   })
 }
 
+function normalizeRideOfferText(input: string): string {
+  // O ditado pode separar o preço e a distância com vírgula. Dígitos grudados
+  // na vírgula continuam sendo decimais, e “vírgula” por extenso também.
+  const chunks = normalizeName(input).split(/,\s+/).map(part => normalizeNumberWords(part).text)
+  return expandSharedRouteUnits(chunks.join(', '))
+}
+
 function measured(t: string, units: RegExp, readValue: (match: RegExpMatchArray) => number | undefined): Measures | undefined {
   const result: Measures = {}
   for (const match of t.matchAll(units)) {
@@ -219,11 +226,11 @@ function splitOffers(text: string): string[] {
 export function interpretRideOffer(state: AppState, input: string, context = input): RideOfferAnswer | undefined {
   const notice = input.match(RIDE_OFFER_NOTICE)
   if (!isDriver(state.settings) || looksPast(notice ? input.replace(RIDE_OFFER_NOTICE, ' ') : input)) return undefined
-  const text = expandSharedRouteUnits(normalizeNumberWords(normalizeName(input)).text)
+  const text = normalizeRideOfferText(input)
   const compare = RIDE_COMPARISON_REQUEST.test(text)
   const alternatives = splitOffers(text)
   const enumerated = ENUMERATED_OFFERS.test(text) && COMPARA_DOIS.test(text)
-  const comparesTwo = alternatives.length === 2 && COMPARA_DOIS.test(text)
+  const comparesTwo = alternatives.length === 2 && (compare || COMPARA_DOIS.test(text))
     && alternatives.every(part => amountForOffer(part, true) !== undefined && !!part.match(DISTANCE))
   const quotedRoute = amountForOffer(text) !== undefined && !!text.match(DISTANCE)
     && /\b(?:ida|volta|voltando|voltar|retorno|embarque|passageiro|destino|aproximacao)\b/.test(text)
@@ -263,7 +270,7 @@ function asksAboutReturn(distance?: Measures): boolean {
 export function continueRideOffer(state: AppState, pending: PendingRideOffer, input: string): RideOfferAnswer | undefined {
   if (!isDriver(state.settings) || looksPast(input)) return undefined
   if (perceivesDrivingFatigue(input)) return { reply: PARE_PARA_DESCANSAR }
-  const text = expandSharedRouteUnits(normalizeNumberWords(normalizeName(input)).text).replace(/[.!?]+$/, '').trim()
+  const text = normalizeRideOfferText(input).replace(/[.!?]+$/, '').trim()
   const saidIncluded = /^(?:sim|(?:ja\s+)?inclu(?:i|em)(?:\s+(?:a\s+)?volta|\s+(?:o\s+)?retorno)?)$/.test(text)
   const saidExcluded = /^(?:nao(?:\s+inclu(?:i|em)(?:\s+(?:a\s+)?volta|\s+(?:o\s+)?retorno)?)?|(?:so|somente)\s+(?:a\s+|de\s+)?ida)$/.test(text)
   const saidOutward = text.match(/^(?:os\s+)?(\d+(?:[.,]\d+)*)(?:\s*km)?\s+(?:sao|e)\s+(?:so|somente)\s+(?:a\s+|de\s+)?ida$/)
@@ -352,7 +359,7 @@ const PARTE_DA_ROTA = /\b(?:retorno|volta|voltando|embarque|passageiro|buscar|vi
  */
 export function reviseRideOffer(state: AppState, last: Quote, input: string): RideOfferAnswer | undefined {
   if (!isDriver(state.settings) || looksPast(input)) return undefined
-  const text = expandSharedRouteUnits(normalizeNumberWords(normalizeName(input)).text).replace(/[.!?]+$/, '').trim()
+  const text = normalizeRideOfferText(input).replace(/[.!?]+$/, '').trim()
   const addMeasures = (/\d/.test(text) && onlyRideMeasures(text))
   if ((!addMeasures && (!REVISAO.test(text) || !PARTE_DA_ROTA.test(text))) || !/\d/.test(text)) return undefined
   if (/\b(?:paguei|gastei|recebi|ganhei|rodei|fiz|abasteci)\b/.test(text)) return undefined

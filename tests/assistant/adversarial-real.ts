@@ -11781,8 +11781,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const mismatchParts = await reviewParts('recebi quinhentos reais da 99 hoje, sendo trezentos e cinquenta de ontem e cento e sessenta de anteontem')
       const reconciledBreakdown = await reviewParts('recebi 510')
       const datedPartialWithFuel = await chat()('ontem ganhei 800 na Uber, recebi 500 hoje e ainda faltam 300, paguei 90 de gasolina ontem')
+      const splitWithFuel = await chat()('recebi 500 da Uber hoje, eram 350 de ontem e 150 de anteontem, paguei 40 de etanol hoje')
       out.push(result(`MOTOR-repasse-de-varios-dias-e-restante-com-combustivel-${fixture}`,
-        [receiptSplitAcrossDays, mismatchParts, reconciledBreakdown, datedPartialWithFuel],
+        [receiptSplitAcrossDays, mismatchParts, reconciledBreakdown, datedPartialWithFuel, splitWithFuel],
         'parcelas do repasse explicam sua composição e a despesa mantém seu próprio dia',
         receiptSplitAcrossDays.mode === 'propose_actions' && receiptSplitAcrossDays.actions.length === 1
         && receiptSplitAcrossDays.actions.some(a => a.kind === 'income' && a.amount === 500 && a.description === 'Uber' && a.date === hoje)
@@ -11791,7 +11792,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && reconciledBreakdown.actions.some(a => a.kind === 'income' && a.amount === 510 && a.description === '99' && a.date === hoje)
         && datedPartialWithFuel.mode === 'propose_actions' && datedPartialWithFuel.actions.length === 2
         && datedPartialWithFuel.actions.some(a => a.kind === 'income' && a.amount === 500 && a.description === 'Uber' && a.date === hoje)
-        && datedPartialWithFuel.actions.some(a => a.kind === 'fuel' && a.amount === 90 && a.date === ontem)))
+        && datedPartialWithFuel.actions.some(a => a.kind === 'fuel' && a.amount === 90 && a.date === ontem)
+        && splitWithFuel.mode === 'propose_actions' && splitWithFuel.actions.length === 2
+        && splitWithFuel.actions.some(a => a.kind === 'income' && a.amount === 500 && a.description === 'Uber' && a.date === hoje)
+        && splitWithFuel.actions.some(a => a.kind === 'fuel' && a.amount === 40 && a.fuelType === 'Etanol' && a.date === hoje)))
+
+      const walletOut = chat()
+      const walletOutQuestion = await walletOut('nos apps hoje deu 700 da Uber e 300 da 99. Só saiu 200 da carteira da 99')
+      const walletOutConfirmed = await walletOut('caiu 200 hoje')
+      out.push(result(`MOTOR-saida-da-carteira-precisa-destino-${fixture}`, [walletOutQuestion, walletOutConfirmed],
+        'mantém o outro app e pergunta se o dinheiro saiu para a conta, sem presumir que foi uma despesa',
+        walletOutQuestion.mode === 'clarify' && walletOutQuestion.actions.length === 1 && /200,00.*caíram na sua conta/.test(walletOutQuestion.reply)
+        && walletOutQuestion.actions.some(a => a.kind === 'income' && a.amount === 700 && a.description === 'Uber' && a.date === hoje)
+        && walletOutConfirmed.mode === 'propose_actions' && walletOutConfirmed.actions.length === 2
+        && walletOutConfirmed.actions.some(a => a.kind === 'income' && a.amount === 200 && a.description === '99' && a.date === hoje)))
 
       const shortFeeSettlements = await Promise.all([
         ['Uber deu 400, descontou 70 de taxa e só entrou 330', 330, undefined],
@@ -11811,14 +11825,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       await durations('corrida de 40, 3 km até embarcar, oito de viagem e cinco de retorno, 25 minutos só da viagem, vale?')
       const pickupTime = await durations('o tempo até buscar é 10 min')
       const returnTime = await durations('e de volta 15 minutos')
-      out.push(result(`MOTOR-oferta-com-unidades-compartilhadas-no-ditado-${fixture}`, [fullSpokenRoute, changedSpokenRoute, partialSpokenRoute, pickupTime, returnTime],
+      const spokenFareWithComma = await chat()('corrida de quarenta, dois quilômetros até o passageiro, oito de viagem e cinco de retorno. São vinte minutos só com passageiro. Vale?')
+      const compareShort = await chat()('comparar por hora 45 por 10 km no total e 30 min só com passageiro ou 60 por 18 km no total e 40 min no total')
+      out.push(result(`MOTOR-oferta-com-unidades-compartilhadas-no-ditado-${fixture}`, [fullSpokenRoute, changedSpokenRoute, partialSpokenRoute, pickupTime, returnTime, spokenFareWithComma, compareShort],
         'propaga a unidade só na lista do mesmo trecho e preserva o tempo parcial ou completo como informado',
         [fullSpokenRoute, changedSpokenRoute, partialSpokenRoute].every(r => r.mode === 'answer' && !r.actions.length)
         && /15 km no total/.test(fullSpokenRoute.reply) && /5 km de retorno/.test(fullSpokenRoute.reply) && /hora líquida.*45 min/.test(fullSpokenRoute.reply)
         && /17 km no total/.test(changedSpokenRoute.reply) && /7 km de retorno/.test(changedSpokenRoute.reply)
         && /15 km no total/.test(partialSpokenRoute.reply) && /tempo total incluindo o retorno/.test(partialSpokenRoute.reply) && !/hora líquida/.test(partialSpokenRoute.reply)
         && pickupTime.mode === 'answer' && !pickupTime.actions.length && /tempo total incluindo o retorno/.test(pickupTime.reply)
-        && returnTime.mode === 'answer' && !returnTime.actions.length && /16 km no total/.test(returnTime.reply) && /hora líquida.*50 min/.test(returnTime.reply)))
+        && returnTime.mode === 'answer' && !returnTime.actions.length && /16 km no total/.test(returnTime.reply) && /hora líquida.*50 min/.test(returnTime.reply)
+        && spokenFareWithComma.mode === 'answer' && !spokenFareWithComma.actions.length && /15 km no total/.test(spokenFareWithComma.reply)
+        && /2,67\/km bruto/.test(spokenFareWithComma.reply) && !/hora líquida/.test(spokenFareWithComma.reply)
+        && compareShort.mode === 'answer' && !compareShort.actions.length && /^Para comparar por hora/.test(compareShort.reply)
+        && /Primeira.*10 km/.test(compareShort.reply) && /Segunda.*18 km/.test(compareShort.reply)))
 
       const scaledRate = await Promise.all(['quanto a Uber me pagou por 100 km ontem?',
         'qual foi o ganho a cada cem quilômetros na 99 ontem?', 'a Uber me pagou quanto por cada 100 km ontem?',
