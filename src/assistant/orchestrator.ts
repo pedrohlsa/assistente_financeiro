@@ -36,7 +36,7 @@ import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } fr
 import { elapsedMinutes, spokenClock } from './semantic/clock'
 import { continueRideOffer, interpretRideOffer, reviseRideOffer } from './rideOffer'
 import { reconcileSpokenTotals } from './spokenTotals'
-import { partialRidePayoutChoice, readPartialRidePayout, readPlatformPayout, readRideDebt, readRideSettlement, readRideWallet, readShiftWithUnpaidPayout, ridePayoutPlatformName } from './platformPayout'
+import { hasRideSettlementVerb, partialRidePayoutChoice, readPartialRidePayout, readPlatformPayout, readRideDebt, readRideSettlement, readRideWallet, readShiftWithUnpaidPayout, ridePayoutPlatformName } from './platformPayout'
 import { readCardPurchaseDue, resolveCardPurchaseDue } from './cardPurchaseDue'
 import { conflictQuestion, evidenceFor, mergeByField, sameFact } from './semantic/evidence'
 import { classifyLocalDecision } from './semantic/confidence'
@@ -1273,7 +1273,7 @@ async function prepareShiftWithAppHours(input: OrchestratorInput, caps: Assistan
   if (!shift) return undefined
 
   const { minutes, sum, rest, date, when } = shift
-  if (minutes === sum) {
+  if (!shift.confirmHours) {
     const duration = `${Math.floor(minutes / 60)}h${minutes % 60 ? String(minutes % 60).padStart(2, '0') : ''}`
     if (rest) {
       const payoutMessage = [when, rest.replace(/[.!]+$/, '') + `, trabalhei ${minutes / 60} horas`].filter(Boolean).join(' ')
@@ -1321,7 +1321,7 @@ function payoutLinkChoice(prior: Extract<ParsedAction, { kind: 'income' }>, rece
 }
 
 function prepareRideSettlement(input: OrchestratorInput, caps: AssistantCapabilities, today: string): OrchestratorOutput | undefined {
-  if (!/\b(?:pagou|repassou|depositou|transferiu)\b/i.test(input.message) || input.message.includes('?')) return undefined
+  if (!hasRideSettlementVerb(input.message) || input.message.includes('?')) return undefined
   const dates = findAllDates(input.message, today)
   if (dates.length > 2 || dates.some(date => date.kind !== 'date')) return undefined
   const [day, paidOn] = dates.filter(date => date.kind === 'date')
@@ -1355,11 +1355,11 @@ function prepareRideSettlement(input: OrchestratorInput, caps: AssistantCapabili
   }
   const payout = readRideSettlement(payoutText.trim().replace(/^[,;]\s*/, ''))
   if (!payout) return undefined
-  const { amount, payer, origin, reference, coveredTotal } = payout
+  const { amount, payer, origin, reference, coveredTotal, pendingRest, explicitPayment } = payout
   const conflict = origin && payer !== origin
-  const definiteReference = coveredTotal !== undefined || reference === 'os' || reference === 'o'
-  const explicitlySeparate = reference === 'mais' && coveredTotal === undefined
-  if (!paidOn && !conflict && !definiteReference) return undefined
+  const definiteReference = coveredTotal !== undefined || pendingRest || reference === 'os' || reference === 'o'
+  const explicitlySeparate = reference === 'mais' && coveredTotal === undefined && !pendingRest
+  if (!paidOn && !conflict && !definiteReference && !explicitPayment) return undefined
 
   const todayReceipt = (description: string): Extract<ParsedAction, { kind: 'income' }> => ({
     kind: 'income', category: 'corridas', description, amount, date: paymentDay?.date,
@@ -1377,7 +1377,8 @@ function prepareRideSettlement(input: OrchestratorInput, caps: AssistantCapabili
     const reportedOnApp = shiftWithoutTotal.filter((action): action is Extract<ParsedAction, { kind: 'income' }> =>
       action.kind === 'income' && action.description === (origin || payer))
     const referenceAmount = coveredTotal ?? amount
-    const matching = reportedOnApp.filter(action => action.amount === referenceAmount)
+    const matching = reportedOnApp.filter(action =>
+      pendingRest && coveredTotal === undefined ? action.amount > amount : action.amount === referenceAmount)
     if (!explicitlySeparate && matching.length > 1) return undefined
     matchingAction = !explicitlySeparate && matching.length === 1 ? matching[0] : undefined
     if (definiteReference && !matching.length && reportedOnApp.length) {
@@ -1520,16 +1521,48 @@ function preparePartialRidePayout(input: OrchestratorInput, caps: AssistantCapab
   }
 }
 
+function statedAccountBalance(said: string): number | undefined {
+  const statedBalance = said.match(/^(?:eu\s+)?(?:tenho|tinha|(?:estou|to|estava|tava|fiquei)\s+com)\s+(?:(?:so|apenas|somente)\s+)?(.+?)\s+na\s+(?:minha\s+)?conta$/)
+    || said.match(/^(?:o\s+|meu\s+)?saldo(?:\s+d[ae]\s+conta)?\s+(?:e|era|foi|ficou\s+em)\s+(?:de\s+)?(.+?)(?:\s+na\s+(?:minha\s+)?conta)?$/)
+  return exactMoneyAnswer(statedBalance?.[1] || '', true)
+}
+
+function prepareDriverBankReport(input: OrchestratorInput, caps: AssistantCapabilities, today: string): OrchestratorOutput | undefined {
+  if (!/\bconta\b/i.test(input.message) || input.message.includes('?')) return undefined
+  const text = normalizeName(normalizeNumberWords(input.message).text).trim().replace(/[.!]+$/, '')
+  const pieces = text.split(/;\s*|,\s+(?=\S)|,(?=[\p{L}])/u)
+  if (pieces.length !== 2) return undefined
+  const [account, activity] = pieces
+  const balance = /^(?:eu\s+)?(?:tenho|(?:estou|to)\s+com|(?:o\s+|meu\s+)?saldo(?:\s+d[ae]\s+conta)?\s+e)\b/.test(account)
+    ? statedAccountBalance(account) : undefined
+  if (balance !== undefined) {
+    const { value, platform, receiptDay, dates } = readPayoutReceiptAnswer(activity, today)
+    if (value > 0 && platform && dates.length === 1 && receiptDay.kind === 'date') {
+      return proposeDatedActions(input, [
+        { kind: 'income', amount: value, category: 'corridas', description: platform, date: receiptDay.date },
+        { kind: 'balance', amount: balance },
+      ], caps, today)
+    }
+    return undefined
+  }
+
+  const pix = exactMoneyAnswer(account.match(/^pix\s+na\s+(?:minha\s+)?conta\s+(?:deu|foi|ficou\s+em)\s+(.+)$/)?.[1] || '')
+  const due = pix > 0 ? readRideDebt(activity) : undefined
+  if (!due || due.tail) return undefined
+  const question = `${due.platform} ainda deve ${fmtBRL(due.amount)}. Os ${fmtBRL(pix)} no Pix entraram de fato ou eram o saldo da conta? Se entraram, diga o valor e a origem do pagamento.`
+  return keepPendingClarification(input, { field: 'driver-bank-pix', question, pendingActions: [{ kind: 'income', amount: pix }] })
+}
+
 function readPayoutReceiptAnswer(message: string, today: string) {
   const receiptText = normalizeName(normalizeNumberWords(message).text).replace(/[.!?]+$/, '')
   const dates = findAllDates(receiptText, today)
   const receiptDay = dates[0]
   const undated = dates.reduceRight((text, date) => text.slice(0, date.start) + ' ' + text.slice(date.end), receiptText)
-      .trim().replace(/^[, ]+|[, ]+$/g, '').replace(/\s+/g, ' ')
-  const namedApp = undated.match(/\s+(?:d[ao]|n[ao]|pel[ao])\s+(uber|99|in\s*drive[r]?)$/)
+    .trim().replace(/^[, ]+|[, ]+$/g, '').replace(/\s+/g, ' ')
+  const namedApp = undated.match(/(?:^|\s+)(?:d[ao]|n[ao]|pel[ao])\s+(uber|99|in\s*drive[r]?)$/)
   const platform = namedApp && ridePayoutPlatformName(namedApp[1])
   const receipt = namedApp ? undated.slice(0, namedApp.index) : undated
-  const afterVerb = receipt.match(/^(?:nao(?:\s+(?:e|era)\s+(?:o\s+)?saldo)?\s*,\s*)?(?:eu\s+)?(?:recebi|caiu|cairam|entrou|entraram)\s+(?:so\s+|apenas\s+|somente\s+)?(.+?)(?:\s+na\s+(?:minha\s+)?conta)?$/)
+  const afterVerb = receipt.match(/^(?:nao(?:\s+(?:e|era)\s+(?:o\s+)?saldo)?\s*,\s*)?(?:eu\s+)?(?:recebi|veio|caiu|cairam|entrou|entraram)\s+(?:so\s+|apenas\s+|somente\s+)?(.+?)(?:\s+na\s+(?:minha\s+)?conta)?$/)
   const beforeVerb = receipt.match(/^(.+?)\s+(?:caiu|cairam|entrou|entraram)(?:\s+na\s+(?:minha\s+)?conta)?$/)
   const value = exactMoneyAnswer(afterVerb?.[1] || beforeVerb?.[1] || '')
   const noPayment = /^(?:eu\s+)?(?:ainda\s+)?nao\s+(?:recebi|caiu|entrou)\s+(?:nada|nem\s+um\s+centavo)(?:\s+ainda)?$/.test(receipt)
@@ -2145,6 +2178,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const workHours = prepareWorkHoursEdit(input, caps, today)
     if (workHours) return workHours
     if (!input.draft && !input.pendingClarification) {
+      const bankReport = prepareDriverBankReport(input, caps, today)
+      if (bankReport) return bankReport
       const platformHours = await prepareShiftWithAppHours(input, caps, today)
       if (platformHours) return platformHours
     }
@@ -2299,6 +2334,32 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const corrected = await correctPendingKeepingClarification(input, command, pc, caps, today)
     return corrected || keepPendingClarification(input, pc)
   }
+  if (pc?.field === 'driver-bank-pix') {
+    const account = pc.pendingActions?.find(action => action.kind === 'income')
+    const said = normalizeName(input.message).replace(/[.!]+$/, '').trim()
+    if (/^(?:(?:foi|era)(?:\s+so)?\s+|so\s+)?(?:o\s+)?saldo(?:\s+da\s+conta)?$/.test(said)) return {
+      draft: null, keepPending: true, focus: input.focus,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
+        reply: 'Entendi que o valor informado era o saldo da conta.' },
+    }
+    if (account && !input.message.includes('?')) {
+      const { platform, receipt, value, dates, receiptDay } = readPayoutReceiptAnswer(input.message, today)
+      const identifiesPix = /^(?:(?:sim,?\s+)?(?:foi\s+)?(?:um\s+|o\s+)?pix)?$/.test(receipt)
+      if (platform && (value > 0 || identifiesPix)) {
+        const amount = value > 0 ? value : account.amount
+        const action: ParsedAction = { kind: 'income', amount, description: platform, category: 'corridas' }
+        if (dates.length === 1 && receiptDay.kind === 'date') {
+          return proposeDatedActions(input, [{ ...action, date: receiptDay.date }], caps, today, true)
+        }
+        return keepPendingClarification(input, { field: 'ride-payout-date', question: payoutReceiptDateQuestion(amount), pendingActions: [action] })
+      }
+    }
+    if (looksLikeDataQuestion(input.message)) {
+      const query = respostaLocal(input.state, input.message, today, true)
+      if (query) return { ...keepPendingClarification(input, pc, query.text + '\n\n' + pc.question), focus: query.focus || input.focus }
+    }
+    return keepPendingClarification(input, pc)
+  }
   if (pc?.field === 'ride-payout-date') {
     const said = normalizeName(input.message).replace(/[.!]+$/, '').trim()
     const date = input.message.includes('?') ? undefined : dateInAnswer(weekdayChoiceWord(input.message), today)
@@ -2418,9 +2479,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
       }
       return proposeDatedActions(input, [action], caps, today, true)
     }
-    const statedBalance = undated.match(/^(?:eu\s+)?(?:tenho|tinha|(?:estou|to|estava|tava|fiquei)\s+com)\s+(?:(?:so|apenas|somente)\s+)?(.+?)\s+na\s+(?:minha\s+)?conta$/)
-      || undated.match(/^(?:o\s+|meu\s+)?saldo(?:\s+d[ae]\s+conta)?\s+(?:e|era|foi|ficou\s+em)\s+(?:de\s+)?(.+?)(?:\s+na\s+(?:minha\s+)?conta)?$/)
-    const balance = exactMoneyAnswer(statedBalance?.[1] || '', true)
+    const balance = statedAccountBalance(undated)
     if (balance !== undefined && !input.message.includes('?')) {
       const question = receiptCheck?.previousQuestion || pc.question
       const when = dateIsUsable && receiptDay?.kind === 'date' ? ` em ${brDate(receiptDay.date)}` : ''

@@ -191,17 +191,28 @@ export function readShiftWithUnpaidPayout(message: string) {
   return amount > 0 ? { text: parts.shift, amount, platform: platform ? ridePayoutPlatformName(platform) : undefined } : undefined
 }
 
+const SETTLEMENT_REMAINDER = String.raw`(?<pendingRest>(?:[,;]\s*|\s+e\s+)(?:(?:o\s+(?:resto|restante)|os\s+outros|as\s+outras)\s+(?:(?:ficou|ficaram|esta|estao|ta|tao)\s+pendentes?|(?:ainda\s+)?nao\s+(?:caiu|cairam|entrou|entraram))))`
 const RIDE_SETTLEMENT = new RegExp(
-  String.raw`^(?:[ao]\s+)?(?<payer>${PAYOUT_APP})\s+(?:me\s+)?(?:pagou|repassou|depositou|transferiu)\s+(?:(?<reference>os|o|mais|so|apenas|somente)\s+)?${MONEY('amount')}(?:\s+dos\s+${MONEY('coveredTotal')})?(?:\s+(?:d[ao]|pel[ao])\s+(?<origin>${PAYOUT_APP}))?[.!]*$`,
+  String.raw`^(?:[ao]\s+)?(?<payer>${PAYOUT_APP})\s+(?:me\s+)?(?<verb>pagou|repassou|depositou|transferiu|fez\s+(?:(?:o|um)\s+)?pix\s+de)\s+(?:(?<reference>os|o|mais|so|apenas|somente)\s+)?${MONEY('amount')}(?:\s+dos\s+${MONEY('coveredTotal')})?(?:\s+(?:d[ao]|pel[ao])\s+(?<origin>${PAYOUT_APP}))?${SETTLEMENT_REMAINDER}?[.!]*$`,
+)
+const RIDE_INFLECTED_RECEIPT = new RegExp(
+  String.raw`^${MONEY('amount')}\s+(?:so|apenas|somente)\s+(?:caiu|cairam|entrou|entraram)\s+(?:d[ao]|pel[ao])\s+(?<payer>${PAYOUT_APP})[.!]*$`,
 )
 
+export function hasRideSettlementVerb(message: string): boolean {
+  return /\b(?:pagou|repassou|depositou|transferiu|fez\s+(?:(?:o|um)\s+)?pix|caiu|ca[ií]ram|entrou|entraram)\b/i.test(message)
+}
+
 export function readRideSettlement(message: string) {
-  if (!/\b(?:pagou|repassou|depositou|transferiu)\b/i.test(message)) return undefined
-  const parts = normalizeName(normalizeNumberWords(message).text).match(RIDE_SETTLEMENT)?.groups
+  if (!hasRideSettlementVerb(message)) return undefined
+  const text = normalizeName(normalizeNumberWords(message).text)
+  const standard = text.match(RIDE_SETTLEMENT)?.groups
+  const parts = standard || text.match(RIDE_INFLECTED_RECEIPT)?.groups
   if (!parts) return undefined
   const amount = parseMoney(parts.amount)
   if (!(amount > 0)) return undefined
   return { amount, payer: ridePayoutPlatformName(parts.payer), reference: parts.reference,
+    explicitPayment: !standard || /^fez\b/.test(parts.verb), pendingRest: !!parts.pendingRest,
     coveredTotal: parts.coveredTotal ? parseMoney(parts.coveredTotal) : undefined,
     origin: parts.origin ? ridePayoutPlatformName(parts.origin) : undefined }
 }

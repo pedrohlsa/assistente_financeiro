@@ -11337,6 +11337,98 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && keptTwoSettlements.mode === 'propose_actions' && keptTwoSettlements.actions.length === 3
         && [ontem, hoje].every(date => keptTwoSettlements.actions.some(a => a.kind === 'income' && a.amount === 250 && a.description === '99' && a.date === date))))
 
+      const partialAppHours = await chat()('Trabalhei oito horas no volante, três horas e meia na Uber, faturei trezentos e um reais e vinte centavos na Uber')
+      const dateInShift = await chat()('trabalhei 8h no volante anteontem, 3h30 na Uber e 4h30 na 99, faturei 300 na Uber e 200 na 99')
+      const concurrentApps = await chat()('ontem trabalhei 8h no volante, 6h na Uber e 5h na 99 ao mesmo tempo, faturei 300 na Uber e 200 na 99')
+      const depositedAndBalance = await chat()('tenho 500 na conta, veio 300 da Uber ontem')
+      const pixWithPending = await chat()('pix na conta deu 500, 300 da 99 ainda tá pra cair')
+      const appliedBankReport = applyBatchPure(state, depositedAndBalance.candidates, { now: { date: hoje, time: '23:59' } })
+      out.push(result(`MOTOR-horas-parciais-ou-sobrepostas-por-app-${fixture}`,
+        [partialAppHours, dateInShift, concurrentApps].map(r => [r.mode, r.actions, r.reply]),
+        'registra o total diário quando as horas descritas para apps individuais não cobrem toda a jornada ou se sobrepõem',
+        partialAppHours.mode === 'propose_actions' && partialAppHours.actions.length === 2
+        && partialAppHours.actions.some(a => a.kind === 'income' && a.description === 'Uber' && a.amount === 301.2)
+        && partialAppHours.actions.some(a => a.kind === 'work' && a.hours === 8)
+        && [dateInShift, concurrentApps].every((r, i) => r.mode === 'propose_actions' && r.actions.length === 3
+          && r.actions.some(a => a.kind === 'work' && a.hours === 8 && a.date === (i ? ontem : anteontem))
+          && r.actions.some(a => a.kind === 'income' && a.description === 'Uber' && a.amount === 300)
+          && r.actions.some(a => a.kind === 'income' && a.description === '99' && a.amount === 200))))
+      out.push(result(`MOTOR-pix-repasse-e-saldo-na-mesma-frase-${fixture}`,
+        [depositedAndBalance, pixWithPending].map(r => [r.mode, r.actions, r.reply]),
+        'preserva o recebimento ocorrido e mantém o saldo declarado separado da pendência futura',
+        depositedAndBalance.mode === 'propose_actions' && depositedAndBalance.actions.length === 2
+        && depositedAndBalance.actions[0].kind === 'income' && depositedAndBalance.actions[0].date === ontem
+        && depositedAndBalance.actions[0].description === 'Uber' && depositedAndBalance.actions[0].amount === 300
+        && depositedAndBalance.actions[1].kind === 'balance' && depositedAndBalance.actions[1].amount === 500
+        && appliedBankReport.applied && currentBalance(appliedBankReport.state, hoje) === 500
+        && appliedBankReport.state.transactions.length === state.transactions.length + 1
+        && pixWithPending.mode === 'clarify' && !pixWithPending.actions.length
+        && /99.*300,00|300,00.*99/.test(pixWithPending.reply) && /500,00.*Pix|Pix.*500,00/.test(pixWithPending.reply)))
+
+      const offerBareFare = await chat()('40 de corrida com 2 km de aproximação, mais 10 km com passageiro e 5 km vazio na volta, 30 min no total, compensa?')
+      const offerPartialTime = await chat()('tocou uma de 40 por 15 km no total com 20 minutos só com passageiro, vale?')
+      const offerNoNoun = await chat()('45 reais, 12 km de ida e 5 km voltando, 25 min total, compensa?')
+      const offerLabelled = await chat()('primeira R$ 38 com 10 km no total, segunda R$ 42 com 16 km no total, qual compensa por km?')
+      const offerOtherLabel = await chat()('a primeira é 35 em 10 km, a segunda é 45 em 15 km, qual vale mais?')
+      const offerBareMoney = await chat()('uma de 35, 2 km até o passageiro, 8 km de viagem e 5 km de retorno, só 20 min de viagem, dá pra aceitar?')
+      const offerGoingBack = await chat()('Uma corrida de 35 por 8 km da viagem e 2 km para buscar, mas vou voltar uns 10 km sem passageiro. Vale?')
+      const hourSingular = await chat()('trabalhei 8h no volante ontem, hora e meia na Uber e 6h30 na 99, faturei 300 na 99')
+      const depositedToday = await chat()('tenho 500 na conta, veio 300 da Uber hoje')
+      const appliedTodayBank = applyBatchPure(state, depositedToday.candidates, { now: { date: hoje, time: '23:59' } })
+      out.push(result(`MOTOR-ofertas-com-trechos-e-rotulos-no-ditado-${fixture}`,
+        [offerBareFare, offerPartialTime, offerNoNoun, offerLabelled, offerOtherLabel, offerBareMoney, offerGoingBack].map(r => [r.mode, r.actions, r.reply]),
+        'lê ofertas sem enunciado completo, reconhece retorno e evita calcular por hora apenas com passageiro',
+        [offerBareFare, offerPartialTime, offerNoNoun, offerLabelled, offerOtherLabel, offerBareMoney, offerGoingBack].every(r => r.mode === 'answer' && !r.actions.length)
+        && /17 km no total/.test(offerBareFare.reply) && /5 km de retorno/.test(offerBareFare.reply)
+        && /tempo total/.test(offerPartialTime.reply) && !/\/hora líquida/.test(offerPartialTime.reply)
+        && /17 km/.test(offerNoNoun.reply) && /5 km de retorno/.test(offerNoNoun.reply)
+        && /primeira paga mais por km/i.test(offerLabelled.reply) && /primeira paga mais por km/i.test(offerOtherLabel.reply)
+        && /15 km no total/.test(offerBareMoney.reply) && /tempo total/.test(offerBareMoney.reply)
+        && /20 km no total/.test(offerGoingBack.reply) && /10 km de retorno/.test(offerGoingBack.reply)))
+      out.push(result(`MOTOR-hora-e-meia-e-caixa-no-mesmo-dia-${fixture}`,
+        [hourSingular, depositedToday].map(r => [r.mode, r.actions, r.reply]),
+        'reconhece hora e meia como duração e não soma novamente ao saldo o repasse já recebido',
+        hourSingular.mode === 'propose_actions' && hourSingular.actions.length === 2
+        && hourSingular.actions.some(a => a.kind === 'work' && a.hours === 8 && a.date === ontem)
+        && hourSingular.actions.some(a => a.kind === 'income' && a.amount === 300 && a.description === '99')
+        && depositedToday.mode === 'propose_actions' && depositedToday.actions.length === 2
+        && depositedToday.actions.some(a => a.kind === 'income' && a.amount === 300 && a.date === hoje)
+        && appliedTodayBank.applied && currentBalance(appliedTodayBank.state, hoje) === 500
+        && appliedTodayBank.state.transactions.length === state.transactions.length + 1))
+
+      const depositedPix = chat()
+      await depositedPix('pix na conta deu 500, 300 da 99 ainda tá pra cair')
+      const pixSource = await depositedPix('foi um pix da Uber ontem')
+      const noPerMinute = await chat()('quanto ganhei por minuto na Uber e na 99 ontem?')
+      const noPerMinuteRank = await chat()('qual app paga mais por minuto, Uber ou 99?')
+      const noTripDuration = await chat()('quanto tempo durou em média cada corrida da Uber ontem?')
+      const noWorkedDays = await chat()('quanto recebi por dia na Uber só nos dias que rodei nela?')
+      out.push(result(`MOTOR-consulta-por-minuto-e-tempo-medio-${fixture}`,
+        [noPerMinute, noPerMinuteRank, noTripDuration, noWorkedDays].map(r => [r.mode, r.actions, r.reply]),
+        'mantém a unidade e responde com a granularidade efetivamente disponível',
+        [noPerMinute, noPerMinuteRank, noTripDuration, noWorkedDays].every(r => r.mode === 'answer' && !r.actions.length)
+        && [noPerMinute, noPerMinuteRank].every(r => /horas.*dia/.test(r.reply) && /por minuto/.test(r.reply) && !/R\$\s*\d/.test(r.reply))
+        && /durou|duração/.test(noTripDuration.reply) && /viagem|corrida/.test(noTripDuration.reply)
+        && /dia.*trabalh.*plataforma|plataforma.*dia.*trabalh/.test(noWorkedDays.reply)))
+      out.push(result(`MOTOR-pix-retoma-valor-depois-da-origem-${fixture}`,
+        [pixSource.mode, pixSource.actions, pixSource.reply],
+        'retém o valor do Pix durante a pergunta e permite informar só o app e o dia',
+        pixSource.mode === 'propose_actions' && pixSource.actions.length === 1
+        && pixSource.actions.some(a => a.kind === 'income' && a.amount === 500 && a.description === 'Uber' && a.date === ontem)))
+
+      const shortInstallment = await chat()('ontem 900 Uber, 250 99, hoje a 99 pagou 150 e os outros ficaram pendentes')
+      const remainingNotPaid = await chat()('ontem deram 900 da Uber e 250 da 99. Hoje a 99 repassou 150 e o restante não caiu')
+      const simpleReceivedPix = await chat()('A 99 fez o Pix de R$ 250 hoje')
+      const delayedReceipt = await chat()('250 só caiu hoje da 99')
+      out.push(result(`MOTOR-repasse-ditado-parcelado-ou-via-pix-${fixture}`,
+        [shortInstallment, remainingNotPaid, simpleReceivedPix, delayedReceipt].map(r => [r.mode, r.actions, r.reply]),
+        'reconhece o saldo futuro e o valor recebido mesmo com o app e a data em posições diferentes',
+        [shortInstallment, remainingNotPaid].every(r => r.mode === 'propose_actions' && r.actions.length === 2
+          && r.actions.some(a => a.kind === 'income' && a.amount === 900 && a.description === 'Uber' && a.date === ontem)
+          && r.actions.some(a => a.kind === 'income' && a.amount === 150 && a.description === '99' && a.date === hoje))
+        && [simpleReceivedPix, delayedReceipt].every(r => r.mode === 'propose_actions' && r.actions.length === 1
+          && r.actions.some(a => a.kind === 'income' && a.amount === 250 && a.description === '99' && a.date === hoje))))
+
       out.push(result(`MOTOR-sem-gravacao-${fixture}`, JSON.stringify(state) === snapshot, true, JSON.stringify(state) === snapshot))
     }
   }

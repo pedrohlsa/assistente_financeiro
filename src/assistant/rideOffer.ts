@@ -15,28 +15,32 @@ const NOME = /\b(?:corridas?|viagem|chamada)\b/
  * "Uma de 40 pra 30 km, vale?": a corrida fica implícita no "uma de", com valor
  * e distância ditos. Sem "corrida" nem "tocou", a pergunta caía na ajuda.
  */
-const UMA_DE_COM_DISTANCIA = /^(?:e\s+)?(?:(?:e\s+)?(?:essa|esta|uma|a)\s+)de\s+(?:r\$\s*)?\d+(?:[.,]\d+)?\s*(?:reais?|contos?|pila)?\s+(?:pra|para|por|em|com|de)\s+\d+(?:[.,]\d+)?\s*(?:kms?|quilometros?)\b/
+const UMA_DE_COM_DISTANCIA = /^(?:e\s+)?(?:(?:e\s+)?(?:essa|esta|uma|a)\s+)de\s+(?:r\$\s*)?\d+(?:[.,]\d+)?\s*(?:reais?|contos?|pila)?(?:\s+(?:pra|para|por|em|com|de)\s+|,\s*)\d+(?:[.,]\d+)?\s*(?:kms?|quilometros?)\b/
 const NUMBER = String.raw`(\d+(?:[.,]\d+)*)(?!\d|[.,]\d)`
 const AMOUNT_WITH_CURRENCY = new RegExp(String.raw`(?<!-)r\$\s*${NUMBER}|(?<![\w.,-])${NUMBER}\s*(?:reais?|contos?|pila)\b`, 'g')
 const AMOUNT_AFTER_NOUN = new RegExp(String.raw`\b(?:corridas?|viagem|chamada)\s+(?:(?:da|do|na|no|pela|pelo|via)\s+(?:uber|99|indrive[r]?)\s+)?(?:(?:de|por|no\s+valor\s+de|que\s+(?:paga|rende|da|oferece))\s+)?${NUMBER}(?!\s*(?:kms?|quilometros?|m|metros?|h|horas?|min|minutos?|segundos?)\b)`)
+const AMOUNT_BEFORE_NOUN = new RegExp(String.raw`(?<![\w.,-])${NUMBER}\s+(?:de|da)\s+(?:corridas?|viagem|chamada)\b`)
 const AMOUNT_PROSPECTIVE = new RegExp(String.raw`\b(?:tiraria|ganharia|receberia|renderia|pagaria|pagasse|paga|pagando)\s+${NUMBER}(?!\s*(?:kms?|quilometros?|m|metros?|h|horas?|min|minutos?)\b)`)
 const AMOUNT_BEFORE_DISTANCE = new RegExp(String.raw`(?<![\w.,-])${NUMBER}\s+(?:por|em|pra|para|com|e)\s+\d+(?:[.,]\d+)*\s*(?:kms?|quilometros?|metros?)\b`, 'g')
 const ONE_OFFER_SHORT = new RegExp(String.raw`\b(?:tocou|apareceu|chegou)\s+uma\s+de\s+${NUMBER}(?!\s*(?:km|quilometros?|metros?|min|minutos?|horas?)\b)`)
 const OFFER_SEPARATOR = /\s+(?:ou|contra|versus|vs\.?|e(?=\s+(?:a\s+)?outra\b))\s+/
 const ENUMERATED_OFFERS = /\b(?:(?:2|duas)\s+(?:corridas|ofertas)|primeir[ao]\s+(?:corrida|oferta))\b/
 const SECOND_OFFER = /[\s.,;]+(?=(?:a\s+)?segund[ao]\s+(?:corrida|oferta)\b)/
+const FIRST_OFFER_WITH_AMOUNT = /^(?:a\s+)?primeira\s+(?:(?:e|paga|oferece|de)\s+)?(?:r\$\s*)?\d/
+const SECOND_OFFER_WITH_AMOUNT = /(?:[,.;]\s*|\s+e\s+)(?=(?:a\s+)?segunda\s+(?:(?:e|paga|oferece|de)\s+)?(?:r\$\s*)?\d)/
 const JOINED_OFFERS = new RegExp(String.raw`\s+e\s+(?=(?:(?:a\s+)?(?:corrida|oferta)\b|r\$\s*\d|\d+(?:[.,]\d+)*\s+reais?\b))`)
 const JOINED_ROUTE_QUOTES = /\s+e\s+(?=(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?\s+(?:por|em|pra|para|com)\s+\d+(?:[.,]\d+)*\s*(?:kms?|quilometros?)\b)/
-const COMPARA_DOIS = /\bqual\s+(?:(?:das?\s+)?(?:corridas?|ofertas?)\s+)?(?:(?:da|tem)\s+(?:mais\s+lucro|maior\s+lucro)|(?:paga|rende|da)\s+mais|e\s+(?:a\s+)?(?:melhor|mais\s+lucrativ[ao])|(?:tem\s+)?[oa]\s+(?:(?:melhor|maior)\s+)?(?:ganho|lucro|rendimento|receita)\s+(?:(?:brut[oa]|liquid[oa])\s+)?por\s+(?:hora|minuto|km|quilometro))\b|\bvale\s+mais\b|^vale\s+a\s+pena\s+a\s+de\b/
+const COMPARA_DOIS = /\bqual\s+(?:(?:das?\s+)?(?:corridas?|ofertas?)\s+)?(?:(?:da|tem)\s+(?:mais\s+lucro|maior\s+lucro)|(?:paga|rende|da)\s+mais|e\s+(?:a\s+)?(?:melhor|mais\s+lucrativ[ao])|(?:tem\s+)?[oa]\s+(?:(?:melhor|maior)\s+)?(?:ganho|lucro|rendimento|receita)\s+(?:(?:brut[oa]|liquid[oa])\s+)?por\s+(?:hora|minuto|km|quilometro))\b|\bqual\s+compensa\b|\bvale\s+mais\b|^vale\s+a\s+pena\s+a\s+de\b/
 const PICKUP = String.raw`(?:ate\s+(?:(?:o|a)\s+)?(?:passageir[oa]|embarque)|(?:(?:pra|para)\s+(?:(?:o|a)\s+)?(?:buscar|embarcar|embarque|passageir[oa])|(?:pro|pra)\s+passageir[oa])|(?:de|do|pro|para\s+o)\s+embarque|(?:de\s+)?aproximacao|passageir[oa])`
-const TRIP = String.raw`(?:(?:d[aeo]\s+)?(?:corrida|viagem|trajeto)|ate\s+(?:o\s+)?destino)`
-const RETURN = String.raw`(?:(?:d[aeo]\s+|na\s+)?(?:retorno|volta)(?:\s+(?:vazi[oa]|sem\s+passageiro))?|(?:pra|para)\s+voltar(?:\s+(?:vazi[oa]|sem\s+passageiro))?|voltando(?:\s+(?:vazi[oa]|sem\s+passageiro))?)`
+const TRIP = String.raw`(?:(?:d[aeo]\s+)?(?:corrida|viagem|trajeto)|com\s+(?:[ao]\s+)?passageir[oa]|ate\s+(?:o\s+)?destino)`
+const RETURN = String.raw`(?:(?:d[aeo]\s+|na\s+)?(?:retorno|volta)(?:\s+(?:vazi[oa]|sem\s+passageiro))?|(?:pra|para)\s+voltar(?:\s+(?:vazi[oa]|sem\s+passageiro))?|voltando(?:\s+(?:vazi[oa]|sem\s+passageiro))?|vazi[oa]s?\s+na\s+volta|(?:vou\s+)?voltar(?:\s+(?:uns|umas|aproximadamente|cerca\s+de))?)`
 const OUTBOUND = String.raw`(?:(?:d[aeo]|na)\s+)?ida`
 const TOTAL = String.raw`(?:no\s+total|ao\s+todo|tota(?:l|is)|contando\s+(?:a\s+)?ida\s+${PICKUP}|(?:(?:contando|de)\s+)?(?:a\s+)?ida\s+e\s+(?:a\s+)?volta)`
 const SUFFIX = new RegExp(String.raw`^\s+(?:(?:so|somente|apenas)\s+)?(${TOTAL}|${PICKUP}|${TRIP}|${RETURN}|${OUTBOUND})\b`)
 const PREFIX = new RegExp(String.raw`\b(embarque|buscar|passageiro|distancia\s+${PICKUP}|tempo\s+${PICKUP}|distancia\s+${TRIP}|tempo\s+${TRIP}|trajeto|viagem|volto|(?:distancia\s+|tempo\s+)?${RETURN}|${OUTBOUND}|${TOTAL})(?:[\s:]+(?:de|e))?[\s:]+$`)
 const IS_PICKUP = /\b(?:embarq\w*|buscar|passageir[oa]|aproximacao)\b/
 const IS_RETURN = /\b(?:retorno|volta|volto|voltar|voltando)\b/
+const WITH_PASSENGER = /^com\s+(?:[ao]\s+)?passageir[oa]$/
 const IS_OUTBOUND = /\bida\b/
 const IS_TOTAL = new RegExp(String.raw`\b${TOTAL}\b`)
 const DISTANCE = new RegExp(String.raw`(?<![\d.,-])${NUMBER}\s*(kms?|quilometros?|m|metros?)\b`, 'g')
@@ -57,7 +61,7 @@ function measured(t: string, units: RegExp, readValue: (match: RegExpMatchArray)
       if (IS_TOTAL.test(role)) part = 'total'
       else if (IS_RETURN.test(role)) part = /\b(?:mais|outros)\s*$/i.test(before) ? 'extraReturn' : 'return'
       else if (IS_OUTBOUND.test(role)) part = 'outbound'
-      else if (IS_PICKUP.test(role)) part = 'pickup'
+      else if (IS_PICKUP.test(role) && !WITH_PASSENGER.test(role)) part = 'pickup'
       else part = 'trip'
     }
     const value = readValue(match)
@@ -97,7 +101,7 @@ function minutesIncludingReturn(duration: Measures | undefined, distance?: Measu
 function amountForOffer(text: string, elliptical = false): number | undefined {
   const explicit = new Set([...text.matchAll(AMOUNT_WITH_CURRENCY)].map(m => parseMoney(m[1] || m[2])))
   if (explicit.size) return explicit.size === 1 ? explicit.values().next().value : undefined
-  const afterNoun = text.match(AMOUNT_AFTER_NOUN)?.[1] || text.match(AMOUNT_PROSPECTIVE)?.[1] || text.match(ONE_OFFER_SHORT)?.[1]
+  const afterNoun = text.match(AMOUNT_AFTER_NOUN)?.[1] || text.match(AMOUNT_BEFORE_NOUN)?.[1] || text.match(AMOUNT_PROSPECTIVE)?.[1] || text.match(ONE_OFFER_SHORT)?.[1]
     || (UMA_DE_COM_DISTANCIA.test(text) ? text.match(/\bde\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)/)?.[1] : undefined)
   if (afterNoun) return parseMoney(afterNoun)
   if (!elliptical) return undefined
@@ -181,6 +185,10 @@ function compareOffers(state: AppState, parts: string[], question: string): stri
 function splitOffers(text: string): string[] {
   const alternatives = text.split(OFFER_SEPARATOR)
   if (alternatives.length > 1) return alternatives
+  if (FIRST_OFFER_WITH_AMOUNT.test(text)) {
+    const numbered = text.split(SECOND_OFFER_WITH_AMOUNT)
+    if (numbered.length > 1) return numbered
+  }
   if (ENUMERATED_OFFERS.test(text)) {
     const numbered = text.split(SECOND_OFFER)
     if (numbered.length > 1) return numbered
@@ -199,7 +207,10 @@ export function interpretRideOffer(state: AppState, input: string, context = inp
   const enumerated = ENUMERATED_OFFERS.test(text) && COMPARA_DOIS.test(text)
   const comparesTwo = alternatives.length === 2 && COMPARA_DOIS.test(text)
     && alternatives.every(part => amountForOffer(part, true) !== undefined && !!part.match(DISTANCE))
-  if ((!RIDE_EVALUATION_REQUEST.test(text) && !compare && !comparesTwo && !enumerated) || (!notice && !NOME.test(text) && !comparesTwo && !enumerated && !UMA_DE_COM_DISTANCIA.test(text))) return undefined
+  const quotedRoute = amountForOffer(text) !== undefined && !!text.match(DISTANCE)
+    && /\b(?:ida|volta|voltando|voltar|retorno|embarque|passageiro|destino|aproximacao)\b/.test(text)
+  if ((!RIDE_EVALUATION_REQUEST.test(text) && !compare && !comparesTwo && !enumerated)
+    || (!notice && !NOME.test(text) && !comparesTwo && !enumerated && !UMA_DE_COM_DISTANCIA.test(text) && !quotedRoute)) return undefined
   if (perceivesDrivingFatigue(context)) return { reply: PARE_PARA_DESCANSAR }
   if (!/\d/.test(text) && !notice) return undefined
   if (compare || enumerated || alternatives.length > 1) return { reply: compareOffers(state, alternatives, text) }

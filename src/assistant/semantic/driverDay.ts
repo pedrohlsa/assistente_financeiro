@@ -85,7 +85,7 @@ const SHIFT_WITH_APP_HOURS = new RegExp([
   String.raw`(?:\s*[,;:]\s*(?:sendo\s+)?|\s+(?:sendo|dividid[oa]s?\s+em)\s+)(?<rest>.+)$`,
 ].join(''), 'i')
 const APP_NAMES = String.raw`(?:uber|99|in\s*driver?|ifood|rappi)\b`
-const APP_DURATION = String.raw`(?:${REPORTED_DURATION}|\d{1,2}\s+e\s+meia)`
+const APP_DURATION = String.raw`(?:${REPORTED_DURATION}|(?:uma\s+)?hora\s+e\s+meia|\d{1,2}\s+e\s+meia)`
 const HOURS_THEN_APP = new RegExp(String.raw`^(?<duration>${APP_DURATION})\s+(?:(?:na|no|pela|pelo|de)\s+)?(?<platform>${APP_NAMES})`, 'i')
 const APP_THEN_HOURS = new RegExp(String.raw`^(?:(?:na|no|pela|pelo)\s+)?(?<platform>${APP_NAMES})\s+(?:por\s+)?(?<duration>${APP_DURATION})`, 'i')
 const SHIFT_CLAUSE_START = /^(?:ganhei|faturei|recebi|fiz|gastei|paguei|abasteci|rodei|dirigi)\b/i
@@ -93,7 +93,8 @@ const SHIFT_CLAUSE_START = /^(?:ganhei|faturei|recebi|fiz|gastei|paguei|abasteci
 /** Lê uma duração de jornada em minutos, inclusive decimal e meia hora elíptica. */
 export function reportedWorkMinutes(text: string): number | undefined {
   const said = normalizeNumberWords(text).text.trim().replace(/[.!]+$/, '').replace(/^(?:foram|foi|deu|trabalhei(?:\s+por)?)\s+/i, '')
-  const duration = said.replace(/^(\d{1,2})\s+e\s+meia$/i, '$1 horas e meia')
+  const duration = said.replace(/^(?:uma\s+)?hora\s+e\s+meia$/i, '1 hora e meia')
+    .replace(/^(\d{1,2})\s+e\s+meia$/i, '$1 horas e meia')
   const simple = duration.match(/^(\d+(?:[.,]\d+)?)\s*(?:h|hrs?|horas?)$/i)
   const minutes = simple ? Math.round(Number(simple[1].replace(',', '.')) * 60) : elapsedMinutes(duration)
   return minutes > 0 && minutes <= 1440 ? minutes : undefined
@@ -104,8 +105,16 @@ export function readShiftWithAppHours(message: string, today: string) {
   const text = normalizeNumberWords(message).text.trim()
   const dates = findAllDates(text, today)
   const [day] = dates
-  if (dates.length > 1 || (day && (day.kind !== 'date' || text.slice(0, day.start).trim()))) return undefined
-  const body = day ? text.slice(day.end).replace(/^[\s,]+/, '') : text
+  if (dates.length > 1 || (day && day.kind !== 'date')) return undefined
+  let body = text
+  if (day) {
+    const before = text.slice(0, day.start).trim()
+    const after = text.slice(day.end).trim()
+    if (before && !/^[.!]*$/.test(after) && !(/(?:no volante|dirigindo|de trabalho)$/i.test(before) && /^[,;:]/.test(after))) {
+      return undefined
+    }
+    body = before ? `${before} ${after}` : after.replace(/^[,;:]\s*/, '')
+  }
   const head = body.match(SHIFT_WITH_APP_HOURS)?.groups
   if (!head) return undefined
   const minutes = reportedWorkMinutes(head.duration)
@@ -113,6 +122,8 @@ export function readShiftWithAppHours(message: string, today: string) {
 
   let rest = head.rest
   let sum = 0
+  let longest = 0
+  let simultaneous = false
   const apps = new Set<string>()
   while (rest) {
     const part = rest.match(HOURS_THEN_APP) || rest.match(APP_THEN_HOURS)
@@ -122,7 +133,13 @@ export function readShiftWithAppHours(message: string, today: string) {
     if (!portion || apps.has(app)) return undefined
     apps.add(app)
     sum += portion
-    const after = rest.slice(part[0].length).trim()
+    longest = Math.max(longest, portion)
+    let after = rest.slice(part[0].length).trim()
+    const overlap = after.match(/^(?:ao\s+mesmo\s+tempo|simultaneamente)\b/i)
+    if (overlap) {
+      simultaneous = true
+      after = after.slice(overlap[0].length).trim()
+    }
     if (!after || /^[.!]+$/.test(after)) {
       rest = ''
       break
@@ -132,8 +149,8 @@ export function readShiftWithAppHours(message: string, today: string) {
     rest = after.slice(separator.length)
     if (SHIFT_CLAUSE_START.test(rest)) break
   }
-  if (apps.size < 2) return undefined
-  return { minutes, sum, rest, date: day?.kind === 'date' ? day.date : undefined, when: day?.text }
+  const confirmHours = longest > minutes || (apps.size > 1 && !simultaneous && minutes !== sum)
+  return { minutes, sum, confirmHours, rest, date: day?.kind === 'date' ? day.date : undefined, when: day?.text }
 }
 
 /** Plataformas de onde o dinheiro vem. O nome vira a descrição do lançamento. */

@@ -407,9 +407,9 @@ export function compareRideApps(state: AppState, input: string, today: string): 
   const ranking = APP_RANKING.test(t)
   const gap = names.length === 2 && APP_GAP.test(t)
   const direction = names.length === 2 ? t.match(APP_ORDER)?.[1] : undefined
-  const shorthand = /r\$\s*\/\s*(h|hora|km|viagem|corrida)\b/
-  const unit = t.match(/\bpor\s+(hora|km|quilometro|distancia|viagem|corrida)\b/)?.[1] || t.match(shorthand)?.[1]
-  const metric = unit === 'h' ? 'hora' : unit === 'distancia' ? 'km' : unit
+  const shorthand = /r\$\s*\/\s*(h|hora|min|minuto|km|viagem|corrida)\b/
+  const unit = t.match(/\bpor\s+(hora|minutos?|km|quilometro|distancia|viagem|corrida)\b/)?.[1] || t.match(shorthand)?.[1]
+  const metric = unit === 'h' ? 'hora' : unit === 'distancia' ? 'km' : /^min/.test(unit || '') ? 'minuto' : unit
   const platform99 = /\b(?:da|do|na|no|pela|pelo|a|o|via|app|aplicativo)\s+99\b|\b99\s+(?:e|ou|versus|vs|contra)\b/.test(t)
   const appScope = names.some(name => name !== '99') || platform99
     || /\b(?:por|em cada|de cada)\s+(?:app|aplicativo|plataforma)s?\b/.test(t)
@@ -418,10 +418,14 @@ export function compareRideApps(state: AppState, input: string, today: string): 
     return 'O histórico tem recebimentos que podem agrupar várias viagens. Para dizer qual corrida rendeu mais, preciso do valor e da distância ou do tempo de cada corrida.'
   }
   if (appScope && /^(?:e\s+)?(?:quanto|quantos?|quantas?|qual|quais|media)\b/.test(t)) {
+    if (/\b(?:quanto\s+tempo|duracao|durou|demorou)\b.*\b(?:cada|por)\s+(?:corrida|viagem)\b/.test(t)) {
+      return 'O histórico guarda as horas e as viagens por dia. Para calcular a duração média, preciso da duração de cada viagem por plataforma.'
+    }
     if (metric === 'hora' && /\b(?:corridas?|viagens?)\s+por\s+hora\b/.test(t)) {
       return 'O histórico guarda as viagens e as horas do dia inteiro. Para calcular viagens por hora em uma plataforma, preciso das duas medidas separadas por app.'
     }
-    if (/\bpor\s+(?:cada\s+)?dia\s+(?:(?:que|em que)\s+(?:rodei|trabalhei)|trabalhado)\b/.test(t)) {
+    if (/\bpor\s+(?:cada\s+)?dia\s+(?:(?:que|em que)\s+(?:rodei|trabalhei)|trabalhado)\b/.test(t)
+      || /\b(?:so|apenas|somente)\s+nos?\s+dias?\s+(?:que|em que)\s+(?:rodei|trabalhei)\b/.test(t)) {
       return 'O histórico guarda a jornada do dia inteiro. Para calcular a média por dia trabalhado em uma plataforma, preciso saber em quais dias você rodou nesse app.'
     }
     const askedMeasure = t.match(/^(?:e\s+)?quant[oa]s?\s+(horas?|km|quilometros?|corridas?|viagens?)\b/)?.[1]
@@ -441,6 +445,7 @@ export function compareRideApps(state: AppState, input: string, today: string): 
   if (!saidPeriod && /\b(?:ultima\s+quinzena|ultimos\s+meses)\b/.test(t)) return undefined
   if (metric) {
     if (metric === 'viagem' || metric === 'corrida') return FALTAM_VIAGENS_POR_APP
+    if (metric === 'minuto') return 'O histórico guarda as horas por dia. Para calcular quanto cada app paga por minuto, preciso do tempo separado por plataforma.'
     const measure = metric === 'hora' ? 'horas' : 'quilômetros'
     if (ranking) return `O app guarda os dados de ${measure} por dia. Para comparar quanto cada app paga por ${metric === 'hora' ? 'hora' : 'km'}, preciso desses dados separados por plataforma.`
     return `Não separo ${measure} por plataforma. O histórico guarda essas medidas para o dia inteiro. Posso consultar o total recebido de cada plataforma.`
