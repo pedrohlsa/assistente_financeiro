@@ -450,6 +450,12 @@ export interface AssistantClarification {
   /** Compra dividida que precisa de uma data comum a todos os meios de pagamento. */
   pendingPaymentText?: string
   workHoursEdit?: import('./editWorkHours').WorkHoursEdit
+  /** Valor mencionado na conta, à espera de confirmar se é saldo ou repasse. */
+  rideReceiptCheck?: {
+    action: Extract<ParsedAction, { kind: 'income' }>
+    previousQuestion: string
+    previousOptions?: AssistantClarificationOption[]
+  }
 }
 
 export interface AssistantUnresolvedClause {

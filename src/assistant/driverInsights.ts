@@ -403,6 +403,19 @@ export function compareRideApps(state: AppState, input: string, today: string): 
   const platform99 = /\b(?:da|na|pela|via|app|aplicativo)\s+99\b|\b99\s+(?:e|ou|versus|vs|contra)\b/.test(t)
   const appScope = names.some(name => name !== '99') || platform99
     || /\b(?:por|em cada|de cada)\s+(?:app|aplicativo|plataforma)s?\b/.test(t)
+  if (appScope && /^(?:e\s+)?(?:quanto|quantos?|quantas?|qual|quais|media)\b/.test(t)) {
+    if (metric === 'hora' && /\b(?:corridas?|viagens?)\s+por\s+hora\b/.test(t)) {
+      return 'O histórico guarda as viagens e as horas do dia inteiro. Para calcular viagens por hora em uma plataforma, preciso das duas medidas separadas por app.'
+    }
+    if (/\bpor\s+(?:cada\s+)?dia\s+(?:(?:que|em que)\s+(?:rodei|trabalhei)|trabalhado)\b/.test(t)) {
+      return 'O histórico guarda a jornada do dia inteiro. Para calcular a média por dia trabalhado em uma plataforma, preciso saber em quais dias você rodou nesse app.'
+    }
+    const askedMeasure = t.match(/^(?:e\s+)?quant[oa]s?\s+(horas?|km|quilometros?|corridas?|viagens?)\b/)?.[1]
+    if (askedMeasure) {
+      const label = askedMeasure === 'km' ? 'quilômetros' : askedMeasure
+      return `O histórico guarda ${label} para o dia inteiro. Para calcular o total por plataforma, preciso dessa medida separada por app.`
+    }
+  }
   const namedRate = metric && appScope && (shorthand.test(t)
     || /^(?:e\s+)?(?:quanto|qual|quais|ganho|receita|faturamento|lucro|valor|media|rendimento)\b/.test(t))
   if (appScope && /\b(?:lucro|prejuizo|resultado\s+liquido)\b/.test(t)

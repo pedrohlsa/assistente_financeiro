@@ -122,7 +122,7 @@ export interface NumberWordMatch {
   unit?: string
 }
 
-const UNIT_AFTER = /^\s*(quil[oô]metros?|km|litros?|l|horas?|h|viagens?|corridas?|parcelas?|vezes|x|meses|m[eê]s|dias?|semanas?|anos?|reais|real|conto?s?|centavos?)\b/i
+const UNIT_AFTER = /^\s*(?:(quil[oô]metros?|km|litros?|l|horas?|h|viagens?|corridas?|parcelas?|vezes|x|meses|m[eê]s|dias?|semanas?|anos?|reais|real|conto?s?|centavos?|por\s+cento)\b|(%))/i
 
 const canonicalUnit = (u?: string): string | undefined => {
   if (!u) return undefined
@@ -138,6 +138,7 @@ const canonicalUnit = (u?: string): string | undefined => {
   if (/^(anos?)$/.test(s)) return 'years'
   if (/^(reais|real|conto|contos)$/.test(s)) return 'money'
   if (/^(centavos?)$/.test(s)) return 'cents'
+  if (/^(?:%|por\s+cento)$/.test(s)) return 'percent'
   return undefined
 }
 
@@ -159,7 +160,8 @@ export function findNumberWords(text: string): NumberWordMatch[] {
   const out: NumberWordMatch[] = []
   let i = 0
   while (i < tokens.length) {
-    if (!isNumberWord(tokens[i].w)) { i++; continue }
+    const word = strip(tokens[i].w)
+    if (!isNumberWord(word) || (word === 'cento' && strip(tokens[i - 1]?.w || '') === 'por')) { i++; continue }
     // "Uma de quarenta reais": "uma" refere-se ao item e quarenta é seu preço.
     if (/^(?:um|uma|dois|duas)$/.test(strip(tokens[i].w)) && strip(tokens[i + 1]?.w || '') === 'de') {
       i++
@@ -173,6 +175,7 @@ export function findNumberWords(text: string): NumberWordMatch[] {
     // Consome palavras numéricas e os conectores "e"/"de" entre elas.
     while (j < limit) {
       const t = tokens[j]
+      if (j > i && text.slice(tokens[j - 1].end, t.start).includes('%')) break
       if (isNumberWord(t.w)) { seq.push(t.w); j++; continue }
       if (FILLER.has(strip(t.w)) && j + 1 < tokens.length && isNumberWord(tokens[j + 1].w)) {
         seq.push(t.w); j++; continue
@@ -191,7 +194,7 @@ export function findNumberWords(text: string): NumberWordMatch[] {
     const literal = text.slice(start, end)
     const after = text.slice(end)
     const unitM = after.match(UNIT_AFTER)
-    const unit = canonicalUnit(unitM?.[1])
+    const unit = canonicalUnit(unitM?.[1] || unitM?.[2])
 
     let value = wordsToNumber(seq)
     // "UM e cinquenta", "dois e noventa": unidade ANTES da dezena não existe
@@ -212,7 +215,7 @@ export function findNumberWords(text: string): NumberWordMatch[] {
       // "um"/"uma" sozinhos são artigo, não quantidade: "uma corrida de 37" não
       // é o número 1, e convertê-lo criava uma receita fantasma de R$ 1,00.
       // "dois"/"duas" só valem como número quando vêm com unidade.
-      if (single === 'um' || single === 'uma') { i = j; continue }
+      if ((single === 'um' || single === 'uma') && unit !== 'percent') { i = j; continue }
       if ((single === 'dois' || single === 'duas') && !unit) { i = j; continue }
 
       let explicitMoney = unit === 'money'

@@ -27,7 +27,7 @@ const ENUMERATED_OFFERS = /\b(?:(?:2|duas)\s+(?:corridas|ofertas)|primeir[ao]\s+
 const SECOND_OFFER = /[\s.,;]+(?=(?:a\s+)?segund[ao]\s+(?:corrida|oferta)\b)/
 const JOINED_OFFERS = new RegExp(String.raw`\s+e\s+(?=(?:(?:a\s+)?(?:corrida|oferta)\b|r\$\s*\d|\d+(?:[.,]\d+)*\s+reais?\b))`)
 const JOINED_ROUTE_QUOTES = /\s+e\s+(?=(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?\s+(?:por|em|pra|para|com)\s+\d+(?:[.,]\d+)*\s*(?:kms?|quilometros?)\b)/
-const COMPARA_DOIS = /\bqual\s+(?:(?:das?\s+)?(?:corridas?|ofertas?)\s+)?(?:(?:da|tem)\s+(?:mais\s+lucro|maior\s+lucro)|(?:paga|rende|da)\s+mais|e\s+(?:a\s+)?melhor|(?:tem\s+)?[oa]\s+(?:(?:melhor|maior)\s+)?(?:ganho|lucro|rendimento|receita)\s+(?:(?:brut[oa]|liquid[oa])\s+)?por\s+(?:hora|minuto|km|quilometro))\b|\bvale\s+mais\b|^vale\s+a\s+pena\s+a\s+de\b/
+const COMPARA_DOIS = /\bqual\s+(?:(?:das?\s+)?(?:corridas?|ofertas?)\s+)?(?:(?:da|tem)\s+(?:mais\s+lucro|maior\s+lucro)|(?:paga|rende|da)\s+mais|e\s+(?:a\s+)?(?:melhor|mais\s+lucrativ[ao])|(?:tem\s+)?[oa]\s+(?:(?:melhor|maior)\s+)?(?:ganho|lucro|rendimento|receita)\s+(?:(?:brut[oa]|liquid[oa])\s+)?por\s+(?:hora|minuto|km|quilometro))\b|\bvale\s+mais\b|^vale\s+a\s+pena\s+a\s+de\b/
 const PICKUP = String.raw`(?:ate\s+(?:(?:o|a)\s+)?(?:passageir[oa]|embarque)|(?:(?:pra|para)\s+(?:(?:o|a)\s+)?(?:buscar|embarcar|embarque|passageir[oa])|(?:pro|pra)\s+passageir[oa])|(?:de|do|pro|para\s+o)\s+embarque|(?:de\s+)?aproximacao|passageir[oa])`
 const TRIP = String.raw`(?:(?:d[aeo]\s+)?(?:corrida|viagem|trajeto)|ate\s+(?:o\s+)?destino)`
 const RETURN = String.raw`(?:(?:d[aeo]\s+|na\s+)?(?:retorno|volta)(?:\s+(?:vazi[oa]|sem\s+passageiro))?|(?:pra|para)\s+voltar(?:\s+(?:vazi[oa]|sem\s+passageiro))?|voltando(?:\s+(?:vazi[oa]|sem\s+passageiro))?)`
@@ -138,7 +138,8 @@ function compareOffers(state: AppState, parts: string[], question: string): stri
   const preciseRoute = quotes.every(q => q.complete)
   const hasTime = quotes.every(q => q.minutes > 0)
   const asksKm = /\bpor\s+(?:km|quilometro)\b/.test(question)
-  const asksNetKm = asksKm && /\b(?:lucro|liquid[oa])\b/.test(question)
+  const mentionsProfit = /\b(?:lucro|lucrativ[ao]|liquid[oa])\b/.test(question)
+  const asksNetKm = asksKm && mentionsProfit
   const canCompareTime = preciseRoute && hasTime && !asksKm
   const asksTime = question.match(/\bpor\s+(hora|minuto)\b/)?.[1]
   const perMinute = asksTime === 'minuto'
@@ -146,7 +147,7 @@ function compareOffers(state: AppState, parts: string[], question: string): stri
   const timeSuffix = perMinute ? 'min' : 'h'
   const minutesPerUnit = perMinute ? 1 : 60
   const asksGross = /\b(?:receita|faturamento|brut[oa])\b/.test(question)
-  const asksProfit = /\blucro\s+total\b/.test(question)
+  const asksProfit = !asksKm && !asksTime && /\b(?:lucro\s+total|mais\s+lucrativ[ao]|(?:mais|maior)\s+lucro)\b/.test(question)
   const fullCost = cost.fuelPerKm > 0
   const profitByTime = fullCost && !asksGross
   const labels = ['Primeira', 'Segunda']

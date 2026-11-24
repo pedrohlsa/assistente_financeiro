@@ -119,6 +119,7 @@ export function parseDriverDay(message: string, opts: { driver: boolean }): Driv
   // Normaliza só o suficiente para tokenizar: separa número de unidade colada
   // ("161km" → "161 km", "24l" → "24 l", "8h" → "8 h").
   const texto = raw
+    .replace(/(\d)\s+reais?\s+(?=(?:de|da|do|na|no|pela|pelo)\s)/g, '$1 ')
     .replace(DURACAO, duration => ` ${elapsedMinutes(duration) ?? 0} min-jornada `)
     .replace(/(\d)\s*(km|l|h|hrs?|horas?|litros?)\b/gi, '$1 $2')
     .replace(/(?<!\d)[.,]|[.,](?!\d)|[;!?:]/g, ' ')
