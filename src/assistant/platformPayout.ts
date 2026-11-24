@@ -220,16 +220,24 @@ const RIDE_DEBT_EXPECTED = new RegExp(
 const RIDE_DEBT_PENDING = new RegExp(
   String.raw`^(?:(?:ainda\s+)?(?:ta|esta|ficou)\s+pendente|(?:ainda\s+)?(?:falta|faltou)\s+(?:cair|entrar))\s+${MONEY('amount')}${DEBT_SOURCE}`,
 )
+const RIDE_DEBT_STATUS = new RegExp(
+  String.raw`^(?:${PAYOUT_DAY}\s+)?${UNPAID_AFTER_VALUE}(?:\s+${PAYOUT_SCHEDULE})?${DEBT_TAIL}`,
+)
+const RIDE_DEBT_BALANCE = new RegExp(
+  String.raw`^(?:ganhei|fiz|faturei)\s+(?:d[ao]|n[ao]|pel[ao])\s+(?<platform>${PAYOUT_APP})\s+(?:um\s+)?(?:saldo|repasse)\s+de\s+${MONEY('amount')}\s+(?:que\s+)?${UNPAID_STATUS}(?:\s+${PAYOUT_SCHEDULE})?${DEBT_TAIL}`,
+)
 const DEBT_TAIL_ORIGINAL = new RegExp(DEBT_TAIL, 'i')
 
 export function readRideDebt(message: string): { platform: string; amount: number; tail?: string } | undefined {
   if (!/\b(?:devendo|devem?|pagou|repassou|depositou|receber|cair|entrar|pendente)\b/i.test(message)) return undefined
   const text = normalizeName(normalizeNumberWords(message).text)
-  const parts = (text.match(RIDE_DEBT) || text.match(RIDE_DEBT_REVERSED) || text.match(RIDE_DEBT_EXPECTED) || text.match(RIDE_DEBT_PENDING))?.groups
-  if (!parts) return undefined
-  const amount = parseMoney(parts.amount)
+  const parts = (text.match(RIDE_DEBT) || text.match(RIDE_DEBT_REVERSED) || text.match(RIDE_DEBT_EXPECTED) || text.match(RIDE_DEBT_PENDING)
+    || text.match(RIDE_DEBT_STATUS) || text.match(RIDE_DEBT_BALANCE))?.groups
+  const platform = parts?.platform || parts?.unpaidApp
+  if (!platform) return undefined
+  const amount = parseMoney(parts.amount || parts.unpaid)
   const tail = parts.tail && (message.match(DEBT_TAIL_ORIGINAL)?.groups.tail || parts.tail)
-  return amount > 0 ? { platform: ridePayoutPlatformName(parts.platform), amount, tail } : undefined
+  return amount > 0 ? { platform: ridePayoutPlatformName(platform), amount, tail } : undefined
 }
 
 const RIDE_WALLET = new RegExp(

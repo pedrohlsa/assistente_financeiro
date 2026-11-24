@@ -452,6 +452,8 @@ export interface AssistantClarification {
   workHoursEdit?: import('./editWorkHours').WorkHoursEdit
   /** Valor ainda não recebido na jornada, à espera de separar por plataforma. */
   rideShiftUnpaid?: number
+  /** Total informado das corridas, usado ao corrigir o valor recebido antes da data. */
+  rideReceiptLimit?: number
   /** Valor mencionado na conta, à espera de confirmar se é saldo ou repasse. */
   rideReceiptCheck?: {
     action: Extract<ParsedAction, { kind: 'income' }>

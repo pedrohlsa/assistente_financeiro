@@ -384,6 +384,16 @@ const APP_COMPARISON = /^(?:(?:me\s+)?compar(?:a|e|ar)|quanto\s+(?:eu\s+)?(?:gan
 const APP_GAP = /^(?:qual|quanto)\s+(?:(?:foi|e)\s+)?a\s+diferenca\b|^quanto\s+(?:(?:a|o)\s+)?(?:uber|99|in\s*drive[r]?)\s+(?:me\s+)?(?:pagou|paga|rendeu|rende|deu|fez)\s+a\s+(?:mais|menos)\s+(?:do\s+)?que\b|^quanto\s+(?:eu\s+)?(?:fiz|ganhei|faturei|tirei)\s+a\s+mais\s+n[ao]\s+(?:uber|99|in\s*drive[r]?)\b/
 const APP_ORDER = /^(?:(?:a|o)\s+)?(?:uber|99|in\s*drive[r]?|i\s*food|rappi)\s+(?:me\s+)?(?:paga|pagou|rende|rendeu)\s+(mais|menos)\s+(?:do\s+)?que\b/
 
+export function rideAppFollowUp(question: string, said: string): string | undefined {
+  const answer = normalizeName(normalizeNumberWords(said).text).match(/^(?:n[ao]|d[ao]|pel[ao]|via)\s+(uber|99|in\s*drive[r]?|i\s*food|rappi)$/)
+  if (!answer) return undefined
+  const names = [...question.matchAll(NAMED_RIDE_APPS)]
+    .filter(match => match[0] !== '99' || !/r\$\s*$/.test(question.slice(0, match.index)))
+  if (names.length !== 1) return undefined
+  const [previous] = names
+  return question.slice(0, previous.index) + answer[1] + question.slice(previous.index + previous[0].length)
+}
+
 export function compareRideApps(state: AppState, input: string, today: string): string | undefined {
   if (!isDriver(state.settings) || !/\b(?:uber|99|noventa|in\s*drive[r]?|i\s*food|rappi|apps?|aplicativos?|plataformas?)\b/i.test(input)) return undefined
   const t = normalizeName(normalizeNumberWords(input).text).trim()
@@ -400,9 +410,13 @@ export function compareRideApps(state: AppState, input: string, today: string): 
   const shorthand = /r\$\s*\/\s*(h|hora|km|viagem|corrida)\b/
   const unit = t.match(/\bpor\s+(hora|km|quilometro|distancia|viagem|corrida)\b/)?.[1] || t.match(shorthand)?.[1]
   const metric = unit === 'h' ? 'hora' : unit === 'distancia' ? 'km' : unit
-  const platform99 = /\b(?:da|na|pela|via|app|aplicativo)\s+99\b|\b99\s+(?:e|ou|versus|vs|contra)\b/.test(t)
+  const platform99 = /\b(?:da|do|na|no|pela|pelo|a|o|via|app|aplicativo)\s+99\b|\b99\s+(?:e|ou|versus|vs|contra)\b/.test(t)
   const appScope = names.some(name => name !== '99') || platform99
     || /\b(?:por|em cada|de cada)\s+(?:app|aplicativo|plataforma)s?\b/.test(t)
+  const asksIndividualRide = /^(?:(?:me\s+)?(?:mostra|mostre)\s+[ao]\s+|qual\s+(?:(?:foi|e)\s+)?(?:a\s+)?)(?:corrida|viagem)\b.*\b(?:mais|melhor|maior)\b/.test(t)
+  if (asksIndividualRide && (metric || /\bpor\s+minuto\b/.test(t))) {
+    return 'O histórico tem recebimentos que podem agrupar várias viagens. Para dizer qual corrida rendeu mais, preciso do valor e da distância ou do tempo de cada corrida.'
+  }
   if (appScope && /^(?:e\s+)?(?:quanto|quantos?|quantas?|qual|quais|media)\b/.test(t)) {
     if (metric === 'hora' && /\b(?:corridas?|viagens?)\s+por\s+hora\b/.test(t)) {
       return 'O histórico guarda as viagens e as horas do dia inteiro. Para calcular viagens por hora em uma plataforma, preciso das duas medidas separadas por app.'

@@ -94,7 +94,7 @@ export interface ConversationFocus {
   /** Assunto mais recente, para resolver referências de continuação. */
   last?: 'query' | 'scenario' | 'driver' | 'vehicle' | 'period-view'
   /** Lista ou comparação local que pode ser repetida para outro período. */
-  lastPeriodView?: { kind: 'movements' | 'ride-apps'; question: string }
+  lastPeriodView?: { kind: 'movements' | 'ride-apps'; question: string; periodText?: string }
   /** Entidades citadas — matéria-prima da elipse ("e o outro?"). */
   entities?: { cards?: string[]; categories?: string[]; goals?: string[]; origins?: string[] }
   /**

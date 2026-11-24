@@ -11249,6 +11249,94 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && partialSettlement.actions.some(a => a.kind === 'income' && a.amount === 900 && a.description === 'Uber' && a.date === ontem)
         && partialSettlement.actions.some(a => a.kind === 'income' && a.amount === 150 && a.description === '99' && a.date === hoje)))
 
+      const changedReceipt = chat()
+      await changedReceipt('fiz 800 na Uber e 150 de gasolina, 300 ainda não caiu')
+      await changedReceipt('caiu 500 amanhã')
+      const wrongReceiptAmount = await changedReceipt('foi 900')
+      const replacedAmount = await changedReceipt('foi 475,25')
+      const finalizedDate = await changedReceipt('foi ontem')
+      const timedQuery = chat()
+      const firstTimedQuery = await timedQuery('quanto ganhei por hora na Uber ontem?')
+      const secondTimedQuery = await timedQuery('e na 99?')
+      const thirdTimedQuery = await timedQuery('e anteontem?')
+      const individualRide = await chat()('mostra a corrida que mais rendeu por km na Uber ontem')
+      const expectedOnly = await chat()('300 da 99 ainda tá pra cair, abasteci 80 ontem')
+      const balanceDue = await chat()('ganhei da 99 um saldo de 200 que tá pra cair; ontem gastei 90 de gasolina')
+      const extraPart = await chat()('ontem foram 900 da Uber e 250 da 99. Hoje a 99 me pagou mais 150 dos 250')
+      const conflictingPart = await chat()('ontem foram 900 da Uber e 250 da 99. Hoje a 99 me pagou 300 dos 250')
+      out.push(result(`MOTOR-corrige-valor-de-repasse-ja-perguntando-a-data-${fixture}`,
+        [wrongReceiptAmount, replacedAmount, finalizedDate].map(r => [r.mode, r.actions, r.reply]),
+        'corrige o valor do repasse em aberto sem tocar no combustível',
+        wrongReceiptAmount.mode === 'clarify' && !wrongReceiptAmount.actions.length && /800,00/.test(wrongReceiptAmount.reply)
+        && replacedAmount.mode === 'clarify' && !replacedAmount.actions.length && /475,25/.test(replacedAmount.reply)
+        && finalizedDate.mode === 'propose_actions' && finalizedDate.actions.length === 2
+        && finalizedDate.actions.some(a => a.kind === 'income' && a.amount === 475.25 && a.description === 'Uber' && a.date === ontem)
+        && finalizedDate.actions.some(a => a.kind === 'fuel' && a.amount === 150 && a.date === undefined)))
+      out.push(result(`MOTOR-consulta-curta-troca-app-e-mantem-medida-${fixture}`,
+        [firstTimedQuery, secondTimedQuery, thirdTimedQuery, individualRide].map(r => [r.mode, r.actions, r.reply, r.focus?.lastPeriodView]),
+        'mantém o indicador e a data ao trocar só o aplicativo, e distingue corrida individual de rendimento diário',
+        [firstTimedQuery, secondTimedQuery, thirdTimedQuery, individualRide].every(r => r.mode === 'answer' && !r.actions.length)
+        && /horas.*plataforma/.test(firstTimedQuery.reply)
+        && /horas.*plataforma/.test(secondTimedQuery.reply)
+        && /horas.*plataforma/.test(thirdTimedQuery.reply)
+        && secondTimedQuery.focus?.lastPeriodView?.periodText === 'ontem'
+        && thirdTimedQuery.focus?.lastPeriodView?.periodText === 'anteontem'
+        && /99/.test(secondTimedQuery.focus?.lastPeriodView?.question || '') && !/uber/i.test(secondTimedQuery.focus?.lastPeriodView?.question || '')
+        && /corrida.*(cada|individual)|por corrida/i.test(individualRide.reply)))
+      out.push(result(`MOTOR-dinheiro-da-99-pendente-em-relato-curto-${fixture}`,
+        [expectedOnly, balanceDue].map(r => [r.mode, r.actions, r.reply]),
+        'preserva combustível datado sem propor valores informados como pendentes',
+        [expectedOnly, balanceDue].every((r, i) => r.mode === 'propose_actions' && r.actions.length === 1
+          && r.actions.some(a => a.kind === 'fuel' && a.amount === (i ? 90 : 80) && a.date === ontem)
+          && /99.*(deve|pendente|em aberto)/.test(r.reply))))
+      out.push(result(`MOTOR-repasse-parte-do-total-nao-duplica-${fixture}`,
+        [extraPart, conflictingPart].map(r => [r.mode, r.actions, r.reply]),
+        'reconhece a parcela mesmo com mais e segura valores incompatíveis',
+        extraPart.mode === 'propose_actions' && extraPart.actions.length === 2
+        && extraPart.actions.some(a => a.kind === 'income' && a.description === '99' && a.amount === 150 && a.date === hoje)
+        && conflictingPart.mode === 'clarify' && conflictingPart.actions.length === 1
+        && conflictingPart.actions.some(a => a.kind === 'income' && a.description === 'Uber' && a.amount === 900 && a.date === ontem)))
+
+      const amountAndDateChat = chat()
+      await amountAndDateChat('fiz 800 na Uber e 150 de gasolina, 300 ainda não caiu')
+      await amountAndDateChat('caiu 500 amanhã')
+      const wrongReceiptApp = await amountAndDateChat('caiu 450 da 99 ontem')
+      const fixedTogether = await amountAndDateChat('caiu 450,50 na Uber anteontem')
+      const cancelledPayout = chat()
+      await cancelledPayout('fiz 800 na Uber e 150 de gasolina, 300 ainda não caiu')
+      await cancelledPayout('caiu 500 amanhã')
+      const zeroReceived = await cancelledPayout('não, foi zero')
+      const fuelKept = await cancelledPayout('foi 155')
+      out.push(result(`MOTOR-data-e-valor-corrigidos-no-mesmo-turno-${fixture}`,
+        [wrongReceiptApp, fixedTogether, zeroReceived, fuelKept].map(r => [r.mode, r.actions, r.reply]),
+        'saneia app, data e valor do repasse sem mover o abastecimento',
+        wrongReceiptApp.mode === 'clarify' && !wrongReceiptApp.actions.length && /Uber/.test(wrongReceiptApp.reply)
+        && fixedTogether.mode === 'propose_actions' && fixedTogether.actions.length === 2
+        && fixedTogether.actions.some(a => a.kind === 'income' && a.description === 'Uber' && a.amount === 450.5 && a.date === anteontem)
+        && fixedTogether.actions.some(a => a.kind === 'fuel' && a.amount === 150 && a.date === undefined)
+        && zeroReceived.mode === 'answer' && !zeroReceived.actions.length && zeroReceived.keepPending
+        && fuelKept.mode === 'propose_actions' && fuelKept.actions.length === 1
+        && fuelKept.actions.some(a => a.kind === 'fuel' && a.amount === 155)))
+
+      const linkTotal = chat()
+      const mismatchedLink = await linkTotal('ontem foram 900 da Uber e 260 da 99. Hoje a 99 me pagou 150 dos 250')
+      const clarifiedLink = await linkTotal('é o mesmo')
+      const sourceThenLink = chat()
+      const mixedSource = await sourceThenLink('ontem foram 900 da Uber e 250 da 99. Hoje a Uber me pagou 250 da 99')
+      const verifiedSource = await sourceThenLink('99')
+      const keptTwoSettlements = await sourceThenLink('era outro repasse')
+      out.push(result(`MOTOR-repasse-confirma-vinculo-quando-total-ou-app-divergem-${fixture}`,
+        [mismatchedLink, clarifiedLink, mixedSource, verifiedSource, keptTwoSettlements].map(r => [r.mode, r.actions, r.reply]),
+        'pergunta pelo vínculo quando o valor de referência muda ou o app estava em conflito',
+        mismatchedLink.mode === 'clarify' && mismatchedLink.actions.length === 1 && /260,00.*250,00/.test(mismatchedLink.reply)
+        && mismatchedLink.actions.some(a => a.kind === 'income' && a.amount === 900 && a.description === 'Uber' && a.date === ontem)
+        && clarifiedLink.mode === 'propose_actions' && clarifiedLink.actions.length === 2
+        && clarifiedLink.actions.some(a => a.kind === 'income' && a.amount === 150 && a.description === '99' && a.date === hoje)
+        && mixedSource.mode === 'clarify' && mixedSource.actions.length === 1
+        && verifiedSource.mode === 'clarify' && !verifiedSource.actions.length && /mesmo.*repasse|repasse.*mesmo/.test(verifiedSource.reply)
+        && keptTwoSettlements.mode === 'propose_actions' && keptTwoSettlements.actions.length === 3
+        && [ontem, hoje].every(date => keptTwoSettlements.actions.some(a => a.kind === 'income' && a.amount === 250 && a.description === '99' && a.date === date))))
+
       out.push(result(`MOTOR-sem-gravacao-${fixture}`, JSON.stringify(state) === snapshot, true, JSON.stringify(state) === snapshot))
     }
   }
