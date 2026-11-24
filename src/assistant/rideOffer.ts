@@ -31,8 +31,9 @@ const SECOND_OFFER_WITH_AMOUNT = /(?:[,.;]\s*|\s+e\s+)(?=(?:a\s+)?segunda\s+(?:(
 const JOINED_OFFERS = new RegExp(String.raw`\s+e\s+(?=(?:(?:a\s+)?(?:corrida|oferta)\b|r\$\s*\d|\d+(?:[.,]\d+)*\s+reais?\b))`)
 const JOINED_ROUTE_QUOTES = /\s+e\s+(?=(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?\s+(?:por|em|pra|para|com)\s+\d+(?:[.,]\d+)*\s*(?:kms?|quilometros?)\b)/
 const COMPARA_DOIS = /\bqual\s+(?:(?:das?\s+)?(?:corridas?|ofertas?)\s+)?(?:(?:da|tem)\s+(?:mais\s+lucro|maior\s+lucro)|(?:paga|rende|da)\s+mais|e\s+(?:a\s+)?(?:melhor|mais\s+lucrativ[ao])|(?:tem\s+)?[oa]\s+(?:(?:melhor|maior)\s+)?(?:ganho|lucro|rendimento|receita)\s+(?:(?:brut[oa]|liquid[oa])\s+)?por\s+(?:hora|minuto|km|quilometro))\b|\bqual\s+compensa\b|\bvale\s+mais\b|^vale\s+a\s+pena\s+a\s+de\b/
-const PICKUP = String.raw`(?:ate\s+(?:(?:o|a)\s+)?(?:passageir[oa]|embarque)|(?:(?:pra|para)\s+(?:(?:o|a)\s+)?(?:buscar|embarcar|embarque|passageir[oa])|(?:pro|pra)\s+passageir[oa])|(?:de|do|pro|para\s+o)\s+embarque|(?:de\s+)?aproximacao|passageir[oa])`
-const TRIP = String.raw`(?:(?:d[aeo]\s+)?(?:corrida|viagem|trajeto)|com\s+(?:[ao]\s+)?passageir[oa]|ate\s+(?:o\s+)?destino)`
+const RIDER_ON_BOARD = String.raw`(?:(?:n[oa]\s+trecho\s+)?com\s+(?:[ao]\s+)?passageir[oa](?:\s+a\s+bordo)?|levando\s+(?:[ao]\s+)?passageir[oa])`
+const PICKUP = String.raw`(?:ate\s+(?:(?:o|a)\s+)?(?:passageir[oa]|embarque)|ate\s+(?:buscar|pegar|embarcar)(?:\s+(?:[ao]\s+)?passageir[oa])?|(?:(?:pra|para)\s+(?:(?:o|a)\s+)?(?:buscar|embarcar|embarque|passageir[oa])|(?:pro|pra)\s+passageir[oa])|(?:de|do|pro|para\s+o)\s+embarque|(?:de\s+)?aproximacao|passageir[oa])`
+const TRIP = String.raw`(?:(?:d[aeo]\s+)?(?:corrida|viagem|trajeto)|${RIDER_ON_BOARD}|ate\s+(?:o\s+)?destino)`
 const RETURN = String.raw`(?:(?:d[aeo]\s+|na\s+)?(?:retorno|volta)(?:\s+(?:vazi[oa]|sem\s+passageiro))?|(?:pra|para)\s+voltar(?:\s+(?:vazi[oa]|sem\s+passageiro))?|voltando(?:\s+(?:vazi[oa]|sem\s+passageiro))?|vazi[oa]s?\s+na\s+volta|(?:vou\s+)?voltar(?:\s+(?:uns|umas|aproximadamente|cerca\s+de))?)`
 const OUTBOUND_WITH_PICKUP = String.raw`ate\s+(?:o\s+)?destino\s*,?\s+(?:com|contando|incluindo)\s+(?:o\s+)?embarque`
 const INCLUDES_PICKUP = new RegExp(String.raw`^${OUTBOUND_WITH_PICKUP}$`)
@@ -40,9 +41,9 @@ const OUTBOUND = String.raw`(?:(?:d[aeo]|na)\s+)?ida`
 const TOTAL = String.raw`(?:no\s+total|ao\s+todo|tota(?:l|is)|contando\s+(?:a\s+)?ida\s+${PICKUP}|(?:(?:contando|de)\s+)?(?:a\s+)?ida\s+e\s+(?:a\s+)?volta)`
 const SUFFIX = new RegExp(String.raw`^\s+(?:(?:so|somente|apenas)\s+)?(${TOTAL}|${OUTBOUND_WITH_PICKUP}|${PICKUP}|${TRIP}|${RETURN}|${OUTBOUND})\b`)
 const PREFIX = new RegExp(String.raw`\b(embarque|buscar|passageiro|distancia\s+${PICKUP}|tempo\s+${PICKUP}|distancia\s+${TRIP}|tempo\s+${TRIP}|trajeto|viagem|volto|(?:distancia\s+|tempo\s+)?${RETURN}|${OUTBOUND}|${TOTAL})(?:[\s:]+(?:de|e))?[\s:]+$`)
-const IS_PICKUP = /\b(?:embarq\w*|buscar|passageir[oa]|aproximacao)\b/
+const IS_PICKUP = /\b(?:emba(?:rq|rc)\w*|buscar|pegar|passageir[oa]|aproximacao)\b/
 const IS_RETURN = /\b(?:retorno|volta|volto|voltar|voltando)\b/
-const WITH_PASSENGER = /^com\s+(?:[ao]\s+)?passageir[oa]$/
+const WITH_PASSENGER = new RegExp(String.raw`^${RIDER_ON_BOARD}$`)
 const IS_OUTBOUND = /\bida\b/
 const IS_TOTAL = new RegExp(String.raw`\b${TOTAL}\b`)
 const DISTANCE = new RegExp(String.raw`(?<![\d.,-])${NUMBER}\s*(kms?|quilometros?|m|metros?)\b`, 'g')

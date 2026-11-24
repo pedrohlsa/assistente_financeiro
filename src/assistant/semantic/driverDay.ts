@@ -26,6 +26,7 @@ import { normalizeName } from '../../utils/text'
 import { normalizeNumberWords } from '../numbers'
 import { findAllDates } from '../dates'
 import { COMPOUND_DURATION, elapsedMinutes } from './clock'
+import { parseTypedPairs } from './pairs'
 
 const REPORTED_MONEY = String.raw`(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?`
 const PLATFORM_INCOME = String.raw`(?:na|no|da|do|de|pela|pelo)\s+(?:uber|99|in\s*driver?)\b`
@@ -66,7 +67,10 @@ export function expandDriverReport(message: string, today: string): string {
   const [date] = dates
   if (dates.length > 1) return withFuel
   const withoutDate = (date ? text.slice(0, date.start) + text.slice(date.end) : text).trim().replace(/^,\s*|[,;]$/g, '').trim()
-  const parts = (withoutDate.match(CLOSED_SHIFT) || withoutDate.match(CLOSED_DAY_AFTER_WORK)
+  // A transcrição pode separar a vírgula dos centavos ditados por extenso.
+  const joinedCents = /\d,\s+\p{L}/u.test(message)
+    ? withoutDate.replace(/(\d),\s+(\d{2})(?=\s+de\s+corridas?\b)/i, '$1,$2') : withoutDate
+  const parts = (joinedCents.match(CLOSED_SHIFT) || withoutDate.match(CLOSED_DAY_AFTER_WORK)
     || withoutDate.match(RIDE_RESULT_WITH_DURATION) || withoutDate.match(RIDE_RESULT))?.groups
   if (!parts) {
     if (!/^(?:eu\s+)?(?:fiz|faturei|ganhei)\s/i.test(withoutDate)) return withFuel
@@ -86,6 +90,7 @@ const SHIFT_WITH_APP_HOURS = new RegExp([
 ].join(''), 'i')
 const APP_NAMES = String.raw`(?:uber|99|in\s*driver?|ifood|rappi)\b`
 const APP_DURATION = String.raw`(?:${REPORTED_DURATION}|(?:uma\s+)?hora\s+e\s+meia|\d{1,2}\s+e\s+meia)`
+const DRIVER_REPORT_APP_FIRST = new RegExp(String.raw`^(?<finances>${APP_NAMES}\s+.+?)\s+(?<hours>${REPORTED_DURATION})[.!]*$`, 'i')
 const HOURS_THEN_APP = new RegExp(String.raw`^(?<duration>${APP_DURATION})\s+(?:(?:na|no|pela|pelo|de)\s+)?(?<platform>${APP_NAMES})`, 'i')
 const APP_THEN_HOURS = new RegExp(String.raw`^(?:(?:na|no|pela|pelo)\s+)?(?<platform>${APP_NAMES})\s+(?:por\s+)?(?<duration>${APP_DURATION})`, 'i')
 const SHIFT_CLAUSE_START = /^(?:ganhei|faturei|recebi|fiz|gastei|paguei|abasteci|rodei|dirigi)\b/i
@@ -194,6 +199,17 @@ export function parseDriverDay(message: string, opts: { driver: boolean }): Driv
   if (!opts.driver) return null
   const raw = normalizeNumberWords(normalizeName(message)).text
   if (TEM_ORACAO.test(raw) || NAO_E_RELATO.test(raw)) return null
+
+  const labelsFirst = raw.trim().match(DRIVER_REPORT_APP_FIRST)?.groups
+  if (labelsFirst) {
+    const amounts = parseTypedPairs(labelsFirst.finances.replace(/r\$(?=\d)/g, 'r$ '), { driver: true })
+    if (amounts && amounts.filter(action => action.kind === 'income' && action.category === 'corridas').length >= 2
+      && amounts.every(action => action.kind === 'income' || action.kind === 'fuel')) {
+      const minutes = reportedWorkMinutes(labelsFirst.hours)
+      const actions: ParsedAction[] = minutes ? [...amounts, { kind: 'work', hours: minutes / 60 }] : amounts
+      return { actions, invalidWork: !minutes, reconhecidos: raw.split(/\s+/).length, unclassifiedAmounts: [] }
+    }
+  }
 
   // Normaliza só o suficiente para tokenizar: separa número de unidade colada
   // ("161km" → "161 km", "24l" → "24 l", "8h" → "8 h").

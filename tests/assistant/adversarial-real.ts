@@ -11549,6 +11549,53 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && /tempo total incluindo o retorno/.test(partialReturnTime.reply) && !/hora líquida/.test(partialReturnTime.reply)
         && /hora líquida.*35 min/.test(fullReturnTime.reply)))
 
+      const partialLabels = await Promise.all([
+        '45 reais com 15 km no total e 20 min só no trecho com passageiro, compensa?',
+        'corrida de R$ 60, 4 km até buscar, 12 km levando o passageiro, 6 km de volta vazia e 30 minutos da viagem, compensa?',
+        'tocou uma de 45 por 15 km totais e 20 minutos levando o passageiro, vale?',
+      ].map(message => chat()(message)))
+      out.push(result(`MOTOR-oferta-tempo-parcial-em-outras-falas-${fixture}`,
+        partialLabels.map(r => [r.mode, r.actions, r.reply]),
+        'trecho com passageiro e tempo levando o passageiro pedem o restante da duração',
+        partialLabels.every(r => r.mode === 'answer' && !r.actions.length
+          && /tempo total/.test(r.reply) && !/hora líquida/.test(r.reply))
+        && /22 km no total/.test(partialLabels[1].reply) && /6 km de retorno/.test(partialLabels[1].reply)))
+
+      const expectedPayout = await Promise.all([
+        ['tô esperando cair 300 da Uber e ontem gastei 90 de gasolina', 'Uber', 90, ontem],
+        ['amanhã vai cair 300 da 99, mas abasteci 80 hoje', '99', 80, hoje],
+        ['vai cair 300 na Uber sexta e ontem abasteci 80', 'Uber', 80, ontem],
+        ['espero receber 300 da 99 esse mês e gastei 70 de gasolina anteontem', '99', 70, anteontem],
+        ['a 99 vai me pagar 300 amanhã e gastei 80 de gasolina ontem', '99', 80, ontem],
+      ].map(async ([message, app, amount, date]) => [await chat()(String(message)), app, amount, date] as const))
+      const saysItIsPending = chat()
+      const pendingFromSameApp = await saysItIsPending('fiz 900 na Uber e ainda falta cair 250 dela, paguei 80 em gasolina')
+      const onlyRealPayment = await saysItIsPending('está incluído')
+      const appFirstShift = await chat()('Uber 800 reais 99 250 reais gasolina 90 reais 8h')
+      const spokenCommaShift = await chat()('fechei oito horas dirigindo com 320, cinquenta de corridas e 90 de gasolina')
+      out.push(result(`MOTOR-pagamento-esperado-e-outro-lancamento-${fixture}`,
+        [...expectedPayout.map(([r]) => r), pendingFromSameApp, onlyRealPayment].map(r => [r.mode, r.actions, r.reply]),
+        'espera de pagamento não vira receita e a despesa feita permanece na data certa',
+        expectedPayout.every(([r, app, amount, date]) => r.mode === 'propose_actions' && r.actions.length === 1
+          && r.actions.some(a => a.kind === 'fuel' && a.amount === amount && a.date === date)
+          && r.reply.includes(String(app)) && /300,00/.test(r.reply))
+        && pendingFromSameApp.mode === 'clarify' && pendingFromSameApp.actions.length === 1
+        && pendingFromSameApp.actions.some(a => a.kind === 'fuel' && a.amount === 80)
+        && onlyRealPayment.mode === 'propose_actions' && onlyRealPayment.actions.length === 2
+        && onlyRealPayment.actions.some(a => a.kind === 'income' && a.amount === 650 && a.description === 'Uber')))
+      out.push(result(`MOTOR-fechamento-com-rotulo-antes-do-valor-e-virgula-ditada-${fixture}`,
+        [appFirstShift, spokenCommaShift].map(r => [r.mode, r.actions, r.reply]),
+        'rótulos antes do valor e centavos ditados ficam nos campos corretos',
+        appFirstShift.mode === 'propose_actions' && appFirstShift.actions.length === 4
+        && appFirstShift.actions.some(a => a.kind === 'income' && a.description === 'Uber' && a.amount === 800)
+        && appFirstShift.actions.some(a => a.kind === 'income' && a.description === '99' && a.amount === 250)
+        && appFirstShift.actions.some(a => a.kind === 'fuel' && a.amount === 90)
+        && appFirstShift.actions.some(a => a.kind === 'work' && a.hours === 8)
+        && spokenCommaShift.mode === 'propose_actions' && spokenCommaShift.actions.length === 3
+        && spokenCommaShift.actions.some(a => a.kind === 'income' && a.amount === 320.5)
+        && spokenCommaShift.actions.some(a => a.kind === 'fuel' && a.amount === 90)
+        && spokenCommaShift.actions.some(a => a.kind === 'work' && a.hours === 8)))
+
       out.push(result(`MOTOR-sem-gravacao-${fixture}`, JSON.stringify(state) === snapshot, true, JSON.stringify(state) === snapshot))
     }
   }
