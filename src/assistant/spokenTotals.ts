@@ -2,6 +2,7 @@ import type { ParsedAction } from '../models/types'
 import { fmtBRL, parseMoney } from '../utils/format'
 import { normalizeName } from '../utils/text'
 import { analyzeMessage, looksLikeQuestion, looksPast, segment } from './clauses'
+import { readRidePayoutApp } from './platformPayout'
 import { normalizeNumberWords } from './numbers'
 import { readDraftPurchaseDate, type IncompleteIntent } from './drafts'
 import { parseDriverDay } from './semantic/driverDay'
@@ -37,7 +38,7 @@ const INVOICE_LIST_HEAD = /^(?<lead>(?:(?:eu|hoje|hj|ontem|anteontem|j[áa])\s+)
 const INVOICE_LIST_ITEM = new RegExp(String.raw`^(?:mais\s+)?(?:paguei\s+|quitei\s+)?${MONEY}\s+(?:(da\s+fatura|d[aeo]\s+faturas?)\s+)?d[ao]\s+(.+?)$`, 'i')
 const PAYSLIP_NET = new RegExp(String.raw`^(?<lead>(?:(?:eu|hoje|hj|ontem|anteontem)\s+){0,3})(?:(?:a\s+empresa|o\s+patr[ãa]o)\s+)?(?:me\s+)?descont(?:ou|aram)\s+${MONEY}\s+(?:(?:na|em)\s+folha|d[eo]\s+(?:meu\s+)?sal[áa]rio|de\s+(?:inss|irrf))(?:\s+de\s+pagamento)?(?:\s*[,;]\s*(?:e\s+)?|\s+e\s+)(?<when>(?:hoje|hj|ontem|anteontem)\s+)?(?:recebi|caiu|entrou)\s+(?<received>${MONEY})(?:\s+l[íi]quid[oa]s?)?(?:\s+de\s+sal[áa]rio)?(?<after>\s+(?:hoje|hj|ontem|anteontem))?(?<rest>[.!]*|\s+e\s+(?:paguei|gastei|comprei|abasteci)\b[^?]*?)$`, 'i')
 
-type ReconciledTotal = { text?: string; issue?: string; workText?: string; workPlatform?: string; dateQuestion?: IncompleteIntent['purchaseDateQuestion'] }
+type ReconciledTotal = { text?: string; issue?: string; workText?: string; workPlatform?: string; receiptPlatform?: string; dateQuestion?: IncompleteIntent['purchaseDateQuestion'] }
 
 type PaymentShare = { amount: number; card?: string; installments?: string }
 
@@ -89,20 +90,24 @@ function creditPurchaseTerms(text: string, today: string, cardNames: string[]): 
   return rewritten !== text ? { text: rewritten } : undefined
 }
 
-function partialSpokenPayment(text: string): ReconciledTotal | undefined {
+function partialSpokenPayment(text: string, driver: boolean): ReconciledTotal | undefined {
   const half = text.match(HALF_FROM_TOTAL)?.groups
   const part = half || text.match(PARTIAL_FROM_TOTAL)?.groups
   if (!part) return undefined
+  const label = part.tail ?? part.label ?? ''
+  const source = driver && /^(?:recebi|me\s+pag)/i.test(part.verb)
+    ? normalizeName(label).match(/^(?:d[ao]|n[ao]|pel[ao])\s+(uber|99|in\s*drive[r]?)(?:\s+(?:hoje|ontem|anteontem))?[.!]*$/)?.[1] : undefined
+  const receiptPlatform = source ? readRidePayoutApp(source) : undefined
   const total = cents(parseMoney(part.total))
   const paid = part.paid ? cents(parseMoney(part.paid)) : total / 2
   if (half && part.paid && Math.abs(paid - total / 2) > 0.5) {
-    return { issue: `Você disse metade de ${fmtBRL(total / 100)} e informou ${fmtBRL(paid / 100)}. Qual valor realmente foi pago?` }
+    return { issue: `Você disse metade de ${fmtBRL(total / 100)} e informou ${fmtBRL(paid / 100)}. Qual valor realmente foi ${receiptPlatform ? 'recebido' : 'pago'}?`, receiptPlatform }
   }
   if (!(paid > 0) || paid > total || !Number.isInteger(paid)) {
-    return { issue: 'Qual foi o valor pago, em reais e centavos? Use o valor que entrou ou saiu da conta.' }
+    return { issue: receiptPlatform ? `Qual foi o valor recebido da ${receiptPlatform}, em reais e centavos?`
+      : 'Qual foi o valor pago, em reais e centavos? Use o valor que entrou ou saiu da conta.', receiptPlatform }
   }
   const verb = /^me\s+/i.test(part.verb) ? 'recebi' : part.verb
-  const label = part.tail ?? part.label ?? ''
   const partialBill = /^paguei$/i.test(verb) && paid < total && /^\s+d[aeo]s?\s+(?!fatura\b)/i.test(label)
   return { text: `${part.prefix}${verb} ${String(paid / 100).replace('.', ',')}${partialBill ? ' de parte' : ''}${label}` }
 }
@@ -244,7 +249,7 @@ export function reconcileSpokenTotals(message: string, today: string, driver: bo
   if (/\b(?:dos|das|de\s+um\s+total\s+de)\s+(?:r\$\s*)?\d/i.test(text)) {
     const parts = looksLikeQuestion(text) ? segment(text, today) : []
     const first = parts.length > 1 && !looksLikeQuestion(parts[0].text) ? parts[0] : undefined
-    const partial = first ? partialSpokenPayment(first.text) : !parts.length ? partialSpokenPayment(text) : undefined
+    const partial = first ? partialSpokenPayment(first.text, driver) : !parts.length ? partialSpokenPayment(text, driver) : undefined
     if (partial?.text && first) return { text: `${partial.text.trimEnd()} ${text.slice(first.end).trimStart()}` }
     if (partial) return partial
   }

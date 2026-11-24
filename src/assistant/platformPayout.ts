@@ -107,13 +107,13 @@ const PAYOUT_SOURCE = String.raw`(?:de\s+corridas?|d[aeo]\s+ganhos?\s+d[aeo]\s+a
 
 const FUEL_LABEL = String.raw`(?:gasolina|gasosa|etanol|alcool|diesel|gnv|combustivel)\b`
 const FUEL_COST = (key: string) => [
-  String.raw`(?<${key}>(?:(?:gastei|paguei|botei|coloquei)\s+)?${MONEY(key + 'Amount')}\s+(?:(?:de|em|com)\s+)?${FUEL_LABEL}`,
+  String.raw`(?<${key}>(?:(?:gastei|paguei|botei|coloquei)\s+)?${MONEY(key + 'Amount')}\s+(?:(?:de|em|com|n[ao])\s+)?${FUEL_LABEL}`,
   String.raw`abasteci\s+${MONEY(key + 'Fill')}`,
   String.raw`(?<${key}Label>${FUEL_LABEL})\s+${MONEY(key + 'AfterLabel')}`,
   String.raw`(?<${key}Liters>\d+(?:[.,]\d+)?)\s*(?:litros?|l)\s+de\s+(?<${key}VolumeFuel>${FUEL_LABEL})\s+(?:(?:que\s+)?cust(?:ou|aram)|por)\s+${MONEY(key + 'VolumeCost')})`,
 ].join('|')
 const UNPAID_LINK = String.raw`(?:mas|porem|so\s+que|e|sendo|incluindo|d[eo]s\s+quais|dess[ea]s?|com)`
-const UNPAID_STATUS = String.raw`(?:(?:ainda\s+)?nao\s+(?:caiu|cairam|entrou|entraram|recebi|recebid[oa]s?)|(?:ainda\s+)?(?:vai|vao|(?:ta|tao|esta|estao|ficou|ficaram)\s+(?:para|pra)|ainda\s+(?:para|pra))\s+(?:cair|entrar)|(?:ainda\s+)?(?:ta|tao|esta|estao|ficou|ficaram)\s+pendentes?|(?:so\s+)?(?:cai|entra)(?=\s+amanha)|nao\s+saiu\s+da\s+carteira(?:\s+do\s+app)?(?:\s+ainda)?)`
+const UNPAID_STATUS = String.raw`(?:(?:ainda\s+)?nao\s+(?:caiu|cairam|entrou|entraram|recebi|recebid[oa]s?)|(?:ainda\s+)?(?:vai|vao|(?:ta|tao|esta|estao|ficou|ficaram)\s+(?:para|pra)|ainda\s+(?:para|pra))\s+(?:cair|entrar)|(?:ainda\s+)?(?:ta|tao|esta|estao|ficou|ficaram)\s+pendentes?|(?:so\s+)?(?:cai|entra)(?=\s+amanha)|(?:ainda\s+)?(?:ta|tao|esta|estao|ficou|ficaram)\s+(?:pres[oa]s?|bloquead[oa]s?)\s+(?:no\s+(?:app|aplicativo)|na\s+carteira(?:\s+do\s+app)?)|nao\s+saiu\s+da\s+carteira(?:\s+do\s+app)?(?:\s+ainda)?)`
 const UNPAID_AFTER_VALUE = String.raw`(?:(?:os|as)\s+)?${MONEY('unpaid')}(?:\s+(?:d[ao]|n[ao])\s+(?<unpaidApp>${PAYOUT_APP}))?\s+(?:que\s+)?${UNPAID_STATUS}(?:\s+ainda)?`
 const TELEGRAPHIC_UNPAID = String.raw`${MONEY('pendingAmount')}\s+pendentes?(?:\s+(?:n[ao]|d[ao])\s+(?<pendingApp>${PAYOUT_APP}))?`
 const UNPAID_BEFORE_VALUE = String.raw`(?:ainda\s+)?(?:faltam?\s+(?:(?:cair|entrar)\s+)?|(?:ficou|ta|esta)\s+faltando\s+|tem\s+(?=${MONEY('waiting')}\s+(?:pra|para)\s+(?:cair|entrar)))${MONEY('missing')}(?:\s+(?:pra|para)\s+(?:cair|entrar)|\s+do\s+repasse)?(?:\s+(?:so\s+)?(?:d[ao]|n[ao])\s+(?<missingApp>${PAYOUT_APP})|\s+del[ae])?`
@@ -128,7 +128,7 @@ const HELD_PAYOUT = String.raw`(?<heldPayout>(?:(?:o\s+)?(?:aplicativo|app|plata
 const PAYOUT_WORK = String.raw`(?<work>(?:rodei|trabalhei|dirigi)\s+(?:por\s+)?\d+(?:[.,]\d+)*\s*(?:km|quilometros?|h|horas?)|(?<wheelTime>\d+(?:[.,]\d+)?\s*(?:h|horas?))\s+no\s+volante)`
 const INITIAL_WORK = String.raw`(?<initialWork>\d+(?:[.,]\d+)?\s*(?:h|horas?))`
 const PARTIAL_RIDE_PAYOUT = new RegExp([
-  String.raw`^(?:(?<lead>${PAYOUT_DAY})\s*,?\s+)?(?:(?:n[ao]|pel[ao]|d[ao])\s+(?<initialApp>${PAYOUT_APP})\s+)?(?:(?:eu\s+)?(?<verb>deu|deram|fiz|ganhei|faturei|recebi|entrou|caiu|d[eo]s?|(?:o\s+)?total\s+foi)\s+)?(?:(?:d[ao]|n[ao]|pel[ao])\s+(?<platformBeforeValue>${PAYOUT_APP})\s+)?${MONEY('total')}(?:\s+(?:(?<source>${PAYOUT_SOURCE})|(?:em|durante)\s+${INITIAL_WORK}))?(?:\s+(?<day>${PAYOUT_DAY}))?`,
+  String.raw`^(?:(?<lead>${PAYOUT_DAY})\s*,?\s+)?(?:(?:n[ao]|pel[ao]|d[ao])\s+(?<initialApp>${PAYOUT_APP})\s+)?(?:(?:eu\s+)?(?<verb>deu|deram|fiz|ganhei|faturei|recebi|entrou|caiu|d[eo]s?|(?:o\s+)?total\s+foi)\s+)?(?:(?:d[ao]|n[ao]|pel[ao])\s+(?<platformBeforeValue>${PAYOUT_APP})\s+)?${MONEY('total')}(?:\s+(?:(?:que\s+(?:fiz|ganhei|faturei)\s+)?(?<source>${PAYOUT_SOURCE})|(?:em|durante)\s+${INITIAL_WORK}))?(?:\s+(?<day>${PAYOUT_DAY}))?`,
   String.raw`(?:,?\s+(?:e\s+)?${FUEL_COST('before')}(?:\s+(?<beforeDay>${PAYOUT_DAY}))?)?`,
   String.raw`(?:[,.]\s*|\s+)(?:(?<link>${UNPAID_LINK})\s+)?(?:(?<extra>mais|(?:(?:os|as)\s+)?outr[oa]s?)\s+)?(?:${UNPAID_AFTER_VALUE}|${TELEGRAPHIC_UNPAID}|${UNPAID_BEFORE_VALUE}|${RECEIVED_VALUE}|${UNPAID_UNSIZED}|${UNPAID_ALL}|${HELD_PAYOUT})`,
   String.raw`(?:\s+(?:na\s+(?:minha\s+)?conta|no\s+pix))?(?:\s+(?<settlementDay>${PAYOUT_SCHEDULE}))?`,
@@ -138,7 +138,7 @@ const PARTIAL_RIDE_PAYOUT = new RegExp([
 ].join(''))
 
 export function readPartialRidePayout(message: string) {
-  if (!/\b(?:ainda|n[aã]o|cair|caiu|ca[ií]ram|entrar|entrou|entraram|cai|entra|falta(?:m|ndo)?|recebi|nenhum|reteve|segurou|bloqueou|pendentes?)\b/i.test(message)) return undefined
+  if (!/\b(?:ainda|n[aã]o|cair|caiu|ca[ií]ram|entrar|entrou|entraram|cai|entra|falta(?:m|ndo)?|recebi|nenhum|reteve|segurou|bloqueou|pendentes?|pres[oa]s?|bloquead[oa]s?)\b/i.test(message)) return undefined
   const parts = normalizeName(normalizeNumberWords(message).text).trim().match(PARTIAL_RIDE_PAYOUT)?.groups
   if (!parts) return undefined
   const { lead, verb, initialApp, initialWork, source, platform, app, day, beforeDay, afterDay, link, extra, unpaidApp, pendingApp, missingApp, settlementDay, notAll, nothingPaid, heldPayout, work, workDay, restrictive, restrictiveAfter, reportedUnpaid } = parts
@@ -253,7 +253,7 @@ export function readPayoutDatePart(text: string): number | undefined {
 }
 
 const DEBT_PERIOD = String.raw`(?:${PAYOUT_SCHEDULE}|(?:(?:da|na)\s+)?semana\s+passada|(?:d[eo]|n[eo])\s+mes\s+passado|(?:d?ess[ea]|d?est[ea])\s+(?:semana|mes))`
-const DEBT_CONTEXT = String.raw`(?:\s+(?:d[aeo]s?|pel[ao]s?)\s+corridas?)?(?:\s+(?:de\s+)?${DEBT_PERIOD})?(?:\s+ainda)?`
+const DEBT_CONTEXT = String.raw`(?:\s+(?:d[aeo]s?|pel[ao]s?)\s+corridas?)?(?:\s+(?:(?:de|desde)\s+)?${DEBT_PERIOD})?(?:\s+ainda)?`
 const DEBT_TAIL = String.raw`(?:(?:\s+e\s+|\s*[.;,]\s*(?:(?:mas|e)\s+)?)(?<tail>(?:${PAYOUT_DAY}\s+)?(?:abasteci|paguei|gastei|rodei|trabalhei|recebi)\b[^?]*))?[.!]*$`
 const RIDE_DEBT = new RegExp(
   String.raw`^(?:[ao]\s+)?(?<platform>${PAYOUT_APP})\s+(?:ainda\s+)?(?:me\s+deve|(?:ta|esta)\s+(?:me\s+)?devendo|nao\s+(?:me\s+)?(?:pagou|repassou|depositou))\s+(?:(?:o|os|meus)\s+)?${MONEY('amount')}${DEBT_CONTEXT}${DEBT_TAIL}`,
@@ -273,7 +273,7 @@ const RIDE_DEBT_BALANCE = new RegExp(
   String.raw`^(?:ganhei|fiz|faturei)\s+(?:d[ao]|n[ao]|pel[ao])\s+(?<platform>${PAYOUT_APP})\s+(?:um\s+)?(?:saldo|repasse)\s+de\s+${MONEY('amount')}\s+(?:que\s+)?${UNPAID_STATUS}(?:\s+${PAYOUT_SCHEDULE})?${DEBT_TAIL}`,
 )
 const RIDE_DEBT_WAITING = new RegExp(
-  String.raw`^(?:${PAYOUT_SCHEDULE}\s+)?(?:eu\s+)?(?:ainda\s+)?(?:espero|(?:to|estou|fico)\s+esperando|vai|vao)\s+(?:cair|entrar|receber)\s+${MONEY('amount')}${DEBT_SOURCE}`,
+  String.raw`^(?:${PAYOUT_SCHEDULE}\s+)?(?:eu\s+)?(?:ainda\s+)?(?:(?:espero|(?:to|estou|fico)\s+(?:esperando|aguardando))\s+(?:(?:cair|entrar|receber)\s+)?|(?:vai|vao)\s+(?:cair|entrar|receber)\s+)${MONEY('amount')}${DEBT_SOURCE}`,
 )
 const RIDE_DEBT_WILL_PAY = new RegExp(
   String.raw`^(?:${PAYOUT_SCHEDULE}\s+)?(?:[ao]\s+)?${PLATFORM}\s+(?:ainda\s+)?vai\s+(?:me\s+)?(?:pagar|repassar|depositar)\s+${MONEY('amount')}${DEBT_CONTEXT}${DEBT_TAIL}`,
@@ -281,7 +281,7 @@ const RIDE_DEBT_WILL_PAY = new RegExp(
 const DEBT_TAIL_ORIGINAL = new RegExp(DEBT_TAIL, 'i')
 
 export function readRideDebt(message: string): { platform: string; amount: number; tail?: string } | undefined {
-  if (!/\b(?:devendo|devem?|pagou|repassou|depositou|pagar|depositar|repassar|receber|cair|entrar|pendente)\b/i.test(message)) return undefined
+  if (!/\b(?:devendo|devem?|pagou|repassou|depositou|pagar|depositar|repassar|receber|cair|entrar|pendente|esperando|aguardando|espero|pres[oa]s?|bloquead[oa]s?)\b/i.test(message)) return undefined
   const text = normalizeName(normalizeNumberWords(message).text)
   const parts = (text.match(RIDE_DEBT) || text.match(RIDE_DEBT_REVERSED) || text.match(RIDE_DEBT_EXPECTED) || text.match(RIDE_DEBT_PENDING)
     || text.match(RIDE_DEBT_STATUS) || text.match(RIDE_DEBT_BALANCE) || text.match(RIDE_DEBT_WAITING) || text.match(RIDE_DEBT_WILL_PAY))?.groups

@@ -2317,11 +2317,12 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
       const platform = payout && 'description' in payout ? payout.description : undefined
       const workText = reconciled && 'workText' in reconciled ? reconciled.workText : undefined
       const workPlatform = reconciled && 'workPlatform' in reconciled ? reconciled.workPlatform : undefined
-      const dates = platform || workText ? findAllDates(input.message, today) : []
+      const receiptPlatform = reconciled && 'receiptPlatform' in reconciled ? reconciled.receiptPlatform : undefined
+      const dates = platform || workText || receiptPlatform ? findAllDates(input.message, today) : []
       const [date] = dates
-      const pendingActions: ParsedAction[] | undefined = (platform || workText) && caps.isDriver
+      const pendingActions: ParsedAction[] | undefined = (platform || workText || receiptPlatform) && caps.isDriver
         && (!dates.length || (date.kind === 'date' && dates.every(d => d.kind === 'date' && d.date === date.date)))
-        ? [{ kind: 'income', amount: 0, category: 'corridas', description: platform || workPlatform,
+        ? [{ kind: 'income', amount: 0, category: 'corridas', description: platform || receiptPlatform || workPlatform,
           ...(platform ? { reportedNet: true, feeAlreadyWithheld: true } : {}),
           ...(date?.kind === 'date' ? { date: date.date } : {}) }] : undefined
       const work = workText && pendingActions

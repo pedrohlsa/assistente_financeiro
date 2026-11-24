@@ -11596,6 +11596,33 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && spokenCommaShift.actions.some(a => a.kind === 'fuel' && a.amount === 90)
         && spokenCommaShift.actions.some(a => a.kind === 'work' && a.hours === 8)))
 
+      const waitingSinceYesterday = await chat()('tô esperando 300 da Uber desde ontem e abasteci 90 hoje')
+      const temporarilyHeld = chat()
+      const heldReport = await temporarilyHeld('ontem faturei 800 na Uber mas os 300 tão presos no app e gastei 150 na gasolina')
+      const heldConfirmed = await temporarilyHeld('sim')
+      const alreadyIncludedHeld = await chat()('dos 800 que fiz na Uber, 300 estão presos no app')
+      const exactlyHalf = await chat()('recebi só metade dos 800 da Uber ontem e abasteci 80')
+      const halfDialog = chat()
+      const halfOddCents = await halfDialog('recebi só metade dos 800,01 da Uber ontem')
+      const exactHalfReceipt = await halfDialog('400,01')
+      out.push(result(`MOTOR-saldo-preso-ou-metade-do-repasse-${fixture}`,
+        [waitingSinceYesterday, heldReport, heldConfirmed, alreadyIncludedHeld, exactlyHalf, halfOddCents, exactHalfReceipt].map(r => [r.mode, r.actions, r.reply]),
+        'mantém dinheiro preso fora da receita e resolve frações somente quando há valor exato em centavos',
+        waitingSinceYesterday.mode === 'propose_actions' && waitingSinceYesterday.actions.length === 1
+        && waitingSinceYesterday.actions.some(a => a.kind === 'fuel' && a.amount === 90 && a.date === hoje)
+        && heldReport.mode === 'clarify' && heldReport.actions.length === 1
+        && heldReport.actions.some(a => a.kind === 'fuel' && a.amount === 150 && a.date === ontem)
+        && heldConfirmed.mode === 'propose_actions' && heldConfirmed.actions.length === 2
+        && heldConfirmed.actions.some(a => a.kind === 'income' && a.amount === 500 && a.description === 'Uber' && a.date === ontem)
+        && alreadyIncludedHeld.mode === 'propose_actions' && alreadyIncludedHeld.actions.length === 1
+        && alreadyIncludedHeld.actions.some(a => a.kind === 'income' && a.amount === 500 && a.description === 'Uber')
+        && exactlyHalf.mode === 'propose_actions' && exactlyHalf.actions.length === 2
+        && exactlyHalf.actions.some(a => a.kind === 'income' && a.amount === 400 && a.description === 'Uber' && a.date === ontem)
+        && exactlyHalf.actions.some(a => a.kind === 'fuel' && a.amount === 80 && a.date === ontem)
+        && halfOddCents.mode === 'clarify' && !halfOddCents.actions.length && /valor (?:pago|recebido).*reais e centavos/i.test(halfOddCents.reply)
+        && exactHalfReceipt.mode === 'propose_actions' && exactHalfReceipt.actions.length === 1
+        && exactHalfReceipt.actions.some(a => a.kind === 'income' && a.amount === 400.01 && a.description === 'Uber' && a.date === ontem)))
+
       out.push(result(`MOTOR-sem-gravacao-${fixture}`, JSON.stringify(state) === snapshot, true, JSON.stringify(state) === snapshot))
     }
   }
