@@ -11705,6 +11705,9 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         ['recebi 500 da 99, mas a Uber ainda não depositou 300', 500, undefined, '99', 'Uber'],
         ['Da Uber caiu 450 ontem e ela ficou devendo duzentos e trinta', 450, ontem, 'Uber', 'Uber'],
         ['Da noventa e nove entrou 370,15 anteontem e ela ficou me devendo 170,20', 370.15, anteontem, '99', '99'],
+        ['Uber caiu 210 hoje, 99 140 ficou pendente', 210, hoje, 'Uber', '99'],
+        ['Uber caiu 210 hoje, da 99 cento e quarenta só semana que vem', 210, hoje, 'Uber', '99'],
+        ['Uber caiu 210 hoje, da noventa e nove cento e quarenta só semana que vem', 210, hoje, 'Uber', '99'],
       ].map(async ([say, amount, day, app, debtor]) => ({ turn: await chat()(String(say)), amount, day, app, debtor })))
       out.push(result(`MOTOR-recebimento-e-outro-repasse-em-aberto-${fixture}`, receiptWithDebt,
         'reconhece um repasse pendente sem mudar o valor, a data ou a origem do recebimento',
@@ -11773,6 +11776,33 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && acceptedLink.mode === 'propose_actions' && acceptedLink.actions.length === 2
         && acceptedLink.actions.some(a => a.kind === 'income' && a.amount === 200 && a.description === 'Uber' && a.date === hoje)))
 
+      const receiptSplitAcrossDays = await chat()('recebi 500 da Uber hoje, eram 350 de ontem e 150 de anteontem')
+      const reviewParts = chat()
+      const mismatchParts = await reviewParts('recebi quinhentos reais da 99 hoje, sendo trezentos e cinquenta de ontem e cento e sessenta de anteontem')
+      const reconciledBreakdown = await reviewParts('recebi 510')
+      const datedPartialWithFuel = await chat()('ontem ganhei 800 na Uber, recebi 500 hoje e ainda faltam 300, paguei 90 de gasolina ontem')
+      out.push(result(`MOTOR-repasse-de-varios-dias-e-restante-com-combustivel-${fixture}`,
+        [receiptSplitAcrossDays, mismatchParts, reconciledBreakdown, datedPartialWithFuel],
+        'parcelas do repasse explicam sua composição e a despesa mantém seu próprio dia',
+        receiptSplitAcrossDays.mode === 'propose_actions' && receiptSplitAcrossDays.actions.length === 1
+        && receiptSplitAcrossDays.actions.some(a => a.kind === 'income' && a.amount === 500 && a.description === 'Uber' && a.date === hoje)
+        && mismatchParts.mode === 'clarify' && mismatchParts.actions.length === 0 && /500,00.*510,00/.test(mismatchParts.reply)
+        && reconciledBreakdown.mode === 'propose_actions' && reconciledBreakdown.actions.length === 1
+        && reconciledBreakdown.actions.some(a => a.kind === 'income' && a.amount === 510 && a.description === '99' && a.date === hoje)
+        && datedPartialWithFuel.mode === 'propose_actions' && datedPartialWithFuel.actions.length === 2
+        && datedPartialWithFuel.actions.some(a => a.kind === 'income' && a.amount === 500 && a.description === 'Uber' && a.date === hoje)
+        && datedPartialWithFuel.actions.some(a => a.kind === 'fuel' && a.amount === 90 && a.date === ontem)))
+
+      const shortFeeSettlements = await Promise.all([
+        ['Uber deu 400, descontou 70 de taxa e só entrou 330', 330, undefined],
+        ['Uber depositou 330, já veio descontado 70 de taxa', 330, undefined],
+        ['ontem Uber deu 400,50, reteve 70 de taxa e só entrou 330,50', 330.50, ontem],
+      ].map(async ([say, amount, date]) => ({ turn: await chat()(String(say)), amount, date })))
+      out.push(result(`MOTOR-repasse-liquido-com-taxa-dita-apos-o-app-${fixture}`, shortFeeSettlements,
+        'propõe só o valor líquido com origem e data, sem criar outra entrada ou despesa pela taxa',
+        shortFeeSettlements.every(({ turn, amount, date }) => turn.mode === 'propose_actions' && turn.actions.length === 1
+          && turn.actions.some(a => a.kind === 'income' && a.amount === amount && a.description === 'Uber' && a.date === date && a.feeAlreadyWithheld === true))))
+
       const spokenRoute = chat()
       const fullSpokenRoute = await spokenRoute('corrida de 40, 2 km até o passageiro, 8 de viagem e 5 de retorno. Duração: 10 minutos pra buscar, 20 com passageiro e 15 minutos de volta, compensa por hora?')
       const changedSpokenRoute = await spokenRoute('na verdade o retorno era 7 km')
@@ -11792,12 +11822,29 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
 
       const scaledRate = await Promise.all(['quanto a Uber me pagou por 100 km ontem?',
         'qual foi o ganho a cada cem quilômetros na 99 ontem?', 'a Uber me pagou quanto por cada 100 km ontem?',
-        'qual pagou mais a cada dez viagens ontem Uber ou 99?', 'quanto a Uber paga a cada meia hora?'].map(say => chat()(say)))
+        'qual pagou mais a cada dez viagens ontem Uber ou 99?', 'quanto a Uber paga a cada meia hora?',
+        'e a Uber em reais por meia hora semana passada?', 'o inDrive paga quanto por turno no último mês?'].map(say => chat()(say)))
       out.push(result(`MOTOR-indicador-por-quantidade-e-plataforma-${fixture}`, scaledRate,
         'explica que o histórico diário não permite calcular a taxa por plataforma, mesmo com denominador explícito',
         scaledRate.every(r => r.mode === 'answer' && !r.actions.length && /dia|di[aá]ri/.test(r.reply) && !/R\$\s*\d/.test(r.reply))
           && scaledRate.slice(0, 3).every(r => /quilômetros/.test(r.reply)) && /viagens/.test(scaledRate[3].reply)
-          && /horas/.test(scaledRate[4].reply)))
+          && scaledRate.slice(4, 6).every(r => /horas/.test(r.reply)) && /turnos separados/.test(scaledRate[6].reply)))
+
+      const pendingMeasures = chat()
+      await pendingMeasures('ganhei 500 na Uber e trabalhei 8h ontem')
+      const missingKm = await pendingMeasures('quantos km deu a proposta?')
+      const pendingHours = await pendingMeasures('quantas horas ficaram na proposta?')
+      const addKm = await pendingMeasures('foram 180 km')
+      const pendingKm = await pendingMeasures('quantos quilômetros tem essa proposta?')
+      const onlyButton = await pendingMeasures('sim')
+      out.push(result(`MOTOR-consulta-medidas-apenas-da-proposta-${fixture}`, [missingKm, pendingHours, addKm, pendingKm, onlyButton],
+        'responde sobre os dados pendentes mesmo com histórico e mantém a proposta em todos os turnos',
+        [missingKm, pendingHours, pendingKm, onlyButton].every(r => r.mode === 'answer' && !r.actions.length && r.keepPending)
+        && /Nenhuma distância foi informada na proposta/.test(missingKm.reply)
+        && /8h/.test(pendingHours.reply) && /180 km/.test(pendingKm.reply)
+        && addKm.mode === 'propose_actions' && addKm.actions.length === 2
+        && addKm.actions.some(a => a.kind === 'work' && a.hours === 8 && a.km === 180 && a.date === ontem)
+        && /botão/.test(onlyButton.reply)))
 
       const compositeCorrection = chat()
       const compositeStart = await compositeCorrection('ganhei 350 na Uber, 150 na 99, abasteci 80 de gasolina e trabalhei 7 horas ontem')

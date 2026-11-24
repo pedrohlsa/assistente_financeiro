@@ -925,8 +925,22 @@ function withPendingAnswer(
 }
 
 function previewPendingQuery(input: OrchestratorInput, today: string): OrchestratorOutput | undefined {
-  if (!input.pending?.length || input.pendingClarification || input.draft) return undefined
+  if (input.pendingClarification || input.draft) return undefined
   const text = normalizeName(input.message).replace(/[?!.]+$/, '').trim()
+  const measure = isDriver(input.state.settings) && text.match(/^(?:e\s+)?(?:quantos?|quantas?)\s+(km|quilometros?|h|horas?|viagens?|corridas?)\s+(?:(?:deu|da|tem|ficou|ficaram|constam|estao|colocou|entram)\s+)?(?:na|da|nessa|nesta|a|essa|esta)\s+proposta$/)?.[1]
+  if (measure) {
+    const field = /^h/.test(measure) ? 'hours' : /^(?:km|quil)/.test(measure) ? 'km' : 'trips'
+    const values = (input.pending || []).flatMap(({ action }) => action.kind === 'work' ? [action[field]]
+      : field === 'hours' && action.kind === 'edit-work-hours' ? [action.hours] : []).filter(Number.isFinite)
+    const total = values.reduce((sum, value) => sum + value, 0)
+    const detail = field === 'km' ? `${fmtNum(total)} km` : field === 'hours' ? `${fmtNum(total)}h` : `${fmtNum(total)} ${total === 1 ? 'viagem' : 'viagens'}`
+    const missing = field === 'km' ? 'Nenhuma distância foi informada' : field === 'hours' ? 'Nenhuma duração foi informada' : 'Nenhuma quantidade de viagens foi informada'
+    const reply = !input.pending?.length ? 'Você não tem uma proposta aguardando confirmação.'
+      : values.length ? `Na proposta, você informou ${detail}.` : `${missing} na proposta.`
+    return { draft: null, keepPending: true, focus: input.focus,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply } }
+  }
+  if (!input.pending?.length) return undefined
   const confirm = String.raw`se\s+(?:eu\s+)?confirmar(?:\s+(?:isso|essa\s+proposta|o\s+registro|os\s+registros))?`
   const includesProposal = String.raw`(?:${confirm}|(?:contando|incluindo|considerando)\s+(?:ess[ea]\s+(?:proposta|despesa|receita|registro)|o\s+pendente|a\s+proposta|ess[ea])(?:\s+tambem)?|com\s+a\s+proposta)`
   const before = text.match(new RegExp(String.raw`^(${confirm}),?\s+(.+)$`))
@@ -1437,14 +1451,26 @@ function keepActionsAwaitingClarification(input: OrchestratorInput, result: Orch
     response: { ...result.response, mode: 'clarify', reply, clarification } }
 }
 
+function readDatedPayoutCompanion(text: string, today: string): ParsedAction | undefined {
+  const { value, platform, dates, receiptDay } = readPayoutReceiptAnswer(text, today)
+  if (dates.length !== 1 || receiptDay?.kind !== 'date') return undefined
+  if (value > 0 && platform) return { kind: 'income', amount: value, category: 'corridas', description: platform, date: receiptDay.date }
+  if (!/\b(?:abasteci|paguei|gastei|rodei|trabalhei)\b/i.test(text)) return undefined
+  const { actions, clauses } = analyzeMessage(text, { driver: true, today })
+  if (actions.length !== 1 || clauses.length !== 1) return undefined
+  const [action] = actions
+  const [clause] = clauses
+  if (clause.handled && !clause.ambiguity && !clause.approximateAmount && !clause.temporal && (action.kind === 'fuel' || action.kind === 'expense' || action.kind === 'work')) return action
+}
+
 function prepareRideReceiptAcrossDates(input: OrchestratorInput, caps: AssistantCapabilities, today: string): OrchestratorOutput | undefined {
   if (!/\b(?:pagou|pagaram|repassou|depositou|transferiu|recebi|caiu|ca[ií]ram|entrou|entraram|veio|vieram)\b/i.test(input.message)
     || input.message.includes('?')) return undefined
   const dates = findAllDates(input.message, today)
   if (dates.length > 2) {
     for (const split of input.message.matchAll(/[,.;]\s+(?:e\s+)?/gi)) {
-      const extra = readPayoutReceiptAnswer(input.message.slice(split.index + split[0].length), today)
-      if (!(extra.value > 0) || !extra.platform || extra.dates.length !== 1 || extra.receiptDay?.kind !== 'date') continue
+      const extra = readDatedPayoutCompanion(input.message.slice(split.index + split[0].length), today)
+      if (!extra) continue
       const baseMessage = input.message.slice(0, split.index)
       if (findAllDates(baseMessage, today).length !== 2) continue
       const base = prepareRideReceiptAcrossDates({ ...input, message: baseMessage, pending: undefined }, caps, today)?.response
@@ -1452,9 +1478,8 @@ function prepareRideReceiptAcrossDates(input: OrchestratorInput, caps: Assistant
       const actions = base.actions.map(item => item.action)
       const clarification = base.mode === 'clarify' ? base.clarification : undefined
       const linked = [...actions, ...(clarification?.pendingActions || [])]
-      if (linked.some(action => action.kind === 'income' && action.description === extra.platform)) continue
-      const result = proposeDatedActions(input, [...actions, { kind: 'income', amount: extra.value,
-        category: 'corridas', description: extra.platform, date: extra.receiptDay.date }], caps, today)
+      if (extra.kind === 'income' && linked.some(action => action.kind === 'income' && action.description === extra.description)) continue
+      const result = proposeDatedActions(input, [...actions, extra], caps, today)
       return clarification ? keepActionsAwaitingClarification(input, result, clarification) : result
     }
     return undefined
@@ -1524,6 +1549,10 @@ function prepareRideReceiptAcrossDates(input: OrchestratorInput, caps: Assistant
     const question = `Dos ${fmtBRL(facts.total)} na ${facts.platform}, quanto você recebeu em ${brDate(paidOn.date)}?`
     return keepPendingClarification(input, { field: 'ride-payout-inclusion', question, pendingActions: [received],
       options: [{ label: 'Recebi tudo', value: 'all', actions: [received] }] })
+  }
+  if (facts.unpaid !== undefined && Math.round(facts.total * 100) !== Math.round(facts.amount * 100) + Math.round(facts.unpaid * 100)) {
+    const question = `Você informou ${fmtBRL(facts.total)} de corridas, ${fmtBRL(facts.amount)} recebidos e ${fmtBRL(facts.unpaid)} em aberto. Quanto realmente caiu?`
+    return keepPendingClarification(input, { field: 'ride-payout-inclusion', question, pendingActions: [{ ...received, amount: Math.max(facts.total, facts.amount) }] })
   }
   if (facts.relation === 'separate') return proposeDatedActions(input, [reported, received], caps, today)
   if (facts.relation === 'same' && facts.amount <= facts.total) return proposeDatedActions(input, [received], caps, today)
@@ -1673,6 +1702,7 @@ function readPayoutReceiptAnswer(message: string, today: string) {
     .trim().replace(/^[, ]+|[, ]+$/g, '').replace(/\s+/g, ' ')
   const trailingApp = undated.match(/(?:^|\s+)(?:d[ao]|n[ao]|pel[ao])\s+(uber|99|in\s*drive[r]?)$/)
   const leadingApp = undated.match(/^(?:d[ao]|n[ao]|pel[ao])\s+(uber|99|in\s*drive[r]?)\s+/)
+    || undated.match(/^(?:[ao]\s+)?(uber|99|in\s*drive[r]?)\s+(?=(?:caiu|cairam|entrou|entraram|veio)\s+(?:(?:so|apenas|somente)\s+)?(?:r\$\s*)?\d)/)
   const namedApp = trailingApp || leadingApp
   const platform = namedApp && ridePayoutPlatformName(namedApp[1])
   const receipt = trailingApp ? undated.slice(0, trailingApp.index) : leadingApp ? undated.slice(leadingApp[0].length) : undated
@@ -1681,6 +1711,32 @@ function readPayoutReceiptAnswer(message: string, today: string) {
   const value = exactMoneyAnswer(afterVerb?.[1] || beforeVerb?.[1] || '')
   const noPayment = /^(?:eu\s+)?(?:ainda\s+)?nao\s+(?:recebi|caiu|entrou)\s+(?:nada|nem\s+um\s+centavo)(?:\s+ainda)?$/.test(receipt)
   return { dates, receiptDay, undated, platform, receipt, value, noPayment }
+}
+
+function prepareRideReceiptBreakdown(input: OrchestratorInput, caps: AssistantCapabilities, today: string): OrchestratorOutput | undefined {
+  if (input.message.includes('?')) return undefined
+  const breakdown = input.message.match(/^(.+?)(?:[,;]\s*|\s+)(?:eram|foram|sendo)\s+(.+)$/i)
+  if (!breakdown) return undefined
+  const { value, platform, dates, receiptDay } = readPayoutReceiptAnswer(breakdown[1], today)
+  if (!(value > 0) || !platform || dates.length > 1 || (receiptDay && receiptDay.kind !== 'date')) return undefined
+  const paymentDate = receiptDay?.kind === 'date' ? receiptDay.date : undefined
+  const text = normalizeName(normalizeNumberWords(breakdown[2]).text).replace(/[.!]+$/, '')
+  const entries = text.split(/(?:,\s+|\s+e\s+)(?=(?:r\$\s*)?\d)/)
+  if (entries.length < 2) return undefined
+  const amounts = entries.map(part => {
+    const day = findDate(part, today)
+    if (day?.kind !== 'date' || day.end !== part.length || day.date > (paymentDate || today)) return undefined
+    const amount = part.slice(0, day.start).match(/^(.+?)\s+d[eo]\s*$/)?.[1]
+    return amount ? exactMoneyAnswer(amount) : undefined
+  })
+  if (amounts.some(amount => !(amount > 0))) return undefined
+  const cents = amounts.reduce((sum, amount) => sum + Math.round(amount * 100), 0)
+  const receipt: ParsedAction = { kind: 'income', amount: value, description: platform, category: 'corridas',
+    ...(paymentDate ? { date: paymentDate } : {}) }
+  if (cents === Math.round(value * 100)) return proposeDatedActions(input, [receipt], caps, today)
+  const question = `Você informou ${fmtBRL(value)} recebidos da ${platform}, e as partes somam ${fmtBRL(cents / 100)}. Quanto realmente caiu?`
+  return keepPendingClarification(input, { field: 'ride-payout-inclusion', question,
+    pendingActions: [{ ...receipt, amount: Math.max(value, cents / 100) }] })
 }
 
 const HELD_WALLET = String.raw`(?:na\s+carteira|no\s+saldo\s+da\s+carteira)(?:\s+d[ao]\s+(?<app>app|uber|99|in\s*driver?))?`
@@ -1711,11 +1767,11 @@ function rideDebtNote(debt: { platform: string; amount: number }) {
 }
 
 function readHeldCashNote(raw: string, receiptPlatform: string, today: string) {
-  const text = normalizeName(normalizeNumberWords(raw).text)
+  const text = normalizeName(raw)
   const related = text.replace(/^((?:hoje|hj|ontem|anteontem)\s+)?(?:ele|ela)\s+/, `$1${receiptPlatform.toLowerCase()} `)
   const debt = readRideDebt(related)
   if (debt && !debt.tail) return rideDebtNote(debt)
-  const wallet = readHeldWalletBalance(text, today)
+  const wallet = readHeldWalletBalance(normalizeNumberWords(text).text, today)
   if (wallet) return `Você informou ${fmtBRL(wallet.amount)} de saldo na carteira${wallet.platform ? ` da ${wallet.platform}` : ''}.`
 }
 
@@ -2375,6 +2431,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const settlement = prepareRideSettlement(input, caps, today)
     if (settlement) return settlement
     if (!input.draft && !input.pendingClarification) {
+      const breakdown = prepareRideReceiptBreakdown(input, caps, today)
+      if (breakdown) return breakdown
       const receiptWithHeldCash = await prepareReceiptWithHeldCash(input, caps, today)
       if (receiptWithHeldCash) return receiptWithHeldCash
     }

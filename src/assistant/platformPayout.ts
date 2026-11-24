@@ -34,6 +34,8 @@ const KEPT_PERCENT_OF_GROSS = String.raw`(?:a\s+|o\s+)?${PLATFORM}\s+(?:me\s+)?$
 const ONLY_KEPT_PERCENT = new RegExp(String.raw`^${DATE_LEAD}${KEPT_PERCENT_OF_GROSS}${WHEN}${TAIL}`, 'iu')
 
 const PAYOUT_PATTERNS = [
+  new RegExp(String.raw`^${DATE_LEAD}(?:[ao]\s+)?${PLATFORM}\s+(?:deu|gerou)\s+${MONEY('gross')}(?:\s+${GROSS})?(?:[,;]\s*|\s+e\s+)(?:descontou|reteve|tirou)\s+${MONEY('fee')}\s+de\s+taxa(?:[,;]\s*(?:e\s+)?|\s+e\s+)(?:s[oó]\s+)?(?:entrou|caiu|recebi)\s+${MONEY('net')}(?:\s+na\s+(?:minha\s+)?conta)?${TAIL}`, 'iu'),
+  new RegExp(String.raw`^${DATE_LEAD}(?:[ao]\s+)?${PLATFORM}\s+(?:me\s+)?(?:pagou|depositou|repassou)\s+${MONEY('net')}(?:,\s*|\s+)(?:j[áa]\s+)?veio\s+descontad[oa]\s+${MONEY('fee')}\s+de\s+taxa${TAIL}`, 'iu'),
   new RegExp(String.raw`^${DATE_LEAD}${KEPT_PERCENT_OF_GROSS}(?:[;,]\s*|\s+e\s+)(?:caiu|ca[ií]ram|entrou|entraram|recebi)\s+(?:(?<whenNet>hoje|ontem|anteontem)\s+)?${MONEY('net')}(?:\s+na\s+(?:minha\s+)?conta)?(?:\s+(?<whenTail>hoje|ontem|anteontem))?${TAIL}`, 'iu'),
   new RegExp(String.raw`^${DATE_LEAD}(?:a\s+|o\s+)?${PLATFORM}\s+recebeu\s+${MONEY('gross')},?\s+e\s+(?:me\s+)?(?:passou|repassou)\s+${MONEY('net')}\s+(?:depois\s+de\s+descontar|j[áa]\s+descontando)\s+${MONEY('fee')}(?:\s+de\s+taxa)?${TAIL}`, 'iu'),
   new RegExp(String.raw`^${DATE_LEAD}${PLATFORM_PAYMENT}\s+${STATED_FEE}(?:,\s*|\s+e\s+|\s+)(?:caiu|ca[ií]ram|entrou|entraram|recebi)\s+(?:(?<whenNet>hoje|ontem|anteontem)\s+)?${MONEY('net')}(?:\s+${NET})?(?:\s+na\s+(?:minha\s+)?conta)?(?:\s+(?<whenTail>hoje|ontem|anteontem))?${TAIL}`, 'iu'),
@@ -124,7 +126,7 @@ const UNPAID_BY_APP = String.raw`(?:[ao]\s+)?(?<owingApp>${PAYOUT_APP})\s+(?:ain
 const RECEIPT_VERB = String.raw`(?:caiu|cairam|entrou|entraram|recebi)`
 const RESTRICTIVE = String.raw`(?:so|apenas|somente)`
 const RECEIVED_VALUE = String.raw`(?:(?<restrictive>${RESTRICTIVE})\s+)?${RECEIPT_VERB}\s+(?:(?<restrictiveAfter>${RESTRICTIVE})\s+)?${MONEY('received')}`
-const RECEIVED_REMAINDER = String.raw`(?:[;,]?\s+(?:e\s+)?(?:faltam?\s+${MONEY('reportedUnpaid')}|faltou\s+o\s+restante|(?:os|as)\s+outr[oa]s?\s+${MONEY('unpaidRemainder')}\s+${UNPAID_STATUS}|(?:sobrou|sobraram)\s+${MONEY('walletRemainder')}\s+na\s+carteira(?:\s+do\s+app)?))`
+const RECEIVED_REMAINDER = String.raw`(?:[;,]?\s+(?:e\s+)?(?:(?:ainda\s+)?faltam?\s+${MONEY('reportedUnpaid')}|faltou\s+o\s+restante|(?:os|as)\s+outr[oa]s?\s+${MONEY('unpaidRemainder')}\s+${UNPAID_STATUS}|(?:sobrou|sobraram)\s+${MONEY('walletRemainder')}\s+na\s+carteira(?:\s+do\s+app)?))`
 
 const UNPAID_UNSIZED = String.raw`(?<notAll>(?:ainda\s+)?nao\s+(?:caiu|entrou|recebi)\s+(?:tudo|o\s+valor\s+todo|inteir[oa])(?:\s+ainda)?)`
 const UNPAID_ALL = String.raw`(?<nothingPaid>(?:(?:ainda\s+)?nao\s+(?:recebi|caiu|entrou)\s+nada|nenhum\s+(?:repasse|pagamento)\s+(?:caiu|entrou))(?:\s+ainda)?)`
@@ -232,7 +234,7 @@ export function readRidePayoutApp(text: string): string | undefined {
 const REPORTED_THEN_RECEIVED = new RegExp([
   String.raw`^(?<report>.+?)`,
   String.raw`(?:[,;.]+\s*(?:e\s+)?|\s+e\s+)(?:(?<only>so|apenas|somente)\s+)?(?:recebi|caiu|cairam|entrou|entraram|veio|vieram|(?:me\s+)?pagaram)`,
-  String.raw`(?:\s+(?:(?<reference>os|o|esses|estes|so|apenas|somente|mais)\s+)?${MONEY('net')}(?:\s+na\s+(?:minha\s+)?conta)?)?${SETTLEMENT_REMAINDER}?\s*[.!]*$`,
+  String.raw`(?:\s+(?:(?<reference>os|o|esses|estes|so|apenas|somente|mais)\s+)?${MONEY('net')}(?:\s+na\s+(?:minha\s+)?conta)?)?(?:${SETTLEMENT_REMAINDER}|(?<remaining>${RECEIVED_REMAINDER}))?\s*[.!]*$`,
 ].join(''))
 const SINGLE_RIDE_REPORT = new RegExp(
   String.raw`^(?:eu\s+)?(?<earned>fiz|ganhei|faturei)\s+${MONEY('total')}\s+(?:n[ao]|d[ao]|pel[ao])\s+${PLATFORM}$`,
@@ -248,8 +250,10 @@ export function readRideReportThenReceipt(text: string) {
   const named = report.match(SINGLE_RIDE_REPORT)?.groups
   const amount = parts.net === undefined ? undefined : parseMoney(parts.net)
   if (amount !== undefined && !(amount > 0)) return undefined
-  const relation: 'same' | 'separate' | undefined = parts.pendingRest ? 'same' : parts.reference === 'mais' ? 'separate' : parts.only || parts.reference || named?.earned === 'faturei' ? 'same' : undefined
-  return { report, platform: named ? ridePayoutPlatformName(named.platform) : undefined, total: named ? parseMoney(named.total) : undefined, amount, relation }
+  const remainder = parts.reportedUnpaid ?? parts.unpaidRemainder ?? parts.walletRemainder
+  const relation: 'same' | 'separate' | undefined = parts.pendingRest || parts.remaining ? 'same' : parts.reference === 'mais' ? 'separate' : parts.only || parts.reference || named?.earned === 'faturei' ? 'same' : undefined
+  return { report, platform: named ? ridePayoutPlatformName(named.platform) : undefined, total: named ? parseMoney(named.total) : undefined,
+    amount, relation, unpaid: remainder === undefined ? undefined : parseMoney(remainder) }
 }
 
 export function readPayoutDatePart(text: string): number | undefined {
@@ -278,8 +282,14 @@ const RIDE_DEBT_STATUS = new RegExp(
 const RIDE_DEBT_AMOUNT_THEN_STATUS = new RegExp(
   String.raw`^(?:os\s+)?${MONEY('amount')}\s+${UNPAID_STATUS}${DEBT_SOURCE}`,
 )
+const DELAYED_PAYOUT = String.raw`(?:so|somente|apenas)\s+${FUTURE_PAYOUT_DATE}`
 const RIDE_DEBT_SCHEDULED_VALUE = new RegExp(
-  String.raw`^(?:${PAYOUT_DAY}\s+)?(?:os\s+)?${MONEY('amount')}\s+(?:d[ao]|n[ao]|pel[ao])\s+${PLATFORM}\s+(?:so|somente|apenas)\s+${FUTURE_PAYOUT_DATE}${DEBT_TAIL}`,
+  String.raw`^(?:${PAYOUT_DAY}\s+)?(?:os\s+)?${MONEY('amount')}\s+(?:d[ao]|n[ao]|pel[ao])\s+${PLATFORM}\s+${DELAYED_PAYOUT}${DEBT_TAIL}`,
+)
+const DEBT_APP_LEAD = String.raw`(?:${PAYOUT_DAY}\s+)?(?:(?:[ao]|d[ao]|n[ao]|pel[ao])\s+)?`
+const DEBT_99_PREFIX = new RegExp(String.raw`^(${DEBT_APP_LEAD})(?:99|noventa\s+e\s+nove)\s+`)
+const RIDE_DEBT_APP_FIRST = new RegExp(
+  String.raw`^${DEBT_APP_LEAD}${PLATFORM}\s+${MONEY('amount')}\s+(?:${DELAYED_PAYOUT}|${UNPAID_STATUS}(?:\s+${PAYOUT_SCHEDULE})?)${DEBT_TAIL}`,
 )
 const RIDE_DEBT_BALANCE = new RegExp(
   String.raw`^(?:ganhei|fiz|faturei)\s+(?:d[ao]|n[ao]|pel[ao])\s+(?<platform>${PAYOUT_APP})\s+(?:um\s+)?(?:saldo|repasse)\s+de\s+${MONEY('amount')}\s+(?:que\s+)?${UNPAID_STATUS}(?:\s+${PAYOUT_SCHEDULE})?${DEBT_TAIL}`,
@@ -294,10 +304,14 @@ const DEBT_TAIL_ORIGINAL = new RegExp(DEBT_TAIL, 'i')
 
 export function readRideDebt(message: string): { platform: string; amount: number; tail?: string } | undefined {
   if (!/\b(?:devendo|devem?|pagou|repassou|depositou|pagar|depositar|repassar|receber|cair|caiu|ca[ií]ram|caem|entrar|entrou|entraram|entram|pendente|esperando|aguardando|espero|pres[oa]s?|bloquead[oa]s?|amanh[ãa]|daqui|semana)(?![\p{L}\p{M}\d])/iu.test(message)) return undefined
-  const text = normalizeName(normalizeNumberWords(message).text)
+  const raw = normalizeName(message)
+  const text = normalizeNumberWords(raw).text
+  const app99 = raw.match(DEBT_99_PREFIX)
+  // O 99 é a plataforma. Mantém o nome fora do trecho que o ditado trata como valor.
+  const appFirst = app99 ? app99[1] + '99 ' + normalizeNumberWords(raw.slice(app99[0].length)).text : text
   const parts = (text.match(RIDE_DEBT) || text.match(RIDE_DEBT_REVERSED) || text.match(RIDE_DEBT_EXPECTED) || text.match(RIDE_DEBT_PENDING)
     || text.match(RIDE_DEBT_STATUS) || text.match(RIDE_DEBT_AMOUNT_THEN_STATUS) || text.match(RIDE_DEBT_BALANCE)
-    || text.match(RIDE_DEBT_WAITING) || text.match(RIDE_DEBT_WILL_PAY) || text.match(RIDE_DEBT_SCHEDULED_VALUE))?.groups
+    || text.match(RIDE_DEBT_WAITING) || text.match(RIDE_DEBT_WILL_PAY) || text.match(RIDE_DEBT_SCHEDULED_VALUE) || appFirst.match(RIDE_DEBT_APP_FIRST))?.groups
   const platform = parts?.platform || parts?.unpaidApp
   if (!platform) return undefined
   const amount = parseMoney(parts.amount || parts.unpaid)
