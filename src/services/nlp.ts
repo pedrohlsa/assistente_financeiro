@@ -1714,7 +1714,7 @@ function parseClause(input: string): ParsedAction[] {
       // conta — sem ele, "caiu 500 na conta hoje" não registrava nada.
       // "O passageiro ME DEU 10 de gorjeta", "a Uber me deu 50 de bônus": o
       // dinheiro veio para ele (regra 69). Caía na ajuda.
-      String.raw`(?:\b(?:ganhei|recebi|faturei|lucrei|entrou|caiu|cairam|pingou|fiz|me\s+(?:deu|deram|mandou|mandaram))\s*(?:mais\s+)?|\bmais\s+)(?:r\$)?\s*${NUM}\s*${MOEDA}?(?:\s+(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(uber|99|indriver|corrida(?:\s+privada)?))?`,
+      String.raw`(?:\b(?:ganhei|recebi|faturei|lucrei|entrou|caiu|cairam|pingou|fiz|me\s+(?:deu|deram|mandou|mandaram))\s*(?:mais\s+)?|\bmais\s+)(?:r\$)?\s*${NUM}\s*${MOEDA}?(?:\s+(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(${APP_DE_CORRIDA}|corrida(?:\s+privada)?)\b)?`,
       'gi',
     )
     const prefixPlatform = text.match(INCOME_PLATFORM_PREFIX)
@@ -1731,7 +1731,7 @@ function parseClause(input: string): ParsedAction[] {
       // "O carro me deu 200 de prejuízo" não é dinheiro que entrou.
       if (/^me\s/i.test(inc[0]) && /^\s*(?:reais\s+)?de\s+(?:preju|despesa|gasto|multa|conta|trabalho|dor)/i.test(afterAmount)) continue
       // "Ganhei 1200 ESSA SEMANA na uber": o período no meio não separa o valor do app.
-      const nearbyPlatform = afterAmount.match(new RegExp(String.raw`^\s*(?:(?:hoje|hj|ontem|(?:n?essa|n?esta)\s+semana|(?:n?esse|n?este)\s+m[eê]s)\s+)?(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(?:(?:${EXTRA_DE_CORRIDA})\s+(?:(?:d[ao]|n[ao]|pel[ao])\s+)?)?(uber|99|indriver|corrida(?:\s+privada)?)`, 'i'))
+      const nearbyPlatform = afterAmount.match(new RegExp(String.raw`^\s*(?:(?:hoje|hj|ontem|(?:n?essa|n?esta)\s+semana|(?:n?esse|n?este)\s+m[eê]s)\s+)?(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(?:(?:${EXTRA_DE_CORRIDA})\s+(?:(?:d[ao]|n[ao]|pel[ao])\s+)?)?(${APP_DE_CORRIDA}|corrida(?:\s+privada)?)\b`, 'i'))
       const firstPlatform = prefixPlatform?.[0].length === at && !DISTINCT_INCOME_SOURCE.test(afterAmount) ? prefixPlatform[1] : undefined
       const platform = (inc[2] || nearbyPlatform?.[1] || firstPlatform || '').trim().toLowerCase().replace(/\s+/g, '')
       // Gorjeta, bônus e taxas pagas ao motorista têm nome; sem plataforma, o
@@ -1757,7 +1757,7 @@ function parseClause(input: string): ParsedAction[] {
     // Receitas JUSTAPOSTAS, sem conector: "ganhei 430 na uber 399 na 99".
     // Um valor seguido de "na/da <plataforma>" é uma receita, mesmo sem verbo
     // próprio — é assim que se fala sem pontuação.
-    const platRe = new RegExp(String.raw`${NUM}\s*(?:reais)?\s+(?:n[ao]|d[ao]|pel[ao])\s+(uber|99|indriver|indrive)\b`, 'gi')
+    const platRe = new RegExp(String.raw`${NUM}\s*(?:reais)?\s+(?:n[ao]|d[ao]|pel[ao])\s+(${APP_DE_CORRIDA})\b`, 'gi')
     for (const pm of text.matchAll(platRe)) {
       const amount = parseNum(pm[1])
       if (!(amount > 0)) continue

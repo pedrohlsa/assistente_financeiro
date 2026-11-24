@@ -11623,6 +11623,16 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && exactHalfReceipt.mode === 'propose_actions' && exactHalfReceipt.actions.length === 1
         && exactHalfReceipt.actions.some(a => a.kind === 'income' && a.amount === 400.01 && a.description === 'Uber' && a.date === ontem)))
 
+      const spacedPlatform = await Promise.all([
+        ['Recebi da in drive R$ 99,99 ontem', 99.99, ontem],
+        ['recebi R$ 57,25 do In Drive anteontem', 57.25, anteontem],
+      ].map(async ([message, amount, date]) => [await chat()(String(message)), amount, date] as const))
+      out.push(result(`MOTOR-indrive-com-espaco-direto-no-recebimento-${fixture}`,
+        spacedPlatform.map(([r]) => [r.mode, r.actions, r.reply]),
+        'preserva o app com espaço, mesmo com valor de R$ 99,99',
+        spacedPlatform.every(([r, amount, date]) => r.mode === 'propose_actions' && r.actions.length === 1
+          && r.actions.some(a => a.kind === 'income' && a.description === 'inDrive' && a.amount === amount && a.date === date))))
+
       out.push(result(`MOTOR-sem-gravacao-${fixture}`, JSON.stringify(state) === snapshot, true, JSON.stringify(state) === snapshot))
     }
   }
