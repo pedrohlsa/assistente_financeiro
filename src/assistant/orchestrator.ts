@@ -1658,13 +1658,19 @@ function readPayoutReceiptAnswer(message: string, today: string) {
   return { dates, receiptDay, undated, platform, receipt, value, noPayment }
 }
 
+const HELD_WALLET = String.raw`(?:na\s+carteira|no\s+saldo\s+da\s+carteira)(?:\s+d[ao]\s+(?<app>app|uber|99|in\s*driver?))?`
+const WALLET_STATE = String.raw`(?:ja\s+)?(?:estavam?|ficou|ficaram|continuou|continuaram)`
+const VALUE_THEN_WALLET = new RegExp(String.raw`^(?<amount>.+?)\s+${WALLET_STATE}\s+${HELD_WALLET}$`)
+const WALLET_THEN_VALUE = new RegExp(String.raw`^${HELD_WALLET}\s+${WALLET_STATE}\s+(?<amount>.+)$`)
+
 function walletBalanceNote(text: string, today: string) {
-  const balance = text.replace(/[.!]+$/, '').match(/^(.+?)\s+(?:ja\s+)?(?:estavam?|ficou|ficaram|continuou|continuaram)\s+(?:na\s+carteira|no\s+saldo\s+da\s+carteira)(?:\s+d[ao]\s+(app|uber|99|in\s*driver?))?(?:\s+(.+))?$/)
+  const said = text.replace(/[.!]+$/, '')
+  const day = findDate(said, today)
+  const content = day?.end === said.length ? said.slice(0, day.start).trimEnd() : said
+  const balance = (content.match(VALUE_THEN_WALLET) || content.match(WALLET_THEN_VALUE))?.groups
   if (!balance) return undefined
-  const balanceDay = balance[3] && findDate(balance[3], today)
-  if (balance[3] && (!balanceDay || balanceDay.start !== 0 || balanceDay.end !== balance[3].length)) return undefined
-  const amount = exactMoneyAnswer(balance[1])
-  const app = balance[2] && readRidePayoutApp(balance[2])
+  const amount = exactMoneyAnswer(balance.amount)
+  const app = balance.app && readRidePayoutApp(balance.app)
   if (amount >= 0) return `Você informou ${fmtBRL(amount)} de saldo na carteira${app ? ` da ${app}` : ''}.`
 }
 

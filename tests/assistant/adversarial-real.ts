@@ -11680,6 +11680,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         ['recebi quatrocentos e vinte reais e trinta centavos da Uber anteontem, mas 150,25 ficaram na carteira', 420.30, anteontem, 'Uber'],
         ['recebi 400 da Uber ontem mas 250 ficaram na carteira da 99 anteontem', 400, ontem, 'Uber'],
         ['recebi 400 da Uber ontem mas 250 já estavam no saldo da carteira', 400, ontem, 'Uber'],
+        ['recebi 400 da Uber, mas na carteira da 99 ficaram 250 ontem', 400, undefined, 'Uber'],
+        ['recebi 400 da Uber ontem, mas na carteira da 99 ficaram duzentos e cinquenta reais e vinte e cinco centavos anteontem', 400, ontem, 'Uber'],
       ].map(async ([say, amount, date, app]) => ({ turn: await chat()(String(say)), amount, date, app })))
       out.push(result(`MOTOR-recebimento-e-saldo-que-ja-estava-na-carteira-${fixture}`, receiptWithWallet,
         'propõe o que entrou com sua data e identifica o saldo da carteira sem gerar outro recebimento',
@@ -11699,11 +11701,12 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
           && turn.reply.includes(`${debtor} ainda deve`))))
 
       const scaledRate = await Promise.all(['quanto a Uber me pagou por 100 km ontem?',
-        'qual foi o ganho a cada cem quilômetros na 99 ontem?', 'qual pagou mais a cada dez viagens ontem Uber ou 99?'].map(say => chat()(say)))
+        'qual foi o ganho a cada cem quilômetros na 99 ontem?', 'a Uber me pagou quanto por cada 100 km ontem?',
+        'qual pagou mais a cada dez viagens ontem Uber ou 99?'].map(say => chat()(say)))
       out.push(result(`MOTOR-indicador-por-quantidade-e-plataforma-${fixture}`, scaledRate,
         'explica que o histórico diário não permite calcular a taxa por plataforma, mesmo com denominador explícito',
         scaledRate.every(r => r.mode === 'answer' && !r.actions.length && /dia|di[aá]ri/.test(r.reply) && !/R\$\s*\d/.test(r.reply))
-          && scaledRate.slice(0, 2).every(r => /quilômetros/.test(r.reply)) && /viagens/.test(scaledRate[2].reply)))
+          && scaledRate.slice(0, 3).every(r => /quilômetros/.test(r.reply)) && /viagens/.test(scaledRate[3].reply)))
 
       const compositeCorrection = chat()
       const compositeStart = await compositeCorrection('ganhei 350 na Uber, 150 na 99, abasteci 80 de gasolina e trabalhei 7 horas ontem')

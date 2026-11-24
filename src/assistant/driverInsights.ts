@@ -408,7 +408,7 @@ export function compareRideApps(state: AppState, input: string, today: string): 
   const gap = names.length === 2 && APP_GAP.test(t)
   const direction = names.length === 2 ? t.match(APP_ORDER)?.[1] : undefined
   const shorthand = /r\$\s*\/\s*(h|hora|min|minuto|km|viagem|corrida)\b/
-  const unit = t.match(/\b(?:por|a\s+cada)\s+(?:\d+(?:[.,]\d+)?\s+)?(horas?|minutos?|km|quilometros?|distancia|viage(?:m|ns)|corridas?)\b/)?.[1] || t.match(shorthand)?.[1]
+  const unit = t.match(/\b(?:por(?:\s+cada)?|a\s+cada)\s+(?:\d+(?:[.,]\d+)?\s+)?(horas?|minutos?|km|quilometros?|distancia|viage(?:m|ns)|corridas?)\b/)?.[1] || t.match(shorthand)?.[1]
   const metric = unit && (/^h/.test(unit) ? 'hora' : /^(?:quil|dist)/.test(unit) ? 'km'
     : /^min/.test(unit) ? 'minuto' : /^viage/.test(unit) ? 'viagem' : unit.replace(/s$/, ''))
   const platform99 = /\b(?:da|do|na|no|pela|pelo|a|o|via|app|aplicativo)\s+99\b|\b99\s+(?:e|ou|versus|vs|contra)\b/.test(t)
@@ -436,7 +436,8 @@ export function compareRideApps(state: AppState, input: string, today: string): 
     }
   }
   const namedRate = metric && appScope && (shorthand.test(t)
-    || /^(?:e\s+)?(?:quanto|qual|quais|ganho|receita|faturamento|lucro|valor|media|rendimento)\b/.test(t))
+    || /^(?:e\s+)?(?:quanto|qual|quais|ganho|receita|faturamento|lucro|valor|media|rendimento)\b/.test(t)
+    || /\b(?:pagou|paga|rendeu|rende|da|recebi|ganhei)\s+quanto\b/.test(t))
   if (appScope && /\b(?:lucro|prejuizo|resultado\s+liquido)\b/.test(t)
     && (/^(?:e\s+)?(?:quanto|qual|compara|compare|lucro|prejuizo)\b/.test(t) || t.endsWith('?'))) {
     return 'Para calcular o lucro por plataforma, preciso dos custos de cada app. O histórico guarda os custos em conjunto. Posso consultar o total recebido de cada plataforma.'
