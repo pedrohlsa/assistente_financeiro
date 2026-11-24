@@ -11,7 +11,9 @@ export interface WorkHoursEdit {
 }
 
 const REQUEST_VERB = String.raw`(?:por favor,?\s+)?(?:pode\s+)?(?:corrige|corrigir|corrija|ajusta|ajustar|ajuste|muda|mudar|altera|alterar)`
-const REQUEST = new RegExp(String.raw`^${REQUEST_VERB}\s+(?:as\s+)?horas(?<target>.*?)\s+(?:para|pra)\s+(?<hours>.+)$`)
+const REQUEST = new RegExp(
+  String.raw`^${REQUEST_VERB}\s+(?:(?:as\s+)?(?:(?<previous>\d+(?:[.,]\d+)?)\s+)?horas|(?:o\s+)?tempo\s+(?:de\s+trabalho|trabalhado))(?<target>.*?)\s+(?:para|pra)\s+(?<hours>.+)$`,
+)
 const JOURNEY_REQUEST = new RegExp(String.raw`^${REQUEST_VERB}\s+(?:(?:a|minha)\s+)?(?:jornada|turno)(?<target>.*?),\s*(?:trabalhei|foram)\s+(?<hours>.+)$`)
 const CONTRAST = /^(?:as\s+)?horas(?<target>.*?)\s+(?:foram|eram)\s+(?<hours>.+?)(?:,\s*|\s+(?:e\s+)?)nao\s+(?<previous>.+)$/
 const ALREADY_SAVED = /^ja\s+(?:tenho|registrei|salvei)\s+(?:uma?\s+)?(?:jornada|turno)\s+[^.!?]+[.!]\s*/
@@ -25,7 +27,7 @@ function hoursIn(text: string): number {
 }
 
 export function readWorkHoursEdit(message: string, today: string): { edit: WorkHoursEdit; dates: DateResolution[] } | undefined {
-  if (!/\b(?:horas|jornada|turno)\b/i.test(message)) return undefined
+  if (!/\b(?:horas|jornada|turno|tempo)\b/i.test(message)) return undefined
   const text = normalizeName(normalizeNumberWords(message).text).replace(/[.!?]+$/, '').replace(/,?\s+por favor$/, '').trim()
   const header = text.match(ALREADY_SAVED)
   const body = header ? text.slice(header[0].length) : text

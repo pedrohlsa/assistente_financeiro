@@ -10831,6 +10831,37 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && clockAndFuel.actions.some(a => a.kind === 'work' && a.hours === 7.5)
         && clockAndFuel.actions.some(a => a.kind === 'fuel' && a.amount === 85)))
 
+      const unpaidTotal = await Promise.all([
+        'faturei 320 na Uber, mas não entrou nada ainda e gastei 90 de gasolina',
+        'faturei 320 na Uber, nenhum pagamento caiu ainda e gastei 90 de gasolina',
+      ].map(phrase => chat()(phrase)))
+      const withheld = await chat()('fiz 800 na Uber mas o aplicativo reteve 300 do repasse')
+      const deferred = await Promise.all([
+        'tem 300 para cair da Uber da semana passada',
+        'tenho 300 para receber da Uber',
+        'a Uber me deve trezentos das corridas da semana passada',
+        'me devem 350 da Uber pelas corridas deste mês',
+        'a 99 não repassou 350 ontem ainda',
+        'a Uber não depositou os 350',
+      ].map(phrase => chat()(phrase)))
+      out.push(result(`MOTOR-repasse-bloqueado-ou-futuro-${fixture}`, [...unpaidTotal, withheld, ...deferred].map(r => [r.mode, r.actions, r.reply]),
+        'caixa zerado prepara apenas combustível; repasse retido pede valor recebido e dívida fica fora da proposta',
+        unpaidTotal.every(r => r.mode === 'propose_actions' && r.actions.length === 1 && r.actions[0].kind === 'fuel'
+          && r.actions[0].amount === 90 && /até o pagamento cair/.test(r.reply))
+        && withheld.mode === 'clarify' && /quanto já caiu/.test(withheld.reply) && !withheld.actions.length
+        && deferred.every((r, i) => r.mode === 'answer' && !r.actions.length && /receber/.test(r.reply)
+          && r.reply.includes(i === 4 ? '99' : 'Uber') && /(?:300|350),00/.test(r.reply))))
+
+      const compactOffers = await Promise.all([
+        '40 reais por 10km e 30 reais por 7km, qual vale mais?',
+        '40 reais por 10km versus 30 reais por 7km, qual vale mais?',
+        'das ofertas de 40 em 10km e 30 em 7 km, qual é melhor?',
+      ].map(phrase => chat()(phrase)))
+      out.push(result(`MOTOR-ofertas-sem-rotulo-${fixture}`, compactOffers.map(r => [r.mode, r.actions, r.reply]),
+        'interpreta dois pares de preço e distância como alternativas em uma pergunta explícita',
+        compactOffers.every(r => r.mode === 'answer' && !r.actions.length && /A segunda paga mais por km/.test(r.reply)
+          && r.reply.includes(fmtBRL(40) + ' em 10 km') && r.reply.includes(fmtBRL(30) + ' em 7 km'))))
+
       out.push(result(`MOTOR-sem-gravacao-${fixture}`, JSON.stringify(state) === snapshot, true, JSON.stringify(state) === snapshot))
     }
   }
@@ -10860,7 +10891,10 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const alternateIntent = await turn('800 de corridas, 300 pendentes na Uber e 150 de gasolina', ambiguous)
     const dated = await turn('foi anteontem', ambiguous)
     const noOp = await turn('corrige as horas de ontem para 8')
+    const durationEdit = await turn('corrige o tempo de trabalho de ontem para 6 horas')
+    const compareEdit = await turn('corrige as 8 horas de ontem para 6')
     const missing = await turn('corrige as horas de hoje para 6')
+    const retryDate = await turn('ontem', missing)
     const wrongOld = await turn('as horas de ontem foram 6 e não 9')
     const future = await turn('corrige as horas de amanhã para 6')
     const question = await turn('quantas horas trabalhei ontem?')
@@ -10883,7 +10917,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         return data.kind === 'edit-work-hours' && data.date === date && data.hours === hours && data.expectedHours === expectedHours
       })
     out.push(result('MOTOR-horas-salvas-substituem-e-exigem-confirmacao',
-      [edit, amended, amendedBare, zero, polite, wholeShift, spoken, ambiguous, alternateIntent, dated, noOp, missing, wrongOld, future, question, duplicate, confirmation].map(r => r.response),
+      [edit, amended, amendedBare, zero, polite, wholeShift, spoken, ambiguous, alternateIntent, dated, noOp, durationEdit, compareEdit, missing, retryDate, wrongOld, future, question, duplicate, confirmation].map(r => r.response),
       'seleciona a data sem gravar, recusa conflito e mantém as outras medidas após confirmar',
       exposesAction(edit, ontem, 6, 8) && exposesAction(spoken, ontem, 6.5, 8)
       && exposesAction(amended, ontem, 7, 8) && exposesAction(amendedBare, ontem, 7, 8) && !/R\$/.test(amended.response.reply)
@@ -10896,6 +10930,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && applied.applied && applied.state.workSessions.length === 2
       && JSON.stringify(applied.state.workSessions[0]) === JSON.stringify({ ...state.workSessions[0], hours: 6 })
       && applied.state.workSessions[1] === state.workSessions[1] && applied.state.transactions === state.transactions
+      && exposesAction(durationEdit, ontem, 6, 8) && exposesAction(compareEdit, ontem, 6, 8)
+      && missing.response.mode === 'clarify' && exposesAction(retryDate, ontem, 6, 8)
       && appliedZero.applied && appliedZero.state.workSessions[0].hours === 0
       && isValidationFailure(remote) && remote.code === 'unsupported-action' && !otherProfile.applied
       && !stale.applied && stale.state === concurrent && !retry.applied && retry.state === applied.state

@@ -1229,19 +1229,21 @@ function prepareWorkHoursEdit(input: OrchestratorInput, caps: AssistantCapabilit
     return answer('Informe o total correto de horas do dia, de 0 a 24.')
   }
 
+  const askForDate = (question: string): OrchestratorOutput => ({
+    ...context, response: { ...response, mode: 'clarify', reply: question,
+      clarification: { field: 'work-hours-date', question, workHoursEdit: edit } },
+  })
+  if (!input.state.workSessions.length) return answer('Você ainda não tem uma jornada salva para corrigir.')
   if (date?.kind !== 'date') {
-    if (!input.state.workSessions.length) return answer('Você ainda não tem uma jornada salva para corrigir.')
-    const question = date?.kind === 'future'
+    return askForDate(date?.kind === 'future'
       ? 'Essa data ainda não chegou. De que dia é a jornada que você quer corrigir?'
-      : 'De que dia é a jornada que você quer corrigir?'
-    return { ...context, response: { ...response, mode: 'clarify', reply: question,
-      clarification: { field: 'work-hours-date', question, workHoursEdit: edit } } }
+      : 'De que dia é a jornada que você quer corrigir?')
   }
 
   const sessions = input.state.workSessions.filter(w => w.date === date.date)
   const [session] = sessions
   const day = brDate(date.date)
-  if (!session) return answer(`Não encontrei uma jornada salva em ${day}. Diga a data do registro que quer corrigir.`)
+  if (!session) return askForDate(`Não encontrei uma jornada salva em ${day}. De que dia é o registro que quer corrigir?`)
   if (sessions.length !== 1 || !session.id || !Number.isFinite(session.hours)
     || input.state.workSessions.filter(w => w.id === session.id).length !== 1) {
     return answer(`Encontrei registros de jornada que precisam ser conferidos em ${day}. Preciso de uma única jornada para corrigir as horas do dia.`)
