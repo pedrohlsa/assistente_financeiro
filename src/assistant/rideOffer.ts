@@ -27,7 +27,7 @@ const ENUMERATED_OFFERS = /\b(?:(?:2|duas)\s+(?:corridas|ofertas)|primeir[ao]\s+
 const SECOND_OFFER = /[\s.,;]+(?=(?:a\s+)?segund[ao]\s+(?:corrida|oferta)\b)/
 const JOINED_OFFERS = new RegExp(String.raw`\s+e\s+(?=(?:(?:a\s+)?(?:corrida|oferta)\b|r\$\s*\d|\d+(?:[.,]\d+)*\s+reais?\b))`)
 const JOINED_ROUTE_QUOTES = /\s+e\s+(?=(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?\s+(?:por|em|pra|para|com)\s+\d+(?:[.,]\d+)*\s*(?:kms?|quilometros?)\b)/
-const COMPARA_DOIS = /\bqual\s+(?:(?:das?\s+)?(?:corridas?|ofertas?)\s+)?(?:(?:da|tem)\s+(?:mais\s+lucro|maior\s+lucro)|(?:paga|rende|da)\s+mais|e\s+(?:a\s+)?melhor|[oa]\s+(?:melhor\s+)?(?:ganho|lucro|rendimento|receita)\s+(?:(?:brut[oa]|liquid[oa])\s+)?por\s+(?:hora|minuto|km|quilometro))\b|\bvale\s+mais\b|^vale\s+a\s+pena\s+a\s+de\b/
+const COMPARA_DOIS = /\bqual\s+(?:(?:das?\s+)?(?:corridas?|ofertas?)\s+)?(?:(?:da|tem)\s+(?:mais\s+lucro|maior\s+lucro)|(?:paga|rende|da)\s+mais|e\s+(?:a\s+)?melhor|(?:tem\s+)?[oa]\s+(?:(?:melhor|maior)\s+)?(?:ganho|lucro|rendimento|receita)\s+(?:(?:brut[oa]|liquid[oa])\s+)?por\s+(?:hora|minuto|km|quilometro))\b|\bvale\s+mais\b|^vale\s+a\s+pena\s+a\s+de\b/
 const PICKUP = String.raw`(?:ate\s+(?:(?:o|a)\s+)?(?:passageir[oa]|embarque)|(?:(?:pra|para)\s+(?:(?:o|a)\s+)?(?:buscar|embarcar|embarque|passageir[oa])|(?:pro|pra)\s+passageir[oa])|(?:de|do|pro|para\s+o)\s+embarque|(?:de\s+)?aproximacao|passageir[oa])`
 const TRIP = String.raw`(?:(?:d[aeo]\s+)?(?:corrida|viagem|trajeto)|ate\s+(?:o\s+)?destino)`
 const RETURN = String.raw`(?:(?:d[aeo]\s+|na\s+)?(?:retorno|volta)(?:\s+(?:vazi[oa]|sem\s+passageiro))?|(?:pra|para)\s+voltar(?:\s+(?:vazi[oa]|sem\s+passageiro))?|voltando(?:\s+(?:vazi[oa]|sem\s+passageiro))?)`

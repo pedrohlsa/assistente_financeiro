@@ -26,7 +26,7 @@ function hoursIn(text: string): number {
   return (elapsedMinutes(text) ?? NaN) / 60
 }
 
-export function readWorkHoursEdit(message: string, today: string): { edit: WorkHoursEdit; dates: DateResolution[] } | undefined {
+export function readWorkHoursEdit(message: string, today: string): { edit: WorkHoursEdit; dates: DateResolution[]; invalidDate: boolean } | undefined {
   if (!/\b(?:horas|jornada|turno|tempo)\b/i.test(message)) return undefined
   const text = normalizeName(normalizeNumberWords(message).text).replace(/[.!?]+$/, '').replace(/,?\s+por favor$/, '').trim()
   const header = text.match(ALREADY_SAVED)
@@ -38,10 +38,12 @@ export function readWorkHoursEdit(message: string, today: string): { edit: WorkH
   const target = parts.target.trim()
   const targetDates = findAllDates(target, today)
   const rest = targetDates.reduceRight((remaining, date) => remaining.slice(0, date.start) + remaining.slice(date.end), target)
-  if (!DATE_REMAINDER.test(rest.trim())) return undefined
+  const hasUnexpectedText = !DATE_REMAINDER.test(rest.trim())
+  const invalidDate = hasUnexpectedText && /\d+[/.-]\d+|\bdia\s+\d+\b/.test(target)
+  if (hasUnexpectedText && !invalidDate) return undefined
 
   const hours = hoursIn(parts.hours)
   const previousHours = parts.previous === undefined ? undefined : hoursIn(parts.previous)
-  const dates = targetDates.length ? targetDates : findAllDates(header?.[0] || '', today)
-  return { edit: { hours, previousHours }, dates }
+  const dates = invalidDate ? [] : targetDates.length ? targetDates : findAllDates(header?.[0] || '', today)
+  return { edit: { hours, previousHours }, dates, invalidDate }
 }

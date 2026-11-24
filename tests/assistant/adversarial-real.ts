@@ -10862,6 +10862,14 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         compactOffers.every(r => r.mode === 'answer' && !r.actions.length && /A segunda paga mais por km/.test(r.reply)
           && r.reply.includes(fmtBRL(40) + ' em 10 km') && r.reply.includes(fmtBRL(30) + ' em 7 km'))))
 
+      const debtSlang = await chat()('a Uber tá devendo meus 300 das corridas de ontem')
+      const hourlyComparison = await chat()('uma oferta de 40 por 10 km e outra de 30 por 7 km. qual tem o maior ganho por hora?')
+      out.push(result(`MOTOR-divida-e-comparacao-em-fala-informal-${fixture}`, [debtSlang, hourlyComparison].map(r => [r.mode, r.actions, r.reply]),
+        'distingue dinheiro devido de receita e pede tempo para comparar por hora',
+        debtSlang.mode === 'answer' && !debtSlang.actions.length && /Uber.*300,00.*receber/.test(debtSlang.reply)
+        && hourlyComparison.mode === 'answer' && !hourlyComparison.actions.length && /tempo total/.test(hourlyComparison.reply)
+        && hourlyComparison.reply.includes(fmtBRL(40) + ' em 10 km') && hourlyComparison.reply.includes(fmtBRL(30) + ' em 7 km')))
+
       out.push(result(`MOTOR-sem-gravacao-${fixture}`, JSON.stringify(state) === snapshot, true, JSON.stringify(state) === snapshot))
     }
   }
@@ -10897,6 +10905,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     const retryDate = await turn('ontem', missing)
     const wrongOld = await turn('as horas de ontem foram 6 e não 9')
     const future = await turn('corrige as horas de amanhã para 6')
+    const invalidDate = await turn('corrige as horas de 123/11 para seis')
+    const afterInvalid = await turn('ontem', invalidDate)
     const question = await turn('quantas horas trabalhei ontem?')
     const duplicate = await orchestrate({ state: { ...state, workSessions: [...state.workSessions, { ...state.workSessions[0], id: 'outro' }] },
       message: 'corrige as horas de ontem para 6', today: hoje, remoteEnabled: false })
@@ -10917,7 +10927,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         return data.kind === 'edit-work-hours' && data.date === date && data.hours === hours && data.expectedHours === expectedHours
       })
     out.push(result('MOTOR-horas-salvas-substituem-e-exigem-confirmacao',
-      [edit, amended, amendedBare, zero, polite, wholeShift, spoken, ambiguous, alternateIntent, dated, noOp, durationEdit, compareEdit, missing, retryDate, wrongOld, future, question, duplicate, confirmation].map(r => r.response),
+      [edit, amended, amendedBare, zero, polite, wholeShift, spoken, ambiguous, alternateIntent, dated, noOp, durationEdit, compareEdit, missing, retryDate, wrongOld, future, invalidDate, afterInvalid, question, duplicate, confirmation].map(r => r.response),
       'seleciona a data sem gravar, recusa conflito e mantém as outras medidas após confirmar',
       exposesAction(edit, ontem, 6, 8) && exposesAction(spoken, ontem, 6.5, 8)
       && exposesAction(amended, ontem, 7, 8) && exposesAction(amendedBare, ontem, 7, 8) && !/R\$/.test(amended.response.reply)
@@ -10932,6 +10942,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && applied.state.workSessions[1] === state.workSessions[1] && applied.state.transactions === state.transactions
       && exposesAction(durationEdit, ontem, 6, 8) && exposesAction(compareEdit, ontem, 6, 8)
       && missing.response.mode === 'clarify' && exposesAction(retryDate, ontem, 6, 8)
+      && invalidDate.response.mode === 'clarify' && !invalidDate.response.actions.length && /data válida/.test(invalidDate.response.reply)
+      && exposesAction(afterInvalid, ontem, 6, 8)
       && appliedZero.applied && appliedZero.state.workSessions[0].hours === 0
       && isValidationFailure(remote) && remote.code === 'unsupported-action' && !otherProfile.applied
       && !stale.applied && stale.state === concurrent && !retry.applied && retry.state === applied.state

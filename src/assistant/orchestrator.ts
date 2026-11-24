@@ -1234,6 +1234,7 @@ function prepareWorkHoursEdit(input: OrchestratorInput, caps: AssistantCapabilit
       clarification: { field: 'work-hours-date', question, workHoursEdit: edit } },
   })
   if (!input.state.workSessions.length) return answer('Você ainda não tem uma jornada salva para corrigir.')
+  if (request?.invalidDate) return askForDate('Não consegui ler essa data. Informe uma data válida para a jornada que quer corrigir.')
   if (date?.kind !== 'date') {
     return askForDate(date?.kind === 'future'
       ? 'Essa data ainda não chegou. De que dia é a jornada que você quer corrigir?'
