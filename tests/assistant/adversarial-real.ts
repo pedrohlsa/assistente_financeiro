@@ -104,6 +104,34 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const today = '2026-11-25'
+    const queries = [
+      ['na 99 qtos km nessa semana?', /quilômetros/i],
+      ['só na uber quanto eu rodei ontem?', /quilômetros/i],
+      ['quanto a uber pagou por corrida comparado com a 99?', /viagens/i],
+      ['qual app deu mais corridas mês passado?', /viagens/i],
+      ['dividindo pelas horas de ontem qual foi a média da 99?', /horas/i],
+    ] as const
+    for (const [i, [message, measure]] of queries.entries()) {
+      const replies = await Promise.all([motoristaRico(today), buildState({ profile: 'driver' })].map(async state =>
+        (await orchestrate({ state, message, today, remoteEnabled: false })).response))
+      out.push(result('ZM-medida-por-app-exige-a-granularidade-' + i, { message, replies }, 'explica qual medida está disponível apenas por dia',
+        replies.every(r => r.mode === 'answer' && !r.actions.length && !r.unresolved.length
+          && measure.test(r.reply) && /(?:por dia|dia inteiro)/i.test(r.reply) && /plataforma|por app/i.test(r.reply) && !r.reply.includes('R$'))))
+    }
+    const state = motoristaRico(today)
+    const total = (app: string) => state.transactions.filter(t => t.type === 'income' && t.description === app
+      && t.date.startsWith('2026-11') && t.date <= today).reduce((sum, t) => sum + t.amount, 0)
+    const daily = (await orchestrate({ state, message: 'quanto caiu por dia da Uber este mês?', today, remoteEnabled: false })).response
+    const gap = (await orchestrate({ state, message: 'quanto mais a uber deu comparado com 99 esse mês?', today, remoteEnabled: false })).response
+    out.push(result('ZM-receita-diaria-e-diferenca-de-apps', [daily, gap], 'a média é receita e a diferença compara os dois apps do mesmo mês',
+      daily.mode === 'answer' && !daily.actions.length && /^Recebido por dia na Uber/i.test(daily.reply)
+      && daily.reply.includes(fmtBRL(total('Uber') / 25))
+      && gap.mode === 'answer' && !gap.actions.length && gap.reply.includes(fmtBRL(total('Uber') - total('99')))
+      && /Uber.*a mais que 99/i.test(gap.reply)))
+  }
+
+  {
     const cases = [
       ['2026-11-25', 'terça passada ganhei 210 da Uber e quinta passada 175 da 99', '2026-11-24', '2026-11-19'],
       ['2026-11-25', 'terça passada ganhei 210 da Uber e quinta passada ganhei 175 da 99', '2026-11-24', '2026-11-19'],

@@ -383,6 +383,9 @@ const APP_COMPARISON = /^(?:(?:me\s+)?compar(?:a|e|ar)|quanto\s+(?:eu\s+)?(?:gan
 // "Quanto a Uber pagou A MAIS que a 99": a diferença perguntada pelo excedente.
 const APP_GAP = /^(?:qual|quanto)\s+(?:(?:foi|e)\s+)?a\s+diferenca\b|^quanto\s+(?:(?:a|o)\s+)?(?:uber|99|in\s*drive[r]?)\s+(?:me\s+)?(?:pagou|paga|rendeu|rende|deu|fez)\s+a\s+(?:mais|menos)\s+(?:do\s+)?que\b|^quanto\s+(?:eu\s+)?(?:fiz|ganhei|faturei|tirei)\s+a\s+mais\s+n[ao]\s+(?:uber|99|in\s*drive[r]?)\b/
 const APP_ORDER = /^(?:(?:a|o)\s+)?(?:uber|99|in\s*drive[r]?|i\s*food|rappi)\s+(?:me\s+)?(?:paga|pagou|rende|rendeu)\s+(mais|menos)\s+(?:do\s+)?que\b/
+const APP_GAP_COLLOQUIAL = /^quanto\s+(?:a\s+)?mais\s+(?:a\s+|o\s+)?(?:uber|99|in\s*drive[r]?)\s+(?:me\s+)?(?:deu|pagou|rendeu|fez)\s+comparad[oa]\s+(?:com|a)\b/
+const APP_FIRST_QUESTION = /^(?:e\s+)?(?:(?:so|apenas)\s+)?(?:n[ao]|d[ao]|pel[ao]|via)\s+(?:uber|99|in\s*drive[r]?|i\s*food|rappi)\s*,?\s+/
+const APP_TRIP_COUNT_RANKING = /^(?:qual|quais)\s+(?:o\s+|a\s+)?(?:apps?|aplicativos?|plataformas?)\b[^?]*\b(?:mais|menos)\s+(?:corridas?|viagens?)\b/
 
 export function rideAppFollowUp(question: string, said: string): string | undefined {
   const answer = normalizeName(normalizeNumberWords(said).text).match(/^(?:n[ao]|d[ao]|pel[ao]|via)\s+(uber|99|in\s*drive[r]?|i\s*food|rappi)$/)
@@ -397,7 +400,7 @@ export function rideAppFollowUp(question: string, said: string): string | undefi
 export function compareRideApps(state: AppState, input: string, today: string): string | undefined {
   if (!isDriver(state.settings) || !/\b(?:uber|99|noventa|in\s*drive[r]?|i\s*food|rappi|apps?|aplicativos?|plataformas?)\b/i.test(input)) return undefined
   const t = normalizeName(normalizeNumberWords(input).text).trim().replace(/^(e\s+)?(?:qto|qnto|qt)\s+/, '$1quanto ')
-  if (/\b(?:gastei|paguei|quanto\s+custa|sem\s+contar|somando|juntas?|exceto|acima|abaixo|comparad[oa]\s+(?:com|a))\b/.test(t)
+  if (/\b(?:gastei|paguei|quanto\s+custa|sem\s+contar|somando|juntas?|exceto|acima|abaixo)\b/.test(t)
     || /[,;]\s*(?:eu\s+)?(?:recebi|ganhei|trabalhei|rodei|abasteci)\b/.test(t)) return undefined
   const names = [...new Set([...t.matchAll(NAMED_RIDE_APPS)].flatMap(m => {
     if (m[0] === '99' && /r\$\s*$/.test(t.slice(0, m.index))) return []
@@ -405,20 +408,24 @@ export function compareRideApps(state: AppState, input: string, today: string): 
     return name ? [name] : []
   }))]
   const ranking = APP_RANKING.test(t)
-  const gap = names.length === 2 && APP_GAP.test(t)
+  const gap = names.length === 2 && (APP_GAP.test(t) || APP_GAP_COLLOQUIAL.test(t))
   const direction = names.length === 2 ? t.match(APP_ORDER)?.[1] : undefined
   const shorthand = /r\$\s*\/\s*(h|hora|min|minuto|km|viagem|corrida)\b/
-  const unit = t.match(/\b(?:por(?:\s+cada)?|a\s+cada)\s+(?:\d+(?:[.,]\d+)?\s+|meia\s+(?=hora\b))?(horas?|h|hrs?|minutos?|kms?|quilometros?|distancia|viage(?:m|ns)|corridas?|turnos?)\b/)?.[1] || t.match(shorthand)?.[1]
+  const namedDivisor = t.match(/^dividi(?:ndo|d[oa])\s+pel[oa]s?\s+(horas?|kms?|quilometros?|corridas?|viagens?)\b(?=.*\b(?:quanto|qual|media)\b)/)?.[1]
+  const unit = t.match(/\b(?:por(?:\s+cada)?|a\s+cada)\s+(?:\d+(?:[.,]\d+)?\s+|meia\s+(?=hora\b))?(horas?|h|hrs?|minutos?|kms?|quilometros?|distancia|viage(?:m|ns)|corridas?|turnos?)\b/)?.[1]
+    || t.match(shorthand)?.[1] || namedDivisor
   const metric = unit && (/^h/.test(unit) ? 'hora' : /^(?:quil|dist)/.test(unit) ? 'km'
     : /^min/.test(unit) ? 'minuto' : /^viage/.test(unit) ? 'viagem' : unit.replace(/s$/, ''))
   const platform99 = /\b(?:da|do|na|no|pela|pelo|a|o|via|app|aplicativo)\s+99\b|\b99\s+(?:e|ou|versus|vs|contra)\b/.test(t)
   const appScope = names.some(name => name !== '99') || platform99
     || /\b(?:por|em cada|de cada)\s+(?:app|aplicativo|plataforma)s?\b/.test(t)
+  if (APP_TRIP_COUNT_RANKING.test(t)) return FALTAM_VIAGENS_POR_APP
   const asksIndividualRide = /^(?:(?:me\s+)?(?:mostra|mostre)\s+[ao]\s+|qual\s+(?:(?:foi|e)\s+)?(?:a\s+)?)(?:corrida|viagem)\b.*\b(?:mais|melhor|maior)\b/.test(t)
   if (asksIndividualRide && (metric || /\bpor\s+minuto\b/.test(t))) {
     return 'O histórico tem recebimentos que podem agrupar várias viagens. Para dizer qual corrida rendeu mais, preciso do valor e da distância ou do tempo de cada corrida.'
   }
-  if (appScope && /^(?:e\s+)?(?:quanto|quantos?|quantas?|qual|quais|media)\b/.test(t)) {
+  const question = t.replace(APP_FIRST_QUESTION, '')
+  if (appScope && /^(?:e\s+)?(?:quant[oa]s?|qual|quais|media|qts|qtos|qtas)\b/.test(question)) {
     if (/\b(?:quanto\s+tempo|duracao|durou|demorou)\b.*\b(?:cada|por)\s+(?:corrida|viagem)\b/.test(t)) {
       return 'O histórico guarda as horas e as viagens por dia. Para calcular a duração média, preciso da duração de cada viagem por plataforma.'
     }
@@ -429,19 +436,22 @@ export function compareRideApps(state: AppState, input: string, today: string): 
       || /\b(?:so|apenas|somente)\s+nos?\s+dias?\s+(?:que|em que)\s+(?:rodei|trabalhei)\b/.test(t)) {
       return 'O histórico guarda a jornada do dia inteiro. Para calcular a média por dia trabalhado em uma plataforma, preciso saber em quais dias você rodou nesse app.'
     }
-    const askedMeasure = t.match(/^(?:e\s+)?quant[oa]s?\s+(horas?|h|hrs?|kms?|quilometros?|corridas?|viagens?)\b/)?.[1]
+    const askedDistance = /^(?:e\s+)?quanto\s+(?:eu\s+)?(?:rodei|dirigi|percorri)\b/.test(question)
+    const askedMeasure = askedDistance ? 'km'
+      : question.match(/^(?:e\s+)?(?:quant[oa]s?|qts|qtos|qtas)\s+(horas?|h|hrs?|kms?|quilometros?|corridas?|viagens?)\b/)?.[1]
     if (askedMeasure) {
       const label = askedMeasure.startsWith('km') ? 'quilômetros' : askedMeasure.startsWith('h') ? 'horas' : askedMeasure
       return `O histórico guarda ${label} para o dia inteiro. Para calcular o total por plataforma, preciso dessa medida separada por app.`
     }
   }
-  const namedRate = metric && appScope && (shorthand.test(t)
+  const namedRate = metric && appScope && (namedDivisor || shorthand.test(t)
     || /^(?:e\s+)?(?:quanto|qual|quais|ganho|receita|faturamento|lucro|valor|media|rendimento)\b/.test(t)
     || /\b(?:pagou|paga|rendeu|rende|da|recebi|ganhei)\s+quanto\b|\bem\s+reais\s+(?:por|a\s+cada)\b/.test(t))
   if (appScope && /\b(?:lucro|prejuizo|resultado\s+liquido)\b/.test(t)
     && (/^(?:e\s+)?(?:quanto|qual|compara|compare|lucro|prejuizo)\b/.test(t) || t.endsWith('?'))) {
     return 'Para calcular o lucro por plataforma, preciso dos custos de cada app. O histórico guarda os custos em conjunto. Posso consultar o total recebido de cada plataforma.'
   }
+  if (!gap && !namedRate && /\bcomparad[oa]\s+(?:com|a)\b/.test(t)) return undefined
   if (!ranking && !gap && !direction && !namedRate && !(names.length > 1 && APP_COMPARISON.test(t))) return undefined
   const saidPeriod = parsePeriod(t, today)?.period
   if (!saidPeriod && /\b(?:ultima\s+quinzena|ultimos\s+meses)\b/.test(t)) return undefined

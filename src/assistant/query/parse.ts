@@ -1344,7 +1344,8 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
       // Uber e respondia que não havia lançamento.
       if (!GASTO.test(t0) && filter.txType?.length === 1 && filter.txType[0] === 'expense') {
         filter.txType = ['income']
-        if (metrica.valor.label === 'Total gasto') metrica.valor.label = 'Total recebido'
+        metrica.valor.label = metrica.valor.label === 'Total gasto' ? 'Total recebido'
+          : metrica.valor.label.replace(/^Gasto por /, 'Recebido por ')
       }
     }
   }
