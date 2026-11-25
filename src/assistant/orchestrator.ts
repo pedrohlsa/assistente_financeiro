@@ -1767,9 +1767,11 @@ function readPayoutReceiptAnswer(message: string, today: string) {
     .trim().replace(/^[, ]+|[, ]+$/g, '').replace(/\s+/g, ' ')
   const trailingApp = undated.match(/(?:^|\s+)(?:d[ao]|n[ao]|pel[ao])\s+(uber|99|in\s*drive[r]?)$/)
   const leadingApp = undated.match(/^(?:d[ao]|n[ao]|pel[ao])\s+(uber|99|in\s*drive[r]?)\s+/) || undated.match(RECEIPT_APP_SUBJECT)
-  const namedApp = trailingApp || leadingApp
-  const platform = namedApp && ridePayoutPlatformName(namedApp[1])
-  const receipt = trailingApp ? undated.slice(0, trailingApp.index) : leadingApp ? undated.slice(leadingApp[0].length) : undated
+  const middleApp = !trailingApp && !leadingApp && undated.match(/^(.+?)\s+(?:(?:d[ao]|n[ao]|pel[ao])\s+)?(uber|99|in\s*drive[r]?)\s+((?:caiu|cairam|entrou|entraram)(?:\s+na\s+(?:minha\s+)?conta)?)$/)
+  const namedApp = trailingApp?.[1] || leadingApp?.[1] || middleApp?.[2]
+  const platform = namedApp && ridePayoutPlatformName(namedApp)
+  const receipt = trailingApp ? undated.slice(0, trailingApp.index) : leadingApp ? undated.slice(leadingApp[0].length)
+    : middleApp ? `${middleApp[1]} ${middleApp[3]}` : undated
   const afterVerb = receipt.match(RECEIPT_VALUE_AFTER_VERB)
   const beforeVerb = receipt.match(/^(.+?)\s+(?:caiu|cairam|entrou|entraram)(?:\s+na\s+(?:minha\s+)?conta)?$/)
   const value = exactMoneyAnswer(afterVerb?.[1] || beforeVerb?.[1] || '')
@@ -1932,13 +1934,33 @@ async function prepareReceiptWithHeldCash(input: OrchestratorInput, caps: Assist
   if (!/\b(?:carteira|deve|devendo|pagou|pagar|repassou|depositou|cair|caiu|ca[ií]ram|caem|entrar|entrou|entraram|entram|pendente|amanh[ãa]|daqui|semana|atrasou|liberou|segurando)(?![\p{L}\p{M}\d])/iu.test(input.message)) return undefined
   const question = input.message.match(/(?:[,;]\s*|\s+(?:e\s+)?)(?:quanto\s+(?:caiu|entrou|recebi)(?:\s+(?:na\s+(?:minha\s+)?conta|de\s+fato|mesmo))?)\s*[?.!]*$/i)
   const statement = question ? input.message.slice(0, question.index) : input.message
-  if (statement.includes('?')) return undefined
   const separators = /(?:,\s+|;\s*|,(?=mas\b))(?:(?:e|mas)\s+)?|\s+(?:e|mas)\s+/gi
   for (const split of statement.matchAll(separators)) {
-    const head = statement.slice(0, split.index)
-    const { value, platform, dates, receiptDay } = readPayoutReceiptAnswer(head, today)
+    let head = statement.slice(0, split.index)
+    let tail = statement.slice(split.index + split[0].length)
+    if (statement.includes('?')) {
+      const debt = readRideDebt(head)
+      if (debt && !debt.tail && /^\s*quanto\s+(?:caiu|entrou|recebi)\s+(?:d[ao]|n[ao]|pel[ao])\s+(?:uber|99|in\s*drive[r]?)\b/i.test(tail)) {
+        const lookup = await orchestrate({ ...input, message: tail, remoteEnabled: false })
+        if (lookup.response.mode === 'answer' && !lookup.response.actions.length) {
+          return { ...lookup, keepPending: true, response: { ...lookup.response, reply: `${rideDebtNote(debt)}\n\n${lookup.response.reply}` } }
+        }
+      }
+      continue
+    }
+    // A ordem das orações não decide qual dinheiro entrou. Só inverta quando
+    // a primeira parte descreve um repasse pendente completo.
+    let reading = readPayoutReceiptAnswer(head, today)
+    if (!(reading.value > 0) || !reading.platform) {
+      const debt = !question && readRideDebt(head)
+      if (!debt || debt.tail) continue
+      reading = readPayoutReceiptAnswer(tail, today)
+      const receiptText = tail
+      tail = head
+      head = receiptText
+    }
+    const { value, platform, dates, receiptDay } = reading
     if (!(value > 0) || !platform || dates.length > 1) continue
-    const tail = statement.slice(split.index + split[0].length)
     let note = readHeldCashNote(tail, platform, today)
     if (!note && !question) {
       for (const extra of tail.matchAll(separators)) {

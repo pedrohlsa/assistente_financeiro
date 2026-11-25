@@ -104,6 +104,45 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const today = '2026-11-25', ontem = '2026-11-24'
+    const examples = [
+      ['a 99 n me depô 150 e 240 caiu da ubber hj', '99', 150, 'Uber', 240, today],
+      ['99 não pagou 150 e 240 entrou da Uber hoje', '99', 150, 'Uber', 240, today],
+      ['150 da 99 ainda não caiu e 240 entrou na Uber ontem', '99', 150, 'Uber', 240, ontem],
+      ['a 99 não pagou 150 mas a Uber depositou 240 ontem', '99', 150, 'Uber', 240, ontem],
+      ['o inDrive ainda não pagou 75 e a 99 pagou 210 hoje', 'inDrive', 75, '99', 210, today],
+      ['80 do inDrive só amanhã e 245,75 da Uber entrou hoje', 'inDrive', 80, 'Uber', 245.75, today],
+      ['240 da Uber entrou ontem, mas a 99 não pagou 150', '99', 150, 'Uber', 240, ontem],
+    ] as const
+    for (const [i, [message, owing, debt, app, amount, date]] of examples.entries()) {
+      const state = i % 2 ? motoristaRico(today) : buildState({ profile: 'driver' })
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const [receipt, other] = response.actions.map(a => a.action)
+      out.push(result('ZT-repasse-em-aberto-e-recebido-' + i, { message, response }, 'um repasse recebido e outro apenas mencionado como pendente',
+        response.mode === 'propose_actions' && !other && !response.unresolved.length && receipt?.kind === 'income' && receipt.amount === amount
+        && receipt.description === app && receipt.date === date && response.reply.includes(`${owing} ainda deve ${fmtBRL(debt)}`)))
+    }
+    const state = motoristaRico(today)
+    const ask = (message: string, previous?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({ state, message, today, remoteEnabled: false,
+      pending: previous?.response.actions, focus: previous?.focus, draft: previous?.draft || undefined,
+      pendingClarification: previous?.response.mode === 'clarify' ? previous.response.clarification : undefined })
+    const query = await ask('a 99 não me pagou 150 e quanto caiu da Uber ontem?')
+    const clarification = await ask('deu 800 de corridas e 150 de gasolina, mas 300 ainda não caiu na conta')
+    const separate = await ask('foi por fora', clarification)
+    const bundled = await ask('tá dentro dos 800', clarification)
+    const keepsFuelAndIncome = (o: typeof separate, amount: number) => {
+      const actions = o.response.actions.map(a => a.action)
+      return o.response.mode === 'propose_actions' && actions.length === 2
+        && actions.some(a => a.kind === 'income' && a.amount === amount) && actions.some(a => a.kind === 'fuel' && a.amount === 150)
+    }
+    out.push(result('ZT-esclarecimento-de-por-fora-e-consulta-de-outro-app', [query, clarification, separate, bundled].map(o => o.response),
+      'esclarece o repasse, inclui só a receita recebida e consulta o histórico no app certo',
+      query.response.mode === 'answer' && !query.response.actions.length && /99 ainda deve.*150,00/.test(query.response.reply)
+      && /na Uber ontem.*238,00/.test(query.response.reply) && clarification.response.mode === 'clarify'
+      && /300,00.*inclu.*800,00/.test(clarification.response.reply) && keepsFuelAndIncome(separate, 800) && keepsFuelAndIncome(bundled, 500)))
+  }
+
+  {
     const today = '2026-11-25', ontem = '2026-11-24', anteontem = '2026-11-23'
     const cases = [
       ['FEXEI 7H NO VOLANTI C/ 280 DE CORRIDA E 79,50 D GASOZA ONTI', 280, undefined, 79.50, undefined, 7, ontem],

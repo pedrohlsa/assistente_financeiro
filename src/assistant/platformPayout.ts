@@ -372,7 +372,7 @@ export function partialRidePayoutChoice(message: string, total?: number, unpaid?
     && (!(included[2] || included[3]) || parseMoney(included[2] || included[3]) === total)) return 'included'
   const outside = text.match(/^(?:os?\s+)?(?:r\$\s*)?([\d.,]+)(?:\s+reais?)?\s+(?:e|sao|foi|foram)\s+(?:de fora|por fora|a parte|a mais)$/)
   if (outside && parseMoney(outside[1]) === unpaid) return 'excluded'
-  const excluded = text.match(/^(?:nao|nao,?\s+(?:(?:esta|estao|ta|tao)\s+)?incluid[oa]s?|(?:(?:e|sao|ficou|ficaram)\s+)?(?:por\s+fora|de\s+fora|a\s+parte|a\s+mais)|(?:os\s+)?([\d.,]+)\s+ja\s+(?:cairam|entraram)(?:\s+(?:inteir[oa]s?|todos))?)$/)
+  const excluded = text.match(/^(?:nao|nao,?\s+(?:(?:esta|estao|ta|tao)\s+)?incluid[oa]s?|(?:(?:e|sao|foi|foram|ficou|ficaram)\s+)?(?:por\s+fora|de\s+fora|a\s+parte|a\s+mais)|(?:os\s+)?([\d.,]+)\s+ja\s+(?:cairam|entraram)(?:\s+(?:inteir[oa]s?|todos))?)$/)
   if (excluded && (!excluded[1] || parseMoney(excluded[1]) === total)) return 'excluded'
   return undefined
 }
