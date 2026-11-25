@@ -177,6 +177,8 @@ const COMPLETED_MONEY = String.raw`(?:acabei|terminei)\s+(?:de\s+)?(?:${Object.k
 const RECORD_VERB = 'anot[ae]|registr[ae]|lan[cç][ae]|salv[ae]'
 const RECORD_TYPE = 'despesa|gasto|receita|entrada'
 const RECORD_NUMBER = String.raw`(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?`
+const REFUEL_KIND = String.raw`(?:etanol|[áa]lcool|gasolina|gasosa|diesel|gnv|combust[íi]vel)`
+const REFUEL_KIND_FIRST = new RegExp(String.raw`^(?:(abasteci)\s+(?:com\s+)?)?(${REFUEL_KIND})\s+(${RECORD_NUMBER})[.!]*$`, 'i')
 const CASH_PAIR_VALUE = String.raw`(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+(?:reais?|contos?|pila))?`
 const CASH_PAIR_PLACE = 'mercado|supermercado|padaria|farm[áa]cia|a[cç]ougue|feira|[ôo]nibus|metr[ôo]|almo[cç]o|lanche|jantar|caf[ée]|estacionamento'
 const PLACE_FIRST = new RegExp(String.raw`^(?:(?:o|a|no|na|em|com)\s+)?(${CASH_PAIR_PLACE})\s+(${CASH_PAIR_VALUE})$`, 'i')
@@ -617,12 +619,12 @@ export function segment(text: string, today = todayISO()): { text: string; start
     push((m.index || 0) + m[0].length)
   }
   const DIA = /\b(?:hoje|hj|ontem|anteontem|dia\s+\d{1,2})\b/i
-  for (const m of text.matchAll(/\s+e\s+(?=\d)/gi)) {
+  for (const m of text.matchAll(new RegExp(String.raw`\s+e\s+(?=\d|${REFUEL_KIND}\s+${RECORD_NUMBER})`, 'gi'))) {
     const antes = text.slice(0, m.index || 0)
     const after = (m.index || 0) + m[0].length
     const tail = text.slice(after)
-    const depois = tail.split(/[,;.!?]|\s+e\s+/i)[0]
-    if (DIA.test(antes.split(/[,;.!?]/).pop() || '') && DIA.test(depois)) push(after)
+    const depois = tail.split(/[;!?]|(?<!\d)[,.]|[,.](?!\d)|\s+e\s+/i)[0]
+    if (DIA.test(antes.split(/[;!?]|(?<!\d)[,.]|[,.](?!\d)/).pop() || '') && DIA.test(depois)) push(after)
     // A natureza de cada valor deve ser lida antes da categoria da receita.
     const left = antes.split(/[.;!?]\s+/).pop()?.trim() || ''
     const right = tail.split(/[;!?]|[,.](?!\d)|\s+e\s+/i)[0]
@@ -702,13 +704,16 @@ export function segment(text: string, today = todayISO()): { text: string; start
   // "Sexta fiz 300, SÁBADO fiz 350": o dia que abre a segunda metade é dela.
   // O corte antes do verbo deixava "sábado" na primeira metade, e os 350
   // herdavam a sexta. O corte vai para ANTES do dia, e o de antes do verbo sai.
-  const DIA_QUE_ABRE = String.raw`(?:segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo)(?:-feira)?|ontem|anteontem|hoje|hj`
-  for (const m of text.matchAll(new RegExp(String.raw`(?:[,;]\s*(?:e\s+)?|\s+e\s+)(?=(?:${DIA_QUE_ABRE})\s+(?:${COMMAND_VERBS})\b)`, 'gi'))) {
-    const inicioDoDia = (m.index || 0) + m[0].length
-    if (!/\d/.test(text.slice(0, m.index))) continue
-    push(inicioDoDia)
-    const dia = text.slice(inicioDoDia).match(new RegExp(String.raw`^(?:${DIA_QUE_ABRE})\s+`, 'i'))
-    if (dia) cuts.delete(inicioDoDia + dia[0].length)
+  const DIA_QUE_ABRE = String.raw`(?:(?:n[ao]\s+)?(?:segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo)(?:-feira)?(?:\s+(?:passad[ao]|retrasad[ao]))?|ontem|anteontem|hoje|hj)`
+  const proximoRelato = new RegExp(String.raw`(?:[,;]\s*(?:e\s+)?|\s+e\s+)(?<day>${DIA_QUE_ABRE})\s+(?=(?:${COMMAND_VERBS})\b|${RECORD_NUMBER})`, 'gi')
+  for (const m of text.matchAll(proximoRelato)) {
+    const before = text.slice(0, m.index)
+    const after = m.index + m[0].length
+    if (!/\d/.test(before) || (/^(?:r\$\s*)?\d/i.test(text.slice(after)) && !looksPast(before))) continue
+    const dayStart = m.index + m[0].indexOf(m.groups.day)
+    if (inside(dayStart)) continue
+    push(dayStart)
+    cuts.delete(after)
   }
 
   const sorted = [...cuts].sort((a, b) => a - b)
@@ -1620,7 +1625,10 @@ export function analyzeMessage(
       : followsInflow && previousClause?.localExplanation && INCOMING_CASH.test(previousClause.text) ? `recebi ${antesDoReembolso}` : antesDoReembolso
     const barePair = canShareContext && linkedPair && inheritedKind ? cashPair(comandoPrincipal) : undefined
     const unclearDirection = barePair && barePair.kind !== inheritedKind ? barePair : undefined
-    const comando = canShareContext ? cashPairCommand(comandoPrincipal, linkedPair ? inheritedKind : undefined) : comandoPrincipal
+    const fuelFirst = opts?.driver && canShareContext ? comandoPrincipal.match(REFUEL_KIND_FIRST) : null
+    const linkedRefuel = linkedPair && previousClause?.actions.length === 1 && previousClause.actions[0].kind === 'fuel'
+    const expenseFirst = fuelFirst && (fuelFirst[1] || linkedRefuel) ? `abasteci ${fuelFirst[3]} de ${fuelFirst[2]}` : comandoPrincipal
+    const comando = canShareContext ? cashPairCommand(expenseFirst, linkedPair ? inheritedKind : undefined) : expenseFirst
     const parsed = unclearDirection ? { actions: [], ambiguity: undefined }
       : parseNaturalFull(comando, { driver: opts?.driver, dayHint, inheritedKind })
     if (sentAmount > 0) {

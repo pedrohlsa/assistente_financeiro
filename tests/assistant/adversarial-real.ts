@@ -104,6 +104,40 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const cases = [
+      ['2026-11-25', 'terça passada ganhei 210 da Uber e quinta passada 175 da 99', '2026-11-24', '2026-11-19'],
+      ['2026-11-25', 'terça passada ganhei 210 da Uber e quinta passada ganhei 175 da 99', '2026-11-24', '2026-11-19'],
+      ['2027-01-02', 'sexta-feira passada ganhei 210 da Uber e quinta-feira passada 175 da 99', '2027-01-01', '2026-12-31'],
+      ['2026-12-01', 'sábado ganhei 210 da Uber e domingo 175 da 99', '2026-11-28', '2026-11-29'],
+    ] as const
+    for (const [i, [today, message, first, second]] of cases.entries()) {
+      const state = i % 2 ? motoristaRico(today) : buildState({ profile: 'driver' })
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actions = response.actions.map(a => a.action)
+      out.push(result('ZL-dois-dias-da-semana-' + i, { message, response }, [first, second],
+        response.mode === 'propose_actions' && actions.length === 2
+        && actions.some(a => a.kind === 'income' && a.amount === 210 && a.description === 'Uber' && a.date === first)
+        && actions.some(a => a.kind === 'income' && a.amount === 175 && a.description === '99' && a.date === second)))
+    }
+    const today = '2027-01-01'
+    const state = motoristaRico(today)
+    const fuelCases = [
+      'abasteci etanol 78,50 ontem e gasolina 90,25 hoje',
+      'abasteci etanol 78,50 ontem e abasteci gasolina 90,25 hoje',
+      'abasteci 78,50 de etanol ontem e 90,25 de gasolina hoje',
+      'abasteci 78,50 de etanol ontem e gasolina 90,25 hoje',
+    ]
+    for (const [i, message] of fuelCases.entries()) {
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actions = response.actions.map(a => a.action)
+      out.push(result('ZL-abastecimentos-com-dias-e-centavos-' + i, { message, response }, 'Etanol de R$ 78,50 em 31/12 e gasolina de R$ 90,25 em 01/01',
+        response.mode === 'propose_actions' && actions.length === 2
+        && actions.some(a => a.kind === 'fuel' && a.amount === 78.5 && a.date === '2026-12-31' && a.fuelType === 'Etanol')
+        && actions.some(a => a.kind === 'fuel' && a.amount === 90.25 && a.date === today && !a.fuelType)))
+    }
+  }
+
+  {
     const today = '2026-11-25'
     const ontem = '2026-11-24'
     const state = motoristaRico(today)

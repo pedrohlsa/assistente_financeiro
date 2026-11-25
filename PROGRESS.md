@@ -7295,3 +7295,39 @@ Ainda abertos:
 - categoria para aluguel ou diária do carro de app;
 - "1000 de cada casa";
 - correção pelo chat de horas de trabalho já salvas.
+
+## 25/11/2026 — Bateria local do assistente (`ZJ`, `ZK`, `ZL`)
+
+### Ditado de fim de jornada
+
+- “xei 8 h de volante com 320 de corrida e 90 de gasosa hj” recupera as 8h, a receita de R$ 320 e o abastecimento de R$ 90 no dia.
+- “xei oito horas de volante com trezentos e vinte de corrida e noventa de gasolina ontem” preserva os três fatos por extenso e a data de ontem.
+- “hj xei 8h no volante com 320,50 de corridas e 90,25 de etanol” preserva os dois valores com centavos, as 8h e o etanol.
+- “fechei 8 hrs no volante c/ 320 de corrida e 90 de gasoza hj” recupera o abastecimento de R$ 90 e mantém os outros dois fatos.
+- “fechei 8 h no volante e ganhei 320 de corrida e gastei 90 de gasosa ontem” inclui a jornada de 8h, que desaparecia antes.
+- “fechei 8h no volante com 320 de corrida e 90 de gás hj” pergunta especificamente pelo tipo de gás e mantém a receita e as 8h.
+- “fechei oito horas de volante com trezentos e vinte de corridas e noventa de gas ontem” faz o mesmo com números ditados e mantém ontem.
+- “foi GNV” e “foi botijão” completam, respectivamente, um abastecimento de GNV ou uma despesa de casa de R$ 90. A confirmação continua no botão.
+- “fechei 8h no volante com 320 de corrida e 90 de gás de cozinha hj” separa os R$ 320 de receita e os R$ 90 de despesa de casa.
+
+### Correções em proposta
+
+- “tira só as horas” apaga só esse campo e preserva os km e as viagens.
+- “tira a km”, “tira só os 170 km” e “sem os km, mandei errado” retiram apenas a distância.
+- “tira os km de ontem” usa o dia indicado para selecionar a jornada.
+- “tira as horas”, com duas jornadas, pede qual delas. “2” escolhe a segunda e preserva a primeira.
+- “tira só os km”, numa jornada que só tem horas, e “tira 100 km”, quando o proposto é 170 km, pedem um alvo sem alterar a proposta.
+- “99 foi cento e cinquenta e cinquenta centavos” atualiza a 99 para R$ 150,50 e preserva a data.
+- “foi 150 de noventa e nove” e “troca a 99 pra 150” corrigem só a receita da 99.
+- “a da ubber foi 260” corrige só a receita da Uber.
+
+### Datas por item
+
+- “terça passada ganhei 210 da Uber e quinta passada 175 da 99” mantém a data de cada app.
+- “terça passada ganhei 210 da Uber e quinta passada ganhei 175 da 99” funciona também quando o verbo é repetido.
+- “sexta-feira passada ganhei 210 da Uber e quinta-feira passada 175 da 99”, em 02/01, mantém as duas datas na virada do ano.
+- “sábado ganhei 210 da Uber e domingo 175 da 99”, no 1º dia do mês, usa as duas datas do mês anterior.
+- “abasteci etanol 78,50 ontem e gasolina 90,25 hoje” guarda o tipo, o valor e a data de cada abastecimento, inclusive na virada do ano.
+- “abasteci etanol 78,50 ontem e abasteci gasolina 90,25 hoje”, “abasteci 78,50 de etanol ontem e 90,25 de gasolina hoje” e “abasteci 78,50 de etanol ontem e gasolina 90,25 hoje” mantêm os mesmos dados.
+
+Cada lote passou por `npm test`, os dois typechecks, a rubrica com 0 PERIGOSA e 0 RUIM e a matriz de oito datas. O último fechou com 1.882 regressões adversariais na data padrão. O projeto segue **NOT READY**.

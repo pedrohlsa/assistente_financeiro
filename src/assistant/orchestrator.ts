@@ -3909,7 +3909,10 @@ ${response.reply}`,
     // perdida empatar com a viagem inventada.
     const DINHEIRO = new Set(['income', 'expense', 'fuel', 'saving'])
     const jaAchou = turno.blocks.reduce((n, b) => n + b.actions.filter(a => DINHEIRO.has(a.kind)).length, 0)
-    if (pares.length > jaAchou) {
+    const dates = caps.isDriver ? datasDoDia : findAllDates(mensagem, today)
+    const [firstDate] = dates
+    const sameDay = !firstDate || (firstDate.kind === 'date' && dates.every(date => date.kind === 'date' && date.date === firstDate.date))
+    if (sameDay && pares.length > jaAchou) {
       const dataDoDia = turno.blocks.find(b => b.clause.date)?.clause.date
       const cands: AssistantCandidateAction[] = []
       for (const bruta of pares) {
