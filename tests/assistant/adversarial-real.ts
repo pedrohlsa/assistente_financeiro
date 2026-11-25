@@ -12013,8 +12013,12 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         ['ontem botei 80 de gasolina e 250 da 99 não pingô', '99', 250, 'fuel', 80, ontem],
         ['ontem botei 80 de gasolina e 250 da 99 ainda nem caiu', '99', 250, 'fuel', 80, ontem],
         ['ontem abast 80 de gasosa e 250 da 99 ainda n\u0303 caiu', '99', 250, 'fuel', 80, ontem],
+        ['ontem gastei 80 de gasosa, e a 99 n me pagou 250', '99', 250, 'fuel', 80, ontem],
+        ['ontem gastei 80 de gasosa e 150 da 99 n caiu não', '99', 150, 'fuel', 80, ontem],
+        ['ontem abast 80 de gasosa, 120 do in draive n pingou', 'inDrive', 120, 'fuel', 80, ontem],
       ].map(async ([message, debtor, amount, kind, paid, date]) => ({ turn: await chat()(String(message)), debtor, amount, kind, paid, date })))
-      out.push(result(`MOTOR-ditado-e-abreviacao-no-fechamento-e-repasse-${fixture}`, [shorthandMovements, abbreviatedUnpaid],
+      const shorthandPastDate = await chat()('recebi trezentos e vinte reais e cinquenta centavos da Uber antontem, e gastei 90 de gasosa')
+      out.push(result(`MOTOR-ditado-e-abreviacao-no-fechamento-e-repasse-${fixture}`, [shorthandMovements, abbreviatedUnpaid, shorthandPastDate],
         'conserva os três valores do fechamento e evita receita quando a negação veio abreviada',
         shorthandMovements.every(({ turn, date, app }) => turn.mode === 'propose_actions' && turn.actions.length === 3
           && turn.actions.some(a => a.kind === 'income' && a.amount === 320 && a.description === app && a.date === date)
@@ -12022,7 +12026,10 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
           && turn.actions.some(a => a.kind === 'work' && a.hours === 8 && a.date === date))
         && abbreviatedUnpaid.every(({ turn, debtor, amount, kind, paid, date }) => turn.mode === 'propose_actions' && turn.actions.length === 1
           && turn.reply.includes(`${debtor} ainda deve ${fmtBRL(Number(amount))}`)
-          && turn.actions.some(a => (a.kind === 'fuel' || a.kind === 'income') && a.kind === kind && a.amount === paid && a.date === date))))
+          && turn.actions.some(a => (a.kind === 'fuel' || a.kind === 'income') && a.kind === kind && a.amount === paid && a.date === date))
+        && shorthandPastDate.mode === 'propose_actions' && shorthandPastDate.actions.length === 2
+        && shorthandPastDate.actions.some(a => a.kind === 'income' && a.amount === 320.5 && a.description === 'Uber' && a.date === anteontem)
+        && shorthandPastDate.actions.some(a => a.kind === 'fuel' && a.amount === 90 && a.date === anteontem)))
 
       const terseCorrection = chat()
       await terseCorrection('ontem ganhei 350 na Uber e 150 na 99, abasteci 80 e trabalhei 7h')
@@ -12052,20 +12059,21 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const doubleYes = await compactConfirm('ss')
       const noCancel = await compactConfirm('n cancela')
       const expressedHours = await compactConfirm('foram 06h30')
+      const spokenHalf = await compactConfirm('as horas foram seis e meia')
       const labelledHours = await compactConfirm('s, as horas foram sete')
       const extraKmField = await compactConfirm('e 120kms')
       const checkTime = await compactConfirm('qnts horas ficaram na proposta?')
       const checkDistance = await compactConfirm('qnts km tem na proposta?')
       out.push(result(`MOTOR-grafia-curta-protege-a-proposta-e-corrige-horas-${fixture}`,
-        [shortYes, doubleYes, noCancel, expressedHours, labelledHours, extraKmField, checkTime, checkDistance],
+        [shortYes, doubleYes, noCancel, expressedHours, spokenHalf, labelledHours, extraKmField, checkTime, checkDistance],
         'preserva a proposta em respostas curtas e corrige as medidas na sua data original',
         [shortYes, doubleYes].every(r => r.mode === 'answer' && !r.actions.length && r.keepPending && /botão/.test(r.reply))
         && noCancel.mode === 'answer' && !noCancel.actions.length && noCancel.keepPending && /continua na tela/.test(noCancel.reply)
-        && [expressedHours, labelledHours, extraKmField].every((r, index) => r.mode === 'propose_actions' && r.actions.length === 3
+        && [expressedHours, spokenHalf, labelledHours, extraKmField].every((r, index) => r.mode === 'propose_actions' && r.actions.length === 3
           && r.actions.some(a => a.kind === 'income' && a.amount === 350 && a.description === 'Uber' && a.date === ontem)
           && r.actions.some(a => a.kind === 'fuel' && a.amount === 80 && a.date === ontem)
-          && r.actions.some(a => a.kind === 'work' && a.hours === (index ? 7 : 6.5) && a.date === ontem
-            && a.km === (index === 2 ? 120 : undefined)))
+          && r.actions.some(a => a.kind === 'work' && a.hours === (index >= 2 ? 7 : 6.5) && a.date === ontem
+            && a.km === (index === 3 ? 120 : undefined)))
         && checkTime.mode === 'answer' && /7h/.test(checkTime.reply) && !checkTime.actions.length
         && checkDistance.mode === 'answer' && /120 km/.test(checkDistance.reply) && !checkDistance.actions.length))
 

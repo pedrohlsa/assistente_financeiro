@@ -412,11 +412,11 @@ const WORK_MEASURE = /^\s*(?:n[ãa]o[\s,]+)?(?:(?:na\s+(?:real|verdade)|ops|ou\s
 const WORK_DURATION = new RegExp(String.raw`^(?:(?:na\s+(?:real|verdade)|ops|ou\s+melhor)[\s,]+)?(?:foram|foi|era|eram|sao)\s+(${COMPOUND_DURATION})$`)
 
 function readPendingWorkMeasure(text: string): { field: 'hours' | 'km' | 'trips'; value: number } | undefined {
-  const namedHours = text.match(/^(?:(?:s|ss|sim)\s*,\s*)?(?:as\s+)?horas\s+(?:foram|era|eram|sao)\s+(\d+(?:[.,]\d+)?)$/)
-  if (namedHours) return { field: 'hours', value: parseMoney(namedHours[1]) }
-  const duration = text.match(WORK_DURATION)
+  const namedHours = text.match(/^(?:(?:s|ss|sim)\s*,\s*)?(?:as\s+)?horas\s+(?:foram|era|eram|sao)\s+(.+)$/)?.[1]
+  if (namedHours && /^\d+(?:[.,]\d+)?$/.test(namedHours)) return { field: 'hours', value: parseMoney(namedHours) }
+  const duration = namedHours?.replace(/^(\d{1,2}|\p{L}+)(?=\s+e\s+)/u, '$1 horas') || text.match(WORK_DURATION)?.[1]
   if (duration) {
-    const minutes = elapsedMinutes(duration[1])
+    const minutes = elapsedMinutes(duration)
     if (minutes !== undefined) return { field: 'hours', value: minutes / 60 }
   }
   const measure = text.match(WORK_MEASURE)

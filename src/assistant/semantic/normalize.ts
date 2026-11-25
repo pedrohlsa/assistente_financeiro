@@ -137,9 +137,11 @@ const SPOKEN_PAYOUT_VERBS: Record<string, string> = { caio: 'caiu', 'liberô': '
 
 export function normalizeDriverShorthand(message: string): string {
   // A expansão da negação precisa vir antes dos leitores de repasse.
-  let text = message.replace(/(?<![\p{L}\p{M}\d])(?:n(?:\/|\u0303)?|ñ|nao|não|num|nem)\s+(caiu|caio|ca[ií]ram|entrou|entraram|pingou|pingô|liberou|liberô|repassou|pagou|recebi)(?![\p{L}\p{M}\d])/giu,
-    (_, verb: string) => `não ${SPOKEN_PAYOUT_VERBS[verb.toLowerCase()] || verb}`)
+  let text = message.replace(/(?<![\p{L}\p{M}\d])(?:n(?:\/|\u0303)?|ñ|nao|não|num|nem)\s+(me\s+)?(caiu|caio|ca[ií]ram|entrou|entraram|pingou|pingô|liberou|liberô|repassou|pagou|recebi)(?![\p{L}\p{M}\d])/giu,
+    (_, dative: string | undefined, verb: string) => `não ${dative || ''}${SPOKEN_PAYOUT_VERBS[verb.toLowerCase()] || verb}`)
+  text = text.replace(/(?<![\p{L}\p{M}\d])(não\s+(?:caiu|entrou|recebi))\s+n[ãa]o(?=\s*(?:$|[;,.!?])|\s+(?:e|mas)\s+)/giu, '$1')
   text = text.replace(/\b(n[ao]|d[ao]|pel[ao]|[ao])\s+noventa[- ]?e[- ]?nove\b/gi, '$1 99')
+    .replace(/\b(n[ao]|d[ao]|pel[ao]|[ao])\s+in[-\s]*draiver?\b/gi, '$1 inDrive')
   if (/\b(?:ganhei|faturei|caiu|recebi|corridas?|quanto|quantos?|quantas?)\b/i.test(text)) {
     text = text.replace(/\b(n[ao]|d[ao]|pel[ao])\s+ubber\b/gi, '$1 Uber')
   }
@@ -152,8 +154,10 @@ export function normalizeDriverShorthand(message: string): string {
       (_, boundary: string, lead: string, verb: string) => `${boundary}${lead}${verb.toLowerCase() === 'abast' ? 'abasteci' : 'gastei'} `)
     .replace(/\b(de|em|com)\s+combstivel\b/gi, '$1 combustível')
     .replace(/\bd\s+(?=gasosa\b|gasolina\b|combust[íi]vel\b)/gi, 'de ')
-    .replace(/(^\s*|\s+(?:e|mas)\s+)ont\s+(?=(?:eu\s+)?(?:ganhei|recebi|faturei|fiz|abasteci|trabalhei|rodei|gastei|paguei)\b)/gi, '$1ontem ')
-    .replace(/\b(corridas?|gasosa|gasolina|combust[íi]vel|uber|99|in\s*drive|kms?|horas?)\s+ont(?=\s+(?:e|mas)\s+|\s*[.!?]*$|[,;])/gi, '$1 ontem')
+    .replace(/(^\s*|\s+(?:e|mas)\s+)(ont|antontem)\s+(?=(?:eu\s+)?(?:ganhei|recebi|faturei|fiz|abasteci|trabalhei|rodei|gastei|paguei)\b)/gi,
+      (_, boundary: string, date: string) => `${boundary}${date.toLowerCase() === 'ont' ? 'ontem' : 'anteontem'} `)
+    .replace(/\b(corridas?|gasosa|gasolina|combust[íi]vel|uber|99|in\s*drive|kms?|horas?)\s+(ont|antontem)(?=\s+(?:e|mas)\s+|\s*[.!?]*$|[,;])/gi,
+      (_, previous: string, date: string) => `${previous} ${date.toLowerCase() === 'ont' ? 'ontem' : 'anteontem'}`)
     .replace(/^(\s*(?:e\s+)?)(?:qto|qnto)\s+(?=(?:deu|deram)\s+d(?:e)?\s+corridas?\b)/i, '$1quanto ')
     .replace(/^(\s*(?:e\s+)?quanto\s+(?:deu|deram))\s+d\s+(?=corridas?\b)/i, '$1 de ')
     .replace(/(^\s*(?:e\s+)?|[?;,]\s*(?:e\s+)?|\s+e\s+)(?:qts|qnts|qntos|qntas)\s+(?=(kms?|quil[oô]metros?|horas?|viagens?|corridas?)\b)/gi,
