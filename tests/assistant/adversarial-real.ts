@@ -105,6 +105,49 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
 
   {
     const today = '2026-11-25', ontem = '2026-11-24'
+    const state = motoristaRico(today)
+    const snapshot = JSON.stringify(state)
+    const ask = (message: string, previous?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({ state, message, today, remoteEnabled: false,
+      pending: previous?.response.actions, draft: previous?.draft || undefined, focus: previous?.focus,
+      pendingClarification: previous?.response.mode === 'clarify' ? previous.response.clarification : undefined })
+    const base = await ask('hoje ganhei 240 na Uber e 130 na 99, gastei 85 de etanol e rodei 170 km em 8 horas, fiz 14 corridas')
+    const items = (o: typeof base): AssistantCandidateAction[] => o.response.actions
+    const fuel = (o: typeof base) => items(o).map(a => a.action).find(a => a.kind === 'fuel')
+    const keepOthers = (o: typeof base) => o.response.mode === 'propose_actions' && items(base).filter(a => a.action.kind !== 'fuel')
+      .every(a => items(o).some(b => b.id === a.id && b.action === a.action))
+    const cases = [
+      ['troca o combustível pra diesel', 85, 'Diesel', today], ['foi gasolina, não etanol', 85, 'Gasolina', today],
+      ['o etanol saiu 90', 90, 'Etanol', today], ['etanol foi 90 e não 85', 90, 'Etanol', today],
+      ['o de etanol foi 90,25', 90.25, 'Etanol', today], ['o combustível foi ontem', 85, 'Etanol', ontem],
+    ] as const
+    for (const [i, [message, amount, type, date]] of cases.entries()) {
+      const o = await ask(message, base)
+      const updated = fuel(o)
+      out.push(result('ZU-corrige-apenas-o-abastecimento-' + i, { message, response: o.response }, 'mesmo item, com o detalhe solicitado e os demais itens preservados',
+        keepOthers(o) && items(o).length === 4 && updated?.amount === amount && updated.fuelType === type && updated.date === date))
+    }
+    const removed = await ask('tira só o etanol', base)
+    const wrongDate = await ask('tira combustível só de ontem', base)
+    const wrongType = await ask('a gasolina foi anteontem', base)
+    const two = await ask('abasteci 85 de etanol hoje e abasteci 90 de diesel ontem')
+    const specific = await ask('tira o diesel de ontem', two)
+    const which = await ask('troca o combustível pra GNV', two)
+    const chosen = await ask('2', which)
+    const keepKm = await ask('tira as viagens mas mantém os kms', base)
+    const work = items(keepKm).map(a => a.action).find(a => a.kind === 'work')
+    out.push(result('ZU-retira-alvo-certo-e-pede-se-ambigua', [removed, wrongDate, wrongType, specific, which, chosen, keepKm].map(o => o.response),
+      'respeita tipo e data do alvo, mantém a proposta quando faltar correspondência e preserva as medidas não citadas',
+      keepOthers(removed) && items(removed).length === 3 && !fuel(removed)
+      && [wrongDate, wrongType].every(o => o.response.mode === 'clarify' && o.keepPending && !o.response.actions.length)
+      && items(specific).length === 1 && fuel(specific)?.fuelType === 'Etanol'
+      && which.response.mode === 'clarify' && which.response.clarification.options?.length === 2
+      && items(chosen).some(a => a.action.kind === 'fuel' && a.action.fuelType === 'GNV' && a.action.amount === 90 && a.action.date === ontem)
+      && items(chosen).some(a => a.action.kind === 'fuel' && a.action.fuelType === 'Etanol' && a.action.amount === 85 && a.action.date === today)
+      && items(keepKm).length === 4 && work?.trips === undefined && work?.km === 170 && work?.hours === 8 && JSON.stringify(state) === snapshot))
+  }
+
+  {
+    const today = '2026-11-25', ontem = '2026-11-24'
     const examples = [
       ['a 99 n me depô 150 e 240 caiu da ubber hj', '99', 150, 'Uber', 240, today],
       ['99 não pagou 150 e 240 entrou da Uber hoje', '99', 150, 'Uber', 240, today],

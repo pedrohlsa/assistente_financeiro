@@ -411,14 +411,21 @@ const DRIVER_AMOUNT_COMMAND = new RegExp(String.raw`^(?:troca|muda|ajusta|corrig
 const DRIVER_SOURCE = new RegExp(String.raw`^(?:foi|era|veio)\s+(?:d[ao]|n[ao]|pel[ao])\s+${DRIVER_APP}$`)
 const WORK_MEASURE = /^\s*(?:n[ãa]o[\s,]+)?(?:(?:na\s+(?:real|verdade)|ops|ou\s+melhor)[\s,]+)?(?:foram|foi|era|eram|s[ãa]o)?\s*(\d+(?:[.,]\d+)?)\s*(kms?|quil[oô]metros?|h|hrs?|horas?|corridas?|viagens?)\s*(?:e\s+n[ãa]o\s+\d+(?:[.,]\d+)?\s*\S*)?\s*$/
 const WORK_DURATION = new RegExp(String.raw`^(?:(?:na\s+(?:real|verdade)|ops|ou\s+melhor)[\s,]+)?(?:foram|foi|era|eram|sao)\s+(${COMPOUND_DURATION})$`)
-const DROP_WORK_MEASURE = /^(?:tira[r]?|retira[r]?|remove[r]?|exclui[r]?|apaga[r]?|sem)\s+(?:so\s+)?(?:[ao]s?\s+)?(?:(\d+(?:[.,]\d+)?)\s*)?(horas?|hrs?|kms?|quilometros?|distancia|quilometragem|viagens?|numero\s+de\s+corridas?)(?:\s+de)?(?:\s*,\s*(?:mandei errado|me enganei|foi erro))?$/
+const DROP_VERB = String.raw`(?:tirar?|retirar?|remover?|excluir?|apagar?|sem)`
+const WORK_MEASURE_NAME = String.raw`(?:horas?|hrs?|kms?|quilometros?|distancia|quilometragem|viagens?|numero\s+de\s+corridas?)`
+const DROP_WORK_MEASURE = new RegExp(String.raw`^${DROP_VERB}\s+(?:so\s+)?(?:[ao]s?\s+)?(?:(\d+(?:[.,]\d+)?)\s*)?(${WORK_MEASURE_NAME})(?:\s+de)?(?:\s*,\s*(?:mandei errado|me enganei|foi erro))?(?:\s+mas\s+mantem\s+(?:[ao]s?\s+)?(${WORK_MEASURE_NAME}))?$`)
+const workMeasureField = (word: string) => /^(?:hor|hr)/.test(word) ? 'hours' : /^(?:via|num)/.test(word) ? 'trips' : 'km'
 
 function removePendingWorkMeasure(text: string, pending: AssistantCandidateAction[], today: string, plan: CorrectionPlan): CorrectionPlan | undefined {
   const date = findDate(text, today)
   const body = date ? (text.slice(0, date.start) + text.slice(date.end)).trim() : text
   const drop = body.match(DROP_WORK_MEASURE)
   if (!drop) return undefined
-  const field = /^(?:hor|hr)/.test(drop[2]) ? 'hours' : /^(?:via|num)/.test(drop[2]) ? 'trips' : 'km'
+  const field = workMeasureField(drop[2])
+  if (drop[3] && workMeasureField(drop[3]) === field) {
+    plan.ambiguous = { question: 'Você quer manter ou retirar essa medida da proposta?' }
+    return plan
+  }
   const label = { hours: 'as horas', km: 'a distância', trips: 'o número de viagens' }[field]
   const targets = pending.flatMap(item => {
     const { action } = item
@@ -448,6 +455,68 @@ function removePendingWorkMeasure(text: string, pending: AssistantCandidateActio
   return plan
 }
 
+const FUEL_TYPES = String.raw`(?:gasolina(?:\s+(?:aditivada|comum))?|etanol|alcool|diesel|gnv)`
+const FUEL_TARGET = String.raw`(?:[oa]\s+)?(?:de\s+)?(?:(?<fuel>${FUEL_TYPES})|combustivel|abastecimento)`
+const DROP_FUEL = new RegExp(String.raw`^${DROP_VERB}\s+(?:so\s+)?${FUEL_TARGET}(?:\s+so)?$`)
+const FUEL_TYPE_COMMAND = new RegExp(String.raw`^(?:troca|muda|ajusta|corrige|atualiza)\s+(?:o\s+tipo\s+d[eo]\s+)?${FUEL_TARGET}\s+(?:pra|para)\s+(?<next>${FUEL_TYPES})$`)
+const FUEL_TYPE_REPORT = new RegExp(String.raw`^(?:(?:nao\s*,\s*)?(?:foi|era|e)\s+)?(?:de\s+)?(?<next>${FUEL_TYPES})(?:(?:,\s*|\s+e\s+)nao\s+(?<fuel>${FUEL_TYPES}))?$`)
+const FUEL_AMOUNT = new RegExp(String.raw`^${FUEL_TARGET}\s+(?:saiu|foi|era|deu|custou)\s+${DRIVER_CORRECTION_MONEY('amount')}${DRIVER_PREVIOUS_AMOUNT}$`)
+const FUEL_DATE = new RegExp(String.raw`^${FUEL_TARGET}\s+(?:foi|era)$`)
+
+function canonicalFuel(word: string): string {
+  return word === 'gnv' ? 'GNV' : word === 'alcool' ? 'Etanol' : word[0].toUpperCase() + word.slice(1)
+}
+
+function correctPendingFuel(text: string, pending: AssistantCandidateAction[], caps: AssistantCapabilities, today: string, plan: CorrectionPlan) {
+  if (!/\b(?:abastecimento|combustivel|gasolina|etanol|alcool|diesel|gnv)\b/.test(text) || !pending.some(p => p.action.kind === 'fuel')) return undefined
+  const date = findDate(text, today)
+  const body = date ? (text.slice(0, date.start).trimEnd().replace(/\s+(?:d[eo]|no)$/, '') + ' ' + text.slice(date.end)).trim() : text
+  const remove = body.match(DROP_FUEL)
+  const type = body.match(FUEL_TYPE_COMMAND) || body.match(FUEL_TYPE_REPORT)
+  const amount = body.match(FUEL_AMOUNT)
+  const dateEdit = date && body.match(FUEL_DATE)
+  const matched = remove || type || amount || dateEdit
+  if (!matched) return undefined
+  const { fuel, next, previous } = matched.groups
+  const field = type ? 'fuelType' : amount ? 'amount' : 'date'
+  const value = type ? canonicalFuel(next) : amount ? parseMoney(amount.groups.amount) : date?.kind === 'date' ? date.date : undefined
+  const targets = pending.flatMap(item => {
+    const { action } = item
+    if (action.kind !== 'fuel' || (fuel && normalizeName(action.fuelType || 'Gasolina') !== normalizeName(canonicalFuel(fuel)))
+      || (previous && action.amount !== parseMoney(previous))
+      || (date && !dateEdit && (date.kind !== 'date' || (action.date || today) !== date.date))) return []
+    return [{ item, action }]
+  })
+  if (!targets.length) {
+    plan.ambiguous = { question: 'Não encontrei um abastecimento com esses dados na proposta. Qual item você quer alterar?' }
+    return plan
+  }
+  const revise = ({ action }: typeof targets[number]): ParsedAction => ({ ...action, [field]: value })
+  if (!remove && (value === undefined || targets.some(target => !validateAction(revise(target), caps, today).ok))) {
+    plan.ambiguous = { question: 'Confira o valor ou a data desse abastecimento e diga o dado correto.' }
+    return plan
+  }
+  if (targets.length > 1) {
+    plan.ambiguous = { field: 'pending-correction', question: `Qual abastecimento quer ${remove ? 'retirar' : 'corrigir'}?`,
+      options: targets.map((target, i) => ({ value: String(i + 1),
+        label: `${correctionLabel(target.item, i)}${target.action.fuelType ? ` · ${target.action.fuelType}` : ''} · ${brDate(target.action.date || today)}`,
+        actions: pending.flatMap(p => p.id !== target.item.id ? [p.action] : remove ? [] : [revise(target)]),
+      })) }
+    return plan
+  }
+  const [target] = targets
+  if (remove) {
+    plan.remove.push(target.item.id)
+    plan.summary.push('Retirei o abastecimento da proposta.')
+  } else {
+    plan.edits.push({ id: target.item.id, field, value, was: target.action[field] })
+    if (type) plan.summary.push(`Anotei o tipo de combustível: ${value}.`)
+    else if (amount) plan.summary.push(`Atualizei o abastecimento para ${fmtBRL(value as number)}.`)
+    else plan.summary.push(`Ajustei a data do abastecimento para ${brDate(value as string)}.`)
+  }
+  return plan
+}
+
 function readPendingWorkMeasure(text: string): { field: 'hours' | 'km' | 'trips'; value: number } | undefined {
   const namedHours = text.match(/^(?:(?:s|ss|sim)\s*,\s*)?(?:as\s+)?horas\s+(?:foram|era|eram|sao)\s+(.+)$/)?.[1]
   if (namedHours && /^\d+(?:[.,]\d+)?$/.test(namedHours)) return { field: 'hours', value: parseMoney(namedHours) }
@@ -468,6 +537,8 @@ function correctDriverProposal(message: string, pending: AssistantCandidateActio
   if (!caps.isDriver || text.includes('?')) return null
   const removal = removePendingWorkMeasure(text, pending, today, plan)
   if (removal) return removal
+  const fuel = correctPendingFuel(text, pending, caps, today, plan)
+  if (fuel) return fuel
   const source = pending.length > 1 && text.match(DRIVER_SOURCE)?.groups.app
   if (source) {
     const rides = pending.filter(p => p.action.kind === 'income' && p.action.category === 'corridas')
@@ -656,28 +727,6 @@ function parseCorrectionWithMarker(
       plan.ambiguous = { question: 'Qual foi o valor exato e de onde veio essa receita?' }
       return plan
     }
-  }
-
-  // "Foi etanol" com um abastecimento na tela: o registro não guarda o tipo
-  // de combustível. Dizer isso é melhor que o menu de ajuda — e a proposta
-  // segue intacta.
-  // "Foi etanol" com um abastecimento na tela: o tipo vai para o registro.
-  // Antes a proposta seguia igual e o tipo dito se perdia.
-  const abastecimentos = pending.filter(p => p.action.kind === 'fuel')
-  const tipoDito = abastecimentos.length > 0
-    ? t.match(/^\s*(?:(?:n[ãa]o[\s,]+)?(?:foi|era|é|e)\s+)?(?:de\s+)?(gasolina(?:\s+aditivada|\s+comum)?|etanol|[áa]lcool|diesel|gnv)\s*[.!]?\s*$/i) : null
-  if (tipoDito) {
-    const bruto = tipoDito[1].toLowerCase()
-    const tipo = /^gnv$/.test(bruto) ? 'GNV' : /^[áa]lcool$/.test(bruto) ? 'Etanol' : bruto.charAt(0).toUpperCase() + bruto.slice(1)
-    if (abastecimentos.length > 1) {
-      plan.ambiguous = { question: 'Qual abastecimento foi desse tipo? Informe o valor ou a data.' }
-      return plan
-    }
-    const [p] = abastecimentos
-    const was = p.action.kind === 'fuel' ? p.action.fuelType : undefined
-    plan.edits.push({ id: p.id, field: 'fuelType', value: tipo, was })
-    plan.summary.push(`Anotei que o abastecimento foi de ${tipo.toLowerCase()}.`)
-    return plan
   }
 
   // Cancelar tudo.

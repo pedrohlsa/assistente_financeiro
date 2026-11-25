@@ -7386,3 +7386,39 @@ Cada lote passou pelos cinco comandos na ordem combinada. No último, `npm test`
 - “isso é um teste: recebi 930 da Uber e paguei 120 de gasolina. De verdade gastei 22 de almoço” preserva apenas os R$ 22 afirmados após o exemplo.
 
 Cada lote passou por `npm test`, os dois typechecks, a rubrica com 0 PERIGOSA e 0 RUIM e a matriz de oito datas. Na data padrão, o último passou com 1.911 regressões adversariais. O projeto segue **NOT READY**.
+
+### Digitação abreviada (`ZS`)
+
+- “FEXEI 7H NO VOLANTI C/ 280 DE CORRIDA E 79,50 D GASOZA ONTI” propõe 7h, R$ 280 de receita e R$ 79,50 de combustível ontem.
+- “onti pg 85 d etanou e recebi 240 na ubber” propõe R$ 85 de etanol e R$ 240 da Uber ontem.
+- “gstei 80 d disel na volta de ontem” e “colokei 80 de disel omtem” classificam R$ 80 como diesel e mantêm ontem.
+- “gastey 95 d combustivel anteont” preserva anteontem para o abastecimento de R$ 95.
+- “rcebi trezentos e cinco da ubber ontem” preserva R$ 305 da Uber ontem.
+- “entrou 300 na uebr hoje e abast 80 de gasoza” preserva a Uber, o combustível e hoje.
+- “gastei oitenta e 50 ctvs de gasoza hj” propõe R$ 80,50 de combustível hoje.
+- “hj caiu 210,50 da uber e 99 ainda n/ pagô 145,25” propõe só R$ 210,50 da Uber e explica os R$ 145,25 pendentes da 99.
+- “qnts hrs eu trabahei hj???” consulta as horas e “quanto a ubber me repaçou na semana passada?” consulta a receita da Uber naquela semana.
+
+### Repasses recebidos e pendentes (`ZT`)
+
+- “a 99 n me depô 150 e 240 caiu da ubber hj” e “99 não pagou 150 e 240 entrou da Uber hoje” propõem só R$ 240 da Uber hoje e dizem que a 99 ainda deve R$ 150.
+- “150 da 99 ainda não caiu e 240 entrou na Uber ontem” e “a 99 não pagou 150 mas a Uber depositou 240 ontem” preservam ontem para o recebimento.
+- “o inDrive ainda não pagou 75 e a 99 pagou 210 hoje” separa o recebimento de R$ 210 da 99 e o repasse pendente de R$ 75 do inDrive.
+- “80 do inDrive só amanhã e 245,75 da Uber entrou hoje” propõe apenas R$ 245,75 da Uber hoje.
+- “240 da Uber entrou ontem, mas a 99 não pagou 150” reconhece o recebimento e a dívida mesmo na ordem inversa.
+- “a 99 não me pagou 150 e quanto caiu da Uber ontem?” explica a pendência e consulta o histórico da Uber, sem proposta.
+- “deu 800 de corridas e 150 de gasolina, mas 300 ainda não caiu na conta” pergunta se os R$ 300 estão no total de R$ 800. “Foi por fora” mantém os R$ 800 de receita, e “tá dentro dos 800” propõe R$ 500. As duas respostas mantêm R$ 150 de combustível.
+
+### Correções de combustível e jornada (`ZU`)
+
+- “troca o combustível pra diesel” e “foi gasolina, não etanol” trocam o tipo do abastecimento sem alterar o valor ou a data.
+- “o etanol saiu 90”, “etanol foi 90 e não 85” e “o de etanol foi 90,25” mudam o valor do abastecimento e preservam os outros itens.
+- “o combustível foi ontem” altera só a data do abastecimento. “A gasolina foi anteontem”, com apenas etanol na proposta, pede o alvo e preserva os itens.
+- “tira só o etanol” e “tira o diesel de ontem” retiram apenas o item identificado por tipo e data.
+- “tira combustível só de ontem”, quando o abastecimento é de hoje, pede o alvo sem remover o item.
+- “troca o combustível pra GNV”, com dois abastecimentos, pergunta qual. “2” altera apenas o segundo.
+- “tira as viagens mas mantém os kms” tira a contagem de corridas e preserva a distância, as horas e os outros itens.
+
+Cada lote passou por `npm test`, os dois typechecks, a rubrica com 0 PERIGOSA e 0 RUIM e a matriz de oito datas. O último passou com 1.935 regressões adversariais na data padrão. O projeto segue **NOT READY**.
+
+Próxima bateria: consultas com data de corte e mais de uma janela.

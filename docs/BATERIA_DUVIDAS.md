@@ -8,7 +8,6 @@
 | “quanto caiu da 99 ontem e quanto caiu hoje?” | Respondeu só o valor da 99 de ontem. | A segunda pergunta precisa de resposta. A plataforma pode ser herdada nessa construção paralela. |
 | “qual foi o lucro dos dias 20 e 22?” | Respondeu o lucro do mês inteiro. | A resposta deve usar só os dois dias pedidos ou esclarecer o mês quando necessário. |
 | “os 85 foram hoje”, com abastecimento de R$ 85 e outros itens na proposta | Perguntou se os R$ 85 foram ganho ou gasto. | Falta selecionar o item pelo valor e corrigir a data. |
-| “troca o combustível pra diesel”, com etanol pendente | Deu orientação genérica de correção. | A fala pede só alterar o tipo de combustível no item da proposta. |
 | “cliente João me deu 200 de sinal e os outros 300 só no mês que vem” | Disse que os R$ 200 ainda não aconteceram. | O sinal recebido deve ser separado dos R$ 300 futuros. |
 | “Casa 1 e Casa 2 pagaram 1500 no total” | Consultou o histórico e disse que não encontrou registros. | Sabe-se o total, mas falta a divisão por origem. |
 | “o que entrou na conta ontem ou nada?” | Respondeu com vencimentos futuros. | A pergunta pede histórico de entradas de ontem. |
