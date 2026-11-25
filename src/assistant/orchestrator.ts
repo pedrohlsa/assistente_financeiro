@@ -926,10 +926,15 @@ function withPendingAnswer(
 
 function pendingWorkAnswer(message: string, pending: OrchestratorInput['pending']): string | undefined {
   const text = normalizeName(message).replace(/[?!.]+$/, '').trim()
-  const measure = text.match(/^(?:e\s+)?(?:quantos?|quantas?)\s+(km|quilometros?|h|horas?|viagens?|corridas?)\s+(?:(?:deu|da|tem|ficou|ficaram|constam|estao|colocou|entram)\s+)?(?:na|da|nessa|nesta|a|essa|esta)\s+proposta$/)?.[1]
-  if (!measure) return undefined
+  const match = text.match(/^(?:e\s+)?(?:quantos?|quantas?)\s+(km|quilometros?|h|horas?|viagens?|corridas?)\s+(?:(?:d[ao]|n[ao]|pel[ao])\s+(uber|99|noventa\s+e\s+nove|in\s*driver?)\s+)?(?:(?:deu|da|tem|ficou|ficaram|constam|estao|colocou|entram)\s+)?(?:na|da|nessa|nesta|a|essa|esta)\s+proposta$/)
+  if (!match) return undefined
   if (!pending?.length) return 'Você não tem uma proposta aguardando confirmação.'
+  const [, measure, platform] = match
   const field = /^h/.test(measure) ? 'hours' : /^(?:km|quil)/.test(measure) ? 'km' : 'trips'
+  if (platform) {
+    const label = field === 'km' ? 'a distância' : field === 'hours' ? 'a duração' : 'a quantidade de viagens'
+    return `A proposta guarda ${label} da jornada inteira. Para detalhar por app, preciso dessa medida separada por plataforma.`
+  }
   const values = pending.flatMap(({ action }) => action.kind === 'work' ? [action[field]]
     : field === 'hours' && action.kind === 'edit-work-hours' ? [action.hours] : []).filter(Number.isFinite)
   const total = values.reduce((sum, value) => sum + value, 0)
@@ -1476,16 +1481,19 @@ function keepActionsAwaitingClarification(input: OrchestratorInput, result: Orch
     response: { ...result.response, mode: 'clarify', reply, clarification } }
 }
 
+function readDatedPayoutActivities(text: string, today: string): ParsedAction[] | undefined {
+  if (!/\b(?:abasteci|paguei|gastei|rodei|trabalhei)\b/i.test(text)) return undefined
+  const { actions, clauses } = analyzeMessage(text, { driver: true, today })
+  if (!clauses.every(clause => clause.handled && !clause.ambiguity && !clause.dateAmbiguity && !clause.approximateAmount && !clause.temporal)) return undefined
+  if (actions.length && actions.every(action => (action.kind === 'fuel' || action.kind === 'expense' || action.kind === 'work') && action.date)) return actions
+}
+
 function readDatedPayoutCompanion(text: string, today: string): ParsedAction | undefined {
   const { value, platform, dates, receiptDay } = readPayoutReceiptAnswer(text, today)
   if (dates.length !== 1 || receiptDay?.kind !== 'date') return undefined
   if (value > 0 && platform) return { kind: 'income', amount: value, category: 'corridas', description: platform, date: receiptDay.date }
-  if (!/\b(?:abasteci|paguei|gastei|rodei|trabalhei)\b/i.test(text)) return undefined
-  const { actions, clauses } = analyzeMessage(text, { driver: true, today })
-  if (actions.length !== 1 || clauses.length !== 1) return undefined
-  const [action] = actions
-  const [clause] = clauses
-  if (clause.handled && !clause.ambiguity && !clause.approximateAmount && !clause.temporal && (action.kind === 'fuel' || action.kind === 'expense' || action.kind === 'work')) return action
+  const actions = readDatedPayoutActivities(text, today)
+  if (actions?.length === 1) return actions[0]
 }
 
 function prepareRideReceiptAcrossDates(input: OrchestratorInput, caps: AssistantCapabilities, today: string): OrchestratorOutput | undefined {
@@ -1723,6 +1731,10 @@ function prepareDriverBankReport(input: OrchestratorInput, caps: AssistantCapabi
   return keepPendingClarification(input, { field: 'driver-bank-pix', question, pendingActions: [{ kind: 'income', amount: pix }] })
 }
 
+const RECEIPT_ACTION = String.raw`(?:recebi|veio|caiu|cairam|entrou|entraram|(?:me\s+)?(?:pagou|repassou|depositou))`
+const RECEIPT_APP_SUBJECT = new RegExp(String.raw`^(?:[ao]\s+)?(uber|99|in\s*drive[r]?)\s+(?=${RECEIPT_ACTION}\s+(?:(?:so|apenas|somente)\s+)?(?:r\$\s*)?\d)`)
+const RECEIPT_VALUE_AFTER_VERB = new RegExp(String.raw`^(?:nao(?:\s+(?:e|era)\s+(?:o\s+)?saldo)?\s*,\s*)?(?:eu\s+)?${RECEIPT_ACTION}\s+(?:so\s+|apenas\s+|somente\s+)?(.+?)(?:\s+na\s+(?:minha\s+)?conta)?$`)
+
 function readPayoutReceiptAnswer(message: string, today: string) {
   const receiptText = normalizeName(normalizeNumberWords(message).text).replace(/[.!?]+$/, '')
   const dates = findAllDates(receiptText, today)
@@ -1730,39 +1742,61 @@ function readPayoutReceiptAnswer(message: string, today: string) {
   const undated = dates.reduceRight((text, date) => text.slice(0, date.start) + ' ' + text.slice(date.end), receiptText)
     .trim().replace(/^[, ]+|[, ]+$/g, '').replace(/\s+/g, ' ')
   const trailingApp = undated.match(/(?:^|\s+)(?:d[ao]|n[ao]|pel[ao])\s+(uber|99|in\s*drive[r]?)$/)
-  const leadingApp = undated.match(/^(?:d[ao]|n[ao]|pel[ao])\s+(uber|99|in\s*drive[r]?)\s+/)
-    || undated.match(/^(?:[ao]\s+)?(uber|99|in\s*drive[r]?)\s+(?=(?:caiu|cairam|entrou|entraram|veio)\s+(?:(?:so|apenas|somente)\s+)?(?:r\$\s*)?\d)/)
+  const leadingApp = undated.match(/^(?:d[ao]|n[ao]|pel[ao])\s+(uber|99|in\s*drive[r]?)\s+/) || undated.match(RECEIPT_APP_SUBJECT)
   const namedApp = trailingApp || leadingApp
   const platform = namedApp && ridePayoutPlatformName(namedApp[1])
   const receipt = trailingApp ? undated.slice(0, trailingApp.index) : leadingApp ? undated.slice(leadingApp[0].length) : undated
-  const afterVerb = receipt.match(/^(?:nao(?:\s+(?:e|era)\s+(?:o\s+)?saldo)?\s*,\s*)?(?:eu\s+)?(?:recebi|veio|caiu|cairam|entrou|entraram)\s+(?:so\s+|apenas\s+|somente\s+)?(.+?)(?:\s+na\s+(?:minha\s+)?conta)?$/)
+  const afterVerb = receipt.match(RECEIPT_VALUE_AFTER_VERB)
   const beforeVerb = receipt.match(/^(.+?)\s+(?:caiu|cairam|entrou|entraram)(?:\s+na\s+(?:minha\s+)?conta)?$/)
   const value = exactMoneyAnswer(afterVerb?.[1] || beforeVerb?.[1] || '')
   const noPayment = /^(?:eu\s+)?(?:ainda\s+)?nao\s+(?:recebi|caiu|entrou)\s+(?:nada|nem\s+um\s+centavo)(?:\s+ainda)?$/.test(receipt)
   return { dates, receiptDay, undated, platform, receipt, value, noPayment }
 }
 
+const EARNINGS_PERIOD = String.raw`(?:da\s+semana\s+passada|do\s+mes\s+passado|d(?:essa|esta)\s+semana|d(?:esse|este)\s+mes)`
+const EARNINGS_PERIOD_ORIGIN = new RegExp(String.raw`\s+(?:de\s+corridas?\s+)?${EARNINGS_PERIOD}(?![\p{L}\p{M}\d])`, 'gu')
+const EARNINGS_PERIOD_COMPONENT = new RegExp(String.raw`^(.+?)\s+${EARNINGS_PERIOD}$`)
+
+function prepareRideReceiptForEarningsPeriod(input: OrchestratorInput, caps: AssistantCapabilities, today: string): OrchestratorOutput | undefined {
+  if (input.message.includes('?') || !/\b(?:semana|m[eê]s)\b/i.test(input.message)) return undefined
+  const text = normalizeName(normalizeNumberWords(input.message).text)
+  const receiptsOnly = text.replace(EARNINGS_PERIOD_ORIGIN, '')
+  if (receiptsOnly === text) return undefined
+  const clauses = receiptsOnly.split(/[,;]\s+(?:e\s+)?|\s+e\s+/)
+  const actions: ParsedAction[] = []
+  for (const clause of clauses) {
+    const { value, platform, dates, receiptDay } = readPayoutReceiptAnswer(clause, today)
+    if (!(value > 0) || !platform || dates.length > 1 || (receiptDay && receiptDay.kind !== 'date')) return undefined
+    const date = receiptDay?.kind === 'date' ? receiptDay.date : undefined
+    actions.push({ kind: 'income', amount: value, category: 'corridas', description: platform, ...(date ? { date } : {}) })
+  }
+  return proposeDatedActions(input, actions, caps, today)
+}
+
 function prepareRideReceiptBreakdown(input: OrchestratorInput, caps: AssistantCapabilities, today: string): OrchestratorOutput | undefined {
   if (input.message.includes('?')) return undefined
-  const breakdown = input.message.match(/^(.+?)(?:[,;]\s*|\s+)(?:eram|foram|sendo)\s+(.+)$/i)
+  const breakdown = input.message.match(/^(.+?)(?:(?:[,;]\s*|\s+)(?:eram|foram|sendo)\s+|,\s+|;\s*)(.+)$/i)
   if (!breakdown) return undefined
   const { value, platform, dates, receiptDay } = readPayoutReceiptAnswer(breakdown[1], today)
   if (!(value > 0) || !platform || dates.length > 1 || (receiptDay && receiptDay.kind !== 'date')) return undefined
   const paymentDate = receiptDay?.kind === 'date' ? receiptDay.date : undefined
   let breakdownText = breakdown[2]
-  let companion: ParsedAction | undefined
+  let companions: ParsedAction[] = []
   for (const split of breakdownText.matchAll(/[,;]\s+(?:e\s+)?|\s+e\s+/gi)) {
     const part = breakdownText.slice(split.index + split[0].length)
-    const action = readDatedPayoutCompanion(part, today)
-    if (action?.kind !== 'expense' && action?.kind !== 'fuel' && action?.kind !== 'work') continue
+    if (!/^(?:(?:hoje|hj|ontem|anteontem|eu)\s+)*(?:abasteci|gastei|paguei|rodei|trabalhei)\b/i.test(part)) continue
+    const actions = readDatedPayoutActivities(part, today)
+    if (!actions) continue
     breakdownText = breakdownText.slice(0, split.index)
-    companion = action
+    companions = actions
     break
   }
   const text = normalizeName(normalizeNumberWords(breakdownText).text).replace(/[.!]+$/, '')
   const entries = text.split(/(?:,\s+|\s+e\s+)(?=(?:r\$\s*)?\d)/)
   if (entries.length < 2) return undefined
   const amounts = entries.map(part => {
+    const period = part.match(EARNINGS_PERIOD_COMPONENT)
+    if (period) return exactMoneyAnswer(period[1])
     const day = findDate(part, today)
     if (day?.kind !== 'date' || day.end !== part.length || day.date > (paymentDate || today)) return undefined
     const amount = part.slice(0, day.start).match(/^(.+?)\s+d[eo]\s*$/)?.[1]
@@ -1772,11 +1806,11 @@ function prepareRideReceiptBreakdown(input: OrchestratorInput, caps: AssistantCa
   const cents = amounts.reduce((sum, amount) => sum + Math.round(amount * 100), 0)
   const receipt: ParsedAction = { kind: 'income', amount: value, description: platform, category: 'corridas',
     ...(paymentDate ? { date: paymentDate } : {}) }
-  if (cents === Math.round(value * 100)) return proposeDatedActions(input, companion ? [receipt, companion] : [receipt], caps, today)
+  if (cents === Math.round(value * 100)) return proposeDatedActions(input, [receipt, ...companions], caps, today)
   const question = `Você informou ${fmtBRL(value)} recebidos da ${platform}, e as partes somam ${fmtBRL(cents / 100)}. Quanto realmente caiu?`
   const clarification: AssistantClarification = { field: 'ride-payout-inclusion', question,
     pendingActions: [{ ...receipt, amount: Math.max(value, cents / 100) }] }
-  return companion ? keepActionsAwaitingClarification(input, proposeDatedActions(input, [companion], caps, today), clarification)
+  return companions.length ? keepActionsAwaitingClarification(input, proposeDatedActions(input, companions, caps, today), clarification)
     : keepPendingClarification(input, clarification)
 }
 
@@ -2514,6 +2548,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     if (!input.draft && !input.pendingClarification) {
       const breakdown = prepareRideReceiptBreakdown(input, caps, today)
       if (breakdown) return breakdown
+      const receiptForPeriod = prepareRideReceiptForEarningsPeriod(input, caps, today)
+      if (receiptForPeriod) return receiptForPeriod
       const receiptWithHeldCash = await prepareReceiptWithHeldCash(input, caps, today)
       if (receiptWithHeldCash) return receiptWithHeldCash
       const withdrawal = readWalletWithdrawal(input.message, today)
@@ -2785,7 +2821,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     if (pc.field === 'ride-settlement-app' || pc.field === 'ride-multi-source') choice = app
     if (pc.field === 'ride-shift-payout') {
       const includedApp = said.match(/^(?:(?:ja\s+)?(?:esta|estao|ta|e|foi)\s+)?(?:incluid[oa]s?|dentro)\s+(?:n[ao]|d[ao])\s+(.+)$/)?.[1]
-      choice = /^(?:(?:e|sao|foi|foram)\s+)?(?:por\s+fora|a\s+parte|a\s+mais)$/.test(said) ? 'excluded' : includedApp || app
+      const amountOutside = /\d/.test(said) && partialRidePayoutChoice(said, undefined, pc.rideShiftUnpaid) === 'excluded'
+      choice = amountOutside || /^(?:(?:e|sao|foi|foram)\s+)?(?:por\s+fora|a\s+parte|a\s+mais)$/.test(said) ? 'excluded' : includedApp || app
     }
     if (pc.field === 'ride-settlement-match') {
       if (/^(?:(?:e|foi|era)\s+)?(?:o\s+)?mesmo(?:\s+(?:valor|repasse))?$/.test(said)) choice = 'same'

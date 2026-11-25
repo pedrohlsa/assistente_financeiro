@@ -264,13 +264,16 @@ export function readPayoutDatePart(text: string): number | undefined {
 
 const DEBT_PERIOD = String.raw`(?:${PAYOUT_SCHEDULE}|(?:(?:da|na)\s+)?semana\s+passada|(?:d[eo]|n[eo])\s+mes\s+passado|(?:d?ess[ea]|d?est[ea])\s+(?:semana|mes))`
 const DEBT_CONTEXT = String.raw`(?:\s+(?:d[aeo]s?|pel[ao]s?)\s+corridas?)?(?:\s+(?:(?:de|desde)\s+)?${DEBT_PERIOD})?(?:\s+ainda)?`
-const DEBT_TAIL = String.raw`(?:(?:\s+e\s+|\s*[.;,]\s*(?:(?:mas|e)\s+)?)(?<tail>(?:${PAYOUT_DAY}\s+)?(?:abasteci|paguei|gastei|rodei|trabalhei|recebi)\b[^?]*))?[.!]*$`
+const DEBT_TAIL = String.raw`(?:(?:\s+e\s+|\s*[.;,]\s*(?:(?:mas|e)\s+)?)(?<tail>(?:${PAYOUT_DAY}\s+)?(?:eu\s+)?(?:abasteci|paguei|gastei|rodei|trabalhei|recebi)\b[^?]*))?[.!]*$`
 const RIDE_DEBT = new RegExp(
   String.raw`^(?:${PAYOUT_DAY}\s+)?(?:[ao]\s+)?(?<platform>${PAYOUT_APP})\s+(?:ainda\s+)?(?:(?:me\s+)?deve|(?:ta|esta|ficou)\s+(?:me\s+)?devendo|nao\s+(?:me\s+)?(?:pagou|repassou|depositou))\s+(?:(?:o|os|meus|mais)\s+)?${MONEY('amount')}${DEBT_CONTEXT}${DEBT_TAIL}`,
 )
 const LATE_PAYOUT = String.raw`(?:atrasou|nao\s+(?:me\s+)?liberou|(?:ta|esta|ficou)\s+segurando)`
 const RIDE_DEBT_DELAY = new RegExp(
   String.raw`^(?:${PAYOUT_DAY}\s+)?(?:[ao]\s+)?${PLATFORM}\s+(?:ainda\s+)?${LATE_PAYOUT}\s+(?:(?:(?:o|um|meu)\s+)?(?:repasse|pagamento)\s+de\s+${MONEY('delayed')}|${MONEY('amount')}\s+d[eo]\s+(?:repasse|pagamento))${DEBT_CONTEXT}${DEBT_TAIL}`,
+)
+const RIDE_DEBT_WITHHELD = new RegExp(
+  String.raw`^(?:[ao]\s+)?${PLATFORM}\s+(?:ainda\s+)?(?:ta|esta|ficou)\s+segurando\s+${MONEY('amount')}\s+(?:no\s+(?:app|aplicativo)|na\s+carteira)${DEBT_CONTEXT}${DEBT_TAIL}`,
 )
 const DEBT_SOURCE = String.raw`\s+(?:d[ao]|n[ao]|pel[ao])\s+(?<platform>${PAYOUT_APP})${DEBT_CONTEXT}${DEBT_TAIL}`
 const RIDE_DEBT_REVERSED = new RegExp(String.raw`^(?:ainda\s+)?me\s+devem\s+${MONEY('amount')}${DEBT_SOURCE}`)
@@ -314,7 +317,8 @@ export function readRideDebt(message: string): { platform: string; amount: numbe
   const app99 = raw.match(DEBT_99_PREFIX)
   // O 99 é a plataforma. Mantém o nome fora do trecho que o ditado trata como valor.
   const appFirst = app99 ? app99[1] + '99 ' + normalizeNumberWords(raw.slice(app99[0].length)).text : text
-  const parts = (text.match(RIDE_DEBT) || text.match(RIDE_DEBT_DELAY) || text.match(RIDE_DEBT_REVERSED) || text.match(RIDE_DEBT_EXPECTED) || text.match(RIDE_DEBT_PENDING)
+  const parts = (text.match(RIDE_DEBT) || text.match(RIDE_DEBT_DELAY) || text.match(RIDE_DEBT_WITHHELD) || text.match(RIDE_DEBT_REVERSED)
+    || text.match(RIDE_DEBT_EXPECTED) || text.match(RIDE_DEBT_PENDING)
     || text.match(RIDE_DEBT_STATUS) || text.match(RIDE_DEBT_AMOUNT_THEN_STATUS) || text.match(RIDE_DEBT_TELEGRAPHIC) || text.match(RIDE_DEBT_BALANCE)
     || text.match(RIDE_DEBT_WAITING) || text.match(RIDE_DEBT_WILL_PAY) || text.match(RIDE_DEBT_SCHEDULED_VALUE) || appFirst.match(RIDE_DEBT_APP_FIRST))?.groups
   const platform = parts?.platform || parts?.unpaidApp || parts?.pendingApp
@@ -366,7 +370,7 @@ export function partialRidePayoutChoice(message: string, total?: number, unpaid?
   const included = text.match(/^(?:(?:os\s+)?([\d.,]+)\s+)?(?:sim|(?:sim,?\s+)?(?:ja\s+)?(?:(?:esta|estao|ta|tao)\s+)?incluid[oa]s?|(?:ja\s+)?(?:esta|estao|ta|tao|entram?)\s+(?:nos|dentro(?:\s+d[eo]s)?|incluid[oa]s?\s+(?:nos|no\s+total))(?:\s+(?:r\$\s*)?([\d.,]+)(?:\s+reais?)?)?|sao\s+dentro(?:\s+d[eo]s?\s+(?:r\$\s*)?([\d.,]+))?|faz(?:em)?\s+parte(?:\s+do\s+total)?)$/)
   if (included && (!included[1] || parseMoney(included[1]) === unpaid)
     && (!(included[2] || included[3]) || parseMoney(included[2] || included[3]) === total)) return 'included'
-  const outside = text.match(/^(?:os\s+)?(?:r\$\s*)?([\d.,]+)(?:\s+reais?)?\s+(?:e|sao)\s+(?:de fora|por fora|a parte|a mais)$/)
+  const outside = text.match(/^(?:os?\s+)?(?:r\$\s*)?([\d.,]+)(?:\s+reais?)?\s+(?:e|sao|foi|foram)\s+(?:de fora|por fora|a parte|a mais)$/)
   if (outside && parseMoney(outside[1]) === unpaid) return 'excluded'
   const excluded = text.match(/^(?:nao|nao,?\s+(?:(?:esta|estao|ta|tao)\s+)?incluid[oa]s?|(?:(?:e|sao|ficou|ficaram)\s+)?(?:por\s+fora|de\s+fora|a\s+parte|a\s+mais)|(?:os\s+)?([\d.,]+)\s+ja\s+(?:cairam|entraram)(?:\s+(?:inteir[oa]s?|todos))?)$/)
   if (excluded && (!excluded[1] || parseMoney(excluded[1]) === total)) return 'excluded'

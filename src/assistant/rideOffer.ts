@@ -77,12 +77,16 @@ function measured(t: string, units: RegExp, readValue: (match: RegExpMatchArray)
   for (const match of t.matchAll(units)) {
     const before = t.slice(0, match.index)
     const after = t.slice(match.index + match[0].length)
-    const role = after.match(SUFFIX)?.[1] || before.match(PREFIX)?.[1]
+    const suffix = after.match(SUFFIX)
+    const role = suffix?.[1] || before.match(PREFIX)?.[1]
     let part: Part = 'unmarked'
     if (role) {
       if (IS_TOTAL.test(role)) part = 'total'
       else if (INCLUDES_PICKUP.test(role)) part = 'outboundWithPickup'
-      else if (IS_RETURN.test(role)) part = /\b(?:mais|outros)\s*$/i.test(before) ? 'extraReturn' : 'return'
+      else if (IS_RETURN.test(role)) {
+        const apart = suffix && /^\s+(?:a\s+parte|por\s+fora)\b/.test(after.slice(suffix[0].length))
+        part = apart || /\b(?:mais|outros)\s*$/i.test(before) ? 'extraReturn' : 'return'
+      }
       else if (IS_OUTBOUND.test(role)) part = 'outbound'
       else if (IS_PICKUP.test(role) && !WITH_PASSENGER.test(role)) part = 'pickup'
       else part = 'trip'
@@ -103,7 +107,9 @@ function routeTotal(parts: Measures): number | undefined {
   if (outbound !== undefined && (outbound < Math.max(pickup ?? 0, trip ?? 0)
     || (pickupAndTrip !== undefined && Math.abs(outbound - pickupAndTrip) > 0.05))) return undefined
   if (returning !== undefined && extraReturn !== undefined) return undefined
-  if (unmarked !== undefined && Object.keys(parts).length > 1) return undefined
+  if (unmarked !== undefined && Object.keys(parts).length > 1) {
+    return extraReturn !== undefined && Object.keys(parts).length === 2 ? unmarked + extraReturn : undefined
+  }
   if (total === undefined) return outward === undefined ? unmarked : outward + (returning ?? extraReturn ?? 0)
   const included = outward === undefined ? undefined : outward + (returning ?? 0)
   if (total < Math.max(pickup ?? 0, trip ?? 0, returning ?? 0, outbound ?? 0)) return undefined
