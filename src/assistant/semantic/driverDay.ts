@@ -48,6 +48,14 @@ const CLOSED_DAY_AFTER_WORK = new RegExp(
   String.raw`^fechei\s+(?:meu|o)\s+(?:dia|turno)\s+com\s+${RIDE_INCOME}(?:\s+e\s+(?:gastei|paguei|abasteci)\s+${FUEL_EXPENSE})?\s+depois\s+de\s+(?:trabalhar|rodar|dirigir)\s+(?<duration>${REPORTED_DURATION})[.!]*$`,
   'i',
 )
+const CLOSED_SHIFT_WITH_RESULT = new RegExp(
+  String.raw`^(?:ent[aã]o\s+)?(?:eu\s+)?fechei\s+(?<duration>${REPORTED_DURATION})(?:\s+(?:(?:no|de)\s+volante|de\s+trabalho|dirigindo))?\s+e\s+(?:deu|rendeu|faturei|ganhei)\s+${RIDE_INCOME}${FUEL_SPEND}[.!]*$`,
+  'i',
+)
+const SHIFT_DURATION_FIRST = new RegExp(
+  String.raw`^(?:no\s+volante|dirigindo)\s+(?<duration>${REPORTED_DURATION})\s+(?:e\s+)?(?:no\s+fim(?:\s+(?:deu|rendeu))?|deu|rendeu)\s+${RIDE_INCOME}(?:\s+(?:e\s+)?${FUEL_EXPENSE})?[.!]*$`,
+  'i',
+)
 const RIDE_RESULT_WITH_DURATION = new RegExp(
   String.raw`^(?:ganhei|faturei)\s+${RIDE_INCOME}${FUEL_SPEND}\s+(?:em|durante)\s+(?<duration>${REPORTED_DURATION})[.!]*$`,
   'i',
@@ -60,8 +68,9 @@ const HOURS_AFTER_PLATFORM = new RegExp(
 
 /** Dá verbos próprios aos valores e medidas em um relato compacto de uma só jornada. */
 export function expandDriverReport(message: string, today: string): string {
-  if (!/\b(?:fechei|deu|deram|fiz|faturei|ganhei)\b/i.test(message) || /[?]|\b(?:n[aã]o|nem|nunca|se|talvez|ou)\b/i.test(message)) return message
-  const normalized = normalizeNumberWords(message).text.trim()
+  if (!/\b(?:fechei|deu|deram|fiz|faturei|ganhei)\b|^\s*(?:no\s+volante|dirigindo)\b/i.test(message)
+    || /[?]|\b(?:n[aã]o|nem|nunca|se|talvez|ou)\b/i.test(message)) return message
+  const normalized = normalizeNumberWords(message).text.trim().replace(/\s+e(?:\s+a[íi])?[.!]*$/i, '')
   const text = normalized.replace(FUEL_RESULT, '$1gastei $2 de $3')
   const withFuel = text === normalized ? message : text
   const dates = findAllDates(text, today)
@@ -72,6 +81,7 @@ export function expandDriverReport(message: string, today: string): string {
   const joinedCents = /\d,\s+\p{L}/u.test(message)
     ? withoutDate.replace(/(\d),\s+(\d{2})(?=\s+de\s+corridas?\b)/i, '$1,$2') : withoutDate
   const parts = (joinedCents.match(CLOSED_SHIFT) || withoutDate.match(CLOSED_DAY_AFTER_WORK)
+    || withoutDate.match(CLOSED_SHIFT_WITH_RESULT) || withoutDate.match(SHIFT_DURATION_FIRST)
     || withoutDate.match(RIDE_RESULT_WITH_DURATION) || withoutDate.match(RIDE_RESULT))?.groups
   if (!parts) {
     if (!/^(?:eu\s+)?(?:fiz|faturei|ganhei)\s/i.test(withoutDate)) return withFuel

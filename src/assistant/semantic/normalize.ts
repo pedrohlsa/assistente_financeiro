@@ -142,7 +142,7 @@ export function normalizeDriverShorthand(message: string): string {
   text = text.replace(/(?<![\p{L}\p{M}\d])(não\s+(?:caiu|entrou|recebi))\s+n[ãa]o(?=\s*(?:$|[;,.!?])|\s+(?:e|mas)\s+)/giu, '$1')
   text = text.replace(/\b(n[ao]|d[ao]|pel[ao]|[ao])\s+noventa[- ]?e[- ]?nove\b/gi, '$1 99')
     .replace(/\b(n[ao]|d[ao]|pel[ao]|[ao])\s+in[-\s]*draiver?\b/gi, '$1 inDrive')
-  if (/\b(?:ganhei|faturei|caiu|recebi|corridas?|quanto|quantos?|quantas?)\b/i.test(text)) {
+  if (/\b(?:ganhei|faturei|caiu|recebi|corridas?|quanto|quantos?|quantas?)\b|\b(?:reais?|centavos?|contos?)\s+d[ao]\s+ubber\b/i.test(text)) {
     text = text.replace(/\b(n[ao]|d[ao]|pel[ao])\s+ubber\b/gi, '$1 Uber')
   }
   // O começo do ditado pode sumir; só recupera o verbo diante da duração ao volante.

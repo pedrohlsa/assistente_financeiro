@@ -655,7 +655,7 @@ export function segment(text: string, today = todayISO()): { text: string; start
     const right = text.slice(after).split(/[!?;]|,(?!\d)|\s+e\s+/i)[0]
     if (PIX_REQUEST.test(left) && PIX_CONTEXT_HEAD.test(right)) push(after)
     if (!looksPast(left) || looksLikeQuestion(left) || looksNegated(left)) continue
-    if (cashPair(normalizeNumberWords(right).text)
+    if (cashPair(normalizeNumberWords(right).text) || INCOME_PLATFORM_PREFIX.test(right)
       || /^(?:o\s+)?(?:sal[áa]rio|freela|freelance|comiss[ãa]o)\s+(?:entrou|caiu|pingou)\s+(?:r\$\s*)?\d/i.test(right)
       || thirdPartyReference(right) || REFUND_VERB.test(right.slice(0, 55)) || RECIPIENT_OF_PAYMENT.test(right.slice(0, 55))) push(after)
   }
@@ -1366,7 +1366,8 @@ function unaccountedMoney(clause: AnalyzedClause): number[] {
   if (clause.ambiguity || clause.temporal || clause.intention || clause.intent === 'question'
     || clause.intent === 'conversation' || clause.intent === 'correction'
     || /\bse\s+eu\b|\b(?:supondo|imagina)\b|%/.test(clause.text)) return []
-  const spoken = workDuration(normalizeNumberWords(spokenClock(clause.text).remaining).text).remaining
+  const withoutClock = normalizeNumberWords(spokenClock(clause.text).remaining).text.replace(/\s+e\s*$/i, '')
+  const spoken = workDuration(withoutClock).remaining
   const normalized = clause.actions.some(isRefundInflow)
     ? spoken.replace(REEMBOLSO_NA_CONTA, '').replace(ORIGINAL_REFUND_PRICE, '$2') : spoken
   if (clause.actions.some(a => a.kind === 'card-payment')) {

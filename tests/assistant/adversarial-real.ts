@@ -106,6 +106,42 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   {
     const today = '2026-11-25'
     const cases = [
+      ['então eu fechei sete horas e meia hoje e deu trezentos de corrida', 7.5, 300, undefined, today],
+      ['trabalhei sete horas e cinqüenta e faturei 350', 7 + 50 / 60, 350, undefined, undefined],
+      ['fechei 8h no volante com 320 de corrida e 90 de gasosa e aí', 8, 320, 90, undefined],
+      ['no volante oito horas e no fim trezentos de corrida noventa de gasosa', 8, 300, 90, undefined],
+    ] as const
+    for (const [i, [message, hours, amount, fuel, date]] of cases.entries()) {
+      const state = i % 2 ? motoristaRico(today) : buildState({ profile: 'driver' })
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actions = response.actions.map(a => a.action)
+      out.push(result('ZP-duracao-ditada-e-fechamento-' + i, { message, response }, 'jornada e receita com as unidades, o combustível e a data corretos',
+        response.mode === 'propose_actions' && actions.length === (fuel ? 3 : 2) && !response.unresolved.length
+        && actions.some(a => a.kind === 'work' && Math.round(a.hours * 60) === Math.round(hours * 60) && a.date === date)
+        && actions.some(a => a.kind === 'income' && a.amount === amount && a.category === 'corridas' && a.date === date)
+        && (!fuel || actions.some(a => a.kind === 'fuel' && a.amount === fuel && a.date === date))))
+    }
+    const state = motoristaRico(today)
+    const distance = (await orchestrate({ state, message: 'é tipo foi cento e noventa km e mais umas seis horas no volante', today, remoteEnabled: false })).response
+    const distanceKinds = distance.actions.map(a => a.action)
+    const apps = (await orchestrate({ state, message: 'ontem eu fiz tipo trezentos e quarenta na Uber e a noventa e nove entrou cento e vinte', today, remoteEnabled: false })).response
+    const platform = (await orchestrate({ state, message: 'QUATROCENTOS E QUARENTA E TRÊS E OITENTA CENTAVOS DA UBBER HJ', today, remoteEnabled: false })).response
+    const incomes = apps.actions.map(a => a.action)
+    const cents = platform.actions.map(a => a.action)
+    out.push(result('ZP-medida-nao-vira-dinheiro', distance, '190 km e 6h, sem despesa',
+      distance.mode === 'propose_actions' && distanceKinds.length === 1
+      && distanceKinds.some(a => a.kind === 'work' && a.km === 190 && a.hours === 6)))
+    out.push(result('ZP-plataforma-transcrita-segue-na-receita', [apps, platform], 'R$ 340 da Uber e R$ 120 da 99 ontem, R$ 443,80 da Uber hoje',
+      apps.mode === 'propose_actions' && incomes.length === 2
+      && incomes.some(a => a.kind === 'income' && a.amount === 340 && a.description === 'Uber' && a.date === '2026-11-24')
+      && incomes.some(a => a.kind === 'income' && a.amount === 120 && a.description === '99' && a.date === '2026-11-24')
+      && platform.mode === 'propose_actions' && cents.length === 1
+      && cents.some(a => a.kind === 'income' && a.amount === 443.8 && a.description === 'Uber' && a.category === 'corridas' && a.date === today)))
+  }
+
+  {
+    const today = '2026-11-25'
+    const cases = [
       ['qual paga mais por km 50 por 20 km mais 5 de volta ou 45 por 20 km no total', [/A segunda paga mais por km/, /25 km com 5 km de retorno/, /2,00\/km bruto/]],
       ['uma de 28 incluindo a gorjeta de 5, 12km ida e volta, vale a pena?', [/12 km no total/, /23,00.*5,00.*28,00/, /2,33\/km bruto/]],
       ['quanto por hora dá corrida 37 pra 7 km e 20 min só com passageiro?', [/7 km informados/, /5,29\/km bruto/, /informe o tempo total/]],

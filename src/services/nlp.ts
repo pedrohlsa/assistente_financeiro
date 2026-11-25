@@ -1901,7 +1901,7 @@ function parseClause(input: string): ParsedAction[] {
   // A descrição PARA no próximo valor. Sem o limite ela engolia o item
   // seguinte: "paguei 320 de luz 180 de agua" virava uma despesa de 320 com a
   // descrição "Luz 180 de agua", e os R$ 180 sumiam dentro do texto.
-  const expRe = new RegExp(String.raw`(?:${expVerbs})\s*${APROX}(?:r\$)?\s*${NUM}(?!\d|[.,]\d|\s*(?:dias|semanas|meses|anos)\b)\s*${MOEDA}?\s*(?:(?:de|com|no|na|em|para|pra|por)\s+)?([\w\p{L}\p{M}\s]*?)(?=\s*\d+(?:[.,]\d+)*\s*(?:${MOEDA})?\s*(?:de|com|no|na|em)\s+\p{L}|[^\w\p{L}\p{M}\s]|$)`, 'iu')
+  const expRe = new RegExp(String.raw`(?:${expVerbs})\s*${APROX}(?:r\$)?\s*${NUM}(?!\d|[.,]\d|${UNIT_AFTER})\s*${MOEDA}?\s*(?:(?:de|com|no|na|em|para|pra|por)\s+)?([\w\p{L}\p{M}\s]*?)(?=\s*\d+(?:[.,]\d+)*\s*(?:${MOEDA})?\s*(?:de|com|no|na|em)\s+\p{L}|[^\w\p{L}\p{M}\s]|$)`, 'iu')
   // "Comprei 10 sacos de cimento POR 350": o primeiro número é a QUANTIDADE,
   // e o preço vem depois — lida ao contrário, a despesa era de R$ 10,00.
   const qtd = text.match(new RegExp(String.raw`(?:comprei|paguei|gastei|torrei)\s+(\d+)\s+([a-zà-úçãõ][\wçãõáéíóúâê]*(?:\s+(?:de|do|da)\s+[a-zà-úçãõ][\wçãõáéíóúâê]*)?)\s+(?:por|custou|saiu\s+por|deu|foi|no\s+total\s+de)\s*(?:r\$)?\s*${NUM}(?![\d.,])`, 'i'))
