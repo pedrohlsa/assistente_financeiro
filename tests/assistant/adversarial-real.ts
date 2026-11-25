@@ -104,6 +104,43 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const today = '2026-11-25', ontem = '2026-11-24', anteontem = '2026-11-23'
+    const cases = [
+      ['FEXEI 7H NO VOLANTI C/ 280 DE CORRIDA E 79,50 D GASOZA ONTI', 280, undefined, 79.50, undefined, 7, ontem],
+      ['onti pg 85 d etanou e recebi 240 na ubber', 240, 'Uber', 85, 'Etanol', undefined, ontem],
+      ['gstei 80 d disel na volta de ontem', undefined, undefined, 80, 'Diesel', undefined, ontem],
+      ['gastey 95 d combustivel anteont', undefined, undefined, 95, undefined, undefined, anteontem],
+      ['rcebi trezentos e cinco da ubber ontem', 305, 'Uber', undefined, undefined, undefined, ontem],
+      ['entrou 300 na uebr hoje e abast 80 de gasoza', 300, 'Uber', 80, undefined, undefined, today],
+      ['gastei oitenta e 50 ctvs de gasoza hj', undefined, undefined, 80.50, undefined, undefined, today],
+      ['colokei 80 de disel omtem', undefined, undefined, 80, 'Diesel', undefined, ontem],
+    ] as const
+    for (const [i, [message, amount, app, fuel, kind, hours, date]] of cases.entries()) {
+      const state = i % 2 ? motoristaRico(today) : buildState({ profile: 'driver' })
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actions = response.actions.map(a => a.action)
+      out.push(result('ZS-atalhos-do-teclado-' + i, { message, response }, 'montantes, origens, medida e datas preservados ao corrigir os atalhos',
+        response.mode === 'propose_actions' && !response.unresolved.length
+        && actions.length === Number(!!amount) + Number(!!fuel) + Number(!!hours)
+        && actions.every(a => 'date' in a && a.date === date)
+        && (!amount || actions.some(a => a.kind === 'income' && a.amount === amount && a.category === 'corridas' && a.description === app))
+        && (!fuel || actions.some(a => a.kind === 'fuel' && a.amount === fuel && a.fuelType === kind))
+        && (!hours || actions.some(a => a.kind === 'work' && a.hours === hours))))
+    }
+    const state = motoristaRico(today)
+    const q = async (message: string) => (await orchestrate({ state, message, today, remoteEnabled: false })).response
+    const [paid, work, incoming] = await Promise.all([
+      q('hj caiu 210,50 da uber e 99 ainda n/ pagô 145,25'), q('qnts hrs eu trabahei hj???'), q('quanto a ubber me repaçou na semana passada?'),
+    ])
+    const receipts = paid.actions.map(a => a.action)
+    out.push(result('ZS-negacao-e-perguntas-digitadas', [paid, work, incoming], 'distingue o débito da 99 e responde horas e repasse com os filtros corretos',
+      paid.mode === 'propose_actions' && receipts.length === 1 && /99 ainda deve.*145,25/.test(paid.reply)
+      && receipts.some(a => a.kind === 'income' && a.amount === 210.50 && a.description === 'Uber' && a.date === today)
+      && work.mode === 'answer' && !work.actions.length && /Horas trabalhadas hoje: 8h/.test(work.reply)
+      && incoming.mode === 'answer' && !incoming.actions.length && /Total recebido na Uber na semana passada:/.test(incoming.reply)))
+  }
+
+  {
     const today = '2026-11-25'
     const answers = await Promise.all([motoristaRico(today), autonomoRico(today), buildState({ profile: 'driver' })].map(async state => {
       const snapshot = JSON.stringify(state)

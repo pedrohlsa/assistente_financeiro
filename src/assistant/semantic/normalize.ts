@@ -133,37 +133,47 @@ export interface RepairedText {
   changed: boolean
 }
 
-const SPOKEN_PAYOUT_VERBS: Record<string, string> = { caio: 'caiu', 'liberô': 'liberou', pingou: 'caiu', 'pingô': 'caiu', 'depositô': 'depositou' }
+const SPOKEN_PAYOUT_VERBS: Record<string, string> = { caio: 'caiu', 'liberô': 'liberou', pingou: 'caiu', 'pingô': 'caiu',
+  'depositô': 'depositou', 'depô': 'depositou', 'pagô': 'pagou' }
+const DRIVER_FUEL_TYPOS: Record<string, string> = { gasolna: 'gasolina', gasoza: 'gasolina', gazosa: 'gasolina',
+  etanou: 'etanol', disel: 'diesel', combstivel: 'combustível' }
+const DRIVER_RELATIVE_DAY = String.raw`(?:onti?|omtem|anteont|antontem)`
+const driverDateWord = (text: string) => /^(?:ont|omtem)/i.test(text) ? 'ontem' : 'anteontem'
+const FUEL_AFTER_PREPOSITION = new RegExp(String.raw`\b(d|de|em|com)\s+(${Object.keys(DRIVER_FUEL_TYPOS).join('|')})\b(?=\s*(?:$|[;,.!?]|\b(?:e|mas|hoje|hj|ontem|anteontem|${DRIVER_RELATIVE_DAY}|na\s+volta)\b))`, 'gi')
+const DRIVER_DATE_BEFORE_REPORT = new RegExp(String.raw`(^\s*|\s+(?:e|mas)\s+)(${DRIVER_RELATIVE_DAY})\s+(?=(?:eu\s+)?(?:ganhei|recebi|faturei|fiz|abasteci|trabalhei|rodei|gastei|paguei|coloquei|pg|abast|gstei|gastey|colokei)\b)`, 'gi')
+const DRIVER_DATE_AFTER_ITEM = new RegExp(String.raw`\b(corridas?|gasosa|gasolina|etanol|diesel|gnv|combust[íi]vel|uber|99|in\s*drive|kms?|horas?)\s+(${DRIVER_RELATIVE_DAY})(?=\s+(?:e|mas)\s+|\s*[.!?]*$|[,;])`, 'gi')
 
 export function normalizeDriverShorthand(message: string): string {
   // A expansão da negação precisa vir antes dos leitores de repasse.
-  let text = message.replace(/(?<![\p{L}\p{M}\d])(?:n(?:\/|\u0303)?|ñ|nao|não|num|nem)\s+(me\s+)?(caiu|caio|ca[ií]ram|entrou|entraram|pingou|pingô|liberou|liberô|repassou|depositou|depositô|pagou|recebi)(?![\p{L}\p{M}\d])/giu,
+  let text = message.replace(/(?<![\p{L}\p{M}\d])(?:n(?:\/|\u0303)?|ñ|nao|não|num|nem)\s+(me\s+)?(caiu|caio|ca[ií]ram|entrou|entraram|pingou|pingô|liberou|liberô|repassou|depositou|depositô|depô|pagou|pagô|recebi)(?![\p{L}\p{M}\d])/giu,
     (_, dative: string | undefined, verb: string) => `não ${dative || ''}${SPOKEN_PAYOUT_VERBS[verb.toLowerCase()] || verb}`)
   text = text.replace(/(?<![\p{L}\p{M}\d])(não\s+(?:caiu|entrou|recebi))\s+n[ãa]o(?=\s*(?:$|[;,.!?])|\s+(?:e|mas)\s+)/giu, '$1')
   text = text.replace(/\b(n[ao]|d[ao]|pel[ao]|[ao])\s+noventa[- ]?e[- ]?nove\b/gi, '$1 99')
     .replace(/\b(n[ao]|d[ao]|pel[ao]|[ao])\s+in[-\s]*draiver?\b/gi, '$1 inDrive')
-  if (/\b(?:ganhei|faturei|caiu|recebi|corridas?|quanto|quantos?|quantas?)\b|\b(?:reais?|centavos?|contos?)\s+d[ao]\s+ubber\b/i.test(text)) {
-    text = text.replace(/\b(n[ao]|d[ao]|pel[ao])\s+ubber\b/gi, '$1 Uber')
+  if (/\b(?:ganhei|faturei|caiu|entrou|recebi|rcebi|corridas?|quanto|quantos?|quantas?)\b|\b(?:reais?|centavos?|contos?)\s+d[ao]\s+ubber\b/i.test(text)) {
+    text = text.replace(/\b(n[ao]|d[ao]|pel[ao]|a)\s+(?:ubber|uebr|ubr)\b/gi, '$1 Uber')
   }
+  text = text.replace(FUEL_AFTER_PREPOSITION,
+    (_, preposition: string, fuel: string) => `${/^d$/i.test(preposition) ? 'de' : preposition} ${DRIVER_FUEL_TYPOS[fuel.toLowerCase()]}`)
+  text = text.replace(DRIVER_DATE_BEFORE_REPORT, (_, prefix: string, date: string) => `${prefix}${driverDateWord(date)} `)
   // O começo do ditado pode sumir; só recupera o verbo diante da duração ao volante.
   text = text.replace(/^(\s*(?:(?:hoje|hj|ontem|anteontem)\s+)?)(?:fexei|feichei|[cx]hei|xei)(?=\s+[^;!?]{1,42}\s+(?:no|de)\s+volant[ei]\b)/i, '$1fechei')
   if (/^\s*(?:(?:hoje|hj|ontem|anteontem)\s+)?fechei\b/i.test(text)) {
     text = text.replace(/\b(no|de)\s+volant[ei]\s+c\/\s*/i, '$1 volante com ').replace(/\b(no|de)\s+volanti\b/i, '$1 volante')
   }
   return text
-    .replace(/(^|[,;.!]\s*|\s+(?:e|mas)\s+)((?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)\b(abast|gstei|pg(?=\.?\s+(?:r\$\s*)?\d[\d.,]*\s+(?:de?|em)\s+(?:gasosa|gasolina|combust[íi]vel|etanol|diesel)\b))\.?\s+(?=(?:r\$\s*)?\d)/gi,
-      (_, boundary: string, lead: string, verb: string) => `${boundary}${lead}${({ abast: 'abasteci', gstei: 'gastei', pg: 'paguei' })[verb.toLowerCase()]} `)
+    .replace(/(^|[,;.!]\s*|\s+(?:e|mas)\s+)((?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)\b(abast|gstei|gastey|colokei|pg(?=\.?\s+(?:r\$\s*)?\d[\d.,]*\s+(?:de?|em)\s+(?:gasosa|gasolina|combust[íi]vel|etanol|diesel)\b))\.?\s+(?=(?:r\$\s*)?\d)/gi,
+      (_, boundary: string, lead: string, verb: string) => `${boundary}${lead}${({ abast: 'abasteci', gstei: 'gastei', gastey: 'gastei', colokei: 'coloquei', pg: 'paguei' })[verb.toLowerCase()]} `)
     .replace(/(?<![\p{L}\p{M}\d.,])(\d{1,2})\s*ctvs?\b/giu, '$1 centavos')
-    .replace(/\b(de|em|com)\s+combstivel\b/gi, '$1 combustível')
-    .replace(/\bd\s+(?=gasosa\b|gasolina\b|combust[íi]vel\b)/gi, 'de ')
-    .replace(/(^\s*|\s+(?:e|mas)\s+)(onti?|antontem)\s+(?=(?:eu\s+)?(?:ganhei|recebi|faturei|fiz|abasteci|trabalhei|rodei|gastei|paguei)\b)/gi,
-      (_, boundary: string, date: string) => `${boundary}${/^ont/i.test(date) ? 'ontem' : 'anteontem'} `)
-    .replace(/\b(corridas?|gasosa|gasolina|combust[íi]vel|uber|99|in\s*drive|kms?|horas?)\s+(onti?|antontem)(?=\s+(?:e|mas)\s+|\s*[.!?]*$|[,;])/gi,
-      (_, previous: string, date: string) => `${previous} ${/^ont/i.test(date) ? 'ontem' : 'anteontem'}`)
+    .replace(/\bd\s+(?=gasosa\b|gasolina\b|etanol\b|diesel\b|gnv\b|combust[íi]vel\b)/gi, 'de ')
+    .replace(DRIVER_DATE_AFTER_ITEM, (_, previous: string, date: string) => `${previous} ${driverDateWord(date)}`)
+    .replace(/(\b(?:quantas|qnts|qntas|qts)\s+(?:horas?|hrs?|h)\s+(?:eu\s+)?)trabahei\b/gi, '$1trabalhei')
+    .replace(/(\b(?:a|o)\s+(?:uber|99|in\s*drive)\s+me\s+)repaçou\b/gi, '$1repassou')
     .replace(/^(\s*(?:e\s+)?)(?:qto|qnto)\s+(?=(?:deu|deram)\s+d(?:e)?\s+corridas?\b)/i, '$1quanto ')
     .replace(/^(\s*(?:e\s+)?quanto\s+(?:deu|deram))\s+d\s+(?=corridas?\b)/i, '$1 de ')
     .replace(/(^\s*(?:e\s+)?|[?;,]\s*(?:e\s+)?|\s+e\s+)(?:qts|qnts|qntos|qntas)\s+(?=(kms?|quil[oô]metros?|h|hrs?|horas?|viagens?|corridas?)\b)/gi,
       (_, boundary: string, measure: string) => `${boundary}${/^(?:h|v|c)/i.test(measure) ? 'quantas' : 'quantos'} `)
+    .replace(/\bquantas\s+(?:h|hrs?)\b/gi, 'quantas horas')
 }
 
 /**
