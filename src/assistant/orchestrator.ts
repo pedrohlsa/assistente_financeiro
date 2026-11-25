@@ -979,7 +979,7 @@ async function previewPendingQuery(input: OrchestratorInput, today: string): Pro
   const explicit = reuse ? undefined : before?.[2] || after?.[1]
   if (!explicit && !reuse) return undefined
   const question = explicit?.replace(/^(e\s+)?(?:qto|qnto|qt)\s+/, '$1quanto ')
-    .replace(/^((?:e\s+)?quantas)\s+hrs?\b/, '$1 horas')
+    .replace(/^((?:e\s+)?quantas)\s+h(?:rs?)?\b/, '$1 horas')
     .replace(/\bgastaria\b/g, 'gastei').replace(/\breceberia\b/g, 'recebi').replace(/\bganharia\b/g, 'ganhei')
   if (!reuse && (!question || !/^(?:e\s+)?(?:quant[oa]s?|qual|quais)\b/.test(question) || !looksLikeDataQuestion(question))) return undefined
   const scopedQuestion = question && /\b(?:gastei|ganhei|recebi)\b/.test(question) && !parsePeriod(question, today)

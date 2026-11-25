@@ -150,7 +150,7 @@ export function normalizeDriverShorthand(message: string): string {
     text = text.replace(/\bno\s+volant[ei]\s+c\/\s*/i, 'no volante com ').replace(/\bno\s+volanti\b/i, 'no volante')
   }
   return text
-    .replace(/(^|[,;.!]\s*|\s+(?:e|mas)\s+)((?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)\b(abast|gstei|pg(?=\.?\s+(?:r\$\s*)?\d[\d.,]*\s+(?:de|em)\s+(?:gasosa|gasolina|combust[íi]vel|etanol|diesel)\b))\.?\s+(?=(?:r\$\s*)?\d)/gi,
+    .replace(/(^|[,;.!]\s*|\s+(?:e|mas)\s+)((?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)\b(abast|gstei|pg(?=\.?\s+(?:r\$\s*)?\d[\d.,]*\s+(?:de?|em)\s+(?:gasosa|gasolina|combust[íi]vel|etanol|diesel)\b))\.?\s+(?=(?:r\$\s*)?\d)/gi,
       (_, boundary: string, lead: string, verb: string) => `${boundary}${lead}${({ abast: 'abasteci', gstei: 'gastei', pg: 'paguei' })[verb.toLowerCase()]} `)
     .replace(/(?<![\p{L}\p{M}\d.,])(\d{1,2})\s*ctvs?\b/giu, '$1 centavos')
     .replace(/\b(de|em|com)\s+combstivel\b/gi, '$1 combustível')

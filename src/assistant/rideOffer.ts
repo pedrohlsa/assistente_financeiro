@@ -22,7 +22,10 @@ const AMOUNT_AFTER_NOUN = new RegExp(String.raw`\b(?:corridas?|viagem|chamada|pr
 const OFFER_PRICE_HEADING = /^\s*(?:a\s+)?(?:oferta|proposta)\s+(?:e\s+de|de)\s+(?:r\$\s*)?\d/
 const TIP_MONEY = String.raw`(?:r\$\s*)?\d+(?:[.,]\d+)*(?!\d|[.,]\d)(?:\s+reais?)?`
 const CONDITIONAL_TIP = String.raw`(?:talvez|possivelmente|se\s+(?:tiver|vier|der))`
-const ADDITIONAL_TIP = new RegExp(String.raw`(?:(?:\s*\+\s*|\s+(?:e\s+)?mais\s+)(?:(?<maybeAfter>${CONDITIONAL_TIP})\s+)?|\s+(?:e\s+)?(?<maybeBefore>${CONDITIONAL_TIP})\s+)(?:gorjeta\s+de\s+(?<after>${TIP_MONEY})|(?<before>${TIP_MONEY})\s+de\s+gorjeta)\b`)
+const TIP_DETAIL = String.raw`(?:gorjeta\s+de\s+(?<after>${TIP_MONEY})|(?<before>${TIP_MONEY})\s+de\s+gorjeta)\b`
+const ADDITIONAL_TIP = new RegExp(String.raw`(?:(?:\s*\+\s*|\s+(?:e\s+)?mais\s+)(?:(?<maybeAfter>${CONDITIONAL_TIP})\s+)?|\s+(?:e\s+)?(?<maybeBefore>${CONDITIONAL_TIP})\s+)${TIP_DETAIL}`)
+const INCLUDED_TIP = new RegExp(String.raw`\s+(?:(?:ja\s+)?com|incluindo|contando)\s+${TIP_DETAIL}`)
+const TIP_CONDITION_AFTER = /^(?:,\s*|\s+)(?:talvez|possivelmente|(?:so|apenas)\s+se|se\s+(?:(?:o|a)\s+(?:passageir[oa]|cliente)|ele|ela|tiver|vier|der))\b/
 const AMOUNT_BEFORE_NOUN = new RegExp(String.raw`(?<![\w.,-])${NUMBER}\s+(?:de|da)\s+(?:corridas?|viagem|chamada)\b`)
 const AMOUNT_PROSPECTIVE = new RegExp(String.raw`\b(?:tiraria|ganharia|receberia|renderia|pagaria|pagasse|paga|pagando)\s+${NUMBER}(?!\s*(?:kms?|quilometros?|m|metros?|h|horas?|min|minutos?)\b)`)
 const AMOUNT_BEFORE_DISTANCE = new RegExp(String.raw`(?<![\w.,-])${NUMBER}\s+(?:por|em|pra|para|com|e)\s+\d+(?:[.,]\d+)*\s*(?:kms?|quilometros?|metros?)\b`, 'g')
@@ -150,12 +153,19 @@ function amountForOffer(text: string, elliptical = false): number | undefined {
 type OfferPrice = Pick<Quote, 'value' | 'tip'>
 
 function readOfferPrice(text: string, elliptical = false): OfferPrice {
-  const extra = text.match(ADDITIONAL_TIP)
+  const included = text.match(INCLUDED_TIP)
+  const extra = included || text.match(ADDITIONAL_TIP)
   if (!extra) return { value: amountForOffer(text, elliptical), tip: undefined }
   const { before, after, maybeBefore, maybeAfter } = extra.groups
   const amount = parseMoney((before || after).match(NUMBER)?.[1])
-  const fareText = text.slice(0, extra.index) + text.slice(extra.index + extra[0].length)
-  return { value: amountForOffer(fareText, elliptical), tip: { amount, conditional: !!(maybeBefore || maybeAfter) } }
+  const rest = text.slice(extra.index + extra[0].length)
+  const quotedValue = amountForOffer(text.slice(0, extra.index) + rest, elliptical)
+  if (included) {
+    if (!(quotedValue >= amount)) return { value: undefined }
+    const base = (Math.round(quotedValue * 100) - Math.round(amount * 100)) / 100
+    return { value: base, tip: { amount, conditional: false } }
+  }
+  return { value: quotedValue, tip: { amount, conditional: !!(maybeBefore || maybeAfter || TIP_CONDITION_AFTER.test(rest)) } }
 }
 
 function totalOfferValue({ value, tip }: OfferPrice): number | undefined {
