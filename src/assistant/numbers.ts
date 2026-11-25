@@ -218,8 +218,10 @@ export function findNumberWords(text: string): NumberWordMatch[] {
       if ((single === 'um' || single === 'uma') && unit !== 'percent') { i = j; continue }
       if ((single === 'dois' || single === 'duas') && !unit) { i = j; continue }
 
-      let explicitMoney = unit === 'money'
-      let consumedEnd = end + (unit === 'money' ? (unitM?.[0].length || 0) : 0)
+      // Em “cento e cinquenta e cinquenta centavos”, a fração já está no valor.
+      // Manter “centavos” depois de 150,50 deixava a unidade errada no texto.
+      const explicitMoney = unit === 'money' || (unit === 'cents' && !Number.isInteger(value))
+      let consumedEnd = end + (explicitMoney ? (unitM?.[0].length || 0) : 0)
 
       // "cento e cinquenta reais e cinquenta centavos"
       if (explicitMoney) {
@@ -241,7 +243,7 @@ export function findNumberWords(text: string): NumberWordMatch[] {
         end: consumedEnd,
         text: text.slice(start, consumedEnd) || literal,
         explicitMoney,
-        unit: unit && unit !== 'money' ? unit : undefined,
+        unit: explicitMoney ? undefined : unit,
       })
     }
     i = j

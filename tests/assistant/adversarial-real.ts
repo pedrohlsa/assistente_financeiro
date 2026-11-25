@@ -8,7 +8,7 @@ import { balanceOutlook, balanceOutlookText, budgetUsage, cashObligationsUntil, 
 import { buildInstallments, cardInvoice, cardOutstanding, cardsOverview, commitmentTimeline, futureInstallmentPaymentDate, futureInvoicePaymentDate, invoiceOpenAmount, planProgress, splitInstallmentAmounts } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
 import { buildCapabilities } from '../../src/assistant/capabilities'
-import { isValidationFailure, validateAction } from '../../src/assistant/contracts'
+import { isValidationFailure, validateAction, type AssistantCandidateAction } from '../../src/assistant/contracts'
 import { editableFieldsFor } from '../../src/assistant/proposalEdit'
 import { validateQueryPlan } from '../../src/assistant/query/validate'
 import { runQuery } from '../../src/assistant/query/engine'
@@ -102,6 +102,55 @@ function faturasAPagarEsperadas(rico: AppState, hoje: string): { descricao: stri
 
 export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
+
+  {
+    const today = '2026-11-25'
+    const ontem = '2026-11-24'
+    const state = motoristaRico(today)
+    const snapshot = JSON.stringify(state)
+    const ask = (message: string, previous?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({ state, message, today, remoteEnabled: false,
+      focus: previous?.focus, draft: previous?.draft || undefined, pending: previous?.response.actions,
+      pendingClarification: previous?.response.mode === 'clarify' ? previous.response.clarification : undefined })
+    const base = await ask('ontem ganhei 240 na Uber e 130 na 99, gastei 85 de etanol e rodei 170 km em 8 horas, fiz 14 corridas')
+    const items = (o: typeof base): AssistantCandidateAction[] => o.response.actions
+    const unchanged = (o: typeof base, id: string) => items(base).find(a => a.id === id)?.action === items(o).find(a => a.id === id)?.action
+    const work = (o: typeof base) => o.response.actions.map(a => a.action).filter(a => a.kind === 'work')
+    const onlyWorkChanged = (o: typeof base) => o.response.mode === 'propose_actions' && o.response.actions.length === 4
+      && items(base).filter(a => a.action.kind !== 'work').every(a => unchanged(o, a.id))
+    const removals = await Promise.all(['tira só as horas', 'tira a km', 'tira só os 170 km', 'sem os km, mandei errado'].map(message => ask(message, base)))
+    out.push(result('ZK-retira-medida-sem-apagar-jornada', removals.map(o => o.response), 'retira só a medida mencionada, mantendo o restante da proposta',
+      removals.every((o, i) => onlyWorkChanged(o) && work(o).some(w => w.date === ontem && w.trips === 14
+        && (i === 0 ? w.hours === undefined && w.km === 170 : w.km === undefined && w.hours === 8)))))
+    const days = await ask('ontem rodei 100 km e trabalhei 6h e hoje rodei 170 km e trabalhei 8h')
+    const dated = await ask('tira os km de ontem', days)
+    const which = await ask('tira as horas', days)
+    const picked = await ask('2', which)
+    const single = await ask('trabalhei 8 horas hj')
+    const missing = await ask('tira só os km', single)
+    const notThere = await ask('tira 100 km', base)
+    out.push(result('ZK-retira-medida-confere-data-e-alvo', [dated, which, picked, missing, notThere].map(o => o.response),
+      'data distingue jornadas, duas candidatas pedem escolha e uma medida inexistente não altera nada',
+      dated.response.mode === 'propose_actions' && work(dated).some(w => w.date === ontem && w.km === undefined && w.hours === 6)
+      && work(dated).some(w => w.date === today && w.km === 170 && w.hours === 8)
+      && which.response.mode === 'clarify' && /horas/.test(which.response.reply) && which.response.clarification?.options?.length === 2
+      && work(picked).some(w => w.date === today && w.km === 170 && w.hours === undefined)
+      && work(picked).some(w => w.date === ontem && w.km === 100 && w.hours === 6)
+      && [missing, notThere].every(o => o.response.mode === 'clarify' && o.keepPending && !o.response.actions.length)))
+    const edits = [
+      ['99 foi cento e cinquenta e cinquenta centavos', '99', 150.5], ['foi 150 de noventa e nove', '99', 150],
+      ['a da ubber foi 260', 'Uber', 260], ['troca a 99 pra 150', '99', 150],
+    ] as const
+    for (const [i, [message, app, amount]] of edits.entries()) {
+      const edit = await ask(message, base)
+      const target = items(base).find(a => a.action.kind === 'income' && a.action.description === app)
+      const changed = items(edit).find(a => a.id === target?.id)?.action
+      out.push(result('ZK-edita-receita-da-plataforma-' + i, { message, response: edit.response }, 'mesma receita, com novo valor e demais ações intactas',
+        edit.response.mode === 'propose_actions' && edit.response.actions.length === 4
+        && changed?.kind === 'income' && changed.description === app && changed.amount === amount && changed.date === ontem
+        && items(base).filter(a => a.id !== target?.id).every(a => unchanged(edit, a.id))
+        && JSON.stringify(state) === snapshot))
+    }
+  }
 
   {
     const today = '2026-11-25'

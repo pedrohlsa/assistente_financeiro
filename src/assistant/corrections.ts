@@ -6,7 +6,7 @@
 
 import type { ParsedAction } from '../models/types'
 import { validateAction, type AssistantCandidateAction, type AssistantCapabilities, type AssistantClarification } from './contracts'
-import { fmtBRL, fmtHours, nowTime, parseMoney, todayISO } from '../utils/format'
+import { fmtBRL, fmtHours, fmtNum, nowTime, parseMoney, todayISO } from '../utils/format'
 import { normalizeNumberWords } from './numbers'
 import { brDate, dateInAnswer, findDate } from './dates'
 import { explicitSpokenPayer, extractOrigins, looksLikeQuestion, revisedAction } from './clauses'
@@ -401,15 +401,52 @@ function parseClockCorrection(message: string, pending: AssistantCandidateAction
   return true
 }
 
-const DRIVER_APP = String.raw`(?<app>uber|99|${APP_99}|in\s*driver?)\b`
+const DRIVER_APP = String.raw`(?<app>ubb?er|99|${APP_99}|in\s*driver?)\b`
 const DRIVER_REMOVE = new RegExp(String.raw`^(?:tira|retira|remove|exclui|apaga)\s+(?:[ao]\s+)?(?:d[ao]\s+)?${DRIVER_APP}(?<when>.*)$`)
 const DRIVER_CORRECTION_MONEY = (key: string) => String.raw`(?:r\$\s*)?(?<${key}>\d+(?:[.,]\d+)*)(?:\s+reais?)?`
 const DRIVER_PREVIOUS_AMOUNT = String.raw`(?:(?:,\s*|\s+e\s+)nao\s+(?:foi\s+)?${DRIVER_CORRECTION_MONEY('previous')})?`
-const DRIVER_AMOUNT = new RegExp(String.raw`^[ao]\s+d[ao]\s+${DRIVER_APP}(?<when>.*?)\s+(?:foi|era|deu)\s+${DRIVER_CORRECTION_MONEY('amount')}${DRIVER_PREVIOUS_AMOUNT}$`)
-const DRIVER_AMOUNT_FIRST = new RegExp(String.raw`^(?:foi|foram|era|eram)\s+${DRIVER_CORRECTION_MONEY('amount')},?\s+(?:d[ao]|n[ao]|pel[ao])\s+${DRIVER_APP}(?<when>.*?)${DRIVER_PREVIOUS_AMOUNT}$`)
+const DRIVER_AMOUNT = new RegExp(String.raw`^(?:[ao]\s+)?(?:d[aeo]\s+|n[ao]\s+)?${DRIVER_APP}(?<when>.*?)\s+(?:foi|era|deu)\s+${DRIVER_CORRECTION_MONEY('amount')}${DRIVER_PREVIOUS_AMOUNT}$`)
+const DRIVER_AMOUNT_FIRST = new RegExp(String.raw`^(?:foi|foram|era|eram)\s+${DRIVER_CORRECTION_MONEY('amount')},?\s+(?:d[aeo]|n[ao]|pel[ao])\s+${DRIVER_APP}(?<when>.*?)${DRIVER_PREVIOUS_AMOUNT}$`)
+const DRIVER_AMOUNT_COMMAND = new RegExp(String.raw`^(?:troca|muda|ajusta|corrige|atualiza)\s+(?:[ao]\s+)?(?:d[ao]\s+)?${DRIVER_APP}(?<when>.*?)\s+(?:pra|para)\s+${DRIVER_CORRECTION_MONEY('amount')}$`)
 const DRIVER_SOURCE = new RegExp(String.raw`^(?:foi|era|veio)\s+(?:d[ao]|n[ao]|pel[ao])\s+${DRIVER_APP}$`)
 const WORK_MEASURE = /^\s*(?:n[ãa]o[\s,]+)?(?:(?:na\s+(?:real|verdade)|ops|ou\s+melhor)[\s,]+)?(?:foram|foi|era|eram|s[ãa]o)?\s*(\d+(?:[.,]\d+)?)\s*(kms?|quil[oô]metros?|h|hrs?|horas?|corridas?|viagens?)\s*(?:e\s+n[ãa]o\s+\d+(?:[.,]\d+)?\s*\S*)?\s*$/
 const WORK_DURATION = new RegExp(String.raw`^(?:(?:na\s+(?:real|verdade)|ops|ou\s+melhor)[\s,]+)?(?:foram|foi|era|eram|sao)\s+(${COMPOUND_DURATION})$`)
+const DROP_WORK_MEASURE = /^(?:tira[r]?|retira[r]?|remove[r]?|exclui[r]?|apaga[r]?|sem)\s+(?:so\s+)?(?:[ao]s?\s+)?(?:(\d+(?:[.,]\d+)?)\s*)?(horas?|hrs?|kms?|quilometros?|distancia|quilometragem|viagens?|numero\s+de\s+corridas?)(?:\s+de)?(?:\s*,\s*(?:mandei errado|me enganei|foi erro))?$/
+
+function removePendingWorkMeasure(text: string, pending: AssistantCandidateAction[], today: string, plan: CorrectionPlan): CorrectionPlan | undefined {
+  const date = findDate(text, today)
+  const body = date ? (text.slice(0, date.start) + text.slice(date.end)).trim() : text
+  const drop = body.match(DROP_WORK_MEASURE)
+  if (!drop) return undefined
+  const field = /^(?:hor|hr)/.test(drop[2]) ? 'hours' : /^(?:via|num)/.test(drop[2]) ? 'trips' : 'km'
+  const label = { hours: 'as horas', km: 'a distância', trips: 'o número de viagens' }[field]
+  const targets = pending.flatMap(item => {
+    const { action } = item
+    if (action.kind !== 'work') return []
+    const oldValue = action[field]
+    if (oldValue === undefined || (drop[1] && parseMoney(drop[1]) !== oldValue)
+      || (date && (date.kind !== 'date' || (action.date || today) !== date.date))) return []
+    const updated = { ...action }
+    delete updated[field]
+    const hasOtherMeasures = updated.km !== undefined || updated.hours !== undefined || updated.trips !== undefined
+    return [{ item, updated, hasOtherMeasures, oldValue }]
+  })
+  if (!targets.length) {
+    plan.ambiguous = { question: 'Essa medida não está na proposta com os dados indicados. Qual item você quer alterar?' }
+  } else if (targets.length > 1) {
+    plan.ambiguous = { field: 'pending-correction', question: `De qual jornada você quer retirar ${label}?`,
+      options: targets.map(({ item, updated, hasOtherMeasures }, i) => ({ value: String(i + 1),
+        label: `${i + 1}. Jornada de ${brDate(updated.date || today)}`,
+        actions: pending.flatMap(p => p.id !== item.id ? [p.action] : hasOtherMeasures ? [updated] : []),
+      })) }
+  } else {
+    const { item, hasOtherMeasures, oldValue } = targets[0]
+    if (hasOtherMeasures) plan.edits.push({ id: item.id, field, value: undefined, was: oldValue })
+    else plan.remove.push(item.id)
+    plan.summary.push(`Retirei ${label} da proposta.`)
+  }
+  return plan
+}
 
 function readPendingWorkMeasure(text: string): { field: 'hours' | 'km' | 'trips'; value: number } | undefined {
   const namedHours = text.match(/^(?:(?:s|ss|sim)\s*,\s*)?(?:as\s+)?horas\s+(?:foram|era|eram|sao)\s+(.+)$/)?.[1]
@@ -429,6 +466,8 @@ function correctDriverProposal(message: string, pending: AssistantCandidateActio
   plan: CorrectionPlan): CorrectionPlan | null {
   const text = normalizeName(message).replace(/[.!]+$/, '').trim()
   if (!caps.isDriver || text.includes('?')) return null
+  const removal = removePendingWorkMeasure(text, pending, today, plan)
+  if (removal) return removal
   const source = pending.length > 1 && text.match(DRIVER_SOURCE)?.groups.app
   if (source) {
     const rides = pending.filter(p => p.action.kind === 'income' && p.action.category === 'corridas')
@@ -438,7 +477,7 @@ function correctDriverProposal(message: string, pending: AssistantCandidateActio
     }
     const [ride] = rides
     if (ride?.action.kind === 'income') {
-      const revision = revisedAction(ride.action, `da ${source === normalizeName(APP_99) ? '99' : source}`, today)
+      const revision = revisedAction(ride.action, `da ${source === APP_99 ? '99' : source === 'ubber' ? 'Uber' : source}`, today)
       if (revision?.kind !== 'income' || !validateAction(revision, caps, today).ok) return null
       for (const field of ['description', 'origin', 'is99'] as const) {
         if (ride.action[field] !== revision[field]) plan.edits.push({ id: ride.id, field, value: revision[field], was: ride.action[field] })
@@ -460,7 +499,7 @@ function correctDriverProposal(message: string, pending: AssistantCandidateActio
     return { ...work, remove: removal.remove, summary: [...removal.summary, ...work.summary] }
   }
   const remove = text.match(DRIVER_REMOVE)
-  const changeApp = remove ? null : text.match(DRIVER_AMOUNT) || text.match(DRIVER_AMOUNT_FIRST)
+  const changeApp = remove ? null : text.match(DRIVER_AMOUNT) || text.match(DRIVER_AMOUNT_FIRST) || text.match(DRIVER_AMOUNT_COMMAND)
   const selector = remove || changeApp
   let targets = pending.filter(p => p.action.kind === 'work' || p.action.kind === 'edit-work-hours')
   if (!selector && !targets.length) return null
@@ -477,7 +516,7 @@ function correctDriverProposal(message: string, pending: AssistantCandidateActio
   let app: string | undefined
   if (selector) {
     const named = selector.groups.app
-    app = /in\s*driv/.test(named) ? 'inDrive' : named === 'uber' ? 'Uber' : '99'
+    app = /in\s*driv/.test(named) ? 'inDrive' : /ubb?er/.test(named) ? 'Uber' : '99'
     targets = pending.filter(({ action }) => action.kind === 'income' && action.category === 'corridas'
       && (normalizeName(action.description) === normalizeName(app) || normalizeName(action.origin) === normalizeName(app)))
   }
@@ -528,7 +567,7 @@ function correctDriverProposal(message: string, pending: AssistantCandidateActio
   } else {
     const before = (item.action as unknown as Record<string, unknown>)[field]
     plan.edits.push({ id: item.id, field, value, was: before })
-    const label = field === 'km' ? `${value} km` : field === 'trips' ? `${value} viagens` : field === 'hours' ? fmtHours(value) : fmtBRL(value)
+    const label = field === 'km' ? `${fmtNum(value, 3)} km` : field === 'trips' ? `${value} viagens` : field === 'hours' ? fmtHours(value) : fmtBRL(value)
     const detail = field === 'km' ? 'a distância' : field === 'trips' ? 'as viagens' : field === 'hours' ? 'as horas' : `a receita da ${app}`
     plan.summary.push(`Atualizei ${detail} para ${label}.`)
   }
@@ -565,7 +604,7 @@ function parseCorrectionWithMarker(
 ): CorrectionPlan | null {
   if (!pending.length) return null
   if (pending.some(p => ['description', 'origin'].some(k => normalizeName((p.action as any)[k] || '') === '99'))) {
-    message = message.replace(/(^|\b(?:d|n)?[ao]s?\s+)(?:99|noventa\s+e\s+nove)(?![\wÀ-ÿ]|[.,]\d|\s*(?:reais|real|contos?|pila)\b)/gi, `$1${APP_99}`)
+    message = message.replace(/(^|\b(?:d(?:e|[ao]s?)|n?[ao]s?)\s+)(?:99|noventa\s+e\s+nove)(?![\wÀ-ÿ]|[.,]\d|\s*(?:reais|real|contos?|pila)\b)/gi, `$1${APP_99}`)
   }
   // Pergunta não é conserto: "o que tem na fatura do Inter?" com o pagamento
   // do Nubank na tela TROCAVA o cartão da proposta. Quem pergunta quer saber;
