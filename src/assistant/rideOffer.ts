@@ -5,7 +5,7 @@ import { isDriver } from '../services/profile'
 import { fmtBRL, fmtNum, parseMoney } from '../utils/format'
 import { normalizeName } from '../utils/text'
 import { looksPast } from './clauses'
-import type { PendingRideOffer, RideOfferMeasures as Measures } from './contracts'
+import type { PendingRideOffer, RideOfferCharge, RideOfferMeasures as Measures } from './contracts'
 import { PARE_PARA_DESCANSAR, perceivesDrivingFatigue } from './driverAdvice'
 import { normalizeNumberWords } from './numbers'
 import { COMPOUND_DURATION, elapsedMinutes } from './semantic/clock'
@@ -23,6 +23,16 @@ const OFFER_PRICE_HEADING = /^\s*(?:a\s+)?(?:oferta|proposta)\s+(?:(?:e\s+de|de)
 const CONDITIONAL_ACCEPTANCE = /^se\s+(?:eu\s+)?(?:aceitasse|pegasse)\s+(?:r\$\s*)?\d/
 const OFFER_METRIC_REQUEST = /\b(?:quanto|qual)\b[^?]*\b(?:por\s+(?:hora|minuto|km|quilometro)|liquid[oa]|lucro)\b/
 const TIP_MONEY = String.raw`(?:r\$\s*)?\d+(?:[.,]\d+)*(?!\d|[.,]\d)(?:\s+reais?)?`
+const CHARGE_NAME = String.raw`(?:pedagio|estacionamento|taxa)(?:\s+d[ao]\s+(?:app|uber|99|indrive))?`
+const PAID_BY_DRIVER = String.raw`(?:pago|pagando|vou\s+(?:ter\s+de\s+)?pagar)`
+const CHARGE_REMOVAL = String.raw`(?:menos|descontando|deduzindo|${PAID_BY_DRIVER})`
+const CHARGE_INCLUDED = String.raw`(?:ja\s+(?:descontad[oa]|deduzid[oa]|abatid[oa]))`
+const CHARGE_REIMBURSED = String.raw`(?:(?:o|a)\s+passageir[oa]\s+(?:me\s+)?reembolsa)`
+const HAS_CHARGE = /\b(?:pedagio|estacionamento|taxa)\b/
+const CHARGE_MENTION = new RegExp(String.raw`(?<![\w.,-])(?:(?<verb>nao\s+${PAID_BY_DRIVER}|so\s+${PAID_BY_DRIVER}|${CHARGE_REMOVAL}|${CHARGE_INCLUDED}|${CHARGE_REIMBURSED}|com)\s+(?:(?:o|a)\s+)?)?(?:(?<first>${CHARGE_NAME})\s+(?:de\s+)?(?<after>${TIP_MONEY})|(?<before>${TIP_MONEY})\s+d[eoa]\s+(?<last>${CHARGE_NAME}))\b(?:\s+(?<who>por\s+minha\s+conta|que\s+(?:eu\s+)?(?:nao\s+${PAID_BY_DRIVER}|vou\s+pagar)|pag[oa]\s+pel[oa]\s+passageir[oa]))?`, 'g')
+const QUOTED_GROSS = new RegExp(String.raw`^\s*(?:r\$\s*)?${NUMBER}\s+brut[oa]s?\b`)
+const QUOTED_RECEIPT = new RegExp(String.raw`\b(?:recebo|ganho)\s+(?:r\$\s*)?${NUMBER}(?!\s*km\b)`)
+const CHARGE_LABEL: Record<RideOfferCharge['kind'], string> = { pedagio: 'pedágio', estacionamento: 'estacionamento', taxa: 'taxa' }
 const CONDITIONAL_TIP = String.raw`(?:talvez|possivelmente|se\s+(?:tiver|vier|der))`
 const TIP_DETAIL = String.raw`(?:(?:a\s+)?gorjeta\s+de\s+(?<after>${TIP_MONEY})|(?<before>${TIP_MONEY})\s+de\s+gorjeta)\b`
 const ADDITIONAL_TIP = new RegExp(String.raw`(?:(?:\s*\+\s*|\s+(?:e\s+)?mais\s+)(?:(?<maybeAfter>${CONDITIONAL_TIP})\s+)?|\s+(?:e\s+)?(?<maybeBefore>${CONDITIONAL_TIP})\s+)${TIP_DETAIL}`)
@@ -153,22 +163,51 @@ function amountForOffer(text: string, elliptical = false): number | undefined {
   return prices.length === 1 ? parseMoney(prices[0][1]) : undefined
 }
 
-type OfferPrice = Pick<Quote, 'value' | 'tip'>
+type OfferPrice = Pick<Quote, 'value' | 'tip' | 'charges'>
 
-function readOfferPrice(text: string, elliptical = false): OfferPrice {
+function readOfferCharges(text: string): { text: string; charges: RideOfferCharge[] } {
+  if (!HAS_CHARGE.test(text)) return { text, charges: [] }
+  const charges: RideOfferCharge[] = []
+  const fareText = text.replace(CHARGE_MENTION, (match, ...captures) => {
+    const { first, last, after, before, verb, who } = captures[captures.length - 1] as Record<string, string | undefined>
+    const offset = captures[captures.length - 3] as number
+    if (after && !who && /^\s*(?:%|(?:km|metros?|minutos?|min|horas?|h)\b)/.test(text.slice(offset + match.length))) return match
+    const kind = (first || last).split(' ')[0] as RideOfferCharge['kind']
+    const amount = parseMoney((after || before).match(NUMBER)?.[1])
+    let treatment: RideOfferCharge['treatment'] = 'unknown'
+    if (verb?.startsWith('nao ') || who?.includes('nao ')) treatment = 'waived'
+    else if (who?.startsWith('pag') || verb?.endsWith('reembolsa')) treatment = 'covered'
+    else if (verb?.startsWith('ja ')) treatment = 'included'
+    else if (!verb?.startsWith('so ') && (who || (verb && verb !== 'com') || (kind === 'taxa' && QUOTED_GROSS.test(text)))) treatment = 'deduct'
+    charges.push({ kind, amount, treatment })
+    return ' '
+  })
+  return { text: fareText.replace(/\s+/g, ' ').trim(), charges }
+}
+
+function readOfferPrice(input: string, elliptical = false): OfferPrice {
+  const { text, charges } = readOfferCharges(input)
+  const priceOf = (t: string) => amountForOffer(t, elliptical || charges.length > 0)
+    ?? (charges.length ? parseQuotedAmountWithCharge(t) : undefined)
   const included = text.match(INCLUDED_TIP)
   const extra = included || text.match(ADDITIONAL_TIP)
-  if (!extra) return { value: amountForOffer(text, elliptical), tip: undefined }
+  const pricedCharges = charges.length ? { charges } : {}
+  if (!extra) return { value: priceOf(text), tip: undefined, ...pricedCharges }
   const { before, after, maybeBefore, maybeAfter } = extra.groups
   const amount = parseMoney((before || after).match(NUMBER)?.[1])
   const rest = text.slice(extra.index + extra[0].length)
-  const quotedValue = amountForOffer(text.slice(0, extra.index) + rest, elliptical)
+  const quotedValue = priceOf(text.slice(0, extra.index) + rest)
   if (included) {
-    if (!(quotedValue >= amount)) return { value: undefined }
+    if (!(quotedValue >= amount)) return { value: undefined, ...pricedCharges }
     const base = (Math.round(quotedValue * 100) - Math.round(amount * 100)) / 100
-    return { value: base, tip: { amount, conditional: false } }
+    return { value: base, tip: { amount, conditional: false }, ...pricedCharges }
   }
-  return { value: quotedValue, tip: { amount, conditional: !!(maybeBefore || maybeAfter || TIP_CONDITION_AFTER.test(rest)) } }
+  return { value: quotedValue, tip: { amount, conditional: !!(maybeBefore || maybeAfter || TIP_CONDITION_AFTER.test(rest)) }, ...pricedCharges }
+}
+
+function parseQuotedAmountWithCharge(text: string): number | undefined {
+  const value = text.match(QUOTED_GROSS)?.[1] || text.match(QUOTED_RECEIPT)?.[1]
+  return value ? parseMoney(value) : undefined
 }
 
 function totalOfferValue({ value, tip }: OfferPrice): number | undefined {
@@ -180,6 +219,23 @@ function offerTipNote(price: OfferPrice): string {
   const { amount, conditional } = price.tip
   return conditional ? `A estimativa usa a tarifa de ${fmtBRL(price.value)}. A gorjeta possível é de ${fmtBRL(amount)}.`
     : `Tarifa de ${fmtBRL(price.value)} mais ${fmtBRL(amount)} de gorjeta, total de ${fmtBRL(totalOfferValue(price))}.`
+}
+
+function chargeNote(charge: RideOfferCharge): string {
+  const label = `${fmtBRL(charge.amount)} de ${CHARGE_LABEL[charge.kind]}`
+  if (charge.treatment === 'included') return `O valor informado já desconta ${label}.`
+  if (charge.treatment === 'covered') return `O passageiro cobre ${label}.`
+  if (charge.treatment === 'waived') return `Os ${label} ficam fora dos seus custos.`
+  return `Descontei ${label} na estimativa.`
+}
+
+function chargeQuestion(charge: RideOfferCharge): string {
+  return `Os ${fmtBRL(charge.amount)} de ${CHARGE_LABEL[charge.kind]} saem do seu bolso por fora, já foram descontados ou o passageiro cobre?`
+}
+
+function afterCharges(value: number, charges?: RideOfferCharge[]): number {
+  const cost = charges?.reduce((cents, c) => cents + (c.treatment === 'deduct' ? Math.round(c.amount * 100) : 0), 0) || 0
+  return cost ? (Math.round(value * 100) - cost) / 100 : value
 }
 
 function readDistance(text: string): Measures | undefined {
@@ -206,10 +262,15 @@ function compareOffers(state: AppState, parts: string[], question: string): stri
   const quotes = parts.map(text => {
     const distance = readDistance(text)
     const price = readOfferPrice(text, true)
-    return { value: totalOfferValue(price), tipNote: offerTipNote(price), ...offerDistance(distance),
+    return { value: totalOfferValue(price), tipNote: offerTipNote(price), charges: price.charges, ...offerDistance(distance),
       minutes: minutesIncludingReturn(readDuration(text), distance) }
   })
   if (quotes.some(q => !(q.value > 0) || !(q.km > 0))) return DUAS_OFERTAS
+  const uncertain = quotes.findIndex(q => q.charges?.some(c => c.treatment === 'unknown'))
+  if (uncertain >= 0) {
+    const charge = quotes[uncertain].charges.find(c => c.treatment === 'unknown')
+    return `Antes de comparar, confirme o custo da ${uncertain === 0 ? 'primeira' : 'segunda'} oferta. ${chargeQuestion(charge)}`
+  }
 
   const cost = kmCost(state)
   const preciseRoute = quotes.every(q => q.complete)
@@ -228,11 +289,11 @@ function compareOffers(state: AppState, parts: string[], question: string): stri
   const fullCost = cost.fuelPerKm > 0
   const profitByTime = fullCost && !asksGross
   const labels = ['Primeira', 'Segunda']
-  const results = quotes.map(q => analyzeRide(state, q.value, 0, q.km, q.minutes || 0))
+  const results = quotes.map(q => analyzeRide(state, afterCharges(q.value, q.charges), 0, q.km, q.minutes || 0))
   const rates = results.map((r, i) => asksProfit && fullCost ? r.profit
     : asksNetKm && fullCost ? r.netPerKm
       : canCompareTime ? (profitByTime ? r.profit : quotes[i].value) * minutesPerUnit / quotes[i].minutes
-        : r.grossPerKm)
+        : quotes[i].value / quotes[i].km)
   const criterion = asksProfit && fullCost ? 'lucro estimado'
     : asksNetKm && fullCost ? 'lucro por km estimado'
       : canCompareTime ? (profitByTime ? `lucro por ${timeUnit} estimado` : `receita por ${timeUnit}`) : 'valor por km'
@@ -246,11 +307,12 @@ function compareOffers(state: AppState, parts: string[], question: string): stri
     const r = results[i]
     const returning = returnDistance(quote.parts)
     const returnNote = returning ? ` com ${fmtNum(returning)} km de retorno` : ''
-    return `• ${labels[i]}. ${fmtBRL(quote.value)} em ${fmtNum(quote.km)} km${returnNote}${quote.minutes ? ` e ${fmtNum(quote.minutes)} min` : ''}. ${fmtBRL(r.grossPerKm)}/km bruto.`
+    return `• ${labels[i]}. ${fmtBRL(quote.value)} em ${fmtNum(quote.km)} km${returnNote}${quote.minutes ? ` e ${fmtNum(quote.minutes)} min` : ''}. ${fmtBRL(quote.value / quote.km)}/km bruto.`
       + (asksNetKm && fullCost ? ` ${fmtBRL(r.netPerKm)}/km líquido.` : '')
       + (fullCost ? ` Lucro estimado de ${fmtBRL(r.profit)}${quote.minutes && profitByTime ? ` ou ${fmtBRL(r.profit * minutesPerUnit / quote.minutes)}/${timeSuffix}` : ''}.` : '')
       + (quote.minutes && !profitByTime ? ` ${fmtBRL(quote.value * minutesPerUnit / quote.minutes)}/${timeSuffix} bruto.` : '')
       + (quote.tipNote ? ` ${quote.tipNote}` : '')
+      + (quote.charges?.length ? ` ${quote.charges.map(chargeNote).join(' ')}` : '')
   })
   const basis = preciseRoute ? undefined : 'A comparação usa os km informados. Se a ida até o passageiro estiver fora desses km, inclua essa distância.'
   return [lead, details.join('\n'), basis].filter(Boolean).join('\n\n')
@@ -285,10 +347,12 @@ export function interpretRideOffer(state: AppState, input: string, context = inp
   const hasDistance = !!text.match(DISTANCE)
   const price = readOfferPrice(text, conditional)
   const asksOfferMetric = price.value !== undefined && hasDistance && OFFER_METRIC_REQUEST.test(text)
-    && (NOME.test(text) || OFFER_PRICE_HEADING.test(text) || conditional)
+    && (NOME.test(text) || OFFER_PRICE_HEADING.test(text) || conditional || (price.charges?.length && /\b(?:oferta|proposta)\b/.test(text)))
   const quotedRoute = price.value !== undefined && hasDistance
-    && (price.tip || OFFER_PRICE_HEADING.test(text) || /\b(?:ida|volta|voltando|voltar|retorno|embarque|passageiro|destino|aproximacao)\b/.test(text))
-  if ((!RIDE_EVALUATION_REQUEST.test(text) && !compare && !comparesTwo && !enumerated && !asksOfferMetric)
+    && (price.tip || price.charges?.length || OFFER_PRICE_HEADING.test(text) || /\b(?:ida|volta|voltando|voltar|retorno|embarque|passageiro|destino|aproximacao)\b/.test(text))
+  const quoteWithCharge = price.charges?.length && hasDistance && OFFER_PRICE_HEADING.test(text)
+  const asksShort = price.value !== undefined && price.charges?.length && hasDistance && NOME.test(text) && /\bvai\s*\?$/.test(text)
+  if ((!RIDE_EVALUATION_REQUEST.test(text) && !compare && !comparesTwo && !enumerated && !asksOfferMetric && !quoteWithCharge && !asksShort)
     || (!notice && !NOME.test(text) && !comparesTwo && !enumerated && !UMA_DE_COM_DISTANCIA.test(text) && !quotedRoute && !asksOfferMetric)) return undefined
   if (perceivesDrivingFatigue(context)) return { reply: PARE_PARA_DESCANSAR }
   if (!/\d/.test(text) && !notice) return undefined
@@ -325,6 +389,16 @@ export function continueRideOffer(state: AppState, pending: PendingRideOffer, in
   if (!isDriver(state.settings) || looksPast(input)) return undefined
   if (perceivesDrivingFatigue(input)) return { reply: PARE_PARA_DESCANSAR }
   const text = normalizeRideOfferText(input).replace(/[.!?]+$/, '').trim()
+  if (pending.missing === 'charge' && pending.charges?.length) {
+    const treatment: RideOfferCharge['treatment'] | undefined = /^(?:ja\s+)?(?:descontou|descontad[oa]|deduzid[oa])$/.test(text) ? 'included'
+      : /^(?:(?:o|a)\s+)?passageir[oa]\s+(?:paga|cobre|reembolsa)$/.test(text) ? 'covered'
+        : /^(?:(?:eu|e)\s+)?(?:pago|vou\s+pagar|por\s+minha\s+conta|sai\s+do\s+meu\s+bolso|por\s+fora)$/.test(text) ? 'deduct' : undefined
+    if (treatment) {
+      const index = pending.charges.findIndex(c => c.treatment === 'unknown')
+      const charges = pending.charges.map((c, i) => i === index ? { ...c, treatment } : c)
+      return renderOffer(state, { ...pending, charges })
+    }
+  }
   const saidIncluded = /^(?:sim|(?:ja\s+)?inclu(?:i|em)(?:\s+(?:a\s+)?volta|\s+(?:o\s+)?retorno)?)$/.test(text)
   const saidExcluded = /^(?:nao(?:\s+inclu(?:i|em)(?:\s+(?:a\s+)?volta|\s+(?:o\s+)?retorno)?)?|(?:so|somente)\s+(?:a\s+|de\s+)?ida)$/.test(text)
   const saidOutward = text.match(/^(?:os\s+)?(\d+(?:[.,]\d+)*)(?:\s*km)?\s+(?:sao|e)\s+(?:so|somente)\s+(?:a\s+|de\s+)?ida$/)
@@ -351,6 +425,7 @@ export function continueRideOffer(state: AppState, pending: PendingRideOffer, in
   if (!mentionsMeasure || remains) return undefined
   const currentPrice = pending.missing === 'value' ? readOfferPrice(text) : undefined
   return renderOffer(state, {
+    ...pending,
     value: currentPrice?.value ?? pending.value,
     tip: currentPrice?.tip ?? pending.tip,
     distance: combineMeasures(pending.distance, distance, pending.missing === 'pickup' || pending.missing === 'trip' ? pending.missing : undefined),
@@ -361,6 +436,9 @@ export function continueRideOffer(state: AppState, pending: PendingRideOffer, in
 function renderOffer(state: AppState, quote: Quote): RideOfferAnswer {
   const value = totalOfferValue(quote)
   if (!(value > 0)) return { reply: 'Qual é o valor que a corrida paga?', pending: { ...quote, missing: 'value' } }
+  const uncertain = quote.charges?.find(c => c.treatment === 'unknown')
+  if (uncertain) return { reply: chargeQuestion(uncertain), pending: { ...quote, missing: 'charge' } }
+  const valueAfterCharges = afterCharges(value, quote.charges)
   const { parts: km, km: totalKm, complete: knownRoute } = offerDistance(quote.distance)
   const cost = kmCost(state)
   if (!(totalKm > 0)) {
@@ -375,8 +453,8 @@ function renderOffer(state: AppState, quote: Quote): RideOfferAnswer {
       return { reply: 'Quantos km faltam até o passageiro?', pending: { ...quote, missing: 'pickup' } }
     }
     const reference = km && !Object.keys(km).length
-      ? cost.minRecommended > 0
-        ? ` Pelo seu mínimo de referência de ${fmtBRL(cost.minRecommended)}/km, ${fmtBRL(value)} cobrem até ${fmtNum(value / cost.minRecommended)} km.`
+      ? cost.minRecommended > 0 && valueAfterCharges > 0
+        ? ` Pelo seu mínimo de referência de ${fmtBRL(cost.minRecommended)}/km, ${fmtBRL(valueAfterCharges)} cobrem até ${fmtNum(valueAfterCharges / cost.minRecommended)} km.`
         : ' Também preciso do custo por km para estimar se compensa.'
       : ''
     return { reply: ROTA + reference, pending: { ...quote, missing: 'distance' } }
@@ -386,15 +464,15 @@ function renderOffer(state: AppState, quote: Quote): RideOfferAnswer {
   const routeNote = returning ? `\n\nInclui ${fmtNum(returning)} km de retorno.` : ''
   const durationNote = !minutes && (returning || (quote.duration && Object.keys(quote.duration).length))
     ? `\n\nPara calcular por hora, informe o tempo total${returning ? ' incluindo o retorno' : ' do trajeto'}.` : ''
-  const tipNote = offerTipNote(quote)
-  const head = `Análise da corrida (${fmtNum(totalKm)} km ${knownRoute ? 'no total' : 'informados'})${tipNote ? `\n\n${tipNote}` : ''}`
+  const notes = [offerTipNote(quote), ...(quote.charges || []).map(chargeNote)].filter(Boolean).join(' ')
+  const head = `Análise da corrida (${fmtNum(totalKm)} km ${knownRoute ? 'no total' : 'informados'})${notes ? `\n\n${notes}` : ''}`
   const gross = `• ${fmtBRL(value / totalKm)}/km bruto`
   const incomplete = knownRoute ? '' : '\n\nSe a distância até o passageiro estiver fora desses km, diga quanto falta para recalcular.'
   if (!(cost.total > 0)) {
     const grossPerHour = minutes ? `\n• ${fmtBRL(value * 60 / minutes)}/hora bruta nos ${fmtNum(minutes)} min informados` : ''
     return { reply: `${head}\n\n${gross}${grossPerHour}${routeNote}${durationNote}\n\nCadastre o custo por km do veículo para estimar o lucro.${incomplete}`, done: quote }
   }
-  const result = analyzeRide(state, value, 0, totalKm, minutes ?? 0)
+  const result = analyzeRide(state, valueAfterCharges, 0, totalKm, minutes ?? 0)
   const rows = [
     gross,
     `• ${fmtBRL(result.netPerKm)}/km líquido estimado`,
@@ -417,8 +495,10 @@ const PARTE_DA_ROTA = /\b(?:retorno|volta|voltando|embarque|passageiro|buscar|vi
 export function reviseRideOffer(state: AppState, last: Quote, input: string): RideOfferAnswer | undefined {
   if (!isDriver(state.settings) || looksPast(input)) return undefined
   const text = normalizeRideOfferText(input).replace(/[.!?]+$/, '').trim()
+  const changed = readOfferCharges(text).charges
+  const revisesCharge = changed.length > 0 && (REVISAO.test(text) || /^e\s+/.test(text))
   const addMeasures = (/\d/.test(text) && onlyRideMeasures(text))
-  if ((!addMeasures && (!REVISAO.test(text) || !PARTE_DA_ROTA.test(text))) || !/\d/.test(text)) return undefined
+  if ((!revisesCharge && !addMeasures && (!REVISAO.test(text) || !PARTE_DA_ROTA.test(text))) || !/\d/.test(text)) return undefined
   if (/\b(?:paguei|gastei|recebi|ganhei|rodei|fiz|abasteci)\b/.test(text)) return undefined
   let distance = readDistance(text)
   // "O retorno ERA 7 km": o verbo no meio esconde o trecho do leitor de
@@ -433,10 +513,12 @@ export function reviseRideOffer(state: AppState, last: Quote, input: string): Ri
   if (addMeasures && duration?.unmarked !== undefined && returnDistance(last.distance) > 0
     && minutesIncludingReturn(last.duration, last.distance) === undefined) duration = { total: duration.unmarked }
   const precoNovo = /\b(?:paga|pagasse|pagando|valor|reais|r\$)\b/.test(text) ? readOfferPrice(text) : undefined
-  if (!distance && !duration && !(precoNovo?.value > 0)) return undefined
+  if (!revisesCharge && !distance && !duration && !(precoNovo?.value > 0)) return undefined
+  const charges = revisesCharge ? [...(last.charges || []).filter(c => !changed.some(n => n.kind === c.kind)), ...changed] : last.charges
   return renderOffer(state, {
     ...last,
     ...(precoNovo?.value > 0 ? precoNovo : {}),
+    charges,
     distance: combineMeasures(last.distance, distance),
     duration: combineMeasures(last.duration, duration),
   })

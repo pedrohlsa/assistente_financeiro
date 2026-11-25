@@ -4,7 +4,7 @@ import type { AppState } from '../../src/models/types'
 import { orchestrate } from '../../src/assistant/orchestrator'
 import { segment } from '../../src/assistant/clauses'
 import { findDate } from '../../src/assistant/dates'
-import { balanceOutlook, balanceOutlookText, budgetUsage, cashObligationsUntil, dailyGoal as dailyGoalCalc, categoryBreakdown, currentBalance, kmCost, monthlyProjections, occurrencesBetween, pendingRecurrings, periodStats, possibleRecurringTransactions, recurringLinkAction, transactionOccurrence, upcomingBills } from '../../src/services/calc'
+import { analyzeRide, balanceOutlook, balanceOutlookText, budgetUsage, cashObligationsUntil, dailyGoal as dailyGoalCalc, categoryBreakdown, currentBalance, kmCost, monthlyProjections, occurrencesBetween, pendingRecurrings, periodStats, possibleRecurringTransactions, recurringLinkAction, transactionOccurrence, upcomingBills } from '../../src/services/calc'
 import { buildInstallments, cardInvoice, cardOutstanding, cardsOverview, commitmentTimeline, futureInstallmentPaymentDate, futureInvoicePaymentDate, invoiceOpenAmount, planProgress, splitInstallmentAmounts } from '../../src/services/cards'
 import { applyBatchPure } from '../../src/assistant/execute'
 import { buildCapabilities } from '../../src/assistant/capabilities'
@@ -102,6 +102,57 @@ function faturasAPagarEsperadas(rico: AppState, hoje: string): { descricao: stri
 
 export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
+
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    const snapshot = JSON.stringify(state)
+    const ask = (message: string, previous?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({ state, message, today, remoteEnabled: false,
+      pending: previous?.response.actions, draft: previous?.draft || undefined, focus: previous?.focus,
+      pendingClarification: previous?.response.mode === 'clarify' ? previous.response.clarification : undefined })
+    const cases = [
+      ['corrida 45 menos 5 de pedágio por 15km no total vale a pena?', 45, 5, 15, 'pedágio'],
+      ['pago 5 de estacionamento e recebo 45 nessa corrida de 15 km, vale?', 45, 5, 15, 'estacionamento'],
+      ['50 bruto com taxa de 10 e 8 km total vale a pena?', 50, 10, 8, 'taxa'],
+      ['corrida de 45 por 15 km no total, pedágio de 5 por minha conta, compensa?', 45, 5, 15, 'pedágio'],
+      ['proposta de 45 por 15km no total já descontado o pedágio de 5, compensa?', 45, 0, 15, 'pedágio'],
+      ['corrida de 45 por 15 km e pedágio de 5 pago pelo passageiro, compensa?', 45, 0, 15, 'pedágio'],
+      ['corrida de 40 menos 5 da taxa da 99, 10 km, compensa?', 40, 5, 10, 'taxa'],
+      ['corrida de 38 por 10 km total, quanto fica líquido descontando estacionamento de 4?', 38, 4, 10, 'estacionamento'],
+      ['vale 70 menos 10 de taxa por 25km no total?', 70, 10, 25, 'taxa'],
+      ['corrida de 46 e o passageiro me reembolsa 7 do pedágio, compensa por 12km?', 46, 0, 12, 'pedágio'],
+      ['corrida de 45 por 15km no total não vou pagar 5 de pedágio, compensa?', 45, 0, 15, 'pedágio'],
+      ['corrida de 45 por 15km no total, pedágio de 5 por minha conta, vai?', 45, 5, 15, 'pedágio'],
+    ] as const
+    for (const [i, [message, offer, charge, km, label]] of cases.entries()) {
+      const { response } = await ask(message)
+      const profit = fmtBRL(analyzeRide(state, offer - charge, 0, km, 0).profit)
+      out.push(result('ZX-custo-da-oferta-' + i, { message, response }, { profit, label }, response.mode === 'answer' && !response.actions.length
+        && !response.unresolved.length && response.reply.includes(`Lucro estimado de ${profit}`) && response.reply.toLowerCase().includes(label)))
+    }
+    const ambiguous = await ask('a corrida de 45 tem pedágio de 5, compensa por km com 15 km?')
+    const clarified = await ask('já descontou', ambiguous)
+    const conditional = await ask('corrida de 45 por 15km no total, só pago 5 de pedágio se for pela rodovia, compensa?')
+    const paidByDriver = await ask('é por minha conta', conditional)
+    const fullQuote = await ask('corrida de 45 por 15 km no total e 30min totais. compensa?')
+    const revised = await ask('e pedágio de 5 que vou pagar', fullQuote)
+    const comparison = await ask('qual corrida dá mais lucro total, a de 40 por 12km pagando 10 de pedágio ou a de 35 por 12 km no total?')
+    const profit = analyzeRide(state, 40, 0, 15, 30)
+    out.push(result('ZX-custo-da-oferta-esclarecimento', [ambiguous.response, clarified.response], 'esclarece quem paga e mantém a tarifa já líquida',
+      ambiguous.response.mode === 'clarify' && /pedágio.+fora|pedágio.+descontad/i.test(ambiguous.response.reply)
+      && clarified.response.mode === 'answer' && clarified.response.reply.includes(`Lucro estimado de ${fmtBRL(analyzeRide(state, 45, 0, 15, 0).profit)}`)
+      && !ambiguous.response.actions.length && !clarified.response.actions.length))
+    out.push(result('ZX-custo-da-oferta-condicional', [conditional.response, paidByDriver.response], 'confirma se o pedágio de 5 se aplica antes de descontá-lo',
+      conditional.response.mode === 'clarify' && !conditional.response.actions.length
+      && paidByDriver.response.mode === 'answer' && !paidByDriver.response.actions.length
+      && paidByDriver.response.reply.includes(`Lucro estimado de ${fmtBRL(profit.profit)}`)))
+    out.push(result('ZX-custo-da-oferta-recalculo-e-comparacao', [revised.response, comparison.response], 'desconta custo no foco da oferta e em cada alternativa',
+      revised.response.mode === 'answer' && revised.response.reply.includes(`Lucro estimado de ${fmtBRL(profit.profit)}`)
+      && revised.response.reply.includes(`${fmtBRL(profit.profitPerHour)}/hora líquida`)
+      && comparison.response.reply.includes('A segunda tem maior lucro estimado')
+      && comparison.response.reply.includes(`Lucro estimado de ${fmtBRL(analyzeRide(state, 30, 0, 12, 0).profit)}`)
+      && !revised.response.actions.length && !comparison.response.actions.length && JSON.stringify(state) === snapshot))
+  }
 
   {
     const today = '2026-11-25'

@@ -417,12 +417,19 @@ export type FinancialEvent = 'pix' | 'ride' | 'refund'
 
 export type RideOfferMeasures = Partial<Record<'pickup' | 'trip' | 'outbound' | 'outboundWithPickup' | 'return' | 'extraReturn' | 'total' | 'unmarked', number>>
 
+export interface RideOfferCharge {
+  kind: 'pedagio' | 'estacionamento' | 'taxa'
+  amount: number
+  treatment: 'deduct' | 'included' | 'covered' | 'waived' | 'unknown'
+}
+
 export interface PendingRideOffer {
   value?: number
   tip?: { amount: number; conditional: boolean }
+  charges?: RideOfferCharge[]
   distance?: RideOfferMeasures
   duration?: RideOfferMeasures
-  missing: 'value' | 'distance' | 'pickup' | 'trip'
+  missing: 'value' | 'distance' | 'pickup' | 'trip' | 'charge'
 }
 
 export interface AssistantClarification {

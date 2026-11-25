@@ -7422,3 +7422,41 @@ Cada lote passou por `npm test`, os dois typechecks, a rubrica com 0 PERIGOSA e 
 Cada lote passou por `npm test`, os dois typechecks, a rubrica com 0 PERIGOSA e 0 RUIM e a matriz de oito datas. O último passou com 1.935 regressões adversariais na data padrão. O projeto segue **NOT READY**.
 
 Próxima bateria: consultas com data de corte e mais de uma janela.
+
+### Consultas com data de corte e dias separados (`ZV`)
+
+- “quanto fiz no mês até ontem?” e “quanto entrou este mês tirando hoje?” excluem hoje do total.
+- “quanto gastei do início do mês até ontem?” respeita o início do mês e a data de corte.
+- “receita da Uber esse mês até ontem” soma apenas a Uber na janela solicitada.
+- “quanto fiz no mês passado até o dia 20?” restringe o mês anterior aos seus primeiros 20 dias.
+- “quanto gastei esse mês até dia 15?” encerra a consulta no dia 15.
+- “quantas corridas fiz essa semana até ontem?” mantém a janela semanal e exclui hoje.
+- “quanto fiz desde o dia 1 até ontem?” usa os dois limites ditos.
+- “qual foi o lucro dos dias 20 e 22?” e “quanto ganhei nos dias 20 e 22 de novembro?” mostram os dois dias e o total sem incluir o dia 21.
+
+### Pagamentos parciais fora do perfil motorista (`ZW`)
+
+- “cliente João me deu 200 de sinal e os outros 300 só no mês que vem” prepara R$ 200 já recebidos do Cliente João e informa os R$ 300 pendentes.
+- “recebi 200 do Cliente João e os outros 300 só amanhã” mantém o recebimento de R$ 200 e deixa os R$ 300 futuros fora da proposta.
+- “recebi 300 de entrada da Cliente Lia e o restante em dezembro” mantém R$ 300 recebidos e informa que o restante segue pendente, sem inventar valor.
+- “o cliente João pagou 150 agora, falta 250” separa os R$ 150 recebidos dos R$ 250 pendentes.
+- “recebi 250 de locação hoje, ainda faltam 150” propõe R$ 250 de aluguel hoje e informa os R$ 150 pendentes.
+- “a Casa 2 me pagou 900, falta ela completar mais 300” mantém a Casa 2 como origem dos R$ 900 propostos e informa os R$ 300 pendentes.
+- “paguei 200 de manutenção, só faltam 300 de outra conta” prepara somente o gasto de R$ 200.
+- “paguei 100 pro pintor e ainda falta 80” prepara o gasto de R$ 100 e informa os R$ 80 pendentes.
+
+### Custos nas ofertas de corrida (`ZX`)
+
+- “corrida 45 menos 5 de pedágio por 15km no total vale a pena?” e “corrida de 45 por 15 km no total, pedágio de 5 por minha conta, compensa?” mantêm a tarifa de R$ 45 e descontam R$ 5 do lucro estimado.
+- “pago 5 de estacionamento e recebo 45 nessa corrida de 15 km, vale?” separa a tarifa do gasto mesmo com o gasto primeiro. “Corrida de 38 por 10 km total, quanto fica líquido descontando estacionamento de 4?” também deduz o estacionamento.
+- “50 bruto com taxa de 10 e 8 km total vale a pena?”, “corrida de 40 menos 5 da taxa da 99, 10 km, compensa?” e “vale 70 menos 10 de taxa por 25km no total?” deduzem as taxas informadas. A plataforma 99 não vira dinheiro.
+- “proposta de 45 por 15km no total já descontado o pedágio de 5, compensa?” evita descontar a mesma taxa duas vezes. “Corrida de 45 por 15 km e pedágio de 5 pago pelo passageiro, compensa?” e “corrida de 46 e o passageiro me reembolsa 7 do pedágio, compensa por 12km?” explicam quem cobre o pedágio.
+- “a corrida de 45 tem pedágio de 5, compensa por km com 15 km?” pede quem cobre o pedágio. “Já descontou” mantém a tarifa de R$ 45.
+- “corrida de 45 por 15km no total não vou pagar 5 de pedágio, compensa?” deixa o pedágio fora dos custos. Com “só pago 5 de pedágio se for pela rodovia”, pergunta e espera “é por minha conta” para deduzir R$ 5.
+- “corrida de 45 por 15km no total, pedágio de 5 por minha conta, vai?” calcula a oferta sem propor receita ou jornada.
+- “qual corrida dá mais lucro total, a de 40 por 12km pagando 10 de pedágio ou a de 35 por 12 km no total?” preserva as duas tarifas e aponta a segunda pelo lucro.
+- “e pedágio de 5 que vou pagar”, depois de uma oferta com 15 km e 30 min, recalcula o lucro total e por hora sem pedir novamente distância ou tempo.
+
+Cada lote passou por `npm test`, os dois typechecks, a rubrica com 0 PERIGOSA e 0 RUIM e a matriz de oito datas. O último passou com 1.967 regressões adversariais na data padrão. O projeto segue **NOT READY**.
+
+Próxima bateria com consultas que pedem mais de uma métrica, data ou plataforma na mesma frase.
