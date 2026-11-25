@@ -19,8 +19,10 @@ const UMA_DE_COM_DISTANCIA = /^(?:e\s+)?(?:(?:e\s+)?(?:essa|esta|uma|a)\s+)de\s+
 const NUMBER = String.raw`(\d+(?:[.,]\d+)*)(?!\d|[.,]\d)`
 const AMOUNT_WITH_CURRENCY = new RegExp(String.raw`(?<!-)r\$\s*${NUMBER}|(?<![\w.,-])${NUMBER}\s*(?:reais?|contos?|pila)\b`, 'g')
 const AMOUNT_AFTER_NOUN = new RegExp(String.raw`\b(?:corridas?|viagem|chamada|proposta|oferta)\s+(?:(?:da|do|na|no|pela|pelo|via)\s+(?:uber|99|indrive[r]?)\s+)?(?:(?:e\s+de|de|por|no\s+valor\s+de|que\s+(?:paga|rende|da|oferece))\s+)?${NUMBER}(?!\s*(?:kms?|quilometros?|m|metros?|h|horas?|min|minutos?|segundos?)\b)`)
+const OFFER_PRICE_HEADING = /^\s*(?:a\s+)?(?:oferta|proposta)\s+(?:e\s+de|de)\s+(?:r\$\s*)?\d/
 const TIP_MONEY = String.raw`(?:r\$\s*)?\d+(?:[.,]\d+)*(?!\d|[.,]\d)(?:\s+reais?)?`
-const ADDITIONAL_TIP = new RegExp(String.raw`\s+(?:(?:(?:e\s+)?mais|\+)\s+(?:(?<maybeAfter>talvez|possivelmente)\s+)?|(?:e\s+)?(?<maybeBefore>talvez|possivelmente)\s+)(?:gorjeta\s+de\s+(?<after>${TIP_MONEY})|(?<before>${TIP_MONEY})\s+de\s+gorjeta)\b`)
+const CONDITIONAL_TIP = String.raw`(?:talvez|possivelmente|se\s+(?:tiver|vier|der))`
+const ADDITIONAL_TIP = new RegExp(String.raw`(?:(?:\s*\+\s*|\s+(?:e\s+)?mais\s+)(?:(?<maybeAfter>${CONDITIONAL_TIP})\s+)?|\s+(?:e\s+)?(?<maybeBefore>${CONDITIONAL_TIP})\s+)(?:gorjeta\s+de\s+(?<after>${TIP_MONEY})|(?<before>${TIP_MONEY})\s+de\s+gorjeta)\b`)
 const AMOUNT_BEFORE_NOUN = new RegExp(String.raw`(?<![\w.,-])${NUMBER}\s+(?:de|da)\s+(?:corridas?|viagem|chamada)\b`)
 const AMOUNT_PROSPECTIVE = new RegExp(String.raw`\b(?:tiraria|ganharia|receberia|renderia|pagaria|pagasse|paga|pagando)\s+${NUMBER}(?!\s*(?:kms?|quilometros?|m|metros?|h|horas?|min|minutos?)\b)`)
 const AMOUNT_BEFORE_DISTANCE = new RegExp(String.raw`(?<![\w.,-])${NUMBER}\s+(?:por|em|pra|para|com|e)\s+\d+(?:[.,]\d+)*\s*(?:kms?|quilometros?|metros?)\b`, 'g')
@@ -268,7 +270,7 @@ export function interpretRideOffer(state: AppState, input: string, context = inp
     && alternatives.every(part => readOfferPrice(part, true).value !== undefined && !!part.match(DISTANCE))
   const price = readOfferPrice(text)
   const quotedRoute = price.value !== undefined && !!text.match(DISTANCE)
-    && (price.tip || /\b(?:ida|volta|voltando|voltar|retorno|embarque|passageiro|destino|aproximacao)\b/.test(text))
+    && (price.tip || OFFER_PRICE_HEADING.test(text) || /\b(?:ida|volta|voltando|voltar|retorno|embarque|passageiro|destino|aproximacao)\b/.test(text))
   if ((!RIDE_EVALUATION_REQUEST.test(text) && !compare && !comparesTwo && !enumerated)
     || (!notice && !NOME.test(text) && !comparesTwo && !enumerated && !UMA_DE_COM_DISTANCIA.test(text) && !quotedRoute)) return undefined
   if (perceivesDrivingFatigue(context)) return { reply: PARE_PARA_DESCANSAR }

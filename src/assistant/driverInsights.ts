@@ -396,7 +396,7 @@ export function rideAppFollowUp(question: string, said: string): string | undefi
 
 export function compareRideApps(state: AppState, input: string, today: string): string | undefined {
   if (!isDriver(state.settings) || !/\b(?:uber|99|noventa|in\s*drive[r]?|i\s*food|rappi|apps?|aplicativos?|plataformas?)\b/i.test(input)) return undefined
-  const t = normalizeName(normalizeNumberWords(input).text).trim()
+  const t = normalizeName(normalizeNumberWords(input).text).trim().replace(/^(e\s+)?(?:qto|qnto|qt)\s+/, '$1quanto ')
   if (/\b(?:gastei|paguei|quanto\s+custa|sem\s+contar|somando|juntas?|exceto|acima|abaixo|comparad[oa]\s+(?:com|a))\b/.test(t)
     || /[,;]\s*(?:eu\s+)?(?:recebi|ganhei|trabalhei|rodei|abasteci)\b/.test(t)) return undefined
   const names = [...new Set([...t.matchAll(NAMED_RIDE_APPS)].flatMap(m => {

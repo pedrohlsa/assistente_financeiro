@@ -3382,7 +3382,9 @@ Confirmar?`,
   // "Pode confirmar", "sim", "isso": o registro só acontece no BOTÃO (regra 8).
   // Antes a frase caía na ajuda genérica, e parecia que o app tinha perdido a
   // proposta. Ela continua na tela.
-  if (input.pending?.length && /^\s*(?:pode\s+)?(?:confirm[ao]r?|confirma\s+(?:a[íi]|isso|tudo)|sim|isso(?:\s+mesmo)?|ok|beleza|blz|certo|correto|t[áa]\s+certo|pode\s+(?:salvar|registrar|lan[çc]ar|mandar)|salva|registra|lan[çc]a)\s*[.!]*\s*$/i.test(command)) {
+  const shortDriverAck = caps.isDriver && /^\s*(?:s{1,2}(?:\s+manda)?|pode|sim,?\s+valeu)\s*[.!]*\s*$/i.test(command)
+  const typedConfirmation = /^\s*(?:pode\s+)?(?:confirm[ao]r?|confirma\s+(?:a[íi]|isso|tudo)|sim|isso(?:\s+mesmo)?|ok|beleza|blz|certo|correto|t[áa]\s+certo|pode\s+(?:salvar|registrar|lan[çc]ar|mandar)|salva|registra|lan[çc]a)\s*[.!]*\s*$/i.test(command)
+  if (input.pending?.length && (shortDriverAck || typedConfirmation)) {
     return {
       draft: null, keepPending: true, focus: input.focus,
       response: {
@@ -3390,6 +3392,11 @@ Confirmar?`,
         reply: 'É só tocar em Confirmar na proposta acima — eu só registro pelo botão, para nada entrar sem você ver.',
       },
     }
+  }
+  if (input.pending?.length && caps.isDriver && /^(?:n|nao)(?:\s+cancela(?:r)?(?:\s+a\s+proposta)?)?[.!]*$/.test(normalizeName(command))) {
+    return { draft: null, keepPending: true, focus: input.focus,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
+        reply: 'A proposta continua na tela. Para corrigir, diga qual item muda. Para remover tudo, diga “cancela a proposta”.' } }
   }
   if (input.pending?.length) {
     const plan: CorrectionPlan | null = parseCorrection(command, input.pending, caps, today)
@@ -4603,7 +4610,8 @@ ${reply}`
   }
   const noLongerInView = mode === 'answer' && !focoFinal && input.focus?.last === 'period-view'
     ? { ...input.focus, last: undefined, lastPeriodView: undefined } : undefined
-  const output = { draft: null, response, focus: focoFinal || noLongerInView, keepPending: mode === 'answer' && !!localNotes }
+  const output = { draft: null, response, focus: focoFinal || noLongerInView,
+    keepPending: mode === 'answer' && (!!localNotes || (caps.isDriver && !!input.pending?.length)) }
   if (local_answers.answered.length && local_answers.text && !localNotes) {
     return withPendingAnswer(input, output, today, state => answerQuestions(state, questions, [], today, mensagem).text)
   }

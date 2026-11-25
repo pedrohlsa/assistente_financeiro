@@ -12,7 +12,7 @@ import { brDate, dateInAnswer, findDate } from './dates'
 import { explicitSpokenPayer, extractOrigins, looksLikeQuestion, revisedAction } from './clauses'
 import { normalizeName } from '../utils/text'
 import { guessCategory } from '../data/categories'
-import { spokenClock } from './semantic/clock'
+import { COMPOUND_DURATION, elapsedMinutes, spokenClock } from './semantic/clock'
 
 const NUMBER = String.raw`(\d+(?:[.,]\d+)*)(?!\d|[.,]\d)`
 const MONEY_START = new RegExp(String.raw`^(?:r\$\s*)?${NUMBER}(?:\s+reais?\b)?`, 'i')
@@ -409,6 +409,21 @@ const DRIVER_AMOUNT = new RegExp(String.raw`^[ao]\s+d[ao]\s+${DRIVER_APP}(?<when
 const DRIVER_AMOUNT_FIRST = new RegExp(String.raw`^(?:foi|foram|era|eram)\s+${DRIVER_CORRECTION_MONEY('amount')},?\s+(?:d[ao]|n[ao]|pel[ao])\s+${DRIVER_APP}(?<when>.*?)${DRIVER_PREVIOUS_AMOUNT}$`)
 const DRIVER_SOURCE = new RegExp(String.raw`^(?:foi|era|veio)\s+(?:d[ao]|n[ao]|pel[ao])\s+${DRIVER_APP}$`)
 const WORK_MEASURE = /^\s*(?:n[ãa]o[\s,]+)?(?:(?:na\s+(?:real|verdade)|ops|ou\s+melhor)[\s,]+)?(?:foram|foi|era|eram|s[ãa]o)?\s*(\d+(?:[.,]\d+)?)\s*(kms?|quil[oô]metros?|h|hrs?|horas?|corridas?|viagens?)\s*(?:e\s+n[ãa]o\s+\d+(?:[.,]\d+)?\s*\S*)?\s*$/
+const WORK_DURATION = new RegExp(String.raw`^(?:(?:na\s+(?:real|verdade)|ops|ou\s+melhor)[\s,]+)?(?:foram|foi|era|eram|sao)\s+(${COMPOUND_DURATION})$`)
+
+function readPendingWorkMeasure(text: string): { field: 'hours' | 'km' | 'trips'; value: number } | undefined {
+  const namedHours = text.match(/^(?:(?:s|ss|sim)\s*,\s*)?(?:as\s+)?horas\s+(?:foram|era|eram|sao)\s+(\d+(?:[.,]\d+)?)$/)
+  if (namedHours) return { field: 'hours', value: parseMoney(namedHours[1]) }
+  const duration = text.match(WORK_DURATION)
+  if (duration) {
+    const minutes = elapsedMinutes(duration[1])
+    if (minutes !== undefined) return { field: 'hours', value: minutes / 60 }
+  }
+  const measure = text.match(WORK_MEASURE)
+  if (!measure) return undefined
+  const field = /^(?:km|quil)/.test(measure[2]) ? 'km' : /^(?:corrida|viage)/.test(measure[2]) ? 'trips' : 'hours'
+  return { field, value: parseMoney(measure[1]) }
+}
 
 function correctDriverProposal(message: string, pending: AssistantCandidateAction[], caps: AssistantCapabilities, today: string,
   plan: CorrectionPlan): CorrectionPlan | null {
@@ -455,7 +470,8 @@ function correctDriverProposal(message: string, pending: AssistantCandidateActio
   if (selector && withoutDate && (!date || !/^(?:d[eo]|no dia|no|na)?$/.test(withoutDate))) return null
   const implicitHours = targets.length === 1 && pending.length === 1 && targets[0].action.kind === 'edit-work-hours'
     && /^(?:(?:na\s+(?:real|verdade)|ops|ou\s+melhor)[\s,]+|(?:foi|foram|era)\s+)\d+(?:[.,]\d+)?$/.test(withoutDate)
-  const medida = selector ? null : (implicitHours ? withoutDate + ' horas' : withoutDate).match(WORK_MEASURE)
+  const extraKm = /^e\s+\d+(?:[.,]\d+)?\s*(?:kms?|quilometros?)$/.test(withoutDate)
+  const medida = selector ? undefined : readPendingWorkMeasure(implicitHours ? withoutDate + ' horas' : extraKm ? withoutDate.slice(2).trimStart() : withoutDate)
   if (!selector && !medida) return null
 
   let app: string | undefined
@@ -474,7 +490,7 @@ function correctDriverProposal(message: string, pending: AssistantCandidateActio
     return plan
   }
 
-  const field = !medida ? 'amount' : /^(?:km|quil)/.test(medida[2]) ? 'km' : /^(?:corrida|viage)/.test(medida[2]) ? 'trips' : 'hours'
+  const field = medida?.field || 'amount'
   if (!selector && field !== 'hours') {
     targets = targets.filter(p => p.action.kind === 'work')
     if (!targets.length) {
@@ -482,7 +498,11 @@ function correctDriverProposal(message: string, pending: AssistantCandidateActio
       return plan
     }
   }
-  const value = parseMoney(medida?.[1] || changeApp?.groups.amount)
+  const value = medida?.value ?? parseMoney(changeApp?.groups.amount)
+  if (extraKm && targets.some(({ action }) => action.kind === 'work' && action.km !== undefined)) {
+    plan.ambiguous = { question: `Os ${value} km substituem a distância da proposta ou são de outra jornada? Diga o dia e o total correto.` }
+    return plan
+  }
   const revise = (item: AssistantCandidateAction): ParsedAction => ({ ...item.action, [field]: value })
   if (!remove && targets.some(item => !validateAction(revise(item), caps, today).ok)) {
     plan.ambiguous = { question: medida ? 'Confira a medida da jornada e diga o valor correto.' : 'Qual é o valor correto dessa receita?' }

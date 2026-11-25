@@ -133,10 +133,12 @@ export interface RepairedText {
   changed: boolean
 }
 
+const SPOKEN_PAYOUT_VERBS: Record<string, string> = { caio: 'caiu', 'liberô': 'liberou', pingou: 'caiu', 'pingô': 'caiu' }
+
 export function normalizeDriverShorthand(message: string): string {
   // A expansão da negação precisa vir antes dos leitores de repasse.
-  let text = message.replace(/(?<![\p{L}\p{M}\d])(?:n|ñ|nao|não)\s+(caiu|caio|ca[ií]ram|entrou|entraram|liberou|liberô|repassou|pagou|recebi)(?![\p{L}\p{M}\d])/giu,
-    (_, verb: string) => `não ${({ caio: 'caiu', 'liberô': 'liberou' })[verb.toLowerCase()] || verb}`)
+  let text = message.replace(/(?<![\p{L}\p{M}\d])(?:n(?:\/|\u0303)?|ñ|nao|não|num|nem)\s+(caiu|caio|ca[ií]ram|entrou|entraram|pingou|pingô|liberou|liberô|repassou|pagou|recebi)(?![\p{L}\p{M}\d])/giu,
+    (_, verb: string) => `não ${SPOKEN_PAYOUT_VERBS[verb.toLowerCase()] || verb}`)
   text = text.replace(/\b(n[ao]|d[ao]|pel[ao]|[ao])\s+noventa[- ]?e[- ]?nove\b/gi, '$1 99')
   if (/\b(?:ganhei|faturei|caiu|recebi|corridas?|quanto|quantos?|quantas?)\b/i.test(text)) {
     text = text.replace(/\b(n[ao]|d[ao]|pel[ao])\s+ubber\b/gi, '$1 Uber')
