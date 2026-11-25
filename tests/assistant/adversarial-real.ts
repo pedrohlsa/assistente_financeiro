@@ -104,6 +104,30 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const today = '2026-11-25'
+    const cases = [
+      ['cliente João me deu 200 de sinal e os outros 300 só no mês que vem', 'income', 200, 300, 'cliente joao'],
+      ['recebi 200 do Cliente João e os outros 300 só amanhã', 'income', 200, 300, 'cliente joao'],
+      ['recebi 300 de entrada da Cliente Lia e o restante em dezembro', 'income', 300, undefined, 'cliente lia'],
+      ['o cliente João pagou 150 agora, falta 250', 'income', 150, 250, 'cliente joao'],
+      ['recebi 250 de locação hoje, ainda faltam 150', 'income', 250, 150, undefined],
+      ['a Casa 2 me pagou 900, falta ela completar mais 300', 'income', 900, 300, 'casa 2'],
+      ['paguei 200 de manutenção, só faltam 300 de outra conta', 'expense', 200, 300, undefined],
+      ['paguei 100 pro pintor e ainda falta 80', 'expense', 100, 80, undefined],
+    ] as const
+    for (const [i, [message, kind, amount, outstanding, origin]] of cases.entries()) {
+      const state = i % 2 ? autonomoRico(today) : buildState({ profile: 'autonomo' })
+      const snapshot = JSON.stringify(state)
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const [item, other] = response.actions.map(a => a.action)
+      out.push(result('ZW-sinal-e-restante-ainda-nao-realizado-' + i, { message, response }, 'apenas o valor realizado e uma nota sobre o restante',
+        response.mode === 'propose_actions' && !other && !response.unresolved.length && item?.kind === kind && item.amount === amount
+        && (!origin || normalizeName(item.origin) === origin) && /pendent/i.test(response.reply)
+        && (!outstanding || response.reply.includes(fmtBRL(outstanding))) && JSON.stringify(state) === snapshot))
+    }
+  }
+
+  {
     const today = '2026-11-25', end = '2026-11-24'
     const state = motoristaRico(today)
     const stats = (a: string, b: string) => periodStats(state, a, b, today)

@@ -1216,6 +1216,28 @@ function exactMoneyAnswer(message: string, signed = false): number | undefined {
   return (match[1] ? -1 : 1) * parseMoney(match[2])
 }
 
+async function preparePaymentWithRemainder(input: OrchestratorInput, caps: AssistantCapabilities, today: string): Promise<OrchestratorOutput | undefined> {
+  if (!/\b(?:falt(?:a|am|ando)|restante|resto|outr[oa]s)\b/i.test(input.message) || looksLikeQuestion(input.message)) return undefined
+  for (const join of input.message.matchAll(/[,;]\s*(?:e\s+)?|\s+(?:e|mas)\s+/gi)) {
+    const paidText = input.message.slice(0, join.index).trim()
+    if (looksNegated(paidText) || (!looksPast(paidText) && !/\b(?:me\s+deu|pagou)\b/i.test(paidText))) continue
+    const rest = normalizeName(normalizeNumberWords(input.message.slice(join.index + join[0].length)).text).trim().replace(/[.!]+$/, '')
+    const stillDue = rest.match(/^(?:so\s+)?(?:ainda\s+)?(?:faltam?|ficou\s+faltando)\s+(?:(?:(?:ele|ela)\s+)?(?:completar|pagar|receber)\s+(?:mais\s+)?)?((?:r\$\s*)?\d[\d.,]*(?:\s+(?:reais?|contos?))?)(?:\s+(?:de|para|pra)\s+([\p{L} ]{1,60}))?$/u)
+    const dueLater = rest.match(/^(?:os\s+outros\s+((?:r\$\s*)?\d[\d.,]*(?:\s+(?:reais?|contos?))?)|o\s+(?:restante|resto))\s+(?:so\s+)?(.+)$/)
+    if (stillDue?.[2] && looksPast(stillDue[2])) continue
+    if (!stillDue && (!dueLater || !/^(?:amanha|depois\s+de\s+amanha|no\s+mes\s+que\s+vem|na\s+semana\s+que\s+vem|em\s+(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro))$/.test(dueLater[2]))) continue
+    const outstanding = exactMoneyAnswer(stillDue?.[1] || dueLater?.[1] || '')
+    const paid = await orchestrate({ ...input, message: paidText, pending: undefined, remoteEnabled: false })
+    if (paid.response.mode !== 'propose_actions' || paid.response.actions.length !== 1 || paid.response.unresolved.length) continue
+    const action = paid.response.actions[0].action
+    if (action.kind !== 'income' && action.kind !== 'expense') continue
+    const result = input.pending?.length ? proposeDatedActions(input, [action], caps, today) : paid
+    const remaining = outstanding === undefined ? 'O restante segue pendente.' : `O valor de ${fmtBRL(outstanding)} segue pendente.`
+    return { ...result, response: { ...result.response, reply: `${remaining}\n\n${result.response.reply}` } }
+  }
+  return undefined
+}
+
 function answerFinancialEvent(input: OrchestratorInput, question: AssistantClarification, caps: AssistantCapabilities, today: string): OrchestratorOutput | null {
   const event = question.financialEvent
   const said = normalizeName(normalizeNumberWords(input.message).text).replace(/[.!]+$/, '').trim()
@@ -2641,6 +2663,10 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   const semTotalDito = input.pendingClarification ? input.message : partesDoDia(totalComDoisPontos(input.message))
   if (semTotalDito !== input.message) input = { ...input, message: semTotalDito }
   const caps = buildCapabilities(input.state)
+  if (!caps.isDriver && !input.draft && !input.pendingClarification) {
+    const partialPayment = await preparePaymentWithRemainder(input, caps, today)
+    if (partialPayment) return partialPayment
+  }
   if (!input.draft) {
     const rents = prepareRepeatedRent(input, caps, today)
     if (rents) return rents

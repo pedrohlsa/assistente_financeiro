@@ -784,7 +784,7 @@ export function extractOrigins(originalClause: string): { value: string; at: num
     if (m.index !== undefined) add(m[1], m.index, m.index + m[0].length)
   }
   // A fonte como SUJEITO de quem pagou: "a Casa 1 pagou 1800".
-  for (const m of originalClause.matchAll(new RegExp(String.raw`^\s*(?:[aA]|[oO])\s+((?:[cC]asa|[kK]itnet|[aA]partamento|[aA]pto|[lL]oja|[sS]ala)\s+[\wçãõáéíóúâê\d]+|[cC]liente\s+[A-ZÀ-Ý][\wçãõáéíóúâê]+)(?=\s+(?:j[áa]\s+)?pag(?:ou|aram)\b)`, 'g'))) {
+  for (const m of originalClause.matchAll(new RegExp(String.raw`^\s*(?:[aA]|[oO])\s+((?:[cC]asa|[kK]itnet|[aA]partamento|[aA]pto|[lL]oja|[sS]ala)\s+[\wçãõáéíóúâê\d]+|[cC]liente\s+[A-ZÀ-Ý][\wçãõáéíóúâê]+)(?=\s+(?:j[áa]\s+)?(?:me\s+)?pag(?:ou|aram)\b)`, 'g'))) {
     if (m.index !== undefined) add(m[1], m.index, m.index + m[0].length)
   }
   for (const m of originalClause.matchAll(
