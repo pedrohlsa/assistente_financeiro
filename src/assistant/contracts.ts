@@ -419,6 +419,7 @@ export type RideOfferMeasures = Partial<Record<'pickup' | 'trip' | 'outbound' | 
 
 export interface PendingRideOffer {
   value?: number
+  tip?: { amount: number; conditional: boolean }
   distance?: RideOfferMeasures
   duration?: RideOfferMeasures
   missing: 'value' | 'distance' | 'pickup' | 'trip'

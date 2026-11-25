@@ -32,7 +32,7 @@ import { parseDriverDay, readShiftWithAppHours, reportedWorkMinutes } from './se
 import { formatValue } from './query/answer'
 import type { FactUnit } from './query/types'
 import { parseTypedPairs } from './semantic/pairs'
-import { clampMessage, describeRepairs, repairStructuralTypos, stripFillers } from './semantic/normalize'
+import { clampMessage, describeRepairs, normalizeDriverShorthand, repairStructuralTypos, stripFillers } from './semantic/normalize'
 import { elapsedMinutes, spokenClock } from './semantic/clock'
 import { continueRideOffer, interpretRideOffer, reviseRideOffer } from './rideOffer'
 import { reconcileSpokenTotals } from './spokenTotals'
@@ -926,7 +926,7 @@ function withPendingAnswer(
 
 function pendingWorkAnswer(message: string, pending: OrchestratorInput['pending']): string | undefined {
   const text = normalizeName(message).replace(/[?!.]+$/, '').trim()
-  const match = text.match(/^(?:e\s+)?(?:quantos?|quantas?)\s+(km|quilometros?|h|horas?|viagens?|corridas?)\s+(?:(?:d[ao]|n[ao]|pel[ao])\s+(uber|99|noventa\s+e\s+nove|in\s*driver?)\s+)?(?:(?:deu|da|tem|ficou|ficaram|constam|estao|colocou|entram)\s+)?(?:na|da|nessa|nesta|a|essa|esta)\s+proposta$/)
+  const match = text.match(/^(?:e\s+)?(?:quantos?|quantas?)\s+(kms?|quilometros?|h|horas?|viagens?|corridas?)\s+(?:(?:d[ao]|n[ao]|pel[ao])\s+(uber|99|noventa\s+e\s+nove|in\s*driver?)\s+)?(?:(?:deu|da|tem|ficou|ficaram|constam|estao|colocou|entram)\s+)?(?:na|da|nessa|nesta|a|essa|esta)\s+proposta$/)
   if (!match) return undefined
   if (!pending?.length) return 'Você não tem uma proposta aguardando confirmação.'
   const [, measure, platform] = match
@@ -1900,7 +1900,7 @@ async function prepareReceiptWithHeldCash(input: OrchestratorInput, caps: Assist
     let note = readHeldCashNote(tail, platform, today)
     if (!note && !question) {
       for (const extra of tail.matchAll(separators)) {
-        const activity = tail.slice(extra.index + extra[0].length)
+        const activity = tail.slice(extra.index + extra[0].length).replace(/^depois(?:\s+disso)?\s*,?\s+(?=(?:(?:hoje|hj|ontem|anteontem|eu)\s+)*(?:abasteci|gastei|paguei|rodei|trabalhei|recebi)\b)/i, '')
         if (!/^(?:(?:hoje|hj|ontem|anteontem|eu)\s+)*(?:abasteci|gastei|paguei|rodei|trabalhei|recebi)\b/i.test(activity)) continue
         note = readHeldCashNote(tail.slice(0, extra.index), platform, today)
         if (!note) continue
@@ -2465,6 +2465,10 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   }
   const preferredMessage = applyPreferenceAliases(input.state, input.message)
   if (preferredMessage !== input.message) input = { ...input, message: preferredMessage }
+  if (isDriver(input.state.settings)) {
+    const shorthand = normalizeDriverShorthand(input.message)
+    if (shorthand !== input.message) input = { ...input, message: shorthand }
+  }
   // "Rodei 30 mil km ESSE ANO?", "gastei 500 esse mês?": conferência de um
   // total, não lançamento de um dia (regra 33a). Virava 30.000 km de trabalho
   // hoje, com "Esse mês" de descrição. Vira a consulta do período.

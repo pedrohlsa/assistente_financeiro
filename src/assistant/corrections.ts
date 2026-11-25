@@ -408,7 +408,7 @@ const DRIVER_PREVIOUS_AMOUNT = String.raw`(?:(?:,\s*|\s+e\s+)nao\s+(?:foi\s+)?${
 const DRIVER_AMOUNT = new RegExp(String.raw`^[ao]\s+d[ao]\s+${DRIVER_APP}(?<when>.*?)\s+(?:foi|era|deu)\s+${DRIVER_CORRECTION_MONEY('amount')}${DRIVER_PREVIOUS_AMOUNT}$`)
 const DRIVER_AMOUNT_FIRST = new RegExp(String.raw`^(?:foi|foram|era|eram)\s+${DRIVER_CORRECTION_MONEY('amount')},?\s+(?:d[ao]|n[ao]|pel[ao])\s+${DRIVER_APP}(?<when>.*?)${DRIVER_PREVIOUS_AMOUNT}$`)
 const DRIVER_SOURCE = new RegExp(String.raw`^(?:foi|era|veio)\s+(?:d[ao]|n[ao]|pel[ao])\s+${DRIVER_APP}$`)
-const WORK_MEASURE = /^\s*(?:n[ãa]o[\s,]+)?(?:(?:na\s+(?:real|verdade)|ops|ou\s+melhor)[\s,]+)?(?:foram|foi|era|eram|s[ãa]o)?\s*(\d+(?:[.,]\d+)?)\s*(km|quil[oô]metros?|h|hrs?|horas?|corridas?|viagens?)\s*(?:e\s+n[ãa]o\s+\d+(?:[.,]\d+)?\s*\S*)?\s*$/
+const WORK_MEASURE = /^\s*(?:n[ãa]o[\s,]+)?(?:(?:na\s+(?:real|verdade)|ops|ou\s+melhor)[\s,]+)?(?:foram|foi|era|eram|s[ãa]o)?\s*(\d+(?:[.,]\d+)?)\s*(kms?|quil[oô]metros?|h|hrs?|horas?|corridas?|viagens?)\s*(?:e\s+n[ãa]o\s+\d+(?:[.,]\d+)?\s*\S*)?\s*$/
 
 function correctDriverProposal(message: string, pending: AssistantCandidateAction[], caps: AssistantCapabilities, today: string,
   plan: CorrectionPlan): CorrectionPlan | null {

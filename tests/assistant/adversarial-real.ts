@@ -11856,6 +11856,23 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const compareShort = await chat()('comparar por hora 45 por 10 km no total e 30 min só com passageiro ou 60 por 18 km no total e 40 min no total')
       const extraReturn = await chat()('tocou uma de 35 por 12 km, e tem 6 km de volta vazia à parte, vale?')
       const extraReturnSpoken = await chat()('corrida de quarenta reais por 12 km, mais 6 km de volta e 20 min só da viagem, vale?')
+      const tippedQuote = chat()
+      const tippedRide = await tippedQuote('a proposta é de 45 mais gorjeta de 5, 2 km até o passageiro, 8 km de viagem, 5 km de volta, 45 min total. Compensa?')
+      const tippedNewReturn = await tippedQuote('na verdade o retorno era 7 km')
+      const optionalTip = await chat()('a oferta é de quarenta e cinco reais e talvez cinco reais de gorjeta, 15 km no total, 45 min no total. Compensa?')
+      const plusTip = await chat()('corrida de 45 + 5 de gorjeta, 15km no total, 45min ao todo. Compensa?')
+      const misspelledOffer = await chat()('corrida de 45 mais talvez R$ 5 de gorgeta por 15 km, compença?')
+      const compareTips = await chat()('compare proposta de 45 mais 5 de gorjeta por 15 km no total ou corrida de 47 reais por 15 km no total, qual paga mais por km?')
+      out.push(result(`MOTOR-oferta-com-tarifa-e-gorjeta-${fixture}`, [tippedRide, tippedNewReturn, optionalTip, plusTip, misspelledOffer, compareTips],
+        'distingue a gorjeta informada da possível e conserva o preço ao ajustar a distância',
+        [tippedRide, tippedNewReturn, optionalTip, compareTips].every(r => r.mode === 'answer' && !r.actions.length)
+        && /45,00.*5,00 de gorjeta.*50,00/.test(tippedRide.reply) && /3,33\/km bruto/.test(tippedRide.reply) && /45 min/.test(tippedRide.reply)
+        && /17 km no total/.test(tippedNewReturn.reply) && /50,00/.test(tippedNewReturn.reply) && /2,94\/km bruto/.test(tippedNewReturn.reply)
+        && /gorjeta possível/.test(optionalTip.reply) && /3,00\/km bruto/.test(optionalTip.reply) && !/total de R\$\s*50,00/.test(optionalTip.reply)
+        && [plusTip, misspelledOffer].every(r => r.mode === 'answer' && !r.actions.length)
+        && /50,00/.test(plusTip.reply) && /3,33\/km bruto/.test(plusTip.reply)
+        && /gorjeta possível/.test(misspelledOffer.reply) && /3,00\/km bruto/.test(misspelledOffer.reply)
+        && /^A primeira paga mais por km/.test(compareTips.reply) && /Primeira.*50,00/.test(compareTips.reply)))
       out.push(result(`MOTOR-oferta-com-unidades-compartilhadas-no-ditado-${fixture}`, [fullSpokenRoute, changedSpokenRoute, partialSpokenRoute, pickupTime, returnTime, spokenFareWithComma, compareShort, extraReturn, extraReturnSpoken],
         'propaga a unidade só na lista do mesmo trecho e preserva o tempo parcial ou completo como informado',
         [fullSpokenRoute, changedSpokenRoute, partialSpokenRoute].every(r => r.mode === 'answer' && !r.actions.length)
@@ -11941,6 +11958,14 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const amountLeft = await walletWithdrawal('hoje saíram 200 da carteira da 99')
       const walletCredit = await walletWithdrawal('caiu 200 hoje')
       const telegraphicDue = await chat()('300 pendentes no inDrive e trabalhei oito horas ontem')
+      const anotherDeposit = await chat()('caiu 350 da Uber hoje, mas a 99 ainda não repassou 180, e depois recebi 100 da 99 hoje')
+      const abbreviatedDeposit = await chat()('entrou 350 da Uber hj; a 99 ainda não me pagou 180; depois disso eu recebi cem reais da 99 ontem')
+      out.push(result(`MOTOR-repasse-em-aberto-entre-dois-recebimentos-${fixture}`, [anotherDeposit, abbreviatedDeposit],
+        'mantém os dois depósitos informados com suas datas e explica qual valor ainda está pendente',
+        [anotherDeposit, abbreviatedDeposit].every((r, index) => r.mode === 'propose_actions' && r.actions.length === 2
+          && /99 ainda deve.*180,00/.test(r.reply)
+          && r.actions.some(a => a.kind === 'income' && a.amount === 350 && a.description === 'Uber' && a.date === hoje)
+          && r.actions.some(a => a.kind === 'income' && a.amount === 100 && a.description === '99' && a.date === (index ? ontem : hoje)))))
       const shiftWithLatePayment = chat()
       const whichPayout = await shiftWithLatePayment('fiz 420 na Uber e 190 na 99 ontem; a 99 atrasou 150 do repasse')
       const shiftAfterAnswer = await shiftWithLatePayment('incluído na 99')
@@ -11961,6 +11986,50 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && shiftAfterAnswer.actions.some(a => a.kind === 'income' && a.amount === 40 && a.description === '99' && a.date === ontem)
         && confirmedOutside.mode === 'propose_actions' && confirmedOutside.actions.length === 2
         && confirmedOutside.actions.some(a => a.kind === 'income' && a.amount === 300 && a.description === '99' && a.date === ontem)))
+
+      const shorthandMovements = await Promise.all([
+        ['fexei 8 hrs no volante, 320 de corrida e 90 de gasosa hj', hoje, undefined],
+        ['fechei 8 hrs no volanti com 320 de corrida e 90 de combstivel ontem', ontem, undefined],
+        ['fechei 8 hrs no volante c/ 320 de corrida e 90 de gasosa hj', hoje, undefined],
+        ['ont ganhei 320 na ubber e paguei 90 d gasosa e trabalhei 8 hrs', ontem, 'Uber'],
+      ].map(async ([message, date, app]) => ({ turn: await chat()(message), date, app })))
+      const abbreviatedUnpaid = await Promise.all([
+        ['hj gstei 79,50 de gasosa e a noventa e nove não liberô 250 do repasse', '99', 250, 'fuel', 79.5, hoje],
+        ['ontem abast 80 de gasosa e 250 da 99 ainda n caiu', '99', 250, 'fuel', 80, ontem],
+        ['ontem botei 80 de gasolina e 250 da 99 ainda ñ caiu', '99', 250, 'fuel', 80, ontem],
+        ['ontem botei 80 de gasolina e 250 da 99 nao caio', '99', 250, 'fuel', 80, ontem],
+        ['hj entrou 210,50 da Uber e 140 da noventaenove n caiu', '99', 140, 'income', 210.5, hoje],
+        ['caiu 320 na Uber hj e 150 no in drive ainda n caiu', 'inDrive', 150, 'income', 320, hoje],
+      ].map(async ([message, debtor, amount, kind, paid, date]) => ({ turn: await chat()(String(message)), debtor, amount, kind, paid, date })))
+      out.push(result(`MOTOR-ditado-e-abreviacao-no-fechamento-e-repasse-${fixture}`, [shorthandMovements, abbreviatedUnpaid],
+        'conserva os três valores do fechamento e evita receita quando a negação veio abreviada',
+        shorthandMovements.every(({ turn, date, app }) => turn.mode === 'propose_actions' && turn.actions.length === 3
+          && turn.actions.some(a => a.kind === 'income' && a.amount === 320 && a.description === app && a.date === date)
+          && turn.actions.some(a => a.kind === 'fuel' && a.amount === 90 && a.date === date)
+          && turn.actions.some(a => a.kind === 'work' && a.hours === 8 && a.date === date))
+        && abbreviatedUnpaid.every(({ turn, debtor, amount, kind, paid, date }) => turn.mode === 'propose_actions' && turn.actions.length === 1
+          && turn.reply.includes(`${debtor} ainda deve ${fmtBRL(Number(amount))}`)
+          && turn.actions.some(a => (a.kind === 'fuel' || a.kind === 'income') && a.kind === kind && a.amount === paid && a.date === date))))
+
+      const terseCorrection = chat()
+      await terseCorrection('ontem ganhei 350 na Uber e 150 na 99, abasteci 80 e trabalhei 7h')
+      const editedAbbreviation = await terseCorrection('foi 180 pela noventaenove')
+      const pluralKm = await terseCorrection('foram 180 kms')
+      const readKm = await terseCorrection('qnts km tem na proposta')
+      const terseRate = await terseCorrection('qual app rende + por h hj?')
+      const terseConfirm = await terseCorrection('sim')
+      const terseHistory = await chat()('qnto deu d corrida ont?')
+      out.push(result(`MOTOR-corrige-e-consulta-com-atalhos-do-teclado-${fixture}`,
+        [editedAbbreviation, pluralKm, readKm, terseRate, terseConfirm, terseHistory],
+        'conserva a proposta ao interpretar abreviações e respeita a falta de horas por app',
+        editedAbbreviation.mode === 'propose_actions' && editedAbbreviation.actions.length === 4
+        && editedAbbreviation.actions.some(a => a.kind === 'income' && a.amount === 180 && a.description === '99' && a.date === ontem)
+        && pluralKm.mode === 'propose_actions' && pluralKm.actions.length === 4
+        && pluralKm.actions.some(a => a.kind === 'work' && a.km === 180 && a.hours === 7 && a.date === ontem)
+        && readKm.mode === 'answer' && /180 km/.test(readKm.reply) && readKm.keepPending && !readKm.actions.length
+        && terseRate.mode === 'answer' && /horas.*dia|horas.*plataforma/.test(terseRate.reply) && !/R\$\s*\d/.test(terseRate.reply)
+        && terseConfirm.mode === 'answer' && /botão/.test(terseConfirm.reply) && !terseConfirm.actions.length
+        && terseHistory.reply === canonicalHistory.reply))
 
       const compositeCorrection = chat()
       const compositeStart = await compositeCorrection('ganhei 350 na Uber, 150 na 99, abasteci 80 de gasolina e trabalhei 7 horas ontem')

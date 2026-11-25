@@ -264,7 +264,7 @@ export function readPayoutDatePart(text: string): number | undefined {
 
 const DEBT_PERIOD = String.raw`(?:${PAYOUT_SCHEDULE}|(?:(?:da|na)\s+)?semana\s+passada|(?:d[eo]|n[eo])\s+mes\s+passado|(?:d?ess[ea]|d?est[ea])\s+(?:semana|mes))`
 const DEBT_CONTEXT = String.raw`(?:\s+(?:d[aeo]s?|pel[ao]s?)\s+corridas?)?(?:\s+(?:(?:de|desde)\s+)?${DEBT_PERIOD})?(?:\s+ainda)?`
-const DEBT_TAIL = String.raw`(?:(?:\s+e\s+|\s*[.;,]\s*(?:(?:mas|e)\s+)?)(?<tail>(?:${PAYOUT_DAY}\s+)?(?:eu\s+)?(?:abasteci|paguei|gastei|rodei|trabalhei|recebi)\b[^?]*))?[.!]*$`
+const DEBT_TAIL = String.raw`(?:(?:\s+e\s+|\s*[.;,]\s*(?:(?:mas|e)\s+)?)(?<tail>(?:${PAYOUT_DAY}\s+)?(?:eu\s+)?(?:abasteci|paguei|gastei|botei|coloquei|rodei|trabalhei|recebi)\b[^?]*))?[.!]*$`
 const RIDE_DEBT = new RegExp(
   String.raw`^(?:${PAYOUT_DAY}\s+)?(?:[ao]\s+)?(?<platform>${PAYOUT_APP})\s+(?:ainda\s+)?(?:(?:me\s+)?deve|(?:ta|esta|ficou)\s+(?:me\s+)?devendo|nao\s+(?:me\s+)?(?:pagou|repassou|depositou))\s+(?:(?:o|os|meus|mais)\s+)?${MONEY('amount')}${DEBT_CONTEXT}${DEBT_TAIL}`,
 )
@@ -330,7 +330,7 @@ export function readRideDebt(message: string): { platform: string; amount: numbe
 
 // Só inverte quando o relato anterior tem um verbo de despesa ou jornada.
 export function readRideDebtAfterActivity(message: string) {
-  if (message.includes('?') || !/^(?:(?:eu|hoje|hj|ontem|anteontem|j[áa])\s+)*(?:abasteci|paguei|gastei|trabalhei|rodei)\b/i.test(message.trim())) return undefined
+  if (message.includes('?') || !/^(?:(?:eu|hoje|hj|ontem|anteontem|j[áa])\s+)*(?:abasteci|paguei|gastei|botei|coloquei|trabalhei|rodei)\b/i.test(message.trim())) return undefined
   const separators = /(?:[,.]\s+|;\s*)(?:(?:e|mas)\s+)?|\s+(?:e|mas)\s+/gi
   for (const separator of message.matchAll(separators)) {
     const at = separator.index

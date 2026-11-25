@@ -18,7 +18,9 @@ const NOME = /\b(?:corridas?|viagem|chamada)\b/
 const UMA_DE_COM_DISTANCIA = /^(?:e\s+)?(?:(?:e\s+)?(?:essa|esta|uma|a)\s+)de\s+(?:r\$\s*)?\d+(?:[.,]\d+)?\s*(?:reais?|contos?|pila)?(?:\s+(?:pra|para|por|em|com|de)\s+|,\s*)\d+(?:[.,]\d+)?\s*(?:kms?|quilometros?)\b/
 const NUMBER = String.raw`(\d+(?:[.,]\d+)*)(?!\d|[.,]\d)`
 const AMOUNT_WITH_CURRENCY = new RegExp(String.raw`(?<!-)r\$\s*${NUMBER}|(?<![\w.,-])${NUMBER}\s*(?:reais?|contos?|pila)\b`, 'g')
-const AMOUNT_AFTER_NOUN = new RegExp(String.raw`\b(?:corridas?|viagem|chamada)\s+(?:(?:da|do|na|no|pela|pelo|via)\s+(?:uber|99|indrive[r]?)\s+)?(?:(?:de|por|no\s+valor\s+de|que\s+(?:paga|rende|da|oferece))\s+)?${NUMBER}(?!\s*(?:kms?|quilometros?|m|metros?|h|horas?|min|minutos?|segundos?)\b)`)
+const AMOUNT_AFTER_NOUN = new RegExp(String.raw`\b(?:corridas?|viagem|chamada|proposta|oferta)\s+(?:(?:da|do|na|no|pela|pelo|via)\s+(?:uber|99|indrive[r]?)\s+)?(?:(?:e\s+de|de|por|no\s+valor\s+de|que\s+(?:paga|rende|da|oferece))\s+)?${NUMBER}(?!\s*(?:kms?|quilometros?|m|metros?|h|horas?|min|minutos?|segundos?)\b)`)
+const TIP_MONEY = String.raw`(?:r\$\s*)?\d+(?:[.,]\d+)*(?!\d|[.,]\d)(?:\s+reais?)?`
+const ADDITIONAL_TIP = new RegExp(String.raw`\s+(?:(?:(?:e\s+)?mais|\+)\s+(?:(?<maybeAfter>talvez|possivelmente)\s+)?|(?:e\s+)?(?<maybeBefore>talvez|possivelmente)\s+)(?:gorjeta\s+de\s+(?<after>${TIP_MONEY})|(?<before>${TIP_MONEY})\s+de\s+gorjeta)\b`)
 const AMOUNT_BEFORE_NOUN = new RegExp(String.raw`(?<![\w.,-])${NUMBER}\s+(?:de|da)\s+(?:corridas?|viagem|chamada)\b`)
 const AMOUNT_PROSPECTIVE = new RegExp(String.raw`\b(?:tiraria|ganharia|receberia|renderia|pagaria|pagasse|paga|pagando)\s+${NUMBER}(?!\s*(?:kms?|quilometros?|m|metros?|h|horas?|min|minutos?)\b)`)
 const AMOUNT_BEFORE_DISTANCE = new RegExp(String.raw`(?<![\w.,-])${NUMBER}\s+(?:por|em|pra|para|com|e)\s+\d+(?:[.,]\d+)*\s*(?:kms?|quilometros?|metros?)\b`, 'g')
@@ -68,7 +70,9 @@ function expandSharedRouteUnits(text: string): string {
 function normalizeRideOfferText(input: string): string {
   // O ditado pode separar o preço e a distância com vírgula. Dígitos grudados
   // na vírgula continuam sendo decimais, e “vírgula” por extenso também.
-  const chunks = normalizeName(input).split(/,\s+/).map(part => normalizeNumberWords(part).text)
+  const text = normalizeName(input).replace(/\bcompenca\b/g, 'compensa').replace(/\bvali\s+a\s+pena\b/g, 'vale a pena')
+    .replace(/\bcoriida\b/g, 'corrida').replace(/\bgorgeta\b/g, 'gorjeta')
+  const chunks = text.split(/,\s+/).map(part => normalizeNumberWords(part).text)
   return expandSharedRouteUnits(chunks.join(', '))
 }
 
@@ -141,6 +145,28 @@ function amountForOffer(text: string, elliptical = false): number | undefined {
   return prices.length === 1 ? parseMoney(prices[0][1]) : undefined
 }
 
+type OfferPrice = Pick<Quote, 'value' | 'tip'>
+
+function readOfferPrice(text: string, elliptical = false): OfferPrice {
+  const extra = text.match(ADDITIONAL_TIP)
+  if (!extra) return { value: amountForOffer(text, elliptical), tip: undefined }
+  const { before, after, maybeBefore, maybeAfter } = extra.groups
+  const amount = parseMoney((before || after).match(NUMBER)?.[1])
+  const fareText = text.slice(0, extra.index) + text.slice(extra.index + extra[0].length)
+  return { value: amountForOffer(fareText, elliptical), tip: { amount, conditional: !!(maybeBefore || maybeAfter) } }
+}
+
+function totalOfferValue({ value, tip }: OfferPrice): number | undefined {
+  return tip && !tip.conditional && value !== undefined ? (Math.round(value * 100) + Math.round(tip.amount * 100)) / 100 : value
+}
+
+function offerTipNote(price: OfferPrice): string {
+  if (!price.tip || price.value === undefined) return ''
+  const { amount, conditional } = price.tip
+  return conditional ? `A estimativa usa a tarifa de ${fmtBRL(price.value)}. A gorjeta possível é de ${fmtBRL(amount)}.`
+    : `Tarifa de ${fmtBRL(price.value)} mais ${fmtBRL(amount)} de gorjeta, total de ${fmtBRL(totalOfferValue(price))}.`
+}
+
 function readDistance(text: string): Measures | undefined {
   return measured(text, DISTANCE, m => parseMoney(m[1]) * (m[2].startsWith('m') ? 0.001 : 1))
 }
@@ -164,7 +190,8 @@ function compareOffers(state: AppState, parts: string[], question: string): stri
   if (parts.length !== 2) return DUAS_OFERTAS
   const quotes = parts.map(text => {
     const distance = readDistance(text)
-    return { value: amountForOffer(text, true), ...offerDistance(distance),
+    const price = readOfferPrice(text, true)
+    return { value: totalOfferValue(price), tipNote: offerTipNote(price), ...offerDistance(distance),
       minutes: minutesIncludingReturn(readDuration(text), distance) }
   })
   if (quotes.some(q => !(q.value > 0) || !(q.km > 0))) return DUAS_OFERTAS
@@ -208,6 +235,7 @@ function compareOffers(state: AppState, parts: string[], question: string): stri
       + (asksNetKm && fullCost ? ` ${fmtBRL(r.netPerKm)}/km líquido.` : '')
       + (fullCost ? ` Lucro estimado de ${fmtBRL(r.profit)}${quote.minutes && profitByTime ? ` ou ${fmtBRL(r.profit * minutesPerUnit / quote.minutes)}/${timeSuffix}` : ''}.` : '')
       + (quote.minutes && !profitByTime ? ` ${fmtBRL(quote.value * minutesPerUnit / quote.minutes)}/${timeSuffix} bruto.` : '')
+      + (quote.tipNote ? ` ${quote.tipNote}` : '')
   })
   const basis = preciseRoute ? undefined : 'A comparação usa os km informados. Se a ida até o passageiro estiver fora desses km, inclua essa distância.'
   return [lead, details.join('\n'), basis].filter(Boolean).join('\n\n')
@@ -237,15 +265,16 @@ export function interpretRideOffer(state: AppState, input: string, context = inp
   const alternatives = splitOffers(text)
   const enumerated = ENUMERATED_OFFERS.test(text) && COMPARA_DOIS.test(text)
   const comparesTwo = alternatives.length === 2 && (compare || COMPARA_DOIS.test(text))
-    && alternatives.every(part => amountForOffer(part, true) !== undefined && !!part.match(DISTANCE))
-  const quotedRoute = amountForOffer(text) !== undefined && !!text.match(DISTANCE)
-    && /\b(?:ida|volta|voltando|voltar|retorno|embarque|passageiro|destino|aproximacao)\b/.test(text)
+    && alternatives.every(part => readOfferPrice(part, true).value !== undefined && !!part.match(DISTANCE))
+  const price = readOfferPrice(text)
+  const quotedRoute = price.value !== undefined && !!text.match(DISTANCE)
+    && (price.tip || /\b(?:ida|volta|voltando|voltar|retorno|embarque|passageiro|destino|aproximacao)\b/.test(text))
   if ((!RIDE_EVALUATION_REQUEST.test(text) && !compare && !comparesTwo && !enumerated)
     || (!notice && !NOME.test(text) && !comparesTwo && !enumerated && !UMA_DE_COM_DISTANCIA.test(text) && !quotedRoute)) return undefined
   if (perceivesDrivingFatigue(context)) return { reply: PARE_PARA_DESCANSAR }
   if (!/\d/.test(text) && !notice) return undefined
   if (compare || enumerated || alternatives.length > 1) return { reply: compareOffers(state, alternatives, text) }
-  return renderOffer(state, { value: amountForOffer(text), distance: readDistance(text), duration: readDuration(text) })
+  return renderOffer(state, { ...price, distance: readDistance(text), duration: readDuration(text) })
 }
 
 export function answerRideOffer(state: AppState, input: string, context = input): string | undefined {
@@ -301,16 +330,17 @@ export function continueRideOffer(state: AppState, pending: PendingRideOffer, in
   const remains = text.replace(DISTANCE, ' ').replace(TIME, ' ').replace(AMOUNT_WITH_CURRENCY, ' ')
     .replace(MEASURE_WORDS, ' ').replace(/[\s,;:.]+/g, '')
   if (!mentionsMeasure || remains) return undefined
-  const currentPrice = pending.missing === 'value' ? amountForOffer(text) : undefined
+  const currentPrice = pending.missing === 'value' ? readOfferPrice(text) : undefined
   return renderOffer(state, {
-    value: currentPrice ?? pending.value,
+    value: currentPrice?.value ?? pending.value,
+    tip: currentPrice?.tip ?? pending.tip,
     distance: combineMeasures(pending.distance, distance, pending.missing === 'pickup' || pending.missing === 'trip' ? pending.missing : undefined),
     duration: combineMeasures(pending.duration, duration),
   })
 }
 
 function renderOffer(state: AppState, quote: Quote): RideOfferAnswer {
-  const { value } = quote
+  const value = totalOfferValue(quote)
   if (!(value > 0)) return { reply: 'Qual é o valor que a corrida paga?', pending: { ...quote, missing: 'value' } }
   const { parts: km, km: totalKm, complete: knownRoute } = offerDistance(quote.distance)
   const cost = kmCost(state)
@@ -337,7 +367,8 @@ function renderOffer(state: AppState, quote: Quote): RideOfferAnswer {
   const routeNote = returning ? `\n\nInclui ${fmtNum(returning)} km de retorno.` : ''
   const durationNote = !minutes && (returning || (quote.duration && Object.keys(quote.duration).length))
     ? `\n\nPara calcular por hora, informe o tempo total${returning ? ' incluindo o retorno' : ' do trajeto'}.` : ''
-  const head = `Análise da corrida (${fmtNum(totalKm)} km ${knownRoute ? 'no total' : 'informados'})`
+  const tipNote = offerTipNote(quote)
+  const head = `Análise da corrida (${fmtNum(totalKm)} km ${knownRoute ? 'no total' : 'informados'})${tipNote ? `\n\n${tipNote}` : ''}`
   const gross = `• ${fmtBRL(value / totalKm)}/km bruto`
   const incomplete = knownRoute ? '' : '\n\nSe a distância até o passageiro estiver fora desses km, diga quanto falta para recalcular.'
   if (!(cost.total > 0)) {
@@ -381,11 +412,11 @@ export function reviseRideOffer(state: AppState, last: Quote, input: string): Ri
   let duration = readDuration(text)
   if (addMeasures && duration?.unmarked !== undefined && returnDistance(last.distance) > 0
     && minutesIncludingReturn(last.duration, last.distance) === undefined) duration = { total: duration.unmarked }
-  const precoNovo = /\b(?:paga|pagasse|pagando|valor|reais|r\$)\b/.test(text) ? amountForOffer(text) : undefined
-  if (!distance && !duration && !(precoNovo && precoNovo > 0)) return undefined
+  const precoNovo = /\b(?:paga|pagasse|pagando|valor|reais|r\$)\b/.test(text) ? readOfferPrice(text) : undefined
+  if (!distance && !duration && !(precoNovo?.value > 0)) return undefined
   return renderOffer(state, {
     ...last,
-    value: precoNovo && precoNovo > 0 ? precoNovo : last.value,
+    ...(precoNovo?.value > 0 ? precoNovo : {}),
     distance: combineMeasures(last.distance, distance),
     duration: combineMeasures(last.duration, duration),
   })

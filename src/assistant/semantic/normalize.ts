@@ -133,6 +133,31 @@ export interface RepairedText {
   changed: boolean
 }
 
+export function normalizeDriverShorthand(message: string): string {
+  // A expansão da negação precisa vir antes dos leitores de repasse.
+  let text = message.replace(/(?<![\p{L}\p{M}\d])(?:n|ñ|nao|não)\s+(caiu|caio|ca[ií]ram|entrou|entraram|liberou|liberô|repassou|pagou|recebi)(?![\p{L}\p{M}\d])/giu,
+    (_, verb: string) => `não ${({ caio: 'caiu', 'liberô': 'liberou' })[verb.toLowerCase()] || verb}`)
+  text = text.replace(/\b(n[ao]|d[ao]|pel[ao]|[ao])\s+noventa[- ]?e[- ]?nove\b/gi, '$1 99')
+  if (/\b(?:ganhei|faturei|caiu|recebi|corridas?|quanto|quantos?|quantas?)\b/i.test(text)) {
+    text = text.replace(/\b(n[ao]|d[ao]|pel[ao])\s+ubber\b/gi, '$1 Uber')
+  }
+  text = text.replace(/^(\s*(?:(?:hoje|hj|ontem|anteontem)\s+)?)fexei(?=[^;.!?]*\bno\s+volant[ei]\b)/i, '$1fechei')
+  if (/^\s*(?:(?:hoje|hj|ontem|anteontem)\s+)?fechei\b/i.test(text)) {
+    text = text.replace(/\bno\s+volant[ei]\s+c\/\s*/i, 'no volante com ').replace(/\bno\s+volanti\b/i, 'no volante')
+  }
+  return text
+    .replace(/(^|[,;.!]\s*|\s+(?:e|mas)\s+)((?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)\b(abast|gstei)\.?\s+(?=(?:r\$\s*)?\d)/gi,
+      (_, boundary: string, lead: string, verb: string) => `${boundary}${lead}${verb.toLowerCase() === 'abast' ? 'abasteci' : 'gastei'} `)
+    .replace(/\b(de|em|com)\s+combstivel\b/gi, '$1 combustível')
+    .replace(/\bd\s+(?=gasosa\b|gasolina\b|combust[íi]vel\b)/gi, 'de ')
+    .replace(/(^\s*|\s+(?:e|mas)\s+)ont\s+(?=(?:eu\s+)?(?:ganhei|recebi|faturei|fiz|abasteci|trabalhei|rodei|gastei|paguei)\b)/gi, '$1ontem ')
+    .replace(/\b(corridas?|gasosa|gasolina|combust[íi]vel|uber|99|in\s*drive|kms?|horas?)\s+ont(?=\s+(?:e|mas)\s+|\s*[.!?]*$|[,;])/gi, '$1 ontem')
+    .replace(/^(\s*(?:e\s+)?)(?:qto|qnto)\s+(?=(?:deu|deram)\s+d(?:e)?\s+corridas?\b)/i, '$1quanto ')
+    .replace(/^(\s*(?:e\s+)?quanto\s+(?:deu|deram))\s+d\s+(?=corridas?\b)/i, '$1 de ')
+    .replace(/(^\s*(?:e\s+)?|[?;,]\s*(?:e\s+)?|\s+e\s+)(?:qts|qnts|qntos|qntas)\s+(?=(kms?|quil[oô]metros?|horas?|viagens?|corridas?)\b)/gi,
+      (_, boundary: string, measure: string) => `${boundary}${/^(?:h|v|c)/i.test(measure) ? 'quantas' : 'quantos'} `)
+}
+
 /**
  * Damerau-Levenshtein com teto: para de contar assim que passa de `max`.
  * O teto não é otimização — é o que garante que uma palavra longa e diferente
