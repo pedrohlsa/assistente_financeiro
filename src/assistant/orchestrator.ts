@@ -978,12 +978,14 @@ async function previewPendingQuery(input: OrchestratorInput, today: string): Pro
   const reuse = !!queryPlan && new RegExp(String.raw`^(?:e\s+)?${confirm}$`).test(text)
   const explicit = reuse ? undefined : before?.[2] || after?.[1]
   if (!explicit && !reuse) return undefined
-  const question = explicit?.replace(/\bgastaria\b/g, 'gastei').replace(/\breceberia\b/g, 'recebi').replace(/\bganharia\b/g, 'ganhei')
-  if (!reuse && (!question || !/^(?:e\s+)?(?:quanto|qual)\b/.test(question) || !looksLikeDataQuestion(question))) return undefined
+  const question = explicit?.replace(/^(e\s+)?(?:qto|qnto|qt)\s+/, '$1quanto ')
+    .replace(/^((?:e\s+)?quantas)\s+hrs?\b/, '$1 horas')
+    .replace(/\bgastaria\b/g, 'gastei').replace(/\breceberia\b/g, 'recebi').replace(/\bganharia\b/g, 'ganhei')
+  if (!reuse && (!question || !/^(?:e\s+)?(?:quant[oa]s?|qual|quais)\b/.test(question) || !looksLikeDataQuestion(question))) return undefined
   const scopedQuestion = question && /\b(?:gastei|ganhei|recebi)\b/.test(question) && !parsePeriod(question, today)
     ? `${question} hoje` : question
   const read = (state: AppState) => reuse ? composeAnswer(runQuery(state, queryPlan!, today))
-    : respostaLocal(state, scopedQuestion!, today, true)?.text
+    : compareRideApps(state, scopedQuestion!, today) || respostaLocal(state, scopedQuestion!, today, true)?.text
   const real = read(input.state)
   if (!real) return undefined
   const { projected, ok } = planAssistantActions(input.state, input.pending, { date: today, time: nowPaymentTime() })
@@ -991,8 +993,7 @@ async function previewPendingQuery(input: OrchestratorInput, today: string): Pro
   const reply = preview
     ? `Se você confirmar a proposta da tela:\n${semDadoReal(preview)}\n\nA proposta segue aguardando confirmação.`
     : 'A proposta mudou ou tem um dado pendente. Revise o que está na tela para eu conseguir simular a confirmação.'
-  return { draft: null, keepPending: true, focus: input.focus,
-    response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply } }
+  return answer(reply)
 }
 
 /**

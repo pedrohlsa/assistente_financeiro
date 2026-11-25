@@ -12107,6 +12107,26 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && exactMinutesQuery.mode === 'answer' && /6h 5 min/.test(exactMinutesQuery.reply) && !exactMinutesQuery.actions.length
         && shortAppHours.mode === 'answer' && /horas.*dia|horas.*plataforma/.test(shortAppHours.reply) && !shortAppHours.actions.length))
 
+      const abbreviatedPreview = chat()
+      await abbreviatedPreview('ontem abasteci 80 de gasolina e ganhei 350 na Uber e trabalhei 8h')
+      const canonicalPreview = await abbreviatedPreview('quanto gastei de gasolina ontem, contando a proposta?')
+      const fuelPreview = await abbreviatedPreview('qto gastei de gasolina ontem, contando a proposta?')
+      const matchingFuelPreview = await abbreviatedPreview('qnto foi o gasto de gasolina ontem, contando a proposta?')
+      const workPreview = await abbreviatedPreview('quantas horas trabalhei ontem se eu confirmar?')
+      const shortWorkPreview = await abbreviatedPreview('qnts hrs trabalhei ontem se eu confirmar?')
+      const byAppPreview = await abbreviatedPreview('qto a Uber pagou por h ontem contando a proposta?')
+      const previewAck = await abbreviatedPreview('ss')
+      out.push(result(`MOTOR-simulacao-da-proposta-com-perguntas-abreviadas-${fixture}`,
+        [canonicalPreview, fuelPreview, matchingFuelPreview, workPreview, shortWorkPreview, byAppPreview, previewAck],
+        'inclui a proposta somente na simulação, reconhece as abreviações e preserva a confirmação pelo botão',
+        [canonicalPreview, fuelPreview, matchingFuelPreview, workPreview, shortWorkPreview, byAppPreview, previewAck]
+          .every(r => r.mode === 'answer' && r.keepPending && !r.actions.length)
+        && /^Se você confirmar/.test(canonicalPreview.reply)
+        && fuelPreview.reply === canonicalPreview.reply && matchingFuelPreview.reply === canonicalPreview.reply
+        && /^Se você confirmar/.test(workPreview.reply) && /Horas trabalhadas.*\dh/i.test(workPreview.reply)
+        && shortWorkPreview.reply === workPreview.reply && /horas.*dia|horas.*plataforma/.test(byAppPreview.reply)
+        && !/R\$\s*\d/.test(byAppPreview.reply) && /botão/.test(previewAck.reply)))
+
       const compositeCorrection = chat()
       const compositeStart = await compositeCorrection('ganhei 350 na Uber, 150 na 99, abasteci 80 de gasolina e trabalhei 7 horas ontem')
       const compositeEnd = await compositeCorrection('tira a da 99 e bota cento e sessenta vírgula cinco quilômetros')
