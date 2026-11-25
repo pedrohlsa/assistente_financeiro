@@ -105,6 +105,42 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
 
   {
     const today = '2026-11-25'
+    const cases = [
+      ['os 2 alugueis das casas 1 e 2 foram 1000 cada', undefined, true],
+      ['recebi R$ 1.000 de cada uma das casas 1 e 2 ontem', '2026-11-24', false],
+      ['anteontem recebi mil reais de aluguel de cada uma das casas 1 e 2', '2026-11-23', true],
+    ] as const
+    const matchesRent = (output: Awaited<ReturnType<typeof orchestrate>>, date?: string, category = false, origins = ['Casa 1', 'Casa 2']) => {
+      const { response } = output
+      const actions = response.actions.map(a => a.action)
+      return response.mode === 'propose_actions' && actions.length === origins.length && /Confirmar/.test(response.reply)
+        && origins.every(origin => actions.some(a => a.kind === 'income' && a.amount === 1000 && a.origin === origin && a.date === date
+          && (!category || a.category === 'aluguel')))
+    }
+    for (const [i, [message, date, category]] of cases.entries()) {
+      const state = i % 2 ? buildState({ profile: 'autonomo' }) : autonomoRico(today)
+      const o = await orchestrate({ state, message, today, remoteEnabled: false })
+      out.push(result('ZN-aluguel-de-cada-casa-' + i, { message, response: o.response }, 'um recebimento de mil para cada origem dita, com a data informada', matchesRent(o, date, category)))
+    }
+    const state = autonomoRico(today)
+    const snapshot = JSON.stringify(state)
+    const ask = (message: string, previous?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({ state, message, today, remoteEnabled: false,
+      focus: previous?.focus, draft: previous?.draft || undefined, pending: previous?.response.actions,
+      pendingClarification: previous?.response.mode === 'clarify' ? previous.response.clarification : undefined })
+    const ambiguous = await ask('recebi 1k de cada casa')
+    const answered = await ask('Casa 1 e Casa 2', ambiguous)
+    const countMismatch = await ask('os 3 alugueis das casas 1 e 2 foram 1000 cada')
+    const negated = await ask('não recebi R$ 1.000 de cada uma das casas 1 e 2 ontem')
+    const jointly = await ask('recebi R$ 1.000 das casas 1 e 2 no total')
+    out.push(result('ZN-pergunta-as-casas-e-nao-multiplica-total', [ambiguous, answered, countMismatch, negated, jointly].map(o => o.response),
+      'pergunta as origens antes de multiplicar e exige confirmação mesmo após esclarecimento',
+      ambiguous.response.mode === 'clarify' && /quais casas.*1\.000,00/i.test(ambiguous.response.reply) && !ambiguous.response.actions.length
+      && matchesRent(answered) && countMismatch.response.mode === 'clarify' && !countMismatch.response.actions.length
+      && !negated.response.actions.length && jointly.response.actions.length < 2 && JSON.stringify(state) === snapshot))
+  }
+
+  {
+    const today = '2026-11-25'
     const queries = [
       ['na 99 qtos km nessa semana?', /quilômetros/i],
       ['só na uber quanto eu rodei ontem?', /quilômetros/i],

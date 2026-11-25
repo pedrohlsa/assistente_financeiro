@@ -1957,6 +1957,55 @@ function keepPendingClarification(input: OrchestratorInput, clarification: Assis
     response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [], reply, clarification } }
 }
 
+function listedHomes(text: string): string[] {
+  const names = text.trim().replace(/^casas\s+/i, '').split(/,\s*(?:e\s+)?|\s+e\s+/)
+    .map(item => item.match(/^(?:a\s+)?(?:casa\s+)?(\d{1,4})$/)?.[1])
+  if (names.some(name => !name) || new Set(names).size !== names.length) return []
+  return names.map(name => `Casa ${name}`)
+}
+
+/** Um valor por imóvel precisa de uma lista explícita, mesmo com imóveis no histórico. */
+function prepareRepeatedRent(input: OrchestratorInput, caps: AssistantCapabilities, today: string): OrchestratorOutput | undefined {
+  const clarification = input.pendingClarification
+  const waiting = clarification?.field === 'rent-origins' || clarification?.field === 'rent-origins-date'
+  if (!waiting && (clarification || !/\bcada\b/i.test(input.message))) return undefined
+  if (looksLikeQuestion(input.message) || looksNegated(input.message)) return undefined
+  const text = normalizeName(normalizeNumberWords(input.message).text).replace(/[.!]+$/, '')
+  const dates = findAllDates(text, today)
+  const [when] = dates
+  const date = dates.length === 1 && when.kind === 'date' ? when.date : undefined
+  const undated = dates.reduceRight((s, d) => s.slice(0, d.start) + ' ' + s.slice(d.end), text).trim().replace(/\s+/g, ' ')
+  const receipt = !waiting && undated.match(/^(?:eu\s+)?(?:ja\s+)?recebi\s+(.+?)\s+(de\s+aluguel\s+)?de\s+cada\s+(?:uma\s+das\s+)?casas?(?:\s+(.+))?$/)
+  const rents = !waiting && undated.match(/^(?:os\s+)?(?:(\d+)\s+)?alugueis\s+das\s+(casas\s+.+?)\s+(?:foram|cairam|entraram)\s+(.+?)\s+cada$/)
+  if (!waiting && !receipt && !rents) return undefined
+  const template = waiting ? clarification.pendingActions?.[0] : undefined
+  const amount = template?.kind === 'income' ? template.amount : exactMoneyAnswer(receipt?.[1] || rents?.[3] || '')
+  if (!(amount > 0)) return undefined
+  const base: Extract<ParsedAction, { kind: 'income' }> = { kind: 'income', amount,
+    ...(rents || receipt?.[2] || (template?.kind === 'income' && template.category === 'aluguel') ? { category: 'aluguel' } : {}),
+    date: date || (template?.kind === 'income' ? template.date : undefined),
+  }
+  const origins = listedHomes(waiting ? undated : receipt?.[3] || rents?.[2] || '')
+  if (rents?.[1] && origins.length !== Number(rents[1])) {
+    const question = 'A quantidade de aluguéis não bate com a lista de casas. Diga quais casas pagaram e o valor de cada uma.'
+    return keepPendingClarification(input, { question })
+  }
+  const needsDate = (dates.length > 0 && !date) || (clarification?.field === 'rent-origins-date' && !base.date)
+  if (!origins.length) {
+    if (waiting && looksPast(input.message)) return undefined
+    const question = `Quais casas pagaram ${fmtBRL(amount)} cada? Informe os números das casas, como “Casa 1 e Casa 2”${needsDate ? ', e a data em que recebeu' : ''}.`
+    return keepPendingClarification(input, { field: needsDate ? 'rent-origins-date' : 'rent-origins', question, pendingActions: [base] })
+  }
+  if (origins.length + (input.pending?.length || 0) > MAX_ACTIONS_PER_BATCH) {
+    return keepPendingClarification(input, { question: `A proposta aceita até ${MAX_ACTIONS_PER_BATCH} itens. Informe as casas em grupos menores.` })
+  }
+  const actions = origins.map(origin => ({ ...base, origin }))
+  if (needsDate) {
+    return keepPendingClarification(input, { field: 'date', question: 'Em que dia esses aluguéis entraram? Informe uma data até hoje.', pendingActions: actions })
+  }
+  return proposeDatedActions(input, actions, caps, today)
+}
+
 async function correctPendingKeepingClarification(input: OrchestratorInput, command: string, pc: AssistantClarification, caps: AssistantCapabilities, today: string) {
   if (!input.pending?.length || !parseCorrection(command, input.pending, caps, today)) return undefined
   const corrected = await orchestrate({ ...input, pendingClarification: undefined })
@@ -2529,6 +2578,10 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (semTotalDito !== input.message) input = { ...input, message: semTotalDito }
   const caps = buildCapabilities(input.state)
   const today = input.today || todayISO()
+  if (!input.draft) {
+    const rents = prepareRepeatedRent(input, caps, today)
+    if (rents) return rents
+  }
   if (caps.isDriver && !input.pendingClarification && !input.draft) {
     const rideRevenue = input.message.replace(/^\s*(?:e\s+)?quanto\s+(?:deu|deram)\s+de\s+corridas?\b/i, 'qual foi a receita de corridas')
     if (rideRevenue !== input.message) input = { ...input, message: rideRevenue }
