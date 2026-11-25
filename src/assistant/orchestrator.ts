@@ -924,23 +924,47 @@ function withPendingAnswer(
   return { ...output, keepPending: true, response: { ...output.response, reply } }
 }
 
-function previewPendingQuery(input: OrchestratorInput, today: string): OrchestratorOutput | undefined {
+function pendingWorkAnswer(message: string, pending: OrchestratorInput['pending']): string | undefined {
+  const text = normalizeName(message).replace(/[?!.]+$/, '').trim()
+  const measure = text.match(/^(?:e\s+)?(?:quantos?|quantas?)\s+(km|quilometros?|h|horas?|viagens?|corridas?)\s+(?:(?:deu|da|tem|ficou|ficaram|constam|estao|colocou|entram)\s+)?(?:na|da|nessa|nesta|a|essa|esta)\s+proposta$/)?.[1]
+  if (!measure) return undefined
+  if (!pending?.length) return 'Você não tem uma proposta aguardando confirmação.'
+  const field = /^h/.test(measure) ? 'hours' : /^(?:km|quil)/.test(measure) ? 'km' : 'trips'
+  const values = pending.flatMap(({ action }) => action.kind === 'work' ? [action[field]]
+    : field === 'hours' && action.kind === 'edit-work-hours' ? [action.hours] : []).filter(Number.isFinite)
+  const total = values.reduce((sum, value) => sum + value, 0)
+  const detail = field === 'km' ? `${fmtNum(total)} km` : field === 'hours' ? `${fmtNum(total)}h` : `${fmtNum(total)} ${total === 1 ? 'viagem' : 'viagens'}`
+  const missing = field === 'km' ? 'Nenhuma distância foi informada' : field === 'hours' ? 'Nenhuma duração foi informada' : 'Nenhuma quantidade de viagens foi informada'
+  return values.length ? `Na proposta, você informou ${detail}.` : `${missing} na proposta.`
+}
+
+async function previewPendingQuery(input: OrchestratorInput, today: string): Promise<OrchestratorOutput | undefined> {
   if (input.pendingClarification || input.draft) return undefined
-  const text = normalizeName(input.message).replace(/[?!.]+$/, '').trim()
-  const measure = isDriver(input.state.settings) && text.match(/^(?:e\s+)?(?:quantos?|quantas?)\s+(km|quilometros?|h|horas?|viagens?|corridas?)\s+(?:(?:deu|da|tem|ficou|ficaram|constam|estao|colocou|entram)\s+)?(?:na|da|nessa|nesta|a|essa|esta)\s+proposta$/)?.[1]
-  if (measure) {
-    const field = /^h/.test(measure) ? 'hours' : /^(?:km|quil)/.test(measure) ? 'km' : 'trips'
-    const values = (input.pending || []).flatMap(({ action }) => action.kind === 'work' ? [action[field]]
-      : field === 'hours' && action.kind === 'edit-work-hours' ? [action.hours] : []).filter(Number.isFinite)
-    const total = values.reduce((sum, value) => sum + value, 0)
-    const detail = field === 'km' ? `${fmtNum(total)} km` : field === 'hours' ? `${fmtNum(total)}h` : `${fmtNum(total)} ${total === 1 ? 'viagem' : 'viagens'}`
-    const missing = field === 'km' ? 'Nenhuma distância foi informada' : field === 'hours' ? 'Nenhuma duração foi informada' : 'Nenhuma quantidade de viagens foi informada'
-    const reply = !input.pending?.length ? 'Você não tem uma proposta aguardando confirmação.'
-      : values.length ? `Na proposta, você informou ${detail}.` : `${missing} na proposta.`
-    return { draft: null, keepPending: true, focus: input.focus,
-      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply } }
+  const answer = (reply: string, focus = input.focus): OrchestratorOutput => ({ draft: null, keepPending: true, focus,
+    response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply } })
+  if (isDriver(input.state.settings) && /\bproposta\b/i.test(input.message)) {
+    const direct = pendingWorkAnswer(input.message, input.pending)
+    if (direct) return answer(direct)
+    const parts = input.message.trim().split(/(?:[?;,.]\s*(?:e\s+)?|\s+e\s+)(?=(?:quant[oa]s?|qual|quais)\b)/i)
+    if (parts.length === 2) {
+      const answers = parts.map(part => pendingWorkAnswer(part, input.pending))
+      if (answers.every(Boolean)) return answer(answers.join('\n\n'))
+      const workIndex = answers.findIndex(Boolean)
+      if (workIndex >= 0) {
+        const historyIndex = 1 - workIndex
+        const history = parts[historyIndex]
+        if (looksLikeDataQuestion(history) && !/\bproposta\b/i.test(history)) {
+          const turn = await orchestrate({ ...input, message: history, remoteEnabled: false })
+          if (turn.response.mode === 'answer' && !turn.response.actions.length) {
+            answers[historyIndex] = turn.response.reply
+            return answer(answers.join('\n\n'), turn.focus)
+          }
+        }
+      }
+    }
   }
   if (!input.pending?.length) return undefined
+  const text = normalizeName(input.message).replace(/[?!.]+$/, '').trim()
   const confirm = String.raw`se\s+(?:eu\s+)?confirmar(?:\s+(?:isso|essa\s+proposta|o\s+registro|os\s+registros))?`
   const includesProposal = String.raw`(?:${confirm}|(?:contando|incluindo|considerando)\s+(?:ess[ea]\s+(?:proposta|despesa|receita|registro)|o\s+pendente|a\s+proposta|ess[ea])(?:\s+tambem)?|com\s+a\s+proposta)`
   const before = text.match(new RegExp(String.raw`^(${confirm}),?\s+(.+)$`))
@@ -1561,7 +1585,8 @@ function prepareRideReceiptAcrossDates(input: OrchestratorInput, caps: Assistant
 }
 
 function prepareShiftWithUnpaidPayout(input: OrchestratorInput, caps: AssistantCapabilities, today: string): OrchestratorOutput | undefined {
-  const payout = readShiftWithUnpaidPayout(input.message) || readShiftWithWalletBalance(input.message, today) || readShiftWithWalletWithdrawal(input.message)
+  const payout = readShiftWithUnpaidPayout(input.message) || readShiftWithWalletBalance(input.message, today)
+    || readShiftWithWalletWithdrawal(input.message, today) || readShiftWithDelayedPayout(input.message)
   if (!payout) return undefined
   const dates = findAllDates(payout.text, today)
   const [day] = dates
@@ -1585,9 +1610,7 @@ function prepareShiftWithUnpaidPayout(input: OrchestratorInput, caps: AssistantC
   const independent = actions.filter(action => !affected.some(item => item === action))
   const result = proposeDatedActions(input, independent, caps, today)
   if ('withdrawal' in payout) {
-    const question = `Os ${fmtBRL(payout.amount)} que saíram da carteira da ${payout.platform} caíram na sua conta? Se sim, diga o valor e o dia do recebimento.`
-    return keepActionsAwaitingClarification(input, result, { field: 'ride-payout-inclusion', question,
-      pendingActions: [{ kind: 'income', amount: payout.amount, category: 'corridas', description: payout.platform }] })
+    return keepActionsAwaitingClarification(input, result, walletWithdrawalClarification(payout))
   }
   if ('allUnpaid' in payout && payout.allUnpaid) {
     const [item] = affected
@@ -1780,14 +1803,40 @@ function readShiftWithWalletBalance(message: string, today: string) {
   if (wallet && wallet.amount > 0) return { text: contrast[1], ...wallet }
 }
 
-function readShiftWithWalletWithdrawal(message: string) {
+function readWalletWithdrawal(message: string, today: string) {
   if (!/\bcarteira\b/i.test(message) || message.includes('?')) return undefined
   const text = normalizeName(message)
-  const parts = text.match(/^(.+?)(?:[,.;]\s*|\s+(?:e|mas)\s+)(?:(?:so|apenas)\s+)?(?:saiu|sairam)\s+(.+?)\s+da\s+carteira\s+d[ao]\s+(.+?)[.!]*$/)
+  const dates = findAllDates(text, today)
+  const [date] = dates
+  if (dates.length > 1 || (date && date.kind !== 'date')) return undefined
+  const undated = date ? (text.slice(0, date.start) + ' ' + text.slice(date.end)).replace(/\s+/g, ' ').trim() : text
+  const parts = undated.match(/^(?:(?:so|apenas)\s+)?(?:saiu|sairam)\s+(.+?)\s+da\s+carteira\s+d[ao]\s+(.+?)[.!]*$/)
   if (!parts) return undefined
-  const amount = exactMoneyAnswer(parts[2])
-  const platform = readRidePayoutApp(normalizeNumberWords(parts[3]).text)
-  if (amount > 0 && platform) return { text: parts[1], amount, platform, withdrawal: true }
+  const amount = exactMoneyAnswer(parts[1])
+  const platform = readRidePayoutApp(normalizeNumberWords(parts[2]).text)
+  if (amount > 0 && platform) return { amount, platform }
+}
+
+function walletWithdrawalClarification({ amount, platform }: { amount: number; platform: string }): AssistantClarification {
+  const question = `Os ${fmtBRL(amount)} que saíram da carteira da ${platform} caíram na sua conta? Se sim, diga o valor e o dia do recebimento.`
+  return { field: 'ride-payout-inclusion', question,
+    pendingActions: [{ kind: 'income', amount, category: 'corridas', description: platform }] }
+}
+
+function readShiftWithWalletWithdrawal(message: string, today: string) {
+  if (!/\bcarteira\b/i.test(message)) return undefined
+  for (const separator of message.matchAll(/[,.;]\s+|\s+(?:e|mas)\s+/gi)) {
+    const withdrawal = readWalletWithdrawal(message.slice(separator.index + separator[0].length), today)
+    if (withdrawal) return { text: message.slice(0, separator.index), ...withdrawal, withdrawal: true }
+  }
+}
+
+function readShiftWithDelayedPayout(message: string) {
+  if (!/\b(?:atrasou|liberou|segurando)\b/i.test(message) || message.includes('?')) return undefined
+  for (const separator of message.matchAll(/(?:[,.]\s+|;\s*)(?:(?:mas|e)\s+)?|\s+(?:mas|e)\s+/gi)) {
+    const debt = readRideDebt(message.slice(separator.index + separator[0].length))
+    if (debt && !debt.tail) return { text: message.slice(0, separator.index), ...debt }
+  }
 }
 
 function rideDebtNote(debt: { platform: string; amount: number }) {
@@ -1804,7 +1853,7 @@ function readHeldCashNote(raw: string, receiptPlatform: string, today: string) {
 }
 
 async function prepareReceiptWithHeldCash(input: OrchestratorInput, caps: AssistantCapabilities, today: string): Promise<OrchestratorOutput | undefined> {
-  if (!/\b(?:carteira|deve|devendo|pagou|pagar|repassou|depositou|cair|caiu|ca[ií]ram|caem|entrar|entrou|entraram|entram|pendente|amanh[ãa]|daqui|semana)(?![\p{L}\p{M}\d])/iu.test(input.message)) return undefined
+  if (!/\b(?:carteira|deve|devendo|pagou|pagar|repassou|depositou|cair|caiu|ca[ií]ram|caem|entrar|entrou|entraram|entram|pendente|amanh[ãa]|daqui|semana|atrasou|liberou|segurando)(?![\p{L}\p{M}\d])/iu.test(input.message)) return undefined
   const question = input.message.match(/(?:[,;]\s*|\s+(?:e\s+)?)(?:quanto\s+(?:caiu|entrou|recebi)(?:\s+(?:na\s+(?:minha\s+)?conta|de\s+fato|mesmo))?)\s*[?.!]*$/i)
   const statement = question ? input.message.slice(0, question.index) : input.message
   if (statement.includes('?')) return undefined
@@ -2423,6 +2472,10 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (semTotalDito !== input.message) input = { ...input, message: semTotalDito }
   const caps = buildCapabilities(input.state)
   const today = input.today || todayISO()
+  if (caps.isDriver && !input.pendingClarification && !input.draft) {
+    const rideRevenue = input.message.replace(/^\s*(?:e\s+)?quanto\s+(?:deu|deram)\s+de\s+corridas?\b/i, 'qual foi a receita de corridas')
+    if (rideRevenue !== input.message) input = { ...input, message: rideRevenue }
+  }
   // "Meu carro faz 10 km por litro e a gasolina tá 6 reais, quanto cobrar por
   // km?": o consumo e o preço ditos são os DADOS da pergunta. Cortada em
   // cláusulas, a pergunta chegava sozinha e a resposta ignorava os dois — ou a
@@ -2435,7 +2488,7 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
         response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply } }
     }
   }
-  const pendingPreview = previewPendingQuery(input, today)
+  const pendingPreview = await previewPendingQuery(input, today)
   if (pendingPreview) return pendingPreview
   if (!input.pendingClarification && !input.draft) {
     const offer = interpretRideOffer(input.state, input.message)
@@ -2463,6 +2516,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
       if (breakdown) return breakdown
       const receiptWithHeldCash = await prepareReceiptWithHeldCash(input, caps, today)
       if (receiptWithHeldCash) return receiptWithHeldCash
+      const withdrawal = readWalletWithdrawal(input.message, today)
+      if (withdrawal) return keepPendingClarification(input, walletWithdrawalClarification(withdrawal))
     }
     const shiftPayout = prepareShiftWithUnpaidPayout(input, caps, today)
     if (shiftPayout) return shiftPayout
