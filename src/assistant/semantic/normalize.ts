@@ -145,9 +145,10 @@ export function normalizeDriverShorthand(message: string): string {
   if (/\b(?:ganhei|faturei|caiu|recebi|corridas?|quanto|quantos?|quantas?)\b/i.test(text)) {
     text = text.replace(/\b(n[ao]|d[ao]|pel[ao])\s+ubber\b/gi, '$1 Uber')
   }
-  text = text.replace(/^(\s*(?:(?:hoje|hj|ontem|anteontem)\s+)?)fexei(?=[^;.!?]*\bno\s+volant[ei]\b)/i, '$1fechei')
+  // O começo do ditado pode sumir; só recupera o verbo diante da duração ao volante.
+  text = text.replace(/^(\s*(?:(?:hoje|hj|ontem|anteontem)\s+)?)(?:fexei|feichei|[cx]hei|xei)(?=\s+[^;!?]{1,42}\s+(?:no|de)\s+volant[ei]\b)/i, '$1fechei')
   if (/^\s*(?:(?:hoje|hj|ontem|anteontem)\s+)?fechei\b/i.test(text)) {
-    text = text.replace(/\bno\s+volant[ei]\s+c\/\s*/i, 'no volante com ').replace(/\bno\s+volanti\b/i, 'no volante')
+    text = text.replace(/\b(no|de)\s+volant[ei]\s+c\/\s*/i, '$1 volante com ').replace(/\b(no|de)\s+volanti\b/i, '$1 volante')
   }
   return text
     .replace(/(^|[,;.!]\s*|\s+(?:e|mas)\s+)((?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)\b(abast|gstei|pg(?=\.?\s+(?:r\$\s*)?\d[\d.,]*\s+(?:de?|em)\s+(?:gasosa|gasolina|combust[íi]vel|etanol|diesel)\b))\.?\s+(?=(?:r\$\s*)?\d)/gi,

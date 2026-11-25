@@ -104,6 +104,58 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const today = '2026-11-25'
+    const cases = [
+      ['xei 8 h de volante com 320 de corrida e 90 de gasosa hj', 320, 90, today],
+      ['xei oito horas de volante com trezentos e vinte de corrida e noventa de gasolina ontem', 320, 90, '2026-11-24'],
+      ['hj xei 8h no volante com 320,50 de corridas e 90,25 de etanol', 320.5, 90.25, today],
+      ['fechei 8 hrs no volante c/ 320 de corrida e 90 de gasoza hj', 320, 90, today],
+      ['fechei 8 h no volante e ganhei 320 de corrida e gastei 90 de gasosa ontem', 320, 90, '2026-11-24'],
+    ] as const
+    for (const [i, [message, income, fuel, date]] of cases.entries()) {
+      const state = i % 2 ? motoristaRico(today) : buildState({ profile: 'driver' })
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actions = response.actions.map(a => a.action)
+      out.push(result('ZJ-fechamento-falado-' + i, { message, response }, 'jornada, receita e combustível com os valores e a data ditos',
+        response.mode === 'propose_actions' && actions.length === 3 && actions.every(a => 'date' in a && a.date === date)
+        && actions.some(a => a.kind === 'work' && a.hours === 8 && a.trips === undefined)
+        && actions.some(a => a.kind === 'income' && a.amount === income && a.category === 'corridas')
+        && actions.some(a => a.kind === 'fuel' && a.amount === fuel && (i !== 2 || a.fuelType === 'Etanol'))))
+    }
+    const state = motoristaRico(today)
+    const snapshot = JSON.stringify(state)
+    const ask = (message: string, previous?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({ state, message, today, remoteEnabled: false,
+      focus: previous?.focus, draft: previous?.draft || undefined, pending: previous?.response.actions,
+      pendingClarification: previous?.response.mode === 'clarify' ? previous.response.clarification : undefined })
+    const ambiguous = await ask('fechei 8h no volante com 320 de corrida e 90 de gás hj')
+    const spokenGas = await ask('fechei oito horas de volante com trezentos e vinte de corridas e noventa de gas ontem')
+    const gnv = await ask('foi GNV', ambiguous)
+    const explicitKitchen = await ask('fechei 8h no volante com 320 de corrida e 90 de gás de cozinha hj')
+    const kitchen = await ask('foi botijão', ambiguous)
+    const actionsOf = ({ response }: typeof ambiguous) => response.actions.map(a => a.action)
+    const keepsShift = (o: typeof ambiguous, date: string) => actionsOf(o).some(a => a.kind === 'work' && a.hours === 8 && a.date === date)
+      && actionsOf(o).some(a => a.kind === 'income' && a.amount === 320 && a.date === date)
+    const clarification = (o: typeof ambiguous, date: string) => o.response.mode === 'clarify' && o.response.clarification?.field === 'gas-kind'
+      && o.response.actions.length === 2 && keepsShift(o, date) && /90,00.*(?:GNV|gás de cozinha)/i.test(o.response.reply)
+    out.push(result('ZJ-gas-na-jornada-pergunta-e-preserva-proposta', [ambiguous, spokenGas, gnv, kitchen, explicitKitchen].map(o => o.response),
+      'esclarece apenas o gás, mantém a jornada e a receita e exige confirmação para as três ações',
+      clarification(ambiguous, today) && clarification(spokenGas, '2026-11-24')
+      && gnv.response.mode === 'propose_actions' && gnv.response.actions.length === 3 && keepsShift(gnv, today)
+      && actionsOf(gnv).some(a => a.kind === 'fuel' && a.amount === 90 && a.date === today && a.fuelType === 'GNV')
+      && [kitchen, explicitKitchen].every(o => o.response.mode === 'propose_actions' && o.response.actions.length === 3 && keepsShift(o, today)
+        && actionsOf(o).some(a => a.kind === 'expense' && a.amount === 90 && a.date === today && a.category === 'casa'))
+      && JSON.stringify(state) === snapshot))
+    const controls = await Promise.all([
+      ask('xei 8 h de sono com 320 de corrida e 90 de gasosa hj'),
+      ask('não xei 8 h de volante com 320 de corrida e 90 de gasosa hj'),
+      orchestrate({ state: autonomoRico(today), message: cases[0][0], today, remoteEnabled: false }),
+    ])
+    out.push(result('ZJ-corte-do-ditado-nao-vira-jornada-fora-de-contexto', controls.map(o => o.response),
+      'um corte só é recuperado num relato afirmativo de jornada do motorista',
+      controls.every(o => !actionsOf(o).some(a => a.kind === 'work'))))
+  }
+
+  {
     const today = '2026-11-22'
     const state = buildState({ profile: 'other', balance: 500 })
     state.settings.balanceAsOf = `${today}T00:00`

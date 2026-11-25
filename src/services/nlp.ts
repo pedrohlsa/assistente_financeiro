@@ -1100,7 +1100,7 @@ export function parseNaturalFull(
     actions: actions.filter((_, i) => i !== idx),
     ambiguity: {
       field: 'gas-kind',
-      question: 'Você quis dizer gás de cozinha ou GNV?',
+      question: `O gasto de ${fmtBRL(amount)} foi com gás de cozinha ou GNV?`,
       options: [
         {
           label: 'Gás de cozinha',
@@ -1111,7 +1111,7 @@ export function parseNaturalFull(
           // como despesa de combustível, sem nada exclusivo de motorista.
           label: 'GNV',
           actions: [opts?.driver
-            ? { kind: 'fuel', amount }
+            ? { kind: 'fuel', amount, fuelType: 'GNV' }
             : { kind: 'expense', amount, category: 'combustivel', description: 'GNV' }],
         },
       ],

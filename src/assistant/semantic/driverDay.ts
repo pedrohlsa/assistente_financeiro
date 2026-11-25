@@ -32,15 +32,16 @@ const REPORTED_MONEY = String.raw`(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?`
 const PLATFORM_INCOME = String.raw`(?:na|no|da|do|de|pela|pelo)\s+(?:uber|99|in\s*driver?)\b`
 const RIDE_INCOME = String.raw`(?<income>${REPORTED_MONEY}\s+(?:de\s+corridas?(?:\s+${PLATFORM_INCOME})?|${PLATFORM_INCOME}))`
 const FUEL_WORD = 'combust[íi]vel|gasolina|gasosa|etanol|[áa]lcool|diesel|gnv'
-const FUEL_EXPENSE = String.raw`(?<fuel>${REPORTED_MONEY}\s+de\s+(?:${FUEL_WORD}))`
+const GAS_EXPENSE = String.raw`g[áa]s(?:\s+(?:de\s+cozinha|d[aeo]\s+(?:casa|carro)|veicular))?`
+const FUEL_EXPENSE = String.raw`(?<fuel>${REPORTED_MONEY}\s+de\s+(?:${FUEL_WORD}|gasoza|${GAS_EXPENSE}))`
 const FUEL_RESULT = new RegExp(
   String.raw`(^|(?:[,;.]\s*|\s+e\s+))deu\s+(${REPORTED_MONEY})\s+(?:de\s+)?(${FUEL_WORD})(?=\s*(?:[.!]|$))`,
   'i',
 )
-const FUEL_SPEND = String.raw`(?:\s+e\s+${FUEL_EXPENSE})?`
+const FUEL_SPEND = String.raw`(?:\s+e\s+(?:(?:gastei|paguei|abasteci)\s+)?${FUEL_EXPENSE})?`
 const REPORTED_DURATION = String.raw`(?:${COMPOUND_DURATION}|\d+(?:[.,]\d+)?\s*(?:h|hrs?|horas?))`
 const CLOSED_SHIFT = new RegExp(
-  String.raw`^fechei\s+(?<duration>${REPORTED_DURATION})\s+(?:no\s+volante|de\s+trabalho|dirigindo)(?:(?:,\s*(?:(?:com|e)\s+)?|\s+(?:com|e)\s+)${RIDE_INCOME}${FUEL_SPEND})?[.!]*$`,
+  String.raw`^fechei\s+(?<duration>${REPORTED_DURATION})\s+(?:(?:no|de)\s+volante|de\s+trabalho|dirigindo)(?:(?:,\s*(?:(?:com|e)\s+)?|\s+(?:com|e)\s+)(?:(?:ganhei|faturei|recebi)\s+)?${RIDE_INCOME}${FUEL_SPEND})?[.!]*$`,
   'i',
 )
 const CLOSED_DAY_AFTER_WORK = new RegExp(
@@ -77,7 +78,8 @@ export function expandDriverReport(message: string, today: string): string {
     const repaired = text.replace(HOURS_AFTER_PLATFORM, '$1trabalhei $2')
     return repaired === text ? withFuel : repaired
   }
-  const { duration, income, fuel } = parts
+  const { duration, income } = parts
+  const fuel = parts.fuel?.replace(/\bgasoza\b/i, 'gasolina').replace(/\b[áa]lcool\b/i, 'etanol')
   const when = date ? text.slice(date.start, date.end) : ''
   return [when, duration && 'trabalhei ' + duration, income && (duration ? 'e ganhei ' : 'ganhei ') + income,
     fuel && 'e gastei ' + fuel].filter(Boolean).join(' ')
