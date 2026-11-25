@@ -970,15 +970,30 @@ async function previewPendingQuery(input: OrchestratorInput, today: string): Pro
   }
   if (!input.pending?.length) return undefined
   const text = normalizeName(input.message).replace(/[?!.]+$/, '').trim()
+  const now = { date: today, time: nowPaymentTime() }
+  if (/^(?:(?:e\s+)?isso\s+(?:deu|da|ficou|sobra)\s+quanto\s+liquid[oa]|quanto\s+(?:sobrou|sobra)\s+so\s+(?:nessa|nesta|na)\s+proposta)$/.test(text)) {
+    if (!input.pending.every(({ action }) => ['income', 'expense', 'fuel', 'maintenance', 'work', 'odometer'].includes(action.kind))) {
+      return answer('Para calcular o resultado da proposta, diga quais receitas e despesas quer considerar.')
+    }
+    const projection = planAssistantActions(input.state, input.pending, now)
+    if (!projection.ok) return answer('Revise os dados da proposta para eu calcular o resultado.')
+    const existing = new Set(input.state.transactions.map(tx => tx.id))
+    const additions = projection.projected.transactions.filter(tx => !existing.has(tx.id) && (tx.type === 'income' || tx.type === 'expense'))
+    if (!additions.length) return answer('Essa proposta ainda não tem receitas nem despesas para calcular o resultado.')
+    const cents = additions.reduce((sum, tx) => sum + (tx.type === 'income' ? 1 : -1) * Math.round(tx.amount * 100), 0)
+    return answer(`Resultado só da proposta: ${fmtBRL(cents / 100)}. Ela segue aguardando confirmação.`)
+  }
   const confirm = String.raw`se\s+(?:eu\s+)?confirmar(?:\s+(?:isso|essa\s+proposta|o\s+registro|os\s+registros))?`
   const includesProposal = String.raw`(?:${confirm}|(?:contando|incluindo|considerando)\s+(?:ess[ea]\s+(?:proposta|despesa|receita|registro)|o\s+pendente|a\s+proposta|ess[ea])(?:\s+tambem)?|com\s+a\s+proposta)`
-  const before = text.match(new RegExp(String.raw`^(${confirm}),?\s+(.+)$`))
+  const before = text.match(new RegExp(String.raw`^${includesProposal},?\s+(.+)$`))
   const after = text.match(new RegExp(String.raw`^(.+?),?\s+${includesProposal}$`))
+  const selectedAmount = text.match(/^(.+?),?\s+(?:contando|incluindo|considerando)\s+(?:os?\s+)?(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s+reais?)?\s+da\s+proposta$/)
   const queryPlan = isFocusFresh(input.focus) && input.focus?.last === 'query' ? input.focus.lastQueryPlan : undefined
   const reuse = !!queryPlan && new RegExp(String.raw`^(?:e\s+)?${confirm}$`).test(text)
-  const explicit = reuse ? undefined : before?.[2] || after?.[1]
+  const explicit = reuse ? undefined : before?.[1] || after?.[1] || selectedAmount?.[1]
   if (!explicit && !reuse) return undefined
   const question = explicit?.replace(/^(e\s+)?(?:qto|qnto|qt)\s+/, '$1quanto ')
+    .replace(/^como\s+(?:fica|ficaria)\s+o\s+(lucro|resultado|saldo)\b/, 'qual o $1')
     .replace(/^((?:e\s+)?quantas)\s+h(?:rs?)?\b/, '$1 horas')
     .replace(/\bgastaria\b/g, 'gastei').replace(/\breceberia\b/g, 'recebi').replace(/\bganharia\b/g, 'ganhei')
   if (!reuse && (!question || !/^(?:e\s+)?(?:quant[oa]s?|qual|quais)\b/.test(question) || !looksLikeDataQuestion(question))) return undefined
@@ -988,10 +1003,18 @@ async function previewPendingQuery(input: OrchestratorInput, today: string): Pro
     : compareRideApps(state, scopedQuestion!, today) || respostaLocal(state, scopedQuestion!, today, true)?.text
   const real = read(input.state)
   if (!real) return undefined
-  const { projected, ok } = planAssistantActions(input.state, input.pending, { date: today, time: nowPaymentTime() })
+  const amount = selectedAmount ? parseMoney(selectedAmount[2]) : undefined
+  const pending = amount === undefined ? input.pending : input.pending.filter(({ action }) =>
+    ('amount' in action && action.amount === amount) || ('cost' in action && action.cost === amount))
+  if (amount !== undefined && pending.length !== 1) {
+    if (!pending.length) return answer(`Não encontrei um item de ${fmtBRL(amount)} na proposta. Diga qual item quer incluir.`)
+    return answer(`Há mais de um item de ${fmtBRL(amount)} na proposta. Diga qual deles quer incluir.`)
+  }
+  const { projected, ok } = planAssistantActions(input.state, pending, now)
   const preview = ok ? read(projected) : undefined
+  const scope = amount === undefined ? 'a proposta da tela' : `só o item de ${fmtBRL(amount)} da proposta`
   const reply = preview
-    ? `Se você confirmar a proposta da tela:\n${semDadoReal(preview)}\n\nA proposta segue aguardando confirmação.`
+    ? `Se você confirmar ${scope}:\n${semDadoReal(preview)}\n\nA proposta segue aguardando confirmação.`
     : 'A proposta mudou ou tem um dado pendente. Revise o que está na tela para eu conseguir simular a confirmação.'
   return answer(reply)
 }

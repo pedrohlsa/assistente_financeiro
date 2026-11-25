@@ -104,6 +104,34 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const today = '2026-11-25', ontem = '2026-11-24'
+    const state = motoristaRico(today)
+    const snapshot = JSON.stringify(state)
+    const ask = (message: string, previous?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({ state, message, today, remoteEnabled: false,
+      pending: previous?.response.actions, focus: previous?.focus, draft: previous?.draft || undefined,
+      pendingClarification: previous?.response.mode === 'clarify' ? previous.response.clarification : undefined })
+    const base = await ask('ganhei 300 da Uber ontem e paguei 85 de gasosa')
+    const cases = [
+      ['isso deu quanto líquido?', 215, /só da proposta/i],
+      ['se confirmar como fica o lucro de ontem?', periodStats(state, ontem, ontem, today).profit + 215, /se você confirmar/i],
+      ['quanto sobrou ontem contando os R$ 300 da proposta?', periodStats(state, ontem, ontem, today).profit + 300, /só.*300,00/i],
+      ['contando a proposta, qual foi o lucro de ontem?', periodStats(state, ontem, ontem, today).profit + 215, /se você confirmar/i],
+    ] as const
+    for (const [i, [message, value, label]] of cases.entries()) {
+      const o = await ask(message, base)
+      out.push(result('ZQ-pergunta-sobre-a-proposta-' + i, { message, response: o.response }, fmtBRL(value),
+        o.response.mode === 'answer' && o.keepPending && !o.response.actions.length && !o.response.unresolved.length
+        && o.response.reply.includes(fmtBRL(value)) && label.test(o.response.reply) && !/\(dado real\)/i.test(o.response.reply)
+        && JSON.stringify(state) === snapshot))
+    }
+    const repeated = await ask('ganhei 300 ontem na Uber e 300 na 99')
+    const ambiguous = await ask('quanto sobrou ontem contando os R$ 300 da proposta?', repeated)
+    out.push(result('ZQ-valor-igual-na-proposta-pergunta-o-alvo', ambiguous.response, 'dois itens de R$ 300 pedem identificação sem gravar',
+      ambiguous.response.mode === 'answer' && ambiguous.keepPending && !ambiguous.response.actions.length
+      && /mais de um item.*300,00/i.test(ambiguous.response.reply)))
+  }
+
+  {
     const today = '2026-11-25'
     const cases = [
       ['então eu fechei sete horas e meia hoje e deu trezentos de corrida', 7.5, 300, undefined, today],
