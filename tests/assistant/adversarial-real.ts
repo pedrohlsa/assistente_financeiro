@@ -12016,6 +12016,10 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         ['ontem gastei 80 de gasosa, e a 99 n me pagou 250', '99', 250, 'fuel', 80, ontem],
         ['ontem gastei 80 de gasosa e 150 da 99 n caiu não', '99', 150, 'fuel', 80, ontem],
         ['ontem abast 80 de gasosa, 120 do in draive n pingou', 'inDrive', 120, 'fuel', 80, ontem],
+        ['ontem botei 80 de gasolina, a 99 n/ depositou 250', '99', 250, 'fuel', 80, ontem],
+        ['gastei 80 de combustível ontem e o in draive n depositô 250 na conta', 'inDrive', 250, 'fuel', 80, ontem],
+        ['onti gastei 80 de gasosa; a 99 n me pagou 250', '99', 250, 'fuel', 80, ontem],
+        ['pg 80 de gasosa e 200 da Uber n caiu', 'Uber', 200, 'fuel', 80, undefined],
       ].map(async ([message, debtor, amount, kind, paid, date]) => ({ turn: await chat()(String(message)), debtor, amount, kind, paid, date })))
       const shorthandPastDate = await chat()('recebi trezentos e vinte reais e cinquenta centavos da Uber antontem, e gastei 90 de gasosa')
       out.push(result(`MOTOR-ditado-e-abreviacao-no-fechamento-e-repasse-${fixture}`, [shorthandMovements, abbreviatedUnpaid, shorthandPastDate],
@@ -12030,6 +12034,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
         && shorthandPastDate.mode === 'propose_actions' && shorthandPastDate.actions.length === 2
         && shorthandPastDate.actions.some(a => a.kind === 'income' && a.amount === 320.5 && a.description === 'Uber' && a.date === anteontem)
         && shorthandPastDate.actions.some(a => a.kind === 'fuel' && a.amount === 90 && a.date === anteontem)))
+
+      const differentDatesWithBareFuel = await Promise.all([
+        'recebi 320 vírgula cinquenta da Uber hj e 90,25 de gasosa ont',
+        'recebi 320,50 da Uber hoje e 90,25 de gasolina ontem',
+      ].map(message => chat()(message)))
+      const abbreviatedCents = await chat()('hj fiz 320 e 50 ctv na Uber e gastei 80,25 de combustível')
+      out.push(result(`MOTOR-data-de-despesa-sem-verbo-e-centavos-abreviados-${fixture}`, [differentDatesWithBareFuel, abbreviatedCents],
+        'mantém a data que acompanha cada valor e interpreta centavos junto com o valor principal',
+        differentDatesWithBareFuel.every(r => r.mode === 'propose_actions' && r.actions.length === 2
+          && r.actions.some(a => a.kind === 'income' && a.amount === 320.50 && a.description === 'Uber' && a.date === hoje)
+          && r.actions.some(a => a.kind === 'fuel' && a.amount === 90.25 && a.date === ontem))
+        && abbreviatedCents.mode === 'propose_actions' && abbreviatedCents.actions.length === 2
+        && abbreviatedCents.actions.some(a => a.kind === 'income' && a.amount === 320.50 && a.description === 'Uber' && a.date === hoje)
+        && abbreviatedCents.actions.some(a => a.kind === 'fuel' && a.amount === 80.25 && a.date === hoje)))
 
       const terseCorrection = chat()
       await terseCorrection('ontem ganhei 350 na Uber e 150 na 99, abasteci 80 e trabalhei 7h')
@@ -12062,7 +12080,7 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       const spokenHalf = await compactConfirm('as horas foram seis e meia')
       const labelledHours = await compactConfirm('s, as horas foram sete')
       const extraKmField = await compactConfirm('e 120kms')
-      const checkTime = await compactConfirm('qnts horas ficaram na proposta?')
+      const checkTime = await compactConfirm('qnts hrs ficaram na proposta?')
       const checkDistance = await compactConfirm('qnts km tem na proposta?')
       out.push(result(`MOTOR-grafia-curta-protege-a-proposta-e-corrige-horas-${fixture}`,
         [shortYes, doubleYes, noCancel, expressedHours, spokenHalf, labelledHours, extraKmField, checkTime, checkDistance],
@@ -12076,6 +12094,18 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
             && a.km === (index === 3 ? 120 : undefined)))
         && checkTime.mode === 'answer' && /7h/.test(checkTime.reply) && !checkTime.actions.length
         && checkDistance.mode === 'answer' && /120 km/.test(checkDistance.reply) && !checkDistance.actions.length))
+
+      const minuteDisplay = chat()
+      await minuteDisplay('hj fiz 350 da Uber, 150 da 99, 80 de gasosa e trabalhei 8h')
+      const exactMinutes = await minuteDisplay('foram 6h e 05 min hj')
+      const exactMinutesQuery = await minuteDisplay('qts hrs tem nessa proposta')
+      const shortAppHours = await chat()('qnts hrs trabalhei na noventa-e-nove ontem?')
+      out.push(result(`MOTOR-duracao-em-minutos-e-horas-abreviadas-${fixture}`, [exactMinutes, exactMinutesQuery, shortAppHours],
+        'exibe a mesma duração em horas e minutos na correção e na consulta; medida por app exige dados separados',
+        exactMinutes.mode === 'propose_actions' && exactMinutes.actions.length === 4 && /horas para 6h 5 min/.test(exactMinutes.reply)
+        && exactMinutes.actions.some(a => a.kind === 'work' && Math.abs(a.hours - (6 + 5 / 60)) < 0.00051 && a.date === hoje)
+        && exactMinutesQuery.mode === 'answer' && /6h 5 min/.test(exactMinutesQuery.reply) && !exactMinutesQuery.actions.length
+        && shortAppHours.mode === 'answer' && /horas.*dia|horas.*plataforma/.test(shortAppHours.reply) && !shortAppHours.actions.length))
 
       const compositeCorrection = chat()
       const compositeStart = await compositeCorrection('ganhei 350 na Uber, 150 na 99, abasteci 80 de gasolina e trabalhei 7 horas ontem')

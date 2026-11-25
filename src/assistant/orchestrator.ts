@@ -60,7 +60,7 @@ import { buildCapabilities } from './capabilities'
 import { describeAction, META_OUTRA, NEXT_RIDE_DISTANCE, SAQUE, partesDoDia, totalComDoisPontos } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
 import { catById, guessCategory, usableCategories } from '../data/categories'
-import { addDays, fmtBRL, fmtNum, MESES_PT_BR, nowPaymentTime, nowTime, parseMoney, todayISO, uid } from '../utils/format'
+import { addDays, fmtBRL, fmtHours, fmtNum, MESES_PT_BR, nowPaymentTime, nowTime, parseMoney, todayISO, uid } from '../utils/format'
 import { matchRecurringPayment, occurrencesBetween, possibleRecurringTransactions, recurringActiveOn, recurringLinkAction } from '../services/calc'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { normalizeNumberWords } from './numbers'
@@ -926,7 +926,7 @@ function withPendingAnswer(
 
 function pendingWorkAnswer(message: string, pending: OrchestratorInput['pending']): string | undefined {
   const text = normalizeName(message).replace(/[?!.]+$/, '').trim()
-  const match = text.match(/^(?:e\s+)?(?:quantos?|quantas?)\s+(kms?|quilometros?|h|horas?|viagens?|corridas?)\s+(?:(?:d[ao]|n[ao]|pel[ao])\s+(uber|99|noventa\s+e\s+nove|in\s*driver?)\s+)?(?:(?:deu|da|tem|ficou|ficaram|constam|estao|colocou|entram)\s+)?(?:na|da|nessa|nesta|a|essa|esta)\s+proposta$/)
+  const match = text.match(/^(?:e\s+)?(?:quantos?|quantas?)\s+(kms?|quilometros?|h|hrs?|horas?|viagens?|corridas?)\s+(?:(?:d[ao]|n[ao]|pel[ao])\s+(uber|99|noventa\s+e\s+nove|in\s*driver?)\s+)?(?:(?:deu|da|tem|ficou|ficaram|constam|estao|colocou|entram)\s+)?(?:na|da|nessa|nesta|a|essa|esta)\s+proposta$/)
   if (!match) return undefined
   if (!pending?.length) return 'Você não tem uma proposta aguardando confirmação.'
   const [, measure, platform] = match
@@ -938,7 +938,7 @@ function pendingWorkAnswer(message: string, pending: OrchestratorInput['pending'
   const values = pending.flatMap(({ action }) => action.kind === 'work' ? [action[field]]
     : field === 'hours' && action.kind === 'edit-work-hours' ? [action.hours] : []).filter(Number.isFinite)
   const total = values.reduce((sum, value) => sum + value, 0)
-  const detail = field === 'km' ? `${fmtNum(total)} km` : field === 'hours' ? `${fmtNum(total)}h` : `${fmtNum(total)} ${total === 1 ? 'viagem' : 'viagens'}`
+  const detail = field === 'km' ? `${fmtNum(total)} km` : field === 'hours' ? fmtHours(total) : `${fmtNum(total)} ${total === 1 ? 'viagem' : 'viagens'}`
   const missing = field === 'km' ? 'Nenhuma distância foi informada' : field === 'hours' ? 'Nenhuma duração foi informada' : 'Nenhuma quantidade de viagens foi informada'
   return values.length ? `Na proposta, você informou ${detail}.` : `${missing} na proposta.`
 }
@@ -1814,6 +1814,24 @@ function prepareRideReceiptBreakdown(input: OrchestratorInput, caps: AssistantCa
     : keepPendingClarification(input, clarification)
 }
 
+function prepareRideReceiptAndDatedFuel(input: OrchestratorInput, caps: AssistantCapabilities, today: string): OrchestratorOutput | undefined {
+  if (input.message.includes('?') || !/\b(?:gasosa|gasolina|etanol|diesel|gnv|combust[íi]vel)\b/i.test(input.message)) return undefined
+  const text = normalizeNumberWords(input.message).text
+  const dates = findAllDates(text, today)
+  const [paid, fueled] = dates
+  if (dates.length !== 2 || paid.kind !== 'date' || fueled.kind !== 'date' || paid.date === fueled.date) return undefined
+  const separator = /(?:[,;]\s+(?:e\s+)?|\s+e\s+)(?=(?:r\$\s*)?\d[\d.,]*\s+(?:reais?\s+)?de\s+(?:gasosa|gasolina|etanol|diesel|gnv|combust[íi]vel)\b)/gi
+  for (const split of text.matchAll(separator)) {
+    if (split.index < paid.end || split.index >= fueled.start) continue
+    const receipt = readPayoutReceiptAnswer(text.slice(0, split.index), today)
+    if (!(receipt.value > 0) || !receipt.platform || receipt.receiptDay?.kind !== 'date') continue
+    const fuel = readDatedPayoutCompanion('gastei ' + text.slice(split.index + split[0].length), today)
+    if (fuel?.kind !== 'fuel') continue
+    return proposeDatedActions(input, [{ kind: 'income', amount: receipt.value, category: 'corridas', description: receipt.platform,
+      date: receipt.receiptDay.date }, fuel], caps, today)
+  }
+}
+
 const HELD_WALLET = String.raw`(?:na\s+carteira|no\s+saldo\s+da\s+carteira)(?:\s+d[ao]\s+(?<app>app|uber|99|in\s*driver?))?`
 const WALLET_STATE = String.raw`(?:ja\s+)?(?:estavam?|ficou|ficaram|continuou|continuaram)`
 const VALUE_THEN_WALLET = new RegExp(String.raw`^(?<amount>.+?)\s+${WALLET_STATE}\s+${HELD_WALLET}$`)
@@ -2552,6 +2570,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     if (!input.draft && !input.pendingClarification) {
       const breakdown = prepareRideReceiptBreakdown(input, caps, today)
       if (breakdown) return breakdown
+      const datedFuel = prepareRideReceiptAndDatedFuel(input, caps, today)
+      if (datedFuel) return datedFuel
       const receiptForPeriod = prepareRideReceiptForEarningsPeriod(input, caps, today)
       if (receiptForPeriod) return receiptForPeriod
       const receiptWithHeldCash = await prepareReceiptWithHeldCash(input, caps, today)

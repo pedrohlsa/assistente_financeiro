@@ -3,7 +3,7 @@
 // por um serviço de IA no backend (ver services/ai.ts).
 import { ParsedAction } from '../models/types'
 import { DEFAULT_CATEGORIES, guessCategory } from '../data/categories'
-import { fmtBRL, fmtNum, fromISO, parseMoney, todayISO } from '../utils/format'
+import { fmtBRL, fmtHours, fmtNum, fromISO, parseMoney, todayISO } from '../utils/format'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { normalizeNumberWords } from '../assistant/numbers'
 import { workDuration } from '../assistant/semantic/clock'
@@ -2323,14 +2323,7 @@ export function describeAction(a: ParsedAction, categoryName?: (id: string) => s
           : `${viagem(Math.abs(a.trips))} ${Math.abs(a.trips) === 1 ? 'removida' : 'removidas'}`)
       }
       if (a.hours) {
-        const rawMinutes = Math.abs(a.hours) * 60
-        const rounded = Math.round(rawMinutes)
-        const h = Math.floor(rounded / 60)
-        const min = rounded % 60
-        const asMinutes = rounded && Math.abs(rounded - rawMinutes) <= 0.031
-        const duration = asMinutes ? [h ? `${h}h` : '', min ? `${min} min` : ''].filter(Boolean).join(' ')
-          : `${fmtNum(Math.abs(a.hours), 3)}h`
-        parts.push(`${duration} ${a.hours > 0 ? 'de trabalho' : 'de trabalho removidos'}`)
+        parts.push(`${fmtHours(Math.abs(a.hours))} ${a.hours > 0 ? 'de trabalho' : 'de trabalho removidos'}`)
       }
       return `Trabalho: ${parts.join(', ')}`
     }

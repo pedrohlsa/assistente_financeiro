@@ -6,7 +6,7 @@
 
 import type { ParsedAction } from '../models/types'
 import { validateAction, type AssistantCandidateAction, type AssistantCapabilities, type AssistantClarification } from './contracts'
-import { fmtBRL, nowTime, parseMoney, todayISO } from '../utils/format'
+import { fmtBRL, fmtHours, nowTime, parseMoney, todayISO } from '../utils/format'
 import { normalizeNumberWords } from './numbers'
 import { brDate, dateInAnswer, findDate } from './dates'
 import { explicitSpokenPayer, extractOrigins, looksLikeQuestion, revisedAction } from './clauses'
@@ -528,7 +528,7 @@ function correctDriverProposal(message: string, pending: AssistantCandidateActio
   } else {
     const before = (item.action as unknown as Record<string, unknown>)[field]
     plan.edits.push({ id: item.id, field, value, was: before })
-    const label = field === 'km' ? `${value} km` : field === 'trips' ? `${value} viagens` : field === 'hours' ? `${value}h` : fmtBRL(value)
+    const label = field === 'km' ? `${value} km` : field === 'trips' ? `${value} viagens` : field === 'hours' ? fmtHours(value) : fmtBRL(value)
     const detail = field === 'km' ? 'a distância' : field === 'trips' ? 'as viagens' : field === 'hours' ? 'as horas' : `a receita da ${app}`
     plan.summary.push(`Atualizei ${detail} para ${label}.`)
   }

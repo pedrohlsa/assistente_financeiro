@@ -266,7 +266,7 @@ const DEBT_PERIOD = String.raw`(?:${PAYOUT_SCHEDULE}|(?:(?:da|na)\s+)?semana\s+p
 const DEBT_CONTEXT = String.raw`(?:\s+(?:d[aeo]s?|pel[ao]s?)\s+corridas?)?(?:\s+(?:(?:de|desde)\s+)?${DEBT_PERIOD})?(?:\s+ainda)?`
 const DEBT_TAIL = String.raw`(?:(?:\s+e\s+|\s*[.;,]\s*(?:(?:mas|e)\s+)?)(?<tail>(?:${PAYOUT_DAY}\s+)?(?:eu\s+)?(?:abasteci|paguei|gastei|botei|coloquei|rodei|trabalhei|recebi)\b[^?]*))?[.!]*$`
 const RIDE_DEBT = new RegExp(
-  String.raw`^(?:${PAYOUT_DAY}\s+)?(?:[ao]\s+)?(?<platform>${PAYOUT_APP})\s+(?:ainda\s+)?(?:(?:me\s+)?deve|(?:ta|esta|ficou)\s+(?:me\s+)?devendo|nao\s+(?:me\s+)?(?:pagou|repassou|depositou))\s+(?:(?:o|os|meus|mais)\s+)?${MONEY('amount')}${DEBT_CONTEXT}${DEBT_TAIL}`,
+  String.raw`^(?:${PAYOUT_DAY}\s+)?(?:[ao]\s+)?(?<platform>${PAYOUT_APP})\s+(?:ainda\s+)?(?:(?:me\s+)?deve|(?:ta|esta|ficou)\s+(?:me\s+)?devendo|nao\s+(?:me\s+)?(?:pagou|repassou|depositou))\s+(?:(?:o|os|meus|mais)\s+)?${MONEY('amount')}(?:\s+na\s+(?:minha\s+)?conta|\s+no\s+pix)?${DEBT_CONTEXT}${DEBT_TAIL}`,
 )
 const LATE_PAYOUT = String.raw`(?:atrasou|nao\s+(?:me\s+)?liberou|(?:ta|esta|ficou)\s+segurando)`
 const RIDE_DEBT_DELAY = new RegExp(

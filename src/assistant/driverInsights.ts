@@ -429,9 +429,9 @@ export function compareRideApps(state: AppState, input: string, today: string): 
       || /\b(?:so|apenas|somente)\s+nos?\s+dias?\s+(?:que|em que)\s+(?:rodei|trabalhei)\b/.test(t)) {
       return 'O histórico guarda a jornada do dia inteiro. Para calcular a média por dia trabalhado em uma plataforma, preciso saber em quais dias você rodou nesse app.'
     }
-    const askedMeasure = t.match(/^(?:e\s+)?quant[oa]s?\s+(horas?|kms?|quilometros?|corridas?|viagens?)\b/)?.[1]
+    const askedMeasure = t.match(/^(?:e\s+)?quant[oa]s?\s+(horas?|h|hrs?|kms?|quilometros?|corridas?|viagens?)\b/)?.[1]
     if (askedMeasure) {
-      const label = askedMeasure.startsWith('km') ? 'quilômetros' : askedMeasure
+      const label = askedMeasure.startsWith('km') ? 'quilômetros' : askedMeasure.startsWith('h') ? 'horas' : askedMeasure
       return `O histórico guarda ${label} para o dia inteiro. Para calcular o total por plataforma, preciso dessa medida separada por app.`
     }
   }

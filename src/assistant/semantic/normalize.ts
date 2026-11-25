@@ -133,11 +133,11 @@ export interface RepairedText {
   changed: boolean
 }
 
-const SPOKEN_PAYOUT_VERBS: Record<string, string> = { caio: 'caiu', 'liberô': 'liberou', pingou: 'caiu', 'pingô': 'caiu' }
+const SPOKEN_PAYOUT_VERBS: Record<string, string> = { caio: 'caiu', 'liberô': 'liberou', pingou: 'caiu', 'pingô': 'caiu', 'depositô': 'depositou' }
 
 export function normalizeDriverShorthand(message: string): string {
   // A expansão da negação precisa vir antes dos leitores de repasse.
-  let text = message.replace(/(?<![\p{L}\p{M}\d])(?:n(?:\/|\u0303)?|ñ|nao|não|num|nem)\s+(me\s+)?(caiu|caio|ca[ií]ram|entrou|entraram|pingou|pingô|liberou|liberô|repassou|pagou|recebi)(?![\p{L}\p{M}\d])/giu,
+  let text = message.replace(/(?<![\p{L}\p{M}\d])(?:n(?:\/|\u0303)?|ñ|nao|não|num|nem)\s+(me\s+)?(caiu|caio|ca[ií]ram|entrou|entraram|pingou|pingô|liberou|liberô|repassou|depositou|depositô|pagou|recebi)(?![\p{L}\p{M}\d])/giu,
     (_, dative: string | undefined, verb: string) => `não ${dative || ''}${SPOKEN_PAYOUT_VERBS[verb.toLowerCase()] || verb}`)
   text = text.replace(/(?<![\p{L}\p{M}\d])(não\s+(?:caiu|entrou|recebi))\s+n[ãa]o(?=\s*(?:$|[;,.!?])|\s+(?:e|mas)\s+)/giu, '$1')
   text = text.replace(/\b(n[ao]|d[ao]|pel[ao]|[ao])\s+noventa[- ]?e[- ]?nove\b/gi, '$1 99')
@@ -150,17 +150,18 @@ export function normalizeDriverShorthand(message: string): string {
     text = text.replace(/\bno\s+volant[ei]\s+c\/\s*/i, 'no volante com ').replace(/\bno\s+volanti\b/i, 'no volante')
   }
   return text
-    .replace(/(^|[,;.!]\s*|\s+(?:e|mas)\s+)((?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)\b(abast|gstei)\.?\s+(?=(?:r\$\s*)?\d)/gi,
-      (_, boundary: string, lead: string, verb: string) => `${boundary}${lead}${verb.toLowerCase() === 'abast' ? 'abasteci' : 'gastei'} `)
+    .replace(/(^|[,;.!]\s*|\s+(?:e|mas)\s+)((?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)\b(abast|gstei|pg(?=\.?\s+(?:r\$\s*)?\d[\d.,]*\s+(?:de|em)\s+(?:gasosa|gasolina|combust[íi]vel|etanol|diesel)\b))\.?\s+(?=(?:r\$\s*)?\d)/gi,
+      (_, boundary: string, lead: string, verb: string) => `${boundary}${lead}${({ abast: 'abasteci', gstei: 'gastei', pg: 'paguei' })[verb.toLowerCase()]} `)
+    .replace(/(?<![\p{L}\p{M}\d.,])(\d{1,2})\s*ctvs?\b/giu, '$1 centavos')
     .replace(/\b(de|em|com)\s+combstivel\b/gi, '$1 combustível')
     .replace(/\bd\s+(?=gasosa\b|gasolina\b|combust[íi]vel\b)/gi, 'de ')
-    .replace(/(^\s*|\s+(?:e|mas)\s+)(ont|antontem)\s+(?=(?:eu\s+)?(?:ganhei|recebi|faturei|fiz|abasteci|trabalhei|rodei|gastei|paguei)\b)/gi,
-      (_, boundary: string, date: string) => `${boundary}${date.toLowerCase() === 'ont' ? 'ontem' : 'anteontem'} `)
-    .replace(/\b(corridas?|gasosa|gasolina|combust[íi]vel|uber|99|in\s*drive|kms?|horas?)\s+(ont|antontem)(?=\s+(?:e|mas)\s+|\s*[.!?]*$|[,;])/gi,
-      (_, previous: string, date: string) => `${previous} ${date.toLowerCase() === 'ont' ? 'ontem' : 'anteontem'}`)
+    .replace(/(^\s*|\s+(?:e|mas)\s+)(onti?|antontem)\s+(?=(?:eu\s+)?(?:ganhei|recebi|faturei|fiz|abasteci|trabalhei|rodei|gastei|paguei)\b)/gi,
+      (_, boundary: string, date: string) => `${boundary}${/^ont/i.test(date) ? 'ontem' : 'anteontem'} `)
+    .replace(/\b(corridas?|gasosa|gasolina|combust[íi]vel|uber|99|in\s*drive|kms?|horas?)\s+(onti?|antontem)(?=\s+(?:e|mas)\s+|\s*[.!?]*$|[,;])/gi,
+      (_, previous: string, date: string) => `${previous} ${/^ont/i.test(date) ? 'ontem' : 'anteontem'}`)
     .replace(/^(\s*(?:e\s+)?)(?:qto|qnto)\s+(?=(?:deu|deram)\s+d(?:e)?\s+corridas?\b)/i, '$1quanto ')
     .replace(/^(\s*(?:e\s+)?quanto\s+(?:deu|deram))\s+d\s+(?=corridas?\b)/i, '$1 de ')
-    .replace(/(^\s*(?:e\s+)?|[?;,]\s*(?:e\s+)?|\s+e\s+)(?:qts|qnts|qntos|qntas)\s+(?=(kms?|quil[oô]metros?|horas?|viagens?|corridas?)\b)/gi,
+    .replace(/(^\s*(?:e\s+)?|[?;,]\s*(?:e\s+)?|\s+e\s+)(?:qts|qnts|qntos|qntas)\s+(?=(kms?|quil[oô]metros?|h|hrs?|horas?|viagens?|corridas?)\b)/gi,
       (_, boundary: string, measure: string) => `${boundary}${/^(?:h|v|c)/i.test(measure) ? 'quantas' : 'quantos'} `)
 }
 

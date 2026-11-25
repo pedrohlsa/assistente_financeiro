@@ -21,6 +21,15 @@ export const fmtNum = (v: number, digits = 1) =>
     ? (v === 0 ? 0 : v).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: digits })
     : SEM_VALOR)
 
+export function fmtHours(hours: number): string {
+  const minutes = hours * 60
+  const rounded = Math.round(minutes)
+  if (!(rounded > 0) || Math.abs(rounded - minutes) > 0.031) return `${fmtNum(hours, 3)}h`
+  const wholeHours = Math.floor(rounded / 60)
+  const tailMinutes = rounded % 60
+  return [wholeHours ? `${wholeHours}h` : '', tailMinutes ? `${tailMinutes} min` : ''].filter(Boolean).join(' ')
+}
+
 export const todayISO = () => {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
