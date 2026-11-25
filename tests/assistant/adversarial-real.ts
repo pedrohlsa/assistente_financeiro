@@ -104,6 +104,38 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const today = '2026-11-25', end = '2026-11-24'
+    const state = motoristaRico(today)
+    const stats = (a: string, b: string) => periodStats(state, a, b, today)
+    const uberIncome = state.transactions.filter(t => t.description === 'Uber' && t.type === 'income' && t.date >= '2026-11-01' && t.date <= end)
+      .reduce((sum, tx) => sum + tx.amount, 0)
+    const cases = [
+      ['quanto fiz no mês até ontem?', '2026-11-01', end, fmtBRL(stats('2026-11-01', end).income)],
+      ['quanto entrou este mês tirando hoje?', '2026-11-01', end, fmtBRL(stats('2026-11-01', end).income)],
+      ['quanto gastei do início do mês até ontem?', '2026-11-01', end, fmtBRL(stats('2026-11-01', end).expense)],
+      ['receita da Uber esse mês até ontem', '2026-11-01', end, fmtBRL(uberIncome)],
+      ['quanto fiz no mês passado até o dia 20?', '2026-10-01', '2026-10-20', fmtBRL(stats('2026-10-01', '2026-10-20').income)],
+      ['quanto gastei esse mês até dia 15?', '2026-11-01', '2026-11-15', fmtBRL(stats('2026-11-01', '2026-11-15').expense)],
+      ['quantas corridas fiz essa semana até ontem?', '2026-11-19', end, String(stats('2026-11-19', end).trips)],
+      ['quanto fiz desde o dia 1 até ontem?', '2026-11-01', end, fmtBRL(stats('2026-11-01', end).income)],
+    ] as const
+    for (const [i, [message, from, to, total]] of cases.entries()) {
+      const o = await orchestrate({ state, message, today, remoteEnabled: false })
+      const period = o.focus?.lastQueryPlan?.period
+      out.push(result('ZV-consulta-respeita-data-de-corte-' + i, { message, response: o.response, period }, { from, to, total },
+        o.response.mode === 'answer' && !o.response.actions.length && period?.from === from && period?.to === to && o.response.reply.includes(total)))
+    }
+    const days = ['2026-11-20', '2026-11-22']
+    const profit = days.reduce((sum, date) => sum + stats(date, date).profit, 0)
+    const income = days.reduce((sum, date) => sum + stats(date, date).income, 0)
+    const results = await Promise.all(['qual foi o lucro dos dias 20 e 22?', 'quanto ganhei nos dias 20 e 22 de novembro?'].map(message =>
+      orchestrate({ state, message, today, remoteEnabled: false })))
+    out.push(result('ZV-lista-dias-numericos-sem-somar-o-intervalo', results.map(r => r.response), [fmtBRL(profit), fmtBRL(income)],
+      results.every((r, i) => r.response.mode === 'answer' && !r.response.actions.length && /Total dos dois dias/.test(r.response.reply)
+        && r.response.reply.includes('20/11/2026') && r.response.reply.includes('22/11/2026') && r.response.reply.includes(fmtBRL(i ? income : profit)))))
+  }
+
+  {
     const today = '2026-11-25', ontem = '2026-11-24'
     const state = motoristaRico(today)
     const snapshot = JSON.stringify(state)

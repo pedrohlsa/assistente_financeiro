@@ -838,6 +838,12 @@ function answerQuestions(
 
 function answerListedDays(state: AppState, question: string, today: string): string | undefined {
   if (!looksLikeQuestion(question) || !looksLikeDataQuestion(question)) return undefined
+  const daysByNumber = /\b(?:nos|dos|os)\s+dias\s+(\d{1,2})\s+e\s+(\d{1,2})(?![\d/]|[.,]\d)(?:\s+de\s+([\p{L}]+)(?:\s+de\s+(20\d{2}))?)?/iu
+  const list = question.match(daysByNumber)
+  if (list && (!list[3] || MESES_PT_BR.some(month => normalizeName(month) === normalizeName(list[3])))) {
+    const month = list[3] ? ` de ${list[3]}${list[4] ? ` de ${list[4]}` : ''}` : ''
+    question = question.replace(list[0], month ? `${list[1]}${month} e ${list[2]}${month}` : `dia ${list[1]} e dia ${list[2]}`)
+  }
   const mentioned = datesMentioned(question, today, true)
   const dates = mentioned.filter(date => date.kind !== 'period').sort((a, b) => a.start - b.start)
   if (dates.length < 2) return undefined
@@ -874,7 +880,7 @@ function answerListedDays(state: AppState, question: string, today: string): str
   const metric = readings[0]?.focus.lastQueryPlan?.metric
   // Km, horas e viagens também somam: "quanto rodei ontem e hoje" ficava sem
   // o total, que só existia para dinheiro.
-  const unit = metric === 'sum' ? summaries[0]?.unit : metric === 'count' ? 'count' : undefined
+  const unit = metric === 'sum' || metric === 'net' ? summaries[0]?.unit : metric === 'count' ? 'count' : undefined
   const additive = days.length > 1 && !separate && unit && ['BRL', 'km', 'hours', 'liters', 'count'].includes(unit)
     && readings.every(r => r.focus.lastQueryPlan?.metric === metric && r.focus.lastQueryPlan?.group === 'none')
     && summaries.every(s => s?.unit === unit)

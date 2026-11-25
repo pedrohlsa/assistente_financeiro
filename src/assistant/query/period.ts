@@ -21,7 +21,8 @@ const QUALIFICADOR_DA_SEMANA = String.raw`(?:da\s+semana\s+passada|d(?:esta|essa
 const SEMANA_DO_CALENDARIO = new RegExp(`^${QUALIFICADOR_DA_SEMANA}`, 'i')
 const DIA_DO_MES = String.raw`\d{1,2}(?:\s+(?:d[oe]\s+mes\s+passado|d(?:este|esse)\s+mes))?`
 const DATA_DO_INTERVALO = String.raw`(?:\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|dia\s+${DIA_DO_MES}|${DIA_SEMANA}|hoje|anteontem|ontem)`
-const INTERVALO_DE_DIAS = new RegExp(String.raw`\b(de|entre)\s+(${DATA_DO_INTERVALO})(?:\s+(${QUALIFICADOR_DA_SEMANA}))?\s+(a|ate|e)\s+(${DATA_DO_INTERVALO}|${DIA_DO_MES})(?![\d/-]|[.,]\d)(?=\b)(?:\s+(${QUALIFICADOR_DA_SEMANA}))?`)
+const INTERVALO_DE_DIAS = new RegExp(String.raw`\b(de|desde|entre)\s+(?:o\s+(?=dia\s+))?(${DATA_DO_INTERVALO})(?:\s+(${QUALIFICADOR_DA_SEMANA}))?\s+(a|ate|e)\s+(${DATA_DO_INTERVALO}|${DIA_DO_MES})(?![\d/-]|[.,]\d)(?=\b)(?:\s+(${QUALIFICADOR_DA_SEMANA}))?`)
+const DATE_TO_CUTOFF = /\b((?:d[oe]|no)\s+(?:inicio\s+do\s+)?mes(?:\s+(?:passado|anterior))?|(?:d?est[ea]|d?ess[ea]|ness?[ea]|nest[ea])\s+(?:mes|semana))\s+(?:ate\s+(?:antes\s+de\s+)?(ontem|anteontem|hoje)|ate\s+(?:o\s+)?dia\s+(\d{1,2})(?![\d/]|[.,]\d)|(?:tirando|excluindo|sem\s+contar)\s+hoje)\b/
 
 // MAPA, nao objeto: leitura por colchete anda pela cadeia de prototipo, e
 // `MES_CURTO['con']` de "constructor" ja foi um crash real em outro modulo.
@@ -63,8 +64,24 @@ type CalendarRange = { matched: string; period?: QueryPeriod; question?: string 
 
 export function parseCalendarRange(input: string, today: string): CalendarRange | undefined {
   const normalized = semAcento(input)
+  const cutoff = normalized.match(DATE_TO_CUTOFF)
+  if (cutoff) {
+    const [matched, scope, relative, day] = cutoff
+    const week = scope.endsWith('semana')
+    if (week && day) return { matched, question: 'Qual é a data final da semana que você quer consultar?' }
+    const previous = /\b(?:passado|anterior)$/.test(scope)
+    const month = monthPeriod(today, previous ? 1 : 0, today)
+    const from = week ? addDays(today, -6) : month.from
+    const number = day ? Number(day) : undefined
+    const elapsedDays = relative === 'anteontem' ? 2 : relative === 'hoje' ? 0 : 1
+    const to = number !== undefined ? `${month.from.slice(0, 8)}${day.padStart(2, '0')}`
+      : addDays(today, -elapsedDays - Number(/\bate\s+antes\s+de\b/.test(matched)))
+    if (number !== undefined && (number < 1 || to > month.to)) return { matched, question: 'Esse dia não existe no mês informado. Qual é a data final?' }
+    if (to < from || (!week && previous && to > month.to)) return { matched, question: 'A data de corte ficou fora do período. Quais datas você quer consultar?' }
+    return { matched, period: P(from, to, `de ${br(from)} a ${br(to)}`, 'range', today) }
+  }
   const m = normalized.match(INTERVALO_DE_DIAS)
-  if (!m || (m[1] === 'de' && m[4] === 'e')) return undefined
+  if (!m || (m[1] !== 'entre' && m[4] === 'e')) return undefined
   const [matched, , first, firstWeek, , rawLast, lastWeek] = m
   const elided = /^\d{1,2}(?:\s|$)/.test(rawLast)
   if (elided && (!/^dia\s/i.test(first) || /^\s+(?:reais?|contos?|centavos?)\b/.test(normalized.slice(m.index + matched.length)))) return undefined
