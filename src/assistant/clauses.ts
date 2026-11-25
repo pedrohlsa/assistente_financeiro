@@ -180,6 +180,7 @@ const RECORD_NUMBER = String.raw`(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?`
 const REFUEL_KIND = String.raw`(?:etanol|[áa]lcool|gasolina|gasosa|diesel|gnv|combust[íi]vel)`
 const REFUEL_KIND_FIRST = new RegExp(String.raw`^(?:(abasteci)\s+(?:com\s+)?)?(${REFUEL_KIND})\s+(${RECORD_NUMBER})[.!]*$`, 'i')
 const CASH_PAIR_VALUE = String.raw`(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+(?:reais?|contos?|pila))?`
+const NEGATIVE_MONEY_STATEMENT = new RegExp(String.raw`\b(?:fiz|recebi|ganhei|faturei|caiu|entrou|gastei|paguei|abasteci)\s+(?:r\$\s*)?(?:[-−]\s*|menos\s+)${CASH_PAIR_VALUE}(?!\d|[.,]\d|\s*(?:km|quil[oô]metros?|h|hrs?|horas?|corridas?|viagens?|litros?)\b)`, 'i')
 const CASH_PAIR_PLACE = 'mercado|supermercado|padaria|farm[áa]cia|a[cç]ougue|feira|[ôo]nibus|metr[ôo]|almo[cç]o|lanche|jantar|caf[ée]|estacionamento'
 const PLACE_FIRST = new RegExp(String.raw`^(?:(?:o|a|no|na|em|com)\s+)?(${CASH_PAIR_PLACE})\s+(${CASH_PAIR_VALUE})$`, 'i')
 const ORIGIN_FIRST = new RegExp(String.raw`^(d[ao]s?)\s+(.+?)\s+(${CASH_PAIR_VALUE})(?:\s+de\s+(aluguel|comiss[ãa]o|freela|freelance|sal[áa]rio))?$`, 'i')
@@ -231,8 +232,9 @@ function inflowGuard(text: string, carriesInflow = false): string | undefined {
   return undefined
 }
 const PROSPECTIVE_RIDE = /^(?:essa|esta|outra|uma\s+outra)\s+corrida\b/i
-const EXAMPLE_CUE = String.raw`(?:(?:por\s+)?exemplo|(?:s[oó]\s+)?(?:um\s+)?teste|(?:t[oô]|estou)\s+testando|isso\s+[ée]\s+s[oó]\s+(?:um\s+)?exemplo)\s*[:,—–-]\s*`
-const EXAMPLE_START = new RegExp(String.raw`^\s*${EXAMPLE_CUE}`, 'i')
+const EXAMPLE_CUE = String.raw`(?:(?:por\s+)?exemplo|(?:s[oó]\s+)?(?:um\s+)?teste|(?:t[oô]|estou)\s+testando|isso\s+[ée]\s+(?:s[oó]\s+)?(?:um\s+)?(?:exemplo|teste))\s*[:,—–-]\s*`
+const EXAMPLE_START = new RegExp(String.raw`^\s*(?:${EXAMPLE_CUE}|(?:s[oó]\s+)?quero\s+testar\s+(?:a|uma)\s+frase[\s:]+)`, 'i')
+const EXAMPLE_LABEL = /^\s*(?:a\s+)?frase\s+["“‘'][^\n]+?["”’']\s+[ée]\s+(?:s[oó]\s+)?(?:um\s+)?exemplo[.!]*$/i
 const REPORTED_SPEECH = /^(?:(?:eu\s+)?(?:falei|disse)|(?:me|nos)\s+(?:falaram|disseram)|(?:(?:o|a|meu|minha)\s+)?[\p{L}\p{M}]+(?:\s+[\p{L}\p{M}]+)?\s+(?:falou|disse|afirmou|avisou))\s*(?:que\b|[:"“‘'])/iu
 const THIRD_PARTY = /^(?:(?:hoje|ontem|anteontem|j[áa])\s+)?(?:meu|minha|nosso|nossa|o|a)\s+(?:irm[ãa]o|irm[ãa]|marido|esposa|m[ãa]e|pai|filh[oa]|colega|cliente|gerente|amig[oa]|s[óo]ci[oa]|loja|empresa)\s+(?:j[áa]\s+)?(?:gastou|pagou|comprou|recebeu|ganhou|guardou)\b/i
 const NAMED_THIRD_PARTY = /^(?:(?:ontem|hoje|anteontem|j[áa])\s+)?(?:[oa]\s+)?(?!quant[oa]s?\b|quem\b|quando\b|onde\b|como\b|por\b|que\b|eu\b|foi\b|era\b|se\b|quanto\b)([\p{L}\p{M}]+(?:\s+[\p{L}\p{M}]+){0,2}?)\s+(?:j[áa]\s+)?(?:gastou|pagou|comprou|recebeu|ganhou|guardou)\s+(?:r\$\s*)?\d/iu
@@ -273,7 +275,7 @@ const NEGATED_VERBS =
 const NEGATION_HEAD = String.raw`(?:n[ãa]o|nem|nunca|jamais)\b[\s,;!]*(?:\S+[\s,]+){0,3}?(?:${NEGATED_VERBS})(?![a-zà-ú])`
 const SHORT_NEGATION_HEAD = String.raw`[nñ]\s+(?:(?:eu|ainda)\s+){0,2}(?:${NEGATED_VERBS})(?![a-zà-ú])`
 const NEGATED_STATEMENT = new RegExp(
-  String.raw`^\s*(?:(?:mas|e|ah|olha|eu|ainda)\b[\s,]+){0,3}(?:${NEGATION_HEAD}|${SHORT_NEGATION_HEAD})`,
+  String.raw`^\s*(?:(?:mas|e|ah|olha|eu|ainda|hoje|hj|ontem|anteontem)\b[\s,]+){0,3}(?:${NEGATION_HEAD}|${SHORT_NEGATION_HEAD})`,
   'i',
 )
 
@@ -293,7 +295,7 @@ const PAST_STATEMENT = new RegExp(String.raw`\b(?:${PAST_MONEY_VERBS}|${COMPLETE
 export const looksPast = (t: string): boolean => PAST_STATEMENT.test(t)
 
 function quotedOrExample(text: string): string | undefined {
-  if (EXAMPLE_START.test(text)) return 'Entendi o trecho como exemplo. Para registrar um valor real, diga o que aconteceu.'
+  if (EXAMPLE_START.test(text) || EXAMPLE_LABEL.test(text)) return 'Entendi o trecho como exemplo. Para registrar um valor real, diga o que aconteceu.'
   const spokenCommand = /\b(?:foi|era|cancela|cancelar|desfaz|desfazer|apaga|apagar|corrige|corrigir|muda|troca|registra|anota)\b/i.test(text)
   if (REPORTED_SPEECH.test(text) && (looksPast(text) || spokenCommand)) {
     return 'Esse trecho cita o que alguém disse. Para registrar, confirme o que aconteceu na sua conta.'
@@ -303,15 +305,18 @@ function quotedOrExample(text: string): string | undefined {
 
 /** Texto efetivamente dirigido ao assistente, para decidir comandos e correções. */
 export function speechForCommands(message: string, today: string): { command: string; context: string[] } {
-  if (!/\b(?:exemplo|teste|testando|falei|disse|disseram|falou|falaram|afirmou|avisou)\b/i.test(message)) {
+  if (!/\b(?:exemplo|teste|testar|testando|falei|disse|disseram|falou|falaram|afirmou|avisou)\b/i.test(message)) {
     return { command: message, context: [] }
   }
   const remaining: string[] = []
   const context = new Set<string>()
-  for (const part of segment(message, today)) {
-    const note = quotedOrExample(part.text)
-    if (note) context.add(note)
-    else remaining.push(part.text)
+  for (const sentence of message.split(/(?<=[.!?;])\s+/)) {
+    const example = EXAMPLE_START.test(sentence) || EXAMPLE_LABEL.test(sentence)
+    for (const part of example ? [{ text: sentence }] : segment(sentence, today)) {
+      const note = quotedOrExample(part.text)
+      if (note) context.add(note)
+      else remaining.push(part.text)
+    }
   }
   return { command: context.size ? remaining.join(' ') : message, context: [...context] }
 }
@@ -541,6 +546,11 @@ export function segment(text: string, today = todayISO()): { text: string; start
   // Uma baixa anterior continua válida quando a segunda parte é negada.
   const beforeNegation = new RegExp(String.raw`(?:[,;]\s*(?:e\s+)?|\s+e\s+)(?=(?:(?:eu|ainda)\s+){0,2}(?:${NEGATION_HEAD}|${SHORT_NEGATION_HEAD}))`, 'gi')
   for (const m of text.matchAll(beforeNegation)) push((m.index || 0) + m[0].length)
+  // A ressalva afirmativa tem escopo próprio: “não gastei 100, só paguei 20”.
+  for (const m of text.matchAll(new RegExp(String.raw`\s+(?:s[óo]|apenas|somente)\s+(?=(?:eu\s+)?(?:${PAST_MONEY_VERBS})\b)`, 'gi'))) {
+    const previous = Math.max(...[...cuts].filter(cut => cut <= m.index))
+    if (looksNegated(text.slice(previous, m.index))) push(m.index + m[0].length)
+  }
   // Duas PERGUNTAS na mesma frase: "quanto gastei com combustível…, e quanto
   // isso representa do faturamento?". Juntas, o planejador lia uma consulta
   // só, com a segunda metade virando filtro, e respondia "não tenho lançamento"
@@ -1503,7 +1513,9 @@ export function analyzeMessage(
     const paymentPending = standalonePending || PAYMENT_DENIED.test(part.text) || (receiptMention && (NAMED_PAYMENT_PENDING.test(part.text)
       || (/\b(?:mas|por[ée]m|s[oó]\s+que)\s*$/i.test(part.text) && PAYMENT_NOT_RECEIVED.test(following))))
     const localExplanation = specializedInflow || (internalTransfer ? INTERNAL_TRANSFER_REPLY
-      : quotedOrExample(part.text) || (declinedRide && !part.text.includes('?') ? 'A corrida não aconteceu. Nenhum lançamento foi preparado.'
+      : quotedOrExample(part.text) || (!isQuestion && !negated && NEGATIVE_MONEY_STATEMENT.test(part.text)
+        ? 'O valor informado é negativo. Diga se foi uma taxa, uma devolução ou outro débito e qual foi o valor.'
+        : declinedRide && !part.text.includes('?') ? 'A corrida não aconteceu. Nenhum lançamento foi preparado.'
       : !isQuestion && !negated && CREDIT_RETURN.test(part.text) && CREDIT_POSTED_TO_INVOICE.test(part.text)
         ? 'Esse valor virou crédito na fatura do cartão. Confira o ajuste na fatura do banco.'
       : !isQuestion && !negated && CREDIT_RETURN.test(part.text) && CREDIT_CARD_NOT_PIX.test(part.text)
@@ -1767,6 +1779,10 @@ export function analyzeMessage(
     }
     if (canShareContext && date && !requestedPix && !rideCue) { inheritedDate = date; inheritedLabel = dLabel }
     else if (canShareContext && !date && inheritedDate && !temporal && !dateAmbiguity) { date = inheritedDate; dLabel = inheritedLabel }
+    else if (canShareContext && !date && !temporal && !dateAmbiguity && previousClause?.date && looksNegated(previousClause.text)
+      && /(?<![\wÀ-ÿ])(?:s[óo]|apenas|somente)\s+$/i.test(original.slice(0, part.start))) {
+      date = previousClause.date; dLabel = previousClause.dateLabel
+    }
     if (ambiguity?.field === 'gas-kind') {
       const missingDate = !date && !!(dateAmbiguity || temporal) && looksPast(part.text)
       ambiguity = { ...ambiguity, ...(missingDate ? { field: 'gas-kind-needs-date',

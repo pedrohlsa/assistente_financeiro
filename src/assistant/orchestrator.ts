@@ -2560,6 +2560,19 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const shorthand = normalizeDriverShorthand(input.message)
     if (shorthand !== input.message) input = { ...input, message: shorthand }
   }
+  const today = input.today || todayISO()
+  const speech = speechForCommands(input.message, today)
+  if (speech.context.length) {
+    if (speech.command) {
+      const out = await orchestrate({ ...input, message: speech.command })
+      return { ...out, response: { ...out.response, reply: [...speech.context, out.response.reply].join('\n\n') } }
+    }
+    const clarification = input.pendingClarification
+    const response = { version: ASSISTANT_CONTRACT_VERSION, engine: 'local' as const, actions: [] as [], unresolved: [],
+      reply: [...speech.context, ...(clarification ? [clarification.question] : [])].join('\n\n') }
+    return { draft: input.draft || null, keepPending: true, focus: input.focus,
+      response: clarification ? { ...response, mode: 'clarify', clarification } : { ...response, mode: 'answer' } }
+  }
   // "Rodei 30 mil km ESSE ANO?", "gastei 500 esse mês?": conferência de um
   // total, não lançamento de um dia (regra 33a). Virava 30.000 km de trabalho
   // hoje, com "Esse mês" de descrição. Vira a consulta do período.
@@ -2600,7 +2613,6 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   const semTotalDito = input.pendingClarification ? input.message : partesDoDia(totalComDoisPontos(input.message))
   if (semTotalDito !== input.message) input = { ...input, message: semTotalDito }
   const caps = buildCapabilities(input.state)
-  const today = input.today || todayISO()
   if (!input.draft) {
     const rents = prepareRepeatedRent(input, caps, today)
     if (rents) return rents
@@ -2737,19 +2749,9 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     }
     if (reconciled && 'text' in reconciled && reconciled.text) input = { ...input, message: reconciled.text }
   }
-  const { command, context } = speechForCommands(input.message, today)
-  if (!command && context.length) {
-    const clarification = input.pendingClarification
-    const response = { version: ASSISTANT_CONTRACT_VERSION, engine: 'local' as const, actions: [] as [], unresolved: [],
-      reply: [...context, ...(clarification ? [clarification.question] : [])].join('\n\n') }
-    return { draft: input.draft || null, keepPending: true, focus: input.focus,
-      response: clarification ? { ...response, mode: 'clarify', clarification } : { ...response, mode: 'answer' },
-    }
-  }
-  if (!context.length) {
-    const due = await purchaseWithFirstDue(input, caps, today)
-    if (due) return due
-  }
+  const command = input.message
+  const due = await purchaseWithFirstDue(input, caps, today)
+  if (due) return due
 
   // ---- 0) A mensagem escolhe uma opção que o assistente ofereceu? --------
   // "GNV" logo depois de "gás de cozinha ou GNV?" precisa recuperar o valor e
@@ -4523,7 +4525,7 @@ Confirmar?`,
   } else if (answerPart) {
     mode = 'answer'
     reply = answerPart
-  } else if (pedeParaQuebrarRegra(context.length ? command : mensagem)) {
+  } else if (pedeParaQuebrarRegra(mensagem)) {
     // O texto genérico de ajuda funcionava como recusa por acidente: ele não
     // registrava nada, mas também não dizia NÃO. Quem tenta isso merece uma
     // resposta clara, e quem lê o log do app também.

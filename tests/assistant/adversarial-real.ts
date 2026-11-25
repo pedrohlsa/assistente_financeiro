@@ -104,6 +104,39 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const today = '2026-11-25'
+    const answers = await Promise.all([motoristaRico(today), autonomoRico(today), buildState({ profile: 'driver' })].map(async state => {
+      const snapshot = JSON.stringify(state)
+      const ask = (message: string, previous?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({ state, message, today, remoteEnabled: false,
+        pending: previous?.response.actions, focus: previous?.focus, draft: previous?.draft || undefined,
+        pendingClarification: previous?.response.mode === 'clarify' ? previous.response.clarification : undefined })
+      const [negative1, negative2, mixed, denied, example1, example2, followed] = await Promise.all([
+        ask('rodo 8 horas por dia, fiz -120 na 99'), ask('recebi menos 15 da Uber, debitou taxa de cancelamento'),
+        ask('fiz -120 na 99 e gastei 20 de almoço'), ask('hoje não gastei 100 nem abasteci 90 só paguei 20 de almoço'),
+        ask('isso é um teste: recebi 930 da uber e paguei 120 de gasolina'), ask('só quero testar a frase gastei 120 de gasolina'),
+        ask('isso é um teste: recebi 930 da Uber e paguei 120 de gasolina. De verdade gastei 22 de almoço'),
+      ])
+      const pending = await ask('gastei 120 no posto')
+      const quote = await ask('a frase “foi 400” é exemplo', pending)
+      const onlyExpense = (o: typeof pending, amount: number, date?: string) => {
+        const [item, other] = o.response.actions.map(a => a.action)
+        return o.response.mode === 'propose_actions' && !other && item?.kind === 'expense' && item.amount === amount && (!date || item.date === date)
+      }
+      return {
+        negative: [negative1, negative2, mixed].map(o => o.response), denied: denied.response,
+        examples: [example1, example2, quote, followed].map(o => o.response),
+        safeNegative: [negative1, negative2].every(o => !o.response.actions.length && /negativ/i.test(o.response.reply)) && onlyExpense(mixed, 20),
+        safeDenial: onlyExpense(denied, 20, today),
+        safeExample: [example1, example2, quote].every(o => !o.response.actions.length && /exemplo/.test(o.response.reply))
+          && quote.keepPending && onlyExpense(followed, 22) && JSON.stringify(state) === snapshot,
+      }
+    }))
+    out.push(result('ZR-sinal-menos-nao-vira-receita', answers.map(x => x.negative), 'valor negativo exige esclarecimento e deixa passar o gasto afirmado', answers.every(x => x.safeNegative)))
+    out.push(result('ZR-negacao-com-data-preserva-apenas-o-fato', answers.map(x => x.denied), 'somente R$ 20 de almoço hoje', answers.every(x => x.safeDenial)))
+    out.push(result('ZR-exemplo-nao-vira-lancamento-nem-cancela-proposta', answers.map(x => x.examples), 'ignora exemplos, mantém a proposta aberta e separa o fato após o ponto', answers.every(x => x.safeExample)))
+  }
+
+  {
     const today = '2026-11-25', ontem = '2026-11-24'
     const state = motoristaRico(today)
     const snapshot = JSON.stringify(state)

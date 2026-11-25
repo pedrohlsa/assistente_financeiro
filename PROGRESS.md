@@ -7358,3 +7358,31 @@ Cada lote passou por `npm test`, os dois typechecks, a rubrica com 0 PERIGOSA e 
 - “oferta de noventa reais por dezoito km no total e uma hora e quinze totais compensa?” reconhece 75 min e calcula R$ 72/h brutos em estado sem custos cadastrados.
 
 Cada lote passou pelos cinco comandos na ordem combinada. No último, `npm test` passou com 1.897 regressões adversariais, os dois typechecks passaram, a rubrica ficou em 0 PERIGOSA e 0 RUIM e a matriz passou nas oito datas.
+
+### Transcrições com cortes, muletas e medidas (`ZP`)
+
+- “então eu fechei sete horas e meia hoje e deu trezentos de corrida” mantém a meia hora. A proposta contém 7h30 e R$ 300 hoje.
+- “trabalhei sete horas e cinqüenta e faturei 350” deixa de perguntar sobre R$ 50. Esse trecho já está na jornada de 7h50.
+- “fechei 8h no volante com 320 de corrida e 90 de gasosa e aí” reconhece os três fatos completos antes do conector final.
+- “no volante oito horas e no fim trezentos de corrida noventa de gasosa” mantém as 8h, os R$ 300 de receita e os R$ 90 de combustível.
+- “é tipo foi cento e noventa km e mais umas seis horas no volante” propõe só a jornada de 190 km e 6h. Antes, também inventava R$ 190 de despesa.
+- “ontem eu fiz tipo trezentos e quarenta na Uber e a noventa e nove entrou cento e vinte” guarda R$ 340 da Uber e R$ 120 da 99 ontem.
+- “QUATROCENTOS E QUARENTA E TRÊS E OITENTA CENTAVOS DA UBBER HJ” guarda a plataforma e os R$ 443,80.
+
+### Consultas sobre propostas (`ZQ`)
+
+- “isso deu quanto líquido?” mostra os R$ 215 só da proposta com R$ 300 de receita e R$ 85 de combustível.
+- “se confirmar como fica o lucro de ontem?” projeta o lucro de ontem com os registros propostos.
+- “quanto sobrou ontem contando os R$ 300 da proposta?” projeta somente o item de R$ 300. Com dois itens de R$ 300, pede identificar qual incluir.
+- “contando a proposta, qual foi o lucro de ontem?” aceita o escopo antes da pergunta. As quatro frases preservam a proposta e nenhuma aplica seus itens.
+
+### Negação e exemplos (`ZR`)
+
+- “rodo 8 horas por dia, fiz -120 na 99” e “recebi menos 15 da Uber, debitou taxa de cancelamento” perguntam o que aconteceu com o valor negativo. Antes, os sinais eram descartados e viravam receitas positivas.
+- “fiz -120 na 99 e gastei 20 de almoço” prepara somente o gasto afirmado e aponta o valor negativo separadamente.
+- “hoje não gastei 100 nem abasteci 90 só paguei 20 de almoço” prepara só R$ 20 de almoço hoje.
+- “isso é um teste: recebi 930 da uber e paguei 120 de gasolina” e “só quero testar a frase gastei 120 de gasolina” não preparam lançamentos.
+- “a frase ‘foi 400’ é exemplo” mantém a proposta anterior sem criar uma despesa de R$ 400.
+- “isso é um teste: recebi 930 da Uber e paguei 120 de gasolina. De verdade gastei 22 de almoço” preserva apenas os R$ 22 afirmados após o exemplo.
+
+Cada lote passou por `npm test`, os dois typechecks, a rubrica com 0 PERIGOSA e 0 RUIM e a matriz de oito datas. Na data padrão, o último passou com 1.911 regressões adversariais. O projeto segue **NOT READY**.
