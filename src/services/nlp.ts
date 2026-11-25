@@ -382,7 +382,7 @@ function verboDeConsumo(input: string): string {
  * própria e continua dinheiro.
  */
 export function voltaSemUnidade(text: string): string {
-  return text.replace(/(\d[\d.,]*\s*(?:km|quil[oô]metros?)(?![\wÀ-ÿ])[^;!?\d]*?(?:(?<![\wÀ-ÿ])e\s+|,\s*)(?:mais\s+)?)(\d[\d.,]*)(\s+(?:voltando|(?:na|de)\s+(?:volta|retorno)|no\s+retorno|pra\s+voltar))/gi,
+  return text.replace(/(\d[\d.,]*\s*(?:km|quil[oô]metros?)(?![\wÀ-ÿ])[^;!?\d]*?(?:(?<![\wÀ-ÿ])(?:e|mais)\s+|,\s*)(?:mais\s+)?)(\d[\d.,]*)(\s+(?:voltando|(?:na|de)\s+(?:volta|retorno)|no\s+retorno|pra\s+voltar))/gi,
     (_m, antes: string, n: string, depois: string) => `${antes}${n} km${depois}`)
 }
 

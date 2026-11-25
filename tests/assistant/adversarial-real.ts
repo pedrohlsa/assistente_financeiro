@@ -106,6 +106,25 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   {
     const today = '2026-11-25'
     const cases = [
+      ['qual paga mais por km 50 por 20 km mais 5 de volta ou 45 por 20 km no total', [/A segunda paga mais por km/, /25 km com 5 km de retorno/, /2,00\/km bruto/]],
+      ['uma de 28 incluindo a gorjeta de 5, 12km ida e volta, vale a pena?', [/12 km no total/, /23,00.*5,00.*28,00/, /2,33\/km bruto/]],
+      ['quanto por hora dá corrida 37 pra 7 km e 20 min só com passageiro?', [/7 km informados/, /5,29\/km bruto/, /informe o tempo total/]],
+      ['se aceitasse 35 por 6 km e meia hora, quanto ia tirar por hora?', [/6 km informados/, /70,00\/hora bruta.*30 min/]],
+      ['oferta de noventa reais por dezoito km no total e uma hora e quinze totais compensa?', [/18 km no total/, /72,00\/hora bruta.*75 min/]],
+    ] as const
+    for (const [i, [message, patterns]] of cases.entries()) {
+      const state = i < 3 ? motoristaRico(today) : buildState({ profile: 'driver' })
+      const snapshot = JSON.stringify(state)
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      out.push(result('ZO-oferta-com-volta-e-tempo-' + i, { message, response }, patterns.map(String),
+        response.mode === 'answer' && !response.actions.length && !response.unresolved.length && patterns.every(p => p.test(response.reply))
+        && (i !== 2 || !/\d,\d{2}\/hora/.test(response.reply)) && JSON.stringify(state) === snapshot))
+    }
+  }
+
+  {
+    const today = '2026-11-25'
+    const cases = [
       ['os 2 alugueis das casas 1 e 2 foram 1000 cada', undefined, true],
       ['recebi R$ 1.000 de cada uma das casas 1 e 2 ontem', '2026-11-24', false],
       ['anteontem recebi mil reais de aluguel de cada uma das casas 1 e 2', '2026-11-23', true],

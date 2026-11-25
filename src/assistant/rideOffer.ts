@@ -1,6 +1,6 @@
 import type { AppState } from '../models/types'
 import { analyzeRide, kmCost } from '../services/calc'
-import { RIDE_COMPARISON_REQUEST, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE } from '../services/nlp'
+import { RIDE_COMPARISON_REQUEST, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE, voltaSemUnidade } from '../services/nlp'
 import { isDriver } from '../services/profile'
 import { fmtBRL, fmtNum, parseMoney } from '../utils/format'
 import { normalizeName } from '../utils/text'
@@ -19,10 +19,12 @@ const UMA_DE_COM_DISTANCIA = /^(?:e\s+)?(?:(?:e\s+)?(?:essa|esta|uma|a)\s+)de\s+
 const NUMBER = String.raw`(\d+(?:[.,]\d+)*)(?!\d|[.,]\d)`
 const AMOUNT_WITH_CURRENCY = new RegExp(String.raw`(?<!-)r\$\s*${NUMBER}|(?<![\w.,-])${NUMBER}\s*(?:reais?|contos?|pila)\b`, 'g')
 const AMOUNT_AFTER_NOUN = new RegExp(String.raw`\b(?:corridas?|viagem|chamada|proposta|oferta)\s+(?:(?:da|do|na|no|pela|pelo|via)\s+(?:uber|99|indrive[r]?)\s+)?(?:(?:e\s+de|de|por|no\s+valor\s+de|que\s+(?:paga|rende|da|oferece))\s+)?${NUMBER}(?!\s*(?:kms?|quilometros?|m|metros?|h|horas?|min|minutos?|segundos?)\b)`)
-const OFFER_PRICE_HEADING = /^\s*(?:a\s+)?(?:oferta|proposta)\s+(?:e\s+de|de)\s+(?:r\$\s*)?\d/
+const OFFER_PRICE_HEADING = /^\s*(?:a\s+)?(?:oferta|proposta)\s+(?:(?:e\s+de|de)\s+)?(?:r\$\s*)?\d/
+const CONDITIONAL_ACCEPTANCE = /^se\s+(?:eu\s+)?(?:aceitasse|pegasse)\s+(?:r\$\s*)?\d/
+const OFFER_METRIC_REQUEST = /\b(?:quanto|qual)\b[^?]*\b(?:por\s+(?:hora|minuto|km|quilometro)|liquid[oa]|lucro)\b/
 const TIP_MONEY = String.raw`(?:r\$\s*)?\d+(?:[.,]\d+)*(?!\d|[.,]\d)(?:\s+reais?)?`
 const CONDITIONAL_TIP = String.raw`(?:talvez|possivelmente|se\s+(?:tiver|vier|der))`
-const TIP_DETAIL = String.raw`(?:gorjeta\s+de\s+(?<after>${TIP_MONEY})|(?<before>${TIP_MONEY})\s+de\s+gorjeta)\b`
+const TIP_DETAIL = String.raw`(?:(?:a\s+)?gorjeta\s+de\s+(?<after>${TIP_MONEY})|(?<before>${TIP_MONEY})\s+de\s+gorjeta)\b`
 const ADDITIONAL_TIP = new RegExp(String.raw`(?:(?:\s*\+\s*|\s+(?:e\s+)?mais\s+)(?:(?<maybeAfter>${CONDITIONAL_TIP})\s+)?|\s+(?:e\s+)?(?<maybeBefore>${CONDITIONAL_TIP})\s+)${TIP_DETAIL}`)
 const INCLUDED_TIP = new RegExp(String.raw`\s+(?:(?:ja\s+)?com|incluindo|contando)\s+${TIP_DETAIL}`)
 const TIP_CONDITION_AFTER = /^(?:,\s*|\s+)(?:talvez|possivelmente|(?:so|apenas)\s+se|se\s+(?:(?:o|a)\s+(?:passageir[oa]|cliente)|ele|ela|tiver|vier|der))\b/
@@ -78,7 +80,8 @@ function normalizeRideOfferText(input: string): string {
   const text = normalizeName(input).replace(/\bcompenca\b/g, 'compensa').replace(/\bvali\s+a\s+pena\b/g, 'vale a pena')
     .replace(/\bcoriida\b/g, 'corrida').replace(/\bgorgeta\b/g, 'gorjeta')
   const chunks = text.split(/,\s+/).map(part => normalizeNumberWords(part).text)
-  return expandSharedRouteUnits(chunks.join(', '))
+  const withMinutes = chunks.join(', ').replace(/\b((?:\d{1,2}|uma|duas)\s+horas?\s+e\s+\d{1,2})(?=\s+(?:totais|total|no\s+total|ao\s+todo)\b)/g, '$1 minutos')
+  return expandSharedRouteUnits(voltaSemUnidade(withMinutes))
 }
 
 function measured(t: string, units: RegExp, readValue: (match: RegExpMatchArray) => number | undefined): Measures | undefined {
@@ -278,11 +281,15 @@ export function interpretRideOffer(state: AppState, input: string, context = inp
   const enumerated = ENUMERATED_OFFERS.test(text) && COMPARA_DOIS.test(text)
   const comparesTwo = alternatives.length === 2 && (compare || COMPARA_DOIS.test(text))
     && alternatives.every(part => readOfferPrice(part, true).value !== undefined && !!part.match(DISTANCE))
-  const price = readOfferPrice(text)
-  const quotedRoute = price.value !== undefined && !!text.match(DISTANCE)
+  const conditional = CONDITIONAL_ACCEPTANCE.test(text)
+  const hasDistance = !!text.match(DISTANCE)
+  const price = readOfferPrice(text, conditional)
+  const asksOfferMetric = price.value !== undefined && hasDistance && OFFER_METRIC_REQUEST.test(text)
+    && (NOME.test(text) || OFFER_PRICE_HEADING.test(text) || conditional)
+  const quotedRoute = price.value !== undefined && hasDistance
     && (price.tip || OFFER_PRICE_HEADING.test(text) || /\b(?:ida|volta|voltando|voltar|retorno|embarque|passageiro|destino|aproximacao)\b/.test(text))
-  if ((!RIDE_EVALUATION_REQUEST.test(text) && !compare && !comparesTwo && !enumerated)
-    || (!notice && !NOME.test(text) && !comparesTwo && !enumerated && !UMA_DE_COM_DISTANCIA.test(text) && !quotedRoute)) return undefined
+  if ((!RIDE_EVALUATION_REQUEST.test(text) && !compare && !comparesTwo && !enumerated && !asksOfferMetric)
+    || (!notice && !NOME.test(text) && !comparesTwo && !enumerated && !UMA_DE_COM_DISTANCIA.test(text) && !quotedRoute && !asksOfferMetric)) return undefined
   if (perceivesDrivingFatigue(context)) return { reply: PARE_PARA_DESCANSAR }
   if (!/\d/.test(text) && !notice) return undefined
   if (compare || enumerated || alternatives.length > 1) return { reply: compareOffers(state, alternatives, text) }
@@ -384,7 +391,8 @@ function renderOffer(state: AppState, quote: Quote): RideOfferAnswer {
   const gross = `• ${fmtBRL(value / totalKm)}/km bruto`
   const incomplete = knownRoute ? '' : '\n\nSe a distância até o passageiro estiver fora desses km, diga quanto falta para recalcular.'
   if (!(cost.total > 0)) {
-    return { reply: `${head}\n\n${gross}${routeNote}${durationNote}\n\nCadastre o custo por km do veículo para estimar o lucro.${incomplete}`, done: quote }
+    const grossPerHour = minutes ? `\n• ${fmtBRL(value * 60 / minutes)}/hora bruta nos ${fmtNum(minutes)} min informados` : ''
+    return { reply: `${head}\n\n${gross}${grossPerHour}${routeNote}${durationNote}\n\nCadastre o custo por km do veículo para estimar o lucro.${incomplete}`, done: quote }
   }
   const result = analyzeRide(state, value, 0, totalKm, minutes ?? 0)
   const rows = [

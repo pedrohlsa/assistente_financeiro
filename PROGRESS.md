@@ -7331,3 +7331,30 @@ Ainda abertos:
 - “abasteci etanol 78,50 ontem e abasteci gasolina 90,25 hoje”, “abasteci 78,50 de etanol ontem e 90,25 de gasolina hoje” e “abasteci 78,50 de etanol ontem e gasolina 90,25 hoje” mantêm os mesmos dados.
 
 Cada lote passou por `npm test`, os dois typechecks, a rubrica com 0 PERIGOSA e 0 RUIM e a matriz de oito datas. O último fechou com 1.882 regressões adversariais na data padrão. O projeto segue **NOT READY**.
+
+### Consultas por app (`ZM`)
+
+- “na 99 qtos km nessa semana?” e “só na uber quanto eu rodei ontem?” explicam que a quilometragem disponível é do dia inteiro.
+- “quanto a uber pagou por corrida comparado com a 99?” explica a falta de contagem de viagens por plataforma.
+- “qual app deu mais corridas mês passado?” deixa de mostrar um ranking de receitas e explica a granularidade das viagens.
+- “dividindo pelas horas de ontem qual foi a média da 99?” explica a granularidade das horas. Antes, mostrava a média por lançamento.
+- “quanto caiu por dia da Uber este mês?” usa o rótulo de receita e a média dos dias corridos do período.
+- “quanto mais a uber deu comparado com 99 esse mês?” usa os dois apps do mesmo mês para calcular a diferença.
+
+### Aluguéis (`ZN`)
+
+- “os 2 alugueis das casas 1 e 2 foram 1000 cada” propõe uma receita de aluguel de R$ 1.000 para cada casa.
+- “recebi R$ 1.000 de cada uma das casas 1 e 2 ontem” mantém os dois recebimentos ontem. Os identificadores das casas não viram dinheiro.
+- “anteontem recebi mil reais de aluguel de cada uma das casas 1 e 2” preserva os valores ditados e a data.
+- “recebi 1k de cada casa” pergunta quais pagaram. “Casa 1 e Casa 2” completa a proposta, que continua exigindo confirmação.
+- “os 3 alugueis das casas 1 e 2 foram 1000 cada” pede que a pessoa corrija a quantidade ou a lista. A frase negativa não vira receita. Um valor dito como total não é multiplicado.
+
+### Ofertas (`ZO`)
+
+- “qual paga mais por km 50 por 20 km mais 5 de volta ou 45 por 20 km no total” inclui os 5 km de retorno na primeira oferta. A segunda paga mais por km.
+- “uma de 28 incluindo a gorjeta de 5, 12km ida e volta, vale a pena?” usa R$ 28 no total, incluindo os R$ 5 de gorjeta.
+- “quanto por hora dá corrida 37 pra 7 km e 20 min só com passageiro?” analisa a oferta e pede o tempo total para calcular por hora.
+- “se aceitasse 35 por 6 km e meia hora, quanto ia tirar por hora?” calcula R$ 70/h brutos no período informado em estado sem custos cadastrados.
+- “oferta de noventa reais por dezoito km no total e uma hora e quinze totais compensa?” reconhece 75 min e calcula R$ 72/h brutos em estado sem custos cadastrados.
+
+Cada lote passou pelos cinco comandos na ordem combinada. No último, `npm test` passou com 1.897 regressões adversariais, os dois typechecks passaram, a rubrica ficou em 0 PERIGOSA e 0 RUIM e a matriz passou nas oito datas.
