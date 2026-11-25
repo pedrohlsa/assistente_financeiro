@@ -896,11 +896,11 @@ function answerListedDays(state: AppState, question: string, today: string): str
 const PAIRED_PAYMENT = /^quanto\s+(?:eu\s+)?(entrou|caiu|recebi|ganhei|faturei|saiu|paguei|gastei)\b/
 const PAIRED_WORK = /^quant(?:o\s+(?:eu\s+)?rodei|[ao]s\s+(?:corridas?|viagens?|km|horas?))\b/
 const PAIRED_PROFIT = /^qual\s+(?:foi\s+)?(?:o\s+)?(?:meu\s+)?lucro\b/
-const PAIRED_APP = String.raw`(?:uber|99|in\s*drive[r]?)`
-const PAIRED_APP_SCOPE = String.raw`(?:n[ao]|d[ao]|pel[ao]|via)\s+${PAIRED_APP}`
-const PAIRED_APP_RECEIPT = new RegExp(String.raw`^quanto\s+(?:(?:o|a)\s+)?${PAIRED_APP}\s+(?:me\s+)?(?:pagou|repassou|entrou|rendeu)\b`)
+const RIDE_APP_NAME = String.raw`(?:uber|99|in\s*drive[r]?)`
+const PAIRED_APP_SCOPE = String.raw`(?:n[ao]|d[ao]|pel[ao]|via)\s+${RIDE_APP_NAME}`
+const PAIRED_APP_RECEIPT = new RegExp(String.raw`^quanto\s+(?:(?:o|a)\s+)?${RIDE_APP_NAME}\s+(?:me\s+)?(?:pagou|repassou|entrou|rendeu)\b`)
 const PAIRED_APP_PART = new RegExp(String.raw`^${PAIRED_APP_SCOPE}\b`)
-const PAIRED_APP_IN_TEXT = new RegExp(String.raw`\b(?:n[ao]|d[ao]|pel[ao]|via)\s+(${PAIRED_APP})\b`)
+const PAIRED_APP_IN_TEXT = new RegExp(String.raw`\b(?:n[ao]|d[ao]|pel[ao]|via)\s+(${RIDE_APP_NAME})\b`)
 const PAIRED_DAY = String.raw`(?:hoje|ontem|anteontem)`
 const PAIRED_START = String.raw`(?:quant[oa]s?|qual|(?:(?:o|a|os|as)\s+)?(?:receitas?|despesas?|gastos?|lucro|corridas?|viagens?|km|horas?)|${PAIRED_DAY}\s+quanto|${PAIRED_APP_SCOPE})\b`
 const PAIRED_SEPARATOR = new RegExp(String.raw`(?:[;,?]\s*(?:e\s+)?|\s+e\s+)(?=${PAIRED_START})|\s+(?=quanto\s+(?:entrou|saiu|caiu|recebi|ganhei|faturei|gastei|paguei)\b)`)
@@ -1297,6 +1297,89 @@ function exactMoneyAnswer(message: string, signed = false): number | undefined {
   const match = normalized.match(/^(?:(?:foi|e|deu)\s+)?(?:r\$\s*)?([-−]\s*|menos\s+)?(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s+(?:reais?|contos?))?(?:\s+(?:exat[oa]s?|certinh[oa]s?))?$/i)
   if (!match || (match[1] && !signed)) return undefined
   return (match[1] ? -1 : 1) * parseMoney(match[2])
+}
+
+const MONEY_NOTATION = /(?<![\p{L}\p{N}.,])(?:\d+(?:[.,]\d+)*e[+−-]?\d+|\d+(?:\.\d{3})*,\d{3,})(?![\p{L}\p{N}]|[.,]\d)/giu
+const MONEY_NOTATION_CONTEXT = /(?:\br\$\s*|\b(?:recebi|recebeu|ganhei|ganhou|gastei|pagou|paguei|comprei|abasteci|fiz|faturei|caiu|entrou|saiu|deu|depositei|depositou|repassou|custou|valor|foi|era|saldo)\s+(?:(?:[ée]|de|tipo|uns|umas|cerca\s+de)\s+)?[−+-]?\s*)$/i
+const MONEY_NOTATION_TAIL = /^\s*(?:reais?|contos?|pila|d[aeo]\s+(?:corridas?|combust[íi]vel|gasolina|etanol|diesel|aluguel|sal[áa]rio|ped[áa]gio|estacionamento|repasse))\b/i
+const MEASURE_AFTER_VALUE = /^\s*(?:%|(?:km|quil[oô]metros?|metros?|litros?|ml|horas?|h|min|minutos?|corridas?|viagens?)\b)/i
+const EXTRA_SIGNED_CASH = /\b(?:saiu|sa[ií]ram|pagou|depositou|repassou|transferiu)\s+(?:r\$\s*)?[−-]\s*\d/i
+const SIGNED_RIDE_APP = new RegExp(String.raw`\b${RIDE_APP_NAME}\s+(?:r\$\s*)?[−-]\s*\d`, 'i')
+const MONEY_NEXT_RIDE_FACT = new RegExp(String.raw`\s+e\s+(?=(?:(?:a|o)\s+)?${RIDE_APP_NAME}\s+(?:me\s+)?(?:pagou|depositou|repassou)\b|(?:r\$\s*)?\d[\d.,]*\s+de\s+(?:gasolina|etanol|diesel|gnv|combust[íi]vel)\b)`, 'i')
+const MONEY_RIDE_PAYMENT = new RegExp(String.raw`^(?:(?:a|o)\s+)?(${RIDE_APP_NAME})\s+(?:me\s+)?(?:pagou|depositou|repassou)\s+((?:r\$\s*)?\d[\d.,]*(?:\s+reais?)?)$`, 'i')
+
+function inspectMoneyNotation(text: string, driver: boolean, expectsAmount = false) {
+  const notes: string[] = []
+  const tokens: string[] = []
+  for (const token of text.matchAll(MONEY_NOTATION)) {
+    const after = text.slice(token.index + token[0].length)
+    if (MEASURE_AFTER_VALUE.test(after) && !/e/i.test(token[0])) continue
+    if (!expectsAmount && !MONEY_NOTATION_CONTEXT.test(text.slice(0, token.index).slice(-80)) && !MONEY_NOTATION_TAIL.test(after)) continue
+    tokens.push(token[0])
+    notes.push(`Qual foi o valor de “${token[0]}” em reais e centavos?`)
+  }
+  if (EXTRA_SIGNED_CASH.test(text) || (driver && SIGNED_RIDE_APP.test(text))) {
+    notes.push('O valor informado é negativo. Diga se foi taxa, devolução ou outro débito e qual foi o valor.')
+  }
+  return { notes, tokens }
+}
+
+async function readAfterMoneyClarification(input: OrchestratorInput, message: string, today: string): Promise<OrchestratorOutput> {
+  const result = await orchestrate({ ...input, message, pending: undefined, pendingClarification: undefined, remoteEnabled: false })
+  if (!input.pending?.length) return result
+  if (result.response.mode === 'propose_actions') {
+    return proposeDatedActions({ ...input, message, pendingClarification: undefined }, result.response.actions.map(c => c.action), buildCapabilities(input.state), today)
+  }
+  return { ...result, keepPending: true }
+}
+
+async function prepareUnsafeMoney(input: OrchestratorInput, today: string): Promise<OrchestratorOutput | undefined> {
+  const driver = isDriver(input.state.settings)
+  const awaiting = input.pendingClarification?.field === 'money-notation' ? input.pendingClarification : undefined
+  const { notes } = inspectMoneyNotation(input.message, driver, !!awaiting)
+  if (!notes.length) {
+    if (!awaiting) return undefined
+    const amount = exactMoneyAnswer(input.message, true)
+    if (!Number.isFinite(amount)) return undefined
+    if (awaiting.moneyNotation && amount >= 0) {
+      const { statement, token } = awaiting.moneyNotation
+      return readAfterMoneyClarification(input, statement.replace(token, fmtNum(amount, 2)), today)
+    }
+    const question = 'Diga o que aconteceu com esse valor em uma frase completa, com o valor e a origem.'
+    return keepPendingClarification(input, { ...awaiting, question })
+  }
+  const parts = segment(input.message, today).flatMap(part => driver ? part.text.split(MONEY_NEXT_RIDE_FACT) : [part.text])
+  const dates = findAllDates(input.message, today)
+  const [sharedDate] = dates
+  const remaining: string[] = []
+  let inheritedDate: string | undefined
+  let moneyNotation: AssistantClarification['moneyNotation']
+  for (const part of parts) {
+    const text = part.trim().replace(/[,;]+$/, '').replace(/\s+(?:e|mas)$/i, '').trim()
+    const ownDay = sharedDate?.kind === 'date' && dates.length === 1 ? findDate(part, today) : undefined
+    const temporalText = inheritedDate && !ownDay ? `em ${inheritedDate} ` : ''
+    if (ownDay?.kind === 'date') inheritedDate = ownDay.date
+    const inspection = inspectMoneyNotation(text, driver, !!awaiting)
+    if (inspection.notes.length) {
+      if (notes.length === 1 && inspection.tokens.length === 1) moneyNotation = { statement: temporalText + text, token: inspection.tokens[0] }
+      continue
+    }
+    if (!text) continue
+    const payment = driver ? text.match(MONEY_RIDE_PAYMENT) : undefined
+    const statement = payment ? `recebi ${payment[2]} da ${readRidePayoutApp(payment[1])}` : text
+    remaining.push(temporalText + statement)
+  }
+  const question = [...new Set(notes)].join('\n\n')
+  const clarification = input.pendingClarification || { field: 'money-notation', question, moneyNotation }
+  if (remaining.length < parts.length && remaining.length) {
+    const result = await readAfterMoneyClarification(input, remaining.join('; '), today)
+    const reply = `${question}\n\n${result.response.reply}`
+    if (result.response.mode === 'clarify') return { ...result, response: { ...result.response, reply } }
+    return { ...result, keepPending: true, response: { ...result.response, mode: 'clarify', reply, clarification } }
+  }
+  return { draft: input.draft || null, focus: input.focus, keepPending: true,
+    response: { version: ASSISTANT_CONTRACT_VERSION, engine: 'local', mode: 'clarify', actions: [], unresolved: [],
+      reply: input.pendingClarification ? `${question}\n\n${clarification.question}` : question, clarification } }
 }
 
 async function preparePaymentWithRemainder(input: OrchestratorInput, caps: AssistantCapabilities, today: string): Promise<OrchestratorOutput | undefined> {
@@ -2734,6 +2817,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     return { draft: input.draft || null, keepPending: true, focus: input.focus,
       response: clarification ? { ...response, mode: 'clarify', clarification } : { ...response, mode: 'answer' } }
   }
+  const numericClarification = await prepareUnsafeMoney(input, today)
+  if (numericClarification) return numericClarification
   // "Rodei 30 mil km ESSE ANO?", "gastei 500 esse mês?": conferência de um
   // total, não lançamento de um dia (regra 33a). Virava 30.000 km de trabalho
   // hoje, com "Esse mês" de descrição. Vira a consulta do período.

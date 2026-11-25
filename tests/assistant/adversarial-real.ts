@@ -105,6 +105,64 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
 
   {
     const today = '2026-11-25', yesterday = '2026-11-24'
+    const rich = motoristaRico(today)
+    const cases = [
+      ['fiz 1e9 na Uber hoje', '1e9'],
+      ['recebi 2,5e3 na Uber ontem', '2,5e3'],
+      ['gastei 85,505 de etanol hoje', '85,505'],
+      ['ganhei 99,000 na Uber', '99,000'],
+      ['paguei R$85,5010 de etanol hoje', '85,5010'],
+      ['recebi 2.345,678 de aluguel', '2.345,678'],
+    ] as const
+    for (const [i, [message, invalid]] of cases.entries()) {
+      const state = i === 5 ? autonomoRico(today) : i % 2 ? buildState({ profile: 'driver' }) : rich
+      const snapshot = JSON.stringify(state)
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      out.push(result('XB-numero-ambiguo-nao-vira-dinheiro-' + i, { message, response }, 'pede o valor exato sem propor o número ambíguo',
+        response.mode === 'clarify' && !response.actions.length && response.reply.includes(invalid) && /centavos/i.test(response.reply)
+        && JSON.stringify(state) === snapshot))
+    }
+    const mixed = [
+      ['ontem gastei 85,505 de etanol e recebi 300 da Uber', '85,505', 'income', 300, 'Uber', yesterday],
+      ['recebi R$ 1e+6 de um cliente ontem e gastei 20 de almoço', '1e+6', 'expense', 20, undefined, yesterday],
+      ['pedágio saiu −8 ontem e ganhei 45 na uber', 'negativo', 'income', 45, 'Uber', yesterday],
+      ['ontem na uber -250 de repasse e 120 de gasolina', 'negativo', 'fuel', 120, undefined, yesterday],
+      ['99 depositou -100,50 e uber pagou 230', 'negativo', 'income', 230, 'Uber', today],
+    ] as const
+    const snapshot = JSON.stringify(rich)
+    for (const [i, [message, note, kind, amount, platform, date]] of mixed.entries()) {
+      const { response } = await orchestrate({ state: rich, message, today, remoteEnabled: false })
+      const [item, extra] = response.actions.map(c => c.action)
+      out.push(result('XB-numero-ambiguo-preserva-o-fato-independente-' + i, { message, response }, { kind, amount, platform, date, note },
+        ['propose_actions', 'clarify'].includes(response.mode) && !extra && item?.kind === kind && item.amount === amount
+        && (item.date || today) === date && (item.kind !== 'income' || item.description === platform)
+        && response.reply.includes(note) && /confirmar/i.test(response.reply) && JSON.stringify(rich) === snapshot))
+    }
+    const chats = [
+      [['ontem ganhei 240 na Uber', 'gastei 85,505 de etanol hoje', '85,50'], [['income', 240, yesterday], ['fuel', 85.5, today]]],
+      [['fiz 1e9 na Uber hoje', '290,75'], [['income', 290.75, today]]],
+      [['ontem gastei 85,505 de etanol e recebi 300 da Uber', '85,50'], [['income', 300, yesterday], ['fuel', 85.5, yesterday]]],
+      [['pedágio saiu −8 ontem e ganhei 45 na uber', '8'], [['income', 45, yesterday]]],
+    ] as const
+    for (const [i, [messages, expected]] of chats.entries()) {
+      let pending: AssistantCandidateAction[] | undefined
+      let last: Awaited<ReturnType<typeof orchestrate>> | undefined
+      for (const message of messages) {
+        last = await orchestrate({ state: rich, message, today, remoteEnabled: false, pending,
+          pendingClarification: last?.response.mode === 'clarify' ? last.response.clarification : undefined,
+          draft: last?.draft || undefined, focus: last?.focus })
+        if (last.response.actions.length) pending = last.response.actions
+        else if (!last.keepPending) pending = undefined
+      }
+      const actual = (pending || []).map(({ action }) => ['date' in action && action.kind, 'amount' in action && action.amount, 'date' in action && (action.date || today)]).sort()
+      out.push(result('XB-numero-ambiguo-resposta-nao-edita-outro-item-' + i, { messages, response: last?.response, actual }, expected,
+        last?.response.mode === (i === 3 ? 'clarify' : 'propose_actions') && JSON.stringify(actual) === JSON.stringify([...expected].sort())
+        && JSON.stringify(rich) === snapshot))
+    }
+  }
+
+  {
+    const today = '2026-11-25', yesterday = '2026-11-24'
     const state = motoristaRico(today)
     const snapshot = JSON.stringify(state)
     const ask = (message: string, last?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({ state, message, today, remoteEnabled: false,

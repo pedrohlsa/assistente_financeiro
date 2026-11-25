@@ -457,6 +457,8 @@ export interface AssistantClarification {
   rideOffer?: PendingRideOffer
   /** Compra dividida que precisa de uma data comum a todos os meios de pagamento. */
   pendingPaymentText?: string
+  /** Relato local à espera de um valor escrito sem ambiguidade. */
+  moneyNotation?: { statement: string; token: string }
   workHoursEdit?: import('./editWorkHours').WorkHoursEdit
   /** Valor ainda não recebido na jornada, à espera de separar por plataforma. */
   rideShiftUnpaid?: number
