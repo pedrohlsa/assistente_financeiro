@@ -400,7 +400,8 @@ export function rideAppFollowUp(question: string, said: string): string | undefi
 export function compareRideApps(state: AppState, input: string, today: string): string | undefined {
   if (!isDriver(state.settings) || !/\b(?:uber|99|noventa|in\s*drive[r]?|i\s*food|rappi|apps?|aplicativos?|plataformas?)\b/i.test(input)) return undefined
   const t = normalizeName(normalizeNumberWords(input).text).trim().replace(/^(e\s+)?(?:qto|qnto|qt)\s+/, '$1quanto ')
-  if (/\b(?:gastei|paguei|quanto\s+custa|sem\s+contar|somando|juntas?|exceto|acima|abaixo)\b/.test(t)
+  const allAppsTotal = /^quanto\s+(?:eu\s+)?(?:ganhei|recebi|caiu|entrou|faturei)\b[^?,;]*\bsomando\s+todos\s+os\s+(?:apps|aplicativos)\s*\??$/.test(t)
+  if (/\b(?:gastei|paguei|quanto\s+custa|sem\s+contar|juntas?|exceto|acima|abaixo)\b/.test(t) || (!allAppsTotal && /\bsomando\b/.test(t))
     || /[,;]\s*(?:eu\s+)?(?:recebi|ganhei|trabalhei|rodei|abasteci)\b/.test(t)) return undefined
   const names = [...new Set([...t.matchAll(NAMED_RIDE_APPS)].flatMap(m => {
     if (m[0] === '99' && /r\$\s*$/.test(t.slice(0, m.index))) return []
@@ -452,7 +453,8 @@ export function compareRideApps(state: AppState, input: string, today: string): 
     return 'Para calcular o lucro por plataforma, preciso dos custos de cada app. O histórico guarda os custos em conjunto. Posso consultar o total recebido de cada plataforma.'
   }
   if (!gap && !namedRate && /\bcomparad[oa]\s+(?:com|a)\b/.test(t)) return undefined
-  if (!ranking && !gap && !direction && !namedRate && !(names.length > 1 && APP_COMPARISON.test(t))) return undefined
+  const sumPlatforms = allAppsTotal && !names.length
+  if (!sumPlatforms && !ranking && !gap && !direction && !namedRate && !(names.length > 1 && APP_COMPARISON.test(t))) return undefined
   const saidPeriod = parsePeriod(t, today)?.period
   if (!saidPeriod && /\b(?:ultima\s+quinzena|ultimos\s+meses)\b/.test(t)) return undefined
   if (metric) {
@@ -471,6 +473,11 @@ export function compareRideApps(state: AppState, input: string, today: string): 
     version: QUERY_DSL_VERSION, source: 'transactions', field: 'amount', period, group: 'platform',
     filter: { txType: ['income'], categories: ['corridas'] }, metric: 'sum', order: 'value-desc', limit: 8,
   }, today)
+  if (sumPlatforms) {
+    if (!result.groups.length) return `Não tenho receitas com plataforma identificada ${period.label}.`
+    const total = result.groups.reduce((sum, app) => sum + app.value, 0)
+    return `Total recebido nos apps ${period.label}: ${fmtBRL(total)}. Somei as receitas com plataforma identificada no histórico.`
+  }
   const selected = names.length ? names : result.groups.map(group => group.key)
   const rows = selected.map(name => ({ name, value: result.groups.find(g => g.key === name) }))
   const found = rows.flatMap(({ value }) => value ? [value] : []).sort((a, b) => b.value - a.value)

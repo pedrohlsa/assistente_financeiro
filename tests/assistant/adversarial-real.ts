@@ -104,6 +104,58 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const today = '2026-11-25', yesterday = '2026-11-24', monday = '2026-11-23'
+    const state = motoristaRico(today)
+    state.transactions.push({ id: 'zy-despesa-terca', type: 'expense', amount: 17.26, category: 'alimentacao', date: yesterday },
+      { id: 'zy-despesa-dia-22', type: 'expense', amount: 53.84, category: 'alimentacao', date: '2026-11-22' },
+      { id: 'zy-particular', type: 'income', category: 'corridas', amount: 91, date: today, description: 'Particular' })
+    const snapshot = JSON.stringify(state)
+    const stats = (date: string) => periodStats(state, date, date, today)
+    const receipts = (app: string, from: string, to = from) => fmtBRL(state.transactions.filter(t => t.type === 'income' && t.description === app
+      && t.date >= from && t.date <= to).reduce((sum, t) => sum + t.amount, 0))
+    const income = (date: string) => fmtBRL(stats(date).income)
+    const expense = (date: string) => fmtBRL(stats(date).expense)
+    const profit = (date: string) => fmtBRL(stats(date).profit)
+    const cases = [
+      ['quanto caiu da 99 ontem e quanto caiu hoje?', `na 99 ontem: ${receipts('99', yesterday)}`, `na 99 hoje: ${receipts('99', today)}`],
+      ['quanto entrou na segunda e quanto saiu na terça?', `23/11/2026: ${income(monday)}`, `24/11/2026: ${expense(yesterday)}`],
+      ['receita de ontem e despesa de hoje', `ontem: ${income(yesterday)}`, `hoje: ${expense(today)}`],
+      ['ontem gastei quanto e hoje quanto?', `ontem: ${expense(yesterday)}`, `hoje: ${expense(today)}`],
+      ['quanto ganhei na Uber ontem e na 99 hoje?', `na Uber ontem: ${receipts('Uber', yesterday)}`, `na 99 hoje: ${receipts('99', today)}`],
+      ['corridas de ontem e km de hoje', `Viagens ontem: ${stats(yesterday).trips}`, `Km rodados hoje: ${stats(today).km} km`],
+      ['quanto rodei ontem e quantas horas hoje?', `Km rodados ontem: ${stats(yesterday).km} km`, 'Horas trabalhadas hoje: 8h'],
+      ['qnto entrou dia 20 e qnto saiu dia 22?', `20/11/2026: ${income('2026-11-20')}`, `22/11/2026: ${expense('2026-11-22')}`],
+      ['o lucro de ontem e o lucro de anteontem', `ontem: ${profit(yesterday)}`, `anteontem: ${profit(monday)}`],
+      ['quantas corridas e quantos km ontem?', `Viagens ontem: ${stats(yesterday).trips}`, `Km rodados ontem: ${stats(yesterday).km} km`],
+      ['quanto entrou ontem da Uber quanto entrou hoje da Uber', `na Uber ontem: ${receipts('Uber', yesterday)}`, `na Uber hoje: ${receipts('Uber', today)}`],
+      ['quanto a Uber repassou na semana passada e quanto a 99 entrou nessa semana?', `na Uber na semana passada: ${receipts('Uber', '2026-11-12', '2026-11-18')}`, `na 99 nos últimos 7 dias: ${receipts('99', '2026-11-19', today)}`],
+      ['me diz quanto ganhei ontem e quanto a Uber repassou hoje', `ontem: ${income(yesterday)}`, `na Uber hoje: ${receipts('Uber', today)}`],
+      ['quanto caiu na 99 ontem e quanto caiu hoje somando todos os apps?', `na 99 ontem: ${receipts('99', yesterday)}`, `hoje: ${fmtBRL(stats(today).income - 91)}`],
+      ['quanto entrou ontem e quantos km hoje na Uber?', `ontem: ${income(yesterday)}`, 'quilômetros para o dia inteiro'],
+    ] as const
+    for (const [i, [message, first, second]] of cases.entries()) {
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      out.push(result('ZY-consultas-independentes-' + i, { message, response }, [first, second], response.mode === 'answer' && !response.actions.length
+        && !response.unresolved.length && response.reply.includes(first) && response.reply.indexOf(second) > response.reply.indexOf(first)
+        && JSON.stringify(state) === snapshot))
+    }
+    const previous = await orchestrate({ state, message: 'ganhei 240 na Uber hoje', today, remoteEnabled: false })
+    const ask = (message: string, last: typeof previous) => orchestrate({ state, message, today, remoteEnabled: false,
+      pending: last.response.actions.length ? last.response.actions : last.keepPending ? previous.response.actions : undefined,
+      pendingClarification: last.response.mode === 'clarify' ? last.response.clarification : undefined, draft: last.draft || undefined, focus: last.focus })
+    const paired = await ask('quanto caiu da 99 ontem e quanto caiu hoje?', previous)
+    const follow = await ask('e ontem?', paired)
+    out.push(result('ZY-consultas-independentes-continuacao', [paired, follow], 'mantém a proposta e usa a plataforma da última consulta em “e ontem?”',
+      previous.response.mode === 'propose_actions' && paired.response.mode === 'answer' && paired.response.reply.includes(`na 99 hoje: ${receipts('99', today)}`)
+      && paired.keepPending && !paired.response.actions.length && follow.keepPending && !follow.response.actions.length
+      && follow.response.reply.includes(`na 99 ontem: ${receipts('99', yesterday)}`) && JSON.stringify(state) === snapshot))
+    const profile = await orchestrate({ state: autonomoRico(today), message: 'quanto entrou da Casa 1 dia 5 e quanto saiu de obra dia 4?', today, remoteEnabled: false })
+    out.push(result('ZY-consultas-independentes-autonomo-dias-e-filtros', profile.response, [fmtBRL(1800), fmtBRL(520)],
+      profile.response.mode === 'answer' && !profile.response.actions.length && !profile.response.unresolved.length
+      && profile.response.reply.includes(`Casa 1 em 05/11/2026: ${fmtBRL(1800)}`) && profile.response.reply.includes(`04/11/2026: ${fmtBRL(520)}`)))
+  }
+
+  {
     const today = '2026-11-25'
     const state = motoristaRico(today)
     const snapshot = JSON.stringify(state)

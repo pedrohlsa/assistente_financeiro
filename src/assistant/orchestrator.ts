@@ -43,7 +43,7 @@ import { classifyLocalDecision } from './semantic/confidence'
 import { modalidadeExplicita, planoContradizModalidade } from './semantic/modality'
 import { semAlegacaoDeExecucao } from './claims'
 import { composeAnswer, explainQueryResult, isQueryFailure, runQuery, validateQueryPlan } from './query'
-import { looksLikeDataQuestion, PAYER_PRONOUN_QUERY, planQuery } from './query/parse'
+import { looksLikeDataQuestion, normalizeQuery, PAYER_PRONOUN_QUERY, planQuery } from './query/parse'
 import { namedCalendarWeek, parsePeriod, weekdayInCalendarWeek } from './query/period'
 import { rememberQuery } from './conversation'
 import type { RepairedText } from './semantic/normalize'
@@ -890,6 +890,88 @@ function answerListedDays(state: AppState, question: string, today: string): str
     : viagens ? `${total} ${total === 1 ? 'viagem' : 'viagens'}` : formatValue(total, unit as FactUnit)
   const summary = total === undefined ? '' : `\n\nTotal dos ${days.length === 2 ? 'dois' : days.length} dias: ${totalTexto}.`
   return readings.map(r => r.reply).join('\n\n') + summary
+}
+
+const PAIRED_PAYMENT = /^quanto\s+(?:eu\s+)?(entrou|caiu|recebi|ganhei|faturei|saiu|paguei|gastei)\b/
+const PAIRED_WORK = /^quant(?:o\s+(?:eu\s+)?rodei|[ao]s\s+(?:corridas?|viagens?|km|horas?))\b/
+const PAIRED_PROFIT = /^qual\s+(?:foi\s+)?(?:o\s+)?(?:meu\s+)?lucro\b/
+const PAIRED_APP = String.raw`(?:uber|99|in\s*drive[r]?)`
+const PAIRED_APP_SCOPE = String.raw`(?:n[ao]|d[ao]|pel[ao]|via)\s+${PAIRED_APP}`
+const PAIRED_APP_RECEIPT = new RegExp(String.raw`^quanto\s+(?:(?:o|a)\s+)?${PAIRED_APP}\s+(?:me\s+)?(?:pagou|repassou|entrou|rendeu)\b`)
+const PAIRED_APP_PART = new RegExp(String.raw`^${PAIRED_APP_SCOPE}\b`)
+const PAIRED_APP_IN_TEXT = new RegExp(String.raw`\b(?:n[ao]|d[ao]|pel[ao]|via)\s+(${PAIRED_APP})\b`)
+const PAIRED_DAY = String.raw`(?:hoje|ontem|anteontem)`
+const PAIRED_START = String.raw`(?:quant[oa]s?|qual|(?:(?:o|a|os|as)\s+)?(?:receitas?|despesas?|gastos?|lucro|corridas?|viagens?|km|horas?)|${PAIRED_DAY}\s+quanto|${PAIRED_APP_SCOPE})\b`
+const PAIRED_SEPARATOR = new RegExp(String.raw`(?:[;,?]\s*(?:e\s+)?|\s+e\s+)(?=${PAIRED_START})|\s+(?=quanto\s+(?:entrou|saiu|caiu|recebi|ganhei|faturei|gastei|paguei)\b)`)
+const PAIRED_DAY_ONLY = new RegExp(String.raw`^(${PAIRED_DAY})\s+quanto$`)
+const PAIRED_QUESTION_INVERTED = new RegExp(String.raw`^(${PAIRED_DAY})\s+(entrou|caiu|recebi|ganhei|faturei|saiu|gastei|paguei)\s+quanto$`)
+const PAIRED_PAYMENT_DATE_ONLY = new RegExp(String.raw`^quanto\s+(?:(?:eu)\s+)?(?:entrou|caiu|recebi|ganhei|faturei)\s+${PAIRED_DAY}$`)
+const PAIRED_STATEMENT = /(?:[,;.]|\be\b|\bmas\b)\s*(?:eu\s+)?(?:recebi|ganhei|gastei|paguei|entrou|saiu|rodei|trabalhei|abasteci|fiz)\s+(?:r\$\s*)?\d/
+
+function historySubquestion(part: string): string {
+  const inverted = part.match(PAIRED_QUESTION_INVERTED)
+  if (inverted) return `quanto ${inverted[2]} ${inverted[1]}`
+  const noun = part.match(/^(?:(?:o|a|os|as)\s+)?(lucro|corridas?|viagens?|km|horas?)\s+de\s+(.+)$/)
+  if (noun) {
+    const [, metric, date] = noun
+    return `${metric === 'lucro' ? 'qual foi o lucro' : metric === 'km' ? 'quantos km' : `quantas ${metric}`} ${date}`
+  }
+  return (perguntaNominal(part) || part).replace(/\?+$/, '')
+}
+
+function partWithPeriod(text: string, today: string) {
+  let period = parsePeriod(text, today)?.period
+  // "Dia 20" sem mês só resolve aqui quando designa um dia passado inequívoco.
+  if (!period && /\bdia\s+\d{1,2}\b/.test(text)) {
+    const dates = findAllDates(text, today)
+    const [day] = dates
+    if (dates.length !== 1 || day.kind !== 'date' || day.date > today) return { text, period, uncertain: true }
+    text = `${text.slice(0, day.start).replace(/\b(?:no|em)\s*$/, '').trim()} em ${day.date} ${text.slice(day.end)}`.trim()
+    period = parsePeriod(text, today)?.period
+  }
+  return { text, period, uncertain: period?.future === true }
+}
+
+function answerPairedHistory(state: AppState, question: string, today: string): { reply: string; focus?: ConversationFocus } | undefined {
+  const clean = normalizeQuery(question).replace(/[.!?]+$/, '')
+  if (/\bproposta\b/.test(clean)) return undefined
+  const parts = clean.split(PAIRED_SEPARATOR)
+  if (parts.length !== 2) return undefined
+  const [first, second] = parts.map(p => historySubquestion(p.trim()))
+  const payment = first.match(PAIRED_PAYMENT)?.[1]
+  const dayOnly = second.match(PAIRED_DAY_ONLY)?.[1]
+  const app = first.match(PAIRED_APP_IN_TEXT)?.[1]
+  const followApp = app && payment && /^(?:ganhei|recebi|entrou|caiu|faturei)$/.test(payment) && PAIRED_APP_PART.test(second)
+    && parsePeriod(first, today) && parsePeriod(second, today)
+  const repeated = payment && (dayOnly || (payment === second.match(PAIRED_PAYMENT)?.[1] && PAIRED_PAYMENT_DATE_ONLY.test(second)))
+  const secondQuestion = followApp ? `quanto ${payment} ${second}`
+    : dayOnly && payment ? `quanto ${payment} ${dayOnly}` : second
+  const completed = repeated && app && !PAIRED_APP_IN_TEXT.test(secondQuestion) ? `${secondQuestion} da ${app}` : secondQuestion
+  const queries = [first, completed]
+  if (!queries.every(text => PAIRED_PAYMENT.test(text) || PAIRED_WORK.test(text) || PAIRED_PROFIT.test(text) || PAIRED_APP_RECEIPT.test(text))) return undefined
+  if (PAIRED_STATEMENT.test(normalizeNumberWords(clean).text)) return undefined
+  const subjects = queries.map(text => partWithPeriod(text, today))
+  const shared = subjects.find(part => part.period)?.period
+  if (!shared || subjects.some(part => part.uncertain)) return undefined
+  const readings = subjects.map(({ text, period }) => {
+    const date = period || shared
+    const subquestion = `${period ? text : `${text} ${date.label}`}?`
+    const appReply = compareRideApps(state, subquestion, today)
+    if (appReply) return { reply: appReply, focus: undefined }
+    const answer = answerConversation(state, subquestion, { today })
+    const plan = answer?.kind === 'query' ? answer.focus.lastQueryPlan : undefined
+    if (plan?.period.from !== date.from || plan.period.to !== date.to) return undefined
+    const verb = text.match(PAIRED_PAYMENT)?.[1]
+    if (verb || PAIRED_APP_RECEIPT.test(text)) {
+      const direction = /^(?:saiu|paguei|gastei)$/.test(verb ?? '') ? 'expense' : 'income'
+      if (plan.source !== 'transactions' || plan.filter.txType?.length !== 1 || plan.filter.txType[0] !== direction) return undefined
+    }
+    if (PAIRED_WORK.test(text) && plan.source !== 'work') return undefined
+    if (PAIRED_PROFIT.test(text) && plan.metric !== 'net') return undefined
+    return answer
+  })
+  if (readings.some(r => !r)) return undefined
+  return { reply: readings.map(r => r.reply).join('\n\n'), focus: readings[1].focus || readings[0].focus }
 }
 
 /**
@@ -2653,6 +2735,12 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
       out.response = { ...out.response, reply: 'Não separo por período do dia: guardo a hora em que cada valor foi registrado, não a hora em que aconteceu. Considerei o dia inteiro.\n\n' + out.response.reply }
     }
     return out
+  }
+  if (!input.pendingClarification && !input.draft) {
+    const history = answerPairedHistory(input.state, input.message, today)
+    if (history) return withPendingAnswer(input, { draft: null, focus: history.focus || input.focus,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply: history.reply },
+    }, today, state => answerPairedHistory(state, input.message, today)?.reply)
   }
   // "Gastos dessa semana", "saldo?": pergunta telegráfica vira a pergunta com
   // verbo que o app responde. Resposta a uma opção oferecida fica como está.
