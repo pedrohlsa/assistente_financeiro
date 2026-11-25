@@ -5,12 +5,18 @@
 | “de terça pra quarta fiz 210 de corrida” | Propôs R$ 210 na terça. | A jornada pode cruzar a meia-noite. Falta decidir se o relato usa o início, o fim ou o dia de recebimento. |
 | “terça entrei 200 na Uber e quarta 130 na 99”, dito numa quarta | Propôs os dois valores na terça. | O segundo valor precisa de data própria. “Quarta”, dita numa quarta sem “hoje” ou “passada”, pode ter duas leituras. |
 | “fiz 250 ontem e 200 hoje na Uber” | Propôs R$ 250 ontem sem plataforma e R$ 200 hoje na Uber. | A plataforma no fim pode qualificar os dois valores. Falta evidência para atribuir a Uber aos R$ 250. |
-| “quanto caiu da 99 ontem e quanto caiu hoje?” | Respondeu só o valor da 99 de ontem. | A segunda pergunta precisa de resposta. A plataforma pode ser herdada nessa construção paralela. |
-| “os 85 foram hoje”, com abastecimento de R$ 85 e outros itens na proposta | Perguntou se os R$ 85 foram ganho ou gasto. | Falta selecionar o item pelo valor e corrigir a data. |
 | “Casa 1 e Casa 2 pagaram 1500 no total” | Consultou o histórico e disse que não encontrou registros. | Sabe-se o total, mas falta a divisão por origem. |
 | “o que entrou na conta ontem ou nada?” | Respondeu com vencimentos futuros. | A pergunta pede histórico de entradas de ontem. |
 | “só 3 pra pegar e 9 até lá”, após uma oferta de 12 km | Caiu na ajuda. | A unidade implícita depende da oferta anterior e precisa de reconciliação com o total. |
 | “recebi 450 mas foi adiantamento do cartão, vou ter que devolver” | Propôs receita comum de R$ 450. | Falta distinguir crédito a devolver de ganho realizado. |
-| “passei por um pedágio de 8 ontem nessa corrida que rendeu 45” | Caiu na ajuda. | É um relato passado, com receita e gasto de pedágio. |
 | “proposta de 36 por 12km no total, tem taxa?” | Disse que não conseguiu ler o valor. | A tarifa e a distância estão claras. A taxa depende do que aparece na oferta. |
 | “compare corrida de 40 por 12km no total com pedágio de 10 ou corrida de 35 por 12km no total sem pedágio” | Perguntou quem cobre o pedágio antes de comparar. | A comparação ainda precisa carregar as duas ofertas para aceitar uma resposta curta. |
+| “e hoje quanto caiu?”, após “quanto caiu da 99 ontem?” | Disse que não havia lançamento hoje. | O pedido em outro turno pode herdar a plataforma do foco. |
+| “anteontem quanto de corrida e quanto de gasolina?” | Procurou “corrida” como texto e não respondeu a gasolina. | As categorias e o dia compartilhado precisam ficar explícitos. |
+| “quanto no saldo ontem e quanto hoje?” | Respondeu apenas o saldo atual e os próximos vencimentos. | O histórico pode não ter o saldo de ontem quando há ajuste manual. |
+| “os 170 km foram hoje”, com horas e viagens da mesma jornada | Pediu reescrever. | Mover só os km de dia exige separar as medidas da jornada proposta. |
+| “85 hj”, com um item de R$ 85 na proposta | Perguntou se o valor foi ganho ou gasto. | Pode ser correção de data ou um segundo lançamento de mesmo valor. |
+| “a Uber enviou 45 e eu paguei 8 de estacionamento” | Propôs o estacionamento e deixou os R$ 45 em aberto. | Envio pode ser repasse efetivamente recebido ou transferência em trânsito. |
+| “a corrida deu 45 com 5 de gorjeta e paguei 8 de pedágio” | Propôs só o pedágio. | Preservar o gasto e esclarecer se a gorjeta já faz parte dos R$ 45. |
+| “ganhei 45 líquido na 99, a taxa já saiu 8” | Propôs R$ 45 líquidos e mais uma despesa de R$ 8. | Uma taxa já abatida não deve reduzir de novo o recebido. |
+| “paguei 8 de pedágio ontem na corrida e quanto sobrou dos 45?” | Preparou o pedágio e respondeu o resultado mensal projetado. | A pergunta usa os R$ 45 ditos, com conta de R$ 37 antes de outros custos. |

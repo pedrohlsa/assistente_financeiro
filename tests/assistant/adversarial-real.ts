@@ -104,6 +104,60 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const today = '2026-11-25', yesterday = '2026-11-24'
+    const state = motoristaRico(today)
+    const snapshot = JSON.stringify(state)
+    const ask = (message: string, last?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({ state, message, today, remoteEnabled: false,
+      pending: last?.response.actions, pendingClarification: last?.response.mode === 'clarify' ? last.response.clarification : undefined,
+      draft: last?.draft || undefined, focus: last?.focus })
+    const money = (out: Awaited<ReturnType<typeof orchestrate>>) => out.response.actions.map(c => c.action)
+      .flatMap(a => a.kind === 'income' || a.kind === 'expense' ? [[a.kind, a.amount, a.category, a.kind === 'income' ? a.description : undefined, a.date ?? today]] : [])
+    const cases = [
+      ['pedágio saiu 8 e corrida rendeu 45 ontem', 8, 45, undefined, yesterday],
+      ['paguei pedágio oito e cinquenta e a corrida da 99 pagou quarenta e quatro', 8.5, 44, '99', today],
+      ['45 de corrida e 8 de pedagio pago por mim', 8, 45, undefined, today],
+      ['passei no sem parar saiu 8,25, ganhei 45 na Uber ontem', 8.25, 45, 'Uber', yesterday],
+      ['gastei oito e vinte e cinco no pedagio ontem, e deu 45 na corrida', 8.25, 45, undefined, yesterday],
+      ['ontem saiu 8 no pedagio e caiu 45 da 99', 8, 45, '99', yesterday],
+      ['pedágio saiu 8 e corrida rendeu 45 ontem no curso da noite', 8, 45, undefined, yesterday],
+    ] as const
+    for (const [i, [message, expense, income, app, date]] of cases.entries()) {
+      const turn = await ask(message)
+      const expected = [['expense', expense, 'pedagio', undefined, date], ['income', income, 'corridas', app, date]].sort()
+      out.push(result('XA-pedagio-e-receita-com-sentido-' + i, { message, response: turn.response }, expected,
+        turn.response.mode === 'propose_actions' && !turn.response.unresolved.length && turn.response.actions.length === 2
+        && JSON.stringify(money(turn).sort()) === JSON.stringify(expected) && JSON.stringify(state) === snapshot))
+    }
+    for (const [i, [message, amount, category]] of [['pedágio saiu 8 ontem', 8, 'pedagio'],
+      ['ontem saiu 8 no pedagio', 8, 'pedagio'], ['ontem estacionamento saiu 6,75', 6.75, 'estacionamento']].entries()) {
+      const turn = await ask(String(message))
+      const expected = [['expense', amount, category, undefined, yesterday]]
+      out.push(result('XA-pedagio-e-receita-custo-avulso-' + i, { message, response: turn.response }, expected,
+        turn.response.mode === 'propose_actions' && !turn.response.unresolved.length && turn.response.actions.length === 1
+        && JSON.stringify(money(turn)) === JSON.stringify(expected)))
+    }
+    const passenger = await ask('ontem teve pedágio de 8, o passageiro que pagou, caiu 45 da 99')
+    const future = await ask('deu 45 de corrida, vou pagar 8 de pedágio amanhã')
+    out.push(result('XA-pedagio-e-receita-sem-gasto-real', [passenger.response, future.response], 'propõe só a receita e explica por que o pedágio ficou fora',
+      passenger.response.mode === 'propose_actions' && passenger.response.actions.length === 1 && /passageiro/i.test(passenger.response.reply)
+      && JSON.stringify(money(passenger)) === JSON.stringify([['income', 45, 'corridas', '99', yesterday]])
+      && ['propose_actions', 'answer_and_actions'].includes(future.response.mode) && future.response.actions.length === 1
+      && /amanhã/i.test(future.response.reply) && JSON.stringify(money(future)) === JSON.stringify([['income', 45, 'corridas', undefined, today]])))
+    const noPayer = await ask('passei por um pedágio de 8 ontem nessa corrida que rendeu 45')
+    const driverPaid = await ask('eu paguei', noPayer)
+    const either = await ask('ontem fiz 45 de corrida e 8 de pedágio ou foi 9, nao lembro')
+    const chosen = await ask('9', either)
+    for (const [id, question, confirmation, amount] of [['quem-pagou', noPayer, driverPaid, 8], ['qual-valor', either, chosen, 9]] as const) {
+      out.push(result('XA-pedagio-e-receita-' + id, [question.response, confirmation.response], 'preserva receita e completa apenas o pedágio esclarecido',
+        question.response.mode === 'clarify' && question.response.actions.length === 1 && question.response.reply.includes('pedágio')
+        && JSON.stringify(money(question)) === JSON.stringify([['income', 45, 'corridas', undefined, yesterday]])
+        && confirmation.response.mode === 'propose_actions' && confirmation.response.actions.length === 2
+        && JSON.stringify(money(confirmation).sort()) === JSON.stringify([['expense', amount, 'pedagio', undefined, yesterday], ['income', 45, 'corridas', undefined, yesterday]].sort())
+        && JSON.stringify(state) === snapshot))
+    }
+  }
+
+  {
     const today = '2026-11-25', yesterday = '2026-11-24', monday = '2026-11-23'
     const state = motoristaRico(today)
     const snapshot = JSON.stringify(state)

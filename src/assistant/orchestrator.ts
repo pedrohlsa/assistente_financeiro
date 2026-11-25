@@ -29,6 +29,7 @@ import { buildRemoteConversation } from './conversation/remoteContext'
 import type { RemoteConversationContext, RemoteTurnRelation } from './conversation/remoteContext'
 import { buildTurnPlan, hasBlock } from './semantic/turn'
 import { parseDriverDay, readShiftWithAppHours, reportedWorkMinutes } from './semantic/driverDay'
+import { readRoadReport } from './semantic/roadReport'
 import { formatValue } from './query/answer'
 import type { FactUnit } from './query/types'
 import { parseTypedPairs } from './semantic/pairs'
@@ -1615,6 +1616,34 @@ function keepActionsAwaitingClarification(input: OrchestratorInput, result: Orch
     response: { ...result.response, mode: 'clarify', reply, clarification } }
 }
 
+function prepareRoadReport(input: OrchestratorInput, caps: AssistantCapabilities, today: string): OrchestratorOutput | undefined {
+  const report = readRoadReport(input.message, today)
+  if (!report) return undefined
+  const { income, cost, alternative, payer, futureLabel } = report
+  if (!income) return proposeDatedActions(input, [cost], caps, today)
+  if (payer === 'driver' && !alternative) return proposeDatedActions(input, [income, cost], caps, today)
+
+  const result = proposeDatedActions(input, [income], caps, today)
+  const label = cost.category === 'pedagio' ? 'pedágio' : 'estacionamento'
+  if (alternative) {
+    return keepActionsAwaitingClarification(input, result, {
+      field: 'amount-choice',
+      question: `Qual foi o valor do ${label}: ${fmtBRL(cost.amount)} ou ${fmtBRL(alternative.amount)}?`,
+      options: [cost, alternative].map(action => ({ label: fmtBRL(action.amount), value: String(action.amount), actions: [action] })),
+    })
+  }
+  if (payer === 'unknown') {
+    return keepActionsAwaitingClarification(input, result, {
+      field: 'financial-event', question: `Você pagou os ${fmtBRL(cost.amount)} de ${label} ou outra pessoa pagou?`,
+      options: [{ label: 'Eu paguei', value: 'paguei', actions: [cost] },
+        { label: 'Outra pessoa pagou', value: 'passageiro pagou', reply: 'Mantive só a receita. A proposta aguarda confirmação.' }],
+    })
+  }
+  const note = payer === 'passenger' ? `O passageiro pagou o ${label}.`
+    : `O ${label} de ${fmtBRL(cost.amount)} ainda está para ser pago${futureLabel ? ` ${futureLabel}` : ''}.`
+  return { ...result, response: { ...result.response, reply: `${note}\n\n${result.response.reply}` } }
+}
+
 function readDatedPayoutActivities(text: string, today: string): ParsedAction[] | undefined {
   if (!/\b(?:abasteci|paguei|gastei|rodei|trabalhei)\b/i.test(text)) return undefined
   const { actions, clauses } = analyzeMessage(text, { driver: true, today })
@@ -2801,6 +2830,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     if (!input.draft && !input.pendingClarification) {
       const breakdown = prepareRideReceiptBreakdown(input, caps, today)
       if (breakdown) return breakdown
+      const roadReport = prepareRoadReport(input, caps, today)
+      if (roadReport) return roadReport
       const datedFuel = prepareRideReceiptAndDatedFuel(input, caps, today)
       if (datedFuel) return datedFuel
       const receiptForPeriod = prepareRideReceiptForEarningsPeriod(input, caps, today)

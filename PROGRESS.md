@@ -7460,3 +7460,47 @@ Próxima bateria: consultas com data de corte e mais de uma janela.
 Cada lote passou por `npm test`, os dois typechecks, a rubrica com 0 PERIGOSA e 0 RUIM e a matriz de oito datas. O último passou com 1.967 regressões adversariais na data padrão. O projeto segue **NOT READY**.
 
 Próxima bateria com consultas que pedem mais de uma métrica, data ou plataforma na mesma frase.
+
+### Consultas independentes na mesma frase (`ZY`)
+
+- “quanto caiu da 99 ontem e quanto caiu hoje?” responde pelos dois dias usando a 99. “E ontem?” retoma a plataforma, preservando a proposta aberta.
+- “quanto entrou na segunda e quanto saiu na terça?” aplica a data e o sentido de cada pergunta.
+- “receita de ontem e despesa de hoje” e “ontem gastei quanto e hoje quanto?” respondem na ordem pedida, inclusive sem verbo inicial ou com o verbo omitido na segunda pergunta.
+- “quanto ganhei na Uber ontem e na 99 hoje?” aplica a data indicada a cada plataforma.
+- “corridas de ontem e km de hoje”, “quanto rodei ontem e quantas horas hoje?” e “quantas corridas e quantos km ontem?” separam as medidas e respeitam a data própria ou compartilhada.
+- “qnto entrou dia 20 e qnto saiu dia 22?” usa os dois dias do mês, sem trazer o mês inteiro. “O lucro de ontem e o lucro de anteontem” devolve os dois resultados diários.
+- “quanto entrou ontem da Uber quanto entrou hoje da Uber” reconhece a segunda pergunta na transcrição sem conector.
+- “quanto a Uber repassou na semana passada e quanto a 99 entrou nessa semana?” mantém as plataformas e as janelas distintas.
+- “me diz quanto ganhei ontem e quanto a Uber repassou hoje” separa o total geral do valor da Uber.
+- “quanto caiu na 99 ontem e quanto caiu hoje somando todos os apps?” separa a 99 de ontem do total de hoje nas plataformas identificadas, sem somar corrida particular.
+- “quanto entrou ontem e quantos km hoje na Uber?” responde a receita e explica que a quilometragem disponível é do dia inteiro.
+- “quanto entrou da Casa 1 dia 5 e quanto saiu de obra dia 4?” mantém origem, categoria e datas para o autônomo.
+
+### Correções que selecionam o item pelo valor (`ZZ`)
+
+- “os 85 foram hoje” e “foi hj os oitenta e cinco” mudam somente a data do abastecimento de R$ 85, mesmo com duas receitas e a jornada na tela.
+- “os 240 foram hoje”, “só os 130 de hoje” e “os 130 foram dia 20” alteram só a receita identificada pelo valor.
+- “hoje não, só o de 85 foi anteontem” usa a data afirmada. “Os 240 entraram hoje e o etanol foi ontem” aplica cada data ao item correspondente.
+- “tira os cento e trinta” retira só a receita de R$ 130. “Esquece os 85, foi engano” retira só o abastecimento. Antes, “esquece” descartava toda a proposta.
+- “no de 85 põe 87,50”, “era 90 no de 85” e “os 130 foram cento e cinquenta” trocam somente o valor da ação escolhida.
+- “os 90 foram hoje”, sem item de R$ 90 na proposta, pede o alvo e mantém a proposta anterior. “Muda pro dia 20 o de 85”, quando o leitor interpreta a data como futura, pede quando aconteceu.
+- “os 85 foram hoje” e “tira os 85”, com Uber e etanol de mesmo valor, pedem qual item. “O etanol” escolhe o combustível e preserva a receita.
+- “os oitenta e cinco e vinte e cinco centavos foram hoje” distingue a receita de R$ 85,25 do abastecimento de R$ 85,00.
+- Na conversa “os 85 foram hoje” → “a da 99 foi 150” → “foram 180 km” → “tira a 99”, a proposta final mantém a Uber, o abastecimento hoje e a jornada de 180 km, 8 horas e 14 viagens. A confirmação continua no botão.
+
+### Pedágio, estacionamento e receita realizada (`XA`)
+
+- “pedágio saiu 8 ontem”, “ontem saiu 8 no pedagio” e “ontem estacionamento saiu 6,75” preparam despesas nas categorias certas. Antes, o valor aparecia como receita de corridas.
+- “pedágio saiu 8 e corrida rendeu 45 ontem” e “pedágio saiu 8 e corrida rendeu 45 ontem no curso da noite” preservam os R$ 45 de receita e os R$ 8 de pedágio de ontem.
+- “paguei pedágio oito e cinquenta e a corrida da 99 pagou quarenta e quatro” propõe R$ 8,50 de pedágio e R$ 44 da 99. O nome 99 deixa de virar uma despesa.
+- “45 de corrida e 8 de pedagio pago por mim” separa o valor da corrida e o que o motorista pagou.
+- “passei no sem parar saiu 8,25, ganhei 45 na Uber ontem” mantém o débito de pedágio de R$ 8,25 e a receita de R$ 45 da Uber ontem.
+- “gastei oito e vinte e cinco no pedagio ontem, e deu 45 na corrida” mantém o gasto e corrige o sentido dos R$ 45 para receita.
+- “ontem saiu 8 no pedagio e caiu 45 da 99” mantém as duas movimentações de ontem com sentidos opostos.
+- “ontem teve pedágio de 8, o passageiro que pagou, caiu 45 da 99” propõe só o recebimento do motorista. “Deu 45 de corrida, vou pagar 8 de pedágio amanhã” mantém os R$ 45 realizados e explica que o custo ainda é futuro.
+- “passei por um pedágio de 8 ontem nessa corrida que rendeu 45” preserva a receita e pergunta quem pagou. “Eu paguei” prepara o pedágio de ontem com a receita.
+- “ontem fiz 45 de corrida e 8 de pedágio ou foi 9, nao lembro” preserva os R$ 45 e pede o valor exato. “9” inclui só o pedágio de R$ 9.
+
+Cada lote passou por `npm test`, os dois typechecks, a rubrica com 0 PERIGOSA e 0 RUIM e a matriz de oito datas. O último passou com 2.014 regressões adversariais na data padrão. O projeto segue **NOT READY**.
+
+Próxima bateria com números extremos, sinais de menos e instruções misturadas a relatos.
