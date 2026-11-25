@@ -106,6 +106,65 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   {
     const today = '2026-11-25', yesterday = '2026-11-24', monday = '2026-11-23'
     const state = motoristaRico(today)
+    const snapshot = JSON.stringify(state)
+    const ask = (message: string, last?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({ state, message, today, remoteEnabled: false,
+      pending: last?.response.actions, pendingClarification: last?.response.mode === 'clarify' ? last.response.clarification : undefined,
+      draft: last?.draft || undefined, focus: last?.focus })
+    const base = await ask('ontem ganhei 240 na Uber e 130 na 99, gastei 85 de etanol e rodei 170 km em 8 horas, fiz 14 corridas')
+    const actions = (out: typeof base) => out.response.actions.map(x => x.action)
+    const initial = actions(base)
+    const cases = [
+      ['os 85 foram hoje', 2, 'date', today],
+      ['os 240 foram hoje', 0, 'date', today],
+      ['foi hj os oitenta e cinco', 2, 'date', today],
+      ['só os 130 de hoje', 1, 'date', today],
+      ['os 130 foram dia 20', 1, 'date', '2026-11-20'],
+      ['hoje não, só o de 85 foi anteontem', 2, 'date', monday],
+      ['tira os cento e trinta', 1, 'remove', undefined],
+      ['esquece os 85, foi engano', 2, 'remove', undefined],
+      ['no de 85 põe 87,50', 2, 'amount', 87.5],
+      ['os 130 foram cento e cinquenta', 1, 'amount', 150],
+      ['era 90 no de 85', 2, 'amount', 90],
+      ['os 240 entraram hoje e o etanol foi ontem', 0, 'date', today],
+    ] as const
+    for (const [i, [message, target, field, value]] of cases.entries()) {
+      const next = await ask(message, base)
+      const expected = initial.flatMap((item, index) => index !== target ? [item] : field === 'remove' ? [] : [{ ...item, [field]: value }])
+      out.push(result('ZZ-ajuste-de-item-pelo-valor-' + i, { message, response: next.response }, expected,
+        next.response.mode === 'propose_actions' && !next.response.unresolved.length && JSON.stringify(actions(next)) === JSON.stringify(expected)))
+    }
+    const wrong = await ask('os 90 foram hoje', base)
+    out.push(result('ZZ-ajuste-de-item-pelo-valor-nao-encontrado', wrong, 'pergunta o alvo sem trocar data ou pedir direção do dinheiro',
+      wrong.response.mode === 'clarify' && wrong.keepPending && !wrong.response.actions.length && /na proposta/i.test(wrong.response.reply)
+      && !/ganhou ou.*gastou/i.test(wrong.response.reply)))
+    const duplicated = await ask('ontem recebi 85 da Uber e paguei 85 em etanol')
+    for (const [message, remove] of [['os 85 foram hoje', false], ['tira os 85', true]] as const) {
+      const question = await ask(message, duplicated)
+      const answer = await ask('o etanol', question)
+      const expected = actions(duplicated).flatMap(item => item.kind === 'fuel' ? remove ? [] : [{ ...item, date: today }] : [item])
+      out.push(result('ZZ-ajuste-de-item-pelo-valor-ambiguo-' + (remove ? 'remove' : 'data'), [question.response, answer.response], expected,
+        question.response.mode === 'clarify' && question.response.clarification.options?.length === 2 && !question.response.actions.length
+        && answer.response.mode === 'propose_actions' && JSON.stringify(actions(answer)) === JSON.stringify(expected)))
+    }
+    const cents = await ask('ontem recebi 85,25 da Uber e paguei 85 de etanol')
+    const stated = await ask('os oitenta e cinco e vinte e cinco centavos foram hoje', cents)
+    const expectedCents = actions(cents).map(item => item.kind === 'income' ? { ...item, date: today } : item)
+    out.push(result('ZZ-ajuste-de-item-pelo-valor-com-centavos', stated.response, expectedCents,
+      stated.response.mode === 'propose_actions' && JSON.stringify(actions(stated)) === JSON.stringify(expectedCents)))
+    const date = await ask('os 85 foram hoje', base)
+    const value = await ask('a da 99 foi 150', date)
+    const distance = await ask('foram 180 km', value)
+    const last = await ask('tira a 99', distance)
+    const expected = initial.flatMap(item => item.kind === 'fuel' ? [{ ...item, date: today }]
+      : item.kind === 'work' ? [{ ...item, km: 180 }] : item.kind === 'income' && item.description === '99' ? [] : [item])
+    out.push(result('ZZ-ajuste-de-item-pelo-valor-em-conversa', [date.response, value.response, distance.response, last.response], expected,
+      [date, value, distance, last].every(out => out.response.mode === 'propose_actions' && !out.response.unresolved.length)
+      && JSON.stringify(actions(last)) === JSON.stringify(expected) && JSON.stringify(state) === snapshot && initial.every(item => 'date' in item && item.date === yesterday)))
+  }
+
+  {
+    const today = '2026-11-25', yesterday = '2026-11-24', monday = '2026-11-23'
+    const state = motoristaRico(today)
     state.transactions.push({ id: 'zy-despesa-terca', type: 'expense', amount: 17.26, category: 'alimentacao', date: yesterday },
       { id: 'zy-despesa-dia-22', type: 'expense', amount: 53.84, category: 'alimentacao', date: '2026-11-22' },
       { id: 'zy-particular', type: 'income', category: 'corridas', amount: 91, date: today, description: 'Particular' })

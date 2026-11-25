@@ -517,6 +517,85 @@ function correctPendingFuel(text: string, pending: AssistantCandidateAction[], c
   return plan
 }
 
+const AMOUNT_REFERENCE = String.raw`(?:(?:os|as)\s+|(?:o|a|no|na)\s+(?:(?:lancamento|valor)\s+)?de\s+)${DRIVER_CORRECTION_MONEY('reference')}`
+const HAS_AMOUNT_REFERENCE = new RegExp(String.raw`\b${AMOUNT_REFERENCE}\b`)
+const REMOVE_AMOUNT_REFERENCE = new RegExp(String.raw`^(?:pode\s+)?(?:tira|tirar|retira|retirar|remove|remover|exclui|excluir|apaga|apagar|descarta|descartar|esquece|esquecer)\s+(?:so\s+)?${AMOUNT_REFERENCE}(?:\s*,?\s+(?:foi\s+engano|me\s+enganei|mandei\s+errado))?$`)
+const AMOUNT_REVISION = String.raw`(?:foi|foram|era|eram|deu|deram|entrou|entraram|saiu|sairam)`
+const AMOUNT_REFERENCE_DATE = new RegExp(String.raw`^(?:so\s+)?${AMOUNT_REFERENCE}\s+${AMOUNT_REVISION}$`)
+const AMOUNT_REFERENCE_AFTER_DATE = new RegExp(String.raw`^(?:${AMOUNT_REVISION}|muda|troca|corrige|ajusta)\s+${AMOUNT_REFERENCE}$`)
+const AMOUNT_REFERENCE_DATE_ONLY = new RegExp(String.raw`^so\s+${AMOUNT_REFERENCE}$`)
+const AMOUNT_REFERENCE_VALUE = new RegExp(String.raw`^(?:so\s+)?${AMOUNT_REFERENCE}\s+(?:${AMOUNT_REVISION}|poe|coloca|bota)\s+${DRIVER_CORRECTION_MONEY('next')}$`)
+const AMOUNT_REFERENCE_AFTER_VALUE = new RegExp(String.raw`^(?:foi|era|deu)\s+${DRIVER_CORRECTION_MONEY('next')}\s+${AMOUNT_REFERENCE}$`)
+
+function correctReferencedAmount(text: string, pending: AssistantCandidateAction[], caps: AssistantCapabilities, today: string, plan: CorrectionPlan): CorrectionPlan | undefined {
+  const removal = text.match(REMOVE_AMOUNT_REFERENCE)
+  const amountEdit = text.match(AMOUNT_REFERENCE_VALUE) || text.match(AMOUNT_REFERENCE_AFTER_VALUE)
+  const date = removal || amountEdit ? undefined : findDate(text, today)
+  const withoutDate = date ? `${text.slice(0, date.start).trimEnd().replace(/\s+(?:de|em|no|na|pro|pra|para)$/, '')} ${text.slice(date.end)}`.trim().replace(/\s{2,}/g, ' ') : ''
+  const dateEdit = withoutDate && (withoutDate.match(AMOUNT_REFERENCE_DATE) || withoutDate.match(AMOUNT_REFERENCE_AFTER_DATE)
+    || withoutDate.match(AMOUNT_REFERENCE_DATE_ONLY))
+  const match = removal || amountEdit || dateEdit
+  if (!match) return undefined
+
+  const oldAmount = parseMoney(match.groups.reference)
+  const targets = pending.flatMap(item => {
+    const { action } = item
+    if ((action.kind !== 'income' && action.kind !== 'expense' && action.kind !== 'fuel') || action.amount !== oldAmount) return []
+    return [{ item, action }]
+  })
+  if (!targets.length) {
+    plan.ambiguous = { question: `Não encontrei um lançamento de ${fmtBRL(oldAmount)} na proposta. Qual item você quer alterar?` }
+    return plan
+  }
+
+  const field = amountEdit ? 'amount' : 'date'
+  const value = amountEdit ? parseMoney(amountEdit.groups.next) : date?.kind === 'date' ? date.date : undefined
+  const revise = ({ action }: typeof targets[number]): ParsedAction => ({ ...action, [field]: value })
+  if (!removal && (value === undefined || targets.some(target => !validateAction(revise(target), caps, today).ok))) {
+    plan.ambiguous = { question: amountEdit ? `Qual é o valor correto para o lançamento de ${fmtBRL(oldAmount)}?`
+      : `Em que dia aconteceu o lançamento de ${fmtBRL(oldAmount)}?` }
+    return plan
+  }
+  if (targets.length > 1) {
+    plan.ambiguous = { field: 'pending-correction', question: `Qual lançamento de ${fmtBRL(oldAmount)} você quer ${removal ? 'retirar' : 'corrigir'}?`,
+      options: targets.map((target, i) => ({ value: String(i + 1),
+        label: `${correctionLabel(target.item, i)}${target.action.kind === 'fuel' && target.action.fuelType ? ` · ${target.action.fuelType}` : ''} · ${brDate(target.action.date || today)}`,
+        actions: pending.flatMap(p => p.id !== target.item.id ? [p.action] : removal ? [] : [revise(target)]),
+      })) }
+    return plan
+  }
+  const [target] = targets
+  if (removal) {
+    plan.remove.push(target.item.id)
+    plan.summary.push(`Retirei o lançamento de ${fmtBRL(oldAmount)} da proposta.`)
+  } else {
+    plan.edits.push({ id: target.item.id, field, value, was: target.action[field] })
+    plan.summary.push(amountEdit ? `Troquei ${fmtBRL(oldAmount)} por ${fmtBRL(value as number)}.`
+      : `Ajustei a data do lançamento de ${fmtBRL(oldAmount)} para ${brDate(value as string)}.`)
+  }
+  return plan
+}
+
+function correctAmountsInProposal(message: string, pending: AssistantCandidateAction[], caps: AssistantCapabilities, today: string, plan: CorrectionPlan) {
+  const text = normalizeName(message).replace(/[.!]+$/, '').trim()
+    .replace(/^(?:hoje|ontem|anteontem)\s+nao\s*,\s*/, '')
+  if (text.includes('?') || !HAS_AMOUNT_REFERENCE.test(text)) return undefined
+  const exact = correctReferencedAmount(text, pending, caps, today, plan)
+  if (exact) return exact
+  if (!caps.isDriver) return undefined
+  const parts = text.split(/\s+e\s+(?=(?:[oa]s?|so)\s+)/)
+  if (parts.length !== 2 || !findDate(parts[0], today)) return undefined
+  const first = correctReferencedAmount(parts[0], pending, caps, today, plan)
+  if (!first) return undefined
+  const next = correctPendingFuel(parts[1], pending, caps, today, { remove: [], edits: [], cancelAll: false, summary: [] })
+  const [firstEdit] = first.edits
+  const [nextEdit] = next?.edits || []
+  if (first.ambiguous || next?.ambiguous || firstEdit?.field !== 'date' || nextEdit?.field !== 'date' || firstEdit.id === nextEdit.id) {
+    return { remove: [], edits: [], cancelAll: false, summary: [], ambiguous: { question: 'Diga a data de cada lançamento da proposta que você quer corrigir.' } }
+  }
+  return { ...first, edits: [...first.edits, ...next.edits], summary: [...first.summary, ...next.summary] }
+}
+
 function readPendingWorkMeasure(text: string): { field: 'hours' | 'km' | 'trips'; value: number } | undefined {
   const namedHours = text.match(/^(?:(?:s|ss|sim)\s*,\s*)?(?:as\s+)?horas\s+(?:foram|era|eram|sao)\s+(.+)$/)?.[1]
   if (namedHours && /^\d+(?:[.,]\d+)?$/.test(namedHours)) return { field: 'hours', value: parseMoney(namedHours) }
@@ -674,6 +753,7 @@ function parseCorrectionWithMarker(
   today = todayISO(),
 ): CorrectionPlan | null {
   if (!pending.length) return null
+  const original = message
   if (pending.some(p => ['description', 'origin'].some(k => normalizeName((p.action as any)[k] || '') === '99'))) {
     message = message.replace(/(^|\b(?:d(?:e|[ao]s?)|n?[ao]s?)\s+)(?:99|noventa\s+e\s+nove)(?![\wÀ-ÿ]|[.,]\d|\s*(?:reais|real|contos?|pila)\b)/gi, `$1${APP_99}`)
   }
@@ -686,6 +766,8 @@ function parseCorrectionWithMarker(
   const plan: CorrectionPlan = { remove: [], edits: [], cancelAll: false, summary: [] }
   const driverCorrection = correctDriverProposal(norm, pending, caps, today, plan)
   if (driverCorrection) return driverCorrection
+  const cashCorrection = correctAmountsInProposal(message === original ? norm : normalizeNumberWords(original).text, pending, caps, today, plan)
+  if (cashCorrection) return cashCorrection
   if (parseClockCorrection(message, pending, today, plan)) return plan
   const contrasted = parseContrastCorrection(norm, pending, caps, today, plan)
   if (contrasted) return contrasted
