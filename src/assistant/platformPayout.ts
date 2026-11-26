@@ -6,7 +6,9 @@ const MONEY = (name: string) => String.raw`(?:r\$\s*)?(?<${name}>\d+(?:[.,]\d+)*
 const PAYOUT_APP = String.raw`(?:uber|99|in\s*drive[r]?)\b`
 const PLATFORM = String.raw`(?<platform>${PAYOUT_APP})`
 const DATE_LEAD = String.raw`(?<lead>(?:(?:eu|hoje|ontem|anteontem|j[áa])\s+){0,3})`
-const TAIL = String.raw`(?<tail>\s*(?:[.;]\s*(?=[\p{L}])|(?:,\s*|\s+)e\s+(?=(?:gastei|paguei|comprei|abasteci|guardei|recebi|ganhei|rodei|trabalhei)\b))[^?]*|[.!]*\s*)$`
+// O resto pode ser outro item com valor: "uber 45 líquido 8 de taxa retida, 5 de
+// pedágio que eu paguei". Sem ele, a frase não casava e os R$ 45 viravam pedágio.
+const TAIL = String.raw`(?<tail>\s*(?:[.;]\s*(?=[\p{L}])|(?:,\s*|\s+)e\s+(?=(?:gastei|paguei|comprei|abasteci|guardei|recebi|ganhei|rodei|trabalhei)\b)|[,;]?\s+(?=(?:r\$\s*)?\d[\d.,]*\s+(?:reais\s+)?de\s+\p{L}))[^?]*|[.!]*\s*)$`
 const NET = String.raw`(?:l[íi]quid[oa]s?|limp[oa]s?)(?![\wÀ-ÿ])`
 const GROSS = String.raw`brut[oa]s?\b`
 /** Sem plataforma, só "líquido": "limpo" pode ser depois dos CUSTOS, e aí o app pergunta. */
@@ -42,6 +44,7 @@ const WITHHOLDING_SAID = [
   String.raw`(?:a\s+)?taxa\s+(?:de\s+)?${MONEY('fee')}\s+(?:j[áa]\s+)?(?:retida|descontada|inclu(?:sa|[íi]da)\s+no\s+desconto)`,
   String.raw`cobrou\s+${MONEY('fee')}\s+mas\s+j[áa]\s+(?:tava|estava|veio)\s+descontad[oa]`,
   AFTER_DEDUCTION,
+  String.raw`${MONEY('fee')}\s+de\s+taxa\s+(?:j[áa]\s+)?(?:retida|descontada)`,
 ].map(fee => new RegExp(String.raw`^${DATE_LEAD}${RECEIVED_NET}${WITHHOLDING_JOIN}${fee}${WITHHOLDING_WHEN}${TAIL}`, 'iu'))
 const NET_THEN_DEBIT = new RegExp(String.raw`^${DATE_LEAD}(?:ganhei|fiz|faturei|recebi|deu)\s+${MONEY('net')}\s+${NET}\s+(?:n[ao]|d[ao]|pel[ao])\s+${PLATFORM}${WITHHOLDING_JOIN}(?:a\s+)?taxa\s+j[áa]\s+saiu\s+${MONEY('fee')}${WITHHOLDING_WHEN}${TAIL}`, 'iu')
 const STATED_GROSS_AND_FEE = new RegExp(String.raw`^${DATE_LEAD}(?:fiz|faturei|ganhei|deu|foram)\s+${MONEY('gross')}\s+${GROSS}${WITHHOLDING_JOIN}(?:a\s+)?taxa\s+d[ao]\s+${PLATFORM}\s+(?:foi(?:\s+de)?|ficou\s+em)\s+${MONEY('fee')}${WHEN}[.!]*$`, 'iu')
@@ -122,7 +125,7 @@ export function readPlatformPayout(message: string): PlatformPayout | undefined 
   const cash = platform ? `recebi R$ ${net} ${normalizedPlatform} líquido` : reported ? `${reported} líquido` : gross ? `recebi R$ ${net} líquido` : undefined
   if (!cash) return undefined
   const payment = [lead.trim(), whenNet, cash, whenTail].filter(Boolean).join(' ')
-  return { amount, text: `${payment}${tail || ''}`.trim() }
+  return { amount, text: `${payment}${tail && /^\s+\d/.test(tail) ? ',' + tail : tail || ''}`.trim() }
 }
 
 const PAYOUT_DAY = String.raw`(?:hoje|hj|ontem|anteontem|ha\s+\d+\s+dias?|\d+\s+dias?\s+atras|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)`

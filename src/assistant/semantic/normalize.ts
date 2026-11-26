@@ -140,6 +140,7 @@ const DRIVER_FUEL_TYPOS: Record<string, string> = { gasolna: 'gasolina', gasoza:
 const DRIVER_RELATIVE_DAY = String.raw`(?:onti?|omtem|anteont|antontem)`
 const driverDateWord = (text: string) => /^(?:ont|omtem)/i.test(text) ? 'ontem' : 'anteontem'
 const FUEL_AFTER_PREPOSITION = new RegExp(String.raw`\b(d|de|em|com)\s+(${Object.keys(DRIVER_FUEL_TYPOS).join('|')})\b(?=\s*(?:$|[;,.!?]|\b(?:e|mas|hoje|hj|ontem|anteontem|${DRIVER_RELATIVE_DAY}|na\s+volta)\b))`, 'gi')
+const FUEL_BEFORE_AMOUNT = new RegExp(String.raw`\b(${Object.keys(DRIVER_FUEL_TYPOS).join('|')})\b(?=\s*(?:r\$\s*)?\d)`, 'gi')
 const DRIVER_DATE_BEFORE_REPORT = new RegExp(String.raw`(^\s*|\s+(?:e|mas)\s+)(${DRIVER_RELATIVE_DAY})\s+(?=(?:eu\s+)?(?:ganhei|recebi|faturei|fiz|abasteci|trabalhei|rodei|gastei|paguei|coloquei|pg|abast|gstei|gastey|colokei)\b)`, 'gi')
 const DRIVER_DATE_AFTER_ITEM = new RegExp(String.raw`\b(corridas?|gasosa|gasolina|etanol|diesel|gnv|combust[íi]vel|uber|99|in\s*drive|kms?|horas?)\s+(${DRIVER_RELATIVE_DAY})(?=\s+(?:e|mas)\s+|\s*[.!?]*$|[,;])`, 'gi')
 
@@ -155,6 +156,8 @@ export function normalizeDriverShorthand(message: string): string {
   }
   text = text.replace(FUEL_AFTER_PREPOSITION,
     (_, preposition: string, fuel: string) => `${/^d$/i.test(preposition) ? 'de' : preposition} ${DRIVER_FUEL_TYPOS[fuel.toLowerCase()]}`)
+  // "Paguei gasoza 85": o combustível vem colado ao valor, sem preposição.
+  text = text.replace(FUEL_BEFORE_AMOUNT, (_, fuel: string) => DRIVER_FUEL_TYPOS[fuel.toLowerCase()])
   text = text.replace(DRIVER_DATE_BEFORE_REPORT, (_, prefix: string, date: string) => `${prefix}${driverDateWord(date)} `)
   // O começo do ditado pode sumir; só recupera o verbo diante da duração ao volante.
   text = text.replace(/^(\s*(?:(?:hoje|hj|ontem|anteontem)\s+)?)(?:fexei|feichei|[cx]hei|xei)(?=\s+[^;!?]{1,42}\s+(?:no|de)\s+volant[ei]\b)/i, '$1fechei')

@@ -7624,3 +7624,30 @@ Próxima bateria com taxas retidas pela plataforma, valores líquidos e despesas
 Os três lotes passaram por `npm test`, os dois typechecks, a rubrica com 0 PERIGOSA e 0 RUIM e a matriz de oito datas. O último passou com 2.157 regressões adversariais na data padrão. O projeto segue **NOT READY**.
 
 Próxima bateria com pagamentos de várias origens no perfil autônomo e total sem divisão.
+
+## 26/11/2026 — Claude integra a bateria do GPT e continua sozinho
+
+- A `feat/assistant-intelligence-v2` avançou até `31d1e53`, com 58 commits do GPT trazidos por bundle. O commit `d0658ce`, com o aluguel conjunto pela metade, foi terminado em `c652684`. `listedHomes` recebia "Casa 1" com maiúscula e devolvia lista vazia. ", 800 foi da primeira" criava uma "Casa 80". "Foi da segunda" virava segunda-feira.
+
+### Combustível ditado e item negado sem verbo (`YA`)
+
+- "Paguei gasoza 85, nada de estacionamento 30" grava só o abastecimento. Antes, os R$ 30 negados eram gravados como estacionamento.
+- "Nada de X N" e "zero de X" negam o item, inclusive com "hoje" no fim. A pergunta "ganhou ou gastou?" sobre o valor negado também cai.
+- "Coloquei gasolina 90", "ontem coloquei gasolina 90", "botei etanol 50 reais" e "coloquei gazosa 90 ontem" viram abastecimento. Antes, caíam no menu de ajuda.
+
+### Plataforma antes do valor e item de gasto depois de "ganhei" (`YB`)
+
+- "Uber 45, 5 de pedágio" propõe a receita da Uber e o pedágio. Antes, os R$ 45 sumiam sem aviso. "Uber 45 líquido, 5 de pedágio" virava receita de R$ 5.
+- "Ganhei 300 na uber, 20 de lanche e 10 de água" grava o lanche e a água como despesa. Antes, os dois viravam receita de corrida. Gorjeta continua receita.
+- "Recebi 900 de freela e 300 de aluguel": cada valor pega a categoria do próprio trecho. Antes, os R$ 900 iam para Aluguéis.
+- Combustível lido pela enumeração e pelo leitor de abastecimento não é contado duas vezes.
+
+### Repasse negado, dívida e cotação (`YC`)
+
+- "99 n caiu 150, uber caiu 220, etanol 90" grava os R$ 220 da Uber e o etanol. Antes, a frase inteira virava correção e a resposta era "não tenho lançamento".
+- "Uber caiu 220", sem artigo, guarda a plataforma. "Etanol 90" sem verbo, depois de vírgula, é abastecimento.
+- "Recebi 450 mas foi adiantamento do cartão, vou ter que devolver" e "caiu 300 que meu irmão emprestou" não viram receita: o app explica que é dívida. O vale do salário continua receita.
+- "Gasolina 6,20 o litro" é cotação, e nada é gravado. Antes, virava uma despesa de R$ 6,20.
+- "Uber 45 líquido 8 de taxa retida 5 de pedagio que eu paguei" propõe os R$ 45 líquidos e os R$ 5 de pedágio. Antes, os R$ 45 viravam pedágio. Com vírgulas, a taxa retida virava receita.
+
+Os três lotes passaram por `npm test` (2.197 regressões), pelos dois typechecks, pela rubrica (0 PERIGOSA) e pela matriz das oito datas. Os casos abertos estão em `docs/BATERIA_DUVIDAS.md`. O projeto segue **NOT READY**.

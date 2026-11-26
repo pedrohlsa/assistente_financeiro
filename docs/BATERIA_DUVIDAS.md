@@ -4,10 +4,8 @@
 |---|---|---|
 | “terça entrei 200 na Uber e quarta 130 na 99”, dito numa quarta | Propôs os dois valores na terça. | O segundo valor precisa de data própria. “Quarta”, dita numa quarta sem “hoje” ou “passada”, pode ter duas leituras. |
 | “fiz 250 ontem e 200 hoje na Uber” | Propôs R$ 250 ontem sem plataforma e R$ 200 hoje na Uber. | A plataforma no fim pode qualificar os dois valores. Falta evidência para atribuir a Uber aos R$ 250. |
-| “Casa 1 e Casa 2 pagaram 1500 no total” | Consultou o histórico e disse que não encontrou registros. | Sabe-se o total, mas falta a divisão por origem. |
 | “o que entrou na conta ontem ou nada?” | Respondeu com vencimentos futuros. | A pergunta pede histórico de entradas de ontem. |
 | “só 3 pra pegar e 9 até lá”, após uma oferta de 12 km | Caiu na ajuda. | A unidade implícita depende da oferta anterior e precisa de reconciliação com o total. |
-| “recebi 450 mas foi adiantamento do cartão, vou ter que devolver” | Propôs receita comum de R$ 450. | Falta distinguir crédito a devolver de ganho realizado. |
 | “proposta de 36 por 12km no total, tem taxa?” | Disse que não conseguiu ler o valor. | A tarifa e a distância estão claras. A taxa depende do que aparece na oferta. |
 | “compare corrida de 40 por 12km no total com pedágio de 10 ou corrida de 35 por 12km no total sem pedágio” | Perguntou quem cobre o pedágio antes de comparar. | A comparação ainda precisa carregar as duas ofertas para aceitar uma resposta curta. |
 | “anteontem quanto de corrida e quanto de gasolina?” | Procurou “corrida” como texto e não respondeu a gasolina. | As categorias e o dia compartilhado precisam ficar explícitos. |
@@ -19,10 +17,9 @@
 | “paguei 8 de pedágio ontem na corrida e quanto sobrou dos 45?” | Preparou o pedágio e respondeu o resultado mensal projetado. | A pergunta usa os R$ 45 ditos, com conta de R$ 37 antes de outros custos. |
 | “recebi 320 da Uber anteontem e 90 da 99 no dia seguinte” | Propôs R$ 320 da Uber e R$ 90 da 99, ambos anteontem. | “No dia seguinte” aponta para ontem, um dia depois do primeiro recebimento. |
 | “pagou ontem nove e setenta e cinco de estacionamento” | No perfil motorista, perguntou “Esses R$ 9,75 foram o que você ganhou ou o que você gastou?”. | A taxa de estacionamento de ontem sugere despesa, mas o sujeito e a origem do pagamento podem estar cortados no ditado. |
-| “uber 45 líquido 8 de taxa retida 5 de pedagio que eu paguei” | Propôs R$ 45 como pedágio e perguntou o que eram R$ 8 e R$ 5. | Deve conservar a receita líquida de R$ 45 e o pedágio de R$ 5, sem duplicar a taxa retida. |
 | “rodei umas 3 horas ontem e foram 2 hoje” | Preparou só 3h e perguntou se R$ 2 foram ganho ou gasto. | O segundo valor completa a jornada de hoje em horas. |
 | “ontem ganhei 250 na uber em 120 km, hoje foram 80 km e 190 na 99” | Propôs as duas receitas com as datas corretas e omitiu os km. | O resumo misto precisa preservar as duas medidas e as receitas. |
-| “99 n caiu 150, uber caiu 220, etanol 90” | Respondeu que não havia lançamento correspondente no mês. | Deve conservar os R$ 220 da Uber e o etanol de R$ 90 e manter pendente o repasse da 99. |
-| “paguei gasoza 85, nada de estacionamento 30” | Propôs uma despesa genérica de R$ 85 e uma de estacionamento de R$ 30. | O abastecimento é real. “Nada de estacionamento” nega os R$ 30. |
 | “ont não gastei 90 de gas, foi setenta e cinquenta” | Perguntou se os R$ 90 eram GNV ou gás de cozinha. | A dúvida sobre o tipo de gás permanece, com o valor corrigido para R$ 70,50 e a data de ontem. |
 | “ontem rodei 170 km e hj 200 km”, com relógio injetado no dia 25 e o ambiente no dia 26 | As datas das ações foram dia 24 e 25. Os rótulos na proposta foram “anteontem” e “ontem”. | A data de referência dos rótulos deve ser a mesma usada para interpretar a mensagem. |
+| “aluguel: recebi 1800 e 1750” | Propôs R$ 1.800 em Outros e perguntou pelos R$ 1.750. | O rótulo antes dos dois-pontos deveria valer para os dois valores. (Claude, 26/11) |
+| “paguei gasolina 85,” e “paguei gasolina 85.” | Com vírgula ou ponto no fim, vira despesa de Combustível, não abastecimento. | O valor é contado igual, mas sai do custo por km do abastecimento. (Claude, 26/11) |

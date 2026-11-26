@@ -13475,6 +13475,110 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       && !isRevertFailure(reverted) && JSON.stringify(reverted.state.workSessions) === JSON.stringify(state.workSessions)))
   }
 
+
+  // YA — combustível ditado sem preposição e item negado sem verbo.
+  {
+    const today = '2026-11-25', yesterday = '2026-11-24'
+    const state = motoristaRico(today)
+    const cases = [
+      // "Nada de estacionamento 30" nega o item: os R$ 30 eram gravados como estacionamento.
+      ['paguei gasoza 85, nada de estacionamento 30', [['fuel', 85, today]]],
+      ['gastei 85 de gasolina, nada de estacionamento 30 hoje', [['fuel', 85, today]]],
+      ['gastei 85 de gasolina e nada de estacionamento 30', [['fuel', 85, today]]],
+      ['abasteci 100, zero de pedágio', [['fuel', 100, today]]],
+      // Combustível antes do valor caía no menu de ajuda.
+      ['coloquei gasolina 90', [['fuel', 90, today]]],
+      ['ontem coloquei gasolina 90', [['fuel', 90, yesterday]]],
+      ['coloquei gazosa 90 ontem', [['fuel', 90, yesterday]]],
+      ['botei etanol 50 reais', [['fuel', 50, today]]],
+      ['abasteci gasolina 40 litros por 230', [['fuel', 230, today]]],
+    ] as const
+    for (const [i, [message, expected]] of cases.entries()) {
+      const snapshot = JSON.stringify(state)
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actual = response.actions.map(c => c.action).map(a => [a.kind === 'expense' && a.category === 'combustivel' ? 'fuel' : a.kind, (a as any).amount, (a as any).date || today])
+      out.push(result('YA-combustivel-e-item-negado-' + i, { message, response }, expected,
+        response.mode === 'propose_actions' && !response.unresolved.length
+        && JSON.stringify(actual) === JSON.stringify(expected) && JSON.stringify(state) === snapshot))
+    }
+  }
+
+
+  // YB — plataforma antes do valor, item de gasto que não herda "ganhei" e categoria pelo trecho.
+  {
+    const today = '2026-11-25'
+    const cases = [
+      // Os R$ 45 da Uber sumiam sem aviso; com "líquido", a receita virava R$ 5.
+      ['driver', 'uber 45, 5 de pedágio', [['income', 45, 'corridas', 'Uber'], ['expense', 5, 'pedagio', '']]],
+      ['driver', 'uber 45 líquido, 5 de pedágio', [['income', 45, 'corridas', 'Uber'], ['expense', 5, 'pedagio', '']]],
+      ['driver', 'uber 45, 99 30 e 20 de lanche', [['income', 45, 'corridas', 'Uber'], ['income', 30, 'corridas', '99'], ['expense', 20, 'alimentacao', '']]],
+      // O lanche e o pedágio eram gravados como receita de corrida.
+      ['driver', 'ganhei 45 na uber, 5 de pedágio', [['income', 45, 'corridas', 'Uber'], ['expense', 5, 'pedagio', '']]],
+      ['driver', 'ganhei 300 na uber, 20 de lanche e 10 de agua', [['income', 300, 'corridas', 'Uber'], ['expense', 20, 'alimentacao', ''], ['expense', 10, 'casa', '']]],
+      ['driver', 'ganhei 45 na uber e 5 de gorjeta', [['income', 45, 'corridas', 'Uber'], ['income', 5, 'corridas', '']]],
+      // A frase inteira dava "aluguel" aos R$ 900 do freela.
+      ['autonomo', 'recebi 900 de freela e 300 de aluguel', [['income', 900, 'freelance', ''], ['income', 300, 'aluguel', '']]],
+      ['autonomo', 'recebi 1800 da casa 1, 1750 da casa 2', [['income', 1800, 'aluguel', ''], ['income', 1750, 'aluguel', '']]],
+    ] as const
+    for (const [i, [profile, message, expected]] of cases.entries()) {
+      const state = profile === 'driver' ? motoristaRico(today) : autonomoRico(today)
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actual = response.actions.map(c => c.action).map(a => [a.kind, (a as any).amount, (a as any).category || '',
+        a.kind === 'income' && /^(?:Uber|99|inDrive)$/.test((a as any).description || '') ? (a as any).description : ''])
+      out.push(result('YB-plataforma-e-item-de-gasto-' + i, { message, response }, expected,
+        response.mode === 'propose_actions' && !response.unresolved.length && JSON.stringify(actual) === JSON.stringify(expected)))
+    }
+  }
+
+
+  // YC — repasse negado abrindo a lista, dinheiro que entra como dívida e combustível sem verbo.
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    const records = [
+      // A negação no começo engolia a frase inteira, que virava "não tenho lançamento".
+      ['99 n caiu 150, uber caiu 220, etanol 90', [['fuel', 90, 'Etanol'], ['income', 220, 'Uber']]],
+      ['não caiu 150 da 99, uber caiu 220, etanol 90', [['fuel', 90, 'Etanol'], ['income', 220, 'Uber']]],
+      ['uber caiu 220', [['income', 220, 'Uber']]],
+      ['ganhei 220, etanol 90', [['fuel', 90, 'Etanol'], ['income', 220, '']]],
+      // Os R$ 45 líquidos viravam pedágio; com vírgulas, a taxa retida virava receita.
+      ['uber 45 líquido 8 de taxa retida 5 de pedagio que eu paguei', [['income', 45, 'Uber'], ['expense', 5, 'Pedagio']]],
+      ['ganhei 45 líquido na Uber, 8 de taxa retida, 5 de pedagio que eu paguei', [['income', 45, 'Uber'], ['expense', 5, 'Pedagio']]],
+    ] as const
+    for (const [i, [message, expected]] of records.entries()) {
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actual = response.actions.map(c => c.action).map(a => [a.kind, (a as any).amount, (a as any).fuelType || (a as any).description || ''])
+      out.push(result('YC-lista-apos-negacao-' + i, { message, response }, expected,
+        response.mode === 'propose_actions' && !response.unresolved.length && JSON.stringify(actual) === JSON.stringify(expected)))
+    }
+    // Adiantamento e empréstimo entram, mas são dívida: nunca receita.
+    for (const [i, message] of ['recebi 450 mas foi adiantamento do cartão, vou ter que devolver', 'caiu 300 que meu irmão emprestou'].entries()) {
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      out.push(result('YC-divida-nao-e-receita-' + i, { message, response }, 'sem receita, explica a dívida',
+        !response.actions.length && /dívida/.test(response.reply)))
+    }
+    {
+      const message = 'ganhei 300 na uber e recebi 100 emprestado'
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const incomes = response.actions.map(c => c.action).filter(a => a.kind === 'income')
+      out.push(result('YC-divida-nao-e-receita-2', { message, response }, 'só os R$ 300 da Uber',
+        incomes.length === 1 && (incomes[0] as any).amount === 300 && /dívida/.test(response.reply)))
+    }
+    // Cotação do litro virava despesa de R$ 6,20.
+    for (const [i, message] of ['gasolina 6,20 o litro', 'o etanol tá 4,39 o litro'].entries()) {
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      out.push(result('YC-preco-do-litro-nao-e-gasto-' + i, { message, response }, 'nada registrado',
+        !response.actions.length && /preço do litro/.test(response.reply)))
+    }
+    // O vale (adiantamento de salário) é receita de verdade.
+    {
+      const message = 'recebi 450 de adiantamento'
+      const { response } = await orchestrate({ state: buildState({ profile: 'clt' }), message, today, remoteEnabled: false })
+      out.push(result('YC-vale-continua-receita', { message, response }, 'receita de 450',
+        response.actions.length === 1 && response.actions[0].action.kind === 'income' && (response.actions[0].action as any).amount === 450))
+    }
+  }
+
   return out
 }
 

@@ -212,6 +212,17 @@ function polaridadeDita(text: string): 'income' | 'expense' | null {
  * não pode vir de uma palavra da outra metade — "recebi 3200 e ja saiu 1100 do
  * aluguel" punha a receita em Aluguéis.
  */
+/**
+ * "Recebi 900 de freela e 300 de aluguel": com mais de um valor na frase, a
+ * categoria sai do trecho do próprio valor. A frase inteira dava "aluguel" aos
+ * R$ 900 do freela. Sem palavra de categoria no trecho, vale a frase inteira.
+ */
+function categoriaDaReceita(text: string, context: string, inicio: number, fim: number): string | undefined {
+  if (context !== text || (text.match(/\d+(?:[.,]\d+)*/g) || []).length < 2) return guessCategory(context, 'income')
+  const local = guessCategory(janelaLocal(text, inicio, fim), 'income')
+  return local && local !== 'outros-in' ? local : guessCategory(text, 'income')
+}
+
 function janelaLocal(text: string, inicio: number, fim: number): string {
   const SEP = /\s+e\s+|,(?!\d)|;/gi
   let de = 0
@@ -274,6 +285,9 @@ function splitClauses(input: string): string[] {
   if (platformLead && clauses.length) clauses[0] = platformLead + clauses[0]
   return clauses
 }
+
+/** Categorias que nunca são ganho, nem herdando o verbo de receber da frase. */
+const GASTO_INCONFUNDIVEL = new Set(['alimentacao', 'pedagio', 'estacionamento', 'combustivel', 'manutencao', 'aluguel-veiculo', 'assinaturas', 'autocuidado', 'lazer', 'compras'])
 
 const VERBO_DE_GASTO_LISTA = /\b(?:gastei|gasto|paguei|comprei|torrei|abasteci|coloquei|botei|saiu|saiu|foi\s+(?:de|com)|dei)\b/gi
 
@@ -620,6 +634,15 @@ export function parseNatural(input: string): ParsedAction[] {
     const comValor = lidas.filter(b => !saem.has(b) && (b as any).amount === v).length
     if (outraLeitura && comValor > (ocorrencias.get(v) || 0)) saem.add(a)
   }
+  // O item de gasto lido pela enumeração ("ganhei 320, 90 de combustível") e
+  // também pelo leitor próprio (abastecimento, manutenção): fica o específico.
+  for (const a of lidas) {
+    const v = (a as any).amount
+    if (a.kind !== 'expense' || saem.has(a) || !(typeof v === 'number' && v > 0)) continue
+    const especifico = lidas.some(b => b !== a && (b.kind === 'fuel' || b.kind === 'maintenance') && (b as any).amount === v)
+    const comValor = lidas.filter(b => !saem.has(b) && (b as any).amount === v).length
+    if (especifico && comValor > (ocorrencias.get(v) || 0)) saem.add(a)
+  }
   return lidas.filter(a => !saem.has(a))
 }
 
@@ -809,7 +832,7 @@ export const INCOME_PLATFORM_PREFIX = new RegExp(
   // "A UBER caiu 820", "o REPASSE DA 99 caiu 650": a plataforma como sujeito
   // ou dona do repasse. Só "na/da Uber" era reconhecido, e o repasse semanal
   // entrava sem app — fora da divisão por plataforma.
-  String.raw`^\s*(?:(?:hoje|ontem|anteontem|eu|j[áa])\s+){0,3}(?:n[ao]\s+|pel[ao]\s+|d[ao]\s+|[ao]\s+|(?:o\s+)?(?:repasse|pagamento|saldo|dep[óo]sito|pix|semanal)\s+d[ao]\s+)(${APP_DE_CORRIDA})\s+(?:(?:hoje|ontem|anteontem|eu|j[áa])\s+){0,3}(?=(?:fiz|ganhei|recebi|faturei|entrou|caiu|pingou|depositou|pagou)\b)`, 'i',
+  String.raw`^\s*(?:(?:hoje|ontem|anteontem|eu|j[áa])\s+){0,3}(?:n[ao]\s+|pel[ao]\s+|d[ao]\s+|[ao]\s+|(?:o\s+)?(?:repasse|pagamento|saldo|dep[óo]sito|pix|semanal)\s+d[ao]\s+|(?=(?:uber|in\s*driver?)\s))(${APP_DE_CORRIDA})\s+(?:(?:hoje|ontem|anteontem|eu|j[áa])\s+){0,3}(?=(?:fiz|ganhei|recebi|faturei|entrou|caiu|pingou|depositou|pagou)\b)`, 'i',
 )
 const DISTINCT_INCOME_SOURCE = /^\s*d[aoe]\s+(?!(?:pix|dinheiro|transfer[eê]ncia|corridas?|semana|quinzena|m[eê]s|dia|hoje|ontem|repasse)\b)\p{L}/iu
 const AVISO_DE_CORRIDA = String.raw`(?:oferta|chamada|proposta|solicita[çc][ãa]o)`
@@ -1555,7 +1578,12 @@ function parseClause(input: string): ParsedAction[] {
   // "Botei 30 no tanque", "enchi o tanque com 250": o tanque é o combustível.
   const fuelRe4 = new RegExp(String.raw`(?:coloquei|botei|enchi|completei)\s+(?:o\s+tanque\s+(?:com\s+|por\s+|de\s+)?${APROX}(?:r\$)?\s*${NUM}|${APROX}(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:no|de)\s+tanque)`, 'i')
   const tanque = text.match(fuelRe4)
-  const f = text.match(fuelRe) || text.match(fuelRe2) || (fuelRe3 && text.match(fuelRe3))
+  // "Coloquei gasolina 90", "botei etanol 50": o combustível antes do valor. Sem
+  // isto a frase inteira caía no menu de ajuda.
+  const fuelRe5 = new RegExp(String.raw`(?:coloquei|botei|gastei|paguei|abasteci)\s+(?:de\s+|com\s+)?${COMBUSTIVEL}\s*${APROX}(?:r\$)?\s*${NUM}(?!\d|[.,]\d|\s*(?:l|litros?|km)\b|\s*(?:o|por|cada|\/)\s*(?:litro|l)\b)`, 'i')
+  // "Uber caiu 220, ETANOL 90": o item de combustível com valor, sem verbo.
+  const fuelRe6 = new RegExp(String.raw`(?:^|[,;]\s*|\s+e\s+)(?:de\s+)?${COMBUSTIVEL}\s+(?:r\$)?\s*${NUM}(?!\d|[.,]\d|\s*(?:l|litros?|km|%)\b|\s*(?:o|por|cada|\/)\s*(?:litro|l)\b)`, 'i')
+  const f = text.match(fuelRe) || text.match(fuelRe2) || (fuelRe3 && text.match(fuelRe3)) || text.match(fuelRe5) || text.match(fuelRe6)
     || (tanque ? Object.assign([tanque[0], tanque[1] ?? tanque[2]], { index: tanque.index }) as unknown as RegExpMatchArray : null)
   const litersM = text.match(new RegExp(String.raw`${NUM}\s*litros?`, 'i'))
   if (f || (litersM && /(coloquei|botei|abasteci|posto)/.test(text))) {
@@ -1749,7 +1777,7 @@ function parseClause(input: string): ParsedAction[] {
       actions.push({
         kind: 'income',
         amount: parseNum(inc[1]),
-        category: platform ? 'corridas' : guessCategory(context, 'income'),
+        category: platform ? 'corridas' : categoriaDaReceita(text, context, at, at + inc[0].trimEnd().length),
         description,
       })
     }
@@ -1784,7 +1812,7 @@ function parseClause(input: string): ParsedAction[] {
       // `d[ao]` cobria "da" e "do" mas NÃO "de" — e "de" é a preposição mais
       // comum ("e 900 DE um freela"). A segunda receita sumia em silêncio.
       const enumIncRe = new RegExp(
-        String.raw`(?:\se\s|,(?!\d))\s*(?:r\$)?\s*${NUM}\s*${MOEDA}?\s+d[aoe]\s+(?:um\s+|uma\s+|o\s+|a\s+)?([a-zà-ú][\wçãõáéíóúâê]*(?:\s+\d+)?)`,
+        String.raw`(?:\se\s|,(?!\d))\s*(?:r\$)?\s*${NUM}\s*${MOEDA}?\s+(d[aoe])\s+(?:um\s+|uma\s+|o\s+|a\s+)?([a-zà-ú][\wçãõáéíóúâê]*(?:\s+\d+)?)`,
         'gi',
       )
       for (const em of text.matchAll(enumIncRe)) {
@@ -1793,7 +1821,14 @@ function parseClause(input: string): ParsedAction[] {
         const pos = posicaoDoValor(em.index || 0, em[1])
         if (valoresLidos.has(pos)) continue
         valoresLidos.add(pos)
-        actions.push({ kind: 'income', amount, category: guessCategory(em[2], 'income') })
+        // "Ganhei 300 na Uber, 20 DE LANCHE": o item é um gasto inconfundível e
+        // não herda o "ganhei". "1750 DA casa 2" continua sendo a origem.
+        const gasto = em[2].toLowerCase() === 'de' ? guessCategory(em[3], 'expense') : undefined
+        if (gasto && (GASTO_INCONFUNDIVEL.has(gasto) || /^(?:[áa]gua|luz|energia|internet)$/i.test(em[3]))) {
+          actions.push({ kind: 'expense', amount, category: gasto, description: sentenceCase(em[3]) })
+          continue
+        }
+        actions.push({ kind: 'income', amount, category: guessCategory(em[3], 'income') })
       }
     }
 

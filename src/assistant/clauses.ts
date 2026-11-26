@@ -207,6 +207,15 @@ const NAMED_PAYMENT_PENDING = /\b(?:pix|dinheiro|pagamento)\s+(?:ainda\s+)?n[ãa
 const PAYMENT_DENIED = new RegExp(String.raw`(?<![\p{L}\p{M}])(?:n[ãa]o|nem|[nñ]|ningu[eé]m)\s+(?:me|nos)\s+(?:pagou|pagaram|${PIX_INCOMING}|${GAVE_TO_ME})\b`, 'iu')
 const OWN_ACCOUNTS = /\bentre\s+(?:as\s+)?(?:(?:minhas|nossas)\s+(?:duas\s+)?contas|contas\s+pr[óo]prias)\b|\b(?:da|de)\s+(?:minha|nossa)\s+conta\b[^.;!?]{0,55}\b(?:para|pra)\s+(?:a\s+)?(?:minha|nossa)\s+conta\b|\bde\s+uma\s+conta\s+(?:minha|nossa)\s+(?:pra|para)\s+(?:a\s+)?outra\b/i
 const TO_OWN_ACCOUNT = new RegExp(String.raw`^(?:(?:eu|hoje|hj|ontem|anteontem|j[áa])\s+){0,4}(?:(?:transferi|mandei|enviei)\s+(?:(?:um\s+)?pix(?:\s+de)?\s+)?|fiz\s+(?:um\s+)?pix(?:\s+de)?\s+)${RECORD_NUMBER}(?:\s+d[aeo]\s+(?:nubank|inter|ita[uú]|bradesco|santander|caixa|picpay|banco\s+do\s+brasil|(?:meu|minha)\s+[\p{L}][\p{L}\s]{1,25}?))?\s+(?:pra|para)\s+(?:mim(?:\s+mesm[oa])?|(?:a\s+)?(?:minha|nossa)\s+(?:(?:outra|pr[óo]pria)\s+)?conta(?:\s+d[aeo]\s+[\p{L}][\p{L}\s]{1,25}?)?)(?!\s+(?:e|ou)\s+(?:pra|para)\b)(?=\s*(?:[,;.!]|$|e\s*$|(?:hoje|ontem|anteontem)\b))`, 'iu')
+/**
+ * "Recebi 450 mas foi adiantamento do cartão, vou ter que devolver": entrou,
+ * mas é dívida. Gravado como receita, inflava o mês e o lucro. O adiantamento
+ * de salário (vale) é receita de verdade, por isso só com devolução, empréstimo
+ * ou cartão/banco dito.
+ */
+const DEBT_INFLOW = /\b(?:(?:vou|tenho|terei|preciso|vai)\s+(?:ter\s+)?(?:que|de)\s+devolver|emprestad[oa]s?|(?:me\s+)?emprest(?:ou|aram)|empr[ée]stimo|adiantamento\s+d[oa]\s+(?:cart[ãa]o|banco|nubank|inter|cr[ée]dito)|saque\s+(?:n|d)o\s+cart[ãa]o)\b/i
+/** "Gasolina 6,20 o litro" é cotação: virava uma despesa de R$ 6,20. */
+const PRICE_PER_LITER = /^\s*(?:(?:a|o)\s+)?(?:ga[sz]olina|etanol|[áa]lcool|diesel|gnv)\s+(?:(?:t[aá]|est[aá]|a|por)\s+)?(?:r\$\s*)?\d{1,2}(?:[.,]\d{1,3})?\s*(?:reais\s+)?(?:o|por|cada|\/)\s*(?:litro|l|m3|m³)\b[^\d]*$/i
 const INCOMING_CASH = /^(?:(?:eu|hoje|ontem|anteontem|j[áa]|agora)\s+){0,3}(?:recebi|caiu|entrou|pingou|me\s+(?:pagaram|enviaram|mandaram))\b/i
 const NET_QUALIFIER = String.raw`(?:l[íi]quid[oa]s?|limp[oa]s?)(?![\wÀ-ÿ])`
 const RIDE_SOURCE = String.raw`(?:n[ao]|d[ao]|pel[ao])\s+(uber|99|in\s*drive[r]?)(?![\wÀ-ÿ])`
@@ -293,7 +302,11 @@ const NEGATED_STATEMENT = new RegExp(
 
 const DENIED_PLATFORM_PAYMENT = /^\s*(?:[\p{Extended_Pictographic}\uFE0F\s]+)?(?:[ao]\s+)?(?:uber|99|in\s*driver?)\s+(?:ainda\s+)?(?:n[ãa]o|nem|[nñ])\s+(?:(?:me|nos)\s+)?(?:caiu|ca[ií]ram|entrou|entraram|pagou|depositou|repassou|descontou|reteve|cobrou)\b/iu
 
-export const looksNegated = (t: string): boolean => NEGATED_STATEMENT.test(t) || DENIED_PLATFORM_PAYMENT.test(t)
+// "Nada de estacionamento 30" nega o item sem verbo nenhum: o valor dito é o
+// que NÃO saiu. Sem isso, a lista de itens gravava os R$ 30 negados.
+const DENIED_ITEM = /^\s*(?:(?:e|mas)\s+)?(?:(?:hoje|hj|ontem|anteontem)\s+)?(?:nada|zero|0)\s+de\s+\p{L}/iu
+
+export const looksNegated = (t: string): boolean => NEGATED_STATEMENT.test(t) || DENIED_PLATFORM_PAYMENT.test(t) || DENIED_ITEM.test(t)
 
 const CONTRAST_VERB = 'paguei|gastei|comprei|recebi|ganhei|faturei|abasteci|saiu|entrou|caiu'
 const CONTRAST_TIME = String.raw`(?<lead>(?:(?:eu|hoje|hj|ontem|anteontem)\s+){0,3})`
@@ -626,7 +639,20 @@ export function segment(text: string, today = todayISO()): { text: string; start
   for (const m of text.matchAll(beforeNegation)) push((m.index || 0) + m[0].length)
   for (const m of text.matchAll(/(?:[,;]\s*(?:e\s+)?|\s+e\s+)/gi)) {
     const after = m.index + m[0].length
-    if (DENIED_PLATFORM_PAYMENT.test(text.slice(after))) push(after)
+    if (DENIED_PLATFORM_PAYMENT.test(text.slice(after)) || DENIED_ITEM.test(text.slice(after))) push(after)
+  }
+  // "99 n caiu 150, uber caiu 220, etanol 90": a negação abre a frase e o resto
+  // é outra lista. Sem o corte, a frase inteira virava correção e os R$ 220 e
+  // o etanol sumiam. A continuação precisa abrir com app ou verbo de dinheiro:
+  // item solto ("não paguei mercado 55, farmácia 21") ainda está sob a negação,
+  // e "só 100", "foi 80" e "e sim" continuam ligados a ela.
+  for (const m of text.matchAll(/[,;]\s*(?:e\s+)?/g)) {
+    const after = (m.index || 0) + m[0].length
+    const previous = Math.max(...[...cuts].filter(cut => cut <= (m.index || 0)))
+    const rest = text.slice(after)
+    if (!looksNegated(text.slice(previous, m.index)) || !/\d/.test(rest)
+      || /^(?:s[óo]|apenas|somente|sim|foi|foram|era|eram|mas|na\s+verdade)\b/i.test(rest)) continue
+    if (new RegExp(String.raw`^(?:(?:a|o|na|no)\s+)?(?:uber|99|in\s*driver?)\b|^(?:eu\s+)?(?:${PAST_MONEY_VERBS})\b`, 'iu').test(rest)) push(after)
   }
   // A ressalva afirmativa tem escopo próprio: “não gastei 100, só paguei 20”.
   for (const m of text.matchAll(new RegExp(String.raw`\s+(?:s[óo]|apenas|somente)\s+(?=(?:eu\s+)?(?:${PAST_MONEY_VERBS})\b)`, 'gi'))) {
@@ -1541,13 +1567,27 @@ function unaccountedMoney(clause: AnalyzedClause, today: string): number[] {
  * justamente a soma dos `handled` que vira `coverage`, e é a cobertura
  * incompleta que manda a mensagem para a IA remota.
  */
+/**
+ * "Uber 45, 5 de pedágio": a plataforma ANTES do valor, sem verbo. Só o dia
+ * telegráfico lia "uber 45" sozinho; com outro item na frase, os R$ 45 sumiam
+ * sem aviso, e "uber 45 líquido, 5 de pedágio" virava uma receita de R$ 5.
+ * Só no começo de item de lista, e nunca com unidade de medida depois.
+ */
+const APP_THEN_AMOUNT = /(^|[,;]\s*|\s+e\s+)(?:(?:a|na|da)\s+)?(uber|99|in\s*driver?)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s+(?:reais|conto|contos|pila))?(?:\s+(l[íi]quidos?|brutos?|limpos?))?(?![.,]?\d)(?!\s*(?:x\b|%|km\b|kms\b|h\b|hrs?\b|horas?\b|min|corridas?\b|viagens?\b|l\b|litros?\b))(?=\s*(?:$|[,;.!]|\s+e\s+|\s+\d))/giu
+function appAntesDoValor(input: string): string {
+  if (/[?]/.test(input) || !/\d\D+\d|\d\s*[,;]|\s+e\s+/.test(input)) return input
+  const plat = (p: string) => /^uber$/i.test(p) ? 'Uber' : /^99$/.test(p) ? '99' : 'inDrive'
+  return input.replace(APP_THEN_AMOUNT, (_m, lead: string, app: string, amount: string, qual?: string) =>
+    `${lead}ganhei ${amount}${qual ? ' ' + qual.toLowerCase() : ''} na ${plat(app)}`)
+}
+
 export function analyzeMessage(
   input: string,
   opts?: { driver?: boolean; today?: string; inheritedKind?: 'income' | 'expense' },
 ): MessageAnalysis {
   const today = opts?.today || todayISO()
   // "Meu 13º caiu 1600": o 13 é o NOME do salário extra, não R$ 13,00.
-  const original = partesDoDia(totalComDoisPontos(abastecimentosRepetidos(valorPorCorrida(marcoDaRevisao(tanqueCheio(contagemDeItens(vendaPorUnidade(voltaSemUnidade(withoutPaymentBalanceContext(somaEscrita(opts?.driver ? expandDriverReport(input.trim(), today) : input.trim())
+  const original = partesDoDia(totalComDoisPontos(abastecimentosRepetidos(valorPorCorrida(marcoDaRevisao(tanqueCheio(contagemDeItens(vendaPorUnidade(voltaSemUnidade(withoutPaymentBalanceContext(somaEscrita(opts?.driver ? appAntesDoValor(expandDriverReport(input.trim(), today)) : input.trim())
     .replace(DECIMO_TERCEIRO, 'décimo terceiro').replace(GIRIA_DE_COMBUSTIVEL, 'gasolina').replace(PAGO_NO_DEBITO, 'paguei $1')))))))))))
   // Números por extenso viram algarismos ANTES dos regex, para reaproveitar
   // todo o parser já testado em vez de duplicá-lo.
@@ -1631,6 +1671,10 @@ export function analyzeMessage(
       : opts?.driver && !isQuestion && !negated && DISTANCE_ON_FOOT.test(normalizeNumberWords(part.text).text)
         ? 'A quilometragem do veículo conta os trechos dirigidos.'
       : thirdPartyReference(part.text) ? 'Esse trecho fala da movimentação de outra pessoa. Se afetou sua conta, diga se o dinheiro entrou ou saiu e qual foi o valor.'
+      : !isQuestion && !negated && PRICE_PER_LITER.test(part.text)
+        ? 'Isso é o preço do litro, não um abastecimento: não registrei nada. Quando abastecer, diga quanto pagou, por exemplo "abasteci 150", que eu lanço.'
+      : !isQuestion && !negated && INCOMING_CASH.test(part.text) && /\d/.test(part.text) && DEBT_INFLOW.test(original)
+        ? 'Esse valor entrou, mas é dívida: vai ter que ser devolvido, então não entra como receita. Se quiser o saldo certo, me diga o saldo atual ("meu saldo é …"). Se foi saque no cartão de crédito, registre em Cartões e parcelamentos, que ele entra como entrada financiada.'
       : undefined))
     const unrealized = !isQuestion && (abandoned || abandonedReply || onlyPlanned || declinedRide || refundDenied || RIDE_CONDITIONAL.test(part.text) || ALMOST_HAPPENED.test(part.text))
     const canShareContext = !isQuestion && !isConversation && !negated && !unrealized && !localExplanation
@@ -2017,7 +2061,9 @@ export function analyzeMessage(
 
     // Relato NEGADO nunca vira lançamento: "não gastei 100" propunha registrar
     // a despesa de 100 — o erro mais perigoso possível num app de dinheiro.
-    if (negated) actions = []
+    // A pergunta de sinal também cai: "nada de estacionamento 30 hoje" não pode
+    // perguntar se os R$ 30 negados foram ganho ou gasto.
+    if (negated) { actions = []; if (ambiguity?.options.some(o => o.actions.length)) ambiguity = undefined }
     if (unrealized) {
       actions = []
       ambiguity = undefined
