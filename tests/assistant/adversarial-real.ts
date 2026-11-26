@@ -13910,6 +13910,40 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YM — pontuação no fim do valor, rótulo com dois-pontos e gorjeta dentro ou fora da corrida.
+  {
+    const today = '2026-11-25'
+    const driver = motoristaRico(today), autonomo = autonomoRico(today)
+    const kinds = (o: Awaited<ReturnType<typeof orchestrate>>) => (o.response.actions as any[]).map(c => [c.action.kind, c.action.amount ?? c.action.trips, c.action.category || ''])
+    for (const [i, [state, message, expected]] of ([
+      // Com ponto ou vírgula no fim, virava despesa comum em vez de abastecimento.
+      [driver, 'paguei gasolina 85.', [['fuel', 85, '']]],
+      [driver, 'paguei gasolina 85,', [['fuel', 85, '']]],
+      // O rótulo valia só para nada: R$ 1.800 em Outros e R$ 1.750 em pergunta.
+      [autonomo, 'aluguel: recebi 1800 e 1750', [['income', 1800, 'aluguel'], ['income', 1750, 'aluguel']]],
+      [autonomo, 'mercado: gastei 120, 45 e 30', [['expense', 120, 'alimentacao'], ['expense', 45, 'alimentacao'], ['expense', 30, 'alimentacao']]],
+      // A gorjeta dita como incluída ou por fora não precisa de pergunta.
+      [driver, 'a corrida deu 45 com 5 de gorjeta já incluída', [['income', 45, 'corridas'], ['work', 1, '']]],
+      [driver, 'a corrida deu 45 com 5 de gorjeta por fora', [['income', 45, 'corridas'], ['work', 1, ''], ['income', 5, 'corridas']]],
+    ] as const).entries()) {
+      const r = await orchestrate({ state, message, today, remoteEnabled: false })
+      out.push(result('YM-registro-' + i, { message, response: r.response }, expected,
+        r.response.mode === 'propose_actions' && JSON.stringify(kinds(r)) === JSON.stringify(expected)))
+    }
+    {
+      // Só o pedágio era proposto, e a corrida ficava sem registro.
+      const message = 'a corrida deu 45 com 5 de gorjeta e paguei 8 de pedágio'
+      const first = await orchestrate({ state: driver, message, today, remoteEnabled: false })
+      const clar = first.response.mode === 'clarify' ? first.response.clarification : undefined
+      const [sim, nao] = await Promise.all(['sim', 'não'].map(m => orchestrate({ state: driver, message: m, today, remoteEnabled: false, pendingClarification: clar })))
+      const soma = (o: Awaited<ReturnType<typeof orchestrate>>) => (o.response.actions as any[]).filter(c => c.action.kind === 'income').reduce((n, c) => n + c.action.amount, 0)
+      const pedagio = (o: Awaited<ReturnType<typeof orchestrate>>) => (o.response.actions as any[]).some(c => c.action.kind === 'expense' && c.action.amount === 8)
+      out.push(result('YM-gorjeta-pergunta', { first: first.response.reply, sim: sim.response, nao: nao.response }, 'pergunta; 45 ou 50, com o pedágio',
+        first.response.mode === 'clarify' && /gorjeta/.test(first.response.reply) && soma(sim) === 45 && soma(nao) === 50 && pedagio(sim) && pedagio(nao)))
+    }
+  }
+
   return out
 }
 

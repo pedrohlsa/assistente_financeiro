@@ -7716,3 +7716,9 @@ A rubrica foi conferida resposta por resposta contra a rodada anterior, sem nenh
 - "Ontem ganhei 250 na uber em 120 km, hoje foram 80 km e 190 na 99" guarda os km de cada dia. O hodômetro ("estou com 220.007 km") continua fora.
 - "O que entrou na conta ontem?", "entrou alguma coisa ontem?" e "caiu algo ontem?" respondem o que entrou. As de sim ou não começam por "Sim." ou "Não.". Antes, a resposta era a lista de contas a vencer ou o menu de ajuda.
 
+### Pontuação, rótulo e gorjeta (`YM`)
+
+- "Paguei gasolina 85." e "paguei gasolina 85," viram abastecimento. Antes, o ponto colava no valor reordenado e virava despesa comum.
+- "Aluguel: recebi 1800 e 1750" e "mercado: gastei 120, 45 e 30" aplicam o rótulo a cada valor.
+- "A corrida deu 45 com 5 de gorjeta e paguei 8 de pedágio" pergunta se a gorjeta já está nos R$ 45, com as duas propostas prontas e o pedágio nas duas. Antes, só o pedágio era proposto. Com "já incluída" ou "por fora" na frase, a proposta sai direto.
+

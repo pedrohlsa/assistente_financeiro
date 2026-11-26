@@ -942,6 +942,44 @@ function partWithPeriod(text: string, today: string) {
   return { text, period, uncertain: period?.future === true }
 }
 
+/**
+ * "A corrida deu 45 COM 5 de gorjeta": a gorjeta pode estar dentro dos 45 ou
+ * somar a eles. A frase não diz, e o resto ("paguei 8 de pedágio") era o único
+ * lançamento — a corrida ficava sem registro. O app pergunta, com as duas
+ * propostas prontas e o resto da frase nas duas.
+ */
+const CORRIDA_COM_GORJETA = /\b(?:a\s+)?(corrida|uber|99|viagem)\s+(?:deu|foi|saiu|rendeu)\s+(?:r\$\s*)?(\d+(?:,\d{1,2})?)(?:\s+reais)?\s+com\s+(?:r\$\s*)?(\d+(?:,\d{1,2})?)(?:\s+reais)?\s+de\s+gorjeta\b/i
+async function gorjetaDentroOuFora(input: OrchestratorInput): Promise<OrchestratorOutput | undefined> {
+  const text = normalizeNumberWords(input.message).text
+  const m = text.match(CORRIDA_COM_GORJETA)
+  if (!m || m.index === undefined) return undefined
+  const [total, tip] = [parseMoney(m[2]), parseMoney(m[3])]
+  if (!(total > 0) || !(tip > 0) || tip >= total) return undefined
+  const app = /^(?:uber|99)$/i.test(m[1]) ? ` na ${/^uber$/i.test(m[1]) ? 'Uber' : '99'}` : ''
+  const depois = text.slice(m.index + m[0].length)
+  // "Já incluída" ou "por fora" dito na frase: não há o que perguntar.
+  const marca = depois.match(/^\s*,?\s*(?:(j[áa]\s+)?(?:inclu[ií]da|inclusa|dentro)|(por\s+fora|[àa]\s+parte|al[ée]m(?:\s+disso)?))(?![\wÀ-ÿ])/i)
+  const resto = (s: string) => `${text.slice(0, m.index)}${s}${(marca ? depois.slice(marca[0].length) : depois)}`.replace(/\s+/g, ' ').trim()
+  if (marca) {
+    const message = marca[2] ? resto(`fiz uma corrida de ${m[2]}${app} e ganhei ${m[3]} de gorjeta`) : resto(`fiz uma corrida de ${m[2]}${app}`)
+    return orchestrate({ ...input, message, pending: undefined, pendingClarification: undefined, draft: undefined })
+  }
+  const [dentro, fora] = await Promise.all([
+    resto(`fiz uma corrida de ${m[2]}${app}`),
+    resto(`fiz uma corrida de ${m[2]}${app} e ganhei ${m[3]} de gorjeta`),
+  ].map(message => orchestrate({ ...input, message, pending: undefined, pendingClarification: undefined, draft: undefined })))
+  const ok = (r: OrchestratorOutput) => r.response.mode === 'propose_actions' && !r.response.unresolved.length
+  if (!ok(dentro) || !ok(fora)) return undefined
+  const question = `Os ${fmtBRL(tip)} de gorjeta já estão nos ${fmtBRL(total)} da corrida?`
+  return { draft: null, focus: input.focus, response: {
+    version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [], reply: question,
+    clarification: { field: 'tip-included', question, options: [
+      { value: 'sim', label: `Sim, ${fmtBRL(total)} no total`, actions: dentro.response.actions.map(c => c.action) },
+      { value: 'nao', label: `Não, ${fmtBRL(total + tip)} no total`, actions: fora.response.actions.map(c => c.action) },
+    ] },
+  } }
+}
+
 const DUVIDA_DE_VALOR = /(?<![\d.,])(\d+(?:,\d{1,2})?)(?:\s+(?:reais|conto?s?))?([^\d?]{0,25}?)(\s*,?\s*(?:ou\s+(?:foi\s+|era\s+|seria\s+|talvez\s+|uns\s+)?|,\s*))(\d+(?:,\d{1,2})?)(?:\s+(?:reais|conto?s?))?(?![\d.,]|\s*(?:km|h|horas?|corridas?|viagens?|litros?|%|x)(?![\wÀ-ÿ]))/i
 const MARCA_DE_DUVIDA = /(?<![\wÀ-ÿ])(?:n[ãa]o\s+(?:lembro|sei)(?:\s+(?:direito|bem|ao\s+certo))?|por\s+a[íi]|acho(?:\s+que)?|sei\s+l[áa]|mais\s+ou\s+menos)(?![\wÀ-ÿ])|\?/i
 
@@ -3052,6 +3090,19 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     .replace(/⛽\uFE0F?/gu, ' gasolina ')
     .replace(/[\p{Extended_Pictographic}\uFE0F\u200D]+/gu, ' ').replace(/\s{2,}/g, ' ').trim()
   if (autoCorrigida && autoCorrigida !== input.message) input = { ...input, message: autoCorrigida }
+  // "Aluguel: recebi 1800 e 1750": o rótulo antes dos dois-pontos vale para
+  // cada valor da lista. Sem ele, o primeiro ia para Outros e o segundo virava
+  // pergunta.
+  const rotulado = input.message.trim().match(/^([a-zà-úç][a-zà-úç\s]{2,20}?)\s*:\s*((?:eu\s+)?(?:recebi|ganhei|paguei|gastei)\s+)(.+)$/i)
+  if (rotulado && !input.pendingClarification) {
+    const tipo = /recebi|ganhei/i.test(rotulado[2]) ? 'income' : 'expense'
+    const cat = guessCategory(rotulado[1], tipo)
+    const valores = rotulado[3].match(/\d+(?:[.,]\d+)*/g) || []
+    if (cat && !/^outros/.test(cat) && valores.length >= 2 && !/\b(?:d[aeo]|n[ao]|em|com)\s/i.test(rotulado[3])) {
+      const lista = rotulado[3].replace(/(\d+(?:[.,]\d+)*)(\s*(?:reais|real))?/g, `$1$2 de ${rotulado[1].trim().toLowerCase()}`)
+      input = { ...input, message: `${rotulado[2]}${lista}` }
+    }
+  }
   // "O que entrou na conta ontem ou nada?", "caiu algo ontem?": a pergunta é o
   // dinheiro que entrou no período. Respondia contas a vencer ou a ajuda.
   const oQueEntrou = input.message.trim().match(/^(?:e\s+)?(?:(?:o\s+)?que\s+(?:entrou|caiu|pingou)|(?:entrou|caiu|pingou)\s+(?:alguma\s+coisa|algo|algum\s+(?:dinheiro|pix|repasse)))(?:\s+(?:na|em)\s+(?:minha\s+)?conta)?\s+(.+?)(?:\s*,?\s*ou\s+(?:nada|n[ãa]o))?\s*\?*$/i)
@@ -3080,6 +3131,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (!input.pending?.length && !input.pendingClarification) {
     const duvida = await valorEmDuvida(input, today)
     if (duvida) return duvida
+    const gorjeta = await gorjetaDentroOuFora(input)
+    if (gorjeta) return gorjeta
   }
   // "Gastei mais com gasolina ou manutenção?": pergunta de escolha entre dois
   // gastos, com ou sem "?". Lida pelos caminhos gerais, só um lado aparecia.

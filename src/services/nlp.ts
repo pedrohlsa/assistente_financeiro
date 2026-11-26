@@ -538,10 +538,12 @@ export const FRACAO_DE = /(?<![\d\/.,])(\d{1,2})\s*\/\s*(\d{1,2})(?![\d\/])(?=\s
  * registrado. Reescrito como "paguei 400 o aluguel", a forma que o parser lê.
  */
 function valorNoFim(input: string): string {
+  // O número não leva a pontuação do fim: "paguei gasolina 85." virava
+  // "paguei 85. gasolina", e o abastecimento saía como despesa comum.
   // "Paguei o pedreiro 600 E MAIS 180 de areia": o valor do primeiro item não
   // é o fim da frase. Sem aceitar a continuação nada era lido, e a mensagem
   // virava CONSULTA — as duas despesas sumiam.
-  const m = input.match(/^(\s*(?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)(gastei|paguei|comprei|torrei|recebi|ganhei|dei)\s+((?:(?:casa|kitnet|apto|apartamento|loja|sala|quarto)\s+\d{1,3}(?!\d|[.,]\d)|[^\d,:;?]){2,60}?)\s*([,:;]?)\s*(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real|contos?|pila)?(\s+e\s+(?:mais\s+)?(?:r\$\s*)?\d[^?]*?)?\s*[.!]?\s*$/i)
+  const m = input.match(/^(\s*(?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)(gastei|paguei|comprei|torrei|recebi|ganhei|dei)\s+((?:(?:casa|kitnet|apto|apartamento|loja|sala|quarto)\s+\d{1,3}(?!\d|[.,]\d)|[^\d,:;?]){2,60}?)\s*([,:;]?)\s*(?:r\$\s*)?(\d+(?:[.,]\d+)*)\s*(?:reais|real|contos?|pila)?(\s+e\s+(?:mais\s+)?(?:r\$\s*)?\d[^?]*?)?\s*[.!,;]?\s*$/i)
   if (!m) return input
   // Sem vírgula ("paguei a pensão 600"), o número pode ser parte de um NOME:
   // "a parcela 3", "a casa 2", "o cliente 1". Aí não é valor.
