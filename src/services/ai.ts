@@ -2197,6 +2197,21 @@ function resolveLocal(s: AppState, input: string, context?: { today?: string; me
     }
   }
 
+  // "Vale a pena 1,50 por km?": um valor por km contra os custos dele. Caía na
+  // ajuda. Sim ou não primeiro (regra 57), com a régua da tela Veículo.
+  const taxaPorKm = driverMode ? t.match(/^(?:e\s+)?(?:vale\s+a\s+pena|compensa|da|d[aá]\s+(?:pra|para)\s+(?:rodar|pegar|aceitar)|paga)\s+(?:rodar\s+|pegar\s+|aceitar\s+)?(?:a\s+|por\s+)?(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*(?:reais?\s+)?(?:por|o|\/|cada)\s*(?:o\s+)?(?:km|quilometro)\s*\??$/) : null
+  if (taxaPorKm) {
+    const valor = parseMoney(taxaPorKm[1])
+    const kc = kmCost(s)
+    if (!(kc.total > 0)) {
+      return { text: 'Ainda não sei o seu custo por km, então não tenho como dizer se esse valor compensa. Registre um abastecimento com litros e o km do hodômetro, ou preencha consumo e preço em Veículo.' }
+    }
+    const veredito = valor < kc.total ? `Não: ${fmtBRL(valor)}/km fica abaixo do seu custo de ${fmtBRL(kc.total)}/km — você paga para rodar.`
+      : valor < kc.minRecommended ? `Sim, mas por pouco: ${fmtBRL(valor)}/km cobre o seu custo de ${fmtBRL(kc.total)}/km, mas fica abaixo do mínimo recomendado de ${fmtBRL(kc.minRecommended)}/km.`
+        : `Sim: ${fmtBRL(valor)}/km fica acima do mínimo recomendado de ${fmtBRL(kc.minRecommended)}/km (custo de ${fmtBRL(kc.total)}/km).`
+    return { text: `${veredito}\n\nA conta usa os custos cadastrados em Veículo e não inclui a ida até o passageiro.` }
+  }
+
   // "qual o valor mínimo de corrida / pra sair lucrando / quanto cobrar por km"
   if (driverMode && PEDE_MINIMO_POR_KM.test(t)) {
     const kc = kmCost(s)

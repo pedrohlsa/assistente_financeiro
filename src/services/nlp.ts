@@ -2137,8 +2137,8 @@ function parseClause(input: string): ParsedAction[] {
       ? text.match(new RegExp(String.raw`(?<![\wÀ-ÿ])(?:e|com)\s+${NUM}\s*${WORK_KM}`, 'i')) : null)
     // "Foram 80 km", "ganhei 250 EM 120 km": a distância do dia ao lado do
     // ganho. Sem verbo de rodar, ela sumia do resumo misto.
-    || (!/hod[oô]metro|od[oô]metro|\bpainel\b|\bmarcador\b|\b(?:estou|t[oô]|t[aá]|est[aá])\s+(?:\p{L}+\s+)?com\s+\d/iu.test(text)
-      ? [...text.matchAll(new RegExp(String.raw`(?:^|\s)(?:foram|deu|deram|em|com)\s+${NUM}\s*(?:km|quil[oô]metros?)(?![\wÀ-ÿ/])(?!\s*(?:por|\/)\s*(?:l|litro)\b)(?!\s+(?:de\s+)?(?:dist[âa]ncia|at[ée]|pra|para|rodados)\b)`, 'gi'))]
+    || (!/hod[oô]metro|od[oô]metro|\bpainel\b|\bmarcador\b|\b(?:estou|t[oô]|t[aá]|est[aá])\s+(?:\p{L}+\s+)?com\s+\d|\bpassageir|\bpaguei\b/iu.test(text)
+      ? [...text.matchAll(new RegExp(String.raw`(?:^|\s)(?:foram|deu|deram|em|com|por)\s+${NUM}\s*(?:km|quil[oô]metros?)(?![\wÀ-ÿ/])(?!\s*(?:por|\/)\s*(?:l|litro)\b)(?!\s+(?:de\s+)?(?:dist[âa]ncia|at[ée]|pra|para|rodados)\b)`, 'gi'))]
         .find(x => parseNum(x[1]) > 0 && parseNum(x[1]) <= 1500) || null : null)
     // Relato telegráfico do turno: "hj 190km 10h 22 corridas", "rodei 10h,
     // 190km". A unidade dita e o contexto de turno bastam; sem esta leitura a

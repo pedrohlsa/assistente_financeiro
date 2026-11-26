@@ -51,7 +51,7 @@ const JOINED_OFFERS = new RegExp(String.raw`\s+e\s+(?=(?:(?:a\s+)?(?:corrida|ofe
 const JOINED_ROUTE_QUOTES = /\s+e\s+(?=(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?\s+(?:por|em|pra|para|com)\s+\d+(?:[.,]\d+)*\s*(?:kms?|quilometros?)\b)/
 const COMPARA_DOIS = /\bqual\s+(?:(?:das?\s+)?(?:corridas?|ofertas?)\s+)?(?:(?:da|tem)\s+(?:mais\s+lucro|maior\s+lucro)|(?:paga|rende|da)\s+mais|e\s+(?:a\s+)?(?:melhor|mais\s+lucrativ[ao])|(?:tem\s+)?[oa]\s+(?:(?:melhor|maior)\s+)?(?:ganho|lucro|rendimento|receita)\s+(?:(?:brut[oa]|liquid[oa])\s+)?por\s+(?:hora|minuto|km|quilometro))\b|\bqual\s+compensa\b|\bvale\s+mais\b|^vale\s+a\s+pena\s+a\s+de\b/
 const RIDER_ON_BOARD = String.raw`(?:(?:n[oa]\s+trecho\s+)?com\s+(?:[ao]\s+)?passageir[oa](?:\s+a\s+bordo)?|levando\s+(?:[ao]\s+)?passageir[oa])`
-const PICKUP = String.raw`(?:ate\s+(?:(?:o|a)\s+)?(?:passageir[oa]|embarque)|ate\s+(?:buscar|pegar|embarcar)(?:\s+(?:[ao]\s+)?passageir[oa])?|(?:(?:pra|para)\s+(?:(?:o|a)\s+)?(?:buscar|embarcar|embarque|passageir[oa])|(?:pro|pra)\s+passageir[oa])|(?:de|do|pro|para\s+o)\s+embarque|(?:de\s+)?aproximacao|passageir[oa])`
+const PICKUP = String.raw`(?:(?:de\s+)?busca|ate\s+(?:(?:o|a)\s+)?(?:passageir[oa]|embarque)|ate\s+(?:buscar|pegar|embarcar)(?:\s+(?:[ao]\s+)?passageir[oa])?|(?:(?:pra|para)\s+(?:(?:o|a)\s+)?(?:buscar|embarcar|embarque|passageir[oa])|(?:pro|pra)\s+passageir[oa])|(?:de|do|pro|para\s+o)\s+embarque|(?:de\s+)?aproximacao|passageir[oa])`
 const TRIP = String.raw`(?:(?:d[aeo]\s+)?(?:corrida|viagem|trajeto)|${RIDER_ON_BOARD}|ate\s+(?:o\s+)?destino)`
 const RETURN = String.raw`(?:(?:d[aeo]\s+|na\s+)?(?:retorno|volta)(?:\s+(?:vazi[oa]|sem\s+passageiro))?|(?:pra|para)\s+voltar(?:\s+(?:vazi[oa]|sem\s+passageiro))?|voltando(?:\s+(?:vazi[oa]|sem\s+passageiro))?|vazi[oa]s?\s+na\s+volta|(?:vou\s+)?voltar(?:\s+(?:uns|umas|aproximadamente|cerca\s+de))?)`
 const OUTBOUND_WITH_PICKUP = String.raw`ate\s+(?:o\s+)?destino\s*,?\s+(?:com|contando|incluindo)\s+(?:o\s+)?embarque`
@@ -60,7 +60,7 @@ const OUTBOUND = String.raw`(?:(?:d[aeo]|na)\s+)?ida`
 const TOTAL = String.raw`(?:no\s+total|ao\s+todo|tota(?:l|is)|contando\s+(?:a\s+)?ida\s+${PICKUP}|(?:(?:contando|de)\s+)?(?:a\s+)?ida\s+e\s+(?:a\s+)?volta)`
 const SUFFIX = new RegExp(String.raw`^\s+(?:(?:so|somente|apenas)\s+)?(${TOTAL}|${OUTBOUND_WITH_PICKUP}|${PICKUP}|${TRIP}|${RETURN}|${OUTBOUND})\b`)
 const PREFIX = new RegExp(String.raw`\b(embarque|buscar|passageiro|distancia\s+${PICKUP}|tempo\s+${PICKUP}|distancia\s+${TRIP}|tempo\s+${TRIP}|trajeto|viagem|volto|(?:distancia\s+|tempo\s+)?${RETURN}|${OUTBOUND}|${TOTAL})(?:[\s:]+(?:de|e))?[\s:]+$`)
-const IS_PICKUP = /\b(?:emba(?:rq|rc)\w*|buscar|pegar|passageir[oa]|aproximacao)\b/
+const IS_PICKUP = /\b(?:emba(?:rq|rc)\w*|busca|buscar|pegar|passageir[oa]|aproximacao)\b/
 const IS_RETURN = /\b(?:retorno|volta|volto|voltar|voltando)\b/
 const WITH_PASSENGER = new RegExp(String.raw`^${RIDER_ON_BOARD}$`)
 const IS_OUTBOUND = /\bida\b/
@@ -91,7 +91,12 @@ function normalizeRideOfferText(input: string): string {
     .replace(/\bcoriida\b/g, 'corrida').replace(/\bgorgeta\b/g, 'gorjeta')
   const chunks = text.split(/,\s+/).map(part => normalizeNumberWords(part).text)
   const withMinutes = chunks.join(', ').replace(/\b((?:\d{1,2}|uma|duas)\s+horas?\s+e\s+\d{1,2})(?=\s+(?:totais|total|no\s+total|ao\s+todo)\b)/g, '$1 minutos')
-  return expandSharedRouteUnits(voltaSemUnidade(withMinutes))
+  // "6 km e 3 ATÉ O PASSAGEIRO", "mais 3 DE BUSCA": a busca herda o km da
+  // frase. Sem a unidade, o número ficava fora da conta da rota.
+  const pickupUnit = /\d\s*km\b/.test(withMinutes)
+    ? withMinutes.replace(/(?<![\d.,])(\d+(?:[.,]\d+)?)\s+(?=(?:de\s+busca|ate\s+(?:o\s+|a\s+)?(?:passageir[oa]|embarque)|(?:pra|para)\s+buscar|ate\s+buscar|de\s+aproximacao)\b)/g, '$1 km ')
+    : withMinutes
+  return expandSharedRouteUnits(voltaSemUnidade(pickupUnit))
 }
 
 function measured(t: string, units: RegExp, readValue: (match: RegExpMatchArray) => number | undefined): Measures | undefined {
@@ -116,6 +121,14 @@ function measured(t: string, units: RegExp, readValue: (match: RegExpMatchArray)
     const value = readValue(match)
     if (!Number.isFinite(value) || value < 0 || result[part] !== undefined) return undefined
     result[part] = value
+  }
+  // "Corrida de 18 por 6 km, 3 km até o passageiro": com a busca rotulada, a
+  // outra medida sem rótulo é a viagem. Antes, o app perguntava os km da
+  // viagem — ou somava só os 6 km e inflava o ganho por km.
+  if (result.unmarked !== undefined && result.pickup !== undefined && result.trip === undefined
+    && result.total === undefined && result.outbound === undefined && result.outboundWithPickup === undefined) {
+    result.trip = result.unmarked
+    delete result.unmarked
   }
   return result
 }
@@ -336,8 +349,11 @@ function splitOffers(text: string): string[] {
 
 export function interpretRideOffer(state: AppState, input: string, context = input): RideOfferAnswer | undefined {
   const notice = input.match(RIDE_OFFER_NOTICE)
-  if (!isDriver(state.settings) || looksPast(notice ? input.replace(RIDE_OFFER_NOTICE, ' ') : input)) return undefined
-  const text = normalizeRideOfferText(input)
+  // "Uber OFERECEU 42 por 15 km": o verbo no passado é o aviso da oferta, não um fato registrado.
+  const appOffered = /^(?:a\s+|o\s+)?(?:uber|99|in\s*driver?|app)\s+(?:me\s+)?(?:ofereceu|mandou|tocou|chamou)\b/.test(normalizeName(input))
+  if (!isDriver(state.settings) || (!appOffered && looksPast(notice ? input.replace(RIDE_OFFER_NOTICE, ' ') : input))) return undefined
+  const text = normalizeRideOfferText(appOffered
+    ? input.replace(/^.*?\b(?:ofereceu|mandou|tocou|chamou)\s+(?:uma\s+)?(?:corrida\s+)?(?:de\s+)?/i, 'corrida de ') : input)
   const compare = RIDE_COMPARISON_REQUEST.test(text)
   const alternatives = splitOffers(text)
   const enumerated = ENUMERATED_OFFERS.test(text) && COMPARA_DOIS.test(text)
@@ -352,12 +368,20 @@ export function interpretRideOffer(state: AppState, input: string, context = inp
     && (price.tip || price.charges?.length || OFFER_PRICE_HEADING.test(text) || /\b(?:ida|volta|voltando|voltar|retorno|embarque|passageiro|destino|aproximacao)\b/.test(text))
   const quoteWithCharge = price.charges?.length && hasDistance && OFFER_PRICE_HEADING.test(text)
   const asksShort = price.value !== undefined && price.charges?.length && hasDistance && NOME.test(text) && /\bvai\s*\?$/.test(text)
-  if ((!RIDE_EVALUATION_REQUEST.test(text) && !compare && !comparesTwo && !enumerated && !asksOfferMetric && !quoteWithCharge && !asksShort)
-    || (!notice && !NOME.test(text) && !comparesTwo && !enumerated && !UMA_DE_COM_DISTANCIA.test(text) && !quotedRoute && !asksOfferMetric)) return undefined
+  // "Uber ofereceu 42 por 15 km": o aviso da oferta com valor e distância já
+  // pede a análise. "Proposta de 36 por 12 km, tem taxa?": a dúvida da taxa
+  // também. Os dois caíam na ajuda ou em "não consegui ler o 36".
+  const bareNotice = appOffered && price.value !== undefined && hasDistance
+  const asksFee = price.value !== undefined && hasDistance && /\b(?:tem|tira|desconta|cobra)\s+(?:a\s+)?taxa\b|\bcom\s+taxa\s*\?/.test(text)
+  if ((!RIDE_EVALUATION_REQUEST.test(text) && !compare && !comparesTwo && !enumerated && !asksOfferMetric && !quoteWithCharge && !asksShort && !bareNotice && !asksFee)
+    || (!notice && !NOME.test(text) && !comparesTwo && !enumerated && !UMA_DE_COM_DISTANCIA.test(text) && !quotedRoute && !asksOfferMetric && !bareNotice && !asksFee)) return undefined
   if (perceivesDrivingFatigue(context)) return { reply: PARE_PARA_DESCANSAR }
   if (!/\d/.test(text) && !notice) return undefined
   if (compare || enumerated || alternatives.length > 1) return { reply: compareOffers(state, alternatives, text) }
-  return renderOffer(state, { ...price, distance: readDistance(text), duration: readDuration(text) })
+  const offer = renderOffer(state, { ...price, distance: readDistance(text), duration: readDuration(text) })
+  if (!asksFee) return offer
+  const feeNote = 'Sobre a taxa: se esse é o valor que o app mostra para você na oferta, a taxa da plataforma já saiu dele. A conta abaixo usa o valor como o que entra na sua conta.'
+  return { ...offer, reply: `${feeNote}\n\n${offer.reply}` }
 }
 
 export function answerRideOffer(state: AppState, input: string, context = input): string | undefined {

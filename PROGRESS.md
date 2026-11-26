@@ -7735,3 +7735,11 @@ A rubrica foi conferida resposta por resposta contra a rodada anterior, sem nenh
 - "Quanto cada casa me pagou esse mês?", "quanto recebi de cada casa" e "qual casa paga mais?" respondem por origem. Antes, a consulta procurava o texto "Cada Casa", e "qual casa paga mais" respondia sobre gastos.
 - "Recebi o adiantamento quinzenal de 1600" e "caiu o vale de 1200" são salário. O adiantamento do cartão continua sendo dívida.
 
+### Ofertas de corrida (`YP`)
+
+- "Corrida de 18 por 6 km, 3 km até o passageiro, compensa?", "6 km e 3 até o passageiro" e "6 km mais 3 de busca" analisam 9 km (R$ 2,00/km). Antes, o app perguntava os km da viagem, ou calculava R$ 3,00/km só sobre os 6 km.
+- "Uber ofereceu 42 por 15 km" e "a 99 mandou uma de 25 por 10 km" analisam a oferta. Antes, caíam no menu de ajuda. "A uber me mandou 300", sem distância, continua sendo receita.
+- "Proposta de 36 por 12km no total, tem taxa?" explica que o valor mostrado pelo app já vem sem a taxa e analisa os 12 km. Antes, a resposta era "não consegui ler o 36".
+- "Vale a pena 1,50 por km?" responde sim ou não pela régua da tela Veículo: custo e mínimo recomendado.
+- "Fiz uma corrida de 50 por 20 km" guarda os 20 km. Para quem andou como passageiro, o km continua fora.
+

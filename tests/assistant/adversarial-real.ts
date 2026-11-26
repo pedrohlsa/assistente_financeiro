@@ -14003,6 +14003,51 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YP — ofertas de corrida: busca até o passageiro, aviso do app, taxa e valor por km.
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    const kc = kmCost(state)
+    const reply = async (message: string) => (await orchestrate({ state, message, today, remoteEnabled: false })).response
+    for (const [i, message] of [
+      // A busca ficava fora: R$ 3,00/km sobre 6 km, ou a pergunta dos km da viagem.
+      'corrida de 18 por 6 km, 3 km até o passageiro, compensa?',
+      'corrida de 18 reais 6 km e 3 até o passageiro compensa?',
+      'corrida de 18 pra 6 km mais 3 de busca, compensa?',
+    ].entries()) {
+      const r = await reply(message)
+      out.push(result('YP-busca-entra-na-rota-' + i, { message, reply: r.reply }, '9 km e R$ 2,00/km',
+        !r.actions.length && /9 km/.test(r.reply) && r.reply.includes(`${fmtBRL(2)}/km bruto`)))
+    }
+    {
+      // Caía no menu de ajuda.
+      const r = await reply('uber ofereceu 42 por 15 km')
+      out.push(result('YP-aviso-do-app', { reply: r.reply }, 'análise de 15 km',
+        !r.actions.length && /Análise da corrida \(15 km/.test(r.reply)))
+    }
+    {
+      // "Não consegui ler esta parte: 36".
+      const r = await reply('proposta de 36 por 12km no total, tem taxa?')
+      out.push(result('YP-tem-taxa', { reply: r.reply }, 'explica a taxa e analisa os 12 km',
+        !r.actions.length && /taxa/.test(r.reply) && /12 km/.test(r.reply) && !/não consegui ler/.test(r.reply)))
+    }
+    {
+      // Caía na ajuda; agora sim ou não primeiro, pela régua da tela Veículo.
+      const r = await reply('vale a pena 1,50 por km?')
+      const lead = 1.5 < kc.total ? /^Não/ : /^Sim/
+      out.push(result('YP-valor-por-km', { reply: r.reply }, 'sim ou não contra o custo', lead.test(r.reply) && r.reply.includes(fmtBRL(kc.minRecommended))))
+    }
+    {
+      // Os 20 km sumiam; como passageiro, o km continua fora.
+      const ride = await reply('fiz uma corrida de 50 por 20 km')
+      const passenger = await reply('fui passageiro, paguei uma corrida de 29 por 8 km')
+      out.push(result('YP-corrida-com-km', { ride: ride.actions, passenger: passenger.actions }, '20 km na corrida; nada no passageiro',
+        (ride.actions as any[]).some(c => c.action.kind === 'work' && c.action.km === 20)
+        && !(passenger.actions as any[]).some(c => c.action.kind === 'work' && c.action.km)))
+    }
+  }
+
   return out
 }
 

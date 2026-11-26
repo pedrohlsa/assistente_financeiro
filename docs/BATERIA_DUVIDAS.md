@@ -4,7 +4,6 @@
 |---|---|---|
 | “fiz 250 ontem e 200 hoje na Uber” | Propôs R$ 250 ontem sem plataforma e R$ 200 hoje na Uber. | A plataforma no fim pode qualificar os dois valores. Falta evidência para atribuir a Uber aos R$ 250. |
 | “só 3 pra pegar e 9 até lá”, após uma oferta de 12 km | Caiu na ajuda. | A unidade implícita depende da oferta anterior e precisa de reconciliação com o total. |
-| “proposta de 36 por 12km no total, tem taxa?” | Disse que não conseguiu ler o valor. | A tarifa e a distância estão claras. A taxa depende do que aparece na oferta. |
 | “compare corrida de 40 por 12km no total com pedágio de 10 ou corrida de 35 por 12km no total sem pedágio” | Perguntou quem cobre o pedágio antes de comparar. | A comparação ainda precisa carregar as duas ofertas para aceitar uma resposta curta. |
 | “quanto no saldo ontem e quanto hoje?” | Respondeu apenas o saldo atual e os próximos vencimentos. | O histórico pode não ter o saldo de ontem quando há ajuste manual. |
 | “os 170 km foram hoje”, com horas e viagens da mesma jornada | Pediu reescrever. | Mover só os km de dia exige separar as medidas da jornada proposta. |
