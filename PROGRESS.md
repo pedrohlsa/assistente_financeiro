@@ -7547,3 +7547,41 @@ Próxima bateria com números extremos, sinais de menos e instruções misturada
 Cada lote passou por `npm test`, os dois typechecks, a rubrica com 0 PERIGOSA e 0 RUIM e a matriz de oito datas. O último passou com 2.067 regressões adversariais na data padrão. O projeto segue **NOT READY**.
 
 Próxima bateria com relatos de jornada atravessando a meia-noite e datas próximas à virada do mês ou do ano.
+
+### Datas em jornadas que atravessam a meia-noite (`XE`)
+
+- “de terça pra quarta fiz 210 de corrida” mantém os R$ 210 e pede o dia. “Quarta” usa a quarta-feira da janela indicada.
+- “de 24 pra 25 foram trezentos na uber” trata 24 e 25 como datas. “Dia 25” prepara R$ 300 da Uber no dia escolhido.
+- “no turno da noite de terça pra quarta gastei 90 de gasolina” esclarece a data do abastecimento. “Ontem” mantém os R$ 90 no dia 24.
+- “de quinta pra sexta fiz 310 na Uber”, “de 31 pra 1 foram trezentos na uber” e “de 31/12/2026 pra 01/01/2027 fiz 180 na 99” reconhecem os dois lados da virada do ano e registram na proposta a data escolhida.
+- “de ontem para hoje fiz noventa na 99” mantém R$ 90 e usa a data indicada no turno seguinte.
+- “de ontem pra hoje fiz 210 de corrida mas o pix caiu hoje” registra a data do recebimento na proposta. A variante com “fiz 210 de corrida ontem” também usa hoje, como dito para o Pix.
+- “de ontem pra hoje recebi 210 ontem mas o pix caiu hoje” pede qual das datas de recebimento está correta.
+- “na madrugada de terça pra quarta fiz 190 na 99” e “na madrugada de quinta pra sexta ganhei 250 na Uber” usam o dia após a meia-noite.
+- “de terça pra quarta fiz 210 corridas, botei 80 de gasolina na terça” já prepara o abastecimento de terça e pergunta de que dia foram as viagens. “Quarta” completa só as viagens.
+- “trabalhei de ontem pra hoje, fechei 300 da Uber e paguei 85 de gasolina” pede a data de cada item. “Hoje” → “ontem” mantém R$ 300 da Uber hoje e R$ 85 de combustível ontem na proposta.
+
+### Horas de jornada com início e fim informados (`XF`)
+
+- “comecei às 23h de ontem e terminei às 2h de hoje” e “trabalhei ontem a partir das 23h até as 2h de hoje” preparam 1h ontem e 2h hoje.
+- “comecei ontem às onze da noite e parei hoje à uma e meia da madrugada” reconhece a transcrição e prepara 1h ontem e 1h30 hoje.
+- “saí ontem às 22:45 e parei hoje às 02:00” prepara 1h15 ontem e 2h hoje. “Ontem nessa jornada comecei 23h terminei hoje 1h” funciona sem conector.
+- “ontem comecei 23h30 e encerrei hoje 00h15” prepara 30 minutos ontem e 15 hoje. “Comecei ontem às 23:55 e terminei hoje às 00:05” mantém cinco minutos em cada dia.
+- “de ontem pra hoje rodei 2h antes da meia-noite e 3h depois” guarda 2h ontem e 3h hoje.
+- “ontem comecei 22h e terminei hoje 2h, foram 250 da Uber” prepara 2h em cada dia e pergunta de qual dia foram os R$ 250. “Fiz das 22h às 2h de ontem para hoje e ganhei 290” faz a mesma separação para os R$ 290.
+- “comecei ontem às 23h e parei hoje à 1h30, rodei 60 km” preserva os dois períodos e pergunta sobre a data da distância. “Ontem rodei 2h antes da meia-noite e 3h depois, 160km no turno” também mantém as horas por dia, com a distância total em aberto até a resposta.
+- “ontem comecei 10h e terminei hoje 11h” e “comecei ontem 23h e terminei ontem 1h” pedem conferência dos dias e horários. “Hoje comecei 22h e vou terminar amanhã às 2h” aguarda a jornada terminar.
+
+### Dias e valores ditados na mesma frase (`XG`)
+
+- “ganhei 250 na uber no dia vinte e quatro e cento e cinquenta e cinquenta centavos na 99 no dia vinte e cinco” prepara R$ 250 da Uber no dia 24 e R$ 150,50 da 99 no dia 25. Antes, propunha R$ 124,50 para a 99 e punha ambas as receitas no dia 25.
+- “ganhei cento e vinte na Uber no dia vinte e quatro e noventa na 99 no dia vinte e cinco” conserva R$ 120 e R$ 90, cada um com a data e o aplicativo indicados.
+- “no dia vinte e quatro ganhei duzentos e cinquenta na Uber e no dia vinte e cinco ganhei cento e quarenta na 99” reconhece os dias antes dos verbos. “Dia vinte e três 200 da Uber e dia vinte e quatro 130 da 99” também separa as datas sem exigir um verbo.
+- “ante ontem ganhei 195 na Uber e hoje cento e vinte na 99”, “antes de ontem recebi duzentos na Uber e hoje setenta na 99” e “ante-ontem fiz 230 na uber e hoje 120 na 99” usam dois dias atrás para a Uber.
+- “paguei 80 de gasolina no último dia do mês passado” e “no último dia do mês passado recebi 220 na Uber” usam 31 de outubro. Em janeiro, “recebi duzentos e cinquenta do freela no último dia do mês passado” usa 31 de dezembro do ano anterior.
+- “fiz trezentos no dia primeiro de novembro” prepara R$ 300 no dia 1. “Ganhei duzentos e cinquenta em vinte e quatro de novembro” prepara só os R$ 250 no dia 24, sem perguntar por supostos R$ 24 adicionais.
+- “entrou oitenta dia quinze e noventa dia dezesseis na Uber” mantém R$ 80 no dia 15 e R$ 90 no dia 16. A Uber é explícita no segundo valor.
+
+Os três lotes passaram por `npm test`, os dois typechecks, a rubrica com 0 PERIGOSA e 0 RUIM e a matriz de oito datas. O último passou com 2.109 regressões adversariais na data padrão. O projeto segue **NOT READY**.
+
+Próxima bateria com taxas retidas pela plataforma, valores líquidos e despesas pagas separadamente.

@@ -2,7 +2,6 @@
 
 | Frase | Resposta observada | Questão em aberto |
 |---|---|---|
-| “de terça pra quarta fiz 210 de corrida” | Propôs R$ 210 na terça. | A jornada pode cruzar a meia-noite. Falta decidir se o relato usa o início, o fim ou o dia de recebimento. |
 | “terça entrei 200 na Uber e quarta 130 na 99”, dito numa quarta | Propôs os dois valores na terça. | O segundo valor precisa de data própria. “Quarta”, dita numa quarta sem “hoje” ou “passada”, pode ter duas leituras. |
 | “fiz 250 ontem e 200 hoje na Uber” | Propôs R$ 250 ontem sem plataforma e R$ 200 hoje na Uber. | A plataforma no fim pode qualificar os dois valores. Falta evidência para atribuir a Uber aos R$ 250. |
 | “Casa 1 e Casa 2 pagaram 1500 no total” | Consultou o histórico e disse que não encontrou registros. | Sabe-se o total, mas falta a divisão por origem. |
@@ -22,3 +21,5 @@
 | “paguei 10,00 e não 100,00 de estacionamento ontem” | Propôs R$ 10 sem categoria e R$ 100 de estacionamento. | Deve propor somente R$ 10 de estacionamento ontem. |
 | “ganhei 250 na Uber, 💸💸 99 não caiu 150, gastei 8 de pedágio” | Preparou R$ 150 de receita e perguntou sobre R$ 99. | O emoji não deve apagar a negação nem transformar o nome da plataforma em dinheiro. |
 | “saiu 85 de gasolina mas não saíram 30 de estacionamento” | Propôs combustível e estacionamento. | “Não saíram” exclui o estacionamento. |
+| “recebi 320 da Uber anteontem e 90 da 99 no dia seguinte” | Propôs R$ 320 da Uber e R$ 90 da 99, ambos anteontem. | “No dia seguinte” aponta para ontem, um dia depois do primeiro recebimento. |
+| “pagou ontem nove e setenta e cinco de estacionamento” | No perfil motorista, perguntou “Esses R$ 9,75 foram o que você ganhou ou o que você gastou?”. | A taxa de estacionamento de ontem sugere despesa, mas o sujeito e a origem do pagamento podem estar cortados no ditado. |
