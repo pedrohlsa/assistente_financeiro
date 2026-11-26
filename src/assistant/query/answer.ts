@@ -175,6 +175,16 @@ export function leadSimNao(t: string, plan: AssistantQueryPlan, total: number, c
   if (plan.group !== 'none' && plan.order === 'delta-desc' && topDelta !== undefined
     && /\btem\s+(?:alguma\s+coisa|algo|alguma|algum)\b/.test(t)) return topDelta > 0 ? 'Sim. ' : 'Não. '
   if (compareTotal === undefined || plan.group !== 'none' || !plan.comparePeriod) return ''
+  // "Ganhei mais ONTEM OU HOJE?": a resposta é um dos dois períodos.
+  if (/\b(?:mais|menos)\b[^?]*\bou\b/.test(t) && !/\bque\b/.test(t)) {
+    const d = Math.round((total - compareTotal) * 100) / 100
+    const maior = Math.max(total, compareTotal)
+    if (d === 0) return 'Ficou igual nos dois. '
+    if (maior > 0 && Math.abs(d) / maior < 0.02) return 'Praticamente empate. '
+    const menos = /\bmenos\b/.test(t)
+    const vence = (d > 0) !== menos ? plan.period.label : plan.comparePeriod.label
+    return `${vence.charAt(0).toUpperCase()}${vence.slice(1)}. `
+  }
   if (/^\s*(?:e\s+)?(?:qual|quais|quanto|quanta|quantos|quantas|quando|onde|como|por\s*que|pq)\b/.test(t)) return ''
   if (!/\?\s*$|^\s*(?:e\s+)?(?:eu\s+)?(?:estou|esta|ando|to|tou|meu|minha|gastei|ganhei|fiz|recebi|faturei|rodei)\b/.test(t)) return ''
   const pior = /\b(?:piorou|pioraram|pior)\b/.test(t)

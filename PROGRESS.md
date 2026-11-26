@@ -7749,3 +7749,8 @@ A rubrica foi conferida resposta por resposta contra a rodada anterior, sem nenh
 - "Põe pra ontem", "muda pra 99" e "só a gasolina" / "deixa só a receita" corrigem a proposta. Antes, caíam no menu de ajuda ou em "não peguei o quê". A troca de plataforma agora diz qual ficou.
 - "Fiz 300 na uber" → "e mais 50" acrescenta outro item da Uber. Para gasto e abastecimento, a regra é a mesma. Antes, os R$ 50 substituíam a proposta.
 
+### Perguntas de escolha (`YR`)
+
+- "Tô rodando no lucro ou no prejuízo?" começa por "No lucro." ou "No prejuízo.". Antes, começava com "Não." e mostrava lucro.
+- "Ganhei mais ontem ou hoje?" e "faturei mais ontem ou anteontem?" comparam os dois dias e começam pelo vencedor ("Ontem."). Com diferença abaixo de 2%, a resposta diz que é praticamente empate. Antes, o app perguntava "qual desses dias você quer consultar?".
+

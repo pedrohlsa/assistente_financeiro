@@ -2124,7 +2124,9 @@ export function analyzeMessage(
       })
     }
 
-    const queryDates = isQuestion && dateAlternatives ? dateAlternatives : undefined
+    // "Ganhei MAIS ontem OU hoje?" compara os dois dias: não é "qual deles".
+    const comparaDias = /\b(?:mais|menos|melhor|pior)\b/i.test(part.text) && /\bou\b/i.test(part.text)
+    const queryDates = isQuestion && dateAlternatives && !comparaDias ? dateAlternatives : undefined
 
     // Pergunta de ANÁLISE cita valores para serem avaliados, não registrados:
     // "essa corrida de 18 por 12 km vale a pena?" não é uma receita de 18.

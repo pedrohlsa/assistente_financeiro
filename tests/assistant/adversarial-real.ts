@@ -14095,6 +14095,30 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YR — perguntas de escolha: "no lucro ou no prejuízo" e "mais ontem ou hoje".
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    const ask = async (message: string) => (await orchestrate({ state, message, today, remoteEnabled: false })).response
+    {
+      // Começava com "Não." e mostrava lucro.
+      const r = await ask('to rodando no lucro ou no prejuízo?')
+      out.push(result('YR-lucro-ou-prejuizo', { reply: r.reply }, 'diz o lado', /^No (?:lucro|prejuízo)\./.test(r.reply)))
+    }
+    const dia = (d: string) => state.transactions.filter(t => t.type === 'income' && t.date === d).reduce((n, t) => n + t.amount, 0)
+    for (const [i, [message, a, b, la, lb]] of ([
+      // Perguntava "qual desses dias você quer consultar?".
+      ['ganhei mais ontem ou hoje?', '2026-11-24', today, 'Ontem', 'Hoje'],
+      ['faturei mais ontem ou anteontem?', '2026-11-24', '2026-11-23', 'Ontem', 'Anteontem'],
+    ] as const).entries()) {
+      const r = await ask(message)
+      const esperado = dia(a) === dia(b) ? /^Ficou igual/ : new RegExp(`^${dia(a) > dia(b) ? la : lb}\\.`)
+      out.push(result('YR-mais-x-ou-y-' + i, { message, reply: r.reply }, 'diz qual dia ganhou e compara',
+        esperado.test(r.reply) && r.reply.includes(fmtBRL(dia(a))) && r.reply.includes(fmtBRL(dia(b)))))
+    }
+  }
+
   return out
 }
 

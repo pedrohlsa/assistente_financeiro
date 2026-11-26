@@ -166,6 +166,11 @@ export function rodandoNoPrejuizo(s: AppState, today = todayISO(), pergunta = 'p
   const nota = '\n\nSuas contas pessoais não entram nesta conta: é só o que rodar rendeu contra o que o carro custou.'
   if (fixos > 0 && sobra >= 0 && comFixos < 0) return `Ainda não cobre tudo. ${base}${fixo}${nota}`
   const prejuizo = sobra < 0
+  // "No lucro OU no prejuízo?" é escolha, não sim ou não: a resposta diz o
+  // lado. "Não." para quem perguntou as duas coisas soava como prejuízo.
+  if (/\blucro\b[^?]*\bou\b[^?]*\bprejuizo\b|\bprejuizo\b[^?]*\bou\b[^?]*\blucro\b/.test(pergunta)) {
+    return `${prejuizo ? 'No prejuízo' : 'No lucro'}. ${base}${fixo}${nota}`
+  }
   return `${prejuizo === perguntaPeloPrejuizo ? 'Sim' : 'Não'}. ${base}${fixo}${nota}`
 }
 
