@@ -7585,3 +7585,42 @@ Próxima bateria com relatos de jornada atravessando a meia-noite e datas próxi
 Os três lotes passaram por `npm test`, os dois typechecks, a rubrica com 0 PERIGOSA e 0 RUIM e a matriz de oito datas. O último passou com 2.109 regressões adversariais na data padrão. O projeto segue **NOT READY**.
 
 Próxima bateria com taxas retidas pela plataforma, valores líquidos e despesas pagas separadamente.
+
+### Taxas retidas e valor líquido recebido (`XH`)
+
+- “ganhei 45 líquido na 99, a taxa já saiu 8” prepara R$ 45 líquidos, sem nova despesa de R$ 8.
+- “deu 45 líquido na uber descontaram 8 de taxa”, “a 99 pagou 45 líquidos depois de descontar 8 de taxa” e “a 99 pagou 45 líquido taxa de 8 já inclusa no desconto” preparam somente o recebido na plataforma indicada.
+- “hoje 53 bruto 45 liquido depois da taxa de 8 da noventa e nove” interpreta os R$ 53 como bruto, os R$ 8 como retenção e os R$ 45 como a receita da 99.
+- “ontem entrou quarenta e cinco da 99 já tirando oito de taxa e paguei seis de estacionamento” prepara a receita de R$ 45 e a despesa de R$ 6 ontem. Os R$ 8 já foram descontados.
+- “8 de taxa retida 45 liquido da uber” conserva R$ 45 da Uber mesmo com a taxa primeiro. “Na 99 recebi cinquenta e dois e cinquenta centavos líquido taxa de sete e cinquenta descontada ontem” conserva R$ 52,50 da 99 ontem.
+- “eu só recebi 45 da 99 com a taxa retida 8 mas não sei o bruto” preserva o recebido sem exigir o bruto. “Caiu 45 da 99, cobrou 8 mas já tava descontado” também prepara só R$ 45, com a retenção identificada.
+- “fiz 53 bruto e a uber já descontou 8 de taxa”, “fiz 53 bruto a taxa da 99 foi 8”, “fiz 45 na Uber descontaram 8 de taxa” e “ganhei 53 na 99 taxa 8 retida” pedem quanto entrou na conta antes de preparar a proposta. O valor informado depois conserva a plataforma.
+- “ontem 53 bruto 48 liquido depois da taxa de 8 da noventa e nove” aponta a diferença. “45,50” prepara o valor indicado como líquido mantendo ontem e a 99.
+
+### Medidas de trabalho em dias distintos (`XI`)
+
+- “trabalhei ontem 1h e hoje 2h” conserva 1h ontem e 2h hoje. “Ontem rodei 170 km e hj 200 km” conserva os 170 km e os 200 km nas datas correspondentes.
+- “fiz 12 corridas ontem e 9 hoje” prepara 12 e 9 viagens. “Deu 8 viagens ontem e 12 hj” conserva a unidade omitida na segunda parte.
+- “rodei três horas e vinte de ontem e duas horas de hoje” prepara 3h20 ontem e 2h hoje. “Fechei três horas e meia ontem e quatro hoje” prepara 3h30 ontem e 4h hoje.
+- “130 km ontem e 90 km hoje”, “foram cento e trinta quilômetros ontem e noventa e sete hoje” e “ontem 130km e anteontem 90” distribuem a quilometragem pelas datas mencionadas.
+- “dirigi 95 km na terça e 160 na quarta passada” mantém 95 km na terça e 160 km na quarta da semana anterior.
+- “hj 5 corridas com 20km e ontem 11 com 60km” conserva as duas medidas de cada dia. “Terça-feira passada 10 viagens e nesta segunda 12” conserva as datas e as contagens.
+- “meia hora de ontem e três horas de hoje no volante” prepara 30 minutos ontem e 3h hoje. “Ontem 6h; hj 2h; anteontem 4h” mantém os três dias.
+- “rodei 4 horas entre ontem e hoje” pergunta a divisão. “Ontem 1h e hoje 2h” mantém a pergunta porque faltou 1h. “Ontem 1h e hoje 3h” prepara as duas jornadas.
+- “entre ontem e hoje rodei 130 km no total” pede a divisão. A proposta só aparece após “ontem 40 km e hoje 90 km”.
+- Na virada de ano, “dirigi cinco horas ontem e duas hoje” usa 31 de dezembro para as 5h e 1º de janeiro para as 2h.
+
+### Valores corrigidos por contraste e fatos negados (`XJ`)
+
+- “paguei 10,00 e não 100,00 de estacionamento ontem” e “paguei dez reais e não cem no estacionamento ontem” preparam somente R$ 10 na categoria certa. “No estacionamento paguei 10 não 100” conserva o local dito antes do valor.
+- “gastei no mercado cento e vinte e não cento e dois ontem” prepara R$ 120 em alimentação no perfil autônomo.
+- “recebi da Uber 250 e não 520 hoje”, “recebi 250 e não 520 da Uber hoje” e “hoje não ganhei 500 e sim 250 na Uber” preparam R$ 250 da Uber hoje.
+- “saiu 85 de gasolina mas não saíram 30 de estacionamento” mantém somente o abastecimento. “Paguei 9 de estacionamento e não foram 15 de pedágio” mantém somente o estacionamento.
+- “não saiu nada de abastecimento, só 7 reais de estacionamento ontem” propõe o estacionamento de ontem. “Ontem não gastei 85 de gasolina só 62,50 de etanol” prepara o abastecimento com etanol.
+- “a uber não me descontou os 10 de taxa, paguei 6 de pedágio” mantém somente o pedágio pago.
+- “ganhei 250 na Uber, 💸💸 99 não caiu 150, gastei 8 de pedágio” preserva a receita de R$ 250 e o pedágio de R$ 8. Nem o repasse que não caiu nem o nome do aplicativo viram lançamento.
+- “paguei dez e cinquenta centavos e não cem de estacionamento ontem e comprei café por 8” prepara R$ 10,50 de estacionamento e R$ 8 de café. “Paguei três e cinco centavos e não dez no pedágio ontem” prepara R$ 3,05. “Recebi onze e vinte centavos e não trinta da Uber hoje” prepara R$ 11,20.
+
+Os três lotes passaram por `npm test`, os dois typechecks, a rubrica com 0 PERIGOSA e 0 RUIM e a matriz de oito datas. O último passou com 2.157 regressões adversariais na data padrão. O projeto segue **NOT READY**.
+
+Próxima bateria com pagamentos de várias origens no perfil autônomo e total sem divisão.
