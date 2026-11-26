@@ -205,7 +205,10 @@ export function findNumberWords(text: string): NumberWordMatch[] {
       const primeira = sig.length >= 2 ? wordsToNumber([sig[0]]) : null
       const resto = sig.length >= 2 ? wordsToNumber(sig.slice(1)) : null
       const saidCents = unit === 'cents' && primeira >= 0 && primeira < 20 && resto >= 1
-      const invertedTens = primeira >= 1 && primeira <= 9 && resto >= 10
+      // "Doze e cinquenta" também é R$ 12,50: dezena-e-pouco seguida de dezena
+      // nunca forma cardinal. Somado, o pedágio de R$ 12,50 virava R$ 62,00.
+      const invertedTens = resto >= 10 && (primeira >= 1 && primeira <= 9
+        || (primeira >= 10 && primeira <= 19 && (!unit || unit === 'money')))
       if (primeira !== null && resto !== null && resto <= 99 && (saidCents || invertedTens)
         && strip(seq[1] || '') === 'e') {
         value = primeira + resto / 100

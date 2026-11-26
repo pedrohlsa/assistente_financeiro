@@ -2015,6 +2015,15 @@ function parseClause(input: string): ParsedAction[] {
     // "Paguei 100 pro João E 50 PRA MARIA": quem recebeu também é item. Só
     // "de/no/em" eram lidos, e os R$ 50 ficavam sem ação.
     const enumRe = new RegExp(String.raw`${sep}\s*(?:mais\s+)?(?:r\$)?\s*${NUM}\s*${MOEDA}?\s*(?:de|com|no|na|em|pra|pro|para)\s+(?!(?:hoje|ontem|amanh[ãa]|semana|m[êe]s|dia)\b)([a-zà-úçãõ]+(?:\s+[a-zà-úçãõ]+)?)`, 'gi')
+    // "12,50 de pedágio na ida e 12,50 NA VOLTA": o trecho é o mesmo gasto do
+    // outro sentido, não uma despesa "Volta" em Outros.
+    const itemDeGasto = (rawDesc: string, amount: number): ParsedAction => {
+      const anterior = /^(?:ida|volta)$/i.test(rawDesc)
+        ? [...actions].reverse().find(a => a.kind === 'expense') as Extract<ParsedAction, { kind: 'expense' }> | undefined : undefined
+      if (!anterior) return { kind: 'expense', amount, category: guessCategory(rawDesc, 'expense'), description: cleanDescription(rawDesc) }
+      const base = (anterior.description || '').replace(/\s+n[ao]\s+(?:ida|volta)$/i, '')
+      return { kind: 'expense', amount, category: anterior.category, description: base ? `${base} na ${rawDesc.toLowerCase()}` : cleanDescription(rawDesc) }
+    }
     for (const mm of text.matchAll(enumRe)) {
       const rawDesc = mm[2].trim()
       const amount = parseNum(mm[1])
@@ -2022,7 +2031,7 @@ function parseClause(input: string): ParsedAction[] {
       if (isFuel) {
         if (!abasteceu) actions.push({ kind: 'fuel', amount })
       } else {
-        actions.push({ kind: 'expense', amount, category: guessCategory(rawDesc, 'expense'), description: cleanDescription(rawDesc) })
+        actions.push(itemDeGasto(rawDesc, amount))
       }
     }
     // "Gastei 90 gasolina E 60 LAVAGEM": valor e item sem preposição. Só item
@@ -2053,7 +2062,7 @@ function parseClause(input: string): ParsedAction[] {
         if (isFuel) {
           if (!abasteceu) actions.push({ kind: 'fuel', amount })
         } else {
-          actions.push({ kind: 'expense', amount, category: guessCategory(rawDesc, 'expense'), description: cleanDescription(rawDesc) })
+          actions.push(itemDeGasto(rawDesc, amount))
         }
       }
     }

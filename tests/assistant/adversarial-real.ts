@@ -13579,6 +13579,38 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YD — ditado por voz: centavos falados, dois dias por extenso, app antes do valor.
+  {
+    const today = '2026-11-25', yesterday = '2026-11-24'
+    const state = motoristaRico(today)
+    const cases = [
+      // "Doze e cinquenta" somava 12 + 50: dois pedágios de R$ 62,00, o segundo em Outros.
+      ['paguei doze e cinquenta de pedágio na ida e doze e cinquenta na volta', [['expense', 12.5, 'pedagio', today], ['expense', 12.5, 'pedagio', today]]],
+      ['gastei quinze e noventa no lanche', [['expense', 15.9, 'alimentacao', today]]],
+      // O segundo dia por extenso não era cortado e os R$ 310 viravam pergunta.
+      ['ontem eu fiz quinhentos e trinta reais e hoje trezentos e dez', [['income', 530, '', yesterday], ['income', 310, '', today]]],
+      ['ontem fiz duzentos e oitenta e hoje trezentos e vinte', [['income', 280, '', yesterday], ['income', 320, '', today]]],
+      // Com o app entre o verbo e o valor, nada era registrado; a origem virava "Uber 240".
+      ['recebi da 99 240', [['income', 240, '99', today]]],
+      ['recebi da Uber 240', [['income', 240, 'Uber', today]]],
+      ['fiz na 99 180 e na uber 220', [['income', 180, '99', today], ['income', 220, 'Uber', today]]],
+      // "In draive" no começo do ditado virava a origem "In Draive" em Outros.
+      ['in draive me pagou oitenta', [['income', 80, 'inDrive', today]]],
+      ['o inDrive me pagou 80', [['income', 80, 'inDrive', today]]],
+    ] as const
+    for (const [i, [message, expected]] of cases.entries()) {
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actual = response.actions.map(c => c.action).map(a => a.kind === 'income'
+        ? [a.kind, (a as any).amount, (a as any).description || '', (a as any).date || today]
+        : [a.kind, (a as any).amount, (a as any).category || '', (a as any).date || today])
+      const noOrigin = (response.actions as any[]).every(c => !c.action.origin)
+      out.push(result('YD-ditado-' + i, { message, response }, expected,
+        response.mode === 'propose_actions' && !response.unresolved.length && noOrigin
+        && JSON.stringify(actual) === JSON.stringify(expected)))
+    }
+  }
+
   return out
 }
 

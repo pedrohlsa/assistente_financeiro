@@ -151,6 +151,8 @@ export function normalizeDriverShorthand(message: string): string {
   text = text.replace(/(?<![\p{L}\p{M}\d])(não\s+(?:caiu|entrou|recebi))\s+n[ãa]o(?=\s*(?:$|[;,.!?])|\s+(?:e|mas)\s+)/giu, '$1')
   text = text.replace(/\b(n[ao]|d[ao]|pel[ao]|[ao])\s+noventa[- ]?e[- ]?nove\b/gi, '$1 99')
     .replace(/\b(n[ao]|d[ao]|pel[ao]|[ao])\s+in[-\s]*draiver?\b/gi, '$1 inDrive')
+    // No começo do ditado não há preposição: "in draive me pagou oitenta".
+    .replace(/(^\s*|[,;]\s*|\s+e\s+)in[-\s]*dra[iy]ver?\b/gi, '$1inDrive')
   if (/\b(?:ganhei|faturei|caiu|entrou|recebi|rcebi|corridas?|quanto|quantos?|quantas?)\b|\b(?:reais?|centavos?|contos?)\s+d[ao]\s+ubber\b/i.test(text)) {
     text = text.replace(/\b(n[ao]|d[ao]|pel[ao]|a)\s+(?:ubber|uebr|ubr)\b/gi, '$1 Uber')
   }

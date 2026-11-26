@@ -746,8 +746,15 @@ export function segment(text: string, today = todayISO()): { text: string; start
   // segundo dia era perdido em silêncio — o usuário achava que tinha lançado os
   // dois. Exige um número depois da palavra de dia: "trabalhei ontem e hoje"
   // não descreve dois lançamentos e não pode ser cortado.
-  for (const m of text.matchAll(/[,;]?\s+e\s+(?=(?:hoje|hj|ontem|anteontem|(?:depois\s+de\s+)?amanh[ãa])(?=\s|$)[^,;.!?]*\d)/gi)) {
-    push((m.index || 0) + m[0].length)
+  // O valor pode vir por extenso no ditado: "ontem fiz quinhentos e trinta e
+  // hoje trezentos e dez". Só com dígito, o corte faltava no texto original e
+  // a segunda metade se perdia.
+  const temValorDepois = (from: number) => {
+    const trecho = text.slice(from).split(/[,;.!?]/)[0]
+    return /\d/.test(trecho) || findNumberWords(trecho).some(w => w.value >= 3)
+  }
+  for (const m of text.matchAll(/[,;]?\s+e\s+(?=(?:hoje|hj|ontem|anteontem|(?:depois\s+de\s+)?amanh[ãa])(?=\s|$))/gi)) {
+    if (temValorDepois((m.index || 0) + m[0].length)) push((m.index || 0) + m[0].length)
   }
   // O mesmo com vírgula ("ontem 30 de lanche, anteontem 20 de padaria") e com
   // o dia DEPOIS de cada item ("30 de lanche ontem e 20 de padaria anteontem").
@@ -897,7 +904,7 @@ export function extractOrigins(originalClause: string): { value: string; at: num
   const add = (v: string, start: number, end: number) => {
     if (taken.some(([a, b]) => start < b && end > a)) return
     if (/\b(?:na|em)\s+(?:uma\s+)?conta\s*$/i.test(originalClause.slice(0, start))) return
-    if (/^(uber|99|indrive|indriver)$/i.test(v)) return // plataforma é descrição
+    if (/^(?:uber|99|in\s*driver?)(?:\s+\d+(?:[.,]\d+)?)?$/i.test(v.trim())) return // plataforma é descrição, e o número depois dela é o valor
     taken.push([start, end])
     out.push({ value: v.replace(/\s+/g, ' ').trim(), at: start, end })
   }
@@ -1095,6 +1102,13 @@ function readReceivedPayment(text: string): { action: IncomeAction; uncertain: b
   const incomeType = /\b(?:sal[áa]rio|aluguel|freela|freelance|comiss[ãa]o|vendas?|corridas?|uber|indrive|da\s+99)\b/i.test(detail)
     ? guessCategory(detail, 'income') : undefined
   const isRefund = /\breembolso\b/i.test(detail)
+  // "O inDrive me pagou 80": o app como quem pagou é repasse de corrida, com
+  // a plataforma na descrição, como "a Uber me pagou 80".
+  const app = !isRefund && !viaPix && source && /^(?:uber|99|in\s*driver?)$/i.test(source.trim()) ? source.trim() : undefined
+  if (app) {
+    const description = /^uber$/i.test(app) ? 'Uber' : app === '99' ? '99' : 'inDrive'
+    return { action: { kind: 'income', amount, category: 'corridas', description }, uncertain: !!received[1] || uncertainty, creditSource: false, pix: false }
+  }
   return {
     action: { kind: 'income', amount, category: isRefund ? 'outros-in' : incomeType || 'outros-in',
       description: isRefund ? 'Reembolso' : viaPix ? 'Pix recebido'
@@ -1574,7 +1588,12 @@ function unaccountedMoney(clause: AnalyzedClause, today: string): number[] {
  * Só no começo de item de lista, e nunca com unidade de medida depois.
  */
 const APP_THEN_AMOUNT = /(^|[,;]\s*|\s+e\s+)(?:(?:a|na|da)\s+)?(uber|99|in\s*driver?)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s+(?:reais|conto|contos|pila))?(?:\s+(l[íi]quidos?|brutos?|limpos?))?(?![.,]?\d)(?!\s*(?:x\b|%|km\b|kms\b|h\b|hrs?\b|horas?\b|min|corridas?\b|viagens?\b|l\b|litros?\b))(?=\s*(?:$|[,;.!]|\s+e\s+|\s+\d))/giu
+// "Recebi DA 99 240": com o app entre o verbo e o valor, o 99 e o 240 ficavam
+// lado a lado e nenhum leitor registrava nada. Na ordem "recebi 240 da 99", sim.
+const VERB_APP_AMOUNT = /\b(recebi|ganhei|fiz|faturei|tirei|caiu|entrou|pingou)\s+(d[ao]|n[ao]|pel[ao])\s+(uber|99|in\s*driver?)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?![.,]?\d)(?!\s*(?:x\b|%|km\b|kms\b|h\b|hrs?\b|horas?\b|min|corridas?\b|viagens?\b))/giu
+
 function appAntesDoValor(input: string): string {
+  input = input.replace(VERB_APP_AMOUNT, (_m, verb: string, prep: string, app: string, amount: string) => `${verb} ${amount} ${prep} ${app}`)
   if (/[?]/.test(input) || !/\d\D+\d|\d\s*[,;]|\s+e\s+/.test(input)) return input
   const plat = (p: string) => /^uber$/i.test(p) ? 'Uber' : /^99$/.test(p) ? '99' : 'inDrive'
   return input.replace(APP_THEN_AMOUNT, (_m, lead: string, app: string, amount: string, qual?: string) =>
