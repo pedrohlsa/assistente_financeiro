@@ -7754,3 +7754,12 @@ A rubrica foi conferida resposta por resposta contra a rodada anterior, sem nenh
 - "Tô rodando no lucro ou no prejuízo?" começa por "No lucro." ou "No prejuízo.". Antes, começava com "Não." e mostrava lucro.
 - "Ganhei mais ontem ou hoje?" e "faturei mais ontem ou anteontem?" comparam os dois dias e começam pelo vencedor ("Ontem."). Com diferença abaixo de 2%, a resposta diz que é praticamente empate. Antes, o app perguntava "qual desses dias você quer consultar?".
 
+### Digitação, segunda volta (`YS`)
+
+- "Fiz 300.. na uber... e gastei 50,, de gasolina" mantém a Uber e o abastecimento. Pontuação repetida não conta mais como decimal.
+- "Gastei 50 d gasolina e 20 d lanxe" propõe os R$ 20 uma vez só, em Alimentação. A cópia sem categoria, que já existia antes desta rodada, sai.
+- "Na uver", "n uber", "ns uber", "80 n gasolina" e "na nov e nove" mantêm a plataforma ou o combustível.
+- "Qnts corrida eu fiz ontem", com "corrida" no singular, responde a quantidade de viagens, não os reais.
+
+Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `docs/BATERIA_DUVIDAS.md`.
+

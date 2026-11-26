@@ -140,6 +140,8 @@ export function normalizeQuery(input: string): string {
   // "Quanto CADA CASA me pagou", "qual CASA paga mais": a fonte do dinheiro é a
   // origem. Lida como texto, a consulta procurava "Cada Casa"; e "qual casa
   // paga mais" respondia o gasto por origem.
+  // "Quantas CORRIDA eu fiz": no singular, virava a categoria e a resposta era dinheiro.
+  t = t.replace(/\bquant(?:as|os)\s+(corrida|viagem)\b(?!s)/g, (_m, w: string) => `quantas ${w === 'viagem' ? 'viagens' : 'corridas'}`)
   const FONTE = String.raw`(?:casa|casas|imovel|imoveis|apartamento|apto|kitnet|cliente|clientes|inquilino|inquilinos|loja)`
   t = t.replace(new RegExp(String.raw`^(?:e\s+)?quanto\s+(?:cada|c\/)\s+${FONTE}\s+(?:me\s+)?(?:pagou|pagaram|rendeu|deu|deram)\b`), 'quanto recebi por origem')
     .replace(new RegExp(String.raw`\b(?:de|da|do)\s+cada\s+${FONTE}\b`), 'por origem')

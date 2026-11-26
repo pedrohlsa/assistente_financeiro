@@ -644,6 +644,18 @@ export function parseNatural(input: string): ParsedAction[] {
     const comValor = lidas.filter(b => !saem.has(b) && (b as any).amount === v).length
     if (outraLeitura && comValor > (ocorrencias.get(v) || 0)) saem.add(a)
   }
+  // A mesma coisa lida por dois leitores, uma com categoria e outra sem:
+  // "gastei 50 de gasolina e 20 de xpto" propunha os R$ 20 duas vezes. Com
+  // mais ações que ocorrências do valor no texto, sai a cópia sem categoria.
+  for (const a of lidas) {
+    const v = (a as any).amount
+    if ((a.kind !== 'expense' && a.kind !== 'income') || (a as any).category || saem.has(a) || !(typeof v === 'number' && v > 0)) continue
+    const desc = normalizeName((a as any).description || '')
+    const gemea = lidas.some(b => b !== a && !saem.has(b) && b.kind === a.kind && (b as any).amount === v
+      && (b as any).category && normalizeName((b as any).description || '') === desc)
+    const comValor = lidas.filter(b => !saem.has(b) && (b as any).amount === v).length
+    if (gemea && comValor > (ocorrencias.get(v) || 0)) saem.add(a)
+  }
   // O item de gasto lido pela enumeração ("ganhei 320, 90 de combustível") e
   // também pelo leitor próprio (abastecimento, manutenção): fica o específico.
   for (const a of lidas) {

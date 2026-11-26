@@ -14119,6 +14119,36 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YS — digitação, segunda volta: pontuação repetida, letra escapada e corrida no singular.
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    for (const [i, [message, expected]] of ([
+      // A pontuação repetida derrubava a Uber e a gasolina virava despesa comum.
+      ['fiz 300.. na uber... e gastei 50,, de gasolina', [['income', 300, 'Uber'], ['fuel', 50, '']]],
+      // Os R$ 20 apareciam duas vezes, e em Outros.
+      ['gastei 50 d gasolina e 20 d lanxe', [['fuel', 50, ''], ['expense', 20, 'Lanxe']]],
+      ['gastei 50 de gasolina e 20 de xpto', [['fuel', 50, ''], ['expense', 20, 'Xpto']]],
+      // A plataforma sumia com a letra escapada.
+      ['fiz 280 na uver', [['income', 280, 'Uber']]],
+      ['fiz 300 n uber', [['income', 300, 'Uber']]],
+      ['fiz 300 ns uber', [['income', 300, 'Uber']]],
+      ['gastei 80 n gasolina', [['fuel', 80, '']]],
+      ['fiz 280 na nov e nove', [['income', 280, '99']]],
+    ] as const).entries()) {
+      const r = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actual = (r.response.actions as any[]).map(c => [c.action.kind, c.action.amount, c.action.description || ''])
+      out.push(result('YS-digitacao-' + i, { message, response: r.response }, expected,
+        r.response.mode === 'propose_actions' && !r.response.unresolved.length && JSON.stringify(actual) === JSON.stringify(expected)))
+    }
+    {
+      // A quantidade de corridas virava o dinheiro das corridas.
+      const r = await orchestrate({ state, message: 'qnts corrida eu fiz ontem', today, remoteEnabled: false })
+      out.push(result('YS-corrida-no-singular', { reply: r.response.reply }, 'viagens, não reais', /^Viagens ontem: \d+/.test(r.response.reply)))
+    }
+  }
+
   return out
 }
 

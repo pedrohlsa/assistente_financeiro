@@ -3165,7 +3165,9 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   // "Na vdd foi na 99": sem expandir, a correção não era reconhecida e a
   // proposta ganhava a descrição "Vdd foi na 99".
   // "Ont" é ontem em qualquer frase; sozinho, nenhuma regra o via como data.
+  // "300.. na uber", "50,, de gasolina": pontuação repetida não é decimal.
   const semVdd = input.message.replace(/(?<![\p{L}\d])vdd(?![\p{L}\d])/giu, 'verdade')
+    .replace(/(\d)(?:\.{2,}|,{2,})/g, '$1').replace(/\.{3,}|,{2,}/g, ' ')
     .replace(/(?<![\p{L}\d])ont(?=\s)/giu, 'ontem')
   if (semVdd !== input.message) input = { ...input, message: semVdd }
   if (isDriver(input.state.settings)) {
