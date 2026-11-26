@@ -104,6 +104,56 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const today = '2026-11-25', yesterday = '2026-11-24', twoDays = '2026-11-23'
+    const state = motoristaRico(today)
+    state.transactions.push({ id: 'xc-particular', type: 'income', category: 'corridas', amount: 91, date: today, description: 'Particular' })
+    const received = (app: string, from: string, to = from) => fmtBRL(state.transactions.filter(tx => tx.type === 'income' && tx.description === app
+      && tx.date >= from && tx.date <= to).reduce((sum, tx) => sum + tx.amount, 0))
+    const facts = (date: string) => periodStats(state, date, date, today)
+    const check = async (messages: readonly string[], profile = state) => {
+      let last: Awaited<ReturnType<typeof orchestrate>> | undefined
+      let pending: AssistantCandidateAction[] | undefined
+      for (const message of messages) {
+        last = await orchestrate({ state: profile, message, today, remoteEnabled: false, pending,
+          pendingClarification: last?.response.mode === 'clarify' ? last.response.clarification : undefined,
+          draft: last?.draft || undefined, focus: last?.focus })
+        if (last.response.actions.length) pending = last.response.actions
+        else if (!last.keepPending) pending = undefined
+      }
+      return { last, pending }
+    }
+    const cases = [
+      ['quanto caiu da 99 ontem?', 'e hoje quanto caiu?', [`na 99 hoje: ${received('99', today)}`]],
+      ['quanto entrou na Uber ontem?', 'e anteontem quanto entrou?', [`na Uber anteontem: ${received('Uber', twoDays)}`]],
+      ['quanto caiu da Uber semana passada?', 'e a 99 essa semana?', [`na 99 nos últimos 7 dias: ${received('99', '2026-11-19', today)}`]],
+      ['quanto recebi de corridas no mês?', 'e só na Uber ontem?', [`na Uber ontem: ${received('Uber', yesterday)}`]],
+      ['quanto ganhei na Uber ontem?', 'e hoje da 99, quanto?', [`na 99 hoje: ${received('99', today)}`]],
+      ['quanto recebi na 99 ontem?', 'e hoje de tudo?', [`Total recebido hoje: ${fmtBRL(facts(today).income)}`]],
+      ['quanto gastei ontem?', 'e quanto recebi anteontem?', [`Total recebido anteontem: ${fmtBRL(facts(twoDays).income)}`]],
+      ['qual foi o meu lucro ontem?', 'e anteontem comparando?', [fmtBRL(facts(twoDays).profit), fmtBRL(facts(yesterday).profit)]],
+      ['quanto caiu na 99 ontem?', 'e amanhã?', ['amanhã', 'histórico']],
+      ['quanto caiu da Uber ontem?', 'e hoje somando todos os apps?', [`nos apps hoje: ${fmtBRL(facts(today).income - 91)}`]],
+    ] as const
+    const snapshot = JSON.stringify(state)
+    for (const [i, [first, second, facts]] of cases.entries()) {
+      const { last } = await check([first, second])
+      out.push(result('XC-continua-a-consulta-no-recorte-correto-' + i, { first, second, response: last.response, plan: last.focus?.lastQueryPlan }, facts,
+        last.response.mode === 'answer' && !last.response.actions.length && !last.response.unresolved.length
+        && facts.every(fact => last.response.reply.includes(fact)) && JSON.stringify(state) === snapshot))
+    }
+    const { last: profile } = await check(['quanto entrou na Casa 1 esse mês?', 'e Casa 2 no mês passado?'], autonomoRico(today))
+    out.push(result('XC-continua-a-consulta-com-outra-origem', profile.response, fmtBRL(1200), profile.response.mode === 'answer'
+      && !profile.response.actions.length && profile.response.reply.includes(`Casa 2 no mês passado: ${fmtBRL(1200)}`)))
+    const open = await check(['entrou 320 na Uber anteontem', 'quanto caiu da 99 ontem?', 'e hoje quanto caiu?'])
+    const corrected = await check(['entrou 320 na Uber anteontem', 'quanto caiu da 99 ontem?', 'e hoje quanto caiu?', 'a uber foi 330'])
+    const [stored] = corrected.pending?.map(c => c.action) || []
+    out.push(result('XC-continua-a-consulta-e-mantem-proposta', [open.last.response, corrected.last.response], 'consulta 99 hoje e mantém o repasse da Uber editável',
+      open.last.response.mode === 'answer' && open.last.response.reply.includes(`na 99 hoje: ${received('99', today)}`)
+      && open.last.keepPending && open.pending?.length === 1 && corrected.pending?.length === 1 && stored?.kind === 'income'
+      && stored.amount === 330 && stored.date === twoDays && stored.description === 'Uber' && JSON.stringify(state) === snapshot))
+  }
+
+  {
     const today = '2026-11-25', yesterday = '2026-11-24'
     const rich = motoristaRico(today)
     const cases = [

@@ -2819,6 +2819,13 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   }
   const numericClarification = await prepareUnsafeMoney(input, today)
   if (numericClarification) return numericClarification
+  if (!input.pendingClarification && !input.draft && isFocusFresh(input.focus) && input.focus?.last === 'query') {
+    const previous = input.focus.lastQueryPlan
+    if (previous?.source === 'transactions' && previous.filter.platform && previous.filter.txType?.[0] === 'income') {
+      const allApps = normalizeQuery(input.message).match(/^e\s+(hoje|ontem|anteontem|(?:n[ao]|ness[ea]|nest[ea]|ess[ea]|est[ea])\s+(?:semana|mes)(?:\s+passad[oa])?)\s+somando\s+todos\s+os\s+(?:apps|aplicativos)\s*[?.!]*$/)
+      if (allApps) input = { ...input, message: `quanto entrou ${allApps[1]} somando todos os apps?` }
+    }
+  }
   // "Rodei 30 mil km ESSE ANO?", "gastei 500 esse mês?": conferência de um
   // total, não lançamento de um dia (regra 33a). Virava 30.000 km de trabalho
   // hoje, com "Esse mês" de descrição. Vira a consulta do período.

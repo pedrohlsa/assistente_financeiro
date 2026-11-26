@@ -20,6 +20,7 @@ import type { AppState } from '../../models/types'
 import { addDays, fmtBRL, fromISO, todayISO, toISO } from '../../utils/format'
 import { normalizeName, sentenceCase } from '../../utils/text'
 import { activeCards } from '../../services/cards'
+import { isDriver } from '../../services/profile'
 import { usableCategories } from '../../data/categories'
 import { normalizeNumberWords } from '../numbers'
 import { parsePeriod, previousPeriod } from '../query/period'
@@ -622,10 +623,52 @@ function refinaConsulta(
   const planned = (plan: AssistantQueryPlan, motivo: string): FollowUp =>
     ({ kind: 'query', planned: { plan, confidence: 'high', recognized: [motivo] } })
 
+  const nomeDaPlataforma = (p: string) => /in\s*drive/i.test(p) ? 'inDrive' : /^uber$/i.test(p) ? 'Uber' : p
+  const p = parsePeriod(t, today)
+  const recorte = p && t.replace(normalizeName(p.span || p.matched), ' ').replace(/[?,.!]/g, ' ')
+    .trim().replace(/^e\s+/, '').replace(/\s+(?:n[ao]|em)\s*$/, '').replace(/\s+/g, ' ')
+  const transacoes = base.source === 'transactions'
+  if ((transacoes || base.source === 'work') && /^e\s+(?:amanha|depois\s+de\s+amanha)\s*[?.!]*$/.test(t)) {
+    return { kind: 'explain', text: 'Ainda é cedo para consultar amanhã. O histórico mostra o que aconteceu até hoje.' }
+  }
+  if (p && !p.period.future && /^e\s+/.test(t) && (transacoes || base.source === 'work')) {
+    const moved = { ...base, period: p.period, comparePeriod: base.comparePeriod ? previousPeriod(p.period) : undefined }
+    if (/^(?:compara|comparando)$/.test(recorte) && (base.period.from !== p.period.from || base.period.to !== p.period.to)) {
+      return planned({ ...moved, comparePeriod: base.period }, 'comparação com o período anterior da conversa')
+    }
+    const plain = recorte.match(/^quanto\s+(?:eu\s+)?(recebi|recebemos|ganhei|entrou|entraram|caiu|cairam|faturei|gastei|paguei|saiu|sairam)$/)
+    if (transacoes && plain) {
+      const type = /^(?:gastei|paguei|saiu|sairam)$/.test(plain[1]) ? 'expense' : 'income'
+      if (base.filter.txType?.length === 1 && base.filter.txType[0] === type) return planned(moved, 'mesma consulta em outro período')
+      const next = planQuery(state, `quanto ${type === 'expense' ? 'gastei' : 'recebi'} ${p.period.label}`, { today })
+      if (next && !next.incompleto && !next.clarification) return planned(next.plan, 'tipo de movimento e período informados')
+    }
+    const income = transacoes && base.filter.txType?.length === 1 && base.filter.txType[0] === 'income'
+    if (income && base.metric === 'sum') {
+      const otherApp = recorte.match(/^(?:(?:so|somente|apenas)\s+)?(?:(?:[ao]|n[ao]|d[ao]|pel[ao]|via)\s+)?(uber|99|in\s*drive[r]?)(?:\s+quanto)?$/)
+      if (otherApp && isDriver(state.settings)) {
+        const platform = nomeDaPlataforma(otherApp[1])
+        const label = base.label.replace(/\s+n[ao]\s+(?:uber|99|in\s*drive)\b/i, '')
+        const filter = { ...base.filter, platform }
+        if (base.filter.platform && normalizeName(filter.text) === normalizeName(base.filter.platform)) delete filter.text
+        return planned({ ...moved, filter, label: `${label} na ${platform}` }, `plataforma ${platform} e período informados`)
+      }
+      if (/^(?:de\s+tudo|no\s+geral|total\s+geral)$/.test(recorte)) {
+        return planned({ ...moved, filter: { txType: ['income'] }, comparePeriod: undefined, label: 'Total recebido' }, 'total geral do período')
+      }
+      const origin = recorte.match(/^((?:casa|cliente|apartamento|kitnet|sala|loja|empresa|obra)\s+[\p{L}\d][\p{L}\d\s.'-]*)$/u)
+      if (singleOrigin(base.filter) && origin) {
+        const scoped = refinaConsulta(state, focus, base, `e da ${origin[1]}?`, today)
+        if (scoped?.kind === 'query') {
+          return planned({ ...scoped.planned.plan, period: p.period, comparePeriod: moved.comparePeriod }, 'outra origem e outro período')
+        }
+      }
+    }
+  }
+
   // ---- "e na Uber?" depois de "quanto fiz na 99": TROCA a plataforma -------
   // A elipse virava filtro de texto "uber" somado à plataforma 99, e a resposta
   // dizia que não havia lançamento — para quem tinha Uber registrada.
-  const nomeDaPlataforma = (p: string) => /in\s*drive/i.test(p) ? 'inDrive' : /^uber$/i.test(p) ? 'Uber' : p
   const outraPlataforma = base.filter.platform
     ? t.match(/^(?:e\s+)?(?:n[ao]|d[ao]|pel[ao]|com\s+[ao])\s+(uber|99|indrive|in\s*drive)\s*[?.!]*$/) : null
   if (outraPlataforma) {
@@ -1008,7 +1051,6 @@ function refinaConsulta(
   }
 
   // ---- outro período: "e mês passado?", "e em outubro?" -----------------
-  const p = parsePeriod(t, today)
   if (p) {
     // Período e assunto podem mudar juntos: "e da Casa 2 este mês?".
     // O reconhecedor de período não deve consumir a troca explícita de origem.
