@@ -339,8 +339,16 @@ export function vendaPorUnidade(input: string): string {
     if (unpaid) return pending + tail.slice(unpaid[0].length)
     if (SALE_REMAINDER.test(tail)) return pending + tail.replace(SALE_REMAINDER, '')
   }
+  // "...E 2 TORTAS A 50": o próximo item da mesma lista, no mesmo formato. O
+  // preço "a 50" segue o "cada" do primeiro; sem isto, a descrição engolia o
+  // resto e a venda saía com R$ 50.
+  const resto = tail.replace(/^(\s*(?:,\s*|\s+e\s+))(\d{1,4})\s+([\p{L}][\p{L}\s-]{1,30}?)\s+(?:a|por|de)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)\s*(?:reais\s+)?(?:cada(?:\s+um[a]?)?)?(?![\wÀ-ÿ])/iu,
+    (_m, sep: string, q: string, it: string, unit: string) => {
+      const sub = Math.round(parseNum(q) * parseNum(unit) * 100) / 100
+      return sub > 0 ? `${/,/.test(sep) ? ',' : ''} e ${verb} ${it.trim()} por ${String(sub).replace('.', ',')}` : _m
+    })
   // "Vendi bolos POR 75" é a forma que o parser lê com a descrição.
-  return `${prefix}${verb} ${item.trim()} por ${String(total).replace('.', ',')}${tail}`
+  return `${prefix}${verb} ${item.trim()} por ${String(total).replace('.', ',')}${resto}`
 }
 
 /**
@@ -1841,14 +1849,14 @@ function parseClause(input: string): ParsedAction[] {
     const verboNomeValorRe = new RegExp(
       // "Recebi o 13 de 1600", "a primeira parcela do décimo terceiro": o 13º
       // é salário. Caía no menu de ajuda.
-      String.raw`\b(?:caiu|entrou|pingou|recebi|ganhei)\s+(?:o\s+|a\s+|meu\s+|minha\s+)?(?:(?:primeira|segunda|1a|2a|1ª|2ª)\s+parcela\s+d[oe]\s+(?:meu\s+)?)?(sal[áa]rio|pagamento|freela|freelance|comiss[ãa]o|alugu[eé]l|pix|d[ée]cimo\s+terceiro)\s+(?:de\s+|do\s+m[eê]s\s+)?(?:r\$)?\s*${NUM}`,
+      String.raw`\b(?:caiu|entrou|pingou|recebi|ganhei)\s+(?:o\s+|a\s+|meu\s+|minha\s+)?(?:(?:primeira|segunda|1a|2a|1ª|2ª)\s+parcela\s+d[oe]\s+(?:meu\s+)?)?(sal[áa]rio|pagamento|freela|freelance|comiss[ãa]o|alugu[eé]l|pix|d[ée]cimo\s+terceiro|adiantamento(?:\s+(?:quinzenal|salarial|do\s+sal[áa]rio|da\s+quinzena))|vale)\s+(?:de\s+|do\s+m[eê]s\s+)?(?:r\$)?\s*${NUM}`,
       'gi',
     )
     for (const vn of text.matchAll(verboNomeValorRe)) {
       const amount = parseNum(vn[2])
       if (!(amount > 0) || actions.some(a => a.kind === 'income' && (a as any).amount === amount)) continue
       const decimo = /^d[ée]cimo/i.test(vn[1])
-      const cat = decimo ? 'salario' : guessCategory(vn[1], 'income')
+      const cat = decimo || /^(?:adiantamento|vale)\b/i.test(vn[1]) ? 'salario' : guessCategory(vn[1], 'income')
       actions.push({ kind: 'income', amount, ...(cat ? { category: cat } : {}), ...(decimo ? { description: '13º salário' } : {}) })
     }
 

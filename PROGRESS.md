@@ -7728,3 +7728,10 @@ A rubrica foi conferida resposta por resposta contra a rodada anterior, sem nenh
 - "Terça entrei 200 na Uber e quarta 130 na 99", dito numa quarta, grava terça e hoje. Antes, os dois iam para a terça. A quarta da semana passada ficaria antes da terça já contada, então a narração em sequência fica com hoje; "quarta passada" continua sendo a da semana anterior.
 - "Paguei 8 de pedágio ontem na corrida e quanto sobrou dos 45?" responde R$ 37,00, com a conta só dos valores da mensagem. Antes, respondia o resultado do mês.
 
+### Outros perfis (`YO`)
+
+- "Fiz um serviço de 500 mas só recebi 200" grava só os R$ 200 e diz que faltam R$ 300. Antes, gravava R$ 700 de receita. Vale também para frete, venda, diária e corrida.
+- "Vendi 5 bolos a 30 cada e 2 tortas a 50" grava R$ 150 e R$ 100. Antes, a segunda venda entrava na descrição e o valor saía R$ 50.
+- "Quanto cada casa me pagou esse mês?", "quanto recebi de cada casa" e "qual casa paga mais?" respondem por origem. Antes, a consulta procurava o texto "Cada Casa", e "qual casa paga mais" respondia sobre gastos.
+- "Recebi o adiantamento quinzenal de 1600" e "caiu o vale de 1200" são salário. O adiantamento do cartão continua sendo dívida.
+

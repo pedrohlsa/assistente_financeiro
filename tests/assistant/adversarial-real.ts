@@ -13972,6 +13972,37 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YO — outros perfis: serviço pago em parte, venda por unidade em lista, perguntas por casa, adiantamento.
+  {
+    const today = '2026-11-25'
+    const autonomo = autonomoRico(today), clt = buildState({ profile: 'clt' })
+    const incomes = (o: Awaited<ReturnType<typeof orchestrate>>) => (o.response.actions as any[]).filter(c => c.action.kind === 'income').map(c => c.action.amount)
+    for (const [i, [state, message, expected]] of ([
+      // Gravava R$ 700 de receita para R$ 200 recebidos.
+      [autonomo, 'fiz um serviço de 500 mas só recebi 200', [200]],
+      [autonomo, 'fiz um frete de 300 e o cliente pagou só 150 ontem', [150]],
+      // A segunda venda entrava na descrição e o valor saía R$ 50.
+      [autonomo, 'vendi 5 bolos a 30 cada e 2 tortas a 50', [150, 100]],
+      [autonomo, 'vendi 5 bolos a 30 cada, 3 brigadeiros a 2,50 cada', [150, 7.5]],
+      // O adiantamento caía no menu de ajuda.
+      [clt, 'recebi o adiantamento quinzenal de 1600', [1600]],
+    ] as const).entries()) {
+      const r = await orchestrate({ state, message, today, remoteEnabled: false })
+      out.push(result('YO-registro-' + i, { message, response: r.response }, expected,
+        r.response.mode === 'propose_actions' && JSON.stringify(incomes(r)) === JSON.stringify(expected)
+        && (i > 1 || /Faltam/.test(r.response.reply))))
+    }
+    const porCasa = autonomo.transactions.filter(t => t.type === 'income' && t.date >= '2026-11-01' && t.origin)
+    const casa1 = porCasa.filter(t => t.origin === 'Casa 1').reduce((n, t) => n + t.amount, 0)
+    for (const [i, message] of ['quanto cada casa me pagou esse mes?', 'quanto recebi de cada casa esse mes?', 'qual casa paga mais?'].entries()) {
+      const r = await orchestrate({ state: autonomo, message, today, remoteEnabled: false })
+      // Procurava o texto "Cada Casa"; "qual casa paga mais" respondia o gasto.
+      out.push(result('YO-por-casa-' + i, { message, reply: r.response.reply }, `Casa 1 com ${fmtBRL(casa1)}`,
+        casa1 > 0 && r.response.reply.includes('Casa 1') && r.response.reply.includes(fmtBRL(casa1)) && !/gasto/i.test(r.response.reply)))
+    }
+  }
+
   return out
 }
 

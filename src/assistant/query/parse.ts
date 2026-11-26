@@ -137,6 +137,13 @@ export function normalizeQuery(input: string): string {
   // "Quanto falta PRA QUITAR o computador": o verbo ficava no filtro de texto,
   // e a resposta era "você não tem parcelamentos com 'quitar o computador'".
   t = t.replace(/\b(?:pra|para)\s+(?:quitar|terminar\s+de\s+pagar|acabar\s+de\s+pagar)\s+(o|a|os|as)\s+/g, (_m, art: string) => `d${art} `)
+  // "Quanto CADA CASA me pagou", "qual CASA paga mais": a fonte do dinheiro é a
+  // origem. Lida como texto, a consulta procurava "Cada Casa"; e "qual casa
+  // paga mais" respondia o gasto por origem.
+  const FONTE = String.raw`(?:casa|casas|imovel|imoveis|apartamento|apto|kitnet|cliente|clientes|inquilino|inquilinos|loja)`
+  t = t.replace(new RegExp(String.raw`^(?:e\s+)?quanto\s+(?:cada|c\/)\s+${FONTE}\s+(?:me\s+)?(?:pagou|pagaram|rendeu|deu|deram)\b`), 'quanto recebi por origem')
+    .replace(new RegExp(String.raw`\b(?:de|da|do)\s+cada\s+${FONTE}\b`), 'por origem')
+    .replace(new RegExp(String.raw`^(?:e\s+)?(?:qual|que)\s+${FONTE}\s+(?:me\s+)?(?:paga|pagou|rende|rendeu|da|deu|traz|trouxe)\s+mais\b`), 'de quem recebi mais')
   return t.replace(/\s{2,}/g, ' ')
 }
 

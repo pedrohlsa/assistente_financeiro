@@ -994,6 +994,28 @@ async function gorjetaDentroOuFora(input: OrchestratorInput): Promise<Orchestrat
   } }
 }
 
+/**
+ * "Fiz um serviço de 500 MAS SÓ RECEBI 200": o combinado não é o recebido.
+ * Os dois viravam receita — R$ 700 para um dinheiro de R$ 200. Entra só o que
+ * chegou; o resto é dito como pendente (regra 69: dinheiro dito não é dinheiro).
+ */
+const SERVICO_PAGO_EM_PARTE = /^(?<lead>.*?)\b(?:fiz|fechei|vendi|prestei|peguei)\s+(?:um|uma|o|a)\s+(?<what>servi[çc]o|trabalho|frete|bico|freela|job|venda|di[áa]ria|reforma|conserto|corrida)\s+(?:de|por)\s+(?:r\$\s*)?(?<total>\d+(?:[.,]\d+)*)(?:\s+reais)?\s*,?\s*(?:mas|e|por[ée]m|s[óo]\s+que)\s+(?:o\s+cliente\s+|ele\s+|ela\s+)?(?:s[óo]\s+|apenas\s+)?(?:recebi|me\s+pag(?:ou|aram)|pag(?:ou|aram)|entrou|caiu)\s+(?:s[óo]\s+|apenas\s+)?(?:r\$\s*)?(?<paid>\d+(?:[.,]\d+)*)(?:\s+reais)?(?<tail>.*)$/i
+async function servicoPagoEmParte(input: OrchestratorInput): Promise<OrchestratorOutput | undefined> {
+  const text = normalizeNumberWords(input.message).text.trim()
+  const m = text.match(SERVICO_PAGO_EM_PARTE)?.groups
+  if (!m || looksLikeQuestion(text)) return undefined
+  const [total, paid] = [parseMoney(m.total), parseMoney(m.paid)]
+  if (!(total > 0) || !(paid > 0) || paid >= total) return undefined
+  const what = m.what.toLowerCase()
+  const paidOut = await orchestrate({ ...input, message: `${m.lead}recebi ${m.paid} de ${what === 'corrida' ? 'corrida' : what}${m.tail}`.replace(/\s+/g, ' ').trim(),
+    pending: undefined, pendingClarification: undefined, draft: undefined })
+  if (paidOut.response.mode !== 'propose_actions' || !paidOut.response.actions.some(c => c.action.kind === 'income' && (c.action as any).amount === paid)) return undefined
+  const falta = Math.round((total - paid) * 100) / 100
+  const artigo = /^(?:venda|di[áa]ria|reforma|corrida)$/.test(what) ? 'da' : 'do'
+  const note = `Registrei só o que entrou. Faltam ${fmtBRL(falta)} ${artigo} ${what} de ${fmtBRL(total)}; quando esse valor entrar, me diga.`
+  return { ...paidOut, response: { ...paidOut.response, reply: `${note}\n\n${paidOut.response.reply}` } }
+}
+
 const DUVIDA_DE_VALOR = /(?<![\d.,])(\d+(?:,\d{1,2})?)(?:\s+(?:reais|conto?s?))?([^\d?]{0,25}?)(\s*,?\s*(?:ou\s+(?:foi\s+|era\s+|seria\s+|talvez\s+|uns\s+)?|,\s*))(\d+(?:,\d{1,2})?)(?:\s+(?:reais|conto?s?))?(?![\d.,]|\s*(?:km|h|horas?|corridas?|viagens?|litros?|%|x)(?![\wÀ-ÿ]))/i
 const MARCA_DE_DUVIDA = /(?<![\wÀ-ÿ])(?:n[ãa]o\s+(?:lembro|sei)(?:\s+(?:direito|bem|ao\s+certo))?|por\s+a[íi]|acho(?:\s+que)?|sei\s+l[áa]|mais\s+ou\s+menos)(?![\wÀ-ÿ])|\?/i
 
@@ -3147,6 +3169,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     if (duvida) return duvida
     const gorjeta = await gorjetaDentroOuFora(input)
     if (gorjeta) return gorjeta
+    const parcial = await servicoPagoEmParte(input)
+    if (parcial) return parcial
   }
   // "Gastei mais com gasolina ou manutenção?": pergunta de escolha entre dois
   // gastos, com ou sem "?". Lida pelos caminhos gerais, só um lado aparecia.
