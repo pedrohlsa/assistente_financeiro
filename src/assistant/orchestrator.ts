@@ -2982,6 +2982,10 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   }
   const preferredMessage = applyPreferenceAliases(input.state, input.message)
   if (preferredMessage !== input.message) input = { ...input, message: preferredMessage }
+  // "Na vdd foi na 99": sem expandir, a correção não era reconhecida e a
+  // proposta ganhava a descrição "Vdd foi na 99".
+  const semVdd = input.message.replace(/(?<![\p{L}\d])vdd(?![\p{L}\d])/giu, 'verdade')
+  if (semVdd !== input.message) input = { ...input, message: semVdd }
   if (isDriver(input.state.settings)) {
     const shorthand = normalizeDriverShorthand(input.message)
     if (shorthand !== input.message) input = { ...input, message: shorthand }

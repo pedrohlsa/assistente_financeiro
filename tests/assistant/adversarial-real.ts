@@ -13644,6 +13644,38 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YF — correções com proposta na tela: abreviação, duas trocas juntas e valor sem alvo.
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    const ask = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({ state, message, today, remoteEnabled: false,
+      pending: prior?.response.actions.length ? prior.response.actions : undefined,
+      pendingClarification: prior?.response.mode === 'clarify' ? prior.response.clarification : undefined })
+    const items = (o: Awaited<ReturnType<typeof orchestrate>>) => (o.response.actions as any[]).map(c => [c.action.kind, c.action.amount, c.action.description || ''])
+    // "Na vdd foi na 99" virava a descrição "Vdd foi na 99".
+    for (const [i, [fix, expected]] of ([
+      ['na vdd foi na 99', [['income', 300, '99']]],
+      // Só o valor era trocado; a Uber ficava sem aviso.
+      ['foi na 99 e foi 280', [['income', 280, '99']]],
+      ['não foi na uber foi na 99 e foi 280', [['income', 280, '99']]],
+    ] as const).entries()) {
+      const first = await ask('fiz 300 na uber')
+      const second = await ask(fix, first)
+      out.push(result('YF-correcao-' + i, { fix, response: second.response }, expected,
+        second.response.mode === 'propose_actions' && JSON.stringify(items(second)) === JSON.stringify(expected)))
+    }
+    // "Não, foi 280" com dois itens: pergunta qual, e a resposta aplica a troca.
+    {
+      const first = await ask('fiz 300 na uber e gastei 80 de gasolina')
+      const second = await ask('não, foi 280', first)
+      const third = await ask('2', second)
+      out.push(result('YF-valor-sem-alvo-pergunta-o-item', { second: second.response, third: third.response }, 'pergunta e troca só o abastecimento',
+        second.response.mode === 'clarify' && /Qual item foi R\$\s280,00/.test(second.response.reply)
+        && JSON.stringify(items(third)) === JSON.stringify([['income', 300, 'Uber'], ['fuel', 280, '']])))
+    }
+  }
+
   return out
 }
 

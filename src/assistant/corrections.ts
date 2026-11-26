@@ -725,6 +725,49 @@ function correctDriverProposal(message: string, pending: AssistantCandidateActio
 }
 
 /**
+ * "Não, foi 280" com a receita e o abastecimento na tela: o valor serve para
+ * qualquer um dos dois. Em vez de "não peguei o quê", o app pergunta qual item
+ * mudou, com a proposta corrigida pronta em cada opção.
+ */
+function amountForWhichItem(message: string, pending: AssistantCandidateAction[], caps: AssistantCapabilities, today: string): CorrectionPlan | null {
+  const said = normalizeName(message).match(/^(?:(?:nao|n)\s*,?\s*)?(?:(?:na\s+verdade|errei|me\s+enganei)\s*,?\s*)?(?:foi|era|deu)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)\s*(?:reais|real|conto?s?)?[.!]*$/)
+  const amount = said ? parseMoney(said[1]) : NaN
+  if (!(amount > 0)) return null
+  const items = pending.filter(p => typeof amountOf(p.action) === 'number' && Math.abs((amountOf(p.action) as number) - amount) >= 0.005)
+  if (items.length < 2 || items.length !== pending.length) return null
+  const options = items.flatMap((item, i) => {
+    const checked = validateAction({ ...item.action, amount } as ParsedAction, caps, today)
+    return checked.ok ? [{ value: String(i + 1), label: correctionLabel(item, i),
+      actions: pending.map(p => p.id === item.id ? checked.action : p.action) }] : []
+  })
+  if (options.length < 2) return null
+  return { remove: [], edits: [], cancelAll: false, summary: [], ambiguous: {
+    field: 'pending-correction', question: `Qual item foi ${fmtBRL(amount)}?`, options } }
+}
+
+/**
+ * "Foi na 99 E foi 280", "não foi na uber, foi na 99 e foi 280": duas
+ * correções na mesma frase. Lida inteira, só o valor era trocado e a Uber
+ * ficava — o resto da correção sumia sem aviso. Cada parte é aplicada sobre o
+ * resultado da anterior; se alguma não for uma correção limpa, nada muda aqui.
+ */
+function combinedCorrection(message: string, pending: AssistantCandidateAction[], caps: AssistantCapabilities, today: string): CorrectionPlan | null {
+  const body = message.trim().replace(/^(?:n[ãa]o|n)\s*,?\s+(?:foi|era)\s+(?:n[ao]|d[ao]|em|pel[ao])\s+[^,;]+?(?:[,;]\s*|\s+)(?=(?:foi|era)\b)/i, '')
+  const parts = body.split(/\s*(?:,|;|\s+e\s+)\s*(?=(?:foi|era|foram|eram)\b)/i).map(p => p.trim()).filter(Boolean)
+  if (parts.length < 2 || !parts.every(p => /^(?:foi|era|foram|eram)\b/i.test(p))) return null
+  const merged: CorrectionPlan = { remove: [], edits: [], cancelAll: false, summary: [] }
+  let current = pending
+  for (const part of parts) {
+    const step = parseCorrection(part, current, caps, today)
+    if (!step || step.ambiguous || step.independentStatement || step.cancelAll || step.remove.length) return null
+    merged.edits.push(...step.edits)
+    merged.summary.push(...step.summary)
+    current = applyCorrection(current, step)
+  }
+  return merged.edits.length ? merged : null
+}
+
+/**
  * Interpreta uma frase de correção contra a proposta pendente.
  * Devolve `null` quando a frase não é uma correção reconhecível — nesse caso o
  * fluxo normal segue e nada é alterado por engano.
@@ -735,8 +778,10 @@ export function parseCorrection(
   caps: AssistantCapabilities,
   today = todayISO(),
 ): CorrectionPlan | null {
+  const combined = combinedCorrection(message, pending, caps, today)
+  if (combined) return combined
   const plan = parseCorrectionWithMarker(message, pending, caps, today)
-  if (!plan) return plan
+  if (!plan) return amountForWhichItem(message, pending, caps, today)
   // O marcador da 99 só serve para ACHAR o item; nunca vira valor gravado
   // nem texto ("Troquei para Appzz").
   // Plataforma com a grafia de sempre: "era indrive" gravava "Indrive".
