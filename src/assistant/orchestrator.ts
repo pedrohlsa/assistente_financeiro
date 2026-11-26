@@ -20,7 +20,7 @@ import type {
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause, PendingRideOffer,
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, errorMessage, isValidationFailure, validateAction } from './contracts'
-import { PEDE_APAGAR, analyzeMessage, contestsProposal, datesMentioned, declaresIntention, financialEventActions, isRefundInflow, looksLikeQuestion, looksLikeRetraction, looksNegated, looksPast, looksRecurring, segment, speechForCommands, weekdayChoiceWord } from './clauses'
+import { PEDE_APAGAR, analyzeMessage, contestsProposal, datesMentioned, declaresIntention, financialEventActions, isRefundInflow, looksLikeQuestion, looksLikeRetraction, looksNegated, looksPast, looksRecurring, normalizeAmountContrast, segment, speechForCommands, weekdayChoiceWord } from './clauses'
 import { categoryDilemma, outOfPatternWarning, withLearnedCategory, withLearnedSpelling } from './learning'
 import { explainRequest } from './explain'
 import { answerConversation, isFocusFresh, looksLikeFollowUp } from './conversation'
@@ -2904,6 +2904,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (withCalendarDays !== input.message) input = { ...input, message: withCalendarDays }
   const numericClarification = await prepareUnsafeMoney(input, today)
   if (numericClarification) return numericClarification
+  const contrasted = normalizeAmountContrast(input.message)
+  if (contrasted !== input.message) input = { ...input, message: contrasted }
   if (!input.pendingClarification && !input.draft && isFocusFresh(input.focus) && input.focus?.last === 'query') {
     const previous = input.focus.lastQueryPlan
     if (previous?.source === 'transactions' && previous.filter.platform && previous.filter.txType?.[0] === 'income') {

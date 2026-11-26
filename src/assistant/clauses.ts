@@ -272,11 +272,11 @@ const RECORD_DIRECTIVE = String.raw`(?:${RECORD_VERB})\s+(?:(?:[oa]\s+)?(?:${REC
 const EMPHATIC_PAYMENT = String.raw`foi\s+(${RECORD_NUMBER})\s+que\s+(?:eu\s+)?(gastei|paguei|recebi|ganhei)\b`
 
 const NEGATED_VERBS =
-  'gastei|gastou|paguei|pagou|pagamos|quitei|quitamos|antecipei|adiantei|recebi|recebeu|ganhei|ganhou|comprei|comprou|guardar|guardei|separei|abasteci|coloquei|botei|rodei|trabalhei|fiz|tocou|chamou|apareceu|foi|era|quero|vou|registra|registre|registrar|salva|salve|anota|anote|anotar'
+  'gastei|gastou|paguei|pagou|pagamos|quitei|quitamos|antecipei|adiantei|recebi|recebeu|ganhei|ganhou|comprei|comprou|guardar|guardei|separei|abasteci|coloquei|botei|rodei|trabalhei|fiz|tocou|chamou|apareceu|foi|foram|era|eram|quero|vou|registra|registre|registrar|salva|salve|anota|anote|anotar'
   // Qualquer verbo de dinheiro no passado pode ser NEGADO. A lista acima
   // esquecia troquei, instalei, vendi, depositei e outros — e "nao troquei o
   // oleo por 280" registrava a manutencao mesmo assim.
-  + `|troquei|instalei|vendi|depositei|investi|apliquei|parcelei|passei|tirei|retirei|faturei|lucrei|andei|dirigi|percorri|voltei|saiu|entrou|caiu|sobrou|custou|${PIX_SENDING}|${PIX_INCOMING}|${REFUND_FIRST}|${REFUND_THIRD}|${COMPLETED_MONEY}|${RECORD_VERB}`
+  + `|troquei|instalei|vendi|depositei|investi|apliquei|parcelei|passei|tirei|retirei|faturei|lucrei|andei|dirigi|percorri|voltei|saiu|sa[ií]ram|entrou|entraram|caiu|ca[ií]ram|sobrou|custou|${PIX_SENDING}|${PIX_INCOMING}|${REFUND_FIRST}|${REFUND_THIRD}|${COMPLETED_MONEY}|${RECORD_VERB}`
 
 /**
  * A vírgula depois do "não" é o jeito mais comum de negar em fala real: "não,
@@ -291,7 +291,34 @@ const NEGATED_STATEMENT = new RegExp(
   'i',
 )
 
-export const looksNegated = (t: string): boolean => NEGATED_STATEMENT.test(t)
+const DENIED_PLATFORM_PAYMENT = /^\s*(?:[\p{Extended_Pictographic}\uFE0F\s]+)?(?:[ao]\s+)?(?:uber|99|in\s*driver?)\s+(?:ainda\s+)?(?:n[ãa]o|nem|[nñ])\s+(?:(?:me|nos)\s+)?(?:caiu|ca[ií]ram|entrou|entraram|pagou|depositou|repassou|descontou|reteve|cobrou)\b/iu
+
+export const looksNegated = (t: string): boolean => NEGATED_STATEMENT.test(t) || DENIED_PLATFORM_PAYMENT.test(t)
+
+const CONTRAST_VERB = 'paguei|gastei|comprei|recebi|ganhei|faturei|abasteci|saiu|entrou|caiu'
+const CONTRAST_TIME = String.raw`(?<lead>(?:(?:eu|hoje|hj|ontem|anteontem)\s+){0,3})`
+const CONTRAST_DETAIL = String.raw`(?:d[ao]|n[ao]|em|com|pel[ao])\s+(?:(?!(?:e|n[ãa]o|nem|ou|se)\s)\p{L}[\p{L}\p{M}-]*\s+){1,4}`
+const CONFIRMED_FIRST = new RegExp(
+  String.raw`^${CONTRAST_TIME}(?<before>${CONTRAST_DETAIL})?(?<verb>${CONTRAST_VERB})\s+(?<after>${CONTRAST_DETAIL})?(?<actual>${CASH_PAIR_VALUE})[,;]?\s+(?:e\s+)?(?:n[ãa]o|n)\s+(?<denied>${CASH_PAIR_VALUE})(?=\s|[.!;,]|$)(?!\s*(?:km|h|horas?|viagens?|corridas?|litros?|parcelas?)\b)(?<tail>.*)$`,
+  'iu',
+)
+const CONFIRMED_AFTER_DENIAL = new RegExp(
+  String.raw`^${CONTRAST_TIME}(?:n[ãa]o|n)\s+(?<verb>${CONTRAST_VERB})\s+(?:${CASH_PAIR_VALUE}|nada)(?:\s+[^\d,;.!?]+?)?[,;]?\s+(?:e\s+sim|s[óo]|apenas|somente)\s+(?<actual>${CASH_PAIR_VALUE})(?!\s*(?:km|h|horas?|viagens?|corridas?|litros?|parcelas?)\b)(?=\s|[.!;,]|$)(?<tail>.*)$`,
+  'iu',
+)
+
+/** Mantém o valor afirmado em um contraste e deixa a descrição comum com ele. */
+export function normalizeAmountContrast(message: string): string {
+  if (!/\b(?:n[ãa]o|n)\b/i.test(message) || /[?]|\b(?:se|talvez|supostamente)\b/i.test(message)) return message
+  const text = normalizeNumberWords(message).text.trim()
+  const contrast = (text.match(CONFIRMED_FIRST) || text.match(CONFIRMED_AFTER_DENIAL))?.groups
+  if (!contrast) return message
+  const { lead, verb, actual, before, after, tail, denied } = contrast
+  const place = (before || after || '').trim()
+  if (place && /^\s+(?:d[aeo]|n[ao]|em|com|via)\s/i.test(tail)) return message
+  const affirmative = !denied && /^saiu$/i.test(verb) ? 'gastei' : verb
+  return [lead.trim(), affirmative, actual, place, tail.trim()].filter(Boolean).join(' ')
+}
 
 /**
  * Verbo de dinheiro no PASSADO. É o que separa "gastei 50 daqui a 3 dias"
@@ -597,6 +624,10 @@ export function segment(text: string, today = todayISO()): { text: string; start
   // Uma baixa anterior continua válida quando a segunda parte é negada.
   const beforeNegation = new RegExp(String.raw`(?:[,;]\s*(?:e\s+)?|\s+e\s+)(?=(?:(?:eu|ainda)\s+){0,2}(?:${NEGATION_HEAD}|${SHORT_NEGATION_HEAD}))`, 'gi')
   for (const m of text.matchAll(beforeNegation)) push((m.index || 0) + m[0].length)
+  for (const m of text.matchAll(/(?:[,;]\s*(?:e\s+)?|\s+e\s+)/gi)) {
+    const after = m.index + m[0].length
+    if (DENIED_PLATFORM_PAYMENT.test(text.slice(after))) push(after)
+  }
   // A ressalva afirmativa tem escopo próprio: “não gastei 100, só paguei 20”.
   for (const m of text.matchAll(new RegExp(String.raw`\s+(?:s[óo]|apenas|somente)\s+(?=(?:eu\s+)?(?:${PAST_MONEY_VERBS})\b)`, 'gi'))) {
     const previous = Math.max(...[...cuts].filter(cut => cut <= m.index))

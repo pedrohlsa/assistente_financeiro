@@ -104,6 +104,42 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const today = '2026-11-25', yesterday = '2026-11-24'
+    const cases = [
+      ['paguei 10,00 e não 100,00 de estacionamento ontem', [['expense', 10, 'estacionamento', yesterday]]],
+      ['paguei dez reais e não cem no estacionamento ontem', [['expense', 10, 'estacionamento', yesterday]]],
+      ['no estacionamento paguei 10 não 100', [['expense', 10, 'estacionamento', today]]],
+      ['gastei no mercado cento e vinte e não cento e dois ontem', [['expense', 120, 'alimentacao', yesterday]]],
+      ['recebi da Uber 250 e não 520 hoje', [['income', 250, 'Uber', today]]],
+      ['recebi 250 e não 520 da Uber hoje', [['income', 250, 'Uber', today]]],
+      ['hoje não ganhei 500 e sim 250 na Uber', [['income', 250, 'Uber', today]]],
+      ['saiu 85 de gasolina mas não saíram 30 de estacionamento', [['fuel', 85, '', today]]],
+      ['não saiu nada de abastecimento, só 7 reais de estacionamento ontem', [['expense', 7, 'estacionamento', yesterday]]],
+      ['ontem não gastei 85 de gasolina só 62,50 de etanol', [['fuel', 62.5, 'Etanol', yesterday]]],
+      ['a uber não me descontou os 10 de taxa, paguei 6 de pedágio', [['expense', 6, 'pedagio', today]]],
+      ['paguei 9 de estacionamento e não foram 15 de pedágio', [['expense', 9, 'estacionamento', today]]],
+      ['ganhei 250 na Uber, 💸💸 99 não caiu 150, gastei 8 de pedágio', [['income', 250, 'Uber', today], ['expense', 8, 'pedagio', today]]],
+      ['paguei dez e cinquenta centavos e não cem de estacionamento ontem e comprei café por 8', [['expense', 10.5, 'estacionamento', yesterday], ['expense', 8, 'alimentacao', yesterday]]],
+      ['paguei três e cinco centavos e não dez no pedágio ontem', [['expense', 3.05, 'pedagio', yesterday]]],
+      ['recebi onze e vinte centavos e não trinta da Uber hoje', [['income', 11.2, 'Uber', today]]],
+    ] as const
+    for (const [i, [message, expected]] of cases.entries()) {
+      const state = i === 3 ? autonomoRico(today) : i % 2 ? buildState({ profile: 'driver' }) : motoristaRico(today)
+      const snapshot = JSON.stringify(state)
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actual = response.actions.map(c => c.action).flatMap(a => {
+        if (a.kind === 'income') return [[a.kind, a.amount, a.description || '', a.date || today]]
+        if (a.kind === 'expense') return [[a.kind, a.amount, a.category || '', a.date || today]]
+        if (a.kind === 'fuel') return [[a.kind, a.amount, a.fuelType || '', a.date || today]]
+        return []
+      })
+      out.push(result('XJ-nega-so-o-valor-ou-fato-indicado-' + i, { message, response }, expected,
+        (response.mode === 'propose_actions' || response.mode === 'answer_and_actions') && response.actions.length === expected.length
+        && !response.unresolved.length && JSON.stringify(actual) === JSON.stringify(expected) && JSON.stringify(state) === snapshot))
+    }
+  }
+
+  {
     const today = '2026-11-25', yesterday = '2026-11-24', twoDays = '2026-11-23'
     const state = motoristaRico(today)
     const ask = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>, profile = state, day = today) =>

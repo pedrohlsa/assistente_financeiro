@@ -197,14 +197,16 @@ export function findNumberWords(text: string): NumberWordMatch[] {
     const unit = canonicalUnit(unitM?.[1] || unitM?.[2])
 
     let value = wordsToNumber(seq)
-    // "UM e cinquenta", "dois e noventa": unidade ANTES da dezena não existe
-    // como número inteiro — é como se fala real e centavos. Somado, "um e
-    // cinquenta no pão" virava R$ 51,00.
+    // "Um e cinquenta" e "dez e cinquenta centavos" dizem reais seguidos
+    // de centavos. Um número abaixo de vinte não começa um cardinal composto,
+    // ao contrário de "vinte e cinco centavos", que continua sendo R$ 0,25.
     {
       const sig = seq.filter(w => !FILLER.has(strip(w)))
       const primeira = sig.length >= 2 ? wordsToNumber([sig[0]]) : null
       const resto = sig.length >= 2 ? wordsToNumber(sig.slice(1)) : null
-      if (primeira !== null && resto !== null && primeira >= 1 && primeira <= 9 && resto >= 10 && resto <= 99
+      const saidCents = unit === 'cents' && primeira >= 0 && primeira < 20 && resto >= 1
+      const invertedTens = primeira >= 1 && primeira <= 9 && resto >= 10
+      if (primeira !== null && resto !== null && resto <= 99 && (saidCents || invertedTens)
         && strip(seq[1] || '') === 'e') {
         value = primeira + resto / 100
       }
