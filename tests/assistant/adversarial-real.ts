@@ -13676,6 +13676,46 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YG — perguntas do motorista: escolha entre dois gastos, "comparado com essa" e duas perguntas sem verbo.
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    const soma = (cat: string, from: string, to: string, fuelToo = false) => state.transactions
+      .filter(t => t.type === 'expense' && (t.category === cat || (fuelToo && t.category === 'combustivel')) && t.date >= from && t.date <= to)
+      .reduce((n, t) => n + t.amount, 0)
+    const brl = (v: number) => fmtBRL(v)
+    {
+      // Respondia só a gasolina e dizia "foi exatamente o mesmo valor".
+      const message = 'gastei mais com gasolina ou manutenção esse mês?'
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const manut = soma('manutencao', '2026-11-01', today)
+      out.push(result('YG-dois-gastos', { message, reply: response.reply }, 'os dois lados com valor',
+        !response.actions.length && /manutenção/.test(response.reply) && response.reply.includes(brl(manut)) && !/mesmo valor/.test(response.reply)))
+    }
+    {
+      const message = 'gastei mais com gasolina ou com alimentação esse mes'
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      out.push(result('YG-dois-gastos-sem-interrogacao', { message, reply: response.reply }, 'pergunta, nunca registro',
+        !response.actions.length && response.mode === 'answer' && /alimentação/.test(response.reply)))
+    }
+    {
+      // A resposta trazia só a semana passada, sem comparar.
+      const message = 'quanto eu ganhei semana passada comparado com essa'
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      out.push(result('YG-comparado-com-essa', { message, reply: response.reply }, 'compara as duas semanas',
+        /semana passada/i.test(response.reply) && /(?:abaixo|acima|igual)/.test(response.reply)))
+    }
+    {
+      // Procurava o texto "corrida" e respondia que não havia lançamento.
+      const message = 'anteontem quanto de corrida e quanto de gasolina?'
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const recebido = state.transactions.filter(t => t.type === 'income' && t.date === '2026-11-23').reduce((n, t) => n + t.amount, 0)
+      out.push(result('YG-duas-perguntas-sem-verbo', { message, reply: response.reply }, 'recebido de anteontem',
+        recebido > 0 && response.reply.includes(brl(recebido)) && !/com "corrida"/.test(response.reply)))
+    }
+  }
+
   return out
 }
 

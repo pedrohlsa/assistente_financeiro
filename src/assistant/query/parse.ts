@@ -990,6 +990,13 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     const ou = t0.match(/\bou\s+(?:n[oa]\s+|o\s+|a\s+)?([^?,.!]{2,30})/)!
     textoComparacao = ou[1]
     rest.consome(ou[0])
+  } else if (marcador && /^(?:ess[ae]|est[ae]|(?:[ao]\s+)?atual)\s*$/.test(marcador[1].trim())
+    && /\b(?:semana|mes|ano)\s+passad[oa]\b|\b(?:mes|semana|ano)\s+anterior\b/.test(t0)) {
+    // "Semana passada comparado com ESSA": o demonstrativo é o período atual da
+    // mesma unidade. Sem período legível, a resposta trazia só a semana passada.
+    const unidade = /\bsemana\b/.test(t0) ? 'esta semana' : /\bano\b/.test(t0) ? 'este ano' : 'este mes'
+    textoComparacao = unidade
+    rest.consome(marcador[0])
   } else if (marcador && /^(?:o\s+|a\s+)?(?:passad[oa]|anterior)\s*$/.test(marcador[1].trim())) {
     // "Comparado com o passado" / "com a anterior": o período imediatamente
     // anterior ao principal. Sem período legível a frase saía da consulta e

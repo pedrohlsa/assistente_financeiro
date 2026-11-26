@@ -95,6 +95,8 @@ export function answerConversation(
       focus: opts.focus || { updatedAt: Date.now() },
     }
   }
+  const escolha = gastoEntreDois(state, queryText, opts)
+  if (escolha) return escolha
   const out = respondeConversa(state, message, opts)
   // Pergunta de sim ou não começa por sim ou não (regra 57), em qualquer
   // caminho que tenha terminado numa comparação: consulta nova ou refino.
@@ -371,6 +373,51 @@ function proporcaoSobreResultado(
   const pct = total.total / base.result.total * 100
   const rotulo = (base.plan.label || 'total de referência').toLowerCase().replace(/\b(uber|indrive)\b/g, w => w === 'uber' ? 'Uber' : 'inDrive')
   return `${fmtBRL(total.total)} representam ${fmtNum(pct, 2)}% de ${fmtBRL(base.result.total)} (${rotulo} ${periodo.label}).`
+}
+
+/**
+ * "Gastei mais com gasolina OU manutenção esse mês?": a escolha entre dois
+ * gastos. O planejador lia só o primeiro e ainda dizia "foi exatamente o mesmo
+ * valor", comparando o período com ele mesmo. Cada lado é uma consulta do
+ * próprio planejador — o número bate com o que a tela mostraria (regra 58) — e
+ * diferença abaixo de 2% é dita como empate (regra 56).
+ */
+const DOIS_GASTOS = /^(?:e\s+)?(?:eu\s+)?(?:gastei|gasto|gastando|gastou|torrei|sai|saiu)\s+mais\s+(?:com|de|em|n[oa]s?)\s+(?:o\s+|a\s+|os\s+|as\s+)?([a-z][a-z\s]{1,25}?)\s+ou\s+(?:com\s+|de\s+|em\s+|n[oa]s?\s+)?(?:o\s+|a\s+|os\s+|as\s+)?([a-z][a-z\s]{1,25}?)(?:\s+((?:(?:n?esse|n?este|n?essa|n?esta|no|na|em|nos|nas|semana|mes|hoje|ontem|ultim|de\s+\d|desde)\b).*?))?\s*\??$/
+export function gastoEntreDois(state: AppState, t: string, opts: ConversationOptions): ConversationAnswer | null {
+  const m = t.match(DOIS_GASTOS)
+  // "Gasto mais no começo ou no fim do mês" é agrupamento por parte do mês;
+  // "na uber ou na 99", por plataforma. Nenhum dos dois é escolha entre gastos.
+  if (!m || [m[1], m[2]].some(lado => /\b(?:comeco|inicio|meio|fim|final|primeira|segunda|quinzena|metade|semana|mes|dia|hoje|ontem|uber|99|indrive|app)\b/.test(lado))) return null
+  const hoje = opts.today || todayISO()
+  const [, a, b, periodo = ''] = m
+  const lados = [a.trim(), b.trim()].map(nome => {
+    const planned = planQuery(state, `quanto gastei com ${nome} ${periodo}`.trim(), { today: hoje })
+    const res = planned && !planned.incompleto ? runPlannedQuery(state, planned, { today: hoje }) : null
+    const filtrou = !!(res?.plan.filter.categories?.length || res?.plan.filter.text)
+    return res && filtrou && res.result.unit === 'BRL' && res.plan.metric === 'sum' && res.plan.group === 'none' ? { nome, res } : null
+  })
+  if (lados.some(l => !l)) return null
+  const [x, y] = lados as { nome: string; res: QueryAnswer }[]
+  const rotulo = x.res.result.plan.period.label
+  if (rotulo !== y.res.result.plan.period.label) return null
+  const [va, vb] = [x.res.result.total, y.res.result.total]
+  // O nome da categoria, com acento: "manutencao" vinha do texto normalizado.
+  for (const lado of [x, y]) {
+    const ids = lado.res.result.plan.filter.categories
+    const cat = ids?.length === 1 ? (state.categories || []).find(c => c.id === ids[0]) : undefined
+    if (cat && normalizeName(cat.name).startsWith(lado.nome.slice(0, 4))) lado.nome = cat.name.toLowerCase()
+  }
+  let reply: string
+  if (!(va > 0) && !(vb > 0)) reply = `Não tenho gasto registrado com ${x.nome} nem com ${y.nome} ${rotulo}.`
+  else if (Math.abs(va - vb) <= 0.02 * Math.max(va, vb)) {
+    reply = `Praticamente empate ${rotulo}: ${fmtBRL(va)} com ${x.nome} e ${fmtBRL(vb)} com ${y.nome}, diferença de ${fmtBRL(Math.abs(va - vb))}.`
+  } else {
+    const [maior, menor] = va > vb ? [x, y] : [y, x]
+    reply = menor.res.result.total > 0
+      ? `Mais com ${maior.nome} ${rotulo}: ${fmtBRL(maior.res.result.total)}, contra ${fmtBRL(menor.res.result.total)} com ${menor.nome} (${fmtBRL(Math.abs(va - vb))} a mais).`
+      : `Com ${maior.nome}: ${fmtBRL(maior.res.result.total)} ${rotulo}. Com ${menor.nome}, não há gasto registrado no mesmo período.`
+  }
+  return { kind: 'query', reply: `${reply}\n\nDado real, pelos lançamentos registrados.`, focus: opts.focus || { updatedAt: Date.now() } }
 }
 
 /**

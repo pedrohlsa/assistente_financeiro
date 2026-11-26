@@ -7651,3 +7651,31 @@ Próxima bateria com pagamentos de várias origens no perfil autônomo e total s
 - "Uber 45 líquido 8 de taxa retida 5 de pedagio que eu paguei" propõe os R$ 45 líquidos e os R$ 5 de pedágio. Antes, os R$ 45 viravam pedágio. Com vírgulas, a taxa retida virava receita.
 
 Os três lotes passaram por `npm test` (2.197 regressões), pelos dois typechecks, pela rubrica (0 PERIGOSA) e pela matriz das oito datas. Os casos abertos estão em `docs/BATERIA_DUVIDAS.md`. O projeto segue **NOT READY**.
+
+### Ditado por voz (`YD`)
+
+- "Doze e cinquenta de pedágio na ida e doze e cinquenta na volta" propõe dois pedágios de R$ 12,50. Antes, cada um saía como R$ 62,00 (12 + 50), e o segundo ia para Outros com a descrição "Volta".
+- "Ontem eu fiz quinhentos e trinta reais e hoje trezentos e dez" grava os dois dias. Antes, o corte entre os dias só existia com algarismo, e os R$ 310 viravam pergunta.
+- "Recebi da 99 240" registra a receita da 99, que antes não era registrada. "Recebi da Uber 240" não grava mais "Uber 240" como origem.
+- "In draive me pagou oitenta" e "o inDrive me pagou 80" são corrida do inDrive. Antes, viravam Outros com a origem "In Draive".
+
+### Digitação (`YE`)
+
+- "Uber 180,99 120,gasolina 60" é Uber 180, 99 120 e gasolina 60. Antes, saía R$ 180,99, e os R$ 120 da 99 se perdiam.
+- "Fiz 280 tbm na 99" mantém a 99. "Fiz 300 uber" e "hj 300 uber" não perguntam mais se foi ganho ou gasto.
+- "Pg 15 d estacionamento" sai com a descrição "Estacionamento". "Abast 70" depois de um item de app vira abastecimento.
+
+### Correções com proposta na tela (`YF`)
+
+- "Na vdd foi na 99" troca a plataforma. Antes, a descrição virava "Vdd foi na 99".
+- "Foi na 99 e foi 280" e "não foi na uber foi na 99 e foi 280" aplicam as duas trocas. Antes, só o valor mudava e a Uber ficava, sem aviso.
+- "Não, foi 280" com receita e abastecimento na tela pergunta qual item foi R$ 280, e a resposta "1" ou "2" aplica a troca.
+
+### Perguntas do motorista (`YG`)
+
+- "Gastei mais com gasolina ou manutenção esse mês?" compara os dois lados pelo próprio planejador, com empate abaixo de 2%. Antes, a resposta trazia só a gasolina e dizia "foi exatamente o mesmo valor". Funciona também sem "?". "Gasto mais no começo ou no fim do mês" continua sendo agrupamento.
+- "Quanto ganhei semana passada comparado com essa" compara as duas semanas.
+- "Anteontem quanto de corrida e quanto de gasolina?" responde as duas partes no mesmo dia. Antes, o app procurava o texto "corrida".
+
+Os quatro lotes passaram por `npm test` (2.221 regressões), pelos dois typechecks, pela rubrica (0 PERIGOSA, com a lista conferida resposta por resposta) e pela matriz das oito datas.
+

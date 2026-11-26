@@ -23,7 +23,7 @@ import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, errorMes
 import { PEDE_APAGAR, analyzeMessage, contestsProposal, datesMentioned, declaresIntention, financialEventActions, isRefundInflow, looksLikeQuestion, looksLikeRetraction, looksNegated, looksPast, looksRecurring, normalizeAmountContrast, segment, speechForCommands, weekdayChoiceWord } from './clauses'
 import { categoryDilemma, outOfPatternWarning, withLearnedCategory, withLearnedSpelling } from './learning'
 import { explainRequest } from './explain'
-import { answerConversation, isFocusFresh, looksLikeFollowUp } from './conversation'
+import { answerConversation, gastoEntreDois, isFocusFresh, looksLikeFollowUp } from './conversation'
 import { compareRideApps, PEDE_MINIMO_POR_KM, rideAppFollowUp } from './driverInsights'
 import { buildRemoteConversation } from './conversation/remoteContext'
 import type { RemoteConversationContext, RemoteTurnRelation } from './conversation/remoteContext'
@@ -916,6 +916,15 @@ function historySubquestion(part: string): string {
   if (noun) {
     const [, metric, date] = noun
     return `${metric === 'lucro' ? 'qual foi o lucro' : metric === 'km' ? 'quantos km' : `quantas ${metric}`} ${date}`
+  }
+  // "Anteontem quanto DE CORRIDA e quanto DE GASOLINA": sem verbo, o planejador
+  // procurava o texto "corrida". Corrida é o que entrou; o resto é gasto.
+  const semVerbo = part.replace(/\?+$/, '').match(/^(?:(hoje|ontem|anteontem)\s+)?quanto\s+(?:foi\s+|deu\s+)?(?:de|em|com)\s+(.+?)(?:\s+(hoje|ontem|anteontem))?$/)
+  if (semVerbo) {
+    const [, antes = '', what, depois = ''] = semVerbo
+    const day = antes || depois
+    if (/^corridas?$/.test(what)) return `quanto ganhei ${day}`.trim()
+    return `quanto gastei de ${what} ${day}`.trim()
   }
   return (perguntaNominal(part) || part).replace(/\?+$/, '')
 }
@@ -2991,6 +3000,13 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     if (shorthand !== input.message) input = { ...input, message: shorthand }
   }
   const today = input.today || todayISO()
+  // "Gastei mais com gasolina ou manutenção?": pergunta de escolha entre dois
+  // gastos, com ou sem "?". Lida pelos caminhos gerais, só um lado aparecia.
+  if (!input.pendingClarification) {
+    const escolha = gastoEntreDois(input.state, normalizeQuery(input.message), { today, focus: input.focus })
+    if (escolha) return { draft: input.draft || null, keepPending: true, focus: input.focus,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply: escolha.reply } }
+  }
   const speech = speechForCommands(input.message, today)
   if (speech.context.length) {
     if (speech.command) {
