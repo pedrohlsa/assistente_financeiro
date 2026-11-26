@@ -815,6 +815,20 @@ function answerQuestions(
       continue
     }
     const pergunta = perguntaComAssunto(caudaDaPergunta(q.text, candidates), candidates)
+    // "Paguei 8 de pedágio e quanto sobrou DOS 45?": a conta é com o valor dito
+    // e com os gastos desta mensagem — não o resultado do mês (regra 66).
+    const dosN = normalizeName(pergunta).match(/\bquanto\s+(?:me\s+)?(?:sobrou|sobra|ficou|fica|restou|resta)\s+d[aeo]s?\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)(?:\s+reais)?\s*\??$/)
+    const gastosDaFrase = candidates.flatMap(c => (c.action.kind === 'expense' || c.action.kind === 'fuel') && (c.action as any).amount > 0 ? [(c.action as any).amount as number] : [])
+    if (dosN && gastosDaFrase.length && !candidates.some(c => c.action.kind === 'income')) {
+      const base = parseMoney(dosN[1])
+      const gasto = gastosDaFrase.reduce((n, v) => n + v, 0)
+      if (base > 0) {
+        const sobra = Math.round((base - gasto) * 100) / 100
+        parts.push(`Dos ${fmtBRL(base)}, ${sobra >= 0 ? 'sobram' : 'faltam'} ${fmtBRL(Math.abs(sobra))} depois de ${fmtBRL(gasto)} ${gastosDaFrase.length === 1 ? 'deste gasto' : 'destes gastos'}. A conta usa só os valores desta mensagem, antes de outros custos.`)
+        answered.push(q)
+        continue
+      }
+    }
     // A consulta só entra ao lado de um registro e com pergunta inteira. Sem
     // registro, quem responde é o turno normal, que lê a mensagem toda; e um
     // fragmento ("minha reserva tá em | quanto") virava "Total gasto este mês".

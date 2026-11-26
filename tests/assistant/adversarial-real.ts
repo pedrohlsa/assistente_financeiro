@@ -13944,6 +13944,34 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YN — dia da semana em sequência, negação no primeiro dia e "quanto sobrou dos N".
+  {
+    const today = '2026-11-25' // quarta-feira
+    const state = motoristaRico(today)
+    for (const [i, [message, expected]] of ([
+      // Os R$ 300 de segunda iam para o domingo negado.
+      ['domingo não rodei, segunda fiz 300', [[300, '2026-11-23']]],
+      // A quarta ficava na terça; depois, na quarta da semana passada.
+      ['terça entrei 200 na Uber e quarta 130 na 99', [[200, '2026-11-24'], [130, today]]],
+      ['segunda fiz 300 e terça 250', [[300, '2026-11-23'], [250, '2026-11-24']]],
+      ['quinta fiz 300, sexta 280', [[300, '2026-11-19'], [280, '2026-11-20']]],
+    ] as const).entries()) {
+      const r = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actual = (r.response.actions as any[]).map(c => [c.action.amount, c.action.date])
+      out.push(result('YN-dias-da-semana-' + i, { message, response: r.response }, expected,
+        r.response.mode === 'propose_actions' && JSON.stringify(actual) === JSON.stringify(expected)))
+    }
+    {
+      // Respondia o resultado do mês.
+      const message = 'paguei 8 de pedágio ontem na corrida e quanto sobrou dos 45?'
+      const r = await orchestrate({ state, message, today, remoteEnabled: false })
+      out.push(result('YN-sobrou-dos-n', { message, reply: r.response.reply }, 'R$ 37,00 e o pedágio na proposta',
+        r.response.reply.includes(fmtBRL(37)) && !/este mês/.test(r.response.reply)
+        && (r.response.actions as any[]).some(c => c.action.kind === 'expense' && c.action.amount === 8)))
+    }
+  }
+
   return out
 }
 

@@ -763,6 +763,14 @@ export function segment(text: string, today = todayISO()): { text: string; start
   for (const m of text.matchAll(/[,;]?\s+e\s+(?=(?:hoje|hj|ontem|anteontem|(?:depois\s+de\s+)?amanh[ãa])(?=\s|$))/gi)) {
     if (temValorDepois((m.index || 0) + m[0].length)) push((m.index || 0) + m[0].length)
   }
+  // O mesmo com dia da semana: "terça entrei 200 na Uber E QUARTA 130 na 99",
+  // "domingo não rodei, SEGUNDA fiz 300". Sem o corte, a segunda metade ficava
+  // com o dia da primeira — os R$ 300 de segunda iam para o domingo.
+  for (const m of text.matchAll(/(?:[,;]\s*(?:e\s+)?|\s+e\s+)(?=(?:n[ao]\s+)?(?:segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado|domingo)(?:-feira)?(?!\s+(?:parcela|via|vez|casa|metade|quinzena|semana))(?![\p{L}\d]))/giu)) {
+    const after = (m.index || 0) + m[0].length
+    const antes = text.slice(0, m.index)
+    if (/\b(?:segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado|domingo|hoje|hj|ontem|anteontem)\b/i.test(antes) && temValorDepois(after)) push(after)
+  }
   // Ditado sem pontuação: "fiz 300 ONTEM ANTEONTEM 280". Um dia colado no outro,
   // com valor antes e depois, são dois relatos — o segundo valor sumia.
   for (const m of text.matchAll(/(?<![\p{L}\d])(?:hoje|hj|ontem|anteontem)\s+(?=(?:hoje|hj|ontem|anteontem)(?![\p{L}\d]))/giu)) {
@@ -1974,6 +1982,14 @@ export function analyzeMessage(
           question: 'Qual foi a data exata em que esse registro aconteceu?', actions: [] }
       date = undefined
       dateAmbiguity = undefined
+    }
+    // "Terça entrei 200 e QUARTA 130", dito numa quarta: a narração anda para a
+    // frente. A quarta da semana passada ficaria ANTES da terça já contada; a
+    // leitura que segue a ordem do relato é hoje.
+    if (date && previousClause?.date && date === addDays(today, -7) && previousClause.date > date
+      && /\b(?:segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado|domingo)\b/i.test(part.text) && !/\bpassad[oa]\b/i.test(part.text)) {
+      date = today; dLabel = dateLabel(today, today)
+      actions = actions.map(a => 'date' in a ? { ...a, date: today } as ParsedAction : a)
     }
     // "Anteontem 1800 da casa 1 e 1750 da casa 2 NO DIA SEGUINTE": a data é
     // relativa à anterior. Herdada inteira, os R$ 1.750 iam para anteontem.

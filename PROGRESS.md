@@ -7722,3 +7722,9 @@ A rubrica foi conferida resposta por resposta contra a rodada anterior, sem nenh
 - "Aluguel: recebi 1800 e 1750" e "mercado: gastei 120, 45 e 30" aplicam o rótulo a cada valor.
 - "A corrida deu 45 com 5 de gorjeta e paguei 8 de pedágio" pergunta se a gorjeta já está nos R$ 45, com as duas propostas prontas e o pedágio nas duas. Antes, só o pedágio era proposto. Com "já incluída" ou "por fora" na frase, a proposta sai direto.
 
+### Dias da semana e conta com os valores da frase (`YN`)
+
+- "Domingo não rodei, segunda fiz 300" grava os R$ 300 na segunda. Antes, iam para o domingo negado.
+- "Terça entrei 200 na Uber e quarta 130 na 99", dito numa quarta, grava terça e hoje. Antes, os dois iam para a terça. A quarta da semana passada ficaria antes da terça já contada, então a narração em sequência fica com hoje; "quarta passada" continua sendo a da semana anterior.
+- "Paguei 8 de pedágio ontem na corrida e quanto sobrou dos 45?" responde R$ 37,00, com a conta só dos valores da mensagem. Antes, respondia o resultado do mês.
+
