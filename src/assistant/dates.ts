@@ -8,6 +8,7 @@
 import { addDays, fromISO, toISO, todayISO, dateForDayOfMonth } from '../utils/format'
 import { normalizeName, weekdayName } from '../utils/text'
 import { isPlausibleDate } from './contracts'
+import { wordsToNumber } from './numbers'
 
 export type DateResolution =
   /** Data única e sem dúvida. */
@@ -31,6 +32,23 @@ const MONTHS = [
   'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
 ]
 const MONTH_RE = 'janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro'
+
+const DAY_UNIT_WORD = String.raw`um|dois|tr[eê]s|quatro|cinco|seis|sete|oito|nove`
+const DAY_WORDS = String.raw`primeiro|(?:vinte|trinta)(?:\s+e\s+(?:${DAY_UNIT_WORD}))?|dez[ae]sseis|dez[ae]ssete|dezoito|dez[ae]nove|dez|onze|doze|treze|catorze|quatorze|quinze|${DAY_UNIT_WORD}`
+const SPOKEN_DAY = new RegExp(
+  String.raw`(\bdia\s+)(${DAY_WORDS})(?![\p{L}\p{M}\d])|(?<![\p{L}\p{M}\d])(${DAY_WORDS})(?=\s+de\s+(?:${MONTH_RE})\b)`,
+  'giu',
+)
+
+/** Isola o dia antes que o reconhecedor de valores junte o próximo valor a ele. */
+export function normalizeSpokenCalendarDays(text: string): string {
+  return text.replace(/\b(?:ante[\s-]+ontem|antes\s+de\s+ontem)\b/gi, 'anteontem')
+    .replace(SPOKEN_DAY, (_match, prefix: string | undefined, day: string | undefined, beforeMonth: string | undefined) => {
+      const words = (day || beforeMonth || '').toLowerCase()
+      const value = words === 'primeiro' ? 1 : wordsToNumber(words.split(/\s+/))
+      return value === null ? _match : (prefix || '') + value
+    })
+}
 
 const WEEKDAY_RE = 'domingo|segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado|sabado'
 
@@ -220,6 +238,14 @@ const RULES: Rule[] = [
     build: (_m, t) => ({ kind: 'period', from: addDays(t, -13), to: addDays(t, -7), label: 'semana passada' }),
   },
   {
+    re: /(?<![\p{L}\p{M}])(?:(?:no|em)\s+)?[úu]ltimo\s+dia\s+d[oe]\s+m[eê]s\s+passado\b/iu,
+    build: (_m, t) => {
+      const d = fromISO(t)
+      const iso = toISO(new Date(d.getFullYear(), d.getMonth(), 0))
+      return { kind: 'date', date: iso, label: brDate(iso) }
+    },
+  },
+  {
     re: /\b(?:no\s+)?m[eê]s\s+passado\b/i,
     build: (_m, t) => {
       const d = fromISO(t)
@@ -262,7 +288,7 @@ const RULES: Rule[] = [
   },
   {
     // "10 de agosto", "10 de agosto de 2026"
-    re: new RegExp(String.raw`\b(\d{1,2})\s+de\s+(${MONTH_RE})(?:\s+de\s+(\d{4}))?\b`, 'i'),
+    re: new RegExp(String.raw`\b(?:dia\s+)?(\d{1,2})\s+de\s+(${MONTH_RE})(?:\s+de\s+(\d{4}))?\b`, 'i'),
     build: (m, t) => {
       const day = Number(m[1])
       const mon = monthIndex(m[2])

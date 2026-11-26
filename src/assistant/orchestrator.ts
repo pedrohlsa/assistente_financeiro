@@ -65,7 +65,7 @@ import { addDays, fmtBRL, fmtHours, fmtNum, MESES_PT_BR, nowPaymentTime, nowTime
 import { matchRecurringPayment, occurrencesBetween, possibleRecurringTransactions, recurringActiveOn, recurringLinkAction } from '../services/calc'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { normalizeNumberWords } from './numbers'
-import { brDate, dateInAnswer, dateLabel, findAllDates, findDate, previousYearOf, readNightShiftRange, resolveDayInWindow } from './dates'
+import { brDate, dateInAnswer, dateLabel, findAllDates, findDate, normalizeSpokenCalendarDays, previousYearOf, readNightShiftRange, resolveDayInWindow } from './dates'
 import { applyPreferenceAliases, parsePreferenceCommand } from './preferences'
 import type { PreferenceMutation } from './preferences'
 
@@ -2900,6 +2900,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     return { draft: input.draft || null, keepPending: true, focus: input.focus,
       response: clarification ? { ...response, mode: 'clarify', clarification } : { ...response, mode: 'answer' } }
   }
+  const withCalendarDays = normalizeSpokenCalendarDays(input.message)
+  if (withCalendarDays !== input.message) input = { ...input, message: withCalendarDays }
   const numericClarification = await prepareUnsafeMoney(input, today)
   if (numericClarification) return numericClarification
   if (!input.pendingClarification && !input.draft && isFocusFresh(input.focus) && input.focus?.last === 'query') {

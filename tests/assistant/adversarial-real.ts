@@ -104,6 +104,42 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const today = '2026-11-25'
+    const cases = [
+      ['ganhei 250 na uber no dia vinte e quatro e cento e cinquenta e cinquenta centavos na 99 no dia vinte e cinco', [['income', 250, '2026-11-24', 'Uber'], ['income', 150.5, today, '99']]],
+      ['ganhei cento e vinte na Uber no dia vinte e quatro e noventa na 99 no dia vinte e cinco', [['income', 120, '2026-11-24', 'Uber'], ['income', 90, today, '99']]],
+      ['no dia vinte e quatro ganhei duzentos e cinquenta na Uber e no dia vinte e cinco ganhei cento e quarenta na 99', [['income', 250, '2026-11-24', 'Uber'], ['income', 140, today, '99']]],
+      ['dia vinte e três 200 da Uber e dia vinte e quatro 130 da 99', [['income', 200, '2026-11-23', 'Uber'], ['income', 130, '2026-11-24', '99']]],
+      ['ante ontem ganhei 195 na Uber e hoje cento e vinte na 99', [['income', 195, '2026-11-23', 'Uber'], ['income', 120, today, '99']]],
+      ['antes de ontem recebi duzentos na Uber e hoje setenta na 99', [['income', 200, '2026-11-23', 'Uber'], ['income', 70, today, '99']]],
+      ['ante-ontem fiz 230 na uber e hoje 120 na 99', [['income', 230, '2026-11-23', 'Uber'], ['income', 120, today, '99']]],
+      ['paguei 80 de gasolina no último dia do mês passado', [['fuel', 80, '2026-10-31', '']]],
+      ['no último dia do mês passado recebi 220 na Uber', [['income', 220, '2026-10-31', 'Uber']]],
+      ['fiz trezentos no dia primeiro de novembro', [['income', 300, '2026-11-01', '']]],
+      ['ganhei duzentos e cinquenta em vinte e quatro de novembro', [['income', 250, '2026-11-24', '']]],
+      ['entrou oitenta dia quinze e noventa dia dezesseis na Uber', [['income', 80, '2026-11-15', ''], ['income', 90, '2026-11-16', 'Uber']]],
+    ] as const
+    for (const [i, [message, expected]] of cases.entries()) {
+      const state = i % 2 ? buildState({ profile: 'driver' }) : motoristaRico(today)
+      const snapshot = JSON.stringify(state)
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actual = response.actions.map(item => item.action).flatMap(a =>
+        a.kind === 'income' ? [[a.kind, a.amount, a.date, a.description || '']]
+          : a.kind === 'fuel' ? [[a.kind, a.amount, a.date, '']] : [])
+      out.push(result('XG-datas-ditadas-e-valores-' + i, { message, response }, expected,
+        response.mode === 'propose_actions' && response.actions.length === expected.length
+        && !response.unresolved.length && JSON.stringify(actual) === JSON.stringify(expected) && JSON.stringify(state) === snapshot))
+    }
+    const state = autonomoRico('2027-01-02')
+    const message = 'recebi duzentos e cinquenta do freela no último dia do mês passado'
+    const { response } = await orchestrate({ state, message, today: '2027-01-02', remoteEnabled: false })
+    const actions = response.actions.map(item => item.action)
+    out.push(result('XG-ultimo-dia-do-ano-anterior', { message, response }, 'R$250 de renda em 2026-12-31',
+      response.mode === 'propose_actions' && actions.length === 1 && actions[0]?.kind === 'income'
+      && actions[0].amount === 250 && actions[0].date === '2026-12-31'))
+  }
+
+  {
     const today = '2026-11-25', yesterday = '2026-11-24'
     const state = motoristaRico(today)
     const snapshot = JSON.stringify(state)

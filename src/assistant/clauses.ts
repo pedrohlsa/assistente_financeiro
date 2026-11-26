@@ -12,7 +12,7 @@ import { guessCategory } from '../data/categories'
 import { alternateBalances, cleanDescription, contagemDeItens, marcoDaRevisao, tanqueCheio, valorPorCorrida, abastecimentosRepetidos, totalComDoisPontos, partesDoDia, DECIMO_TERCEIRO, GIRIA_DE_COMBUSTIVEL, PAGO_NO_DEBITO, somaEscrita, vendaPorUnidade, voltaSemUnidade, DISTANCE_ON_FOOT, financedCardMentions, gruposDeCorrida, INCOME_PLATFORM_PREFIX, looksRecurring, parseNaturalFull, NEXT_RIDE_DISTANCE, RIDE_COMPARISON_REQUEST, RIDE_CONDITIONAL, RIDE_EVALUATION_REQUEST, RIDE_OFFER_NOTICE, UMA_CORRIDA_NOMEADA, UNIT_SALE_PENDING, withoutPaymentBalanceContext } from '../services/nlp'
 import { findAllDates, findDate, findUnresolvedTemporalHint, dateLabel } from './dates'
 import type { DateResolution } from './dates'
-import { normalizeNumberWords } from './numbers'
+import { findNumberWords, normalizeNumberWords } from './numbers'
 import { addDays, fmtBRL, MESES_PT_BR, nowTime, parseMoney, todayISO, toISO } from '../utils/format'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { suspicionReasons } from './semantic/confidence'
@@ -622,6 +622,27 @@ export function segment(text: string, today = todayISO()): { text: string; start
   }
   for (const m of text.matchAll(/\s+(?:agora\s+)?(?=(?:(?:meu|o)\s+)?saldo\s*(?:(?:atual|agora)\s*)?(?:[ée]|:)?\s*(?:r\$\s*)?(?:[-−]|menos\s+)?\s*\d)/gi)) {
     if (/\d/.test(text.slice(0, m.index))) push((m.index || 0) + m[0].length)
+  }
+  // Dois valores com datas calendáricas explícitas. Retire as datas antes
+  // de procurar dinheiro para que o número de um dia não conte como valor.
+  if (/\bdia\s+\d[^.!?]*\bdia\s+\d/i.test(text)) {
+    const spokenNumbers = findNumberWords(text)
+    const datedValue = (part: string) => {
+      const date = findDate(part, today)
+      if (!date || date.kind !== 'date') return false
+      const withoutDate = part.slice(0, date.start) + ' ' + part.slice(date.end)
+      return /\d/.test(normalizeNumberWords(withoutDate).text)
+    }
+    for (const join of text.matchAll(/(?:(?<!\d),\s*(?:e\s+)?|,\s+(?:e\s+)?|;\s*(?:e\s+)?|\s+e\s+)(?=\S)/gi)) {
+      const end = join.index + join[0].length
+      if (spokenNumbers.some(number => end > number.start && end < number.end)) continue
+      const start = Math.max(...[...cuts].filter(cut => cut <= join.index))
+      const left = text.slice(start, join.index)
+      const right = text.slice(end).split(/[.!?;]\s+/)[0]
+      if (!looksPast(left) && !/^\s*(?:(?:no|em)\s+)?dia\s+\d/i.test(left)) continue
+      if (/\b(?:n[ãa]o|nem|se|talvez|ou)\b|\?/i.test(left + ' ' + right)) continue
+      if (datedValue(left) && datedValue(right)) push(end)
+    }
   }
   // Ditado sem pontuação: "fiz 20 reais gastei 40 ... furando o pneu foi
   // mais 30" contém fatos separados mesmo sem "e". Sem estes cortes o parser
@@ -1423,7 +1444,7 @@ const INVOICE_CONTEXT = /\b(?:faturas?|cart[aã]o|cr[eé]dito|parcelas?|juros|ta
 const PAID_INSTALLMENT_COUNT = /^(?:(?:eu|hoje|hj|ontem|anteontem|j[áa])\s+){0,4}(?:paguei|quitei)\s+(?:\d+|a\s+primeira|a\s+segunda|a\s+terceira)\s+(?:de|das)\s+\d+\s+parcelas?\b/i
 const PAID_FIRST_INSTALLMENT = /^(?:j[áa]\s+)?paguei\s+(?:a\s+primeira(?:\s+parcela)?|(?:as\s+)?\d+(?:\s+parcelas?)?)[.!]*$/i
 
-function unaccountedMoney(clause: AnalyzedClause): number[] {
+function unaccountedMoney(clause: AnalyzedClause, today: string): number[] {
   if (clause.ambiguity || clause.temporal || clause.intention || clause.intent === 'question'
     || clause.intent === 'conversation' || clause.intent === 'correction'
     || /\bse\s+eu\b|\b(?:supondo|imagina)\b|%/.test(clause.text)) return []
@@ -1457,10 +1478,12 @@ function unaccountedMoney(clause: AnalyzedClause): number[] {
   // produto registrado (R$ 120,00 e R$ 25,00); não são valores soltos.
   const grupos = gruposDeCorrida(normalized).filter(g => represented.some(v => Math.abs(v - g.n * g.v) < 0.005))
   const origins = extractOrigins(normalized)
+  const dates = clause.date ? findAllDates(normalized, today) : []
   const missing: number[] = []
   for (const m of normalized.matchAll(/(?<![\d.,])(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?![\d.,])/g)) {
     const at = m.index || 0
-    if (grupos.some(g => at >= g.start && at < g.end) || origins.some(o => at >= o.at && at < o.end)) continue
+    if (grupos.some(g => at >= g.start && at < g.end) || origins.some(o => at >= o.at && at < o.end)
+      || dates.some(date => at >= date.start && at < date.end)) continue
     const before = normalized.slice(Math.max(0, at - 24), at)
     const after = normalized.slice(at + m[0].length, at + m[0].length + 24)
     // "Na 99", "pela 99": é a plataforma, não R$ 99,00.
@@ -2407,7 +2430,7 @@ export function analyzeMessage(
     // correção seguinte; perguntar "o que aconteceu com os R$ 120" é ruído.
     // O marcador é o MESMO da correção intramensagem, não uma lista à parte.
     if (clauses[i + 1] && (clauses[i + 1].intent === 'correction' || CORRECTION_START.test(clauses[i + 1].text))) continue
-    const missing = unaccountedMoney(c)
+    const missing = unaccountedMoney(c, today)
     if (!missing.length) continue
     const values = missing.map(v => `R$ ${v.toFixed(2).replace('.', ',')}`).join(', ')
     c.ambiguity = { question: `Você mencionou ${values} nesta parte, mas não consegui ligar esse valor a uma ação. O que aconteceu com ele?`, options: [] }
