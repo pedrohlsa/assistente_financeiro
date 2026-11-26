@@ -28,7 +28,7 @@ import { compareRideApps, PEDE_MINIMO_POR_KM, rideAppFollowUp } from './driverIn
 import { buildRemoteConversation } from './conversation/remoteContext'
 import type { RemoteConversationContext, RemoteTurnRelation } from './conversation/remoteContext'
 import { buildTurnPlan, hasBlock } from './semantic/turn'
-import { parseDriverDay, readShiftWithAppHours, reportedWorkMinutes } from './semantic/driverDay'
+import { matchesWorkTotal, readDatedWorkMeasures, parseDriverDay, readShiftWithAppHours, reportedWorkMinutes } from './semantic/driverDay'
 import { readRoadReport } from './semantic/roadReport'
 import { formatValue } from './query/answer'
 import type { FactUnit } from './query/types'
@@ -3011,6 +3011,13 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
       if (datedShiftWork) return datedShiftWork
       const nightShift = await prepareNightShift(input, caps, today)
       if (nightShift) return nightShift
+      const measures = readDatedWorkMeasures(input.message, today)
+      if (measures?.kind === 'days') return proposeDatedActions(input, measures.actions, caps, today)
+      if (measures?.kind === 'total') {
+        const { from, to } = measures.window
+        const question = `${describeAction(measures.measure)} entre ${brDate(from)} e ${brDate(to)}. Quanto foi em cada dia?`
+        return keepPendingClarification(input, { field: 'work-day-split', question, dateWindow: measures.window, pendingActions: [measures.measure] })
+      }
       const roadReport = prepareRoadReport(input, caps, today)
       if (roadReport) return roadReport
       const datedFuel = prepareRideReceiptAndDatedFuel(input, caps, today)
@@ -3139,6 +3146,24 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (!pc && !input.pending?.length && input.focus?.lastRideOffer && isFocusFresh(input.focus)) {
     const revista = reviseRideOffer(input.state, input.focus.lastRideOffer, input.message)
     if (revista) return rideOfferReply(input, revista)
+  }
+  if (pc?.field === 'work-day-split' && pc.dateWindow) {
+    const said = normalizeName(input.message).trim().replace(/[.!]+$/, '')
+    if (/^(?:cancela(?:r)?|esquece|deixa pra la)$/.test(said)) return {
+      draft: null, keepPending: true, focus: input.focus,
+      response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
+        reply: 'Deixei a jornada em aberto.' },
+    }
+    const measures = readDatedWorkMeasures(input.message, today)
+    const total = pc.pendingActions?.[0]
+    const { from, to } = pc.dateWindow
+    if (measures?.kind === 'days' && total?.kind === 'work' && measures.actions.every(a => a.date >= from && a.date <= to)
+      && matchesWorkTotal(total, measures.actions)) return proposeDatedActions(input, measures.actions, caps, today)
+    const query = looksLikeDataQuestion(input.message) ? respostaLocal(input.state, input.message, today, true) : undefined
+    if (query) return { ...keepPendingClarification(input, pc, query.text + '\n\n' + pc.question), focus: query.focus || input.focus }
+    const corrected = await correctPendingKeepingClarification(input, command, pc, caps, today)
+    return corrected || keepPendingClarification(input, pc, measures?.kind === 'days'
+      ? 'A divisão por dia ainda não bate com o total informado. ' + pc.question : undefined)
   }
   if (pc?.field === 'work-duration' && pc.pendingActions?.length) {
     const said = normalizeNumberWords(input.message).text.trim()

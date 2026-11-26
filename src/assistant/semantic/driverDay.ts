@@ -23,7 +23,7 @@
 import type { ParsedAction } from '../../models/types'
 import { parseMoney } from '../../utils/format'
 import { normalizeName } from '../../utils/text'
-import { normalizeNumberWords } from '../numbers'
+import { normalizeNumberWords, wordsToNumber } from '../numbers'
 import { findAllDates } from '../dates'
 import { COMPOUND_DURATION, elapsedMinutes } from './clock'
 import { parseTypedPairs } from './pairs'
@@ -115,6 +115,99 @@ export function reportedWorkMinutes(text: string): number | undefined {
   const simple = duration.match(/^(\d+(?:[.,]\d+)?)\s*(?:h|hrs?|horas?)$/i)
   const minutes = simple ? Math.round(Number(simple[1].replace(',', '.')) * 60) : elapsedMinutes(duration)
   return minutes > 0 && minutes <= 1440 ? minutes : undefined
+}
+
+type WorkMeasures = Pick<Extract<ParsedAction, { kind: 'work' }>, 'hours' | 'km' | 'trips'>
+const WORK_MEASURE_FIELDS = ['hours', 'km', 'trips'] as const
+const WORK_MEASURE = new RegExp(
+  String.raw`^(?:(?<duration>${REPORTED_DURATION})|(?<amount>\d+(?:[.,]\d+)?)(?:\s*(?:(?<km>km|quilometros?)|(?<trips>corridas?|viagens?)))?)(?![\p{L}\p{M}\d]|[.,]\d)`,
+  'iu',
+)
+const WORK_MEASURE_CONTEXT = /^(?:(?:eu|e|com|rodei|trabalhei|dirigi|andei|percorri|fiz|fechei|completei|realizei|foram|deu|deram|por|durante)\s+)+/i
+const WORK_MEASURE_WORD = /(?:\d\s*km\b|\d\s*h(?:\b|\d)|\b(?:horas?|quilometros?|km|corridas?|viagens?)\b)/i
+
+function readWorkMeasures(text: string, previous: WorkMeasures = {}): WorkMeasures | undefined {
+  const raw = normalizeName(text).replace(/\s+(?:no\s+volante|dirigindo|de\s+trabalho|no\s+total)$/, '').trim()
+  let remaining = normalizeNumberWords(raw).text.trim().replace(/^[\s,;]+|[\s,.!;]+$/g, '')
+  const measures: WorkMeasures = {}
+  let bare: number | undefined
+  while (remaining) {
+    remaining = remaining.replace(WORK_MEASURE_CONTEXT, '')
+    const found = remaining.match(WORK_MEASURE)
+    const groups = found?.groups
+    if (!groups) {
+      // "e duas hoje" deixa de ter unidade antes da normalização de números.
+      const spoken = wordsToNumber(remaining.split(/\s+/))
+      if (bare !== undefined || !(spoken > 0)) return undefined
+      bare = spoken
+      break
+    }
+    const field = groups.duration ? 'hours' : groups.km ? 'km' : groups.trips ? 'trips' : undefined
+    const value = groups.duration ? reportedWorkMinutes(groups.duration) / 60 : parseMoney(groups.amount)
+    if (!(value > 0) || (field === 'trips' && !Number.isInteger(value))) return undefined
+    if (field) {
+      if (measures[field] !== undefined) return undefined
+      measures[field] = value
+    } else {
+      if (bare !== undefined) return undefined
+      bare = value
+    }
+    remaining = remaining.slice(found[0].length).trim().replace(/^[,;]\s*/, '')
+  }
+  if (bare !== undefined) {
+    const implied = WORK_MEASURE_FIELDS.filter(field => previous[field] !== undefined && measures[field] === undefined)
+    if (implied.length !== 1 || (implied[0] === 'trips' && !Number.isInteger(bare))) return undefined
+    measures[implied[0]] = bare
+  }
+  return WORK_MEASURE_FIELDS.some(field => measures[field] !== undefined) ? measures : undefined
+}
+
+type DatedWorkMeasures =
+  | { kind: 'days'; actions: Extract<ParsedAction, { kind: 'work' }>[] }
+  | { kind: 'total'; window: { from: string; to: string }; measure: Extract<ParsedAction, { kind: 'work' }> }
+
+/** Relatos que dizem as medidas da jornada em dois ou mais dias. */
+export function readDatedWorkMeasures(message: string, today: string): DatedWorkMeasures | undefined {
+  const text = normalizeName(message).trim().replace(/[.!]+$/, '')
+  if (!WORK_MEASURE_WORD.test(text) || /\?|\b(?:nao|nunca|nem|ou|se|talvez|amanha|vou|pretendo)\b/i.test(text)) return undefined
+  const resolved = findAllDates(text, today)
+  const dates = resolved.filter((date): date is Extract<typeof date, { kind: 'date' }> => date.kind === 'date')
+  if (dates.length < 2 || dates.length !== resolved.length || dates.length !== new Set(dates.map(date => date.date)).size) return undefined
+  const [first, second] = dates
+  const before = text.slice(0, first.start)
+  const between = text.slice(first.end, second.start)
+  if (dates.length === 2 && /\bentre\s*$/.test(before) && /^\s+e\s+$/.test(between)) {
+    const total = readWorkMeasures(before.replace(/\bentre\s*$/, '') + ' ' + text.slice(second.end))
+    if (!total) return undefined
+    const [from, to] = [first.date, second.date].sort()
+    return { kind: 'total', window: { from, to }, measure: { kind: 'work', ...total } }
+  }
+
+  const separators = [...text.matchAll(/(?:[;,]\s*|(?<!\d)\.\s*|\.\s+)(?:e\s+)?|\s+e\s+/gi)]
+  const actions: Extract<ParsedAction, { kind: 'work' }>[] = []
+  let start = 0
+  for (const [index, date] of dates.entries()) {
+    const next = dates[index + 1]
+    const ends = next ? separators.filter(m => m.index >= date.end && m.index + m[0].length <= next.start).reverse() : []
+    const head = text.slice(start, date.start).replace(/(?:^|\s+)(?:de|em|no|na|nest[ae]|ness[ae])\s*$/, '')
+    const read = (end: number) => readWorkMeasures(head + ' ' + text.slice(date.end, end), actions[index - 1])
+    const boundary = next ? ends.find(m => read(m.index)) : undefined
+    const measures = next ? boundary && read(boundary.index) : read(text.length)
+    if (!measures) return undefined
+    actions.push({ kind: 'work', ...measures, date: date.date })
+    if (boundary) start = boundary.index + boundary[0].length
+  }
+  return { kind: 'days', actions }
+}
+
+export function matchesWorkTotal(total: WorkMeasures, days: WorkMeasures[]): boolean {
+  return WORK_MEASURE_FIELDS.every(field => {
+    const resolved = days.filter(day => day[field] !== undefined)
+    if (total[field] === undefined) return !resolved.length
+    const unit = field === 'hours' ? 60 : 100
+    const sum = resolved.reduce((amount, day) => amount + Math.round(day[field] * unit), 0)
+    return resolved.length === days.length && sum === Math.round(total[field] * unit)
+  })
 }
 
 export function readShiftWithAppHours(message: string, today: string) {

@@ -104,6 +104,60 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const today = '2026-11-25', yesterday = '2026-11-24', twoDays = '2026-11-23'
+    const state = motoristaRico(today)
+    const ask = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>, profile = state, day = today) =>
+      orchestrate({ state: profile, message, today: day, remoteEnabled: false,
+        pending: prior?.response.actions, pendingClarification: prior?.response.mode === 'clarify' ? prior.response.clarification : undefined,
+        draft: prior?.draft || undefined, focus: prior?.focus })
+    const work = (turn: Awaited<ReturnType<typeof orchestrate>>) => turn.response.actions.map(c => c.action)
+      .flatMap(a => a.kind === 'work' ? [[a.date, a.km || 0, a.trips || 0, Math.round((a.hours || 0) * 60)]] : [])
+    const cases = [
+      ['trabalhei ontem 1h e hoje 2h', [[yesterday, 0, 0, 60], [today, 0, 0, 120]]],
+      ['ontem rodei 170 km e hj 200 km', [[yesterday, 170, 0, 0], [today, 200, 0, 0]]],
+      ['fiz 12 corridas ontem e 9 hoje', [[yesterday, 0, 12, 0], [today, 0, 9, 0]]],
+      ['rodei três horas e vinte de ontem e duas horas de hoje', [[yesterday, 0, 0, 200], [today, 0, 0, 120]]],
+      ['130 km ontem e 90 km hoje', [[yesterday, 130, 0, 0], [today, 90, 0, 0]]],
+      ['foram cento e trinta quilômetros ontem e noventa e sete hoje', [[yesterday, 130, 0, 0], [today, 97, 0, 0]]],
+      ['fechei três horas e meia ontem e quatro hoje', [[yesterday, 0, 0, 210], [today, 0, 0, 240]]],
+      ['ontem 130km e anteontem 90', [[yesterday, 130, 0, 0], [twoDays, 90, 0, 0]]],
+      ['dirigi 95 km na terça e 160 na quarta passada', [[yesterday, 95, 0, 0], ['2026-11-18', 160, 0, 0]]],
+      ['deu 8 viagens ontem e 12 hj', [[yesterday, 0, 8, 0], [today, 0, 12, 0]]],
+      ['hj 5 corridas com 20km e ontem 11 com 60km', [[today, 20, 5, 0], [yesterday, 60, 11, 0]]],
+      ['meia hora de ontem e três horas de hoje no volante', [[yesterday, 0, 0, 30], [today, 0, 0, 180]]],
+      ['ontem 6h; hj 2h; anteontem 4h', [[yesterday, 0, 0, 360], [today, 0, 0, 120], [twoDays, 0, 0, 240]]],
+      ['terça-feira passada 10 viagens e nesta segunda 12', [[yesterday, 0, 10, 0], [twoDays, 0, 12, 0]]],
+    ] as const
+    for (const [i, [message, expected]] of cases.entries()) {
+      const profile = i % 2 ? buildState({ profile: 'driver' }) : state
+      const snapshot = JSON.stringify(profile)
+      const turn = await ask(message, undefined, profile)
+      out.push(result('XI-medidas-por-dia-' + i, { message, response: turn.response }, expected,
+        turn.response.mode === 'propose_actions' && turn.response.actions.length === expected.length
+        && !turn.response.unresolved.length && JSON.stringify(work(turn)) === JSON.stringify(expected) && JSON.stringify(profile) === snapshot))
+    }
+    for (const [i, [message, wrong, answer, expected]] of ([
+      ['rodei 4 horas entre ontem e hoje', 'ontem 1h e hoje 2h', 'ontem 1h e hoje 3h', [[yesterday, 0, 0, 60], [today, 0, 0, 180]]],
+      ['entre ontem e hoje rodei 130 km no total', 'ontem 40 km e hoje 60 km', 'ontem 40 km e hoje 90 km', [[yesterday, 40, 0, 0], [today, 90, 0, 0]]],
+    ] as const).entries()) {
+      const first = await ask(message)
+      const second = await ask(wrong, first)
+      const third = await ask(answer, second)
+      out.push(result('XI-total-espera-distribuicao-' + i, { message, responses: [first.response, second.response, third.response] }, expected,
+        first.response.mode === 'clarify' && !first.response.actions.length && /cada dia/.test(first.response.reply)
+        && second.response.mode === 'clarify' && !second.response.actions.length
+        && third.response.mode === 'propose_actions' && third.response.actions.length === expected.length
+        && !third.response.unresolved.length && JSON.stringify(work(third)) === JSON.stringify(expected)))
+    }
+    const message = 'dirigi cinco horas ontem e duas hoje'
+    const turn = await ask(message, undefined, state, '2027-01-01')
+    const expected = [['2026-12-31', 0, 0, 300], ['2027-01-01', 0, 0, 120]]
+    out.push(result('XI-jornada-em-virada-de-ano', { message, response: turn.response }, expected,
+      turn.response.mode === 'propose_actions' && turn.response.actions.length === 2 && !turn.response.unresolved.length
+      && JSON.stringify(work(turn)) === JSON.stringify(expected)))
+  }
+
+  {
     const today = '2026-11-25', yesterday = addDays(today, -1)
     const cases = [
       ['ganhei 45 líquido na 99, a taxa já saiu 8', '99', 45, today],
