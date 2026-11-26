@@ -2133,7 +2133,10 @@ function parseClause(input: string): ParsedAction[] {
       ? (([...text.matchAll(new RegExp(String.raw`(?<![\d.,])${NUM}\s*(km|quil[oô]metros?)(?![\wÀ-ÿ/])(?!\s*(?:por|\/)\s*(?:l|litro)\b)`, 'gi'))]
         .find(x => parseNum(x[1]) > 0 && parseNum(x[1]) <= 1500)) || null) : null)
   const tripsM = text.match(new RegExp(String.raw`(?:fiz|realizei|completei)?\s*${NUM}\s*(?:viagens|corridas)`, 'i'))
-  const hoursM = text.match(new RegExp(String.raw`\b(?:trabalhei|fiquei|rodei(?:\s+por)?)\s*${NUM}\s*(?:horas?|hrs?|h)\b`, 'i'))
+  // "Rodei UMAS 10 horas", "fechei 8h DE VOLANTE": a aproximação e o fechamento
+  // do turno também dizem a jornada. Sem eles, as horas sumiam da proposta.
+  const hoursM = text.match(new RegExp(String.raw`\b(?:trabalhei|fiquei|rodei(?:\s+por)?)\s*(?:(?:tipo\s+)?(?:umas|uns|quase|cerca\s+de|mais\s+ou\s+menos)\s+)?${NUM}\s*(?:horas?|hrs?|h)\b`, 'i'))
+    || text.match(new RegExp(String.raw`\b(?:fechei|completei|fiz)\s+(?:(?:umas|uns|quase)\s+)?${NUM}\s*(?:horas?|hrs?|h)\s+(?:de|n[oa])\s+(?:volante|rua|trabalho|corrida)\b`, 'i'))
     // "Rodei 150 km E 8 HORAS", "fiz 5 corridas E 3 HORAS": a jornada depois.
     || (/\b(?:rodei|trabalhei)\b|\b\d+\s+(?:corridas|viagens)\b/i.test(text) ? text.match(new RegExp(String.raw`\be\s+${NUM}\s*(?:horas?|hrs?|h)\b`, 'i')) : null)
     // Ditado telegráfico com a quantidade de corridas: "fiz 18 corridas 420

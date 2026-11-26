@@ -7703,3 +7703,9 @@ A rubrica foi conferida resposta por resposta contra a rodada anterior, sem nenh
 - "Quanto fica meu dia se eu confirmar?" mostra o resultado de hoje com a proposta. Antes, mostrava o gasto do mês.
 - Ficou como está: "comecei às 6h" seguido, horas depois, de "parei às 17h" ainda pede os dois horários. O foco da conversa expira em minutos.
 
+### Ditado mais difícil (`YK`)
+
+- "Hoje eu rodei tipo umas dez horas né fiz trezentos e oitenta na uber e aí gastei cem de gasolina" grava as 10 horas junto com a receita e o abastecimento. Antes, as horas sumiam. "Xei 8 h de volante e fiz duzentos e noventa" e "fechei 8h de volante" também guardam as horas.
+- "Gastei uns trinta e poucos de lanche" pergunta o valor exato. Antes, gravava R$ 30 com a descrição "Poucos de lanche".
+- "Fiz trezentos ontem anteontem duzentos e oitenta", ditado sem pontuação, grava os dois dias. Antes, o segundo virava pergunta.
+

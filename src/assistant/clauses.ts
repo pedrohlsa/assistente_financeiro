@@ -761,6 +761,13 @@ export function segment(text: string, today = todayISO()): { text: string; start
   for (const m of text.matchAll(/[,;]?\s+e\s+(?=(?:hoje|hj|ontem|anteontem|(?:depois\s+de\s+)?amanh[ãa])(?=\s|$))/gi)) {
     if (temValorDepois((m.index || 0) + m[0].length)) push((m.index || 0) + m[0].length)
   }
+  // Ditado sem pontuação: "fiz 300 ONTEM ANTEONTEM 280". Um dia colado no outro,
+  // com valor antes e depois, são dois relatos — o segundo valor sumia.
+  for (const m of text.matchAll(/(?<![\p{L}\d])(?:hoje|hj|ontem|anteontem)\s+(?=(?:hoje|hj|ontem|anteontem)(?![\p{L}\d]))/giu)) {
+    const after = (m.index || 0) + m[0].length
+    const antes = text.slice(0, m.index)
+    if ((/\d/.test(antes) || findNumberWords(antes).some(w => w.value >= 3)) && temValorDepois(after)) push(after)
+  }
   // "...anteontem E 1750 da casa 2 NO DIA SEGUINTE": a segunda metade tem data
   // própria, relativa à primeira. Sem o corte, as duas ficavam com a mesma.
   for (const m of text.matchAll(/(?:[,;]\s*(?:e\s+)?|\s+e\s+)/gi)) {
@@ -1244,7 +1251,8 @@ function incompleteAmount(text: string, driver: boolean | undefined, date?: stri
   const tail = /(?<![\w.,])(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+reais?)?\s+e\s+(?:poucos?|alguns\s+(?:quebrados|trocados|centavos)|uns\s+(?:quebrados|trocados|(?:\d+\s+)?centavos))\b/i
   const bound = /\b(?:quase|mais\s+de|menos\s+de|pelo\s+menos|no\s+m[áa]ximo)\s+(?:r\$\s*)?\d+(?:[.,]\d+)*(?![\d.,])/i
   const match = text.match(tail) || text.match(bound)
-  if (!match || !new RegExp(String.raw`\b(?:${PAST_MONEY_VERBS})\s*$`, 'i').test(text.slice(0, match.index))) return undefined
+  // "Gastei UNS trinta e poucos": a aproximação pode vir entre o verbo e o valor.
+  if (!match || !new RegExp(String.raw`\b(?:${PAST_MONEY_VERBS})\s*(?:(?:uns|umas|tipo|algo\s+como)\s+)*$`, 'i').test(text.slice(0, match.index))) return undefined
   const suffix = text.slice(match.index + match[0].length)
   if (/^\s+(?:km|quil[oô]metros?|parcelas?|vezes|litros?|horas?|dias?|viagens?|corridas?)\b/i.test(suffix)) return undefined
   const placeholder = parseFirstAmount(match[0])

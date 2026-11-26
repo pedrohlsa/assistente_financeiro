@@ -13833,6 +13833,37 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YK — ditado mais difícil: horas aproximadas, "de volante", "e poucos" e dois dias sem pontuação.
+  {
+    const today = '2026-11-25', yesterday = '2026-11-24', before = '2026-11-23'
+    const state = motoristaRico(today)
+    for (const [i, [message, expected]] of ([
+      // As horas sumiam da proposta.
+      ['então é... hoje eu rodei tipo umas dez horas né fiz trezentos e oitenta na uber e aí gastei cem de gasolina', [['work', 10, today], ['income', 380, today], ['fuel', 100, today]]],
+      ['xei 8 h de volante e fiz duzentos e noventa', [['work', 8, ''], ['income', 290, '']]],
+      ['fechei 8h de volante e fiz 290', [['work', 8, ''], ['income', 290, '']]],
+      // O segundo dia, sem pontuação no ditado, virava pergunta.
+      ['fiz trezentos ontem anteontem duzentos e oitenta', [['income', 300, yesterday], ['income', 280, before]]],
+      ['fiz 300 ontem anteontem 280', [['income', 300, yesterday], ['income', 280, before]]],
+    ] as const).entries()) {
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actual = (response.actions as any[]).map(c => [c.action.kind, c.action.kind === 'work' ? c.action.hours : c.action.amount, c.action.date || ''])
+      out.push(result('YK-ditado-dificil-' + i, { message, response }, expected,
+        response.mode === 'propose_actions' && JSON.stringify(actual) === JSON.stringify(expected)))
+    }
+    {
+      // A descrição saía "Poucos de lanche" com R$ 30 fixos.
+      const message = 'gastei uns trinta e poucos de lanche'
+      const first = await orchestrate({ state, message, today, remoteEnabled: false })
+      const second = await orchestrate({ state, message: '35', today, remoteEnabled: false,
+        pendingClarification: first.response.mode === 'clarify' ? first.response.clarification : undefined })
+      const act = (second.response.actions as any[])[0]?.action
+      out.push(result('YK-e-poucos', { first: first.response.reply, second: second.response }, 'pergunta o valor e grava Lanche',
+        first.response.mode === 'clarify' && !first.response.actions.length && act?.amount === 35 && act.description === 'Lanche'))
+    }
+  }
+
   return out
 }
 
