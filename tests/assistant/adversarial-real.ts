@@ -138,6 +138,8 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       ['o total de 1500 veio da casa 1 e 2, foi metade de cada', 750, 750, today],
       ['recebi 1500 das casas 1 e 2 ontem, metade de cada', 750, 750, yesterday],
       ['ontem a casa 2 pagou 700,50 e a casa 1 completou o restante de 1500,75', 800.25, 700.50, yesterday],
+      // "Da segunda" é a segunda casa: lida como segunda-feira, o recebimento ia inteiro para o dia 23.
+      ['caiu 1500 das casas 1 e 2, 800 foi da segunda', 700, 800, today],
     ] as const).entries()) {
       const turn = await ask(message)
       const expected = [['Casa 1', a, date], ['Casa 2', b, date]]

@@ -2315,7 +2315,10 @@ function listedHomes(text: string): string[] {
 }
 
 const RENT_AMOUNT = String.raw`(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+(?:reais?|contos?))?`
-const RENT_HOMES = String.raw`(?:casas\s+)?(?:(?:a|da)\s+)?(?:casa\s+)?\d{1,4}(?:(?:\s*,\s*|\s+(?:e|mais)\s+)(?:(?:a|da)\s+)?(?:casa\s+)?\d{1,4})+`
+// O número da casa termina ali: sem o "(?!\d)", ", 800 foi da primeira" virava a "Casa 80".
+// Depois de vírgula, número seguido de "foi" ou "reais" é valor, não casa.
+const RENT_HOME_ID = String.raw`\d{1,4}(?!\d)(?![.,]\d)(?!\s+(?:foi|reais?|contos?)\b)`
+const RENT_HOMES = String.raw`(?:casas\s+)?(?:(?:a|da)\s+)?(?:casa\s+)?${RENT_HOME_ID}(?:(?:\s*,\s*|\s+(?:e|mais)\s+)(?:(?:a|da)\s+)?(?:casa\s+)?${RENT_HOME_ID})+`
 const RENT_TOTAL_NOTE = String.raw`(?:\s*[,;]?\s*(?<note>foi\s+metade\s+de\s+cada|metade\s+de\s+cada|${RENT_AMOUNT}\s+foi\s+d[ao]\s+(?:primeir[ao]|segund[ao])|mas\s+nao\s+sei\s+qual\s+pagou\s+quanto))?`
 const RENT_SOURCE_FIRST = new RegExp(String.raw`^(?<homes>${RENT_HOMES})\s+(?:juntas?\s+)?(?:pagaram|(?:me\s+)?deram|caiu|cairam|entrou|entraram)\s+(?<total>${RENT_AMOUNT})(?:\s+no\s+total)?${RENT_TOTAL_NOTE}$`)
 const RENT_RECEIPT_FIRST = new RegExp(String.raw`^(?:(?:no\s+pix\s+)?(?:eu\s+)?(?:recebi|caiu|cairam|entrou|entraram)\s+(?<received>${RENT_AMOUNT})(?:\s+(?:no\s+total|de\s+alugue[li]s?))?\s+das?|(?:o\s+)?total\s+(?:de\s+)?(?<stated>${RENT_AMOUNT})\s+veio\s+das?)\s+(?:(?<homes>${RENT_HOMES})|(?<two>duas|2)\s+casas)${RENT_TOTAL_NOTE}$`)
@@ -2366,7 +2369,10 @@ async function prepareCombinedRent(input: OrchestratorInput, caps: AssistantCapa
   const literal = input.message.replace(/(\bcasa\s+\d{1,4})\s+(\p{L}+)/giu,
     (match, home: string, next: string) => NUMBER_WORD_RE.test(next) ? `${home}: ${next}` : match)
   const text = normalizeName(normalizeNumberWords(literal).text).replace(/[.!]+$/, '')
-  const dates = findAllDates(text, today)
+  // "800 foi da SEGUNDA" é a segunda casa, não segunda-feira. Mesmo comprimento,
+  // para as posições das datas continuarem valendo no texto original.
+  const ordinalsMasked = text.replace(/(foi\s+d[ao]\s+)(primeir[ao]|segund[ao])\b/g, (_m, lead: string, ord: string) => lead + '_'.repeat(ord.length))
+  const dates = findAllDates(ordinalsMasked, today)
   const [day] = dates
   const date = dates.length === 1 && day.kind === 'date' ? day.date : undefined
   const body = dates.reduceRight((current, d) => current.slice(0, d.start) + ' ' + current.slice(d.end), text)
@@ -2385,7 +2391,7 @@ async function prepareCombinedRent(input: OrchestratorInput, caps: AssistantCapa
     const remainder = body.match(RENT_REMAINDER)?.groups
     const stated = (body.match(RENT_SOURCE_FIRST) || body.match(RENT_RECEIPT_FIRST))?.groups
     if (!remainder && !stated) return undefined
-    const homes = remainder ? listedHomes(`Casa ${remainder.first} e Casa ${remainder.second}`) : listedHomes(stated.homes || '')
+    const homes = remainder ? listedHomes(`casa ${remainder.first} e casa ${remainder.second}`) : listedHomes(stated.homes || '')
     const count = homes.length || (stated?.two ? 2 : 0)
     const total = exactMoneyAnswer(remainder?.total || stated.total || stated.received || stated.stated)
     if (count < 2 || !(total > 0)) return undefined
