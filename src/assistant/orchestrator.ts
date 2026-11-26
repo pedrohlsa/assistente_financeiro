@@ -942,6 +942,42 @@ function partWithPeriod(text: string, today: string) {
   return { text, period, uncertain: period?.future === true }
 }
 
+const DUVIDA_DE_VALOR = /(?<![\d.,])(\d+(?:,\d{1,2})?)(?:\s+(?:reais|conto?s?))?([^\d?]{0,25}?)(\s*,?\s*(?:ou\s+(?:foi\s+|era\s+|seria\s+|talvez\s+|uns\s+)?|,\s*))(\d+(?:,\d{1,2})?)(?:\s+(?:reais|conto?s?))?(?![\d.,]|\s*(?:km|h|horas?|corridas?|viagens?|litros?|%|x)(?![\wÀ-ÿ]))/i
+const MARCA_DE_DUVIDA = /(?<![\wÀ-ÿ])(?:n[ãa]o\s+(?:lembro|sei)(?:\s+(?:direito|bem|ao\s+certo))?|por\s+a[íi]|acho(?:\s+que)?|sei\s+l[áa]|mais\s+ou\s+menos)(?![\wÀ-ÿ])|\?/i
+
+async function valorEmDuvida(input: OrchestratorInput, today: string): Promise<OrchestratorOutput | undefined> {
+  const text = normalizeNumberWords(input.message).text.trim()
+  if (!MARCA_DE_DUVIDA.test(text) || /\b(?:quanto|quanta|quantos|qual|quais|se\s+eu)\b/i.test(text)) return undefined
+  const m = text.match(DUVIDA_DE_VALOR)
+  if (!m || m.index === undefined) return undefined
+  const [, va, meio, conector, vb] = m
+  // A vírgula sozinha só conta como dúvida sem nada no meio e com "por aí",
+  // "acho" etc.: "uber 45, 99 30" é lista, não dúvida.
+  const comOu = /\bou\b/i.test(conector)
+  if (!comOu && (meio.trim() || !/por\s+a[íi]|acho|n[ãa]o\s+(?:lembro|sei)|sei\s+l[áa]|mais\s+ou\s+menos/i.test(text))) return undefined
+  // "Na uber ou na 99?" no meio é dúvida de plataforma, não de valor.
+  if (/\b(?:uber|99|indrive)\b/i.test(text.slice(m.index + m[0].length).split(/[,;.]/)[0]) && !comOu) return undefined
+  const [a, b] = [parseMoney(va), parseMoney(vb)]
+  if (!(a > 0) || !(b > 0) || a === b || Math.max(a, b) / Math.min(a, b) > 2) return undefined
+  const antes = text.slice(0, m.index)
+  const depois = text.slice(m.index + m[0].length)
+  const semDuvida = (valor: string) => (antes + valor + meio.replace(/,\s*$/, '') + depois)
+    .replace(MARCA_DE_DUVIDA, ' ').replace(/\s*\?\s*/g, ' ').replace(/(?:\s*[,;]\s*)+$/, '').replace(/\s+/g, ' ').trim()
+  const leituras = await Promise.all([va, vb].map(v => orchestrate({ ...input, message: semDuvida(v), pending: undefined, pendingClarification: undefined, draft: undefined })))
+  const acoes = leituras.map(r => r.response.mode === 'propose_actions' && !r.response.unresolved.length ? r.response.actions.map(c => c.action) : [])
+  if (!acoes[0].length || acoes[0].length !== acoes[1].length) return undefined
+  const valores = acoes.map(lista => lista.filter(x => 'amount' in x && (x as any).amount > 0).map(x => (x as any).amount))
+  if (!valores[0].includes(a) || !valores[1].includes(b)) return undefined
+  const question = `Foi ${fmtBRL(a)} ou ${fmtBRL(b)}? Escolha o valor certo antes de eu preparar o lançamento.`
+  return { draft: null, focus: input.focus, response: {
+    version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [], reply: question,
+    clarification: { field: 'exact-amount-choice', question, options: [
+      { value: String(a), label: fmtBRL(a), actions: acoes[0] },
+      { value: String(b), label: fmtBRL(b), actions: acoes[1] },
+    ] },
+  } }
+}
+
 function answerPairedHistory(state: AppState, question: string, today: string): { reply: string; focus?: ConversationFocus } | undefined {
   const clean = normalizeQuery(question).replace(/[.!?]+$/, '')
   if (/\bproposta\b/.test(clean)) return undefined
@@ -2991,6 +3027,14 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   }
   const preferredMessage = applyPreferenceAliases(input.state, input.message)
   if (preferredMessage !== input.message) input = { ...input, message: preferredMessage }
+  // "Fiz 300 ontem não, ANTEONTEM": a data se corrige no meio da frase. Lida
+  // inteira, valia a primeira. "⛽ 80" é combustível; os outros emojis só enfeitam.
+  const autoCorrigida = input.message
+    .replace(/(?<![\p{L}\d])(hoje|hj|ontem|anteontem)\s+n[ãa]o\s*,?\s+(?:foi\s+|era\s+)?(hoje|hj|ontem|anteontem)(?![\p{L}\d])/giu, '$2')
+    .replace(/(?<![\p{L}\d])(dia\s+\d{1,2})\s+n[ãa]o\s*,?\s+(?:foi\s+|era\s+)?(dia\s+\d{1,2})(?![\p{L}\d])/giu, '$2')
+    .replace(/⛽\uFE0F?/gu, ' gasolina ')
+    .replace(/[\p{Extended_Pictographic}\uFE0F\u200D]+/gu, ' ').replace(/\s{2,}/g, ' ').trim()
+  if (autoCorrigida && autoCorrigida !== input.message) input = { ...input, message: autoCorrigida }
   // "Na vdd foi na 99": sem expandir, a correção não era reconhecida e a
   // proposta ganhava a descrição "Vdd foi na 99".
   const semVdd = input.message.replace(/(?<![\p{L}\d])vdd(?![\p{L}\d])/giu, 'verdade')
@@ -3000,6 +3044,13 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     if (shorthand !== input.message) input = { ...input, message: shorthand }
   }
   const today = input.today || todayISO()
+  // "Fiz 300 na uber, ou foi 350? não lembro": dúvida entre dois valores. Lida
+  // como lista, os R$ 350 viravam uma DESPESA. O app pergunta qual foi, com a
+  // proposta pronta em cada opção.
+  if (!input.pending?.length && !input.pendingClarification) {
+    const duvida = await valorEmDuvida(input, today)
+    if (duvida) return duvida
+  }
   // "Gastei mais com gasolina ou manutenção?": pergunta de escolha entre dois
   // gastos, com ou sem "?". Lida pelos caminhos gerais, só um lado aparecia.
   if (!input.pendingClarification) {

@@ -1582,7 +1582,7 @@ function parseClause(input: string): ParsedAction[] {
   // isto a frase inteira caía no menu de ajuda.
   const fuelRe5 = new RegExp(String.raw`(?:coloquei|botei|gastei|paguei|abasteci)\s+(?:de\s+|com\s+)?${COMBUSTIVEL}\s*${APROX}(?:r\$)?\s*${NUM}(?!\d|[.,]\d|\s*(?:l|litros?|km)\b|\s*(?:o|por|cada|\/)\s*(?:litro|l)\b)`, 'i')
   // "Uber caiu 220, ETANOL 90": o item de combustível com valor, sem verbo.
-  const fuelRe6 = new RegExp(String.raw`(?:^|[,;]\s*|\s+e\s+)(?:de\s+)?${COMBUSTIVEL}\s+(?:r\$)?\s*${NUM}(?!\d|[.,]\d|\s*(?:l|litros?|km|%)\b|\s*(?:o|por|cada|\/)\s*(?:litro|l)\b)`, 'i')
+  const fuelRe6 = new RegExp(String.raw`(?:^|[,;]\s*|\s+e\s+|(?<=\b(?:uber|99|indrive)\s))(?:de\s+)?${COMBUSTIVEL}\s+(?:r\$)?\s*${NUM}(?!\d|[.,]\d|\s*(?:l|litros?|km|%)\b|\s*(?:o|por|cada|\/)\s*(?:litro|l)\b)`, 'i')
   const f = text.match(fuelRe) || text.match(fuelRe2) || (fuelRe3 && text.match(fuelRe3)) || text.match(fuelRe5) || text.match(fuelRe6)
     || (tanque ? Object.assign([tanque[0], tanque[1] ?? tanque[2]], { index: tanque.index }) as unknown as RegExpMatchArray : null)
   const litersM = text.match(new RegExp(String.raw`${NUM}\s*litros?`, 'i'))
@@ -1742,7 +1742,7 @@ function parseClause(input: string): ParsedAction[] {
       // conta — sem ele, "caiu 500 na conta hoje" não registrava nada.
       // "O passageiro ME DEU 10 de gorjeta", "a Uber me deu 50 de bônus": o
       // dinheiro veio para ele (regra 69). Caía na ajuda.
-      String.raw`(?:\b(?:ganhei|recebi|faturei|lucrei|entrou|caiu|cairam|pingou|fiz|me\s+(?:deu|deram|mandou|mandaram))\s*(?:mais\s+)?|\bmais\s+)(?:r\$)?\s*${NUM}\s*${MOEDA}?(?:\s+(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(${APP_DE_CORRIDA}|corrida(?:\s+privada)?)\b)?`,
+      String.raw`(?:\b(?:ganhei|recebi|faturei|lucrei|entrou|caiu|cairam|pingou|fiz|me\s+(?:deu|deram|mandou|mandaram))\s*(?:mais\s+)?(?:(?:uns|umas|uns\s+de|cerca\s+de|quase|aproximadamente|tipo)\s+)?|\bmais\s+)(?:r\$)?\s*${NUM}\s*${MOEDA}?(?:\s+(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(${APP_DE_CORRIDA}|corrida(?:\s+privada)?)\b)?`,
       'gi',
     )
     const prefixPlatform = text.match(INCOME_PLATFORM_PREFIX)

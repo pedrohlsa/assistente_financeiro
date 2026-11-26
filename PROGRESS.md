@@ -7685,3 +7685,12 @@ Os quatro lotes passaram por `npm test` (2.221 regressões), pelos dois typechec
 - "Recebi o décimo terceiro de 1600", "caiu o 13 de 1600" e "recebi a primeira parcela do 13 de 1600" viram salário com a descrição "13º salário". Antes, caíam no menu de ajuda.
 - "A casa 3 ainda não pagou" responde que o recebimento está pendente, sem registrar nada.
 
+### Segunda volta: dúvida de valor, data corrigida e emojis (`YI`)
+
+- "Fiz 300 na uber, ou foi 350? não lembro", "fiz uns 300, 350 por aí" e "gastei 80 ou 90 de gasolina acho" perguntam qual foi o valor, com a proposta pronta em cada opção. Antes, a primeira frase criava uma DESPESA de R$ 350. "Uber 45, 99 30" continua sendo lista.
+- "Fiz uns 300" virou receita aproximada (antes caía na ajuda).
+- "Fiz 300 na uber ontem não, anteontem" usa anteontem. "Dia 5 não, dia 6" segue a mesma regra.
+- "🚗 300 uber ⛽ 80": o ⛽ é combustível, e os outros emojis saem do texto.
+
+A rubrica foi conferida resposta por resposta contra a rodada anterior, sem nenhuma diferença.
+

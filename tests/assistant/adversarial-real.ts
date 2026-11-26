@@ -13746,6 +13746,42 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YI — dúvida entre dois valores, data corrigida no meio da frase e emojis.
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    const ask = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({ state, message, today, remoteEnabled: false,
+      pendingClarification: prior?.response.mode === 'clarify' ? prior.response.clarification : undefined })
+    for (const [i, [message, a, b, pick, kind]] of ([
+      // Os R$ 350 viravam uma DESPESA.
+      ['fiz 300 na uber, ou foi 350? não lembro', 300, 350, '350', 'income'],
+      ['fiz uns 300, 350 por aí', 300, 350, '300', 'income'],
+      ['gastei 80 ou 90 de gasolina acho', 80, 90, '90', 'fuel'],
+    ] as const).entries()) {
+      const first = await ask(message)
+      const second = await ask(pick, first)
+      const acts = (second.response.actions as any[]).map(c => c.action)
+      out.push(result('YI-duvida-de-valor-' + i, { message, first: first.response, second: second.response }, `pergunta ${a} ou ${b}, e grava ${pick}`,
+        first.response.mode === 'clarify' && !first.response.actions.length && first.response.reply.includes(fmtBRL(a)) && first.response.reply.includes(fmtBRL(b))
+        && acts.length === 1 && acts[0].kind === kind && acts[0].amount === Number(pick)))
+    }
+    for (const [i, [message, expected]] of ([
+      // "Uns 300" caía no menu de ajuda.
+      ['fiz uns 300', [['income', 300, '']]],
+      // A data corrigida no meio da frase não valia.
+      ['fiz 300 na uber ontem não, anteontem', [['income', 300, '2026-11-23']]],
+      ['🚗 300 uber ⛽ 80', [['fuel', 80, ''], ['income', 300, '']]],
+      // Uma lista com vírgula continua sendo lista, não dúvida.
+      ['uber 45, 99 30', [['income', 45, ''], ['income', 30, '']]],
+    ] as const).entries()) {
+      const { response } = await ask(message)
+      const actual = (response.actions as any[]).map(c => [c.action.kind, c.action.amount, c.action.date || ''])
+      out.push(result('YI-borda-' + i, { message, response }, expected,
+        response.mode === 'propose_actions' && JSON.stringify(actual) === JSON.stringify(expected)))
+    }
+  }
+
   return out
 }
 
