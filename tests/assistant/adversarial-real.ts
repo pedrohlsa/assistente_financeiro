@@ -105,6 +105,50 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
 
   {
     const today = '2026-11-25', yesterday = '2026-11-24'
+    const state = autonomoRico(today)
+    const ask = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>, profile = state) =>
+      orchestrate({ state: profile, message, today, remoteEnabled: false,
+        pending: prior?.response.actions, pendingClarification: prior?.response.mode === 'clarify' ? prior.response.clarification : undefined,
+        draft: prior?.draft || undefined, focus: prior?.focus })
+    const rents = (turn: Awaited<ReturnType<typeof orchestrate>>) => turn.response.actions.map(c => c.action)
+      .flatMap(a => a.kind === 'income' && a.category === 'aluguel' ? [[a.origin, a.amount, a.date || today]] : [])
+    const undecided = [
+      ['Casa 1 e Casa 2 pagaram 1500 no total', 'Casa 1 700 e Casa 2 700', 'Casa 2 600 e Casa 1 900', 1500, today, 900, 600],
+      ['Casa 1 e Casa 2 juntas me deram mil e quinhentos ontem', 'Casa 1 750 e Casa 3 750', 'Casa 1: oitocentos; Casa 2: setecentos', 1500, yesterday, 800, 700],
+      ['casa 1 mais casa 2 caiu mil e quinhentos no total', 'Casa 1 1500', 'oitocentos da Casa 1 e setecentos da Casa 2', 1500, today, 800, 700],
+      ['no pix entrou 1800 das duas casas mas não sei qual pagou quanto', 'Casa 1 1800', 'Casa 1 1.000 e Casa 2 800', 1800, today, 1000, 800],
+      ['recebi 1500,01 das casas 1 e 2 ontem, metade de cada', 'metade de cada', 'Casa 1 750,01 e Casa 2 750', 1500.01, yesterday, 750.01, 750],
+    ] as const
+    for (const [i, [message, invalid, answer, total, date, a, b]] of undecided.entries()) {
+      const profile = i % 2 ? buildState({ profile: 'autonomo' }) : state
+      const snapshot = JSON.stringify(profile)
+      const first = await ask(message, undefined, profile)
+      const second = await ask(invalid, first, profile)
+      const third = await ask(answer, second, profile)
+      const expected = [['Casa 1', a, date], ['Casa 2', b, date]]
+      out.push(result('XK-recebimento-conjunto-espera-divisao-' + i, { message, responses: [first.response, second.response, third.response] }, { total, expected },
+        first.response.mode === 'clarify' && !first.response.actions.length && /cada casa/i.test(first.response.reply)
+        && second.response.mode === 'clarify' && !second.response.actions.length
+        && third.response.mode === 'propose_actions' && third.response.actions.length === 2 && !third.response.unresolved.length
+        && JSON.stringify(rents(third).sort()) === JSON.stringify(expected) && JSON.stringify(profile) === snapshot))
+    }
+    for (const [i, [message, a, b, date]] of ([
+      ['casa 1 pagou 800, casa 2 completou o resto dos 1500', 800, 700, today],
+      ['caiu 1500 no total da casa 1 e da casa 2, 800 foi da primeira', 800, 700, today],
+      ['o total de 1500 veio da casa 1 e 2, foi metade de cada', 750, 750, today],
+      ['recebi 1500 das casas 1 e 2 ontem, metade de cada', 750, 750, yesterday],
+      ['ontem a casa 2 pagou 700,50 e a casa 1 completou o restante de 1500,75', 800.25, 700.50, yesterday],
+    ] as const).entries()) {
+      const turn = await ask(message)
+      const expected = [['Casa 1', a, date], ['Casa 2', b, date]]
+      out.push(result('XK-recebimento-conjunto-com-divisao-' + i, { message, response: turn.response }, expected,
+        turn.response.mode === 'propose_actions' && turn.response.actions.length === 2 && !turn.response.unresolved.length
+        && JSON.stringify(rents(turn).sort()) === JSON.stringify(expected)))
+    }
+  }
+
+  {
+    const today = '2026-11-25', yesterday = '2026-11-24'
     const cases = [
       ['paguei 10,00 e não 100,00 de estacionamento ontem', [['expense', 10, 'estacionamento', yesterday]]],
       ['paguei dez reais e não cem no estacionamento ontem', [['expense', 10, 'estacionamento', yesterday]]],

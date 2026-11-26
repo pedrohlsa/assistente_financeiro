@@ -460,6 +460,8 @@ export interface AssistantClarification {
   /** Relato local à espera de um valor escrito sem ambiguidade. */
   moneyNotation?: { statement: string; token: string }
   workHoursEdit?: import('./editWorkHours').WorkHoursEdit
+  /** Recebimento conjunto à espera dos valores e das origens de cada aluguel. */
+  rentSplit?: { total: number; homes: string[]; count: number; date?: string }
   /** Valor ainda não recebido na jornada, à espera de separar por plataforma. */
   rideShiftUnpaid?: number
   /** Vínculo já descrito enquanto o repasse ainda aguarda a origem. */

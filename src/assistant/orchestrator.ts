@@ -64,7 +64,7 @@ import { catById, guessCategory, usableCategories } from '../data/categories'
 import { addDays, fmtBRL, fmtHours, fmtNum, MESES_PT_BR, nowPaymentTime, nowTime, parseMoney, todayISO, uid } from '../utils/format'
 import { matchRecurringPayment, occurrencesBetween, possibleRecurringTransactions, recurringActiveOn, recurringLinkAction } from '../services/calc'
 import { normalizeName, sentenceCase } from '../utils/text'
-import { normalizeNumberWords } from './numbers'
+import { normalizeNumberWords, NUMBER_WORD_RE } from './numbers'
 import { brDate, dateInAnswer, dateLabel, findAllDates, findDate, normalizeSpokenCalendarDays, previousYearOf, readNightShiftRange, resolveDayInWindow } from './dates'
 import { applyPreferenceAliases, parsePreferenceCommand } from './preferences'
 import type { PreferenceMutation } from './preferences'
@@ -2308,10 +2308,103 @@ function keepPendingClarification(input: OrchestratorInput, clarification: Assis
 }
 
 function listedHomes(text: string): string[] {
-  const names = text.trim().replace(/^casas\s+/i, '').split(/,\s*(?:e\s+)?|\s+e\s+/)
-    .map(item => item.match(/^(?:a\s+)?(?:casa\s+)?(\d{1,4})$/)?.[1])
+  const names = text.trim().replace(/^casas\s+/i, '').split(/,\s*(?:e\s+)?|\s+(?:e|mais)\s+/)
+    .map(item => item.match(/^(?:(?:da|a)\s+)?(?:casa\s+)?(\d{1,4})$/)?.[1])
   if (names.some(name => !name) || new Set(names).size !== names.length) return []
   return names.map(name => `Casa ${name}`)
+}
+
+const RENT_AMOUNT = String.raw`(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s+(?:reais?|contos?))?`
+const RENT_HOMES = String.raw`(?:casas\s+)?(?:(?:a|da)\s+)?(?:casa\s+)?\d{1,4}(?:(?:\s*,\s*|\s+(?:e|mais)\s+)(?:(?:a|da)\s+)?(?:casa\s+)?\d{1,4})+`
+const RENT_TOTAL_NOTE = String.raw`(?:\s*[,;]?\s*(?<note>foi\s+metade\s+de\s+cada|metade\s+de\s+cada|${RENT_AMOUNT}\s+foi\s+d[ao]\s+(?:primeir[ao]|segund[ao])|mas\s+nao\s+sei\s+qual\s+pagou\s+quanto))?`
+const RENT_SOURCE_FIRST = new RegExp(String.raw`^(?<homes>${RENT_HOMES})\s+(?:juntas?\s+)?(?:pagaram|(?:me\s+)?deram|caiu|cairam|entrou|entraram)\s+(?<total>${RENT_AMOUNT})(?:\s+no\s+total)?${RENT_TOTAL_NOTE}$`)
+const RENT_RECEIPT_FIRST = new RegExp(String.raw`^(?:(?:no\s+pix\s+)?(?:eu\s+)?(?:recebi|caiu|cairam|entrou|entraram)\s+(?<received>${RENT_AMOUNT})(?:\s+(?:no\s+total|de\s+alugue[li]s?))?\s+das?|(?:o\s+)?total\s+(?:de\s+)?(?<stated>${RENT_AMOUNT})\s+veio\s+das?)\s+(?:(?<homes>${RENT_HOMES})|(?<two>duas|2)\s+casas)${RENT_TOTAL_NOTE}$`)
+const RENT_REMAINDER = new RegExp(String.raw`^(?:a\s+)?casa\s+(?<first>\d{1,4})\s+(?:me\s+)?pagou\s+(?<value>${RENT_AMOUNT})(?:\s*[,;]\s*(?:e\s+)?|\s+e\s+)(?:a\s+)?casa\s+(?<second>\d{1,4})\s+completou\s+o\s+(?:resto|restante)\s+d[eo]s?\s+(?<total>${RENT_AMOUNT})$`)
+const RENT_SPLIT_ITEM = new RegExp(String.raw`^(?:(?:a\s+)?casa\s+(?<house>\d{1,4})\s*:?\s*(?:pagou\s+)?(?<amount>${RENT_AMOUNT})|(?<paid>${RENT_AMOUNT})\s+d[ae]\s+casa\s+(?<payer>\d{1,4}))$`)
+const RENT_ORDINAL = new RegExp(String.raw`^(?<amount>${RENT_AMOUNT})\s+foi\s+d[ao]\s+(?<ordinal>primeir[ao]|segund[ao])$`)
+
+function readRentSplitAmounts(note: string, context: AssistantClarification['rentSplit']): Map<string, number> | undefined {
+  const { total, homes, count } = context
+  const cents = Math.round(total * 100)
+  if (/^(?:foi\s+)?metade\s+de\s+cada$/.test(note) && homes.length === 2 && cents % 2 === 0) {
+    return new Map(homes.map(home => [home, cents / 200]))
+  }
+  const ordinal = note.match(RENT_ORDINAL)?.groups
+  if (ordinal && homes.length === 2) {
+    const share = exactMoneyAnswer(ordinal.amount)
+    if (share > 0 && share < total) {
+      const first = ordinal.ordinal.startsWith('primeir') ? 0 : 1
+      return new Map([[homes[first], share], [homes[1 - first], (cents - Math.round(share * 100)) / 100]])
+    }
+    return undefined
+  }
+  const amounts = new Map<string, number>()
+  for (const part of note.split(/[,;](?!\d)\s*(?:e\s+)?|\s+e\s+/)) {
+    const item = part.trim().match(RENT_SPLIT_ITEM)?.groups
+    if (!item) return undefined
+    const name = `Casa ${item.house || item.payer}`
+    const amount = exactMoneyAnswer(item.amount || item.paid)
+    if (!(amount > 0) || amounts.has(name) || (homes.length && !homes.includes(name))) return undefined
+    amounts.set(name, amount)
+  }
+  const sum = Array.from(amounts.values()).reduce((n, amount) => n + Math.round(amount * 100), 0)
+  return amounts.size === count && sum === cents ? amounts : undefined
+}
+
+async function prepareCombinedRent(input: OrchestratorInput, caps: AssistantCapabilities, today: string): Promise<OrchestratorOutput | undefined> {
+  const previous = input.pendingClarification
+  const waiting = previous?.field === 'rent-split' && previous.rentSplit
+  if (!waiting && (previous || !/\bcasas?\b/i.test(input.message))) return undefined
+  if (waiting && /^(?:cancela(?:r)?|esquece|deixa pra la)[.!]*$/.test(normalizeName(input.message))) {
+    return { draft: null, keepPending: true, focus: input.focus, response: {
+      version: ASSISTANT_CONTRACT_VERSION, engine: 'local', mode: 'answer', actions: [], unresolved: [],
+      reply: 'Deixei esse recebimento em aberto.',
+    } }
+  }
+  if (looksNegated(input.message) || input.message.includes('?')) return undefined
+  // O número da casa é um identificador. Separe-o do valor escrito por extenso.
+  const literal = input.message.replace(/(\bcasa\s+\d{1,4})\s+(\p{L}+)/giu,
+    (match, home: string, next: string) => NUMBER_WORD_RE.test(next) ? `${home}: ${next}` : match)
+  const text = normalizeName(normalizeNumberWords(literal).text).replace(/[.!]+$/, '')
+  const dates = findAllDates(text, today)
+  const [day] = dates
+  const date = dates.length === 1 && day.kind === 'date' ? day.date : undefined
+  const body = dates.reduceRight((current, d) => current.slice(0, d.start) + ' ' + current.slice(d.end), text)
+    .trim().replace(/\s+([,;])/g, '$1').replace(/\s+/g, ' ')
+
+  let context = waiting || undefined
+  let amounts: Map<string, number> | undefined
+  if (context) {
+    amounts = readRentSplitAmounts(body, context)
+    if (!amounts) {
+      const corrected = await correctPendingKeepingClarification(input, input.message, previous, caps, today)
+      return corrected || keepPendingClarification(input, previous)
+    }
+    if (!context.date && date) context = { ...context, date }
+  } else {
+    const remainder = body.match(RENT_REMAINDER)?.groups
+    const stated = (body.match(RENT_SOURCE_FIRST) || body.match(RENT_RECEIPT_FIRST))?.groups
+    if (!remainder && !stated) return undefined
+    const homes = remainder ? listedHomes(`Casa ${remainder.first} e Casa ${remainder.second}`) : listedHomes(stated.homes || '')
+    const count = homes.length || (stated?.two ? 2 : 0)
+    const total = exactMoneyAnswer(remainder?.total || stated.total || stated.received || stated.stated)
+    if (count < 2 || !(total > 0)) return undefined
+    context = { total, homes, count, date: date || (dates.length ? undefined : today) }
+    if (remainder) amounts = readRentSplitAmounts(`${remainder.value} foi da primeira`, context)
+    if (stated?.note) amounts = readRentSplitAmounts(stated.note, context)
+  }
+  if (context.count + (input.pending?.length || 0) > MAX_ACTIONS_PER_BATCH) {
+    return keepPendingClarification(input, { question: `A proposta aceita até ${MAX_ACTIONS_PER_BATCH} itens. Informe as casas em grupos menores.` })
+  }
+  const homesLabel = context.homes.length ? context.homes.join(', ').replace(/, ([^,]+)$/, ' e $1') : 'os imóveis mencionados'
+  const question = `Quanto dos ${fmtBRL(context.total)} entrou de cada casa (${homesLabel})?`
+  const clarification = { field: 'rent-split', question, rentSplit: context }
+  if (!amounts) return keepPendingClarification(input, clarification)
+  const order = context.homes.length ? context.homes : Array.from(amounts.keys())
+  const actions: ParsedAction[] = order.map(origin => ({ kind: 'income', category: 'aluguel', origin, amount: amounts.get(origin), date: context.date }))
+  if (actions.some(action => isValidationFailure(validateAction(action, caps, today)))) return keepPendingClarification(input, clarification)
+  if (!context.date) return keepPendingClarification(input, { field: 'date', question: 'Em que dia esse pagamento entrou?', pendingActions: actions })
+  return proposeDatedActions(input, actions, caps, today)
 }
 
 /** Um valor por imóvel precisa de uma lista explícita, mesmo com imóveis no histórico. */
@@ -2964,6 +3057,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     if (partialPayment) return partialPayment
   }
   if (!input.draft) {
+    const combined = await prepareCombinedRent(input, caps, today)
+    if (combined) return combined
     const rents = prepareRepeatedRent(input, caps, today)
     if (rents) return rents
   }
