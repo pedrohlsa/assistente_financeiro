@@ -312,14 +312,14 @@ const DENIED_ITEM = /^\s*(?:(?:e|mas)\s+)?(?:(?:hoje|hj|ontem|anteontem)\s+)?(?:
 export const looksNegated = (t: string): boolean => NEGATED_STATEMENT.test(t) || DENIED_PLATFORM_PAYMENT.test(t) || DENIED_ITEM.test(t)
 
 const CONTRAST_VERB = 'paguei|gastei|comprei|recebi|ganhei|faturei|abasteci|saiu|entrou|caiu'
-const CONTRAST_TIME = String.raw`(?<lead>(?:(?:eu|hoje|hj|ontem|anteontem)\s+){0,3})`
+const CONTRAST_TIME = String.raw`(?<lead>(?:(?:eu|hoje|hj|ontem|ont|anteontem)\s+){0,3})`
 const CONTRAST_DETAIL = String.raw`(?:d[ao]|n[ao]|em|com|pel[ao])\s+(?:(?!(?:e|n[ãa]o|nem|ou|se)\s)\p{L}[\p{L}\p{M}-]*\s+){1,4}`
 const CONFIRMED_FIRST = new RegExp(
   String.raw`^${CONTRAST_TIME}(?<before>${CONTRAST_DETAIL})?(?<verb>${CONTRAST_VERB})\s+(?<after>${CONTRAST_DETAIL})?(?<actual>${CASH_PAIR_VALUE})[,;]?\s+(?:e\s+)?(?:n[ãa]o|n)\s+(?<denied>${CASH_PAIR_VALUE})(?=\s|[.!;,]|$)(?!\s*(?:km|h|horas?|viagens?|corridas?|litros?|parcelas?)\b)(?<tail>.*)$`,
   'iu',
 )
 const CONFIRMED_AFTER_DENIAL = new RegExp(
-  String.raw`^${CONTRAST_TIME}(?:n[ãa]o|n)\s+(?<verb>${CONTRAST_VERB})\s+(?:${CASH_PAIR_VALUE}|nada)(?:\s+[^\d,;.!?]+?)?[,;]?\s+(?:e\s+sim|s[óo]|apenas|somente)\s+(?<actual>${CASH_PAIR_VALUE})(?!\s*(?:km|h|horas?|viagens?|corridas?|litros?|parcelas?)\b)(?=\s|[.!;,]|$)(?<tail>.*)$`,
+  String.raw`^${CONTRAST_TIME}(?:n[ãa]o|n)\s+(?<verb>${CONTRAST_VERB})\s+(?:${CASH_PAIR_VALUE}|nada)(?<item>\s+[^\d,;.!?]+?)?[,;]?\s+(?:e\s+sim|s[óo]|apenas|somente|(?:na\s+verdade\s+)?(?:foi|foram|era|eram))\s+(?<actual>${CASH_PAIR_VALUE})(?!\s*(?:km|h|horas?|viagens?|corridas?|litros?|parcelas?)\b)(?=\s|[.!;,]|$)(?<tail>.*)$`,
   'iu',
 )
 
@@ -329,8 +329,10 @@ export function normalizeAmountContrast(message: string): string {
   const text = normalizeNumberWords(message).text.trim()
   const contrast = (text.match(CONFIRMED_FIRST) || text.match(CONFIRMED_AFTER_DENIAL))?.groups
   if (!contrast) return message
-  const { lead, verb, actual, before, after, tail, denied } = contrast
-  const place = (before || after || '').trim()
+  const { lead, verb, actual, before, after, tail, denied, item } = contrast
+  // "Não gastei 90 DE GÁS, foi 70,50": o item negado é o mesmo do valor certo.
+  const ownItem = /^\s+(?:reais\s+)?(?:d[aeo]|n[ao]|em|com)\s/i.test(tail)
+  const place = (before || after || (ownItem ? '' : item) || '').trim()
   if (place && /^\s+(?:d[aeo]|n[ao]|em|com|via)\s/i.test(tail)) return message
   const affirmative = !denied && /^saiu$/i.test(verb) ? 'gastei' : verb
   return [lead.trim(), affirmative, actual, place, tail.trim()].filter(Boolean).join(' ')

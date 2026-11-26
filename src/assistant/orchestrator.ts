@@ -3052,9 +3052,22 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     .replace(/⛽\uFE0F?/gu, ' gasolina ')
     .replace(/[\p{Extended_Pictographic}\uFE0F\u200D]+/gu, ' ').replace(/\s{2,}/g, ' ').trim()
   if (autoCorrigida && autoCorrigida !== input.message) input = { ...input, message: autoCorrigida }
+  // "O que entrou na conta ontem ou nada?", "caiu algo ontem?": a pergunta é o
+  // dinheiro que entrou no período. Respondia contas a vencer ou a ajuda.
+  const oQueEntrou = input.message.trim().match(/^(?:e\s+)?(?:(?:o\s+)?que\s+(?:entrou|caiu|pingou)|(?:entrou|caiu|pingou)\s+(?:alguma\s+coisa|algo|algum\s+(?:dinheiro|pix|repasse)))(?:\s+(?:na|em)\s+(?:minha\s+)?conta)?\s+(.+?)(?:\s*,?\s*ou\s+(?:nada|n[ãa]o))?\s*\?*$/i)
+  if (oQueEntrou && !input.pendingClarification && parsePeriod(normalizeName(oQueEntrou[1]), input.today || todayISO())) {
+    const out = await orchestrate({ ...input, message: `quanto entrou ${oQueEntrou[1]}?` })
+    // "Entrou alguma coisa?", "...ou nada?": sim ou não primeiro (regra 57).
+    const simNao = !/^(?:e\s+)?(?:o\s+)?que\b/i.test(input.message.trim()) || /\bou\s+(?:nada|n[ãa]o)\b/i.test(input.message)
+    if (!simNao || out.response.mode !== 'answer') return out
+    const lead = /^N[ãa]o tenho nenhum lan[çc]amento/.test(out.response.reply) ? 'Não. ' : /R\$\s*[1-9]/.test(out.response.reply.split('\n')[0]) ? 'Sim. ' : ''
+    return { ...out, response: { ...out.response, reply: lead + out.response.reply } }
+  }
   // "Na vdd foi na 99": sem expandir, a correção não era reconhecida e a
   // proposta ganhava a descrição "Vdd foi na 99".
+  // "Ont" é ontem em qualquer frase; sozinho, nenhuma regra o via como data.
   const semVdd = input.message.replace(/(?<![\p{L}\d])vdd(?![\p{L}\d])/giu, 'verdade')
+    .replace(/(?<![\p{L}\d])ont(?=\s)/giu, 'ontem')
   if (semVdd !== input.message) input = { ...input, message: semVdd }
   if (isDriver(input.state.settings)) {
     const shorthand = normalizeDriverShorthand(input.message)

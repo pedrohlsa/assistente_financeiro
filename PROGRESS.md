@@ -7709,3 +7709,10 @@ A rubrica foi conferida resposta por resposta contra a rodada anterior, sem nenh
 - "Gastei uns trinta e poucos de lanche" pergunta o valor exato. Antes, gravava R$ 30 com a descrição "Poucos de lanche".
 - "Fiz trezentos ontem anteontem duzentos e oitenta", ditado sem pontuação, grava os dois dias. Antes, o segundo virava pergunta.
 
+### Casos abertos do GPT (`YL`)
+
+- "Ont não gastei 90 de gas, foi setenta e cinquenta" pergunta GNV ou gás de cozinha sobre R$ 70,50 e grava em ontem. Antes, os R$ 90 negados entravam na pergunta, e eram eles que viravam abastecimento ao responder "GNV". "Ontem não gastei 90 de gasolina, foi 70,50" registra os R$ 70,50; antes, nada era registrado.
+- "A Uber enviou 45 e eu paguei 8 de estacionamento" e "a 99 me transferiu 80" viram receita do app.
+- "Ontem ganhei 250 na uber em 120 km, hoje foram 80 km e 190 na 99" guarda os km de cada dia. O hodômetro ("estou com 220.007 km") continua fora.
+- "O que entrou na conta ontem?", "entrou alguma coisa ontem?" e "caiu algo ontem?" respondem o que entrou. As de sim ou não começam por "Sim." ou "Não.". Antes, a resposta era a lista de contas a vencer ou o menu de ajuda.
+

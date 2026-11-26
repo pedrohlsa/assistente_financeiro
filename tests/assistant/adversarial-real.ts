@@ -13864,6 +13864,52 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YL — casos abertos do GPT: valor negado com ", foi N", app que envia, km do resumo misto, "o que entrou".
+  {
+    const today = '2026-11-25', yesterday = '2026-11-24'
+    const state = motoristaRico(today)
+    const ask = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({ state, message, today, remoteEnabled: false,
+      pendingClarification: prior?.response.mode === 'clarify' ? prior.response.clarification : undefined })
+    const acts = (o: Awaited<ReturnType<typeof orchestrate>>) => (o.response.actions as any[]).map(c => c.action)
+    {
+      // Os R$ 90 negados eram gravados ao responder "GNV".
+      const first = await ask('ont não gastei 90 de gas, foi setenta e cinquenta')
+      const second = await ask('GNV', first)
+      const a = acts(second)
+      out.push(result('YL-negado-com-foi-gas', { first: first.response.reply, second: second.response }, 'GNV de R$ 70,50 ontem',
+        first.response.reply.includes(fmtBRL(70.5)) && !first.response.reply.includes(fmtBRL(90))
+        && a.length === 1 && a[0].kind === 'fuel' && a[0].amount === 70.5 && a[0].date === yesterday))
+    }
+    for (const [i, [message, expected]] of ([
+      ['ont não gastei 90 de gnv, foi setenta e cinquenta', [['fuel', 70.5, yesterday]]],
+      // Nada era registrado: os R$ 70,50 se perdiam.
+      ['ontem não gastei 90 de gasolina, foi 70,50', [['fuel', 70.5, yesterday]]],
+      // Os R$ 45 enviados pela Uber ficavam sem ação.
+      ['a Uber enviou 45 e eu paguei 8 de estacionamento', [['income', 45, ''], ['expense', 8, '']]],
+      ['a 99 me transferiu 80', [['income', 80, '']]],
+      // Os km dos dois dias sumiam do resumo.
+      ['ontem ganhei 250 na uber em 120 km, hoje foram 80 km e 190 na 99', [['income', 250, yesterday], ['work', 120, yesterday], ['income', 190, today], ['work', 80, today]]],
+    ] as const).entries()) {
+      const r = await ask(message)
+      const actual = acts(r).map(a => [a.kind, a.kind === 'work' ? a.km : a.amount, a.date || ''])
+      out.push(result('YL-registro-' + i, { message, response: r.response }, expected,
+        r.response.mode === 'propose_actions' && JSON.stringify(actual) === JSON.stringify(expected)))
+    }
+    {
+      const recebido = state.transactions.filter(t => t.type === 'income' && t.date === yesterday).reduce((n, t) => n + t.amount, 0)
+      for (const [i, message] of ['o que entrou na conta ontem ou nada?', 'entrou alguma coisa ontem?', 'caiu algo ontem?'].entries()) {
+        const r = await ask(message)
+        out.push(result('YL-o-que-entrou-' + i, { message, reply: r.response.reply }, `Sim. ${fmtBRL(recebido)}`,
+          recebido > 0 && /^Sim\./.test(r.response.reply) && r.response.reply.includes(fmtBRL(recebido)) && !r.response.actions.length))
+      }
+      // Sem pergunta de sim ou não, a resposta é o valor direto.
+      const r = await ask('o que entrou na conta ontem?')
+      out.push(result('YL-o-que-entrou-direto', { reply: r.response.reply }, fmtBRL(recebido),
+        r.response.reply.includes(fmtBRL(recebido)) && !/vence/.test(r.response.reply)))
+    }
+  }
+
   return out
 }
 

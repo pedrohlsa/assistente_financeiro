@@ -832,7 +832,7 @@ export const INCOME_PLATFORM_PREFIX = new RegExp(
   // "A UBER caiu 820", "o REPASSE DA 99 caiu 650": a plataforma como sujeito
   // ou dona do repasse. Só "na/da Uber" era reconhecido, e o repasse semanal
   // entrava sem app — fora da divisão por plataforma.
-  String.raw`^\s*(?:(?:hoje|ontem|anteontem|eu|j[áa])\s+){0,3}(?:n[ao]\s+|pel[ao]\s+|d[ao]\s+|[ao]\s+|(?:o\s+)?(?:repasse|pagamento|saldo|dep[óo]sito|pix|semanal)\s+d[ao]\s+|(?=(?:uber|in\s*driver?)\s))(${APP_DE_CORRIDA})\s+(?:(?:hoje|ontem|anteontem|eu|j[áa])\s+){0,3}(?=(?:fiz|ganhei|recebi|faturei|entrou|caiu|pingou|depositou|pagou)\b)`, 'i',
+  String.raw`^\s*(?:(?:hoje|ontem|anteontem|eu|j[áa])\s+){0,3}(?:n[ao]\s+|pel[ao]\s+|d[ao]\s+|[ao]\s+|(?:o\s+)?(?:repasse|pagamento|saldo|dep[óo]sito|pix|semanal)\s+d[ao]\s+|(?=(?:uber|in\s*driver?)\s))(${APP_DE_CORRIDA})\s+(?:(?:hoje|ontem|anteontem|eu|j[áa])\s+){0,3}(?=(?:me\s+)?(?:fiz|ganhei|recebi|faturei|entrou|caiu|pingou|depositou|pagou|enviou|mandou|transferiu|repassou)\b)`, 'i',
 )
 const DISTINCT_INCOME_SOURCE = /^\s*d[aoe]\s+(?!(?:pix|dinheiro|transfer[eê]ncia|corridas?|semana|quinzena|m[eê]s|dia|hoje|ontem|repasse)\b)\p{L}/iu
 const AVISO_DE_CORRIDA = String.raw`(?:oferta|chamada|proposta|solicita[çc][ãa]o)`
@@ -1742,7 +1742,8 @@ function parseClause(input: string): ParsedAction[] {
       // conta — sem ele, "caiu 500 na conta hoje" não registrava nada.
       // "O passageiro ME DEU 10 de gorjeta", "a Uber me deu 50 de bônus": o
       // dinheiro veio para ele (regra 69). Caía na ajuda.
-      String.raw`(?:\b(?:ganhei|recebi|faturei|lucrei|entrou|caiu|cairam|pingou|fiz|me\s+(?:deu|deram|mandou|mandaram))\s*(?:mais\s+)?(?:(?:uns|umas|uns\s+de|cerca\s+de|quase|aproximadamente|tipo)\s+)?|\bmais\s+)(?:r\$)?\s*${NUM}\s*${MOEDA}?(?:\s+(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(${APP_DE_CORRIDA}|corrida(?:\s+privada)?)\b)?`,
+      // "A Uber ENVIOU 45", "a 99 me transferiu 80": o app como quem mandou.
+      String.raw`(?:\b(?:ganhei|recebi|faturei|lucrei|entrou|caiu|cairam|pingou|fiz|me\s+(?:deu|deram|mandou|mandaram)|(?<=\b(?:uber|99|indrive)\s+(?:me\s+)?)(?:enviou|mandou|transferiu|repassou|depositou))\s*(?:mais\s+)?(?:(?:uns|umas|uns\s+de|cerca\s+de|quase|aproximadamente|tipo)\s+)?|\bmais\s+)(?:r\$)?\s*${NUM}\s*${MOEDA}?(?:\s+(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(${APP_DE_CORRIDA}|corrida(?:\s+privada)?)\b)?`,
       'gi',
     )
     const prefixPlatform = text.match(INCOME_PLATFORM_PREFIX)
@@ -2124,6 +2125,11 @@ function parseClause(input: string): ParsedAction[] {
     // da outra medida, com a unidade dita.
     || (/\b(?:rodei|andei|dirigi|percorri)\b|\b\d+\s+(?:corridas|viagens)\b/i.test(text)
       ? text.match(new RegExp(String.raw`(?<![\wÀ-ÿ])(?:e|com)\s+${NUM}\s*${WORK_KM}`, 'i')) : null)
+    // "Foram 80 km", "ganhei 250 EM 120 km": a distância do dia ao lado do
+    // ganho. Sem verbo de rodar, ela sumia do resumo misto.
+    || (!/hod[oô]metro|od[oô]metro|\bpainel\b|\bmarcador\b|\b(?:estou|t[oô]|t[aá]|est[aá])\s+(?:\p{L}+\s+)?com\s+\d/iu.test(text)
+      ? [...text.matchAll(new RegExp(String.raw`(?:^|\s)(?:foram|deu|deram|em|com)\s+${NUM}\s*(?:km|quil[oô]metros?)(?![\wÀ-ÿ/])(?!\s*(?:por|\/)\s*(?:l|litro)\b)(?!\s+(?:de\s+)?(?:dist[âa]ncia|at[ée]|pra|para|rodados)\b)`, 'gi'))]
+        .find(x => parseNum(x[1]) > 0 && parseNum(x[1]) <= 1500) || null : null)
     // Relato telegráfico do turno: "hj 190km 10h 22 corridas", "rodei 10h,
     // 190km". A unidade dita e o contexto de turno bastam; sem esta leitura a
     // distância sumia inteira do lançamento. Hodômetro e consumo ficam fora, e
