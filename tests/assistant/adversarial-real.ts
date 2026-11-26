@@ -104,6 +104,56 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const today = '2026-11-25', yesterday = addDays(today, -1)
+    const cases = [
+      ['ganhei 45 líquido na 99, a taxa já saiu 8', '99', 45, today],
+      ['deu 45 líquido na uber descontaram 8 de taxa', 'Uber', 45, today],
+      ['a 99 pagou 45 líquidos depois de descontar 8 de taxa', '99', 45, today],
+      ['a 99 pagou 45 líquido taxa de 8 já inclusa no desconto', '99', 45, today],
+      ['hoje 53 bruto 45 liquido depois da taxa de 8 da noventa e nove', '99', 45, today],
+      ['ontem entrou quarenta e cinco da 99 já tirando oito de taxa e paguei seis de estacionamento', '99', 45, yesterday, [6, 'estacionamento']],
+      ['8 de taxa retida 45 liquido da uber', 'Uber', 45, today],
+      ['na 99 recebi cinquenta e dois e cinquenta centavos líquido taxa de sete e cinquenta descontada ontem', '99', 52.5, yesterday],
+      ['eu só recebi 45 da 99 com a taxa retida 8 mas não sei o bruto', '99', 45, today],
+      ['caiu 45 da 99, cobrou 8 mas já tava descontado', '99', 45, today],
+    ] as const
+    for (const [i, [message, app, amount, date, expense]] of cases.entries()) {
+      const state = i % 2 ? buildState({ profile: 'driver' }) : motoristaRico(today)
+      state.settings.ask99Fee = true
+      state.settings.platform99Fee = 5
+      const snapshot = JSON.stringify(state)
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const [payout, companion] = response.actions.map(c => c.action)
+      out.push(result('XH-liquido-taxa-retida-' + i, { message, response }, { app, amount, date, expense },
+        response.mode === 'propose_actions' && !response.unresolved.length && response.actions.length === (expense ? 2 : 1)
+        && payout?.kind === 'income' && payout.amount === amount && payout.description === app && (payout.date || today) === date
+        && payout.feeAlreadyWithheld && payout.reportedNet && !shouldAsk99Fee(state, payout)
+        && (!expense || (companion?.kind === 'expense' && companion.amount === expense[0] && companion.category === expense[1] && (companion.date || today) === date))
+        && JSON.stringify(state) === snapshot))
+    }
+    const state = motoristaRico(today)
+    for (const [i, [message, app, amount, exact, date]] of ([
+      ['fiz 53 bruto e a uber já descontou 8 de taxa', 'Uber', 45, '45', today],
+      ['fiz 53 bruto a taxa da 99 foi 8', '99', 45, 'quarenta e cinco', today],
+      ['ontem 53 bruto 48 liquido depois da taxa de 8 da noventa e nove', '99', 45.5, '45,50', yesterday],
+      ['fiz 45 na Uber descontaram 8 de taxa', 'Uber', 37, '37', today],
+      ['ganhei 53 na 99 taxa 8 retida', '99', 45, '45', today],
+    ] as const).entries()) {
+      const first = await orchestrate({ state, message, today, remoteEnabled: false })
+      const second = await orchestrate({ state, message: exact, today, remoteEnabled: false,
+        pending: first.response.actions, pendingClarification: first.response.mode === 'clarify' ? first.response.clarification : undefined,
+        draft: first.draft || undefined, focus: first.focus })
+      const [payout] = second.response.actions.map(c => c.action)
+      out.push(result('XH-bruto-taxa-confirma-liquido-' + i, { message, responses: [first.response, second.response] },
+        { app, amount, date }, first.response.mode === 'clarify' && first.response.clarification?.field === 'exact-amount'
+        && !first.response.actions.length && /entrou na conta/.test(first.response.reply)
+        && second.response.mode === 'propose_actions' && second.response.actions.length === 1 && !second.response.unresolved.length
+        && payout?.kind === 'income' && payout.amount === amount && payout.description === app && (payout.date || today) === date
+        && payout.feeAlreadyWithheld && payout.reportedNet))
+    }
+  }
+
+  {
     const today = '2026-11-25'
     const cases = [
       ['ganhei 250 na uber no dia vinte e quatro e cento e cinquenta e cinquenta centavos na 99 no dia vinte e cinco', [['income', 250, '2026-11-24', 'Uber'], ['income', 150.5, today, '99']]],

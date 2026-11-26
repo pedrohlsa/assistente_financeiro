@@ -26,14 +26,31 @@ const PAID_AND_TOOK_FEE = new RegExp(String.raw`^${DATE_LEAD}${PLATFORM_PAYMENT}
  */
 const KEPT = String.raw`(?:ficou\s+com|levou|comeu|tirou|descontou|reteve|pegou|abocanhou)`
 const SHARE = String.raw`(?:(?<pct>\d+(?:[.,]\d+)?)\s*(?:%|por\s*cento)|${MONEY('fee')})`
-const KEPT_SHARE = String.raw`(?:a\s+|o\s+)?${PLATFORM}\s+(?:me\s+)?${KEPT}\s+(?:(?:de\s+)?mim\s+)?${SHARE}(?:\s+de\s+(?:taxa|mim|comiss[aã]o))?`
+const KEPT_SHARE = String.raw`(?:a\s+|o\s+)?${PLATFORM}\s+(?:j[áa]\s+)?(?:me\s+)?${KEPT}\s+(?:(?:de\s+)?mim\s+)?${SHARE}(?:\s+de\s+(?:taxa|mim|comiss[aã]o))?`
 const WHEN = String.raw`(?:\s+(?:hoje|ontem|anteontem))?`
 const GROSS_THEN_KEPT = new RegExp(String.raw`^${DATE_LEAD}(?:fiz|ganhei|faturei|deu|rodei)\s+${MONEY('gross')}(?:\s+${GROSS})?(?:\s+(?:n[ao]|pel[ao])\s+(?:uber|99|indrive[r]?))?${WHEN},?\s+(?:e|mas)\s+${KEPT_SHARE}${WHEN}${TAIL}`, 'iu')
 const ONLY_KEPT = new RegExp(String.raw`^${DATE_LEAD}${KEPT_SHARE}${WHEN}${TAIL}`, 'iu')
-const KEPT_PERCENT_OF_GROSS = String.raw`(?:a\s+|o\s+)?${PLATFORM}\s+(?:me\s+)?${KEPT}\s+(?<pct>\d+(?:[.,]\d+)?)\s*(?:%|por\s+cento)\s+d[eo]s?\s+(?:o\s+)?${MONEY('gross')}(?:\s+${GROSS})?`
+const KEPT_PERCENT_OF_GROSS = String.raw`(?:a\s+|o\s+)?${PLATFORM}\s+(?:j[áa]\s+)?(?:me\s+)?${KEPT}\s+(?<pct>\d+(?:[.,]\d+)?)\s*(?:%|por\s+cento)\s+d[eo]s?\s+(?:o\s+)?${MONEY('gross')}(?:\s+${GROSS})?`
 const ONLY_KEPT_PERCENT = new RegExp(String.raw`^${DATE_LEAD}${KEPT_PERCENT_OF_GROSS}${WHEN}${TAIL}`, 'iu')
 
+const RECEIVED_NET = String.raw`(?:(?:(?:[ao]|n[ao]|d[ao]|pel[ao])\s+)?(?<leadingPlatform>${PAYOUT_APP})\s+)?(?:(?:eu\s+)?(?:s[oó]\s+)?(?:(?<earned>ganhei|fiz|faturei|deu)|recebi|caiu|entrou|(?:me\s+)?pagou|depositou|repassou)\s+)?${MONEY('net')}(?:\s+(?<netBeforeApp>${NET}))?(?:\s+(?:n[ao]|d[ao]|pel[ao])\s+${PLATFORM})?(?:\s+(?<netAfterApp>${NET}))?`
+const WITHHOLDING_JOIN = String.raw`(?:[,;]\s*|\s+)(?:e\s+)?`
+const WITHHOLDING_WHEN = String.raw`(?:\s+(?<whenTail>hoje|ontem|anteontem))?`
+const AFTER_DEDUCTION = String.raw`(?:depois\s+de\s+descontar|(?:j[áa]\s+)?(?:descontaram|tirando|descontando|retiveram))\s+${MONEY('fee')}\s+de\s+taxa`
+const WITHHOLDING_SAID = [
+  String.raw`(?:com\s+)?(?:a\s+)?taxa\s+(?:j[áa]\s+)?(?:retida|descontada)\s+(?:de\s+)?${MONEY('fee')}(?:\s+mas\s+n[aã]o\s+sei\s+o\s+bruto)?`,
+  String.raw`(?:a\s+)?taxa\s+(?:de\s+)?${MONEY('fee')}\s+(?:j[áa]\s+)?(?:retida|descontada|inclu(?:sa|[íi]da)\s+no\s+desconto)`,
+  String.raw`cobrou\s+${MONEY('fee')}\s+mas\s+j[áa]\s+(?:tava|estava|veio)\s+descontad[oa]`,
+  AFTER_DEDUCTION,
+].map(fee => new RegExp(String.raw`^${DATE_LEAD}${RECEIVED_NET}${WITHHOLDING_JOIN}${fee}${WITHHOLDING_WHEN}${TAIL}`, 'iu'))
+const NET_THEN_DEBIT = new RegExp(String.raw`^${DATE_LEAD}(?:ganhei|fiz|faturei|recebi|deu)\s+${MONEY('net')}\s+${NET}\s+(?:n[ao]|d[ao]|pel[ao])\s+${PLATFORM}${WITHHOLDING_JOIN}(?:a\s+)?taxa\s+j[áa]\s+saiu\s+${MONEY('fee')}${WITHHOLDING_WHEN}${TAIL}`, 'iu')
+const STATED_GROSS_AND_FEE = new RegExp(String.raw`^${DATE_LEAD}(?:fiz|faturei|ganhei|deu|foram)\s+${MONEY('gross')}\s+${GROSS}${WITHHOLDING_JOIN}(?:a\s+)?taxa\s+d[ao]\s+${PLATFORM}\s+(?:foi(?:\s+de)?|ficou\s+em)\s+${MONEY('fee')}${WHEN}[.!]*$`, 'iu')
+
 const PAYOUT_PATTERNS = [
+  ...WITHHOLDING_SAID,
+  NET_THEN_DEBIT,
+  new RegExp(String.raw`^${DATE_LEAD}${MONEY('fee')}\s+de\s+taxa\s+(?:retida|descontada)${WITHHOLDING_JOIN}${MONEY('net')}\s+${NET}\s+(?:d[ao]|n[ao]|pel[ao])\s+${PLATFORM}${WITHHOLDING_WHEN}${TAIL}`, 'iu'),
+  new RegExp(String.raw`^${DATE_LEAD}(?:(?:fiz|ganhei|faturei|deu|foram)\s+)?${MONEY('gross')}\s+${GROSS}${WITHHOLDING_JOIN}${MONEY('net')}\s+${NET}\s+${FEE}\s+(?:d[ao]|n[ao]|pel[ao])\s+${PLATFORM}${WITHHOLDING_WHEN}${TAIL}`, 'iu'),
   new RegExp(String.raw`^${DATE_LEAD}(?:[ao]\s+)?${PLATFORM}\s+(?:deu|gerou)\s+${MONEY('gross')}(?:\s+${GROSS})?(?:[,;]\s*|\s+e\s+)(?:descontou|reteve|tirou)\s+${MONEY('fee')}\s+de\s+taxa(?:[,;]\s*(?:e\s+)?|\s+e\s+)(?:s[oó]\s+)?(?:entrou|caiu|recebi)\s+${MONEY('net')}(?:\s+na\s+(?:minha\s+)?conta)?${TAIL}`, 'iu'),
   new RegExp(String.raw`^${DATE_LEAD}(?:[ao]\s+)?${PLATFORM}\s+(?:me\s+)?(?:pagou|depositou|repassou)\s+${MONEY('net')}(?:,\s*|\s+)(?:j[áa]\s+)?veio\s+descontad[oa]\s+${MONEY('fee')}\s+de\s+taxa${TAIL}`, 'iu'),
   new RegExp(String.raw`^${DATE_LEAD}${KEPT_PERCENT_OF_GROSS}(?:[;,]\s*|\s+e\s+)(?:caiu|ca[ií]ram|entrou|entraram|recebi)\s+(?:(?<whenNet>hoje|ontem|anteontem)\s+)?${MONEY('net')}(?:\s+na\s+(?:minha\s+)?conta)?(?:\s+(?<whenTail>hoje|ontem|anteontem))?${TAIL}`, 'iu'),
@@ -64,7 +81,7 @@ export function readPlatformPayout(message: string): PlatformPayout | undefined 
   const text = normalizeNumberWords(message).text.trim()
   const match = PAYOUT_PATTERNS.map(pattern => text.match(pattern)).find(Boolean)
   if (!match) {
-    const kept = text.match(GROSS_THEN_KEPT) || text.match(ONLY_KEPT_PERCENT) || text.match(ONLY_KEPT)
+    const kept = text.match(GROSS_THEN_KEPT) || text.match(STATED_GROSS_AND_FEE) || text.match(ONLY_KEPT_PERCENT) || text.match(ONLY_KEPT)
     if (kept) {
       const { platform, gross, fee, pct } = kept.groups
       const nome = ridePayoutPlatformName(platform)
@@ -79,11 +96,16 @@ export function readPlatformPayout(message: string): PlatformPayout | undefined 
     return { description: ridePayoutPlatformName(platform),
       issue: `Você informou ${fmtBRL(parseMoney(gross))} e ${fmtBRL(parseMoney(fee))} de taxa. Qual foi o valor que realmente entrou na conta?` }
   }
-  const { lead, platform, reported, gross, net, fee, pct, tail, whenNet, whenTail } = match.groups
+  const { lead, leadingPlatform, platform: trailingPlatform, reported, gross, net, fee, pct, tail, whenNet, whenTail, earned, netBeforeApp, netAfterApp } = match.groups
+  const platform = trailingPlatform || leadingPlatform
+  if (leadingPlatform && trailingPlatform && ridePayoutPlatformName(leadingPlatform) !== ridePayoutPlatformName(trailingPlatform)) return undefined
   const amount = parseMoney(net)
   const beforeFee = parseMoney(gross)
   const withheld = parseMoney(fee)
   const description = platform ? ridePayoutPlatformName(platform) : undefined
+  if (earned && !netBeforeApp && !netAfterApp && description) {
+    return { description, issue: `Você informou ${fmtBRL(amount)} de corridas e ${fmtBRL(withheld)} de taxa retida. Qual foi o valor que entrou na conta?` }
+  }
   if (!(amount > 0)) return { issue: 'Qual valor você recebeu depois do desconto? Ainda não preparei nenhum lançamento.', description }
   if (pct) {
     const percentage = Number(pct.replace(',', '.'))
