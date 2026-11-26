@@ -430,7 +430,7 @@ export function somaEscrita(t: string): string {
 
 /** "Botei 100 de GASOSA": gíria de gasolina, que caía em Outros. */
 export const GIRIA_DE_COMBUSTIVEL = /(?<![\wÀ-ÿ])gasosa(?![\wÀ-ÿ])/gi
-export const DECIMO_TERCEIRO = /(?<=(?<![\wÀ-ÿ])(?:meu|o)\s)13(?![\d.,ºª°\wÀ-ÿ])(?=\s+(?:caiu|entrou|hoje|ontem|veio|de|foi|chegou|\d))|(?<![\d.,])13\s*[º°o](?:\s+sal[áa]rio)?(?![\wÀ-ÿ])|(?<![\d.,])13\s+sal[áa]rio(?![\wÀ-ÿ])/gi
+export const DECIMO_TERCEIRO = /(?<=(?<![\wÀ-ÿ])(?:meu|o|do)\s)13(?![\d.,ºª°\wÀ-ÿ])(?=\s+(?:caiu|entrou|hoje|ontem|veio|de|foi|chegou|\d))|(?<![\d.,])13\s*[º°o](?:\s+sal[áa]rio)?(?![\wÀ-ÿ])|(?<![\d.,])13\s+sal[áa]rio(?![\wÀ-ÿ])/gi
 
 /**
  * "Paguei 3 CONTAS: luz 120, água 80…": a contagem dos itens que vêm a seguir
@@ -976,7 +976,7 @@ export function parseNaturalFull(
     // dias, a segunda metade é valor + DE ONDE veio, sem verbo. Sem isto os
     // 1200 sumiam em silêncio.
     const comOrigem = !actions.length && opts.inheritedKind === 'income'
-      ? input.trim().match(new RegExp(String.raw`^(?:mais\s+)?(?:r\$\s*)?${NUM}\s*${MOEDA}?\s+d[aoe]s?\s+(?:um\s+|uma\s+|o\s+|a\s+)?([a-zà-ú][\wçãõáéíóúâê]*(?:\s+\d+)?)\s*$`, 'i'))
+      ? input.trim().match(new RegExp(String.raw`^(?:mais\s+)?(?:r\$\s*)?${NUM}\s*${MOEDA}?\s+d[aoe]s?\s+(?:um\s+|uma\s+|o\s+|a\s+)?([a-zà-ú][\wçãõáéíóúâê]*(?:\s+\d+)?)(?:\s+(?:n[ao]\s+)?(?:dia\s+seguinte|outro\s+dia|(?:um|1|dois|2|tr[êe]s|3)\s+dias?\s+(?:depois|antes)|dia\s+anterior|v[ée]spera))?\s*$`, 'i'))
       : null
     if (comOrigem && parseNum(comOrigem[1]) > 0) {
       // "E 15 de ÁGUA" depois do aluguel recebido: o item é de gasto, não origem.
@@ -1836,14 +1836,17 @@ function parseClause(input: string): ParsedAction[] {
     // pagamento de 900". O verbo de receber já disse o tipo; sem aceitar o
     // substantivo no meio, a receita inteira se perdia.
     const verboNomeValorRe = new RegExp(
-      String.raw`\b(?:caiu|entrou|pingou|recebi|ganhei)\s+(?:o\s+|a\s+|meu\s+|minha\s+)?(sal[áa]rio|pagamento|freela|freelance|comiss[ãa]o|alugu[eé]l|pix)\s+(?:de\s+|do\s+m[eê]s\s+)?(?:r\$)?\s*${NUM}`,
+      // "Recebi o 13 de 1600", "a primeira parcela do décimo terceiro": o 13º
+      // é salário. Caía no menu de ajuda.
+      String.raw`\b(?:caiu|entrou|pingou|recebi|ganhei)\s+(?:o\s+|a\s+|meu\s+|minha\s+)?(?:(?:primeira|segunda|1a|2a|1ª|2ª)\s+parcela\s+d[oe]\s+(?:meu\s+)?)?(sal[áa]rio|pagamento|freela|freelance|comiss[ãa]o|alugu[eé]l|pix|d[ée]cimo\s+terceiro)\s+(?:de\s+|do\s+m[eê]s\s+)?(?:r\$)?\s*${NUM}`,
       'gi',
     )
     for (const vn of text.matchAll(verboNomeValorRe)) {
       const amount = parseNum(vn[2])
       if (!(amount > 0) || actions.some(a => a.kind === 'income' && (a as any).amount === amount)) continue
-      const cat = guessCategory(vn[1], 'income')
-      actions.push({ kind: 'income', amount, ...(cat ? { category: cat } : {}) })
+      const decimo = /^d[ée]cimo/i.test(vn[1])
+      const cat = decimo ? 'salario' : guessCategory(vn[1], 'income')
+      actions.push({ kind: 'income', amount, ...(cat ? { category: cat } : {}), ...(decimo ? { description: '13º salário' } : {}) })
     }
 
     // Fonte de renda como sujeito: "meu salário foi 1625", "o aluguel foi 1800".

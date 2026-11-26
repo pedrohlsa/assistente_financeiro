@@ -13716,6 +13716,36 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YH — data relativa à anterior, 13º salário e fonte que ainda não pagou.
+  {
+    const today = '2026-11-25'
+    const cases = [
+      // "No dia seguinte" herdava a data da primeira metade.
+      ['autonomo', 'recebi 1800 da casa 1 anteontem e 1750 da casa 2 no dia seguinte', [[1800, '2026-11-23'], [1750, '2026-11-24']]],
+      ['driver', 'recebi 320 da Uber anteontem e 90 da 99 no dia seguinte', [[320, '2026-11-23'], [90, '2026-11-24']]],
+      ['driver', 'ontem fiz 300 e no outro dia 250', [[300, '2026-11-24'], [250, '2026-11-25']]],
+      // O 13º salário caía no menu de ajuda.
+      ['clt', 'recebi o décimo terceiro de 1600', [[1600, today]]],
+      ['clt', 'caiu o 13 de 1600', [[1600, today]]],
+      ['clt', 'recebi a primeira parcela do 13 de 1600', [[1600, today]]],
+    ] as const
+    for (const [i, [profile, message, expected]] of cases.entries()) {
+      const state = profile === 'driver' ? motoristaRico(today) : profile === 'autonomo' ? autonomoRico(today) : buildState({ profile: 'clt' })
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actual = (response.actions as any[]).map(c => c.action).map(a => [a.amount, a.date || today])
+      const incomes = (response.actions as any[]).every(c => c.action.kind === 'income')
+      out.push(result('YH-datas-e-perfis-' + i, { message, response }, expected,
+        response.mode === 'propose_actions' && !response.unresolved.length && incomes && JSON.stringify(actual) === JSON.stringify(expected)))
+    }
+    {
+      const message = 'a casa 3 ainda não pagou'
+      const { response } = await orchestrate({ state: autonomoRico(today), message, today, remoteEnabled: false })
+      out.push(result('YH-fonte-ainda-nao-pagou', { message, reply: response.reply }, 'diz que está pendente, sem ajuda genérica',
+        !response.actions.length && /pendente/.test(response.reply) && !/Posso te ajudar/.test(response.reply)))
+    }
+  }
+
   return out
 }
 

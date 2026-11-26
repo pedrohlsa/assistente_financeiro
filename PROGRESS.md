@@ -7679,3 +7679,9 @@ Os três lotes passaram por `npm test` (2.197 regressões), pelos dois typecheck
 
 Os quatro lotes passaram por `npm test` (2.221 regressões), pelos dois typechecks, pela rubrica (0 PERIGOSA, com a lista conferida resposta por resposta) e pela matriz das oito datas.
 
+### Datas e outros perfis (`YH`)
+
+- "Recebi 1800 da casa 1 anteontem e 1750 da casa 2 no dia seguinte" grava o segundo aluguel um dia depois. "No outro dia", "dois dias depois" e "o dia anterior" seguem a mesma regra. Antes, a segunda metade herdava a data da primeira.
+- "Recebi o décimo terceiro de 1600", "caiu o 13 de 1600" e "recebi a primeira parcela do 13 de 1600" viram salário com a descrição "13º salário". Antes, caíam no menu de ajuda.
+- "A casa 3 ainda não pagou" responde que o recebimento está pendente, sem registrar nada.
+

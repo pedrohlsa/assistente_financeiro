@@ -204,6 +204,9 @@ const GAVE_TO_ME = 'deu|deram|passou|passaram'
 const RECIPIENT_OF_PAYMENT = new RegExp(String.raw`\b(?:me|nos)\s+(?:pagou|pagaram|${PIX_INCOMING}|${GAVE_TO_ME})\b`, 'i')
 const PAYMENT_NOT_RECEIVED = /^(?:(?:o\s+)?(?:pix|dinheiro|pagamento)\s+)?(?:ainda\s+)?(?:n[ãa]o|nem|[nñ])\s+(?:caiu|entrou|foi\s+creditado)\b/i
 const NAMED_PAYMENT_PENDING = /\b(?:pix|dinheiro|pagamento)\s+(?:ainda\s+)?n[ãa]o\s+(?:caiu|entrou|foi\s+creditado)\b/i
+// "A casa 3 ainda não pagou", "o cliente João não pagou": a fonte do usuário
+// ainda deve. Caía no menu de ajuda.
+const SOURCE_NOT_PAID = /^\s*(?:(?:a|o)\s+)?(?:casa|kitnet|apartamento|apto|loja|sala|inquilin[oa]|cliente)\b[^.;!?]{0,30}?\b(?:ainda\s+)?(?:n[ãa]o|nem)\s+(?:me\s+)?pag(?:ou|aram)\b(?:\s+(?:ainda|o\s+aluguel|esse\s+m[eê]s|este\s+m[eê]s))*\s*[.!]*$/i
 const PAYMENT_DENIED = new RegExp(String.raw`(?<![\p{L}\p{M}])(?:n[ãa]o|nem|[nñ]|ningu[eé]m)\s+(?:me|nos)\s+(?:pagou|pagaram|${PIX_INCOMING}|${GAVE_TO_ME})\b`, 'iu')
 const OWN_ACCOUNTS = /\bentre\s+(?:as\s+)?(?:(?:minhas|nossas)\s+(?:duas\s+)?contas|contas\s+pr[óo]prias)\b|\b(?:da|de)\s+(?:minha|nossa)\s+conta\b[^.;!?]{0,55}\b(?:para|pra)\s+(?:a\s+)?(?:minha|nossa)\s+conta\b|\bde\s+uma\s+conta\s+(?:minha|nossa)\s+(?:pra|para)\s+(?:a\s+)?outra\b/i
 const TO_OWN_ACCOUNT = new RegExp(String.raw`^(?:(?:eu|hoje|hj|ontem|anteontem|j[áa])\s+){0,4}(?:(?:transferi|mandei|enviei)\s+(?:(?:um\s+)?pix(?:\s+de)?\s+)?|fiz\s+(?:um\s+)?pix(?:\s+de)?\s+)${RECORD_NUMBER}(?:\s+d[aeo]\s+(?:nubank|inter|ita[uú]|bradesco|santander|caixa|picpay|banco\s+do\s+brasil|(?:meu|minha)\s+[\p{L}][\p{L}\s]{1,25}?))?\s+(?:pra|para)\s+(?:mim(?:\s+mesm[oa])?|(?:a\s+)?(?:minha|nossa)\s+(?:(?:outra|pr[óo]pria)\s+)?conta(?:\s+d[aeo]\s+[\p{L}][\p{L}\s]{1,25}?)?)(?!\s+(?:e|ou)\s+(?:pra|para)\b)(?=\s*(?:[,;.!]|$|e\s*$|(?:hoje|ontem|anteontem)\b))`, 'iu')
@@ -606,6 +609,8 @@ const PROTECTED: RegExp[] = [
   new RegExp(String.raw`(?:^|[.!?;]\s+)${EXAMPLE_CUE}(?:[^.!?]|\.(?!\s|$)){1,512}`, 'gi'),
 ]
 
+const DIA_RELATIVO = /\b(?:n[ao]\s+)?(?:dia\s+seguinte|outro\s+dia|(?:um|1|dois|2|tr[êe]s|3)\s+dias?\s+(?:depois|antes)|dia\s+anterior|v[ée]spera)\b/i
+
 export function segment(text: string, today = todayISO()): { text: string; start: number; end: number }[] {
   const guarded: [number, number][] = financedCardMentions(text).map(m => [m.index!, m.index! + m[0].length])
   for (const re of PROTECTED) {
@@ -755,6 +760,13 @@ export function segment(text: string, today = todayISO()): { text: string; start
   }
   for (const m of text.matchAll(/[,;]?\s+e\s+(?=(?:hoje|hj|ontem|anteontem|(?:depois\s+de\s+)?amanh[ãa])(?=\s|$))/gi)) {
     if (temValorDepois((m.index || 0) + m[0].length)) push((m.index || 0) + m[0].length)
+  }
+  // "...anteontem E 1750 da casa 2 NO DIA SEGUINTE": a segunda metade tem data
+  // própria, relativa à primeira. Sem o corte, as duas ficavam com a mesma.
+  for (const m of text.matchAll(/(?:[,;]\s*(?:e\s+)?|\s+e\s+)/gi)) {
+    const after = (m.index || 0) + m[0].length
+    const trecho = text.slice(after).split(/[,;.!?]|\s+e\s+/)[0]
+    if (DIA_RELATIVO.test(trecho) && temValorDepois(after)) push(after)
   }
   // O mesmo com vírgula ("ontem 30 de lanche, anteontem 20 de padaria") e com
   // o dia DEPOIS de cada item ("30 de lanche ontem e 20 de padaria anteontem").
@@ -1682,7 +1694,7 @@ export function analyzeMessage(
         || (/\b(?:pix|transferi|mandei|enviei)\b/i.test(part.text) && OWN_ACCOUNTS.test(part.text)))
     const receiptMention = RECIPIENT_OF_PAYMENT.test(part.text) || /\brecebi\b[^.;!?]*\bpix\b/i.test(part.text)
     const standalonePending = /^(?:o\s+)?(?:pix|dinheiro|pagamento)\s+/i.test(part.text) && PAYMENT_NOT_RECEIVED.test(part.text)
-    const paymentPending = standalonePending || PAYMENT_DENIED.test(part.text) || (receiptMention && (NAMED_PAYMENT_PENDING.test(part.text)
+    const paymentPending = standalonePending || PAYMENT_DENIED.test(part.text) || SOURCE_NOT_PAID.test(part.text) || (receiptMention && (NAMED_PAYMENT_PENDING.test(part.text)
       || (/\b(?:mas|por[ée]m|s[oó]\s+que)\s*$/i.test(part.text) && PAYMENT_NOT_RECEIVED.test(following))))
     const localExplanation = specializedInflow || (internalTransfer ? INTERNAL_TRANSFER_REPLY
       : quotedOrExample(part.text) || (!isQuestion && !negated && NEGATIVE_MONEY_STATEMENT.test(part.text)
@@ -1953,7 +1965,19 @@ export function analyzeMessage(
       date = undefined
       dateAmbiguity = undefined
     }
-    if (canShareContext && date && !requestedPix && !rideCue) { inheritedDate = date; inheritedLabel = dLabel }
+    // "Anteontem 1800 da casa 1 e 1750 da casa 2 NO DIA SEGUINTE": a data é
+    // relativa à anterior. Herdada inteira, os R$ 1.750 iam para anteontem.
+    const relativo = canShareContext && !date && inheritedDate && !dateAmbiguity
+      ? part.text.match(/\b(?:n[ao]\s+)?(?:(dia\s+seguinte|outro\s+dia)|(?:(um|1|dois|2|tr[êe]s|3)\s+dias?\s+(depois|antes))|(dia\s+anterior|v[ée]spera))\b/i) : null
+    if (relativo && inheritedDate) {
+      const n = relativo[1] ? 1 : relativo[4] ? -1 : (/^(?:dois|2)$/i.test(relativo[2]) ? 2 : /^(?:tr|3)/i.test(relativo[2]) ? 3 : 1) * (/antes/i.test(relativo[3]) ? -1 : 1)
+      const candidate = addDays(inheritedDate, n)
+      if (candidate <= today) {
+        date = candidate; dLabel = dateLabel(candidate, today); temporal = undefined
+        actions = actions.map(a => ('date' in a || a.kind === 'income' || a.kind === 'expense') ? { ...a, date: candidate } as ParsedAction : a)
+      }
+    }
+    if (canShareContext && date && !requestedPix && !rideCue && !relativo) { inheritedDate = date; inheritedLabel = dLabel }
     else if (canShareContext && !date && inheritedDate && !temporal && !dateAmbiguity) { date = inheritedDate; dLabel = inheritedLabel }
     else if (canShareContext && !date && !temporal && !dateAmbiguity && previousClause?.date && looksNegated(previousClause.text)
       && /(?<![\wÀ-ÿ])(?:s[óo]|apenas|somente)\s+$/i.test(original.slice(0, part.start))) {
