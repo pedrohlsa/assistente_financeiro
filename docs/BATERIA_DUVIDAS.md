@@ -11,7 +11,6 @@
 | “recebi 450 mas foi adiantamento do cartão, vou ter que devolver” | Propôs receita comum de R$ 450. | Falta distinguir crédito a devolver de ganho realizado. |
 | “proposta de 36 por 12km no total, tem taxa?” | Disse que não conseguiu ler o valor. | A tarifa e a distância estão claras. A taxa depende do que aparece na oferta. |
 | “compare corrida de 40 por 12km no total com pedágio de 10 ou corrida de 35 por 12km no total sem pedágio” | Perguntou quem cobre o pedágio antes de comparar. | A comparação ainda precisa carregar as duas ofertas para aceitar uma resposta curta. |
-| “e hoje quanto caiu?”, após “quanto caiu da 99 ontem?” | Disse que não havia lançamento hoje. | O pedido em outro turno pode herdar a plataforma do foco. |
 | “anteontem quanto de corrida e quanto de gasolina?” | Procurou “corrida” como texto e não respondeu a gasolina. | As categorias e o dia compartilhado precisam ficar explícitos. |
 | “quanto no saldo ontem e quanto hoje?” | Respondeu apenas o saldo atual e os próximos vencimentos. | O histórico pode não ter o saldo de ontem quando há ajuste manual. |
 | “os 170 km foram hoje”, com horas e viagens da mesma jornada | Pediu reescrever. | Mover só os km de dia exige separar as medidas da jornada proposta. |
@@ -20,3 +19,6 @@
 | “a corrida deu 45 com 5 de gorjeta e paguei 8 de pedágio” | Propôs só o pedágio. | Preservar o gasto e esclarecer se a gorjeta já faz parte dos R$ 45. |
 | “ganhei 45 líquido na 99, a taxa já saiu 8” | Propôs R$ 45 líquidos e mais uma despesa de R$ 8. | Uma taxa já abatida não deve reduzir de novo o recebido. |
 | “paguei 8 de pedágio ontem na corrida e quanto sobrou dos 45?” | Preparou o pedágio e respondeu o resultado mensal projetado. | A pergunta usa os R$ 45 ditos, com conta de R$ 37 antes de outros custos. |
+| “paguei 10,00 e não 100,00 de estacionamento ontem” | Propôs R$ 10 sem categoria e R$ 100 de estacionamento. | Deve propor somente R$ 10 de estacionamento ontem. |
+| “ganhei 250 na Uber, 💸💸 99 não caiu 150, gastei 8 de pedágio” | Preparou R$ 150 de receita e perguntou sobre R$ 99. | O emoji não deve apagar a negação nem transformar o nome da plataforma em dinheiro. |
+| “saiu 85 de gasolina mas não saíram 30 de estacionamento” | Propôs combustível e estacionamento. | “Não saíram” exclui o estacionamento. |

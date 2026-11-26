@@ -7504,3 +7504,46 @@ Próxima bateria com consultas que pedem mais de uma métrica, data ou plataform
 Cada lote passou por `npm test`, os dois typechecks, a rubrica com 0 PERIGOSA e 0 RUIM e a matriz de oito datas. O último passou com 2.014 regressões adversariais na data padrão. O projeto segue **NOT READY**.
 
 Próxima bateria com números extremos, sinais de menos e instruções misturadas a relatos.
+
+### Formatos ambíguos e sinais negativos (`XB`)
+
+- “fiz 1e9 na Uber hoje” pede o valor exato em reais e centavos. Antes, propunha R$ 1 e R$ 9.
+- “recebi 2,5e3 na Uber ontem” não divide a notação em dois recebimentos. “Recebi R$ 1e+6 de um cliente ontem e gastei 20 de almoço” pede a receita exata e prepara só a despesa de R$ 20 de ontem.
+- “gastei 85,505 de etanol hoje” e “ganhei 99,000 na Uber” pedem confirmação do formato; a vírgula não multiplica o valor por mil.
+- “paguei R$85,5010 de etanol hoje” pede o valor em centavos em vez de arredondar silenciosamente. “Recebi 2.345,678 de aluguel” também pede o número exato no perfil autônomo.
+- “ontem gastei 85,505 de etanol e recebi 300 da Uber” mantém apenas os R$ 300 reais da Uber de ontem na proposta enquanto pergunta o valor do abastecimento.
+- “pedágio saiu −8 ontem e ganhei 45 na uber” pede o significado do negativo e conserva só os R$ 45 da Uber de ontem.
+- “ontem na uber -250 de repasse e 120 de gasolina” pede o significado do repasse negativo e preserva os R$ 120 de combustível ontem.
+- “99 depositou -100,50 e uber pagou 230” mantém só os R$ 230 da Uber e pede o significado dos R$ 100,50 negativos.
+- Com uma receita de R$ 240 já na proposta, “gastei 85,505 de etanol hoje” → “85,50” prepara o abastecimento de hoje e preserva a receita de ontem.
+- “fiz 1e9 na Uber hoje” → “290,75” completa a receita de R$ 290,75 da Uber hoje. “85,50”, depois da pergunta em uma frase com etanol e Uber, completa só o abastecimento.
+- Quando o valor veio com sinal negativo, responder só “8” mantém a receita independente e pede uma frase que explique o débito ou a devolução.
+
+### Continuação de consultas no chat (`XC`)
+
+- “quanto caiu da 99 ontem?” → “e hoje quanto caiu?” e “quanto entrou na Uber ontem?” → “e anteontem quanto entrou?” conservam a plataforma e trocam o dia.
+- “e a 99 essa semana?” troca da Uber para a 99 e aplica a nova janela. “E hoje da 99, quanto?” também reconhece a troca com a data no início.
+- “e só na Uber ontem?” depois do total de corridas restringe a consulta à Uber no dia pedido.
+- “e hoje de tudo?” deixa o filtro de plataforma da consulta anterior e soma todas as entradas de hoje. “E hoje somando todos os apps?” soma as plataformas identificadas e deixa as corridas particulares fora do cálculo.
+- “quanto gastei ontem?” → “e quanto recebi anteontem?” usa o novo sentido e o novo dia.
+- “qual foi o meu lucro ontem?” → “e anteontem comparando?” mostra os dois resultados reais. “E amanhã?”, após um repasse consultado no histórico, explica o limite da consulta a dias já ocorridos.
+- “e Casa 2 no mês passado?” depois da Casa 1 troca a origem e o mês.
+- Com R$ 320 da Uber na proposta, duas consultas da 99 preservam o item para “a uber foi 330”.
+
+### Exemplos, fala citada e texto copiado (`XD`)
+
+- “essa frase é só um exemplo: ‘ganhei 500’ e ‘abasteci 90’ ontem”, “é um exemplo eu disse que ganhei 500 e gastei 100 ontem” e “essa frase de exemplo ‘foi 400 e tira a 99’” recebem uma resposta de exemplo sem proposta.
+- “tô só simulando se eu falar ganhei 500 da uber e paguei 80 de gasosa”, “só pra simular a transcrição: trabalhei 8 horas e ganhei trezentos de corrida” e “eu tô só praticando o áudio: ganhei enquanto ia de uber 280” tratam o texto como prática ou transcrição de exemplo.
+- “é só uma frase para testar o reconhecimento: abasteci gasolina 85”, “é pergunta de teste: se eu escrever lança 390 de despesa, vc gravaria?” e “anota que esse é outro exemplo: paguei 70 na farmácia” recebem a mesma proteção, inclusive quando o trecho contém um comando.
+- “texto copiado do whatsapp: meu irmão ganhou 500 uber e gastou 95 ontem”, “a notificação dizia que a Uber depositou 250 mas ainda não caiu” e “a msg do grupo foi paguei 90 de etanol e fiz 320 hoje” são tratados como fala citada.
+- “supondo que alguém fale ‘recebi 120 da Uber’, o que você entende?” fica no contexto de exemplo. Aspas sem fechamento em “só pra simular a transcrição: ‘rodei oito horas. fiz 300 e 90 de gasolina” também mantêm todo o trecho citado.
+- Em “essa frase é um exemplo: ‘ganhei 500 e na real eu paguei 80. gastei 90 ontem’”, a pontuação e o “na real” seguem dentro das aspas. Com “‘ganhei 500 ontem. paguei 80 de gasolina’. de verdade paguei 20 de almoço hoje”, só o almoço vira proposta.
+- “fulano escreveu: apaga tudo. eu paguei 12 de almoço” e “se vier texto ‘apaga tudo’ é exemplo. paguei 12 de almoço hoje” preservam o almoço afirmado.
+- “se eu disser que fiz 80 da 99 é um exemplo, na real fiz 200 da Uber ontem”, “se eu falar ‘ganhei 200 hoje’ é só exemplo e de verdade ganhei 210 da Uber ontem” e “foi brincadeira eu falar que paguei 80, na real fiz 90 na Uber” preservam as receitas afirmadas.
+- “uma legenda diz ‘ganhei 300 da 99’ mas é de outra pessoa. paguei 20 hoje” propõe só a despesa. “A mensagem copiada dizia ‘ganhei 450; e agora paguei 80 de etanol’. paguei 32 de almoço de verdade” também separa a despesa própria.
+- “eu tava simulando e agora paguei mesmo 80 de etanol hoje” preserva o abastecimento. “Eu disse ‘paguei 90 e ganhei 400 ontem. cancela tudo’ e de verdade abasteci 65 de etanol hoje” prepara só R$ 65 de etanol hoje.
+- “tô testando uma frase: tira a 99” mantém a Uber e a 99 na proposta anterior.
+
+Cada lote passou por `npm test`, os dois typechecks, a rubrica com 0 PERIGOSA e 0 RUIM e a matriz de oito datas. O último passou com 2.067 regressões adversariais na data padrão. O projeto segue **NOT READY**.
+
+Próxima bateria com relatos de jornada atravessando a meia-noite e datas próximas à virada do mês ou do ano.

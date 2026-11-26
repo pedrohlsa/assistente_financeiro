@@ -235,7 +235,19 @@ const PROSPECTIVE_RIDE = /^(?:essa|esta|outra|uma\s+outra)\s+corrida\b/i
 const EXAMPLE_CUE = String.raw`(?:(?:por\s+)?exemplo|(?:s[oó]\s+)?(?:um\s+)?teste|(?:t[oô]|estou)\s+testando|isso\s+[ée]\s+(?:s[oó]\s+)?(?:um\s+)?(?:exemplo|teste))\s*[:,—–-]\s*`
 const EXAMPLE_START = new RegExp(String.raw`^\s*(?:${EXAMPLE_CUE}|(?:s[oó]\s+)?quero\s+testar\s+(?:a|uma)\s+frase[\s:]+)`, 'i')
 const EXAMPLE_LABEL = /^\s*(?:a\s+)?frase\s+["“‘'][^\n]+?["”’']\s+[ée]\s+(?:s[oó]\s+)?(?:um\s+)?exemplo[.!]*$/i
-const REPORTED_SPEECH = /^(?:(?:eu\s+)?(?:falei|disse)|(?:me|nos)\s+(?:falaram|disseram)|(?:(?:o|a|meu|minha)\s+)?[\p{L}\p{M}]+(?:\s+[\p{L}\p{M}]+)?\s+(?:falou|disse|afirmou|avisou))\s*(?:que\b|[:"“‘'])/iu
+const REPORTED_SPEECH = /^(?:(?:eu\s+)?(?:falei|disse)|(?:me|nos)\s+(?:falaram|disseram)|(?:(?:o|a|meu|minha|uma?)\s+)?[\p{L}\p{M}]+(?:\s+[\p{L}\p{M}]+)?\s+(?:falou|disse|afirmou|avisou|escreveu|dizia|diz))\s*(?:que\b|[:"“‘'])/iu
+const EXAMPLE_WORDS = /\b(?:exemplo|teste|testar|testando|praticando|simular|simulando|brincadeira|falar|disser|escrever|fale|diga|escreva)\b/i
+const FORWARDED_WORDS = /\b(?:copiad[oa]|whatsapp|mensagem|msg|notifica[çc][ãa]o|escreveram|legenda)\b/i
+const EXAMPLE_PHRASES = [
+  /^(?:(?:anota|anote)\s+que\s+)?(?:(?:isso|esse|essa|este|esta)(?:\s+frase)?\s+)?(?:a\s+frase\s+)?e\s+(?:so\s+)?(?:(?:um|outro)\s+)?exemplo\b/,
+  /^(?:(?:essa|esta|a)\s+)?frase\s+de\s+exemplo\b/,
+  /^(?:e\s+)?(?:so\s+)?(?:uma\s+)?frase\s+(?:pra|para)\s+testar\b|^e\s+(?:uma\s+)?pergunta\s+de\s+teste\b/,
+  /^(?:eu\s+)?(?:to|estou|tava|estava)\s+(?:so\s+)?(?:testando\s+(?:uma|a)\s+frase|praticando\s+o\s+audio|simulando\s+(?:se\s+eu\s+(?:falar|disser|escrever)|e\s+agora\b))/,
+  /^(?:so\s+)?(?:pra|para)\s+simular\s+a\s+transcricao\b|^foi\s+brincadeira\s+(?:eu\s+)?(?:falar|dizer)\s+que\b/,
+  /^(?:se\s+eu\s+(?:falar|disser|escrever)|supondo\s+que\s+alguem\s+(?:fale|diga|escreva))\s+(?:que\b|["“‘'])/,
+  /^se\s+vier\s+(?:(?:um|o)\s+)?texto\s+(?:dizendo\s+)?["“‘'][^\r\n]+?\s+e\s+(?:so\s+)?exemplo\b/,
+]
+const FORWARDED_SPEECH = /^(?:(?:texto|(?:a\s+)?mensagem)\s+copiad[oa]\b|(?:a\s+)?(?:msg|mensagem)\s+d[eo]\s+grupo\s+(?:foi|dizia|diz)\b|(?:a\s+)?notificacao\s+(?:dizia|diz|falava|informou)\b|escreveram\s+no\s+grupo\s+que\b)/
 const THIRD_PARTY = /^(?:(?:hoje|ontem|anteontem|j[áa])\s+)?(?:meu|minha|nosso|nossa|o|a)\s+(?:irm[ãa]o|irm[ãa]|marido|esposa|m[ãa]e|pai|filh[oa]|colega|cliente|gerente|amig[oa]|s[óo]ci[oa]|loja|empresa)\s+(?:j[áa]\s+)?(?:gastou|pagou|comprou|recebeu|ganhou|guardou)\b/i
 const NAMED_THIRD_PARTY = /^(?:(?:ontem|hoje|anteontem|j[áa])\s+)?(?:[oa]\s+)?(?!quant[oa]s?\b|quem\b|quando\b|onde\b|como\b|por\b|que\b|eu\b|foi\b|era\b|se\b|quanto\b)([\p{L}\p{M}]+(?:\s+[\p{L}\p{M}]+){0,2}?)\s+(?:j[áa]\s+)?(?:gastou|pagou|comprou|recebeu|ganhou|guardou)\s+(?:r\$\s*)?\d/iu
 const PAID_ELSEWHERE = /\bpag(?:ou|aram)\s+(?:r\$\s*)?\d+(?:[.,]\d+)*\s+(?:reais?\s+)?(?:par[ao]|pr[ao]s?)\s+(?!mim\b|n[óo]s\b)/i
@@ -295,27 +307,66 @@ const PAST_STATEMENT = new RegExp(String.raw`\b(?:${PAST_MONEY_VERBS}|${COMPLETE
 export const looksPast = (t: string): boolean => PAST_STATEMENT.test(t)
 
 function quotedOrExample(text: string): string | undefined {
-  if (EXAMPLE_START.test(text) || EXAMPLE_LABEL.test(text)) return 'Entendi o trecho como exemplo. Para registrar um valor real, diga o que aconteceu.'
+  if (EXAMPLE_START.test(text) || EXAMPLE_LABEL.test(text) || (EXAMPLE_WORDS.test(text) && matchesExamplePhrase(text))) {
+    return 'Entendi o trecho como exemplo. Para registrar um valor real, diga o que aconteceu.'
+  }
   const spokenCommand = /\b(?:foi|era|cancela|cancelar|desfaz|desfazer|apaga|apagar|corrige|corrigir|muda|troca|registra|anota)\b/i.test(text)
-  if (REPORTED_SPEECH.test(text) && (looksPast(text) || spokenCommand)) {
+  if ((FORWARDED_WORDS.test(text) && FORWARDED_SPEECH.test(normalizeName(text)))
+    || (REPORTED_SPEECH.test(text) && (looksPast(text) || spokenCommand))) {
     return 'Esse trecho cita o que alguém disse. Para registrar, confirme o que aconteceu na sua conta.'
   }
   return undefined
 }
 
+function matchesExamplePhrase(text: string): boolean {
+  const normalized = normalizeName(text)
+  return EXAMPLE_PHRASES.some(pattern => pattern.test(normalized))
+}
+
+const QUOTED_SPAN = String.raw`(?:"[^"]*(?:"|$)|“[^”]*(?:”|$)|‘[^’]*(?:’|$)|(?<![\p{L}\p{N}])'[^']*(?:'|$))`
+const QUOTED_SPANS = new RegExp(QUOTED_SPAN, 'gu')
+const SPEECH_SENTENCE_PARTS = new RegExp(String.raw`${QUOTED_SPAN}|(?<=[.!?;])\s+`, 'gu')
+const ACTUAL_AFTER_QUOTE = new RegExp(String.raw`(?:[,;]\s*|\s+(?:mas|e)\s+)(?:(hoje|ontem|anteontem)\s+)?(?:(?:de\s+verdade|na\s+real|na\s+pr[aá]tica)\s*,?\s+|agora\s+(?=(?:eu\s+)?(?:${PAST_MONEY_VERBS})\s+mesmo\b))(?=(?:eu\s+)?(?:${PAST_MONEY_VERBS})\b)`, 'i')
+const ACTUAL_AT_START = new RegExp(String.raw`^\s*(?:de\s+verdade|na\s+real)\s*,?\s+(?=(?:eu\s+)?(?:${PAST_MONEY_VERBS})\b)`, 'i')
+const PAST_EMPHATIC = new RegExp(String.raw`^((?:eu\s+)?(?:${PAST_MONEY_VERBS}))\s+mesmo\s+(?=(?:r\$\s*)?\d)`, 'i')
+
+function speechSentences(message: string): string[] {
+  const sentences: string[] = []
+  let start = 0
+  for (const part of message.matchAll(SPEECH_SENTENCE_PARTS)) {
+    if (part[0].trim()) continue
+    sentences.push(message.slice(start, part.index))
+    start = part.index + part[0].length
+  }
+  sentences.push(message.slice(start))
+  return sentences
+}
+
 /** Texto efetivamente dirigido ao assistente, para decidir comandos e correções. */
 export function speechForCommands(message: string, today: string): { command: string; context: string[] } {
-  if (!/\b(?:exemplo|teste|testar|testando|falei|disse|disseram|falou|falaram|afirmou|avisou)\b/i.test(message)) {
+  if (!EXAMPLE_WORDS.test(message) && !FORWARDED_WORDS.test(message)
+    && !/\b(?:falei|disse|disseram|falou|falaram|afirmou|avisou|escreveu|dizia|diz)\b/i.test(message)) {
     return { command: message, context: [] }
   }
   const remaining: string[] = []
   const context = new Set<string>()
-  for (const sentence of message.split(/(?<=[.!?;])\s+/)) {
-    const example = EXAMPLE_START.test(sentence) || EXAMPLE_LABEL.test(sentence)
-    for (const part of example ? [{ text: sentence }] : segment(sentence, today)) {
-      const note = quotedOrExample(part.text)
-      if (note) context.add(note)
-      else remaining.push(part.text)
+  for (const sentence of speechSentences(message)) {
+    const note = quotedOrExample(sentence)
+    if (note) {
+      context.add(note)
+      // As mesmas palavras entre aspas continuam fazendo parte da citação.
+      const outsideQuotes = sentence.replace(QUOTED_SPANS, span => ' '.repeat(span.length))
+      const actual = outsideQuotes.match(ACTUAL_AFTER_QUOTE)
+      if (actual) {
+        const fact = sentence.slice(actual.index + actual[0].length).trim().replace(PAST_EMPHATIC, '$1 ')
+        remaining.push([actual[1], fact].filter(Boolean).join(' '))
+      }
+      continue
+    }
+    for (const part of segment(sentence, today)) {
+      const partialNote = quotedOrExample(part.text)
+      if (partialNote) context.add(partialNote)
+      else remaining.push(part.text.replace(ACTUAL_AT_START, ''))
     }
   }
   return { command: context.size ? remaining.join(' ') : message, context: [...context] }

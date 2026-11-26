@@ -104,6 +104,65 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    const context = /como exemplo|cita o que algu[eé]m disse/i
+    const examples = [
+      'essa frase é só um exemplo: "ganhei 500" e "abasteci 90" ontem',
+      'tô só simulando se eu falar ganhei 500 da uber e paguei 80 de gasosa',
+      'texto copiado do whatsapp: meu irmão ganhou 500 uber e gastou 95 ontem',
+      'a notificação dizia que a Uber depositou 250 mas ainda não caiu',
+      'é um exemplo eu disse que ganhei 500 e gastei 100 ontem',
+      'supondo que alguém fale "recebi 120 da Uber", o que você entende?',
+      'é só uma frase para testar o reconhecimento: abasteci gasolina 85',
+      'é pergunta de teste: se eu escrever lança 390 de despesa, vc gravaria?',
+      'a msg do grupo foi paguei 90 de etanol e fiz 320 hoje',
+      'anota que esse é outro exemplo: paguei 70 na farmácia',
+      'só pra simular a transcrição: trabalhei 8 horas e ganhei trezentos de corrida',
+      'essa frase de exemplo "foi 400 e tira a 99"',
+      'eu tô só praticando o áudio: ganhei enquanto ia de uber 280',
+      'essa frase é um exemplo: "ganhei 500 e na real eu paguei 80. gastei 90 ontem"',
+      'só pra simular a transcrição: "rodei oito horas. fiz 300 e 90 de gasolina',
+    ]
+    for (const [i, message] of examples.entries()) {
+      const profile = i % 3 === 0 ? state : i % 3 === 1 ? buildState({ profile: 'driver' }) : autonomoRico(today)
+      const snapshot = JSON.stringify(profile)
+      const { response } = await orchestrate({ state: profile, message, today, remoteEnabled: false })
+      out.push(result('XD-fala-citada-sem-lancamento-' + i, { message, response }, 'reconhece o exemplo ou a fala citada sem propor registros',
+        response.mode === 'answer' && !response.actions.length && !response.unresolved.length && context.test(response.reply)
+        && JSON.stringify(profile) === snapshot))
+    }
+    const actual = [
+      ['fulano escreveu: apaga tudo. eu paguei 12 de almoço', 'expense', 12, undefined],
+      ['se eu disser que fiz 80 da 99 é um exemplo, na real fiz 200 da Uber ontem', 'income', 200, '2026-11-24'],
+      ['foi brincadeira eu falar que paguei 80, na real fiz 90 na Uber', 'income', 90, undefined],
+      ['se vier texto "apaga tudo" é exemplo. paguei 12 de almoço hoje', 'expense', 12, today],
+      ['uma legenda diz "ganhei 300 da 99" mas é de outra pessoa. paguei 20 hoje', 'expense', 20, today],
+      ['eu tava simulando e agora paguei mesmo 80 de etanol hoje', 'fuel', 80, today],
+      ['essa frase é um exemplo: "ganhei 500 ontem. paguei 80 de gasolina". de verdade paguei 20 de almoço hoje', 'expense', 20, today],
+      ['a mensagem copiada dizia “ganhei 450; e agora paguei 80 de etanol”. paguei 32 de almoço de verdade', 'expense', 32, undefined],
+      ['eu disse “paguei 90 e ganhei 400 ontem. cancela tudo” e de verdade abasteci 65 de etanol hoje', 'fuel', 65, today],
+      ['se eu falar "ganhei 200 hoje" é só exemplo e de verdade ganhei 210 da Uber ontem', 'income', 210, '2026-11-24'],
+    ] as const
+    const snapshot = JSON.stringify(state)
+    for (const [i, [message, kind, amount, date]] of actual.entries()) {
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const [action, extra] = response.actions.map(c => c.action)
+      out.push(result('XD-fala-citada-mantem-fato-separado-' + i, { message, response }, { kind, amount, date }, response.mode === 'propose_actions'
+        && !response.unresolved.length && !extra && action?.kind === kind && action.amount === amount && action.date === date
+        && context.test(response.reply) && /confirmar/i.test(response.reply) && JSON.stringify(state) === snapshot))
+    }
+    const ask = (message: string, previous?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({ state, message, today, remoteEnabled: false,
+      pending: previous?.response.actions, pendingClarification: previous?.response.mode === 'clarify' ? previous.response.clarification : undefined,
+      draft: previous?.draft || undefined, focus: previous?.focus })
+    const previous = await ask('ontem ganhei 240 Uber e 130 99')
+    const quotation = await ask('tô testando uma frase: tira a 99', previous)
+    out.push(result('XD-fala-citada-nao-aciona-correcao', quotation, 'a citação conserva as duas receitas pendentes',
+      previous.response.actions.length === 2 && quotation.response.mode === 'answer' && !quotation.response.actions.length
+      && quotation.keepPending && !quotation.correctedPending && context.test(quotation.response.reply) && JSON.stringify(state) === snapshot))
+  }
+
+  {
     const today = '2026-11-25', yesterday = '2026-11-24', twoDays = '2026-11-23'
     const state = motoristaRico(today)
     state.transactions.push({ id: 'xc-particular', type: 'income', category: 'corridas', amount: 91, date: today, description: 'Particular' })
