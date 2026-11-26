@@ -1592,8 +1592,16 @@ const APP_THEN_AMOUNT = /(^|[,;]\s*|\s+e\s+)(?:(?:a|na|da)\s+)?(uber|99|in\s*dri
 // lado a lado e nenhum leitor registrava nada. Na ordem "recebi 240 da 99", sim.
 const VERB_APP_AMOUNT = /\b(recebi|ganhei|fiz|faturei|tirei|caiu|entrou|pingou)\s+(d[ao]|n[ao]|pel[ao])\s+(uber|99|in\s*driver?)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?![.,]?\d)(?!\s*(?:x\b|%|km\b|kms\b|h\b|hrs?\b|horas?\b|min|corridas?\b|viagens?\b))/giu
 
+// "Uber 180,99 120": a vírgula aqui separa o item da 99, não é centavo. Valor
+// com ",99" seguido de outro número solto não existe em fala de motorista.
+const DECIMAL_99_THEN_AMOUNT = /(\d),\s?(99)\s+(?=(?:r\$\s*)?\d)/g
+// "Hj 300 uber 50 gas": o valor e o app colados, sem preposição.
+const AMOUNT_THEN_APP = /(^|[,;]\s*|\s+e\s+|\b(?:hoje|hj|ontem|anteontem)\s+)(?:r\$\s*)?(\d+(?:[.,]\d+)*)\s+(uber|in\s*driver?)(?![\p{L}\d])/giu
+
 function appAntesDoValor(input: string): string {
   input = input.replace(VERB_APP_AMOUNT, (_m, verb: string, prep: string, app: string, amount: string) => `${verb} ${amount} ${prep} ${app}`)
+    .replace(DECIMAL_99_THEN_AMOUNT, '$1, $2 ')
+    .replace(AMOUNT_THEN_APP, (_m, lead: string, amount: string, app: string) => `${lead}ganhei ${amount} na ${/^uber$/i.test(app) ? 'Uber' : 'inDrive'}`)
   if (/[?]/.test(input) || !/\d\D+\d|\d\s*[,;]|\s+e\s+/.test(input)) return input
   const plat = (p: string) => /^uber$/i.test(p) ? 'Uber' : /^99$/.test(p) ? '99' : 'inDrive'
   return input.replace(APP_THEN_AMOUNT, (_m, lead: string, app: string, amount: string, qual?: string) =>

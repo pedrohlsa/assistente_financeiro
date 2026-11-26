@@ -1759,7 +1759,7 @@ function parseClause(input: string): ParsedAction[] {
       // "O carro me deu 200 de prejuízo" não é dinheiro que entrou.
       if (/^me\s/i.test(inc[0]) && /^\s*(?:reais\s+)?de\s+(?:preju|despesa|gasto|multa|conta|trabalho|dor)/i.test(afterAmount)) continue
       // "Ganhei 1200 ESSA SEMANA na uber": o período no meio não separa o valor do app.
-      const nearbyPlatform = afterAmount.match(new RegExp(String.raw`^\s*(?:(?:hoje|hj|ontem|(?:n?essa|n?esta)\s+semana|(?:n?esse|n?este)\s+m[eê]s)\s+)?(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(?:(?:${EXTRA_DE_CORRIDA})\s+(?:(?:d[ao]|n[ao]|pel[ao])\s+)?)?(${APP_DE_CORRIDA}|corrida(?:\s+privada)?)\b`, 'i'))
+      const nearbyPlatform = afterAmount.match(new RegExp(String.raw`^\s*(?:(?:tamb[ée]m|tbm|tb|s[óo])\s+)?(?:(?:hoje|hj|ontem|(?:n?essa|n?esta)\s+semana|(?:n?esse|n?este)\s+m[eê]s)\s+)?(?:(?:tamb[ée]m|tbm|tb)\s+)?(?:(?:d[ao]|de|n[ao]|pel[ao]|via|em|numa?|uma)\s+){0,2}(?:(?:${EXTRA_DE_CORRIDA})\s+(?:(?:d[ao]|n[ao]|pel[ao])\s+)?)?(${APP_DE_CORRIDA}|corrida(?:\s+privada)?)\b`, 'i'))
       const firstPlatform = prefixPlatform?.[0].length === at && !DISTINCT_INCOME_SOURCE.test(afterAmount) ? prefixPlatform[1] : undefined
       const platform = (inc[2] || nearbyPlatform?.[1] || firstPlatform || '').trim().toLowerCase().replace(/\s+/g, '')
       // Gorjeta, bônus e taxas pagas ao motorista têm nome; sem plataforma, o

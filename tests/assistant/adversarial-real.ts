@@ -13611,6 +13611,39 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YE — digitação: abreviações, vírgula colada e app sem preposição.
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    const cases = [
+      // "Abast 70" depois de um app ficava como valor sem ação.
+      ['hj fiz 280 na uber e 120 na 99 abast 70', [['income', 280, 'Uber'], ['income', 120, '99'], ['fuel', 70, '']]],
+      // A descrição saía "Pg d estacionamento".
+      ['pg 15 d estacionamento', [['expense', 15, 'Estacionamento']]],
+      // O "tbm" no meio fazia a receita perder a 99.
+      ['fiz 280 tbm na 99', [['income', 280, '99']]],
+      // "300 uber" virava pergunta de ganho ou gasto.
+      ['fiz 300 uber', [['income', 300, 'Uber']]],
+      // "180,99 120" lia R$ 180,99 e perdia os R$ 120 da 99.
+      ['uber 180,99 120,gasolina 60', [['income', 180, 'Uber'], ['fuel', 60, ''], ['income', 120, '99']]],
+      ['recebi 180,99 da uber', [['income', 180.99, 'Uber']]],
+    ] as const
+    for (const [i, [message, expected]] of cases.entries()) {
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actual = (response.actions as any[]).map(c => c.action).map(a => [a.kind, a.amount, a.description || ''])
+      out.push(result('YE-digitacao-' + i, { message, response }, expected,
+        response.mode === 'propose_actions' && !response.unresolved.length && JSON.stringify(actual) === JSON.stringify(expected)))
+    }
+    {
+      const message = 'hj 300 uber 50 gas'
+      const { response } = await orchestrate({ state, message, today, remoteEnabled: false })
+      const first = (response.actions as any[])[0]?.action
+      out.push(result('YE-digitacao-app-sem-preposicao', { message, response }, 'R$ 300 da Uber, sem perguntar se foi gasto',
+        first?.kind === 'income' && first.amount === 300 && first.description === 'Uber' && !/ganhou ou o que você gastou/.test(response.reply)))
+    }
+  }
+
   return out
 }
 

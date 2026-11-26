@@ -167,7 +167,12 @@ export function normalizeDriverShorthand(message: string): string {
     text = text.replace(/\b(no|de)\s+volant[ei]\s+c\/\s*/i, '$1 volante com ').replace(/\b(no|de)\s+volanti\b/i, '$1 volante')
   }
   return text
-    .replace(/(^|[,;.!]\s*|\s+(?:e|mas)\s+)((?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)\b(abast|gstei|gastey|colokei|pg(?=\.?\s+(?:r\$\s*)?\d[\d.,]*\s+(?:de?|em)\s+(?:gasosa|gasolina|combust[íi]vel|etanol|diesel)\b))\.?\s+(?=(?:r\$\s*)?\d)/gi,
+    // "...120 na 99 ABAST 70": a abreviação sem conector, depois de outro item.
+    .replace(/(\d|\b(?:uber|99|indrive))\s+abast\.?\s+(?=(?:r\$\s*)?\d)/gi, '$1 e abasteci ')
+    // "Pg 15 d estacionamento": a abreviação vale para qualquer gasto, não só
+    // combustível — senão a descrição virava "Pg d estacionamento".
+    .replace(/(\d)\s+d\s+(?=\p{L}{3,})/gu, '$1 de ')
+    .replace(/(^|[,;.!]\s*|\s+(?:e|mas)\s+)((?:(?:eu|hoje|hj|ontem|anteontem)\s+)*)\b(abast|gstei|gastey|colokei|pg)\.?\s+(?=(?:r\$\s*)?\d)/gi,
       (_, boundary: string, lead: string, verb: string) => `${boundary}${lead}${({ abast: 'abasteci', gstei: 'gastei', gastey: 'gastei', colokei: 'coloquei', pg: 'paguei' })[verb.toLowerCase()]} `)
     .replace(/(?<![\p{L}\p{M}\d.,])(\d{1,2})\s*ctvs?\b/giu, '$1 centavos')
     .replace(/\bd\s+(?=gasosa\b|gasolina\b|etanol\b|diesel\b|gnv\b|combust[íi]vel\b)/gi, 'de ')
