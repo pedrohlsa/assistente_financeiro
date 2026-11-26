@@ -1118,7 +1118,9 @@ async function previewPendingQuery(input: OrchestratorInput, today: string): Pro
     return answer(`Resultado só da proposta: ${fmtBRL(cents / 100)}. Ela segue aguardando confirmação.`)
   }
   const confirm = String.raw`se\s+(?:eu\s+)?confirmar(?:\s+(?:isso|essa\s+proposta|o\s+registro|os\s+registros))?`
-  const includesProposal = String.raw`(?:${confirm}|(?:contando|incluindo|considerando)\s+(?:ess[ea]\s+(?:proposta|despesa|receita|registro)|o\s+pendente|a\s+proposta|ess[ea])(?:\s+tambem)?|com\s+a\s+proposta)`
+  // "Contando COM esse", "incluindo isso": o "com" e o "isso" também apontam
+  // para a proposta. Sem eles, "com esse" virava filtro de texto da consulta.
+  const includesProposal = String.raw`(?:${confirm}|(?:contando|incluindo|considerando)\s+(?:com\s+)?(?:ess[ea]\s+(?:proposta|despesa|receita|registro|abastecimento|gasto)|o\s+pendente|a\s+proposta|ess[ea]|est[ea]|isso)(?:\s+tambem)?|com\s+a\s+proposta)`
   const before = text.match(new RegExp(String.raw`^${includesProposal},?\s+(.+)$`))
   const after = text.match(new RegExp(String.raw`^(.+?),?\s+${includesProposal}$`))
   const selectedAmount = text.match(/^(.+?),?\s+(?:contando|incluindo|considerando)\s+(?:os?\s+)?(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s+reais?)?\s+da\s+proposta$/)
@@ -1128,13 +1130,22 @@ async function previewPendingQuery(input: OrchestratorInput, today: string): Pro
   if (!explicit && !reuse) return undefined
   const question = explicit?.replace(/^(e\s+)?(?:qto|qnto|qt)\s+/, '$1quanto ')
     .replace(/^como\s+(?:fica|ficaria)\s+o\s+(lucro|resultado|saldo)\b/, 'qual o $1')
+    // "Quanto fica MEU DIA": o resultado de hoje. Lido como gasto, respondia o mês.
+    .replace(/^(?:e\s+)?(?:quanto|como)\s+(?:fica|ficaria)\s+(?:o\s+)?(?:meu\s+)?dia(?:\s+de\s+hoje)?$/, 'qual o resultado de hoje')
+    .replace(/^(?:e\s+)?(?:quanto|como)\s+(?:fica|ficaria)\s+(?:o\s+)?(?:meu\s+)?mes$/, 'qual o resultado deste mes')
     .replace(/^((?:e\s+)?quantas)\s+h(?:rs?)?\b/, '$1 horas')
     .replace(/\bgastaria\b/g, 'gastei').replace(/\breceberia\b/g, 'recebi').replace(/\bganharia\b/g, 'ganhei')
   if (!reuse && (!question || !/^(?:e\s+)?(?:quant[oa]s?|qual|quais)\b/.test(question) || !looksLikeDataQuestion(question))) return undefined
   const scopedQuestion = question && /\b(?:gastei|ganhei|recebi)\b/.test(question) && !parsePeriod(question, today)
     ? `${question} hoje` : question
+  // A prévia lê pela consulta quando ela entende a pergunta: o roteador antigo
+  // e a consulta escolhiam o caminho pela grafia ("quanto" × "qnto foi o
+  // gasto") e a mesma pergunta saía com dois textos.
   const read = (state: AppState) => reuse ? composeAnswer(runQuery(state, queryPlan!, today))
-    : compareRideApps(state, scopedQuestion!, today) || respostaLocal(state, scopedQuestion!, today, true)?.text
+    : compareRideApps(state, scopedQuestion!, today) || (() => {
+      const conv = answerConversation(state, scopedQuestion!, { today })
+      return conv?.kind === 'query' && !conv.focus?.lastQuery?.empty ? conv.reply : undefined
+    })() || respostaLocal(state, scopedQuestion!, today, true)?.text
   const real = read(input.state)
   if (!real) return undefined
   const amount = selectedAmount ? parseMoney(selectedAmount[2]) : undefined
@@ -1262,7 +1273,10 @@ function acrescimoAProposta(pending: AssistantCandidateAction[], mensagem: strin
     const u = medida[2].toLowerCase()
     return /^(?:km|quil)/.test(u) ? `rodei ${medida[1]} km` : /^(?:corrida|viage)/.test(u) ? `fiz ${medida[1]} corridas` : `trabalhei ${medida[1]} horas`
   }
-  const tipos = new Set(pending.map(p => p.action.kind).filter(k => k === 'expense' || k === 'income'))
+  // Abastecimento e manutenção são gasto: "abasteci 50" → "e 20 de lanche"
+  // substituía a proposta e o abastecimento sumia.
+  const tipos = new Set(pending.map(p => p.action.kind).flatMap(k => k === 'expense' || k === 'income' ? [k]
+    : k === 'fuel' || k === 'maintenance' ? ['expense'] : []))
   if (tipos.size !== 1) return null
   // "Ontem fiz 280" → "E HOJE 320" (ou "e 320 ontem"): outro dia, mesmo tipo
   // de dinheiro. Substituía a proposta e perguntava se era ganho ou gasto.
@@ -1272,8 +1286,11 @@ function acrescimoAProposta(pending: AssistantCandidateAction[], mensagem: strin
     const verbo = tipos.has('income') ? (corrida ? 'fiz' : 'recebi') : 'gastei'
     return `${dia[1] || dia[4]} ${verbo} ${dia[2] || dia[3]}`
   }
-  const m = mensagem.trim().match(/^(?:e\s+)?(?:mais\s+|tamb[ée]m\s+)?(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real|conto|contos|pila)?\s+(de|do|da|dos|das|no|na|nos|nas|em|com|pro|pra|para)\s+([a-zà-úç][a-zà-úç0-9\s]{1,40}?)\s*[?.!]*$/i)
+  const m = mensagem.trim().match(/^(?:e\s+)?(?:mais\s+|tamb[ée]m\s+)?(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais|real|conto|contos|pila)?\s+(de|do|da|dos|das|no|na|nos|nas|em|com|pro|pra|para)\s+([a-zà-úç][a-zà-úç0-9\s]{1,40}?|99)\s*[?.!]*$/i)
   if (!m) return null
+  // "Fiz 280 na uber" → "e 120 NA 99": outra plataforma, mesma jornada.
+  if (/^(?:uber|99|in\s*driver?)$/i.test(m[3].trim()) && tipos.has('income')
+    && pending.some(p => p.action.kind === 'income' && (p.action as any).category === 'corridas')) return `fiz ${m[1]} ${m[2]} ${m[3]}`
   // "E 15 de ÁGUA" com uma receita na tela: o item diz que foi gasto. Herdar o
   // verbo da proposta fazia a água virar corrida. O inverso vale para "e 50 de
   // gorjeta" depois de um gasto.

@@ -13782,6 +13782,57 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YJ — turno em várias mensagens: acréscimo, correção que preserva o resto e prévia da proposta.
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    const chat = () => {
+      let prior: Awaited<ReturnType<typeof orchestrate>> | undefined
+      let pending: any
+      return async (message: string) => {
+        prior = await orchestrate({ state, message, today, remoteEnabled: false, pending,
+          pendingClarification: prior?.response.mode === 'clarify' ? prior.response.clarification : undefined, focus: prior?.focus })
+        if (prior.response.actions.length) pending = prior.response.actions
+        else if (!prior.keepPending) pending = undefined
+        return prior
+      }
+    }
+    const items = (o: Awaited<ReturnType<typeof orchestrate>>) => (o.response.actions as any[]).map(c => [c.action.kind, c.action.amount])
+    for (const [i, [turns, expected]] of ([
+      // "E 120 na 99" substituía a proposta da Uber.
+      [['fiz 280 na uber', 'e 120 na 99'], [['income', 280], ['income', 120]]],
+      // "E 20 de lanche" depois de um abastecimento apagava o abastecimento.
+      [['gastei 50 de gasolina', 'e 20 de lanche', 'e 8 de pedágio'], [['fuel', 50], ['expense', 20], ['expense', 8]]],
+      // "Foi 15 o estacionamento" virava um gasto novo e a receita sumia da proposta.
+      [['fiz 300 na uber e paguei 12 de estacionamento', 'foi 15 o estacionamento'], [['income', 300], ['expense', 15]]],
+      [['fiz 300 na uber e gastei 80 de gasolina', 'foi 90 a gasolina'], [['income', 300], ['fuel', 90]]],
+    ] as const).entries()) {
+      const say = chat()
+      let last: Awaited<ReturnType<typeof orchestrate>> | undefined
+      for (const t of turns) last = await say(t)
+      out.push(result('YJ-turno-em-partes-' + i, { turns, response: last!.response }, expected,
+        last!.response.mode === 'propose_actions' && JSON.stringify(items(last!)) === JSON.stringify(expected)))
+    }
+    {
+      // A prévia somava só o que tinha "gasolina" na descrição e deixava a proposta de fora.
+      const say = chat()
+      await say('abasteci 100')
+      const preview = await say('quanto eu gastei de gasolina hoje contando com esse?')
+      const fuelToday = state.transactions.filter(t => t.type === 'expense' && t.category === 'combustivel' && t.date === today).reduce((n, t) => n + t.amount, 0)
+      out.push(result('YJ-previa-conta-a-proposta', { reply: preview.response.reply }, fmtBRL(fuelToday + 100),
+        /^Se você confirmar/.test(preview.response.reply) && preview.response.reply.includes(fmtBRL(fuelToday + 100)) && !preview.response.actions.length))
+    }
+    {
+      // "Quanto fica meu dia" respondia o gasto do mês.
+      const say = chat()
+      await say('fiz 280 na uber')
+      const preview = await say('quanto fica meu dia se eu confirmar?')
+      out.push(result('YJ-previa-do-dia', { reply: preview.response.reply }, 'resultado de hoje com a proposta',
+        /^Se você confirmar/.test(preview.response.reply) && /hoje/.test(preview.response.reply) && !/este mês/.test(preview.response.reply)))
+    }
+  }
+
   return out
 }
 

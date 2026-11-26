@@ -7694,3 +7694,12 @@ Os quatro lotes passaram por `npm test` (2.221 regressões), pelos dois typechec
 
 A rubrica foi conferida resposta por resposta contra a rodada anterior, sem nenhuma diferença.
 
+### Turno contado em várias mensagens (`YJ`)
+
+- "Fiz 280 na uber" → "e 120 na 99" soma as duas na proposta. Antes, a da 99 substituía a da Uber.
+- "Gastei 50 de gasolina" → "e 20 de lanche" → "e 8 de pedágio" mantém os três. Antes, o abastecimento sumia no segundo turno.
+- "Foi 15 o estacionamento" e "foi 90 a gasolina" corrigem o item e preservam o resto. Antes, a frase virava um gasto novo e a receita da Uber sumia da proposta.
+- "Quanto gastei de gasolina" soma a categoria Combustível, e o rótulo continua dizendo "Gasolina". Antes, a busca pelo texto "gasolina" deixava de fora todo abastecimento gravado como "Abastecimento", inclusive o da proposta em "contando com esse".
+- "Quanto fica meu dia se eu confirmar?" mostra o resultado de hoje com a proposta. Antes, mostrava o gasto do mês.
+- Ficou como está: "comecei às 6h" seguido, horas depois, de "parei às 17h" ainda pede os dois horários. O foco da conversa expira em minutos.
+

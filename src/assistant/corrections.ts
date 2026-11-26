@@ -778,6 +778,13 @@ export function parseCorrection(
   caps: AssistantCapabilities,
   today = todayISO(),
 ): CorrectionPlan | null {
+  // "Foi 15 O ESTACIONAMENTO": o valor antes do item. Sem reordenar, a frase
+  // virava um gasto novo de R$ 15 e a proposta perdia a receita que estava nela.
+  const itemDepois = message.trim().match(/^((?:n[ãa]o\s*,?\s*)?(?:na\s+verdade\s*,?\s*)?)(?:foi|era|deu)\s+((?:r\$\s*)?\d+(?:[.,]\d+)*)(?:\s+(?:reais|real|conto?s?))?\s+(?:o|a|os|as|n[oa]|d[oa]|de)\s+([\p{L}][\p{L}\s]{1,30}?)\s*[.!]*$/iu)
+  if (itemDepois && !/^(?:uber|99|in\s*driver?|dia|ontem|hoje|anteontem)$/i.test(itemDepois[3].trim())) {
+    const reordenada = parseCorrection(`${itemDepois[1]}o ${itemDepois[3].trim()} foi ${itemDepois[2]}`, pending, caps, today)
+    if (reordenada && !reordenada.independentStatement) return reordenada
+  }
   const combined = combinedCorrection(message, pending, caps, today)
   if (combined) return combined
   const plan = parseCorrectionWithMarker(message, pending, caps, today)

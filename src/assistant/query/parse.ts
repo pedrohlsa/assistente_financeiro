@@ -1420,7 +1420,13 @@ export function planQuery(state: AppState, input: string, ctx: PlanContext = {})
     // Marca é estabelecimento, não CLASSE (regra 41): sem iFood no histórico,
     // "quanto gastei de ifood" não é o total de Alimentação.
     const marca = !!porLista && MARCAS.test(normalizeName(alvo.valor))
-    const cat = noHistorico || marca ? undefined : porLista
+    // "Gasolina", "combustível", "abastecimento" são a CLASSE: o abastecimento
+    // registrado pelo app grava "Abastecimento" na descrição, e a busca pelo
+    // texto "gasolina" deixava de fora todo abastecimento sem essa palavra —
+    // inclusive o da proposta em "contando com esse".
+    const classeInteira = !contaFixa && /^(?:ga[sz]olina|gasosa|combustiveis?|abastecimentos?)$/.test(normalizeName(alvo.valor))
+      && classeDeCombustivel(state, alvo.valor, tipoAlvo) === 'combustivel'
+    const cat = classeInteira ? 'combustivel' : noHistorico || marca ? undefined : porLista
     if (cat) {
       filter.categories = [cat]
       recognized.push(`categoria ${alvo.valor}`)
@@ -1774,8 +1780,11 @@ function rotulo(
           : source === 'work' && field === 'km' ? 'Km rodados'
           : source === 'work' && field === 'hours' ? 'Horas trabalhadas'
           : ROTULO_FONTE[source] || m.label
+  // "Quanto gastei de gasolina" soma a categoria Combustível, mas o rótulo usa
+  // a palavra dele: quem perguntou de gasolina lê "Gasolina".
   const cat = filter.categories?.length
-    ? (state.categories || []).find(c => c.id === filter.categories![0])?.name
+    ? filter.categories[0] === 'combustivel' && alvo && /^(?:ga[sz]olina|gasosa)$/.test(normalizeName(alvo)) ? 'Gasolina'
+      : (state.categories || []).find(c => c.id === filter.categories![0])?.name
     : undefined
   // O texto buscado chega sem acento (a pergunta é normalizada); o rótulo usa a
   // grafia dos próprios lançamentos — "Zé da esquina", não "Ze da esquina".

@@ -1036,7 +1036,9 @@ function refinaConsulta(
       if (!isQueryFailure(planoA) && !isQueryFailure(planoB)) {
         const ra = runQuery(state, planoA.plan, today)
         const rb = runQuery(state, planoB.plan, today)
-        const nomeA = base.filter.categories?.map(id => state.categories.find(c => c.id === id)?.name || id).join(', ')
+        // "Gasolina" soma a categoria Combustível; o nome é o que ele disse.
+        const nomeA = (base.filter.categories?.[0] === 'combustivel' && /\bGasolina\b/.test(base.label || '') ? 'Gasolina' : undefined)
+          || base.filter.categories?.map(id => state.categories.find(c => c.id === id)?.name || id).join(', ')
           || (base.filter.text ? sentenceCase(base.filter.text) : 'o assunto anterior')
         const nomeB = categorias.map(id => state.categories.find(c => c.id === id)?.name || id).join(', ')
         const dif = Math.round((ra.total - rb.total) * 100) / 100
