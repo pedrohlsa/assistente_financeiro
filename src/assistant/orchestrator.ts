@@ -34,7 +34,7 @@ import { formatValue } from './query/answer'
 import type { FactUnit } from './query/types'
 import { parseTypedPairs } from './semantic/pairs'
 import { clampMessage, describeRepairs, normalizeDriverShorthand, repairStructuralTypos, stripFillers } from './semantic/normalize'
-import { elapsedMinutes, spokenClock } from './semantic/clock'
+import { elapsedMinutes, readDatedShiftWork, spokenClock } from './semantic/clock'
 import { continueRideOffer, interpretRideOffer, reviseRideOffer } from './rideOffer'
 import { reconcileSpokenTotals } from './spokenTotals'
 import { hasRideSettlementVerb, partialRidePayoutChoice, readPartialRidePayout, readPayoutDatePart, readPlatformPayout, readRideDebt, readRideDebtAfterActivity, readRidePayoutApp, readRideReportThenReceipt, readRideSettlement, readRideWallet, readShiftWithUnpaidPayout, ridePayoutPlatformName } from './platformPayout'
@@ -1733,6 +1733,45 @@ function nightShiftClarification(actions: ParsedAction[], window: { from: string
     question: `${item}. Em qual dia aconteceu? A jornada passou por ${brDate(window.from)} e ${brDate(window.to)}.` }
 }
 
+function proposeNightShiftItems(input: OrchestratorInput, caps: AssistantCapabilities, today: string, actions: ParsedAction[],
+  window: { from: string; to: string }, labels = [brDate(window.from), brDate(window.to)]): OrchestratorOutput {
+  const ready = actions.filter(a => 'date' in a && a.date)
+  const awaiting = actions.filter(a => !('date' in a) || !a.date)
+  if (!awaiting.length) return proposeDatedActions(input, ready, caps, today)
+  const dates = [window.from, window.to]
+  const options = labels.map((label, i) => ({ label, value: dates[i] }))
+  const clarification = nightShiftClarification(awaiting, window, options)
+  return ready.length ? keepActionsAwaitingClarification(input, proposeDatedActions(input, ready, caps, today), clarification)
+    : keepPendingClarification(input, clarification)
+}
+
+async function prepareDatedShiftWork(input: OrchestratorInput, caps: AssistantCapabilities, today: string): Promise<OrchestratorOutput | undefined> {
+  if (looksLikeQuestion(input.message) || looksNegated(input.message)) return undefined
+  const shift = readDatedShiftWork(input.message, today)
+  if (!shift) return undefined
+  if (shift.kind === 'future') return { draft: null, keepPending: true, focus: input.focus,
+    response: { version: ASSISTANT_CONTRACT_VERSION, engine: 'local', mode: 'answer', actions: [], unresolved: [],
+      reply: 'Quando a jornada terminar, me diga o horário real de saída para eu preparar as horas trabalhadas.' } }
+  if (shift.kind !== 'work' || (shift.window.to === today && today === todayISO() && shift.endTime && shift.endTime > nowTime())) {
+    return keepPendingClarification(input, { field: 'shift-hours', question: 'Confira os dias e os horários de início e fim da jornada.' })
+  }
+  const work: ParsedAction[] = shift.minutes.map(({ total, date }) => ({ kind: 'work', hours: total / 60, date }))
+  if (!shift.rest) return proposeDatedActions(input, work, caps, today)
+  const message = shift.rest.replace(/^(\d+(?:[.,]\d+)?)\s*km\s+no\s+turno$/i, 'rodei $1 km')
+  const extra = await orchestrate({ ...input, message, pending: undefined, remoteEnabled: false })
+  if (extra.response.mode !== 'propose_actions' || !extra.response.actions.length || extra.response.unresolved.length) {
+    return keepActionsAwaitingClarification(input, proposeDatedActions(input, work, caps, today), {
+      field: 'shift-companion', question: 'Qual foi o valor ou a medida adicional e em que dia aconteceu?',
+    })
+  }
+  const companions = extra.response.actions.map(c => c.action)
+  if (shift.window.from === shift.window.to) {
+    const dated = companions.map(action => 'date' in action && action.date ? action : withDate([action], shift.window.from)[0])
+    return proposeDatedActions(input, [...work, ...dated], caps, today)
+  }
+  return proposeNightShiftItems(input, caps, today, [...work, ...companions], shift.window)
+}
+
 const PAST_NIGHT_RECEIPT = /\s+(?:mas|e)\s+(?:o\s+)?pix\s+caiu\s+(hoje|ontem|anteontem)[.!]*$/i
 
 async function prepareNightShift(input: OrchestratorInput, caps: AssistantCapabilities, today: string): Promise<OrchestratorOutput | undefined> {
@@ -1756,14 +1795,7 @@ async function prepareNightShift(input: OrchestratorInput, caps: AssistantCapabi
     }
     return shift.afterMidnight && (!('date' in action) || !action.date) ? { ...action, date: shift.window.to } : action
   })
-  const ready = addressed.filter(a => 'date' in a && a.date)
-  const awaiting = addressed.filter(a => !('date' in a) || !a.date)
-  if (!awaiting.length) return proposeDatedActions(input, ready, caps, today)
-  const dates = [shift.window.from, shift.window.to]
-  const options = shift.labels.map((label, i) => ({ label, value: dates[i] }))
-  const clarification = nightShiftClarification(awaiting, shift.window, options)
-  return ready.length ? keepActionsAwaitingClarification(input, proposeDatedActions(input, ready, caps, today), clarification)
-    : keepPendingClarification(input, clarification)
+  return proposeNightShiftItems(input, caps, today, addressed, shift.window, shift.labels)
 }
 
 function continueNightShift(input: OrchestratorInput, caps: AssistantCapabilities, today: string, clarification: AssistantClarification): OrchestratorOutput | undefined {
@@ -2973,6 +3005,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     if (!input.draft && !input.pendingClarification) {
       const breakdown = prepareRideReceiptBreakdown(input, caps, today)
       if (breakdown) return breakdown
+      const datedShiftWork = await prepareDatedShiftWork(input, caps, today)
+      if (datedShiftWork) return datedShiftWork
       const nightShift = await prepareNightShift(input, caps, today)
       if (nightShift) return nightShift
       const roadReport = prepareRoadReport(input, caps, today)

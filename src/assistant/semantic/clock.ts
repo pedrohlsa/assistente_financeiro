@@ -1,4 +1,6 @@
 import { isCashClock } from '../contracts'
+import { addDays } from '../../utils/format'
+import { findAllDates, readNightShiftRange } from '../dates'
 import { normalizeNumberWords } from '../numbers'
 
 const UNIT = 'um[a]?|dois|duas|tr[eê]s|quatro|cinco|seis|sete|oito|nove'
@@ -45,6 +47,72 @@ function readPoint(token: string): string | undefined {
   }
   const clock = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
   return isCashClock(clock) ? clock : undefined
+}
+
+const CLOCKED_SHIFT_START = /(?<![\p{L}\p{M}])(?:comecei|iniciei|sa[ií]|trabalhei|rodei|fiz\s+das)(?![\p{L}\p{M}])/iu
+const CLOCKED_SHIFT_END = /\s+(?:e\s+)?(?:(vou)\s+)?(?:terminei|terminar|parei|parar|encerrei|encerrar|at[eé])\s+/i
+const END_OF_SHIFT_CLOCK = /[,;]\s*|\s+e\s+(?=(?:eu\s+)?(?:ganhei|fiz|recebi|faturei|paguei|abasteci|rodei|foram|deu)\b)/i
+const SHIFT_SCOPE_AFTER_CLOCK = /\s+(?=de\s+[^,;.?!]{1,52}?\s+(?:pra|para)\s+)/i
+const SPLIT_AT_MIDNIGHT = /^\s*(?:(ontem|anteontem)\s+)?(?:rodei|trabalhei)\s+(.+?)\s+antes\s+da\s+meia[-\s]noite\s+e\s+(.+?)\s+depois(?:\s+da\s+meia[-\s]noite)?(?:\s*,\s*(.+))?[.!]*$/i
+
+type DatedShiftWork =
+  | { kind: 'invalid' | 'future' }
+  | { kind: 'work'; window: { from: string; to: string }; minutes: { date: string; total: number }[]; rest: string; endTime?: string }
+
+function datedClockPoint(text: string, today: string) {
+  const dates = findAllDates(text, today)
+  const [d] = dates
+  if (dates.length !== 1 || (d.kind !== 'date' && d.kind !== 'future')) return undefined
+  const withoutDate = `${text.slice(0, d.start).trimEnd().replace(/\s+(?:de|em|no|na)\s*$/i, '')} ${text.slice(d.end)}`.trim().replace(/\s+/g, ' ')
+  const clock = withoutDate.replace(/^(?:ness[ae]\s+jornada\s+)?(?:(?:comecei|iniciei|sa[ií]|trabalhei|rodei)\s+)?(?:(?:a\s+partir\s+das|das|[àa]s?)\s+)?/i, '')
+  const time = readPoint(clock)
+  return time ? { date: d.date, time, future: d.kind === 'future' } : undefined
+}
+
+function datedWorkMinutes(window: { from: string; to: string }, start: string, end: string, rest: string): DatedShiftWork {
+  const clockMinutes = (value: string) => Number(value.slice(0, 2)) * 60 + Number(value.slice(3))
+  const begin = clockMinutes(start), finish = clockMinutes(end)
+  const spansMidnight = window.from !== window.to
+  if ((spansMidnight && addDays(window.from, 1) !== window.to) || (!spansMidnight && finish <= begin)) return { kind: 'invalid' }
+  const first = (spansMidnight ? 1440 : finish) - begin
+  const second = spansMidnight ? finish : 0
+  if (first + second > 20 * 60) return { kind: 'invalid' }
+  const minutes = [{ date: window.from, total: first }, { date: window.to, total: second }].filter(item => item.total > 0)
+  return { kind: 'work', window, minutes, rest, endTime: end }
+}
+
+/** Jornadas com data em cada ponta e relatos que já dizem as horas de cada lado da meia-noite. */
+export function readDatedShiftWork(text: string, today: string): DatedShiftWork | undefined {
+  if (!CLOCKED_SHIFT_START.test(text)) return undefined
+  const message = text.trim().replace(/[.!]+$/, '')
+  const scopeAtStart = readNightShiftRange(message, today)
+  const split = (scopeAtStart?.rest || message).match(SPLIT_AT_MIDNIGHT)
+  if (split && (scopeAtStart?.window || split[1])) {
+    const from = scopeAtStart?.window?.from || addDays(today, /^anteontem$/i.test(split[1]) ? -2 : -1)
+    const to = scopeAtStart?.window?.to || addDays(from, 1)
+    const early = elapsedMinutes(split[2]), late = elapsedMinutes(split[3])
+    if (!(early > 0 && late > 0 && early + late <= 20 * 60)) return { kind: 'invalid' }
+    return { kind: 'work', window: { from, to }, minutes: [{ date: from, total: early }, { date: to, total: late }], rest: split[4] || '' }
+  }
+  if (/^(?:fiz|trabalhei|rodei)\s+das\b/i.test(message)) {
+    const location = message.search(SHIFT_SCOPE_AFTER_CLOCK)
+    if (location < 0) return undefined
+    const scope = readNightShiftRange(message.slice(location), today)
+    const { span } = spokenClock(message.slice(0, location))
+    if (scope && span) return scope.window ? datedWorkMinutes(scope.window, span.start, span.end, scope.rest.replace(/^e\s+/i, '')) : { kind: 'invalid' }
+  }
+  const end = message.match(CLOCKED_SHIFT_END)
+  if (!end) return undefined
+  const startText = message.slice(0, end.index)
+  if (!CLOCKED_SHIFT_START.test(startText) || findAllDates(message, today).length < 2) return undefined
+  const after = message.slice(end.index + end[0].length)
+  const separator = after.match(END_OF_SHIFT_CLOCK)
+  const endText = separator ? after.slice(0, separator.index) : after
+  const rest = separator ? after.slice(separator.index + separator[0].length).trim() : ''
+  const started = datedClockPoint(startText, today), ended = datedClockPoint(endText, today)
+  if (!started || !ended) return undefined
+  if (end[1] || started.future || ended.future) return { kind: 'future' }
+  return datedWorkMinutes({ from: started.date, to: ended.date }, started.time, ended.time, rest)
 }
 
 export function elapsedMinutes(token: string): number | undefined {

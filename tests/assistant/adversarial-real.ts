@@ -104,6 +104,60 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const today = '2026-11-25', yesterday = '2026-11-24'
+    const state = motoristaRico(today)
+    const snapshot = JSON.stringify(state)
+    const ask = (message: string, previous?: Awaited<ReturnType<typeof orchestrate>>, profile = state) => orchestrate({ state: profile, message, today, remoteEnabled: false,
+      pending: previous?.response.actions, pendingClarification: previous?.response.mode === 'clarify' ? previous.response.clarification : undefined,
+      draft: previous?.draft || undefined, focus: previous?.focus })
+    const workParts = (turn: Awaited<ReturnType<typeof orchestrate>>) => turn.response.actions.map(c => c.action)
+      .flatMap(a => a.kind === 'work' && a.hours !== undefined ? [[a.date, Math.round(a.hours * 60)]] : [])
+    const cases = [
+      ['comecei às 23h de ontem e terminei às 2h de hoje', 60, 120],
+      ['trabalhei ontem a partir das 23h até as 2h de hoje', 60, 120],
+      ['comecei ontem às onze da noite e parei hoje à uma e meia da madrugada', 60, 90],
+      ['saí ontem às 22:45 e parei hoje às 02:00', 75, 120],
+      ['ontem nessa jornada comecei 23h terminei hoje 1h', 60, 60],
+      ['ontem comecei 23h30 e encerrei hoje 00h15', 30, 15],
+      ['comecei ontem às 23:55 e terminei hoje às 00:05', 5, 5],
+      ['de ontem pra hoje rodei 2h antes da meia-noite e 3h depois', 120, 180],
+    ] as const
+    for (const [i, [message, before, after]] of cases.entries()) {
+      const turn = await ask(message, undefined, i % 2 ? buildState({ profile: 'driver' }) : state)
+      const expected = [[yesterday, before], [today, after]]
+      out.push(result('XF-horarios-distribuidos-por-dia-' + i, { message, response: turn.response }, expected,
+        turn.response.mode === 'propose_actions' && !turn.response.unresolved.length && turn.response.actions.length === 2
+        && JSON.stringify(workParts(turn)) === JSON.stringify(expected) && JSON.stringify(state) === snapshot))
+    }
+    const mixed = [
+      ['ontem comecei 22h e terminei hoje 2h, foram 250 da Uber', 120, 120, 'income', 250],
+      ['comecei ontem às 23h e parei hoje à 1h30, rodei 60 km', 60, 90, 'work', 60],
+      ['fiz das 22h às 2h de ontem para hoje e ganhei 290', 120, 120, 'income', 290],
+      ['ontem rodei 2h antes da meia-noite e 3h depois, 160km no turno', 120, 180, 'work', 160],
+    ] as const
+    for (const [i, [message, before, after, kind, amount]] of mixed.entries()) {
+      const turn = await ask(message)
+      const replied = await ask('hoje', turn)
+      const extra = replied.response.actions.map(c => c.action).find(a => a.kind === 'income' || (a.kind === 'work' && a.km !== undefined))
+      const expected = [[yesterday, before], [today, after]]
+      out.push(result('XF-horarios-distribuidos-e-dado-sem-data-' + i, { message, responses: [turn.response, replied.response] }, { expected, kind, amount },
+        turn.response.mode === 'clarify' && turn.response.actions.length === 2 && JSON.stringify(workParts(turn)) === JSON.stringify(expected)
+        && !turn.response.unresolved.length && replied.response.mode === 'propose_actions' && replied.response.actions.length === 3 && extra?.kind === kind
+        && extra.date === today && (extra.kind === 'income' ? extra.amount : extra.km) === amount && JSON.stringify(state) === snapshot))
+    }
+    const invalid = [
+      ['ontem comecei 10h e terminei hoje 11h', 'clarify', /in[ií]cio|hor[áa]rio|dura[çc][ãa]o/i],
+      ['comecei ontem 23h e terminei ontem 1h', 'clarify', /in[ií]cio|hor[áa]rio|dias?/i],
+      ['hoje comecei 22h e vou terminar amanhã às 2h', 'answer', /terminar|concluir/i],
+    ] as const
+    for (const [i, [message, mode, text]] of invalid.entries()) {
+      const turn = await ask(message)
+      out.push(result('XF-horarios-incompativeis-ou-futuros-' + i, { message, response: turn.response }, 'trata a data e o horário sem sugerir lançamento',
+        turn.response.mode === mode && !turn.response.actions.length && !turn.response.unresolved.length && text.test(turn.response.reply)))
+    }
+  }
+
+  {
     const chat = async (today: string, messages: readonly string[], rich = true) => {
       const state = rich ? motoristaRico(today) : buildState({ profile: 'driver' })
       const snapshot = JSON.stringify(state)

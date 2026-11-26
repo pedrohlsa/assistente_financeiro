@@ -558,7 +558,7 @@ export function findAllDates(text: string, today = todayISO()): DateResolution[]
 }
 
 const NIGHT_SHIFT_DAY = String.raw`(?:(?:${WEEKDAY_RE})(?:-feira)?(?:\s+passad[oa])?|hoje|ontem|anteontem|(?:dia\s+)?\d{1,2}(?:[/-]\d{1,2}(?:[/-]\d{2,4})?)?)`
-const NIGHT_SHIFT_RANGE = new RegExp(String.raw`^\s*(?:(?<lead>na\s+madrugada|no\s+turno(?:\s+da\s+noite)?|trabalhei|rodei|dirigi)\s+)?de\s+(?<from>${NIGHT_SHIFT_DAY})\s+(?:pra|para)\s+(?<to>${NIGHT_SHIFT_DAY})(?:\s*[,;]\s*|\s+)(?<rest>.+)$`, 'iu')
+const NIGHT_SHIFT_RANGE = new RegExp(String.raw`^\s*(?:(?<lead>na\s+madrugada|no\s+turno(?:\s+da\s+noite)?|trabalhei|rodei|dirigi)\s+)?de\s+(?<from>${NIGHT_SHIFT_DAY})\s+(?:pra|para)\s+(?<to>${NIGHT_SHIFT_DAY})(?:(?:\s*[,;]\s*|\s+)(?<rest>.+))?\s*$`, 'iu')
 const NIGHT_SHIFT_WEEKDAY = new RegExp(String.raw`^(${WEEKDAY_RE})(?:-feira)?$`, 'i')
 
 function nightShiftDates(word: string, today: string): string[] {
@@ -573,7 +573,7 @@ function nightShiftDates(word: string, today: string): string[] {
 /** Dois dias consecutivos ditos como o intervalo de uma jornada. */
 export function readNightShiftRange(text: string, today: string) {
   const match = text.match(NIGHT_SHIFT_RANGE)
-  if (!match || /^(?:reais?|contos?|km|horas?|litros?)\b/i.test(match.groups.rest)) return undefined
+  if (!match || /^(?:reais?|contos?|km|horas?|litros?)\b/i.test(match.groups.rest || '')) return undefined
   const { from, to, rest, lead } = match.groups
   const starts = nightShiftDates(from, today)
   const bareStart = from.match(/^(?:dia\s+)?(\d{1,2})$/i)
@@ -582,5 +582,5 @@ export function readNightShiftRange(text: string, today: string) {
     const matches = starts.includes(start) || (!!bareStart && fromISO(start).getDate() === Number(bareStart[1]))
     return matches ? [{ from: start, to: end }] : []
   })
-  return { rest, afterMidnight: /^na\s+madrugada$/i.test(lead || ''), labels: [from, to], window: windows.length === 1 ? windows[0] : undefined }
+  return { rest: rest || '', afterMidnight: /^na\s+madrugada$/i.test(lead || ''), labels: [from, to], window: windows.length === 1 ? windows[0] : undefined }
 }
