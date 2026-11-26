@@ -104,6 +104,77 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
   const out: AdversarialResult[] = []
 
   {
+    const chat = async (today: string, messages: readonly string[], rich = true) => {
+      const state = rich ? motoristaRico(today) : buildState({ profile: 'driver' })
+      const snapshot = JSON.stringify(state)
+      const turns: Awaited<ReturnType<typeof orchestrate>>[] = []
+      let pending: AssistantCandidateAction[] | undefined
+      for (const message of messages) {
+        const last = turns[turns.length - 1]
+        const next = await orchestrate({ state, today, message, remoteEnabled: false, pending,
+          pendingClarification: last?.response.mode === 'clarify' ? last.response.clarification : undefined,
+          draft: last?.draft || undefined, focus: last?.focus })
+        if (next.response.actions.length) pending = next.response.actions
+        else if (!next.keepPending) pending = undefined
+        turns.push(next)
+      }
+      return { turns, untouched: snapshot === JSON.stringify(state) }
+    }
+    const cases = [
+      ['2026-11-25', 'de terça pra quarta fiz 210 de corrida', 'quarta', ['24/11/2026', '25/11/2026'], 'income', 210, undefined, '2026-11-25'],
+      ['2026-11-25', 'de 24 pra 25 foram trezentos na uber', 'dia 25', ['24/11/2026', '25/11/2026'], 'income', 300, 'Uber', '2026-11-25'],
+      ['2026-11-25', 'no turno da noite de terça pra quarta gastei 90 de gasolina', 'ontem', ['24/11/2026', '25/11/2026'], 'fuel', 90, undefined, '2026-11-24'],
+      ['2027-01-02', 'de quinta pra sexta fiz 310 na Uber', 'sexta', ['31/12/2026', '01/01/2027'], 'income', 310, 'Uber', '2027-01-01'],
+      ['2027-01-02', 'de 31 pra 1 foram trezentos na uber', '31/12/2026', ['31/12/2026', '01/01/2027'], 'income', 300, 'Uber', '2026-12-31'],
+      ['2027-01-02', 'de 31/12/2026 pra 01/01/2027 fiz 180 na 99', '01/01/2027', ['31/12/2026', '01/01/2027'], 'income', 180, '99', '2027-01-01'],
+      ['2027-01-02', 'de ontem para hoje fiz noventa na 99', 'hoje', ['01/01/2027', '02/01/2027'], 'income', 90, '99', '2027-01-02'],
+    ] as const
+    for (const [i, [today, message, answer, days, kind, amount, app, date]] of cases.entries()) {
+      const { turns, untouched } = await chat(today, [message, answer], i % 2 === 0)
+      const [question, confirmation] = turns.map(t => t.response)
+      const [action, extra] = confirmation.actions.map(c => c.action)
+      out.push(result('XE-jornada-de-dois-dias-pede-a-data-' + i, turns.map(t => t.response), { days, kind, amount, app, date },
+        question.mode === 'clarify' && !question.actions.length && days.every(day => question.reply.includes(day))
+        && confirmation.mode === 'propose_actions' && !confirmation.unresolved.length && !extra && action?.kind === kind && action.amount === amount
+        && action.date === date && (action.kind !== 'income' || action.description === app) && untouched))
+    }
+    const explicit = [
+      ['2026-11-25', 'de ontem pra hoje fiz 210 de corrida mas o pix caiu hoje', 210, undefined, '2026-11-25'],
+      ['2026-11-25', 'de ontem pra hoje fiz 210 de corrida ontem mas o pix caiu hoje', 210, undefined, '2026-11-25'],
+      ['2026-11-25', 'na madrugada de terça pra quarta fiz 190 na 99', 190, '99', '2026-11-25'],
+      ['2027-01-02', 'na madrugada de quinta pra sexta ganhei 250 na Uber', 250, 'Uber', '2027-01-01'],
+    ] as const
+    for (const [i, [today, message, amount, app, date]] of explicit.entries()) {
+      const { turns: [resultTurn], untouched } = await chat(today, [message])
+      const [action, extra] = resultTurn.response.actions.map(c => c.action)
+      out.push(result('XE-jornada-de-dois-dias-recebimento-localizado-' + i, resultTurn.response, { amount, app, date }, resultTurn.response.mode === 'propose_actions'
+        && !resultTurn.response.unresolved.length && !extra && action?.kind === 'income' && action.amount === amount && action.date === date
+        && action.description === app && untouched))
+    }
+    const today = '2026-11-25'
+    const { turns: [conflict, resolved] } = await chat(today, ['de ontem pra hoje recebi 210 ontem mas o pix caiu hoje', 'hoje'])
+    const [cash, unexpected] = resolved.response.actions.map(c => c.action)
+    out.push(result('XE-jornada-de-dois-dias-duas-datas-de-recebimento', [conflict.response, resolved.response], 'pergunta qual data de recebimento é correta',
+      conflict.response.mode === 'clarify' && !conflict.response.actions.length && conflict.response.reply.includes('24/11/2026')
+      && conflict.response.reply.includes('25/11/2026') && resolved.response.mode === 'propose_actions' && !unexpected
+      && cash?.kind === 'income' && cash.amount === 210 && cash.date === today))
+    const { turns: [mixed, chosen], untouched } = await chat(today, ['de terça pra quarta fiz 210 corridas, botei 80 de gasolina na terça', 'quarta'])
+    const candidates = chosen.response.actions.map(c => c.action)
+    out.push(result('XE-jornada-de-dois-dias-preserva-combustivel-datado', [mixed.response, chosen.response], 'gasolina na terça e 210 viagens na quarta',
+      mixed.response.mode === 'clarify' && mixed.response.actions.length === 1 && mixed.response.actions[0].action.kind === 'fuel'
+      && chosen.response.mode === 'propose_actions' && candidates.length === 2 && candidates.some(a => a.kind === 'fuel' && a.amount === 80 && a.date === '2026-11-24')
+      && candidates.some(a => a.kind === 'work' && a.trips === 210 && a.date === today) && untouched))
+    const split = await chat(today, ['trabalhei de ontem pra hoje, fechei 300 da Uber e paguei 85 de gasolina', 'hoje', 'ontem'])
+    const [first, second, last] = split.turns.map(t => t.response)
+    const distinct = last.actions.map(c => c.action)
+    out.push(result('XE-jornada-de-dois-dias-uma-data-por-item', [first, second, last], 'receita de hoje e combustível de ontem em turnos separados',
+      first.mode === 'clarify' && !first.actions.length && /300,00/.test(first.reply) && second.mode === 'clarify' && second.actions.length === 1
+      && /85,00/.test(second.reply) && last.mode === 'propose_actions' && distinct.length === 2
+      && distinct.some(a => a.kind === 'income' && a.amount === 300 && a.date === today && a.description === 'Uber')
+      && distinct.some(a => a.kind === 'fuel' && a.amount === 85 && a.date === '2026-11-24') && split.untouched))
+  }
+
+  {
     const today = '2026-11-25'
     const state = motoristaRico(today)
     const context = /como exemplo|cita o que algu[eé]m disse/i

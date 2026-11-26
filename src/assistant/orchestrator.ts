@@ -65,7 +65,7 @@ import { addDays, fmtBRL, fmtHours, fmtNum, MESES_PT_BR, nowPaymentTime, nowTime
 import { matchRecurringPayment, occurrencesBetween, possibleRecurringTransactions, recurringActiveOn, recurringLinkAction } from '../services/calc'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { normalizeNumberWords } from './numbers'
-import { brDate, dateInAnswer, dateLabel, findAllDates, findDate, previousYearOf, resolveDayInWindow } from './dates'
+import { brDate, dateInAnswer, dateLabel, findAllDates, findDate, previousYearOf, readNightShiftRange, resolveDayInWindow } from './dates'
 import { applyPreferenceAliases, parsePreferenceCommand } from './preferences'
 import type { PreferenceMutation } from './preferences'
 
@@ -1727,6 +1727,57 @@ function prepareRoadReport(input: OrchestratorInput, caps: AssistantCapabilities
   return { ...result, response: { ...result.response, reply: `${note}\n\n${result.response.reply}` } }
 }
 
+function nightShiftClarification(actions: ParsedAction[], window: { from: string; to: string }, options: AssistantClarification['options']): AssistantClarification {
+  const item = describeAction(actions[0])
+  return { field: 'night-shift-date', dateWindow: window, pendingActions: actions, options,
+    question: `${item}. Em qual dia aconteceu? A jornada passou por ${brDate(window.from)} e ${brDate(window.to)}.` }
+}
+
+const PAST_NIGHT_RECEIPT = /\s+(?:mas|e)\s+(?:o\s+)?pix\s+caiu\s+(hoje|ontem|anteontem)[.!]*$/i
+
+async function prepareNightShift(input: OrchestratorInput, caps: AssistantCapabilities, today: string): Promise<OrchestratorOutput | undefined> {
+  if (looksLikeQuestion(input.message) || looksNegated(input.message)) return undefined
+  const shift = readNightShiftRange(input.message, today)
+  if (!shift) return undefined
+  if (!shift.window) return keepPendingClarification(input, { field: 'night-shift-range', question: 'Quais foram as duas datas da jornada? Diga dia e mês e o que aconteceu em cada dia.' })
+  const receipt = shift.rest.match(PAST_NIGHT_RECEIPT)
+  const report = receipt ? shift.rest.slice(0, receipt.index).trimEnd() : shift.rest
+  const parsed = await orchestrate({ ...input, message: report, pending: undefined, remoteEnabled: false })
+  if (parsed.response.mode !== 'propose_actions' || parsed.response.unresolved.length || !parsed.response.actions.length) {
+    return keepPendingClarification(input, { field: 'night-shift-details', question: 'Quais valores ou medidas aconteceram na jornada? Informe o dia de cada item.' })
+  }
+  const actions = parsed.response.actions.map(c => c.action)
+  const exactReceipt = receipt && actions.filter(a => a.kind === 'income').length === 1 ? findDate(receipt[1], today) : undefined
+  const addressed = actions.map(action => {
+    if (action.kind === 'income' && exactReceipt?.kind === 'date') {
+      const statedReceipt = /\b(?:recebi|entrou|caiu|depositou|repassou)\b/i.test(report)
+      const conflicting = statedReceipt && action.date && action.date !== exactReceipt.date
+      return { ...action, date: conflicting ? undefined : exactReceipt.date }
+    }
+    return shift.afterMidnight && (!('date' in action) || !action.date) ? { ...action, date: shift.window.to } : action
+  })
+  const ready = addressed.filter(a => 'date' in a && a.date)
+  const awaiting = addressed.filter(a => !('date' in a) || !a.date)
+  if (!awaiting.length) return proposeDatedActions(input, ready, caps, today)
+  const dates = [shift.window.from, shift.window.to]
+  const options = shift.labels.map((label, i) => ({ label, value: dates[i] }))
+  const clarification = nightShiftClarification(awaiting, shift.window, options)
+  return ready.length ? keepActionsAwaitingClarification(input, proposeDatedActions(input, ready, caps, today), clarification)
+    : keepPendingClarification(input, clarification)
+}
+
+function continueNightShift(input: OrchestratorInput, caps: AssistantCapabilities, today: string, clarification: AssistantClarification): OrchestratorOutput | undefined {
+  const said = normalizeName(input.message).replace(/[.!?]+$/, '').trim().replace(/^(?:foi|caiu|entrou|paguei)\s+/, '')
+  if (/^(?:cancela(?:r)?|esquece|deixa\s+pra\s+la)$/.test(said)) return undefined
+  const window = clarification.dateWindow
+  const iso = clarification.options?.find(option => normalizeName(option.label) === normalizeName(weekdayChoiceWord(said)))?.value
+    ?? resolveDayInWindow(said, window, today)
+  if (!iso) return keepPendingClarification(input, clarification)
+  const [item, ...remaining] = clarification.pendingActions
+  const result = proposeDatedActions(input, withDate([item], iso), caps, today)
+  return remaining.length ? keepActionsAwaitingClarification(input, result, nightShiftClarification(remaining, window, clarification.options)) : result
+}
+
 function readDatedPayoutActivities(text: string, today: string): ParsedAction[] | undefined {
   if (!/\b(?:abasteci|paguei|gastei|rodei|trabalhei)\b/i.test(text)) return undefined
   const { actions, clauses } = analyzeMessage(text, { driver: true, today })
@@ -2922,6 +2973,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     if (!input.draft && !input.pendingClarification) {
       const breakdown = prepareRideReceiptBreakdown(input, caps, today)
       if (breakdown) return breakdown
+      const nightShift = await prepareNightShift(input, caps, today)
+      if (nightShift) return nightShift
       const roadReport = prepareRoadReport(input, caps, today)
       if (roadReport) return roadReport
       const datedFuel = prepareRideReceiptAndDatedFuel(input, caps, today)
@@ -3022,6 +3075,10 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   // "GNV" logo depois de "gás de cozinha ou GNV?" precisa recuperar o valor e
   // a descrição da mensagem anterior — o usuário não repete nada.
   const pc = input.pendingClarification
+  if (pc?.field === 'night-shift-date' && pc.dateWindow && pc.pendingActions?.length) {
+    const nightShift = continueNightShift(input, caps, today, pc)
+    if (nightShift) return nightShift
+  }
   if (pc?.pendingPaymentText) {
     const said = normalizeName(input.message).replace(/[.!?]+$/, '').trim()
     if (/^(?:cancela(?:r)?|esquece|deixa pra la)$/.test(said)) return {
