@@ -357,7 +357,11 @@ function parseContrastCorrection(
   for (const field of ['amount', 'total', 'cost', 'description', 'category', 'date', 'origin', 'cardName', 'is99']) {
     if (before[field] !== after[field]) plan.edits.push({ id, field, value: after[field], was: before[field] })
   }
-  plan.summary.push(plan.edits.length ? 'Corrigi a proposta.' : 'A proposta já estava com esses dados.')
+  // A troca de plataforma diz qual ficou: "Corrigi a proposta" não dizia nada.
+  const soPlataforma = plan.edits.length === 1 && plan.edits[0].field === 'description'
+    && /^(?:uber|99|in\s*driver?|appzz)$/i.test(String(plan.edits[0].value))
+  plan.summary.push(soPlataforma ? `Troquei a plataforma para ${String(plan.edits[0].value).replace(/^appzz$/i, '99').replace(/^uber$/i, 'Uber').replace(/^in\s*driver?$/i, 'inDrive')}.`
+    : plan.edits.length ? 'Corrigi a proposta.' : 'A proposta já estava com esses dados.')
   return plan
 }
 
@@ -778,6 +782,23 @@ export function parseCorrection(
   caps: AssistantCapabilities,
   today = todayISO(),
 ): CorrectionPlan | null {
+  // Pedidos de troca no imperativo: "põe pra ontem", "muda pra 99". São o
+  // mesmo conserto de "foi ontem" e "foi na 99", que já eram entendidos.
+  const imperativo = normalizeName(message).replace(/[.!]+$/, '').trim()
+  const paraData = imperativo.match(/^(?:poe|coloca|joga|passa|muda|troca|lanca|bota)\s+(?:isso\s+|tudo\s+|a\s+data\s+)?(?:pra|para|pro|em)\s+(ontem|hoje|anteontem|dia\s+\d{1,2}|segunda|terca|quarta|quinta|sexta|sabado|domingo)(?:\s+passad[oa])?$/)
+  if (paraData) return parseCorrection(`foi ${message.trim().replace(/^.*?\b(?:pra|para|pro|em)\s+/i, '')}`, pending, caps, today)
+  const paraApp = imperativo.match(/^(?:poe|coloca|joga|passa|muda|troca|bota)\s+(?:isso\s+|a\s+plataforma\s+|o\s+app\s+)?(?:pra|para|pro|na|no)\s+(?:a\s+|o\s+)?(uber|99|indrive|in\s+drive)$/)
+  if (paraApp) return parseCorrection(`foi na ${paraApp[1]}`, pending, caps, today)
+  // "Só a gasolina", "deixa só a receita": o resto sai da proposta.
+  const soEsse = imperativo.match(/^(?:(?:deixa|fica|mantem|manter|quero)\s+)?(?:so|somente|apenas)\s+(?:a|o|os|as)\s+(.{2,30})$/)
+  if (soEsse && pending.length > 1) {
+    const alvo = resolveTarget(soEsse[1], pending)
+    if (alvo && 'id' in alvo) {
+      const fica = pending.find(p => p.id === alvo.id)!
+      return { remove: pending.filter(p => p.id !== alvo.id).map(p => p.id), edits: [], cancelAll: false,
+        summary: [`Deixei só ${/^(?:receita|despesa|manuten)/i.test(describe(fica.action)) ? 'a' : 'o'} ${describe(fica.action)} na proposta.`] }
+    }
+  }
   // "Foi 15 O ESTACIONAMENTO": o valor antes do item. Sem reordenar, a frase
   // virava um gasto novo de R$ 15 e a proposta perdia a receita que estava nela.
   const itemDepois = message.trim().match(/^((?:n[ãa]o\s*,?\s*)?(?:na\s+verdade\s*,?\s*)?)(?:foi|era|deu)\s+((?:r\$\s*)?\d+(?:[.,]\d+)*)(?:\s+(?:reais|real|conto?s?))?\s+(?:o|a|os|as|n[oa]|d[oa]|de)\s+([\p{L}][\p{L}\s]{1,30}?)\s*[.!]*$/iu)
@@ -854,7 +875,11 @@ function parseCorrectionWithMarker(
           plan.edits.push({ id: income.id, field, value: checked.action[field], was: income.action[field] })
         }
       }
-      plan.summary.push(plan.edits.length ? 'Corrigi a proposta.' : 'A proposta já estava com esses dados.')
+      // A troca de plataforma diz qual ficou: "Corrigi a proposta" não dizia nada.
+  const soPlataforma = plan.edits.length === 1 && plan.edits[0].field === 'description'
+    && /^(?:uber|99|in\s*driver?|appzz)$/i.test(String(plan.edits[0].value))
+  plan.summary.push(soPlataforma ? `Troquei a plataforma para ${String(plan.edits[0].value).replace(/^appzz$/i, '99').replace(/^uber$/i, 'Uber').replace(/^in\s*driver?$/i, 'inDrive')}.`
+    : plan.edits.length ? 'Corrigi a proposta.' : 'A proposta já estava com esses dados.')
       return plan
     }
     if (extractOrigins(creditRevision).length > 1 || /\bou\b|\be\s+(?:r\$\s*)?\d/i.test(creditRevision)) {
@@ -923,13 +948,25 @@ function parseCorrectionWithMarker(
       const target = resolveTarget(t, remaining)
       if (target && 'id' in target) {
         const p = remaining.find(x => x.id === target.id)!
-        const field = 'amount' in (p.action as any) ? 'amount'
-          : 'total' in (p.action as any) ? 'total'
-            : 'cost' in (p.action as any) ? 'cost' : 'amount'
+        // "Rodei 180 km" → "não, 190": a jornada não tem valor em reais. O
+        // número corrige a ÚNICA medida dita; antes, ganhava um campo `amount`
+        // fantasma e o texto dizia "Troquei o valor de — para R$ 190,00".
+        const work = p.action.kind === 'work' ? p.action as Extract<ParsedAction, { kind: 'work' }> : undefined
+        const measures = work ? (['km', 'hours', 'trips'] as const).filter(k => typeof work[k] === 'number') : []
+        if (work && measures.length !== 1) {
+          return { ...plan, ambiguous: { question: 'Esse número é a distância, as horas ou as viagens?' } }
+        }
+        const field = work ? measures[0]
+          : 'amount' in (p.action as any) ? 'amount'
+            : 'total' in (p.action as any) ? 'total'
+              : 'cost' in (p.action as any) ? 'cost' : 'amount'
         const was = (p.action as any)[field]
         if (was !== newValue) {
           plan.edits.push({ id: p.id, field, value: newValue, was })
-          plan.summary.push(`Troquei o valor de ${fmtBRL(Number(was))} para ${fmtBRL(newValue)}.`)
+          plan.summary.push(field === 'km' ? `Atualizei a distância para ${fmtNum(newValue, 3)} km.`
+            : field === 'hours' ? `Atualizei as horas para ${fmtHours(newValue)}.`
+              : field === 'trips' ? `Atualizei as viagens para ${newValue} viagens.`
+                : `Troquei o valor de ${fmtBRL(Number(was))} para ${fmtBRL(newValue)}.`)
           touched = true
         }
       } else if (target && 'ambiguousAmong' in target) {

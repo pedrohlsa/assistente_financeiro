@@ -14048,6 +14048,53 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YQ — correções no imperativo, medida da jornada, "só a X" e "e mais N".
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    const chat = () => {
+      let prior: Awaited<ReturnType<typeof orchestrate>> | undefined
+      let pending: any
+      return async (message: string) => {
+        prior = await orchestrate({ state, message, today, remoteEnabled: false, pending,
+          pendingClarification: prior?.response.mode === 'clarify' ? prior.response.clarification : undefined })
+        if (prior.response.actions.length) pending = prior.response.actions
+        else if (!prior.keepPending) pending = undefined
+        return prior
+      }
+    }
+    const shape = (o: Awaited<ReturnType<typeof orchestrate>>) => (o.response.actions as any[]).map(c => {
+      const a = c.action
+      return a.kind === 'work' ? ['work', a.km ?? a.hours ?? a.trips, 'amount' in a] : [a.kind, a.amount, a.description || '', a.date || '']
+    })
+    for (const [i, [turns, expected]] of ([
+      // "Não, 190" virava um valor em reais dentro da jornada e os km ficavam 180.
+      [['rodei 180 km', 'não, 190'], [['work', 190, false]]],
+      [['trabalhei 8 horas', 'foi 9'], [['work', 9, false]]],
+      // Caíam na ajuda ou em "não peguei o quê".
+      [['fiz 300 na uber', 'põe pra ontem'], [['income', 300, 'Uber', '2026-11-24']]],
+      [['fiz 300 na uber', 'muda pra 99'], [['income', 300, '99', '']]],
+      [['fiz 300 na uber e gastei 80 de gasolina', 'só a gasolina'], [['fuel', 80, '', '']]],
+      // "E mais 50" substituía a proposta.
+      [['fiz 300 na uber', 'e mais 50'], [['income', 300, 'Uber', ''], ['income', 50, 'Uber', '']]],
+      [['abasteci 100', 'e mais 50'], [['fuel', 100, '', ''], ['fuel', 50, '', '']]],
+    ] as const).entries()) {
+      const say = chat()
+      let last: Awaited<ReturnType<typeof orchestrate>> | undefined
+      for (const t of turns) last = await say(t)
+      out.push(result('YQ-correcao-' + i, { turns, response: last!.response }, expected,
+        last!.response.mode === 'propose_actions' && JSON.stringify(shape(last!)) === JSON.stringify(expected)))
+    }
+    {
+      const say = chat()
+      await say('rodei 180 km e fiz 14 corridas')
+      const r = await say('não, 190')
+      out.push(result('YQ-medida-ambigua-pergunta', { reply: r.response.reply }, 'pergunta qual medida',
+        r.response.mode === 'clarify' && /dist[âa]ncia.*horas.*viagens/.test(r.response.reply)))
+    }
+  }
+
   return out
 }
 

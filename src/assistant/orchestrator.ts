@@ -1347,6 +1347,18 @@ function acrescimoAProposta(pending: AssistantCandidateAction[], mensagem: strin
     const u = medida[2].toLowerCase()
     return /^(?:km|quil)/.test(u) ? `rodei ${medida[1]} km` : /^(?:corrida|viage)/.test(u) ? `fiz ${medida[1]} corridas` : `trabalhei ${medida[1]} horas`
   }
+  // "Fiz 300 na uber" → "E MAIS 50": outro item do mesmo tipo, na mesma
+  // plataforma. Antes, os R$ 50 viravam a proposta e a da Uber saía da tela.
+  const soMais = mensagem.trim().match(/^(?:e\s+)?mais\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)\s*(?:reais|real|conto|contos)?\s*[.!]*$/i)
+  if (soMais) {
+    const ultimo = [...pending].reverse().find(p => ['income', 'expense', 'fuel'].includes(p.action.kind))?.action as any
+    if (ultimo?.kind === 'fuel') return `abasteci ${soMais[1]}`
+    if (ultimo?.kind === 'income') {
+      const app = /^(?:Uber|99|inDrive)$/.test(ultimo.description || '') ? ` na ${ultimo.description}` : ''
+      return ultimo.category === 'corridas' ? `fiz ${soMais[1]}${app}` : `recebi ${soMais[1]}`
+    }
+    if (ultimo?.kind === 'expense') return `gastei ${soMais[1]}${ultimo.description ? ` de ${String(ultimo.description).toLowerCase()}` : ''}`
+  }
   // Abastecimento e manutenção são gasto: "abasteci 50" → "e 20 de lanche"
   // substituía a proposta e o abastecimento sumia.
   const tipos = new Set(pending.map(p => p.action.kind).flatMap(k => k === 'expense' || k === 'income' ? [k]

@@ -7743,3 +7743,9 @@ A rubrica foi conferida resposta por resposta contra a rodada anterior, sem nenh
 - "Vale a pena 1,50 por km?" responde sim ou não pela régua da tela Veículo: custo e mínimo recomendado.
 - "Fiz uma corrida de 50 por 20 km" guarda os 20 km. Para quem andou como passageiro, o km continua fora.
 
+### Correções, segunda volta (`YQ`)
+
+- "Rodei 180 km" → "não, 190" atualiza a distância para 190 km. Antes, a jornada ganhava um valor em reais escondido, os km ficavam em 180 e o texto dizia "Troquei o valor de — para R$ 190,00". Com km e viagens na mesma jornada, o app pergunta qual medida mudou.
+- "Põe pra ontem", "muda pra 99" e "só a gasolina" / "deixa só a receita" corrigem a proposta. Antes, caíam no menu de ajuda ou em "não peguei o quê". A troca de plataforma agora diz qual ficou.
+- "Fiz 300 na uber" → "e mais 50" acrescenta outro item da Uber. Para gasto e abastecimento, a regra é a mesma. Antes, os R$ 50 substituíam a proposta.
+
