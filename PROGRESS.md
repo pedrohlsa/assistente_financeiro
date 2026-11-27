@@ -7876,3 +7876,8 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "Posso gastar 200?", "posso gastar 200 hoje?", "posso gastar 200 no fim de semana?" e "posso comprar um tênis de 300?" viram simulação, como "dá pra gastar 200?". Antes, caíam no menu de ajuda ou perguntavam se os R$ 200 foram ganho ou gasto (regra 33a).
 - "Quanto consigo guardar esse mês?", no motorista, responde com a sobra do mês e diz que é isso que dá para guardar. Antes, a resposta era "não tenho lançamento". A rota de "guardar" dos outros perfis continua igual.
 
+### Intervalo de dias (`AH`)
+
+- "Quanto ganhei entre o dia 10 e o dia 20?", "quanto fiz do dia 10 até o dia 20?" e "quanto gastei do dia 1 ao dia 15?" respondem o intervalo pedido. Antes, a primeira respondia o mês inteiro como se fosse o intervalo, e a última virava "gasto por dia", porque "ao dia" também significa "por dia".
+- "Semana retrasada", "mês retrasado", "últimos 15 dias", "de segunda a quarta", "dia 20", "último sábado" e "outubro na Uber" foram conferidos, sem defeito.
+

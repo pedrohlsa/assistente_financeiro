@@ -14646,6 +14646,26 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // AH — intervalo de dias com artigo e contração: "entre o dia 10 e o dia 20", "do dia 1 ao dia 15".
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    const soma = (tipo: string, de: string, ate: string) => state.transactions.filter(t => t.type === tipo && t.date >= de && t.date <= ate).reduce((n, t) => n + t.amount, 0)
+    for (const [i, [message, tipo, de, ate]] of ([
+      // Respondia o MÊS inteiro como se fosse o intervalo.
+      ['quanto ganhei entre o dia 10 e o dia 20?', 'income', '2026-11-10', '2026-11-20'],
+      // "Ao dia" virava "por dia".
+      ['quanto gastei do dia 1 ao dia 15?', 'expense', '2026-11-01', '2026-11-15'],
+      ['quanto fiz do dia 10 até o dia 20?', 'income', '2026-11-10', '2026-11-20'],
+    ] as const).entries()) {
+      const r = await orchestrate({ state, message, today, remoteEnabled: false })
+      const esperado = fmtBRL(soma(tipo, de, ate))
+      out.push(result('AH-intervalo-' + i, { message, reply: r.response.reply }, esperado,
+        r.response.reply.includes(esperado) && r.response.reply.includes(`de ${de.slice(8)}/${de.slice(5, 7)}/2026 a ${ate.slice(8)}/${ate.slice(5, 7)}/2026`)))
+    }
+  }
+
   return out
 }
 

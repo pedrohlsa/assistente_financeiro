@@ -140,6 +140,8 @@ export function normalizeQuery(input: string): string {
   // "Quanto CADA CASA me pagou", "qual CASA paga mais": a fonte do dinheiro é a
   // origem. Lida como texto, a consulta procurava "Cada Casa"; e "qual casa
   // paga mais" respondia o gasto por origem.
+  // "Do dia 1 AO DIA 15": aqui "ao dia" fecha o intervalo, não é "por dia".
+  t = t.replace(/\b(do|de)\s+dia\s+(\d{1,2})\s+ao\s+dia\s+(\d{1,2})\b/g, '$1 dia $2 ate o dia $3')
   // "EM QUAL dia EU rodei mais KM", "em que dia eu MAIS RODEI": a mesma
   // pergunta de "qual dia rodei mais". O "eu" e o "km" sobravam como resíduo,
   // e "mais rodei" virava consulta de gasto.

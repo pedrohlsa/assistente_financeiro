@@ -21,7 +21,10 @@ const QUALIFICADOR_DA_SEMANA = String.raw`(?:da\s+semana\s+passada|d(?:esta|essa
 const SEMANA_DO_CALENDARIO = new RegExp(`^${QUALIFICADOR_DA_SEMANA}`, 'i')
 const DIA_DO_MES = String.raw`\d{1,2}(?:\s+(?:d[oe]\s+mes\s+passado|d(?:este|esse)\s+mes))?`
 const DATA_DO_INTERVALO = String.raw`(?:\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|dia\s+${DIA_DO_MES}|${DIA_SEMANA}|hoje|anteontem|ontem)`
-const INTERVALO_DE_DIAS = new RegExp(String.raw`\b(de|desde|entre)\s+(?:o\s+(?=dia\s+))?(${DATA_DO_INTERVALO})(?:\s+(${QUALIFICADOR_DA_SEMANA}))?\s+(a|ate|e)\s+(${DATA_DO_INTERVALO}|${DIA_DO_MES})(?![\d/-]|[.,]\d)(?=\b)(?:\s+(${QUALIFICADOR_DA_SEMANA}))?`)
+// "ENTRE o dia 10 E O dia 20", "DO dia 10 AO dia 20", "até o dia 20": o artigo
+// e as contrações também abrem e fecham o intervalo. Sem eles, a consulta
+// respondia o mês inteiro como se fosse o intervalo pedido.
+const INTERVALO_DE_DIAS = new RegExp(String.raw`\b(de|do|desde|entre)\s+(?:o\s+(?=dia\s+))?(${DATA_DO_INTERVALO})(?:\s+(${QUALIFICADOR_DA_SEMANA}))?\s+(a|ao|ate(?:\s+o)?|e(?:\s+o)?)\s+(${DATA_DO_INTERVALO}|${DIA_DO_MES})(?![\d/-]|[.,]\d)(?=\b)(?:\s+(${QUALIFICADOR_DA_SEMANA}))?`)
 const DATE_TO_CUTOFF = /\b((?:d[oe]|no)\s+(?:inicio\s+do\s+)?mes(?:\s+(?:passado|anterior))?|(?:d?est[ea]|d?ess[ea]|ness?[ea]|nest[ea])\s+(?:mes|semana))\s+(?:ate\s+(?:antes\s+de\s+)?(ontem|anteontem|hoje)|ate\s+(?:o\s+)?dia\s+(\d{1,2})(?![\d/]|[.,]\d)|(?:tirando|excluindo|sem\s+contar)\s+hoje)\b/
 
 // MAPA, nao objeto: leitura por colchete anda pela cadeia de prototipo, e
@@ -81,7 +84,7 @@ export function parseCalendarRange(input: string, today: string): CalendarRange 
     return { matched, period: P(from, to, `de ${br(from)} a ${br(to)}`, 'range', today) }
   }
   const m = normalized.match(INTERVALO_DE_DIAS)
-  if (!m || (m[1] !== 'entre' && m[4] === 'e')) return undefined
+  if (!m || (m[1] !== 'entre' && /^e\b/.test(m[4]))) return undefined
   const [matched, , first, firstWeek, , rawLast, lastWeek] = m
   const elided = /^\d{1,2}(?:\s|$)/.test(rawLast)
   if (elided && (!/^dia\s/i.test(first) || /^\s+(?:reais?|contos?|centavos?)\b/.test(normalized.slice(m.index + matched.length)))) return undefined
