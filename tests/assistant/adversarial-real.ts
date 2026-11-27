@@ -14310,6 +14310,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YZ — "em qual dia eu rodei mais km": a pergunta de ranking por dia dita com sobras.
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    for (const [i, message] of ['em qual dia eu rodei mais km?', 'em que dia eu mais rodei?'].entries()) {
+      const r = await orchestrate({ state, message, today, remoteEnabled: false })
+      // Antes: "não consegui ler esta parte: eu km", e "mais rodei" virava consulta de gasto.
+      out.push(result('YZ-dia-que-mais-rodei-' + i, { message, reply: r.response.reply }, 'ranking de km por dia',
+        /^O maior foi \d{2}\/\d{2}\/\d{4}, com [\d.]+ km/.test(r.response.reply)))
+    }
+  }
+
   return out
 }
 

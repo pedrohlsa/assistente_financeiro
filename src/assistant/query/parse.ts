@@ -140,6 +140,13 @@ export function normalizeQuery(input: string): string {
   // "Quanto CADA CASA me pagou", "qual CASA paga mais": a fonte do dinheiro é a
   // origem. Lida como texto, a consulta procurava "Cada Casa"; e "qual casa
   // paga mais" respondia o gasto por origem.
+  // "EM QUAL dia EU rodei mais KM", "em que dia eu MAIS RODEI": a mesma
+  // pergunta de "qual dia rodei mais". O "eu" e o "km" sobravam como resíduo,
+  // e "mais rodei" virava consulta de gasto.
+  t = t.replace(/\bem\s+(qual|que)\s+dia\b/g, 'qual dia')
+    .replace(/\bmais\s+(rodei|andei|dirigi|trabalhei|faturei|ganhei|gastei)\b/g, '$1 mais')
+    .replace(/\b(rodei|andei|dirigi)\s+mais\s+(?:km|kms|quilometros?)\b/g, '$1 mais')
+    .replace(/\b(qual\s+dia)\s+eu\s+(?=(?:rodei|andei|dirigi|fiz|trabalhei|faturei|ganhei|gastei|recebi)\b)/g, '$1 ')
   // "Quantas CORRIDA eu fiz": no singular, virava a categoria e a resposta era dinheiro.
   t = t.replace(/\bquant(?:as|os)\s+(corrida|viagem)\b(?!s)/g, (_m, w: string) => `quantas ${w === 'viagem' ? 'viagens' : 'corridas'}`)
   const FONTE = String.raw`(?:casa|casas|imovel|imoveis|apartamento|apto|kitnet|cliente|clientes|inquilino|inquilinos|loja)`

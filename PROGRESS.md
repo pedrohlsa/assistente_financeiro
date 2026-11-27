@@ -7794,3 +7794,8 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "Conserto do câmbio", embreagem, suspensão e radiador vão para Manutenção. "Paguei 380 nos pneus dianteiros" grava a descrição "Pneus dianteiros", sem o "Nos" na frente.
 - "Saí com 98.500 e voltei com 98.730", "hodômetro de manhã 98500 à noite 98730" e "rodei do km 98500 ao 98730" registram 230 km e o hodômetro final. Antes, caíam no menu de ajuda.
 
+### Ranking por dia dito com sobras (`YZ`)
+
+- "Em qual dia eu rodei mais km?" e "em que dia eu mais rodei?" respondem com o ranking de km por dia, com os empates ditos. Antes, a primeira dizia que não leu "eu km", e a segunda virava consulta de gasto.
+- As métricas por app (por hora, por km e por corrida) continuam dizendo que o histórico só guarda essas medidas para o dia inteiro, e não por plataforma. Isso é uma limitação conhecida, não um defeito.
+
