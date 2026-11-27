@@ -3203,6 +3203,14 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (isDriver(input.state.settings)) {
     const shorthand = normalizeDriverShorthand(input.message)
     if (shorthand !== input.message) input = { ...input, message: shorthand }
+    // "Fechei 300", "fechei 320 bruto 260 líquido", "fiz a meta, 300": o
+    // fechamento do dia é o faturamento. "Fechei 8h de volante" é jornada e fica.
+    if (!input.pendingClarification) {
+      const fechou = input.message
+        .replace(/^(\s*(?:(?:hoje|hj|ontem|anteontem)\s+)?)fechei\s+(?=(?:r\$\s*)?\d+(?:[.,]\d+)?(?!\s*(?:h|hrs?|horas?|km|corridas?|viagens?)\b))/i, '$1fiz ')
+        .replace(/^(\s*(?:(?:hoje|hj|ontem|anteontem)\s+)?)(?:fiz|bati)\s+a\s+meta\s*[,:;-]?\s*(?:com\s+)?(?=(?:r\$\s*)?\d)/i, '$1fiz ')
+      if (fechou !== input.message) input = { ...input, message: fechou }
+    }
     // "A corrida foi 45": para o motorista, uma corrida é receita. O "foi"
     // virava despesa em Outros. Com proposta na tela, a frase pode ser correção
     // e segue para quem cuida disso.

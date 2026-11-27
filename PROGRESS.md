@@ -7828,3 +7828,8 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "A corrida foi 45", sem proposta na tela, registra uma corrida de R$ 45. Antes, virava despesa em Outros. Com proposta na tela, a frase continua sendo correção.
 - "A 99 de ontem era 160" corrige o repasse salvo da 99. Antes, perguntava se os R$ 99 foram ganho ou gasto. "A uber de ontem foi 250" pergunta se é para corrigir o salvo ou registrar um novo.
 
+### Fechamento do dia (`ZF`)
+
+- "Fechei 300", "ontem fechei 350" e "fechei 320 bruto 260 líquido" registram o faturamento (o último, com os R$ 260 líquidos). Antes, os dois primeiros caíam no menu de ajuda e o líquido virava pergunta. "Fechei 8h de volante" e "fechei o dia com 320… depois de trabalhar 8 horas" continuam com o leitor de jornada.
+- "Fiz a meta, 300" registra os R$ 300. Antes, respondia a composição da meta.
+

@@ -14458,6 +14458,28 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // ZF — fechamento do dia dito com "fechei" e "fiz a meta".
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    for (const [i, [message, expected]] of ([
+      // Caía no menu de ajuda.
+      ['fechei 300', [['income', 300]]],
+      // O líquido virava pergunta.
+      ['fechei 320 bruto 260 líquido', [['income', 260]]],
+      // Respondia a composição da meta.
+      ['fiz a meta, 300', [['income', 300]]],
+      // A jornada continua sendo jornada.
+      ['fechei 8h de volante e fiz 290', [['work', 8], ['income', 290]]],
+    ] as const).entries()) {
+      const r = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actual = (r.response.actions as any[]).map(c => [c.action.kind, c.action.kind === 'work' ? c.action.hours : c.action.amount])
+      out.push(result('ZF-fechamento-' + i, { message, response: r.response }, expected,
+        r.response.mode === 'propose_actions' && !r.response.unresolved.length && JSON.stringify(actual) === JSON.stringify(expected)))
+    }
+  }
+
   return out
 }
 
