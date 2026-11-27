@@ -837,6 +837,22 @@ function answerQuestions(
         continue
       }
     }
+    // "Fiz 320 em 10 horas, quanto deu POR HORA?": a conta é com os números
+    // desta mensagem (regra 66). Antes, a resposta dizia que não havia horas.
+    const porUnidade = normalizeName(pergunta).match(/\bpor\s+(hora|km|quilometro|corrida|viagem)\b/)
+    const receitaDaFrase = candidates.reduce((n, c) => n + (c.action.kind === 'income' ? (c.action as any).amount : 0), 0)
+    const jornada = candidates.map(c => c.action).find(a => a.kind === 'work') as any
+    if (porUnidade && receitaDaFrase > 0 && jornada) {
+      const campo = porUnidade[1] === 'hora' ? 'hours' : /^(?:km|quilometro)$/.test(porUnidade[1]) ? 'km' : 'trips'
+      const base = jornada[campo]
+      if (typeof base === 'number' && base > 0) {
+        const unidade = campo === 'hours' ? 'hora' : campo === 'km' ? 'km' : 'corrida'
+        const medida = campo === 'hours' ? fmtHours(base) : campo === 'km' ? `${fmtNum(base)} km` : `${base} ${base === 1 ? 'corrida' : 'corridas'}`
+        parts.push(`Com os valores desta mensagem: ${fmtBRL(receitaDaFrase / base)} por ${unidade} (${fmtBRL(receitaDaFrase)} ÷ ${medida}), antes dos custos.`)
+        answered.push(q)
+        continue
+      }
+    }
     // A consulta só entra ao lado de um registro e com pergunta inteira. Sem
     // registro, quem responde é o turno normal, que lê a mensagem toda; e um
     // fragmento ("minha reserva tá em | quanto") virava "Total gasto este mês".

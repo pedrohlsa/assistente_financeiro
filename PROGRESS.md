@@ -7844,3 +7844,8 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "Recebi bônus de 300", "prêmio", "gratificação" e "PLR" viram receita. Antes, caíam no menu de ajuda.
 - Durante este lote, um script de edição inseriu um backspace (0x08) no lugar de `\b` numa regex, o mesmo problema da regra 59. Foi encontrado antes do commit e corrigido; a varredura de caracteres de controle está limpa.
 
+### Pergunta por unidade com os valores da frase (`ZI`)
+
+- "Fiz 320 em 10 horas, quanto deu por hora?" responde R$ 32,00 por hora, com a conta só dos valores da mensagem e antes dos custos. "Fiz 300 e rodei 150 km, quanto deu por km?" e "fiz 12 corridas e ganhei 300, quanto deu por corrida?" seguem a mesma regra. Antes, a resposta dizia que não havia horas registradas.
+- Os prefixos `Z?` acabaram. Os próximos livres são `AA`, `AD`, `AE`, `AF`…
+

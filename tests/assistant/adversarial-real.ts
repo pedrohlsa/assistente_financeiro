@@ -14517,6 +14517,23 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // ZI — registro e pergunta por unidade na mesma frase: a conta usa os valores ditos.
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    for (const [i, [message, valor]] of ([
+      // "Ainda não tenho horas registradas", com as horas na própria frase.
+      ['fiz 320 em 10 horas, quanto deu por hora?', 32],
+      ['fiz 300 e rodei 150 km, quanto deu por km?', 2],
+      ['fiz 12 corridas e ganhei 300, quanto deu por corrida?', 25],
+    ] as const).entries()) {
+      const r = await orchestrate({ state, message, today, remoteEnabled: false })
+      out.push(result('ZI-por-unidade-da-frase-' + i, { message, reply: r.response.reply }, fmtBRL(valor),
+        r.response.reply.includes(`Com os valores desta mensagem: ${fmtBRL(valor)}`) && r.response.actions.length >= 2))
+    }
+  }
+
   return out
 }
 
