@@ -274,6 +274,29 @@ const RE_COMBUSTIVEL_TIPICO = /\b(?:costum\w+|tipic\w+|em m[ée]dia|quanto)\b[^?
  * Resposta pronta, ou `undefined` quando a pergunta não é uma destas.
  * Determinística e offline: nada aqui chega perto da IA remota.
  */
+/**
+ * "Se eu tirar folga no domingo, quanto perco?": o que esse dia da semana
+ * costuma render NO HISTÓRICO DELE. Caía em "esse cenário eu não sei simular".
+ * Sem pelo menos dois desses dias registrados, cala (regra 43).
+ */
+const DIAS_DA_SEMANA = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado']
+export const PEDE_FOLGA_NO_DIA = /\b(?:tirar|tirasse|der|desse|fizer|fizesse|ficar|ficasse)\s+(?:de\s+)?folga\s+(?:n[oa]s?\s+|de\s+|aos?\s+)?(domingo|segunda|terca|quarta|quinta|sexta|sabado)s?(?:-feiras?|\s+feiras?)?\b[^?]*\b(?:perco|perderia|deixo\s+de\s+(?:ganhar|fazer)|deixaria\s+de\s+(?:ganhar|fazer)|quanto\s+(?:eu\s+)?(?:perco|deixo))|\bquanto\s+(?:eu\s+)?(?:perco|deixo\s+de\s+ganhar|perderia)\b[^?]*\bfolga\s+(?:n[oa]s?\s+|de\s+)?(domingo|segunda|terca|quarta|quinta|sexta|sabado)/
+
+function folgaNoDia(s: AppState, dia: string | undefined, today: string): string {
+  const nome = dia || 'domingo'
+  const dow = DIAS_DA_SEMANA.indexOf(nome)
+  const ds = dias(s, today, 60).filter(d => d.income > 0 && fromISO(d.date).getDay() === dow)
+  const rotulo = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'][dow]
+  const plural = ['domingos', 'segundas-feiras', 'terças-feiras', 'quartas-feiras', 'quintas-feiras', 'sextas-feiras', 'sábados'][dow]
+  const [um, bom] = dow === 0 || dow === 6 ? ['um', 'bom ou ruim'] : ['uma', 'boa ou ruim']
+  if (ds.length < 2) {
+    return `Ainda não tenho ${plural} suficientes registrados para dizer quanto esse dia costuma render. Registre alguns que eu comparo.`
+  }
+  const receita = soma(ds.map(d => d.income)) / ds.length
+  const liquido = soma(ds.map(d => d.income - d.expense)) / ds.length
+  return `Pelo seu histórico, ${um} ${rotulo} rende em média ${fmtBRL(receita)} de corridas, ou ${fmtBRL(liquido)} depois dos gastos lançados no dia (${ds.length} ${plural} com registro nos últimos 60 dias). É o que deixaria de entrar com a folga.\n\nÉ uma média: ${um} ${rotulo} ${bom} muda isso. Simulação — nada foi registrado.`
+}
+
 export function driverInsight(s: AppState, input: string, today = todayISO()): string | undefined {
   const t = norm(input)
 
@@ -282,6 +305,8 @@ export function driverInsight(s: AppState, input: string, today = todayISO()): s
   // lançado, não a hora das corridas — e um dia inteiro registrado à noite
   // diria que a noite rende tudo. Sem esse dado, o app diz o que sabe medir.
   if (PEDE_PREJUIZO_DE_RODAR.test(t)) return rodandoNoPrejuizo(s, today, t)
+  const folga = t.match(PEDE_FOLGA_NO_DIA)
+  if (folga) return folgaNoDia(s, folga[1] || folga[2], today)
   if (PEDE_HORARIO.test(t)) {
     return 'Não consigo dizer o melhor horário: eu guardo a hora em que você REGISTRA cada ganho, não a hora das corridas — um dia inteiro lançado à noite pareceria que só a noite rende.\n\n'
       + 'O que dá para comparar com os seus números são os dias da semana. Pergunte "qual dia eu mais ganho?".'

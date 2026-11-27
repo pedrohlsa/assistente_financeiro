@@ -24,7 +24,7 @@ import { PEDE_APAGAR, analyzeMessage, appAntesDoValor, contestsProposal, datesMe
 import { categoryDilemma, outOfPatternWarning, withLearnedCategory, withLearnedSpelling } from './learning'
 import { explainRequest } from './explain'
 import { answerConversation, gastoEntreDois, isFocusFresh, looksLikeFollowUp } from './conversation'
-import { compareRideApps, PEDE_MINIMO_POR_KM, rideAppFollowUp } from './driverInsights'
+import { compareRideApps, driverInsight, PEDE_FOLGA_NO_DIA, PEDE_MINIMO_POR_KM, rideAppFollowUp } from './driverInsights'
 import { buildRemoteConversation } from './conversation/remoteContext'
 import type { RemoteConversationContext, RemoteTurnRelation } from './conversation/remoteContext'
 import { buildTurnPlan, hasBlock } from './semantic/turn'
@@ -61,8 +61,8 @@ import { buildCapabilities } from './capabilities'
 import { describeAction, META_OUTRA, NEXT_RIDE_DISTANCE, SAQUE, partesDoDia, totalComDoisPontos } from '../services/nlp'
 import { isDriver, findPossibleDuplicate, defaultIncomeCategory } from '../services/profile'
 import { catById, guessCategory, usableCategories } from '../data/categories'
-import { addDays, fmtBRL, fmtHours, fmtNum, MESES_PT_BR, nowPaymentTime, nowTime, parseMoney, todayISO, uid } from '../utils/format'
-import { matchRecurringPayment, occurrencesBetween, possibleRecurringTransactions, recurringActiveOn, recurringLinkAction } from '../services/calc'
+import { addDays, fmtBRL, fmtHours, fmtNum, fromISO, MESES_PT_BR, nowPaymentTime, nowTime, parseMoney, todayISO, toISO, uid } from '../utils/format'
+import { matchRecurringPayment, occurrencesBetween, periodStats, possibleRecurringTransactions, recurringActiveOn, recurringLinkAction } from '../services/calc'
 import { normalizeName, sentenceCase } from '../utils/text'
 import { normalizeNumberWords, NUMBER_WORD_RE } from './numbers'
 import { brDate, dateInAnswer, dateLabel, findAllDates, findDate, normalizeSpokenCalendarDays, previousYearOf, readNightShiftRange, resolveDayInWindow } from './dates'
@@ -1014,6 +1014,32 @@ async function servicoPagoEmParte(input: OrchestratorInput): Promise<Orchestrato
   const artigo = /^(?:venda|di[áa]ria|reforma|corrida)$/.test(what) ? 'da' : 'do'
   const note = `Registrei só o que entrou. Faltam ${fmtBRL(falta)} ${artigo} ${what} de ${fmtBRL(total)}; quando esse valor entrar, me diga.`
   return { ...paidOut, response: { ...paidOut.response, reply: `${note}\n\n${paidOut.response.reply}` } }
+}
+
+const PARCELA_MENSAL = /\bse\s+(?:eu\s+)?(?:tiver|tivesse|pagar|pagasse|assumir|assumisse|financiar|financiasse|fizer|fizesse|trocar|trocasse)\b[^?]*?(?:\bparcela\s+(?:de\s+)?(?:r\$\s*)?(\d+(?:[.,]\d+)*)|(?:r\$\s*)?(\d+(?:[.,]\d+)*)\s+(?:reais\s+)?(?:por|ao|todo)\s+m[eê]s\s+de\s+parcela)/i
+function parcelaMensal(input: OrchestratorInput, today: string): OrchestratorOutput | undefined {
+  const text = normalizeNumberWords(input.message).text
+  const m = text.match(PARCELA_MENSAL)
+  if (!m || /\b(?:em|de)\s+\d+\s*(?:x|vezes|parcelas)\b/i.test(text)) return undefined
+  const parcela = parseMoney(m[1] || m[2])
+  if (!(parcela > 0)) return undefined
+  const ref = fromISO(today)
+  const meses = [1, 2, 3].map(k => {
+    const ini = new Date(ref.getFullYear(), ref.getMonth() - k, 1)
+    const fim = new Date(ref.getFullYear(), ref.getMonth() - k + 1, 0)
+    return periodStats(input.state, toISO(ini), toISO(fim), today)
+  }).filter(st => st.income > 0 || st.expense > 0)
+  const answer = (reply: string): OrchestratorOutput => ({ draft: input.draft || null, keepPending: true, focus: input.focus,
+    response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply } })
+  if (meses.length < 2) {
+    return answer(`Uma parcela de ${fmtBRL(parcela)} por mês sai ${fmtBRL(parcela * 12)} em um ano. Ainda não tenho meses fechados suficientes para dizer como ela cabe na sua sobra.\n\nSimulação — nada foi registrado.`)
+  }
+  const media = meses.reduce((n, st) => n + st.profit, 0) / meses.length
+  const depois = media - parcela
+  const veredito = depois < 0 ? `Não cabe na sobra: o mês médio fecharia com déficit de ${fmtBRL(-depois)}.`
+    : depois < media * 0.1 ? `Cabe por pouco: a sobra média cairia para ${fmtBRL(depois)} por mês, quase nada de folga.`
+      : `Cabe: a sobra média cairia para ${fmtBRL(depois)} por mês.`
+  return answer(`${veredito}\n\nNos últimos ${meses.length} meses fechados sobraram em média ${fmtBRL(media)} por mês (dado real). Com a parcela de ${fmtBRL(parcela)} todo mês, são ${fmtBRL(parcela * 12)} em um ano.\n\nSimulação — nada foi registrado.`)
 }
 
 const DUVIDA_DE_VALOR = /(?<![\d.,])(\d+(?:,\d{1,2})?)(?:\s+(?:reais|conto?s?))?([^\d?]{0,25}?)(\s*,?\s*(?:ou\s+(?:foi\s+|era\s+|seria\s+|talvez\s+|uns\s+)?|,\s*))(\d+(?:,\d{1,2})?)(?:\s+(?:reais|conto?s?))?(?![\d.,]|\s*(?:km|h|horas?|corridas?|viagens?|litros?|%|x)(?![\wÀ-ÿ]))/i
@@ -3195,6 +3221,22 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     if (gorjeta) return gorjeta
     const parcial = await servicoPagoEmParte(input)
     if (parcial) return parcial
+  }
+  // "Se eu tirar folga no domingo, quanto perco?": hipótese que o histórico
+  // responde. O caminho de cenário dizia que não sabia simular.
+  if (!input.pendingClarification && isDriver(input.state.settings)) {
+    const semAcento = input.message.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    if (PEDE_FOLGA_NO_DIA.test(semAcento)) {
+      const reply = driverInsight(input.state, input.message, today)
+      if (reply) return { draft: input.draft || null, keepPending: true, focus: input.focus,
+        response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [], reply } }
+    }
+  }
+  // "E se eu pagar 1500 POR MÊS de parcela do carro?": gasto que se repete.
+  // Simulado como gasto único de hoje, a resposta falava de uma vez só.
+  if (!input.pendingClarification) {
+    const mensal = parcelaMensal(input, today)
+    if (mensal) return mensal
   }
   // "Gastei mais com gasolina ou manutenção?": pergunta de escolha entre dois
   // gastos, com ou sem "?". Lida pelos caminhos gerais, só um lado aparecia.

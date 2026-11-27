@@ -14350,6 +14350,36 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // ZB — continuação "e o lucro?" sem plataforma, folga num dia da semana e parcela mensal.
+  {
+    const today = '2026-11-25'
+    const motorista = motoristaRico(today), autonomo = autonomoRico(today)
+    {
+      // Mostrava a receita da 99 com o nome de "Resultado".
+      let focus: any
+      for (const m of ['quanto fiz na 99 semana passada?']) focus = (await orchestrate({ state: motorista, message: m, today, remoteEnabled: false, focus })).focus
+      const r = await orchestrate({ state: motorista, message: 'e o lucro?', today, remoteEnabled: false, focus })
+      out.push(result('ZB-lucro-sem-plataforma', { reply: r.response.reply }, 'resultado de todas as plataformas',
+        /todas as plataformas/.test(r.response.reply) && /Entraram .* e saíram/.test(r.response.reply)))
+    }
+    for (const [i, [message, dia]] of ([
+      // "Esse cenário eu não sei simular."
+      ['quanto eu perco se tirar folga na segunda?', 'segunda-feira'],
+      ['se eu ficar de folga sábado quanto deixo de ganhar', 'sábado'],
+    ] as const).entries()) {
+      const r = await orchestrate({ state: motorista, message, today, remoteEnabled: false })
+      out.push(result('ZB-folga-' + i, { message, reply: r.response.reply }, `média de ${dia}`,
+        new RegExp(`(?:um|uma) ${dia} rende em média R\\$`).test(r.response.reply) && !r.response.actions.length))
+    }
+    {
+      // Era simulado como um gasto único de hoje.
+      const r = await orchestrate({ state: autonomo, message: 'e se eu tiver uma parcela de 500 por mês?', today, remoteEnabled: false })
+      out.push(result('ZB-parcela-mensal', { reply: r.response.reply }, 'sobra média menos a parcela, por mês',
+        /^Cabe/.test(r.response.reply) && /por mês/.test(r.response.reply) && /Simulação/.test(r.response.reply) && !/hoje/.test(r.response.reply)))
+    }
+  }
+
   return out
 }
 

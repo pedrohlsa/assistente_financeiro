@@ -7805,3 +7805,9 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "Fiz uma corrida particular de 80" e "fiz 3 corridas particulares de 50" registram R$ 80 e R$ 150, com as viagens. Antes, a primeira caía no menu de ajuda e a segunda perdia o dinheiro.
 - "Ganhei 10 de gorjeta no app da uber e 5 em dinheiro" registra as duas gorjetas. Antes, os R$ 5 viravam pergunta.
 
+### Continuação e hipóteses (`ZB`)
+
+- "E o lucro?", depois de "quanto fiz na 99 semana passada", mostra o resultado de todas as plataformas e diz isso no rótulo. Gasto não tem plataforma; antes, a resposta mostrava a receita da 99 com o nome de "Resultado".
+- "Quanto eu perco se tirar folga na segunda?" e "se eu ficar de folga sábado quanto deixo de ganhar" respondem com a média desse dia da semana nos últimos 60 dias, antes e depois dos gastos. Com menos de dois desses dias registrados, o app cala. Antes, dizia que não sabia simular.
+- "E se eu tiver uma parcela de 500 por mês?" compara a parcela com a sobra média dos últimos meses fechados, por mês e em um ano. Antes, simulava um gasto único de hoje ou dizia que não sabia simular. Com menos de dois meses fechados, só diz o total anual.
+

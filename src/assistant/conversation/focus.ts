@@ -970,10 +970,15 @@ function refinaConsulta(
     const porUnidadeBase = (['per-km', 'per-hour', 'per-trip', 'per-day'] as AssistantQueryPlan['metric'][]).includes(base.metric)
     const filter = { ...base.filter, txType: liquido ? ['income', 'expense'] as const : gasto ? ['expense'] as const : ['income'] as const }
     delete filter.text
+    // Gasto não tem plataforma: "e o lucro?" depois de "quanto fiz na 99"
+    // mostrava a receita da 99 com o nome de "Resultado". O lucro e o gasto
+    // são do período inteiro, e o rótulo diz isso.
+    const tinhaApp = !!filter.platform && (liquido || gasto)
+    if (tinhaApp) delete filter.platform
     const metric = porUnidadeBase ? base.metric : liquido ? 'net' : 'sum'
     const nome = porUnidadeBase ? `${liquido ? 'Líquido' : gasto ? 'Gasto' : 'Recebido'} por ${base.label.split(' por ')[1] || ''}`.trim()
       : liquido ? 'Resultado' : gasto ? 'Total gasto' : 'Total recebido'
-    const assunto = base.label?.includes(' - ') ? ` - ${base.label.split(' - ').slice(1).join(' - ')}` : ''
+    const assunto = tinhaApp ? ' (todas as plataformas)' : base.label?.includes(' - ') ? ` - ${base.label.split(' - ').slice(1).join(' - ')}` : ''
     return planned({ ...base, metric, filter: filter as any, comparePeriod: undefined, label: `${nome}${assunto}` }, m)
   }
 
