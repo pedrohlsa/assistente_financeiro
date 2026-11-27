@@ -14679,6 +14679,26 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // AJ — horas salvas corrigidas pela forma declarativa; sem jornada salva, vira registro.
+  {
+    const today = '2026-11-25', yesterday = '2026-11-24'
+    for (const [i, message] of ['ontem trabalhei 9 horas e não 8', 'as horas de ontem foram 10'].entries()) {
+      // Perguntavam se os R$ 8 / R$ 10 foram ganho ou gasto.
+      const r = await orchestrate({ state: motoristaRico(today), message, today, remoteEnabled: false })
+      const a = (r.response.actions as any[])[0]?.action
+      out.push(result('AJ-corrige-horas-' + i, { message, response: r.response }, 'edit-work-hours de ontem',
+        a?.kind === 'edit-work-hours' && a.date === yesterday))
+    }
+    {
+      // Sem jornada salva, "trabalhei 9 horas e não 8" é o relato de 9h — não "nada para corrigir".
+      const r = await orchestrate({ state: buildState({ profile: 'driver' }), message: 'ontem trabalhei 9 horas e não 8', today, remoteEnabled: false })
+      const a = (r.response.actions as any[])[0]?.action
+      out.push(result('AJ-relato-com-autocorrecao', { response: r.response }, 'jornada de 9h ontem',
+        a?.kind === 'work' && a.hours === 9 && a.date === yesterday))
+    }
+  }
+
   return out
 }
 

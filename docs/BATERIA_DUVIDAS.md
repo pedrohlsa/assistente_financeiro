@@ -8,4 +8,5 @@
 | “quanto no saldo ontem e quanto hoje?” | Respondeu apenas o saldo atual e os próximos vencimentos. | O histórico pode não ter o saldo de ontem quando há ajuste manual. |
 | “pagou ontem nove e setenta e cinco de estacionamento” | No perfil motorista, perguntou “Esses R$ 9,75 foram o que você ganhou ou o que você gastou?”. | A taxa de estacionamento de ontem sugere despesa, mas o sujeito e a origem do pagamento podem estar cortados no ditado. |
 | “ontem rodei 170 km e hj 200 km”, com relógio injetado no dia 25 e o ambiente no dia 26 | As datas das ações foram dia 24 e 25. Os rótulos na proposta foram “anteontem” e “ontem”. | A data de referência dos rótulos deve ser a mesma usada para interpretar a mensagem. |
+| “os km de ontem foram 200”, “ontem foram 200 km e não 180” | Pergunta se os R$ 200 foram ganho ou gasto, ou propõe km novos ao lado dos salvos. | O leitor de edição da jornada (`editWorkHours.ts`) só corrige horas; km e viagens salvos precisam do mesmo caminho. (Claude, 27/11) |
 

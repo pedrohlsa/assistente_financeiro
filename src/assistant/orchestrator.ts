@@ -1717,6 +1717,14 @@ function prepareWorkHoursEdit(input: OrchestratorInput, caps: AssistantCapabilit
     ...context, response: { ...response, mode: 'clarify', reply: question,
       clarification: { field: 'work-hours-date', question, workHoursEdit: edit } },
   })
+  // "Ontem TRABALHEI 9 horas e não 8" sem jornada salva naquele dia é um relato
+  // com autocorreção, não um conserto: vira a jornada de 9h. Antes, a resposta
+  // dizia que não havia jornada para corrigir e o registro se perdia.
+  const relato = /\b(?:trabalhei|rodei|fiquei|fiz)\b/i.test(input.message)
+  const diaDoRelato = date?.kind === 'date' ? date.date : today
+  if (relato && !input.state.workSessions.some(w => w.date === diaDoRelato)) {
+    return proposeDatedActions(input, [{ kind: 'work', hours: edit.hours, date: diaDoRelato } as ParsedAction], caps, today)
+  }
   if (!input.state.workSessions.length) return answer('Você ainda não tem uma jornada salva para corrigir.')
   if (request?.invalidDate) return askForDate('Não consegui ler essa data. Informe uma data válida para a jornada que quer corrigir.')
   if (date?.kind !== 'date') {

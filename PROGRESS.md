@@ -7886,3 +7886,9 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "Paguei a semana do carro alugado, 550" e "paguei 1200 da locadora" vão para Locação de veículo. Antes, iam para Outros. Isso fecha a pendência de categoria do aluguel do carro, citada no handoff de 23/11.
 - As datas em registros ("dia 3", "no dia 20", "segunda passada", "na sexta", "15/11", "anteontem de manhã") foram conferidas, sem defeito. "Dia 30", ainda não chegado, continua perguntando.
 
+### Horas salvas corrigidas pelo chat (`AJ`)
+
+- "Ontem trabalhei 9 horas e não 8" e "as horas de ontem foram 10" propõem a correção da jornada salva. Antes, perguntavam se os R$ 8 ou R$ 10 foram ganho ou gasto. Isso cobre a pendência "corrigir pelo chat horas já salvas" do handoff de 23/11.
+- Sem jornada salva naquele dia, "ontem trabalhei 9 horas e não 8" registra a jornada de 9h, porque a frase é um relato com autocorreção. Antes, a resposta era "não há jornada para corrigir", e o registro se perdia.
+- Ficou em aberto: corrigir pelo chat os km ou as viagens de uma jornada já salva ("os km de ontem foram 200"). O leitor de edição só cobre horas. Anotado em `docs/BATERIA_DUVIDAS.md`.
+

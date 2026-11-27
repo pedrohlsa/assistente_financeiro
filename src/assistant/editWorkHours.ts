@@ -16,6 +16,10 @@ const REQUEST = new RegExp(
 )
 const JOURNEY_REQUEST = new RegExp(String.raw`^${REQUEST_VERB}\s+(?:(?:a|minha)\s+)?(?:jornada|turno)(?<target>.*?),\s*(?:trabalhei|foram)\s+(?<hours>.+)$`)
 const CONTRAST = /^(?:as\s+)?horas(?<target>.*?)\s+(?:foram|eram)\s+(?<hours>.+?)(?:,\s*|\s+(?:e\s+)?)nao\s+(?<previous>.+)$/
+// "As horas de ontem FORAM 10": a correção sem o valor antigo.
+const PLAIN = /^(?:as\s+)?horas(?<target>.*?)\s+(?:foram|eram)\s+(?<hours>\d+(?:[.,]\d+)?(?:\s*(?:horas?|h))?)$/
+// "Ontem trabalhei 9 horas E NÃO 8": o dia antes do verbo, e o valor antigo negado.
+const VERB_CONTRAST = /^(?<target>(?:ontem|anteontem|hoje|dia\s+\d{1,2}(?:\/\d{1,2})?)?)\s*(?:eu\s+)?(?:trabalhei|rodei|fiquei|fiz)\s+(?<hours>\d+(?:[.,]\d+)?\s*(?:horas?|h))\s*,?\s*(?:e\s+)?nao\s+(?<previous>\d+(?:[.,]\d+)?(?:\s*(?:horas?|h))?)$/
 const ALREADY_SAVED = /^ja\s+(?:tenho|registrei|salvei)\s+(?:uma?\s+)?(?:jornada|turno)\s+[^.!?]+[.!]\s*/
 const DATE_REMAINDER = /^(?:de\s+trabalho\s*)?(?:d[aeo]s?|em|n[ao]|no\s+dia)?$/
 
@@ -32,7 +36,7 @@ export function readWorkHoursEdit(message: string, today: string): { edit: WorkH
   const header = text.match(ALREADY_SAVED)
   const body = header ? text.slice(header[0].length) : text
   const request = body.match(REQUEST) || body.match(JOURNEY_REQUEST)
-  const parts = (request || (!message.includes('?') ? body.match(CONTRAST) : undefined))?.groups
+  const parts = (request || (!message.includes('?') ? body.match(CONTRAST) || body.match(VERB_CONTRAST) || body.match(PLAIN) : undefined))?.groups
   if (!parts) return undefined
 
   const target = parts.target.trim()
