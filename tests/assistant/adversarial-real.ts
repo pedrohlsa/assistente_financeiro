@@ -14286,6 +14286,30 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /^[A-ZÀ-Ý]/.test(r.response.reply) && /foi pior em gastos/.test(r.response.reply)))
   }
 
+
+  // YY — combustível, manutenção e hodômetro de saída e chegada.
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    for (const [i, [message, expected]] of ([
+      // Os R$ 128 depois dos litros viravam pergunta.
+      ['coloquei 30 litros de etanol, deu 128', [['fuel', 128, '']]],
+      // O conserto do câmbio ia para Outros; o "Nos" ficava na descrição.
+      ['gastei 1200 no conserto do câmbio', [['expense', 1200, 'manutencao']]],
+      ['paguei 380 nos pneus dianteiros', [['expense', 380, 'manutencao']]],
+      // Caíam no menu de ajuda.
+      ['saí com 98.500 e voltei com 98.730', [['odometer', 98730, ''], ['work', 230, '']]],
+      ['rodei do km 98500 ao 98730', [['odometer', 98730, ''], ['work', 230, '']]],
+    ] as const).entries()) {
+      const r = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actual = (r.response.actions as any[]).map(c => [c.action.kind,
+        c.action.kind === 'work' ? c.action.km : c.action.kind === 'odometer' ? c.action.value : c.action.amount, c.action.category || ''])
+      const desc = (r.response.actions as any[]).every(c => !/^Nos\b/.test(c.action.description || ''))
+      out.push(result('YY-veiculo-' + i, { message, response: r.response }, expected,
+        r.response.mode === 'propose_actions' && desc && JSON.stringify(actual) === JSON.stringify(expected)))
+    }
+  }
+
   return out
 }
 

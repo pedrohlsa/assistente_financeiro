@@ -7788,3 +7788,9 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "Qual foi pior", depois de comparar dois meses, começa com maiúscula ("Novembro de 2026 foi pior em gastos"), pela regra 13.
 - Foram conferidas, sem defeito, perguntas do autônomo (bar contra mercado, maior gasto, categoria, média por semana), metas e reserva, contas fixas e vencimentos, e as 90 respostas da sonda de red team.
 
+### Combustível, manutenção e hodômetro (`YY`)
+
+- "Coloquei 30 litros de etanol, deu 128" grava R$ 128 com os 30 litros. Antes, o valor virava pergunta.
+- "Conserto do câmbio", embreagem, suspensão e radiador vão para Manutenção. "Paguei 380 nos pneus dianteiros" grava a descrição "Pneus dianteiros", sem o "Nos" na frente.
+- "Saí com 98.500 e voltei com 98.730", "hodômetro de manhã 98500 à noite 98730" e "rodei do km 98500 ao 98730" registram 230 km e o hodômetro final. Antes, caíam no menu de ajuda.
+

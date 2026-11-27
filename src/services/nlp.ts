@@ -104,7 +104,7 @@ const DESC_STOPWORDS = new Set([
   // "40 RS no bar" ficavam na descrição.
   'd', 'rs', 'r', 'cnto', 'cto', 'ctos', 'conto', 'contos', 'pila', 'pilas', 'reais', 'real', 'mango', 'mangos',
   'colocando', 'comprando', 'pagando', 'gastando', 'depois', 'pois', 'logo', 'entao', 'então',
-  'tambem', 'também', 'ainda', 'mais', 'de', 'do', 'da', 'no', 'na', 'em', 'com', 'para', 'pra', 'pro', 'pros', 'pras',
+  'tambem', 'também', 'ainda', 'mais', 'de', 'do', 'da', 'dos', 'das', 'no', 'na', 'nos', 'nas', 'em', 'com', 'para', 'pra', 'pro', 'pros', 'pras',
   'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas',
   // Gíria de dinheiro é a UNIDADE do valor, nunca o objeto do gasto.
   'reais', 'real', 'conto', 'contos', 'pila', 'pilas', 'mango', 'mangos', 'pau', 'paus', 'prata',
@@ -1621,7 +1621,8 @@ function parseClause(input: string): ParsedAction[] {
     const depoisDosLitros = litersM ? text.slice((litersM.index || 0) + litersM[0].length)
       .replace(new RegExp(String.raw`^\s+de\s+${COMBUSTIVEL}\b`, 'i'), '') : ''
     const porValor = (!f || fSaoLitros) && litersM
-      ? depoisDosLitros.match(new RegExp(String.raw`^\s*(?:por|a|(?:que\s+)?cust(?:ou|aram)|saiu\s+por)\s*(?:r\$)?\s*${NUM}`, 'i'))
+      // "30 litros de etanol, DEU 128": o total depois dos litros, com vírgula e verbo.
+      ? depoisDosLitros.match(new RegExp(String.raw`^\s*(?:por|a|(?:que\s+)?cust(?:ou|aram)|saiu\s+por|[,;]?\s*(?:e\s+)?(?:deu|deram|foi|foram|saiu|ficou|custou|paguei)(?:\s+(?:por|em))?)\s*(?:r\$)?\s*${NUM}`, 'i'))
       : null
     const liters = litersM ? parseNum(litersM[1]) : undefined
     // "40 litros A 5,89" (ou "a 6,10 o litro") é o PREÇO do litro, não o total:

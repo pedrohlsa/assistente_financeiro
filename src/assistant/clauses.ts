@@ -1638,7 +1638,27 @@ const KM_RODADOS = /(^|[,;]\s*|\s+e\s+)((?:(?:hoje|hj|ontem|anteontem)\s+)?)(\d{
 // de dono — a Uber virava 99, os 120 da 99 viravam abastecimento.
 const ITEM_THEN_AMOUNT = /(^|[,;]\s*|\s+e\s+)(gasolina|gasosa|etanol|gnv|diesel|almo[çc]o|lanche|caf[ée]|janta|jantar|ped[áa]gio|estacionamento|lavagem|[óo]leo|pneus?|mec[âa]nico|[áa]gua)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?!\d|[.,]\d|\s*(?:km|h|horas?|litros?|l\b|x\b|%)|\s*(?:o|por|cada|\/)\s*(?:litro|l)\b)/giu
 
+// "Saí com 98.500 e voltei com 98.730", "rodei do km 98500 ao 98730": o dia
+// dito pelo hodômetro de saída e de chegada. Caía no menu de ajuda.
+const ODOMETRO = String.raw`(\d{1,3}(?:\.\d{3})+|\d{4,7})(?:\s*km)?`
+const ODOMETER_SPAN = [
+  new RegExp(String.raw`\bsa[ií]\s+com\s+(?:o\s+(?:carro|hod[ôo]metro)\s+(?:em|com)\s+)?${ODOMETRO}\s*,?\s+(?:e\s+)?(?:voltei|cheguei|terminei|parei)\s+com\s+${ODOMETRO}`, 'i'),
+  new RegExp(String.raw`\bhod[ôo]metro\s+(?:de\s+manh[ãa]|no\s+come[çc]o|na\s+sa[ií]da)\s*:?\s*${ODOMETRO}\s*,?\s+(?:e\s+)?(?:[àa]\s+noite|de\s+noite|no\s+fim|na\s+volta|na\s+chegada)\s*:?\s*${ODOMETRO}`, 'i'),
+  new RegExp(String.raw`\brodei\s+do\s+km\s+${ODOMETRO}\s+(?:ao|at[ée](?:\s+o)?)\s+(?:km\s+)?${ODOMETRO}`, 'i'),
+]
+function odometroDoDia(input: string): string {
+  for (const re of ODOMETER_SPAN) {
+    const m = input.match(re)
+    if (!m || m.index === undefined) continue
+    const [a, b] = [Number(m[1].replace(/\./g, '')), Number(m[2].replace(/\./g, ''))]
+    if (!(b > a) || b - a > 1500) continue
+    return `${input.slice(0, m.index)}rodei ${b - a} km e o carro tá com ${m[2].replace(/\s*km$/i, '')} km${input.slice(m.index + m[0].length)}`
+  }
+  return input
+}
+
 export function appAntesDoValor(input: string): string {
+  input = odometroDoDia(input)
   // "Ontem: ..." — o dia com dois-pontos abre a lista.
   input = input.replace(/^(\s*(?:hoje|hj|ontem|anteontem))\s*:\s*/i, '$1 ')
   if (/[,;](?!\d)/.test(input)) input = input.replace(ITEM_THEN_AMOUNT, (_m, lead: string, item: string, amount: string) =>

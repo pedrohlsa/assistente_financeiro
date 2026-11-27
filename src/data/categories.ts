@@ -76,7 +76,7 @@ export const CATEGORY_KEYWORDS: Record<string, string[]> = {
     'diária do veículo', 'diaria do veiculo', 'diária da moto', 'diaria da moto',
     'locação de carro', 'locacao de carro', 'locação do carro', 'locacao do carro', 'locação de veículo', 'locacao de veiculo',
   ],
-  manutencao: ['óleo', 'oleo', 'pneu', 'freio', 'pastilha', 'revisão', 'revisao', 'mecânico', 'mecanico', 'oficina', 'borracheiro', 'borracharia', 'funilaria', 'lanternagem', 'alinhamento', 'balanceamento', 'calibragem', 'peça ', 'peca ', 'peças', 'pecas', 'autopeça', 'autopeca', 'filtro', 'vela ', 'velas', 'correia', 'amortecedor', 'manutenção', 'manutencao', 'lavagem', 'lava ', 'lava jato'],
+  manutencao: ['óleo', 'oleo', 'pneu', 'freio', 'pastilha', 'revisão', 'revisao', 'mecânico', 'mecanico', 'oficina', 'borracheiro', 'borracharia', 'funilaria', 'lanternagem', 'alinhamento', 'balanceamento', 'calibragem', 'peça ', 'peca ', 'peças', 'pecas', 'autopeça', 'autopeca', 'filtro', 'vela ', 'velas', 'correia', 'amortecedor', 'conserto', 'câmbio', 'cambio', 'embreagem', 'suspensão', 'suspensao', 'radiador', 'bateria do carro', 'retífica', 'retifica', 'manutenção', 'manutencao', 'lavagem', 'lava ', 'lava jato'],
   estacionamento: ['estacionamento', 'estacionei', 'flanelinha', 'flanela ', 'zona azul', 'parquímetro', 'parquimetro'],
   pedagio: ['pedágio', 'pedagio', 'sem parar', 'veloe', 'conectcar'],
   assinaturas: ['netflix', 'spotify', 'assinatura', 'plano', 'internet', 'celular', 'amazon prime', 'disney', 'hbo', 'globoplay', 'youtube premium'],
