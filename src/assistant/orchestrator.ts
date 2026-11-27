@@ -3227,7 +3227,28 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (isDriver(input.state.settings)) {
     const shorthand = normalizeDriverShorthand(input.message)
     if (shorthand !== input.message) input = { ...input, message: shorthand }
-    // "Fechei 300", "fechei 320 bruto 260 líquido", "fiz a meta, 300": o
+    // "Transferi 800 da carteira da 99 pra minha conta", "saquei 400 da uber":
+  // se as corridas já foram lançadas, a transferência só move dinheiro; se
+  // não, é a receita. O app pergunta, com as duas saídas prontas.
+  if (!input.pending?.length && !input.pendingClarification && isDriver(input.state.settings)) {
+    const tx = normalizeName(normalizeNumberWords(input.message).text)
+      .match(/^(?:(hoje|ontem|anteontem)\s+)?(?:eu\s+)?(?:transferi|passei|mandei|saquei|tirei|resgatei)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s+reais)?\s+d[ao]\s+(?:carteira\s+d[ao]\s+|saldo\s+d[ao]\s+)?(uber|99|indrive|in\s+drive)(?:\s+(?:pra|para|pro)\s+(?:a\s+)?(?:minha\s+)?(?:conta|banco|nubank|inter|caixa|pix))?(?:\s+(hoje|ontem|anteontem))?\s*[.!]*$/)
+    if (tx) {
+      const valor = parseMoney(tx[2])
+      const app = tx[3] === 'uber' ? 'Uber' : tx[3] === '99' ? '99' : 'inDrive'
+      const dia = tx[1] || tx[4]
+      const data = dia ? findDate(dia, input.today || todayISO()) : null
+      const receita: ParsedAction = { kind: 'income', amount: valor, category: 'corridas', description: app,
+        ...(data?.kind === 'date' ? { date: data.date } : {}) } as ParsedAction
+      const question = `Esses ${fmtBRL(valor)} da ${app} já estão nas corridas que você lançou, ou ainda não foram registrados?`
+      return { draft: null, focus: input.focus, response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
+        actions: [], unresolved: [], reply: question, clarification: { field: 'wallet-transfer', question, options: [
+          { value: '1', label: 'Já lancei as corridas', actions: [], reply: 'Então é só dinheiro mudando de lugar: não registrei nada. O que você já lançou continua valendo.' },
+          { value: '2', label: 'Ainda não registrei', actions: [receita] },
+        ] } } }
+    }
+  }
+  // "Fechei 300", "fechei 320 bruto 260 líquido", "fiz a meta, 300": o
     // fechamento do dia é o faturamento. "Fechei 8h de volante" é jornada e fica.
     if (!input.pendingClarification) {
       const fechou = input.message

@@ -7860,3 +7860,8 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "Choveu muito, fiz só 3 horas e 120" e "fiz 3 horas e 120" registram 3h e R$ 120. Antes, caíam no menu de ajuda. "Rodei só 3 horas e fiz 120" guarda as horas, que antes sumiam por causa do "só".
 - Também foram conferidos, sem defeito: folga ("tô de folga hoje"), carro na oficina, turno que passa da meia-noite (pergunta o dia), "virei a noite", "fiz 150 de manhã e 200 de tarde".
 
+### Carteira do app para a conta (`AE`)
+
+- "Transferi 800 da carteira da 99 pra minha conta" e "saquei 400 da uber ontem" perguntam se o valor já está nas corridas lançadas. Se já está, nada é registrado, porque é só dinheiro mudando de lugar. Se não está, a resposta prepara a receita do app, com a data dita. Antes, a primeira frase respondia com vencimentos, e a segunda dizia que saque não é ganho.
+- Durante o lote, a frase com o dia junto ("saquei 400 da uber ontem") derrubava o orquestrador, porque o código usava uma variável antes de declará-la. Foi corrigido antes do commit e ganhou regressão própria.
+

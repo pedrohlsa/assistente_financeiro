@@ -14574,6 +14574,31 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // AE — dinheiro que sai da carteira do app para a conta: já lançado ou receita?
+  {
+    const today = '2026-11-25', yesterday = '2026-11-24'
+    const state = motoristaRico(today)
+    const ask = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({ state, message, today, remoteEnabled: false,
+      pendingClarification: prior?.response.mode === 'clarify' ? prior.response.clarification : undefined })
+    {
+      // Respondia com vencimentos, sem relação.
+      const first = await ask('transferi 800 da carteira da 99 pra minha conta')
+      const ja = await ask('1', first)
+      const nao = await ask('2', first)
+      out.push(result('AE-carteira-para-conta', { first: first.response.reply, ja: ja.response, nao: nao.response.actions }, 'pergunta; 1 nada, 2 receita da 99',
+        first.response.mode === 'clarify' && /já estão nas corridas/.test(first.response.reply)
+        && !ja.response.actions.length && (nao.response.actions as any[]).some(c => c.action.kind === 'income' && c.action.amount === 800 && c.action.description === '99')))
+    }
+    {
+      // Com o dia junto, a frase derrubava o orquestrador.
+      const first = await ask('saquei 400 da uber ontem')
+      const nao = await ask('2', first)
+      out.push(result('AE-saque-com-dia', { first: first.response.reply, nao: nao.response.actions }, 'receita da Uber de ontem',
+        first.response.mode === 'clarify' && (nao.response.actions as any[]).some(c => c.action.amount === 400 && c.action.date === yesterday)))
+    }
+  }
+
   return out
 }
 
