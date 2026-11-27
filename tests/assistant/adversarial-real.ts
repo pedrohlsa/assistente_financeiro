@@ -14380,6 +14380,21 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // ZC — "como você calculou isso?" sem conta antes; com conta, o foco explica.
+  {
+    const today = '2026-11-25'
+    const state = autonomoRico(today)
+    const sem = await orchestrate({ state, message: 'como você calculou isso?', today, remoteEnabled: false })
+    // Caía no menu de ajuda.
+    out.push(result('ZC-explicar-sem-conta', { reply: sem.response.reply }, 'diz que ainda não fez conta',
+      /Ainda não fiz nenhuma conta/.test(sem.response.reply) && !/Posso te ajudar/.test(sem.response.reply)))
+    const conta = await orchestrate({ state, message: 'quanto gastei no bar esse mes?', today, remoteEnabled: false })
+    const com = await orchestrate({ state, message: 'como você chegou nesse número?', today, remoteEnabled: false, focus: conta.focus })
+    out.push(result('ZC-explicar-com-conta', { reply: com.response.reply }, 'mostra os lançamentos',
+      /^Somei 3 registros/.test(com.response.reply)))
+  }
+
   return out
 }
 

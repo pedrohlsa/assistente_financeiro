@@ -3222,6 +3222,14 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     const parcial = await servicoPagoEmParte(input)
     if (parcial) return parcial
   }
+  // "Como você calculou isso?" sem nenhuma conta antes: a ajuda genérica não
+  // dizia que faltava a conta. Com uma resposta recente, quem explica é o foco.
+  if (!input.pending?.length && !input.pendingClarification && !isFocusFresh(input.focus)
+    && /^(?:e\s+)?(?:como|de\s+onde)\s+(?:(?:que\s+)?(?:voce|vc)\s+)?(?:calculou|chegou|tirou|fez\s+(?:essa|a)\s+conta)\b/.test(normalizeName(input.message))) {
+    return { draft: input.draft || null, keepPending: true, focus: input.focus, response: {
+      version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
+      reply: 'Ainda não fiz nenhuma conta nesta conversa. Pergunte, por exemplo, "quanto gastei esse mês?", e depois "como você chegou nisso?", que eu mostro os lançamentos e os filtros que usei.' } }
+  }
   // "Se eu tirar folga no domingo, quanto perco?": hipótese que o histórico
   // responde. O caminho de cenário dizia que não sabia simular.
   if (!input.pendingClarification && isDriver(input.state.settings)) {

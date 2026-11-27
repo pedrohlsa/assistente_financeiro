@@ -7811,3 +7811,8 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "Quanto eu perco se tirar folga na segunda?" e "se eu ficar de folga sábado quanto deixo de ganhar" respondem com a média desse dia da semana nos últimos 60 dias, antes e depois dos gastos. Com menos de dois desses dias registrados, o app cala. Antes, dizia que não sabia simular.
 - "E se eu tiver uma parcela de 500 por mês?" compara a parcela com a sobra média dos últimos meses fechados, por mês e em um ano. Antes, simulava um gasto único de hoje ou dizia que não sabia simular. Com menos de dois meses fechados, só diz o total anual.
 
+### Cartões e explicações (`ZC`)
+
+- Foram conferidos, sem defeito: compra parcelada no Nubank e no Inter, pagamento de fatura com e sem valor, "quanto tá a fatura", "quanto devo no cartão", "quando vence a fatura" e "parcelei 600 em 6x" (pergunta o cartão). As explicações também foram conferidas: "por que essa categoria?", "por que achou estranho?", "o que você aprendeu sobre mim?" e "para de usar meu histórico".
+- "Como você calculou isso?", sem nenhuma conta antes, diz que ainda não fez conta na conversa e sugere uma pergunta. Antes, caía no menu de ajuda. Com uma conta recente, a explicação continua vindo do foco.
+
