@@ -7871,3 +7871,8 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "Gastei rs 45 no almoço" e "gastei uma nota de 100 no posto" registram R$ 45 e R$ 100. Antes, caíam no menu de ajuda.
 - "Pila", "mango", "conto(s)", "R$300", "1k" e "1,2 mil" foram conferidos, sem defeito.
 
+### Quanto dá para gastar ou guardar (`AG`)
+
+- "Posso gastar 200?", "posso gastar 200 hoje?", "posso gastar 200 no fim de semana?" e "posso comprar um tênis de 300?" viram simulação, como "dá pra gastar 200?". Antes, caíam no menu de ajuda ou perguntavam se os R$ 200 foram ganho ou gasto (regra 33a).
+- "Quanto consigo guardar esse mês?", no motorista, responde com a sobra do mês e diz que é isso que dá para guardar. Antes, a resposta era "não tenho lançamento". A rota de "guardar" dos outros perfis continua igual.
+

@@ -3243,6 +3243,11 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   }
   // "Na vdd foi na 99": sem expandir, a correção não era reconhecida e a
   // proposta ganhava a descrição "Vdd foi na 99".
+  // "Posso gastar 200 (hoje)?", "posso comprar um tênis de 300?": a mesma
+  // pergunta de "dá pra gastar 200?". Perguntava se os R$ 200 foram ganho ou
+  // gasto, ou caía na ajuda (regra 33a: pergunta com valor não é lançamento).
+  const posso = input.message.replace(/^(\s*(?:e\s+)?(?:eu\s+)?)(?:posso|consigo)\s+(gastar|comprar|tirar|torrar)\s+(?=[^?]*\d)/i, '$1dá pra $2 ')
+  if (posso !== input.message && /\?\s*$|^\s*(?:e\s+)?(?:eu\s+)?d[áa]\s+pra/i.test(posso)) input = { ...input, message: posso }
   // "Gastei rs 45", "uma nota de 100": o "rs" é o R$ e a nota é o valor.
   const notaRs = input.message.replace(/(?<![\p{L}\d])rs\s*(?=\d)/giu, 'R$ ').replace(/\buma\s+nota\s+de\s+(?=(?:r\$\s*)?\d)/gi, '')
   if (notaRs !== input.message) input = { ...input, message: notaRs }
@@ -3319,6 +3324,13 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     return { draft: input.draft || null, keepPending: true, focus: input.focus, response: {
       version: ASSISTANT_CONTRACT_VERSION, mode: 'answer', engine: 'local', actions: [], unresolved: [],
       reply: 'Ainda não fiz nenhuma conta nesta conversa. Pergunte, por exemplo, "quanto gastei esse mês?", e depois "como você chegou nisso?", que eu mostro os lançamentos e os filtros que usei.' } }
+  }
+  // "Quanto consigo guardar esse mês?" no motorista: a meta dele é de lucro, e a
+  // rota de "guardar" é dos outros perfis. O que dá para guardar é a sobra.
+  if (!input.pending?.length && !input.pendingClarification && isDriver(input.state.settings)
+    && /^(?:e\s+)?quanto\s+(?:eu\s+)?(?:posso|consigo|da\s+pra|da\s+para|vou\s+conseguir)\s+guardar(?:\s+(?:n?esse|n?este)\s+mes)?\s*\??$/.test(normalizeName(input.message))) {
+    const out = await orchestrate({ ...input, message: 'quanto sobrou esse mês?' })
+    if (out.response.mode === 'answer') return { ...out, response: { ...out.response, reply: `O que dá para guardar é o que sobra do mês. ${out.response.reply}` } }
   }
   // "Se eu tirar folga no domingo, quanto perco?": hipótese que o histórico
   // responde. O caminho de cenário dizia que não sabia simular.

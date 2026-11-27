@@ -14627,6 +14627,25 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // AG — "posso gastar N?" é simulação; "quanto consigo guardar" no motorista é a sobra.
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    for (const [i, message] of ['posso gastar 200?', 'posso gastar 200 hoje?', 'posso gastar 200 no fim de semana?', 'posso comprar um tênis de 300?'].entries()) {
+      // Caía na ajuda ou perguntava se os R$ 200 foram ganho ou gasto.
+      const r = await orchestrate({ state, message, today, remoteEnabled: false })
+      out.push(result('AG-posso-gastar-' + i, { message, reply: r.response.reply }, 'simulação, sem lançamento',
+        !r.response.actions.length && /Simulação — nada foi registrado/.test(r.response.reply) && !/ganhou ou o que você gastou/.test(r.response.reply)))
+    }
+    {
+      // "Não tenho nenhum lançamento que se encaixe nisso."
+      const r = await orchestrate({ state, message: 'quanto consigo guardar esse mês?', today, remoteEnabled: false })
+      out.push(result('AG-motorista-guardar', { reply: r.response.reply }, 'a sobra do mês',
+        /^O que dá para guardar é o que sobra do mês\. Resultado este mês: R\$/.test(r.response.reply)))
+    }
+  }
+
   return out
 }
 
