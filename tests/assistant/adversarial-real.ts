@@ -14560,6 +14560,20 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // AD — jornada curta dita com "fiz só N horas e M".
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    for (const [i, message] of ['choveu muito, fiz só 3 horas e 120', 'fiz 3 horas e 120', 'rodei só 3 horas e fiz 120'].entries()) {
+      // Caía na ajuda, ou perdia as horas.
+      const r = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actual = (r.response.actions as any[]).map(c => [c.action.kind, c.action.kind === 'work' ? c.action.hours : c.action.amount])
+      out.push(result('AD-jornada-curta-' + i, { message, response: r.response }, [['work', 3], ['income', 120]],
+        r.response.mode === 'propose_actions' && JSON.stringify(actual) === JSON.stringify([['work', 3], ['income', 120]])))
+    }
+  }
+
   return out
 }
 

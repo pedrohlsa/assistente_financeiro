@@ -7855,3 +7855,8 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "A uber pagou a semana, 1350", "caiu o pix da 99 de 620" e "recebi o repasse da semana passada da 99, 900" viram receita do app. Antes, caíam na ajuda ou numa consulta quebrada.
 - "Tenho 300 na carteira da uber" responde como saldo de carteira, sem registrar receita (a regra é a do lote do GPT: dinheiro na carteira só vira receita quando cai na conta). Ficaram como estão: "transferi 800 da carteira da 99 pra minha conta" e "saquei 400 da uber". Os dois dependem de o motorista já ter lançado as corridas daquela semana; anotado em `docs/BATERIA_DUVIDAS.md`.
 
+### Jornada curta (`AD`)
+
+- "Choveu muito, fiz só 3 horas e 120" e "fiz 3 horas e 120" registram 3h e R$ 120. Antes, caíam no menu de ajuda. "Rodei só 3 horas e fiz 120" guarda as horas, que antes sumiam por causa do "só".
+- Também foram conferidos, sem defeito: folga ("tô de folga hoje"), carro na oficina, turno que passa da meia-noite (pergunta o dia), "virei a noite", "fiz 150 de manhã e 200 de tarde".
+

@@ -1659,6 +1659,10 @@ function odometroDoDia(input: string): string {
 
 export function appAntesDoValor(input: string): string {
   input = odometroDoDia(input)
+  // "Fiz (só) 3 horas e 120": a jornada e o dinheiro do dia. O 120 solto
+  // depois das horas ficava sem dono, e a frase caía na ajuda.
+  input = input.replace(/\b(?:fiz|rodei|trabalhei|fiquei)\s+(?:s[óo]\s+|apenas\s+|umas\s+)?(\d{1,2}(?:[.,]\d)?)\s*(h|hrs?|horas?)\s+e\s+(?:fiz\s+|ganhei\s+|tirei\s+)?(?:s[óo]\s+)?(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?!\d|[.,]\d|\s*(?:km|kms|corridas?|viagens?|h|hrs?|horas?|min)(?![\p{L}\d]))/giu,
+    (_m, horas: string, unidade: string, valor: string) => `trabalhei ${horas} ${unidade} e ganhei ${valor}`)
   // "Ontem: ..." — o dia com dois-pontos abre a lista.
   input = input.replace(/^(\s*(?:hoje|hj|ontem|anteontem))\s*:\s*/i, '$1 ')
   if (/[,;](?!\d)/.test(input)) input = input.replace(ITEM_THEN_AMOUNT, (_m, lead: string, item: string, amount: string) =>
