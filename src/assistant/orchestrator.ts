@@ -380,6 +380,14 @@ function actionForProfile(action: ParsedAction, caps: AssistantCapabilities, men
   if (action.kind === 'maintenance') {
     return { kind: 'expense', amount: action.cost, category: 'manutencao', description: `Troca de ${action.item}`, date: action.date }
   }
+  // Fora do motorista, "fiz uma corrida de 25 pro trabalho" é a corrida que a
+  // pessoa PAGOU como passageira, não receita. Quem diz que RECEBEU do app
+  // (bloco MV) continua com a receita.
+  if (action.kind === 'income' && action.category === 'corridas') {
+    const comoPassageiro = /\b(?:fiz|peguei|chamei|tomei)\s+(?:uma\s+)?(?:corrida|viagem|uber|99)\b/i.test(mensagem)
+      && !/\b(?:recebi|ganhei|caiu|entrou|me\s+pag)/i.test(mensagem)
+    if (comoPassageiro) return { kind: 'expense', amount: action.amount, category: 'outros-out', description: action.description || 'Corrida', ...(action.date ? { date: action.date } : {}) } as ParsedAction
+  }
   return action
 }
 

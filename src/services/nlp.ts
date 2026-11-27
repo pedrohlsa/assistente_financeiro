@@ -1888,7 +1888,7 @@ function parseClause(input: string): ParsedAction[] {
     const verboNomeValorRe = new RegExp(
       // "Recebi o 13 de 1600", "a primeira parcela do décimo terceiro": o 13º
       // é salário. Caía no menu de ajuda.
-      String.raw`\b(?:caiu|entrou|pingou|recebi|ganhei)\s+(?:o\s+|a\s+|meu\s+|minha\s+)?(?:(?:primeira|segunda|1a|2a|1ª|2ª)\s+parcela\s+d[oe]\s+(?:meu\s+)?)?(sal[áa]rio|pagamento|freela|freelance|comiss[ãa]o|alugu[eé]l|pix|d[ée]cimo\s+terceiro|adiantamento(?:\s+(?:quinzenal|salarial|do\s+sal[áa]rio|da\s+quinzena))|vale)\s+(?:de\s+|do\s+m[eê]s\s+)?(?:r\$)?\s*${NUM}`,
+      String.raw`\b(?:caiu|entrou|pingou|recebi|ganhei)\s+(?:o\s+|a\s+|meu\s+|minha\s+)?(?:(?:primeira|segunda|1a|2a|1ª|2ª)\s+parcela\s+d[oe]\s+(?:meu\s+)?)?(sal[áa]rio|pagamento|freela|freelance|comiss[ãa]o|alugu[eé]l|pix|d[ée]cimo\s+terceiro|adiantamento(?:\s+(?:quinzenal|salarial|do\s+sal[áa]rio|da\s+quinzena))|vale|b[ôo]nus|pr[êe]mio|gratifica[çc][ãa]o|participa[çc][ãa]o\s+nos\s+lucros|plr)\s+(?:de\s+|do\s+m[eê]s\s+)?(?:r\$)?\s*${NUM}`,
       'gi',
     )
     for (const vn of text.matchAll(verboNomeValorRe)) {

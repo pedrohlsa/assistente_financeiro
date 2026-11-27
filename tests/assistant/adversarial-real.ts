@@ -14498,6 +14498,25 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // ZH — fora do motorista: corrida como passageiro é gasto; bônus é receita.
+  {
+    const today = '2026-11-25'
+    const clt = buildState({ profile: 'clt' }), autonomo = buildState({ profile: 'autonomo' })
+    {
+      // Virava receita de Corridas.
+      const r = await orchestrate({ state: clt, message: 'fiz uma corrida de 25 pro trabalho', today, remoteEnabled: false })
+      const a = (r.response.actions as any[])[0]?.action
+      out.push(result('ZH-corrida-como-passageiro', { response: r.response }, 'gasto de 25', a?.kind === 'expense' && a.amount === 25))
+    }
+    {
+      // Caía no menu de ajuda.
+      const r = await orchestrate({ state: autonomo, message: 'recebi bônus de 300', today, remoteEnabled: false })
+      const a = (r.response.actions as any[])[0]?.action
+      out.push(result('ZH-bonus-e-receita', { response: r.response }, 'receita de 300', a?.kind === 'income' && a.amount === 300))
+    }
+  }
+
   return out
 }
 

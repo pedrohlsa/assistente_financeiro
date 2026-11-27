@@ -7838,3 +7838,9 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "Recebi 99 reais" nos perfis genérico, autônomo e CLT não vai mais para Corridas. A palavra-chave "99" da lista de categorias casava com o próprio valor, ferindo a regra 3. "Recebi 300 da 99", com preposição, continua indo para Corridas no motorista.
 - Com o estado vazio, as perguntas do motorista (por hora, dia da semana, app, lucro, meta, custo do km, média por corrida e folga) calam e dizem o que registrar (regra 43). A comparação entre dois gastos sem dado nenhum não diz mais "Dado real".
 
+### Palavras de motorista fora do motorista (`ZH`)
+
+- Na CLT, "fiz uma corrida de 25 pro trabalho" é gasto: a corrida que a pessoa pagou como passageira. Antes, virava receita de Corridas. Quem diz que recebeu do app ("recebi 120 do Uber") continua com a receita, como no bloco `MV`.
+- "Recebi bônus de 300", "prêmio", "gratificação" e "PLR" viram receita. Antes, caíam no menu de ajuda.
+- Durante este lote, um script de edição inseriu um backspace (0x08) no lugar de `\b` numa regex, o mesmo problema da regra 59. Foi encontrado antes do commit e corrigido; a varredura de caracteres de controle está limpa.
+
