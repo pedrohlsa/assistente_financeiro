@@ -73,6 +73,7 @@ export function wordsToNumberParts(words: string[]): { value: number; cents?: nu
   let current = 0
   let sawDigit = false
   let tensUsed = false
+  let unitUsed = false
   let cents: number | undefined
 
   for (let i = 0; i < words.length; i++) {
@@ -86,8 +87,16 @@ export function wordsToNumberParts(words: string[]): { value: number; cents?: nu
       if (rest && rest.value > 0 && rest.value < 100) cents = rest.value
       break
     }
+    // "Cento e CINCO e CINQUENTA": dezena depois de unidade nunca compõe o
+    // inteiro (seria "cento e cinquenta e cinco"). O resto são os centavos —
+    // somado, o abastecimento de R$ 105,50 virava R$ 155,00.
+    if (TENS.has(w) && unitUsed && (current >= 100 || total > 0)) {
+      const rest = wordsToNumberParts(words.slice(i))
+      if (rest && rest.value > 0 && rest.value < 100) cents = rest.value
+      break
+    }
 
-    if (UNITS.has(w)) { current += UNITS.get(w)!; sawDigit = true; continue }
+    if (UNITS.has(w)) { current += UNITS.get(w)!; sawDigit = true; unitUsed = true; continue }
     if (TENS.has(w)) { current += TENS.get(w)!; sawDigit = true; tensUsed = true; continue }
     if (HUNDREDS.has(w)) { current += HUNDREDS.get(w)!; sawDigit = true; continue }
 
@@ -99,6 +108,7 @@ export function wordsToNumberParts(words: string[]): { value: number; cents?: nu
       current = 0
       sawDigit = true
       tensUsed = false // "mil e vinte e cinco" reabre a contagem
+      unitUsed = false
       continue
     }
     return null

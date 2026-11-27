@@ -14246,6 +14246,33 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YW — números longos por extenso e a lista telegráfica do dia.
+  {
+    const today = '2026-11-25', yesterday = '2026-11-24'
+    const state = motoristaRico(today)
+    for (const [i, [message, expected]] of ([
+      // "Cento e cinco e cinquenta" somava 155.
+      ['abasteci cento e cinco e cinquenta', [['fuel', 105.5, '']]],
+      ['recebi mil duzentos e cinquenta e cinco reais da uber', [['income', 1255, 'Uber']]],
+      // A Uber virava 99, os 120 da 99 viravam abastecimento e o resto virava pergunta.
+      ['ontem: uber 300, 99 120, gasolina 100, almoço 22, pedágio 12, 190 km, 9h, 18 corridas',
+        [['income', 300, 'Uber'], ['fuel', 100, ''], ['expense', 22, 'Almoço'], ['expense', 12, 'Pedágio'], ['income', 120, '99'], ['work', 190, '']]],
+    ] as const).entries()) {
+      const r = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actual = (r.response.actions as any[]).map(c => [c.action.kind, c.action.kind === 'work' ? c.action.km : c.action.amount, c.action.description || ''])
+      const datas = (r.response.actions as any[]).every(c => i < 2 || c.action.date === yesterday)
+      out.push(result('YW-numeros-e-lista-' + i, { message, response: r.response }, expected,
+        r.response.mode === 'propose_actions' && !r.response.unresolved.length && datas && JSON.stringify(actual) === JSON.stringify(expected)))
+    }
+    {
+      const { normalizeNumberWords } = await import('../../src/assistant/numbers')
+      const casos = [['dois mil e cinco e cinquenta', '2005,50'], ['cento e cinquenta e cinco', '155'], ['mil e vinte e cinco', '1025'], ['duzentos e trinta e quatro', '234']] as const
+      out.push(result('YW-dezena-depois-de-unidade', casos.map(c => normalizeNumberWords(c[0]).text), casos.map(c => c[1]),
+        casos.every(([falado, digito]) => normalizeNumberWords(falado).text === digito)))
+    }
+  }
+
   return out
 }
 

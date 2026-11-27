@@ -20,7 +20,7 @@ import type {
   AssistantDiagnostics, AssistantErrorCode, AssistantResponse, AssistantUnresolvedClause, PendingRideOffer,
 } from './contracts'
 import { ASSISTANT_CONTRACT_VERSION, MAX_ACTIONS_PER_BATCH, actionSpec, errorMessage, isValidationFailure, validateAction } from './contracts'
-import { PEDE_APAGAR, analyzeMessage, contestsProposal, datesMentioned, declaresIntention, financialEventActions, isRefundInflow, looksLikeQuestion, looksLikeRetraction, looksNegated, looksPast, looksRecurring, normalizeAmountContrast, segment, speechForCommands, weekdayChoiceWord } from './clauses'
+import { PEDE_APAGAR, analyzeMessage, appAntesDoValor, contestsProposal, datesMentioned, declaresIntention, financialEventActions, isRefundInflow, looksLikeQuestion, looksLikeRetraction, looksNegated, looksPast, looksRecurring, normalizeAmountContrast, segment, speechForCommands, weekdayChoiceWord } from './clauses'
 import { categoryDilemma, outOfPatternWarning, withLearnedCategory, withLearnedSpelling } from './learning'
 import { explainRequest } from './explain'
 import { answerConversation, gastoEntreDois, isFocusFresh, looksLikeFollowUp } from './conversation'
@@ -3177,6 +3177,12 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (isDriver(input.state.settings)) {
     const shorthand = normalizeDriverShorthand(input.message)
     if (shorthand !== input.message) input = { ...input, message: shorthand }
+    // A lista telegráfica ("ontem: uber 300, 99 120, gasolina 100") já sai na
+    // forma que os leitores de dia entendem; antes deles, a Uber virava 99.
+    if (/:\s*(?:uber|99|in\s*driver?)\s+\d/i.test(input.message)) {
+      const lista = appAntesDoValor(input.message)
+      if (lista !== input.message) input = { ...input, message: lista }
+    }
   }
   const today = input.today || todayISO()
   // "Fiz 300 na uber, ou foi 350? não lembro": dúvida entre dois valores. Lida

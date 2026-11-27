@@ -1617,7 +1617,7 @@ function unaccountedMoney(clause: AnalyzedClause, today: string): number[] {
  * sem aviso, e "uber 45 líquido, 5 de pedágio" virava uma receita de R$ 5.
  * Só no começo de item de lista, e nunca com unidade de medida depois.
  */
-const APP_THEN_AMOUNT = /(^|[,;]\s*|\s+e\s+)(?:(?:a|na|da)\s+)?(uber|99|in\s*driver?)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s+(?:reais|conto|contos|pila))?(?:\s+(l[íi]quidos?|brutos?|limpos?))?(?![.,]?\d)(?!\s*(?:x\b|%|km\b|kms\b|h\b|hrs?\b|horas?\b|min|corridas?\b|viagens?\b|l\b|litros?\b))(?=\s*(?:$|[,;.!]|\s+e\s+|\s+\d))/giu
+const APP_THEN_AMOUNT = /(^|[,;]\s*|\s+e\s+|^\s*(?:hoje|hj|ontem|anteontem)\s+)(?:(?:a|na|da)\s+)?(uber|99|in\s*driver?)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s+(?:reais|conto|contos|pila))?(?:\s+(l[íi]quidos?|brutos?|limpos?))?(?![.,]?\d)(?!\s*(?:x\b|%|km\b|kms\b|h\b|hrs?\b|horas?\b|min|corridas?\b|viagens?\b|l\b|litros?\b))(?=\s*(?:$|[,;.!]|\s+e\s+|\s+\d))/giu
 // "Recebi DA 99 240": com o app entre o verbo e o valor, o 99 e o 240 ficavam
 // lado a lado e nenhum leitor registrava nada. Na ordem "recebi 240 da 99", sim.
 const VERB_APP_AMOUNT = /\b(recebi|ganhei|fiz|faturei|tirei|caiu|entrou|pingou)\s+(d[ao]|n[ao]|pel[ao])\s+(uber|99|in\s*driver?)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?![.,]?\d)(?!\s*(?:x\b|%|km\b|kms\b|h\b|hrs?\b|horas?\b|min|corridas?\b|viagens?\b))/giu
@@ -1633,7 +1633,16 @@ const APP_TRIPS_AMOUNT = /(^|[,;]\s*|\s+e\s+)(?:(?:na|da)\s+)?(uber|99|in\s*driv
 // "Hoje 180 km rodados": a distância do dia sem verbo.
 const KM_RODADOS = /(^|[,;]\s*|\s+e\s+)((?:(?:hoje|hj|ontem|anteontem)\s+)?)(\d{1,4}(?:[.,]\d+)?)\s*(?:km|quil[oô]metros?)\s+rodados?\b/giu
 
-function appAntesDoValor(input: string): string {
+// "Ontem: uber 300, 99 120, GASOLINA 100, ALMOÇO 22, PEDÁGIO 12": a lista
+// telegráfica põe o item antes do valor. Sem reordenar, os valores trocavam
+// de dono — a Uber virava 99, os 120 da 99 viravam abastecimento.
+const ITEM_THEN_AMOUNT = /(^|[,;]\s*|\s+e\s+)(gasolina|gasosa|etanol|gnv|diesel|almo[çc]o|lanche|caf[ée]|janta|jantar|ped[áa]gio|estacionamento|lavagem|[óo]leo|pneus?|mec[âa]nico|[áa]gua)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?!\d|[.,]\d|\s*(?:km|h|horas?|litros?|l\b|x\b|%)|\s*(?:o|por|cada|\/)\s*(?:litro|l)\b)/giu
+
+export function appAntesDoValor(input: string): string {
+  // "Ontem: ..." — o dia com dois-pontos abre a lista.
+  input = input.replace(/^(\s*(?:hoje|hj|ontem|anteontem))\s*:\s*/i, '$1 ')
+  if (/[,;](?!\d)/.test(input)) input = input.replace(ITEM_THEN_AMOUNT, (_m, lead: string, item: string, amount: string) =>
+    `${lead}${!lead || /\s$/.test(lead) ? '' : ' '}${amount} de ${item.toLowerCase()}`)
   input = input.replace(APP_TRIPS_AMOUNT, (_m, lead: string, app: string, trips: string, amount: string) =>
     `${lead}fiz ${trips} corridas e ganhei ${amount} na ${/^uber$/i.test(app) ? 'Uber' : /^99$/.test(app) ? '99' : 'inDrive'}`)
     .replace(KM_RODADOS, (m, lead: string, day: string, km: string) => parseFloat(km.replace(',', '.')) > 1500 ? m : `${lead}${day}rodei ${km} km`)

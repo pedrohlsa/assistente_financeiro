@@ -7778,3 +7778,8 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "85 hj", com um pedágio de R$ 85 na proposta, muda a data desse item. Se ele já estava em hoje, o app só confirma. Antes, perguntava se os R$ 85 foram ganho ou gasto.
 - "Os 170 km foram hoje", com horas e viagens na mesma jornada, pergunta se só os km mudaram de dia ou a jornada inteira, com as duas propostas prontas. Quando a jornada só tem os km, a data muda direto. Antes, o app pedia para reescrever.
 
+### Números longos e lista telegráfica (`YW`)
+
+- "Abasteci cento e cinco e cinquenta" é R$ 105,50, e "dois mil e cinco e cinquenta" é R$ 2.005,50. Dezena depois de unidade nunca compõe o número inteiro, então o resto são os centavos. Antes, saíam R$ 155 e R$ 2.055.
+- "Ontem: uber 300, 99 120, gasolina 100, almoço 22, pedágio 12, 190 km, 9h, 18 corridas" sai com cada valor no seu item. Antes, os R$ 300 iam para a 99, os R$ 120 viravam abastecimento, e a gasolina, o almoço e o pedágio viravam pergunta.
+
