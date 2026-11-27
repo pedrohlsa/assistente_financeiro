@@ -8,3 +8,5 @@
 | “quanto no saldo ontem e quanto hoje?” | Respondeu apenas o saldo atual e os próximos vencimentos. | O histórico pode não ter o saldo de ontem quando há ajuste manual. |
 | “pagou ontem nove e setenta e cinco de estacionamento” | No perfil motorista, perguntou “Esses R$ 9,75 foram o que você ganhou ou o que você gastou?”. | A taxa de estacionamento de ontem sugere despesa, mas o sujeito e a origem do pagamento podem estar cortados no ditado. |
 | “ontem rodei 170 km e hj 200 km”, com relógio injetado no dia 25 e o ambiente no dia 26 | As datas das ações foram dia 24 e 25. Os rótulos na proposta foram “anteontem” e “ontem”. | A data de referência dos rótulos deve ser a mesma usada para interpretar a mensagem. |
+| “transferi 800 da carteira da 99 pra minha conta” | Respondeu com vencimentos (sem relação). | Se as corridas da semana já foram lançadas, a transferência só move dinheiro; se não foram, é a receita. O app precisa perguntar qual dos dois. (Claude, 27/11) |
+

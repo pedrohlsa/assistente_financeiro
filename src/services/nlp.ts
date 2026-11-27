@@ -866,7 +866,7 @@ export const INCOME_PLATFORM_PREFIX = new RegExp(
   // "A UBER caiu 820", "o REPASSE DA 99 caiu 650": a plataforma como sujeito
   // ou dona do repasse. Só "na/da Uber" era reconhecido, e o repasse semanal
   // entrava sem app — fora da divisão por plataforma.
-  String.raw`^\s*(?:(?:hoje|ontem|anteontem|eu|j[áa])\s+){0,3}(?:n[ao]\s+|pel[ao]\s+|d[ao]\s+|[ao]\s+|(?:o\s+)?(?:repasse|pagamento|saldo|dep[óo]sito|pix|semanal)\s+d[ao]\s+|(?=(?:uber|in\s*driver?)\s))(${APP_DE_CORRIDA})\s+(?:(?:hoje|ontem|anteontem|eu|j[áa])\s+){0,3}(?=(?:me\s+)?(?:fiz|ganhei|recebi|faturei|entrou|caiu|pingou|depositou|pagou|enviou|mandou|transferiu|repassou)\b)`, 'i',
+  String.raw`^\s*(?:(?:hoje|ontem|anteontem|eu|j[áa])\s+){0,3}(?:n[ao]\s+|pel[ao]\s+|d[ao]\s+|[ao]\s+|(?:o\s+)?(?:repasse|pagamento|saldo|dep[óo]sito|pix|semanal)(?:\s+semanal|\s+da\s+semana(?:\s+passada)?)?\s+d[ao]\s+|(?=(?:uber|in\s*driver?)\s))(${APP_DE_CORRIDA})\s+(?:(?:hoje|ontem|anteontem|eu|j[áa])\s+){0,3}(?=(?:me\s+)?(?:fiz|ganhei|recebi|faturei|entrou|caiu|pingou|depositou|pagou|enviou|mandou|transferiu|repassou)\b)`, 'i',
 )
 const DISTINCT_INCOME_SOURCE = /^\s*d[aoe]\s+(?!(?:pix|dinheiro|transfer[eê]ncia|corridas?|semana|quinzena|m[eê]s|dia|hoje|ontem|repasse)\b)\p{L}/iu
 const AVISO_DE_CORRIDA = String.raw`(?:oferta|chamada|proposta|solicita[çc][ãa]o)`

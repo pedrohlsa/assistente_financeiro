@@ -14534,6 +14534,32 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // AA — repasse semanal dito pelo nome e saldo de carteira com o motorista como sujeito.
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    for (const [i, [message, valor, app]] of ([
+      // A Uber sumia do repasse semanal.
+      ['o repasse semanal da uber caiu 1.200', 1200, 'Uber'],
+      // Caíam na ajuda ou numa consulta quebrada.
+      ['a uber pagou a semana, 1350', 1350, 'Uber'],
+      ['caiu o pix da 99 de 620', 620, '99'],
+      ['recebi o repasse da semana passada da 99, 900', 900, '99'],
+    ] as const).entries()) {
+      const r = await orchestrate({ state, message, today, remoteEnabled: false })
+      const a = (r.response.actions as any[]).map(c => c.action)
+      out.push(result('AA-repasse-' + i, { message, response: r.response }, `${valor} da ${app}`,
+        r.response.mode === 'propose_actions' && a.length === 1 && a[0].kind === 'income' && a[0].amount === valor && a[0].description === app))
+    }
+    {
+      // Caía no menu de ajuda.
+      const r = await orchestrate({ state, message: 'tenho 300 na carteira da uber', today, remoteEnabled: false })
+      out.push(result('AA-saldo-na-carteira', { reply: r.response.reply }, 'saldo da carteira, sem receita',
+        !r.response.actions.length && /saldo na carteira da Uber/.test(r.response.reply)))
+    }
+  }
+
   return out
 }
 

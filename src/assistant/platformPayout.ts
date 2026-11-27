@@ -371,13 +371,18 @@ export function readRideDebtAfterActivity(message: string) {
 const RIDE_WALLET = new RegExp(
   String.raw`^(?:a\s+)?carteira\s+d[ao]\s+(?<platform>${PAYOUT_APP})\s+(?:ainda\s+)?(?:ficou\s+com|(?:ta|esta)\s+com|tem)\s+${MONEY('amount')}${DEBT_TAIL}`,
 )
+// "Tenho 300 na carteira da uber": o mesmo saldo, dito com o motorista como sujeito.
+const RIDE_WALLET_HELD = new RegExp(
+  String.raw`^(?:eu\s+)?(?:ainda\s+)?(?:tenho|to\s+com|estou\s+com)\s+${MONEY('amount')}\s+(?:de\s+saldo\s+)?na\s+carteira\s+d[ao]\s+(?<platform>${PAYOUT_APP})${DEBT_TAIL}`,
+)
 const WALLET_PAYMENT = new RegExp(
   String.raw`^(?:(?<lead>${PAYOUT_DAY})\s+)?(?:recebi|caiu|cairam|entrou|entraram)\s+${MONEY('received')}(?:\s+na\s+(?:minha\s+)?conta|\s+no\s+pix)?(?:\s+(?<day>${PAYOUT_DAY}))?[.!]*$`,
 )
 
 export function readRideWallet(message: string): { platform: string; amount: number; tail?: string } | undefined {
   if (!/\bcarteira\b/i.test(message) || message.includes('?')) return undefined
-  const parts = normalizeName(normalizeNumberWords(message).text).match(RIDE_WALLET)?.groups
+  const texto = normalizeName(normalizeNumberWords(message).text)
+  const parts = (texto.match(RIDE_WALLET) || texto.match(RIDE_WALLET_HELD))?.groups
   if (!parts) return undefined
   const platform = ridePayoutPlatformName(parts.platform)
   const amount = parseMoney(parts.amount)

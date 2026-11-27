@@ -157,6 +157,12 @@ export function normalizeDriverShorthand(message: string): string {
     // Só "cobrou", e sem repasse na frase: "descontou 50 de taxa e caiu 380" é
     // a taxa retida, que nunca passa pela mão dele.
     .replace(/^(\s*(?:(?:hoje|hj|ontem|anteontem)\s+)?)(?:a\s+)?99\s+(?:me\s+)?cobrou\s+((?:r\$\s*)?\d+(?:[.,]\d+)?)\s+de\s+((?:(?!\b(?:e\s+)?(?:caiu|entrou|recebi|pagou|repassou|depositou)\b)[^,;.!?])+)$/i, '$1paguei $2 de $3 da 99')
+    // Repasse dito pelo nome: "a uber pagou A SEMANA, 1350", "caiu O PIX DA 99
+    // DE 620", "recebi O REPASSE da semana passada da 99, 900". Caíam na ajuda
+    // ou numa consulta quebrada.
+    .replace(/\b(?:a|o)\s+(uber|99|in\s*driver?)\s+(?:me\s+)?(?:pagou|depositou|repassou)\s+a\s+semana(?:\s+passada)?\s*,?\s*(?:de\s+)?((?:r\$\s*)?\d+(?:[.,]\d+)*)/gi, 'recebi $2 da $1')
+    .replace(/\bcaiu\s+o\s+(?:pix|repasse|pagamento|dep[óo]sito)(?:\s+semanal)?\s+d[ao]\s+(uber|99|in\s*driver?)\s+de\s+((?:r\$\s*)?\d+(?:[.,]\d+)*)/gi, 'caiu $2 da $1')
+    .replace(/\brecebi\s+o\s+(?:repasse|pagamento|pix|dep[óo]sito)(?:\s+semanal|\s+da\s+semana(?:\s+passada)?)?\s+d[ao]\s+(uber|99|in\s*driver?)\s*,?\s*(?:de\s+)?((?:r\$\s*)?\d+(?:[.,]\d+)*)/gi, 'recebi $2 da $1')
     // "Corrida PARTICULAR de 80", "3 corridas privadas de 50": o adjetivo no
     // meio quebrava a leitura da corrida, e o dinheiro sumia.
     .replace(/\b(corridas?)\s+(?:particular(?:es)?|privadas?|por\s+fora)\s+(?=de\s+(?:r\$\s*)?\d)/gi, '$1 ')

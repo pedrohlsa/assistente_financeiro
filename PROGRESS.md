@@ -7849,3 +7849,9 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "Fiz 320 em 10 horas, quanto deu por hora?" responde R$ 32,00 por hora, com a conta só dos valores da mensagem e antes dos custos. "Fiz 300 e rodei 150 km, quanto deu por km?" e "fiz 12 corridas e ganhei 300, quanto deu por corrida?" seguem a mesma regra. Antes, a resposta dizia que não havia horas registradas.
 - Os prefixos `Z?` acabaram. Os próximos livres são `AA`, `AD`, `AE`, `AF`…
 
+### Repasses e carteira (`AA`)
+
+- "O repasse semanal da uber caiu 1.200" guarda a Uber, que antes sumia.
+- "A uber pagou a semana, 1350", "caiu o pix da 99 de 620" e "recebi o repasse da semana passada da 99, 900" viram receita do app. Antes, caíam na ajuda ou numa consulta quebrada.
+- "Tenho 300 na carteira da uber" responde como saldo de carteira, sem registrar receita (a regra é a do lote do GPT: dinheiro na carteira só vira receita quando cai na conta). Ficaram como estão: "transferi 800 da carteira da 99 pra minha conta" e "saquei 400 da uber". Os dois dependem de o motorista já ter lançado as corridas daquela semana; anotado em `docs/BATERIA_DUVIDAS.md`.
+
