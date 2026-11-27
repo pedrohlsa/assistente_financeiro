@@ -7865,3 +7865,9 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "Transferi 800 da carteira da 99 pra minha conta" e "saquei 400 da uber ontem" perguntam se o valor já está nas corridas lançadas. Se já está, nada é registrado, porque é só dinheiro mudando de lugar. Se não está, a resposta prepara a receita do app, com a data dita. Antes, a primeira frase respondia com vencimentos, e a segunda dizia que saque não é ganho.
 - Durante o lote, a frase com o dia junto ("saquei 400 da uber ontem") derrubava o orquestrador, porque o código usava uma variável antes de declará-la. Foi corrigido antes do commit e ganhou regressão própria.
 
+### Gíria de dinheiro (`AF`)
+
+- "Gastei 2 paus no conserto" pergunta se foi R$ 2 ou R$ 2.000, com as duas propostas prontas. "Meio pau" também pergunta. Antes, gravava R$ 2. Com número de 10 para cima ("50 paus de gasolina"), o valor continua em reais.
+- "Gastei rs 45 no almoço" e "gastei uma nota de 100 no posto" registram R$ 45 e R$ 100. Antes, caíam no menu de ajuda.
+- "Pila", "mango", "conto(s)", "R$300", "1k" e "1,2 mil" foram conferidos, sem defeito.
+

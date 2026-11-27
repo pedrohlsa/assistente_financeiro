@@ -14599,6 +14599,34 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // AF — gíria de dinheiro: "2 paus" pergunta mil ou real; "rs 45" e "uma nota de 100".
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    const ask = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({ state, message, today, remoteEnabled: false,
+      pendingClarification: prior?.response.mode === 'clarify' ? prior.response.clarification : undefined })
+    {
+      // Gravava R$ 2,00.
+      const first = await ask('gastei 2 paus no conserto')
+      const mil = await ask('1', first)
+      out.push(result('AF-dois-paus', { first: first.response.reply, mil: mil.response.actions }, 'pergunta e grava 2000',
+        first.response.mode === 'clarify' && !first.response.actions.length
+        && (mil.response.actions as any[]).some(c => c.action.kind === 'expense' && c.action.amount === 2000)))
+    }
+    for (const [i, [message, valor]] of ([
+      // "50 paus" continua sendo R$ 50.
+      ['gastei 50 paus de gasolina', 50],
+      // Caíam no menu de ajuda.
+      ['gastei rs 45 no almoço', 45],
+      ['gastei uma nota de 100 no posto', 100],
+    ] as const).entries()) {
+      const r = await ask(message)
+      out.push(result('AF-valor-' + i, { message, response: r.response }, valor,
+        r.response.mode === 'propose_actions' && (r.response.actions as any[]).length === 1 && (r.response.actions as any[])[0].action.amount === valor))
+    }
+  }
+
   return out
 }
 

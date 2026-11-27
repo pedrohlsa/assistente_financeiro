@@ -1066,6 +1066,31 @@ function parcelaMensal(input: OrchestratorInput, today: string): OrchestratorOut
   return answer(`${veredito}\n\nNos últimos ${meses.length} meses fechados sobraram em média ${fmtBRL(media)} por mês (dado real). Com a parcela de ${fmtBRL(parcela)} todo mês, são ${fmtBRL(parcela * 12)} em um ano.\n\nSimulação — nada foi registrado.`)
 }
 
+/**
+ * "Gastei 2 PAUS no conserto": na gíria, "pau" com número pequeno é mil (R$
+ * 2.000) e com número grande é real ("50 paus"). Lido como real, o conserto de
+ * R$ 2.000 virava R$ 2. Abaixo de 10 o app pergunta, com as duas propostas.
+ */
+async function paoOuMil(input: OrchestratorInput): Promise<OrchestratorOutput | undefined> {
+  const text = normalizeNumberWords(input.message.replace(/\bmeio\s+pau\b/gi, '0,5 pau')).text
+  const m = text.match(/(?<![\d.,])(\d(?:[.,]\d{1,2})?)\s+paus?\b/i)
+  if (!m || m.index === undefined) return undefined
+  const n = parseMoney(m[1])
+  if (!(n > 0) || n >= 10) return undefined
+  const trocar = (v: number) => `${text.slice(0, m.index)}${String(v).replace('.', ',')} reais${text.slice(m.index! + m[0].length)}`
+  const [reais, mil] = await Promise.all([trocar(n), trocar(n * 1000)].map(message =>
+    orchestrate({ ...input, message, pending: undefined, pendingClarification: undefined, draft: undefined })))
+  const ok = (r: OrchestratorOutput) => r.response.mode === 'propose_actions' && r.response.actions.length > 0
+  if (!ok(reais) || !ok(mil)) return undefined
+  const dito = input.message.match(/\bmeio\s+pau\b/i)?.[0] || m[0].trim()
+  const question = `"${dito}" foi ${fmtBRL(n)} ou ${fmtBRL(n * 1000)}?`
+  return { draft: null, focus: input.focus, response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
+    actions: [], unresolved: [], reply: question, clarification: { field: 'amount-slang', question, options: [
+      { value: '1', label: fmtBRL(n * 1000), actions: mil.response.actions.map(c => c.action) },
+      { value: '2', label: fmtBRL(n), actions: reais.response.actions.map(c => c.action) },
+    ] } } }
+}
+
 const DUVIDA_DE_VALOR = /(?<![\d.,])(\d+(?:,\d{1,2})?)(?:\s+(?:reais|conto?s?))?([^\d?]{0,25}?)(\s*,?\s*(?:ou\s+(?:foi\s+|era\s+|seria\s+|talvez\s+|uns\s+)?|,\s*))(\d+(?:,\d{1,2})?)(?:\s+(?:reais|conto?s?))?(?![\d.,]|\s*(?:km|h|horas?|corridas?|viagens?|litros?|%|x)(?![\wÀ-ÿ]))/i
 const MARCA_DE_DUVIDA = /(?<![\wÀ-ÿ])(?:n[ãa]o\s+(?:lembro|sei)(?:\s+(?:direito|bem|ao\s+certo))?|por\s+a[íi]|acho(?:\s+que)?|sei\s+l[áa]|mais\s+ou\s+menos)(?![\wÀ-ÿ])|\?/i
 
@@ -3218,6 +3243,9 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   }
   // "Na vdd foi na 99": sem expandir, a correção não era reconhecida e a
   // proposta ganhava a descrição "Vdd foi na 99".
+  // "Gastei rs 45", "uma nota de 100": o "rs" é o R$ e a nota é o valor.
+  const notaRs = input.message.replace(/(?<![\p{L}\d])rs\s*(?=\d)/giu, 'R$ ').replace(/\buma\s+nota\s+de\s+(?=(?:r\$\s*)?\d)/gi, '')
+  if (notaRs !== input.message) input = { ...input, message: notaRs }
   // "Ont" é ontem em qualquer frase; sozinho, nenhuma regra o via como data.
   // "300.. na uber", "50,, de gasolina": pontuação repetida não é decimal.
   const semVdd = input.message.replace(/(?<![\p{L}\d])vdd(?![\p{L}\d])/giu, 'verdade')
@@ -3279,6 +3307,8 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
     if (duvida) return duvida
     const gorjeta = await gorjetaDentroOuFora(input)
     if (gorjeta) return gorjeta
+    const pau = await paoOuMil(input)
+    if (pau) return pau
     const parcial = await servicoPagoEmParte(input)
     if (parcial) return parcial
   }
