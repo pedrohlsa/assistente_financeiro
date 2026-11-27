@@ -14149,6 +14149,32 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YT — outros perfis: casas antes do valor "cada" e o app 99 como descrição.
+  {
+    const today = '2026-11-25'
+    const autonomo = autonomoRico(today), clt = buildState({ profile: 'clt' })
+    for (const [i, [state, message, expected]] of ([
+      // "Da casa 1 e da casa 2, 1800 cada" caía no menu de ajuda.
+      [autonomo, 'recebi da casa 1 e da casa 2, 1800 cada', [[1800, 'Casa 1'], [1800, 'Casa 2']]],
+      [autonomo, 'recebi das casas 1, 2 e 3, 1500 cada', [[1500, 'Casa 1'], [1500, 'Casa 2'], [1500, 'Casa 3']]],
+      // O "99" sumia da descrição de quem andou de 99.
+      [clt, 'gastei 35 de 99 ontem', [[35, '99']]],
+      [clt, 'paguei 22 na 99', [[22, '99']]],
+    ] as const).entries()) {
+      const r = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actual = (r.response.actions as any[]).map(c => [c.action.amount, c.action.origin || c.action.description || ''])
+      out.push(result('YT-perfis-' + i, { message, response: r.response }, expected,
+        r.response.mode === 'propose_actions' && JSON.stringify(actual) === JSON.stringify(expected)))
+    }
+    {
+      // A lista de dois valores continua sendo dois valores.
+      const r = await orchestrate({ state: clt, message: 'gastei 20 e 99', today, remoteEnabled: false })
+      out.push(result('YT-vinte-e-noventa-e-nove', { response: r.response }, [20, 99],
+        JSON.stringify((r.response.actions as any[]).map(c => c.action.amount)) === JSON.stringify([20, 99])))
+    }
+  }
+
   return out
 }
 

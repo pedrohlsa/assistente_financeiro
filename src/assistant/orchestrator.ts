@@ -2574,15 +2574,19 @@ function prepareRepeatedRent(input: OrchestratorInput, caps: AssistantCapabiliti
   const undated = dates.reduceRight((s, d) => s.slice(0, d.start) + ' ' + s.slice(d.end), text).trim().replace(/\s+/g, ' ')
   const receipt = !waiting && undated.match(/^(?:eu\s+)?(?:ja\s+)?recebi\s+(.+?)\s+(de\s+aluguel\s+)?de\s+cada\s+(?:uma\s+das\s+)?casas?(?:\s+(.+))?$/)
   const rents = !waiting && undated.match(/^(?:os\s+)?(?:(\d+)\s+)?alugueis\s+das\s+(casas\s+.+?)\s+(?:foram|cairam|entraram)\s+(.+?)\s+cada$/)
-  if (!waiting && !receipt && !rents) return undefined
+  // "Recebi DA CASA 1 E DA CASA 2, 1800 CADA": as casas antes do valor. Caía
+  // no menu de ajuda.
+  const homesFirst = !waiting && !receipt && !rents
+    ? undated.match(/^(?:eu\s+)?(?:ja\s+)?recebi\s+((?:(?:de\s+aluguel\s+)?d[ao]s?\s+)?(?:casas?\s+)?\d{1,4}(?:(?:\s*,\s*|\s+e\s+)(?:d[ao]\s+)?(?:casa\s+)?\d{1,4})+)\s*,?\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s+reais)?\s+cada(?:\s+uma)?$/) : null
+  if (!waiting && !receipt && !rents && !homesFirst) return undefined
   const template = waiting ? clarification.pendingActions?.[0] : undefined
-  const amount = template?.kind === 'income' ? template.amount : exactMoneyAnswer(receipt?.[1] || rents?.[3] || '')
+  const amount = template?.kind === 'income' ? template.amount : exactMoneyAnswer(receipt?.[1] || rents?.[3] || homesFirst?.[2] || '')
   if (!(amount > 0)) return undefined
   const base: Extract<ParsedAction, { kind: 'income' }> = { kind: 'income', amount,
-    ...(rents || receipt?.[2] || (template?.kind === 'income' && template.category === 'aluguel') ? { category: 'aluguel' } : {}),
+    ...(rents || homesFirst || receipt?.[2] || (template?.kind === 'income' && template.category === 'aluguel') ? { category: 'aluguel' } : {}),
     date: date || (template?.kind === 'income' ? template.date : undefined),
   }
-  const origins = listedHomes(waiting ? undated : receipt?.[3] || rents?.[2] || '')
+  const origins = listedHomes(waiting ? undated : receipt?.[3] || rents?.[2] || homesFirst?.[1].replace(/^(?:de\s+aluguel\s+)?d[ao]s?\s+/, '').replace(/\s+e\s+d[ao]\s+/g, ' e ') || '')
   if (rents?.[1] && origins.length !== Number(rents[1])) {
     const question = 'A quantidade de aluguéis não bate com a lista de casas. Diga quais casas pagaram e o valor de cada uma.'
     return keepPendingClarification(input, { question })

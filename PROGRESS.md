@@ -7763,3 +7763,8 @@ A rubrica foi conferida resposta por resposta contra a rodada anterior, sem nenh
 
 Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `docs/BATERIA_DUVIDAS.md`.
 
+### Outros perfis, segunda volta (`YT`)
+
+- "Recebi da casa 1 e da casa 2, 1800 cada" e "recebi das casas 1, 2 e 3, 1500 cada" propõem um aluguel por casa. Antes, caíam no menu de ajuda.
+- "Gastei 35 de 99 ontem" e "paguei 22 na 99", fora do perfil motorista, guardam "99" na descrição. "Gastei 20 e 99" continua sendo dois valores.
+

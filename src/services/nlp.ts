@@ -161,6 +161,9 @@ export function cleanDescription(raw?: string): string | undefined {
   const out = words.join(' ').trim()
   // Um número sozinho nunca descreve um gasto: "gastei 20 e 30" deixava a
   // descrição "30" no primeiro lançamento, escondendo ali o segundo valor.
+  // "Gastei 35 DE 99": com preposição, o 99 é o app de corrida, não um valor.
+  // O leitor de despesa já consumiu a preposição, então o trecho chega como "99 ontem".
+  if (out === '99' && /^\s*(?:(?:d[ae]|n[ao]|pel[ao])\s+)?99(?:\s|$)/i.test(raw)) return '99'
   if (!out || /^[\d\s.,r$]+$/i.test(out)) return undefined
   // Só o período do dia ("manhã", "à noite") não descreve o gasto.
   if (/^(?:[àa]\s+|de\s+|pela\s+)?(?:noite|tarde|manh[ãa]|madrugada|cedinho|cedo)$/i.test(out)) return undefined
