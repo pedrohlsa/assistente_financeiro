@@ -14273,6 +14273,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YX — sentence case na comparação de períodos (regra 13).
+  {
+    const today = '2026-11-25'
+    const state = autonomoRico(today)
+    let focus: any
+    for (const m of ['qnt q eu gastei de obra msm', 'e mes passado?']) focus = (await orchestrate({ state, message: m, today, remoteEnabled: false, focus })).focus
+    const r = await orchestrate({ state, message: 'qual foi pior', today, remoteEnabled: false, focus })
+    // "novembro de 2026 foi pior em gastos" começava em minúscula.
+    out.push(result('YX-pior-periodo-maiuscula', { reply: r.response.reply }, 'começa com maiúscula',
+      /^[A-ZÀ-Ý]/.test(r.response.reply) && /foi pior em gastos/.test(r.response.reply)))
+  }
+
   return out
 }
 

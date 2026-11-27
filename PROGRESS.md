@@ -7783,3 +7783,8 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "Abasteci cento e cinco e cinquenta" é R$ 105,50, e "dois mil e cinco e cinquenta" é R$ 2.005,50. Dezena depois de unidade nunca compõe o número inteiro, então o resto são os centavos. Antes, saíam R$ 155 e R$ 2.055.
 - "Ontem: uber 300, 99 120, gasolina 100, almoço 22, pedágio 12, 190 km, 9h, 18 corridas" sai com cada valor no seu item. Antes, os R$ 300 iam para a 99, os R$ 120 viravam abastecimento, e a gasolina, o almoço e o pedágio viravam pergunta.
 
+### Sentence case e conferência ampla (`YX`)
+
+- "Qual foi pior", depois de comparar dois meses, começa com maiúscula ("Novembro de 2026 foi pior em gastos"), pela regra 13.
+- Foram conferidas, sem defeito, perguntas do autônomo (bar contra mercado, maior gasto, categoria, média por semana), metas e reserva, contas fixas e vencimentos, e as 90 respostas da sonda de red team.
+

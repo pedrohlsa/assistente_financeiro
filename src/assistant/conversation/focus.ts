@@ -828,7 +828,8 @@ function refinaConsulta(
       const dif = fmtBRL(Math.abs(vencedor.total - perdedor.total))
       const direcao = vencedor.total > perdedor.total ? 'a mais' : 'a menos'
       return { kind: 'explain',
-        text: `${nome(vencedor)} foi ${querPior ? 'pior' : 'melhor'} em ${medida}: ${fmtBRL(vencedor.total)}, contra ${fmtBRL(perdedor.total)} em ${nome(perdedor)}.`,
+        // Sentence case (regra 13): o mês por extenso vinha em minúscula no começo.
+        text: `${sentenceCase(nome(vencedor))} foi ${querPior ? 'pior' : 'melhor'} em ${medida}: ${fmtBRL(vencedor.total)}, contra ${fmtBRL(perdedor.total)} em ${nome(perdedor)}.`,
         followUpExplanation: `No mesmo recorte, ${nome(vencedor)} teve ${fmtBRL(vencedor.total)} em ${medida}, ${dif} ${direcao} que os ${fmtBRL(perdedor.total)} de ${nome(perdedor)}. Usei só os registros desses dois períodos.`,
       }
     }
