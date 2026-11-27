@@ -1859,6 +1859,20 @@ function parseClause(input: string): ParsedAction[] {
       }
     }
 
+    // "10 de gorjeta no app E 5 EM DINHEIRO": o segundo valor é a mesma receita,
+    // paga de outro jeito. Virava pergunta.
+    if (actions.some(a => a.kind === 'income')) {
+      const outroMeio = new RegExp(String.raw`\se\s+(?:mais\s+)?(?:r\$)?\s*${NUM}\s*${MOEDA}?\s+(?:em\s+dinheiro|em\s+esp[ée]cie|no\s+pix|em\s+pix|via\s+pix|na\s+m[ãa]o|no\s+cart[ãa]o)\b`, 'gi')
+      for (const om of text.matchAll(outroMeio)) {
+        const amount = parseNum(om[1])
+        const pos = posicaoDoValor(om.index || 0, om[1])
+        if (!(amount > 0) || valoresLidos.has(pos)) continue
+        valoresLidos.add(pos)
+        const anterior = [...actions].reverse().find(a => a.kind === 'income') as any
+        actions.push({ kind: 'income', amount, category: anterior?.category, ...(anterior?.description ? { description: anterior.description } : {}) })
+      }
+    }
+
     // O substantivo entre o verbo e o valor: "caiu MEU SALÁRIO 3200", "entrou o
     // pagamento de 900". O verbo de receber já disse o tipo; sem aceitar o
     // substantivo no meio, a receita inteira se perdia.

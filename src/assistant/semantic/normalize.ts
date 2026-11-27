@@ -152,6 +152,14 @@ export function normalizeDriverShorthand(message: string): string {
   // "Na NOV E NOVE": o reconhecedor de voz também corta o "noventa".
   text = text.replace(/\b(n[ao]|d[ao]|pel[ao]|[ao])\s+(?:noventa|nov)[- ]?e[- ]?nove\b/gi, '$1 99')
     .replace(/\b(n[ao]|d[ao]|pel[ao]|[ao])\s+in[-\s]*draiver?\b/gi, '$1 inDrive')
+    // "A 99 me cobrou 2 de taxa de saque": com a 99 como sujeito, o 99 virava o
+    // VALOR — uma despesa de R$ 99. Na ordem "paguei 2 de … da 99", não.
+    // Só "cobrou", e sem repasse na frase: "descontou 50 de taxa e caiu 380" é
+    // a taxa retida, que nunca passa pela mão dele.
+    .replace(/^(\s*(?:(?:hoje|hj|ontem|anteontem)\s+)?)(?:a\s+)?99\s+(?:me\s+)?cobrou\s+((?:r\$\s*)?\d+(?:[.,]\d+)?)\s+de\s+((?:(?!\b(?:e\s+)?(?:caiu|entrou|recebi|pagou|repassou|depositou)\b)[^,;.!?])+)$/i, '$1paguei $2 de $3 da 99')
+    // "Corrida PARTICULAR de 80", "3 corridas privadas de 50": o adjetivo no
+    // meio quebrava a leitura da corrida, e o dinheiro sumia.
+    .replace(/\b(corridas?)\s+(?:particular(?:es)?|privadas?|por\s+fora)\s+(?=de\s+(?:r\$\s*)?\d)/gi, '$1 ')
     // No começo do ditado não há preposição: "in draive me pagou oitenta".
     .replace(/(^\s*|[,;]\s*|\s+e\s+)in[-\s]*dra[iy]ver?\b/gi, '$1inDrive')
     // "Na UVER", "n uber", "ns uber", "80 n gasolina": a letra que escapa no

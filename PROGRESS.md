@@ -7799,3 +7799,9 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "Em qual dia eu rodei mais km?" e "em que dia eu mais rodei?" respondem com o ranking de km por dia, com os empates ditos. Antes, a primeira dizia que não leu "eu km", e a segunda virava consulta de gasto.
 - As métricas por app (por hora, por km e por corrida) continuam dizendo que o histórico só guarda essas medidas para o dia inteiro, e não por plataforma. Isso é uma limitação conhecida, não um defeito.
 
+### Taxa da 99, corrida particular e dois meios de pagamento (`ZA`)
+
+- "A 99 me cobrou 2 de taxa de saque" grava R$ 2. Antes, gravava uma despesa de R$ 99. A taxa retida ("a 99 descontou 50 de taxa e caiu 380") continua fora, como sempre.
+- "Fiz uma corrida particular de 80" e "fiz 3 corridas particulares de 50" registram R$ 80 e R$ 150, com as viagens. Antes, a primeira caía no menu de ajuda e a segunda perdia o dinheiro.
+- "Ganhei 10 de gorjeta no app da uber e 5 em dinheiro" registra as duas gorjetas. Antes, os R$ 5 viravam pergunta.
+

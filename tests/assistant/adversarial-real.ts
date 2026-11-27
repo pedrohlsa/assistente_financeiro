@@ -14323,6 +14323,33 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // ZA — taxa cobrada pela 99, corrida particular e receita paga por dois meios.
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    for (const [i, [message, expected]] of ([
+      // Virava uma DESPESA de R$ 99.
+      ['a 99 me cobrou 2 de taxa de saque', [['expense', 2]]],
+      // Caía no menu de ajuda ou perdia o dinheiro.
+      ['fiz uma corrida particular de 80', [['income', 80], ['work', 1]]],
+      ['fiz 3 corridas particulares de 50', [['income', 150], ['work', 3]]],
+      // "E 5 em dinheiro" virava pergunta.
+      ['ganhei 10 de gorjeta no app da uber e 5 em dinheiro', [['income', 10], ['income', 5]]],
+    ] as const).entries()) {
+      const r = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actual = (r.response.actions as any[]).map(c => [c.action.kind, c.action.kind === 'work' ? c.action.trips : c.action.amount])
+      out.push(result('ZA-motorista-' + i, { message, response: r.response }, expected,
+        r.response.mode === 'propose_actions' && !r.response.unresolved.length && JSON.stringify(actual) === JSON.stringify(expected)))
+    }
+    {
+      // A taxa retida continua fora: só os R$ 380 que caíram.
+      const r = await orchestrate({ state, message: 'ontem a 99 descontou 50 de taxa e caiu 380 na minha conta', today, remoteEnabled: false })
+      out.push(result('ZA-taxa-retida-continua-fora', { response: r.response }, 'só a receita de 380',
+        (r.response.actions as any[]).every(c => c.action.kind !== 'expense')))
+    }
+  }
+
   return out
 }
 
