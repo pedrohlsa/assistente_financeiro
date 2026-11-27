@@ -7881,3 +7881,8 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "Quanto ganhei entre o dia 10 e o dia 20?", "quanto fiz do dia 10 até o dia 20?" e "quanto gastei do dia 1 ao dia 15?" respondem o intervalo pedido. Antes, a primeira respondia o mês inteiro como se fosse o intervalo, e a última virava "gasto por dia", porque "ao dia" também significa "por dia".
 - "Semana retrasada", "mês retrasado", "últimos 15 dias", "de segunda a quarta", "dia 20", "último sábado" e "outubro na Uber" foram conferidos, sem defeito.
 
+### Locação do carro e datas de registro (`AI`)
+
+- "Paguei a semana do carro alugado, 550" e "paguei 1200 da locadora" vão para Locação de veículo. Antes, iam para Outros. Isso fecha a pendência de categoria do aluguel do carro, citada no handoff de 23/11.
+- As datas em registros ("dia 3", "no dia 20", "segunda passada", "na sexta", "15/11", "anteontem de manhã") foram conferidas, sem defeito. "Dia 30", ainda não chegado, continua perguntando.
+

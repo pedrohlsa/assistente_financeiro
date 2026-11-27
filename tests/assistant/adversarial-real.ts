@@ -14666,6 +14666,19 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // AI — locação do carro de app: "carro alugado", "locadora" e "semana do carro".
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    for (const [i, message] of ['paguei a semana do carro alugado, 550', 'paguei 1200 da locadora', 'paguei 600 do aluguel do carro'].entries()) {
+      // Os dois primeiros iam para Outros.
+      const r = await orchestrate({ state, message, today, remoteEnabled: false })
+      const a = (r.response.actions as any[])[0]?.action
+      out.push(result('AI-locacao-' + i, { message, response: r.response }, 'Locação de veículo', a?.kind === 'expense' && a.category === 'aluguel-veiculo'))
+    }
+  }
+
   return out
 }
 

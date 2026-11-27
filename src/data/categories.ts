@@ -75,6 +75,7 @@ export const CATEGORY_KEYWORDS: Record<string, string[]> = {
     'aluguel da moto', 'aluguel de moto', 'diária do carro', 'diaria do carro', 'diária de carro', 'diaria de carro',
     'diária do veículo', 'diaria do veiculo', 'diária da moto', 'diaria da moto',
     'locação de carro', 'locacao de carro', 'locação do carro', 'locacao do carro', 'locação de veículo', 'locacao de veiculo',
+    'carro alugado', 'moto alugada', 'locadora', 'semanal do carro', 'semana do carro', 'mensalidade do carro',
   ],
   manutencao: ['óleo', 'oleo', 'pneu', 'freio', 'pastilha', 'revisão', 'revisao', 'mecânico', 'mecanico', 'oficina', 'borracheiro', 'borracharia', 'funilaria', 'lanternagem', 'alinhamento', 'balanceamento', 'calibragem', 'peça ', 'peca ', 'peças', 'pecas', 'autopeça', 'autopeca', 'filtro', 'vela ', 'velas', 'correia', 'amortecedor', 'conserto', 'câmbio', 'cambio', 'embreagem', 'suspensão', 'suspensao', 'radiador', 'bateria do carro', 'retífica', 'retifica', 'manutenção', 'manutencao', 'lavagem', 'lava ', 'lava jato'],
   estacionamento: ['estacionamento', 'estacionei', 'flanelinha', 'flanela ', 'zona azul', 'parquímetro', 'parquimetro'],
