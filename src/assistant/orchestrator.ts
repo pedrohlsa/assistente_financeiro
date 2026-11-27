@@ -4487,7 +4487,9 @@ Confirmar?`,
     // com um apelido citado ("muda o CINEMA para 80") vale dizer que não achou
     // aquele lançamento; sem apelido nenhum não dá para afirmar que era
     // correção, e a frase segue o caminho normal.
-    if (pedido && (candidatos.length || !pedido.loose || pedido.hints.text)) {
+    // Sujeito + "foi/era" + valor sem lançamento desse nome é registro novo.
+    const soComAlvo = pedido?.orNew !== undefined && pedido.loose && pedido.field === 'amount'
+    if (pedido && !(soComAlvo && !candidatos.length) && (candidatos.length || !pedido.loose || pedido.hints.text)) {
       const resposta = (reply: string): OrchestratorOutput => ({
         draft: null,
         response: {
@@ -4499,6 +4501,28 @@ Confirmar?`,
         return resposta(pedido.hints.text
           ? `Não achei nenhum lançamento de "${sentenceCase(pedido.hints.text)}" nos últimos meses. Confira o nome, ou me diga o dia e o valor atual.`
           : 'Não encontrei nenhum lançamento que combine com isso. Me diga o dia e o valor atual que eu procuro de novo.')
+      }
+      // "Era lazer mesmo" com o lançamento já em Lazer: nada a mudar.
+      if (pedido.confirm && candidatos.every(c => c.category === pedido.value)) {
+        const cat = caps.categories.find(c => c.id === pedido.value)?.name || String(pedido.value)
+        return resposta(candidatos.length === 1
+          ? `Esse lançamento (${labelOfTx(candidatos[0])}) já está em ${cat}. Não mudei nada.`
+          : `Esses ${candidatos.length} lançamentos já estão em ${cat}. Não mudei nada.`)
+      }
+      // "O almoço foi 25" com um Almoço salvo: corrigir o salvo ou registrar
+      // um novo? A frase serve para as duas coisas.
+      // Com vários de mesmo nome, a correção fala do mais recente.
+      if (pedido.orNew && candidatos.length >= 1) {
+        const t0 = candidatos[0]
+        const edit = editActionFor(t0, pedido) as ParsedAction
+        const novo: ParsedAction = { kind: t0.type === 'income' ? 'income' : 'expense', amount: Number(pedido.value),
+          ...(t0.category ? { category: t0.category } : {}), ...(t0.description ? { description: t0.description } : {}) } as ParsedAction
+        const question = `Você quer corrigir ${labelOfTx(t0)} para ${fmtBRL(Number(pedido.value))}, ou registrar um novo de ${fmtBRL(Number(pedido.value))}?`
+        return { draft: null, response: { version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local', actions: [], unresolved: [], reply: question,
+          clarification: { field: 'edit-or-new', question, options: [
+            { value: '1', label: 'Corrigir o salvo', actions: editBlockReason(input.state, t0) ? [] : [edit] },
+            { value: '2', label: 'Registrar um novo', actions: [novo] },
+          ] } } }
       }
       if (candidatos.length === 1 && !pedido.ask) {
         const bloqueio = editBlockReason(input.state, candidatos[0])
@@ -4522,15 +4546,17 @@ Confirmar?`,
           version: ASSISTANT_CONTRACT_VERSION, mode: 'clarify', engine: 'local',
           actions: [], unresolved: [],
           clarification: {
-            question: `Qual lançamento você quer corrigir?\n\n${opcoes.map(t => `• ${labelOfTx(t)}`).join('\n')}`,
+            // Numeradas: "1" escolhe o primeiro. Com o id como valor, a resposta
+            // por número virava "só o valor eu não consigo lançar".
+            question: `Qual lançamento você quer corrigir?\n\n${opcoes.map((t, i) => `${i + 1}. ${labelOfTx(t)}`).join('\n')}`,
             field: 'transactionId',
-            options: opcoes.map(t => ({
+            options: opcoes.map((t, i) => ({
               label: labelOfTx(t),
-              value: t.id,
+              value: String(i + 1),
               actions: editBlockReason(input.state, t) ? undefined : [editActionFor(t, pedido) as ParsedAction],
             })),
           },
-          reply: `Qual lançamento você quer corrigir?\n\n${opcoes.map(t => `• ${labelOfTx(t)}`).join('\n')}`,
+          reply: `Qual lançamento você quer corrigir?\n\n${opcoes.map((t, i) => `${i + 1}. ${labelOfTx(t)}`).join('\n')}`,
         },
       }
     }

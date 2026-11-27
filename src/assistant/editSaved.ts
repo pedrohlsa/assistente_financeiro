@@ -40,6 +40,13 @@ export interface EditRequest {
    * é aceitável.
    */
   ask?: boolean
+  /**
+   * "O almoço FOI 25": pode ser correção do lançamento salvo ou um gasto novo.
+   * Só vale com lançamento desse nome, e aí o app pergunta qual das duas.
+   */
+  orNew?: boolean
+  /** "Era lazer MESMO": confirma a categoria; nada muda se ela já é essa. */
+  confirm?: boolean
 }
 
 const VERBO = 'corrig[ei]|corrigir|corrija|ajust[ae]|ajustar|mud[ae]|mudar|troc[ae]|trocar|alter[ae]|alterar|arrum[ae]|arrumar'
@@ -282,6 +289,28 @@ export function parseSpokenCorrection(
   if (contesta) {
     const novo = valorDe(contesta[1])
     return novo === undefined ? null : { field: 'amount', value: novo, hints, ask: true }
+  }
+  // "Aquele gasto de 120 no bar era LAZER MESMO": confirmação de categoria,
+  // nunca um gasto novo de R$ 120.
+  const confirma = REFERENCIA.test(t) ? t.match(/\b(?:era|foi|[ée])\s+(?:de\s+|d[oa]\s+)?([a-zà-úçãõ][\wçãõáéíóúâê]*)\s+mesmo\b/i) : null
+  if (confirma) {
+    const alvo = normalizeName(confirma[1])
+    const categoria = caps.categories.find(c => normalizeName(c.id) === alvo || normalizeName(c.name) === alvo)
+    if (categoria) {
+      const valor = t.match(/\b(?:gasto|despesa|receita|lan[çc]amento|compra)\s+de\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)/i)
+      const lugar = t.match(/\b(?:n[oa]|d[oa])\s+([a-zà-úçãõ][\wçãõáéíóúâê]*)\s+(?:era|foi|[ée])(?![\wÀ-ÿ])/i)
+      return { field: 'category', value: categoria.id, confirm: true,
+        hints: { ...hints, ...(valorDe(valor?.[1]) ? { amount: valorDe(valor?.[1]) } : {}), ...(lugar ? { text: lugar[1].toLowerCase() } : {}) } }
+    }
+  }
+  // "A feira foi 150", "o cimento ERA 500": sujeito + cópula + valor, sem
+  // verbo de registro. Com "era" é correção; com "foi", também pode ser um
+  // gasto novo — o orquestrador pergunta. Sem lançamento com esse nome, a
+  // frase segue o caminho de registro.
+  const simples = t.match(new RegExp(String.raw`^\s*(?:(?:o|a|os|as)\s+)?([a-zà-úçãõ][\wçãõáéíóúâê]*(?:\s+[a-zà-úçãõ][\wçãõáéíóúâê]*){0,2})\s+(foi|era|deu|custou)\s+${VALOR}(?:\s+reais)?(?:\s+mesmo)?\s*[.!]*$`, 'i'))
+  if (simples && nome) {
+    const novo = valorDe(simples[3])
+    if (novo !== undefined) return { field: 'amount', value: novo, hints, loose: true, orNew: simples[2].toLowerCase() !== 'era' }
   }
   return null
 }

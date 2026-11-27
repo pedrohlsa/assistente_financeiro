@@ -7816,3 +7816,9 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - Foram conferidos, sem defeito: compra parcelada no Nubank e no Inter, pagamento de fatura com e sem valor, "quanto tá a fatura", "quanto devo no cartão", "quando vence a fatura" e "parcelei 600 em 6x" (pergunta o cartão). As explicações também foram conferidas: "por que essa categoria?", "por que achou estranho?", "o que você aprendeu sobre mim?" e "para de usar meu histórico".
 - "Como você calculou isso?", sem nenhuma conta antes, diz que ainda não fez conta na conversa e sugere uma pergunta. Antes, caía no menu de ajuda. Com uma conta recente, a explicação continua vindo do foco.
 
+### Correção de lançamento salvo (`ZD`)
+
+- "A feira foi 150", com Feiras salvas, pergunta se é para corrigir a mais recente ou registrar uma nova. Antes, criava um gasto novo de R$ 150 em Outros, ao lado do errado. Sem lançamento com esse nome ("o almoço foi 25"), a frase continua sendo registro.
+- "O cimento era 500" corrige: com vários Cimentos salvos, o app pergunta qual, e responder "1" escolhe o primeiro. Antes, criava a despesa "Cimento era" de R$ 500, e a escolha por número não funcionava.
+- "Aquele gasto de 120 no bar era lazer mesmo" responde que esses lançamentos já estão em Lazer e não muda nada. Antes, criava um gasto novo de R$ 120.
+

@@ -14395,6 +14395,44 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
       /^Somei 3 registros/.test(com.response.reply)))
   }
 
+
+  // ZD — correção de lançamento salvo dita como "a feira foi 150": nunca um gasto novo sem perguntar.
+  {
+    const today = '2026-11-25'
+    const state = autonomoRico(today)
+    const ask = (message: string, prior?: Awaited<ReturnType<typeof orchestrate>>) => orchestrate({ state, message, today, remoteEnabled: false,
+      pendingClarification: prior?.response.mode === 'clarify' ? prior.response.clarification : undefined })
+    {
+      // Virava um gasto NOVO de R$ 150 em Outros.
+      const first = await ask('a feira foi 150')
+      const corrigir = await ask('1', first)
+      const novo = await ask('2', first)
+      out.push(result('ZD-feira-foi-150', { first: first.response.reply, corrigir: corrigir.response.actions, novo: novo.response.actions }, 'pergunta; 1 corrige, 2 registra',
+        first.response.mode === 'clarify' && !first.response.actions.length && /corrigir .*Feira.*ou registrar um novo/.test(first.response.reply)
+        && (corrigir.response.actions as any[]).some(c => c.action.kind === 'edit-transaction')
+        && (novo.response.actions as any[]).some(c => c.action.kind === 'expense' && c.action.amount === 150)))
+    }
+    {
+      // Virava a despesa "Cimento era" de R$ 500; e a escolha por número falhava.
+      const first = await ask('o cimento era 500')
+      const pick = await ask('1', first)
+      out.push(result('ZD-cimento-era-500', { first: first.response.reply, pick: pick.response.actions }, 'pergunta qual e corrige o escolhido',
+        first.response.mode === 'clarify' && !first.response.actions.length && /^Qual lançamento você quer corrigir\?/.test(first.response.reply)
+        && (pick.response.actions as any[]).some(c => c.action.kind === 'edit-transaction' && c.action.amount === 500)))
+    }
+    {
+      // Criava um gasto novo de R$ 120.
+      const r = await ask('aquele gasto de 120 no bar era lazer mesmo')
+      out.push(result('ZD-era-lazer-mesmo', { reply: r.response.reply }, 'nada muda', !r.response.actions.length && /já estão? em Lazer/.test(r.response.reply)))
+    }
+    {
+      // Sem lançamento com esse nome, "o almoço foi 25" continua sendo registro.
+      const r = await ask('o almoço foi 25')
+      out.push(result('ZD-almoco-sem-historico-registra', { response: r.response }, 'despesa de 25',
+        (r.response.actions as any[]).some(c => c.action.kind === 'expense' && c.action.amount === 25)))
+    }
+  }
+
   return out
 }
 
