@@ -7822,3 +7822,9 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "O cimento era 500" corrige: com vários Cimentos salvos, o app pergunta qual, e responder "1" escolhe o primeiro. Antes, criava a despesa "Cimento era" de R$ 500, e a escolha por número não funcionava.
 - "Aquele gasto de 120 no bar era lazer mesmo" responde que esses lançamentos já estão em Lazer e não muda nada. Antes, criava um gasto novo de R$ 120.
 
+### Sinal pelo sujeito da frase, no motorista (`ZE`)
+
+- "O abastecimento de ontem foi 90" e "o lanche de hoje foi 20" viram gasto. Antes, o "foi" do motorista (regra 34) transformava os dois em receita de corrida. O "foi" continua valendo como faturamento quando o sujeito não é um gasto.
+- "A corrida foi 45", sem proposta na tela, registra uma corrida de R$ 45. Antes, virava despesa em Outros. Com proposta na tela, a frase continua sendo correção.
+- "A 99 de ontem era 160" corrige o repasse salvo da 99. Antes, perguntava se os R$ 99 foram ganho ou gasto. "A uber de ontem foi 250" pergunta se é para corrigir o salvo ou registrar um novo.
+

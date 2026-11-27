@@ -14433,6 +14433,31 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // ZE — motorista: sujeito de gasto com "foi", corrida com "foi" e a 99 como sujeito da correção.
+  {
+    const today = '2026-11-25', yesterday = '2026-11-24'
+    const state = motoristaRico(today)
+    for (const [i, [message, expected]] of ([
+      // Viravam RECEITA de corrida pelo "foi" do motorista.
+      ['o abastecimento de ontem foi 90', [['expense', 90, 'combustivel', yesterday]]],
+      ['o lanche de hoje foi 20', [['expense', 20, 'alimentacao', today]]],
+      // Virava despesa em Outros.
+      ['a corrida foi 45', [['income', 45, 'corridas', ''], ['work', 1, '', '']]],
+    ] as const).entries()) {
+      const r = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actual = (r.response.actions as any[]).map(c => [c.action.kind, c.action.kind === 'work' ? c.action.trips : c.action.amount, c.action.category || '', c.action.date || ''])
+      out.push(result('ZE-sinal-pelo-sujeito-' + i, { message, response: r.response }, expected,
+        r.response.mode === 'propose_actions' && JSON.stringify(actual) === JSON.stringify(expected)))
+    }
+    {
+      // Perguntava se os R$ 99 foram ganho ou gasto.
+      const r = await orchestrate({ state, message: 'a 99 de ontem era 160', today, remoteEnabled: false })
+      out.push(result('ZE-99-como-sujeito', { response: r.response }, 'corrige a 99 de ontem para 160',
+        (r.response.actions as any[]).some(c => c.action.kind === 'edit-transaction' && c.action.amount === 160)))
+    }
+  }
+
   return out
 }
 

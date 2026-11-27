@@ -3203,6 +3203,13 @@ export async function orchestrate(entradaBruta: OrchestratorInput): Promise<Orch
   if (isDriver(input.state.settings)) {
     const shorthand = normalizeDriverShorthand(input.message)
     if (shorthand !== input.message) input = { ...input, message: shorthand }
+    // "A corrida foi 45": para o motorista, uma corrida é receita. O "foi"
+    // virava despesa em Outros. Com proposta na tela, a frase pode ser correção
+    // e segue para quem cuida disso.
+    if (!input.pending?.length && !input.pendingClarification) {
+      const corrida = input.message.replace(/^(\s*(?:(?:hoje|hj|ontem|anteontem)\s+)?)(?:a|essa|aquela|uma)\s+(corrida|viagem)\s+(?:foi|deu|saiu|pagou|rendeu)\s+(?:de\s+)?((?:r\$\s*)?\d+(?:[.,]\d+)?)(?=\s*(?:reais)?\s*(?:$|[,.;!]|\s+(?:hoje|hj|ontem|anteontem|e|na|no)\b))/i, '$1fiz uma $2 de $3')
+      if (corrida !== input.message) input = { ...input, message: corrida }
+    }
     // A lista telegráfica ("ontem: uber 300, 99 120, gasolina 100") já sai na
     // forma que os leitores de dia entendem; antes deles, a Uber virava 99.
     if (/:\s*(?:uber|99|in\s*driver?)\s+\d/i.test(input.message)) {

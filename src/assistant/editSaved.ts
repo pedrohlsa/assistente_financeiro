@@ -201,7 +201,8 @@ const ARTIGO_CORRECAO = /^(?:(?:o|a|os|as|aquele|aquela|esse|essa|este|esta|meu|
 function nomeDaCorrecao(prefixo: string, today: string): string | undefined {
   const sujeito = prefixo.replace(INICIO_CORRECAO, '').trim().replace(ARTIGO_CORRECAO, '')
     .replace(/[,;:.!?]+$/, '').trim().replace(/^["'“‘]+|["'”’]+$/g, '').trim()
-  if (!/^[a-zà-ú]/i.test(sujeito) || /\b(?:nao|não|nem)\s*$/i.test(sujeito)) return undefined
+  // "A 99 de ontem era 160": o app 99 é nome, não valor.
+  if (!/^(?:[a-zà-ú]|99(?!\d|[.,]\d))/i.test(sujeito) || /\b(?:nao|não|nem)\s*$/i.test(sujeito)) return undefined
   const data = findDate(sujeito, today)
   const semData = data
     ? sujeito.slice(0, data.start) + ' ' + sujeito.slice(data.end)
@@ -307,7 +308,7 @@ export function parseSpokenCorrection(
   // verbo de registro. Com "era" é correção; com "foi", também pode ser um
   // gasto novo — o orquestrador pergunta. Sem lançamento com esse nome, a
   // frase segue o caminho de registro.
-  const simples = t.match(new RegExp(String.raw`^\s*(?:(?:o|a|os|as)\s+)?([a-zà-úçãõ][\wçãõáéíóúâê]*(?:\s+[a-zà-úçãõ][\wçãõáéíóúâê]*){0,2})\s+(foi|era|deu|custou)\s+${VALOR}(?:\s+reais)?(?:\s+mesmo)?\s*[.!]*$`, 'i'))
+  const simples = t.match(new RegExp(String.raw`^\s*(?:(?:o|a|os|as)\s+)?((?:[a-zà-úçãõ][\wçãõáéíóúâê]*|99)(?:\s+[a-zà-úçãõ][\wçãõáéíóúâê]*){0,2})\s+(foi|era|deu|custou)\s+${VALOR}(?:\s+reais)?(?:\s+mesmo)?\s*[.!]*$`, 'i'))
   if (simples && nome) {
     const novo = valorDe(simples[3])
     if (novo !== undefined) return { field: 'amount', value: novo, hints, loose: true, orNew: simples[2].toLowerCase() !== 'era' }

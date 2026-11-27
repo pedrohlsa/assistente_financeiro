@@ -767,11 +767,17 @@ interface DayResult {
   ask?: NonNullable<ParseResult['ambiguity']>
 }
 
+const SUJEITO_DE_GASTO = /^\s*(?:(?:hoje|hj|ontem|anteontem)\s+)?(?:o|a|os|as|meu|minha)?\s*(?:abastecimento|gasolina|gasosa|etanol|[áa]lcool|gnv|diesel|combust[íi]vel|lanche|almo[çc]o|janta|caf[ée]|ped[áa]gio|estacionamento|lavagem|[óo]leo|pneus?|mec[âa]nico|oficina|conserto|manuten[çc][ãa]o|mercado|aluguel\s+do\s+carro|seguro|ipva)(?![\wÀ-ÿ])/i
+
 function driverDayResult(input: string, actions: ParsedAction[], dayHint?: boolean): DayResult | null {
   // "Bom dia, painel 45000": a saudação tem "bom" e "dia", e o hodômetro virava
   // R$ 45.000,00 de faturamento.
   const t = input.toLowerCase().replace(/^\s*(?:bom\s+dia|boa\s+tarde|boa\s+noite)(?![\wÀ-ÿ])[\s,.!]*/, '')
   if (STRONG_EXPENSE_VERB.test(t)) return null
+  // "O ABASTECIMENTO de ontem foi 90", "o LANCHE de hoje foi 20": o sujeito é
+  // um gasto. O "foi" do motorista é faturamento só sem coisa de gasto na
+  // frase; antes, o lanche virava receita de corrida.
+  if (SUJEITO_DE_GASTO.test(t)) return null
   // "Quanto falta pra eu TIRAR 300 hoje?" é meta perguntada, não resultado dito.
   if (/^\s*(?:e\s+)?(?:quanto|quantas?|qnto|qto|em\s+quantas|quanto\s+tempo)\b/.test(t)) return null
   // "Todo dia 10" é vencimento de conta, não o resultado do dia de trabalho.
