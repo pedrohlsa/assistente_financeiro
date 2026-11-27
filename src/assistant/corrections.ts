@@ -8,7 +8,7 @@ import type { ParsedAction } from '../models/types'
 import { validateAction, type AssistantCandidateAction, type AssistantCapabilities, type AssistantClarification } from './contracts'
 import { fmtBRL, fmtHours, fmtNum, nowTime, parseMoney, todayISO } from '../utils/format'
 import { normalizeNumberWords } from './numbers'
-import { brDate, dateInAnswer, findDate } from './dates'
+import { brDate, dateInAnswer, dateLabel, findDate } from './dates'
 import { explicitSpokenPayer, extractOrigins, looksLikeQuestion, revisedAction } from './clauses'
 import { normalizeName } from '../utils/text'
 import { guessCategory } from '../data/categories'
@@ -789,6 +789,48 @@ export function parseCorrection(
   if (paraData) return parseCorrection(`foi ${message.trim().replace(/^.*?\b(?:pra|para|pro|em)\s+/i, '')}`, pending, caps, today)
   const paraApp = imperativo.match(/^(?:poe|coloca|joga|passa|muda|troca|bota)\s+(?:isso\s+|a\s+plataforma\s+|o\s+app\s+)?(?:pra|para|pro|na|no)\s+(?:a\s+|o\s+)?(uber|99|indrive|in\s+drive)$/)
   if (paraApp) return parseCorrection(`foi na ${paraApp[1]}`, pending, caps, today)
+  // "85 hj" com um item de R$ 85 na proposta: é a data desse item. Antes, a
+  // frase perguntava se os R$ 85 foram ganho ou gasto, como um valor novo.
+  const valorComDia = imperativo.match(/^(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s+(?:foi\s+|era\s+)?(hoje|hj|ontem|anteontem|dia\s+\d{1,2})$/)
+  if (valorComDia) {
+    const v = parseMoney(valorComDia[1])
+    const alvos = pending.filter(p => Math.abs((amountOf(p.action) ?? NaN) - v) < 0.005)
+    if (alvos.length === 1) {
+      const d = findDate(valorComDia[2].replace(/^hj$/, 'hoje'), today)
+      if (d?.kind === 'date') {
+        const was = (alvos[0].action as any).date
+        return { remove: [], edits: was === d.date ? [] : [{ id: alvos[0].id, field: 'date', value: d.date, was }], cancelAll: false,
+          summary: [was === d.date || (!was && d.date === today) ? `O item de ${fmtBRL(v)} já está para ${dateLabel(d.date, today)}.` : `Ajustei a data do item de ${fmtBRL(v)} para ${brDate(d.date)}.`] }
+      }
+    }
+  }
+  // "Os 170 km foram hoje", com horas e viagens na mesma jornada: só a
+  // distância mudou de dia, ou a jornada inteira? Pergunta, com as duas
+  // propostas prontas. Antes, o app pedia para reescrever.
+  const medidaComDia = imperativo.match(/^(?:(?:os|as)\s+)?(\d+(?:[.,]\d+)?)\s*(km|quilometros?|horas?|h|corridas|viagens)\s+(?:foram|foi|era|eram)\s+(hoje|hj|ontem|anteontem|dia\s+\d{1,2})$/)
+  if (medidaComDia) {
+    const v = parseMoney(medidaComDia[1])
+    const field = /^(?:km|quil)/.test(medidaComDia[2]) ? 'km' : /^h/.test(medidaComDia[2]) ? 'hours' : 'trips'
+    const alvos = pending.filter(p => p.action.kind === 'work' && Math.abs(((p.action as any)[field] ?? NaN) - v) < 0.005)
+    const d = findDate(medidaComDia[3].replace(/^hj$/, 'hoje'), today)
+    if (alvos.length === 1 && d?.kind === 'date') {
+      const [w] = alvos
+      const outras = (['km', 'hours', 'trips'] as const).filter(k => k !== field && typeof (w.action as any)[k] === 'number')
+      if (!outras.length) {
+        return { remove: [], edits: [{ id: w.id, field: 'date', value: d.date, was: (w.action as any).date }], cancelAll: false,
+          summary: [`Ajustei a data da jornada para ${brDate(d.date)}.`] }
+      }
+      const resto: any = { ...w.action }; delete resto[field]
+      const separada: any = { kind: 'work', [field]: v, date: d.date }
+      return { remove: [], edits: [], cancelAll: false, summary: [], ambiguous: {
+        field: 'pending-correction', question: `Só ${field === 'km' ? 'os km' : field === 'hours' ? 'as horas' : 'as viagens'} foram ${dateLabel(d.date, today)}, ou a jornada inteira?`,
+        options: [
+          { value: '1', label: 'A jornada inteira', actions: pending.map(p => p.id === w.id ? { ...p.action, date: d.date } as ParsedAction : p.action) },
+          { value: '2', label: `Só ${field === 'km' ? 'os km' : field === 'hours' ? 'as horas' : 'as viagens'}`, actions: pending.flatMap(p => p.id === w.id ? [resto, separada] : [p.action]) },
+        ],
+      } }
+    }
+  }
   // "Só a gasolina", "deixa só a receita": o resto sai da proposta.
   const soEsse = imperativo.match(/^(?:(?:deixa|fica|mantem|manter|quero)\s+)?(?:so|somente|apenas)\s+(?:a|o|os|as)\s+(.{2,30})$/)
   if (soEsse && pending.length > 1) {

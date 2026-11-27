@@ -14199,6 +14199,53 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YV — data dita junto do valor ou da medida de um item já na proposta.
+  {
+    const today = '2026-11-25', yesterday = '2026-11-24'
+    const state = motoristaRico(today)
+    const chat = () => {
+      let prior: Awaited<ReturnType<typeof orchestrate>> | undefined
+      let pending: any
+      return async (message: string) => {
+        prior = await orchestrate({ state, message, today, remoteEnabled: false, pending,
+          pendingClarification: prior?.response.mode === 'clarify' ? prior.response.clarification : undefined })
+        if (prior.response.actions.length) pending = prior.response.actions
+        else if (!prior.keepPending) pending = undefined
+        return prior
+      }
+    }
+    {
+      // "85 hj" perguntava se os R$ 85 foram ganho ou gasto.
+      const say = chat()
+      await say('gastei 85 de pedágio ontem')
+      const r = await say('85 hj')
+      const a = (r.response.actions as any[]).map(c => c.action)
+      out.push(result('YV-valor-com-dia', { response: r.response }, 'o pedágio passa para hoje',
+        r.response.mode === 'propose_actions' && a.length === 1 && a[0].amount === 85 && a[0].date === today))
+    }
+    {
+      // "Os 170 km foram hoje" pedia para reescrever.
+      const say = chat()
+      await say('rodei 170 km ontem e trabalhei 8 horas e fiz 14 corridas')
+      const ask = await say('os 170 km foram hoje')
+      const split = await say('2')
+      const works = (split.response.actions as any[]).map(c => c.action).filter(a => a.kind === 'work')
+      out.push(result('YV-medida-com-dia', { ask: ask.response.reply, split: split.response }, 'pergunta e separa os km',
+        ask.response.mode === 'clarify' && /jornada inteira/.test(ask.response.reply)
+        && works.some(w => w.km === 170 && w.date === today && w.hours === undefined)
+        && works.some(w => w.hours === 8 && w.trips === 14 && w.km === undefined && w.date === yesterday)))
+    }
+    {
+      const say = chat()
+      await say('rodei 170 km ontem')
+      const r = await say('os 170 km foram hoje')
+      const a = (r.response.actions as any[]).map(c => c.action)
+      out.push(result('YV-jornada-so-de-km', { response: r.response }, 'move direto',
+        r.response.mode === 'propose_actions' && a.length === 1 && a[0].km === 170 && a[0].date === today))
+    }
+  }
+
   return out
 }
 

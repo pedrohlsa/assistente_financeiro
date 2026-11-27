@@ -7773,3 +7773,8 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "Uber 12 viagens 220, 99 6 viagens 100" propõe as duas receitas, cada uma com o seu app, e 18 viagens. Antes, só ficavam as 12 viagens e uma pergunta sobre o resto.
 - "Hoje 180 km rodados" registra a distância do dia. "Estou com 220007 km rodados" continua sendo hodômetro.
 
+### Data junto do valor ou da medida (`YV`)
+
+- "85 hj", com um pedágio de R$ 85 na proposta, muda a data desse item. Se ele já estava em hoje, o app só confirma. Antes, perguntava se os R$ 85 foram ganho ou gasto.
+- "Os 170 km foram hoje", com horas e viagens na mesma jornada, pergunta se só os km mudaram de dia ou a jornada inteira, com as duas propostas prontas. Quando a jornada só tem os km, a data muda direto. Antes, o app pedia para reescrever.
+
