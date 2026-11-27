@@ -221,9 +221,12 @@ function polaridadeDita(text: string): 'income' | 'expense' | null {
  * R$ 900 do freela. Sem palavra de categoria no trecho, vale a frase inteira.
  */
 function categoriaDaReceita(text: string, context: string, inicio: number, fim: number): string | undefined {
-  if (context !== text || (text.match(/\d+(?:[.,]\d+)*/g) || []).length < 2) return guessCategory(context, 'income')
-  const local = guessCategory(janelaLocal(text, inicio, fim), 'income')
-  return local && local !== 'outros-in' ? local : guessCategory(text, 'income')
+  // O VALOR não é palavra de categoria: "recebi 99 reais" ia para Corridas
+  // porque "99" é o app. Com preposição ("da 99") o app continua valendo.
+  const semValor = (t: string) => t.replace(/(?<!\b(?:n[ao]|d[ao]|pel[ao]|via)\s)(?<![\d.,])\d+(?:[.,]\d+)*(?![\d.,])/gi, ' ')
+  if (context !== text || (text.match(/\d+(?:[.,]\d+)*/g) || []).length < 2) return guessCategory(semValor(context), 'income')
+  const local = guessCategory(semValor(janelaLocal(text, inicio, fim)), 'income')
+  return local && local !== 'outros-in' ? local : guessCategory(semValor(text), 'income')
 }
 
 function janelaLocal(text: string, inicio: number, fim: number): string {

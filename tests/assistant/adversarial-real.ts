@@ -14480,6 +14480,24 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // ZG — o valor 99 não é o app; comparação vazia sem selo de dado real.
+  {
+    const today = '2026-11-25'
+    for (const [i, profile] of (['other', 'autonomo', 'clt'] as const).entries()) {
+      // "Recebi 99 reais" ia para Corridas, que nem existe fora do motorista.
+      const r = await orchestrate({ state: buildState({ profile }), message: 'recebi 99 reais', today, remoteEnabled: false })
+      const a = (r.response.actions as any[])[0]?.action
+      out.push(result('ZG-valor-99-nao-e-app-' + i, { profile, response: r.response }, 'receita de 99 fora de Corridas',
+        a?.kind === 'income' && a.amount === 99 && a.category !== 'corridas'))
+    }
+    {
+      const r = await orchestrate({ state: buildState({ profile: 'driver' }), message: 'gastei mais com gasolina ou manutenção?', today, remoteEnabled: false })
+      out.push(result('ZG-comparacao-vazia-sem-selo', { reply: r.response.reply }, 'sem "dado real" quando não há dado',
+        /Não tenho gasto registrado/.test(r.response.reply) && !/Dado real/.test(r.response.reply)))
+    }
+  }
+
   return out
 }
 

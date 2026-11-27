@@ -417,7 +417,8 @@ export function gastoEntreDois(state: AppState, t: string, opts: ConversationOpt
       ? `Mais com ${maior.nome} ${rotulo}: ${fmtBRL(maior.res.result.total)}, contra ${fmtBRL(menor.res.result.total)} com ${menor.nome} (${fmtBRL(Math.abs(va - vb))} a mais).`
       : `Com ${maior.nome}: ${fmtBRL(maior.res.result.total)} ${rotulo}. Com ${menor.nome}, não há gasto registrado no mesmo período.`
   }
-  return { kind: 'query', reply: `${reply}\n\nDado real, pelos lançamentos registrados.`, focus: opts.focus || { updatedAt: Date.now() } }
+  const selo = va > 0 || vb > 0 ? '\n\nDado real, pelos lançamentos registrados.' : ''
+  return { kind: 'query', reply: `${reply}${selo}`, focus: opts.focus || { updatedAt: Date.now() } }
 }
 
 /**

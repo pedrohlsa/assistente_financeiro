@@ -7833,3 +7833,8 @@ Para continuar, o próximo prefixo livre é `YT`. Os casos abertos estão em `do
 - "Fechei 300", "ontem fechei 350" e "fechei 320 bruto 260 líquido" registram o faturamento (o último, com os R$ 260 líquidos). Antes, os dois primeiros caíam no menu de ajuda e o líquido virava pergunta. "Fechei 8h de volante" e "fechei o dia com 320… depois de trabalhar 8 horas" continuam com o leitor de jornada.
 - "Fiz a meta, 300" registra os R$ 300. Antes, respondia a composição da meta.
 
+### Valor 99 e estado vazio (`ZG`)
+
+- "Recebi 99 reais" nos perfis genérico, autônomo e CLT não vai mais para Corridas. A palavra-chave "99" da lista de categorias casava com o próprio valor, ferindo a regra 3. "Recebi 300 da 99", com preposição, continua indo para Corridas no motorista.
+- Com o estado vazio, as perguntas do motorista (por hora, dia da semana, app, lucro, meta, custo do km, média por corrida e folga) calam e dizem o que registrar (regra 43). A comparação entre dois gastos sem dado nenhum não diz mais "Dado real".
+
