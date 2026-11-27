@@ -14175,6 +14175,30 @@ export async function runAdversarialReal(): Promise<AdversarialResult[]> {
     }
   }
 
+
+  // YU — turno do motorista: viagens e valor por app, "km rodados" sem verbo.
+  {
+    const today = '2026-11-25'
+    const state = motoristaRico(today)
+    for (const [i, [message, expected]] of ([
+      // Os dois valores sumiam: só sobrava "12 viagens" e uma pergunta.
+      ['uber 12 viagens 220, 99 6 viagens 100', [['income', 220, 'Uber'], ['work', 18, ''], ['income', 100, '99']]],
+      // "Não tenho certeza do que registrar aqui."
+      ['hoje 180 km rodados', [['work', 180, '']]],
+    ] as const).entries()) {
+      const r = await orchestrate({ state, message, today, remoteEnabled: false })
+      const actual = (r.response.actions as any[]).map(c => [c.action.kind, c.action.kind === 'work' ? (c.action.trips ?? c.action.km) : c.action.amount, c.action.description || ''])
+      out.push(result('YU-turno-' + i, { message, response: r.response }, expected,
+        r.response.mode === 'propose_actions' && !r.response.unresolved.length && JSON.stringify(actual) === JSON.stringify(expected)))
+    }
+    {
+      // O hodômetro continua sendo hodômetro.
+      const r = await orchestrate({ state, message: 'estou com 220007 km rodados', today, remoteEnabled: false })
+      out.push(result('YU-hodometro-nao-e-distancia', { response: r.response }, 'hodômetro, sem km do dia',
+        (r.response.actions as any[]).every(c => c.action.kind !== 'work')))
+    }
+  }
+
   return out
 }
 

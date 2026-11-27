@@ -1628,7 +1628,15 @@ const DECIMAL_99_THEN_AMOUNT = /(\d),\s?(99)\s+(?=(?:r\$\s*)?\d)/g
 // "Hj 300 uber 50 gas": o valor e o app colados, sem preposição.
 const AMOUNT_THEN_APP = /(^|[,;]\s*|\s+e\s+|\b(?:hoje|hj|ontem|anteontem)\s+)(?:r\$\s*)?(\d+(?:[.,]\d+)*)\s+(uber|in\s*driver?)(?![\p{L}\d])/giu
 
+// "Uber 12 viagens 220, 99 6 viagens 100": por app, as viagens e o valor.
+const APP_TRIPS_AMOUNT = /(^|[,;]\s*|\s+e\s+)(?:(?:na|da)\s+)?(uber|99|in\s*driver?)\s+(\d{1,3})\s+(?:viagens|corridas)\s+(?:e\s+)?(?:r\$\s*)?(\d+(?:[.,]\d+)*)(?:\s+reais)?(?!\d|[.,]\d|\s*(?:km|h|horas?)\b)/giu
+// "Hoje 180 km rodados": a distância do dia sem verbo.
+const KM_RODADOS = /(^|[,;]\s*|\s+e\s+)((?:(?:hoje|hj|ontem|anteontem)\s+)?)(\d{1,4}(?:[.,]\d+)?)\s*(?:km|quil[oô]metros?)\s+rodados?\b/giu
+
 function appAntesDoValor(input: string): string {
+  input = input.replace(APP_TRIPS_AMOUNT, (_m, lead: string, app: string, trips: string, amount: string) =>
+    `${lead}fiz ${trips} corridas e ganhei ${amount} na ${/^uber$/i.test(app) ? 'Uber' : /^99$/.test(app) ? '99' : 'inDrive'}`)
+    .replace(KM_RODADOS, (m, lead: string, day: string, km: string) => parseFloat(km.replace(',', '.')) > 1500 ? m : `${lead}${day}rodei ${km} km`)
   input = input.replace(VERB_APP_AMOUNT, (_m, verb: string, prep: string, app: string, amount: string) => `${verb} ${amount} ${prep} ${app}`)
     .replace(DECIMAL_99_THEN_AMOUNT, '$1, $2 ')
     .replace(AMOUNT_THEN_APP, (_m, lead: string, amount: string, app: string) => `${lead}ganhei ${amount} na ${/^uber$/i.test(app) ? 'Uber' : 'inDrive'}`)
